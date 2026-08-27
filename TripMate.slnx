@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/TripMate.Api/TripMate.Api.csproj" />
+    <Project Path="src/TripMate.Application/TripMate.Application.csproj" />
+    <Project Path="src/TripMate.Domain/TripMate.Domain.csproj" />
+    <Project Path="src/TripMate.Infrastructure/TripMate.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/TripMate.Application.UnitTests/TripMate.Application.UnitTests.csproj" />
+  </Folder>
+</Solution>

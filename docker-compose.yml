@@ -1,0 +1,38 @@
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: tripmate-sqlserver
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${SA_PASSWORD:-Passw0rd!Local}
+    ports:
+      - "1433:1433"
+    volumes:
+      - tripmate-sqlserver-data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q 'SELECT 1' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tripmate-api
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__Default: "Server=sqlserver,1433;Database=TripMateDb;User Id=sa;Password=${SA_PASSWORD:-Passw0rd!Local};TrustServerCertificate=True;"
+      Jwt__Issuer: TripMate
+      Jwt__Audience: TripMateClients
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:-us+B0GY0f7eU1MFpPzxjhShqgYTEQK+85cwxKvuApkw=}
+      Cors__AllowedOrigins__0: http://localhost:3001
+    ports:
+      - "5000:8080"
+
+volumes:
+  tripmate-sqlserver-data:
