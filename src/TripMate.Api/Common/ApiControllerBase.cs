@@ -15,9 +15,9 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
         var statusCode = result.ErrorCode switch
         {
             AuthErrorCodes.InvalidCredentials => StatusCodes.Status401Unauthorized,
+            AuthErrorCodes.AccountPendingVerification => StatusCodes.Status403Forbidden,
             AuthErrorCodes.AccountLocked => StatusCodes.Status403Forbidden,
             AuthErrorCodes.AccountInactive => StatusCodes.Status403Forbidden,
-            AuthErrorCodes.AccountRestricted => StatusCodes.Status403Forbidden,
             AuthErrorCodes.EmailAlreadyRegistered => StatusCodes.Status409Conflict,
             _ => StatusCodes.Status400BadRequest,
         };

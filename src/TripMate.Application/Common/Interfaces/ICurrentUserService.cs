@@ -2,7 +2,7 @@ namespace TripMate.Application.Common.Interfaces;
 
 public interface ICurrentUserService
 {
-    Guid? UserId { get; }
+    long? UserId { get; }
 
     string? Role { get; }
 }

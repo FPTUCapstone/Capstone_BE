@@ -6,12 +6,12 @@ namespace TripMate.Infrastructure.Services;
 
 public class CurrentUserService(IHttpContextAccessor httpContextAccessor) : ICurrentUserService
 {
-    public Guid? UserId
+    public long? UserId
     {
         get
         {
             var value = httpContextAccessor.HttpContext?.User.FindFirstValue(ClaimTypes.NameIdentifier);
-            return Guid.TryParse(value, out var id) ? id : null;
+            return long.TryParse(value, out var id) ? id : null;
         }
     }
 

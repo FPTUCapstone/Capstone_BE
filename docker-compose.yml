@@ -9,13 +9,34 @@ services:
       - "1433:1433"
     volumes:
       - tripmate-sqlserver-data:/var/opt/mssql
+      - ./database:/scripts:ro
     healthcheck:
       test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q 'SELECT 1' || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 10
 
+  # One-shot: creates TripMateDb (if missing) and applies database/tripmate_schema_v7.sql.
+  # Safe to re-run — apply-schema.sh skips if the schema is already present.
+  db-init:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: tripmate-db-init
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    volumes:
+      - ./database:/scripts:ro
+    environment:
+      SA_PASSWORD: ${SA_PASSWORD:-Passw0rd!Local}
+    entrypoint: ["/bin/bash", "/scripts/apply-schema.sh"]
+    restart: "no"
+
   api:
+    # Explicit, stable tag — independent of the folder name Compose would otherwise derive it
+    # from (<project>-api). Needed so `docker save`/`docker load` round-trips to the same name
+    # on every machine, and so `docker compose up` (without --build) reuses a loaded image
+    # instead of trying to rebuild it.
+    image: tripmate-api:latest
     build:
       context: .
       dockerfile: Dockerfile
@@ -23,6 +44,8 @@ services:
     depends_on:
       sqlserver:
         condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080

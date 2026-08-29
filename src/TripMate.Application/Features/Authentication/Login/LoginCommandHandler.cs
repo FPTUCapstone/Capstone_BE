@@ -10,9 +10,11 @@ namespace TripMate.Application.Features.Authentication.Login;
 
 /// <summary>
 /// Order matters here (FR5): credentials are validated first with a generic error, then account
-/// status is checked independently (BR2/FR4), and only then is the session issued. A Tour
-/// Operator with a PendingApproval or Rejected application must still be able to sign in (BR3) —
-/// that status never blocks authentication, only Tour Operator-only features downstream.
+/// status is checked independently (BR-05/BR-07/BR-09/BR-10/BR-11), and only then is the session
+/// issued. PendingApproval and Rejected — a Tour Operator's account status while its application
+/// is under review or was turned down — must NOT block sign-in (BR-07, BR-09): a Rejected
+/// operator has to be able to sign in to resubmit (UC-03). Only PendingEmailVerification, Locked
+/// and Inactive block authentication.
 /// </summary>
 public class LoginCommandHandler(
     IApplicationDbContext dbContext,
@@ -31,7 +33,7 @@ public class LoginCommandHandler(
             u => u.Email == normalizedEmail,
             cancellationToken);
 
-        if (user is null || !passwordHasher.Verify(request.Password, user.PasswordHash))
+        if (user is null || !passwordHasher.Verify(request.Password, user.PasswordHash ?? string.Empty))
         {
             return Result.Failure<AuthResponseDto>(
                 AuthErrorCodes.InvalidCredentials,
@@ -40,9 +42,9 @@ public class LoginCommandHandler(
 
         var statusError = user.Status switch
         {
+            AccountStatus.PendingEmailVerification => AuthErrorCodes.AccountPendingVerification,
             AccountStatus.Locked => AuthErrorCodes.AccountLocked,
             AccountStatus.Inactive => AuthErrorCodes.AccountInactive,
-            AccountStatus.Restricted => AuthErrorCodes.AccountRestricted,
             _ => null,
         };
 
@@ -60,10 +62,12 @@ public class LoginCommandHandler(
         dbContext.RefreshTokens.Add(new RefreshToken
         {
             UserId = user.Id,
-            Token = refreshTokenValue,
+            TokenHash = jwtTokenService.HashRefreshToken(refreshTokenValue),
             CreatedAtUtc = dateTimeProvider.UtcNow,
             ExpiresAtUtc = dateTimeProvider.UtcNow.AddDays(7),
         });
+
+        user.LastLoginAtUtc = dateTimeProvider.UtcNow;
 
         await dbContext.SaveChangesAsync(cancellationToken);
 
@@ -73,7 +77,6 @@ public class LoginCommandHandler(
             user.FullName,
             user.Role,
             user.Status,
-            user.TourOperatorApplicationStatus,
             accessToken,
             refreshTokenValue,
             accessTokenExpiresAtUtc));

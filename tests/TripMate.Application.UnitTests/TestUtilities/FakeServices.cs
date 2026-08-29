@@ -16,6 +16,8 @@ public class FakeJwtTokenService : IJwtTokenService
         ($"access-token-for-{user.Id}", DateTimeOffset.UtcNow.AddMinutes(15));
 
     public string GenerateRefreshToken() => $"refresh-token-{Guid.NewGuid()}";
+
+    public string HashRefreshToken(string rawRefreshToken) => $"hashed:{rawRefreshToken}";
 }
 
 public class FakeDateTimeProvider : IDateTimeProvider

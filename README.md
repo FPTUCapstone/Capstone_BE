@@ -1,98 +1,218 @@
 # TripMate Backend
 
-ASP.NET Core Web API for TripMate, built with Clean Architecture. Serves the Next.js Admin Web
-(`Capstone_FE`) and the Flutter Traveler/Tour Operator app (`Capstone_Mobile`). Product and
-requirements documentation lives in the separate `Capstone_Docs` repository.
+ASP.NET Core Web API cho TripMate, viết theo Clean Architecture. Phục vụ Next.js Admin Web
+(`Capstone_FE`) và app Flutter cho Traveler/Tour Operator (`Capstone_Mobile`). Tài liệu sản phẩm
+và yêu cầu (SRS, use case, business rules...) nằm ở repo riêng `Capstone_Docs`.
 
-## Architecture
+## 1. Kiến trúc
 
 ```
 src/
-  TripMate.Domain          Entities, enums — no dependencies on anything else.
-  TripMate.Application      Use cases (MediatR commands/queries), validation, DTOs, interfaces.
-                            Depends only on Domain.
-  TripMate.Infrastructure   EF Core, JWT, password hashing — implements Application's interfaces.
-  TripMate.Api              Controllers, middleware, composition root (Program.cs).
+  TripMate.Domain          Entity, enum — không phụ thuộc gì khác.
+  TripMate.Application     Use case (MediatR command/query), validation, DTO, interface.
+                            Chỉ phụ thuộc Domain.
+  TripMate.Infrastructure  EF Core, JWT, password hashing — implement các interface của Application.
+  TripMate.Api             Controller, middleware, composition root (Program.cs).
 tests/
   TripMate.Application.UnitTests
 ```
 
-Dependencies point inward: `Api` → `Application` + `Infrastructure`; `Infrastructure` →
-`Application`; `Application` → `Domain`. `Domain` depends on nothing. `Application` never
-references EF Core's SqlServer provider, ASP.NET Core, or any concrete infrastructure — only
-`Microsoft.EntityFrameworkCore` for the `DbSet<T>` shape of `IApplicationDbContext`.
+Dependency luôn hướng vào trong: `Api` → `Application` + `Infrastructure`; `Infrastructure` →
+`Application`; `Application` → `Domain`. `Domain` không phụ thuộc gì. `Application` không bao giờ
+tham chiếu tới EF Core SqlServer provider, ASP.NET Core hay bất kỳ hạ tầng cụ thể nào — chỉ dùng
+`Microsoft.EntityFrameworkCore` cho phần `DbSet<T>` của `IApplicationDbContext`.
 
-Each feature lives under `Application/Features/<Feature>/<UseCase>/` as a self-contained
-command/query + handler + validator (a vertical slice), following the working `Authentication`
-example (`Register`, `Login`).
+Mỗi feature nằm dưới `Application/Features/<Feature>/<UseCase>/` dạng vertical slice tự chứa
+(command/query + handler + validator) — xem feature `Authentication` (`Register`, `Login`) làm
+mẫu tham khảo.
 
-## Prerequisites
+Database là **database-first**: schema thật nằm ở `database/*.sql`, không dùng EF Core migrations
+(xem mục 6 và [`database/README.md`](database/README.md)).
 
-- [.NET 10 SDK](https://dotnet.microsoft.com/download) (pinned via `global.json`)
-- SQL Server (via Docker, or a local/LocalDB instance)
-- Docker Desktop (optional, for the containerized local setup)
+## 2. Yêu cầu hệ thống (Prerequisites)
 
-## Local setup — without Docker
+| Bắt buộc | Ghi chú |
+| --- | --- |
+| [.NET 10 SDK](https://dotnet.microsoft.com/download) | Đã pin version qua `global.json`, không cần cài thêm gì khác để build/test. |
+| Git | Để clone repo. |
 
-1. Start a local SQL Server instance and update `src/TripMate.Api/appsettings.Development.json`
-   with its connection string if it differs from the default.
-2. Apply migrations:
+| Chọn 1 trong 2 để chạy database | Ghi chú |
+| --- | --- |
+| [Docker Desktop](https://www.docker.com/products/docker-desktop/) **(khuyên dùng)** | Không cần cài SQL Server, `sqlcmd` hay gì thêm — mọi thứ chạy trong container. |
+| SQL Server cài sẵn trên máy (LocalDB / Developer Edition) | Cần tự cài `sqlcmd` để áp schema tay. |
+
+## 3. Chạy nhanh nhất — dùng Docker (khuyên dùng)
+
+```bash
+git clone git@github.com:FPTUCapstone/Capstone_BE.git
+cd Capstone_BE
+cp .env.example .env      # chỉ 1 lần đầu, chỉnh giá trị nếu cần
+docker compose up -d --build
+```
+
+Lệnh trên tự làm hết 3 việc theo đúng thứ tự: dựng SQL Server container → áp schema
+(`database/tripmate_schema_v7.sql`) → chạy API. Không cần tự canh thời gian chờ DB sẵn sàng.
+
+Kiểm tra đã chạy đúng:
+
+```bash
+docker compose ps                 # 3 service: sqlserver, api phải "Up"; db-init "Exited (0)"
+curl http://localhost:5000/health # {"status":"healthy"}
+```
+
+Mở Swagger UI tại `http://localhost:5000/swagger` để thử API trực tiếp trên trình duyệt, hoặc
+test nhanh bằng `curl`:
+
+```bash
+curl -X POST http://localhost:5000/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"you@example.com","password":"Passw0rd123","fullName":"Your Name"}'
+
+curl -X POST http://localhost:5000/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"you@example.com","password":"Passw0rd123"}'
+```
+
+Dừng lại: `docker compose stop` (giữ data) hoặc `docker compose down -v` (xoá sạch data, chạy lại
+từ đầu). Chi tiết đầy đủ hơn về Docker, database, cách áp schema tay, xử lý lỗi thường gặp
+(Docker chưa mở, port bận, kết nối bằng GUI tool...): xem **[`database/README.md`](database/README.md)**.
+
+## 4. Chia sẻ image qua file `.tar` (không cần build/pull lại — hợp cho team mạng yếu)
+
+Thay vì mỗi người tự `docker compose up --build` (cần internet để `dotnet restore` NuGet package
+và pull base image), bạn có thể build 1 lần rồi xuất image ra file `.tar`, gửi cho cả team, mỗi
+người chỉ cần `docker load` là có sẵn image, không cần build lại.
+
+### Người gửi (build và xuất file)
+
+```bash
+cd Capstone_BE
+docker compose build api          # build 1 lần, ra image "tripmate-api:latest"
+docker save -o tripmate-api.tar tripmate-api:latest
+```
+
+File `tripmate-api.tar` sinh ra chỉ khoảng **~100 MB** (layer Docker đã nén sẵn bên trong, nén
+gzip thêm không đáng kể — không cần zip lại). Gửi file này qua Google Drive/Zalo/USB... cho team,
+kèm theo (hoặc để họ tự `git pull`) toàn bộ code — file `.tar` chỉ thay cho bước build, không thay
+cho `docker-compose.yml`, `database/`, `.env` mà mỗi người vẫn cần có từ repo.
+
+Image `mcr.microsoft.com/mssql/server:2022-latest` (SQL Server) thì **không cần** đóng gói —
+đây là image công khai, `docker compose up` sẽ tự `docker pull` như bình thường lúc chạy (image
+này dùng chung, khả năng cao Docker đã cache sẵn nếu máy từng chạy SQL Server trong Docker trước
+đó). Chỉ đóng gói thêm image này nếu team thật sự không truy cập được `mcr.microsoft.com` — khi đó
+dùng `docker save -o tripmate-images.tar mcr.microsoft.com/mssql/server:2022-latest
+tripmate-api:latest` để gộp cả 2 vào 1 file, nhưng lưu ý file sẽ nặng hơn nhiều (ảnh gốc SQL Server
+nặng cỡ 1-2 GB nén) — chỉ nên dùng khi thật sự cần offline hoàn toàn.
+
+### Người nhận (nạp image và chạy)
+
+```bash
+cd Capstone_BE               # đã git clone/pull code như bình thường
+cp .env.example .env         # nếu chưa có
+docker load -i tripmate-api.tar
+docker compose up -d         # KHÔNG thêm --build — để Compose dùng image vừa load, không tự build lại
+```
+
+Kiểm tra image đã nạp đúng tên trước khi chạy (phải thấy `tripmate-api:latest`):
+
+```bash
+docker images tripmate-api
+```
+
+Nếu `docker compose up` (không `--build`) vẫn báo đang build lại từ Dockerfile → đối chiếu tên
+image trong `docker-compose.yml` (service `api` có dòng `image: tripmate-api:latest`) có khớp với
+tên image vừa `docker load` không; tên lệch nhau là lý do phổ biến nhất khiến Compose không nhận
+ra image đã có sẵn.
+
+### Khi nào cần làm lại file `.tar`
+
+Mỗi khi code trong `src/` đổi (feature mới, fix bug...), người gửi cần build + `docker save` lại
+và gửi file mới — file `.tar` là một bản chụp cố định tại thời điểm build, không tự cập nhật.
+
+## 5. Chạy không dùng Docker
+
+1. Cài SQL Server (LocalDB hoặc Developer Edition) và có `sqlcmd`.
+2. Sửa connection string trong `src/TripMate.Api/appsettings.Development.json` nếu khác mặc định.
+3. Áp schema tay:
 
    ```bash
-   dotnet ef database update --project src/TripMate.Infrastructure --startup-project src/TripMate.Api
+   sqlcmd -S <server> -U sa -P <password> -d master -Q "CREATE DATABASE TripMateDb"
+   sqlcmd -S <server> -U sa -P <password> -I -d TripMateDb -i database/tripmate_schema_v7.sql
    ```
 
-3. Run the API:
+   Cờ `-I` bắt buộc phải có (bật `QUOTED_IDENTIFIER`), thiếu sẽ lỗi khi tạo filtered index — xem
+   giải thích ở `database/README.md` mục 4.
+
+   ⚠️ Đây là project database-first — **không chạy** `dotnet ef migrations add` hay
+   `dotnet ef database update`, project này không có và không nên có thư mục `Migrations`.
+
+4. Chạy API:
 
    ```bash
    dotnet run --project src/TripMate.Api
    ```
 
-4. Swagger UI is available at `https://localhost:<port>/swagger` in Development.
+5. Swagger UI ở `https://localhost:<port>/swagger` (môi trường Development).
 
-## Local setup — with Docker
-
-```bash
-cp .env.example .env   # adjust values if needed
-docker compose up --build
-```
-
-This starts SQL Server and the API together. The API listens on `http://localhost:5000`.
-Apply migrations against the containerized database the same way as above (point
-`ConnectionStrings:Default` at `localhost,1433` when running the CLI from the host).
-
-## Running tests
+## 6. Chạy test
 
 ```bash
 dotnet test
 ```
 
-## Adding a new feature (vertical slice)
+## 7. ⚠️ Database-First — không dùng EF Core migrations
 
-1. Create `src/TripMate.Application/Features/<Feature>/<UseCase>/` with a `Command`/`Query`
-   record, a `Validator`, and a `Handler`. Use `Result`/`Result<T>` for expected failures; only
-   throw for truly exceptional/unexpected conditions.
-2. Add entities to `TripMate.Domain` and an `IEntityTypeConfiguration<T>` under
-   `TripMate.Infrastructure/Persistence/Configurations/` if new persisted state is needed, then
-   add a migration (`dotnet ef migrations add <Name> --project src/TripMate.Infrastructure
-   --startup-project src/TripMate.Api`).
-3. Add a controller action under `src/TripMate.Api/Controllers/V1/` that sends the
-   command/query via `ISender` and maps `Result` failures with `HandleFailure`.
-4. Add validator and handler tests under `tests/TripMate.Application.UnitTests/`.
+`database/tripmate_schema_v7.sql` là **nguồn chân lý duy nhất** cho schema, áp bằng
+`database/apply-schema.sh`. `TripMate.Infrastructure` map thủ công vào đó qua
+`Persistence/Configurations/*Configuration.cs` — không có thư mục `Migrations`, và
+`dotnet ef migrations add` / `dotnet ef database update` **không bao giờ được chạy** trong repo
+này. Chi tiết đầy đủ, gồm 2 lỗi dễ dính đã gặp và fix (đã verify thật trên DB thật, không phải
+đoán): xem [`database/README.md`](database/README.md) mục 9 và `AGENTS.md`.
 
-Do not add a new project, layer, or NuGet package to solve something the existing structure
-already handles — keep the vertical slice pattern consistent across features.
+## 8. Thêm một feature mới (vertical slice)
 
-## Configuration
+1. Tạo `src/TripMate.Application/Features/<Feature>/<UseCase>/` gồm `Command`/`Query`,
+   `Validator`, `Handler`. Dùng `Result`/`Result<T>` cho các lỗi nghiệp vụ mong đợi (business
+   failure); chỉ `throw` cho tình huống thật sự bất thường/không lường trước.
+2. Nếu cần lưu trạng thái mới: thêm bảng vào `database/tripmate_schema_v7.sql` (hoặc tạo file
+   `database/tripmate_schema_vN.sql` mới — xem changelog ở đầu file để theo đúng convention), rồi
+   tự viết `Domain` entity và `IEntityTypeConfiguration<T>` tương ứng trong
+   `TripMate.Infrastructure/Persistence/Configurations/`, map từng cột tường minh
+   (`.HasColumnName(...)`, dùng `AsUtcDateTime2()` cho cột `DateTimeOffset` — xem
+   `Persistence/Common/PropertyBuilderExtensions.cs`). Không tạo EF Core migration.
+3. Thêm action trong controller ở `src/TripMate.Api/Controllers/V1/`, gửi command/query qua
+   `ISender` và map `Result` lỗi bằng `HandleFailure` (xem `ApiControllerBase`).
+4. Viết test cho validator và handler trong `tests/TripMate.Application.UnitTests/`.
 
-| Key | Purpose |
+Không tự ý thêm project/layer/NuGet package mới để giải quyết việc mà cấu trúc hiện tại đã làm
+được — giữ đúng pattern vertical slice xuyên suốt mọi feature.
+
+## 9. Cấu hình (`appsettings.json`)
+
+| Key | Ý nghĩa |
 | --- | --- |
-| `ConnectionStrings:Default` | SQL Server connection string. |
-| `Jwt:Issuer` / `Jwt:Audience` | JWT claims validation. |
-| `Jwt:SigningKey` | Base64 symmetric key used to sign access tokens. **Never reuse the checked-in Development value outside local dev.** |
-| `Jwt:AccessTokenLifetimeMinutes` | Access token lifetime. |
-| `Cors:AllowedOrigins` | Origins allowed to call the API from a browser (the Next.js admin app). |
+| `ConnectionStrings:Default` | Connection string SQL Server. |
+| `Jwt:Issuer` / `Jwt:Audience` | Dùng để validate JWT claim. |
+| `Jwt:SigningKey` | Khoá đối xứng (base64) ký access token. **Không tái sử dụng giá trị trong `appsettings.Development.json` ngoài môi trường local.** |
+| `Jwt:AccessTokenLifetimeMinutes` | Thời hạn access token. |
+| `Cors:AllowedOrigins` | Domain được phép gọi API từ trình duyệt (Next.js admin web). |
 
-`appsettings.Development.json` ships with local-only placeholder values so the project runs
-immediately after cloning. Any shared/deployed environment must supply its own secrets via
-environment variables or a secret manager — never commit real secrets.
+`appsettings.Development.json` đã có sẵn giá trị placeholder cho môi trường local nên chạy được
+ngay sau khi clone. Mọi môi trường chia sẻ/triển khai thật phải tự cấp secret riêng qua biến môi
+trường hoặc secret manager — **không bao giờ commit secret thật**.
+
+## 10. Xử lý sự cố thường gặp
+
+| Triệu chứng | Cách xử lý |
+| --- | --- |
+| `docker compose up` lỗi "cannot connect to the Docker daemon" | Mở Docker Desktop lên, đợi tới khi chạy hẳn rồi thử lại. |
+| Port `5000` hoặc `1433` đã bị chiếm | Đổi port map trong `docker-compose.yml`, hoặc tắt process khác đang dùng port đó. |
+| Build lỗi thiếu SDK | Kiểm tra `dotnet --version` khớp với `global.json` (SDK 10.x). |
+| Gọi API bị 401/403 dù đăng nhập đúng | Kiểm tra `Jwt:SigningKey`/`Jwt:Issuer`/`Jwt:Audience` giữa lúc phát hành token và lúc validate có khớp không (đặc biệt nếu chạy nhiều instance API với config khác nhau). |
+| Các lỗi liên quan tới database, Docker container, schema | Xem bảng đầy đủ hơn ở [`database/README.md`](database/README.md) mục 8. |
+
+## 11. Quy trình làm việc nhóm
+
+Xem [`CONTRIBUTING.md`](CONTRIBUTING.md) (branch, commit convention, Pull Request) và
+[`AGENTS.md`](AGENTS.md) (quy tắc kiến trúc bắt buộc, đặc biệt là phần database-first) trước khi
+đóng góp code.

@@ -43,16 +43,32 @@ These instructions apply to every AI coding agent working anywhere in this repos
 - Do not create empty layers, folders, entities, or handlers solely to make the tree look more
   complete.
 
-## Database Changes
+## Database Changes — Database-First, no EF Core migrations
 
-- Any change to an entity shape requires a matching EF Core migration:
-
-  ```bash
-  dotnet ef migrations add <Name> --project src/TripMate.Infrastructure --startup-project src/TripMate.Api
-  ```
-
-- Do not hand-edit generated migration files. If a migration is wrong, remove it
-  (`dotnet ef migrations remove ...`) and regenerate.
+- `database/tripmate_schema_v7.sql` is the single source of truth for the schema. It is applied
+  by `database/apply-schema.sh`, never by EF Core — do **not** run `dotnet ef migrations add` or
+  `dotnet ef database update` in this project; there is no `Migrations` folder and none should be
+  added back.
+- Adding or changing a table means editing the `.sql` file (bump to a new `vN` file, following the
+  versioned-changelog style already in the header comment of `tripmate_schema_v7.sql`), then
+  hand-updating the matching `Domain` entity and its `IEntityTypeConfiguration<T>` in
+  `TripMate.Infrastructure/Persistence/Configurations/` to mirror the new columns exactly
+  (`.HasColumnName(...)` for every property — do not rely on convention-based name matching,
+  since the DB uses snake_case and C# uses PascalCase).
+- Every `DATETIME2` column must be mapped through `PropertyBuilderExtensions.AsUtcDateTime2()`
+  (`Persistence/Common/PropertyBuilderExtensions.cs`) if the Domain property is `DateTimeOffset`
+  — SQL Server's `datetime2` carries no offset, and skipping this throws `InvalidCastException`
+  at read time. `Id` properties are `long` (BIGINT IDENTITY), never `Guid` — a value is generated
+  by the database, not the client, so don't call anything that pre-assigns it before `Add()`.
+- When a new entity's row must reference another row created in the *same* `SaveChangesAsync`
+  call, set the navigation property (e.g. `RefreshToken.User = user`), not a copied scalar FK
+  (`RefreshToken.UserId = user.Id`) — the referenced entity's key is still its CLR default until
+  the database assigns it, so a copied value would persist as a literal `0`. For the same reason,
+  don't call something that reads the newly-created entity's `Id` (e.g. building a JWT `sub`
+  claim) until after `SaveChangesAsync` has run.
+- Verify any entity/config change against the real database, not just the InMemory test double —
+  bring up `docker compose up -d`, hit the endpoint, then check the row directly:
+  `docker compose exec sqlserver /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P "$SA_PASSWORD" -d TripMateDb -Q "..."`.
 - Never commit a connection string, JWT signing key, or other secret that isn't already a
   clearly-labeled local-development placeholder in `appsettings.Development.json` or
   `.env.example`.

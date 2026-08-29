@@ -8,6 +8,12 @@ using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Authentication.Register;
 
+/// <summary>
+/// Known simplification: UC-01's email-OTP verification step is not implemented yet, so the
+/// account is created directly as Active instead of PendingEmailVerification. Active is a real,
+/// schema-valid status — this only skips exercising the verification path, it does not violate
+/// the schema. Tracked as a follow-up once the OTP delivery use case is built.
+/// </summary>
 public class RegisterTravelerCommandHandler(
     IApplicationDbContext dbContext,
     IPasswordHasher passwordHasher,
@@ -32,6 +38,8 @@ public class RegisterTravelerCommandHandler(
                 "An account with this email already exists.");
         }
 
+        var now = dateTimeProvider.UtcNow;
+
         var user = new User
         {
             Email = normalizedEmail,
@@ -39,27 +47,32 @@ public class RegisterTravelerCommandHandler(
             PasswordHash = passwordHasher.Hash(request.Password),
             Role = UserRole.Traveler,
             Status = AccountStatus.Active,
-            TourOperatorApplicationStatus = TourOperatorApplicationStatus.NotApplicable,
-            CreatedAtUtc = dateTimeProvider.UtcNow,
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now,
         };
 
         dbContext.Users.Add(user);
 
-        var (accessToken, accessTokenExpiresAtUtc) = jwtTokenService.GenerateAccessToken(user);
         var refreshTokenValue = jwtTokenService.GenerateRefreshToken();
 
-        // Added via the DbSet, not the User.RefreshTokens navigation: a new entity discovered
-        // only through collection fixup is tracked as Modified (not Added) once it already has a
-        // non-default key, which fails as a no-op update against both InMemory and SQL Server.
+        // Set via the User navigation, not a copied UserId scalar: user.Id is still the CLR
+        // default (0) here — the database hasn't generated the real identity value yet. EF Core
+        // resolves the FK from the navigation once both rows are inserted in this same
+        // SaveChanges call; copying user.Id now would persist a literal 0.
         dbContext.RefreshTokens.Add(new RefreshToken
         {
-            UserId = user.Id,
-            Token = refreshTokenValue,
-            CreatedAtUtc = dateTimeProvider.UtcNow,
-            ExpiresAtUtc = dateTimeProvider.UtcNow.AddDays(7),
+            User = user,
+            TokenHash = jwtTokenService.HashRefreshToken(refreshTokenValue),
+            CreatedAtUtc = now,
+            ExpiresAtUtc = now.AddDays(7),
         });
 
         await dbContext.SaveChangesAsync(cancellationToken);
+
+        // Generated only after SaveChanges: user.Id is a client-side default (0) until the
+        // database assigns the real IDENTITY value, and the JWT "sub" claim must carry that
+        // real value, not the placeholder.
+        var (accessToken, accessTokenExpiresAtUtc) = jwtTokenService.GenerateAccessToken(user);
 
         return Result.Success(new AuthResponseDto(
             user.Id,
@@ -67,7 +80,6 @@ public class RegisterTravelerCommandHandler(
             user.FullName,
             user.Role,
             user.Status,
-            user.TourOperatorApplicationStatus,
             accessToken,
             refreshTokenValue,
             accessTokenExpiresAtUtc));
