@@ -420,8 +420,15 @@ config.status
 aclocal.m4
 install-sh
 autom4te.cache/
+*.tar
 *.tar.gz
 tarballs/
+
+# Exported Docker images (database/README.md mục 10, main README.md mục 4) — hundreds of MB to
+# 1+ GB, never commit; distribute via Google Drive/Zalo/USB per those docs instead.
+tripmate-api.tar
+tripmate-db.tar
+tripmate-images.tar
 test-results/
 
 # content below from: https://github.com/github/gitignore/blob/main/Global/macOS.gitignore

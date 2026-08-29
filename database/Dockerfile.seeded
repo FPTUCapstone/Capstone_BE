@@ -1,0 +1,15 @@
+# Bakes TripMateDb (with tripmate_schema_v7.sql already applied) into a SQL Server image, so a
+# container started from it has the database ready immediately — no apply-schema.sh step needed.
+# Build from the repo root: docker build -f database/Dockerfile.seeded -t tripmate-db:v7 .
+FROM mcr.microsoft.com/mssql/server:2022-latest
+
+ENV ACCEPT_EULA=Y
+ENV MSSQL_SA_PASSWORD=Passw0rd!Local
+ENV MSSQL_PID=Developer
+
+COPY database/tripmate_schema_v7.sql /tmp/tripmate_schema_v7.sql
+COPY database/seed-image.sh /tmp/seed-image.sh
+
+RUN /tmp/seed-image.sh
+# Not deleting the temp files here: the base image's default (non-root) user can't remove files
+# root-owned COPY created, and they're only a few KB — not worth fighting the permission for.

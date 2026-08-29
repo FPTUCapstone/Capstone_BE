@@ -77,57 +77,26 @@ Dừng lại: `docker compose stop` (giữ data) hoặc `docker compose down -v`
 từ đầu). Chi tiết đầy đủ hơn về Docker, database, cách áp schema tay, xử lý lỗi thường gặp
 (Docker chưa mở, port bận, kết nối bằng GUI tool...): xem **[`database/README.md`](database/README.md)**.
 
-## 4. Chia sẻ image qua file `.tar` (không cần build/pull lại — hợp cho team mạng yếu)
+## 4. Gửi database (đã có sẵn schema) cho team qua file `.tar` — không cần chạy code
 
-Thay vì mỗi người tự `docker compose up --build` (cần internet để `dotnet restore` NuGet package
-và pull base image), bạn có thể build 1 lần rồi xuất image ra file `.tar`, gửi cho cả team, mỗi
-người chỉ cần `docker load` là có sẵn image, không cần build lại.
+Nếu bạn chỉ muốn team có ngay 1 SQL Server **đã có sẵn `TripMateDb` + schema**, load xong là chạy
+được luôn, không cần biết Docker Compose hay chạy `apply-schema.sh`: xem **mục 10 của
+[`database/README.md`](database/README.md)**.
 
-### Người gửi (build và xuất file)
-
-```bash
-cd Capstone_BE
-docker compose build api          # build 1 lần, ra image "tripmate-api:latest"
-docker save -o tripmate-api.tar tripmate-api:latest
-```
-
-File `tripmate-api.tar` sinh ra chỉ khoảng **~100 MB** (layer Docker đã nén sẵn bên trong, nén
-gzip thêm không đáng kể — không cần zip lại). Gửi file này qua Google Drive/Zalo/USB... cho team,
-kèm theo (hoặc để họ tự `git pull`) toàn bộ code — file `.tar` chỉ thay cho bước build, không thay
-cho `docker-compose.yml`, `database/`, `.env` mà mỗi người vẫn cần có từ repo.
-
-Image `mcr.microsoft.com/mssql/server:2022-latest` (SQL Server) thì **không cần** đóng gói —
-đây là image công khai, `docker compose up` sẽ tự `docker pull` như bình thường lúc chạy (image
-này dùng chung, khả năng cao Docker đã cache sẵn nếu máy từng chạy SQL Server trong Docker trước
-đó). Chỉ đóng gói thêm image này nếu team thật sự không truy cập được `mcr.microsoft.com` — khi đó
-dùng `docker save -o tripmate-images.tar mcr.microsoft.com/mssql/server:2022-latest
-tripmate-api:latest` để gộp cả 2 vào 1 file, nhưng lưu ý file sẽ nặng hơn nhiều (ảnh gốc SQL Server
-nặng cỡ 1-2 GB nén) — chỉ nên dùng khi thật sự cần offline hoàn toàn.
-
-### Người nhận (nạp image và chạy)
+Tóm tắt cực nhanh (chi tiết + giải thích từng bước, số liệu thật đã verify: xem link trên):
 
 ```bash
-cd Capstone_BE               # đã git clone/pull code như bình thường
-cp .env.example .env         # nếu chưa có
-docker load -i tripmate-api.tar
-docker compose up -d         # KHÔNG thêm --build — để Compose dùng image vừa load, không tự build lại
+# Người gửi — build 1 lần, xuất file (~600 MB)
+docker build -f database/Dockerfile.seeded -t tripmate-db:v7 .
+docker save -o tripmate-db.tar tripmate-db:v7
+
+# Người nhận — load và chạy, có DB ngay, không cần bước nào khác
+docker load -i tripmate-db.tar
+docker run -d --name tripmate-sqlserver -p 14330:1433 tripmate-db:v7
 ```
 
-Kiểm tra image đã nạp đúng tên trước khi chạy (phải thấy `tripmate-api:latest`):
-
-```bash
-docker images tripmate-api
-```
-
-Nếu `docker compose up` (không `--build`) vẫn báo đang build lại từ Dockerfile → đối chiếu tên
-image trong `docker-compose.yml` (service `api` có dòng `image: tripmate-api:latest`) có khớp với
-tên image vừa `docker load` không; tên lệch nhau là lý do phổ biến nhất khiến Compose không nhận
-ra image đã có sẵn.
-
-### Khi nào cần làm lại file `.tar`
-
-Mỗi khi code trong `src/` đổi (feature mới, fix bug...), người gửi cần build + `docker save` lại
-và gửi file mới — file `.tar` là một bản chụp cố định tại thời điểm build, không tự cập nhật.
+Code (`src/`) bạn vẫn chạy trực tiếp bằng `dotnet run` như mục 5 bên dưới — cách này chỉ đóng gói
+riêng phần database, đúng với việc bạn chỉ muốn chạy SQL trên Docker, còn lại chạy local.
 
 ## 5. Chạy không dùng Docker
 
@@ -206,7 +175,9 @@ trường hoặc secret manager — **không bao giờ commit secret thật**.
 | Triệu chứng | Cách xử lý |
 | --- | --- |
 | `docker compose up` lỗi "cannot connect to the Docker daemon" | Mở Docker Desktop lên, đợi tới khi chạy hẳn rồi thử lại. |
-| Port `5000` hoặc `1433` đã bị chiếm | Đổi port map trong `docker-compose.yml`, hoặc tắt process khác đang dùng port đó. |
+| Port `5000` đã bị chiếm | Đổi port map service `api` trong `docker-compose.yml`. |
+| Port DB (`14330`) đã bị chiếm | Đổi `DB_HOST_PORT` trong `.env`. |
+| Chạy `dotnet run` local (DB trong Docker) mà API báo 500 `Login failed for user 'sa'`, dù `db-init` báo áp schema thành công | **Không phải sai mật khẩu** — máy bạn có SQL Server cài native đang chiếm port `1433`, khiến kết nối từ host bị lạc sang đó thay vì vào container (container không dùng port `1433` của host, dùng `14330` — xem `database/README.md` mục 8 để chẩn đoán chính xác). |
 | Build lỗi thiếu SDK | Kiểm tra `dotnet --version` khớp với `global.json` (SDK 10.x). |
 | Gọi API bị 401/403 dù đăng nhập đúng | Kiểm tra `Jwt:SigningKey`/`Jwt:Issuer`/`Jwt:Audience` giữa lúc phát hành token và lúc validate có khớp không (đặc biệt nếu chạy nhiều instance API với config khác nhau). |
 | Các lỗi liên quan tới database, Docker container, schema | Xem bảng đầy đủ hơn ở [`database/README.md`](database/README.md) mục 8. |

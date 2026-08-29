@@ -6,7 +6,12 @@ services:
       ACCEPT_EULA: "Y"
       MSSQL_SA_PASSWORD: ${SA_PASSWORD:-Passw0rd!Local}
     ports:
-      - "1433:1433"
+      # Host-side port is intentionally not 1433: a native SQL Server instance already bound to
+      # 1433 on a dev machine silently steals connections meant for this container (the request
+      # fails with a confusing "Login failed for user 'sa'" instead of a connection error,
+      # because two processes can both show as LISTENING on 0.0.0.0:1433 on Windows). Change
+      # DB_HOST_PORT in .env if 14330 is also taken.
+      - "${DB_HOST_PORT:-14330}:1433"
     volumes:
       - tripmate-sqlserver-data:/var/opt/mssql
       - ./database:/scripts:ro
