@@ -3,7 +3,7 @@ using TripMate.Domain.Entities;
 
 namespace TripMate.Application.UnitTests.TestUtilities;
 
-public class FakePasswordHasher : IPasswordHasher
+public class FakePasswordHasher : IPasswordHasher, IPasswordHasherService
 {
     public string Hash(string password) => $"hashed:{password}";
 

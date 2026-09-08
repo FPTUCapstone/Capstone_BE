@@ -57,8 +57,12 @@ services:
       ConnectionStrings__Default: "Server=sqlserver,1433;Database=TripMateDb;User Id=sa;Password=${SA_PASSWORD:-Passw0rd!Local};TrustServerCertificate=True;"
       Jwt__Issuer: TripMate
       Jwt__Audience: TripMateClients
-      Jwt__SigningKey: ${JWT_SIGNING_KEY:-us+B0GY0f7eU1MFpPzxjhShqgYTEQK+85cwxKvuApkw=}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY}
       Cors__AllowedOrigins__0: http://localhost:3001
+      Cors__AllowedOrigins__1: http://localhost:3005
+      Cors__AllowedOrigins__2: http://localhost:3000
+      Firebase__ProjectId: "tripmate-82be3"
+      Google__ClientId: 1015595969076-socm44rbtpnbv0o4upl88h4btesqgr6i.apps.googleusercontent.com
     ports:
       - "5000:8080"
 

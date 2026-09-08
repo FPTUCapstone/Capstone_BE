@@ -16,6 +16,8 @@ public class TestDbContext(DbContextOptions<TestDbContext> options)
 
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
+    public DbSet<Message> Messages => Set<Message>();
+
     public static TestDbContext Create()
     {
         var options = new DbContextOptionsBuilder<TestDbContext>()
@@ -23,5 +25,11 @@ public class TestDbContext(DbContextOptions<TestDbContext> options)
             .Options;
 
         return new TestDbContext(options);
+    }
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+        modelBuilder.Entity<Message>().HasKey(m => m.MessageCode);
     }
 }

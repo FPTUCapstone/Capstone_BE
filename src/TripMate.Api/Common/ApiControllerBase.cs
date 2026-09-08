@@ -10,6 +10,18 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
 {
     protected ISender Sender { get; } = sender;
 
+    protected ActionResult Success<T>(T data, int statusCode = StatusCodes.Status200OK, string message = "Success")
+    {
+        var response = ApiResponse<T>.SuccessResponse(data, statusCode, message);
+        return StatusCode(statusCode, response);
+    }
+
+    protected ActionResult Error(int statusCode, string message, object? errors = null)
+    {
+        var response = ApiResponse<object>.ErrorResponse(statusCode, message, errors);
+        return StatusCode(statusCode, response);
+    }
+
     protected ActionResult HandleFailure(Result result)
     {
         var statusCode = result.ErrorCode switch
@@ -22,9 +34,15 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             _ => StatusCodes.Status400BadRequest,
         };
 
-        return Problem(
-            title: result.ErrorMessage,
-            statusCode: statusCode,
-            extensions: new Dictionary<string, object?> { ["errorCode"] = result.ErrorCode });
+        var errors = !string.IsNullOrWhiteSpace(result.ErrorCode)
+            ? new { code = result.ErrorCode }
+            : null;
+
+        var response = ApiResponse<object>.ErrorResponse(
+            statusCode,
+            result.ErrorMessage ?? "An error occurred.",
+            errors);
+
+        return StatusCode(statusCode, response);
     }
 }

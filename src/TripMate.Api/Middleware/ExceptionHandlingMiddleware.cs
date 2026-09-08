@@ -1,5 +1,6 @@
 using System.Net;
 using Microsoft.AspNetCore.Mvc;
+using TripMate.Api.Common;
 using ValidationException = TripMate.Application.Common.Exceptions.ValidationException;
 
 namespace TripMate.Api.Middleware;
@@ -15,15 +16,14 @@ public class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Exception
         catch (ValidationException ex)
         {
             context.Response.StatusCode = (int)HttpStatusCode.BadRequest;
-            context.Response.ContentType = "application/problem+json";
+            context.Response.ContentType = "application/json";
 
-            var problem = new ValidationProblemDetails(ex.Errors)
-            {
-                Title = "One or more validation errors occurred.",
-                Status = (int)HttpStatusCode.BadRequest,
-            };
+            var response = ApiResponse<object>.ErrorResponse(
+                (int)HttpStatusCode.BadRequest,
+                "One or more validation errors occurred.",
+                ex.Errors);
 
-            await context.Response.WriteAsJsonAsync(problem);
+            await context.Response.WriteAsJsonAsync(response);
         }
         catch (Exception ex)
         {
@@ -31,15 +31,14 @@ public class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Exception
                 context.Request.Method, context.Request.Path);
 
             context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
-            context.Response.ContentType = "application/problem+json";
+            context.Response.ContentType = "application/json";
 
-            var problem = new ProblemDetails
-            {
-                Title = "An unexpected error occurred.",
-                Status = (int)HttpStatusCode.InternalServerError,
-            };
+            var response = ApiResponse<object>.ErrorResponse(
+                (int)HttpStatusCode.InternalServerError,
+                "An unexpected error occurred.",
+                new { code = "MSG127" });
 
-            await context.Response.WriteAsJsonAsync(problem);
+            await context.Response.WriteAsJsonAsync(response);
         }
     }
 }
