@@ -5,9 +5,7 @@ using TripMate.Domain.Entities;
 namespace TripMate.Application.UnitTests.TestUtilities;
 
 /// <summary>
-/// Minimal InMemory-backed stand-in for the real EF Core DbContext (which lives in
-/// TripMate.Infrastructure) so Application-layer handlers can be tested without depending on
-/// the Infrastructure project.
+/// Minimal InMemory-backed stand-in for the real EF Core DbContext.
 /// </summary>
 public class TestDbContext(DbContextOptions<TestDbContext> options)
     : DbContext(options), IApplicationDbContext

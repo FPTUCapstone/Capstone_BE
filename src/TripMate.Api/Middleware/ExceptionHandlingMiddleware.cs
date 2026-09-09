@@ -1,4 +1,5 @@
 using System.Net;
+
 using Microsoft.AspNetCore.Mvc;
 using TripMate.Api.Common;
 using ValidationException = TripMate.Application.Common.Exceptions.ValidationException;
