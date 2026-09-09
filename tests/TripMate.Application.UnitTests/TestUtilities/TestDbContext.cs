@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Domain.Entities;
+using TripMate.Infrastructure.Persistence.Configurations;
+
 
 namespace TripMate.Application.UnitTests.TestUtilities;
 
@@ -16,6 +18,21 @@ public class TestDbContext(DbContextOptions<TestDbContext> options)
 
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
+    public DbSet<OperatorProfile> OperatorProfiles => Set<OperatorProfile>();
+
+    public DbSet<OperatorDocument> OperatorDocuments => Set<OperatorDocument>();
+
+    public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+
+    public DbSet<Notification> Notifications => Set<Notification>();
+
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.ApplyConfigurationsFromAssembly(typeof(OperatorProfileConfiguration).Assembly);
+        base.OnModelCreating(modelBuilder);
+    }
+
     public static TestDbContext Create()
     {
         var options = new DbContextOptionsBuilder<TestDbContext>()
@@ -24,4 +41,5 @@ public class TestDbContext(DbContextOptions<TestDbContext> options)
 
         return new TestDbContext(options);
     }
+
 }
