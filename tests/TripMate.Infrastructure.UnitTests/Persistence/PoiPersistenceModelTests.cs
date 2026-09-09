@@ -1,8 +1,10 @@
 using FluentAssertions;
+
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+
 using TripMate.Domain.Entities;
 using TripMate.Infrastructure.Persistence;
 
@@ -23,7 +25,8 @@ public class PoiPersistenceModelTests
         ColumnName(poi, nameof(PointOfInterest.Id)).Should().Be("poi_id");
         ColumnName(poi, nameof(PointOfInterest.CategoryId)).Should().Be("category_id");
         ColumnName(poi, nameof(PointOfInterest.HasShelter)).Should().Be("has_shelter");
-        poi.FindProperty(nameof(PointOfInterest.Name))!.GetMaxLength().Should().Be(200);
+        poi.FindProperty(nameof(PointOfInterest.Name))!.GetMaxLength()
+            .Should().Be(PointOfInterest.NameMaxLength);
         poi.FindProperty(nameof(PointOfInterest.Latitude))!.GetPrecision().Should().Be(9);
         poi.FindProperty(nameof(PointOfInterest.Latitude))!.GetScale().Should().Be(6);
         poi.FindProperty(nameof(PointOfInterest.Longitude))!.GetPrecision().Should().Be(9);
@@ -39,7 +42,8 @@ public class PoiPersistenceModelTests
         poi.FindProperty(nameof(PointOfInterest.Status))!
             .IsUnicode().Should().BeFalse();
         poi.FindProperty(nameof(PointOfInterest.AverageVisitDurationMinutes))!
-            .GetDefaultValue().Should().Be(60);
+            .GetDefaultValue().Should()
+            .Be(PointOfInterest.DefaultAverageVisitDurationMinutes);
 
         var category = model.FindEntityType(typeof(PoiCategory));
         category.Should().NotBeNull();

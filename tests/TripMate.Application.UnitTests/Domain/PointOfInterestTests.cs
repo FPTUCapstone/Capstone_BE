@@ -1,4 +1,5 @@
 using FluentAssertions;
+
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -30,7 +31,8 @@ public class PointOfInterestTests
         poi.Address.Should().Be("81 Huyen Tran Cong Chua");
         poi.Description.Should().Be("Limestone hills");
         poi.IndoorOutdoor.Should().Be(IndoorOutdoorType.Outdoor);
-        poi.AverageVisitDurationMinutes.Should().Be(60);
+        poi.AverageVisitDurationMinutes.Should()
+            .Be(PointOfInterest.DefaultAverageVisitDurationMinutes);
         poi.HasShelter.Should().BeFalse();
         poi.ScenicScore.Should().BeNull();
         poi.PhotoRating.Should().BeNull();

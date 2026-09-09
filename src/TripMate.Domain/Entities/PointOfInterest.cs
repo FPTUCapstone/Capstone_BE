@@ -5,6 +5,11 @@ namespace TripMate.Domain.Entities;
 
 public class PointOfInterest : BaseEntity
 {
+    public const int NameMaxLength = 200;
+    public const int AddressMaxLength = 400;
+    public const int DescriptionMaxLength = 2_000;
+    public const int DefaultAverageVisitDurationMinutes = 60;
+
     private readonly List<PoiOpeningHour> _openingHours = [];
     private readonly List<PoiTag> _poiTags = [];
 
@@ -58,14 +63,17 @@ public class PointOfInterest : BaseEntity
         string? address = null,
         string? description = null,
         IndoorOutdoorType indoorOutdoor = IndoorOutdoorType.Outdoor,
-        int averageVisitDurationMinutes = 60,
+        int averageVisitDurationMinutes = DefaultAverageVisitDurationMinutes,
         bool hasShelter = false)
     {
         ArgumentNullException.ThrowIfNull(category);
 
-        var normalizedName = NormalizeRequired(name, 200, nameof(name));
-        var normalizedAddress = NormalizeOptional(address, 400, nameof(address));
-        var normalizedDescription = NormalizeOptional(description, 2000, nameof(description));
+        var normalizedName = NormalizeRequired(name, NameMaxLength, nameof(name));
+        var normalizedAddress = NormalizeOptional(address, AddressMaxLength, nameof(address));
+        var normalizedDescription = NormalizeOptional(
+            description,
+            DescriptionMaxLength,
+            nameof(description));
 
         if (latitude is < -90 or > 90)
         {

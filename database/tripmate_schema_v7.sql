@@ -337,10 +337,9 @@ CREATE TABLE catalog.POIs (
     address                     NVARCHAR(400) NULL,
     indoor_outdoor               VARCHAR(10) NOT NULL DEFAULT 'Outdoor'
         CHECK (indoor_outdoor IN ('Indoor','Outdoor','Mixed')),
-    -- Admin-seeded on creation (UC-52) as a cold-start value. Once a POI has
-    -- enough reviews, intended to be refreshed as an average of
-    -- social.Reviews.scenic_rating / photo_rating (target_type = 'POI') via
-    -- a periodic job — not yet implemented, application-layer concern.
+    -- TM-98 leaves these nullable cold-start scores unset on creation.
+    -- A later approved aggregation flow may populate them from
+    -- social.Reviews.scenic_rating / photo_rating (target_type = 'POI').
     scenic_score                 DECIMAL(3,1) NULL CHECK (scenic_score BETWEEN 0 AND 10),
     photo_rating                 DECIMAL(3,1) NULL CHECK (photo_rating BETWEEN 0 AND 10),
     avg_visit_duration_minutes  INT NOT NULL DEFAULT 60 CHECK (avg_visit_duration_minutes > 0),

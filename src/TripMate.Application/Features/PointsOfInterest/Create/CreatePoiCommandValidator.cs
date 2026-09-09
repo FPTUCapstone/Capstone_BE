@@ -1,5 +1,7 @@
 using FluentValidation;
 
+using TripMate.Domain.Entities;
+
 namespace TripMate.Application.Features.PointsOfInterest.Create;
 
 public sealed class CreatePoiCommandValidator : AbstractValidator<CreatePoiCommand>
@@ -8,7 +10,7 @@ public sealed class CreatePoiCommandValidator : AbstractValidator<CreatePoiComma
     {
         RuleFor(command => command.Name)
             .NotEmpty()
-            .MaximumLength(200);
+            .MaximumLength(PointOfInterest.NameMaxLength);
 
         RuleFor(command => command.CategoryId).GreaterThan(0);
         RuleFor(command => command.Latitude)
@@ -18,8 +20,10 @@ public sealed class CreatePoiCommandValidator : AbstractValidator<CreatePoiComma
             .NotNull()
             .InclusiveBetween(-180m, 180m);
 
-        RuleFor(command => command.Address).MaximumLength(400);
-        RuleFor(command => command.Description).MaximumLength(2000);
+        RuleFor(command => command.Address)
+            .MaximumLength(PointOfInterest.AddressMaxLength);
+        RuleFor(command => command.Description)
+            .MaximumLength(PointOfInterest.DescriptionMaxLength);
 
         RuleFor(command => command.IndoorOutdoor)
             .Must(value => value is null || Enum.IsDefined(value.Value))

@@ -1,4 +1,5 @@
 using FluentAssertions;
+
 using TripMate.Domain.Entities;
 
 namespace TripMate.Application.UnitTests.Domain;

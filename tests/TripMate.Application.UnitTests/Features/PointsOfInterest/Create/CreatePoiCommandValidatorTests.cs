@@ -1,5 +1,7 @@
 using FluentAssertions;
+
 using TripMate.Application.Features.PointsOfInterest.Create;
+using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Application.UnitTests.Features.PointsOfInterest.Create;
@@ -31,9 +33,9 @@ public class CreatePoiCommandValidatorTests
     {
         var command = ValidCommand() with
         {
-            Name = new string('n', 201),
-            Address = new string('a', 401),
-            Description = new string('d', 2001),
+            Name = new string('n', PointOfInterest.NameMaxLength + 1),
+            Address = new string('a', PointOfInterest.AddressMaxLength + 1),
+            Description = new string('d', PointOfInterest.DescriptionMaxLength + 1),
         };
 
         var result = _validator.Validate(command);
@@ -175,7 +177,7 @@ public class CreatePoiCommandValidatorTests
             Address: null,
             Description: null,
             IndoorOutdoor: IndoorOutdoorType.Outdoor,
-            AverageVisitDurationMinutes: 60,
+            AverageVisitDurationMinutes: PointOfInterest.DefaultAverageVisitDurationMinutes,
             HasShelter: false,
             OpeningHours: null,
             TagIds: null,

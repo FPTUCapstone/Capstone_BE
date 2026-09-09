@@ -48,8 +48,8 @@ public class AuditLog : BaseEntity
         return new AuditLog
         {
             ActorUserId = actorUserId,
-            ActionType = "POI_CREATE",
-            AffectedEntity = "POI",
+            ActionType = AuditActionTypes.PoiCreate,
+            AffectedEntity = AuditEntityTypes.PointOfInterest,
             AffectedEntityId = pointOfInterestId,
             AfterData = afterData,
             CreatedAtUtc = createdAtUtc,

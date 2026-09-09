@@ -1,5 +1,7 @@
-using MediatR;
 using System.Text.Json.Serialization;
+
+using MediatR;
+
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.PointsOfInterest.Common;
 using TripMate.Domain.Enums;

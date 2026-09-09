@@ -1,9 +1,13 @@
 using System.Text.Json;
+
 using FluentAssertions;
+
 using Microsoft.EntityFrameworkCore;
+
 using TripMate.Application.Features.PointsOfInterest.Common;
 using TripMate.Application.Features.PointsOfInterest.Create;
 using TripMate.Application.UnitTests.TestUtilities;
+using TripMate.Domain.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -30,7 +34,8 @@ public class CreatePoiCommandHandlerTests
         result.Value.Longitude.Should().Be(108.438278m);
         result.Value.Status.Should().Be(PointOfInterestStatus.Active);
         result.Value.IndoorOutdoor.Should().Be(IndoorOutdoorType.Outdoor);
-        result.Value.AverageVisitDurationMinutes.Should().Be(60);
+        result.Value.AverageVisitDurationMinutes.Should()
+            .Be(PointOfInterest.DefaultAverageVisitDurationMinutes);
         result.Value.HasShelter.Should().BeFalse();
         result.Value.ScenicScore.Should().BeNull();
         result.Value.PhotoRating.Should().BeNull();
@@ -196,8 +201,8 @@ public class CreatePoiCommandHandlerTests
 
         var audit = await dbContext.AuditLogs.SingleAsync();
         audit.ActorUserId.Should().Be(administrator.Id);
-        audit.ActionType.Should().Be("POI_CREATE");
-        audit.AffectedEntity.Should().Be("POI");
+        audit.ActionType.Should().Be(AuditActionTypes.PoiCreate);
+        audit.AffectedEntity.Should().Be(AuditEntityTypes.PointOfInterest);
         audit.AffectedEntityId.Should().Be(result.Value.Id);
         audit.BeforeData.Should().BeNull();
         audit.IpAddress.Should().BeNull();

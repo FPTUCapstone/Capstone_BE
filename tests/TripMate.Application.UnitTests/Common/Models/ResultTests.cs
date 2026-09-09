@@ -1,4 +1,5 @@
 using FluentAssertions;
+
 using TripMate.Application.Common.Models;
 
 namespace TripMate.Application.UnitTests.Common.Models;

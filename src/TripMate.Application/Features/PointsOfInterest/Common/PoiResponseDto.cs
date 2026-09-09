@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+
 using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.PointsOfInterest.Common;

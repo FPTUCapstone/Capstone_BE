@@ -1,8 +1,12 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+
 using FluentAssertions;
+
 using Microsoft.EntityFrameworkCore;
+
+using TripMate.Api.Controllers.V1;
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Features.PointsOfInterest.Common;
 using TripMate.Domain.Entities;
@@ -41,7 +45,7 @@ public class CreatePoiEndpointTests
         body.Status.Should().Be(PointOfInterestStatus.Active);
         body.IndoorOutdoor.Should().Be(IndoorOutdoorType.Mixed);
         response.Headers.Location!.OriginalString
-            .Should().Be($"/api/v1/admin/pois/{body.Id}");
+            .Should().Be($"/{PointsOfInterestController.RouteTemplate}/{body.Id}");
     }
 
     [Fact]

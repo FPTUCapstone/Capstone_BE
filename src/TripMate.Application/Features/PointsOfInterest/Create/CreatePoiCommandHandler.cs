@@ -1,6 +1,9 @@
 using System.Text.Json;
+
 using MediatR;
+
 using Microsoft.EntityFrameworkCore;
+
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.PointsOfInterest.Common;
@@ -103,7 +106,8 @@ public sealed class CreatePoiCommandHandler(
             request.Address,
             request.Description,
             request.IndoorOutdoor ?? IndoorOutdoorType.Outdoor,
-            request.AverageVisitDurationMinutes ?? 60,
+            request.AverageVisitDurationMinutes
+                ?? PointOfInterest.DefaultAverageVisitDurationMinutes,
             request.HasShelter ?? false);
 
         foreach (var hours in request.OpeningHours ?? [])

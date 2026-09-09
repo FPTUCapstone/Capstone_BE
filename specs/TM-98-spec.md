@@ -1,23 +1,53 @@
-# TM-98 — Create POI (Backend Specification)
+# TM-98 - Create POI Backend Specification
 
-Status: **APPROVED — 2026-09-08**
+Status: **APPROVED - checklist-aligned revision 2026-09-09**
 
 Jira: [TM-98](https://tripmate-capstone.atlassian.net/browse/TM-98)
 
-Use case: UC-52 — Create Point of Interest
+Use case: UC-52 - Create Point of Interest
 
-Current delivery phase: Backend first; Frontend and UAT follow only after the API contract is approved and implemented.
+Current delivery phase: Backend PR review; FE integration and UAT follow after the backend contract
+is merged and available on `develop`.
 
-## 1. Source of truth
+## 1. Source of truth and rule precedence
 
-The specification uses the sources below in this order:
+### 1.1 Business and API sources
+
+The business behavior and API contract use the following sources in order:
 
 1. Jira TM-98: an Administrator adds a new POI to the centralized catalog.
-2. Report 3 SRS, section 3.9.3.1 (UC-52): detailed actor, validation, flow, and postconditions.
-3. `database/tripmate_schema_v7.sql`: current database-first physical schema.
-4. `Report3_Screens_All.html`: visual reference only; it does not define business rules or the final API contract.
+2. Report 3 SRS, section 3.9.3.1 (UC-52): actor, validation, flow, and postconditions.
+3. The approved decisions recorded in this specification.
+4. `database/tripmate_schema_v7.sql`: database-first physical schema.
+5. `Report3_Screens_All.html`: visual reference only.
 
-No application behavior is inferred from the HTML mockup alone.
+The HTML screen does not define business rules, database behavior, or the final API contract.
+
+### 1.2 Engineering and review sources
+
+Implementation and review must follow:
+
+1. `TEAM_ENGINEERING_RULES.docx` for the shared team workflow and Definition of Done.
+2. `Dev_and_CrossReview_Checklist.pdf` for developer self-review and peer-review gates.
+3. `AGENTS.md` for repository-specific backend architecture, database-first, Result pattern,
+   testing, Git, and security rules.
+
+The shared documents define the common quality gates. `AGENTS.md` and this approved specification
+define how those gates are implemented in the backend repository. If wording conflicts, apply the
+team precedence rule: Security, approved architecture, API contract, requirement, then personal
+implementation preference. Do not infer a new business rule to resolve a conflict.
+
+For this backend, "Unified API Response" means one consistent HTTP contract:
+
+- successful requests return the endpoint's typed response DTO;
+- expected application failures use `Result` or `Result<T>` internally and are mapped by
+  `HandleFailure` to RFC 7807 `ProblemDetails`;
+- validation failures use RFC 7807 `ValidationProblemDetails`;
+- unexpected failures are handled centrally and return RFC 7807 `ProblemDetails`.
+
+The synthetic `{ success, statusCode, message, data, errors }` envelope from the cross-repository
+example is not used in this backend. Changing that decision requires a separately approved API
+contract and coordinated FE/Mobile update.
 
 ## 2. Confirmed scope
 
@@ -38,7 +68,7 @@ Confirmed requirements:
 
 ## 3. Delivery boundary
 
-### Included in this backend phase after open decisions are approved
+### Included in this backend phase
 
 - POI domain model and supported child models.
 - EF Core database-first mappings for the approved tables.
@@ -59,7 +89,7 @@ Confirmed requirements:
 - Frontend implementation in `Capstone_FE`; it follows the completed backend contract.
 - Database schema redesign unless an approved requirement cannot be represented by schema v7.
 
-## 4. Current database model
+## 4. Database-first model
 
 SQL schema v7 currently supports:
 
@@ -75,10 +105,15 @@ SQL schema v7 currently supports:
 indoor/outdoor type, scenic score, photo rating, average visit duration, shelter flag,
 status, creator, and UTC timestamps.
 
-The backend currently maps only `Users` and `RefreshTokens`; none of the POI, category,
-tag, photo, opening-hours, or audit-log tables is mapped yet.
+TM-98 maps `POICategories`, `POIs`, `POIOpeningHours`, `Tags`, `POITagMap`, and `AuditLogs` through
+EF Core configurations that match SQL schema v7. `POIPhotos` is intentionally not mapped in this
+slice because the photo-storage contract is not approved.
 
-## 5. Draft HTTP contract
+No EF Core migration is permitted. The only SQL-script change in TM-98 is documentation that
+clarifies `scenic_score` and `photo_rating` remain null when a POI is created; there is no schema
+or data migration.
+
+## 5. Approved HTTP contract
 
 Approved route:
 
@@ -88,9 +123,9 @@ Authorization: Bearer <administrator-access-token>
 Content-Type: application/json
 ```
 
-Proposed core request fields:
+Request fields:
 
-| Field | Type | Required | Draft rule |
+| Field | Type | Required | Rule |
 | --- | --- | --- | --- |
 | `name` | string | Yes | Trimmed; max 200 characters |
 | `categoryId` | integer | Yes | Must reference an existing POI category |
@@ -108,30 +143,68 @@ Proposed core request fields:
 `scenicScore`, `photoRating`, commercial-service data, contact information, and photos are not
 accepted by the TM-98 request.
 
-Draft success response:
+Success response:
 
 - `201 Created`
+- `Location: /api/v1/admin/pois/{id}`
 - A POI DTO containing its generated ID, persisted values, `Active` status, creator ID,
-  and UTC timestamps.
+  UTC timestamps, opening hours, and tag IDs.
+- JSON field names use `camelCase`.
 
-Draft error behavior:
+Error behavior:
 
-| Condition | HTTP status | Error code proposal |
+| Condition | HTTP status | Contract |
 | --- | --- | --- |
 | Missing/invalid JWT | 401 | Authentication middleware |
 | Authenticated user is not an Active Administrator | 403 | `Poi.AdminAccessRequired` |
-| Invalid request fields/coordinates/opening hours | 400 | `Poi.ValidationFailed` |
+| Invalid request fields/coordinates/opening hours | 400 | RFC 7807 `ValidationProblemDetails` |
 | Category or approved child reference does not exist | 404 | `Poi.ReferenceNotFound` |
 | Duplicate requires confirmation | 409 | `Poi.PossibleDuplicate` |
 | Duplicate explicitly confirmed | 201 | Create proceeds after the approved confirmation rule |
-| Unexpected persistence failure | 500 | Standard ProblemDetails; no partial data persisted |
+| Unexpected persistence failure | 500 | RFC 7807 `ProblemDetails`; no partial data persisted |
 
-Responses use the repository's `Result<T>` and `HandleFailure` conventions; no synthetic
-`{ success, data, errors }` envelope will be introduced.
+For `HandleFailure` responses, `errorCode` is included as a ProblemDetails extension. Duplicate
+conflicts also include `existingPoiId`. The controller must not contain business rules or access
+the database directly.
 
-## 6. Opening-hours proposal
+## 6. Backend processing flow
 
-If opening hours are included in TM-98, each item will use:
+The request follows the backend's Clean Architecture and vertical-slice flow:
+
+```text
+HTTP POST /api/v1/admin/pois
+    -> ASP.NET authentication and Administrator role authorization
+    -> PointsOfInterestController model binding
+    -> MediatR validation pipeline
+    -> CreatePoiCommandHandler
+       -> confirm the current user is an Active Administrator
+       -> load and validate category and tag references
+       -> normalize name and coordinates
+       -> check the approved duplicate rule
+       -> create and validate the POI aggregate in Domain
+       -> execute POI, child-record, and audit writes in one transaction
+    -> Result<PoiResponseDto>
+    -> 201 DTO or HandleFailure ProblemDetails
+```
+
+Layer responsibilities are fixed as follows:
+
+- API: model binding, authentication/authorization attributes, MediatR dispatch, and HTTP mapping.
+- Application: orchestration, reference checks, duplicate detection, transaction boundary request,
+  response mapping, and expected `Result<T>` failures.
+- Domain: POI invariants, normalization, defaults, opening-hours rules, relationship behavior, and
+  audit-log construction.
+- Infrastructure: EF Core configurations, SQL Server execution strategy, physical transaction,
+  persistence, and database-first mappings.
+- Database: referential integrity, check constraints, defaults, indexes, and durable storage.
+
+The handler depends on `IApplicationDbContext`, not the concrete Infrastructure DbContext. A generic
+repository is not introduced because the backend architecture explicitly uses the application
+DbContext abstraction as its persistence port.
+
+## 7. Approved opening-hours rules
+
+When opening hours are supplied, each item uses:
 
 ```text
 dayOfWeek: integer 0..6
@@ -144,10 +217,21 @@ Day `0` is Sunday, matching .NET `DayOfWeek`. Missing days mean no hours supplie
 must have both times null. An open day requires both times and `openTime < closeTime`; overnight
 ranges are rejected in this slice.
 
-## 7. Transaction and audit behavior
+## 8. Transaction and audit behavior
 
-The approved aggregate is created in one `SaveChangesAsync` transaction using navigation
-properties for new parent/child records. The audit entry records:
+The approved aggregate and audit log are committed in one physical database transaction. The
+handler performs two ordered saves inside that transaction:
+
+1. Add and save the POI aggregate so SQL Server generates the POI ID.
+2. Serialize the persisted response, add the audit entry with that generated ID, and save it.
+3. Commit only after both saves succeed.
+
+New parent/child relationships use navigation properties so EF Core can propagate generated keys.
+If validation, either save, or commit fails, the transaction is not committed and no partial POI
+aggregate may remain. The SQL Server execution strategy and transaction receive the request
+cancellation token.
+
+The audit entry records:
 
 - actor Administrator ID;
 - action type `POI_CREATE`;
@@ -159,7 +243,7 @@ properties for new parent/child records. The audit entry records:
 `after_data` stores the persisted POI aggregate as JSON and excludes credentials, tokens, and
 other secret values.
 
-## 8. Test acceptance criteria
+## 9. Test acceptance criteria
 
 At minimum, implementation will not be accepted until tests verify:
 
@@ -176,8 +260,11 @@ At minimum, implementation will not be accepted until tests verify:
 11. Persistence failure leaves no partial POI aggregate.
 12. The endpoint returns 401/403 for unauthenticated/unauthorized requests.
 13. Existing authentication tests remain green.
+14. The cancellation token is forwarded through the SQL Server execution strategy, transaction
+    start, operation, and commit.
+15. A failed transaction operation does not commit.
 
-## 9. Dependencies and approved decisions
+## 10. Dependencies and approved decisions
 
 The developer approved the MVP decision bundle on 2026-09-08:
 
@@ -203,13 +290,63 @@ Approval of this bundle intentionally defines a smaller first increment than the
 The excluded commercial and upload capabilities must remain visible follow-up scope and TM-98 must
 not be reported as full end-to-end UAT completion until the approved product scope is satisfied.
 
-## 10. Spec gate result
+## 11. Shared checklist mapping for the backend
 
-Completed after approval:
+Every applicable item must pass before the reviewer approves the PR.
 
-1. Created `feature/datmnt-create-poi` from `develop`.
-2. Verified the baseline through the .NET 10 SDK container: 19 tests passed.
-3. Created `plans/TM-98-plan.md` with atomic Red → Green → Refactor steps.
+| Shared checklist area | TM-98 backend requirement |
+| --- | --- |
+| Spec and API contract | Route, method, request, response, status codes, field types, and errors match this approved specification. |
+| Naming and schema | HTTP JSON uses `camelCase`; EF Core maps the approved SQL `snake_case` columns and schema names. |
+| Clean Architecture | Controller contains no business or persistence logic; Application coordinates the use case; Domain owns invariants; Infrastructure owns EF Core and transactions. |
+| Reuse and DRY | Audit identifiers, POI length limits, defaults, and the controller route have a single code source of truth. |
+| Error handling | Validation, authentication, authorization, missing references, duplicates, and unexpected failures follow the contract in section 5. |
+| Database and performance | No query runs inside a per-item loop; only required references are loaded; existing SQL indexes support category, coordinates, and audit lookups. |
+| Build and tests | Full solution build has 0 errors and 0 warnings; all unit and API integration tests pass. |
+| Formatting | `dotnet format --verify-no-changes` passes for every C# file changed by the PR. |
+| Security | No real secret, connection string, `.env`, private key, token, or credential is committed. Audit JSON excludes secrets. |
+| Git hygiene | The feature branch contains only TM-98 changes and no `bin`, `obj`, IDE, cache, or temporary artifacts. |
+| Zero regression | Existing authentication behavior and tests remain green; no existing API contract is unintentionally changed. |
+| Documentation | This specification, SQL documentation, PR description, and implementation describe the same behavior. |
+| Cross-review | Review findings are fixed, pushed, rechecked, and resolved before approval and merge. |
 
-The plan was explicitly approved on 2026-09-08. The backend slice proceeded under that approval;
-Frontend integration and end-to-end UAT remain separate completion gates.
+The FE/Mobile-specific Loading, Empty, Error, Toast, and Retry checks are not applicable to this
+backend-only PR. They become required in the later FE integration and UAT phase.
+
+## 12. Definition of Done
+
+The TM-98 backend PR is ready to merge only when all items below are true:
+
+- The approved backend scope and acceptance criteria are implemented.
+- API and database mappings match this specification and SQL schema v7.
+- Clean Architecture and the vertical-slice flow in section 6 are respected.
+- Expected failures use `Result` or `Result<T>` and RFC 7807 HTTP mappings.
+- POI, opening hours, tag mappings, and audit data are atomic.
+- Relevant tests are present and the full test suite passes.
+- Build completes with 0 errors and 0 warnings.
+- Formatter verification passes for all files changed by the PR.
+- Debug code, unused experimental code, secrets, and generated artifacts are absent.
+- Swagger/HTTP and real SQL Server smoke-test evidence is recorded in the PR.
+- Developer self-review is complete.
+- At least one cross-reviewer has rechecked the latest commit and approved it.
+- No blocking comment or Request Changes review remains unresolved.
+- The PR is merged into `develop` without conflict.
+
+Passing the backend Definition of Done completes the TM-98 backend slice. It does not by itself mark
+the complete UC-52 product flow as done; FE integration and end-to-end UAT remain later gates.
+
+## 13. Delivery and verification record
+
+- `feature/datmnt-create-poi` was created from `develop` for this task.
+- The original clean baseline passed 19 tests before implementation.
+- `plans/TM-98-plan.md` was approved on 2026-09-08 and executed using Red -> Green -> Refactor.
+- The checklist-aligned implementation currently passes 84 tests across Application,
+  Infrastructure, and API integration test projects.
+- The full solution currently builds with 0 errors and 0 warnings.
+- Formatter verification passes for all 39 C# files in the PR scope.
+- Security, debug-code, generated-artifact, and Git diff checks pass.
+- The branch is based on the current `origin/develop` history without a merge conflict.
+
+The remaining workflow gates are commit/push of the review fixes, synchronization of the PR
+description, reviewer recheck, approval, and merge. These gates must not be marked complete before
+they actually occur.

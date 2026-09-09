@@ -15,11 +15,18 @@ public class PointOfInterestConfiguration : IEntityTypeConfiguration<PointOfInte
         builder.HasKey(poi => poi.Id);
         builder.Property(poi => poi.Id).HasColumnName("poi_id").ValueGeneratedOnAdd();
         builder.Property(poi => poi.CategoryId).HasColumnName("category_id").IsRequired();
-        builder.Property(poi => poi.Name).HasColumnName("name").HasMaxLength(200).IsRequired();
-        builder.Property(poi => poi.Description).HasColumnName("description").HasMaxLength(2000);
+        builder.Property(poi => poi.Name)
+            .HasColumnName("name")
+            .HasMaxLength(PointOfInterest.NameMaxLength)
+            .IsRequired();
+        builder.Property(poi => poi.Description)
+            .HasColumnName("description")
+            .HasMaxLength(PointOfInterest.DescriptionMaxLength);
         builder.Property(poi => poi.Latitude).HasColumnName("latitude").HasPrecision(9, 6);
         builder.Property(poi => poi.Longitude).HasColumnName("longitude").HasPrecision(9, 6);
-        builder.Property(poi => poi.Address).HasColumnName("address").HasMaxLength(400);
+        builder.Property(poi => poi.Address)
+            .HasColumnName("address")
+            .HasMaxLength(PointOfInterest.AddressMaxLength);
         builder.Property(poi => poi.IndoorOutdoor)
             .HasColumnName("indoor_outdoor")
             .HasConversion<string>()
@@ -31,7 +38,7 @@ public class PointOfInterestConfiguration : IEntityTypeConfiguration<PointOfInte
         builder.Property(poi => poi.PhotoRating).HasColumnName("photo_rating").HasPrecision(3, 1);
         builder.Property(poi => poi.AverageVisitDurationMinutes)
             .HasColumnName("avg_visit_duration_minutes")
-            .HasDefaultValue(60);
+            .HasDefaultValue(PointOfInterest.DefaultAverageVisitDurationMinutes);
         builder.Property(poi => poi.HasShelter)
             .HasColumnName("has_shelter")
             .HasDefaultValue(false);
