@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+
 using TripMate.Application.Common.Interfaces;
 using TripMate.Domain.Entities;
 
@@ -16,7 +17,22 @@ public class TestDbContext(DbContextOptions<TestDbContext> options)
 
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
+    public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
+
+    public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
+
+    public DbSet<GroupInvitation> GroupInvitations => Set<GroupInvitation>();
+
+    public DbSet<Itinerary> Itineraries => Set<Itinerary>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<GroupMember>().HasKey(m => new { m.GroupId, m.UserId });
+        base.OnModelCreating(modelBuilder);
+    }
+
     public static TestDbContext Create()
+
     {
         var options = new DbContextOptionsBuilder<TestDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())

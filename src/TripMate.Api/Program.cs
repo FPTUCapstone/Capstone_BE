@@ -2,7 +2,9 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
+
 using Serilog;
+
 using TripMate.Api.Middleware;
 using TripMate.Application;
 using TripMate.Infrastructure;
@@ -75,11 +77,27 @@ try
     {
         options.AddPolicy(corsPolicyName, policy =>
         {
-            var allowedOrigins = builder.Configuration
-                .GetSection("Cors:AllowedOrigins")
-                .Get<string[]>() ?? [];
+            if (builder.Environment.IsDevelopment())
+            {
+                policy.SetIsOriginAllowed(origin =>
+                {
+                    if (Uri.TryCreate(origin, UriKind.Absolute, out var uri))
+                    {
+                        return uri.Host is "localhost" or "127.0.0.1";
+                    }
+                    return false;
+                })
+                .AllowAnyHeader()
+                .AllowAnyMethod();
+            }
+            else
+            {
+                var allowedOrigins = builder.Configuration
+                    .GetSection("Cors:AllowedOrigins")
+                    .Get<string[]>() ?? [];
 
-            policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod();
+                policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod();
+            }
         });
     });
 
@@ -93,9 +111,9 @@ try
         app.UseSwaggerUI();
     }
 
-    app.UseHttpsRedirection();
-
     app.UseCors(corsPolicyName);
+
+    app.UseHttpsRedirection();
 
     app.UseAuthentication();
     app.UseAuthorization();
