@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
@@ -70,8 +71,7 @@ public class PoiPersistenceModelTests
     private static ApplicationDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseSqlServer(
-                "Server=localhost;Database=tripmate_model_test;User Id=sa;Password=Unused!123;TrustServerCertificate=True")
+            .UseSqlServer(new SqlConnection())
             .Options;
 
         return new ApplicationDbContext(options);
