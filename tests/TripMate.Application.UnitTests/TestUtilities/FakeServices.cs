@@ -24,3 +24,10 @@ public class FakeDateTimeProvider : IDateTimeProvider
 {
     public DateTimeOffset UtcNow { get; set; } = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
 }
+
+public class FakeCurrentUserService : ICurrentUserService
+{
+    public long? UserId { get; set; }
+
+    public string? Role { get; set; }
+}

@@ -1,5 +1,7 @@
 using System.Net;
+
 using Microsoft.AspNetCore.Mvc;
+
 using ValidationException = TripMate.Application.Common.Exceptions.ValidationException;
 
 namespace TripMate.Api.Middleware;
@@ -23,7 +25,10 @@ public class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Exception
                 Status = (int)HttpStatusCode.BadRequest,
             };
 
-            await context.Response.WriteAsJsonAsync(problem);
+            await context.Response.WriteAsJsonAsync(
+                problem,
+                options: null,
+                contentType: "application/problem+json");
         }
         catch (Exception ex)
         {
@@ -39,7 +44,10 @@ public class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Exception
                 Status = (int)HttpStatusCode.InternalServerError,
             };
 
-            await context.Response.WriteAsJsonAsync(problem);
+            await context.Response.WriteAsJsonAsync(
+                problem,
+                options: null,
+                contentType: "application/problem+json");
         }
     }
 }
