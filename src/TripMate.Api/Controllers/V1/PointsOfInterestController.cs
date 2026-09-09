@@ -11,11 +11,9 @@ using TripMate.Domain.Enums;
 namespace TripMate.Api.Controllers.V1;
 
 [Authorize(Roles = nameof(UserRole.Administrator))]
-[Route(PointsOfInterestController.RouteTemplate)]
+[Route("api/v1/admin/pois")]
 public sealed class PointsOfInterestController(ISender sender) : ApiControllerBase(sender)
 {
-    public const string RouteTemplate = "api/v1/admin/pois";
-
     [HttpPost]
     [ProducesResponseType(typeof(PoiResponseDto), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
@@ -30,7 +28,7 @@ public sealed class PointsOfInterestController(ISender sender) : ApiControllerBa
         var result = await Sender.Send(command, cancellationToken);
 
         return result.IsSuccess
-            ? Created($"/{RouteTemplate}/{result.Value.Id}", result.Value)
+            ? StatusCode(StatusCodes.Status201Created, result.Value)
             : HandleFailure(result);
     }
 }

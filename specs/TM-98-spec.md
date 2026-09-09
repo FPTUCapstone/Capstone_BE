@@ -146,10 +146,16 @@ accepted by the TM-98 request.
 Success response:
 
 - `201 Created`
-- `Location: /api/v1/admin/pois/{id}`
+- No `Location` header is emitted in TM-98 because no approved, addressable POI read endpoint
+  exists yet. The response must not advertise the unresolved `/api/v1/admin/pois/{id}` URI.
 - A POI DTO containing its generated ID, persisted values, `Active` status, creator ID,
   UTC timestamps, opening hours, and tag IDs.
 - JSON field names use `camelCase`.
+
+When the POI detail endpoint is approved and implemented, it must receive a named route. The
+create endpoint may then use `CreatedAtRoute(...)`, and an integration test must follow the
+returned `Location` and retrieve the same POI. The create slice must not construct that URI by
+concatenating route strings.
 
 Error behavior:
 
@@ -184,7 +190,7 @@ HTTP POST /api/v1/admin/pois
        -> create and validate the POI aggregate in Domain
        -> execute POI, child-record, and audit writes in one transaction
     -> Result<PoiResponseDto>
-    -> 201 DTO or HandleFailure ProblemDetails
+    -> 201 DTO without a premature Location header, or HandleFailure ProblemDetails
 ```
 
 Layer responsibilities are fixed as follows:
@@ -247,7 +253,8 @@ other secret values.
 
 At minimum, implementation will not be accepted until tests verify:
 
-1. A valid command creates one Active POI and returns its generated ID.
+1. A valid command creates one Active POI, returns its generated ID, and does not publish a
+   `Location` header until a real read route exists.
 2. Name, category, latitude, and longitude are required.
 3. Latitude and longitude outside their valid ranges are rejected.
 4. A missing category is rejected without inserting data.
@@ -290,6 +297,11 @@ Approval of this bundle intentionally defines a smaller first increment than the
 The excluded commercial and upload capabilities must remain visible follow-up scope and TM-98 must
 not be reported as full end-to-end UAT completion until the approved product scope is satisfied.
 
+Amendment approved on 2026-09-09: the `201 Created` response omits `Location` while this
+create-only slice has no approved read endpoint. Once a detail endpoint exists, its named route
+becomes the single source used by `CreatedAtRoute(...)`. The integration test verifies the
+intentional absence of `Location` until that read contract is implemented.
+
 ## 11. Shared checklist mapping for the backend
 
 Every applicable item must pass before the reviewer approves the PR.
@@ -321,6 +333,7 @@ The TM-98 backend PR is ready to merge only when all items below are true:
 - API and database mappings match this specification and SQL schema v7.
 - Clean Architecture and the vertical-slice flow in section 6 are respected.
 - Expected failures use `Result` or `Result<T>` and RFC 7807 HTTP mappings.
+- The create response does not advertise a URI that the application cannot resolve.
 - POI, opening hours, tag mappings, and audit data are atomic.
 - Relevant tests are present and the full test suite passes.
 - Build completes with 0 errors and 0 warnings.
@@ -347,6 +360,6 @@ the complete UC-52 product flow as done; FE integration and end-to-end UAT remai
 - Security, debug-code, generated-artifact, and Git diff checks pass.
 - The branch is based on the current `origin/develop` history without a merge conflict.
 
-The remaining workflow gates are commit/push of the review fixes, synchronization of the PR
-description, reviewer recheck, approval, and merge. These gates must not be marked complete before
-they actually occur.
+Remote delivery state is tracked in PR #8 rather than frozen in this specification. Before merge,
+the PR description must match the latest verification evidence and the latest commit must receive
+reviewer recheck and approval.

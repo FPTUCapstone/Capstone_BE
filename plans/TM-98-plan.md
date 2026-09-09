@@ -4,6 +4,9 @@ Status: **APPROVED — 2026-09-08**
 
 Spec: `specs/TM-98-spec.md` (approved 2026-09-08)
 
+Amendment approved 2026-09-09: Task 6 returns the created DTO without a `Location` header until
+an approved read endpoint exists; see the corresponding specification amendment.
+
 Branch: `feature/datmnt-create-poi`
 
 Delivery order: Backend implementation first; Frontend and end-to-end UAT remain later gates.
@@ -229,7 +232,9 @@ Required behavior:
 
 - `POST /api/v1/admin/pois`.
 - `[Authorize(Roles = "Administrator")]` protects the endpoint.
-- `201 Created` returns the POI DTO and `/api/v1/admin/pois/{id}` Location.
+- `201 Created` returns the POI DTO without publishing a `Location` until an approved GET-by-ID
+  route exists. A future read endpoint must expose a named route before Create uses
+  `CreatedAtRoute(...)`.
 - Missing authentication returns 401; a non-Administrator returns 403.
 - Missing references return 404.
 - Possible duplicate returns 409 RFC-7807 with `errorCode` and `existingPoiId`.
@@ -241,7 +246,7 @@ authentication; production configuration remains unchanged.
 Verification: run the API integration test project.
 
 Definition of Done: the real HTTP pipeline proves authorization, status mapping, response body,
-Location header, and duplicate metadata.
+the intentional absence of a premature Location header, and duplicate metadata.
 
 ### Task 7 — Full verification and two-pass review
 

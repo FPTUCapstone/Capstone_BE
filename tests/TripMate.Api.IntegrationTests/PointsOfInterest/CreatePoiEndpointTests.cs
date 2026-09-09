@@ -6,7 +6,6 @@ using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
 
-using TripMate.Api.Controllers.V1;
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Features.PointsOfInterest.Common;
 using TripMate.Domain.Entities;
@@ -20,7 +19,7 @@ public class CreatePoiEndpointTests
         new(2026, 9, 8, 0, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public async Task Post_WithActiveAdministrator_ReturnsCreatedDtoAndLocation()
+    public async Task Post_WithActiveAdministrator_ReturnsCreatedDtoWithoutPrematureLocation()
     {
         await using var factory = new TripMateApiFactory();
         var seed = await SeedAsync(factory);
@@ -44,8 +43,7 @@ public class CreatePoiEndpointTests
         body.Name.Should().Be("Da Lat Flower Park");
         body.Status.Should().Be(PointOfInterestStatus.Active);
         body.IndoorOutdoor.Should().Be(IndoorOutdoorType.Mixed);
-        response.Headers.Location!.OriginalString
-            .Should().Be($"/{PointsOfInterestController.RouteTemplate}/{body.Id}");
+        response.Headers.Location.Should().BeNull();
     }
 
     [Fact]
