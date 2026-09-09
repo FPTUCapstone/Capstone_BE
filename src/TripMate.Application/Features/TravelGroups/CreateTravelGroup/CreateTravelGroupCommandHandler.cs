@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.TravelGroups.Common;
+using TripMate.Domain.Constants;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -18,31 +19,29 @@ namespace TripMate.Application.Features.TravelGroups.CreateTravelGroup;
  * and generates an active invitation code.
  *
  * Input:
- *   - ItineraryId (long): Target itinerary ID (must exist in planning.Itineraries).
+ *   - ItineraryId (long): Target itinerary ID (must exist in planning.Itineraries and belong to creator).
  *   - GroupName (string): Group name, max 150 characters (required).
  *   - HostUserId (long): ID of the authenticated traveler creating the group.
  *
  * Output:
  *   - Success: Result<CreateTravelGroupResponse> with GroupId, GroupName, InviteCode.
- *   - Failure: Error 404 (ItineraryNotFound) if itinerary does not exist.
+ *   - Failure: Error 404 (ItineraryNotFound) if itinerary does not exist or does not belong to user.
  */
 public class CreateTravelGroupCommandHandler(
     IApplicationDbContext dbContext,
     IDateTimeProvider dateTimeProvider)
     : IRequestHandler<CreateTravelGroupCommand, Result<CreateTravelGroupResponse>>
 {
-    private const string InviteCodeCharacters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-
     public async Task<Result<CreateTravelGroupResponse>> Handle(
         CreateTravelGroupCommand request,
         CancellationToken cancellationToken)
     {
-        // Step 1: Validate itinerary existence (BR-41)
+        // Step 1: Validate itinerary existence and ownership (BR-41)
         var itinerary = await dbContext.Itineraries.FirstOrDefaultAsync(
             i => i.Id == request.ItineraryId,
             cancellationToken);
 
-        if (itinerary is null)
+        if (itinerary is null || itinerary.TravelerUserId != request.HostUserId)
         {
             return Result.Failure<CreateTravelGroupResponse>(
                 TravelGroupErrorCodes.ItineraryNotFound,
@@ -70,14 +69,14 @@ public class CreateTravelGroupCommandHandler(
             JoinedAtUtc = dateTimeProvider.UtcNow
         };
 
-        // Step 4: Generate a unique 8-character invitation code (expires in 30 days)
+        // Step 4: Generate a unique invitation code
         var invitation = new GroupInvitation
         {
             TravelGroup = travelGroup,
             InviteCode = GenerateInviteCode(),
             CreatedBy = request.HostUserId,
-            ExpiresAtUtc = dateTimeProvider.UtcNow.AddDays(30),
-            MaxUses = 50,
+            ExpiresAtUtc = dateTimeProvider.UtcNow.AddDays(TravelGroupConstants.InviteCodeExpirationDays),
+            MaxUses = TravelGroupConstants.DefaultMaxUses,
             UsedCount = 0,
             CreatedAtUtc = dateTimeProvider.UtcNow
         };
@@ -100,12 +99,12 @@ public class CreateTravelGroupCommandHandler(
 
     private static string GenerateInviteCode()
     {
-        var chars = new char[8];
+        var chars = new char[TravelGroupConstants.InviteCodeLength];
         var bytes = RandomNumberGenerator.GetBytes(chars.Length);
 
         for (var i = 0; i < chars.Length; i++)
         {
-            chars[i] = InviteCodeCharacters[bytes[i] % InviteCodeCharacters.Length];
+            chars[i] = TravelGroupConstants.InviteCodeCharacters[bytes[i] % TravelGroupConstants.InviteCodeCharacters.Length];
         }
 
         return new string(chars);
