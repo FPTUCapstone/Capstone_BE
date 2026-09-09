@@ -243,6 +243,12 @@ If validation, either save, or commit fails, the transaction is not committed an
 aggregate may remain. The SQL Server execution strategy and transaction receive the request
 cancellation token.
 
+Physical atomicity is verified against the canonical v7 schema in an isolated disposable SQL
+Server database. The failure test allows the first POI/child save to reach SQL Server, rejects the
+second audit save with a test-only database constraint, then reads through a new DbContext and
+requires every transactional table count to match its pre-request baseline. It does not assume that
+rolled-back SQL Server identity values are reused.
+
 The audit entry records:
 
 - actor Administrator ID;
@@ -322,7 +328,7 @@ Every applicable item must pass before the reviewer approves the PR.
 | Reuse and DRY | Audit identifiers, POI length limits, defaults, and the controller route have a single code source of truth. |
 | Error handling | Validation, authentication, authorization, missing references, duplicates, and unexpected failures follow the contract in section 5. |
 | Database and performance | No query runs inside a per-item loop; only required references are loaded; existing SQL indexes support category, coordinates, and audit lookups. |
-| Build and tests | Full solution build has 0 errors and 0 warnings; all unit and API integration tests pass. |
+| Build and tests | Full solution build has 0 errors and 0 warnings; all unit/API tests and the explicitly configured SQL Server integration run pass. A missing SQL test connection is reported as skipped, never as SQL verification. |
 | Formatting | `dotnet format --verify-no-changes` passes for every C# file changed by the PR. |
 | Security | No real secret, connection string, `.env`, private key, token, or credential is committed. Audit JSON excludes secrets. |
 | Git hygiene | The feature branch contains only TM-98 changes and no `bin`, `obj`, IDE, cache, or temporary artifacts. |
@@ -361,8 +367,9 @@ the complete UC-52 product flow as done; FE integration and end-to-end UAT remai
 - `feature/datmnt-create-poi` was created from `develop` for this task.
 - The original clean baseline passed 19 tests before implementation.
 - `plans/TM-98-plan.md` was approved on 2026-09-08 and executed using Red -> Green -> Refactor.
-- The checklist-aligned implementation currently passes 84 tests across Application,
-  Infrastructure, and API integration test projects.
+- The checklist-aligned implementation currently passes 86 tests across Application,
+  Infrastructure, API contract, and SQL Server integration coverage when the test connection is
+  configured; the two SQL Server tests are explicitly skipped when it is absent.
 - The full solution currently builds with 0 errors and 0 warnings.
 - Formatter verification passes for all C# files changed by the PR.
 - Security, debug-code, generated-artifact, and Git diff checks pass.

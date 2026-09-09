@@ -7,6 +7,10 @@ Spec: `specs/TM-98-spec.md` (approved 2026-09-08)
 Amendment approved 2026-09-09: Task 6 returns the created DTO without a `Location` header until
 an approved read endpoint exists; see the corresponding specification amendment.
 
+Verification update 2026-09-10: SQL Server integration tests apply the canonical v7 schema to an
+isolated disposable database and verify both the complete persisted aggregate and physical rollback
+when the second audit save fails. Fast HTTP tests remain InMemory-based.
+
 Branch: `feature/datmnt-create-poi`
 
 Delivery order: Backend implementation first; Frontend and end-to-end UAT remain later gates.
@@ -182,6 +186,12 @@ Then add:
 
 - `src/TripMate.Application/Features/PointsOfInterest/Create/CreatePoiCommandHandler.cs`
 
+SQL Server verification adds:
+
+- `tests/TripMate.Api.IntegrationTests/Infrastructure/SqlServerTestDatabase.cs`
+- `tests/TripMate.Api.IntegrationTests/PointsOfInterest/CreatePoiSqlServerTests.cs`
+- a linked copy of `database/tripmate_schema_v7.sql` in the API integration test output
+
 Handler order:
 
 1. Resolve the current user and verify the persisted account is an Active Administrator.
@@ -208,8 +218,11 @@ Required tests:
 - creator and UTC timestamps;
 - audit row content;
 - no audit row for rejected commands.
+- SQL Server happy-path persistence of the POI, opening hours, tag mappings, and audit row;
+- SQL Server rollback of the first save and all child rows when the audit save fails.
 
-Verification: run focused handler tests, then the full Application test project.
+Verification: run focused handler tests, the full Application test project, and the tagged
+`Category=SqlServer` integration tests with `TRIPMATE_SQLSERVER_TEST_CONNECTION` configured.
 
 Definition of Done: all approved writes occur atomically and no adjacent feature is introduced.
 
@@ -243,7 +256,9 @@ Required behavior:
 - Validation uses standard RFC-7807 `ValidationProblemDetails`.
 
 The integration-test host replaces persistence with an isolated InMemory context and test
-authentication; production configuration remains unchanged.
+authentication for fast HTTP contract tests; production configuration remains unchanged. Separate
+tagged integration tests use `ApplicationDbContext`, SQL Server, and the canonical database-first
+schema to verify physical persistence and rollback.
 
 Verification: run the API integration test project.
 

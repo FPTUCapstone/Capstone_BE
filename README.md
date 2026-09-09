@@ -129,6 +129,22 @@ riêng phần database, đúng với việc bạn chỉ muốn chạy SQL trên 
 dotnet test
 ```
 
+Hai test transaction SQL Server được đánh dấu `Category=SqlServer`. Nếu chưa cấu hình database,
+chúng được báo `Skipped` rõ ràng để bộ test nhanh không phụ thuộc máy cá nhân. Để chạy đầy đủ trên
+SQL Server local, khởi động service `sqlserver`, rồi cấp connection string bằng biến môi trường;
+không ghi mật khẩu vào source:
+
+```powershell
+docker compose up -d sqlserver
+$env:TRIPMATE_SQLSERVER_TEST_CONNECTION = "Server=localhost,14330;Database=master;User Id=sa;Password=<local-sa-password>;Encrypt=False;TrustServerCertificate=True"
+dotnet test tests/TripMate.Api.IntegrationTests/TripMate.Api.IntegrationTests.csproj --filter "Category=SqlServer"
+```
+
+Mỗi test tạo một database riêng tên `TripMate_Test_<guid>`, áp trực tiếp
+`database/tripmate_schema_v7.sql`, và chỉ xóa đúng database tạm đó sau khi chạy. Nếu biến môi trường
+đã được đặt nhưng SQL Server, credential hoặc schema có lỗi, test sẽ fail thay vì tự động skip.
+Tài khoản trong connection string cần quyền tạo và xóa database test.
+
 ## 7. ⚠️ Database-First — không dùng EF Core migrations
 
 `database/tripmate_schema_v7.sql` là **nguồn chân lý duy nhất** cho schema, áp bằng
