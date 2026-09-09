@@ -173,6 +173,11 @@ For `HandleFailure` responses, `errorCode` is included as a ProblemDetails exten
 conflicts also include `existingPoiId`. The controller must not contain business rules or access
 the database directly.
 
+Role-based authorization failures occur before the controller executes. The API therefore uses
+endpoint metadata and a shared authorization result handler to return the same RFC 7807
+`Poi.AdminAccessRequired` contract for an authenticated non-Administrator. Endpoints without that
+metadata and unauthenticated requests retain ASP.NET Core's default behavior.
+
 ## 6. Backend processing flow
 
 The request follows the backend's Clean Architecture and vertical-slice flow:
@@ -195,7 +200,8 @@ HTTP POST /api/v1/admin/pois
 
 Layer responsibilities are fixed as follows:
 
-- API: model binding, authentication/authorization attributes, MediatR dispatch, and HTTP mapping.
+- API: model binding, authentication/authorization attributes, endpoint-specific forbidden
+  ProblemDetails mapping, MediatR dispatch, and HTTP mapping.
 - Application: orchestration, reference checks, duplicate detection, transaction boundary request,
   response mapping, and expected `Result<T>` failures.
 - Domain: POI invariants, normalization, defaults, opening-hours rules, relationship behavior, and
@@ -265,7 +271,9 @@ At minimum, implementation will not be accepted until tests verify:
 9. The creator is the current Administrator.
 10. An audit record is created in the same successful transaction.
 11. Persistence failure leaves no partial POI aggregate.
-12. The endpoint returns 401/403 for unauthenticated/unauthorized requests.
+12. The endpoint returns 401 for unauthenticated requests and RFC 7807
+    `Poi.AdminAccessRequired` with 403 for authenticated users lacking the required role or account
+    status.
 13. Existing authentication tests remain green.
 14. The cancellation token is forwarded through the SQL Server execution strategy, transaction
     start, operation, and commit.
@@ -356,7 +364,7 @@ the complete UC-52 product flow as done; FE integration and end-to-end UAT remai
 - The checklist-aligned implementation currently passes 84 tests across Application,
   Infrastructure, and API integration test projects.
 - The full solution currently builds with 0 errors and 0 warnings.
-- Formatter verification passes for all 39 C# files in the PR scope.
+- Formatter verification passes for all C# files changed by the PR.
 - Security, debug-code, generated-artifact, and Git diff checks pass.
 - The branch is based on the current `origin/develop` history without a merge conflict.
 

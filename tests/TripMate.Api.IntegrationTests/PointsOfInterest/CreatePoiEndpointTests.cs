@@ -61,7 +61,7 @@ public class CreatePoiEndpointTests
     }
 
     [Fact]
-    public async Task Post_WithNonAdministratorRole_ReturnsForbidden()
+    public async Task Post_WithNonAdministratorRole_ReturnsForbiddenProblemDetails()
     {
         await using var factory = new TripMateApiFactory();
         var seed = await SeedAsync(factory, UserRole.Traveler);
@@ -71,7 +71,7 @@ public class CreatePoiEndpointTests
             "/api/v1/admin/pois",
             ValidBody(seed.CategoryId));
 
-        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        await AssertForbiddenProblemDetailsAsync(response);
     }
 
     [Fact]
@@ -90,10 +90,7 @@ public class CreatePoiEndpointTests
             "/api/v1/admin/pois",
             ValidBody(seed.CategoryId));
 
-        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        problem.RootElement.GetProperty("errorCode").GetString()
-            .Should().Be(PoiErrorCodes.AdminAccessRequired);
+        await AssertForbiddenProblemDetailsAsync(response);
     }
 
     [Fact]
@@ -220,6 +217,21 @@ public class CreatePoiEndpointTests
         latitude = 11.941755m,
         longitude = 108.438278m,
     };
+
+    private static async Task AssertForbiddenProblemDetailsAsync(HttpResponseMessage response)
+    {
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        response.Content.Headers.ContentType!.MediaType
+            .Should().Be("application/problem+json");
+
+        using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        problem.RootElement.GetProperty("status").GetInt32()
+            .Should().Be((int)HttpStatusCode.Forbidden);
+        problem.RootElement.GetProperty("title").GetString()
+            .Should().Be(PoiErrorMessages.AdminAccessRequired);
+        problem.RootElement.GetProperty("errorCode").GetString()
+            .Should().Be(PoiErrorCodes.AdminAccessRequired);
+    }
 
     private static Task<SeedResult> SeedAsync(
         TripMateApiFactory factory,

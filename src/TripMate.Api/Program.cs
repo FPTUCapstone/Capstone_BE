@@ -1,8 +1,12 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
+
 using Serilog;
+
+using TripMate.Api.Authorization;
 using TripMate.Api.Middleware;
 using TripMate.Application;
 using TripMate.Infrastructure;
@@ -69,6 +73,9 @@ try
         });
 
     builder.Services.AddAuthorization();
+    builder.Services.AddSingleton<
+        IAuthorizationMiddlewareResultHandler,
+        ProblemDetailsAuthorizationMiddlewareResultHandler>();
 
     const string corsPolicyName = "TripMateClients";
     builder.Services.AddCors(options =>

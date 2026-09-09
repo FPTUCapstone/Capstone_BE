@@ -235,7 +235,9 @@ Required behavior:
 - `201 Created` returns the POI DTO without publishing a `Location` until an approved GET-by-ID
   route exists. A future read endpoint must expose a named route before Create uses
   `CreatedAtRoute(...)`.
-- Missing authentication returns 401; a non-Administrator returns 403.
+- Missing authentication returns 401. An authenticated non-Administrator returns 403 RFC 7807
+  ProblemDetails with `errorCode = Poi.AdminAccessRequired`; endpoint metadata and a shared
+  authorization result handler keep this contract consistent before controller execution.
 - Missing references return 404.
 - Possible duplicate returns 409 RFC-7807 with `errorCode` and `existingPoiId`.
 - Validation uses standard RFC-7807 `ValidationProblemDetails`.

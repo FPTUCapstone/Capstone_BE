@@ -3,6 +3,7 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
+using TripMate.Api.Authorization;
 using TripMate.Api.Common;
 using TripMate.Application.Features.PointsOfInterest.Common;
 using TripMate.Application.Features.PointsOfInterest.Create;
@@ -11,6 +12,9 @@ using TripMate.Domain.Enums;
 namespace TripMate.Api.Controllers.V1;
 
 [Authorize(Roles = nameof(UserRole.Administrator))]
+[ForbiddenProblemDetails(
+    PoiErrorCodes.AdminAccessRequired,
+    PoiErrorMessages.AdminAccessRequired)]
 [Route("api/v1/admin/pois")]
 public sealed class PointsOfInterestController(ISender sender) : ApiControllerBase(sender)
 {

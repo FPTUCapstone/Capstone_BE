@@ -150,7 +150,7 @@ public sealed class CreatePoiCommandHandler(
     private static Result<PoiResponseDto> AdminAccessRequired() =>
         Result.Failure<PoiResponseDto>(
             PoiErrorCodes.AdminAccessRequired,
-            "An active Administrator account is required to create a POI.");
+            PoiErrorMessages.AdminAccessRequired);
 
     private static decimal NormalizeCoordinate(decimal value) =>
         Math.Round(value, 6, MidpointRounding.AwayFromZero);
