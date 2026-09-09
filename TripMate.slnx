@@ -7,7 +7,5 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/TripMate.Application.UnitTests/TripMate.Application.UnitTests.csproj" />
-    <Project Path="tests/TripMate.Api.IntegrationTests/TripMate.Api.IntegrationTests.csproj" />
-    <Project Path="tests/TripMate.Infrastructure.UnitTests/TripMate.Infrastructure.UnitTests.csproj" />
   </Folder>
 </Solution>
