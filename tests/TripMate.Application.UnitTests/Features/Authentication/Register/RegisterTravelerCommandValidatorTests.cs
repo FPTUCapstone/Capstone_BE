@@ -48,4 +48,109 @@ public class RegisterTravelerCommandValidatorTests
 
         result.IsValid.Should().BeFalse();
     }
+
+    [Fact]
+    public void Validate_WithCoEmail_HasNoErrors()
+    {
+        var command = new RegisterTravelerCommand(
+            "bathinh2k4@gmail.co",
+            "Password123!",
+            "Jane Traveler",
+            null,
+            true,
+            "valid-token");
+
+        _validator.Validate(command).IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Validate_WithEmailLength254_HasNoErrors()
+    {
+        var email = $"{new string('a', 243)}@example.co";
+
+        email.Length.Should().Be(254);
+        _validator.Validate(new RegisterTravelerCommand(
+            email,
+            "Password123!",
+            "Jane Traveler",
+            null,
+            true,
+            "valid-token")).IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Validate_WithEmailLength255_HasErrors()
+    {
+        var email = $"{new string('a', 244)}@example.co";
+
+        email.Length.Should().Be(255);
+        _validator.Validate(new RegisterTravelerCommand(
+            email,
+            "Password123!",
+            "Jane Traveler",
+            null,
+            true,
+            "valid-token")).IsValid.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(72, true)]
+    [InlineData(73, false)]
+    public void Validate_WithPasswordLengthBoundary_MatchesContract(int length, bool expectedIsValid)
+    {
+        var password = "Aa1!" + new string('a', length - 4);
+
+        _validator.Validate(new RegisterTravelerCommand(
+            "jane@example.com",
+            password,
+            "Jane Traveler",
+            null,
+            true,
+            "valid-token")).IsValid.Should().Be(expectedIsValid);
+    }
+
+    [Theory]
+    [InlineData("A")]
+    [InlineData("Jane2")]
+    [InlineData("Jane-Doe")]
+    [InlineData("Jane\tDoe")]
+    [InlineData("Jane\nDoe")]
+    public void Validate_WithInvalidFullName_HasErrors(string fullName)
+    {
+        var result = _validator.Validate(new RegisterTravelerCommand(
+            "jane@example.com",
+            "Password123!",
+            fullName,
+            null,
+            true,
+            "valid-token"));
+
+        result.IsValid.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Validate_WithUnicodeFullName_HasNoErrors()
+    {
+        var result = _validator.Validate(new RegisterTravelerCommand(
+            "jane@example.com",
+            "Password123!",
+            "Nguyễn Ánh",
+            null,
+            true,
+            "valid-token"));
+
+        result.IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Validate_WithOptionalPhone_HasNoErrors()
+    {
+        _validator.Validate(new RegisterTravelerCommand(
+            "jane@example.com",
+            "Password123!",
+            "Jane Traveler",
+            null,
+            true,
+            "valid-token")).IsValid.Should().BeTrue();
+    }
 }

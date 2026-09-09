@@ -11,12 +11,13 @@ public class RegisterTravelerCommandValidator : AbstractValidator<RegisterTravel
             .Cascade(CascadeMode.Stop)
             .NotEmpty().WithErrorCode(AuthErrorCodes.Msg01).WithMessage("Email is required.")
             .EmailAddress().WithErrorCode(AuthErrorCodes.Msg02).WithMessage("Invalid email format.")
-            .MaximumLength(255);
+            .MaximumLength(254);
 
         RuleFor(x => x.Password)
             .Cascade(CascadeMode.Stop)
             .NotEmpty().WithErrorCode(AuthErrorCodes.Msg01).WithMessage("Password is required.")
             .MinimumLength(8).WithErrorCode(AuthErrorCodes.Msg05).WithMessage("Password must be at least 8 characters.")
+            .MaximumLength(72)
             .Matches(@"[A-Z]").WithErrorCode(AuthErrorCodes.Msg05).WithMessage("Password must contain at least one uppercase letter.")
             .Matches(@"[a-z]").WithErrorCode(AuthErrorCodes.Msg05).WithMessage("Password must contain at least one lowercase letter.")
             .Matches(@"[0-9]").WithErrorCode(AuthErrorCodes.Msg05).WithMessage("Password must contain at least one number.")
@@ -26,7 +27,9 @@ public class RegisterTravelerCommandValidator : AbstractValidator<RegisterTravel
             .Cascade(CascadeMode.Stop)
             .NotEmpty().WithErrorCode(AuthErrorCodes.Msg01).WithMessage("FullName is required.")
             .Must(x => !string.IsNullOrWhiteSpace(x)).WithErrorCode(AuthErrorCodes.Msg01).WithMessage("FullName is required.")
-            .MaximumLength(150);
+            .Must(x => x.Trim().Length >= 2).WithMessage("FullName must be at least 2 characters.")
+            .Must(x => x.Trim().Length <= 150).WithMessage("FullName must not exceed 150 characters.")
+            .Matches(@"^[\p{L}\p{Zs}]+$").WithMessage("FullName can only contain letters and spaces.");
 
         When(x => !string.IsNullOrWhiteSpace(x.PhoneNumber), () =>
         {

@@ -83,4 +83,22 @@ public class RegisterTravelerCommandHandlerTests
         result.IsSuccess.Should().BeFalse();
         result.ErrorCode.Should().Be(AuthErrorCodes.Msg03);
     }
+
+    [Fact]
+    public async Task Handle_TrimsAndNormalizesEmailAndFullName()
+    {
+        var command = new RegisterTravelerCommand(
+            "  NEWUSER@EXAMPLE.COM  ",
+            "Password123!",
+            "  Nguyen Van A  ",
+            null,
+            true,
+            "valid-token");
+
+        var result = await _handler.Handle(command, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var savedUser = _dbContext.Users.Single(u => u.Email == "newuser@example.com");
+        savedUser.FullName.Should().Be("Nguyen Van A");
+    }
 }
