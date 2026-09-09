@@ -42,7 +42,8 @@ For this backend, "Unified API Response" means one consistent HTTP contract:
 - successful requests return the endpoint's typed response DTO;
 - expected application failures use `Result` or `Result<T>` internally and are mapped by
   `HandleFailure` to RFC 7807 `ProblemDetails`;
-- validation failures use RFC 7807 `ValidationProblemDetails`;
+- validation failures use RFC 7807 `ValidationProblemDetails`; the generated OpenAPI `400`
+  response references that schema and exposes `errors` as field names mapped to message arrays;
 - unexpected failures are handled centrally and return RFC 7807 `ProblemDetails`.
 
 The synthetic `{ success, statusCode, message, data, errors }` envelope from the cross-repository
@@ -367,7 +368,7 @@ the complete UC-52 product flow as done; FE integration and end-to-end UAT remai
 - `feature/datmnt-create-poi` was created from `develop` for this task.
 - The original clean baseline passed 19 tests before implementation.
 - `plans/TM-98-plan.md` was approved on 2026-09-08 and executed using Red -> Green -> Refactor.
-- The checklist-aligned implementation currently passes 86 tests across Application,
+- The checklist-aligned implementation currently passes 87 tests across Application,
   Infrastructure, API contract, and SQL Server integration coverage when the test connection is
   configured; the two SQL Server tests are explicitly skipped when it is absent.
 - The full solution currently builds with 0 errors and 0 warnings.

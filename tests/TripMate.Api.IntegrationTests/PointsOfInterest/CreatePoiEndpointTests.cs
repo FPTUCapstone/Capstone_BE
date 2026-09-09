@@ -13,6 +13,7 @@ using TripMate.Domain.Enums;
 
 namespace TripMate.Api.IntegrationTests.PointsOfInterest;
 
+[Collection(nameof(TripMateApiFactory))]
 public class CreatePoiEndpointTests
 {
     private static readonly DateTimeOffset SeedTime =

@@ -11,6 +11,10 @@ Verification update 2026-09-10: SQL Server integration tests apply the canonical
 isolated disposable database and verify both the complete persisted aggregate and physical rollback
 when the second audit save fails. Fast HTTP tests remain InMemory-based.
 
+Contract update 2026-09-10: the Create POI OpenAPI `400` response references
+`ValidationProblemDetails`, including its field-to-message-array `errors` member, so generated
+FE clients match the validation body returned by the HTTP pipeline.
+
 Branch: `feature/datmnt-create-poi`
 
 Delivery order: Backend implementation first; Frontend and end-to-end UAT remain later gates.
@@ -233,6 +237,7 @@ Write failing API integration tests first:
 - `tests/TripMate.Api.IntegrationTests/TripMate.Api.IntegrationTests.csproj`
 - `tests/TripMate.Api.IntegrationTests/Infrastructure/TripMateApiFactory.cs`
 - `tests/TripMate.Api.IntegrationTests/PointsOfInterest/CreatePoiEndpointTests.cs`
+- `tests/TripMate.Api.IntegrationTests/PointsOfInterest/PointsOfInterestOpenApiTests.cs`
 - update `TripMate.slnx` to include the test project
 
 Then change/add:
@@ -253,7 +258,8 @@ Required behavior:
   authorization result handler keep this contract consistent before controller execution.
 - Missing references return 404.
 - Possible duplicate returns 409 RFC-7807 with `errorCode` and `existingPoiId`.
-- Validation uses standard RFC-7807 `ValidationProblemDetails`.
+- Validation uses standard RFC-7807 `ValidationProblemDetails`; the generated OpenAPI `400`
+  response uses the same schema and exposes `errors` as field names mapped to message arrays.
 
 The integration-test host replaces persistence with an isolated InMemory context and test
 authentication for fast HTTP contract tests; production configuration remains unchanged. Separate
