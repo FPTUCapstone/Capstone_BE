@@ -34,13 +34,14 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
 
         var executionStrategy = Database.CreateExecutionStrategy();
 
-        return await executionStrategy.ExecuteAsync(async () =>
+        return await executionStrategy.ExecuteAsync(async strategyCancellationToken =>
         {
-            await using var transaction = await Database.BeginTransactionAsync(cancellationToken);
-            var result = await operation(cancellationToken);
-            await transaction.CommitAsync(cancellationToken);
+            await using var transaction = await Database.BeginTransactionAsync(
+                strategyCancellationToken);
+            var result = await operation(strategyCancellationToken);
+            await transaction.CommitAsync(strategyCancellationToken);
             return result;
-        });
+        }, cancellationToken);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
