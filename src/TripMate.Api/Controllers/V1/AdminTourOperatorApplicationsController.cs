@@ -38,7 +38,7 @@ public class AdminTourOperatorApplicationsController(ISender sender) : ApiContro
             new RejectOperatorApplicationCommand(userId, request.Reason),
             cancellationToken);
 
-        return result.IsSuccess ? Ok() : HandleFailure(result);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 }
 
