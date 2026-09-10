@@ -48,6 +48,83 @@ public class CreatePoiEndpointTests
     }
 
     [Fact]
+    public async Task Post_WithPaddedFieldsAtSqlLimits_ReturnsNormalizedValues()
+    {
+        await using var factory = new TripMateApiFactory();
+        var seed = await SeedAsync(factory);
+        using var client = factory.CreateAuthenticatedClient(
+            seed.UserId,
+            UserRole.Administrator);
+        var expectedName = new string('n', PointOfInterest.NameMaxLength);
+        var expectedAddress = new string('a', PointOfInterest.AddressMaxLength);
+        var expectedDescription = new string('d', PointOfInterest.DescriptionMaxLength);
+
+        var response = await client.PostAsJsonAsync("/api/v1/admin/pois", new
+        {
+            name = $"  {expectedName}  ",
+            categoryId = seed.CategoryId,
+            latitude = 11.941755m,
+            longitude = 108.438278m,
+            address = $"  {expectedAddress}  ",
+            description = $"  {expectedDescription}  ",
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var body = await response.Content.ReadFromJsonAsync<PoiResponseDto>();
+        body.Should().NotBeNull();
+        body!.Name.Should().Be(expectedName);
+        body.Address.Should().Be(expectedAddress);
+        body.Description.Should().Be(expectedDescription);
+
+        var persistedValues = await factory.WithDbContextAsync(async dbContext =>
+        {
+            var poi = await dbContext.PointsOfInterest
+                .AsNoTracking()
+                .SingleAsync(item => item.Id == body.Id);
+            return (poi.Name, poi.Address, poi.Description);
+        });
+        persistedValues.Name.Should().Be(expectedName);
+        persistedValues.Address.Should().Be(expectedAddress);
+        persistedValues.Description.Should().Be(expectedDescription);
+    }
+
+    [Fact]
+    public async Task Post_WithWhitespaceOnlyOptionalText_PersistsNullValues()
+    {
+        await using var factory = new TripMateApiFactory();
+        var seed = await SeedAsync(factory);
+        using var client = factory.CreateAuthenticatedClient(
+            seed.UserId,
+            UserRole.Administrator);
+
+        var response = await client.PostAsJsonAsync("/api/v1/admin/pois", new
+        {
+            name = "Marble Mountains",
+            categoryId = seed.CategoryId,
+            latitude = 16.003892m,
+            longitude = 108.264170m,
+            address = new string(' ', PointOfInterest.AddressMaxLength + 1),
+            description = new string(' ', PointOfInterest.DescriptionMaxLength + 1),
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var body = await response.Content.ReadFromJsonAsync<PoiResponseDto>();
+        body.Should().NotBeNull();
+        body!.Address.Should().BeNull();
+        body.Description.Should().BeNull();
+
+        var persistedValues = await factory.WithDbContextAsync(async dbContext =>
+        {
+            var poi = await dbContext.PointsOfInterest
+                .AsNoTracking()
+                .SingleAsync(item => item.Id == body.Id);
+            return (poi.Address, poi.Description);
+        });
+        persistedValues.Address.Should().BeNull();
+        persistedValues.Description.Should().BeNull();
+    }
+
+    [Fact]
     public async Task Post_WithoutAuthentication_ReturnsUnauthorized()
     {
         await using var factory = new TripMateApiFactory();

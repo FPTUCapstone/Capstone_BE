@@ -133,8 +133,8 @@ Request fields:
 | `categoryId` | integer | Yes | Must reference an existing POI category |
 | `latitude` | decimal | Yes | -90 through 90; stored at 6 decimal places |
 | `longitude` | decimal | Yes | -180 through 180; stored at 6 decimal places |
-| `address` | string | No | Max 400 characters |
-| `description` | string | No | Max 2,000 characters |
+| `address` | string | No | Trimmed; max 400 characters |
+| `description` | string | No | Trimmed; max 2,000 characters |
 | `indoorOutdoor` | enum | No | `Indoor`, `Outdoor`, or `Mixed`; default `Outdoor` |
 | `averageVisitDurationMinutes` | integer | No | Positive; database default is 60 |
 | `hasShelter` | boolean | No | Default false |
@@ -270,22 +270,24 @@ At minimum, implementation will not be accepted until tests verify:
 1. A valid command creates one Active POI, returns its generated ID, and does not publish a
    `Location` header until a real read route exists.
 2. Name, category, latitude, and longitude are required.
-3. Latitude and longitude outside their valid ranges are rejected.
-4. A missing category is rejected without inserting data.
-5. Duplicate detection returns the approved conflict result.
-6. Duplicate confirmation follows the approved rule.
-7. Invalid opening hours are rejected according to the approved rules.
-8. Approved child references are validated and persisted atomically.
-9. The creator is the current Administrator.
-10. An audit record is created in the same successful transaction.
-11. Persistence failure leaves no partial POI aggregate.
-12. The endpoint returns 401 for unauthenticated requests and RFC 7807
+3. Name, address, and description length limits are evaluated after trimming; whitespace-only
+   optional text is stored as null.
+4. Latitude and longitude outside their valid ranges are rejected.
+5. A missing category is rejected without inserting data.
+6. Duplicate detection returns the approved conflict result.
+7. Duplicate confirmation follows the approved rule.
+8. Invalid opening hours are rejected according to the approved rules.
+9. Approved child references are validated and persisted atomically.
+10. The creator is the current Administrator.
+11. An audit record is created in the same successful transaction.
+12. Persistence failure leaves no partial POI aggregate.
+13. The endpoint returns 401 for unauthenticated requests and RFC 7807
     `Poi.AdminAccessRequired` with 403 for authenticated users lacking the required role or account
     status.
-13. Existing authentication tests remain green.
-14. The cancellation token is forwarded through the SQL Server execution strategy, transaction
+14. Existing authentication tests remain green.
+15. The cancellation token is forwarded through the SQL Server execution strategy, transaction
     start, operation, and commit.
-15. A failed transaction operation does not commit.
+16. A failed transaction operation does not commit.
 
 ## 10. Dependencies and approved decisions
 
@@ -369,7 +371,7 @@ the complete UC-52 product flow as done; FE integration and end-to-end UAT remai
 - `feature/datmnt-create-poi` was created from `develop` for this task.
 - The original clean baseline passed 19 tests before implementation.
 - `plans/TM-98-plan.md` was approved on 2026-09-08 and executed using Red -> Green -> Refactor.
-- The checklist-aligned implementation currently passes 88 tests across Application,
+- The checklist-aligned implementation currently passes 97 tests across Application,
   Infrastructure, API contract, and SQL Server integration coverage when the test connection is
   configured; the two SQL Server tests are explicitly skipped when it is absent.
 - The full solution currently builds with 0 errors and 0 warnings.

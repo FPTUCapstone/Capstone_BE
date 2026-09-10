@@ -42,6 +42,87 @@ public class PointOfInterestTests
         poi.UpdatedAtUtc.Should().Be(Now);
     }
 
+    [Fact]
+    public void Create_WithPaddedFieldsAtSqlLimits_NormalizesValues()
+    {
+        var category = PoiCategory.Create("Natural landmark", null);
+        var expectedName = new string('n', PointOfInterest.NameMaxLength);
+        var expectedAddress = new string('a', PointOfInterest.AddressMaxLength);
+        var expectedDescription = new string('d', PointOfInterest.DescriptionMaxLength);
+
+        var poi = PointOfInterest.Create(
+            category,
+            $"  {expectedName}  ",
+            16,
+            108,
+            17,
+            Now,
+            $"  {expectedAddress}  ",
+            $"  {expectedDescription}  ");
+
+        poi.Name.Should().Be(expectedName);
+        poi.Address.Should().Be(expectedAddress);
+        poi.Description.Should().Be(expectedDescription);
+    }
+
+    [Theory]
+    [InlineData("name")]
+    [InlineData("address")]
+    [InlineData("description")]
+    public void Create_WithFieldLongerThanTrimmedSqlLimit_Throws(string parameterName)
+    {
+        var category = PoiCategory.Create("Natural landmark", null);
+        var name = "Marble Mountains";
+        string? address = null;
+        string? description = null;
+
+        switch (parameterName)
+        {
+            case "name":
+                name = $"  {new string('n', PointOfInterest.NameMaxLength + 1)}  ";
+                break;
+            case "address":
+                address = $"  {new string('a', PointOfInterest.AddressMaxLength + 1)}  ";
+                break;
+            case "description":
+                description = $"  {new string('d', PointOfInterest.DescriptionMaxLength + 1)}  ";
+                break;
+        }
+
+        var action = () => PointOfInterest.Create(
+            category,
+            name,
+            16,
+            108,
+            17,
+            Now,
+            address,
+            description);
+
+        action.Should()
+            .Throw<ArgumentException>()
+            .Which.ParamName.Should().Be(parameterName);
+    }
+
+    [Fact]
+    public void Create_WithWhitespaceOnlyOptionalFields_NormalizesToNull()
+    {
+        var category = PoiCategory.Create("Natural landmark", null);
+
+        var poi = PointOfInterest.Create(
+            category,
+            "Marble Mountains",
+            16,
+            108,
+            17,
+            Now,
+            new string(' ', PointOfInterest.AddressMaxLength + 1),
+            new string(' ', PointOfInterest.DescriptionMaxLength + 1));
+
+        poi.Address.Should().BeNull();
+        poi.Description.Should().BeNull();
+    }
+
     [Theory]
     [InlineData(90.000001, 108.0)]
     [InlineData(-90.000001, 108.0)]

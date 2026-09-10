@@ -48,6 +48,35 @@ public class CreatePoiCommandValidatorTests
             ]);
     }
 
+    [Fact]
+    public void Validate_WithPaddedFieldsAtSqlLimitsAfterTrimming_HasNoErrors()
+    {
+        var command = ValidCommand() with
+        {
+            Name = $"  {new string('n', PointOfInterest.NameMaxLength)}  ",
+            Address = $"  {new string('a', PointOfInterest.AddressMaxLength)}  ",
+            Description = $"  {new string('d', PointOfInterest.DescriptionMaxLength)}  ",
+        };
+
+        var result = _validator.Validate(command);
+
+        result.IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Validate_WithLongWhitespaceOnlyOptionalFields_HasNoErrors()
+    {
+        var command = ValidCommand() with
+        {
+            Address = new string(' ', PointOfInterest.AddressMaxLength + 1),
+            Description = new string(' ', PointOfInterest.DescriptionMaxLength + 1),
+        };
+
+        var result = _validator.Validate(command);
+
+        result.IsValid.Should().BeTrue();
+    }
+
     [Theory]
     [InlineData(0, 10, 106)]
     [InlineData(1, -90.000001, 106)]

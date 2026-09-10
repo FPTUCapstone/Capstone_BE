@@ -10,7 +10,9 @@ public sealed class CreatePoiCommandValidator : AbstractValidator<CreatePoiComma
     {
         RuleFor(command => command.Name)
             .NotEmpty()
-            .MaximumLength(PointOfInterest.NameMaxLength);
+            .Must(name => IsWithinTrimmedLength(name, PointOfInterest.NameMaxLength))
+            .WithMessage(
+                $"'{{PropertyName}}' must be {PointOfInterest.NameMaxLength} characters or fewer after trimming.");
 
         RuleFor(command => command.CategoryId).GreaterThan(0);
         RuleFor(command => command.Latitude)
@@ -21,9 +23,14 @@ public sealed class CreatePoiCommandValidator : AbstractValidator<CreatePoiComma
             .InclusiveBetween(-180m, 180m);
 
         RuleFor(command => command.Address)
-            .MaximumLength(PointOfInterest.AddressMaxLength);
+            .Must(address => IsWithinTrimmedLength(address, PointOfInterest.AddressMaxLength))
+            .WithMessage(
+                $"'{{PropertyName}}' must be {PointOfInterest.AddressMaxLength} characters or fewer after trimming.");
         RuleFor(command => command.Description)
-            .MaximumLength(PointOfInterest.DescriptionMaxLength);
+            .Must(description =>
+                IsWithinTrimmedLength(description, PointOfInterest.DescriptionMaxLength))
+            .WithMessage(
+                $"'{{PropertyName}}' must be {PointOfInterest.DescriptionMaxLength} characters or fewer after trimming.");
 
         RuleFor(command => command.IndoorOutdoor)
             .Must(value => value is null || Enum.IsDefined(value.Value))
@@ -48,6 +55,9 @@ public sealed class CreatePoiCommandValidator : AbstractValidator<CreatePoiComma
                     && hours.Select(item => item.DayOfWeek).Distinct().Count() == hours.Count))
             .WithMessage("Only one opening-hours entry is allowed per day.");
     }
+
+    private static bool IsWithinTrimmedLength(string? value, int maximumLength) =>
+        value is null || value.Trim().Length <= maximumLength;
 }
 
 internal sealed class CreatePoiOpeningHourInputValidator

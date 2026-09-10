@@ -17,6 +17,10 @@ FE clients match the validation body returned by the HTTP pipeline. Validation e
 both FluentValidation and MVC model binding use the configured JSON `camelCase` property paths,
 including indexed nested fields.
 
+Normalization update 2026-09-10: name, address, and description length validation is evaluated
+after trimming, matching the Domain factory and the values persisted to SQL Server. Whitespace-only
+optional text passes length validation and is normalized to null by the Domain.
+
 Branch: `feature/datmnt-create-poi`
 
 Delivery order: Backend implementation first; Frontend and end-to-end UAT remain later gates.
@@ -167,9 +171,11 @@ Then add:
 
 Required validation:
 
-- Required/length rules for name and a positive category ID.
+- Required/length rules for name and a positive category ID; text length limits are evaluated
+  after trimming.
 - Latitude `[-90, 90]`, longitude `[-180, 180]`.
-- Optional text lengths match SQL v7.
+- Optional text lengths match SQL v7 after trimming; whitespace-only optional text normalizes to
+  null.
 - Positive average duration when supplied.
 - Distinct positive tag IDs.
 - At most one opening-hours item per day; days 0–6.
