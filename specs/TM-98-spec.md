@@ -43,7 +43,8 @@ For this backend, "Unified API Response" means one consistent HTTP contract:
 - expected application failures use `Result` or `Result<T>` internally and are mapped by
   `HandleFailure` to RFC 7807 `ProblemDetails`;
 - validation failures use RFC 7807 `ValidationProblemDetails`; the generated OpenAPI `400`
-  response references that schema and exposes `errors` as field names mapped to message arrays;
+  response references that schema and exposes `errors` as JSON `camelCase` field paths mapped to
+  message arrays, including nested paths such as `openingHours[0].dayOfWeek`;
 - unexpected failures are handled centrally and return RFC 7807 `ProblemDetails`.
 
 The synthetic `{ success, statusCode, message, data, errors }` envelope from the cross-repository
@@ -151,7 +152,7 @@ Success response:
   exists yet. The response must not advertise the unresolved `/api/v1/admin/pois/{id}` URI.
 - A POI DTO containing its generated ID, persisted values, `Active` status, creator ID,
   UTC timestamps, opening hours, and tag IDs.
-- JSON field names use `camelCase`.
+- JSON field names use `camelCase`, including keys inside `ValidationProblemDetails.errors`.
 
 When the POI detail endpoint is approved and implemented, it must receive a named route. The
 create endpoint may then use `CreatedAtRoute(...)`, and an integration test must follow the
@@ -368,7 +369,7 @@ the complete UC-52 product flow as done; FE integration and end-to-end UAT remai
 - `feature/datmnt-create-poi` was created from `develop` for this task.
 - The original clean baseline passed 19 tests before implementation.
 - `plans/TM-98-plan.md` was approved on 2026-09-08 and executed using Red -> Green -> Refactor.
-- The checklist-aligned implementation currently passes 87 tests across Application,
+- The checklist-aligned implementation currently passes 88 tests across Application,
   Infrastructure, API contract, and SQL Server integration coverage when the test connection is
   configured; the two SQL Server tests are explicitly skipped when it is absent.
 - The full solution currently builds with 0 errors and 0 warnings.

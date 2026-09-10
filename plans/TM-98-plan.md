@@ -13,7 +13,9 @@ when the second audit save fails. Fast HTTP tests remain InMemory-based.
 
 Contract update 2026-09-10: the Create POI OpenAPI `400` response references
 `ValidationProblemDetails`, including its field-to-message-array `errors` member, so generated
-FE clients match the validation body returned by the HTTP pipeline.
+FE clients match the validation body returned by the HTTP pipeline. Validation error keys from
+both FluentValidation and MVC model binding use the configured JSON `camelCase` property paths,
+including indexed nested fields.
 
 Branch: `feature/datmnt-create-poi`
 
@@ -259,7 +261,8 @@ Required behavior:
 - Missing references return 404.
 - Possible duplicate returns 409 RFC-7807 with `errorCode` and `existingPoiId`.
 - Validation uses standard RFC-7807 `ValidationProblemDetails`; the generated OpenAPI `400`
-  response uses the same schema and exposes `errors` as field names mapped to message arrays.
+  response uses the same schema and exposes `errors` as JSON `camelCase` field paths mapped to
+  message arrays.
 
 The integration-test host replaces persistence with an isolated InMemory context and test
 authentication for fast HTTP contract tests; production configuration remains unchanged. Separate

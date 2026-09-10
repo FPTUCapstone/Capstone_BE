@@ -151,10 +151,38 @@ public class CreatePoiEndpointTests
         response.Content.Headers.ContentType!.MediaType
             .Should().Be("application/problem+json");
         using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        problem.RootElement.GetProperty("errors").TryGetProperty("Latitude", out _)
-            .Should().BeTrue();
-        problem.RootElement.GetProperty("errors").TryGetProperty("Longitude", out _)
-            .Should().BeTrue();
+        var errors = problem.RootElement.GetProperty("errors");
+        errors.TryGetProperty("latitude", out _).Should().BeTrue();
+        errors.TryGetProperty("longitude", out _).Should().BeTrue();
+        errors.TryGetProperty("Latitude", out _).Should().BeFalse();
+        errors.TryGetProperty("Longitude", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Post_WithoutRequiredName_ReturnsCamelCaseValidationProblemDetails()
+    {
+        await using var factory = new TripMateApiFactory();
+        var seed = await SeedAsync(factory);
+        using var client = factory.CreateAuthenticatedClient(
+            seed.UserId,
+            UserRole.Administrator);
+
+        var response = await client.PostAsJsonAsync("/api/v1/admin/pois", new
+        {
+            categoryId = seed.CategoryId,
+            latitude = 11.941755m,
+            longitude = 108.438278m,
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.Content.Headers.ContentType!.MediaType
+            .Should().Be("application/problem+json");
+        var responseBody = await response.Content.ReadAsStringAsync();
+        using var problem = JsonDocument.Parse(responseBody);
+        var errors = problem.RootElement.GetProperty("errors");
+        errors.TryGetProperty("name", out _)
+            .Should().BeTrue("the validation body was {0}", responseBody);
+        errors.TryGetProperty("Name", out _).Should().BeFalse();
     }
 
     [Fact]
@@ -209,6 +237,12 @@ public class CreatePoiEndpointTests
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         response.Content.Headers.ContentType!.MediaType
             .Should().Be("application/problem+json");
+        using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var errors = problem.RootElement.GetProperty("errors");
+        errors.TryGetProperty("openingHours[0].dayOfWeek", out _)
+            .Should().BeTrue();
+        errors.TryGetProperty("OpeningHours[0].DayOfWeek", out _)
+            .Should().BeFalse();
     }
 
     private static object ValidBody(int categoryId) => new
