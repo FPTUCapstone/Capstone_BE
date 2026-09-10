@@ -7,7 +7,8 @@ namespace TripMate.Application.UnitTests.TestUtilities;
 /// <summary>
 /// Minimal InMemory-backed stand-in for the real EF Core DbContext.
 /// </summary>
-public class TestDbContext(DbContextOptions<TestDbContext> options)
+public class TestDbContext(
+    DbContextOptions<TestDbContext> options)
     : DbContext(options), IApplicationDbContext
 {
     public DbSet<User> Users => Set<User>();
@@ -18,16 +19,20 @@ public class TestDbContext(DbContextOptions<TestDbContext> options)
 
     public static TestDbContext Create()
     {
-        var options = new DbContextOptionsBuilder<TestDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            .Options;
+        var options =
+            new DbContextOptionsBuilder<TestDbContext>()
+                .UseInMemoryDatabase(Guid.NewGuid().ToString())
+                .Options;
 
         return new TestDbContext(options);
     }
 
-    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    protected override void OnModelCreating(
+        ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
-        modelBuilder.Entity<Message>().HasKey(m => m.MessageCode);
+
+        modelBuilder.Entity<Message>()
+            .HasKey(message => message.MessageCode);
     }
 }

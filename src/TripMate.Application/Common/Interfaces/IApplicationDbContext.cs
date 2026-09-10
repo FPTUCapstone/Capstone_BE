@@ -11,5 +11,6 @@ public interface IApplicationDbContext
 
     DbSet<Message> Messages { get; }
 
-    Task<int> SaveChangesAsync(CancellationToken cancellationToken);
+    Task<int> SaveChangesAsync(
+        CancellationToken cancellationToken);
 }
