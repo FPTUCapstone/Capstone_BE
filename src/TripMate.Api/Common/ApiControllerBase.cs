@@ -1,5 +1,7 @@
 using MediatR;
+
 using Microsoft.AspNetCore.Mvc;
+
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Authentication.Common;
 
@@ -19,8 +21,10 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             AuthErrorCodes.AccountLocked => StatusCodes.Status403Forbidden,
             AuthErrorCodes.AccountInactive => StatusCodes.Status403Forbidden,
             AuthErrorCodes.EmailAlreadyRegistered => StatusCodes.Status409Conflict,
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.ItineraryNotFound => StatusCodes.Status404NotFound,
             _ => StatusCodes.Status400BadRequest,
         };
+
 
         return Problem(
             title: result.ErrorMessage,
