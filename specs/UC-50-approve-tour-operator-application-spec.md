@@ -97,7 +97,7 @@ The operation must fail when:
 - The target user is not a Tour Operator.
 - The OperatorProfile does not exist.
 - The account or application is not in `PendingApproval`.
-- Both mandatory documents are not present or have status `Rejected`. The two mandatory documents are `BusinessLicense` and `TaxCode`. The document type previously labelled `TaxCertificate` is not used; the correct type value in `dbo.OperatorDocuments` is `TaxCode`.
+- The mandatory `BusinessLicense` document is not present or has status `Rejected`. `BusinessLicense` is the only mandatory uploaded document; a separate TaxCode document upload is not required (per SRS §3.2.2 and Vietnamese business law — MST is embedded in the Business License / ĐKKD and is publicly verifiable).
 - Required profile fields are missing, including Company Name, tax code value, or business licence number.
 
 ## Reject Action
@@ -160,7 +160,7 @@ Expected HTTP mapping:
 4. Approval never changes the `TourOperator` role.
 5. Approval stores the reviewing Administrator ID and UTC timestamp in `OperatorProfiles`.
 6. Approving a valid application changes all associated `OperatorDocuments.status` from `Submitted` to `Approved`.
-7. Approval rejects an application where `BusinessLicense` or `TaxCode` document is missing or has status `Rejected`.
+7. Approval rejects an application where the `BusinessLicense` document is missing or has status `Rejected`. A separate TaxCode document is not required.
 8. Approval cannot be repeated after the application leaves `PendingApproval`.
 9. Approval writes one `AuditLogs` row with the action, entity, before/after data, and Administrator ID.
 10. Approval inserts one `Notifications` row with `channel = 'Email'` and `status = 'Pending'` targeting the operator.

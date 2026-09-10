@@ -139,20 +139,12 @@ public class ApproveOperatorApplicationCommandHandlerTests
     }
 
     [Fact]
-    public async Task Handle_WhenMissingMandatoryDocuments_ShouldReturnDocumentInvalidFailure()
+    public async Task Handle_WhenMissingBusinessLicenseDocument_ShouldReturnDocumentInvalidFailure()
     {
-        // Arrange
+        // Arrange: no documents added — BusinessLicense is the only mandatory document.
+        // A separate TaxCode document upload is not required per SRS §3.2.2.
         var user = SeedPendingOperatorUser();
-        var profile = SeedPendingOperatorProfile(user);
-
-        // Add only BusinessLicense, missing TaxCode
-        _dbContext.OperatorDocuments.Add(new OperatorDocument
-        {
-            OperatorProfile = profile,
-            DocumentType = OperatorDocumentType.BusinessLicense,
-            FileUrl = "https://storage.tripmate.vn/license.pdf",
-            Status = DocumentStatus.Submitted,
-        });
+        SeedPendingOperatorProfile(user);
         await _dbContext.SaveChangesAsync(CancellationToken.None);
 
         var command = new ApproveOperatorApplicationCommand(user.Id);
@@ -166,9 +158,9 @@ public class ApproveOperatorApplicationCommandHandlerTests
     }
 
     [Fact]
-    public async Task Handle_WhenMandatoryDocumentIsRejected_ShouldReturnDocumentInvalidFailure()
+    public async Task Handle_WhenBusinessLicenseDocumentIsRejected_ShouldReturnDocumentInvalidFailure()
     {
-        // Arrange
+        // Arrange: BusinessLicense present but Rejected — should block approval.
         var user = SeedPendingOperatorUser();
         var profile = SeedPendingOperatorProfile(user);
 
@@ -177,14 +169,6 @@ public class ApproveOperatorApplicationCommandHandlerTests
             OperatorProfile = profile,
             DocumentType = OperatorDocumentType.BusinessLicense,
             FileUrl = "https://storage.tripmate.vn/license.pdf",
-            Status = DocumentStatus.Submitted,
-        });
-
-        _dbContext.OperatorDocuments.Add(new OperatorDocument
-        {
-            OperatorProfile = profile,
-            DocumentType = OperatorDocumentType.TaxCode,
-            FileUrl = "https://storage.tripmate.vn/tax.pdf",
             Status = DocumentStatus.Rejected,
         });
         await _dbContext.SaveChangesAsync(CancellationToken.None);
@@ -206,6 +190,7 @@ public class ApproveOperatorApplicationCommandHandlerTests
         var user = SeedPendingOperatorUser();
         var profile = SeedPendingOperatorProfile(user);
 
+        // Only BusinessLicense is required; TaxCode document upload is not mandatory.
         var doc1 = new OperatorDocument
         {
             OperatorProfile = profile,
@@ -214,16 +199,7 @@ public class ApproveOperatorApplicationCommandHandlerTests
             Status = DocumentStatus.Submitted,
         };
 
-        var doc2 = new OperatorDocument
-        {
-            OperatorProfile = profile,
-            DocumentType = OperatorDocumentType.TaxCode,
-            FileUrl = "https://storage.tripmate.vn/tax.pdf",
-            Status = DocumentStatus.Submitted,
-        };
-
         _dbContext.OperatorDocuments.Add(doc1);
-        _dbContext.OperatorDocuments.Add(doc2);
         await _dbContext.SaveChangesAsync(CancellationToken.None);
 
         var command = new ApproveOperatorApplicationCommand(user.Id);

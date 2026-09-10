@@ -83,20 +83,19 @@ public class ApproveOperatorApplicationCommandHandler(
                 "Required profile fields (Company Name, Tax Code, Business License) are incomplete.");
         }
 
-        // 5. Validate mandatory documents (BusinessLicense and TaxCode must be present and not Rejected)
+        // 5. Validate mandatory document: only BusinessLicense is required
+        //    (TaxCode text field is validated above; a separate TaxCode document upload is not
+        //     required — per SRS §3.2.2 and Vietnamese business law, MST is embedded in the
+        //     Business License / ĐKKD and is publicly verifiable via government registries.)
         var hasBusinessLicense = profile.Documents.Any(d =>
             d.DocumentType == OperatorDocumentType.BusinessLicense &&
             d.Status != DocumentStatus.Rejected);
 
-        var hasTaxCode = profile.Documents.Any(d =>
-            d.DocumentType == OperatorDocumentType.TaxCode &&
-            d.Status != DocumentStatus.Rejected);
-
-        if (!hasBusinessLicense || !hasTaxCode)
+        if (!hasBusinessLicense)
         {
             return Result.Failure<ApproveOperatorApplicationResponseDto>(
                 TourOperatorApplicationErrorCodes.DocumentInvalid,
-                "Both mandatory documents (BusinessLicense and TaxCode) must be present and not rejected.");
+                "The mandatory BusinessLicense document must be present and not rejected.");
         }
 
         var now = dateTimeProvider.UtcNow;
