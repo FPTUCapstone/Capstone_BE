@@ -37,7 +37,7 @@ public class AuditLogConfiguration : IEntityTypeConfiguration<AuditLog>
             .HasDefaultValueSql("SYSUTCDATETIME()")
             .AsUtcDateTime2();
 
-        builder.HasOne<User>()
+        builder.HasOne(audit => audit.ActorUser)
             .WithMany()
             .HasForeignKey(audit => audit.ActorUserId)
             .OnDelete(DeleteBehavior.NoAction);

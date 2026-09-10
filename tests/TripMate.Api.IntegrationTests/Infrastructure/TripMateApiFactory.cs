@@ -90,7 +90,10 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<PoiOpeningHour> PoiOpeningHours => Set<PoiOpeningHour>();
     public DbSet<Tag> Tags => Set<Tag>();
     public DbSet<PoiTag> PoiTags => Set<PoiTag>();
+    public DbSet<OperatorProfile> OperatorProfiles => Set<OperatorProfile>();
+    public DbSet<OperatorDocument> OperatorDocuments => Set<OperatorDocument>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<Notification> Notifications => Set<Notification>();
 
     public Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,

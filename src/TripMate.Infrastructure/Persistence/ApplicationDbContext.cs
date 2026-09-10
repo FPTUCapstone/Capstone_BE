@@ -24,7 +24,13 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
 
     public DbSet<PoiTag> PoiTags => Set<PoiTag>();
 
+    public DbSet<OperatorProfile> OperatorProfiles => Set<OperatorProfile>();
+
+    public DbSet<OperatorDocument> OperatorDocuments => Set<OperatorDocument>();
+
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+
+    public DbSet<Notification> Notifications => Set<Notification>();
 
     public async Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,

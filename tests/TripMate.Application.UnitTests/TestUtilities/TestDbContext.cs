@@ -27,7 +27,13 @@ public class TestDbContext(DbContextOptions<TestDbContext> options)
 
     public DbSet<PoiTag> PoiTags => Set<PoiTag>();
 
+    public DbSet<OperatorProfile> OperatorProfiles => Set<OperatorProfile>();
+
+    public DbSet<OperatorDocument> OperatorDocuments => Set<OperatorDocument>();
+
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+
+    public DbSet<Notification> Notifications => Set<Notification>();
 
     public int TransactionExecutionCount { get; private set; }
 
@@ -54,6 +60,30 @@ public class TestDbContext(DbContextOptions<TestDbContext> options)
             .HasMany(poi => poi.PoiTags)
             .WithOne(mapping => mapping.PointOfInterest)
             .HasForeignKey(mapping => mapping.PointOfInterestId);
+
+        modelBuilder.Entity<OperatorProfile>()
+            .HasKey(profile => profile.UserId);
+        modelBuilder.Entity<OperatorProfile>()
+            .HasOne(profile => profile.User)
+            .WithOne()
+            .HasForeignKey<OperatorProfile>(profile => profile.UserId);
+        modelBuilder.Entity<OperatorProfile>()
+            .HasOne(profile => profile.Reviewer)
+            .WithMany()
+            .HasForeignKey(profile => profile.ReviewedBy);
+        modelBuilder.Entity<OperatorProfile>()
+            .HasMany(profile => profile.Documents)
+            .WithOne(document => document.OperatorProfile)
+            .HasForeignKey(document => document.OperatorUserId);
+
+        modelBuilder.Entity<Notification>()
+            .HasOne(notification => notification.User)
+            .WithMany()
+            .HasForeignKey(notification => notification.UserId);
+        modelBuilder.Entity<AuditLog>()
+            .HasOne(audit => audit.ActorUser)
+            .WithMany()
+            .HasForeignKey(audit => audit.ActorUserId);
 
         base.OnModelCreating(modelBuilder);
     }
