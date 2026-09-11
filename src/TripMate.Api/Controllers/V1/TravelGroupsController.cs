@@ -54,17 +54,17 @@ public class TravelGroupsController(
     }
 
     /**
-     * [UC-18] Get Group Invitation
-     * Retrieves an active invitation code and QR deep link for the specified travel group.
-     * Generates a new invitation if none exists or if expired.
+     * [UC-18] Generate Group Invitation
+     * Returns an active invitation code and QR deep link for the specified travel group.
+     * Generates and persists a new invitation if none exists or if the existing one has expired.
      * Caller must be the Group Host.
      */
-    [HttpGet("{groupId:long}/invitation")]
+    [HttpPost("{groupId:long}/invitation")]
     [ProducesResponseType(typeof(GetGroupInvitationResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetInvitation(
+    public async Task<IActionResult> GenerateInvitation(
         [FromRoute] long groupId,
         CancellationToken cancellationToken)
     {
