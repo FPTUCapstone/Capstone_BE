@@ -170,7 +170,8 @@ public sealed class CreatePoiCommandHandler(
             poi.AverageVisitDurationMinutes,
             poi.HasShelter,
             poi.Status,
-            poi.CreatedById,
+            poi.CreatedById
+                ?? throw new InvalidOperationException("A persisted POI response must have a creator."),
             poi.CreatedAtUtc,
             poi.UpdatedAtUtc,
             poi.OpeningHours

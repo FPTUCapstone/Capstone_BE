@@ -21,7 +21,7 @@ public sealed record PoiResponseDto(
     bool HasShelter,
     [property: JsonConverter(typeof(StrictStringEnumJsonConverterFactory))]
     PointOfInterestStatus Status,
-    long? CreatedById,
+    long CreatedById,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc,
     IReadOnlyCollection<PoiOpeningHourDto> OpeningHours,

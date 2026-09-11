@@ -189,6 +189,20 @@ public class CreatePoiEndpointTests
         });
 
         response.StatusCode.Should().Be(HttpStatusCode.Created);
+        using var responseJson = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        responseJson.RootElement.TryGetProperty("description", out var description)
+            .Should().BeTrue();
+        description.ValueKind.Should().Be(JsonValueKind.Null);
+        responseJson.RootElement.TryGetProperty("address", out var address)
+            .Should().BeTrue();
+        address.ValueKind.Should().Be(JsonValueKind.Null);
+        responseJson.RootElement.TryGetProperty("scenicScore", out var scenicScore)
+            .Should().BeTrue();
+        scenicScore.ValueKind.Should().Be(JsonValueKind.Null);
+        responseJson.RootElement.TryGetProperty("photoRating", out var photoRating)
+            .Should().BeTrue();
+        photoRating.ValueKind.Should().Be(JsonValueKind.Null);
+
         var body = await response.Content.ReadFromJsonAsync<PoiResponseDto>();
         body.Should().NotBeNull();
         body!.Address.Should().BeNull();

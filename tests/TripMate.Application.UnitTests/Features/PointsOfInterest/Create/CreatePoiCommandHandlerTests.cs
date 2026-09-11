@@ -215,6 +215,25 @@ public class CreatePoiCommandHandlerTests
         afterData.RootElement.GetProperty("tagIds").GetArrayLength().Should().Be(0);
     }
 
+    [Fact]
+    public async Task Handle_WhenCreatedAggregateLosesCreator_ThrowsSystemFailure()
+    {
+        var options = new DbContextOptionsBuilder<TestDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+        await using var dbContext = new CreatorClearingTestDbContext(options);
+        var (administrator, category) = await SeedAdministratorAndCategory(dbContext);
+        dbContext.ClearCreatorAfterNextSave = true;
+        var handler = CreateHandler(dbContext, administrator.Id);
+
+        Func<Task> action = async () =>
+            await handler.Handle(ValidCommand(category.Id), CancellationToken.None);
+
+        await action.Should()
+            .ThrowAsync<InvalidOperationException>()
+            .WithMessage("*creator*");
+    }
+
     private static CreatePoiCommandHandler CreateHandler(
         TestDbContext dbContext,
         long? currentUserId) =>
@@ -271,5 +290,27 @@ public class CreatePoiCommandHandlerTests
         dbContext.PoiCategories.Add(category);
         await dbContext.SaveChangesAsync();
         return category;
+    }
+
+    private sealed class CreatorClearingTestDbContext(DbContextOptions<TestDbContext> options)
+        : TestDbContext(options)
+    {
+        public bool ClearCreatorAfterNextSave { get; set; }
+
+        public override async Task<int> SaveChangesAsync(
+            CancellationToken cancellationToken = default)
+        {
+            var result = await base.SaveChangesAsync(cancellationToken);
+            if (!ClearCreatorAfterNextSave)
+            {
+                return result;
+            }
+
+            ClearCreatorAfterNextSave = false;
+            var createdPoi = ChangeTracker.Entries<PointOfInterest>()
+                .Single(entry => entry.Entity.Id > 0);
+            createdPoi.Property(nameof(PointOfInterest.CreatedById)).CurrentValue = null;
+            return result;
+        }
     }
 }
