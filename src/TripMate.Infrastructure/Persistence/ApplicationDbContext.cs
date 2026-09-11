@@ -14,6 +14,15 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
 
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
+    public DbSet<OperatorProfile> OperatorProfiles => Set<OperatorProfile>();
+
+    public DbSet<OperatorDocument> OperatorDocuments => Set<OperatorDocument>();
+
+    public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+
+    public DbSet<Notification> Notifications => Set<Notification>();
+
+
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
 
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
