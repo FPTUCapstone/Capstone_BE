@@ -32,6 +32,7 @@ public sealed class CreatePoiSqlServerTests
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
         var seed = await SeedReferencesAsync(database);
+        var before = await ReadCountsAsync(database);
 
         long poiId;
         await using (var context = database.CreateDbContext())
@@ -54,44 +55,116 @@ public sealed class CreatePoiSqlServerTests
             .Where(item => item.PointOfInterestId == poiId)
             .OrderBy(item => item.DayOfWeek)
             .ToListAsync();
-        var tagIds = await verificationContext.PoiTags
+        var tagMappings = await verificationContext.PoiTags
             .AsNoTracking()
             .Where(item => item.PointOfInterestId == poiId)
-            .Select(item => item.TagId)
-            .OrderBy(id => id)
+            .OrderBy(item => item.TagId)
             .ToListAsync();
+        var tagIds = tagMappings.Select(mapping => mapping.TagId).ToArray();
         var audit = await verificationContext.AuditLogs
             .AsNoTracking()
             .SingleAsync(item => item.AffectedEntityId == poiId);
 
         poi.Name.Should().Be("SQL Success POI");
+        poi.Address.Should().Be("Da Lat, Lam Dong");
+        poi.Description.Should().Be("SQL Server transaction integration test");
         poi.CategoryId.Should().Be(seed.CategoryId);
         poi.CreatedById.Should().Be(seed.UserId);
-        openingHours.Select(item => item.DayOfWeek).Should().Equal(0, 1);
+        poi.Latitude.Should().Be(11.941755m);
+        poi.Longitude.Should().Be(108.438278m);
+        poi.IndoorOutdoor.Should().Be(IndoorOutdoorType.Mixed);
+        poi.AverageVisitDurationMinutes.Should().Be(90);
+        poi.HasShelter.Should().BeTrue();
+        poi.Status.Should().Be(PointOfInterestStatus.Active);
+        poi.ScenicScore.Should().BeNull();
+        poi.PhotoRating.Should().BeNull();
+        poi.CreatedAtUtc.Should().Be(TestTime);
+        poi.UpdatedAtUtc.Should().Be(TestTime);
+
+        openingHours.Should().HaveCount(2);
+        openingHours[0].PointOfInterestId.Should().Be(poiId);
+        openingHours[0].DayOfWeek.Should().Be(0);
+        openingHours[0].OpenTime.Should().BeNull();
+        openingHours[0].CloseTime.Should().BeNull();
+        openingHours[0].IsClosed.Should().BeTrue();
+        openingHours[1].PointOfInterestId.Should().Be(poiId);
+        openingHours[1].DayOfWeek.Should().Be(1);
+        openingHours[1].OpenTime.Should().Be(new TimeOnly(8, 0));
+        openingHours[1].CloseTime.Should().Be(new TimeOnly(17, 0));
+        openingHours[1].IsClosed.Should().BeFalse();
+
+        tagMappings.Should().HaveCount(seed.TagIds.Length);
+        tagMappings.Should().OnlyContain(mapping => mapping.PointOfInterestId == poiId);
         tagIds.Should().Equal(seed.TagIds.OrderBy(id => id));
+
+        audit.Id.Should().BePositive();
         audit.ActorUserId.Should().Be(seed.UserId);
         audit.ActionType.Should().Be(AuditActionTypes.PoiCreate);
         audit.AffectedEntity.Should().Be(AuditEntityTypes.PointOfInterest);
+        audit.AffectedEntityId.Should().Be(poiId);
+        audit.BeforeData.Should().BeNull();
+        audit.AfterData.Should().NotBeNullOrWhiteSpace();
+        audit.IpAddress.Should().BeNull();
+        audit.CreatedAtUtc.Should().Be(TestTime);
 
         using var auditJson = JsonDocument.Parse(audit.AfterData!);
-        auditJson.RootElement.GetProperty("id").GetInt64().Should().Be(poiId);
-        auditJson.RootElement.GetProperty("categoryId").GetInt32().Should().Be(poi.CategoryId);
-        auditJson.RootElement.GetProperty("name").GetString().Should().Be(poi.Name);
-        auditJson.RootElement.GetProperty("latitude").GetDecimal().Should().Be(poi.Latitude);
-        auditJson.RootElement.GetProperty("longitude").GetDecimal().Should().Be(poi.Longitude);
-        auditJson.RootElement.GetProperty("createdById").GetInt64().Should().Be(seed.UserId);
-        auditJson.RootElement.GetProperty("tagIds")
-            .EnumerateArray()
-            .Select(element => element.GetInt32())
+        var payload = auditJson.RootElement;
+        payload.EnumerateObject().Select(property => property.Name).Should().BeEquivalentTo(
+        [
+            "id",
+            "categoryId",
+            "name",
+            "description",
+            "latitude",
+            "longitude",
+            "address",
+            "indoorOutdoor",
+            "scenicScore",
+            "photoRating",
+            "averageVisitDurationMinutes",
+            "hasShelter",
+            "status",
+            "createdById",
+            "createdAtUtc",
+            "updatedAtUtc",
+            "openingHours",
+            "tagIds",
+        ]);
+        payload.GetProperty("id").GetInt64().Should().Be(poi.Id);
+        payload.GetProperty("categoryId").GetInt32().Should().Be(poi.CategoryId);
+        payload.GetProperty("name").GetString().Should().Be(poi.Name);
+        payload.GetProperty("description").GetString().Should().Be(poi.Description);
+        payload.GetProperty("latitude").GetDecimal().Should().Be(poi.Latitude);
+        payload.GetProperty("longitude").GetDecimal().Should().Be(poi.Longitude);
+        payload.GetProperty("address").GetString().Should().Be(poi.Address);
+        payload.GetProperty("indoorOutdoor").GetString()
+            .Should().Be(nameof(IndoorOutdoorType.Mixed));
+        payload.GetProperty("scenicScore").ValueKind.Should().Be(JsonValueKind.Null);
+        payload.GetProperty("photoRating").ValueKind.Should().Be(JsonValueKind.Null);
+        payload.GetProperty("averageVisitDurationMinutes").GetInt32()
+            .Should().Be(poi.AverageVisitDurationMinutes);
+        payload.GetProperty("hasShelter").GetBoolean().Should().Be(poi.HasShelter);
+        payload.GetProperty("status").GetString()
+            .Should().Be(nameof(PointOfInterestStatus.Active));
+        payload.GetProperty("createdById").GetInt64().Should().Be(poi.CreatedById);
+        payload.GetProperty("createdAtUtc").GetDateTimeOffset().Should().Be(poi.CreatedAtUtc);
+        payload.GetProperty("updatedAtUtc").GetDateTimeOffset().Should().Be(poi.UpdatedAtUtc);
+
+        var auditOpeningHours = payload.GetProperty("openingHours").EnumerateArray().ToArray();
+        auditOpeningHours.Should().HaveCount(2);
+        AssertAuditOpeningHour(auditOpeningHours[0], openingHours[0]);
+        AssertAuditOpeningHour(auditOpeningHours[1], openingHours[1]);
+        payload.GetProperty("tagIds").EnumerateArray().Select(item => item.GetInt32())
             .Should().Equal(tagIds);
 
-        var auditOpeningHours = auditJson.RootElement.GetProperty("openingHours")
-            .EnumerateArray()
-            .ToArray();
-        auditOpeningHours.Select(element => element.GetProperty("dayOfWeek").GetInt32())
-            .Should().Equal(0, 1);
-        auditOpeningHours.Select(element => element.GetProperty("isClosed").GetBoolean())
-            .Should().Equal(true, false);
+        var after = await ReadCountsAsync(database);
+        after.Should().Be(before with
+        {
+            Pois = before.Pois + 1,
+            OpeningHours = before.OpeningHours + 2,
+            PoiTags = before.PoiTags + seed.TagIds.Length,
+            AuditLogs = before.AuditLogs + 1,
+        });
     }
 
     [SqlServerFact]
@@ -193,6 +266,30 @@ public sealed class CreatePoiSqlServerTests
         after.Should().Be(
             before,
             "the HTTP request transaction must roll back the POI, child rows, and audit row");
+    }
+
+    private static void AssertAuditOpeningHour(
+        JsonElement payload,
+        PoiOpeningHour persisted)
+    {
+        payload.EnumerateObject().Select(property => property.Name).Should().BeEquivalentTo(
+            ["dayOfWeek", "openTime", "closeTime", "isClosed"]);
+        payload.GetProperty("dayOfWeek").GetInt32().Should().Be(persisted.DayOfWeek);
+
+        var openTime = payload.GetProperty("openTime");
+        var closeTime = payload.GetProperty("closeTime");
+        if (persisted.IsClosed)
+        {
+            openTime.ValueKind.Should().Be(JsonValueKind.Null);
+            closeTime.ValueKind.Should().Be(JsonValueKind.Null);
+        }
+        else
+        {
+            TimeOnly.Parse(openTime.GetString()!).Should().Be(persisted.OpenTime);
+            TimeOnly.Parse(closeTime.GetString()!).Should().Be(persisted.CloseTime);
+        }
+
+        payload.GetProperty("isClosed").GetBoolean().Should().Be(persisted.IsClosed);
     }
 
     private static CreatePoiCommandHandler CreateHandler(
