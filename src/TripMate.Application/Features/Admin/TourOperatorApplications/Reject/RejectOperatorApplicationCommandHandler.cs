@@ -152,10 +152,17 @@ public class RejectOperatorApplicationCommandHandler(
             CreatedAtUtc = now,
         });
 
-        // 11. Single-transaction commit
-        await dbContext.SaveChangesAsync(cancellationToken);
-
-        const string responseMessage = "Application rejected. Notification sent to operator.";
+        // 11. Single-transaction commit with concurrency protection
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Result.Failure<RejectOperatorApplicationResponseDto>(
+                TourOperatorApplicationErrorCodes.NotPending,
+                "Application is no longer pending approval.");
+        }
 
         return Result.Success(new RejectOperatorApplicationResponseDto(
             user.Id,
@@ -164,6 +171,6 @@ public class RejectOperatorApplicationCommandHandler(
             trimmedReason,
             adminId,
             now,
-            responseMessage));
+            TourOperatorApplicationMessages.RejectSuccess));
     }
 }

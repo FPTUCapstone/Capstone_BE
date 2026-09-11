@@ -20,7 +20,7 @@ public class OperatorProfileConfiguration : IEntityTypeConfiguration<OperatorPro
         builder.Property(op => op.ContactPhone).HasColumnName("contact_phone").HasMaxLength(20);
         builder.Property(op => op.ContactAddress).HasColumnName("contact_address").HasMaxLength(300);
         builder.Property(op => op.CommissionRate).HasColumnName("commission_rate").HasPrecision(5, 2);
-        builder.Property(op => op.ApprovalStatus).HasColumnName("approval_status").HasConversion<string>().HasMaxLength(20);
+        builder.Property(op => op.ApprovalStatus).HasColumnName("approval_status").HasConversion<string>().HasMaxLength(20).IsConcurrencyToken();
         builder.Property(op => op.RejectionReason).HasColumnName("rejection_reason").HasMaxLength(500);
         builder.Property(op => op.ReviewedBy).HasColumnName("reviewed_by");
         builder.Property(op => op.ReviewedAtUtc).HasColumnName("reviewed_at").AsUtcDateTime2();
