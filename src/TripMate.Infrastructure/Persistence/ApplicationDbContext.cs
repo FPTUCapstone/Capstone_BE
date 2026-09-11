@@ -13,10 +13,17 @@ public class ApplicationDbContext(
 
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
+    public DbSet<OperatorProfile> OperatorProfiles => Set<OperatorProfile>();
+
+    public DbSet<OperatorDocument> OperatorDocuments => Set<OperatorDocument>();
+
+    public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+
+    public DbSet<Notification> Notifications => Set<Notification>();
+
     public DbSet<Message> Messages => Set<Message>();
 
-    protected override void OnModelCreating(
-        ModelBuilder modelBuilder)
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(
             Assembly.GetExecutingAssembly());

@@ -9,6 +9,22 @@ public interface IApplicationDbContext
 
     DbSet<RefreshToken> RefreshTokens { get; }
 
+    DbSet<OperatorProfile> OperatorProfiles { get; }
+
+    DbSet<OperatorDocument> OperatorDocuments { get; }
+
+    DbSet<AuditLog> AuditLogs { get; }
+
+    DbSet<Notification> Notifications { get; }
+
+    DbSet<OperatorProfile> OperatorProfiles { get; }
+
+    DbSet<OperatorDocument> OperatorDocuments { get; }
+
+    DbSet<AuditLog> AuditLogs { get; }
+
+    DbSet<Notification> Notifications { get; }
+
     DbSet<Message> Messages { get; }
 
     Task<int> SaveChangesAsync(
