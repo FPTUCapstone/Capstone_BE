@@ -22,6 +22,8 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             AuthErrorCodes.AccountInactive => StatusCodes.Status403Forbidden,
             AuthErrorCodes.EmailAlreadyRegistered => StatusCodes.Status409Conflict,
             TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.ItineraryNotFound => StatusCodes.Status404NotFound,
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.GroupNotFound => StatusCodes.Status404NotFound,
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.HostPermissionRequired => StatusCodes.Status403Forbidden,
             _ => StatusCodes.Status400BadRequest,
         };
 

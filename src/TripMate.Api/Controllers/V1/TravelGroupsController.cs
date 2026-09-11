@@ -7,6 +7,7 @@ using TripMate.Api.Common;
 using TripMate.Api.Controllers.V1.Requests;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.TravelGroups.CreateTravelGroup;
+using TripMate.Application.Features.TravelGroups.GetInvitation;
 
 namespace TripMate.Api.Controllers.V1;
 
@@ -47,6 +48,35 @@ public class TravelGroupsController(
 
         return result.IsSuccess
             ? StatusCode(StatusCodes.Status201Created, result.Value)
+            : HandleFailure(result);
+    }
+
+    /**
+     * [UC-18] Get Group Invitation
+     * Retrieves an active invitation code and QR deep link for the specified travel group.
+     * Generates a new invitation if none exists or if expired.
+     * Caller must be the Group Host.
+     */
+    [HttpGet("{groupId:long}/invitation")]
+    [ProducesResponseType(typeof(GetGroupInvitationResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetInvitation(
+        [FromRoute] long groupId,
+        CancellationToken cancellationToken)
+    {
+        if (!currentUserService.UserId.HasValue)
+        {
+            return Unauthorized();
+        }
+
+        var query = new GetGroupInvitationQuery(groupId, currentUserService.UserId.Value);
+
+        var result = await Sender.Send(query, cancellationToken);
+
+        return result.IsSuccess
+            ? Ok(result.Value)
             : HandleFailure(result);
     }
 }
