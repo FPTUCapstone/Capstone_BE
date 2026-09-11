@@ -31,15 +31,16 @@ public class AdminTourOperatorApplicationsController(ISender sender) : ApiContro
     [HttpPost("{userId:long}/reject")]
     public async Task<IActionResult> Reject(
         long userId,
-        [FromBody] RejectTourOperatorApplicationRequest request,
+        [FromBody] RejectTourOperatorApplicationRequest? request,
         CancellationToken cancellationToken)
     {
+        var reason = request?.Reason ?? string.Empty;
         var result = await Sender.Send(
-            new RejectOperatorApplicationCommand(userId, request.Reason),
+            new RejectOperatorApplicationCommand(userId, reason),
             cancellationToken);
 
         return result.IsSuccess ? Ok() : HandleFailure(result);
     }
 }
 
-public record RejectTourOperatorApplicationRequest(string Reason);
+public record RejectTourOperatorApplicationRequest(string? Reason);

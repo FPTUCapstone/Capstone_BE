@@ -144,8 +144,11 @@ public class ApproveOperatorApplicationCommandHandler(
             CreatedAtUtc = now,
         });
 
-        // 11. Create Notification row (MSG114 content)
-        var messageText = TourOperatorApplicationMessages.FormatApproveSuccess(profile.CompanyName);
+        // 11. Create Notification row (MSG114 content resolved from dbContext.Messages)
+        var msgRow = await dbContext.Messages
+            .FirstOrDefaultAsync(m => m.MessageCode == TourOperatorApplicationMessages.CodeMSG114, cancellationToken);
+
+        var messageText = TourOperatorApplicationMessages.FormatApproveSuccess(msgRow?.ContentTemplate, profile.CompanyName);
 
         dbContext.Notifications.Add(new Notification
         {
