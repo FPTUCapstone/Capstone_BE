@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+
 using TripMate.Application.Common.Interfaces;
 using TripMate.Infrastructure.Authentication;
 using TripMate.Infrastructure.Persistence;
