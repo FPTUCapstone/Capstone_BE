@@ -117,4 +117,46 @@ public class CreateTravelGroupCommandHandlerTests
         // Invitation generation belongs to UC-18.
         groupInDb.GroupInvitations.Should().BeEmpty();
     }
+
+    [Fact]
+    public async Task Handle_WhenHostMembershipPersistenceFails_DoesNotRetainTravelGroup()
+    {
+        var databaseName = Guid.NewGuid().ToString();
+        var seedOptions = new DbContextOptionsBuilder<TestDbContext>()
+            .UseInMemoryDatabase(databaseName)
+            .Options;
+
+        await using (var seedContext = new TestDbContext(seedOptions))
+        {
+            seedContext.Itineraries.Add(new Itinerary
+            {
+                TravelerUserId = 100,
+                Title = "Da Nang Trip",
+                Status = "Active",
+                CreatedAtUtc = _dateTimeProvider.UtcNow,
+                UpdatedAtUtc = _dateTimeProvider.UtcNow
+            });
+            await seedContext.SaveChangesAsync();
+        }
+
+        await using (var failingContext = new FailingSaveChangesTestDbContext(seedOptions))
+        {
+            var itinerary = await failingContext.Itineraries.SingleAsync();
+            var handler = new CreateTravelGroupCommandHandler(failingContext, _dateTimeProvider);
+            var command = new CreateTravelGroupCommand(itinerary.Id, "Da Nang Group", 200);
+
+            await FluentActions.Invoking(() => handler.Handle(command, CancellationToken.None))
+                .Should().ThrowAsync<DbUpdateException>();
+        }
+
+        await using var verificationContext = new TestDbContext(seedOptions);
+        (await verificationContext.TravelGroups.CountAsync()).Should().Be(0);
+    }
+}
+
+internal sealed class FailingSaveChangesTestDbContext(DbContextOptions<TestDbContext> options)
+    : TestDbContext(options)
+{
+    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
+        throw new DbUpdateException("Simulated GroupMember persistence failure.");
 }
