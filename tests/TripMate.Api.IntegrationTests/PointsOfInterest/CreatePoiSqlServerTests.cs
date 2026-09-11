@@ -1,9 +1,12 @@
+using System.Net;
+using System.Net.Http.Json;
 using System.Text.Json;
 
 using FluentAssertions;
 
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
@@ -15,6 +18,7 @@ using TripMate.Infrastructure.Persistence;
 
 namespace TripMate.Api.IntegrationTests.PointsOfInterest;
 
+[Collection(nameof(TripMateApiFactory))]
 public sealed class CreatePoiSqlServerTests
 {
     private const string RejectAuditConstraintName =
@@ -130,6 +134,65 @@ public sealed class CreatePoiSqlServerTests
         after.Should().Be(
             before,
             "disposing the failed physical transaction must roll back the POI and every child row");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Post_WhenAuditInsertFails_ReturnsSanitizedProblemAndRollsBackAggregate()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedReferencesAsync(database);
+        var before = await ReadCountsAsync(database);
+        var identityBefore = await database.ReadPoiIdentityLastValueAsync();
+
+        await database.ExecuteNonQueryAsync($"""
+            ALTER TABLE dbo.AuditLogs
+            ADD CONSTRAINT [{RejectAuditConstraintName}]
+            CHECK (actor_user_id <> {seed.UserId} OR action_type <> 'POI_CREATE');
+            """);
+
+        await using var factory = new TripMateApiFactory(
+            ApiTestAuthenticationMode.JwtBearer,
+            database.ConnectionString);
+        User administrator;
+        await using (var context = database.CreateDbContext())
+        {
+            administrator = await context.Users
+                .AsNoTracking()
+                .SingleAsync(user => user.Id == seed.UserId);
+        }
+
+        var tokenService = factory.Services.GetRequiredService<IJwtTokenService>();
+        var token = tokenService.GenerateAccessToken(administrator).Token;
+        using var client = factory.CreateJwtClient(token);
+
+        var response = await client.PostAsJsonAsync(
+            "/api/v1/admin/pois",
+            CreateCommand(seed, "SQL HTTP Rollback POI"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
+        response.Content.Headers.ContentType!.MediaType
+            .Should().Be("application/problem+json");
+        var responseBody = await response.Content.ReadAsStringAsync();
+        using var problem = JsonDocument.Parse(responseBody);
+        problem.RootElement.GetProperty("status").GetInt32()
+            .Should().Be((int)HttpStatusCode.InternalServerError);
+        problem.RootElement.GetProperty("title").GetString()
+            .Should().Be("An unexpected error occurred.");
+        problem.RootElement.TryGetProperty("detail", out _).Should().BeFalse();
+        responseBody.Should().NotContain(RejectAuditConstraintName);
+        responseBody.Should().NotContain("SqlException");
+        responseBody.ToLowerInvariant().Should().NotContain("stack");
+
+        var identityAfter = await database.ReadPoiIdentityLastValueAsync();
+        identityAfter.Should().NotBeNull(
+            "the HTTP request must reach the first POI save before the audit insert fails");
+        identityAfter!.Value.Should().BeGreaterThan(identityBefore ?? 0);
+
+        var after = await ReadCountsAsync(database);
+        after.Should().Be(
+            before,
+            "the HTTP request transaction must roll back the POI, child rows, and audit row");
     }
 
     private static CreatePoiCommandHandler CreateHandler(

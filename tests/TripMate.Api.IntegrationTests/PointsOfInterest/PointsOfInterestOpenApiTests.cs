@@ -180,6 +180,8 @@ public sealed class PointsOfInterestOpenApiTests
             .GetProperty("properties")
             .TryGetProperty("errors", out var errorsProperty)
             .Should().BeTrue();
+        RequiredPropertyNames(validationProblemDetails).Should().Contain("errors");
+        IsNullable(errorsProperty).Should().BeFalse();
         errorsProperty.GetProperty("type").GetString().Should().Be("object");
         var validationMessages = errorsProperty.GetProperty("additionalProperties");
         validationMessages.GetProperty("type").GetString().Should().Be("array");
@@ -188,6 +190,50 @@ public sealed class PointsOfInterestOpenApiTests
             .GetProperty("type")
             .GetString()
             .Should().Be("string");
+    }
+
+    [Fact]
+    public async Task CreatePoi_ErrorResponses_DocumentRuntimeContract()
+    {
+        await using var factory = new TripMateApiFactory();
+        var swaggerProvider = factory.Services.GetRequiredService<ISwaggerProvider>();
+        var document = swaggerProvider.GetSwagger("v1");
+        var json = await document.SerializeAsJsonAsync(OpenApiSpecVersion.OpenApi3_0);
+
+        using var openApi = JsonDocument.Parse(json);
+        var root = openApi.RootElement;
+        var responses = root
+            .GetProperty("paths")
+            .GetProperty("/api/v1/admin/pois")
+            .GetProperty("post")
+            .GetProperty("responses");
+
+        responses.EnumerateObject().Select(response => response.Name).Should().BeEquivalentTo(
+            ["201", "400", "401", "403", "404", "409", "500"]);
+
+        AssertResponseSchema(responses.GetProperty("201"), "PoiResponseDto");
+        AssertResponseSchema(responses.GetProperty("400"), "ValidationProblemDetails");
+        if (responses.GetProperty("401").TryGetProperty("content", out var unauthorizedContent))
+        {
+            unauthorizedContent.EnumerateObject().Should().BeEmpty();
+        }
+        AssertResponseSchema(responses.GetProperty("403"), "ErrorCodeProblemDetails");
+        AssertResponseSchema(responses.GetProperty("404"), "ErrorCodeProblemDetails");
+        AssertResponseSchema(responses.GetProperty("409"), "PossibleDuplicateProblemDetails");
+        AssertResponseSchema(responses.GetProperty("500"), "ProblemDetails");
+
+        var schemas = root.GetProperty("components").GetProperty("schemas");
+        var codedProblem = schemas.GetProperty("ErrorCodeProblemDetails");
+        RequiredPropertyNames(codedProblem).Should().Contain("errorCode");
+        IsNullable(codedProblem.GetProperty("properties").GetProperty("errorCode"))
+            .Should().BeFalse();
+
+        var duplicateProblem = schemas.GetProperty("PossibleDuplicateProblemDetails");
+        RequiredPropertyNames(duplicateProblem).Should().Contain(["errorCode", "existingPoiId"]);
+        IsNullable(duplicateProblem.GetProperty("properties").GetProperty("errorCode"))
+            .Should().BeFalse();
+        IsNullable(duplicateProblem.GetProperty("properties").GetProperty("existingPoiId"))
+            .Should().BeFalse();
     }
 
     private static void AssertStringEnumSchema(
@@ -200,6 +246,21 @@ public sealed class PointsOfInterestOpenApiTests
             .Select(value => value.GetString())
             .Should()
             .Equal(expectedNames);
+    }
+
+    private static void AssertResponseSchema(JsonElement response, string expectedSchema)
+    {
+        var references = response.GetProperty("content")
+            .EnumerateObject()
+            .Select(mediaType => mediaType.Value
+                .GetProperty("schema")
+                .GetProperty("$ref")
+                .GetString())
+            .ToArray();
+
+        references.Should().NotBeEmpty();
+        references.Should().OnlyContain(
+            reference => reference == $"#/components/schemas/{expectedSchema}");
     }
 
     private static string[] RequiredPropertyNames(JsonElement schema) =>

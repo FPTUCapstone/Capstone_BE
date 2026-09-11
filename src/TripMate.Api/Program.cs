@@ -71,6 +71,7 @@ try
         options.SwaggerDoc("v1", new OpenApiInfo { Title = "TripMate API", Version = "v1" });
         options.SchemaFilter<PoiEnumSchemaFilter>();
         options.SchemaFilter<PoiContractSchemaFilter>();
+        options.SchemaFilter<ProblemDetailsContractSchemaFilter>();
 
         options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
         {

@@ -19,12 +19,14 @@ namespace TripMate.Api.Controllers.V1;
 public sealed class PointsOfInterestController(ISender sender) : ApiControllerBase(sender)
 {
     [HttpPost]
+    [ProducesErrorResponseType(typeof(void))]
     [ProducesResponseType(typeof(PoiResponseDto), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ErrorCodeProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ErrorCodeProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(PossibleDuplicateProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> Create(
         CreatePoiCommand command,
         CancellationToken cancellationToken)

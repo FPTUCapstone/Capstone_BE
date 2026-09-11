@@ -1,3 +1,4 @@
+using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 
@@ -6,7 +7,6 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
@@ -19,45 +19,61 @@ using TripMate.Infrastructure.Persistence;
 
 namespace TripMate.Api.IntegrationTests.Infrastructure;
 
-public sealed class TripMateApiFactory : WebApplicationFactory<Program>
+public enum ApiTestAuthenticationMode
 {
+    HeaderStub,
+    JwtBearer,
+}
+
+public sealed class TripMateApiFactory(
+    ApiTestAuthenticationMode authenticationMode = ApiTestAuthenticationMode.HeaderStub,
+    string? sqlServerConnectionString = null) : WebApplicationFactory<Program>
+{
+    internal const string JwtIssuer = "TripMate.Tests";
+    internal const string JwtAudience = "TripMate.Tests";
+    internal const string JwtSigningKey =
+        "dGVzdC1vbmx5LXNpZ25pbmcta2V5LXRoYXQtaXMtbG9uZy1lbm91Z2g=";
+
     private readonly string _databaseName = $"tripmate-api-tests-{Guid.NewGuid():N}";
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
+        builder.UseSetting("Jwt:Issuer", JwtIssuer);
+        builder.UseSetting("Jwt:Audience", JwtAudience);
+        builder.UseSetting("Jwt:SigningKey", JwtSigningKey);
 
-        builder.ConfigureAppConfiguration((_, configuration) =>
+        if (sqlServerConnectionString is not null)
         {
-            configuration.AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Jwt:Issuer"] = "TripMate.Tests",
-                ["Jwt:Audience"] = "TripMate.Tests",
-                ["Jwt:SigningKey"] =
-                    "dGVzdC1vbmx5LXNpZ25pbmcta2V5LXRoYXQtaXMtbG9uZy1lbm91Z2g=",
-            });
-        });
+            builder.UseSetting("ConnectionStrings:Default", sqlServerConnectionString);
+        }
 
         builder.ConfigureTestServices(services =>
         {
-            services.RemoveAll<ApplicationDbContext>();
-            services.RemoveAll<DbContextOptions<ApplicationDbContext>>();
-            services.RemoveAll<IApplicationDbContext>();
+            if (sqlServerConnectionString is null)
+            {
+                services.RemoveAll<ApplicationDbContext>();
+                services.RemoveAll<DbContextOptions<ApplicationDbContext>>();
+                services.RemoveAll<IApplicationDbContext>();
 
-            services.AddDbContext<TestApiDbContext>(options =>
-                options.UseInMemoryDatabase(_databaseName));
-            services.AddScoped<IApplicationDbContext>(provider =>
-                provider.GetRequiredService<TestApiDbContext>());
+                services.AddDbContext<TestApiDbContext>(options =>
+                    options.UseInMemoryDatabase(_databaseName));
+                services.AddScoped<IApplicationDbContext>(provider =>
+                    provider.GetRequiredService<TestApiDbContext>());
+            }
 
-            services.AddAuthentication(options =>
-                {
-                    options.DefaultAuthenticateScheme = TestAuthenticationHandler.SchemeName;
-                    options.DefaultChallengeScheme = TestAuthenticationHandler.SchemeName;
-                    options.DefaultForbidScheme = TestAuthenticationHandler.SchemeName;
-                })
-                .AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>(
-                    TestAuthenticationHandler.SchemeName,
-                    _ => { });
+            if (authenticationMode == ApiTestAuthenticationMode.HeaderStub)
+            {
+                services.AddAuthentication(options =>
+                    {
+                        options.DefaultAuthenticateScheme = TestAuthenticationHandler.SchemeName;
+                        options.DefaultChallengeScheme = TestAuthenticationHandler.SchemeName;
+                        options.DefaultForbidScheme = TestAuthenticationHandler.SchemeName;
+                    })
+                    .AddScheme<AuthenticationSchemeOptions, TestAuthenticationHandler>(
+                        TestAuthenticationHandler.SchemeName,
+                        _ => { });
+            }
         });
     }
 
@@ -69,6 +85,16 @@ public sealed class TripMateApiFactory : WebApplicationFactory<Program>
         });
         client.DefaultRequestHeaders.Add(TestAuthenticationHandler.UserIdHeader, userId.ToString());
         client.DefaultRequestHeaders.Add(TestAuthenticationHandler.RoleHeader, role.ToString());
+        return client;
+    }
+
+    public HttpClient CreateJwtClient(string token)
+    {
+        var client = CreateClient(new WebApplicationFactoryClientOptions
+        {
+            BaseAddress = new Uri("https://localhost"),
+        });
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         return client;
     }
 
