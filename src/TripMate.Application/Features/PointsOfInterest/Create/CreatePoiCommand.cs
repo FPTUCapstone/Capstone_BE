@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using MediatR;
 
 using TripMate.Application.Common.Models;
+using TripMate.Application.Common.Serialization;
 using TripMate.Application.Features.PointsOfInterest.Common;
 using TripMate.Domain.Enums;
 
@@ -15,7 +16,7 @@ public sealed record CreatePoiCommand(
     decimal? Longitude,
     string? Address = null,
     string? Description = null,
-    [property: JsonConverter(typeof(JsonStringEnumConverter))]
+    [property: JsonConverter(typeof(StrictStringEnumJsonConverterFactory))]
     IndoorOutdoorType? IndoorOutdoor = null,
     int? AverageVisitDurationMinutes = null,
     bool? HasShelter = null,

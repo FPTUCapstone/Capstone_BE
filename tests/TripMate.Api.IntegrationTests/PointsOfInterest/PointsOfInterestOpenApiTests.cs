@@ -15,6 +15,30 @@ namespace TripMate.Api.IntegrationTests.PointsOfInterest;
 public sealed class PointsOfInterestOpenApiTests
 {
     [Fact]
+    public async Task CreatePoi_EnumSchemas_UseOnlyCanonicalStringNames()
+    {
+        await using var factory = new TripMateApiFactory();
+        var swaggerProvider = factory.Services.GetRequiredService<ISwaggerProvider>();
+        var document = swaggerProvider.GetSwagger("v1");
+        var json = await document.SerializeAsJsonAsync(OpenApiSpecVersion.OpenApi3_0);
+
+        using var openApi = JsonDocument.Parse(json);
+        var schemas = openApi.RootElement
+            .GetProperty("components")
+            .GetProperty("schemas");
+
+        AssertStringEnumSchema(
+            schemas.GetProperty("IndoorOutdoorType"),
+            "Indoor",
+            "Outdoor",
+            "Mixed");
+        AssertStringEnumSchema(
+            schemas.GetProperty("PointOfInterestStatus"),
+            "Active",
+            "Inactive");
+    }
+
+    [Fact]
     public async Task CreatePoi_400Response_DocumentsValidationErrors()
     {
         await using var factory = new TripMateApiFactory();
@@ -61,5 +85,17 @@ public sealed class PointsOfInterestOpenApiTests
             .GetProperty("type")
             .GetString()
             .Should().Be("string");
+    }
+
+    private static void AssertStringEnumSchema(
+        JsonElement schema,
+        params string[] expectedNames)
+    {
+        schema.GetProperty("type").GetString().Should().Be("string");
+        schema.GetProperty("enum")
+            .EnumerateArray()
+            .Select(value => value.GetString())
+            .Should()
+            .Equal(expectedNames);
     }
 }

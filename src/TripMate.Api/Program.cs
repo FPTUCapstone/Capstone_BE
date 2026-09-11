@@ -14,6 +14,7 @@ using Serilog;
 using TripMate.Api.Authorization;
 using TripMate.Api.Common;
 using TripMate.Api.Middleware;
+using TripMate.Api.OpenApi;
 using TripMate.Application;
 using TripMate.Infrastructure;
 using TripMate.Infrastructure.Authentication;
@@ -68,6 +69,7 @@ try
     builder.Services.AddSwaggerGen(options =>
     {
         options.SwaggerDoc("v1", new OpenApiInfo { Title = "TripMate API", Version = "v1" });
+        options.SchemaFilter<PoiEnumSchemaFilter>();
 
         options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
         {

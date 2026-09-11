@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 
 using FluentAssertions;
@@ -45,6 +46,86 @@ public class CreatePoiEndpointTests
         body.Status.Should().Be(PointOfInterestStatus.Active);
         body.IndoorOutdoor.Should().Be(IndoorOutdoorType.Mixed);
         response.Headers.Location.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Post_WithCaseInsensitiveIndoorOutdoor_ReturnsCanonicalEnumNames()
+    {
+        await using var factory = new TripMateApiFactory();
+        var seed = await SeedAsync(factory);
+        using var client = factory.CreateAuthenticatedClient(
+            seed.UserId,
+            UserRole.Administrator);
+
+        var response = await client.PostAsJsonAsync("/api/v1/admin/pois", new
+        {
+            name = "Case Insensitive Enum POI",
+            categoryId = seed.CategoryId,
+            latitude = 11.941755m,
+            longitude = 108.438278m,
+            indoorOutdoor = "mIxEd",
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("indoorOutdoor").GetString().Should().Be("Mixed");
+        body.RootElement.GetProperty("status").GetString().Should().Be("Active");
+    }
+
+    [Fact]
+    public async Task Post_WithNullIndoorOutdoor_UsesOutdoorDefault()
+    {
+        await using var factory = new TripMateApiFactory();
+        var seed = await SeedAsync(factory);
+        using var client = factory.CreateAuthenticatedClient(
+            seed.UserId,
+            UserRole.Administrator);
+
+        var response = await client.PostAsJsonAsync("/api/v1/admin/pois", new
+        {
+            name = "Nullable Enum POI",
+            categoryId = seed.CategoryId,
+            latitude = 11.941755m,
+            longitude = 108.438278m,
+            indoorOutdoor = (string?)null,
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("indoorOutdoor").GetString().Should().Be("Outdoor");
+    }
+
+    [Theory]
+    [InlineData("1")]
+    [InlineData("2")]
+    [InlineData("3")]
+    [InlineData("\"Indoor, Outdoor\"")]
+    [InlineData("\"Unknown\"")]
+    public async Task Post_WithInvalidIndoorOutdoorWireValue_ReturnsValidationProblemDetails(
+        string indoorOutdoorJson)
+    {
+        await using var factory = new TripMateApiFactory();
+        var seed = await SeedAsync(factory);
+        using var client = factory.CreateAuthenticatedClient(
+            seed.UserId,
+            UserRole.Administrator);
+        var requestJson = $$"""
+            {
+              "name": "Invalid Enum POI",
+              "categoryId": {{seed.CategoryId}},
+              "latitude": 11.941755,
+              "longitude": 108.438278,
+              "indoorOutdoor": {{indoorOutdoorJson}}
+            }
+            """;
+
+        var response = await client.PostAsync(
+            "/api/v1/admin/pois",
+            new StringContent(requestJson, Encoding.UTF8, "application/json"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.Content.Headers.ContentType!.MediaType
+            .Should().Be("application/problem+json");
     }
 
     [Fact]
