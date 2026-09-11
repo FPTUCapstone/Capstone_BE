@@ -103,4 +103,3 @@ public class GetGroupInvitationQueryHandler(
         return new string(chars);
     }
 }
-

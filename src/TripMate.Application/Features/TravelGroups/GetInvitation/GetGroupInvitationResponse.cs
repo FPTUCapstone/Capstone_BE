@@ -10,4 +10,3 @@ public sealed record GetGroupInvitationResponse(
     string InviteCode,
     string QrData,
     DateTimeOffset ExpiresAt);
-

@@ -1,4 +1,5 @@
 using MediatR;
+
 using TripMate.Application.Common.Models;
 
 namespace TripMate.Application.Features.TravelGroups.GetInvitation;
@@ -9,4 +10,3 @@ namespace TripMate.Application.Features.TravelGroups.GetInvitation;
  */
 public sealed record GetGroupInvitationQuery(long GroupId, long CurrentUserId)
     : IRequest<Result<GetGroupInvitationResponse>>;
-

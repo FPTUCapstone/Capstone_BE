@@ -227,4 +227,3 @@ public class GetGroupInvitationQueryHandlerTests
         members.Should().BeEmpty();
     }
 }
-
