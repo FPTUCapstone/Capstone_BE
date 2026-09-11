@@ -8,7 +8,6 @@ namespace TripMate.Application.Features.TravelGroups.CreateTravelGroup;
  *   - GroupName (string): Validated name of the group.
  *   - ItineraryId (long): Linked itinerary ID.
  *   - HostUserId (long): ID of the creator assigned as Host.
- *   - InviteCode (string): Unique 8-character invitation code.
  *   - CreatedAtUtc (DateTimeOffset): UTC timestamp of creation.
  */
 public record CreateTravelGroupResponse(
@@ -16,5 +15,4 @@ public record CreateTravelGroupResponse(
     string GroupName,
     long ItineraryId,
     long HostUserId,
-    string InviteCode,
     DateTimeOffset CreatedAtUtc);

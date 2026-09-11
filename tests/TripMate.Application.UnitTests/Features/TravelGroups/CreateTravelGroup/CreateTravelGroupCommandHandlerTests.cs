@@ -57,7 +57,7 @@ public class CreateTravelGroupCommandHandlerTests
     }
 
     [Fact]
-    public async Task Handle_WithValidRequest_CreatesGroupWithHostAndInviteCode()
+    public async Task Handle_WithValidRequest_CreatesGroupWithHostWithoutInvitation()
     {
         await using var dbContext = TestDbContext.Create();
 
@@ -94,8 +94,6 @@ public class CreateTravelGroupCommandHandlerTests
         result.Value.GroupName.Should().Be("Da Nang Summer Trip");
         result.Value.ItineraryId.Should().Be(itinerary.Id);
         result.Value.HostUserId.Should().Be(user.Id);
-        result.Value.InviteCode.Should().NotBeNullOrWhiteSpace();
-        result.Value.InviteCode.Length.Should().Be(8);
 
         // Assert Database persistence
         var groupInDb = await dbContext.TravelGroups
@@ -114,13 +112,8 @@ public class CreateTravelGroupCommandHandlerTests
         hostMember.Status.Should().Be(GroupMemberStatus.Active);
         hostMember.LocationSharingEnabled.Should().BeFalse();
 
-        // Assert 30-day Invitation code generated
-        groupInDb.GroupInvitations.Should().HaveCount(1);
-        var invitation = groupInDb.GroupInvitations.First();
-        invitation.InviteCode.Should().Be(result.Value.InviteCode);
-        invitation.CreatedBy.Should().Be(user.Id);
-        invitation.ExpiresAtUtc.Should().Be(_dateTimeProvider.UtcNow.AddDays(30));
-        invitation.MaxUses.Should().Be(50);
-        invitation.UsedCount.Should().Be(0);
+        // UC-17 creates only the group and initial Host membership.
+        // Invitation generation belongs to UC-18.
+        groupInDb.GroupInvitations.Should().BeEmpty();
     }
 }
