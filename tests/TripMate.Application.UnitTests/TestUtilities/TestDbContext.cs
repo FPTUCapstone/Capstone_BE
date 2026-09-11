@@ -1,8 +1,9 @@
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Domain.Entities;
 using TripMate.Infrastructure.Persistence.Configurations;
-
 
 namespace TripMate.Application.UnitTests.TestUtilities;
 
@@ -26,6 +27,19 @@ public class TestDbContext(DbContextOptions<TestDbContext> options)
 
     public DbSet<Notification> Notifications => Set<Notification>();
 
+    public DbSet<Message> Messages => Set<Message>();
+
+    public bool ThrowOnSaveConcurrency { get; set; }
+
+    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        if (ThrowOnSaveConcurrency)
+        {
+            throw new DbUpdateConcurrencyException("Concurrency conflict simulated in test.");
+        }
+
+        return base.SaveChangesAsync(cancellationToken);
+    }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -41,5 +55,4 @@ public class TestDbContext(DbContextOptions<TestDbContext> options)
 
         return new TestDbContext(options);
     }
-
 }

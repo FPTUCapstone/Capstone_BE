@@ -197,6 +197,53 @@ public class RejectOperatorApplicationCommandHandlerTests
         notification.Body.Should().Contain(rejectionReason);
     }
 
+    [Fact]
+    public async Task Handle_WhenConcurrentRejectionConflictOccurs_ShouldReturnNotPendingFailure()
+    {
+        // Arrange
+        var user = SeedPendingOperatorUser();
+        SeedPendingOperatorProfile(user);
+        await _dbContext.SaveChangesAsync(CancellationToken.None);
+
+        // Simulate concurrent modification where another admin rejected/approved first
+        _dbContext.ThrowOnSaveConcurrency = true;
+
+        var command = new RejectOperatorApplicationCommand(user.Id, "Invalid documents");
+
+        // Act
+        var result = await _handler.Handle(command, CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be(TourOperatorApplicationErrorCodes.NotPending);
+    }
+
+    [Fact]
+    public async Task Handle_WhenMessageCatalogConfiguredInDatabase_ShouldResolveRejectTemplateFromDatabase()
+    {
+        // Arrange
+        var user = SeedPendingOperatorUser();
+        SeedPendingOperatorProfile(user);
+
+        _dbContext.Messages.Add(new Message
+        {
+            MessageCode = "MSG116",
+            MessageType = "ToastMessage",
+            ContentTemplate = "Hồ sơ đã bị từ chối và thông báo đã được gửi.",
+            CreatedAtUtc = _dateTimeProvider.UtcNow,
+        });
+        await _dbContext.SaveChangesAsync(CancellationToken.None);
+
+        var command = new RejectOperatorApplicationCommand(user.Id, "Giấy phép không hợp lệ");
+
+        // Act
+        var result = await _handler.Handle(command, CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Message.Should().Be("Hồ sơ đã bị từ chối và thông báo đã được gửi.");
+    }
+
     private User SeedPendingOperatorUser()
     {
         var user = new User

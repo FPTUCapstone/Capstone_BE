@@ -164,6 +164,14 @@ public class RejectOperatorApplicationCommandHandler(
                 "Application is no longer pending approval.");
         }
 
+        // 12. Resolve confirmation message (MSG116 resolved from dbContext.Messages)
+        var msgRow = await dbContext.Messages
+            .FirstOrDefaultAsync(m => m.MessageCode == TourOperatorApplicationMessages.CodeMSG116, cancellationToken);
+
+        var responseMessage = !string.IsNullOrWhiteSpace(msgRow?.ContentTemplate)
+            ? msgRow.ContentTemplate
+            : TourOperatorApplicationMessages.DefaultRejectSuccess;
+
         return Result.Success(new RejectOperatorApplicationResponseDto(
             user.Id,
             user.Status,
@@ -171,6 +179,6 @@ public class RejectOperatorApplicationCommandHandler(
             trimmedReason,
             adminId,
             now,
-            TourOperatorApplicationMessages.RejectSuccess));
+            responseMessage));
     }
 }
