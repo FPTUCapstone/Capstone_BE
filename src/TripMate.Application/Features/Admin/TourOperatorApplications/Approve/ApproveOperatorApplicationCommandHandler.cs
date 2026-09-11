@@ -144,8 +144,11 @@ public class ApproveOperatorApplicationCommandHandler(
             CreatedAtUtc = now,
         });
 
-        // 11. Create Notification row (MSG114 content)
-        var messageText = $"Tour Operator \"{profile.CompanyName}\" approved. Account activated.";
+        // 11. Create Notification row (MSG114 content resolved from dbContext.Messages)
+        var msgRow = await dbContext.Messages
+            .FirstOrDefaultAsync(m => m.MessageCode == TourOperatorApplicationMessages.CodeMSG114, cancellationToken);
+
+        var messageText = TourOperatorApplicationMessages.FormatApproveSuccess(msgRow?.ContentTemplate, profile.CompanyName);
 
         dbContext.Notifications.Add(new Notification
         {
@@ -160,8 +163,17 @@ public class ApproveOperatorApplicationCommandHandler(
             CreatedAtUtc = now,
         });
 
-        // 12. Single-transaction commit
-        await dbContext.SaveChangesAsync(cancellationToken);
+        // 12. Single-transaction commit with concurrency protection
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return Result.Failure<ApproveOperatorApplicationResponseDto>(
+                TourOperatorApplicationErrorCodes.NotPending,
+                "Application is no longer pending approval.");
+        }
 
         return Result.Success(new ApproveOperatorApplicationResponseDto(
             user.Id,

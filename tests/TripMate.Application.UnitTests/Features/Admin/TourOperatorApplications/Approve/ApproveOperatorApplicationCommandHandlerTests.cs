@@ -246,6 +246,67 @@ public class ApproveOperatorApplicationCommandHandlerTests
         notification.Body.Should().Contain("Viet Travel Co");
     }
 
+    [Fact]
+    public async Task Handle_WhenConcurrentApprovalConflictOccurs_ShouldReturnNotPendingFailure()
+    {
+        // Arrange
+        var user = SeedPendingOperatorUser();
+        var profile = SeedPendingOperatorProfile(user);
+        _dbContext.OperatorDocuments.Add(new OperatorDocument
+        {
+            OperatorProfile = profile,
+            DocumentType = OperatorDocumentType.BusinessLicense,
+            FileUrl = "https://storage.tripmate.vn/license.pdf",
+            Status = DocumentStatus.Submitted,
+        });
+        await _dbContext.SaveChangesAsync(CancellationToken.None);
+
+        // Simulate concurrent modification where another admin approved first
+        _dbContext.ThrowOnSaveConcurrency = true;
+
+        var command = new ApproveOperatorApplicationCommand(user.Id);
+
+        // Act
+        var result = await _handler.Handle(command, CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be(TourOperatorApplicationErrorCodes.NotPending);
+    }
+
+    [Fact]
+    public async Task Handle_WhenMessageCatalogConfiguredInDatabase_ShouldResolveTemplateFromDatabase()
+    {
+        // Arrange
+        var user = SeedPendingOperatorUser();
+        var profile = SeedPendingOperatorProfile(user);
+        _dbContext.OperatorDocuments.Add(new OperatorDocument
+        {
+            OperatorProfile = profile,
+            DocumentType = OperatorDocumentType.BusinessLicense,
+            FileUrl = "https://storage.tripmate.vn/license.pdf",
+            Status = DocumentStatus.Submitted,
+        });
+
+        _dbContext.Messages.Add(new Message
+        {
+            MessageCode = "MSG114",
+            MessageType = "ToastMessage",
+            ContentTemplate = "Kính gửi {Company_Name}, hồ sơ đã được duyệt!",
+            CreatedAtUtc = _dateTimeProvider.UtcNow,
+        });
+        await _dbContext.SaveChangesAsync(CancellationToken.None);
+
+        var command = new ApproveOperatorApplicationCommand(user.Id);
+
+        // Act
+        var result = await _handler.Handle(command, CancellationToken.None);
+
+        // Assert
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Message.Should().Be("Kính gửi Viet Travel Co, hồ sơ đã được duyệt!");
+    }
+
     private User SeedPendingOperatorUser()
     {
         var user = new User
