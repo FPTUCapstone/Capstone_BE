@@ -15,6 +15,8 @@ src/
   TripMate.Api             Controller, middleware, composition root (Program.cs).
 tests/
   TripMate.Application.UnitTests
+  TripMate.Infrastructure.UnitTests
+  TripMate.Api.IntegrationTests
 ```
 
 Dependency luôn hướng vào trong: `Api` → `Application` + `Infrastructure`; `Infrastructure` →
@@ -129,7 +131,7 @@ riêng phần database, đúng với việc bạn chỉ muốn chạy SQL trên 
 dotnet test
 ```
 
-Hai test transaction SQL Server được đánh dấu `Category=SqlServer`. Nếu chưa cấu hình database,
+Các bài kiểm thử tích hợp SQL Server được đánh dấu `Category=SqlServer`. Nếu chưa cấu hình database,
 chúng được báo `Skipped` rõ ràng để bộ test nhanh không phụ thuộc máy cá nhân. Để chạy đầy đủ trên
 SQL Server local, khởi động service `sqlserver`, rồi cấp connection string bằng biến môi trường;
 không ghi mật khẩu vào source:

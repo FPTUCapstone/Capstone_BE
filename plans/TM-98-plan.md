@@ -7,9 +7,10 @@ Spec: `specs/TM-98-spec.md` (approved 2026-09-08)
 Amendment approved 2026-09-09: Task 6 returns the created DTO without a `Location` header until
 an approved read endpoint exists; see the corresponding specification amendment.
 
-Verification update 2026-09-10: SQL Server integration tests apply the canonical v7 schema to an
-isolated disposable database and verify both the complete persisted aggregate and physical rollback
-when the second audit save fails. Fast HTTP tests remain InMemory-based.
+Verification update 2026-09-10: SQL Server integration tests apply the TM-98-approved
+`database/tripmate_schema_v7.sql` snapshot to an isolated disposable database and verify aggregate
+persistence, physical rollback after audit-save failure, and the sanitized HTTP `500`/rollback
+contract. Fast contract tests remain InMemory-based.
 
 Contract update 2026-09-10: the Create POI OpenAPI `400` response references
 `ValidationProblemDetails`, including its field-to-message-array `errors` member, so generated
@@ -114,8 +115,8 @@ Required behavior:
 
 Verification: run the two focused domain test classes.
 
-Definition of Done: the aggregate represents only the approved SQL v7 POI subset and has no
-EF Core or ASP.NET dependency.
+Definition of Done: the aggregate represents only the TM-98-approved schema snapshot's POI subset
+and has no EF Core or ASP.NET dependency.
 
 ### Task 3 — Add database-first persistence mappings and transaction boundary
 
@@ -145,7 +146,7 @@ Required behavior:
 - Map exactly to `catalog.POICategories`, `catalog.POIs`, `catalog.POIOpeningHours`,
   `catalog.Tags`, `catalog.POITagMap`, and `dbo.AuditLogs`.
 - Match keys, composite keys, column names, lengths, precision, indexes, enum conversions,
-  cascade behavior, and UTC `datetime2` conversion from SQL v7.
+  cascade behavior, and UTC `datetime2` conversion from the TM-98-approved schema snapshot.
 - Extend the context abstraction with an execution-strategy-aware transaction method.
 - Production uses one explicit transaction around the two saves required to obtain the POI
   identity and then persist the audit row; the InMemory test context uses a pass-through
@@ -153,7 +154,8 @@ Required behavior:
 
 Verification: run infrastructure model tests, then all Application unit tests.
 
-Definition of Done: EF model metadata matches SQL v7 and no migration files exist.
+Definition of Done: EF model metadata matches the TM-98-approved schema snapshot and no migration
+files exist.
 
 ### Task 4 — Define and validate the Create POI command contract
 
@@ -174,8 +176,8 @@ Required validation:
 - Required/length rules for name and a positive category ID; text length limits are evaluated
   after trimming.
 - Latitude `[-90, 90]`, longitude `[-180, 180]`.
-- Optional text lengths match SQL v7 after trimming; whitespace-only optional text normalizes to
-  null.
+- Optional text lengths match the TM-98-approved schema snapshot after trimming; whitespace-only
+  optional text normalizes to null.
 - Positive average duration when supplied.
 - Distinct positive tag IDs.
 - At most one opening-hours item per day; days 0–6.
@@ -218,6 +220,10 @@ Handler order:
    save the audit row, and commit.
 9. Return the persisted DTO.
 
+The duplicate lookup is best-effort only; the approved schema does not enforce the logical
+duplicate key, so concurrent requests may both pass it. Race-free prevention requires a separately
+approved schema or locking design.
+
 Required tests:
 
 - valid creation and defaults;
@@ -229,7 +235,7 @@ Required tests:
 - opening-hours and tag persistence;
 - creator and UTC timestamps;
 - audit row content;
-- no audit row for rejected commands.
+- no audit row for rejected commands;
 - SQL Server happy-path persistence of the POI, opening hours, tag mappings, and audit row;
 - SQL Server rollback of the first save and all child rows when the audit save fails.
 
@@ -245,6 +251,7 @@ Write failing API integration tests first:
 - `tests/TripMate.Api.IntegrationTests/TripMate.Api.IntegrationTests.csproj`
 - `tests/TripMate.Api.IntegrationTests/Infrastructure/TripMateApiFactory.cs`
 - `tests/TripMate.Api.IntegrationTests/PointsOfInterest/CreatePoiEndpointTests.cs`
+- `tests/TripMate.Api.IntegrationTests/PointsOfInterest/CreatePoiJwtBearerTests.cs`
 - `tests/TripMate.Api.IntegrationTests/PointsOfInterest/PointsOfInterestOpenApiTests.cs`
 - update `TripMate.slnx` to include the test project
 
@@ -270,10 +277,17 @@ Required behavior:
   response uses the same schema and exposes `errors` as JSON `camelCase` field paths mapped to
   message arrays.
 
-The integration-test host replaces persistence with an isolated InMemory context and test
-authentication for fast HTTP contract tests; production configuration remains unchanged. Separate
-tagged integration tests use `ApplicationDbContext`, SQL Server, and the canonical database-first
-schema to verify physical persistence and rollback.
+Required API tests:
+
+- malformed, expired, wrong-signature, and wrong-issuer tokens through the real JwtBearer pipeline;
+- a production-generated token for an Active Administrator through the real JwtBearer pipeline;
+- sanitized HTTP `500` ProblemDetails and physical SQL rollback when audit persistence fails.
+
+The integration-test host defaults to isolated InMemory persistence and header-based authentication
+for fast HTTP contract tests; selected authentication tests use the real JwtBearer pipeline.
+Separate tagged integration tests use `ApplicationDbContext`, SQL Server, and the TM-98-approved
+`database/tripmate_schema_v7.sql` snapshot to verify physical persistence, rollback, and sanitized
+HTTP failure handling. Production configuration remains unchanged.
 
 Verification: run the API integration test project.
 
@@ -297,7 +311,7 @@ Review pass 1 — spec compliance:
 
 - Trace every approved spec statement to code and test evidence.
 - Confirm excluded commercial/image/FE scope was not added.
-- Confirm no EF migrations or schema edits were introduced.
+- Confirm no EF migrations, DDL changes, or seed-data changes were introduced.
 
 Review pass 2 — code quality:
 

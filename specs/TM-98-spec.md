@@ -66,7 +66,7 @@ Confirmed requirements:
 - The creation and all confirmed child records are stored atomically.
 - The creation event is written to the immutable audit log in the same transaction.
 - A failed validation or failed save must not leave a POI or child records persisted.
-- No EF Core migration will be generated; mappings follow SQL schema v7.
+- No EF Core migration will be generated; mappings follow the TM-98-approved schema snapshot.
 
 ## 3. Delivery boundary
 
@@ -78,7 +78,8 @@ Confirmed requirements:
 - Administrator-protected HTTP endpoint.
 - Duplicate detection according to the approved definition.
 - Atomic audit-log creation.
-- Unit tests and the applicable API/integration tests supported by the repository.
+- Application unit tests, Infrastructure unit tests, and API integration tests, including the
+  explicitly configured SQL Server cases.
 - OpenAPI-visible request and response contract.
 
 ### Not included
@@ -89,11 +90,12 @@ Confirmed requirements:
 - Route management (TM-101/TM-102).
 - Algorithm parameter configuration (TM-103).
 - Frontend implementation in `Capstone_FE`; it follows the completed backend contract.
-- Database schema redesign unless an approved requirement cannot be represented by schema v7.
+- Database schema redesign; any requirement not representable by the TM-98-approved schema
+  snapshot requires separate approval.
 
 ## 4. Database-first model
 
-SQL schema v7 currently supports:
+For TM-98, the approved `database/tripmate_schema_v7.sql` snapshot defines:
 
 - `catalog.POICategories`
 - `catalog.POIs`
@@ -108,8 +110,8 @@ indoor/outdoor type, scenic score, photo rating, average visit duration, shelter
 status, creator, and UTC timestamps.
 
 TM-98 maps `POICategories`, `POIs`, `POIOpeningHours`, `Tags`, `POITagMap`, and `AuditLogs` through
-EF Core configurations that match SQL schema v7. `POIPhotos` is intentionally not mapped in this
-slice because the photo-storage contract is not approved.
+EF Core configurations that match that approved schema snapshot. `POIPhotos` is intentionally not
+mapped in this slice because the photo-storage contract is not approved.
 
 No EF Core migration is permitted. The only SQL-script change in TM-98 is documentation that
 clarifies `scenic_score` and `photo_rating` remain null when a POI is created; there is no schema
@@ -245,11 +247,13 @@ If validation, either save, or commit fails, the transaction is not committed an
 aggregate may remain. The SQL Server execution strategy and transaction receive the request
 cancellation token.
 
-Physical atomicity is verified against the canonical v7 schema in an isolated disposable SQL
-Server database. The failure test allows the first POI/child save to reach SQL Server, rejects the
-second audit save with a test-only database constraint, then reads through a new DbContext and
-requires every transactional table count to match its pre-request baseline. It does not assume that
-rolled-back SQL Server identity values are reused.
+Physical atomicity is verified against the checked-in TM-98 schema snapshot in an isolated
+disposable SQL Server database. The failure tests allow the first POI/child save to reach SQL
+Server, reject the second audit save with a test-only database constraint, then read through a new
+DbContext and require every transactional table count to match its pre-request baseline. The same
+failure is exercised through the real HTTP and JwtBearer pipeline to verify a sanitized `500`
+ProblemDetails response. The tests do not assume that rolled-back SQL Server identity values are
+reused.
 
 The audit entry records:
 
@@ -305,6 +309,10 @@ The developer approved the MVP decision bundle on 2026-09-08:
   to the database's six decimal places.
 - `confirmDuplicate: false` returns `409 Poi.PossibleDuplicate` with the existing POI ID;
   `confirmDuplicate: true` permits the Administrator to create it.
+- Duplicate detection is an advisory, best-effort pre-insert check. The TM-98 schema has no unique
+  constraint over normalized name and coordinates, so concurrent unconfirmed requests can both
+  pass the lookup and insert. Race-free prevention requires a separately approved schema or
+  locking design.
 - Day `0` is Sunday, matching .NET `DayOfWeek`; missing days mean no hours supplied. A closed day
   has null times, an open day requires both times, and overnight ranges are rejected in this slice.
 - Audit action type is `POI_CREATE`; `after_data` contains the persisted POI aggregate without
@@ -332,7 +340,7 @@ Every applicable item must pass before the reviewer approves the PR.
 | Reuse and DRY | Audit identifiers, POI length limits, defaults, and the controller route have a single code source of truth. |
 | Error handling | Validation, authentication, authorization, missing references, duplicates, and unexpected failures follow the contract in section 5. |
 | Database and performance | No query runs inside a per-item loop; only required references are loaded; existing SQL indexes support category, coordinates, and audit lookups. |
-| Build and tests | Full solution build has 0 errors and 0 warnings; all unit/API tests and the explicitly configured SQL Server integration run pass. A missing SQL test connection is reported as skipped, never as SQL verification. |
+| Build and tests | Full solution build has 0 errors and 0 warnings; all three test projects—Application unit, Infrastructure unit, and API integration—and the explicitly configured SQL Server cases pass. A missing SQL test connection is reported as skipped, never as SQL verification. |
 | Formatting | `dotnet format --verify-no-changes` passes for every C# file changed by the PR. |
 | Security | No real secret, connection string, `.env`, private key, token, or credential is committed. Audit JSON excludes secrets. |
 | Git hygiene | The feature branch contains only TM-98 changes and no `bin`, `obj`, IDE, cache, or temporary artifacts. |
@@ -348,7 +356,7 @@ backend-only PR. They become required in the later FE integration and UAT phase.
 The TM-98 backend PR is ready to merge only when all items below are true:
 
 - The approved backend scope and acceptance criteria are implemented.
-- API and database mappings match this specification and SQL schema v7.
+- API and database mappings match this specification and the TM-98-approved schema snapshot.
 - Clean Architecture and the vertical-slice flow in section 6 are respected.
 - Expected failures use `Result` or `Result<T>` and RFC 7807 HTTP mappings.
 - The create response does not advertise a URI that the application cannot resolve.
@@ -359,9 +367,9 @@ The TM-98 backend PR is ready to merge only when all items below are true:
 - Debug code, unused experimental code, secrets, and generated artifacts are absent.
 - Swagger/HTTP and real SQL Server smoke-test evidence is recorded in the PR.
 - Developer self-review is complete.
-- At least one cross-reviewer has rechecked the latest commit and approved it.
+- At least one cross-reviewer has rechecked the merge-candidate commit and approved it.
 - No blocking comment or Request Changes review remains unresolved.
-- The PR is merged into `develop` without conflict.
+- Mergeability against the latest `origin/develop` is rechecked immediately before merge.
 
 Passing the backend Definition of Done completes the TM-98 backend slice. It does not by itself mark
 the complete UC-52 product flow as done; FE integration and end-to-end UAT remain later gates.
@@ -371,14 +379,10 @@ the complete UC-52 product flow as done; FE integration and end-to-end UAT remai
 - `feature/datmnt-create-poi` was created from `develop` for this task.
 - The original clean baseline passed 19 tests before implementation.
 - `plans/TM-98-plan.md` was approved on 2026-09-08 and executed using Red -> Green -> Refactor.
-- The checklist-aligned implementation currently passes 97 tests across Application,
-  Infrastructure, API contract, and SQL Server integration coverage when the test connection is
-  configured; the two SQL Server tests are explicitly skipped when it is absent.
-- The full solution currently builds with 0 errors and 0 warnings.
-- Formatter verification passes for all C# files changed by the PR.
-- Security, debug-code, generated-artifact, and Git diff checks pass.
-- The branch is based on the current `origin/develop` history without a merge conflict.
+- Commit-specific test, build, formatter, security/artifact, and Git-diff evidence must be recorded
+  in PR #8 for the merge-candidate SHA. Verification covers all three test projects and the
+  configured SQL Server cases. Reviewer approval and conflict status must be rechecked after the
+  final commit and against the latest `origin/develop` immediately before merge.
 
-Remote delivery state is tracked in PR #8 rather than frozen in this specification. Before merge,
-the PR description must match the latest verification evidence and the latest commit must receive
-reviewer recheck and approval.
+Remote delivery state, merge-candidate SHA, reviewer approval, and conflict status must be tracked
+in PR #8.

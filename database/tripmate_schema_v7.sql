@@ -18,6 +18,10 @@
         §5.3 was authored for TripMate. Replaced with the full, real
         130-row Application Messages List (MSG01–MSG130) from the
         authored SRS §5.3.
+     3. TM-98 documentation clarification only (no DDL or seed-data
+        change): TM-98 leaves catalog.POIs.scenic_score and photo_rating
+        NULL on creation. Populating them later requires a separately
+        approved aggregation flow.
 
    v6 changes vs v5:
 
@@ -63,11 +67,10 @@
         redeploy to change. Flagging this trade-off explicitly.
      3. NEW catalog.FavoritePOIs — lets a Traveler bookmark a POI.
      4. social.Reviews — added scenic_rating/photo_rating (only when
-        target_type = 'POI'). catalog.POIs.scenic_score/photo_rating are
-        Admin-seeded on POI creation (UC-52) as a cold-start value, then
-        intended to be refreshed periodically as an average of these
-        per-review ratings once enough reviews exist (batch job, not yet
-        implemented — application-layer concern).
+        target_type = 'POI'). The original Admin-seeded cold-start
+        proposal was superseded by TM-98: catalog.POIs.scenic_score and
+        photo_rating remain NULL on creation and may be populated only by
+        a separately approved review-aggregation flow.
      5. commerce.BookingParticipants — added id_document_type,
         id_document_number, nationality for premium/international tours
         that require real identity verification. Contains PII — per
