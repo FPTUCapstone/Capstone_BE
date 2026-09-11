@@ -270,5 +270,5 @@ If the user opens the verification email link on a different browser or device w
   - `VerifyEmailCommandHandler`: Validates Bearer token, asserts `tokenResult.EmailVerified == true`, activates `User` (`Active`), persists refresh token, generates JWT access token.
   - `GoogleAuthCommandHandler`: Validates token via `IFirebaseAuthService` (with fallback to `IGoogleTokenValidator`), provisions/activates user, issues session tokens.
 - **Infrastructure Services:**
-  - `FirebaseAuthService`: Implements `IFirebaseAuthService` using Firebase Admin SDK with fallback RS256 token verification for local development.
+  - `FirebaseAuthService`: Implements `IFirebaseAuthService` using the Firebase Admin SDK as the sole trusted verifier of Firebase ID tokens (`VerifyIdTokenAsync` is the only acceptance path). If Firebase Admin verification is unavailable (credentials not configured) or the token fails verification, authentication fails closed — no local/development JWT decode fallback exists.
   - `JwtTokenService`: Generates HS256 access tokens and cryptographically secure random refresh tokens with SHA-256 hashing.

@@ -63,6 +63,13 @@ services:
       Cors__AllowedOrigins__2: http://localhost:3000
       Firebase__ProjectId: "tripmate-82be3"
       Google__ClientId: 1015595969076-socm44rbtpnbv0o4upl88h4btesqgr6i.apps.googleusercontent.com
+      # Firebase Admin service-account JSON (never committed — see .env.example / README §9).
+      # Put the file at ./secrets/tripmate-firebase-admin.json on the host. If it is missing,
+      # Firebase Admin initialization is unavailable and Firebase ID-token authentication
+      # fails closed (tokens are rejected) — the API still boots.
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/tripmate-firebase-admin.json
+    volumes:
+      - ./secrets:/run/secrets:ro
     ports:
       - "5000:8080"
 

@@ -170,6 +170,48 @@ Không tự ý thêm project/layer/NuGet package mới để giải quyết vi�
 ngay sau khi clone. Mọi môi trường chia sẻ/triển khai thật phải tự cấp secret riêng qua biến môi
 trường hoặc secret manager — **không bao giờ commit secret thật**.
 
+### 9.1 Firebase Admin credentials (bắt buộc cho đăng nhập Firebase)
+
+Các flow xác thực bằng Firebase ID token (`/api/v1/auth/register`, `/api/v1/auth/verify-email`,
+`/api/v1/auth/google`) xác minh token qua **Firebase Admin SDK**. Backend là nguồn chân lý duy
+nhất cho việc xác minh token — không có cơ chế fallback nào. Vì vậy:
+
+- **Có credential** → token hợp lệ được xác minh và đăng nhập hoạt động bình thường.
+- **Thiếu credential** → API vẫn chạy, nhưng mọi Firebase ID token bị **từ chối** (fail-closed)
+  với lỗi xác thực; log khởi động sẽ ghi rõ Firebase verification chưa khả dụng.
+
+**Cách lấy file credential (developer tự làm, không ai gửi qua chat/git):**
+
+1. Vào [Firebase console](https://console.firebase.google.com/) → chọn project
+   (`tripmate-82be3`) → ⚙️ **Project settings** → **Service accounts** → **Generate new private
+   key** → tải về file JSON.
+2. Lưu file tại `secrets/tripmate-firebase-admin.json` (thư mục `secrets/` ở repo root — đã được
+   `.gitignore` bỏ qua, **tuyệt đối không commit**).
+
+**Docker:** `docker-compose.yml` mount `./secrets` vào container ở chế độ read-only
+(`/run/secrets`) và đặt `GOOGLE_APPLICATION_CREDENTIALS=/run/secrets/tripmate-firebase-admin.json`.
+Chỉ cần đặt file đúng chỗ rồi `docker compose up` — không cần chỉnh gì thêm.
+
+**Local (`dotnet run`, không dùng Docker):** đặt biến môi trường
+`GOOGLE_APPLICATION_CREDENTIALS` trỏ tới file JSON trên máy, ví dụ:
+
+```bash
+# PowerShell
+$env:GOOGLE_APPLICATION_CREDENTIALS = "C:\secrets\tripmate-firebase-admin.json"
+dotnet run --project src/TripMate.Api
+```
+
+Hoặc dùng User Secrets để tránh set biến môi trường mỗi phiên:
+
+```bash
+dotnet user-secrets set "GOOGLE_APPLICATION_CREDENTIALS" "C:\secrets\tripmate-firebase-admin.json" --project src/TripMate.Api
+```
+
+Cách thay thế (không dùng file): dán nội dung JSON vào biến môi trường
+`FIREBASE_SERVICE_ACCOUNT_KEY_JSON` (hoặc config key `Firebase:ServiceAccountKeyJson`) — cũng
+không bao giờ commit. Thứ tự ưu tiên credential: JSON inline → `GOOGLE_APPLICATION_CREDENTIALS`
+→ Application Default Credentials.
+
 ## 10. Xử lý sự cố thường gặp
 
 | Triệu chứng | Cách xử lý |
@@ -180,6 +222,7 @@ trường hoặc secret manager — **không bao giờ commit secret thật**.
 | Chạy `dotnet run` local (DB trong Docker) mà API báo 500 `Login failed for user 'sa'`, dù `db-init` báo áp schema thành công | **Không phải sai mật khẩu** — máy bạn có SQL Server cài native đang chiếm port `1433`, khiến kết nối từ host bị lạc sang đó thay vì vào container (container không dùng port `1433` của host, dùng `14330` — xem `database/README.md` mục 8 để chẩn đoán chính xác). |
 | Build lỗi thiếu SDK | Kiểm tra `dotnet --version` khớp với `global.json` (SDK 10.x). |
 | Gọi API bị 401/403 dù đăng nhập đúng | Kiểm tra `Jwt:SigningKey`/`Jwt:Issuer`/`Jwt:Audience` giữa lúc phát hành token và lúc validate có khớp không (đặc biệt nếu chạy nhiều instance API với config khác nhau). |
+| Đăng nhập bằng Firebase (register / verify-email / Google) luôn bị từ chối | Thiếu Firebase Admin credential — xem **mục 9.1**: đặt service-account JSON tại `secrets/tripmate-firebase-admin.json` rồi chạy lại. Không có credential thì mọi Firebase ID token bị từ chối (fail-closed, cố ý). |
 | Các lỗi liên quan tới database, Docker container, schema | Xem bảng đầy đủ hơn ở [`database/README.md`](database/README.md) mục 8. |
 
 ## 11. Quy trình làm việc nhóm

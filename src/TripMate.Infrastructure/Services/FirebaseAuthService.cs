@@ -1,4 +1,3 @@
-using System.IdentityModel.Tokens.Jwt;
 using FirebaseAdmin;
 using FirebaseAdmin.Auth;
 using Google.Apis.Auth.OAuth2;
@@ -59,7 +58,7 @@ public class FirebaseAuthService : IFirebaseAuthService
                     }
                     catch
                     {
-                        _logger.LogWarning("Application Default Credentials not found. Local fallback JWT verification enabled for Firebase tokens.");
+                        _logger.LogWarning("Application Default Credentials not found. Firebase Admin verification is unavailable; Firebase ID tokens will be rejected until credentials are configured.");
                     }
                 }
 
@@ -76,7 +75,7 @@ public class FirebaseAuthService : IFirebaseAuthService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to initialize FirebaseAdmin FirebaseAuth; fallback token verification will be used.");
+            _logger.LogWarning(ex, "Failed to initialize FirebaseAdmin FirebaseAuth. Firebase ID token verification is unavailable; tokens will be rejected until credentials are configured.");
         }
     }
 
@@ -106,43 +105,15 @@ public class FirebaseAuthService : IFirebaseAuthService
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "FirebaseAdmin VerifyIdTokenAsync failed. Checking token format.");
+                _logger.LogWarning(ex, "FirebaseAdmin VerifyIdTokenAsync rejected the token.");
                 throw;
             }
         }
 
-        // 2. Dev Fallback: Validate token using standard JwtSecurityTokenHandler
-        var handler = new JwtSecurityTokenHandler();
-        if (!handler.CanReadToken(idToken))
-        {
-            throw new InvalidOperationException("Invalid Firebase ID token format.");
-        }
-
-        var jwt = handler.ReadJwtToken(idToken);
-        var expectedIssuer = $"https://securetoken.google.com/{_projectId}";
-
-        if (!string.Equals(jwt.Issuer, expectedIssuer, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException($"Invalid token issuer. Expected {expectedIssuer}, got {jwt.Issuer}.");
-        }
-
-        if (jwt.ValidTo < DateTime.UtcNow)
-        {
-            throw new InvalidOperationException("Firebase ID token has expired.");
-        }
-
-        var sub = jwt.Subject ?? jwt.Claims.FirstOrDefault(c => c.Type == "user_id" || c.Type == "sub")?.Value;
-        if (string.IsNullOrEmpty(sub))
-        {
-            throw new InvalidOperationException("Firebase ID token missing subject (uid).");
-        }
-
-        var tokenEmail = jwt.Claims.FirstOrDefault(c => c.Type == "email")?.Value ?? string.Empty;
-        var tokenEmailVerifiedClaim = jwt.Claims.FirstOrDefault(c => c.Type == "email_verified")?.Value;
-        var tokenEmailVerified = bool.TryParse(tokenEmailVerifiedClaim, out var isVerified) && isVerified;
-        var tokenName = jwt.Claims.FirstOrDefault(c => c.Type == "name")?.Value;
-        var tokenPicture = jwt.Claims.FirstOrDefault(c => c.Type == "picture")?.Value;
-
-        return new FirebaseTokenValidationResult(sub, tokenEmail, tokenEmailVerified, tokenName, tokenPicture);
+        // Fail closed: the Firebase Admin SDK is the only trusted verifier for Firebase
+        // ID tokens. Without it there is no way to validate signatures, so authentication
+        // must not proceed — no local JWT decoding or claim-only acceptance is permitted.
+        throw new InvalidOperationException(
+            "Firebase Admin SDK is not configured; Firebase ID token verification is unavailable. Authentication cannot proceed.");
     }
 }

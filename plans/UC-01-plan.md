@@ -50,9 +50,9 @@
 - **Target Files:**
   - `src/TripMate.Infrastructure/Services/FirebaseAuthService.cs`
 - **Implementation Details:**
-  - Integrates official Firebase Admin SDK (`FirebaseApp`, `FirebaseAuth.DefaultInstance.VerifyIdTokenAsync`).
+  - Integrates official Firebase Admin SDK (`FirebaseApp`, `FirebaseAuth.DefaultInstance.VerifyIdTokenAsync`) as the sole trusted verifier of Firebase ID tokens.
   - Configures credentials via `GOOGLE_APPLICATION_CREDENTIALS` or `FIREBASE_SERVICE_ACCOUNT_KEY_JSON`.
-  - Implements developer fallback using `JwtSecurityTokenHandler` checking issuer `https://securetoken.google.com/{projectId}` and expiration.
+  - Fails closed when the Admin SDK is unavailable or verification fails — no `ReadJwtToken`/`JwtSecurityTokenHandler` decode fallback exists in any environment (SEC-01).
 
 ### BE-UC01-05: Implement Google Token Validator with UserInfo Fallback
 - **Status:** [COMPLETED]
