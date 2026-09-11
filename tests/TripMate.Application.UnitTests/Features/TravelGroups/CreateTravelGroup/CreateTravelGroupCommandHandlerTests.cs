@@ -33,12 +33,12 @@ public class CreateTravelGroupCommandHandlerTests
     }
 
     [Fact]
-    public async Task Handle_WhenItineraryBelongsToAnotherTraveler_ReturnsItineraryNotFound()
+    public async Task Handle_WithExistingAccessibleItinerary_CreatesGroupForTraveler()
     {
         await using var dbContext = TestDbContext.Create();
         var itinerary = new Itinerary
         {
-            TravelerUserId = 100, // Owned by user 100
+            TravelerUserId = 100,
             Title = "Another Traveler Trip",
             Status = "Active",
             CreatedAtUtc = _dateTimeProvider.UtcNow,
@@ -48,12 +48,13 @@ public class CreateTravelGroupCommandHandlerTests
         await dbContext.SaveChangesAsync();
 
         var handler = new CreateTravelGroupCommandHandler(dbContext, _dateTimeProvider);
-        var command = new CreateTravelGroupCommand(itinerary.Id, "Stolen Trip Group", 200); // Requested by user 200
+        var command = new CreateTravelGroupCommand(itinerary.Id, "Shared Trip Group", 200);
 
         var result = await handler.Handle(command, CancellationToken.None);
 
-        result.IsFailure.Should().BeTrue();
-        result.ErrorCode.Should().Be(TravelGroupErrorCodes.ItineraryNotFound);
+        result.IsSuccess.Should().BeTrue();
+        result.Value.ItineraryId.Should().Be(itinerary.Id);
+        result.Value.HostUserId.Should().Be(200);
     }
 
     [Fact]
