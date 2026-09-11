@@ -13,7 +13,7 @@ namespace TripMate.Application.Features.TravelGroups.CreateTravelGroup;
  *   - HostUserId (long): ID of the creator assigned as Group Host.
  *
  * Output:
- *   - Result<CreateTravelGroupResponse>: Details of newly created travel group and invite code.
+ *   - Result<CreateTravelGroupResponse>: Details of the newly created travel group.
  */
 public record CreateTravelGroupCommand(
     long ItineraryId,

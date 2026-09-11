@@ -31,6 +31,7 @@ public class TestDbContext(DbContextOptions<TestDbContext> options)
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(OperatorProfileConfiguration).Assembly);
+        modelBuilder.Entity<GroupMember>().HasKey(m => new { m.GroupId, m.UserId });
         base.OnModelCreating(modelBuilder);
     }
 
@@ -41,12 +42,6 @@ public class TestDbContext(DbContextOptions<TestDbContext> options)
     public DbSet<GroupInvitation> GroupInvitations => Set<GroupInvitation>();
 
     public DbSet<Itinerary> Itineraries => Set<Itinerary>();
-
-    protected override void OnModelCreating(ModelBuilder modelBuilder)
-    {
-        modelBuilder.Entity<GroupMember>().HasKey(m => new { m.GroupId, m.UserId });
-        base.OnModelCreating(modelBuilder);
-    }
 
     public static TestDbContext Create()
 

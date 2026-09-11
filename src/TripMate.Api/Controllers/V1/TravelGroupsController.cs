@@ -7,6 +7,7 @@ using TripMate.Api.Common;
 using TripMate.Api.Controllers.V1.Requests;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.TravelGroups.CreateTravelGroup;
+using TripMate.Domain.Enums;
 
 namespace TripMate.Api.Controllers.V1;
 
@@ -16,9 +17,9 @@ namespace TripMate.Api.Controllers.V1;
  *
  * Route: POST /api/v1/travel-groups
  * Input: CreateTravelGroupRequest (ItineraryId, GroupName)
- * Output: 201 Created with CreateTravelGroupResponse | 400 Bad Request | 401 Unauthorized | 404 Not Found
+ * Output: 201 Created with CreateTravelGroupResponse | 400 Bad Request | 401 Unauthorized | 403 Forbidden | 404 Not Found
  */
-[Authorize]
+[Authorize(Roles = nameof(UserRole.Traveler))]
 [Route("api/v1/travel-groups")]
 public class TravelGroupsController(
     ISender sender,
@@ -28,6 +29,7 @@ public class TravelGroupsController(
     [ProducesResponseType(typeof(CreateTravelGroupResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Create(
         [FromBody] CreateTravelGroupRequest request,

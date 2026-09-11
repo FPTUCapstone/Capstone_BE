@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-
 using MediatR;
 
 using Microsoft.EntityFrameworkCore;
@@ -7,7 +5,6 @@ using Microsoft.EntityFrameworkCore;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.TravelGroups.Common;
-using TripMate.Domain.Constants;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -15,8 +12,7 @@ namespace TripMate.Application.Features.TravelGroups.CreateTravelGroup;
 
 /**
  * [UC-17] Create Travel Group Command Handler
- * Creates a travel group linked to an itinerary, assigns creator as Host member,
- * and generates an active invitation code.
+ * Creates a travel group linked to an itinerary and assigns the creator as Host member.
  *
  * Input:
  *   - ItineraryId (long): Target itinerary ID (must exist in planning.Itineraries and belong to creator).
@@ -24,7 +20,7 @@ namespace TripMate.Application.Features.TravelGroups.CreateTravelGroup;
  *   - HostUserId (long): ID of the authenticated traveler creating the group.
  *
  * Output:
- *   - Success: Result<CreateTravelGroupResponse> with GroupId, GroupName, InviteCode.
+ *   - Success: Result<CreateTravelGroupResponse> with the created group details.
  *   - Failure: Error 404 (ItineraryNotFound) if itinerary does not exist or does not belong to user.
  */
 public class CreateTravelGroupCommandHandler(
@@ -69,22 +65,10 @@ public class CreateTravelGroupCommandHandler(
             JoinedAtUtc = dateTimeProvider.UtcNow
         };
 
-        // Step 4: Generate a unique invitation code
-        var invitation = new GroupInvitation
-        {
-            TravelGroup = travelGroup,
-            InviteCode = GenerateInviteCode(),
-            CreatedBy = request.HostUserId,
-            ExpiresAtUtc = dateTimeProvider.UtcNow.AddDays(TravelGroupConstants.InviteCodeExpirationDays),
-            MaxUses = TravelGroupConstants.DefaultMaxUses,
-            UsedCount = 0,
-            CreatedAtUtc = dateTimeProvider.UtcNow
-        };
-
-        // Step 5: Persist graph atomically in a single transaction
+        // Step 4: Persist group and initial Host membership atomically.
+        // Invitation generation belongs exclusively to UC-18.
         dbContext.TravelGroups.Add(travelGroup);
         dbContext.GroupMembers.Add(hostMember);
-        dbContext.GroupInvitations.Add(invitation);
 
         await dbContext.SaveChangesAsync(cancellationToken);
 
@@ -93,20 +77,6 @@ public class CreateTravelGroupCommandHandler(
             travelGroup.Name ?? string.Empty,
             travelGroup.ItineraryId,
             travelGroup.HostUserId,
-            invitation.InviteCode,
             travelGroup.CreatedAtUtc));
-    }
-
-    private static string GenerateInviteCode()
-    {
-        var chars = new char[TravelGroupConstants.InviteCodeLength];
-        var bytes = RandomNumberGenerator.GetBytes(chars.Length);
-
-        for (var i = 0; i < chars.Length; i++)
-        {
-            chars[i] = TravelGroupConstants.InviteCodeCharacters[bytes[i] % TravelGroupConstants.InviteCodeCharacters.Length];
-        }
-
-        return new string(chars);
     }
 }
