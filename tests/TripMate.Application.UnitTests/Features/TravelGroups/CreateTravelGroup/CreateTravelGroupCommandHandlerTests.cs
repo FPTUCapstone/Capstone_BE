@@ -33,7 +33,7 @@ public class CreateTravelGroupCommandHandlerTests
     }
 
     [Fact]
-    public async Task Handle_WithExistingAccessibleItinerary_CreatesGroupForTraveler()
+    public async Task Handle_WhenItineraryBelongsToAnotherTraveler_ReturnsItineraryNotFound()
     {
         await using var dbContext = TestDbContext.Create();
         var itinerary = new Itinerary
@@ -52,9 +52,8 @@ public class CreateTravelGroupCommandHandlerTests
 
         var result = await handler.Handle(command, CancellationToken.None);
 
-        result.IsSuccess.Should().BeTrue();
-        result.Value.ItineraryId.Should().Be(itinerary.Id);
-        result.Value.HostUserId.Should().Be(200);
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(TravelGroupErrorCodes.ItineraryNotFound);
     }
 
     [Fact]
@@ -130,7 +129,7 @@ public class CreateTravelGroupCommandHandlerTests
         {
             seedContext.Itineraries.Add(new Itinerary
             {
-                TravelerUserId = 100,
+                TravelerUserId = 200,
                 Title = "Da Nang Trip",
                 Status = "Active",
                 CreatedAtUtc = _dateTimeProvider.UtcNow,

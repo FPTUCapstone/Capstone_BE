@@ -15,13 +15,13 @@ namespace TripMate.Application.Features.TravelGroups.CreateTravelGroup;
  * Creates a travel group linked to an itinerary and assigns the creator as Host member.
  *
  * Input:
- *   - ItineraryId (long): Target itinerary ID (must exist in planning.Itineraries and be accessible).
+ *   - ItineraryId (long): Target itinerary ID (must exist in planning.Itineraries and belong to creator).
  *   - GroupName (string): Group name, max 150 characters (required).
  *   - HostUserId (long): ID of the authenticated traveler creating the group.
  *
  * Output:
  *   - Success: Result<CreateTravelGroupResponse> with the created group details.
- *   - Failure: Error 404 (ItineraryNotFound) if itinerary does not exist or is inaccessible.
+ *   - Failure: Error 404 (ItineraryNotFound) if itinerary does not exist or does not belong to user.
  */
 public class CreateTravelGroupCommandHandler(
     IApplicationDbContext dbContext,
@@ -32,14 +32,12 @@ public class CreateTravelGroupCommandHandler(
         CreateTravelGroupCommand request,
         CancellationToken cancellationToken)
     {
-        // Step 1: Validate that the selected itinerary exists and is accessible (BR-41).
-        // Access is determined by the itinerary access contract; UC-17 must not
-        // impose an owner-only restriction that is not defined by the SRS.
+        // Step 1: Validate itinerary existence and ownership (BR-41).
         var itinerary = await dbContext.Itineraries.FirstOrDefaultAsync(
             i => i.Id == request.ItineraryId,
             cancellationToken);
 
-        if (itinerary is null)
+        if (itinerary is null || itinerary.TravelerUserId != request.HostUserId)
         {
             return Result.Failure<CreateTravelGroupResponse>(
                 TravelGroupErrorCodes.ItineraryNotFound,
