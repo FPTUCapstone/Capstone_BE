@@ -125,7 +125,7 @@ lấy từ `.env.example`, chỉnh lại nếu bạn đổi trong `.env`):
 | Port                               | `14330` (giá trị `DB_HOST_PORT` trong `.env`, không phải `1433`) |
 | Authentication                     | SQL Login                                                                    |
 | User                               | `sa`                                                                       |
-| Password                           | giá trị`SA_PASSWORD` trong `.env` (mặc định `Passw0rd!Local`)     |
+| Password                           | giá trị `SA_PASSWORD` trong `.env` (xem `.env.example`)     |
 | Database                           | `TripMateDb`                                                               |
 | Encrypt / Trust server certificate | Bật "Trust server certificate" (container dùng self-signed cert)           |
 
@@ -201,15 +201,18 @@ trong volume rời, tách biệt khỏi image.
 
 ```dockerfile
 FROM mcr.microsoft.com/mssql/server:2022-latest
+ARG SA_PASSWORD
 ENV ACCEPT_EULA=Y
-ENV MSSQL_SA_PASSWORD=Passw0rd!Local
+ENV MSSQL_SA_PASSWORD=${SA_PASSWORD}
 COPY database/tripmate_schema_v7.sql /tmp/tripmate_schema_v7.sql
 COPY database/seed-image.sh /tmp/seed-image.sh
 RUN /tmp/seed-image.sh    # ← đây là bước "nướng" schema vào image
 ```
 
-⚠️ Vì mật khẩu `sa` nằm ngay trong `ENV` của Dockerfile, ai có image là xem được mật khẩu (`docker history`/`docker inspect`). Đây là placeholder chỉ dùng **local dev**, tuyệt đối không dùng cách
-này hay mật khẩu này cho production/cloud.
+⚠️ Mật khẩu `sa` được truyền lúc build qua `--build-arg SA_PASSWORD=...` (lấy từ `.env`), không còn
+hardcode trong Dockerfile. Giá trị truyền vào vẫn được "nướng" vào image (xem được bằng
+`docker history`/`docker inspect`) — chỉ dùng cho **local dev** khi phân phối image cho team, tuyệt
+đối không dùng cách này hay mật khẩu này cho production/cloud.
 
 ---
 
@@ -217,7 +220,8 @@ này hay mật khẩu này cho production/cloud.
 
 ```bash
 cd Capstone_BE
-docker build -f database/Dockerfile.seeded -t tripmate-db:v7 .
+# Truyền mật khẩu sa qua build-arg (lấy từ .env, không hardcode trong Dockerfile):
+docker build -f database/Dockerfile.seeded -t tripmate-db:v7 --build-arg SA_PASSWORD="<SA_PASSWORD trong .env>" .
 ```
 
 Theo dõi log build: sẽ thấy SQL Server khởi động, `CREATE DATABASE`, rồi log tương tự `(8 rows affected)` / `(130 rows affected)` (đúng số schema + message của `tripmate_schema_v7.sql`), cuối
@@ -273,7 +277,7 @@ docker ps    # thấy "tripmate-sqlserver" đang "Up"
 
 ```bash
 docker exec tripmate-sqlserver /opt/mssql-tools18/bin/sqlcmd \
-  -C -S localhost -U sa -P "Passw0rd!Local" -d TripMateDb \
+  -C -S localhost -U sa -P "<SA_PASSWORD mà người build đã truyền lúc build>" -d TripMateDb \
   -Q "SELECT COUNT(*) AS tables FROM sys.tables;"
 ```
 

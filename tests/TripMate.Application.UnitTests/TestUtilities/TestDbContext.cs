@@ -6,11 +6,10 @@ using TripMate.Domain.Entities;
 namespace TripMate.Application.UnitTests.TestUtilities;
 
 /// <summary>
-/// Minimal InMemory-backed stand-in for the real EF Core DbContext (which lives in
-/// TripMate.Infrastructure) so Application-layer handlers can be tested without depending on
-/// the Infrastructure project.
+/// Minimal InMemory-backed stand-in for the real EF Core DbContext.
 /// </summary>
-public class TestDbContext(DbContextOptions<TestDbContext> options)
+public class TestDbContext(
+    DbContextOptions<TestDbContext> options)
     : DbContext(options), IApplicationDbContext
 {
     public DbSet<User> Users => Set<User>();
@@ -39,6 +38,8 @@ public class TestDbContext(DbContextOptions<TestDbContext> options)
 
     public DbSet<Review> Reviews => Set<Review>();
 
+    public DbSet<Message> Messages => Set<Message>();
+
     public int TransactionExecutionCount { get; private set; }
 
     public async Task<T> ExecuteInTransactionAsync<T>(
@@ -53,8 +54,14 @@ public class TestDbContext(DbContextOptions<TestDbContext> options)
     {
         modelBuilder.Entity<PoiOpeningHour>()
             .HasKey(hours => new { hours.PointOfInterestId, hours.DayOfWeek });
+
         modelBuilder.Entity<PoiTag>()
-            .HasKey(mapping => new { mapping.PointOfInterestId, mapping.TagId });
+            .HasKey(mapping => new
+            {
+                mapping.PointOfInterestId,
+                mapping.TagId
+            });
+
         modelBuilder.Entity<PoiTag>()
             .HasOne(mapping => mapping.Tag)
             .WithMany()
@@ -64,6 +71,7 @@ public class TestDbContext(DbContextOptions<TestDbContext> options)
             .HasMany(poi => poi.OpeningHours)
             .WithOne(hours => hours.PointOfInterest)
             .HasForeignKey(hours => hours.PointOfInterestId);
+
         modelBuilder.Entity<PointOfInterest>()
             .HasMany(poi => poi.PoiTags)
             .WithOne(mapping => mapping.PointOfInterest)
@@ -71,14 +79,17 @@ public class TestDbContext(DbContextOptions<TestDbContext> options)
 
         modelBuilder.Entity<OperatorProfile>()
             .HasKey(profile => profile.UserId);
+
         modelBuilder.Entity<OperatorProfile>()
             .HasOne(profile => profile.User)
             .WithOne()
             .HasForeignKey<OperatorProfile>(profile => profile.UserId);
+
         modelBuilder.Entity<OperatorProfile>()
             .HasOne(profile => profile.Reviewer)
             .WithMany()
             .HasForeignKey(profile => profile.ReviewedBy);
+
         modelBuilder.Entity<OperatorProfile>()
             .HasMany(profile => profile.Documents)
             .WithOne(document => document.OperatorProfile)
@@ -88,19 +99,24 @@ public class TestDbContext(DbContextOptions<TestDbContext> options)
             .HasOne(notification => notification.User)
             .WithMany()
             .HasForeignKey(notification => notification.UserId);
+
         modelBuilder.Entity<AuditLog>()
             .HasOne(audit => audit.ActorUser)
             .WithMany()
             .HasForeignKey(audit => audit.ActorUserId);
+
+        modelBuilder.Entity<Message>()
+            .HasKey(message => message.MessageCode);
 
         base.OnModelCreating(modelBuilder);
     }
 
     public static TestDbContext Create()
     {
-        var options = new DbContextOptionsBuilder<TestDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            .Options;
+        var options =
+            new DbContextOptionsBuilder<TestDbContext>()
+                .UseInMemoryDatabase(Guid.NewGuid().ToString())
+                .Options;
 
         return new TestDbContext(options);
     }

@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Authentication.Common;
@@ -8,34 +9,78 @@ using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Authentication.Register;
 
-/// <summary>
-/// Known simplification: UC-01's email-OTP verification step is not implemented yet, so the
-/// account is created directly as Active instead of PendingEmailVerification. Active is a real,
-/// schema-valid status — this only skips exercising the verification path, it does not violate
-/// the schema. Tracked as a follow-up once the OTP delivery use case is built.
-/// </summary>
 public class RegisterTravelerCommandHandler(
     IApplicationDbContext dbContext,
-    IPasswordHasher passwordHasher,
-    IJwtTokenService jwtTokenService,
-    IDateTimeProvider dateTimeProvider)
-    : IRequestHandler<RegisterTravelerCommand, Result<AuthResponseDto>>
+    IFirebaseAuthService firebaseAuthService,
+    IPasswordHasherService passwordHasher,
+    IDateTimeProvider dateTimeProvider,
+    ILogger<RegisterTravelerCommandHandler> logger)
+    : IRequestHandler<RegisterTravelerCommand, Result<RegisterTravelerResponse>>
 {
-    public async Task<Result<AuthResponseDto>> Handle(
+    public async Task<Result<RegisterTravelerResponse>> Handle(
         RegisterTravelerCommand request,
         CancellationToken cancellationToken)
     {
-        var normalizedEmail = request.Email.Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(request.FirebaseIdToken))
+        {
+            return Result.Failure<RegisterTravelerResponse>(
+                AuthErrorCodes.AuthTokenMissing,
+                "Firebase ID token is required.");
+        }
 
-        var emailAlreadyExists = await dbContext.Users.AnyAsync(
+        FirebaseTokenValidationResult tokenResult;
+        try
+        {
+            tokenResult = await firebaseAuthService.VerifyIdTokenAsync(
+                request.FirebaseIdToken,
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            // The raw exception may contain internal/provider details — keep it server-side only.
+            logger.LogWarning(ex, "Firebase ID token verification failed during traveler registration.");
+            return Result.Failure<RegisterTravelerResponse>(
+                AuthErrorCodes.AuthTokenInvalid,
+                "Invalid or expired Firebase authentication token.");
+        }
+
+        var normalizedEmail = request.Email.Trim().ToLowerInvariant();
+        var firebaseEmail = tokenResult.Email.Trim().ToLowerInvariant();
+
+        if (!string.Equals(normalizedEmail, firebaseEmail, StringComparison.OrdinalIgnoreCase))
+        {
+            return Result.Failure<RegisterTravelerResponse>(
+                AuthErrorCodes.AuthEmailMismatch,
+                "Registration email does not match the email verified in Firebase token.");
+        }
+
+        // BR-01: Email Uniqueness
+        var userAlreadyExists = await dbContext.Users.AnyAsync(
             u => u.Email == normalizedEmail,
             cancellationToken);
 
-        if (emailAlreadyExists)
+        if (userAlreadyExists)
         {
-            return Result.Failure<AuthResponseDto>(
-                AuthErrorCodes.EmailAlreadyRegistered,
-                "An account with this email already exists.");
+            return Result.Failure<RegisterTravelerResponse>(
+                AuthErrorCodes.Msg03,
+                "An account with this email already exists. Please sign in or use another email.");
+        }
+
+        // BR-01b: Phone Uniqueness
+        string? normalizedPhone = null;
+        if (!string.IsNullOrWhiteSpace(request.PhoneNumber))
+        {
+            normalizedPhone = request.PhoneNumber.Trim();
+            var phoneAlreadyExists = await dbContext.Users.AnyAsync(
+                u => u.PhoneNumber == normalizedPhone,
+                cancellationToken);
+
+            if (phoneAlreadyExists)
+            {
+                return Result.Failure<RegisterTravelerResponse>(
+                    AuthErrorCodes.MsgPhoneDup,
+                    "This phone number is already registered to another account.");
+            }
         }
 
         var now = dateTimeProvider.UtcNow;
@@ -43,45 +88,25 @@ public class RegisterTravelerCommandHandler(
         var user = new User
         {
             Email = normalizedEmail,
+            PhoneNumber = normalizedPhone,
             FullName = request.FullName.Trim(),
             PasswordHash = passwordHasher.Hash(request.Password),
             Role = UserRole.Traveler,
-            Status = AccountStatus.Active,
+            Status = AccountStatus.PendingEmailVerification,
             CreatedAtUtc = now,
             UpdatedAtUtc = now,
         };
 
         dbContext.Users.Add(user);
-
-        var refreshTokenValue = jwtTokenService.GenerateRefreshToken();
-
-        // Set via the User navigation, not a copied UserId scalar: user.Id is still the CLR
-        // default (0) here — the database hasn't generated the real identity value yet. EF Core
-        // resolves the FK from the navigation once both rows are inserted in this same
-        // SaveChanges call; copying user.Id now would persist a literal 0.
-        dbContext.RefreshTokens.Add(new RefreshToken
-        {
-            User = user,
-            TokenHash = jwtTokenService.HashRefreshToken(refreshTokenValue),
-            CreatedAtUtc = now,
-            ExpiresAtUtc = now.AddDays(7),
-        });
-
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        // Generated only after SaveChanges: user.Id is a client-side default (0) until the
-        // database assigns the real IDENTITY value, and the JWT "sub" claim must carry that
-        // real value, not the placeholder.
-        var (accessToken, accessTokenExpiresAtUtc) = jwtTokenService.GenerateAccessToken(user);
-
-        return Result.Success(new AuthResponseDto(
+        return Result.Success(new RegisterTravelerResponse(
             user.Id,
             user.Email,
             user.FullName,
-            user.Role,
-            user.Status,
-            accessToken,
-            refreshTokenValue,
-            accessTokenExpiresAtUtc));
+            user.Role.ToString(),
+            user.Status.ToString(),
+            true,
+            AuthErrorCodes.Msg07));
     }
 }
