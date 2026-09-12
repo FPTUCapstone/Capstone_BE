@@ -99,4 +99,46 @@ public class VerifyEmailCommandHandlerTests
         result.ErrorMessage.Should().NotContain("Password=secret");
         result.ErrorMessage.Should().NotContain("Firebase Admin SDK");
     }
+
+    // SEC (Verify Email account-status fix): a verified Firebase token proves email ownership —
+    // it must NOT override an administrative account state. Only PendingEmailVerification may be
+    // activated; Locked/Inactive accounts must be rejected with the established status codes and
+    // receive no session tokens.
+    [Theory]
+    [InlineData(AccountStatus.Locked, AuthErrorCodes.AccountLocked)]
+    [InlineData(AccountStatus.Inactive, AuthErrorCodes.AccountInactive)]
+    public async Task Handle_WhenAccountInBlockedStatus_RejectsWithoutActivatingOrIssuingTokens(
+        AccountStatus status,
+        string expectedErrorCode)
+    {
+        var user = new User
+        {
+            Email = "blocked@example.com",
+            FullName = "Blocked User",
+            Role = UserRole.Traveler,
+            Status = status,
+            CreatedAtUtc = DateTimeOffset.UtcNow,
+            UpdatedAtUtc = DateTimeOffset.UtcNow
+        };
+        _dbContext.Users.Add(user);
+        await _dbContext.SaveChangesAsync();
+
+        _firebaseAuthService
+            .Setup(s => s.VerifyIdTokenAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FirebaseTokenValidationResult("fb-uid-1", "blocked@example.com", true));
+
+        var command = new VerifyEmailCommand("token-verified-but-account-blocked");
+
+        var result = await _handler.Handle(command, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be(expectedErrorCode);
+        result.ErrorMessage.Should().NotBeNullOrWhiteSpace();
+
+        // Status must be unchanged (not auto-activated) and no refresh token persisted.
+        var persistedUser = await _dbContext.Users.FindAsync(user.Id);
+        persistedUser!.Status.Should().Be(status);
+        persistedUser.EmailVerifiedAtUtc.Should().BeNull();
+        _dbContext.RefreshTokens.Should().BeEmpty();
+    }
 }

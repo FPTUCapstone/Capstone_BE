@@ -57,11 +57,35 @@ public class VerifyEmailCommandHandler(
 
         var now = dateTimeProvider.UtcNow;
 
-        if (user.Status != AccountStatus.Active)
+        // A verified Firebase token proves email ownership only — it must never override an
+        // administrative account state. Only PendingEmailVerification may be activated here;
+        // Locked/Inactive accounts are rejected with the established status codes and receive
+        // no session tokens. (PendingApproval/Rejected are UC-04 sign-in concerns and are not
+        // activation paths for this endpoint either.) Any future restricted status must be
+        // rejected too — the default case fails closed.
+        switch (user.Status)
         {
-            user.Status = AccountStatus.Active;
-            user.EmailVerifiedAtUtc = now;
-            user.UpdatedAtUtc = now;
+            case AccountStatus.PendingEmailVerification:
+                user.Status = AccountStatus.Active;
+                user.EmailVerifiedAtUtc = now;
+                user.UpdatedAtUtc = now;
+                break;
+            case AccountStatus.Locked:
+                return Result.Failure<VerifyEmailResponse>(
+                    AuthErrorCodes.AccountLocked,
+                    "Your account is locked. Please contact support.");
+            case AccountStatus.Inactive:
+                return Result.Failure<VerifyEmailResponse>(
+                    AuthErrorCodes.AccountInactive,
+                    "Your account is inactive. Please contact support.");
+            case AccountStatus.Active:
+            case AccountStatus.PendingApproval:
+            case AccountStatus.Rejected:
+                break;
+            default:
+                return Result.Failure<VerifyEmailResponse>(
+                    AuthErrorCodes.AccountInactive,
+                    "Your account is not active. Please contact support.");
         }
 
         var refreshTokenValue = jwtTokenService.GenerateRefreshToken();

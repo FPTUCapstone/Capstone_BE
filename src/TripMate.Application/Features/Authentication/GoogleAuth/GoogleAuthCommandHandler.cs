@@ -94,6 +94,22 @@ public class GoogleAuthCommandHandler(
         }
         else
         {
+            // A verified Google/Firebase identity proves who the user is — not that the account
+            // may sign in. Administrative status must be enforced BEFORE any mutation or session
+            // issuance: Locked/Inactive accounts are rejected with the established status codes
+            // (same as email/password login) and receive no tokens and no refresh-token row.
+            switch (existingUser.Status)
+            {
+                case AccountStatus.Locked:
+                    return Result.Failure<GoogleAuthResponse>(
+                        AuthErrorCodes.AccountLocked,
+                        "Your account is locked. Please contact support.");
+                case AccountStatus.Inactive:
+                    return Result.Failure<GoogleAuthResponse>(
+                        AuthErrorCodes.AccountInactive,
+                        "Your account is inactive. Please contact support.");
+            }
+
             // Update Avatar if not already set
             if (!string.IsNullOrWhiteSpace(picture) && string.IsNullOrEmpty(existingUser.AvatarUrl))
             {
