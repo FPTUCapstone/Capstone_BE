@@ -236,6 +236,187 @@ public sealed class PointsOfInterestOpenApiTests
             .Should().BeFalse();
     }
 
+    [Fact]
+    public async Task ExplorePois_OperationsAndResponses_DocumentRuntimeContract()
+    {
+        await using var factory = new TripMateApiFactory();
+        var swaggerProvider = factory.Services.GetRequiredService<ISwaggerProvider>();
+        var document = swaggerProvider.GetSwagger("v1");
+        var json = await document.SerializeAsJsonAsync(OpenApiSpecVersion.OpenApi3_0);
+
+        using var openApi = JsonDocument.Parse(json);
+        var paths = openApi.RootElement.GetProperty("paths");
+
+        // GET /api/v1/pois
+        var listResponses = paths
+            .GetProperty("/api/v1/pois")
+            .GetProperty("get")
+            .GetProperty("responses");
+
+        listResponses.EnumerateObject().Select(r => r.Name).Should().BeEquivalentTo(
+            ["200", "400", "500"]);
+
+        AssertResponseSchema(listResponses.GetProperty("200"), "PagedPoiResponseDto");
+        AssertResponseSchema(listResponses.GetProperty("400"), "ValidationProblemDetails");
+        AssertResponseSchema(listResponses.GetProperty("500"), "ProblemDetails");
+
+        // GET /api/v1/pois/{id}
+        var detailResponses = paths
+            .GetProperty("/api/v1/pois/{id}")
+            .GetProperty("get")
+            .GetProperty("responses");
+
+        detailResponses.EnumerateObject().Select(r => r.Name).Should().BeEquivalentTo(
+            ["200", "400", "404", "500"]);
+
+        AssertResponseSchema(detailResponses.GetProperty("200"), "PoiDetailDto");
+        AssertResponseSchema(detailResponses.GetProperty("400"), "ValidationProblemDetails");
+        AssertResponseSchema(detailResponses.GetProperty("404"), "ErrorCodeProblemDetails");
+        AssertResponseSchema(detailResponses.GetProperty("500"), "ProblemDetails");
+    }
+
+    [Fact]
+    public async Task PublicPoiOperations_DoNotAdvertiseBearerSecurityRequirement()
+    {
+        await using var factory = new TripMateApiFactory();
+        var swaggerProvider = factory.Services.GetRequiredService<ISwaggerProvider>();
+        var document = swaggerProvider.GetSwagger("v1");
+        var json = await document.SerializeAsJsonAsync(OpenApiSpecVersion.OpenApi3_0);
+
+        using var openApi = JsonDocument.Parse(json);
+        var paths = openApi.RootElement.GetProperty("paths");
+
+        // Public list GET: security must be empty list
+        var listGet = paths.GetProperty("/api/v1/pois").GetProperty("get");
+        listGet.GetProperty("security").GetArrayLength().Should().Be(0);
+
+        // Public detail GET: security must be empty list
+        var detailGet = paths.GetProperty("/api/v1/pois/{id}").GetProperty("get");
+        detailGet.GetProperty("security").GetArrayLength().Should().Be(0);
+
+        // Admin POST: must NOT have empty security
+        var adminPost = paths.GetProperty("/api/v1/admin/pois").GetProperty("post");
+        if (adminPost.TryGetProperty("security", out var adminSecurity))
+        {
+            adminSecurity.GetArrayLength().Should().BeGreaterThan(0);
+        }
+    }
+
+    [Fact]
+    public async Task ExplorePois_QueryParameters_DocumentDefaultsAndConstraints()
+    {
+        await using var factory = new TripMateApiFactory();
+        var swaggerProvider = factory.Services.GetRequiredService<ISwaggerProvider>();
+        var document = swaggerProvider.GetSwagger("v1");
+        var json = await document.SerializeAsJsonAsync(OpenApiSpecVersion.OpenApi3_0);
+
+        using var openApi = JsonDocument.Parse(json);
+        var parameters = openApi.RootElement
+            .GetProperty("paths")
+            .GetProperty("/api/v1/pois")
+            .GetProperty("get")
+            .GetProperty("parameters");
+
+        var paramDict = parameters.EnumerateArray()
+            .ToDictionary(
+                p => p.GetProperty("name").GetString()!,
+                p => p.GetProperty("schema"));
+
+        // page: default 1, min 1
+        paramDict["page"].GetProperty("default").GetInt32().Should().Be(1);
+        AssertMinimum(paramDict["page"], 1);
+
+        // pageSize: default 20, min 1, max 100
+        paramDict["pageSize"].GetProperty("default").GetInt32().Should().Be(20);
+        AssertRange(paramDict["pageSize"], 1, 100);
+
+        // sort: default "name", enum: name, distance, rating
+        paramDict["sort"].GetProperty("default").GetString().Should().Be("name");
+        paramDict["sort"].GetProperty("enum")
+            .EnumerateArray()
+            .Select(v => v.GetString())
+            .Should().Equal("name", "distance", "rating");
+
+        // openNow: default false
+        paramDict["openNow"].GetProperty("default").GetBoolean().Should().BeFalse();
+
+        // search: maxLength 200
+        paramDict["search"].GetProperty("maxLength").GetInt32().Should().Be(200);
+
+        // categoryId: min 1
+        AssertMinimum(paramDict["categoryId"], 1);
+
+        // originLatitude: -90..90
+        AssertRange(paramDict["originLatitude"], -90, 90);
+
+        // originLongitude: -180..180
+        AssertRange(paramDict["originLongitude"], -180, 180);
+
+        // maxDistanceKm: min 0
+        AssertMinimum(paramDict["maxDistanceKm"], 0);
+    }
+
+    [Fact]
+    public async Task ExplorePois_Schemas_DocumentRuntimeContract()
+    {
+        await using var factory = new TripMateApiFactory();
+        var swaggerProvider = factory.Services.GetRequiredService<ISwaggerProvider>();
+        var document = swaggerProvider.GetSwagger("v1");
+        var json = await document.SerializeAsJsonAsync(OpenApiSpecVersion.OpenApi3_0);
+
+        using var openApi = JsonDocument.Parse(json);
+        var schemas = openApi.RootElement
+            .GetProperty("components")
+            .GetProperty("schemas");
+
+        // PagedPoiResponseDto
+        var pagedSchema = schemas.GetProperty("PagedPoiResponseDto");
+        RequiredPropertyNames(pagedSchema).Should().BeEquivalentTo(
+            ["page", "pageSize", "totalCount", "totalPages", "items"]);
+
+        // PoiListItemDto
+        var itemSchema = schemas.GetProperty("PoiListItemDto");
+        var itemProperties = itemSchema.GetProperty("properties");
+        RequiredPropertyNames(itemSchema).Should().BeEquivalentTo(
+            itemProperties.EnumerateObject().Select(p => p.Name));
+        IsNullable(itemProperties.GetProperty("name")).Should().BeFalse();
+        IsNullable(itemProperties.GetProperty("categoryName")).Should().BeFalse();
+        IsNullable(itemProperties.GetProperty("address")).Should().BeTrue();
+        IsNullable(itemProperties.GetProperty("averageRating")).Should().BeTrue();
+        IsNullable(itemProperties.GetProperty("thumbnailUrl")).Should().BeTrue();
+        IsNullable(itemProperties.GetProperty("distanceKm")).Should().BeTrue();
+        IsNullable(itemProperties.GetProperty("reviewCount")).Should().BeFalse();
+        IsNullable(itemProperties.GetProperty("isOpenNow")).Should().BeFalse();
+
+        // PoiDetailDto
+        var detailSchema = schemas.GetProperty("PoiDetailDto");
+        var detailProperties = detailSchema.GetProperty("properties");
+        RequiredPropertyNames(detailSchema).Should().BeEquivalentTo(
+            detailProperties.EnumerateObject().Select(p => p.Name));
+        IsNullable(detailProperties.GetProperty("name")).Should().BeFalse();
+        IsNullable(detailProperties.GetProperty("categoryName")).Should().BeFalse();
+        IsNullable(detailProperties.GetProperty("openingHours")).Should().BeFalse();
+        IsNullable(detailProperties.GetProperty("photos")).Should().BeFalse();
+        IsNullable(detailProperties.GetProperty("tags")).Should().BeFalse();
+        IsNullable(detailProperties.GetProperty("description")).Should().BeTrue();
+        IsNullable(detailProperties.GetProperty("address")).Should().BeTrue();
+        IsNullable(detailProperties.GetProperty("scenicScore")).Should().BeTrue();
+        IsNullable(detailProperties.GetProperty("photoRating")).Should().BeTrue();
+        IsNullable(detailProperties.GetProperty("averageRating")).Should().BeTrue();
+
+        // PoiPhotoDto
+        var photoSchema = schemas.GetProperty("PoiPhotoDto");
+        RequiredPropertyNames(photoSchema).Should().BeEquivalentTo(
+            ["id", "url", "caption", "sortOrder"]);
+        IsNullable(photoSchema.GetProperty("properties").GetProperty("url")).Should().BeFalse();
+        IsNullable(photoSchema.GetProperty("properties").GetProperty("caption")).Should().BeTrue();
+
+        // PoiTagDto
+        var tagSchema = schemas.GetProperty("PoiTagDto");
+        RequiredPropertyNames(tagSchema).Should().BeEquivalentTo(["id", "name"]);
+        IsNullable(tagSchema.GetProperty("properties").GetProperty("name")).Should().BeFalse();
+    }
+
     private static void AssertStringEnumSchema(
         JsonElement schema,
         params string[] expectedNames)

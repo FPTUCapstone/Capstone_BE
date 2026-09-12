@@ -112,6 +112,9 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             PoiErrorCodes.PossibleDuplicate =>
                 StatusCodes.Status409Conflict,
 
+            PoiErrorCodes.NotFound =>
+                StatusCodes.Status404NotFound,
+
             TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.ItineraryNotFound =>
                 StatusCodes.Status404NotFound,
 
