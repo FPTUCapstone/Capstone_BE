@@ -25,6 +25,7 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             PoiErrorCodes.AdminAccessRequired => StatusCodes.Status403Forbidden,
             PoiErrorCodes.ReferenceNotFound => StatusCodes.Status404NotFound,
             PoiErrorCodes.PossibleDuplicate => StatusCodes.Status409Conflict,
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.ItineraryNotFound => StatusCodes.Status404NotFound,
             _ => StatusCodes.Status400BadRequest,
         };
 
@@ -32,6 +33,7 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
         {
             ["errorCode"] = result.ErrorCode,
         };
+
 
         return Problem(
             title: result.ErrorMessage,

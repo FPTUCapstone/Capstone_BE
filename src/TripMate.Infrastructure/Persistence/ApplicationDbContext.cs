@@ -50,6 +50,15 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         }, cancellationToken);
     }
 
+    public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
+
+    public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
+
+    public DbSet<GroupInvitation> GroupInvitations => Set<GroupInvitation>();
+
+    public DbSet<Itinerary> Itineraries => Set<Itinerary>();
+
+    public DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests => Set<TravelGroupCreationRequest>();
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());

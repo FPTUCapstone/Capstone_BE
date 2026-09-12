@@ -14,6 +14,15 @@ DB_NAME="${DB_NAME:-TripMateDb}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCHEMA_FILE="$SCRIPT_DIR/tripmate_schema_v7.sql"
 
+apply_incremental_migrations() {
+  local migration
+  shopt -s nullglob
+  for migration in "$SCRIPT_DIR"/migrations/*.sql; do
+    echo "Applying $(basename "$migration") to [$DB_NAME]..."
+    "$SQLCMD" -C -I -S "$DB_SERVER" -U sa -P "$SA_PASSWORD" -d "$DB_NAME" -i "$migration"
+  done
+}
+
 echo "Ensuring database [$DB_NAME] exists on $DB_SERVER..."
 "$SQLCMD" -C -S "$DB_SERVER" -U sa -P "$SA_PASSWORD" -d master \
   -Q "IF DB_ID(N'$DB_NAME') IS NULL CREATE DATABASE [$DB_NAME];"
@@ -30,6 +39,7 @@ STATE=$("$SQLCMD" -C -S "$DB_SERVER" -U sa -P "$SA_PASSWORD" -d "$DB_NAME" -h -1
 case "$STATE" in
   current)
     echo "TripMate schema (v7) already present in [$DB_NAME] — skipping."
+    apply_incremental_migrations
     exit 0
     ;;
   stale)
@@ -44,4 +54,5 @@ echo "Applying $(basename "$SCHEMA_FILE") to [$DB_NAME]..."
 # -I: turn on QUOTED_IDENTIFIER for the session — required for the filtered/unique
 # indexes in this script (sqlcmd defaults it OFF; SSMS would have set it ON for you).
 "$SQLCMD" -C -I -S "$DB_SERVER" -U sa -P "$SA_PASSWORD" -d "$DB_NAME" -i "$SCHEMA_FILE"
+apply_incremental_migrations
 echo "Schema applied successfully."

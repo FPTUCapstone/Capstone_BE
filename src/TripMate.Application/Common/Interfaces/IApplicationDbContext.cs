@@ -1,5 +1,4 @@
 using Microsoft.EntityFrameworkCore;
-
 using TripMate.Domain.Entities;
 
 namespace TripMate.Application.Common.Interfaces;
@@ -28,6 +27,15 @@ public interface IApplicationDbContext
 
     DbSet<Notification> Notifications { get; }
 
+    DbSet<TravelGroup> TravelGroups { get; }
+
+    DbSet<GroupMember> GroupMembers { get; }
+
+    DbSet<GroupInvitation> GroupInvitations { get; }
+
+    DbSet<Itinerary> Itineraries { get; }
+
+    DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests { get; }
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 
     Task<T> ExecuteInTransactionAsync<T>(
