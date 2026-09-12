@@ -1,7 +1,10 @@
 using MediatR;
+
 using Microsoft.AspNetCore.Mvc;
+
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Authentication.Common;
+using TripMate.Application.Features.PointsOfInterest.Common;
 
 namespace TripMate.Api.Common;
 
@@ -19,12 +22,20 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             AuthErrorCodes.AccountLocked => StatusCodes.Status403Forbidden,
             AuthErrorCodes.AccountInactive => StatusCodes.Status403Forbidden,
             AuthErrorCodes.EmailAlreadyRegistered => StatusCodes.Status409Conflict,
+            PoiErrorCodes.AdminAccessRequired => StatusCodes.Status403Forbidden,
+            PoiErrorCodes.ReferenceNotFound => StatusCodes.Status404NotFound,
+            PoiErrorCodes.PossibleDuplicate => StatusCodes.Status409Conflict,
             _ => StatusCodes.Status400BadRequest,
+        };
+
+        var extensions = new Dictionary<string, object?>(result.ErrorMetadata)
+        {
+            ["errorCode"] = result.ErrorCode,
         };
 
         return Problem(
             title: result.ErrorMessage,
             statusCode: statusCode,
-            extensions: new Dictionary<string, object?> { ["errorCode"] = result.ErrorCode });
+            extensions: extensions);
     }
 }

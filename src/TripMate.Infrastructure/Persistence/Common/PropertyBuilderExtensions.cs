@@ -3,7 +3,7 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 namespace TripMate.Infrastructure.Persistence.Common;
 
 /// <summary>
-/// Every timestamp column in database/tripmate_schema_v6.sql is DATETIME2, which carries no
+/// Every timestamp column in database/tripmate_schema_v7.sql is DATETIME2, which carries no
 /// offset. A DateTimeOffset property must be explicitly converted to/from plain UTC DateTime for
 /// storage — without this, Microsoft.Data.SqlClient throws InvalidCastException when reading the
 /// column back ("Unable to cast object of type 'System.DateTime' to type 'System.DateTimeOffset'").

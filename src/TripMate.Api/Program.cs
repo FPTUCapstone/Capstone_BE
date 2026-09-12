@@ -1,9 +1,20 @@
+using System.Text.Json;
+
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
+
 using Serilog;
+
+using TripMate.Api.Authorization;
+using TripMate.Api.Common;
 using TripMate.Api.Middleware;
+using TripMate.Api.OpenApi;
 using TripMate.Application;
 using TripMate.Infrastructure;
 using TripMate.Infrastructure.Authentication;
@@ -24,12 +35,43 @@ try
     builder.Services.AddApplication();
     builder.Services.AddInfrastructure(builder.Configuration);
 
-    builder.Services.AddControllers();
+    var jsonNamingPolicy = JsonNamingPolicy.CamelCase;
+    builder.Services
+        .AddControllers()
+        .AddJsonOptions(options =>
+            options.JsonSerializerOptions.PropertyNamingPolicy = jsonNamingPolicy);
+
+    builder.Services.Configure<ApiBehaviorOptions>(options =>
+    {
+        options.InvalidModelStateResponseFactory = context =>
+        {
+            var services = context.HttpContext.RequestServices;
+            var problemDetailsFactory = services.GetRequiredService<ProblemDetailsFactory>();
+            var serializerOptions = services
+                .GetRequiredService<IOptions<JsonOptions>>()
+                .Value
+                .JsonSerializerOptions;
+            var problem = problemDetailsFactory.CreateValidationProblemDetails(
+                context.HttpContext,
+                context.ModelState);
+
+            ValidationErrorKeyNormalizer.NormalizeInPlace(
+                problem.Errors,
+                serializerOptions.PropertyNamingPolicy);
+
+            var result = new BadRequestObjectResult(problem);
+            result.ContentTypes.Add("application/problem+json");
+            return result;
+        };
+    });
 
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen(options =>
     {
         options.SwaggerDoc("v1", new OpenApiInfo { Title = "TripMate API", Version = "v1" });
+        options.SchemaFilter<PoiEnumSchemaFilter>();
+        options.SchemaFilter<PoiContractSchemaFilter>();
+        options.SchemaFilter<ProblemDetailsContractSchemaFilter>();
 
         options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
         {
@@ -69,6 +111,9 @@ try
         });
 
     builder.Services.AddAuthorization();
+    builder.Services.AddSingleton<
+        IAuthorizationMiddlewareResultHandler,
+        ProblemDetailsAuthorizationMiddlewareResultHandler>();
 
     const string corsPolicyName = "TripMateClients";
     builder.Services.AddCors(options =>
