@@ -120,6 +120,8 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<OperatorDocument> OperatorDocuments => Set<OperatorDocument>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<PoiPhoto> PoiPhotos => Set<PoiPhoto>();
+    public DbSet<Review> Reviews => Set<Review>();
 
     public Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,

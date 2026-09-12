@@ -32,6 +32,10 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
 
     public DbSet<Notification> Notifications => Set<Notification>();
 
+    public DbSet<PoiPhoto> PoiPhotos => Set<PoiPhoto>();
+
+    public DbSet<Review> Reviews => Set<Review>();
+
     public async Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken)

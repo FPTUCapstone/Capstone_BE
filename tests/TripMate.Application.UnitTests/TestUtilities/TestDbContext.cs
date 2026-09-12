@@ -35,6 +35,10 @@ public class TestDbContext(DbContextOptions<TestDbContext> options)
 
     public DbSet<Notification> Notifications => Set<Notification>();
 
+    public DbSet<PoiPhoto> PoiPhotos => Set<PoiPhoto>();
+
+    public DbSet<Review> Reviews => Set<Review>();
+
     public int TransactionExecutionCount { get; private set; }
 
     public async Task<T> ExecuteInTransactionAsync<T>(

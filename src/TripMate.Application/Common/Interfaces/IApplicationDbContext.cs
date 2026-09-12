@@ -28,6 +28,10 @@ public interface IApplicationDbContext
 
     DbSet<Notification> Notifications { get; }
 
+    DbSet<PoiPhoto> PoiPhotos { get; }
+
+    DbSet<Review> Reviews { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 
     Task<T> ExecuteInTransactionAsync<T>(
