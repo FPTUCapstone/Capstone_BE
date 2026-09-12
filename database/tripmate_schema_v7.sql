@@ -163,7 +163,7 @@ CREATE TABLE dbo.Users (
         CHECK (role IN ('Traveler','TourOperator','Administrator')),
     email               NVARCHAR(256) NULL,
     phone_number        NVARCHAR(20)  NULL,
-    password_hash       NVARCHAR(256) NULL,          -- NULL allowed: social-login-only accounts
+    password_hash       NVARCHAR(256) NULL,
     full_name           NVARCHAR(150) NOT NULL,
     avatar_url          NVARCHAR(500) NULL,
     status              VARCHAR(24)   NOT NULL DEFAULT 'Active'

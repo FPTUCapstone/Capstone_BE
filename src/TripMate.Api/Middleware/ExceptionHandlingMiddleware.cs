@@ -26,6 +26,7 @@ public class ExceptionHandlingMiddleware(
             context.Response.ContentType = "application/problem+json";
 
             var serializerOptions = jsonOptions.Value.JsonSerializerOptions;
+
             var problem = new ValidationProblemDetails(
                 ValidationErrorKeyNormalizer.Normalize(
                     ex.Errors,
@@ -42,10 +43,15 @@ public class ExceptionHandlingMiddleware(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Unhandled exception while processing {Method} {Path}",
-                context.Request.Method, context.Request.Path);
+            logger.LogError(
+                ex,
+                "Unhandled exception while processing {Method} {Path}",
+                context.Request.Method,
+                context.Request.Path);
 
-            context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
+            context.Response.StatusCode =
+                (int)HttpStatusCode.InternalServerError;
+
             context.Response.ContentType = "application/problem+json";
 
             var problem = new ProblemDetails

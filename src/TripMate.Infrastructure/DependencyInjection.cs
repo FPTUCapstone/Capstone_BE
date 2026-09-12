@@ -26,11 +26,18 @@ public static class DependencyInjection
 
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
 
+        services.AddDistributedMemoryCache();
+
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUserService, CurrentUserService>();
         services.AddSingleton<IDateTimeProvider, DateTimeProvider>();
-        services.AddSingleton<IPasswordHasher, PasswordHasher>();
+        services.AddScoped<IPasswordHasherService, PasswordHasherService>();
+        services.AddScoped<IPasswordHasher>(sp => sp.GetRequiredService<IPasswordHasherService>());
         services.AddScoped<IJwtTokenService, JwtTokenService>();
+        services.AddMemoryCache();
+        services.AddScoped<IMessageService, MessageService>();
+        services.AddSingleton<IFirebaseAuthService, FirebaseAuthService>();
+        services.AddScoped<IGoogleTokenValidator, GoogleTokenValidator>();
 
         return services;
     }
