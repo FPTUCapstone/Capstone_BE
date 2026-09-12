@@ -55,6 +55,10 @@ public class TestDbContext(DbContextOptions<TestDbContext> options)
             .HasKey(hours => new { hours.PointOfInterestId, hours.DayOfWeek });
         modelBuilder.Entity<PoiTag>()
             .HasKey(mapping => new { mapping.PointOfInterestId, mapping.TagId });
+        modelBuilder.Entity<PoiTag>()
+            .HasOne(mapping => mapping.Tag)
+            .WithMany()
+            .HasForeignKey(mapping => mapping.TagId);
 
         modelBuilder.Entity<PointOfInterest>()
             .HasMany(poi => poi.OpeningHours)
