@@ -16,7 +16,7 @@ public class CreateTravelGroupCommandValidatorTests
     [Fact]
     public void Validate_WithValidCommand_HasNoErrors()
     {
-        var command = new CreateTravelGroupCommand(1, "Da Nang Summer Trip", 10);
+        var command = new CreateTravelGroupCommand(1, "Da Nang Summer Trip", 10, Guid.NewGuid());
 
         var result = _validator.Validate(command);
 
@@ -29,7 +29,7 @@ public class CreateTravelGroupCommandValidatorTests
     [InlineData(null)]
     public void Validate_WithEmptyGroupName_HasError(string? groupName)
     {
-        var command = new CreateTravelGroupCommand(1, groupName!, 10);
+        var command = new CreateTravelGroupCommand(1, groupName!, 10, Guid.NewGuid());
 
 
         var result = _validator.Validate(command);
@@ -42,7 +42,7 @@ public class CreateTravelGroupCommandValidatorTests
     public void Validate_WithGroupNameExceeding150Chars_HasError()
     {
         var longName = new string('A', 151);
-        var command = new CreateTravelGroupCommand(1, longName, 10);
+        var command = new CreateTravelGroupCommand(1, longName, 10, Guid.NewGuid());
 
         var result = _validator.Validate(command);
 
@@ -55,7 +55,7 @@ public class CreateTravelGroupCommandValidatorTests
     [InlineData(-1)]
     public void Validate_WithInvalidItineraryId_HasError(long itineraryId)
     {
-        var command = new CreateTravelGroupCommand(itineraryId, "Valid Name", 10);
+        var command = new CreateTravelGroupCommand(itineraryId, "Valid Name", 10, Guid.NewGuid());
 
         var result = _validator.Validate(command);
 
@@ -68,11 +68,13 @@ public class CreateTravelGroupCommandValidatorTests
     [InlineData(-1)]
     public void Validate_WithInvalidHostUserId_HasError(long hostUserId)
     {
-        var command = new CreateTravelGroupCommand(1, "Valid Name", hostUserId);
+        var command = new CreateTravelGroupCommand(1, "Valid Name", hostUserId, Guid.NewGuid());
+
 
         var result = _validator.Validate(command);
 
         result.IsValid.Should().BeFalse();
         result.Errors.Should().Contain(e => e.PropertyName == nameof(CreateTravelGroupCommand.HostUserId));
     }
+
 }

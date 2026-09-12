@@ -96,6 +96,7 @@ public class TestDbContext(DbContextOptions<TestDbContext> options)
 
     public DbSet<Itinerary> Itineraries => Set<Itinerary>();
 
+    public DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests => Set<TravelGroupCreationRequest>();
     public static TestDbContext Create()
 
     {

@@ -35,6 +35,7 @@ public interface IApplicationDbContext
 
     DbSet<Itinerary> Itineraries { get; }
 
+    DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests { get; }
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 
     Task<T> ExecuteInTransactionAsync<T>(

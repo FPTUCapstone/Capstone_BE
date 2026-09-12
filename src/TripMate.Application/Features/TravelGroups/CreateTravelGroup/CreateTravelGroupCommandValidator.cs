@@ -25,5 +25,8 @@ public class CreateTravelGroupCommandValidator : AbstractValidator<CreateTravelG
 
         RuleFor(x => x.HostUserId)
             .GreaterThan(0);
+
+        RuleFor(x => x.IdempotencyKey)
+            .NotEqual(Guid.Empty);
     }
 }

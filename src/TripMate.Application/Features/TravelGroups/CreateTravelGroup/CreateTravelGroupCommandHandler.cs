@@ -32,51 +32,69 @@ public class CreateTravelGroupCommandHandler(
         CreateTravelGroupCommand request,
         CancellationToken cancellationToken)
     {
-        // Step 1: Validate itinerary existence and ownership (BR-41).
-        var itinerary = await dbContext.Itineraries.FirstOrDefaultAsync(
-            i => i.Id == request.ItineraryId,
-            cancellationToken);
-
-        if (itinerary is null || itinerary.TravelerUserId != request.HostUserId)
+        return await dbContext.ExecuteInTransactionAsync(async transactionCancellationToken =>
         {
-            return Result.Failure<CreateTravelGroupResponse>(
-                TravelGroupErrorCodes.ItineraryNotFound,
-                "The specified itinerary does not exist or is inaccessible.");
-        }
+            var previousRequest = await dbContext.TravelGroupCreationRequests
+                .Include(operation => operation.TravelGroup)
+                .FirstOrDefaultAsync(
+                    operation => operation.TravelerUserId == request.HostUserId
+                        && operation.IdempotencyKey == request.IdempotencyKey,
+                    transactionCancellationToken);
 
-        // Step 2: Initialize travel group entity
-        var travelGroup = new TravelGroup
-        {
-            ItineraryId = itinerary.Id,
-            HostUserId = request.HostUserId,
-            Name = request.GroupName.Trim(),
-            CreatedAtUtc = dateTimeProvider.UtcNow
-        };
+            if (previousRequest is not null)
+            {
+                return Result.Success(ToResponse(previousRequest.TravelGroup));
+            }
 
-        // Step 3: Assign creator as exclusive initial Group Host (BR-42)
-        // Note: Assign navigation property (TravelGroup) instead of scalar GroupId
-        // so EF Core automatically populates the generated key during SaveChangesAsync.
-        var hostMember = new GroupMember
-        {
-            TravelGroup = travelGroup,
-            UserId = request.HostUserId,
-            LocationSharingEnabled = false,
-            Status = GroupMemberStatus.Active,
-            JoinedAtUtc = dateTimeProvider.UtcNow
-        };
+            // Step 1: Validate itinerary existence and ownership (BR-41).
+            var itinerary = await dbContext.Itineraries.FirstOrDefaultAsync(
+                itinerary => itinerary.Id == request.ItineraryId,
+                transactionCancellationToken);
 
-        // Step 4: Persist group and initial Host membership atomically.
-        // Invitation generation belongs exclusively to UC-18.
-        dbContext.TravelGroups.Add(travelGroup);
-        dbContext.GroupMembers.Add(hostMember);
+            if (itinerary is null || itinerary.TravelerUserId != request.HostUserId)
+            {
+                return Result.Failure<CreateTravelGroupResponse>(
+                    TravelGroupErrorCodes.ItineraryNotFound,
+                    "The specified itinerary does not exist or is inaccessible.");
+            }
 
-        await dbContext.SaveChangesAsync(cancellationToken);
+            var now = dateTimeProvider.UtcNow;
+            var travelGroup = new TravelGroup
+            {
+                ItineraryId = itinerary.Id,
+                HostUserId = request.HostUserId,
+                Name = request.GroupName.Trim(),
+                CreatedAtUtc = now
+            };
+            var hostMember = new GroupMember
+            {
+                TravelGroup = travelGroup,
+                UserId = request.HostUserId,
+                LocationSharingEnabled = false,
+                Status = GroupMemberStatus.Active,
+                JoinedAtUtc = now
+            };
+            var operation = new TravelGroupCreationRequest
+            {
+                TravelerUserId = request.HostUserId,
+                IdempotencyKey = request.IdempotencyKey,
+                TravelGroup = travelGroup,
+                CreatedAtUtc = now
+            };
+            dbContext.TravelGroups.Add(travelGroup);
+            dbContext.GroupMembers.Add(hostMember);
+            dbContext.TravelGroupCreationRequests.Add(operation);
+            await dbContext.SaveChangesAsync(transactionCancellationToken);
 
-        return Result.Success(new CreateTravelGroupResponse(
+            return Result.Success(ToResponse(travelGroup));
+        }, cancellationToken);
+    }
+
+    private static CreateTravelGroupResponse ToResponse(TravelGroup travelGroup) =>
+        new(
             travelGroup.Id,
             travelGroup.Name ?? string.Empty,
             travelGroup.ItineraryId,
             travelGroup.HostUserId,
-            travelGroup.CreatedAtUtc));
-    }
+            travelGroup.CreatedAtUtc);
 }

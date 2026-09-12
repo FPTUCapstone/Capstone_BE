@@ -3,7 +3,7 @@ using TripMate.Domain.Common;
 namespace TripMate.Domain.Entities;
 
 /**
- * [UC-17] Group Invitation Entity
+ * [UC-18] Group Invitation Entity
  * Maps social.GroupInvitations in database/tripmate_schema_v7.sql.
  * Represents an invitation code generated for sharing access to a travel group.
  *

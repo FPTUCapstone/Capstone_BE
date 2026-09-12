@@ -25,7 +25,7 @@ public class CreateTravelGroupCommandHandlerTests
         await using var dbContext = TestDbContext.Create();
         var handler = new CreateTravelGroupCommandHandler(dbContext, _dateTimeProvider);
 
-        var command = new CreateTravelGroupCommand(999, "Da Nang Trip", 1);
+        var command = new CreateTravelGroupCommand(999, "Da Nang Trip", 1, Guid.NewGuid());
         var result = await handler.Handle(command, CancellationToken.None);
 
         result.IsFailure.Should().BeTrue();
@@ -48,7 +48,7 @@ public class CreateTravelGroupCommandHandlerTests
         await dbContext.SaveChangesAsync();
 
         var handler = new CreateTravelGroupCommandHandler(dbContext, _dateTimeProvider);
-        var command = new CreateTravelGroupCommand(itinerary.Id, "Shared Trip Group", 200);
+        var command = new CreateTravelGroupCommand(itinerary.Id, "Shared Trip Group", 200, Guid.NewGuid());
 
         var result = await handler.Handle(command, CancellationToken.None);
 
@@ -84,7 +84,7 @@ public class CreateTravelGroupCommandHandlerTests
         await dbContext.SaveChangesAsync();
 
         var handler = new CreateTravelGroupCommandHandler(dbContext, _dateTimeProvider);
-        var command = new CreateTravelGroupCommand(itinerary.Id, "Da Nang Summer Trip", user.Id);
+        var command = new CreateTravelGroupCommand(itinerary.Id, "Da Nang Summer Trip", user.Id, Guid.NewGuid());
 
         var result = await handler.Handle(command, CancellationToken.None);
 
@@ -118,6 +118,46 @@ public class CreateTravelGroupCommandHandlerTests
     }
 
     [Fact]
+    public async Task Handle_WithRepeatedIdempotencyKey_ReturnsOriginalGroupWithoutDuplicate()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var user = new User
+        {
+            Email = "idempotent@example.com",
+            FullName = "Nguyen Van C",
+            Role = UserRole.Traveler,
+            Status = AccountStatus.Active
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var itinerary = new Itinerary
+        {
+            TravelerUserId = user.Id,
+            Title = "Hue Trip",
+            Status = "Active",
+            CreatedAtUtc = _dateTimeProvider.UtcNow,
+            UpdatedAtUtc = _dateTimeProvider.UtcNow
+        };
+        dbContext.Itineraries.Add(itinerary);
+        await dbContext.SaveChangesAsync();
+
+        var key = Guid.NewGuid();
+        var handler = new CreateTravelGroupCommandHandler(dbContext, _dateTimeProvider);
+        var firstResult = await handler.Handle(
+            new CreateTravelGroupCommand(itinerary.Id, "Hue Group", user.Id, key),
+            CancellationToken.None);
+        var retryResult = await handler.Handle(
+            new CreateTravelGroupCommand(itinerary.Id, "Hue Group", user.Id, key),
+            CancellationToken.None);
+
+        firstResult.IsSuccess.Should().BeTrue();
+        retryResult.IsSuccess.Should().BeTrue();
+        retryResult.Value.GroupId.Should().Be(firstResult.Value.GroupId);
+        (await dbContext.TravelGroups.CountAsync()).Should().Be(1);
+    }
+
+    [Fact]
     public async Task Handle_WhenHostMembershipPersistenceFails_DoesNotRetainTravelGroup()
     {
         var databaseName = Guid.NewGuid().ToString();
@@ -142,10 +182,12 @@ public class CreateTravelGroupCommandHandlerTests
         {
             var itinerary = await failingContext.Itineraries.SingleAsync();
             var handler = new CreateTravelGroupCommandHandler(failingContext, _dateTimeProvider);
-            var command = new CreateTravelGroupCommand(itinerary.Id, "Da Nang Group", 200);
+            var command = new CreateTravelGroupCommand(itinerary.Id, "Da Nang Group", 200, Guid.NewGuid());
 
             await FluentActions.Invoking(() => handler.Handle(command, CancellationToken.None))
                 .Should().ThrowAsync<DbUpdateException>();
+
+            failingContext.TransactionExecutionCount.Should().Be(1);
         }
 
         await using var verificationContext = new TestDbContext(seedOptions);

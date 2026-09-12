@@ -18,4 +18,5 @@ namespace TripMate.Application.Features.TravelGroups.CreateTravelGroup;
 public record CreateTravelGroupCommand(
     long ItineraryId,
     string GroupName,
-    long HostUserId) : IRequest<Result<CreateTravelGroupResponse>>;
+    long HostUserId,
+    Guid IdempotencyKey) : IRequest<Result<CreateTravelGroupResponse>>;

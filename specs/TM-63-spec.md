@@ -12,14 +12,14 @@
 ## 1. Scope & Objective
 
 ### 1.1 Objective
-Allow an authenticated Traveler to create a new Travel Group linked to an eligible, existing itinerary (`planning.Itineraries`). The creator is automatically assigned as the **Group Host** in `social.GroupMembers`, and a unique 30-day invitation code is generated in `social.GroupInvitations`.
+Allow an authenticated Traveler to create a new Travel Group linked to an eligible, existing itinerary (`planning.Itineraries`). The creator is automatically assigned as the **Group Host** in `social.GroupMembers`. Invitation generation is handled by UC-18.
 
 ### 1.2 Boundary & Out of Scope
 - **In Scope**:
   - Validating linked itinerary existence and ownership.
   - Creating `social.TravelGroups` record with creator as `host_user_id`.
   - Atomically inserting creator into `social.GroupMembers` with `status = 'Active'` and `location_sharing_enabled = 0`.
-  - Atomically generating a unique 8-character `invite_code` into `social.GroupInvitations`.
+  - Rejecting duplicate submissions through a client-supplied `Idempotency-Key`.
   - Exposing endpoint `POST /api/v1/travel-groups`.
 - **Out of Scope (Adjacent Tasks)**:
   - Inviting members via email/notification (UC-18 / TM-64).
@@ -34,9 +34,9 @@ Allow an authenticated Traveler to create a new Travel Group linked to an eligib
 - **AC-01 (Itinerary Validation)**: Request must specify an `itineraryId`. If the itinerary does not exist, return `404 Not Found` with code `TravelGroup.ItineraryNotFound`.
 - **AC-02 (Group Name Validation)**: `groupName` is required (MSG01: "This field is required.") and must not exceed 150 characters. Whitespace must be trimmed. If empty, return `400 Bad Request` with FluentValidation error.
 - **AC-03 (Host Assignment)**: The authenticated creator (`host_user_id`) must automatically become the exclusive initial Group Host in `social.GroupMembers` with `status = 'Active'` and `joined_at = UtcNow`.
-- **AC-04 (Invitation Code Generation)**: A unique, URL-safe 8-character alphanumeric code must be generated and stored in `social.GroupInvitations` with `expires_at = UtcNow + 30 days`, `max_uses = 50`, `used_count = 0`.
-- **AC-05 (Atomic Transaction)**: `TravelGroup`, `GroupMember` (Host), and `GroupInvitation` must be persisted in a single `SaveChangesAsync()` call using EF Core graph navigation properties.
-- **AC-06 (Response Contract)**: On success, return `201 Created` with payload containing `groupId`, `groupName`, `itineraryId`, `hostUserId`, `inviteCode`, and `createdAt`.
+- **AC-04 (Idempotency)**: The client must send a non-empty GUID `Idempotency-Key` header. A repeated request from the same Traveler with the same key returns the original group and must not create another group. Different keys may create groups with the same name.
+- **AC-05 (Atomic Transaction)**: `TravelGroup`, `GroupMember` (Host), and the idempotency operation record are persisted in one database transaction. If any operation fails, no incomplete TravelGroup is retained.
+- **AC-06 (Response Contract)**: On success, return `201 Created` with payload containing `groupId`, `groupName`, `itineraryId`, `hostUserId`, and `createdAtUtc`.
 
 ---
 
@@ -61,25 +61,21 @@ Allow an authenticated Traveler to create a new Travel Group linked to an eligib
 | `joined_at` | `DATETIME2` | No | UTC join timestamp |
 | `left_at` | `DATETIME2` | Yes | Null for active members |
 
-### 3.3 `social.GroupInvitations`
+### 3.3 `social.TravelGroupCreationRequests`
 | Column | Type | Nullable | Description |
 |---|---|---|---|
-| `invitation_id` | `BIGINT IDENTITY(1,1)` | No (PK) | Auto-generated invitation identifier |
-| `group_id` | `BIGINT` | No (FK) | References `social.TravelGroups(group_id)` ON DELETE CASCADE |
-| `invite_code` | `VARCHAR(20)` | No (UQ) | Unique invitation code |
-| `created_by` | `BIGINT` | No (FK) | References `dbo.Users(user_id)` |
-| `expires_at` | `DATETIME2` | No | Expiration timestamp (30 days from creation) |
-| `max_uses` | `INT` | No | Default `50` |
-| `used_count` | `INT` | No | Default `0` |
+| `request_id` | `BIGINT IDENTITY(1,1)` | No (PK) | Auto-generated operation identifier |
+| `traveler_user_id` | `BIGINT` | No | Authenticated Traveler who submitted the operation |
+| `idempotency_key` | `UNIQUEIDENTIFIER` | No | Client-generated GUID; unique per Traveler |
+| `group_id` | `BIGINT` | No (FK) | Created TravelGroup returned on retry |
 | `created_at` | `DATETIME2` | No | UTC creation timestamp |
-
----
 
 ## 4. API Endpoint & DTO Contracts
 
 ### 4.1 Endpoint
 - **Route**: `POST /api/v1/travel-groups`
-- **Auth**: Authenticated Traveler (JWT Bearer Token or internal test header)
+- **Auth**: Authenticated Traveler (JWT Bearer Token)
+- **Required header**: `Idempotency-Key: <GUID>`
 
 ### 4.2 Request Body (`CreateTravelGroupRequest`)
 ```json
@@ -96,8 +92,7 @@ Allow an authenticated Traveler to create a new Travel Group linked to an eligib
   "groupName": "Da Nang Summer Trip 2026",
   "itineraryId": 1001,
   "hostUserId": 5,
-  "inviteCode": "TM7X9K2A",
-  "createdAt": "2026-09-08T10:30:00Z"
+  "createdAtUtc": "2026-09-08T10:30:00Z"
 }
 ```
 
@@ -129,8 +124,7 @@ Allow an authenticated Traveler to create a new Travel Group linked to an eligib
 
 1. **Pure Domain**: Domain entities contain no references to EF Core, ASP.NET Core, or infrastructure.
 2. **Navigation Property Graph Insert (AGENTS.md §3.2)**:
-   When creating `GroupMember` and `GroupInvitation` alongside `TravelGroup`, assign `member.TravelGroup = travelGroup` and `invitation.TravelGroup = travelGroup`, NOT scalar `GroupId` (which is still `0` before persistence).
+   When creating `GroupMember` and `TravelGroupCreationRequest` alongside `TravelGroup`, assign their `TravelGroup` navigation property, NOT scalar `GroupId` (which is still `0` before persistence).
 3. **Change Tracking**: Keep change tracking enabled during command handler execution.
 4. **UTC Timestamps**: All `DateTime` properties must be mapped using `AsUtcDateTime2()` or `DateTime.UtcNow`.
 5. **No Synthetic Wrapper**: Return raw DTO on success (201 Created) and ProblemDetails RFC-7807 on failure.
-

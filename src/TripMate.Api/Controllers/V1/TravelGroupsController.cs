@@ -40,10 +40,19 @@ public class TravelGroupsController(
             return Unauthorized();
         }
 
+        if (!Guid.TryParse(Request.Headers["Idempotency-Key"], out var idempotencyKey)
+            || idempotencyKey == Guid.Empty)
+        {
+            return Problem(
+                title: "A valid Idempotency-Key header is required.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
         var command = new CreateTravelGroupCommand(
             request.ItineraryId,
             request.GroupName,
-            currentUserService.UserId.Value);
+            currentUserService.UserId.Value,
+            idempotencyKey);
 
         var result = await Sender.Send(command, cancellationToken);
 
