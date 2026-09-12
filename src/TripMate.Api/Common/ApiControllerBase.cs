@@ -19,6 +19,11 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             AuthErrorCodes.AccountLocked => StatusCodes.Status403Forbidden,
             AuthErrorCodes.AccountInactive => StatusCodes.Status403Forbidden,
             AuthErrorCodes.EmailAlreadyRegistered => StatusCodes.Status409Conflict,
+            TripMate.Application.Features.Admin.AuditLogs.Common.AuditLogErrorCodes.Forbidden => StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.Admin.AuditLogs.Common.AuditLogErrorCodes.InvalidDateRange => StatusCodes.Status422UnprocessableEntity,
+            TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.Forbidden => StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.NotFound => StatusCodes.Status404NotFound,
+            TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.NotPending => StatusCodes.Status409Conflict,
             _ => StatusCodes.Status400BadRequest,
         };
 
