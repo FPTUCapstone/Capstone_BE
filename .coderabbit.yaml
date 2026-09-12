@@ -1,0 +1,40 @@
+# yaml-language-server: $schema=https://storage.googleapis.com/coderabbit_public_assets/schema.v2.json
+language: "en-US"
+
+tone_instructions: >
+  Group feedback into three buckets matching this team's pipeline: Bug (correctness, edge cases,
+  logic errors), Security (injection, auth/authz gaps, secret handling, unsafe deserialization),
+  Architecture (violations of this repo's AGENTS.md — Clean Architecture layering, database-first
+  rules, Result pattern usage). Label each comment with its bucket.
+
+reviews:
+  profile: assertive
+  request_changes_workflow: false # human reviewer gives the real approval, not CodeRabbit
+  auto_review:
+    enabled: true
+    base_branches:
+      - "develop"
+  path_filters:
+    - "!**/bin/**"
+    - "!**/obj/**"
+  path_instructions:
+    - path: "src/TripMate.Application/**"
+      instructions: >
+        Application layer must not reference ASP.NET Core or EF Core provider packages (only
+        interfaces in Common/Interfaces and EF Core abstractions for IApplicationDbContext).
+        Expected business failures (invalid credentials, duplicate email, account status, etc.)
+        must use Result/Result<T>, not thrown exceptions. Flag any generic IRepository<T>
+        introduced on top of MediatR handlers.
+    - path: "src/TripMate.Infrastructure/Persistence/**"
+      instructions: >
+        This project is database-first (database/tripmate_schema_v7.sql is the source of truth,
+        no EF Core migrations). Every column must be mapped explicitly via .HasColumnName(...) —
+        no convention-based name matching. Every DateTimeOffset(?) property mapped to a
+        DATETIME2 column must use PropertyBuilderExtensions.AsUtcDateTime2(). When a new entity
+        references another row created in the same SaveChangesAsync call, the navigation
+        property must be set (not a copied scalar FK, which would persist as 0).
+    - path: "src/TripMate.Api/Controllers/**"
+      instructions: >
+        Controllers must stay thin: send the command/query via ISender and translate Result to
+        an IActionResult via ApiControllerBase.HandleFailure. Flag any business logic or direct
+        DbContext access here.
