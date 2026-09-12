@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+
 using TripMate.Domain.Entities;
 
 namespace TripMate.Application.Common.Interfaces;
@@ -9,13 +10,15 @@ public interface IApplicationDbContext
 
     DbSet<RefreshToken> RefreshTokens { get; }
 
-    DbSet<OperatorProfile> OperatorProfiles { get; }
+    DbSet<PoiCategory> PoiCategories { get; }
 
-    DbSet<OperatorDocument> OperatorDocuments { get; }
+    DbSet<PointOfInterest> PointsOfInterest { get; }
 
-    DbSet<AuditLog> AuditLogs { get; }
+    DbSet<PoiOpeningHour> PoiOpeningHours { get; }
 
-    DbSet<Notification> Notifications { get; }
+    DbSet<Tag> Tags { get; }
+
+    DbSet<PoiTag> PoiTags { get; }
 
     DbSet<OperatorProfile> OperatorProfiles { get; }
 
@@ -27,6 +30,9 @@ public interface IApplicationDbContext
 
     DbSet<Message> Messages { get; }
 
-    Task<int> SaveChangesAsync(
+    Task<int> SaveChangesAsync(CancellationToken cancellationToken);
+
+    Task<T> ExecuteInTransactionAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken);
 }

@@ -1,6 +1,9 @@
 using System.Text.Json;
+
 using MediatR;
+
 using Microsoft.EntityFrameworkCore;
+
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Admin.TourOperatorApplications.Common;
@@ -133,16 +136,12 @@ public class ApproveOperatorApplicationCommandHandler(
         });
 
         // 10. Create AuditLog row
-        dbContext.AuditLogs.Add(new AuditLog
-        {
-            ActorUserId = adminId,
-            ActionType = "ApproveOperatorApplication",
-            AffectedEntity = "OperatorProfile",
-            AffectedEntityId = user.Id,
-            BeforeData = beforeSnapshot,
-            AfterData = afterSnapshot,
-            CreatedAtUtc = now,
-        });
+        dbContext.AuditLogs.Add(AuditLog.CreateOperatorApplicationApproved(
+            adminId,
+            user.Id,
+            beforeSnapshot,
+            afterSnapshot,
+            now));
 
         // 11. Create Notification row (MSG114 content)
         var messageText = $"Tour Operator \"{profile.CompanyName}\" approved. Account activated.";

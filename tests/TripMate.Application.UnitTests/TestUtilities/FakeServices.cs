@@ -31,4 +31,3 @@ public class FakeCurrentUserService : ICurrentUserService
 
     public string? Role { get; set; }
 }
-
