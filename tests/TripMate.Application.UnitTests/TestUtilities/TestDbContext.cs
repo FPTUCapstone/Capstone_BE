@@ -86,6 +86,11 @@ public class TestDbContext(
                 mapping.TagId
             });
 
+        modelBuilder.Entity<PoiTag>()
+            .HasOne(mapping => mapping.Tag)
+            .WithMany()
+            .HasForeignKey(mapping => mapping.TagId);
+
         modelBuilder.Entity<PointOfInterest>()
             .HasMany(poi => poi.OpeningHours)
             .WithOne(hours => hours.PointOfInterest)
