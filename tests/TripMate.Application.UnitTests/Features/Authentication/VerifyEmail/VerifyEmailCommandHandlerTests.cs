@@ -1,6 +1,8 @@
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using TripMate.Application.Common.Interfaces;
+using TripMate.Application.Features.Authentication.Common;
 using TripMate.Application.Features.Authentication.VerifyEmail;
 using TripMate.Application.UnitTests.TestUtilities;
 using TripMate.Domain.Entities;
@@ -29,7 +31,8 @@ public class VerifyEmailCommandHandlerTests
             _dbContext,
             _firebaseAuthService.Object,
             _jwtTokenService.Object,
-            _dateTimeProvider.Object);
+            _dateTimeProvider.Object,
+            NullLogger<VerifyEmailCommandHandler>.Instance);
     }
 
     [Fact]
@@ -76,5 +79,24 @@ public class VerifyEmailCommandHandlerTests
         var updatedUser = await _dbContext.Users.FindAsync(user.Id);
         updatedUser!.Status.Should().Be(AccountStatus.Active);
         updatedUser.EmailVerifiedAtUtc.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task Handle_WhenTokenVerificationThrows_ReturnsGenericMessageWithoutExceptionDetails()
+    {
+        _firebaseAuthService
+            .Setup(s => s.VerifyIdTokenAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException(
+                "Firebase Admin SDK is not configured; internal connection string Password=secret"));
+
+        var command = new VerifyEmailCommand("bad-token");
+
+        var result = await _handler.Handle(command, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be(AuthErrorCodes.Msg14);
+        result.ErrorMessage.Should().Be("Invalid or expired Firebase authentication token.");
+        result.ErrorMessage.Should().NotContain("Password=secret");
+        result.ErrorMessage.Should().NotContain("Firebase Admin SDK");
     }
 }

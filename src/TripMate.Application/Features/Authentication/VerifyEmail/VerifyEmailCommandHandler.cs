@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Authentication.Common;
@@ -12,7 +13,8 @@ public class VerifyEmailCommandHandler(
     IApplicationDbContext dbContext,
     IFirebaseAuthService firebaseAuthService,
     IJwtTokenService jwtTokenService,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    ILogger<VerifyEmailCommandHandler> logger)
     : IRequestHandler<VerifyEmailCommand, Result<VerifyEmailResponse>>
 {
     public async Task<Result<VerifyEmailResponse>> Handle(
@@ -26,9 +28,11 @@ public class VerifyEmailCommandHandler(
         }
         catch (Exception ex)
         {
+            // The raw exception may contain internal/provider details — keep it server-side only.
+            logger.LogWarning(ex, "Firebase ID token verification failed during email verification.");
             return Result.Failure<VerifyEmailResponse>(
                 AuthErrorCodes.Msg14,
-                $"Invalid or expired Firebase authentication token: {ex.Message}");
+                "Invalid or expired Firebase authentication token.");
         }
 
         if (!tokenResult.EmailVerified)

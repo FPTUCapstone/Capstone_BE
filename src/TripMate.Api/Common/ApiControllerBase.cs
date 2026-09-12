@@ -46,6 +46,12 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             AuthErrorCodes.InvalidCredentials =>
                 StatusCodes.Status401Unauthorized,
 
+            AuthErrorCodes.AuthTokenInvalid =>
+                StatusCodes.Status401Unauthorized,
+
+            AuthErrorCodes.Msg14 =>
+                StatusCodes.Status401Unauthorized,
+
             AuthErrorCodes.AccountPendingVerification =>
                 StatusCodes.Status403Forbidden,
 

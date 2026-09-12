@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Authentication.Common;
@@ -33,7 +34,8 @@ public class RegisterTravelerCommandHandlerTests
             _dbContext,
             _firebaseAuthService.Object,
             _passwordHasher,
-            _dateTimeProvider.Object);
+            _dateTimeProvider.Object,
+            NullLogger<RegisterTravelerCommandHandler>.Instance);
     }
 
     [Fact]
@@ -100,5 +102,30 @@ public class RegisterTravelerCommandHandlerTests
         result.IsSuccess.Should().BeTrue();
         var savedUser = _dbContext.Users.Single(u => u.Email == "newuser@example.com");
         savedUser.FullName.Should().Be("Nguyen Van A");
+    }
+
+    [Fact]
+    public async Task Handle_WhenTokenVerificationThrows_ReturnsGenericMessageWithoutExceptionDetails()
+    {
+        _firebaseAuthService
+            .Setup(s => s.VerifyIdTokenAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException(
+                "Firebase Admin SDK is not configured; internal connection string Password=secret"));
+
+        var command = new RegisterTravelerCommand(
+            "newuser@example.com",
+            "Password123!",
+            "Nguyen Van A",
+            null,
+            true,
+            "bad-token");
+
+        var result = await _handler.Handle(command, CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be(AuthErrorCodes.AuthTokenInvalid);
+        result.ErrorMessage.Should().Be("Invalid or expired Firebase authentication token.");
+        result.ErrorMessage.Should().NotContain("Password=secret");
+        result.ErrorMessage.Should().NotContain("Firebase Admin SDK");
     }
 }

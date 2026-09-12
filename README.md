@@ -88,8 +88,8 @@ Nếu bạn chỉ muốn team có ngay 1 SQL Server **đã có sẵn `TripMateDb
 Tóm tắt cực nhanh (chi tiết + giải thích từng bước, số liệu thật đã verify: xem link trên):
 
 ```bash
-# Người gửi — build 1 lần, xuất file (~600 MB)
-docker build -f database/Dockerfile.seeded -t tripmate-db:v7 .
+# Người gửi — build 1 lần, xuất file (~600 MB). Truyền mật khẩu sa qua build-arg (lấy từ .env):
+docker build -f database/Dockerfile.seeded -t tripmate-db:v7 --build-arg SA_PASSWORD="<SA_PASSWORD trong .env>" .
 docker save -o tripmate-db.tar tripmate-db:v7
 
 # Người nhận — load và chạy, có DB ngay, không cần bước nào khác
@@ -103,7 +103,18 @@ riêng phần database, đúng với việc bạn chỉ muốn chạy SQL trên 
 ## 5. Chạy không dùng Docker
 
 1. Cài SQL Server (LocalDB hoặc Developer Edition) và có `sqlcmd`.
-2. Sửa connection string trong `src/TripMate.Api/appsettings.Development.json` nếu khác mặc định.
+2. Cấp connection string cho API qua biến môi trường — **không** hardcode mật khẩu vào file đã
+   commit (`appsettings.Development.json` để `ConnectionStrings:Default` trống):
+
+   ```powershell
+   # PowerShell (ASP.NET Core tự đọc biến môi trường, không cần chỉnh file nào)
+   $env:ConnectionStrings__Default = "Server=localhost,14330;Database=TripMateDb;User Id=sa;Password=<SA_PASSWORD của bạn>;TrustServerCertificate=True;"
+   ```
+
+   Tùy chọn (cơ chế User Secrets mà `AGENTS.md` §5.4 nêu): chạy `dotnet user-secrets init --project src/TripMate.Api`
+   một lần để bật, rồi `dotnet user-secrets set "ConnectionStrings:Default" "<chuỗi trên>" --project src/TripMate.Api`.
+   Chạy qua Docker thì không cần bước này — `docker-compose.yml` tự set `ConnectionStrings__Default`
+   từ `SA_PASSWORD` trong `.env`.
 3. Áp schema tay:
 
    ```bash

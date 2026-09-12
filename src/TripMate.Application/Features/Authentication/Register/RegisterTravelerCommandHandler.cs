@@ -1,5 +1,6 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Authentication.Common;
@@ -12,7 +13,8 @@ public class RegisterTravelerCommandHandler(
     IApplicationDbContext dbContext,
     IFirebaseAuthService firebaseAuthService,
     IPasswordHasherService passwordHasher,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    ILogger<RegisterTravelerCommandHandler> logger)
     : IRequestHandler<RegisterTravelerCommand, Result<RegisterTravelerResponse>>
 {
     public async Task<Result<RegisterTravelerResponse>> Handle(
@@ -35,9 +37,11 @@ public class RegisterTravelerCommandHandler(
         }
         catch (Exception ex)
         {
+            // The raw exception may contain internal/provider details — keep it server-side only.
+            logger.LogWarning(ex, "Firebase ID token verification failed during traveler registration.");
             return Result.Failure<RegisterTravelerResponse>(
                 AuthErrorCodes.AuthTokenInvalid,
-                $"Invalid or expired Firebase authentication token: {ex.Message}");
+                "Invalid or expired Firebase authentication token.");
         }
 
         var normalizedEmail = request.Email.Trim().ToLowerInvariant();
