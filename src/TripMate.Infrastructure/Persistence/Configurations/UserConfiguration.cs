@@ -6,7 +6,7 @@ using TripMate.Infrastructure.Persistence.Common;
 
 namespace TripMate.Infrastructure.Persistence.Configurations;
 
-/// <summary>Maps dbo.Users exactly as defined in database/tripmate_schema_v6.sql — this project
+/// <summary>Maps dbo.Users exactly as defined in database/tripmate_schema_v7.sql — this project
 /// is database-first: the table already exists (applied via database/apply-schema.sh), EF Core
 /// never creates or migrates it. Keep this in sync by hand whenever the .sql file changes.</summary>
 public class UserConfiguration : IEntityTypeConfiguration<User>

@@ -24,8 +24,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\TripMate.Application\TripMate.Application.csproj" />
     <ProjectReference Include="..\..\src\TripMate.Domain\TripMate.Domain.csproj" />
-    <ProjectReference Include="..\..\src\TripMate.Infrastructure\TripMate.Infrastructure.csproj" />
   </ItemGroup>
-
 
 </Project>

@@ -6,7 +6,7 @@ using TripMate.Infrastructure.Persistence.Common;
 
 namespace TripMate.Infrastructure.Persistence.Configurations;
 
-/// <summary>Maps dbo.RefreshTokens exactly as defined in database/tripmate_schema_v6.sql — see
+/// <summary>Maps dbo.RefreshTokens exactly as defined in database/tripmate_schema_v7.sql — see
 /// the note on UserConfiguration about this project being database-first.</summary>
 public class RefreshTokenConfiguration : IEntityTypeConfiguration<RefreshToken>
 {
