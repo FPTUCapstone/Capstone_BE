@@ -6,6 +6,8 @@ using Swashbuckle.AspNetCore.SwaggerGen;
 
 using TripMate.Application.Features.PointsOfInterest.Common;
 using TripMate.Application.Features.PointsOfInterest.Create;
+using TripMate.Application.Features.PointsOfInterest.Detail;
+using TripMate.Application.Features.PointsOfInterest.Explore;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -41,6 +43,40 @@ public sealed class PoiContractSchemaFilter : ISchemaFilter
         if (context.Type == typeof(PoiOpeningHourDto))
         {
             RequireEveryProperty(mutableSchema);
+            return;
+        }
+
+        if (context.Type == typeof(PagedPoiResponseDto))
+        {
+            RequireEveryProperty(mutableSchema);
+            RemoveNullType(Property(mutableSchema, "items"));
+            return;
+        }
+
+        if (context.Type == typeof(PoiListItemDto))
+        {
+            ConfigurePoiListItem(mutableSchema);
+            return;
+        }
+
+        if (context.Type == typeof(PoiDetailDto))
+        {
+            ConfigurePoiDetail(mutableSchema);
+            return;
+        }
+
+        if (context.Type == typeof(PoiPhotoDto))
+        {
+            RequireEveryProperty(mutableSchema);
+            RemoveNullType(Property(mutableSchema, "url"));
+            return;
+        }
+
+        if (context.Type == typeof(PoiTagDto))
+        {
+            RequireEveryProperty(mutableSchema);
+            RemoveNullType(Property(mutableSchema, "name"));
+            return;
         }
     }
 
@@ -118,6 +154,23 @@ public sealed class PoiContractSchemaFilter : ISchemaFilter
         RemoveNullType(Property(schema, "createdById"));
         RemoveNullType(Property(schema, "openingHours"));
         RemoveNullType(Property(schema, "tagIds"));
+    }
+
+    private static void ConfigurePoiListItem(OpenApiSchema schema)
+    {
+        RequireEveryProperty(schema);
+        RemoveNullType(Property(schema, "name"));
+        RemoveNullType(Property(schema, "categoryName"));
+    }
+
+    private static void ConfigurePoiDetail(OpenApiSchema schema)
+    {
+        RequireEveryProperty(schema);
+        RemoveNullType(Property(schema, "name"));
+        RemoveNullType(Property(schema, "categoryName"));
+        RemoveNullType(Property(schema, "openingHours"));
+        RemoveNullType(Property(schema, "photos"));
+        RemoveNullType(Property(schema, "tags"));
     }
 
     private static void RequireEveryProperty(OpenApiSchema schema) =>
