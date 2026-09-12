@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 
 using TripMate.Infrastructure.Persistence;
 
@@ -98,13 +99,34 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
         }
     }
 
-    public ApplicationDbContext CreateDbContext()
+    public ApplicationDbContext CreateDbContext(params IInterceptor[] interceptors)
     {
-        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseSqlServer(ConnectionString)
-            .Options;
+        var builder = new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseSqlServer(ConnectionString);
 
-        return new ApplicationDbContext(options);
+        if (interceptors.Length > 0)
+        {
+            builder.AddInterceptors(interceptors);
+        }
+
+        return new ApplicationDbContext(builder.Options);
+    }
+
+    public async Task<ExplorationDatabaseCounts> ReadExplorationCountsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await using var context = CreateDbContext();
+
+        return new ExplorationDatabaseCounts(
+            await context.Users.CountAsync(cancellationToken),
+            await context.PoiCategories.CountAsync(cancellationToken),
+            await context.Tags.CountAsync(cancellationToken),
+            await context.PointsOfInterest.CountAsync(cancellationToken),
+            await context.PoiOpeningHours.CountAsync(cancellationToken),
+            await context.PoiTags.CountAsync(cancellationToken),
+            await context.PoiPhotos.CountAsync(cancellationToken),
+            await context.Reviews.CountAsync(cancellationToken),
+            await context.AuditLogs.CountAsync(cancellationToken));
     }
 
     public async Task ExecuteNonQueryAsync(
@@ -217,3 +239,14 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
         }
     }
 }
+
+internal sealed record ExplorationDatabaseCounts(
+    int Users,
+    int Categories,
+    int Tags,
+    int Pois,
+    int OpeningHours,
+    int PoiTags,
+    int Photos,
+    int Reviews,
+    int AuditLogs);

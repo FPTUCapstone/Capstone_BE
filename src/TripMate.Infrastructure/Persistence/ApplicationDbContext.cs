@@ -33,6 +33,10 @@ public class ApplicationDbContext(
 
     public DbSet<Notification> Notifications => Set<Notification>();
 
+    public DbSet<PoiPhoto> PoiPhotos => Set<PoiPhoto>();
+
+    public DbSet<Review> Reviews => Set<Review>();
+
     public DbSet<Message> Messages => Set<Message>();
 
     public async Task<T> ExecuteInTransactionAsync<T>(
