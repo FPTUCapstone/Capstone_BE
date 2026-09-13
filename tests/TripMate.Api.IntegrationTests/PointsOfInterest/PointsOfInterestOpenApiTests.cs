@@ -352,8 +352,9 @@ public sealed class PointsOfInterestOpenApiTests
         // originLongitude: -180..180
         AssertRange(paramDict["originLongitude"], -180, 180);
 
-        // maxDistanceKm: min 0
+        // maxDistanceKm: min 0 with exclusiveMinimum true (meaning > 0)
         AssertMinimum(paramDict["maxDistanceKm"], 0);
+        paramDict["maxDistanceKm"].GetProperty("exclusiveMinimum").GetBoolean().Should().BeTrue();
     }
 
     [Fact]

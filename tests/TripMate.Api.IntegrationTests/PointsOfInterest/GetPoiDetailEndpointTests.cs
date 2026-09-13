@@ -113,6 +113,24 @@ public class GetPoiDetailEndpointTests
     }
 
     [Fact]
+    public async Task Get_WithNonNumericRouteId_Returns400ValidationProblemDetails()
+    {
+        await using var factory = new TripMateApiFactory();
+        using var client = factory.CreateClient();
+
+        var response = await client.GetAsync("/api/v1/pois/abc");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.Content.Headers.ContentType!.MediaType.Should().Be("application/problem+json");
+
+        using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        problem.RootElement.GetProperty("status").GetInt32().Should().Be(400);
+        var errors = problem.RootElement.GetProperty("errors");
+        errors.TryGetProperty("id", out _).Should().BeTrue();
+    }
+
+
+    [Fact]
     public async Task Get_WhenPersistenceFails_ReturnsSanitized500ProblemDetails()
     {
         await using var factory = new TripMateApiFactory();

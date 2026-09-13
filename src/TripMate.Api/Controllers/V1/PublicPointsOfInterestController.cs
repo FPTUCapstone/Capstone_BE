@@ -30,7 +30,7 @@ public sealed class PublicPointsOfInterestController(ISender sender) : ApiContro
             : HandleFailure(result);
     }
 
-    [HttpGet("{id:long}")]
+    [HttpGet("{id}")]
     [ProducesErrorResponseType(typeof(void))]
     [ProducesResponseType(typeof(PoiDetailDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
