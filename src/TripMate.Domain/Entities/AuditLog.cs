@@ -7,27 +7,49 @@ namespace TripMate.Domain.Entities;
 /// </summary>
 public class AuditLog : BaseEntity
 {
-    private AuditLog()
+    public AuditLog()
     {
     }
 
-    public long? ActorUserId { get; private set; }
+    public AuditLog(
+        long? actorUserId,
+        string actionType,
+        string affectedEntity,
+        long? affectedEntityId,
+        DateTimeOffset createdAtUtc,
+        User? actorUser = null,
+        string? beforeData = null,
+        string? afterData = null,
+        string? ipAddress = null)
+    {
+        ActorUserId = actorUserId;
+        ActionType = actionType;
+        AffectedEntity = affectedEntity;
+        AffectedEntityId = affectedEntityId;
+        CreatedAtUtc = createdAtUtc;
+        ActorUser = actorUser;
+        BeforeData = beforeData;
+        AfterData = afterData;
+        IpAddress = ipAddress;
+    }
 
-    public User? ActorUser { get; private set; }
+    public long? ActorUserId { get; set; }
 
-    public string ActionType { get; private set; } = string.Empty;
+    public User? ActorUser { get; set; }
 
-    public string AffectedEntity { get; private set; } = string.Empty;
+    public string ActionType { get; set; } = string.Empty;
 
-    public long? AffectedEntityId { get; private set; }
+    public string AffectedEntity { get; set; } = string.Empty;
 
-    public string? BeforeData { get; private set; }
+    public long? AffectedEntityId { get; set; }
 
-    public string? AfterData { get; private set; }
+    public string? BeforeData { get; set; }
 
-    public string? IpAddress { get; private set; }
+    public string? AfterData { get; set; }
 
-    public DateTimeOffset CreatedAtUtc { get; private set; }
+    public string? IpAddress { get; set; }
+
+    public DateTimeOffset CreatedAtUtc { get; set; }
 
     public static AuditLog CreatePoiCreated(
         long actorUserId,
