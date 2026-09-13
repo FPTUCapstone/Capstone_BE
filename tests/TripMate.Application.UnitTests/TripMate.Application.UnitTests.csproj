@@ -27,5 +27,4 @@
     <ProjectReference Include="..\..\src\TripMate.Infrastructure\TripMate.Infrastructure.csproj" />
   </ItemGroup>
 
-
 </Project>
