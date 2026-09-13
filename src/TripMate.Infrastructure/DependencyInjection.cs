@@ -23,6 +23,7 @@ public static class DependencyInjection
 
         services.AddScoped<IApplicationDbContext>(sp =>
             sp.GetRequiredService<ApplicationDbContext>());
+        services.AddScoped<ITravelGroupCreationLock, SqlServerTravelGroupCreationLock>();
 
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
 

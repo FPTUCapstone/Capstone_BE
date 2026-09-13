@@ -27,7 +27,9 @@ public enum ApiTestAuthenticationMode
 
 public sealed class TripMateApiFactory(
     ApiTestAuthenticationMode authenticationMode = ApiTestAuthenticationMode.HeaderStub,
-    string? sqlServerConnectionString = null) : WebApplicationFactory<Program>
+    string? sqlServerConnectionString = null,
+    IReadOnlyList<string>? corsAllowedOrigins = null,
+    string environmentName = "Testing") : WebApplicationFactory<Program>
 {
     internal const string JwtIssuer = "TripMate.Tests";
     internal const string JwtAudience = "TripMate.Tests";
@@ -38,10 +40,18 @@ public sealed class TripMateApiFactory(
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        builder.UseEnvironment("Testing");
+        builder.UseEnvironment(environmentName);
         builder.UseSetting("Jwt:Issuer", JwtIssuer);
         builder.UseSetting("Jwt:Audience", JwtAudience);
         builder.UseSetting("Jwt:SigningKey", JwtSigningKey);
+
+        if (corsAllowedOrigins is not null)
+        {
+            for (var index = 0; index < corsAllowedOrigins.Count; index++)
+            {
+                builder.UseSetting($"Cors:AllowedOrigins:{index}", corsAllowedOrigins[index]);
+            }
+        }
 
         if (sqlServerConnectionString is not null)
         {
@@ -55,11 +65,13 @@ public sealed class TripMateApiFactory(
                 services.RemoveAll<ApplicationDbContext>();
                 services.RemoveAll<DbContextOptions<ApplicationDbContext>>();
                 services.RemoveAll<IApplicationDbContext>();
+                services.RemoveAll<ITravelGroupCreationLock>();
 
                 services.AddDbContext<TestApiDbContext>(options =>
                     options.UseInMemoryDatabase(_databaseName));
                 services.AddScoped<IApplicationDbContext>(provider =>
                     provider.GetRequiredService<TestApiDbContext>());
+                services.AddScoped<ITravelGroupCreationLock, NoOpTravelGroupCreationLock>();
             }
 
             if (authenticationMode == ApiTestAuthenticationMode.HeaderStub)
@@ -121,8 +133,17 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<Message> Messages => Set<Message>();
+    public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
+    public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
+    public DbSet<Itinerary> Itineraries => Set<Itinerary>();
+    public DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests => Set<TravelGroupCreationRequest>();
 
     public Task<T> ExecuteInTransactionAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
+        CancellationToken cancellationToken) =>
+        operation(cancellationToken);
+
+    public Task<T> ExecuteInSerializableTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken) =>
         operation(cancellationToken);
@@ -132,6 +153,12 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
         base.OnModelCreating(modelBuilder);
     }
+}
+
+internal sealed class NoOpTravelGroupCreationLock : ITravelGroupCreationLock
+{
+    public Task AcquireAsync(long travelerUserId, Guid idempotencyKey, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
 }
 
 internal sealed class TestAuthenticationHandler(
