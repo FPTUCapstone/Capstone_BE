@@ -6,7 +6,7 @@
 **Branch**: `feature/khanhpq-create-travel-group`  
 **Base Branch**: `develop`  
 **Specification Reference**: `specs/TM-63-spec.md`  
-**Status**: Ready for Execution  
+**Status**: Implemented and Verified
 
 ---
 
@@ -69,7 +69,7 @@ This plan breaks down the approved specification (`specs/TM-63-spec.md`) into sm
   ```
 - **Definition of Done**:
   - Tests verify: empty group name, name > 150 chars, itineraryId <= 0, valid input.
-  - Tests verify: itinerary not found (returns Failure with ItineraryNotFound), successful creation (returns Result.Success with correct group and Host member), repeated idempotency key, and transaction rollback.
+  - Tests verify: itinerary not found (returns Failure with `travel_group.itinerary_not_found`), successful creation (returns Result.Success with correct group and Host member), repeated idempotency key, payload mismatch, normalized-name boundaries, domain invariants, and transaction rollback.
   - Tests fail initially as implementation does not exist (Red).
 
 ---
@@ -106,7 +106,7 @@ This plan breaks down the approved specification (`specs/TM-63-spec.md`) into sm
   dotnet build src/TripMate.Api/TripMate.Api.csproj
   ```
 - **Definition of Done**:
-  - Endpoint returns `201 Created` with `CreatedAtAction` or standard URL.
+- Endpoint returns `201 Created` with the raw `CreateTravelGroupResponse` body. No detail route exists for this use case, so the controller does not manufacture a `Location` URL.
   - Passes full solution build and tests.
 
 ---
@@ -120,4 +120,5 @@ This plan breaks down the approved specification (`specs/TM-63-spec.md`) into sm
   ```
 - **Definition of Done**:
   - 100% test suite passing with Zero Regression.
-  - No secrets, no extraneous files, clean working tree.
+  - Domain invariants are enforced through factories and private setters.
+  - No secrets or extraneous files; formatter and whitespace checks pass.

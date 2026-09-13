@@ -9,23 +9,69 @@ namespace TripMate.Domain.Entities;
  */
 public class Itinerary : BaseEntity
 {
-    public long TravelerUserId { get; set; }
+    private Itinerary()
+    {
+    }
 
-    public User TravelerUser { get; set; } = null!;
+    private Itinerary(
+        long travelerUserId,
+        string? title,
+        string sourceType,
+        string status,
+        DateTimeOffset createdAtUtc,
+        DateTimeOffset updatedAtUtc)
+    {
+        if (travelerUserId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(travelerUserId));
+        }
 
-    public string SourceType { get; set; } = "Manual";
+        if (string.IsNullOrWhiteSpace(sourceType))
+        {
+            throw new ArgumentException("An itinerary source type is required.", nameof(sourceType));
+        }
 
-    public string? Title { get; set; }
+        if (string.IsNullOrWhiteSpace(status))
+        {
+            throw new ArgumentException("An itinerary status is required.", nameof(status));
+        }
 
-    public string Status { get; set; } = "Draft";
+        TravelerUserId = travelerUserId;
+        Title = title?.Trim();
+        SourceType = sourceType.Trim();
+        Status = status.Trim();
+        CreatedAtUtc = createdAtUtc;
+        UpdatedAtUtc = updatedAtUtc;
+    }
 
-    public DateTimeOffset? ValidFromUtc { get; set; }
+    public static Itinerary Create(
+        long travelerUserId,
+        string? title,
+        string status,
+        DateTimeOffset createdAtUtc,
+        DateTimeOffset? updatedAtUtc = null,
+        string sourceType = "Manual") =>
+        new(travelerUserId, title, sourceType, status, createdAtUtc, updatedAtUtc ?? createdAtUtc);
 
-    public DateTimeOffset? ValidToUtc { get; set; }
+    public long TravelerUserId { get; private set; }
 
-    public DateTimeOffset CreatedAtUtc { get; set; }
+    public User TravelerUser { get; private set; } = null!;
 
-    public DateTimeOffset UpdatedAtUtc { get; set; }
+    public string SourceType { get; private set; } = "Manual";
 
-    public ICollection<TravelGroup> TravelGroups { get; set; } = new List<TravelGroup>();
+    public string? Title { get; private set; }
+
+    public string Status { get; private set; } = "Draft";
+
+    public DateTimeOffset? ValidFromUtc { get; private set; }
+
+    public DateTimeOffset? ValidToUtc { get; private set; }
+
+    public DateTimeOffset CreatedAtUtc { get; private set; }
+
+    public DateTimeOffset UpdatedAtUtc { get; private set; }
+
+    private readonly List<TravelGroup> _travelGroups = [];
+
+    public IReadOnlyCollection<TravelGroup> TravelGroups => _travelGroups.AsReadOnly();
 }

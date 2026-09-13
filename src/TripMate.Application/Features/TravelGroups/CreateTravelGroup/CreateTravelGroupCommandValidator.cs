@@ -16,9 +16,12 @@ public class CreateTravelGroupCommandValidator : AbstractValidator<CreateTravelG
     public CreateTravelGroupCommandValidator()
     {
         RuleFor(x => x.GroupName)
-            .NotEmpty()
+            .Cascade(CascadeMode.Stop)
+            .Must(name => !string.IsNullOrWhiteSpace(name))
             .WithMessage("This field is required.") // Locked content: MSG01
-            .MaximumLength(TravelGroupConstants.MaxGroupNameLength);
+            .Must(name => name is not null
+                && name.Trim().Length <= TravelGroupConstants.MaxGroupNameLength)
+            .WithMessage($"Group name must not exceed {TravelGroupConstants.MaxGroupNameLength} characters.");
 
         RuleFor(x => x.ItineraryId)
             .GreaterThan(0);

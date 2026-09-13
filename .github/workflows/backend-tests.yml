@@ -35,4 +35,6 @@ jobs:
 
       - run: dotnet restore TripMate.slnx
 
+      - run: dotnet format TripMate.slnx --verify-no-changes --no-restore
+
       - run: dotnet test TripMate.slnx -c Release --no-restore

@@ -38,14 +38,11 @@ public class CreateTravelGroupCommandHandlerTests
     public async Task Handle_WhenItineraryBelongsToAnotherTraveler_ReturnsItineraryNotFound()
     {
         await using var dbContext = TestDbContext.Create();
-        var itinerary = new Itinerary
-        {
-            TravelerUserId = 100,
-            Title = "Another Traveler Trip",
-            Status = "Active",
-            CreatedAtUtc = _dateTimeProvider.UtcNow,
-            UpdatedAtUtc = _dateTimeProvider.UtcNow
-        };
+        var itinerary = Itinerary.Create(
+            100,
+            "Another Traveler Trip",
+            "Active",
+            _dateTimeProvider.UtcNow);
         dbContext.Itineraries.Add(itinerary);
         await dbContext.SaveChangesAsync();
 
@@ -74,14 +71,11 @@ public class CreateTravelGroupCommandHandlerTests
         dbContext.Users.Add(user);
         await dbContext.SaveChangesAsync();
 
-        var itinerary = new Itinerary
-        {
-            TravelerUserId = user.Id,
-            Title = "Da Nang Beach Day",
-            Status = "Active",
-            CreatedAtUtc = _dateTimeProvider.UtcNow,
-            UpdatedAtUtc = _dateTimeProvider.UtcNow
-        };
+        var itinerary = Itinerary.Create(
+            user.Id,
+            "Da Nang Beach Day",
+            "Active",
+            _dateTimeProvider.UtcNow);
         dbContext.Itineraries.Add(itinerary);
         await dbContext.SaveChangesAsync();
 
@@ -129,14 +123,11 @@ public class CreateTravelGroupCommandHandlerTests
         dbContext.Users.Add(user);
         await dbContext.SaveChangesAsync();
 
-        var itinerary = new Itinerary
-        {
-            TravelerUserId = user.Id,
-            Title = "Hue Trip",
-            Status = "Active",
-            CreatedAtUtc = _dateTimeProvider.UtcNow,
-            UpdatedAtUtc = _dateTimeProvider.UtcNow
-        };
+        var itinerary = Itinerary.Create(
+            user.Id,
+            "Hue Trip",
+            "Active",
+            _dateTimeProvider.UtcNow);
         dbContext.Itineraries.Add(itinerary);
         await dbContext.SaveChangesAsync();
 
@@ -169,14 +160,11 @@ public class CreateTravelGroupCommandHandlerTests
         dbContext.Users.Add(user);
         await dbContext.SaveChangesAsync();
 
-        var itinerary = new Itinerary
-        {
-            TravelerUserId = user.Id,
-            Title = "Da Nang Trip",
-            Status = "Active",
-            CreatedAtUtc = _dateTimeProvider.UtcNow,
-            UpdatedAtUtc = _dateTimeProvider.UtcNow
-        };
+        var itinerary = Itinerary.Create(
+            user.Id,
+            "Da Nang Trip",
+            "Active",
+            _dateTimeProvider.UtcNow);
         dbContext.Itineraries.Add(itinerary);
         await dbContext.SaveChangesAsync();
 
@@ -204,14 +192,11 @@ public class CreateTravelGroupCommandHandlerTests
 
         await using (var seedContext = new TestDbContext(seedOptions))
         {
-            seedContext.Itineraries.Add(new Itinerary
-            {
-                TravelerUserId = 200,
-                Title = "Da Nang Trip",
-                Status = "Active",
-                CreatedAtUtc = _dateTimeProvider.UtcNow,
-                UpdatedAtUtc = _dateTimeProvider.UtcNow
-            });
+            seedContext.Itineraries.Add(Itinerary.Create(
+                200,
+                "Da Nang Trip",
+                "Active",
+                _dateTimeProvider.UtcNow));
             await seedContext.SaveChangesAsync();
         }
 
@@ -245,14 +230,11 @@ public class CreateTravelGroupCommandHandlerTests
         dbContext.Users.Add(user);
         await dbContext.SaveChangesAsync();
 
-        var itinerary = new Itinerary
-        {
-            TravelerUserId = user.Id,
-            Title = "Locked Operation Itinerary",
-            Status = "Active",
-            CreatedAtUtc = _dateTimeProvider.UtcNow,
-            UpdatedAtUtc = _dateTimeProvider.UtcNow
-        };
+        var itinerary = Itinerary.Create(
+            user.Id,
+            "Locked Operation Itinerary",
+            "Active",
+            _dateTimeProvider.UtcNow);
         dbContext.Itineraries.Add(itinerary);
         await dbContext.SaveChangesAsync();
 

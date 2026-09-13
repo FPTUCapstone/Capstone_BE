@@ -6,7 +6,6 @@ using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.TravelGroups.Common;
 using TripMate.Domain.Entities;
-using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.TravelGroups.CreateTravelGroup;
 
@@ -76,30 +75,23 @@ public class CreateTravelGroupCommandHandler(
             }
 
             var now = dateTimeProvider.UtcNow;
-            var travelGroup = new TravelGroup
-            {
-                ItineraryId = itinerary.Id,
-                HostUserId = request.HostUserId,
-                Name = request.GroupName.Trim(),
-                CreatedAtUtc = now
-            };
-            var hostMember = new GroupMember
-            {
-                TravelGroup = travelGroup,
-                UserId = request.HostUserId,
-                LocationSharingEnabled = false,
-                Status = GroupMemberStatus.Active,
-                JoinedAtUtc = now
-            };
-            var operation = new TravelGroupCreationRequest
-            {
-                TravelerUserId = request.HostUserId,
-                IdempotencyKey = request.IdempotencyKey,
-                ItineraryId = request.ItineraryId,
-                GroupName = request.GroupName.Trim(),
-                TravelGroup = travelGroup,
-                CreatedAtUtc = now
-            };
+            var travelGroup = TravelGroup.Create(
+                itinerary.Id,
+                request.HostUserId,
+                request.GroupName,
+                now);
+            var hostMember = GroupMember.CreateHost(
+                travelGroup,
+                request.HostUserId,
+                now);
+            travelGroup.AddMember(hostMember);
+            var operation = TravelGroupCreationRequest.Create(
+                request.HostUserId,
+                request.IdempotencyKey,
+                request.ItineraryId,
+                travelGroup.Name,
+                travelGroup,
+                now);
             dbContext.TravelGroups.Add(travelGroup);
             dbContext.GroupMembers.Add(hostMember);
             dbContext.TravelGroupCreationRequests.Add(operation);

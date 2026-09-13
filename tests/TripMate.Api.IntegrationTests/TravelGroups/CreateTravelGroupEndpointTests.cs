@@ -82,14 +82,11 @@ public sealed class CreateTravelGroupEndpointTests
             context.Users.Add(user);
             await context.SaveChangesAsync();
 
-            var itinerary = new Itinerary
-            {
-                TravelerUserId = user.Id,
-                Title = "Endpoint Trip",
-                Status = "Active",
-                CreatedAtUtc = now,
-                UpdatedAtUtc = now
-            };
+            var itinerary = Itinerary.Create(
+                user.Id,
+                "Endpoint Trip",
+                "Active",
+                now);
             context.Itineraries.Add(itinerary);
             await context.SaveChangesAsync();
             return (user.Id, itinerary.Id);

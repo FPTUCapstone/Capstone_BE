@@ -32,5 +32,8 @@ public class ItineraryConfiguration : IEntityTypeConfiguration<Itinerary>
             .WithMany()
             .HasForeignKey(i => i.TravelerUserId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        builder.Navigation(i => i.TravelGroups)
+            .UsePropertyAccessMode(PropertyAccessMode.Field);
     }
 }

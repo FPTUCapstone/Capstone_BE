@@ -1,6 +1,6 @@
-using FluentAssertions;
-
 using System.Text.RegularExpressions;
+
+using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
 
@@ -161,14 +161,11 @@ public sealed class CreateTravelGroupSqlServerTests
         context.Users.Add(user);
         await context.SaveChangesAsync();
 
-        var itinerary = new Itinerary
-        {
-            TravelerUserId = user.Id,
-            Title = "Concurrent Trip",
-            Status = "Active",
-            CreatedAtUtc = now,
-            UpdatedAtUtc = now
-        };
+        var itinerary = Itinerary.Create(
+            user.Id,
+            "Concurrent Trip",
+            "Active",
+            now);
         context.Itineraries.Add(itinerary);
         await context.SaveChangesAsync();
         return (user.Id, itinerary.Id);
@@ -179,13 +176,11 @@ public sealed class CreateTravelGroupSqlServerTests
         (long UserId, long ItineraryId) seed)
     {
         await using var context = database.CreateDbContext();
-        var group = new TravelGroup
-        {
-            HostUserId = seed.UserId,
-            ItineraryId = seed.ItineraryId,
-            Name = "Existing legacy group",
-            CreatedAtUtc = new FixedDateTimeProvider().UtcNow
-        };
+        var group = TravelGroup.Create(
+            seed.ItineraryId,
+            seed.UserId,
+            "Existing legacy group",
+            new FixedDateTimeProvider().UtcNow);
         context.TravelGroups.Add(group);
         await context.SaveChangesAsync();
         return group.Id;

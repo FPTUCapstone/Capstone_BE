@@ -50,6 +50,35 @@ public class CreateTravelGroupCommandValidatorTests
         result.Errors.Should().Contain(e => e.PropertyName == nameof(CreateTravelGroupCommand.GroupName));
     }
 
+    [Fact]
+    public void Validate_With150CharactersAfterTrim_IsValid()
+    {
+        var command = new CreateTravelGroupCommand(
+            1,
+            $"  {new string('A', 150)}  ",
+            10,
+            Guid.NewGuid());
+
+        var result = _validator.Validate(command);
+
+        result.IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Validate_With151CharactersAfterTrim_HasError()
+    {
+        var command = new CreateTravelGroupCommand(
+            1,
+            $"  {new string('A', 151)}  ",
+            10,
+            Guid.NewGuid());
+
+        var result = _validator.Validate(command);
+
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().Contain(e => e.PropertyName == nameof(CreateTravelGroupCommand.GroupName));
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(-1)]

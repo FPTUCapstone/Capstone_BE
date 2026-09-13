@@ -31,12 +31,12 @@ Allow an authenticated Traveler to create a new Travel Group linked to an eligib
 
 ## 2. Acceptance Criteria (AC)
 
-- **AC-01 (Itinerary Validation)**: Request must specify an `itineraryId`. If the itinerary does not exist, return `404 Not Found` with code `TravelGroup.ItineraryNotFound`.
-- **AC-02 (Group Name Validation)**: `groupName` is required (MSG01: "This field is required.") and must not exceed 150 characters. Whitespace must be trimmed. If empty, return `400 Bad Request` with FluentValidation error.
+- **AC-01 (Itinerary Validation)**: Request must specify an `itineraryId`. If the itinerary does not exist or is not owned by the authenticated Traveler, return `404 Not Found` with code `travel_group.itinerary_not_found`.
+- **AC-02 (Group Name Validation)**: `groupName` is required (MSG01: "This field is required.") and its trimmed value must not exceed 150 characters. If empty after trimming, return `400 Bad Request` with FluentValidation error.
 - **AC-03 (Host Assignment)**: The authenticated creator (`host_user_id`) must automatically become the exclusive initial Group Host in `social.GroupMembers` with `status = 'Active'` and `joined_at = UtcNow`.
 - **AC-04 (Idempotency)**: The client must send a non-empty GUID `Idempotency-Key` header. A repeated request from the same Traveler with the same key and payload returns the original group and must not create another group. Reusing a key with a different `itineraryId` or normalized `groupName` returns `409 Conflict`. Different keys may create groups with the same name.
 - **AC-05 (Atomic Transaction)**: `TravelGroup`, `GroupMember` (Host), and the idempotency operation record are persisted in one database transaction. If any operation fails, no incomplete TravelGroup is retained.
-- **AC-06 (Response Contract)**: On success, return `201 Created` with payload containing `groupId`, `groupName`, `itineraryId`, `hostUserId`, and `createdAtUtc`.
+- **AC-06 (Response Contract)**: On success, return `201 Created` with a raw payload containing `groupId`, `groupName`, `itineraryId`, `hostUserId`, and `createdAtUtc`. The use case has no detail route, so no `Location` header is required.
 
 ---
 
