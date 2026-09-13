@@ -27,7 +27,9 @@ public enum ApiTestAuthenticationMode
 
 public sealed class TripMateApiFactory(
     ApiTestAuthenticationMode authenticationMode = ApiTestAuthenticationMode.HeaderStub,
-    string? sqlServerConnectionString = null) : WebApplicationFactory<Program>
+    string? sqlServerConnectionString = null,
+    IReadOnlyList<string>? corsAllowedOrigins = null,
+    string environmentName = "Testing") : WebApplicationFactory<Program>
 {
     internal const string JwtIssuer = "TripMate.Tests";
     internal const string JwtAudience = "TripMate.Tests";
@@ -38,10 +40,18 @@ public sealed class TripMateApiFactory(
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
-        builder.UseEnvironment("Testing");
+        builder.UseEnvironment(environmentName);
         builder.UseSetting("Jwt:Issuer", JwtIssuer);
         builder.UseSetting("Jwt:Audience", JwtAudience);
         builder.UseSetting("Jwt:SigningKey", JwtSigningKey);
+
+        if (corsAllowedOrigins is not null)
+        {
+            for (var index = 0; index < corsAllowedOrigins.Count; index++)
+            {
+                builder.UseSetting($"Cors:AllowedOrigins:{index}", corsAllowedOrigins[index]);
+            }
+        }
 
         if (sqlServerConnectionString is not null)
         {
