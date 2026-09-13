@@ -82,6 +82,12 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             PoiErrorCodes.PossibleDuplicate =>
                 StatusCodes.Status409Conflict,
 
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.ItineraryNotFound =>
+                StatusCodes.Status404NotFound,
+
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.IdempotencyKeyPayloadMismatch =>
+                StatusCodes.Status409Conflict,
+
             _ => StatusCodes.Status400BadRequest,
         };
 
