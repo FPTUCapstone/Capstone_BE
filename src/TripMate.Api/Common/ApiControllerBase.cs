@@ -1,7 +1,5 @@
 using MediatR;
-
 using Microsoft.AspNetCore.Mvc;
-
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Authentication.Common;
 using TripMate.Application.Features.PointsOfInterest.Common;
@@ -43,36 +41,21 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
     {
         var statusCode = result.ErrorCode switch
         {
-            AuthErrorCodes.InvalidCredentials =>
-                StatusCodes.Status401Unauthorized,
-
-            AuthErrorCodes.AuthTokenInvalid =>
-                StatusCodes.Status401Unauthorized,
-
-            AuthErrorCodes.Msg14 =>
-                StatusCodes.Status401Unauthorized,
-
-            AuthErrorCodes.AccountPendingVerification =>
-                StatusCodes.Status403Forbidden,
-
-            AuthErrorCodes.AccountLocked =>
-                StatusCodes.Status403Forbidden,
-
-            AuthErrorCodes.AccountInactive =>
-                StatusCodes.Status403Forbidden,
-
-            AuthErrorCodes.EmailAlreadyRegistered =>
-                StatusCodes.Status409Conflict,
-
-            PoiErrorCodes.AdminAccessRequired =>
-                StatusCodes.Status403Forbidden,
-
-            PoiErrorCodes.ReferenceNotFound =>
-                StatusCodes.Status404NotFound,
-
-            PoiErrorCodes.PossibleDuplicate =>
-                StatusCodes.Status409Conflict,
-
+            AuthErrorCodes.InvalidCredentials => StatusCodes.Status401Unauthorized,
+            AuthErrorCodes.AuthTokenInvalid => StatusCodes.Status401Unauthorized,
+            AuthErrorCodes.Msg14 => StatusCodes.Status401Unauthorized,
+            AuthErrorCodes.AccountPendingVerification => StatusCodes.Status403Forbidden,
+            AuthErrorCodes.AccountLocked => StatusCodes.Status403Forbidden,
+            AuthErrorCodes.AccountInactive => StatusCodes.Status403Forbidden,
+            AuthErrorCodes.EmailAlreadyRegistered => StatusCodes.Status409Conflict,
+            TripMate.Application.Features.Admin.AuditLogs.Common.AuditLogErrorCodes.Forbidden => StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.Admin.AuditLogs.Common.AuditLogErrorCodes.InvalidDateRange => StatusCodes.Status422UnprocessableEntity,
+            TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.Forbidden => StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.NotFound => StatusCodes.Status404NotFound,
+            TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.NotPending => StatusCodes.Status409Conflict,
+            PoiErrorCodes.AdminAccessRequired => StatusCodes.Status403Forbidden,
+            PoiErrorCodes.ReferenceNotFound => StatusCodes.Status404NotFound,
+            PoiErrorCodes.PossibleDuplicate => StatusCodes.Status409Conflict,
             _ => StatusCodes.Status400BadRequest,
         };
 

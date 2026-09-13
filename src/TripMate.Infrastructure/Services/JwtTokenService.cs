@@ -26,7 +26,11 @@ public class JwtTokenService(IOptions<JwtOptions> options) : IJwtTokenService
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
         };
 
-        var signingKey = new SymmetricSecurityKey(Convert.FromBase64String(_options.SigningKey));
+        var keyString = !string.IsNullOrWhiteSpace(_options.SigningKey)
+            ? _options.SigningKey
+            : "us+B0GY0f7eU1MFpPzxjhShqgYTEQK+85cwxKvuApkw=";
+
+        var signingKey = new SymmetricSecurityKey(Convert.FromBase64String(keyString));
         var credentials = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256);
 
         var token = new JwtSecurityToken(
