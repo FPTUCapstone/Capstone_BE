@@ -11,7 +11,7 @@ This specification defines the Backend implementation for **UC-68: View Audit Lo
 It covers strictly:
 - Retrieving a paginated, read-only list of system audit log entries from `dbo.AuditLogs`.
 - Filtering audit log entries by:
-  - `keyword`: free-text search matched against `ActorUser.Email`, `AffectedEntityId`, or `ActionType`.
+  - `keyword`: free-text search matched against `ActorUser.Email`, `ActorUser.FullName`, `ActionType`, `AffectedEntity`, or partial string match on `AffectedEntityId`.
   - `actionType`: exact match on `ActionType` (e.g. `ApproveOperatorApplication`, `RejectOperatorApplication`).
   - `actorRole`: exact match on `ActorUser.Role` (`Traveler`, `TourOperator`, `Administrator`).
   - `affectedEntity`: exact match on `AffectedEntity` (e.g. `OperatorProfile`, `TourPackage`).
@@ -64,7 +64,7 @@ Authorization: Bearer <Admin_JWT>
 
 | Parameter | Type | Required | Default | Description / Validation |
 |---|---|---|---|---|
-| `keyword` | string | No | null | Search term matched against `ActorUser.Email`, `AffectedEntityId`, or `ActionType` |
+| `keyword` | string | No | null | Search term matched against `ActorUser.Email`, `ActorUser.FullName`, `ActionType`, `AffectedEntity`, or partial string match on `AffectedEntityId` |
 | `actionType` | string | No | null | Filter by exact action type |
 | `actorRole` | enum | No | null | Filter by actor role (`Traveler`, `TourOperator`, `Administrator`) |
 | `affectedEntity` | string | No | null | Filter by affected entity type |

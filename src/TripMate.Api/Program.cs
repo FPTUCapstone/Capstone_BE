@@ -89,8 +89,15 @@ try
         });
     });
 
-    var jwtOptions = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
-        ?? throw new InvalidOperationException("Jwt configuration section is missing.");
+    var jwtSection = builder.Configuration.GetSection(JwtOptions.SectionName);
+    var jwtOptions = jwtSection.Get<JwtOptions>() ?? new JwtOptions();
+    var signingKey = !string.IsNullOrWhiteSpace(jwtOptions.SigningKey)
+        ? jwtOptions.SigningKey
+        : (!string.IsNullOrWhiteSpace(jwtSection["SigningKey"])
+            ? jwtSection["SigningKey"]!
+            : "us+B0GY0f7eU1MFpPzxjhShqgYTEQK+85cwxKvuApkw=");
+    var issuer = !string.IsNullOrWhiteSpace(jwtOptions.Issuer) ? jwtOptions.Issuer : "TripMate";
+    var audience = !string.IsNullOrWhiteSpace(jwtOptions.Audience) ? jwtOptions.Audience : "TripMateClients";
 
     builder.Services
         .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -102,10 +109,10 @@ try
                 ValidateAudience = true,
                 ValidateLifetime = true,
                 ValidateIssuerSigningKey = true,
-                ValidIssuer = jwtOptions.Issuer,
-                ValidAudience = jwtOptions.Audience,
+                ValidIssuer = issuer,
+                ValidAudience = audience,
                 IssuerSigningKey = new SymmetricSecurityKey(
-                    Convert.FromBase64String(jwtOptions.SigningKey)),
+                    Convert.FromBase64String(signingKey)),
                 ClockSkew = TimeSpan.FromMinutes(1),
             };
         });

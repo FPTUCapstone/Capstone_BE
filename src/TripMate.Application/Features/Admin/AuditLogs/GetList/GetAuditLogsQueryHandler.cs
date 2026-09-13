@@ -68,16 +68,18 @@ public class GetAuditLogsQueryHandler(
             query = query.Where(a => a.CreatedAtUtc <= request.ToDateUtc.Value);
         }
 
-        // 8. Keyword search with TryParse for numeric AffectedEntityId (prevents translation errors)
+        // 8. Keyword search across Actor (Email, FullName), ActionType, AffectedEntity, and AffectedEntityId
         if (!string.IsNullOrWhiteSpace(request.Keyword))
         {
             var kw = request.Keyword.Trim();
-            bool isNumeric = long.TryParse(kw, out long entityId);
 
             query = query.Where(a =>
-                (a.ActorUser != null && EF.Functions.Like(a.ActorUser.Email, $"%{kw}%")) ||
+                (a.ActorUser != null && (
+                    EF.Functions.Like(a.ActorUser.Email, $"%{kw}%") ||
+                    EF.Functions.Like(a.ActorUser.FullName, $"%{kw}%"))) ||
                 EF.Functions.Like(a.ActionType, $"%{kw}%") ||
-                (isNumeric && a.AffectedEntityId == entityId));
+                EF.Functions.Like(a.AffectedEntity, $"%{kw}%") ||
+                (a.AffectedEntityId != null && EF.Functions.Like(a.AffectedEntityId.ToString(), $"%{kw}%")));
         }
 
         // 9. Order descending by timestamp (BR-52 / PC-01)
