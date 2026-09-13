@@ -1,0 +1,111 @@
+using MediatR;
+
+using Microsoft.EntityFrameworkCore;
+
+using TripMate.Application.Common.Interfaces;
+using TripMate.Application.Common.Models;
+using TripMate.Application.Features.TravelGroups.Common;
+using TripMate.Domain.Entities;
+
+namespace TripMate.Application.Features.TravelGroups.CreateTravelGroup;
+
+/**
+ * [UC-17] Create Travel Group Command Handler
+ * Creates a travel group linked to an itinerary and assigns the creator as Host member.
+ *
+ * Input:
+ *   - ItineraryId (long): Target itinerary ID (must exist in planning.Itineraries and belong to creator).
+ *   - GroupName (string): Group name, max 150 characters (required).
+ *   - HostUserId (long): ID of the authenticated traveler creating the group.
+ *
+ * Output:
+ *   - Success: Result<CreateTravelGroupResponse> with the created group details.
+ *   - Failure: Error 404 (ItineraryNotFound) if itinerary does not exist or does not belong to user.
+ */
+public class CreateTravelGroupCommandHandler(
+    IApplicationDbContext dbContext,
+    IDateTimeProvider dateTimeProvider,
+    ITravelGroupCreationLock creationLock)
+    : IRequestHandler<CreateTravelGroupCommand, Result<CreateTravelGroupResponse>>
+{
+    public async Task<Result<CreateTravelGroupResponse>> Handle(
+        CreateTravelGroupCommand request,
+        CancellationToken cancellationToken)
+    {
+        return await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
+        {
+            await creationLock.AcquireAsync(
+                request.HostUserId,
+                request.IdempotencyKey,
+                transactionCancellationToken);
+
+            var previousRequest = await dbContext.TravelGroupCreationRequests
+                .Include(operation => operation.TravelGroup)
+                .FirstOrDefaultAsync(
+                    operation => operation.TravelerUserId == request.HostUserId
+                        && operation.IdempotencyKey == request.IdempotencyKey,
+                    transactionCancellationToken);
+
+            if (previousRequest is not null)
+            {
+                if (previousRequest.ItineraryId != request.ItineraryId
+                    || !string.Equals(
+                        previousRequest.GroupName,
+                        request.GroupName.Trim(),
+                        StringComparison.Ordinal))
+                {
+                    return Result.Failure<CreateTravelGroupResponse>(
+                        TravelGroupErrorCodes.IdempotencyKeyPayloadMismatch,
+                        "The Idempotency-Key was already used with different request data.");
+                }
+
+                return Result.Success(ToResponse(previousRequest.TravelGroup));
+            }
+
+            // Step 1: Validate itinerary existence and ownership (BR-41).
+            var itinerary = await dbContext.Itineraries.FirstOrDefaultAsync(
+                itinerary => itinerary.Id == request.ItineraryId,
+                transactionCancellationToken);
+
+            if (itinerary is null || itinerary.TravelerUserId != request.HostUserId)
+            {
+                return Result.Failure<CreateTravelGroupResponse>(
+                    TravelGroupErrorCodes.ItineraryNotFound,
+                    "The specified itinerary does not exist or is inaccessible.");
+            }
+
+            var now = dateTimeProvider.UtcNow;
+            var travelGroup = TravelGroup.Create(
+                itinerary.Id,
+                request.HostUserId,
+                request.GroupName,
+                now);
+            var hostMember = GroupMember.CreateHost(
+                travelGroup,
+                request.HostUserId,
+                now);
+            travelGroup.AddMember(hostMember);
+            var operation = TravelGroupCreationRequest.Create(
+                request.HostUserId,
+                request.IdempotencyKey,
+                request.ItineraryId,
+                travelGroup.Name,
+                travelGroup,
+                now);
+            dbContext.TravelGroups.Add(travelGroup);
+            dbContext.GroupMembers.Add(hostMember);
+            dbContext.TravelGroupCreationRequests.Add(operation);
+            await dbContext.SaveChangesAsync(transactionCancellationToken);
+
+            return Result.Success(ToResponse(travelGroup));
+        }, cancellationToken);
+    }
+
+    private static CreateTravelGroupResponse ToResponse(TravelGroup travelGroup) =>
+        new(
+            travelGroup.Id,
+            travelGroup.Name ?? string.Empty,
+            travelGroup.ItineraryId,
+            travelGroup.HostUserId,
+            travelGroup.CreatedAtUtc);
+}
