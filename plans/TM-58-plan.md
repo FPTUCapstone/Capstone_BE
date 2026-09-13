@@ -460,7 +460,7 @@ Measured verification results (2026-09-13, Round 2 resolution):
   - `TripMate.Api.IntegrationTests`: 65 tests total (48 non-SQL passed, 17 SQL Server tests configured for CI/SQL environment; antipodal test strengthened with `BeApproximately(20015.09m, 0.1m)`; detail query command count verified for 5 bounded queries).
   - Total local tests: 286 passed, 0 failed, 17 skipped (303 total).
 - Vulnerability audit: `dotnet list package --vulnerable --include-transitive` returned 0 vulnerable packages across all projects.
-- Database execution on SQL Server:
+- SQL Server verification target (pending a SQL-enabled run):
   - Bounded list query: exactly 1 count query + 1 bounded items query (2 queries total, 0 N+1 queries).
   - Bounded detail query: exactly 5 bounded projection queries (POI scalars, opening hours, photos, tags, reviews, 0 N+1 queries, 0 Cartesian multiplication).
   - Vietnamese collation: case-insensitive literal search verified under `Vietnamese_100_CI_AS`.
