@@ -3,8 +3,8 @@
 | Item | Value |
 |---|---|
 | Spec | [`UC-04-spec.md`](../specs/UC-04-spec.md) **v2.0** (ratified + user-approved 2026-09-13) |
-| Status | **Plan awaiting user approval — no code has been written yet** |
-| Branch | `feature/PhucTV-register-traveler` (continues — UC-04 auth work already lives here) |
+| Status | **Implemented T1–T10 (2026-09-13) + review fixes P1 (BR-02 race), P2a (LastLoginAtUtc), P2b (structured logging) — pending PR review** |
+| Branch | `feature/PhucTV-sign-in` (merged `origin/develop` — CI/CD + registration snapshot; conflicts resolved in favor of UC-04 v2.0) |
 | Workflow | **AI prerequisite: before EVERY task — re-read `Dev_and_CrossReview_Checklist.pdf` + `TEAM_ENGINEERING_RULES.docx` and cross-check the task against both.** TDD, one atomic task at a time, red → green → review → next; NO commit/push without explicit user request |
 | Prerequisite | ✅ Done: UC-01 BR-06 amendment + `Suspended` cleanup (same day) |
 

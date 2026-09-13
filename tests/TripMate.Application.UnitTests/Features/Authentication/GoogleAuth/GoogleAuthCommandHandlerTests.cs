@@ -1,5 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Authentication.Common;
@@ -41,7 +43,8 @@ public class GoogleAuthCommandHandlerTests
             _dbContext,
             _firebaseAuthService.Object,
             _jwtTokenService.Object,
-            _dateTimeProvider.Object);
+            _dateTimeProvider.Object,
+            NullLogger<GoogleAuthCommandHandler>.Instance);
     }
 
     private void FirebaseReturns(FirebaseTokenValidationResult result) =>
@@ -178,6 +181,9 @@ public class GoogleAuthCommandHandlerTests
         provisioned.Status.Should().Be(AccountStatus.Active);
         provisioned.AvatarUrl.Should().Be("https://photo/lan.png");
         provisioned.EmailVerifiedAtUtc.Should().NotBeNull();
+
+        // P2a: the user signs in at provisioning time — LastLoginAtUtc must be stamped.
+        provisioned.LastLoginAtUtc.Should().Be(_dateTimeProvider.Object.UtcNow);
     }
 
     [Fact]

@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
 using TripMate.Application.Features.Authentication.Common;
 using TripMate.Application.Features.Authentication.Login;
 using TripMate.Application.UnitTests.TestUtilities;
@@ -160,7 +161,8 @@ public class LoginCommandHandlerTests
     }
 
     private LoginCommandHandler CreateHandler(TestDbContext dbContext) =>
-        new(dbContext, _passwordHasher, _jwtTokenService, _dateTimeProvider);
+        new(dbContext, _passwordHasher, _jwtTokenService, _dateTimeProvider,
+            NullLogger<LoginCommandHandler>.Instance);
 
     private async Task<User> SeedUser(
         TestDbContext dbContext,
