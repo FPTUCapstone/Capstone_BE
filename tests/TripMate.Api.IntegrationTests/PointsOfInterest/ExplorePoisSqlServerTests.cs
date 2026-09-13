@@ -184,13 +184,9 @@ public sealed class ExplorePoisSqlServerTests
         result.Value.TotalCount.Should().Be(4);
         var antipodalItem = result.Value.Items.First(p => p.Id == antipodalPoi.Id);
         antipodalItem.DistanceKm.Should().NotBeNull();
-        antipodalItem.DistanceKm!.Value.Should().BeGreaterThan(0m);
-        antipodalItem.DistanceKm!.Value.Should().BeLessThanOrEqualTo(20016m);
+        antipodalItem.DistanceKm!.Value.Should().BeApproximately(20015.09m, 0.1m);
         double.IsFinite((double)antipodalItem.DistanceKm!.Value).Should().BeTrue();
     }
-
-
-
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
@@ -441,15 +437,15 @@ public sealed class ExplorePoisSqlServerTests
         interceptor.CommandCount.Should().Be(2,
             "explore list must execute exactly 1 count query and 1 bounded result query with no N+1 subqueries");
 
-        // 2. Detail query: fixed query count (3 queries) independent of child rows
+        // 2. Detail query: fixed query count (5 bounded projection queries: POI scalar, opening hours, photos, tags, reviews)
         interceptor.Reset();
         var detailHandler = CreateDetailHandler(context);
         var detailResult = await detailHandler.Handle(new GetPoiDetailQuery(seed.MyKheId), default);
 
         detailResult.IsSuccess.Should().BeTrue();
         var myKheQueryCount = interceptor.CommandCount;
-        myKheQueryCount.Should().Be(3,
-            "detail query must execute exactly 3 queries (POI aggregate, photos, reviews)");
+        myKheQueryCount.Should().Be(5,
+            "detail query must execute exactly 5 bounded queries (POI scalar, opening hours, photos, tags, reviews)");
 
         // 3. Detail query on Ba Na (different number of photos/reviews) executes the exact same query count
         interceptor.Reset();
