@@ -26,6 +26,7 @@ public class LoginCommandHandlerTests
 
         result.IsFailure.Should().BeTrue();
         result.ErrorCode.Should().Be(AuthErrorCodes.InvalidCredentials);
+        result.ErrorMessage.Should().Be("Invalid email or password.");
     }
 
     [Fact]
@@ -41,18 +42,50 @@ public class LoginCommandHandlerTests
 
         result.IsFailure.Should().BeTrue();
         result.ErrorCode.Should().Be(AuthErrorCodes.InvalidCredentials);
+        result.ErrorMessage.Should().Be("Invalid email or password.");
+    }
+
+    [Fact]
+    public async Task Handle_WithoutPasswordHash_ReturnsSameGenericInvalidCredentials()
+    {
+        // UC-04 §4.1: the no-password case must be indistinguishable from a wrong password —
+        // same code, same message, no hint that the account exists.
+        await using var dbContext = TestDbContext.Create();
+        var user = new User
+        {
+            Email = "nopassword@example.com",
+            FullName = "No Password User",
+            Role = UserRole.Traveler,
+            Status = AccountStatus.Active,
+            PasswordHash = null,
+            CreatedAtUtc = _dateTimeProvider.UtcNow,
+            UpdatedAtUtc = _dateTimeProvider.UtcNow,
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync(CancellationToken.None);
+        var handler = CreateHandler(dbContext);
+
+        var result = await handler.Handle(
+            new LoginCommand("nopassword@example.com", "WhateverPass1"),
+            CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(AuthErrorCodes.InvalidCredentials);
+        result.ErrorMessage.Should().Be("Invalid email or password.");
     }
 
     [Theory]
-    [InlineData(AccountStatus.PendingEmailVerification, AuthErrorCodes.AccountPendingVerification)]
-    [InlineData(AccountStatus.Locked, AuthErrorCodes.AccountLocked)]
-    [InlineData(AccountStatus.Inactive, AuthErrorCodes.AccountInactive)]
+    [InlineData(AccountStatus.PendingEmailVerification, AuthErrorCodes.AccountPendingVerification, "Email has not been verified.")]
+    [InlineData(AccountStatus.PendingApproval, AuthErrorCodes.AccountPendingApproval, "Account is pending approval.")]
+    [InlineData(AccountStatus.Locked, AuthErrorCodes.AccountLocked, "Account is locked.")]
+    [InlineData(AccountStatus.Inactive, AuthErrorCodes.AccountInactive, "Account is inactive.")]
     public async Task Handle_WithBlockingAccountStatus_BlocksSignInIndependentlyOfCredentials(
         AccountStatus status,
-        string expectedErrorCode)
+        string expectedErrorCode,
+        string expectedMessage)
     {
         await using var dbContext = TestDbContext.Create();
-        await SeedUser(dbContext, "user@example.com", "CorrectPass1", status);
+        var user = await SeedUser(dbContext, "user@example.com", "CorrectPass1", status);
         var handler = CreateHandler(dbContext);
 
         var result = await handler.Handle(
@@ -61,19 +94,22 @@ public class LoginCommandHandlerTests
 
         result.IsFailure.Should().BeTrue();
         result.ErrorCode.Should().Be(expectedErrorCode);
+        result.ErrorMessage.Should().Be(expectedMessage);
+
+        // BR-10: every failure path mutates nothing — no session record, no last-login stamp.
+        var persistedUser = await dbContext.Users.FindAsync(user.Id);
+        persistedUser!.LastLoginAtUtc.Should().BeNull();
+        persistedUser.RefreshTokens.Should().BeEmpty();
     }
 
-    [Theory]
-    [InlineData(AccountStatus.PendingApproval)]
-    [InlineData(AccountStatus.Rejected)]
-    public async Task Handle_WithTourOperatorApplicationStatus_StillSignsIn(AccountStatus status)
+    [Fact]
+    public async Task Handle_WithRejectedTourOperator_StillSignsInWithoutStatusChange()
     {
-        // BR-07/BR-09: a Tour Operator account in PendingApproval or Rejected status must still
-        // be able to sign in — Rejected in particular is a hard dependency for UC-03
-        // (resubmission requires signing in first). That status only gates the Tour Operator
-        // workspace downstream, never authentication itself.
+        // BR-06: a Rejected Tour Operator may still sign in (UC-03 resubmission requires a
+        // session). The status stays Rejected — Sign In never flips it — and the role comes
+        // from the database. PendingApproval, by contrast, is blocked per BR-05.
         await using var dbContext = TestDbContext.Create();
-        var user = await SeedUser(dbContext, "operator@example.com", "CorrectPass1", status, UserRole.TourOperator);
+        var user = await SeedUser(dbContext, "operator@example.com", "CorrectPass1", AccountStatus.Rejected, UserRole.TourOperator);
 
         var handler = CreateHandler(dbContext);
 
@@ -83,8 +119,11 @@ public class LoginCommandHandlerTests
 
         result.IsSuccess.Should().BeTrue();
         result.Value.Role.Should().Be(UserRole.TourOperator);
-        result.Value.Status.Should().Be(status);
+        result.Value.Status.Should().Be(AccountStatus.Rejected);
         result.Value.UserId.Should().Be(user.Id);
+
+        var persistedUser = await dbContext.Users.FindAsync(user.Id);
+        persistedUser!.Status.Should().Be(AccountStatus.Rejected);
     }
 
     [Fact]

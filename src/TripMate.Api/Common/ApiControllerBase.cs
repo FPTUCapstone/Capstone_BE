@@ -55,11 +55,20 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             AuthErrorCodes.AccountPendingVerification =>
                 StatusCodes.Status403Forbidden,
 
+            AuthErrorCodes.AccountPendingApproval =>
+                StatusCodes.Status403Forbidden,
+
+            AuthErrorCodes.MsgEmailNotVerified =>
+                StatusCodes.Status403Forbidden,
+
             AuthErrorCodes.AccountLocked =>
                 StatusCodes.Status403Forbidden,
 
             AuthErrorCodes.AccountInactive =>
                 StatusCodes.Status403Forbidden,
+
+            AuthErrorCodes.FirebaseUnavailable =>
+                StatusCodes.Status503ServiceUnavailable,
 
             AuthErrorCodes.EmailAlreadyRegistered =>
                 StatusCodes.Status409Conflict,

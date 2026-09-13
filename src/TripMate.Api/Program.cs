@@ -39,7 +39,14 @@ try
     builder.Services
         .AddControllers()
         .AddJsonOptions(options =>
-            options.JsonSerializerOptions.PropertyNamingPolicy = jsonNamingPolicy);
+        {
+            options.JsonSerializerOptions.PropertyNamingPolicy = jsonNamingPolicy;
+
+            // UC-04 v2.0 contract: enums serialize as strings (e.g. "Traveler", "Active") —
+            // aligning the runtime serializer with the enum-as-string OpenAPI schema the API
+            // already documents, so clients never depend on numeric enum values.
+            options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+        });
 
     builder.Services.Configure<ApiBehaviorOptions>(options =>
     {

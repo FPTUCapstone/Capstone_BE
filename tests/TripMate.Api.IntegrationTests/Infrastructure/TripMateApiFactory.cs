@@ -27,7 +27,8 @@ public enum ApiTestAuthenticationMode
 
 public sealed class TripMateApiFactory(
     ApiTestAuthenticationMode authenticationMode = ApiTestAuthenticationMode.HeaderStub,
-    string? sqlServerConnectionString = null) : WebApplicationFactory<Program>
+    string? sqlServerConnectionString = null,
+    Func<IServiceProvider, IFirebaseAuthService>? firebaseServiceFactory = null) : WebApplicationFactory<Program>
 {
     internal const string JwtIssuer = "TripMate.Tests";
     internal const string JwtAudience = "TripMate.Tests";
@@ -60,6 +61,12 @@ public sealed class TripMateApiFactory(
                     options.UseInMemoryDatabase(_databaseName));
                 services.AddScoped<IApplicationDbContext>(provider =>
                     provider.GetRequiredService<TestApiDbContext>());
+            }
+
+            if (firebaseServiceFactory is not null)
+            {
+                services.RemoveAll<IFirebaseAuthService>();
+                services.AddSingleton<IFirebaseAuthService>(sp => firebaseServiceFactory(sp));
             }
 
             if (authenticationMode == ApiTestAuthenticationMode.HeaderStub)

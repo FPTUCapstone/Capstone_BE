@@ -8,10 +8,17 @@ using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Authentication.GoogleAuth;
 
+/// <summary>
+/// UC-04 v2.0 Google Sign In. A verified Firebase token proves identity only. Claims fail
+/// closed (BR-11 provider, BR-12 email verification); administrative status gates apply before
+/// any mutation (BR-05/07/08); a Rejected operator may still sign in (BR-06); an unknown email
+/// is auto-provisioned as Traveler/Active (BR-02); an existing account's status is never
+/// changed by Sign In (BR-14). There is no raw-Google fallback — the Firebase Admin SDK is the
+/// sole verifier (D2-A) and its unavailability fails closed as 503-mapped code (BR-16).
+/// </summary>
 public class GoogleAuthCommandHandler(
     IApplicationDbContext dbContext,
     IFirebaseAuthService firebaseAuthService,
-    IGoogleTokenValidator googleTokenValidator,
     IJwtTokenService jwtTokenService,
     IDateTimeProvider dateTimeProvider)
     : IRequestHandler<GoogleAuthCommand, Result<GoogleAuthResponse>>
@@ -20,47 +27,56 @@ public class GoogleAuthCommandHandler(
         GoogleAuthCommand request,
         CancellationToken cancellationToken)
     {
-        string email;
-        string? fullName = null;
-        string? picture = null;
-        string? firebaseUid = null;
+        if (string.IsNullOrWhiteSpace(request.IdToken))
+        {
+            // Defense in depth: the controller normally answers this before MediatR runs.
+            return Result.Failure<GoogleAuthResponse>(
+                AuthErrorCodes.AuthTokenMissing,
+                "Google ID token is required.");
+        }
 
-        // 1. Try Firebase ID token first (primary path from web frontend)
+        FirebaseTokenValidationResult firebaseResult;
         try
         {
-            var fbResult = await firebaseAuthService.VerifyIdTokenAsync(request.IdToken, cancellationToken);
-            if (!string.IsNullOrWhiteSpace(fbResult.Email))
-            {
-                email = fbResult.Email;
-                fullName = fbResult.FullName;
-                picture = fbResult.Picture;
-                firebaseUid = fbResult.Uid;
-            }
-            else
-            {
-                email = string.Empty;
-            }
+            firebaseResult = await firebaseAuthService.VerifyIdTokenAsync(request.IdToken!, cancellationToken);
         }
-        catch
+        catch (FirebaseUnavailableException)
         {
-            // 2. Fall back to raw Google OAuth token validation
-            var googlePayload = await googleTokenValidator.ValidateAsync(request.IdToken, cancellationToken);
-            if (googlePayload == null || string.IsNullOrWhiteSpace(googlePayload.Email))
-            {
-                return Result.Failure<GoogleAuthResponse>(
-                    AuthErrorCodes.MsgGoogleTokenInvalid,
-                    "Invalid Google authentication token.");
-            }
-            email = googlePayload.Email;
-            fullName = googlePayload.FullName;
-            picture = googlePayload.Picture;
+            // BR-16: verification infrastructure is down — fail closed as 503-mapped failure.
+            return Result.Failure<GoogleAuthResponse>(
+                AuthErrorCodes.FirebaseUnavailable,
+                "Google authentication service is temporarily unavailable.");
+        }
+        catch (Exception)
+        {
+            // Token rejection (invalid signature, expired, wrong audience...) — never leaks details.
+            return Result.Failure<GoogleAuthResponse>(
+                AuthErrorCodes.AuthTokenInvalid,
+                "Invalid Google ID token.");
         }
 
+        // BR-11: only google.com provider tokens may enter this flow — missing claims fail closed.
+        if (!string.Equals(firebaseResult.SignInProvider, "google.com", StringComparison.Ordinal))
+        {
+            return Result.Failure<GoogleAuthResponse>(
+                AuthErrorCodes.AuthTokenInvalid,
+                "Invalid Google ID token.");
+        }
+
+        // BR-12: Google must have verified the email — false or missing fails closed.
+        if (!firebaseResult.EmailVerified)
+        {
+            return Result.Failure<GoogleAuthResponse>(
+                AuthErrorCodes.MsgEmailNotVerified,
+                "Google account email has not been verified.");
+        }
+
+        var email = firebaseResult.Email;
         if (string.IsNullOrWhiteSpace(email))
         {
             return Result.Failure<GoogleAuthResponse>(
-                AuthErrorCodes.MsgGoogleTokenInvalid,
-                "Invalid Google authentication token.");
+                AuthErrorCodes.AuthTokenInvalid,
+                "Invalid Google ID token.");
         }
 
         var normalizedEmail = email.Trim().ToLowerInvariant();
@@ -75,50 +91,50 @@ public class GoogleAuthCommandHandler(
 
         if (existingUser == null)
         {
-            // Case A: Create new Active account
+            // Case A (BR-02): auto-provision a brand-new account — creation, never activation,
+            // and only ever a Traveler in Active status.
             isNewAccount = true;
             user = new User
             {
                 Email = normalizedEmail,
-                FullName = !string.IsNullOrWhiteSpace(fullName) ? fullName.Trim() : normalizedEmail.Split('@')[0],
-                AvatarUrl = picture,
+                FullName = !string.IsNullOrWhiteSpace(firebaseResult.FullName) ? firebaseResult.FullName.Trim() : normalizedEmail.Split('@')[0],
+                AvatarUrl = firebaseResult.Picture,
                 Role = UserRole.Traveler,
                 Status = AccountStatus.Active,
                 EmailVerifiedAtUtc = now,
                 CreatedAtUtc = now,
                 UpdatedAtUtc = now,
             };
-
-            dbContext.Users.Add(user);
-            await dbContext.SaveChangesAsync(cancellationToken);
         }
         else
         {
             // A verified Google/Firebase identity proves who the user is — not that the account
             // may sign in. Administrative status must be enforced BEFORE any mutation or session
-            // issuance: Locked/Inactive accounts are rejected with the established status codes
-            // (same as email/password login) and receive no tokens and no refresh-token row.
+            // issuance, and Sign In never changes an existing account's status (BR-14).
             switch (existingUser.Status)
             {
+                case AccountStatus.PendingEmailVerification:
+                    return Result.Failure<GoogleAuthResponse>(
+                        AuthErrorCodes.AccountPendingVerification,
+                        "Email has not been verified.");
+                case AccountStatus.PendingApproval:
+                    return Result.Failure<GoogleAuthResponse>(
+                        AuthErrorCodes.AccountPendingApproval,
+                        "Account is pending approval.");
                 case AccountStatus.Locked:
                     return Result.Failure<GoogleAuthResponse>(
                         AuthErrorCodes.AccountLocked,
-                        "Your account is locked. Please contact support.");
+                        "Account is locked.");
                 case AccountStatus.Inactive:
                     return Result.Failure<GoogleAuthResponse>(
                         AuthErrorCodes.AccountInactive,
-                        "Your account is inactive. Please contact support.");
+                        "Account is inactive.");
             }
 
-            // Update Avatar if not already set
-            if (!string.IsNullOrWhiteSpace(picture) && string.IsNullOrEmpty(existingUser.AvatarUrl))
+            // Update Avatar if not already set — backfill only, never overwrite.
+            if (!string.IsNullOrWhiteSpace(firebaseResult.Picture) && string.IsNullOrEmpty(existingUser.AvatarUrl))
             {
-                existingUser.AvatarUrl = picture;
-            }
-            if (existingUser.Status == AccountStatus.PendingEmailVerification)
-            {
-                existingUser.Status = AccountStatus.Active;
-                existingUser.EmailVerifiedAtUtc = now;
+                existingUser.AvatarUrl = firebaseResult.Picture;
             }
 
             isNewAccount = false;
@@ -128,23 +144,40 @@ public class GoogleAuthCommandHandler(
         }
 
         var refreshTokenValue = jwtTokenService.GenerateRefreshToken();
-        dbContext.RefreshTokens.Add(new RefreshToken
-        {
-            User = user,
-            TokenHash = jwtTokenService.HashRefreshToken(refreshTokenValue),
-            CreatedAtUtc = now,
-            ExpiresAtUtc = now.AddDays(7)
-        });
 
-        await dbContext.SaveChangesAsync(cancellationToken);
+        // BR-15: the auto-provisioned user (when creation happens), the refresh-token row and
+        // LastLoginAtUtc commit together as a single atomic unit; access-token generation and
+        // the response follow the commit.
+        await dbContext.ExecuteInTransactionAsync<bool>(async transactionCancellationToken =>
+        {
+            if (isNewAccount)
+            {
+                dbContext.Users.Add(user);
+            }
+
+            dbContext.RefreshTokens.Add(new RefreshToken
+            {
+                User = user,
+                TokenHash = jwtTokenService.HashRefreshToken(refreshTokenValue),
+                CreatedAtUtc = now,
+                ExpiresAtUtc = now.AddDays(7)
+            });
+
+            await dbContext.SaveChangesAsync(transactionCancellationToken);
+            return true;
+        }, cancellationToken);
 
         var (accessToken, accessTokenExpiresAtUtc) = jwtTokenService.GenerateAccessToken(user);
 
         return Result.Success(new GoogleAuthResponse(
             user.Id,
-            user.Status.ToString(),
+            user.Email ?? normalizedEmail,
+            user.FullName,
+            user.Role,
+            user.Status,
             accessToken,
             refreshTokenValue,
+            accessTokenExpiresAtUtc,
             isNewAccount));
     }
 }

@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using TripMate.Api.Common;
+using TripMate.Application.Features.Authentication.Common;
 using TripMate.Application.Features.Authentication.GoogleAuth;
 using TripMate.Application.Features.Authentication.Login;
 using TripMate.Application.Features.Authentication.Register;
@@ -20,6 +21,8 @@ public record RegisterTravelerRequestDto(
 [Route("api/v1/auth")]
 public class AuthController(ISender sender) : ApiControllerBase(sender)
 {
+    // Used only by the UC-01 flows (register / verify-email), whose contract requires the
+    // Firebase ID token as `Authorization: Bearer`. The Google flow (UC-04) is body-only.
     private string? ExtractBearerToken()
     {
         var authHeader = Request.Headers.Authorization.ToString();
@@ -82,22 +85,27 @@ public class AuthController(ISender sender) : ApiControllerBase(sender)
     }
 
     [HttpPost("google")]
+    [ProducesResponseType(typeof(ApiResponse<GoogleAuthResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> GoogleAuth(
         [FromBody] GoogleAuthCommand? command,
         CancellationToken cancellationToken)
     {
+        // Body-only (UC-04 spec §6.3): the Bearer header is not an input channel for the
+        // Google flow — a missing token is a ProblemDetails 400 with a stable errorCode.
         var token = command?.IdToken;
         if (string.IsNullOrWhiteSpace(token))
         {
-            token = ExtractBearerToken();
-        }
-
-        if (string.IsNullOrWhiteSpace(token))
-        {
-            return Error(
-                StatusCodes.Status400BadRequest,
-                "Firebase ID token or Google token is required.",
-                new { code = "AUTH_TOKEN_MISSING" });
+            return Problem(
+                title: "Google ID token is required.",
+                statusCode: StatusCodes.Status400BadRequest,
+                extensions: new Dictionary<string, object?>
+                {
+                    ["errorCode"] = AuthErrorCodes.AuthTokenMissing,
+                });
         }
 
         var cmd = new GoogleAuthCommand(token);
