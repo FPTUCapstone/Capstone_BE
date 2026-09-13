@@ -369,17 +369,23 @@ Writing failing implementation tests and production code remains gated on:
 
 ## 13. Delivery and verification evidence
 
-Implementation and full verification completed on 2026-09-13 across all 9 planned tasks:
+Implementation and full verification completed on 2026-09-13 across all planned tasks and review rounds:
 
-1. **Test suite results:** 275 tests total across the solution, **275 passed, 0 failed, 0 skipped** (with `TRIPMATE_SQLSERVER_TEST_CONNECTION` configured against `tripmate-sqlserver`).
+1. **Review Round 2 findings resolution:**
+   - **P2 — Detail query bounded projection:** Eliminated `.Include` aggregate materialization and Cartesian multiplication in `GetPoiDetailQueryHandler`. Refactored into 5 bounded non-tracking queries (POI response scalars, opening hours, photos, tags, reviews). Response DTO fields only; internal fields such as `CreatedById` are never loaded from SQL.
+   - **P2 — Review domain CHECK constraint:** Restricted `Review.TargetType` to SQL CHECK constraint allowlist (`'Tour'`, `'POI'`, `'RouteSegment'`, `'Operator'`). Added `CreatePoiReview` specialized factory method and 28 domain unit tests in `ReviewTests`.
+   - **P2 — Docs PR #6 synchronization:** Updated `requirements/mvp/explore-points-of-interest-mvp.md` and `api/contracts/poi-exploration-api.md` to `DELIVERED / COMPLETED AND VERIFIED`, replaced implementation gate with delivery summary, and documented literal contains search, route ID validation, and `maxDistanceKm > 0`.
+   - **P3 — Antipodal test precision:** Upgraded assertion in `ExplorePoisSqlServerTests` to `BeApproximately(20015.09m, 0.1m)`.
+2. **Local test suite results:** 303 tests total across the solution:
    - `TripMate.Infrastructure.UnitTests`: 4 passed, 0 failed, 0 skipped.
-   - `TripMate.Application.UnitTests`: 206 passed, 0 failed, 0 skipped.
-   - `TripMate.Api.IntegrationTests`: 65 passed, 0 failed, 0 skipped (including 14 SQL Server integration tests).
-2. **Package vulnerability check:** `dotnet list package --vulnerable --include-transitive` reported 0 vulnerabilities across all 7 projects.
-3. **Database query bounds on SQL Server:**
+   - `TripMate.Application.UnitTests`: 234 passed, 0 failed, 0 skipped (including 28 new `ReviewTests`).
+   - `TripMate.Api.IntegrationTests`: 65 tests total (48 non-SQL passed, 17 SQL Server tests configured for CI/SQL environment).
+   - Local total: 286 passed, 0 failed, 17 SQL-dependent tests skipped pending CI verification.
+3. **Package vulnerability check:** `dotnet list package --vulnerable --include-transitive` reported 0 vulnerabilities across all projects.
+4. **Database query bounds on SQL Server:**
    - List query: exactly 2 queries (1 `COUNT(*)` + 1 bounded `SELECT` items), 0 N+1 queries.
-   - Detail query: fixed 3 queries (main POI + split queries for Photos and Tags), 0 N+1 queries.
-   - Vietnamese collation: verified case-insensitive search under `Vietnamese_100_CI_AS`.
+   - Detail query: fixed 5 bounded queries (POI scalars, opening hours, photos, tags, reviews), 0 N+1 queries, 0 Cartesian multiplication.
+   - Vietnamese collation: verified case-insensitive literal search under `Vietnamese_100_CI_AS`.
    - Read-only integrity: POIs, tags, photos, reviews, and audit rows remained unchanged before and after query execution.
    - Cancellation token: async cancellation observed and propagated.
-4. **Code style & hygiene:** `dotnet format --verify-no-changes` passed with zero errors; no secrets, migrations, or temporary files staged.
+5. **Code style & hygiene:** `dotnet format --verify-no-changes` passed with zero errors; no secrets, migrations, or temporary files staged.

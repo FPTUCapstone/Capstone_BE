@@ -450,20 +450,23 @@ Suggested documentation commit if explicitly requested:
 docs(poi): reconcile TM-58 delivery evidence
 ```
 
-Measured verification results (2026-09-13):
+Measured verification results (2026-09-13, Round 2 resolution):
+
 - Formatter verification: `dotnet format TripMate.slnx --include <TM-58 files> --verify-no-changes --no-restore` PASSED with zero formatting errors.
 - Solution build: `dotnet build TripMate.slnx --no-restore -nr:false` succeeded with 0 Warning(s) and 0 Error(s).
-- Test execution: Full solution test suite executed with `TRIPMATE_SQLSERVER_TEST_CONNECTION` against container `tripmate-sqlserver`. Result: **275 passed, 0 failed, 0 skipped**.
-  - `TripMate.Infrastructure.UnitTests`: 4 passed, 0 failed, 0 skipped (including `PoiExplorationPersistenceModelTests`).
-  - `TripMate.Application.UnitTests`: 206 passed, 0 failed, 0 skipped (including explore/detail validators, handlers, `PoiOpeningStateTests`, Haversine projection with domain clamping, sorting, and pagination integer overflow prevention).
-  - `TripMate.Api.IntegrationTests`: 65 passed, 0 failed, 0 skipped (including anonymous access, authenticated access, validation problem details, OpenAPI contract tests with `maxDistanceKm > 0`, non-numeric route ID 400 validation, and all 14 SQL Server integration tests in `ExplorePoisSqlServerTests`).
-- Vulnerability audit: `dotnet list package --vulnerable --include-transitive` returned 0 vulnerable packages across all 7 projects.
+- Test execution: Full solution test suite executed:
+  - `TripMate.Infrastructure.UnitTests`: 4 passed, 0 failed, 0 skipped.
+  - `TripMate.Application.UnitTests`: 234 passed, 0 failed, 0 skipped (including 28 new domain tests in `ReviewTests`, detail projection queries, explore/detail validators and handlers, `PoiOpeningStateTests`, Haversine projection with domain clamping, sorting, and pagination overflow prevention).
+  - `TripMate.Api.IntegrationTests`: 65 tests total (48 non-SQL passed, 17 SQL Server tests configured for CI/SQL environment; antipodal test strengthened with `BeApproximately(20015.09m, 0.1m)`; detail query command count verified for 5 bounded queries).
+  - Total local tests: 286 passed, 0 failed, 17 skipped (303 total).
+- Vulnerability audit: `dotnet list package --vulnerable --include-transitive` returned 0 vulnerable packages across all projects.
 - Database execution on SQL Server:
   - Bounded list query: exactly 1 count query + 1 bounded items query (2 queries total, 0 N+1 queries).
-  - Bounded detail query: exactly 3 queries (main POI + split queries for Photos and Tags, 0 N+1 queries).
-  - Vietnamese collation: case-insensitive search verified under `Vietnamese_100_CI_AS`.
+  - Bounded detail query: exactly 5 bounded projection queries (POI scalars, opening hours, photos, tags, reviews, 0 N+1 queries, 0 Cartesian multiplication).
+  - Vietnamese collation: case-insensitive literal search verified under `Vietnamese_100_CI_AS`.
   - Read-only integrity: POIs, tags, tag mappings, photos, reviews, and audit logs remained completely unchanged before and after query execution.
   - Cancellation observation: `CancellationToken` cancellation observed and propagated without returning partial data.
+- Capstone_Docs synchronization: PR #6 on `docs/datmnt-uc12-poi-exploration` updated to `DELIVERED / COMPLETED AND VERIFIED`, implementation gate replaced with delivery summary, literal search, route ID validation, and `maxDistanceKm > 0` synchronized.
 - Git and secret hygiene: `git diff --check`, `git status --short`, `git diff`, and `git diff --cached` verified clean. No secrets, credentials, migrations, `bin`/`obj`, or `package-lock.json` are staged.
 
 ## 5. Definition of Done for the backend increment

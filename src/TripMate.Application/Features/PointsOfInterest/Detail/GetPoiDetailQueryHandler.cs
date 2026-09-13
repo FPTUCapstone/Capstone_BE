@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.PointsOfInterest.Common;
+using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.PointsOfInterest.Detail;
@@ -20,13 +21,27 @@ public sealed class GetPoiDetailQueryHandler(
     {
         var poi = await dbContext.PointsOfInterest
             .AsNoTracking()
-            .Include(p => p.Category)
-            .Include(p => p.OpeningHours)
-            .Include(p => p.PoiTags)
-                .ThenInclude(pt => pt.Tag)
-            .FirstOrDefaultAsync(
-                p => p.Id == request.Id && p.Status == PointOfInterestStatus.Active,
-                cancellationToken);
+            .Where(p => p.Id == request.Id && p.Status == PointOfInterestStatus.Active)
+            .Select(p => new
+            {
+                p.Id,
+                p.Name,
+                p.Description,
+                p.Status,
+                p.CategoryId,
+                CategoryName = p.Category.Name,
+                p.Latitude,
+                p.Longitude,
+                p.Address,
+                p.IndoorOutdoor,
+                p.AverageVisitDurationMinutes,
+                p.HasShelter,
+                p.ScenicScore,
+                p.PhotoRating,
+                p.CreatedAtUtc,
+                p.UpdatedAtUtc,
+            })
+            .FirstOrDefaultAsync(cancellationToken);
 
         if (poi is null)
         {
@@ -34,6 +49,17 @@ public sealed class GetPoiDetailQueryHandler(
                 PoiErrorCodes.NotFound,
                 PoiErrorMessages.NotFound);
         }
+
+        var openingHours = await dbContext.PoiOpeningHours
+            .AsNoTracking()
+            .Where(h => h.PointOfInterestId == request.Id)
+            .OrderBy(h => h.DayOfWeek)
+            .Select(h => new PoiOpeningHourDto(
+                h.DayOfWeek,
+                h.OpenTime,
+                h.CloseTime,
+                h.IsClosed))
+            .ToListAsync(cancellationToken);
 
         var photos = await dbContext.PoiPhotos
             .AsNoTracking()
@@ -43,9 +69,17 @@ public sealed class GetPoiDetailQueryHandler(
             .Select(ph => new PoiPhotoDto(ph.Id, ph.Url, ph.Caption, ph.SortOrder))
             .ToListAsync(cancellationToken);
 
+        var tags = await dbContext.PoiTags
+            .AsNoTracking()
+            .Where(pt => pt.PointOfInterestId == request.Id)
+            .OrderBy(pt => pt.Tag.Name)
+            .ThenBy(pt => pt.TagId)
+            .Select(pt => new PoiTagDto(pt.TagId, pt.Tag.Name))
+            .ToListAsync(cancellationToken);
+
         var reviewStats = await dbContext.Reviews
             .AsNoTracking()
-            .Where(r => r.TargetType == "POI" && r.TargetId == request.Id)
+            .Where(r => r.TargetType == Review.TargetTypePoi && r.TargetId == request.Id)
             .GroupBy(_ => 1)
             .Select(g => new
             {
@@ -59,24 +93,7 @@ public sealed class GetPoiDetailQueryHandler(
             : (decimal?)null;
         var reviewCount = reviewStats?.Count ?? 0;
 
-        var isOpenNow = PoiOpeningState.IsOpenNow(poi.OpeningHours, dateTimeProvider.UtcNow);
-
-        var openingHoursDto = poi.OpeningHours
-            .OrderBy(h => h.DayOfWeek)
-            .Select(h => new PoiOpeningHourDto(
-                h.DayOfWeek,
-                h.OpenTime,
-                h.CloseTime,
-                h.IsClosed))
-            .ToList();
-
-        var tagsDto = poi.PoiTags
-            .Select(pt => pt.Tag)
-            .Where(t => t != null)
-            .OrderBy(t => t.Name)
-            .ThenBy(t => t.Id)
-            .Select(t => new PoiTagDto(t.Id, t.Name))
-            .ToList();
+        var isOpenNow = PoiOpeningState.IsOpenNow(openingHours, dateTimeProvider.UtcNow);
 
         var detailDto = new PoiDetailDto(
             poi.Id,
@@ -84,7 +101,7 @@ public sealed class GetPoiDetailQueryHandler(
             poi.Description,
             poi.Status,
             poi.CategoryId,
-            poi.Category.Name,
+            poi.CategoryName,
             poi.Latitude,
             poi.Longitude,
             poi.Address,
@@ -96,9 +113,9 @@ public sealed class GetPoiDetailQueryHandler(
             averageRating,
             reviewCount,
             isOpenNow,
-            openingHoursDto,
+            openingHours,
             photos,
-            tagsDto,
+            tags,
             poi.CreatedAtUtc,
             poi.UpdatedAtUtc);
 

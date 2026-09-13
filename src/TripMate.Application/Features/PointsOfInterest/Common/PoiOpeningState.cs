@@ -13,11 +13,11 @@ public static class PoiOpeningState
     private static readonly TimeSpan VietnamUtcOffset = TimeSpan.FromHours(7);
 
     /// <summary>
-    /// Determines whether a POI is currently open based on its opening hours
+    /// Determines whether a POI is currently open based on its opening hours DTOs
     /// and the current UTC time converted to Vietnam time (UTC+07:00).
     /// </summary>
     public static bool IsOpenNow(
-        IEnumerable<PoiOpeningHour> openingHours,
+        IEnumerable<PoiOpeningHourDto> openingHours,
         DateTimeOffset utcNow)
     {
         var (vietnamDay, vietnamTime) = GetVietnamDayAndTime(utcNow);
@@ -43,6 +43,17 @@ public static class PoiOpeningState
         // No entry for this day → closed
         return false;
     }
+
+    /// <summary>
+    /// Determines whether a POI is currently open based on its opening hours entities
+    /// and the current UTC time converted to Vietnam time (UTC+07:00).
+    /// </summary>
+    public static bool IsOpenNow(
+        IEnumerable<PoiOpeningHour> openingHours,
+        DateTimeOffset utcNow) =>
+        IsOpenNow(
+            openingHours.Select(h => new PoiOpeningHourDto(h.DayOfWeek, h.OpenTime, h.CloseTime, h.IsClosed)),
+            utcNow);
 
     /// <summary>
     /// Converts a UTC timestamp to Vietnam local day-of-week (Sunday=0)

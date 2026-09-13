@@ -6,7 +6,19 @@ public class Review : BaseEntity
 {
     public const int TargetTypeMaxLength = 14;
     public const int CommentMaxLength = 1_000;
+
+    public const string TargetTypeTour = "Tour";
     public const string TargetTypePoi = "POI";
+    public const string TargetTypeRouteSegment = "RouteSegment";
+    public const string TargetTypeOperator = "Operator";
+
+    private static readonly HashSet<string> AllowedTargetTypes = new(StringComparer.Ordinal)
+    {
+        TargetTypeTour,
+        TargetTypePoi,
+        TargetTypeRouteSegment,
+        TargetTypeOperator,
+    };
 
     private Review()
     {
@@ -29,6 +41,25 @@ public class Review : BaseEntity
     public string? Comment { get; private set; }
 
     public DateTimeOffset CreatedAtUtc { get; private set; }
+
+    public static Review CreatePoiReview(
+        long travelerUserId,
+        long poiId,
+        byte rating,
+        DateTimeOffset createdAtUtc,
+        byte? scenicRating = null,
+        byte? photoRating = null,
+        string? comment = null) =>
+        Create(
+            travelerUserId,
+            TargetTypePoi,
+            poiId,
+            rating,
+            createdAtUtc,
+            scenicRating,
+            photoRating,
+            comment,
+            bookingId: null);
 
     public static Review Create(
         long travelerUserId,
@@ -55,6 +86,13 @@ public class Review : BaseEntity
         if (normalizedTargetType.Length > TargetTypeMaxLength)
         {
             throw new ArgumentException($"Target type cannot exceed {TargetTypeMaxLength} characters.", nameof(targetType));
+        }
+
+        if (!AllowedTargetTypes.Contains(normalizedTargetType))
+        {
+            throw new ArgumentException(
+                $"Target type '{normalizedTargetType}' is not supported. Allowed values are: {string.Join(", ", AllowedTargetTypes)}.",
+                nameof(targetType));
         }
 
         if (targetId <= 0)
