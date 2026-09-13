@@ -1,11 +1,16 @@
 using System.Reflection;
 using System.Text;
+
 using FluentAssertions;
+
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+
 using Moq;
+
 using TripMate.Application.Common.Interfaces;
 using TripMate.Infrastructure.Services;
+
 using Xunit;
 
 namespace TripMate.Application.UnitTests.Services;
