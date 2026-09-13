@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
-
 using TripMate.Domain.Entities;
 using TripMate.Infrastructure.Persistence.Common;
 

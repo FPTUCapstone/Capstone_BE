@@ -1,11 +1,8 @@
 using FirebaseAdmin;
 using FirebaseAdmin.Auth;
-
 using Google.Apis.Auth.OAuth2;
-
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-
 using TripMate.Application.Common.Interfaces;
 
 namespace TripMate.Infrastructure.Services;
