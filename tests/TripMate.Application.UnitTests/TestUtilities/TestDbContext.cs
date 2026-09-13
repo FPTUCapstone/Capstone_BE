@@ -34,6 +34,10 @@ public class TestDbContext(
 
     public DbSet<Notification> Notifications => Set<Notification>();
 
+    public DbSet<PoiPhoto> PoiPhotos => Set<PoiPhoto>();
+
+    public DbSet<Review> Reviews => Set<Review>();
+
     public DbSet<Message> Messages => Set<Message>();
 
     public int TransactionExecutionCount { get; private set; }
@@ -57,6 +61,11 @@ public class TestDbContext(
                 mapping.PointOfInterestId,
                 mapping.TagId
             });
+
+        modelBuilder.Entity<PoiTag>()
+            .HasOne(mapping => mapping.Tag)
+            .WithMany()
+            .HasForeignKey(mapping => mapping.TagId);
 
         modelBuilder.Entity<PointOfInterest>()
             .HasMany(poi => poi.OpeningHours)
