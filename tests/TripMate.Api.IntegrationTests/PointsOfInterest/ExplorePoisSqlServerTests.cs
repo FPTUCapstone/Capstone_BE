@@ -62,6 +62,138 @@ public sealed class ExplorePoisSqlServerTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
+    public async Task Handle_WithLikeWildcardPercent_PerformsLiteralMatchOnSqlServer()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedExplorationDataAsync(database);
+
+        await using var setupContext = database.CreateDbContext();
+        var admin = await setupContext.Users.FirstAsync(u => u.Role == UserRole.Administrator);
+        var category = await setupContext.PoiCategories.FirstAsync();
+        var percentPoi = PointOfInterest.Create(
+            category,
+            "100% Eco Park",
+            16.0500m,
+            108.2000m,
+            admin.Id,
+            SundayTestTime);
+        setupContext.PointsOfInterest.Add(percentPoi);
+        await setupContext.SaveChangesAsync();
+
+        await using var context = database.CreateDbContext();
+        var handler = CreateExploreHandler(context);
+
+        var result = await handler.Handle(new ExplorePoisQuery { Search = "%" }, default);
+        result.IsSuccess.Should().BeTrue();
+        result.Value.TotalCount.Should().Be(1);
+        result.Value.Items.Should().ContainSingle(p => p.Id == percentPoi.Id && p.Name == "100% Eco Park");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Handle_WithLikeWildcardUnderscore_PerformsLiteralMatchOnSqlServer()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedExplorationDataAsync(database);
+
+        await using var setupContext = database.CreateDbContext();
+        var admin = await setupContext.Users.FirstAsync(u => u.Role == UserRole.Administrator);
+        var category = await setupContext.PoiCategories.FirstAsync();
+        var underscorePoi = PointOfInterest.Create(
+            category,
+            "Special_Under_Score",
+            16.0500m,
+            108.2000m,
+            admin.Id,
+            SundayTestTime);
+        setupContext.PointsOfInterest.Add(underscorePoi);
+        await setupContext.SaveChangesAsync();
+
+        await using var context = database.CreateDbContext();
+        var handler = CreateExploreHandler(context);
+
+        var result = await handler.Handle(new ExplorePoisQuery { Search = "_" }, default);
+        result.IsSuccess.Should().BeTrue();
+        result.Value.TotalCount.Should().Be(1);
+        result.Value.Items.Should().ContainSingle(p => p.Id == underscorePoi.Id && p.Name == "Special_Under_Score");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Handle_WithLikeWildcardBracket_PerformsLiteralMatchOnSqlServer()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedExplorationDataAsync(database);
+
+        await using var setupContext = database.CreateDbContext();
+        var admin = await setupContext.Users.FirstAsync(u => u.Role == UserRole.Administrator);
+        var category = await setupContext.PoiCategories.FirstAsync();
+        var bracketPoi = PointOfInterest.Create(
+            category,
+            "[VIP] Heritage Zone",
+            16.0500m,
+            108.2000m,
+            admin.Id,
+            SundayTestTime);
+        setupContext.PointsOfInterest.Add(bracketPoi);
+        await setupContext.SaveChangesAsync();
+
+        await using var context = database.CreateDbContext();
+        var handler = CreateExploreHandler(context);
+
+        var result = await handler.Handle(new ExplorePoisQuery { Search = "[" }, default);
+        result.IsSuccess.Should().BeTrue();
+        result.Value.TotalCount.Should().Be(1);
+        result.Value.Items.Should().ContainSingle(p => p.Id == bracketPoi.Id && p.Name == "[VIP] Heritage Zone");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Handle_WithNearAntipodalCoordinates_DoesNotThrowDomainErrorAndComputesValidDistance()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedExplorationDataAsync(database);
+
+        await using var setupContext = database.CreateDbContext();
+        var admin = await setupContext.Users.FirstAsync(u => u.Role == UserRole.Administrator);
+        var category = await setupContext.PoiCategories.FirstAsync();
+        var antipodalPoi = PointOfInterest.Create(
+            category,
+            "Antipodal Research Station",
+            82.000000m,
+            1.000000m,
+            admin.Id,
+            SundayTestTime);
+        setupContext.PointsOfInterest.Add(antipodalPoi);
+        await setupContext.SaveChangesAsync();
+
+        await using var context = database.CreateDbContext();
+        var handler = CreateExploreHandler(context);
+
+        // Origin near antipodal point (-82.0, -179.0)
+        var result = await handler.Handle(
+            new ExplorePoisQuery
+            {
+                OriginLatitude = -82.000000m,
+                OriginLongitude = -179.000000m,
+                Sort = "distance",
+            },
+            default);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.TotalCount.Should().Be(4);
+        var antipodalItem = result.Value.Items.First(p => p.Id == antipodalPoi.Id);
+        antipodalItem.DistanceKm.Should().NotBeNull();
+        antipodalItem.DistanceKm!.Value.Should().BeGreaterThan(0m);
+        antipodalItem.DistanceKm!.Value.Should().BeLessThanOrEqualTo(20016m);
+        double.IsFinite((double)antipodalItem.DistanceKm!.Value).Should().BeTrue();
+    }
+
+
+
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
     public async Task Handle_WithDistanceFilterAndSorting_ComputesHaversineAndAppliesOrderingOnSqlServer()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
@@ -208,6 +340,29 @@ public sealed class ExplorePoisSqlServerTests
         page1Result.Value.Items.Should().NotContain(p => p.Id == seed.InactivePoiId);
         page2Result.Value.Items.Should().NotContain(p => p.Id == seed.InactivePoiId);
     }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Handle_WithPageIntMaxValue_DoesNotThrowOnSqlServerAndReturnsEmptyPage()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedExplorationDataAsync(database);
+
+        await using var context = database.CreateDbContext();
+        var handler = CreateExploreHandler(context);
+
+        var result = await handler.Handle(
+            new ExplorePoisQuery { Page = int.MaxValue, PageSize = 100 },
+            default);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Page.Should().Be(int.MaxValue);
+        result.Value.PageSize.Should().Be(100);
+        result.Value.TotalCount.Should().Be(3);
+        result.Value.TotalPages.Should().Be(1);
+        result.Value.Items.Should().BeEmpty();
+    }
+
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]

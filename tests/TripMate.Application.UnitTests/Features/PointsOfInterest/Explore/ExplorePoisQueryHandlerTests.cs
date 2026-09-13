@@ -449,6 +449,26 @@ public class ExplorePoisQueryHandlerTests
         noPhotosItem.ThumbnailUrl.Should().BeNull();
     }
 
+    [Fact]
+    public async Task Handle_WithPageIntMaxValue_DoesNotOverflowAndReturnsEmptyPageWithCorrectMetadata()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var category = await SeedCategory(dbContext, "Attraction");
+        await SeedPoi(dbContext, category, "Test POI", PointOfInterestStatus.Active);
+
+        var handler = CreateHandler(dbContext);
+        var query = new ExplorePoisQuery { Page = int.MaxValue, PageSize = 100 };
+        var result = await handler.Handle(query, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Page.Should().Be(int.MaxValue);
+        result.Value.PageSize.Should().Be(100);
+        result.Value.TotalCount.Should().Be(1);
+        result.Value.TotalPages.Should().Be(1);
+        result.Value.Items.Should().BeEmpty();
+    }
+
+
     private static async Task<PoiCategory> SeedCategory(TestDbContext dbContext, string name)
     {
         var category = PoiCategory.Create(name, null);
