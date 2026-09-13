@@ -7,4 +7,5 @@ namespace TripMate.Application.Features.TravelGroups.Common;
 public static class TravelGroupErrorCodes
 {
     public const string ItineraryNotFound = "travel_group.itinerary_not_found";
+    public const string IdempotencyKeyPayloadMismatch = "travel_group.idempotency_key_payload_mismatch";
 }

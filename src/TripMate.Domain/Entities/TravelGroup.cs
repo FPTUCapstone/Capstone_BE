@@ -30,5 +30,4 @@ public class TravelGroup : BaseEntity
 
     public ICollection<GroupMember> GroupMembers { get; set; } = new List<GroupMember>();
 
-    public ICollection<GroupInvitation> GroupInvitations { get; set; } = new List<GroupInvitation>();
 }

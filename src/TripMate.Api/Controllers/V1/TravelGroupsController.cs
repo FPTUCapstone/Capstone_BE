@@ -2,6 +2,7 @@ using MediatR;
 
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 
 using TripMate.Api.Common;
 using TripMate.Api.Controllers.V1.Requests;
@@ -31,8 +32,10 @@ public class TravelGroupsController(
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Create(
         [FromBody] CreateTravelGroupRequest request,
+        [BindRequired, FromHeader(Name = "Idempotency-Key")] string idempotencyKey,
         CancellationToken cancellationToken)
     {
         if (!currentUserService.UserId.HasValue)
@@ -40,8 +43,8 @@ public class TravelGroupsController(
             return Unauthorized();
         }
 
-        if (!Guid.TryParse(Request.Headers["Idempotency-Key"], out var idempotencyKey)
-            || idempotencyKey == Guid.Empty)
+        if (!Guid.TryParse(idempotencyKey, out var parsedIdempotencyKey)
+            || parsedIdempotencyKey == Guid.Empty)
         {
             return Problem(
                 title: "A valid Idempotency-Key header is required.",
@@ -52,7 +55,7 @@ public class TravelGroupsController(
             request.ItineraryId,
             request.GroupName,
             currentUserService.UserId.Value,
-            idempotencyKey);
+            parsedIdempotencyKey);
 
         var result = await Sender.Send(command, cancellationToken);
 

@@ -32,7 +32,7 @@ public class CreateTravelGroupCommandHandler(
         CreateTravelGroupCommand request,
         CancellationToken cancellationToken)
     {
-        return await dbContext.ExecuteInTransactionAsync(async transactionCancellationToken =>
+        return await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
         {
             var previousRequest = await dbContext.TravelGroupCreationRequests
                 .Include(operation => operation.TravelGroup)
@@ -43,6 +43,17 @@ public class CreateTravelGroupCommandHandler(
 
             if (previousRequest is not null)
             {
+                if (previousRequest.ItineraryId != request.ItineraryId
+                    || !string.Equals(
+                        previousRequest.GroupName,
+                        request.GroupName.Trim(),
+                        StringComparison.Ordinal))
+                {
+                    return Result.Failure<CreateTravelGroupResponse>(
+                        TravelGroupErrorCodes.IdempotencyKeyPayloadMismatch,
+                        "The Idempotency-Key was already used with different request data.");
+                }
+
                 return Result.Success(ToResponse(previousRequest.TravelGroup));
             }
 
@@ -78,6 +89,8 @@ public class CreateTravelGroupCommandHandler(
             {
                 TravelerUserId = request.HostUserId,
                 IdempotencyKey = request.IdempotencyKey,
+                ItineraryId = request.ItineraryId,
+                GroupName = request.GroupName.Trim(),
                 TravelGroup = travelGroup,
                 CreatedAtUtc = now
             };

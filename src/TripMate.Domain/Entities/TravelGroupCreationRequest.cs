@@ -11,6 +11,10 @@ public class TravelGroupCreationRequest : BaseEntity
 
     public Guid IdempotencyKey { get; set; }
 
+    public long ItineraryId { get; set; }
+
+    public string GroupName { get; set; } = string.Empty;
+
     public long TravelGroupId { get; set; }
 
     public TravelGroup TravelGroup { get; set; } = null!;

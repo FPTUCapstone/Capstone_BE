@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Data;
 
 using Microsoft.EntityFrameworkCore;
 
@@ -35,6 +36,17 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public async Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken)
+        => await ExecuteInTransactionAsync(operation, IsolationLevel.ReadCommitted, cancellationToken);
+
+    public async Task<T> ExecuteInSerializableTransactionAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
+        CancellationToken cancellationToken)
+        => await ExecuteInTransactionAsync(operation, IsolationLevel.Serializable, cancellationToken);
+
+    private async Task<T> ExecuteInTransactionAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
+        IsolationLevel isolationLevel,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(operation);
 
@@ -43,6 +55,7 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
         return await executionStrategy.ExecuteAsync(async strategyCancellationToken =>
         {
             await using var transaction = await Database.BeginTransactionAsync(
+                isolationLevel,
                 strategyCancellationToken);
             var result = await operation(strategyCancellationToken);
             await transaction.CommitAsync(strategyCancellationToken);
@@ -53,8 +66,6 @@ public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
 
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
-
-    public DbSet<GroupInvitation> GroupInvitations => Set<GroupInvitation>();
 
     public DbSet<Itinerary> Itineraries => Set<Itinerary>();
 

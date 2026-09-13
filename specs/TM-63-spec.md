@@ -5,7 +5,7 @@
 **Use Case**: UC-17  
 **Branch**: `feature/khanhpq-create-travel-group` (Base: `develop`)  
 **Target Repository**: `Capstone_BE` (ASP.NET Core 10 Web API)  
-**Status**: Pending Approval  
+**Status**: Approved
 
 ---
 
@@ -34,7 +34,7 @@ Allow an authenticated Traveler to create a new Travel Group linked to an eligib
 - **AC-01 (Itinerary Validation)**: Request must specify an `itineraryId`. If the itinerary does not exist, return `404 Not Found` with code `TravelGroup.ItineraryNotFound`.
 - **AC-02 (Group Name Validation)**: `groupName` is required (MSG01: "This field is required.") and must not exceed 150 characters. Whitespace must be trimmed. If empty, return `400 Bad Request` with FluentValidation error.
 - **AC-03 (Host Assignment)**: The authenticated creator (`host_user_id`) must automatically become the exclusive initial Group Host in `social.GroupMembers` with `status = 'Active'` and `joined_at = UtcNow`.
-- **AC-04 (Idempotency)**: The client must send a non-empty GUID `Idempotency-Key` header. A repeated request from the same Traveler with the same key returns the original group and must not create another group. Different keys may create groups with the same name.
+- **AC-04 (Idempotency)**: The client must send a non-empty GUID `Idempotency-Key` header. A repeated request from the same Traveler with the same key and payload returns the original group and must not create another group. Reusing a key with a different `itineraryId` or normalized `groupName` returns `409 Conflict`. Different keys may create groups with the same name.
 - **AC-05 (Atomic Transaction)**: `TravelGroup`, `GroupMember` (Host), and the idempotency operation record are persisted in one database transaction. If any operation fails, no incomplete TravelGroup is retained.
 - **AC-06 (Response Contract)**: On success, return `201 Created` with payload containing `groupId`, `groupName`, `itineraryId`, `hostUserId`, and `createdAtUtc`.
 
@@ -67,6 +67,8 @@ Allow an authenticated Traveler to create a new Travel Group linked to an eligib
 | `request_id` | `BIGINT IDENTITY(1,1)` | No (PK) | Auto-generated operation identifier |
 | `traveler_user_id` | `BIGINT` | No | Authenticated Traveler who submitted the operation |
 | `idempotency_key` | `UNIQUEIDENTIFIER` | No | Client-generated GUID; unique per Traveler |
+| `itinerary_id` | `BIGINT` | No (FK) | Original itinerary in the request |
+| `group_name` | `NVARCHAR(150)` | No | Normalized original group name |
 | `group_id` | `BIGINT` | No (FK) | Created TravelGroup returned on retry |
 | `created_at` | `DATETIME2` | No | UTC creation timestamp |
 
@@ -115,6 +117,17 @@ Allow an authenticated Traveler to create a new Travel Group linked to an eligib
   "title": "Itinerary not found.",
   "status": 404,
   "detail": "The specified itinerary does not exist or is inaccessible."
+}
+```
+
+- **409 Conflict (Idempotency-Key Reuse)**:
+```json
+{
+  "title": "The Idempotency-Key was already used with different request data.",
+  "status": 409,
+  "extensions": {
+    "errorCode": "travel_group.idempotency_key_payload_mismatch"
+  }
 }
 ```
 

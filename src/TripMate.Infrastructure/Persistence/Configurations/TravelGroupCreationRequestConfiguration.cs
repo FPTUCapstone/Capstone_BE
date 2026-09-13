@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 using TripMate.Domain.Entities;
+using TripMate.Infrastructure.Persistence.Common;
 
 namespace TripMate.Infrastructure.Persistence.Configurations;
 
@@ -21,11 +22,19 @@ public sealed class TravelGroupCreationRequestConfiguration
         builder.Property(request => request.IdempotencyKey)
             .HasColumnName("idempotency_key")
             .IsRequired();
+        builder.Property(request => request.ItineraryId)
+            .HasColumnName("itinerary_id")
+            .IsRequired();
+        builder.Property(request => request.GroupName)
+            .HasColumnName("group_name")
+            .HasMaxLength(150)
+            .IsRequired();
         builder.Property(request => request.TravelGroupId)
             .HasColumnName("group_id")
             .IsRequired();
         builder.Property(request => request.CreatedAtUtc)
             .HasColumnName("created_at")
+            .AsUtcDateTime2()
             .IsRequired();
         builder.HasIndex(request => new { request.TravelerUserId, request.IdempotencyKey })
             .IsUnique();
