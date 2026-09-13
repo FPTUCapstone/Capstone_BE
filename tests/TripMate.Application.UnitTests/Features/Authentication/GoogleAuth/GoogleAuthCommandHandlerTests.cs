@@ -2,7 +2,6 @@ using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.Extensions.Logging.Abstractions;
 
 using Moq;
 
@@ -311,5 +310,88 @@ public class GoogleAuthCommandHandlerTests
         result.IsFailure.Should().BeTrue();
         result.ErrorCode.Should().Be(AuthErrorCodes.AuthTokenInvalid);
         result.ErrorMessage.Should().Be("Invalid Google ID token.");
+    }
+
+    [Fact]
+    public async Task Handle_WhenFirstSaveHitsUniqueViolation_ReloadsAdoptsAndSucceeds()
+    {
+        // BR-02 race (spec §4.2-B7): simulate the concurrent winner committing the account
+        // between the handler's lookup and its insert — the first SaveChanges fails with a
+        // unique violation; the race path must clear the tracker, re-load the account, fall
+        // through the status gates and complete the sign-in (never escaping the duplicate
+        // insert as a 500, never creating a second user).
+        var options = new DbContextOptionsBuilder<TestDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+
+        await using var dbContext = new ThrowingOnceTestDbContext(options);
+
+        var winner = new User
+        {
+            Email = "race@example.com",
+            FullName = "Race Winner",
+            Role = UserRole.Traveler,
+            Status = AccountStatus.Active,
+            CreatedAtUtc = DateTimeOffset.UtcNow,
+            UpdatedAtUtc = DateTimeOffset.UtcNow,
+        };
+        dbContext.ConcurrentWinner = winner;
+
+        FirebaseReturnsVerifiedEmail("race@example.com");
+
+        var handler = new GoogleAuthCommandHandler(
+            dbContext,
+            _firebaseAuthService.Object,
+            _jwtTokenService.Object,
+            _dateTimeProvider.Object,
+            NullLogger<GoogleAuthCommandHandler>.Instance);
+        var result = await handler.Handle(
+            new GoogleAuthCommand("valid-google-id-token"),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.IsNewAccount.Should().BeFalse();
+        result.Value.UserId.Should().Be(winner.Id);
+        result.Value.Role.Should().Be(UserRole.Traveler);
+
+        var users = await dbContext.Users.AsNoTracking()
+            .Where(u => u.Email == "race@example.com").ToListAsync();
+        users.Should().ContainSingle("the unique index must prevent a second provisioned account");
+        dbContext.SaveAttempts.Should().Be(2);
+        var tokens = await dbContext.RefreshTokens.AsNoTracking().ToListAsync();
+        tokens.Should().ContainSingle("the failed attempt must not leave a session tracked for retry");
+        tokens.Single().UserId.Should().Be(winner.Id);
+    }
+
+    private sealed class ThrowingOnceTestDbContext : TestDbContext
+    {
+        private readonly DbContextOptions<TestDbContext> _options;
+
+        public ThrowingOnceTestDbContext(DbContextOptions<TestDbContext> options)
+            : base(options)
+        {
+            _options = options;
+        }
+
+        public User ConcurrentWinner { get; set; } = null!;
+        public int SaveAttempts { get; private set; }
+
+        public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+        {
+            SaveAttempts++;
+
+            if (SaveAttempts == 1)
+            {
+                // Commit the competing account only after the initial lookup missed it.
+                await using var competingContext = new TestDbContext(_options);
+                competingContext.Users.Add(ConcurrentWinner);
+                await competingContext.SaveChangesAsync(cancellationToken);
+                throw new DbUpdateException(
+                    "simulated unique violation (BR-02 race)",
+                    new InvalidOperationException("simulated duplicate insert"));
+            }
+
+            return await base.SaveChangesAsync(cancellationToken);
+        }
     }
 }

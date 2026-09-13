@@ -155,6 +155,8 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
         CancellationToken cancellationToken) =>
         operation(cancellationToken);
 
+    public void ClearTrackedEntities() => ChangeTracker.Clear();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);

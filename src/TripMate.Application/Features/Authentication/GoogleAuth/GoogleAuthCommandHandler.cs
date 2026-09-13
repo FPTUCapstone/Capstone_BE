@@ -186,6 +186,12 @@ public class GoogleAuthCommandHandler(
                 // BR-02 race (spec §4.2-B7): a concurrent sign-in provisioned the same email
                 // between our lookup and insert — UX_Users_Email arbitrates. Re-load the
                 // provisioned account and run the SAME status gates once.
+                //
+                // ClearTrackedEntities() first: the failed SaveChanges left the provisioned
+                // user and its refresh row tracked as Added — re-saving them on the retry
+                // would hit the same unique violation again and escape as 500.
+                dbContext.ClearTrackedEntities();
+
                 var raced = await dbContext.Users.FirstOrDefaultAsync(
                     u => u.Email == normalizedEmail, cancellationToken);
 
