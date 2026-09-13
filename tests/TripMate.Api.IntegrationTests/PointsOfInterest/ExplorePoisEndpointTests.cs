@@ -78,6 +78,23 @@ public class ExplorePoisEndpointTests
     }
 
     [Fact]
+    public async Task Get_WithZeroMaxDistanceKm_Returns400ValidationProblemDetails()
+    {
+        await using var factory = new TripMateApiFactory();
+        using var client = factory.CreateClient();
+
+        var response = await client.GetAsync(
+            "/api/v1/pois?originLatitude=16.0544&originLongitude=108.2022&maxDistanceKm=0");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.Content.Headers.ContentType!.MediaType.Should().Be("application/problem+json");
+
+        using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var errors = problem.RootElement.GetProperty("errors");
+        errors.TryGetProperty("maxDistanceKm", out _).Should().BeTrue();
+    }
+
+    [Fact]
     public async Task Get_WithNoMatchingPois_Returns200WithEmptyPagedResult()
     {
         await using var factory = new TripMateApiFactory();

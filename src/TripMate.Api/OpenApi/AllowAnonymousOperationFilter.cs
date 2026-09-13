@@ -66,7 +66,7 @@ public sealed class AllowAnonymousOperationFilter : IOperationFilter
                     break;
 
                 case "maxDistanceKm":
-                    schema.Minimum = "0";
+                    schema.ExclusiveMinimum = "0";
                     break;
 
                 case "openNow":

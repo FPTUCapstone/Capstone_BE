@@ -32,8 +32,8 @@ public sealed class ExplorePoisQueryHandler(
 
         if (!string.IsNullOrWhiteSpace(request.Search))
         {
-            var searchPattern = $"%{request.Search.Trim()}%";
-            query = query.Where(p => EF.Functions.Like(p.Name, searchPattern));
+            var searchPattern = $"%{EscapeLikePattern(request.Search.Trim())}%";
+            query = query.Where(p => EF.Functions.Like(p.Name, searchPattern, @"\"));
         }
 
         var (vietnamDay, vietnamTime) = PoiOpeningState.GetVietnamDayAndTime(dateTimeProvider.UtcNow);
@@ -59,30 +59,41 @@ public sealed class ExplorePoisQueryHandler(
         var lat1Rad = hasOrigin ? (double)originLat!.Value * DegreesToRadians : 0.0;
         var lon1Rad = hasOrigin ? (double)originLon!.Value * DegreesToRadians : 0.0;
 
-        var projected = query.Select(p => new
+        var withHaversine = query.Select(p => new
         {
             Poi = p,
-            Distance = hasOrigin
-                ? (double?)(EarthRadiusKm * 2.0 * Math.Asin(Math.Sqrt(
+            HaversineA = hasOrigin
+                ? (double?)(
                     Math.Sin(((double)p.Latitude * DegreesToRadians - lat1Rad) / 2.0)
                     * Math.Sin(((double)p.Latitude * DegreesToRadians - lat1Rad) / 2.0)
                     + Math.Cos(lat1Rad) * Math.Cos((double)p.Latitude * DegreesToRadians)
                     * Math.Sin(((double)p.Longitude * DegreesToRadians - lon1Rad) / 2.0)
-                    * Math.Sin(((double)p.Longitude * DegreesToRadians - lon1Rad) / 2.0))))
+                    * Math.Sin(((double)p.Longitude * DegreesToRadians - lon1Rad) / 2.0))
+                : null,
+        });
+
+        var projected = withHaversine.Select(x => new
+        {
+            Poi = x.Poi,
+            Distance = x.HaversineA.HasValue
+                ? (double?)(EarthRadiusKm * 2.0 * Math.Asin(Math.Sqrt(
+                    x.HaversineA.Value > 1.0
+                        ? 1.0
+                        : (x.HaversineA.Value < 0.0 ? 0.0 : x.HaversineA.Value))))
                 : null,
             AverageRating = dbContext.Reviews
-                .Where(r => r.TargetType == "POI" && r.TargetId == p.Id)
+                .Where(r => r.TargetType == "POI" && r.TargetId == x.Poi.Id)
                 .Average(r => (decimal?)r.Rating),
             ReviewCount = dbContext.Reviews
-                .Where(r => r.TargetType == "POI" && r.TargetId == p.Id)
+                .Where(r => r.TargetType == "POI" && r.TargetId == x.Poi.Id)
                 .Count(),
             ThumbnailUrl = dbContext.PoiPhotos
-                .Where(ph => ph.PointOfInterestId == p.Id)
+                .Where(ph => ph.PointOfInterestId == x.Poi.Id)
                 .OrderBy(ph => ph.SortOrder)
                 .ThenBy(ph => ph.Id)
                 .Select(ph => ph.Url)
                 .FirstOrDefault(),
-            IsOpenNow = p.OpeningHours.Any(h =>
+            IsOpenNow = x.Poi.OpeningHours.Any(h =>
                 h.DayOfWeek == vietnamDay
                 && !h.IsClosed
                 && h.OpenTime <= vietnamTime
@@ -112,6 +123,18 @@ public sealed class ExplorePoisQueryHandler(
 
         var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
 
+        if (page > totalPages)
+        {
+            return Result.Success(new PagedPoiResponseDto(
+                page,
+                pageSize,
+                totalCount,
+                totalPages,
+                []));
+        }
+
+        var offset = checked((page - 1) * pageSize);
+
         var sorted = request.Sort switch
         {
             "distance" => projected
@@ -130,7 +153,7 @@ public sealed class ExplorePoisQueryHandler(
         };
 
         var pageRecords = await sorted
-            .Skip((page - 1) * pageSize)
+            .Skip(offset)
             .Take(pageSize)
             .Select(x => new
             {
@@ -181,4 +204,12 @@ public sealed class ExplorePoisQueryHandler(
             totalPages,
             items));
     }
+
+    private static string EscapeLikePattern(string input) =>
+        input
+            .Replace(@"\", @"\\")
+            .Replace("%", @"\%")
+            .Replace("_", @"\_")
+            .Replace("[", @"\[")
+            .Replace("]", @"\]");
 }

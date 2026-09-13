@@ -371,10 +371,10 @@ Writing failing implementation tests and production code remains gated on:
 
 Implementation and full verification completed on 2026-09-13 across all 9 planned tasks:
 
-1. **Test suite results:** 230 tests total across the solution, **230 passed, 0 failed, 0 skipped** (with `TRIPMATE_SQLSERVER_TEST_CONNECTION` configured against `tripmate-uc52-e2e`).
+1. **Test suite results:** 275 tests total across the solution, **275 passed, 0 failed, 0 skipped** (with `TRIPMATE_SQLSERVER_TEST_CONNECTION` configured against `tripmate-sqlserver`).
    - `TripMate.Infrastructure.UnitTests`: 4 passed, 0 failed, 0 skipped.
-   - `TripMate.Application.UnitTests`: 170 passed, 0 failed, 0 skipped.
-   - `TripMate.Api.IntegrationTests`: 56 passed, 0 failed, 0 skipped (including 9 SQL Server integration tests).
+   - `TripMate.Application.UnitTests`: 206 passed, 0 failed, 0 skipped.
+   - `TripMate.Api.IntegrationTests`: 65 passed, 0 failed, 0 skipped (including 14 SQL Server integration tests).
 2. **Package vulnerability check:** `dotnet list package --vulnerable --include-transitive` reported 0 vulnerabilities across all 7 projects.
 3. **Database query bounds on SQL Server:**
    - List query: exactly 2 queries (1 `COUNT(*)` + 1 bounded `SELECT` items), 0 N+1 queries.
