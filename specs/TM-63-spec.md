@@ -1,10 +1,10 @@
 # Specification: TM-63 [UC-17] Create Travel Group
 
-**Feature**: Create Travel Group  
-**Jira Ticket**: TM-63  
-**Use Case**: UC-17  
-**Branch**: `feature/khanhpq-create-travel-group` (Base: `develop`)  
-**Target Repository**: `Capstone_BE` (ASP.NET Core 10 Web API)  
+**Feature**: Create Travel Group
+**Jira Ticket**: TM-63
+**Use Case**: UC-17
+**Branch**: `feature/khanhpq-create-travel-group` (Base: `develop`)
+**Target Repository**: `Capstone_BE` (ASP.NET Core 10 Web API)
 **Status**: Approved
 
 ---

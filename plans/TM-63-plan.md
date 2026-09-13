@@ -1,11 +1,11 @@
 # Atomic Implementation Plan: TM-63 [UC-17] Create Travel Group
 
-**Feature**: Create Travel Group  
-**Jira Ticket**: TM-63  
-**Use Case**: UC-17  
-**Branch**: `feature/khanhpq-create-travel-group`  
-**Base Branch**: `develop`  
-**Specification Reference**: `specs/TM-63-spec.md`  
+**Feature**: Create Travel Group
+**Jira Ticket**: TM-63
+**Use Case**: UC-17
+**Branch**: `feature/khanhpq-create-travel-group`
+**Base Branch**: `develop`
+**Specification Reference**: `specs/TM-63-spec.md`
 **Status**: Implemented and Verified
 
 ---
