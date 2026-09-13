@@ -9,6 +9,13 @@ namespace TripMate.Domain.Entities;
  */
 public class Itinerary : BaseEntity
 {
+    public const int TitleMaxLength = 200;
+    public const string ManualSourceType = "Manual";
+    public const string DraftStatus = "Draft";
+    public const string ActiveStatus = "Active";
+    public const string CompletedStatus = "Completed";
+    public const string CancelledStatus = "Cancelled";
+
     private Itinerary()
     {
     }
@@ -16,7 +23,6 @@ public class Itinerary : BaseEntity
     private Itinerary(
         long travelerUserId,
         string? title,
-        string sourceType,
         string status,
         DateTimeOffset createdAtUtc,
         DateTimeOffset updatedAtUtc)
@@ -26,42 +32,45 @@ public class Itinerary : BaseEntity
             throw new ArgumentOutOfRangeException(nameof(travelerUserId));
         }
 
-        if (string.IsNullOrWhiteSpace(sourceType))
+        var normalizedTitle = title?.Trim();
+        if (normalizedTitle?.Length > TitleMaxLength)
         {
-            throw new ArgumentException("An itinerary source type is required.", nameof(sourceType));
+            throw new ArgumentException(
+                $"An itinerary title cannot exceed {TitleMaxLength} characters.",
+                nameof(title));
         }
 
-        if (string.IsNullOrWhiteSpace(status))
+        var normalizedStatus = status?.Trim();
+        if (normalizedStatus is not (DraftStatus or ActiveStatus or CompletedStatus or CancelledStatus))
         {
-            throw new ArgumentException("An itinerary status is required.", nameof(status));
+            throw new ArgumentException("An itinerary status is invalid.", nameof(status));
         }
 
         TravelerUserId = travelerUserId;
-        Title = title?.Trim();
-        SourceType = sourceType.Trim();
-        Status = status.Trim();
+        Title = normalizedTitle;
+        SourceType = ManualSourceType;
+        Status = normalizedStatus;
         CreatedAtUtc = createdAtUtc;
         UpdatedAtUtc = updatedAtUtc;
     }
 
-    public static Itinerary Create(
+    public static Itinerary CreateManual(
         long travelerUserId,
         string? title,
         string status,
         DateTimeOffset createdAtUtc,
-        DateTimeOffset? updatedAtUtc = null,
-        string sourceType = "Manual") =>
-        new(travelerUserId, title, sourceType, status, createdAtUtc, updatedAtUtc ?? createdAtUtc);
+        DateTimeOffset? updatedAtUtc = null) =>
+        new(travelerUserId, title, status, createdAtUtc, updatedAtUtc ?? createdAtUtc);
 
     public long TravelerUserId { get; private set; }
 
     public User TravelerUser { get; private set; } = null!;
 
-    public string SourceType { get; private set; } = "Manual";
+    public string SourceType { get; private set; } = ManualSourceType;
 
     public string? Title { get; private set; }
 
-    public string Status { get; private set; } = "Draft";
+    public string Status { get; private set; } = DraftStatus;
 
     public DateTimeOffset? ValidFromUtc { get; private set; }
 

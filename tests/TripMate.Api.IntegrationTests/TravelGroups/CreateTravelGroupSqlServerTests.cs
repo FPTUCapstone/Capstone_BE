@@ -93,6 +93,44 @@ public sealed class CreateTravelGroupSqlServerTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
+    public async Task SuccessfulCreation_PersistsGeneratedForeignKeys()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database);
+
+        await using (var context = database.CreateDbContext())
+        {
+            var handler = new CreateTravelGroupCommandHandler(
+                context,
+                new FixedDateTimeProvider(),
+                new SqlServerTravelGroupCreationLock(context));
+            var result = await handler.Handle(
+                new CreateTravelGroupCommand(
+                    seed.ItineraryId,
+                    "Generated Foreign Keys",
+                    seed.UserId,
+                    Guid.NewGuid()),
+                CancellationToken.None);
+
+            result.IsSuccess.Should().BeTrue();
+        }
+
+        await using var verificationContext = database.CreateDbContext();
+        var group = await verificationContext.TravelGroups.SingleAsync();
+        var member = await verificationContext.GroupMembers.SingleAsync();
+        var creationRequest = await verificationContext.TravelGroupCreationRequests.SingleAsync();
+
+        group.Id.Should().BeGreaterThan(0);
+        member.GroupId.Should().Be(group.Id);
+        creationRequest.TravelGroupId.Should().Be(group.Id);
+        (await verificationContext.GroupMembers.CountAsync(member => member.GroupId == 0))
+            .Should().Be(0);
+        (await verificationContext.TravelGroupCreationRequests.CountAsync(request => request.TravelGroupId == 0))
+            .Should().Be(0);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
     public async Task CreationRequestMigration_WhenResumingAfterPartialColumnAdd_CompletesAllInvariants()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
@@ -161,7 +199,7 @@ public sealed class CreateTravelGroupSqlServerTests
         context.Users.Add(user);
         await context.SaveChangesAsync();
 
-        var itinerary = Itinerary.Create(
+        var itinerary = Itinerary.CreateManual(
             user.Id,
             "Concurrent Trip",
             "Active",

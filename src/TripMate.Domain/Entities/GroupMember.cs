@@ -38,7 +38,6 @@ public class GroupMember
             throw new ArgumentException("The initial member must be the travel group host.", nameof(userId));
         }
 
-        GroupId = travelGroup.Id;
         TravelGroup = travelGroup;
         UserId = userId;
         LocationSharingEnabled = false;

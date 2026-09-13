@@ -82,7 +82,7 @@ public sealed class CreateTravelGroupEndpointTests
             context.Users.Add(user);
             await context.SaveChangesAsync();
 
-            var itinerary = Itinerary.Create(
+            var itinerary = Itinerary.CreateManual(
                 user.Id,
                 "Endpoint Trip",
                 "Active",

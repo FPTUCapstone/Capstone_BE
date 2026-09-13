@@ -6,7 +6,7 @@
 **Branch**: `feature/khanhpq-create-travel-group`
 **Base Branch**: `develop`
 **Specification Reference**: `specs/TM-63-spec.md`
-**Status**: Implemented and Verified
+**Status**: In Review
 
 ---
 
@@ -106,7 +106,7 @@ This plan breaks down the approved specification (`specs/TM-63-spec.md`) into sm
   dotnet build src/TripMate.Api/TripMate.Api.csproj
   ```
 - **Definition of Done**:
-- Endpoint returns `201 Created` with the raw `CreateTravelGroupResponse` body. No detail route exists for this use case, so the controller does not manufacture a `Location` URL.
+  - Endpoint returns `201 Created` with the raw `CreateTravelGroupResponse` body. No detail route exists for this use case, so the controller does not manufacture a `Location` URL.
   - Passes full solution build and tests.
 
 ---

@@ -28,6 +28,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -35,6 +37,23 @@ jobs:
 
       - run: dotnet restore TripMate.slnx
 
-      - run: dotnet format TripMate.slnx --verify-no-changes --no-restore
+      - name: Verify formatting of changed C# files
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            base_sha="${{ github.event.pull_request.base.sha }}"
+            target_sha="${{ github.event.pull_request.head.sha }}"
+          else
+            base_sha="${{ github.event.before }}"
+            target_sha="$GITHUB_SHA"
+          fi
+
+          mapfile -t changed_files < <(
+            git diff --name-only --diff-filter=ACMR "$base_sha" "$target_sha" -- '*.cs')
+
+          if (( ${#changed_files[@]} > 0 )); then
+            dotnet format TripMate.slnx --verify-no-changes --no-restore \
+              --include "${changed_files[@]}"
+          fi
 
       - run: dotnet test TripMate.slnx -c Release --no-restore

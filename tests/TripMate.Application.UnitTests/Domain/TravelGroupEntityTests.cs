@@ -89,9 +89,65 @@ public sealed class TravelGroupEntityTests
     }
 
     [Fact]
-    public void ItineraryCreate_RejectsInvalidOwner()
+    public void CreateManual_WithValidData_CreatesItinerary()
     {
-        var act = () => Itinerary.Create(
+        var now = DateTimeOffset.UtcNow;
+
+        var itinerary = Itinerary.CreateManual(10, "Da Nang Trip", "Active", now);
+
+        itinerary.TravelerUserId.Should().Be(10);
+        itinerary.SourceType.Should().Be("Manual");
+        itinerary.Title.Should().Be("Da Nang Trip");
+        itinerary.Status.Should().Be("Active");
+        itinerary.CreatedAtUtc.Should().Be(now);
+        itinerary.UpdatedAtUtc.Should().Be(now);
+    }
+
+    [Fact]
+    public void CreateManual_TrimsTitleAndStatus()
+    {
+        var itinerary = Itinerary.CreateManual(
+            10,
+            "  Da Nang Trip  ",
+            " Active ",
+            DateTimeOffset.UtcNow);
+
+        itinerary.Title.Should().Be("Da Nang Trip");
+        itinerary.Status.Should().Be("Active");
+    }
+
+    [Fact]
+    public void CreateManual_WithTitleLongerThan200_Throws()
+    {
+        var act = () => Itinerary.CreateManual(
+            10,
+            new string('a', 201),
+            "Active",
+            DateTimeOffset.UtcNow);
+
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("active")]
+    [InlineData("Archived")]
+    public void CreateManual_WithUnsupportedStatus_Throws(string status)
+    {
+        var act = () => Itinerary.CreateManual(
+            10,
+            "Da Nang Trip",
+            status,
+            DateTimeOffset.UtcNow);
+
+        act.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void CreateManual_WithInvalidTravelerId_Throws()
+    {
+        var act = () => Itinerary.CreateManual(
             0,
             "Trip",
             "Active",

@@ -38,7 +38,7 @@ public class CreateTravelGroupCommandHandlerTests
     public async Task Handle_WhenItineraryBelongsToAnotherTraveler_ReturnsItineraryNotFound()
     {
         await using var dbContext = TestDbContext.Create();
-        var itinerary = Itinerary.Create(
+        var itinerary = Itinerary.CreateManual(
             100,
             "Another Traveler Trip",
             "Active",
@@ -71,7 +71,7 @@ public class CreateTravelGroupCommandHandlerTests
         dbContext.Users.Add(user);
         await dbContext.SaveChangesAsync();
 
-        var itinerary = Itinerary.Create(
+        var itinerary = Itinerary.CreateManual(
             user.Id,
             "Da Nang Beach Day",
             "Active",
@@ -123,7 +123,7 @@ public class CreateTravelGroupCommandHandlerTests
         dbContext.Users.Add(user);
         await dbContext.SaveChangesAsync();
 
-        var itinerary = Itinerary.Create(
+        var itinerary = Itinerary.CreateManual(
             user.Id,
             "Hue Trip",
             "Active",
@@ -160,7 +160,7 @@ public class CreateTravelGroupCommandHandlerTests
         dbContext.Users.Add(user);
         await dbContext.SaveChangesAsync();
 
-        var itinerary = Itinerary.Create(
+        var itinerary = Itinerary.CreateManual(
             user.Id,
             "Da Nang Trip",
             "Active",
@@ -192,7 +192,7 @@ public class CreateTravelGroupCommandHandlerTests
 
         await using (var seedContext = new TestDbContext(seedOptions))
         {
-            seedContext.Itineraries.Add(Itinerary.Create(
+            seedContext.Itineraries.Add(Itinerary.CreateManual(
                 200,
                 "Da Nang Trip",
                 "Active",
@@ -230,7 +230,7 @@ public class CreateTravelGroupCommandHandlerTests
         dbContext.Users.Add(user);
         await dbContext.SaveChangesAsync();
 
-        var itinerary = Itinerary.Create(
+        var itinerary = Itinerary.CreateManual(
             user.Id,
             "Locked Operation Itinerary",
             "Active",

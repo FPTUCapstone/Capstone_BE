@@ -58,7 +58,6 @@ public class TravelGroupCreationRequest : BaseEntity
         IdempotencyKey = idempotencyKey;
         ItineraryId = itineraryId;
         GroupName = normalizedGroupName;
-        TravelGroupId = travelGroup.Id;
         TravelGroup = travelGroup;
         CreatedAtUtc = createdAtUtc;
     }

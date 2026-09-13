@@ -1,7 +1,5 @@
 using FluentAssertions;
-
 using TripMate.Application.Features.Authentication.Login;
-
 using Xunit;
 
 namespace TripMate.Application.UnitTests.Features.Authentication.Login;

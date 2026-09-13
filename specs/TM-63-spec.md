@@ -106,7 +106,7 @@ Allow an authenticated Traveler to create a new Travel Group linked to an eligib
   "title": "One or more validation errors occurred.",
   "status": 400,
   "errors": {
-    "GroupName": ["This field is required."]
+    "groupName": ["This field is required."]
   }
 }
 ```
@@ -116,7 +116,8 @@ Allow an authenticated Traveler to create a new Travel Group linked to an eligib
   "type": "https://tools.ietf.org/html/rfc7231#section-6.5.4",
   "title": "Itinerary not found.",
   "status": 404,
-  "detail": "The specified itinerary does not exist or is inaccessible."
+  "detail": "The specified itinerary does not exist or is inaccessible.",
+  "errorCode": "travel_group.itinerary_not_found"
 }
 ```
 
@@ -125,9 +126,7 @@ Allow an authenticated Traveler to create a new Travel Group linked to an eligib
 {
   "title": "The Idempotency-Key was already used with different request data.",
   "status": 409,
-  "extensions": {
-    "errorCode": "travel_group.idempotency_key_payload_mismatch"
-  }
+  "errorCode": "travel_group.idempotency_key_payload_mismatch"
 }
 ```
 
