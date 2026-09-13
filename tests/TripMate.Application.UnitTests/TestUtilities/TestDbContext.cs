@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+
 using TripMate.Application.Common.Interfaces;
 using TripMate.Domain.Entities;
 
@@ -42,6 +43,14 @@ public class TestDbContext(DbContextOptions<TestDbContext> options)
     {
         TransactionExecutionCount++;
         return await operation(cancellationToken);
+    }
+
+    public Task<T> ExecuteInSerializableTransactionAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
+        CancellationToken cancellationToken)
+    {
+        TransactionExecutionCount++;
+        return operation(cancellationToken);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -91,8 +100,6 @@ public class TestDbContext(DbContextOptions<TestDbContext> options)
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
 
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
-
-    public DbSet<GroupInvitation> GroupInvitations => Set<GroupInvitation>();
 
     public DbSet<Itinerary> Itineraries => Set<Itinerary>();
 

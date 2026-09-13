@@ -122,11 +122,15 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
-    public DbSet<GroupInvitation> GroupInvitations => Set<GroupInvitation>();
     public DbSet<Itinerary> Itineraries => Set<Itinerary>();
     public DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests => Set<TravelGroupCreationRequest>();
 
     public Task<T> ExecuteInTransactionAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
+        CancellationToken cancellationToken) =>
+        operation(cancellationToken);
+
+    public Task<T> ExecuteInSerializableTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken) =>
         operation(cancellationToken);

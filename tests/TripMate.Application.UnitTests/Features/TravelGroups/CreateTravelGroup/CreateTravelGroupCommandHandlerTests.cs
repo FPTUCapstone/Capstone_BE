@@ -98,7 +98,6 @@ public class CreateTravelGroupCommandHandlerTests
         // Assert Database persistence
         var groupInDb = await dbContext.TravelGroups
             .Include(g => g.GroupMembers)
-            .Include(g => g.GroupInvitations)
             .FirstOrDefaultAsync(g => g.Id == result.Value.GroupId);
 
         groupInDb.Should().NotBeNull();
@@ -112,9 +111,6 @@ public class CreateTravelGroupCommandHandlerTests
         hostMember.Status.Should().Be(GroupMemberStatus.Active);
         hostMember.LocationSharingEnabled.Should().BeFalse();
 
-        // UC-17 creates only the group and initial Host membership.
-        // Invitation generation belongs to UC-18.
-        groupInDb.GroupInvitations.Should().BeEmpty();
     }
 
     [Fact]
@@ -154,6 +150,45 @@ public class CreateTravelGroupCommandHandlerTests
         firstResult.IsSuccess.Should().BeTrue();
         retryResult.IsSuccess.Should().BeTrue();
         retryResult.Value.GroupId.Should().Be(firstResult.Value.GroupId);
+        (await dbContext.TravelGroups.CountAsync()).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Handle_WhenIdempotencyKeyIsReusedWithDifferentPayload_ReturnsConflict()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var user = new User
+        {
+            Email = "idempotency-mismatch@example.com",
+            FullName = "Nguyen Van D",
+            Role = UserRole.Traveler,
+            Status = AccountStatus.Active
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var itinerary = new Itinerary
+        {
+            TravelerUserId = user.Id,
+            Title = "Da Nang Trip",
+            Status = "Active",
+            CreatedAtUtc = _dateTimeProvider.UtcNow,
+            UpdatedAtUtc = _dateTimeProvider.UtcNow
+        };
+        dbContext.Itineraries.Add(itinerary);
+        await dbContext.SaveChangesAsync();
+
+        var key = Guid.NewGuid();
+        var handler = new CreateTravelGroupCommandHandler(dbContext, _dateTimeProvider);
+        await handler.Handle(
+            new CreateTravelGroupCommand(itinerary.Id, "First Group", user.Id, key),
+            CancellationToken.None);
+        var mismatchResult = await handler.Handle(
+            new CreateTravelGroupCommand(itinerary.Id, "Different Group", user.Id, key),
+            CancellationToken.None);
+
+        mismatchResult.IsFailure.Should().BeTrue();
+        mismatchResult.ErrorCode.Should().Be(TravelGroupErrorCodes.IdempotencyKeyPayloadMismatch);
         (await dbContext.TravelGroups.CountAsync()).Should().Be(1);
     }
 
