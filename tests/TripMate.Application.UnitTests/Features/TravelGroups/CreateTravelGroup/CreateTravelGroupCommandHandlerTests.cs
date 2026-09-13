@@ -2,6 +2,7 @@ using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
 
+using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.TravelGroups.Common;
 using TripMate.Application.Features.TravelGroups.CreateTravelGroup;
 using TripMate.Application.UnitTests.TestUtilities;
@@ -18,12 +19,13 @@ namespace TripMate.Application.UnitTests.Features.TravelGroups.CreateTravelGroup
 public class CreateTravelGroupCommandHandlerTests
 {
     private readonly FakeDateTimeProvider _dateTimeProvider = new();
+    private readonly NoOpTravelGroupCreationLock _creationLock = new();
 
     [Fact]
     public async Task Handle_WithNonExistentItinerary_ReturnsItineraryNotFound()
     {
         await using var dbContext = TestDbContext.Create();
-        var handler = new CreateTravelGroupCommandHandler(dbContext, _dateTimeProvider);
+        var handler = new CreateTravelGroupCommandHandler(dbContext, _dateTimeProvider, _creationLock);
 
         var command = new CreateTravelGroupCommand(999, "Da Nang Trip", 1, Guid.NewGuid());
         var result = await handler.Handle(command, CancellationToken.None);
@@ -47,7 +49,7 @@ public class CreateTravelGroupCommandHandlerTests
         dbContext.Itineraries.Add(itinerary);
         await dbContext.SaveChangesAsync();
 
-        var handler = new CreateTravelGroupCommandHandler(dbContext, _dateTimeProvider);
+        var handler = new CreateTravelGroupCommandHandler(dbContext, _dateTimeProvider, _creationLock);
         var command = new CreateTravelGroupCommand(itinerary.Id, "Shared Trip Group", 200, Guid.NewGuid());
 
         var result = await handler.Handle(command, CancellationToken.None);
@@ -83,7 +85,7 @@ public class CreateTravelGroupCommandHandlerTests
         dbContext.Itineraries.Add(itinerary);
         await dbContext.SaveChangesAsync();
 
-        var handler = new CreateTravelGroupCommandHandler(dbContext, _dateTimeProvider);
+        var handler = new CreateTravelGroupCommandHandler(dbContext, _dateTimeProvider, _creationLock);
         var command = new CreateTravelGroupCommand(itinerary.Id, "Da Nang Summer Trip", user.Id, Guid.NewGuid());
 
         var result = await handler.Handle(command, CancellationToken.None);
@@ -139,7 +141,7 @@ public class CreateTravelGroupCommandHandlerTests
         await dbContext.SaveChangesAsync();
 
         var key = Guid.NewGuid();
-        var handler = new CreateTravelGroupCommandHandler(dbContext, _dateTimeProvider);
+        var handler = new CreateTravelGroupCommandHandler(dbContext, _dateTimeProvider, _creationLock);
         var firstResult = await handler.Handle(
             new CreateTravelGroupCommand(itinerary.Id, "Hue Group", user.Id, key),
             CancellationToken.None);
@@ -179,7 +181,7 @@ public class CreateTravelGroupCommandHandlerTests
         await dbContext.SaveChangesAsync();
 
         var key = Guid.NewGuid();
-        var handler = new CreateTravelGroupCommandHandler(dbContext, _dateTimeProvider);
+        var handler = new CreateTravelGroupCommandHandler(dbContext, _dateTimeProvider, _creationLock);
         await handler.Handle(
             new CreateTravelGroupCommand(itinerary.Id, "First Group", user.Id, key),
             CancellationToken.None);
@@ -216,7 +218,7 @@ public class CreateTravelGroupCommandHandlerTests
         await using (var failingContext = new FailingSaveChangesTestDbContext(seedOptions))
         {
             var itinerary = await failingContext.Itineraries.SingleAsync();
-            var handler = new CreateTravelGroupCommandHandler(failingContext, _dateTimeProvider);
+            var handler = new CreateTravelGroupCommandHandler(failingContext, _dateTimeProvider, _creationLock);
             var command = new CreateTravelGroupCommand(itinerary.Id, "Da Nang Group", 200, Guid.NewGuid());
 
             await FluentActions.Invoking(() => handler.Handle(command, CancellationToken.None))
@@ -227,6 +229,61 @@ public class CreateTravelGroupCommandHandlerTests
 
         await using var verificationContext = new TestDbContext(seedOptions);
         (await verificationContext.TravelGroups.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Handle_AcquiresTheTravelerKeyLockBeforeCreatingTheGroup()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var user = new User
+        {
+            Email = "locked-operation@example.com",
+            FullName = "Locked Operation Traveler",
+            Role = UserRole.Traveler,
+            Status = AccountStatus.Active
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var itinerary = new Itinerary
+        {
+            TravelerUserId = user.Id,
+            Title = "Locked Operation Itinerary",
+            Status = "Active",
+            CreatedAtUtc = _dateTimeProvider.UtcNow,
+            UpdatedAtUtc = _dateTimeProvider.UtcNow
+        };
+        dbContext.Itineraries.Add(itinerary);
+        await dbContext.SaveChangesAsync();
+
+        var key = Guid.NewGuid();
+        var recordingLock = new RecordingTravelGroupCreationLock();
+        var handler = new CreateTravelGroupCommandHandler(dbContext, _dateTimeProvider, recordingLock);
+
+        var result = await handler.Handle(
+            new CreateTravelGroupCommand(itinerary.Id, "Locked Operation Group", user.Id, key),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        recordingLock.AcquiredKeys.Should().ContainSingle()
+            .Which.Should().Be((user.Id, key));
+    }
+}
+
+internal sealed class NoOpTravelGroupCreationLock : ITravelGroupCreationLock
+{
+    public Task AcquireAsync(long travelerUserId, Guid idempotencyKey, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+}
+
+internal sealed class RecordingTravelGroupCreationLock : ITravelGroupCreationLock
+{
+    public List<(long TravelerUserId, Guid IdempotencyKey)> AcquiredKeys { get; } = [];
+
+    public Task AcquireAsync(long travelerUserId, Guid idempotencyKey, CancellationToken cancellationToken)
+    {
+        AcquiredKeys.Add((travelerUserId, idempotencyKey));
+        return Task.CompletedTask;
     }
 }
 

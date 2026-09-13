@@ -493,3 +493,7 @@ $RECYCLE.BIN/
 # Local secrets
 .env
 !.env.example
+secrets/
+*firebase*.json
+*service-account*.json
+*.pem

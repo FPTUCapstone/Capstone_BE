@@ -28,6 +28,8 @@ public interface IApplicationDbContext
 
     DbSet<Notification> Notifications { get; }
 
+    DbSet<Message> Messages { get; }
+
     DbSet<TravelGroup> TravelGroups { get; }
 
     DbSet<GroupMember> GroupMembers { get; }
@@ -35,6 +37,7 @@ public interface IApplicationDbContext
     DbSet<Itinerary> Itineraries { get; }
 
     DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 
     Task<T> ExecuteInTransactionAsync<T>(

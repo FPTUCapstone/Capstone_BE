@@ -1,0 +1,38 @@
+name: Backend tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - develop
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_SA_PASSWORD: TripMate!Sql2026
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P 'TripMate!Sql2026' -Q 'SELECT 1' || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      TRIPMATE_SQLSERVER_TEST_CONNECTION: Server=localhost,1433;Database=master;User Id=sa;Password=TripMate!Sql2026;Encrypt=False;TrustServerCertificate=True
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - run: dotnet restore TripMate.slnx
+
+      - run: dotnet test TripMate.slnx -c Release --no-restore

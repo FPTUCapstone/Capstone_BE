@@ -25,7 +25,8 @@ namespace TripMate.Application.Features.TravelGroups.CreateTravelGroup;
  */
 public class CreateTravelGroupCommandHandler(
     IApplicationDbContext dbContext,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    ITravelGroupCreationLock creationLock)
     : IRequestHandler<CreateTravelGroupCommand, Result<CreateTravelGroupResponse>>
 {
     public async Task<Result<CreateTravelGroupResponse>> Handle(
@@ -34,6 +35,11 @@ public class CreateTravelGroupCommandHandler(
     {
         return await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
         {
+            await creationLock.AcquireAsync(
+                request.HostUserId,
+                request.IdempotencyKey,
+                transactionCancellationToken);
+
             var previousRequest = await dbContext.TravelGroupCreationRequests
                 .Include(operation => operation.TravelGroup)
                 .FirstOrDefaultAsync(

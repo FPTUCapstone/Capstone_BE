@@ -55,11 +55,13 @@ public sealed class TripMateApiFactory(
                 services.RemoveAll<ApplicationDbContext>();
                 services.RemoveAll<DbContextOptions<ApplicationDbContext>>();
                 services.RemoveAll<IApplicationDbContext>();
+                services.RemoveAll<ITravelGroupCreationLock>();
 
                 services.AddDbContext<TestApiDbContext>(options =>
                     options.UseInMemoryDatabase(_databaseName));
                 services.AddScoped<IApplicationDbContext>(provider =>
                     provider.GetRequiredService<TestApiDbContext>());
+                services.AddScoped<ITravelGroupCreationLock, NoOpTravelGroupCreationLock>();
             }
 
             if (authenticationMode == ApiTestAuthenticationMode.HeaderStub)
@@ -120,6 +122,7 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<OperatorDocument> OperatorDocuments => Set<OperatorDocument>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<Message> Messages => Set<Message>();
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
     public DbSet<Itinerary> Itineraries => Set<Itinerary>();
@@ -140,6 +143,12 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
         base.OnModelCreating(modelBuilder);
     }
+}
+
+internal sealed class NoOpTravelGroupCreationLock : ITravelGroupCreationLock
+{
+    public Task AcquireAsync(long travelerUserId, Guid idempotencyKey, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
 }
 
 internal sealed class TestAuthenticationHandler(
