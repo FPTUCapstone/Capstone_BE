@@ -1,5 +1,7 @@
 using FluentValidation;
+
 using MediatR;
+
 using ValidationException = TripMate.Application.Common.Exceptions.ValidationException;
 
 namespace TripMate.Application.Common.Behaviours;
