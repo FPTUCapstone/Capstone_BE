@@ -1,5 +1,74 @@
 # UC-04 — Sign In
 
+## Revision 2.1 — Administrator email/password only (approved 2026-09-14)
+
+The user approved this revision and its implementation plan on 2026-09-14. It replaces
+v2.0 BR-18/D3-A (previously allowed Administrator Google sign-in). All other v2.0 rules
+remain in force. The relevant flow, error, test and traceability entries below are aligned.
+
+### Scope and revised BR-18
+
+Administrator may obtain new sessions through email/password only. A Google Firebase token
+resolving to an existing Administrator must be rejected before user mutation or session
+persistence. Traveler/TourOperator Google sign-in remains supported; unknown Google email
+still creates Traveler/Active, never Administrator. Existing sessions are not revoked.
+
+The rejection is HTTP **403 ProblemDetails**, errorCode
+`auth.admin_google_sign_in_disabled`, title:
+"Administrator accounts must sign in with email and password."
+Add a matching AuthErrorCodes constant and ApiControllerBase.HandleFailure mapping.
+
+### Flow and precedence
+
+1. Retain token verification, provider, verified-email and email-presence checks.
+2. Resolve the user by normalized email, then apply existing account-status gates.
+3. If status permits sign-in but role is Administrator, return the new 403 failure.
+4. Run the same status/role gate after re-fetching the account following DbUpdateException.
+5. Reject before avatar backfill, login/update timestamp mutation and session persistence.
+   Normal lookup rejection must not generate either access or refresh tokens. The retry path
+   may already have generated a raw refresh value, but must not persist it or issue a JWT.
+
+### Alternative session path: verify-email
+
+Audit identified that `/auth/verify-email` independently issues session tokens from a verified
+Firebase identity. It must reject an Administrator token with sign_in_provider `google.com`
+using the same 403/code, before activation or session issuance. Retain existing token/email
+validation and Locked/Inactive precedence. Existing non-Google verification behavior is
+unchanged. This explicitly scoped verification guard prevents bypassing the revised BR-18.
+
+### Web impact and limits
+
+- `/admin/login` shows email/password only; remove any admin Google button/gate.
+- Public Google sign-in maps the new code to a message directing admin to email/password.
+- Admin Web currently simulates password success. Replacing that simulation is part of the
+  separately approved FE redesign, not this removal task.
+- Broader FE spec completion still waits for all user checklists; this revision supersedes
+  the earlier checklist approval to show Google at the admin login.
+- No database/schema change, endpoint removal, logout/refresh feature or session revocation.
+- Administrators without a usable password require recovery/provisioning; no process is
+  invented here. Mobile receives the new BE rejection; its UI changes are outside scope.
+
+### Acceptance and regression coverage
+
+- Normal and concurrency re-fetch Administrator Google rejection: 403/code, no persisted
+  session, unchanged user/avatar/timestamps. Normal rejection generates no tokens.
+- Verify-email Administrator Google rejection: no activation, mutation or session issuance.
+- API integration tests verify HTTP mapping and ProblemDetails errorCode for both endpoints.
+- Administrator email/password remains successful; non-admin Google auto-provision/existing
+  user flows and all status/claim/infrastructure gates retain their behavior.
+- Replace the v2.0 Administrator Google success expectation; update contradictory code
+  comments and rule references as part of implementation.
+- Run focused tests followed by full `dotnet test` and applicable FE tests/lint/typecheck;
+  review authorization paths and specification compliance separately.
+
+### Audit baseline (2026-09-14)
+
+`dotnet test TripMate.slnx --no-restore --verbosity minimal`: **232 passed, 0 failed,
+8 skipped**. The skipped checks include real SQL Server Google concurrency; report missing
+environment coverage explicitly. Final implementation results are recorded in the UC-04 plan.
+
+---
+
 ## Document Control
 
 | Item | Value |
@@ -8,17 +77,17 @@
 | Name | Sign In |
 | Primary Actor | Guest |
 | Priority | Critical |
-| Version | **2.0** |
-| Status | **Ratified specification — supersedes ALL previous drafts. Implementation is authorized only after team approval of this document.** |
-| Decision sources | Ratified checklists **C1–C5** (session 2026-09-13, recorded in `handoff.md` §18) |
+| Version | **2.1** |
+| Status | **User-approved specification and implementation plan (2026-09-14); team PR review pending.** |
+| Decision sources | Ratified checklists **C1–C5** (2026-09-13) + user-approved Administrator Google removal revision (2026-09-14) |
 | Repository | `Capstone_BE` (FE/Mobile integration impact tracked in §15) |
 | Related documents | [`UC-01-spec.md`](UC-01-spec.md) (registration), [`SEC-01-spec.md`](SEC-01-spec.md) (fail-closed Firebase verification), `TEAM_ENGINEERING_RULES.docx`, `Dev_and_CrossReview_Checklist.pdf` |
 
 ### 0.1 Spec Authority
 
-1. This document (v2.0) **supersedes every previous UC-04 draft in its entirety**, including the
+1. This document (v2.1) **supersedes every previous UC-04 draft in its entirety**, including the
    earlier unratified draft that required "NEVER automatically create / activate".
-2. The ratified checklists **C1–C5** are the decision source for every requirement below.
+2. The ratified checklists **C1–C5** plus the approved revision 2.1 are the decision sources.
 3. Where this specification conflicts with the SRS, the **SRS wins** (scope authority order:
    approved SRS → team engineering rules → this specification).
 4. This file is the **single source of truth** for UC-04 implementation.
@@ -26,7 +95,7 @@
    - Google auto-create: draft said *never create* → **ratified D1-A: auto-create Traveler/Active** (BR-02).
    - `PendingEmailVerification` via Google: draft implementation auto-activated → **ratified C2-6: blocked, auto-activate REMOVED** (BR-03/BR-14).
    - `PendingApproval`: implementation historically allowed sign-in → **ratified C2-7: blocked** (BR-05).
-   - Administrator Google sign-in: draft said TBD → **ratified D3-A: allowed, role from DB** (BR-18).
+   - Administrator Google sign-in: v2.0 D3-A allowed it → **v2.1 BR-18 blocks it; email/password only**.
    - Google token channels: draft allowed body or Bearer header → **ratified: body-only** (§6.3).
    - Google response shape: **ratified G1-A — aligned with login shape + `isNewAccount`** (BR-17).
    - Firebase infrastructure unavailable: **ratified 503 `auth.firebase_unavailable`** (BR-16).
@@ -45,7 +114,8 @@
 > issues no token and mutates nothing. The **database is the single source** of
 > account/role/status/refresh data (hash-only storage for refresh tokens). **Firebase only
 > verifies Google identity.** The client never supplies role or status. Registration, email
-> verification, logout, refresh/revoke, forgot password and Phone/OTP are **out of scope**.
+> verification (except the revision 2.1 anti-bypass guard), logout, refresh/revoke,
+> forgot password and Phone/OTP are **out of scope**.
 
 ### 1.2 Actors
 
@@ -116,8 +186,12 @@ respond. Any failed step ends the flow with zero mutation.
 | 14 | Client stores tokens and routes by role | §1.2 |
 
 **Invariant order (P5):** Firebase verify → BR-11 → BR-12 → normalize → DB lookup →
-(auto-provision **or** status gate) → persist → issue → respond. Claims checks are NEVER skipped
+(auto-provision **or** status gate → Administrator method gate) → persist → issue → respond. Claims checks are NEVER skipped
 or reordered before the lookup.
+
+For an existing Administrator, step 10 ends with **403
+`auth.admin_google_sign_in_disabled`** after status checks and before avatar/login mutation.
+The account re-fetch after a failed insert applies the same status and role gates.
 
 ---
 
@@ -191,7 +265,7 @@ email exists.
 | **BR-15** | Session persistence (refresh-token row + `LastLoginAtUtc`) happens **only on success**, inside a transaction (`ExecuteInTransactionAsync`); token generation and the response follow the commit. No partially-created sessions. |
 | **BR-16** | Firebase unavailability rejects Google requests with `503 auth.firebase_unavailable`. Firebase is **not** a dependency of the email+password flow — per-flow failure domains. |
 | **BR-17** | The Google response shape equals the login shape plus `isNewAccount` (G1-A): `userId, email, fullName, role, status, accessToken, refreshToken, accessTokenExpiresAtUtc, isNewAccount`. `role` always from the DB. Additive changes only. |
-| **BR-18** | An existing Administrator account may sign in with Google (D3-A). Role is always resolved from the DB — Google never grants or changes a role. |
+| **BR-18** | Administrator must use email/password. Google identity resolving to Administrator is rejected with **403 `auth.admin_google_sign_in_disabled`**, after status gates and before mutation/session issuance, including concurrency re-fetch. Verify-email must not issue an Administrator session from a Google provider token. Supersedes v2.0 D3-A. |
 
 ---
 
@@ -344,15 +418,22 @@ password/hash/Firebase internals. Session persistence is transactional (BR-15).
 | 9 | `MSG_EMAIL_NOT_VERIFIED` | 403 | google | BR-12 fail | "Google account email has not been verified." | existing |
 | 10 | `auth.firebase_unavailable` | **503** | google | Firebase infra down | "Google authentication service is temporarily unavailable." | **NEW** |
 | 11 | *(generic ProblemDetails)* | 500 | both | unexpected error | "An unexpected error occurred." | existing |
+| 12 | `auth.admin_google_sign_in_disabled` | 403 | google + verify-email Google token guard | Administrator Google method disabled | "Administrator accounts must sign in with email and password." | **v2.1** |
 
 Error codes live in `AuthErrorCodes.cs` as **code constants with technical messages** (no
 `dbo.Messages` change). Human-readable text is localized **client-side** (FE `authErrorMapper`,
 Mobile `_messageForCode`) — both mappers must add codes #6 and #10. `ApiControllerBase.HandleFailure`
 must gain a 503 branch and the pending-approval mapping (§12-#9).
 
+Revision 2.1 additionally maps code #12 to 403 and a Web message directing administrators
+to email/password. The Mobile UI update is outside this revision's scope.
+
 ---
 
 ## 8. Status Matrix (final, ratified)
+
+Google allowances below apply to non-Administrator roles. For Administrator, existing status
+failures retain precedence; a passing status is followed by the BR-18 method rejection.
 
 | Status | Email + Password | Google | Error code when blocked |
 |---|---|---|---|
@@ -438,7 +519,8 @@ existing tests are red.
 | BR-12: `email_verified` false **and MISSING** → 403 | BR-12 🔧 |
 | Token without email → 401 | B6 |
 | Firebase verify fail → 401; Firebase unavailable → typed exception → 503 | S5 🔧 |
-| Existing Administrator via Google → 200, `role = Administrator` | BR-18 🔧 |
+| Existing Administrator via Google → 403 method-disabled code; no mutation/session (normal + re-fetch); email/password still succeeds | BR-18 v2.1 |
+| Administrator Google token via verify-email → 403; pending email status not activated; no session | BR-18 v2.1 |
 
 ### C. Infrastructure unit
 
@@ -507,7 +589,7 @@ PendingEmailVerification; the account remains unchanged and receives MSG_UNVERIF
 
 | Item | Belongs to |
 |---|---|
-| Registration + email verification + resend | UC-01 |
+| Registration + email verification + resend (except v2.1 Administrator Google session guard) | UC-01 |
 | Logout, refresh/revoke endpoints | Separate session-architecture decision |
 | Operator application / resubmit | UC-02 / UC-03 / UC-50 / UC-51 |
 | Forgot password, Phone/OTP | Separate future use cases |
@@ -538,7 +620,7 @@ PendingEmailVerification; the account remains unchanged and receives MSG_UNVERIF
 | BR-15 | C4-2 | §3-9/11 | D theory + A transactional | #11 |
 | BR-16 | B3/S5 | §4.2-B3 | D 503 | #9, #10 |
 | BR-17 | G1-A | §7.3 | D G1-A shape | #6 |
-| BR-18 | D3-A | §5 | B administrator | — |
+| BR-18 | Approved v2.1 (supersedes D3-A) | §5 + revision 2.1 | Google normal/re-fetch + verify-email + HTTP rejection; password regression | T12–T13 |
 
 ---
 
@@ -564,4 +646,4 @@ PendingEmailVerification; the account remains unchanged and receives MSG_UNVERIF
 
 ---
 
-*End of specification — UC-04 Sign In, v2.0 (ratified decision set C1–C5, 2026-09-13).*
+*End of specification — UC-04 Sign In, v2.1 (C1–C5 baseline + approved revision, 2026-09-14).*

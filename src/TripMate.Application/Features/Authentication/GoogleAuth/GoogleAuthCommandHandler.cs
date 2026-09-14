@@ -20,6 +20,7 @@ namespace TripMate.Application.Features.Authentication.GoogleAuth;
 /// is auto-provisioned as Traveler/Active (BR-02); an existing account's status is never
 /// changed by Sign In (BR-14). There is no raw-Google fallback — the Firebase Admin SDK is the
 /// sole verifier (D2-A) and its unavailability fails closed as 503-mapped code (BR-16).
+/// Administrator accounts must use email/password; Google is rejected before mutation (BR-18).
 ///
 /// Concurrent first sign-ins with the same email are resolved per spec §4.2-B7: the unique
 /// index <c>UX_Users_Email</c> arbitrates; the losing request re-loads the provisioned
@@ -136,7 +137,8 @@ public class GoogleAuthCommandHandler(
                 // account may sign in. Administrative status must be enforced BEFORE any
                 // mutation or session issuance, and Sign In never changes an existing
                 // account's status (BR-14).
-                var gateFailure = EvaluateStatusGate(existingUser.Status);
+                onUserResolved(existingUser.Id);
+                var gateFailure = EvaluateAccountGate(existingUser);
                 if (gateFailure is not null)
                 {
                     return gateFailure;
@@ -200,7 +202,7 @@ public class GoogleAuthCommandHandler(
                     throw;
                 }
 
-                var gateFailure = EvaluateStatusGate(raced.Status);
+                var gateFailure = EvaluateAccountGate(raced);
                 if (gateFailure is not null)
                 {
                     onUserResolved(raced.Id);
@@ -249,9 +251,9 @@ public class GoogleAuthCommandHandler(
         }
     }
 
-    private static Result<GoogleAuthResponse>? EvaluateStatusGate(AccountStatus status)
+    private static Result<GoogleAuthResponse>? EvaluateAccountGate(User user)
     {
-        return status switch
+        var statusFailure = user.Status switch
         {
             AccountStatus.PendingEmailVerification => Result.Failure<GoogleAuthResponse>(
                 AuthErrorCodes.AccountPendingVerification,
@@ -267,5 +269,12 @@ public class GoogleAuthCommandHandler(
                 "Account is inactive."),
             _ => null,
         };
+
+        // Status failures retain precedence; normal lookup and concurrency retry share this gate.
+        return statusFailure ?? (user.Role == UserRole.Administrator
+            ? Result.Failure<GoogleAuthResponse>(
+                AuthErrorCodes.AdminGoogleSignInDisabled,
+                "Administrator accounts must sign in with email and password.")
+            : null);
     }
 }

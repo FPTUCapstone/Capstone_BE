@@ -1,8 +1,85 @@
-# UC-04 Implementation Plan — Sign In (Spec v2.0)
+# UC-04 Implementation Plan — Sign In (Spec v2.1)
+
+## Revision 2.1 plan — approved 2026-09-14
+
+Reference: [UC-04 spec revision 2.1](../specs/UC-04-spec.md).
+The existing T1–T10 below describe implemented v2.0 work, not pending tasks.
+This revision explicitly extends their BE-only Scope Guard to the verification guard and
+the narrowly listed FE removal/error-mapping changes. User approval authorizes implementation.
+
+### T11 — Setup and regression baseline
+
+- Work on existing `feature/PhucTV-sign-in` (BE) and `feature/PhucTV-sign-in-web` (FE),
+  as explicitly requested by the user; preserve unrelated work. No new fix branch delivery.
+- Baseline already recorded: 232 BE tests pass, 8 SQL Server checks skipped.
+- Re-read team engineering/review prerequisites before implementation tasks.
+
+### T12 — Google Administrator role gate (RED → GREEN → review)
+
+- Files: GoogleAuthCommandHandler.cs, AuthErrorCodes.cs, ApiControllerBase.cs;
+  GoogleAuthCommandHandlerTests.cs and GoogleSignInIntegrationTests.cs.
+- RED: replace Administrator success test with rejection; add normal and concurrency
+  re-fetch cases asserting no session persistence/user mutation and normal no-token generation.
+- GREEN: shared account gate retaining status precedence, then rejecting Administrator;
+  call in normal lookup and re-fetch. Add constant and HTTP 403 mapping.
+- Verify: focused Google handler/API tests; confirm Traveler/TourOperator and auto-provision
+  success plus existing status/claim failures. Review guard placement before mutations.
+
+### T13 — Close verify-email Google session path (RED → GREEN → review)
+
+- Files: VerifyEmailCommandHandler.cs, its unit tests and auth API integration tests.
+- RED: Administrator + Google provider rejected before activation/mutation/session issuance;
+  cover statuses and retain Locked/Inactive precedence. Assert non-Google verification and
+  Administrator email/password sign-in still work.
+- GREEN: provider/role gate before mutations/session issuance with the same 403/code.
+- Verify: focused verification/login/API tests; review all Firebase session issuance paths.
+
+### T14 — Narrow Web alignment and reference updates
+
+- FE files: SignInForm.tsx, authErrorMapper.ts and relevant tests.
+- Audit existing admin rendering first: Google is currently hidden for admin; preserve this
+  and add regression coverage rather than inventing a button removal if none exists.
+- Map new public Google rejection; never display raw SDK/server internals.
+- Update contradictory BE BR-18 comments/tests/references; retain v2.0 decision history.
+- Do not implement the broader FE redesign or replace the existing admin password simulation.
+
+### T15 — Verification and final review
+
+- Focused tests after each change; full `dotnet test TripMate.slnx` after implementation.
+- Applicable FE tests, lint and typecheck; report environment limitations and skipped checks.
+- Review final diff twice: revised spec compliance, then authorization/mutation/regression risk.
+- Definition of done: Administrator cannot obtain a new session through either audited Google
+  token path; password and non-admin flows retain behavior; available required checks pass.
+- User explicitly requested commit/push to the existing sign-in branches; do not create PRs.
+  Broader FE sign-in spec completion still waits for all checklist approvals.
+
+### Execution evidence — 2026-09-14
+
+- T11–T15 implemented on existing sign-in branches as requested; PR creation belongs to user.
+- RED: auth unit suite had 7 failing cases, and new HTTP integration theory had 3 failing
+  cases under v2.0, demonstrating Google sessions were issued to Administrator.
+- GREEN: normal Google lookup and concurrency re-fetch share a status-first account gate;
+  verify-email checks Administrator/Google before activation or token issuance.
+- Full BE suite: **255 passed, 0 failed, 8 skipped** (baseline 232 passed/8 skipped).
+- FE baseline: 54 tests passed. Final FE: **57 tests passed**; lint, typecheck and production
+  build passed. Existing unrelated FE edits remain outside the task commit.
+- Whitespace formatter applied to changed C# files; diff whitespace check passed.
+- Self-review, spec axis: revised BR-18, status precedence, no mutation/session rejection,
+  password regression and non-admin Google regression covered; no blocking findings.
+- Self-review, standards axis: rules stay in Application; controller only maps failures;
+  no schema, dependency, secret or unrelated product-flow changes; no blocking findings.
+- Real SQL Server concurrency remains unverified because the test connection is not configured;
+  deterministic InMemory concurrency re-fetch covers Administrator rejection.
+- Mobile has no dedicated mapping for the new code; BE still rejects the request, but Mobile
+  may show a generic auth failure. Mobile UI work remains outside the approved scope.
+- Existing JWT sessions are not revoked. Administrators without usable passwords require
+  recovery/provisioning. The existing Web admin password form remains a prototype.
+
+---
 
 | Item | Value |
 |---|---|
-| Spec | [`UC-04-spec.md`](../specs/UC-04-spec.md) **v2.0** (ratified + user-approved 2026-09-13) |
+| Spec | [`UC-04-spec.md`](../specs/UC-04-spec.md) **v2.1** (user-approved 2026-09-14) |
 | Status | **Implemented T1–T10 (2026-09-13) + review fixes P1 (BR-02 race), P2a (LastLoginAtUtc), P2b (structured logging) — pending PR review** |
 | Branch | `feature/PhucTV-sign-in` (merged `origin/develop` — CI/CD + registration snapshot; conflicts resolved in favor of UC-04 v2.0) |
 | Workflow | **AI prerequisite: before EVERY task — re-read `Dev_and_CrossReview_Checklist.pdf` + `TEAM_ENGINEERING_RULES.docx` and cross-check the task against both.** TDD, one atomic task at a time, red → green → review → next; NO commit/push without explicit user request |

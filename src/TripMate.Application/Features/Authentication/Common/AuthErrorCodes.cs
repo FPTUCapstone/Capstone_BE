@@ -50,5 +50,6 @@ public static class AuthErrorCodes
     public const string AccountLocked = "auth.account_locked";
     public const string AccountInactive = "auth.account_inactive";
     public const string FirebaseUnavailable = "auth.firebase_unavailable";
+    public const string AdminGoogleSignInDisabled = "auth.admin_google_sign_in_disabled";
     public const string EmailAlreadyRegistered = Msg03;
 }

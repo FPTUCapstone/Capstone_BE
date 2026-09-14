@@ -54,6 +54,62 @@ public class GoogleSignInIntegrationTests
         string? signInProvider = "google.com") =>
         new("fb-uid-1", email, emailVerified, "Test User", null, signInProvider);
 
+    [Theory]
+    [InlineData("/api/v1/auth/google", AccountStatus.Active, "auth.admin_google_sign_in_disabled")]
+    [InlineData("/api/v1/auth/google", AccountStatus.Locked, "auth.account_locked")]
+    [InlineData("/api/v1/auth/verify-email", AccountStatus.Active, "auth.admin_google_sign_in_disabled")]
+    [InlineData("/api/v1/auth/verify-email", AccountStatus.PendingEmailVerification, "auth.admin_google_sign_in_disabled")]
+    [InlineData("/api/v1/auth/verify-email", AccountStatus.Inactive, "auth.account_inactive")]
+    public async Task Post_WithAdministratorGoogleIdentity_RejectsWithoutSession(
+        string endpoint, AccountStatus status, string expectedCode)
+    {
+        var firebase = new StubFirebaseService { ResultToReturn = VerifiedGoogleIdentity("admin@example.com") };
+        var (factory, client) = CreateGoogleFactory(firebase);
+        using var factoryOwner = factory;
+        using var clientOwner = client;
+        var updatedAt = DateTimeOffset.UtcNow.AddDays(-1);
+        await factory.WithDbContextAsync(async db =>
+        {
+            db.Users.Add(new TripMate.Domain.Entities.User
+            {
+                Email = "admin@example.com",
+                FullName = "Admin",
+                Role = UserRole.Administrator,
+                Status = status,
+                UpdatedAtUtc = updatedAt,
+            });
+            await db.SaveChangesAsync();
+            return true;
+        });
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
+        if (endpoint.EndsWith("/google", StringComparison.Ordinal))
+        {
+            request.Content = JsonContent.Create(new { idToken = "valid-token" });
+        }
+        else
+        {
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "valid-token");
+        }
+        using var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        response.Content.Headers.ContentType!.MediaType.Should().Be("application/problem+json");
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("errorCode").GetString().Should().Be(expectedCode);
+        body.TryGetProperty("data", out _).Should().BeFalse();
+        await factory.WithDbContextAsync(async db =>
+        {
+            (await db.RefreshTokens.CountAsync()).Should().Be(0);
+            var user = await db.Users.SingleAsync(u => u.Email == "admin@example.com");
+            user.Status.Should().Be(status);
+            user.EmailVerifiedAtUtc.Should().BeNull();
+            user.LastLoginAtUtc.Should().BeNull();
+            user.UpdatedAtUtc.Should().Be(updatedAt);
+            return true;
+        });
+    }
+
     [Fact]
     public async Task Post_Google_WithValidTokenAndUnknownEmail_ProvisionsTravelerAndReturnsG1AShape()
     {

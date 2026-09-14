@@ -34,6 +34,21 @@ public class LoginCommandHandlerTests
     }
 
     [Fact]
+    public async Task Handle_WithActiveAdministratorPassword_StillIssuesSession()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var user = await SeedUser(dbContext, "admin@example.com", "CorrectPass1", AccountStatus.Active, UserRole.Administrator);
+        var result = await CreateHandler(dbContext).Handle(
+            new LoginCommand("admin@example.com", "CorrectPass1"), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Role.Should().Be(UserRole.Administrator);
+        result.Value.AccessToken.Should().NotBeNullOrWhiteSpace();
+        dbContext.RefreshTokens.Should().ContainSingle(t => t.UserId == user.Id);
+        user.LastLoginAtUtc.Should().NotBeNull();
+    }
+
+    [Fact]
     public async Task Handle_WithWrongPassword_ReturnsGenericInvalidCredentials()
     {
         await using var dbContext = TestDbContext.Create();

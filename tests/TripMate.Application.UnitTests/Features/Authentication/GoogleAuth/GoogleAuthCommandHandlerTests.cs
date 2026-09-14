@@ -110,10 +110,12 @@ public class GoogleAuthCommandHandlerTests
         _jwtTokenService.Verify(j => j.GenerateRefreshToken(), Times.Never);
     }
 
-    [Fact]
-    public async Task Handle_WhenActiveAccount_IssuesSessionTokensWithFullG1AShape()
+    [Theory]
+    [InlineData(UserRole.Traveler)]
+    [InlineData(UserRole.TourOperator)]
+    public async Task Handle_WhenActiveAccount_IssuesSessionTokensWithFullG1AShape(UserRole role)
     {
-        var user = await SeedUser("active@example.com", AccountStatus.Active);
+        var user = await SeedUser("active@example.com", AccountStatus.Active, role);
         FirebaseReturnsVerifiedEmail("active@example.com");
 
         var result = await _handler.Handle(
@@ -129,35 +131,44 @@ public class GoogleAuthCommandHandlerTests
         result.Value.UserId.Should().Be(user.Id);
         result.Value.Email.Should().Be("active@example.com");
         result.Value.FullName.Should().Be("Test User");
-        result.Value.Role.Should().Be(UserRole.Traveler);
+        result.Value.Role.Should().Be(role);
         result.Value.Status.Should().Be(AccountStatus.Active);
         result.Value.AccessTokenExpiresAtUtc.Should().Be(_accessTokenExpiresAtUtc);
         result.Value.IsNewAccount.Should().BeFalse();
     }
 
-    [Fact]
-    public async Task Handle_WhenExistingAdministrator_SignsInWithGoogle_RoleResolvedFromDatabase()
+    [Theory]
+    [InlineData(AccountStatus.Active, "auth.admin_google_sign_in_disabled")]
+    [InlineData(AccountStatus.Rejected, "auth.admin_google_sign_in_disabled")]
+    [InlineData(AccountStatus.PendingEmailVerification, AuthErrorCodes.AccountPendingVerification)]
+    [InlineData(AccountStatus.PendingApproval, AuthErrorCodes.AccountPendingApproval)]
+    [InlineData(AccountStatus.Locked, AuthErrorCodes.AccountLocked)]
+    [InlineData(AccountStatus.Inactive, AuthErrorCodes.AccountInactive)]
+    public async Task Handle_WhenExistingAdministrator_RejectsGoogleWithoutMutationOrSession(
+        AccountStatus status, string expectedCode)
     {
-        // BR-18 (D3-A): an existing Administrator account may sign in with Google — the role
-        // always comes from the database; Google never grants or changes a role, and Sign In
-        // never changes the account status (BR-14). Contrast with BR-02: Google can only ever
-        // CREATE Traveler accounts, never an Administrator.
-        var user = await SeedUser("admin@example.com", AccountStatus.Active, UserRole.Administrator);
-        FirebaseReturnsVerifiedEmail("admin@example.com");
+        // BR-18 revision 2.1: status failures retain precedence over the admin method gate.
+        var user = await SeedUser("admin@example.com", status, UserRole.Administrator);
+        var updatedAt = user.UpdatedAtUtc;
+        FirebaseReturns(new FirebaseTokenValidationResult(
+            "fb-admin", " ADMIN@example.com ", true, "Google Name", "https://photo/admin.png", "google.com"));
 
         var result = await _handler.Handle(
             new GoogleAuthCommand("valid-google-id-token"),
             CancellationToken.None);
 
-        result.IsSuccess.Should().BeTrue();
-        result.Value.Role.Should().Be(UserRole.Administrator);
-        result.Value.Status.Should().Be(AccountStatus.Active);
-        result.Value.IsNewAccount.Should().BeFalse();
-        result.Value.UserId.Should().Be(user.Id);
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(expectedCode);
+        _jwtTokenService.Verify(j => j.GenerateAccessToken(It.IsAny<User>()), Times.Never);
+        _jwtTokenService.Verify(j => j.GenerateRefreshToken(), Times.Never);
+        _dbContext.RefreshTokens.Should().BeEmpty();
+        user.AvatarUrl.Should().BeNull();
+        user.LastLoginAtUtc.Should().BeNull();
+        user.UpdatedAtUtc.Should().Be(updatedAt);
 
         var persistedUser = await _dbContext.Users.FindAsync(user.Id);
         persistedUser!.Role.Should().Be(UserRole.Administrator);
-        persistedUser.Status.Should().Be(AccountStatus.Active);
+        persistedUser.Status.Should().Be(status);
     }
 
     [Fact]
@@ -312,8 +323,11 @@ public class GoogleAuthCommandHandlerTests
         result.ErrorMessage.Should().Be("Invalid Google ID token.");
     }
 
-    [Fact]
-    public async Task Handle_WhenFirstSaveHitsUniqueViolation_ReloadsAdoptsAndSucceeds()
+    [Theory]
+    [InlineData(UserRole.Traveler)]
+    [InlineData(UserRole.TourOperator)]
+    [InlineData(UserRole.Administrator)]
+    public async Task Handle_WhenFirstSaveHitsUniqueViolation_RechecksAccountGate(UserRole role)
     {
         // BR-02 race (spec §4.2-B7): simulate the concurrent winner committing the account
         // between the handler's lookup and its insert — the first SaveChanges fails with a
@@ -330,14 +344,15 @@ public class GoogleAuthCommandHandlerTests
         {
             Email = "race@example.com",
             FullName = "Race Winner",
-            Role = UserRole.Traveler,
+            Role = role,
             Status = AccountStatus.Active,
             CreatedAtUtc = DateTimeOffset.UtcNow,
             UpdatedAtUtc = DateTimeOffset.UtcNow,
         };
         dbContext.ConcurrentWinner = winner;
 
-        FirebaseReturnsVerifiedEmail("race@example.com");
+        FirebaseReturns(new FirebaseTokenValidationResult(
+            "fb-race", "race@example.com", true, null, "https://photo/race.png", "google.com"));
 
         var handler = new GoogleAuthCommandHandler(
             dbContext,
@@ -349,10 +364,26 @@ public class GoogleAuthCommandHandlerTests
             new GoogleAuthCommand("valid-google-id-token"),
             CancellationToken.None);
 
+        if (role == UserRole.Administrator)
+        {
+            result.IsFailure.Should().BeTrue();
+            result.ErrorCode.Should().Be("auth.admin_google_sign_in_disabled");
+            dbContext.SaveAttempts.Should().Be(1);
+            dbContext.RefreshTokens.Should().BeEmpty();
+            _jwtTokenService.Verify(j => j.GenerateAccessToken(It.IsAny<User>()), Times.Never);
+            var rejected = await dbContext.Users.SingleAsync(u => u.Email == "race@example.com");
+            rejected.Role.Should().Be(UserRole.Administrator);
+            rejected.Status.Should().Be(AccountStatus.Active);
+            rejected.AvatarUrl.Should().BeNull();
+            rejected.LastLoginAtUtc.Should().BeNull();
+            rejected.UpdatedAtUtc.Should().Be(winner.UpdatedAtUtc);
+            return;
+        }
+
         result.IsSuccess.Should().BeTrue();
         result.Value.IsNewAccount.Should().BeFalse();
         result.Value.UserId.Should().Be(winner.Id);
-        result.Value.Role.Should().Be(UserRole.Traveler);
+        result.Value.Role.Should().Be(role);
 
         var users = await dbContext.Users.AsNoTracking()
             .Where(u => u.Email == "race@example.com").ToListAsync();
