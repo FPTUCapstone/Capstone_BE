@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using TripMate.Api.Common;
+using TripMate.Application.Features.Admin.AuditLogs.GetDetail;
 using TripMate.Application.Features.Admin.AuditLogs.GetList;
 
 namespace TripMate.Api.Controllers.V1;
@@ -19,4 +20,15 @@ public class AdminAuditLogsController(ISender sender) : ApiControllerBase(sender
 
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
+
+    [HttpGet("{id:long}")]
+    public async Task<IActionResult> GetAuditLogDetail(
+        long id,
+        CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(new GetAuditLogDetailQuery(id), cancellationToken);
+
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
 }
+
