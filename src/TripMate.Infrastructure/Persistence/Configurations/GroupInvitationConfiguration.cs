@@ -7,7 +7,7 @@ using TripMate.Infrastructure.Persistence.Common;
 namespace TripMate.Infrastructure.Persistence.Configurations;
 
 /**
- * [UC-17] GroupInvitation EF Core Configuration
+ * [UC-18] GroupInvitation EF Core Configuration
  * Maps social.GroupInvitations in database/tripmate_schema_v7.sql.
  */
 public class GroupInvitationConfiguration : IEntityTypeConfiguration<GroupInvitation>
@@ -23,7 +23,7 @@ public class GroupInvitationConfiguration : IEntityTypeConfiguration<GroupInvita
         builder.Property(i => i.InviteCode).HasColumnName("invite_code").HasMaxLength(20).IsRequired();
         builder.Property(i => i.CreatedBy).HasColumnName("created_by").IsRequired();
         builder.Property(i => i.ExpiresAtUtc).HasColumnName("expires_at").AsUtcDateTime2().IsRequired();
-        builder.Property(i => i.MaxUses).HasColumnName("max_uses").HasDefaultValue(50).IsRequired();
+        builder.Property(i => i.MaxUses).HasColumnName("max_uses").IsRequired();
         builder.Property(i => i.UsedCount).HasColumnName("used_count").HasDefaultValue(0).IsRequired();
         builder.Property(i => i.CreatedAtUtc).HasColumnName("created_at").AsUtcDateTime2().IsRequired();
 
@@ -38,5 +38,8 @@ public class GroupInvitationConfiguration : IEntityTypeConfiguration<GroupInvita
             .WithMany()
             .HasForeignKey(i => i.CreatedBy)
             .OnDelete(DeleteBehavior.Restrict);
+
+        builder.Navigation(i => i.TravelGroup)
+            .UsePropertyAccessMode(PropertyAccessMode.Field);
     }
 }

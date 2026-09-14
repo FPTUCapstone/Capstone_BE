@@ -66,12 +66,14 @@ public sealed class TripMateApiFactory(
                 services.RemoveAll<DbContextOptions<ApplicationDbContext>>();
                 services.RemoveAll<IApplicationDbContext>();
                 services.RemoveAll<ITravelGroupCreationLock>();
+                services.RemoveAll<IGroupInvitationLock>();
 
                 services.AddDbContext<TestApiDbContext>(options =>
                     options.UseInMemoryDatabase(_databaseName));
                 services.AddScoped<IApplicationDbContext>(provider =>
                     provider.GetRequiredService<TestApiDbContext>());
                 services.AddScoped<ITravelGroupCreationLock, NoOpTravelGroupCreationLock>();
+                services.AddScoped<IGroupInvitationLock, NoOpGroupInvitationLock>();
             }
 
             if (authenticationMode == ApiTestAuthenticationMode.HeaderStub)
@@ -137,6 +139,8 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
     public DbSet<Itinerary> Itineraries => Set<Itinerary>();
     public DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests => Set<TravelGroupCreationRequest>();
+    public DbSet<GroupInvitation> GroupInvitations => Set<GroupInvitation>();
+    public DbSet<GroupInvitationOperation> GroupInvitationOperations => Set<GroupInvitationOperation>();
 
     public Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
@@ -158,6 +162,12 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
 internal sealed class NoOpTravelGroupCreationLock : ITravelGroupCreationLock
 {
     public Task AcquireAsync(long travelerUserId, Guid idempotencyKey, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+}
+
+internal sealed class NoOpGroupInvitationLock : IGroupInvitationLock
+{
+    public Task AcquireAsync(long groupId, long travelerUserId, Guid idempotencyKey, CancellationToken cancellationToken) =>
         Task.CompletedTask;
 }
 

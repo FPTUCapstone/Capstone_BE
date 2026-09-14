@@ -76,6 +76,12 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.ItineraryNotFound =>
                 StatusCodes.Status404NotFound,
 
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.GroupNotFound =>
+                StatusCodes.Status404NotFound,
+
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.HostPermissionRequired =>
+                StatusCodes.Status403Forbidden,
+
             TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.IdempotencyKeyPayloadMismatch =>
                 StatusCodes.Status409Conflict,
 

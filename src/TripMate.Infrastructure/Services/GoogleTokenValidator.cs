@@ -1,6 +1,8 @@
 using Google.Apis.Auth;
+
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+
 using TripMate.Application.Common.Interfaces;
 
 namespace TripMate.Infrastructure.Services;
