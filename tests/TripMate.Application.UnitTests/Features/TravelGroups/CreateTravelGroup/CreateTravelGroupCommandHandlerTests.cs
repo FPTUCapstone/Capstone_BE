@@ -2,6 +2,7 @@ using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
 
+using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.TravelGroups.Common;
 using TripMate.Application.Features.TravelGroups.CreateTravelGroup;
 using TripMate.Application.UnitTests.TestUtilities;
@@ -18,14 +19,15 @@ namespace TripMate.Application.UnitTests.Features.TravelGroups.CreateTravelGroup
 public class CreateTravelGroupCommandHandlerTests
 {
     private readonly FakeDateTimeProvider _dateTimeProvider = new();
+    private readonly NoOpTravelGroupCreationLock _creationLock = new();
 
     [Fact]
     public async Task Handle_WithNonExistentItinerary_ReturnsItineraryNotFound()
     {
         await using var dbContext = TestDbContext.Create();
-        var handler = new CreateTravelGroupCommandHandler(dbContext, _dateTimeProvider);
+        var handler = new CreateTravelGroupCommandHandler(dbContext, _dateTimeProvider, _creationLock);
 
-        var command = new CreateTravelGroupCommand(999, "Da Nang Trip", 1);
+        var command = new CreateTravelGroupCommand(999, "Da Nang Trip", 1, Guid.NewGuid());
         var result = await handler.Handle(command, CancellationToken.None);
 
         result.IsFailure.Should().BeTrue();
@@ -36,19 +38,16 @@ public class CreateTravelGroupCommandHandlerTests
     public async Task Handle_WhenItineraryBelongsToAnotherTraveler_ReturnsItineraryNotFound()
     {
         await using var dbContext = TestDbContext.Create();
-        var itinerary = new Itinerary
-        {
-            TravelerUserId = 100, // Owned by user 100
-            Title = "Another Traveler Trip",
-            Status = "Active",
-            CreatedAtUtc = _dateTimeProvider.UtcNow,
-            UpdatedAtUtc = _dateTimeProvider.UtcNow
-        };
+        var itinerary = Itinerary.CreateManual(
+            100,
+            "Another Traveler Trip",
+            "Active",
+            _dateTimeProvider.UtcNow);
         dbContext.Itineraries.Add(itinerary);
         await dbContext.SaveChangesAsync();
 
-        var handler = new CreateTravelGroupCommandHandler(dbContext, _dateTimeProvider);
-        var command = new CreateTravelGroupCommand(itinerary.Id, "Stolen Trip Group", 200); // Requested by user 200
+        var handler = new CreateTravelGroupCommandHandler(dbContext, _dateTimeProvider, _creationLock);
+        var command = new CreateTravelGroupCommand(itinerary.Id, "Shared Trip Group", 200, Guid.NewGuid());
 
         var result = await handler.Handle(command, CancellationToken.None);
 
@@ -72,19 +71,16 @@ public class CreateTravelGroupCommandHandlerTests
         dbContext.Users.Add(user);
         await dbContext.SaveChangesAsync();
 
-        var itinerary = new Itinerary
-        {
-            TravelerUserId = user.Id,
-            Title = "Da Nang Beach Day",
-            Status = "Active",
-            CreatedAtUtc = _dateTimeProvider.UtcNow,
-            UpdatedAtUtc = _dateTimeProvider.UtcNow
-        };
+        var itinerary = Itinerary.CreateManual(
+            user.Id,
+            "Da Nang Beach Day",
+            "Active",
+            _dateTimeProvider.UtcNow);
         dbContext.Itineraries.Add(itinerary);
         await dbContext.SaveChangesAsync();
 
-        var handler = new CreateTravelGroupCommandHandler(dbContext, _dateTimeProvider);
-        var command = new CreateTravelGroupCommand(itinerary.Id, "Da Nang Summer Trip", user.Id);
+        var handler = new CreateTravelGroupCommandHandler(dbContext, _dateTimeProvider, _creationLock);
+        var command = new CreateTravelGroupCommand(itinerary.Id, "Da Nang Summer Trip", user.Id, Guid.NewGuid());
 
         var result = await handler.Handle(command, CancellationToken.None);
 
@@ -98,7 +94,6 @@ public class CreateTravelGroupCommandHandlerTests
         // Assert Database persistence
         var groupInDb = await dbContext.TravelGroups
             .Include(g => g.GroupMembers)
-            .Include(g => g.GroupInvitations)
             .FirstOrDefaultAsync(g => g.Id == result.Value.GroupId);
 
         groupInDb.Should().NotBeNull();
@@ -112,8 +107,171 @@ public class CreateTravelGroupCommandHandlerTests
         hostMember.Status.Should().Be(GroupMemberStatus.Active);
         hostMember.LocationSharingEnabled.Should().BeFalse();
 
-        // UC-17 creates only the group and initial Host membership.
-        // Invitation generation belongs to UC-18.
-        groupInDb.GroupInvitations.Should().BeEmpty();
     }
+
+    [Fact]
+    public async Task Handle_WithRepeatedIdempotencyKey_ReturnsOriginalGroupWithoutDuplicate()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var user = new User
+        {
+            Email = "idempotent@example.com",
+            FullName = "Nguyen Van C",
+            Role = UserRole.Traveler,
+            Status = AccountStatus.Active
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var itinerary = Itinerary.CreateManual(
+            user.Id,
+            "Hue Trip",
+            "Active",
+            _dateTimeProvider.UtcNow);
+        dbContext.Itineraries.Add(itinerary);
+        await dbContext.SaveChangesAsync();
+
+        var key = Guid.NewGuid();
+        var handler = new CreateTravelGroupCommandHandler(dbContext, _dateTimeProvider, _creationLock);
+        var firstResult = await handler.Handle(
+            new CreateTravelGroupCommand(itinerary.Id, "Hue Group", user.Id, key),
+            CancellationToken.None);
+        var retryResult = await handler.Handle(
+            new CreateTravelGroupCommand(itinerary.Id, "Hue Group", user.Id, key),
+            CancellationToken.None);
+
+        firstResult.IsSuccess.Should().BeTrue();
+        retryResult.IsSuccess.Should().BeTrue();
+        retryResult.Value.GroupId.Should().Be(firstResult.Value.GroupId);
+        (await dbContext.TravelGroups.CountAsync()).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Handle_WhenIdempotencyKeyIsReusedWithDifferentPayload_ReturnsConflict()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var user = new User
+        {
+            Email = "idempotency-mismatch@example.com",
+            FullName = "Nguyen Van D",
+            Role = UserRole.Traveler,
+            Status = AccountStatus.Active
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var itinerary = Itinerary.CreateManual(
+            user.Id,
+            "Da Nang Trip",
+            "Active",
+            _dateTimeProvider.UtcNow);
+        dbContext.Itineraries.Add(itinerary);
+        await dbContext.SaveChangesAsync();
+
+        var key = Guid.NewGuid();
+        var handler = new CreateTravelGroupCommandHandler(dbContext, _dateTimeProvider, _creationLock);
+        await handler.Handle(
+            new CreateTravelGroupCommand(itinerary.Id, "First Group", user.Id, key),
+            CancellationToken.None);
+        var mismatchResult = await handler.Handle(
+            new CreateTravelGroupCommand(itinerary.Id, "Different Group", user.Id, key),
+            CancellationToken.None);
+
+        mismatchResult.IsFailure.Should().BeTrue();
+        mismatchResult.ErrorCode.Should().Be(TravelGroupErrorCodes.IdempotencyKeyPayloadMismatch);
+        (await dbContext.TravelGroups.CountAsync()).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Handle_WhenHostMembershipPersistenceFails_DoesNotRetainTravelGroup()
+    {
+        var databaseName = Guid.NewGuid().ToString();
+        var seedOptions = new DbContextOptionsBuilder<TestDbContext>()
+            .UseInMemoryDatabase(databaseName)
+            .Options;
+
+        await using (var seedContext = new TestDbContext(seedOptions))
+        {
+            seedContext.Itineraries.Add(Itinerary.CreateManual(
+                200,
+                "Da Nang Trip",
+                "Active",
+                _dateTimeProvider.UtcNow));
+            await seedContext.SaveChangesAsync();
+        }
+
+        await using (var failingContext = new FailingSaveChangesTestDbContext(seedOptions))
+        {
+            var itinerary = await failingContext.Itineraries.SingleAsync();
+            var handler = new CreateTravelGroupCommandHandler(failingContext, _dateTimeProvider, _creationLock);
+            var command = new CreateTravelGroupCommand(itinerary.Id, "Da Nang Group", 200, Guid.NewGuid());
+
+            await FluentActions.Invoking(() => handler.Handle(command, CancellationToken.None))
+                .Should().ThrowAsync<DbUpdateException>();
+
+            failingContext.TransactionExecutionCount.Should().Be(1);
+        }
+
+        await using var verificationContext = new TestDbContext(seedOptions);
+        (await verificationContext.TravelGroups.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Handle_AcquiresTheTravelerKeyLockBeforeCreatingTheGroup()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var user = new User
+        {
+            Email = "locked-operation@example.com",
+            FullName = "Locked Operation Traveler",
+            Role = UserRole.Traveler,
+            Status = AccountStatus.Active
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync();
+
+        var itinerary = Itinerary.CreateManual(
+            user.Id,
+            "Locked Operation Itinerary",
+            "Active",
+            _dateTimeProvider.UtcNow);
+        dbContext.Itineraries.Add(itinerary);
+        await dbContext.SaveChangesAsync();
+
+        var key = Guid.NewGuid();
+        var recordingLock = new RecordingTravelGroupCreationLock();
+        var handler = new CreateTravelGroupCommandHandler(dbContext, _dateTimeProvider, recordingLock);
+
+        var result = await handler.Handle(
+            new CreateTravelGroupCommand(itinerary.Id, "Locked Operation Group", user.Id, key),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        recordingLock.AcquiredKeys.Should().ContainSingle()
+            .Which.Should().Be((user.Id, key));
+    }
+}
+
+internal sealed class NoOpTravelGroupCreationLock : ITravelGroupCreationLock
+{
+    public Task AcquireAsync(long travelerUserId, Guid idempotencyKey, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+}
+
+internal sealed class RecordingTravelGroupCreationLock : ITravelGroupCreationLock
+{
+    public List<(long TravelerUserId, Guid IdempotencyKey)> AcquiredKeys { get; } = [];
+
+    public Task AcquireAsync(long travelerUserId, Guid idempotencyKey, CancellationToken cancellationToken)
+    {
+        AcquiredKeys.Add((travelerUserId, idempotencyKey));
+        return Task.CompletedTask;
+    }
+}
+
+internal sealed class FailingSaveChangesTestDbContext(DbContextOptions<TestDbContext> options)
+    : TestDbContext(options)
+{
+    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
+        throw new DbUpdateException("Simulated GroupMember persistence failure.");
 }

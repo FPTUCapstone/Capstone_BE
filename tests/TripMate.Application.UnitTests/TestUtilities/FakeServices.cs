@@ -3,7 +3,7 @@ using TripMate.Domain.Entities;
 
 namespace TripMate.Application.UnitTests.TestUtilities;
 
-public class FakePasswordHasher : IPasswordHasher
+public class FakePasswordHasher : IPasswordHasher, IPasswordHasherService
 {
     public string Hash(string password) => $"hashed:{password}";
 
@@ -24,11 +24,9 @@ public class FakeDateTimeProvider : IDateTimeProvider
 {
     public DateTimeOffset UtcNow { get; set; } = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
 }
-
 public class FakeCurrentUserService : ICurrentUserService
 {
     public long? UserId { get; set; }
 
     public string? Role { get; set; }
 }
-

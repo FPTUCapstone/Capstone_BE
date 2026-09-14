@@ -17,19 +17,53 @@ namespace TripMate.Domain.Entities;
  */
 public class GroupMember
 {
-    public long GroupId { get; set; }
+    private GroupMember()
+    {
+    }
 
-    public TravelGroup TravelGroup { get; set; } = null!;
+    private GroupMember(
+        TravelGroup travelGroup,
+        long userId,
+        DateTimeOffset joinedAtUtc)
+    {
+        ArgumentNullException.ThrowIfNull(travelGroup);
 
-    public long UserId { get; set; }
+        if (userId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(userId));
+        }
 
-    public User User { get; set; } = null!;
+        if (travelGroup.HostUserId != userId)
+        {
+            throw new ArgumentException("The initial member must be the travel group host.", nameof(userId));
+        }
 
-    public bool LocationSharingEnabled { get; set; }
+        TravelGroup = travelGroup;
+        UserId = userId;
+        LocationSharingEnabled = false;
+        Status = GroupMemberStatus.Active;
+        JoinedAtUtc = joinedAtUtc;
+    }
 
-    public GroupMemberStatus Status { get; set; } = GroupMemberStatus.Active;
+    public static GroupMember CreateHost(
+        TravelGroup travelGroup,
+        long userId,
+        DateTimeOffset joinedAtUtc) =>
+        new(travelGroup, userId, joinedAtUtc);
 
-    public DateTimeOffset JoinedAtUtc { get; set; }
+    public long GroupId { get; private set; }
 
-    public DateTimeOffset? LeftAtUtc { get; set; }
+    public TravelGroup TravelGroup { get; private set; } = null!;
+
+    public long UserId { get; private set; }
+
+    public User User { get; private set; } = null!;
+
+    public bool LocationSharingEnabled { get; private set; }
+
+    public GroupMemberStatus Status { get; private set; } = GroupMemberStatus.Active;
+
+    public DateTimeOffset JoinedAtUtc { get; private set; }
+
+    public DateTimeOffset? LeftAtUtc { get; private set; }
 }

@@ -39,9 +39,8 @@ public class TravelGroupConfiguration : IEntityTypeConfiguration<TravelGroup>
             .HasForeignKey(m => m.GroupId)
             .OnDelete(DeleteBehavior.Cascade);
 
-        builder.HasMany(g => g.GroupInvitations)
-            .WithOne(i => i.TravelGroup)
-            .HasForeignKey(i => i.GroupId)
-            .OnDelete(DeleteBehavior.Cascade);
+        builder.Navigation(g => g.GroupMembers)
+            .UsePropertyAccessMode(PropertyAccessMode.Field);
+
     }
 }

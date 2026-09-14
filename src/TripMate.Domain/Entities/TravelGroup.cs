@@ -16,19 +16,81 @@ namespace TripMate.Domain.Entities;
  */
 public class TravelGroup : BaseEntity
 {
-    public long ItineraryId { get; set; }
+    private readonly List<GroupMember> _groupMembers = [];
 
-    public Itinerary Itinerary { get; set; } = null!;
+    private TravelGroup()
+    {
+    }
 
-    public long HostUserId { get; set; }
+    private TravelGroup(
+        long itineraryId,
+        long hostUserId,
+        string name,
+        DateTimeOffset createdAtUtc)
+    {
+        if (itineraryId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(itineraryId));
+        }
 
-    public User HostUser { get; set; } = null!;
+        if (hostUserId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(hostUserId));
+        }
 
-    public string? Name { get; set; }
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            throw new ArgumentException("A travel group name is required.", nameof(name));
+        }
 
-    public DateTimeOffset CreatedAtUtc { get; set; }
+        var normalizedName = name.Trim();
+        if (normalizedName.Length > 150)
+        {
+            throw new ArgumentException("A travel group name cannot exceed 150 characters.", nameof(name));
+        }
 
-    public ICollection<GroupMember> GroupMembers { get; set; } = new List<GroupMember>();
+        ItineraryId = itineraryId;
+        HostUserId = hostUserId;
+        Name = normalizedName;
+        CreatedAtUtc = createdAtUtc;
+    }
 
-    public ICollection<GroupInvitation> GroupInvitations { get; set; } = new List<GroupInvitation>();
+    public static TravelGroup Create(
+        long itineraryId,
+        long hostUserId,
+        string name,
+        DateTimeOffset createdAtUtc) =>
+        new(itineraryId, hostUserId, name, createdAtUtc);
+
+    public long ItineraryId { get; private set; }
+
+    public Itinerary Itinerary { get; private set; } = null!;
+
+    public long HostUserId { get; private set; }
+
+    public User HostUser { get; private set; } = null!;
+
+    public string Name { get; private set; } = string.Empty;
+
+    public DateTimeOffset CreatedAtUtc { get; private set; }
+
+    public IReadOnlyCollection<GroupMember> GroupMembers => _groupMembers.AsReadOnly();
+
+    public void AddMember(GroupMember member)
+    {
+        ArgumentNullException.ThrowIfNull(member);
+
+        if (!ReferenceEquals(member.TravelGroup, this))
+        {
+            throw new ArgumentException("The member belongs to a different travel group.", nameof(member));
+        }
+
+        if (_groupMembers.Any(existing => existing.UserId == member.UserId))
+        {
+            throw new InvalidOperationException("A user cannot be added to the same travel group twice.");
+        }
+
+        _groupMembers.Add(member);
+    }
+
 }

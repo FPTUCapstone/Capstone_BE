@@ -20,7 +20,7 @@ namespace TripMate.Application.Features.Authentication.Login;
 /// </summary>
 public class LoginCommandHandler(
     IApplicationDbContext dbContext,
-    IPasswordHasher passwordHasher,
+    IPasswordHasherService passwordHasher,
     IJwtTokenService jwtTokenService,
     IDateTimeProvider dateTimeProvider)
     : IRequestHandler<LoginCommand, Result<AuthResponseDto>>
@@ -35,7 +35,22 @@ public class LoginCommandHandler(
             u => u.Email == normalizedEmail,
             cancellationToken);
 
-        if (user is null || !passwordHasher.Verify(request.Password, user.PasswordHash ?? string.Empty))
+        if (user is null)
+        {
+            return Result.Failure<AuthResponseDto>(
+                AuthErrorCodes.InvalidCredentials,
+                "Invalid email or password.");
+        }
+
+        if (user.PasswordHash is null)
+        {
+            return Result.Failure<AuthResponseDto>(
+                AuthErrorCodes.InvalidCredentials,
+                "This account does not use password login.");
+        }
+
+        var isValid = passwordHasher.Verify(request.Password, user.PasswordHash);
+        if (!isValid)
         {
             return Result.Failure<AuthResponseDto>(
                 AuthErrorCodes.InvalidCredentials,
@@ -52,7 +67,7 @@ public class LoginCommandHandler(
 
         if (statusError is not null)
         {
-            return Result.Failure<AuthResponseDto>(statusError, "This account cannot sign in.");
+            return Result.Failure<AuthResponseDto>(statusError, "Email has not been verified or account is not active.");
         }
 
         var (accessToken, accessTokenExpiresAtUtc) = jwtTokenService.GenerateAccessToken(user);

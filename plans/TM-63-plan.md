@@ -1,12 +1,12 @@
 # Atomic Implementation Plan: TM-63 [UC-17] Create Travel Group
 
-**Feature**: Create Travel Group  
-**Jira Ticket**: TM-63  
-**Use Case**: UC-17  
-**Branch**: `feature/khanhpq-create-travel-group`  
-**Base Branch**: `develop`  
-**Specification Reference**: `specs/TM-63-spec.md`  
-**Status**: Ready for Execution  
+**Feature**: Create Travel Group
+**Jira Ticket**: TM-63
+**Use Case**: UC-17
+**Branch**: `feature/khanhpq-create-travel-group`
+**Base Branch**: `develop`
+**Specification Reference**: `specs/TM-63-spec.md`
+**Status**: In Review
 
 ---
 
@@ -23,7 +23,7 @@ This plan breaks down the approved specification (`specs/TM-63-spec.md`) into sm
   - `[NEW]` `src/TripMate.Domain/Enums/GroupMemberStatus.cs`
   - `[NEW]` `src/TripMate.Domain/Entities/TravelGroup.cs`
   - `[NEW]` `src/TripMate.Domain/Entities/GroupMember.cs`
-  - `[NEW]` `src/TripMate.Domain/Entities/GroupInvitation.cs`
+  - `[NEW]` `src/TripMate.Domain/Entities/TravelGroupCreationRequest.cs`
   - `[NEW]` `src/TripMate.Domain/Entities/Itinerary.cs` (Minimal stub for FK linkage)
   - `[NEW]` `src/TripMate.Domain/Common/Errors/TravelGroupErrors.cs`
 - **Verification Command**:
@@ -38,13 +38,13 @@ This plan breaks down the approved specification (`specs/TM-63-spec.md`) into sm
 ---
 
 ### Task 2: Infrastructure EF Core Configuration & DbContext Registration
-**Objective**: Map the Domain entities to the existing SQL Server database tables (`social.TravelGroups`, `social.GroupMembers`, `social.GroupInvitations`, `planning.Itineraries`) using Fluent API.
+**Objective**: Map the Domain entities to the existing SQL Server database tables (`social.TravelGroups`, `social.GroupMembers`, `social.TravelGroupCreationRequests`, `planning.Itineraries`) using Fluent API.
 
 - **Files to create/modify**:
   - `[MODIFY]` `src/TripMate.Application/Common/Interfaces/IApplicationDbContext.cs`
   - `[NEW]` `src/TripMate.Infrastructure/Persistence/Configurations/TravelGroupConfiguration.cs`
   - `[NEW]` `src/TripMate.Infrastructure/Persistence/Configurations/GroupMemberConfiguration.cs`
-  - `[NEW]` `src/TripMate.Infrastructure/Persistence/Configurations/GroupInvitationConfiguration.cs`
+  - `[NEW]` `src/TripMate.Infrastructure/Persistence/Configurations/TravelGroupCreationRequestConfiguration.cs`
   - `[NEW]` `src/TripMate.Infrastructure/Persistence/Configurations/ItineraryConfiguration.cs`
   - `[MODIFY]` `src/TripMate.Infrastructure/Persistence/ApplicationDbContext.cs`
 - **Verification Command**:
@@ -69,7 +69,7 @@ This plan breaks down the approved specification (`specs/TM-63-spec.md`) into sm
   ```
 - **Definition of Done**:
   - Tests verify: empty group name, name > 150 chars, itineraryId <= 0, valid input.
-  - Tests verify: itinerary not found (returns Failure with ItineraryNotFound), successful creation (returns Result.Success with correct graph, host member, and 8-char invite code).
+  - Tests verify: itinerary not found (returns Failure with `travel_group.itinerary_not_found`), successful creation (returns Result.Success with correct group and Host member), repeated idempotency key, payload mismatch, normalized-name boundaries, domain invariants, and transaction rollback.
   - Tests fail initially as implementation does not exist (Red).
 
 ---
@@ -89,6 +89,7 @@ This plan breaks down the approved specification (`specs/TM-63-spec.md`) into sm
 - **Definition of Done**:
   - All unit tests pass (Green).
   - Navigation property rule applied for same-transaction insert (`hostMember.TravelGroup = travelGroup`).
+  - The same `Idempotency-Key` returns the original group and never creates a duplicate.
   - Balanced English comments with Input/Output format.
 
 ---
@@ -105,7 +106,7 @@ This plan breaks down the approved specification (`specs/TM-63-spec.md`) into sm
   dotnet build src/TripMate.Api/TripMate.Api.csproj
   ```
 - **Definition of Done**:
-  - Endpoint returns `201 Created` with `CreatedAtAction` or standard URL.
+  - Endpoint returns `201 Created` with the raw `CreateTravelGroupResponse` body. No detail route exists for this use case, so the controller does not manufacture a `Location` URL.
   - Passes full solution build and tests.
 
 ---
@@ -119,5 +120,5 @@ This plan breaks down the approved specification (`specs/TM-63-spec.md`) into sm
   ```
 - **Definition of Done**:
   - 100% test suite passing with Zero Regression.
-  - No secrets, no extraneous files, clean working tree.
-
+  - Domain invariants are enforced through factories and private setters.
+  - No secrets or extraneous files; formatter and whitespace checks pass.

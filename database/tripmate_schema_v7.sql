@@ -18,6 +18,10 @@
         §5.3 was authored for TripMate. Replaced with the full, real
         130-row Application Messages List (MSG01–MSG130) from the
         authored SRS §5.3.
+     3. TM-98 documentation clarification only (no DDL or seed-data
+        change): TM-98 leaves catalog.POIs.scenic_score and photo_rating
+        NULL on creation. Populating them later requires a separately
+        approved aggregation flow.
 
    v6 changes vs v5:
 
@@ -63,11 +67,10 @@
         redeploy to change. Flagging this trade-off explicitly.
      3. NEW catalog.FavoritePOIs — lets a Traveler bookmark a POI.
      4. social.Reviews — added scenic_rating/photo_rating (only when
-        target_type = 'POI'). catalog.POIs.scenic_score/photo_rating are
-        Admin-seeded on POI creation (UC-52) as a cold-start value, then
-        intended to be refreshed periodically as an average of these
-        per-review ratings once enough reviews exist (batch job, not yet
-        implemented — application-layer concern).
+        target_type = 'POI'). The original Admin-seeded cold-start
+        proposal was superseded by TM-98: catalog.POIs.scenic_score and
+        photo_rating remain NULL on creation and may be populated only by
+        a separately approved review-aggregation flow.
      5. commerce.BookingParticipants — added id_document_type,
         id_document_number, nationality for premium/international tours
         that require real identity verification. Contains PII — per
@@ -160,7 +163,7 @@ CREATE TABLE dbo.Users (
         CHECK (role IN ('Traveler','TourOperator','Administrator')),
     email               NVARCHAR(256) NULL,
     phone_number        NVARCHAR(20)  NULL,
-    password_hash       NVARCHAR(256) NULL,          -- NULL allowed: social-login-only accounts
+    password_hash       NVARCHAR(256) NULL,
     full_name           NVARCHAR(150) NOT NULL,
     avatar_url          NVARCHAR(500) NULL,
     status              VARCHAR(24)   NOT NULL DEFAULT 'Active'
@@ -337,10 +340,9 @@ CREATE TABLE catalog.POIs (
     address                     NVARCHAR(400) NULL,
     indoor_outdoor               VARCHAR(10) NOT NULL DEFAULT 'Outdoor'
         CHECK (indoor_outdoor IN ('Indoor','Outdoor','Mixed')),
-    -- Admin-seeded on creation (UC-52) as a cold-start value. Once a POI has
-    -- enough reviews, intended to be refreshed as an average of
-    -- social.Reviews.scenic_rating / photo_rating (target_type = 'POI') via
-    -- a periodic job — not yet implemented, application-layer concern.
+    -- TM-98 leaves these nullable cold-start scores unset on creation.
+    -- A later approved aggregation flow may populate them from
+    -- social.Reviews.scenic_rating / photo_rating (target_type = 'POI').
     scenic_score                 DECIMAL(3,1) NULL CHECK (scenic_score BETWEEN 0 AND 10),
     photo_rating                 DECIMAL(3,1) NULL CHECK (photo_rating BETWEEN 0 AND 10),
     avg_visit_duration_minutes  INT NOT NULL DEFAULT 60 CHECK (avg_visit_duration_minutes > 0),
@@ -1044,6 +1046,19 @@ CREATE TABLE social.TravelGroups (
     host_user_id           BIGINT NOT NULL REFERENCES dbo.Users(user_id),
     name                      NVARCHAR(150) NULL,
     created_at                  DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+);
+GO
+
+CREATE TABLE social.TravelGroupCreationRequests (
+    request_id              BIGINT IDENTITY(1,1) PRIMARY KEY,
+    traveler_user_id        BIGINT NOT NULL REFERENCES dbo.Users(user_id),
+    idempotency_key         UNIQUEIDENTIFIER NOT NULL,
+    itinerary_id            BIGINT NOT NULL REFERENCES planning.Itineraries(itinerary_id),
+    group_name              NVARCHAR(150) NOT NULL,
+    group_id                BIGINT NOT NULL REFERENCES social.TravelGroups(group_id) ON DELETE CASCADE,
+    created_at              DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT UQ_TravelGroupCreationRequests_TravelerKey
+        UNIQUE (traveler_user_id, idempotency_key)
 );
 GO
 

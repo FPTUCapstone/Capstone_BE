@@ -1,10 +1,16 @@
 # Bakes TripMateDb (with tripmate_schema_v7.sql already applied) into a SQL Server image, so a
 # container started from it has the database ready immediately — no apply-schema.sh step needed.
-# Build from the repo root: docker build -f database/Dockerfile.seeded -t tripmate-db:v7 .
+# Build from the repo root, supplying the sa password as a build argument (never committed):
+#   docker build -f database/Dockerfile.seeded -t tripmate-db:v7 --build-arg SA_PASSWORD="<SA_PASSWORD from .env>" .
+# The passed value is baked into the image (visible via docker history / docker inspect) — this is
+# the local-dev seeded-image distribution convenience only (database/README.md §10), never for
+# production/cloud.
 FROM mcr.microsoft.com/mssql/server:2022-latest
 
+# sa password comes from --build-arg SA_PASSWORD at build time; seed-image.sh fails fast if unset.
+ARG SA_PASSWORD
 ENV ACCEPT_EULA=Y
-ENV MSSQL_SA_PASSWORD=Passw0rd!Local
+ENV MSSQL_SA_PASSWORD=${SA_PASSWORD}
 ENV MSSQL_PID=Developer
 
 COPY database/tripmate_schema_v7.sql /tmp/tripmate_schema_v7.sql

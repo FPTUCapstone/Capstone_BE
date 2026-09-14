@@ -9,23 +9,78 @@ namespace TripMate.Domain.Entities;
  */
 public class Itinerary : BaseEntity
 {
-    public long TravelerUserId { get; set; }
+    public const int TitleMaxLength = 200;
+    public const string ManualSourceType = "Manual";
+    public const string DraftStatus = "Draft";
+    public const string ActiveStatus = "Active";
+    public const string CompletedStatus = "Completed";
+    public const string CancelledStatus = "Cancelled";
 
-    public User TravelerUser { get; set; } = null!;
+    private Itinerary()
+    {
+    }
 
-    public string SourceType { get; set; } = "Manual";
+    private Itinerary(
+        long travelerUserId,
+        string? title,
+        string status,
+        DateTimeOffset createdAtUtc,
+        DateTimeOffset updatedAtUtc)
+    {
+        if (travelerUserId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(travelerUserId));
+        }
 
-    public string? Title { get; set; }
+        var normalizedTitle = title?.Trim();
+        if (normalizedTitle?.Length > TitleMaxLength)
+        {
+            throw new ArgumentException(
+                $"An itinerary title cannot exceed {TitleMaxLength} characters.",
+                nameof(title));
+        }
 
-    public string Status { get; set; } = "Draft";
+        var normalizedStatus = status?.Trim();
+        if (normalizedStatus is not (DraftStatus or ActiveStatus or CompletedStatus or CancelledStatus))
+        {
+            throw new ArgumentException("An itinerary status is invalid.", nameof(status));
+        }
 
-    public DateTimeOffset? ValidFromUtc { get; set; }
+        TravelerUserId = travelerUserId;
+        Title = normalizedTitle;
+        SourceType = ManualSourceType;
+        Status = normalizedStatus;
+        CreatedAtUtc = createdAtUtc;
+        UpdatedAtUtc = updatedAtUtc;
+    }
 
-    public DateTimeOffset? ValidToUtc { get; set; }
+    public static Itinerary CreateManual(
+        long travelerUserId,
+        string? title,
+        string status,
+        DateTimeOffset createdAtUtc,
+        DateTimeOffset? updatedAtUtc = null) =>
+        new(travelerUserId, title, status, createdAtUtc, updatedAtUtc ?? createdAtUtc);
 
-    public DateTimeOffset CreatedAtUtc { get; set; }
+    public long TravelerUserId { get; private set; }
 
-    public DateTimeOffset UpdatedAtUtc { get; set; }
+    public User TravelerUser { get; private set; } = null!;
 
-    public ICollection<TravelGroup> TravelGroups { get; set; } = new List<TravelGroup>();
+    public string SourceType { get; private set; } = ManualSourceType;
+
+    public string? Title { get; private set; }
+
+    public string Status { get; private set; } = DraftStatus;
+
+    public DateTimeOffset? ValidFromUtc { get; private set; }
+
+    public DateTimeOffset? ValidToUtc { get; private set; }
+
+    public DateTimeOffset CreatedAtUtc { get; private set; }
+
+    public DateTimeOffset UpdatedAtUtc { get; private set; }
+
+    private readonly List<TravelGroup> _travelGroups = [];
+
+    public IReadOnlyCollection<TravelGroup> TravelGroups => _travelGroups.AsReadOnly();
 }
