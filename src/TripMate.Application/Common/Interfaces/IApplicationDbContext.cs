@@ -48,6 +48,10 @@ public interface IApplicationDbContext
 
     DbSet<Itinerary> Itineraries { get; }
 
+    DbSet<ItineraryItem> ItineraryItems { get; }
+
+    DbSet<SchedulingRequest> SchedulingRequests { get; }
+
     DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests { get; }
 
     DbSet<GroupInvitation> GroupInvitations { get; }

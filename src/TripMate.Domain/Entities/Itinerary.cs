@@ -11,6 +11,7 @@ public class Itinerary : BaseEntity
 {
     public const int TitleMaxLength = 200;
     public const string ManualSourceType = "Manual";
+    public const string CspGeneratedSourceType = "CSPGenerated";
     public const string DraftStatus = "Draft";
     public const string ActiveStatus = "Active";
     public const string CompletedStatus = "Completed";
@@ -62,6 +63,37 @@ public class Itinerary : BaseEntity
         DateTimeOffset? updatedAtUtc = null) =>
         new(travelerUserId, title, status, createdAtUtc, updatedAtUtc ?? createdAtUtc);
 
+    public static Itinerary CreateCspGenerated(
+        SchedulingRequest schedulingRequest,
+        string title,
+        DateTimeOffset validFromUtc,
+        DateTimeOffset validToUtc)
+    {
+        ArgumentNullException.ThrowIfNull(schedulingRequest);
+
+        if (validToUtc <= validFromUtc)
+        {
+            throw new ArgumentException(
+                "A generated itinerary must end after it starts.",
+                nameof(validToUtc));
+        }
+
+        var itinerary = new Itinerary(
+            schedulingRequest.TravelerUserId,
+            title,
+            DraftStatus,
+            schedulingRequest.RequestedAtUtc,
+            schedulingRequest.RequestedAtUtc)
+        {
+            SourceType = CspGeneratedSourceType,
+            SchedulingRequest = schedulingRequest,
+            ValidFromUtc = validFromUtc,
+            ValidToUtc = validToUtc,
+        };
+
+        return itinerary;
+    }
+
     public long TravelerUserId { get; private set; }
 
     public User TravelerUser { get; private set; } = null!;
@@ -71,6 +103,10 @@ public class Itinerary : BaseEntity
     public string? Title { get; private set; }
 
     public string Status { get; private set; } = DraftStatus;
+
+    public long? SchedulingRequestId { get; private set; }
+
+    public SchedulingRequest? SchedulingRequest { get; private set; }
 
     public DateTimeOffset? ValidFromUtc { get; private set; }
 
@@ -82,5 +118,22 @@ public class Itinerary : BaseEntity
 
     private readonly List<TravelGroup> _travelGroups = [];
 
+    private readonly List<ItineraryItem> _items = [];
+
     public IReadOnlyCollection<TravelGroup> TravelGroups => _travelGroups.AsReadOnly();
+
+    public IReadOnlyCollection<ItineraryItem> Items => _items.AsReadOnly();
+
+    public void AddItem(ItineraryItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+
+        if (_items.Any(existing => existing.SequenceNo == item.SequenceNo))
+        {
+            throw new InvalidOperationException("An itinerary item sequence number must be unique.");
+        }
+
+        item.AttachTo(this);
+        _items.Add(item);
+    }
 }

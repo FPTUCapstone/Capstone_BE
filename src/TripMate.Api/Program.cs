@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -49,11 +50,7 @@ try
         .AddJsonOptions(options =>
         {
             options.JsonSerializerOptions.PropertyNamingPolicy = jsonNamingPolicy;
-
-            // UC-04 v2.0 contract: enums serialize as strings (e.g. "Traveler", "Active") —
-            // aligning the runtime serializer with the enum-as-string OpenAPI schema the API
-            // already documents, so clients never depend on numeric enum values.
-            options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+            options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
         });
 
     builder.Services.Configure<ApiBehaviorOptions>(options =>
@@ -92,6 +89,7 @@ try
         options.SchemaFilter<ProblemDetailsContractSchemaFilter>();
         options.OperationFilter<AllowAnonymousOperationFilter>();
         options.OperationFilter<TourSearchOperationFilter>();
+        options.OperationFilter<QueryParameterCamelCaseOperationFilter>();
 
         options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
         {

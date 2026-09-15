@@ -1,0 +1,170 @@
+SET XACT_ABORT ON;
+SET NOCOUNT ON;
+
+BEGIN TRY
+    BEGIN TRANSACTION;
+
+    IF COL_LENGTH(N'planning.SchedulingRequests', N'start_at') IS NULL
+    BEGIN
+        ALTER TABLE planning.SchedulingRequests ADD start_at DATETIME2 NULL;
+    END;
+
+    IF EXISTS (
+        SELECT 1
+        FROM sys.columns
+        WHERE object_id = OBJECT_ID(N'planning.SchedulingRequests')
+          AND name = N'start_at'
+          AND is_nullable = 1)
+    BEGIN
+        EXEC sys.sp_executesql N'
+            UPDATE planning.SchedulingRequests
+            SET start_at = requested_at
+            WHERE start_at IS NULL;
+
+            ALTER TABLE planning.SchedulingRequests ALTER COLUMN start_at DATETIME2 NOT NULL;';
+    END;
+
+    IF COL_LENGTH(N'planning.SchedulingRequests', N'time_zone_id') IS NULL
+    BEGIN
+        ALTER TABLE planning.SchedulingRequests
+            ADD time_zone_id VARCHAR(100) NOT NULL
+                CONSTRAINT DF_SchedulingRequests_TimeZoneId DEFAULT 'Asia/Ho_Chi_Minh';
+    END;
+
+    IF COL_LENGTH(N'planning.SchedulingRequests', N'idempotency_key') IS NULL
+    BEGIN
+        ALTER TABLE planning.SchedulingRequests ADD idempotency_key UNIQUEIDENTIFIER NULL;
+    END;
+
+    IF EXISTS (
+        SELECT 1
+        FROM sys.columns
+        WHERE object_id = OBJECT_ID(N'planning.SchedulingRequests')
+          AND name = N'idempotency_key'
+          AND is_nullable = 1)
+    BEGIN
+        EXEC sys.sp_executesql N'
+            UPDATE planning.SchedulingRequests
+            SET idempotency_key = NEWID()
+            WHERE idempotency_key IS NULL;
+
+            ALTER TABLE planning.SchedulingRequests ALTER COLUMN idempotency_key UNIQUEIDENTIFIER NOT NULL;';
+    END;
+
+    IF COL_LENGTH(N'planning.SchedulingRequests', N'request_hash') IS NULL
+    BEGIN
+        ALTER TABLE planning.SchedulingRequests ADD request_hash CHAR(64) NULL;
+    END;
+
+    IF EXISTS (
+        SELECT 1
+        FROM sys.columns
+        WHERE object_id = OBJECT_ID(N'planning.SchedulingRequests')
+          AND name = N'request_hash'
+          AND is_nullable = 1)
+    BEGIN
+        EXEC sys.sp_executesql N'
+            UPDATE planning.SchedulingRequests
+            SET request_hash = REPLICATE(''0'', 64)
+            WHERE request_hash IS NULL;
+
+            ALTER TABLE planning.SchedulingRequests ALTER COLUMN request_hash CHAR(64) NOT NULL;';
+    END;
+
+    IF COL_LENGTH(N'planning.SchedulingRequests', N'rest_preference') IS NULL
+    BEGIN
+        ALTER TABLE planning.SchedulingRequests
+            ADD rest_preference VARCHAR(10) NOT NULL
+                CONSTRAINT DF_SchedulingRequests_RestPreference DEFAULT 'Auto';
+    END;
+
+    IF COL_LENGTH(N'planning.SchedulingRequests', N'failure_code') IS NULL
+    BEGIN
+        ALTER TABLE planning.SchedulingRequests ADD failure_code VARCHAR(100) NULL;
+    END;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.indexes
+        WHERE name = N'UX_SchedulingRequests_Traveler_Key'
+          AND object_id = OBJECT_ID(N'planning.SchedulingRequests'))
+    BEGIN
+        CREATE UNIQUE INDEX UX_SchedulingRequests_Traveler_Key
+            ON planning.SchedulingRequests(traveler_user_id, idempotency_key);
+    END;
+
+    IF COL_LENGTH(N'catalog.POIs', N'estimated_visit_cost') IS NULL
+    BEGIN
+        ALTER TABLE catalog.POIs ADD estimated_visit_cost DECIMAL(12, 2) NULL;
+    END;
+
+    IF COL_LENGTH(N'catalog.POIs', N'source_url') IS NULL
+    BEGIN
+        ALTER TABLE catalog.POIs ADD source_url NVARCHAR(500) NULL;
+    END;
+
+    IF COL_LENGTH(N'catalog.POIs', N'verified_at') IS NULL
+    BEGIN
+        ALTER TABLE catalog.POIs ADD verified_at DATETIME2 NULL;
+    END;
+
+    IF COL_LENGTH(N'planning.ItineraryItems', N'item_kind') IS NULL
+    BEGIN
+        ALTER TABLE planning.ItineraryItems ADD item_kind VARCHAR(10) NULL;
+    END;
+
+    IF EXISTS (
+        SELECT 1
+        FROM sys.columns
+        WHERE object_id = OBJECT_ID(N'planning.ItineraryItems')
+          AND name = N'item_kind'
+          AND is_nullable = 1)
+    BEGIN
+        EXEC sys.sp_executesql N'
+            UPDATE planning.ItineraryItems
+            SET item_kind = ''Visit''
+            WHERE item_kind IS NULL;
+
+            ALTER TABLE planning.ItineraryItems ALTER COLUMN item_kind VARCHAR(10) NOT NULL;';
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM sys.default_constraints
+            WHERE parent_object_id = OBJECT_ID(N'planning.ItineraryItems')
+              AND name = N'DF_ItineraryItems_ItemKind')
+        BEGIN
+            ALTER TABLE planning.ItineraryItems
+                ADD CONSTRAINT DF_ItineraryItems_ItemKind DEFAULT 'Visit' FOR item_kind;
+        END;
+    END;
+
+    IF EXISTS (
+        SELECT 1
+        FROM sys.columns
+        WHERE object_id = OBJECT_ID(N'planning.ItineraryItems')
+          AND name = N'poi_id'
+          AND is_nullable = 0)
+    BEGIN
+        ALTER TABLE planning.ItineraryItems ALTER COLUMN poi_id BIGINT NULL;
+    END;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.check_constraints
+        WHERE name = N'CK_ItineraryItems_KindPoi'
+          AND parent_object_id = OBJECT_ID(N'planning.ItineraryItems'))
+    BEGIN
+        EXEC sys.sp_executesql N'
+            ALTER TABLE planning.ItineraryItems
+                ADD CONSTRAINT CK_ItineraryItems_KindPoi CHECK (
+                    (item_kind = ''Visit'' AND poi_id IS NOT NULL)
+                    OR (item_kind = ''Rest'' AND poi_id IS NULL AND is_mandatory = 0));';
+    END;
+
+    COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION;
+    THROW;
+END CATCH;
+GO

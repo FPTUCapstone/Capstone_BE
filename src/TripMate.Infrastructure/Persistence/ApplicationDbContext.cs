@@ -108,6 +108,10 @@ public class ApplicationDbContext(
 
     public DbSet<Itinerary> Itineraries => Set<Itinerary>();
 
+    public DbSet<ItineraryItem> ItineraryItems => Set<ItineraryItem>();
+
+    public DbSet<SchedulingRequest> SchedulingRequests => Set<SchedulingRequest>();
+
     public DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests => Set<TravelGroupCreationRequest>();
 
     public DbSet<GroupInvitation> GroupInvitations => Set<GroupInvitation>();

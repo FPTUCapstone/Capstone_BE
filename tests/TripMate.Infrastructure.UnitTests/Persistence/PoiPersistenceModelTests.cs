@@ -25,6 +25,9 @@ public class PoiPersistenceModelTests
         ColumnName(poi, nameof(PointOfInterest.Id)).Should().Be("poi_id");
         ColumnName(poi, nameof(PointOfInterest.CategoryId)).Should().Be("category_id");
         ColumnName(poi, nameof(PointOfInterest.HasShelter)).Should().Be("has_shelter");
+        ColumnName(poi, nameof(PointOfInterest.EstimatedVisitCost)).Should().Be("estimated_visit_cost");
+        ColumnName(poi, nameof(PointOfInterest.SourceUrl)).Should().Be("source_url");
+        ColumnName(poi, nameof(PointOfInterest.VerifiedAtUtc)).Should().Be("verified_at");
         poi.FindProperty(nameof(PointOfInterest.Name))!.GetMaxLength()
             .Should().Be(PointOfInterest.NameMaxLength);
         poi.FindProperty(nameof(PointOfInterest.Latitude))!.GetPrecision().Should().Be(9);
@@ -37,6 +40,8 @@ public class PoiPersistenceModelTests
             .GetProviderClrType().Should().Be(typeof(string));
         poi.FindProperty(nameof(PointOfInterest.CreatedAtUtc))!
             .GetTypeMapping().Converter!.ProviderClrType.Should().Be(typeof(DateTime));
+        poi.FindProperty(nameof(PointOfInterest.VerifiedAtUtc))!
+            .GetTypeMapping().Converter!.ProviderClrType.Should().Be(typeof(DateTime?));
         poi.FindProperty(nameof(PointOfInterest.IndoorOutdoor))!
             .IsUnicode().Should().BeFalse();
         poi.FindProperty(nameof(PointOfInterest.Status))!
