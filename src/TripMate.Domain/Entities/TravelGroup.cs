@@ -17,6 +17,7 @@ namespace TripMate.Domain.Entities;
 public class TravelGroup : BaseEntity
 {
     private readonly List<GroupMember> _groupMembers = [];
+    private readonly List<GroupInvitation> _groupInvitations = [];
 
     private TravelGroup()
     {
@@ -75,6 +76,8 @@ public class TravelGroup : BaseEntity
     public DateTimeOffset CreatedAtUtc { get; private set; }
 
     public IReadOnlyCollection<GroupMember> GroupMembers => _groupMembers.AsReadOnly();
+
+    public IReadOnlyCollection<GroupInvitation> GroupInvitations => _groupInvitations.AsReadOnly();
 
     public void AddMember(GroupMember member)
     {

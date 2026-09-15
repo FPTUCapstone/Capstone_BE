@@ -8,6 +8,8 @@ using TripMate.Api.Common;
 using TripMate.Api.Controllers.V1.Requests;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.TravelGroups.CreateTravelGroup;
+using TripMate.Application.Features.TravelGroups.GetInvitation;
+using TripMate.Application.Features.TravelGroups.ManageInvitation;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Api.Controllers.V1;
@@ -62,5 +64,62 @@ public class TravelGroupsController(
         return result.IsSuccess
             ? StatusCode(StatusCodes.Status201Created, result.Value)
             : HandleFailure(result);
+    }
+
+    [HttpPost("{groupId:long}/invitation")]
+    [ProducesResponseType(typeof(GetGroupInvitationResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public Task<IActionResult> GetOrCreateInvitation(
+        long groupId,
+        [BindRequired, FromHeader(Name = "Idempotency-Key")] string idempotencyKey,
+        CancellationToken cancellationToken) =>
+        SendInvitationCommandAsync(
+            groupId,
+            idempotencyKey,
+            (currentUserId, key) => new GetOrCreateGroupInvitationCommand(groupId, currentUserId, key),
+            cancellationToken);
+
+    [HttpPost("{groupId:long}/invitation/regenerate")]
+    [ProducesResponseType(typeof(GetGroupInvitationResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public Task<IActionResult> RegenerateInvitation(
+        long groupId,
+        [BindRequired, FromHeader(Name = "Idempotency-Key")] string idempotencyKey,
+        CancellationToken cancellationToken) =>
+        SendInvitationCommandAsync(
+            groupId,
+            idempotencyKey,
+            (currentUserId, key) => new RegenerateGroupInvitationCommand(groupId, currentUserId, key),
+            cancellationToken);
+
+    private async Task<IActionResult> SendInvitationCommandAsync(
+        long groupId,
+        string idempotencyKey,
+        Func<long, Guid, IRequest<TripMate.Application.Common.Models.Result<GetGroupInvitationResponse>>> createCommand,
+        CancellationToken cancellationToken)
+    {
+        if (!currentUserService.UserId.HasValue)
+        {
+            return Unauthorized();
+        }
+
+        if (!Guid.TryParse(idempotencyKey, out var parsedIdempotencyKey)
+            || parsedIdempotencyKey == Guid.Empty)
+        {
+            return Problem(
+                title: "A valid Idempotency-Key header is required.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var result = await Sender.Send(createCommand(currentUserService.UserId.Value, parsedIdempotencyKey), cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 }

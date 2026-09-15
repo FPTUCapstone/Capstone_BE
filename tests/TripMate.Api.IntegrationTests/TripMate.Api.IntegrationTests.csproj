@@ -34,6 +34,9 @@
     <None Include="..\..\database\migrations\20260912_add_travel_group_creation_requests.sql"
           Link="Database\migrations\20260912_add_travel_group_creation_requests.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20260914_add_group_invitation_operations.sql"
+          Link="Database\migrations\20260914_add_group_invitation_operations.sql"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

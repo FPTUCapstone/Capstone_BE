@@ -44,6 +44,10 @@ public class TestDbContext(
 
     public DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests => Set<TravelGroupCreationRequest>();
 
+    public DbSet<GroupInvitation> GroupInvitations => Set<GroupInvitation>();
+
+    public DbSet<GroupInvitationOperation> GroupInvitationOperations => Set<GroupInvitationOperation>();
+
     public int TransactionExecutionCount { get; private set; }
 
     public async Task<T> ExecuteInTransactionAsync<T>(

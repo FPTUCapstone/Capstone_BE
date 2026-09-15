@@ -78,6 +78,11 @@ public class ApplicationDbContext(
     public DbSet<Itinerary> Itineraries => Set<Itinerary>();
 
     public DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests => Set<TravelGroupCreationRequest>();
+
+    public DbSet<GroupInvitation> GroupInvitations => Set<GroupInvitation>();
+
+    public DbSet<GroupInvitationOperation> GroupInvitationOperations => Set<GroupInvitationOperation>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(

@@ -1,0 +1,60 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Metadata.Builders;
+
+using TripMate.Domain.Entities;
+using TripMate.Infrastructure.Persistence.Common;
+
+namespace TripMate.Infrastructure.Persistence.Configurations;
+
+public sealed class GroupInvitationOperationConfiguration
+    : IEntityTypeConfiguration<GroupInvitationOperation>
+{
+    public void Configure(EntityTypeBuilder<GroupInvitationOperation> builder)
+    {
+        builder.ToTable("GroupInvitationOperations", "social");
+        builder.HasKey(operation => operation.Id);
+        builder.Property(operation => operation.Id)
+            .HasColumnName("operation_id")
+            .ValueGeneratedOnAdd();
+        builder.Property(operation => operation.TravelerUserId)
+            .HasColumnName("traveler_user_id")
+            .IsRequired();
+        builder.Property(operation => operation.GroupId)
+            .HasColumnName("group_id")
+            .IsRequired();
+        builder.Property(operation => operation.OperationType)
+            .HasColumnName("operation_type")
+            .HasConversion<string>()
+            .HasMaxLength(20)
+            .IsRequired();
+        builder.Property(operation => operation.IdempotencyKey)
+            .HasColumnName("idempotency_key")
+            .IsRequired();
+        builder.Property(operation => operation.InvitationId)
+            .HasColumnName("invitation_id")
+            .IsRequired();
+        builder.Property(operation => operation.CreatedAtUtc)
+            .HasColumnName("created_at")
+            .AsUtcDateTime2()
+            .IsRequired();
+
+        builder.HasIndex(operation => new { operation.TravelerUserId, operation.IdempotencyKey })
+            .IsUnique()
+            .HasDatabaseName("UX_GroupInvitationOperations_TravelerKey");
+
+        builder.HasOne(operation => operation.Invitation)
+            .WithMany()
+            .HasForeignKey(operation => operation.InvitationId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasOne<TravelGroup>()
+            .WithMany()
+            .HasForeignKey(operation => operation.GroupId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(operation => operation.TravelerUserId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}
