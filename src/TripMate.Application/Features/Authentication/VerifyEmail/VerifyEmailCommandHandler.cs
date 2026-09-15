@@ -1,6 +1,8 @@
 using MediatR;
+
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Authentication.Common;
@@ -66,9 +68,6 @@ public class VerifyEmailCommandHandler(
         switch (user.Status)
         {
             case AccountStatus.PendingEmailVerification:
-                user.Status = AccountStatus.Active;
-                user.EmailVerifiedAtUtc = now;
-                user.UpdatedAtUtc = now;
                 break;
             case AccountStatus.Locked:
                 return Result.Failure<VerifyEmailResponse>(
@@ -86,6 +85,22 @@ public class VerifyEmailCommandHandler(
                 return Result.Failure<VerifyEmailResponse>(
                     AuthErrorCodes.AccountInactive,
                     "Your account is not active. Please contact support.");
+        }
+
+        // This endpoint also issues sessions: a Google identity must not bypass UC-04 BR-18.
+        if (user.Role == UserRole.Administrator
+            && string.Equals(tokenResult.SignInProvider, "google.com", StringComparison.Ordinal))
+        {
+            return Result.Failure<VerifyEmailResponse>(
+                AuthErrorCodes.AdminGoogleSignInDisabled,
+                "Administrator accounts must sign in with email and password.");
+        }
+
+        if (user.Status == AccountStatus.PendingEmailVerification)
+        {
+            user.Status = AccountStatus.Active;
+            user.EmailVerifiedAtUtc = now;
+            user.UpdatedAtUtc = now;
         }
 
         var refreshTokenValue = jwtTokenService.GenerateRefreshToken();
