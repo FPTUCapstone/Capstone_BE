@@ -38,6 +38,10 @@ public interface IApplicationDbContext
 
     DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests { get; }
 
+    DbSet<GroupInvitation> GroupInvitations { get; }
+
+    DbSet<GroupInvitationOperation> GroupInvitationOperations { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 
     Task<T> ExecuteInTransactionAsync<T>(

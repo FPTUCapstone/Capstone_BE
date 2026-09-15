@@ -42,5 +42,8 @@ public class TravelGroupConfiguration : IEntityTypeConfiguration<TravelGroup>
         builder.Navigation(g => g.GroupMembers)
             .UsePropertyAccessMode(PropertyAccessMode.Field);
 
+        builder.Navigation(g => g.GroupInvitations)
+            .UsePropertyAccessMode(PropertyAccessMode.Field);
+
     }
 }

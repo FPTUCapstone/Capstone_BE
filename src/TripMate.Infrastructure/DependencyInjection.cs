@@ -4,6 +4,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 using TripMate.Application.Common.Interfaces;
+using TripMate.Application.Features.TravelGroups.ManageInvitation;
 using TripMate.Infrastructure.Authentication;
 using TripMate.Infrastructure.Persistence;
 using TripMate.Infrastructure.Services;
@@ -24,6 +25,8 @@ public static class DependencyInjection
         services.AddScoped<IApplicationDbContext>(sp =>
             sp.GetRequiredService<ApplicationDbContext>());
         services.AddScoped<ITravelGroupCreationLock, SqlServerTravelGroupCreationLock>();
+        services.AddScoped<IGroupInvitationLock, SqlServerGroupInvitationLock>();
+        services.AddSingleton<IGroupInvitationCodeGenerator, RandomGroupInvitationCodeGenerator>();
 
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
 
