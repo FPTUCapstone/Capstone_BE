@@ -36,6 +36,10 @@ public interface IApplicationDbContext
 
     DbSet<Itinerary> Itineraries { get; }
 
+    DbSet<ItineraryItem> ItineraryItems { get; }
+
+    DbSet<SchedulingRequest> SchedulingRequests { get; }
+
     DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);

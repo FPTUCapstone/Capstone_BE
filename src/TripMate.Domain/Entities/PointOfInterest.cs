@@ -8,6 +8,7 @@ public class PointOfInterest : BaseEntity
     public const int NameMaxLength = 200;
     public const int AddressMaxLength = 400;
     public const int DescriptionMaxLength = 2_000;
+    public const int SourceUrlMaxLength = 500;
     public const int DefaultAverageVisitDurationMinutes = 60;
 
     private readonly List<PoiOpeningHour> _openingHours = [];
@@ -40,6 +41,12 @@ public class PointOfInterest : BaseEntity
     public int AverageVisitDurationMinutes { get; private set; }
 
     public bool HasShelter { get; private set; }
+
+    public decimal? EstimatedVisitCost { get; private set; }
+
+    public string? SourceUrl { get; private set; }
+
+    public DateTimeOffset? VerifiedAtUtc { get; private set; }
 
     public PointOfInterestStatus Status { get; private set; }
 
@@ -129,6 +136,31 @@ public class PointOfInterest : BaseEntity
 
         openingHour.AttachTo(this);
         _openingHours.Add(openingHour);
+    }
+
+    public void ConfigurePlanningMetadata(
+        decimal? estimatedVisitCost,
+        string sourceUrl,
+        DateTimeOffset verifiedAtUtc)
+    {
+        if (estimatedVisitCost is < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(estimatedVisitCost));
+        }
+
+        var normalizedSourceUrl = NormalizeRequired(
+            sourceUrl,
+            SourceUrlMaxLength,
+            nameof(sourceUrl));
+        if (!Uri.TryCreate(normalizedSourceUrl, UriKind.Absolute, out var sourceUri)
+            || (sourceUri.Scheme != Uri.UriSchemeHttp && sourceUri.Scheme != Uri.UriSchemeHttps))
+        {
+            throw new ArgumentException("Source URL must be an absolute HTTP(S) URL.", nameof(sourceUrl));
+        }
+
+        EstimatedVisitCost = estimatedVisitCost;
+        SourceUrl = normalizedSourceUrl;
+        VerifiedAtUtc = verifiedAtUtc.ToUniversalTime();
     }
 
     public void AddTag(Tag tag)

@@ -23,6 +23,7 @@ public class ItineraryConfiguration : IEntityTypeConfiguration<Itinerary>
         builder.Property(i => i.SourceType).HasColumnName("source_type").HasMaxLength(14).IsRequired();
         builder.Property(i => i.Title).HasColumnName("title").HasMaxLength(200);
         builder.Property(i => i.Status).HasColumnName("status").HasMaxLength(10).IsRequired();
+        builder.Property(i => i.SchedulingRequestId).HasColumnName("scheduling_request_id");
         builder.Property(i => i.ValidFromUtc).HasColumnName("valid_from").AsUtcDateTime2();
         builder.Property(i => i.ValidToUtc).HasColumnName("valid_to").AsUtcDateTime2();
         builder.Property(i => i.CreatedAtUtc).HasColumnName("created_at").AsUtcDateTime2().IsRequired();
@@ -32,8 +33,14 @@ public class ItineraryConfiguration : IEntityTypeConfiguration<Itinerary>
             .WithMany()
             .HasForeignKey(i => i.TravelerUserId)
             .OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(i => i.SchedulingRequest)
+            .WithMany()
+            .HasForeignKey(i => i.SchedulingRequestId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.Navigation(i => i.TravelGroups)
+            .UsePropertyAccessMode(PropertyAccessMode.Field);
+        builder.Navigation(i => i.Items)
             .UsePropertyAccessMode(PropertyAccessMode.Field);
     }
 }

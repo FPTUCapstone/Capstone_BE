@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -39,7 +40,10 @@ try
     builder.Services
         .AddControllers()
         .AddJsonOptions(options =>
-            options.JsonSerializerOptions.PropertyNamingPolicy = jsonNamingPolicy);
+        {
+            options.JsonSerializerOptions.PropertyNamingPolicy = jsonNamingPolicy;
+            options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+        });
 
     builder.Services.Configure<ApiBehaviorOptions>(options =>
     {
@@ -72,6 +76,7 @@ try
         options.SchemaFilter<PoiEnumSchemaFilter>();
         options.SchemaFilter<PoiContractSchemaFilter>();
         options.SchemaFilter<ProblemDetailsContractSchemaFilter>();
+        options.OperationFilter<QueryParameterCamelCaseOperationFilter>();
 
         options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
         {
