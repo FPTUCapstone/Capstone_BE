@@ -47,9 +47,16 @@ public static class AuthErrorCodes
     public const string InvalidCredentials = "auth.invalid_credentials";
     public const string AccountPendingVerification = MsgUnverified;
     public const string AccountPendingApproval = "auth.account_pending_approval";
+    public const string AccountStateUnresolved = "auth.account_state_unresolved";
     public const string AccountLocked = "auth.account_locked";
     public const string AccountInactive = "auth.account_inactive";
+    public const string VerificationUnavailable = "auth.verification_unavailable";
+    public const string VerificationEmailMissing = "auth.verification_email_missing";
+    public const string VerificationUserNotFound = "MSG_USER_NOT_FOUND";
+    public const string AuthHeaderMissing = "AUTH_HEADER_MISSING";
     public const string FirebaseUnavailable = "auth.firebase_unavailable";
+    public const string AdminAccessRequired = "auth.admin_access_required";
+    public const string RequestInvalid = "auth.request_invalid";
     public const string AdminGoogleSignInDisabled = "auth.admin_google_sign_in_disabled";
     public const string EmailAlreadyRegistered = Msg03;
 }

@@ -16,7 +16,7 @@ namespace TripMate.Application.Features.Authentication.GoogleAuth;
 /// <summary>
 /// UC-04 v2.0 Google Sign In. A verified Firebase token proves identity only. Claims fail
 /// closed (BR-11 provider, BR-12 email verification); administrative status gates apply before
-/// any mutation (BR-05/07/08); a Rejected operator may still sign in (BR-06); an unknown email
+/// any mutation; legacy operators require the shared compatibility resolver; an unknown email
 /// is auto-provisioned as Traveler/Active (BR-02); an existing account's status is never
 /// changed by Sign In (BR-14). There is no raw-Google fallback — the Firebase Admin SDK is the
 /// sole verifier (D2-A) and its unavailability fails closed as 503-mapped code (BR-16).
@@ -105,6 +105,7 @@ public class GoogleAuthCommandHandler(
             var normalizedEmail = email.Trim().ToLowerInvariant();
             var now = dateTimeProvider.UtcNow;
 
+            var context = new CurrentAccountContext(AccountStatus.Active, null);
             bool isNewAccount;
             User user;
 
@@ -138,11 +139,12 @@ public class GoogleAuthCommandHandler(
                 // mutation or session issuance, and Sign In never changes an existing
                 // account's status (BR-14).
                 onUserResolved(existingUser.Id);
-                var gateFailure = EvaluateAccountGate(existingUser);
-                if (gateFailure is not null)
+                var eligibility = await EvaluateAccountGateAsync(existingUser, ct);
+                if (eligibility.IsFailure)
                 {
-                    return gateFailure;
+                    return Result.Failure<GoogleAuthResponse>(eligibility.ErrorCode!, eligibility.ErrorMessage!);
                 }
+                context = eligibility.Value;
 
                 // Update Avatar if not already set — backfill only, never overwrite.
                 if (!string.IsNullOrWhiteSpace(firebaseResult.Picture) && string.IsNullOrEmpty(existingUser.AvatarUrl))
@@ -202,12 +204,13 @@ public class GoogleAuthCommandHandler(
                     throw;
                 }
 
-                var gateFailure = EvaluateAccountGate(raced);
-                if (gateFailure is not null)
+                var eligibility = await EvaluateAccountGateAsync(raced, ct);
+                if (eligibility.IsFailure)
                 {
                     onUserResolved(raced.Id);
-                    return gateFailure;
+                    return Result.Failure<GoogleAuthResponse>(eligibility.ErrorCode!, eligibility.ErrorMessage!);
                 }
+                context = eligibility.Value;
 
                 if (!string.IsNullOrWhiteSpace(firebaseResult.Picture) && string.IsNullOrEmpty(raced.AvatarUrl))
                 {
@@ -243,38 +246,28 @@ public class GoogleAuthCommandHandler(
                 user.Email ?? normalizedEmail,
                 user.FullName,
                 user.Role,
-                user.Status,
+                context.Status,
                 accessTokenValue,
                 refreshTokenValue,
                 accessTokenExpiresAtUtc,
-                isNewAccount));
+                isNewAccount)
+            { ApplicationStatus = context.ApplicationStatus, RefreshTokenExpiresAtUtc = now.AddDays(7) });
         }
     }
 
-    private static Result<GoogleAuthResponse>? EvaluateAccountGate(User user)
+    private async Task<Result<CurrentAccountContext>> EvaluateAccountGateAsync(User user, CancellationToken cancellationToken)
     {
-        var statusFailure = user.Status switch
+        var eligibility = await AccountEligibilityResolver.ResolveAsync(
+            dbContext, user, dateTimeProvider.UtcNow, cancellationToken);
+        if (eligibility.IsFailure)
         {
-            AccountStatus.PendingEmailVerification => Result.Failure<GoogleAuthResponse>(
-                AuthErrorCodes.AccountPendingVerification,
-                "Email has not been verified."),
-            AccountStatus.PendingApproval => Result.Failure<GoogleAuthResponse>(
-                AuthErrorCodes.AccountPendingApproval,
-                "Account is pending approval."),
-            AccountStatus.Locked => Result.Failure<GoogleAuthResponse>(
-                AuthErrorCodes.AccountLocked,
-                "Account is locked."),
-            AccountStatus.Inactive => Result.Failure<GoogleAuthResponse>(
-                AuthErrorCodes.AccountInactive,
-                "Account is inactive."),
-            _ => null,
-        };
+            return eligibility;
+        }
 
-        // Status failures retain precedence; normal lookup and concurrency retry share this gate.
-        return statusFailure ?? (user.Role == UserRole.Administrator
-            ? Result.Failure<GoogleAuthResponse>(
-                AuthErrorCodes.AdminGoogleSignInDisabled,
+        // Account restrictions precede the Admin method gate, including on concurrency re-fetch.
+        return user.Role == UserRole.Administrator
+            ? Result.Failure<CurrentAccountContext>(AuthErrorCodes.AdminGoogleSignInDisabled,
                 "Administrator accounts must sign in with email and password.")
-            : null);
+            : eligibility;
     }
 }

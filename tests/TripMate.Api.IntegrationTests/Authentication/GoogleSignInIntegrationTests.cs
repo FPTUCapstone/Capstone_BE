@@ -174,7 +174,7 @@ public class GoogleSignInIntegrationTests
     }
 
     [Fact]
-    public async Task Post_Google_WithPendingApprovalAccount_Returns403PendingApprovalCode()
+    public async Task Post_Google_WithPendingApprovalAccount_Returns403UnresolvedWhenLegacyEvidenceMissing()
     {
         var firebase = new StubFirebaseService
         {
@@ -200,8 +200,8 @@ public class GoogleSignInIntegrationTests
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-        body.GetProperty("errorCode").GetString().Should().Be("auth.account_pending_approval");
-        body.GetProperty("title").GetString().Should().Be("Account is pending approval.");
+        body.GetProperty("errorCode").GetString().Should().Be("auth.account_state_unresolved");
+        body.GetProperty("title").GetString().Should().Be("Account state could not be resolved.");
     }
 
     [Fact]
@@ -235,7 +235,7 @@ public class GoogleSignInIntegrationTests
     }
 
     [Fact]
-    public async Task Post_Google_WithRejectedOperator_Returns200AndKeepsRejectedStatus()
+    public async Task Post_Google_WithRejectedOperator_Returns200EffectiveActiveAndKeepsDatabaseRejected()
     {
         var firebase = new StubFirebaseService
         {
@@ -246,13 +246,18 @@ public class GoogleSignInIntegrationTests
 
         await factory.WithDbContextAsync(async db =>
         {
-            db.Users.Add(new TripMate.Domain.Entities.User
+            var now = DateTimeOffset.UtcNow.AddMinutes(-1);
+            var user = new TripMate.Domain.Entities.User
             {
                 Email = "rejected.operator@example.com",
                 FullName = "Rejected Operator",
                 Role = UserRole.TourOperator,
                 Status = AccountStatus.Rejected,
-            });
+                CreatedAtUtc = now,
+                EmailVerifiedAtUtc = now,
+            };
+            db.Users.Add(user);
+            db.OperatorProfiles.Add(new TripMate.Domain.Entities.OperatorProfile { User = user, ApprovalStatus = OperatorApprovalStatus.Rejected });
             await db.SaveChangesAsync();
             return true;
         });
@@ -262,9 +267,17 @@ public class GoogleSignInIntegrationTests
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         var data = body.GetProperty("data");
-        data.GetProperty("status").GetString().Should().Be("Rejected");
+        data.GetProperty("status").GetString().Should().Be("Active");
         data.GetProperty("role").GetString().Should().Be("TourOperator");
         data.GetProperty("isNewAccount").GetBoolean().Should().BeFalse();
+        await factory.WithDbContextAsync(async db =>
+        {
+            var persisted = await db.Users.SingleAsync(u => u.Email == "rejected.operator@example.com");
+            persisted.Status.Should().Be(AccountStatus.Rejected);
+            db.OperatorProfiles.Single(p => p.UserId == persisted.Id).ApprovalStatus.Should().Be(OperatorApprovalStatus.Rejected);
+            db.RefreshTokens.Should().ContainSingle(t => t.UserId == persisted.Id);
+            return true;
+        });
     }
 
     [Fact]

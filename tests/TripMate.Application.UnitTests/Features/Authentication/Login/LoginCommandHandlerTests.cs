@@ -1,3 +1,6 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
 using FluentAssertions;
 
 using Microsoft.Extensions.Logging.Abstractions;
@@ -95,7 +98,7 @@ public class LoginCommandHandlerTests
 
     [Theory]
     [InlineData(AccountStatus.PendingEmailVerification, AuthErrorCodes.AccountPendingVerification, "Email has not been verified.")]
-    [InlineData(AccountStatus.PendingApproval, AuthErrorCodes.AccountPendingApproval, "Account is pending approval.")]
+    [InlineData(AccountStatus.PendingApproval, AuthErrorCodes.AccountStateUnresolved, "Account state could not be resolved.")]
     [InlineData(AccountStatus.Locked, AuthErrorCodes.AccountLocked, "Account is locked.")]
     [InlineData(AccountStatus.Inactive, AuthErrorCodes.AccountInactive, "Account is inactive.")]
     public async Task Handle_WithBlockingAccountStatus_BlocksSignInIndependentlyOfCredentials(
@@ -124,12 +127,13 @@ public class LoginCommandHandlerTests
     [Fact]
     public async Task Handle_WithRejectedTourOperator_StillSignsInWithoutStatusChange()
     {
-        // BR-06: a Rejected Tour Operator may still sign in (UC-03 resubmission requires a
-        // session). The status stays Rejected — Sign In never flips it — and the role comes
-        // from the database. PendingApproval, by contrast, is blocked per BR-05.
+        // Approved legacy compatibility requires persisted evidence and a matching profile.
         await using var dbContext = TestDbContext.Create();
         var user = await SeedUser(dbContext, "operator@example.com", "CorrectPass1", AccountStatus.Rejected, UserRole.TourOperator);
 
+        user.EmailVerifiedAtUtc = user.CreatedAtUtc;
+        dbContext.OperatorProfiles.Add(new OperatorProfile { UserId = user.Id, ApprovalStatus = OperatorApprovalStatus.Rejected });
+        await dbContext.SaveChangesAsync(CancellationToken.None);
         var handler = CreateHandler(dbContext);
 
         var result = await handler.Handle(
@@ -138,7 +142,7 @@ public class LoginCommandHandlerTests
 
         result.IsSuccess.Should().BeTrue();
         result.Value.Role.Should().Be(UserRole.TourOperator);
-        result.Value.Status.Should().Be(AccountStatus.Rejected);
+        result.Value.Status.Should().Be(AccountStatus.Active);
         result.Value.UserId.Should().Be(user.Id);
 
         var persistedUser = await dbContext.Users.FindAsync(user.Id);
@@ -176,6 +180,113 @@ public class LoginCommandHandlerTests
 
         var persistedUser = await dbContext.Users.FindAsync(user.Id);
         persistedUser!.LastLoginAtUtc.Should().Be(_dateTimeProvider.UtcNow);
+    }
+
+    [Theory]
+    [InlineData(AccountStatus.PendingApproval, OperatorApprovalStatus.PendingApproval)]
+    [InlineData(AccountStatus.Rejected, OperatorApprovalStatus.Rejected)]
+    public async Task Handle_WithVerifiedMatchingLegacyOperator_ReturnsEffectiveActiveWithoutNormalizingDatabase(
+        AccountStatus status, OperatorApprovalStatus approval)
+    {
+        await using var dbContext = TestDbContext.Create();
+        var user = await SeedUser(dbContext, "legacy@example.com", "CorrectPass1", status, UserRole.TourOperator);
+        user.EmailVerifiedAtUtc = user.CreatedAtUtc;
+        dbContext.OperatorProfiles.Add(new OperatorProfile { UserId = user.Id, ApprovalStatus = approval });
+        await dbContext.SaveChangesAsync(CancellationToken.None);
+
+        var result = await CreateHandler(dbContext).Handle(
+            new LoginCommand(user.Email!, "CorrectPass1"), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Status.Should().Be(AccountStatus.Active);
+        user.Status.Should().Be(status);
+        dbContext.OperatorProfiles.Single().ApprovalStatus.Should().Be(approval);
+        dbContext.RefreshTokens.Should().ContainSingle(t => t.UserId == user.Id);
+    }
+
+    [Theory]
+    [InlineData(AccountStatus.PendingApproval, OperatorApprovalStatus.Approved, UserRole.TourOperator, 0, true)]
+    [InlineData(AccountStatus.Rejected, OperatorApprovalStatus.PendingApproval, UserRole.TourOperator, 0, true)]
+    [InlineData(AccountStatus.PendingApproval, (OperatorApprovalStatus)99, UserRole.TourOperator, 0, true)]
+    [InlineData(AccountStatus.Rejected, OperatorApprovalStatus.Rejected, UserRole.Traveler, 0, true)]
+    [InlineData(AccountStatus.PendingApproval, OperatorApprovalStatus.PendingApproval, UserRole.Administrator, 0, true)]
+    [InlineData(AccountStatus.PendingApproval, OperatorApprovalStatus.PendingApproval, UserRole.TourOperator, 0, false)]
+    [InlineData(AccountStatus.Rejected, OperatorApprovalStatus.Rejected, UserRole.TourOperator, 2, true)]
+    [InlineData(AccountStatus.Rejected, OperatorApprovalStatus.Rejected, UserRole.TourOperator, -1, true)]
+    [InlineData(AccountStatus.Rejected, OperatorApprovalStatus.Rejected, UserRole.TourOperator, 1, true)]
+    [InlineData((AccountStatus)99, OperatorApprovalStatus.Approved, UserRole.TourOperator, 0, true)]
+    public async Task Handle_WithUnresolvableLegacyState_DeniesWithoutMutation(
+        AccountStatus status, OperatorApprovalStatus approval, UserRole role, int evidence, bool hasProfile)
+    {
+        await using var dbContext = TestDbContext.Create();
+        var user = await SeedUser(dbContext, "unresolved@example.com", "CorrectPass1", status, role);
+        user.CreatedAtUtc = _dateTimeProvider.UtcNow.AddDays(-1);
+        user.EmailVerifiedAtUtc = evidence == 2 ? null : evidence == -1
+            ? user.CreatedAtUtc.AddTicks(-1) : evidence == 1
+            ? _dateTimeProvider.UtcNow.AddTicks(1) : _dateTimeProvider.UtcNow;
+        if (hasProfile)
+            dbContext.OperatorProfiles.Add(new OperatorProfile { UserId = user.Id, ApprovalStatus = approval });
+        await dbContext.SaveChangesAsync(CancellationToken.None);
+        var verifiedAt = user.EmailVerifiedAtUtc;
+        var updatedAt = user.UpdatedAtUtc;
+
+        var result = await CreateHandler(dbContext).Handle(
+            new LoginCommand(user.Email!, "CorrectPass1"), CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be("auth.account_state_unresolved");
+        dbContext.RefreshTokens.Should().BeEmpty();
+        user.LastLoginAtUtc.Should().BeNull();
+        user.Status.Should().Be(status);
+        user.EmailVerifiedAtUtc.Should().Be(verifiedAt);
+        user.UpdatedAtUtc.Should().Be(updatedAt);
+        if (hasProfile) dbContext.OperatorProfiles.Single().ApprovalStatus.Should().Be(approval);
+    }
+
+    [Theory]
+    [InlineData(UserRole.Traveler, null, null)]
+    [InlineData(UserRole.Administrator, null, null)]
+    [InlineData(UserRole.TourOperator, OperatorApprovalStatus.Approved, "Approved")]
+    [InlineData(UserRole.TourOperator, OperatorApprovalStatus.PendingApproval, "PendingApproval")]
+    [InlineData(UserRole.TourOperator, OperatorApprovalStatus.Rejected, "Rejected")]
+    [InlineData(UserRole.TourOperator, null, null)]
+    [InlineData(UserRole.TourOperator, (OperatorApprovalStatus)99, null)]
+    public async Task Handle_ReturnsCurrentApplicationContextWithoutInvalidatingActiveSession(
+        UserRole role, OperatorApprovalStatus? approval, string? expected)
+    {
+        await using var db = TestDbContext.Create();
+        var user = await SeedUser(db, "context@example.com", "CorrectPass1", AccountStatus.Active, role);
+        if (approval.HasValue) db.OperatorProfiles.Add(new OperatorProfile { UserId = user.Id, ApprovalStatus = approval.Value });
+        await db.SaveChangesAsync(CancellationToken.None);
+        var result = await CreateHandler(db).Handle(new LoginCommand(user.Email!, "CorrectPass1"), CancellationToken.None);
+        result.IsSuccess.Should().BeTrue();
+        result.Value.ApplicationStatus.Should().Be(expected);
+        db.RefreshTokens.Should().ContainSingle(t => t.UserId == user.Id);
+    }
+
+    [Theory]
+    [InlineData(UserRole.Traveler, null)]
+    [InlineData(UserRole.Administrator, null)]
+    [InlineData(UserRole.TourOperator, null)]
+    [InlineData(UserRole.TourOperator, "Approved")]
+    [InlineData(UserRole.TourOperator, "PendingApproval")]
+    [InlineData(UserRole.TourOperator, "Rejected")]
+    public void WebContext_SerializesRequiredApplicationStatusWithoutRefreshCredential(UserRole role, string? application)
+    {
+        var session = new AuthResponseDto(123, "user@example.com", "", role, AccountStatus.Active,
+            "access", "private-refresh", DateTimeOffset.Parse("2026-09-14T10:15:00Z"))
+        { ApplicationStatus = application };
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web) { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+        options.Converters.Add(new JsonStringEnumConverter());
+        using var web = JsonDocument.Parse(JsonSerializer.Serialize(WebAuthResponseDto.From(session), options));
+        web.RootElement.GetProperty("applicationStatus").GetString().Should().Be(application);
+        web.RootElement.TryGetProperty("refreshToken", out _).Should().BeFalse();
+        web.RootElement.GetProperty("fullName").GetString().Should().Be("");
+        web.RootElement.GetProperty("userId").GetInt64().Should().Be(123);
+        web.RootElement.GetProperty("role").GetString().Should().Be(role.ToString());
+        using var mobile = JsonDocument.Parse(JsonSerializer.Serialize(session, options));
+        mobile.RootElement.GetProperty("refreshToken").GetString().Should().Be("private-refresh");
+        mobile.RootElement.TryGetProperty("applicationStatus", out _).Should().BeFalse();
     }
 
     private LoginCommandHandler CreateHandler(TestDbContext dbContext) =>

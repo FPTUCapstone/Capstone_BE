@@ -15,10 +15,8 @@ namespace TripMate.Application.Features.Authentication.Login;
 
 /// <summary>
 /// Order matters here (FR5): credentials are validated first with a generic error, then account
-/// status is checked independently (UC-04 v2.0 BR-01/03/05/06/07/08), and only then is the session
-/// issued. Per the ratified UC-04 status matrix: PendingEmailVerification, PendingApproval,
-/// Locked and Inactive block sign-in; a Rejected Tour Operator may still sign in (UC-03
-/// resubmission requires a session) and the account status is never changed by Sign In (BR-14).
+/// eligibility is resolved before session creation. Legacy operator states require a matching
+/// application and trusted persisted verification evidence; effective Active never updates DB status.
 /// </summary>
 public class LoginCommandHandler(
     IApplicationDbContext dbContext,
@@ -84,22 +82,18 @@ public class LoginCommandHandler(
                     "Invalid email or password.");
             }
 
-            // UC-04 v2.0: the message names the concrete account state — the errorCode already
-            // carries the machine-readable identity, so the text must not be ambiguous.
-            var (statusError, statusMessage) = user.Status switch
+            var eligibility = await AccountEligibilityResolver.ResolveAsync(
+                dbContext, user, dateTimeProvider.UtcNow, ct);
+            if (eligibility.IsFailure)
             {
-                AccountStatus.PendingEmailVerification => (AuthErrorCodes.AccountPendingVerification, "Email has not been verified."),
-                AccountStatus.PendingApproval => (AuthErrorCodes.AccountPendingApproval, "Account is pending approval."),
-                AccountStatus.Locked => (AuthErrorCodes.AccountLocked, "Account is locked."),
-                AccountStatus.Inactive => (AuthErrorCodes.AccountInactive, "Account is inactive."),
-                _ => (null, null),
-            };
-
-            if (statusError is not null)
-            {
-                return Result.Failure<AuthResponseDto>(statusError, statusMessage!);
+                return Result.Failure<AuthResponseDto>(eligibility.ErrorCode!, eligibility.ErrorMessage!);
             }
 
+            if (command.AdministratorOnly && user.Role != UserRole.Administrator)
+                return Result.Failure<AuthResponseDto>(AuthErrorCodes.AdminAccessRequired, "Administrator access is required.");
+
+            var now = dateTimeProvider.UtcNow;
+            var refreshExpiresAt = now.AddDays(7);
             var refreshTokenValue = jwtTokenService.GenerateRefreshToken();
 
             // BR-15: session persistence is atomic — the refresh-token row and LastLoginAtUtc commit
@@ -114,11 +108,11 @@ public class LoginCommandHandler(
                 {
                     UserId = user.Id,
                     TokenHash = jwtTokenService.HashRefreshToken(refreshTokenValue),
-                    CreatedAtUtc = dateTimeProvider.UtcNow,
-                    ExpiresAtUtc = dateTimeProvider.UtcNow.AddDays(7),
+                    CreatedAtUtc = now,
+                    ExpiresAtUtc = refreshExpiresAt,
                 });
 
-                user.LastLoginAtUtc = dateTimeProvider.UtcNow;
+                user.LastLoginAtUtc = now;
 
                 await dbContext.SaveChangesAsync(transactionCancellationToken);
                 return true;
@@ -131,10 +125,11 @@ public class LoginCommandHandler(
                 user.Email,
                 user.FullName,
                 user.Role,
-                user.Status,
+                eligibility.Value.Status,
                 accessToken,
                 refreshTokenValue,
-                accessTokenExpiresAtUtc));
+                accessTokenExpiresAtUtc)
+            { ApplicationStatus = eligibility.Value.ApplicationStatus, RefreshTokenExpiresAtUtc = refreshExpiresAt });
         }
     }
 }

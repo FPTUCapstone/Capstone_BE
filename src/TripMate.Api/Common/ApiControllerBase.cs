@@ -55,6 +55,9 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             AuthErrorCodes.AccountPendingVerification =>
                 StatusCodes.Status403Forbidden,
 
+            AuthErrorCodes.AccountStateUnresolved =>
+                StatusCodes.Status403Forbidden,
+
             AuthErrorCodes.AccountPendingApproval =>
                 StatusCodes.Status403Forbidden,
 
@@ -67,8 +70,14 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             AuthErrorCodes.AccountInactive =>
                 StatusCodes.Status403Forbidden,
 
+            AuthErrorCodes.AdminAccessRequired =>
+                StatusCodes.Status403Forbidden,
+
             AuthErrorCodes.AdminGoogleSignInDisabled =>
                 StatusCodes.Status403Forbidden,
+
+            AuthErrorCodes.VerificationUnavailable =>
+                StatusCodes.Status503ServiceUnavailable,
 
             AuthErrorCodes.FirebaseUnavailable =>
                 StatusCodes.Status503ServiceUnavailable,

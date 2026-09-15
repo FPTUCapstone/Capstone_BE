@@ -1,4 +1,6 @@
-# UC-04 Implementation Plan — Sign In (Spec v2.1)
+# UC-04 Implementation Plan — Sign In
+
+> Latest work: Revision 3, T16-T23, at the end of this file. Earlier tasks/results are historical snapshots. Final status (2026-09-15): W01/T16 contract gate DONE; T17-T20 implemented and locally verified; T21 core acceptance completed; T22/S01 Web refresh/session restoration completed; T23 Sign Out/revoke-on-signout intentionally deferred to the separate Sign Out UC. UC-04 SIGN IN: DONE — see "Final delivery status" at the end of this file.
 
 ## Revision 2.1 plan — approved 2026-09-14
 
@@ -50,7 +52,7 @@ the narrowly listed FE removal/error-mapping changes. User approval authorizes i
 - Review final diff twice: revised spec compliance, then authorization/mutation/regression risk.
 - Definition of done: Administrator cannot obtain a new session through either audited Google
   token path; password and non-admin flows retain behavior; available required checks pass.
-- User explicitly requested commit/push to the existing sign-in branches; do not create PRs.
+- Delivery correction: commit/push/PR ownership belongs to the developer; delivery was intentionally deferred until final validation and explicit approval. Work remains on existing sign-in branches.
   Broader FE sign-in spec completion still waits for all checklist approvals.
 
 ### Execution evidence — 2026-09-14
@@ -220,3 +222,148 @@ parallel with T5/T6 after T4 — sequential is fine for this size.)
 
 DB schema changes · `dbo.Messages` seeds · `dbo.AuthProviders` · FE/Mobile code · rate limiting ·
 refresh/logout endpoints · AGENTS.md edits (separate docs pass).
+
+## Revision 3 plan - narrowed core and approved legacy resolver
+
+Status (updated 2026-09-15): W01/T16 documentation/audit DONE and APPROVED; T17-T20 implemented and locally verified; T21 core acceptance DONE; T22/S01 Web refresh/session restoration DONE; T23 Sign Out/revocation deferred to the separate Sign Out UC. UC-04 SIGN IN: DONE (see "Final delivery status" at the end of this file). [BE spec](../specs/UC-04-spec.md), [Web plan](../../Capstone_FE/plans/UC-04-web-plan.md). T1-T15 and the W01/T16 gate records plus the T17-T20 execution-evidence sections below are historical snapshots. No commit/push/PR performed; delivery deferred pending explicit approval.
+
+| Task | Dependency | Files/areas | Verification / DoD |
+| --- | --- | --- | --- |
+| T16 BE side of joint W01 documentation/evidence gate - DONE | Joint read-only audit/documentation DONE; user sign-off recorded | User.cs EmailVerifiedAtUtc, VerifyEmailCommandHandler.cs, GoogleAuthCommandHandler.cs timestamp writers, IJwtTokenService; raw status checks incl CreatePoiCommandHandler.cs and Admin handlers | Establish trusted persisted verification provenance; no response fallback/profile/status inference; inventory relevant account gates versus role/application gates; exact new routes/errors reviewed |
+| T17 shared resolver - IMPLEMENTED / LOCALLY VERIFIED | T16 | proposed Authentication/Common/AccountEligibilityResolver.cs (location review), LoginCommandHandler.cs, GoogleAuthCommandHandler.cs, relevant eligibility consumers/tests | Resolver BEFORE old legacy gate, including re-fetch; two matching pairs PASS; conflict/missing profile/nonoperator/uncertain verification FAIL; effective Active response without DB status mutation |
+| T18 current auth context - IMPLEMENTED / LOCALLY VERIFIED | T17 | AuthResponseDto.cs, GoogleAuthResponse.cs, proposed current profile/context reader, JWT generation mapping/tests | Effective account status distinct from DB; current applicationStatus; Active missing profile session retained; consistent relevant API eligibility, no accidental business grant |
+| T19 Web sync-only - IMPLEMENTED / LOCALLY VERIFIED | T16 | proposed Web verification CQRS/DTO, AuthController.cs, validators/error mapping/tests | Zero credentials/session/cookie; fresh evidence; restrictions and operational errors; existing Mobile response/admin guard unchanged |
+| T20 Web login/Admin/cookie - IMPLEMENTED / LOCALLY VERIFIED | T17-T19 | explicit Web contracts/controller, proposed cookie service, handler/API tests | Admin gate before persistence; failed B preserves A; access/context+HttpOnly cookie; persistence fixed original7days |
+| T21 core acceptance - DONE (2026-09-15) | T17-T20, FE core | handler/API/persistence/real Web tests | Resolver matrix, no account/profile mutation, baseline regression/Mobile compatibility; runtime dependencies were later resolved by the FE core (W02-W06) plus S01/CR-11; final rules/formatter/build/test audit PASS |
+
+### Separate session work package
+T22 refresh/current-state restoration - DONE (2026-09-15): POST /api/v1/auth/web/refresh redeems the HttpOnly tripmate_refresh cookie through the same shared resolver (SHA-256 hash + revoked_at/expires_at validation, current account/role/profile, fresh short-lived access token; no rotation, no new session, no sliding expiry; raw refreshToken never in Web JSON). FE restoration: WebSessionProvider mounted in the root layout drives a single-flight cold-start restore; useWebSession exposes restoring/authenticated/unauthenticated; CR-11 guards consume the settled authoritative context. Broader session-package hardening (bounded eligible-401 API retry, manual retry joining the same single-flight, transient handling) remains deferred.
+T23 sign-out cleanup dependency - OUT OF UC-04 SCOPE (deferred 2026-09-15): normal Sign Out / revoke-on-signout belongs to the separate Sign Out UC (D02). No revoke endpoint or cookie-deletion flow was added; the owning Web sign-out session contract (revoked_at + matching cookie expiry, idempotency, JWT15minute limitation) stays with that UC.
+
+### Deferred / owning UC
+Previous T18 approval lifecycle and T23 normalization tasks are replaced by this revision, NOT scheduled core implementation. Keep old Approve handler/DB statuses intact. Actual normalization and new registration/approve/reject/resubmit writers require future coordinated release/data audit. Multi-tab/business modules deferred. Inventory account checks (e.g. CreatePoi uses Active but also role-specific gates) must resolve genuine eligibility conflicts only, not grant unrelated role/business permissions.
+
+Evidence rule: accepted MVP marker is valid persisted Users.EmailVerifiedAtUtc, with DB authoritative; existing verify writes only on PendingEmailVerification transition. Handler response EmailVerifiedAtUtc fallback does not prove persisted verification. Missing reliable evidence - unresolved; alternative provider/evidence/backfill needs reviewed contract, no new implicit Firebase dependency to ordinary password/refresh/API requests.
+
+Before implementation reread both team docs/handoff; final contract/spec/plan review then meaningful RED/GREEN/spec+standards review. Focused tests then full dotnet test/build/format and applicable FE/Mobile compatibility checks. CORE/session/dependency results separate; no migration execution, commit/push/new branch. No mock or skipped dependency counted PASS.
+
+### W01 / T16 - Documentation-only contract gate (DONE; historical gate record)
+
+W01 is the FIRST FE-BE agreement step, not a feature implementation. Source files authApi.ts, authErrorMapper.ts, controllers and DTOs are inspection/reference areas only in W01; do NOT modify runtime code/tests, create sessions or change DB. W02 and BE implementation tasks begin only after user approval of the matching final contract.
+
+Approved contract checklist:
+
+- Exact POST routes: /api/v1/auth/web/login, /api/v1/auth/web/admin/login, /api/v1/auth/web/google, /api/v1/auth/web/verify-email. Existing Mobile routes remain unchanged.
+- Password/Admin request: application/json with email:string, password:string, keepMeSignedIn:boolean (default false). Example: {"email":"user@example.com","password":"...","keepMeSignedIn":false}. Email trim/lowercase rule; password untouched. Google JSON: idToken:string and keepMeSignedIn:boolean, body-only Firebase token. Verification: Firebase Bearer, no body. Final required/null/unknown-field and validation rules documented before code.
+- Sign-in success envelope data types: userId:number (BE integer ID, NOT string); email:string; fullName:string (non-null, empty allowed); role:string enum; status:string effective authentication status; applicationStatus supported string enum for TourOperator (nonoperator always null, field required); accessToken:string; accessTokenExpiresAtUtc:UTC ISO8601 string. Google adds isNewAccount:boolean. Final field nullability and complete success example must agree in both specs.
+- Web response has NO refreshToken. Refresh credential only in HttpOnly cookie; internal token issuance may reuse existing BE services without changing the Mobile response.
+- Cookie NAME = tripmate_refresh, FINAL/APPROVED; never invent a different name during code. Attributes: HttpOnly, Secure production, SameSite=Lax with HTTPS same-site deployment, Domain omitted, Path=/api/v1/auth. OFF: session cookie; ON: persistent until original seven-day expiry; no rotation/sliding expiry. Local development exceptions and cookie deletion scope documented.
+- Legacy resolver BEFORE old legacy gate: DB PendingApproval/profile PendingApproval or DB Rejected/profile Rejected with required role/profile/verification evidence -> effective response status Active, applicationStatus from profile, NO DB account/profile-status update. Conflicts/insufficient evidence -> no session, auth.account_state_unresolved; HTTP403 APPROVED.
+- Trusted verification evidence source/provenance established by BE audit. Accepted MVP: DB authoritative; valid persisted EmailVerifiedAtUtc is sufficient evidence; no profile/status inference or response fallback. Keep ordinary password/refresh independent of new implicit Firebase calls.
+- Complete endpoint-specific error table: HTTP status + stable code + exact FE display message + action (field error, resend, retry, support, wrong Admin entry). Include validation, credentials, provider/token, account restrictions, Admin Google/Admin role, legacy unresolved, verification and operational/unknown failures. Codes, not message text matching. W01 is NOT DONE while message mappings/catalog remain placeholders.
+- Preserve existing Mobile token response/verification session/admin Google guard. Identify current Web Register consumers as compatibility dependency; no implicit client/header-based dispatch or global envelope rewrite.
+- Explicit success/error parser contracts: sign-in/Google success envelope, failures ProblemDetails/errorCode; verification follows the APPROVED W01 packet format; Mobile retains existing format. Agree casing/string enums, no role/approval guessing.
+- Refresh/sign-out exact schemas are separate session/dependency contract work; do not require full implementation of those UCs in W01. Any field/cookie decision needed by sign-in or cleanup integration must nevertheless be fixed before its consumer code.
+
+Definition of Done: both FE/BE specs contain identical APPROVED route/request/DTO/error/message/cookie/effective-status/evidence decisions; user sign-off recorded 2026-09-14. No code implementation evidence required. User approved the core contract, cookie, evidence, HTTP403 unresolved error and complete error/message/action catalog. W01/T16 = DONE (documentation/audit only); W02/T17+ implementation remains NOT EXECUTED.
+
+
+## W01/T16 approved solution - DONE (historical gate record)
+
+W01 (FE docs) + T16 (BE docs/read-only audit) complete ONE contract gate together; user approval recorded; W02/T17+ prerequisites satisfied (runtime tasks not executed). No T16 runtime implementation prerequisite.
+
+Both specs contain the identical W01/T16 review packet: audited timestamp writers/provenance limitations, APPROVED persisted verification-marker rule, FINAL cookie tripmate_refresh, full HTTP/code/exact-message/action and SDK/fallback catalog. Follow the APPROVED packet; do not invent choices in W02.
+
+Gate status: W01/T16 = DONE, user-approved core contract and code evidence audit. DB authoritative valid timestamps suffice for MVP; suspicious live-data audit is release/migration work. W02/T17+ and other runtime tasks NOT EXECUTED.
+
+DoD includes byte-identical packet in BE/FE specs, no placeholder catalog/cookie, clear source-data trust assumption and compatibility guard; final user approval recorded before implementation. Changes solve earlier vague candidate, unnamed cookie and incomplete mappings without new schema/provider dependency or owning-UC implementation.
+## Approved W01/T16 clarification - applicationStatus and evidence
+
+applicationStatus is REQUIRED in EVERY successful Web sign-in and refresh authentication-context response, type string | null; never omitted. Traveler and Administrator -> null. TourOperator with recognized profile -> Approved/PendingApproval/Rejected exactly; missing/unresolved/unsupported profile -> null. BE must serialize this field even if global JSON configuration normally omits nulls. FE validates key presence and type; null for a valid TourOperator triggers application-unresolved UI, not auth cleanup. A missing field is a contract violation, never treated as approved; retain the previously approved valid-session application-unresolved handling rather than signing out solely for application data. Unknown/malformed application status from a nonconforming response remains fail-closed for business access. Verification-only responses are NOT authentication context and do not add applicationStatus. Existing Mobile contract is not silently changed.
+
+Accepted MVP evidence: DB is authoritative; persisted Users.EmailVerifiedAtUtc with CreatedAtUtc <= timestamp <= BE current UTC is sufficient evidence for legacy resolver. NULL/implausible timestamp -> account_state_unresolved. No additional per-record provenance proof or whole-production-DB audit required to implement the resolver. Audit suspicious/imported/manual legacy data before migration/release of those records; do not turn that operational audit into an implementation gate. No data repair/backfill/migration in resolver.
+
+Plan verification: assert applicationStatus key present for Traveler/Administrator (null), each recognized operator status, unresolved operator (null), sign-in/refresh. Assert valid stored evidence passes, NULL/future/pre-creation fails with no session/status mutation. Add serialization coverage to prevent null omission. W01/T16 evidence mechanism and applicationStatus shape are APPROVED by user; Cookie/error-copy decisions are now APPROVED too; this documentation update does not authorize or execute runtime implementation.
+
+
+## User sign-off record - 2026-09-14
+
+APPROVED: core Web endpoints/request/DTO contract; cookie tripmate_refresh; HTTP403 auth.account_state_unresolved; current error/message/action catalog including Web auth.request_invalid; Web verify-only success ApiResponse and defined failures ProblemDetails/errorCode; fullName non-null string, empty allowed; applicationStatus always present string | null; DB-authoritative valid verification timestamp evidence. W01/T16 = DONE (docs/audit contract gate only). No implementation/test/migration execution by this update. Separate refresh/sign-out schema and deferred owning-UC tasks are not declared DONE. No commit/push/new branch.
+
+
+## T17 execution evidence - 2026-09-14 (historical snapshot)
+
+- User authorized next implementation step, with no commit/push/PR/new branch. Work remains on feature/PhucTV-sign-in; pre-existing documentation changes preserved.
+- Preparation: re-read TEAM_ENGINEERING_RULES.docx, Dev_and_CrossReview_Checklist.pdf, BE AGENTS.md, handoff and implementation/TDD guidance. Approved seams: password/Google handlers, persistence effects and HTTP failure mapping.
+- Baseline: 255 passed, 0 failed, 8 SQL Server checks skipped.
+- RED: both matching legacy password cases failed (pending rejected; rejected response remained DB Rejected). Both matching Google cases also failed before its integration.
+- GREEN: shared AccountEligibilityResolver checks explicit account restrictions before legacy compatibility. Exact matching profile states and persisted CreatedAtUtc <= EmailVerifiedAtUtc <= BE now permit effective Active. Missing/conflicting profile, nonoperator role, absent/implausible evidence and unsupported account state fail with auth.account_state_unresolved, mapped to HTTP403.
+- Password, existing Google and Google concurrency re-fetch use the resolver before session/user mutations. No Firebase call introduced for password, no account/profile/evidence normalization. Existing token response fields remain available to Mobile; effective account status follows the approved compatibility rule. Mobile verify-email session behavior remains unchanged.
+- Eligibility inventory: CreatePoi requires current Administrator AND stored Active; no eligible legacy TourOperator can reach that capability, so no conflict needing a business-UC edit. Admin approval's raw status check belongs to the deliberately preserved lifecycle; detail display is not an eligibility gate. JWT has identity/role claims, no account-status claim. Refresh will reuse resolver in T22.
+- Coverage: matching pairs; role/profile conflicts; missing/unsupported profile; null/future/pre-creation timestamps; stored-evidence requirement despite verified Firebase claims; normal/race failure mutation checks; HTTP403/errorCode and persisted rejected state on HTTP success. Existing Active TourOperator with no profile still authenticates.
+- Final full BE suite: 274 passed, 0 failed, 8 skipped (216 Application, 55 API, 3 Infrastructure). Build: 0 warnings, 0 errors. Scoped dotnet format whitespace completed.
+- Two-pass self-review: spec compatibility/order/mutation boundaries, then standards/layers/query scope/security; no blocking findings. One profile query only for otherwise eligible legacy accounts. Real SQL Server concurrency remains unverified because the configured SQL test dependency is absent; deterministic re-fetch tests passed.
+- T17 is locally verified, pending human cross-review/delivery. T18 full current authentication context/applicationStatus, T19-T23 and FE implementation are not declared complete. Historical NOT EXECUTED entries above describe the earlier documentation gate.
+- No commit, push, staging, PR, migration or production DB mutation performed.
+
+
+## T18 execution evidence - 2026-09-14 (historical snapshot)
+
+- Scope: current account/application context and Web DTO projection only; no new Web routes/cookies yet (T20), no refresh endpoint (T22), no FE/Mobile code, commit/push/branch/migration.
+- Preparation: both team rules documents re-read before changes; implementation follows approved handler/serialization seams and RED/GREEN workflow.
+- RED: seven password current-context cases failed because ApplicationStatus was absent; dedicated Web DTO contract also absent. Final tests assert actual handler values and JSON behavior instead of reflection/type-existence checks.
+- Shared resolver now returns CurrentAccountContext containing effective Status and current ApplicationStatus. Active TourOperator reads current persisted profile; exact supported strings only; missing/unsupported profile -> null with valid session. Nonoperators -> null. Legacy resolver uses the same profile read for eligibility and context, without a second lookup or DB normalization.
+- Password and existing Google handlers propagate context; Google concurrency re-fetch replaces context from the winning account. Unknown-email Google still provisions Traveler/Active with null application state.
+- AuthResponseDto/GoogleAuthResponse carry application state internally with JsonIgnore to preserve Mobile JSON. New WebAuthResponseDto/WebGoogleAuthResponseDto expose applicationStatus explicitly, exclude refreshToken, preserve non-null fullName (empty allowed), integer userId, current role/effective status and access-token expiry. Web Google adds isNewAccount. JsonIgnoreCondition.Never keeps applicationStatus present even with global WhenWritingNull.
+- Coverage: Traveler/Admin null; each supported operator value; missing/invalid profile valid session; legacy context propagation and race path; profile change reloaded on subsequent sign-in; Web password/Google JSON null presence/no refresh credential; unchanged Mobile credential fields/no application field. Existing HTTP regression and Mobile verify-email tests remain green.
+- Verification: full BE suite 292 passed, 0 failed, 8 SQL Server checks skipped (234 Application +55 API +3 Infrastructure); scoped whitespace formatter completed. Build: 0 warnings, 0 errors.
+- Two-pass self-review: approved context/evidence/session separation and Mobile compatibility, then Application-layer boundaries/read-only profile queries/no new dependencies or secrets. No blocking findings. No account/application state added to JWT claims; identity/role claims remain unchanged and application approval must use current backend state.
+- T18 locally verified; human cross-review/delivery still pending. Web HTTP integration of these DTOs awaits T20 and refresh response awaits T22; neither is counted implemented by DTO serialization tests. Earlier NOT EXECUTED text above is historical gate state. Next task T19 Web verification-only.
+
+
+## T19 execution evidence - 2026-09-14 (historical snapshot)
+
+- Preparation: re-read TEAM_ENGINEERING_RULES.docx and Dev_and_CrossReview_Checklist.pdf; follow approved T19 HTTP/CQRS contract and TDD. User delivery prohibition remains: no commit/push/PR/new branch/migration.
+- RED: HTTP test returned 404 for POST /api/v1/auth/web/verify-email before implementation. GREEN: exact endpoint now takes Firebase Authorization Bearer (no credential body), dispatches WebVerifyEmailCommand and returns ApiResponse data containing only emailVerified:true.
+- Dedicated Web handler has no IJwtTokenService dependency and no RefreshTokens write. It validates Firebase evidence, verified flag and usable normalized email, finds account, blocks Locked/Inactive/unsupported status, then synchronizes the existing PendingEmailVerification transition only. Active/legacy statuses are not normalized or repaired; subsequent sign-in applies eligibility/application gates. Idempotent repeat does not replace verification timestamp.
+- Existing Mobile verify-email handler/route/header parser and Administrator Google session guard remain unchanged. A compatibility HTTP test calls Web sync then Mobile verification: zero refresh rows after Web; existing Mobile access/refresh fields and exactly one session afterwards.
+- Approved Web failures: missing/malformed Bearer ->401 AUTH_HEADER_MISSING; invalid/expired token ->401 MSG14; unverified ->403 MSG_EMAIL_NOT_VERIFIED; missing evidence email ->400 auth.verification_email_missing; account missing ->400 MSG_USER_NOT_FOUND; Firebase unavailable ->503 auth.verification_unavailable; account restrictions ->403 established codes. Defined failures are ProblemDetails/errorCode. SDK internals not returned; caller cancellation propagates.
+- 17 new real HTTP pipeline tests use a controlled Firebase service (not live Firebase): success exact one-field data/no Set-Cookie/no session/LastLogin; strict header rejection without SDK call; evidence/operational failures without account mutation; restriction failures preserving existing refresh record; repeat/idempotency and legacy status preservation; Mobile compatibility. Existing auth/registration/Google tests remain green.
+- Full command: dotnet test TripMate.slnx --no-restore --logger trx --results-directory TestResults/UC04-T19. Result: 309 passed, 0 failed, 8 skipped (234 Application, 72 API, 3 Infrastructure). Build: dotnet build TripMate.slnx --no-restore ->0 warnings/0 errors. Scoped dotnet format whitespace passed.
+- Raw local evidence: [test-output.txt](../TestResults/UC04-T19/test-output.txt), [build-output.txt](../TestResults/UC04-T19/build-output.txt), individual TRX reports and [summary](../TestResults/UC04-T19/evidence.md). TestResults is already gitignored; logs are local review artifacts, not staged.
+- Two-pass self-review: approved Web sync/session separation/error contract and compatibility, then standards/layer/read-only checks/query/mutation scope. No blocking findings. No verification-only routing context or application approval fallback introduced; no changes to approval lifecycle or schema.
+- Limitations: live Firebase verification and real SQL Server behavior not exercised by these tests; 8 existing SQL Server checks skipped. FE recovery/link integration and new Web sign-in/Admin/cookie session are still pending, not declared end-to-end complete. T19 locally verified, human cross-review/delivery pending; next T20.
+
+
+## T20 execution evidence - 2026-09-14 (historical snapshot)
+
+- User authorized continuation, without commit/push/PR/new branch/migration. Both team rules documents re-read before implementation; approved Web contract and existing handlers inspected.
+- RED: four Web login/Admin HTTP tests returned 404 before endpoints existed. GREEN: POST /api/v1/auth/web/login, /web/admin/login and /web/google now return approved Web DTOs with applicationStatus always present and no refreshToken.
+- Dedicated WebPasswordSignInCommand normalizes email, preserves password and returns approved field codes (errors.email/password arrays of MSG01/MSG02) through Result/ProblemDetails; binding/type/null-boolean failures get Web-only auth.request_invalid. Unsupported Content-Type ->415. Existing Mobile binding/error behavior remains unchanged.
+- Admin entry is server-selected by endpoint and passed as an internal LoginCommand gate; client DTO has no role/gate authority. Shared credentials/current eligibility checks execute first; non-Administrator fails auth.admin_access_required/403 BEFORE refresh generation/persistence, LastLogin or JWT issuance. Public password and Mobile contracts retain normal login behavior. Google retains existing Administrator rejection and current-context/re-fetch paths.
+- Refresh expiry is exposed internally (JsonIgnore) from session issuance and used for cookie persistence; one password timestamp fixes created/expiry exactly seven days apart. Cookie tripmate_refresh: HttpOnly, SameSite=Lax, Path=/api/v1/auth, no Domain. Production and HTTPS use Secure; only Development HTTP localhost may omit Secure. KeepMeSignedIn false omits Expires; true uses original refresh expiry, not another computed lifetime. Token stored hashed in DB, excluded from Web JSON. Failed replacement emits no Set-Cookie and leaves prior refresh record intact.
+- CORS uses explicitly configured origins and now enables credentials; exact allowed/disallowed preflights tested. Production deployment still requires approved HTTPS same-site topology and configured FE origin; this task does not deploy or add Origin/custom-header hardening.
+- 29 new HTTP tests: password cookie/expiry/hash/access15min, Administrator success, nonadmin gate, client-role/gate spoof rejection, failed replacement preservation, binding/field/credential/content-type failures, account-before-role precedence, legacy/application contexts including unresolved null, existing/new Google and Google Admin denial, environment Secure and CORS.
+- Full regression first found 2 Development test-fixture DI failures (scoped hasher from root); fixed fixture to create/dispose scopes. Failed-run log/TRX retained; final run is explicitly identified in evidence.md.
+- Final command: dotnet test TripMate.slnx --no-restore --logger trx --results-directory TestResults/UC04-T20. Final result: 338 passed, 0 failed, 8 skipped (234 Application +101 API +3 Infrastructure). Build: 0 warnings, 0 errors. Scoped dotnet format whitespace and git diff --check passed.
+- Evidence: [final test output](../TestResults/UC04-T20/test-output.txt), [build output](../TestResults/UC04-T20/build-output.txt), [TRX links/history](../TestResults/UC04-T20/evidence.md). Local TestResults artifacts already gitignored; no staging performed.
+- Two-pass self-review: approved Admin-before-session/DTO/cookie/error/account rules, then standards/Application business gates/controller orchestration/query/secret/regression scope. No blocking findings. Existing registration, Mobile verification and auth regression suites pass.
+- Limits: HTTP tests run in WebApplicationFactory with InMemory DB and controlled Firebase evidence; browser session restoration, live Firebase and real SQL Server are unverified. Eight SQL checks remain skipped. Refresh/sign-out implementation stays T22/T23; do not claim rotation/revocation/session-restoration acceptance from sign-in tests. FE core not yet implemented; T21 requires FE core and current dependency results. Next FE work starts W02; consolidated T21 acceptance remains pending.
+
+
+## Final delivery status - 2026-09-15
+
+This section is the current authoritative status and supersedes the "pending"/"NOT EXECUTED" wording inside the historical gate and execution-evidence sections above (which are preserved unedited as historical snapshots, including their test counts).
+
+- W03 Password Web Sign-in: DONE.
+- W04 Google Web Sign-in: DONE.
+- W05 Email verification recovery: DONE.
+- W06 Partner routing: DONE.
+- T21 core acceptance: DONE — resolver matrix, no account/profile mutation, baseline regression and Mobile compatibility verified with the completed FE core.
+- T22 / S01 Web refresh + session restoration: DONE — POST /api/v1/auth/web/refresh redeems the HttpOnly tripmate_refresh cookie (SHA-256 hash match, revoked_at/expires_at rejection, current user/role/profile via the shared AccountEligibilityResolver, fresh short-lived access token; non-rotating, no sliding expiry, no Set-Cookie, raw refreshToken never in Web JSON). FE: WebSessionProvider mounted in the root layout drives a single-flight cold-start restore; useWebSession exposes restoring/authenticated/unauthenticated; persisted tripmate_user metadata never authenticates. Manual browser F5 verification passed.
+- CR-11 direct-route authorization: DONE — shared partnerRouteDecision policy + PartnerRouteGuard wrap /partner/register, /partner, /partner/application and /partner/application/resubmit (resubmit is its own Rejected-only permission), evaluated only after S01 settles. Client guards are navigation protection; future protected Partner action endpoints must still enforce server-side authorization.
+- T23 normal Sign Out / revoke-on-signout: OUT OF UC-04 SCOPE — intentionally deferred to the separate Sign Out UC (D02). No revoke endpoint or cookie-deletion flow was added.
+- UC-02 registration backend and real resubmit backend: separate UCs; not implemented here.
+- UC-04 SIGN IN: DONE.
+- Final rules/formatter/build/test audit: PASS — dotnet format --verify-no-changes exit 0; Release build 0 warnings/0 errors; full BE suite 372 passed / 0 failed / 0 skipped with the SQL Server test connection configured (364 passed / 8 environment-gated skips when the connection is unset); FE 237 passed / 0 failed with lint/typecheck/build exit 0; git diff --check clean on both repos.
+- Delivery: commit/push/PR ownership belongs to the developer; delivery was intentionally deferred until final validation and explicit approval. No staging, commit, push, PR or branch change performed.

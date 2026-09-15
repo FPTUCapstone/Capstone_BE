@@ -1,3 +1,6 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
 using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
@@ -17,11 +20,11 @@ using Xunit;
 namespace TripMate.Application.UnitTests.Features.Authentication.GoogleAuth;
 
 /// <summary>
-/// Regression tests for the Google Sign In flow (UC-04 spec v2.0).
+/// Regression tests for Google Sign In and approved legacy compatibility (UC-04 revision 3).
 ///
 /// Security invariants: a verified Firebase token proves identity only; provider and email-
 /// verification claims fail closed (BR-11/BR-12); administrative status gates apply before any
-/// mutation (BR-05/07/08); a Rejected operator may still sign in (BR-06); Sign In never changes
+/// mutation; legacy operators require compatible profile and persisted evidence; Sign In never changes
 /// the status of an existing account (BR-14); there is no raw-Google fallback (D2-A); Firebase
 /// unavailability is a distinct 503-mapped failure (BR-16).
 /// </summary>
@@ -82,7 +85,7 @@ public class GoogleAuthCommandHandlerTests
     [Theory]
     [InlineData(AccountStatus.Locked, AuthErrorCodes.AccountLocked, "Account is locked.")]
     [InlineData(AccountStatus.Inactive, AuthErrorCodes.AccountInactive, "Account is inactive.")]
-    [InlineData(AccountStatus.PendingApproval, AuthErrorCodes.AccountPendingApproval, "Account is pending approval.")]
+    [InlineData(AccountStatus.PendingApproval, AuthErrorCodes.AccountStateUnresolved, "Account state could not be resolved.")]
     public async Task Handle_WhenAccountBlockedByStatus_RejectsWithoutIssuingTokensOrMutating(
         AccountStatus status,
         string expectedErrorCode,
@@ -139,9 +142,9 @@ public class GoogleAuthCommandHandlerTests
 
     [Theory]
     [InlineData(AccountStatus.Active, "auth.admin_google_sign_in_disabled")]
-    [InlineData(AccountStatus.Rejected, "auth.admin_google_sign_in_disabled")]
+    [InlineData(AccountStatus.Rejected, AuthErrorCodes.AccountStateUnresolved)]
     [InlineData(AccountStatus.PendingEmailVerification, AuthErrorCodes.AccountPendingVerification)]
-    [InlineData(AccountStatus.PendingApproval, AuthErrorCodes.AccountPendingApproval)]
+    [InlineData(AccountStatus.PendingApproval, AuthErrorCodes.AccountStateUnresolved)]
     [InlineData(AccountStatus.Locked, AuthErrorCodes.AccountLocked)]
     [InlineData(AccountStatus.Inactive, AuthErrorCodes.AccountInactive)]
     public async Task Handle_WhenExistingAdministrator_RejectsGoogleWithoutMutationOrSession(
@@ -221,19 +224,26 @@ public class GoogleAuthCommandHandlerTests
         _dbContext.RefreshTokens.Should().BeEmpty();
     }
 
-    [Fact]
-    public async Task Handle_WhenRejectedTourOperator_StillSignsInWithoutStatusChange()
+    [Theory]
+    [InlineData(AccountStatus.PendingApproval, OperatorApprovalStatus.PendingApproval)]
+    [InlineData(AccountStatus.Rejected, OperatorApprovalStatus.Rejected)]
+    public async Task Handle_WhenVerifiedMatchingLegacyOperator_ReturnsEffectiveActive(AccountStatus status, OperatorApprovalStatus approval)
     {
-        var user = await SeedUser("rejected@example.com", AccountStatus.Rejected, UserRole.TourOperator);
-        FirebaseReturnsVerifiedEmail("rejected@example.com");
+        var user = await SeedUser("legacy@example.com", status, UserRole.TourOperator);
+        user.CreatedAtUtc = _dateTimeProvider.Object.UtcNow.AddDays(-1);
+        user.EmailVerifiedAtUtc = _dateTimeProvider.Object.UtcNow;
+        _dbContext.OperatorProfiles.Add(new OperatorProfile { UserId = user.Id, ApprovalStatus = approval });
+        await _dbContext.SaveChangesAsync();
+        FirebaseReturnsVerifiedEmail(user.Email!);
 
-        var result = await _handler.Handle(
-            new GoogleAuthCommand("valid-google-id-token"),
-            CancellationToken.None);
+        var result = await _handler.Handle(new GoogleAuthCommand("valid-token"), CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
-        var persistedUser = await _dbContext.Users.FindAsync(user.Id);
-        persistedUser!.Status.Should().Be(AccountStatus.Rejected);
+        result.Value.Status.Should().Be(AccountStatus.Active);
+        result.Value.ApplicationStatus.Should().Be(approval.ToString());
+        user.Status.Should().Be(status);
+        _dbContext.OperatorProfiles.Single().ApprovalStatus.Should().Be(approval);
+        _dbContext.RefreshTokens.Should().ContainSingle(t => t.UserId == user.Id);
     }
 
     [Fact]
@@ -394,6 +404,115 @@ public class GoogleAuthCommandHandlerTests
         tokens.Single().UserId.Should().Be(winner.Id);
     }
 
+    [Theory]
+    [InlineData(AccountStatus.PendingApproval)]
+    [InlineData(AccountStatus.Rejected)]
+    public async Task Handle_WhenFirebaseVerifiedButStoredEvidenceMissing_DeniesBeforeMutation(AccountStatus status)
+    {
+        var user = await SeedUser("no-evidence@example.com", status, UserRole.TourOperator);
+        _dbContext.OperatorProfiles.Add(new OperatorProfile
+        {
+            UserId = user.Id,
+            ApprovalStatus = status == AccountStatus.Rejected ? OperatorApprovalStatus.Rejected : OperatorApprovalStatus.PendingApproval
+        });
+        await _dbContext.SaveChangesAsync();
+        var updatedAt = user.UpdatedAtUtc;
+        FirebaseReturns(new FirebaseTokenValidationResult("uid", user.Email!, true, null, "https://photo/test.png", "google.com"));
+        var result = await _handler.Handle(new GoogleAuthCommand("token"), CancellationToken.None);
+        result.ErrorCode.Should().Be("auth.account_state_unresolved");
+        user.EmailVerifiedAtUtc.Should().BeNull();
+        user.Status.Should().Be(status);
+        user.AvatarUrl.Should().BeNull();
+        user.LastLoginAtUtc.Should().BeNull();
+        user.UpdatedAtUtc.Should().Be(updatedAt);
+        _dbContext.RefreshTokens.Should().BeEmpty();
+        _jwtTokenService.Verify(j => j.GenerateRefreshToken(), Times.Never);
+        _jwtTokenService.Verify(j => j.GenerateAccessToken(It.IsAny<User>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(AccountStatus.PendingApproval, true)]
+    [InlineData(AccountStatus.Rejected, true)]
+    [InlineData(AccountStatus.PendingApproval, false)]
+    [InlineData(AccountStatus.Rejected, false)]
+    public async Task Handle_WhenLegacyConcurrentWinner_UsesSameResolver(AccountStatus status, bool valid)
+    {
+        var options = new DbContextOptionsBuilder<TestDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options;
+        await using var db = new ThrowingOnceTestDbContext(options);
+        var now = _dateTimeProvider.Object.UtcNow;
+        db.ConcurrentWinner = new User
+        {
+            Email = "legacy-race@example.com",
+            FullName = "Winner",
+            Role = UserRole.TourOperator,
+            Status = status,
+            CreatedAtUtc = now.AddDays(-1),
+            UpdatedAtUtc = now.AddDays(-1),
+            EmailVerifiedAtUtc = valid ? now : null
+        };
+        db.ConcurrentProfile = new OperatorProfile
+        {
+            User = db.ConcurrentWinner,
+            ApprovalStatus = status == AccountStatus.Rejected
+            ? OperatorApprovalStatus.Rejected : OperatorApprovalStatus.PendingApproval
+        };
+        FirebaseReturnsVerifiedEmail("legacy-race@example.com");
+        var handler = new GoogleAuthCommandHandler(db, _firebaseAuthService.Object, _jwtTokenService.Object,
+            _dateTimeProvider.Object, NullLogger<GoogleAuthCommandHandler>.Instance);
+        var result = await handler.Handle(new GoogleAuthCommand("token"), CancellationToken.None);
+        var winner = await db.Users.SingleAsync();
+        winner.Status.Should().Be(status);
+        if (valid)
+        {
+            result.IsSuccess.Should().BeTrue();
+            result.Value.Status.Should().Be(AccountStatus.Active);
+            result.Value.ApplicationStatus.Should().Be(status.ToString());
+            db.RefreshTokens.Should().ContainSingle(t => t.UserId == winner.Id);
+        }
+        else
+        {
+            result.ErrorCode.Should().Be("auth.account_state_unresolved");
+            db.RefreshTokens.Should().BeEmpty();
+            winner.LastLoginAtUtc.Should().BeNull();
+            winner.UpdatedAtUtc.Should().Be(now.AddDays(-1));
+            _jwtTokenService.Verify(j => j.GenerateAccessToken(It.IsAny<User>()), Times.Never);
+        }
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(OperatorApprovalStatus.Approved)]
+    [InlineData(OperatorApprovalStatus.PendingApproval)]
+    [InlineData(OperatorApprovalStatus.Rejected)]
+    [InlineData((OperatorApprovalStatus)99)]
+    public async Task Handle_WhenProfileChanges_ReadsCurrentStateAndWebSerialization(OperatorApprovalStatus? approval)
+    {
+        var user = await SeedUser("current@example.com", AccountStatus.Active, UserRole.TourOperator);
+        FirebaseReturnsVerifiedEmail(user.Email!);
+        if (approval.HasValue) _dbContext.OperatorProfiles.Add(new OperatorProfile { UserId = user.Id, ApprovalStatus = approval.Value });
+        await _dbContext.SaveChangesAsync();
+        var result = await _handler.Handle(new GoogleAuthCommand("token"), CancellationToken.None);
+        result.IsSuccess.Should().BeTrue();
+        var expected = approval == (OperatorApprovalStatus)99 ? null : approval?.ToString();
+        result.Value.ApplicationStatus.Should().Be(expected);
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web) { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
+        options.Converters.Add(new JsonStringEnumConverter());
+        using var web = JsonDocument.Parse(JsonSerializer.Serialize(WebGoogleAuthResponseDto.From(result.Value), options));
+        web.RootElement.GetProperty("applicationStatus").GetString().Should().Be(expected);
+        web.RootElement.GetProperty("isNewAccount").GetBoolean().Should().BeFalse();
+        web.RootElement.TryGetProperty("refreshToken", out _).Should().BeFalse();
+        using var mobile = JsonDocument.Parse(JsonSerializer.Serialize(result.Value, options));
+        mobile.RootElement.GetProperty("refreshToken").GetString().Should().Be("sample-refresh-token");
+        mobile.RootElement.TryGetProperty("applicationStatus", out _).Should().BeFalse();
+        if (approval.HasValue)
+        {
+            _dbContext.OperatorProfiles.Single().ApprovalStatus = OperatorApprovalStatus.Approved;
+            await _dbContext.SaveChangesAsync();
+            var next = await _handler.Handle(new GoogleAuthCommand("token"), CancellationToken.None);
+            next.Value.ApplicationStatus.Should().Be("Approved");
+        }
+    }
+
     private sealed class ThrowingOnceTestDbContext : TestDbContext
     {
         private readonly DbContextOptions<TestDbContext> _options;
@@ -405,6 +524,7 @@ public class GoogleAuthCommandHandlerTests
         }
 
         public User ConcurrentWinner { get; set; } = null!;
+        public OperatorProfile? ConcurrentProfile { get; set; }
         public int SaveAttempts { get; private set; }
 
         public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
@@ -416,6 +536,7 @@ public class GoogleAuthCommandHandlerTests
                 // Commit the competing account only after the initial lookup missed it.
                 await using var competingContext = new TestDbContext(_options);
                 competingContext.Users.Add(ConcurrentWinner);
+                if (ConcurrentProfile is not null) competingContext.OperatorProfiles.Add(ConcurrentProfile);
                 await competingContext.SaveChangesAsync(cancellationToken);
                 throw new DbUpdateException(
                     "simulated unique violation (BR-02 race)",
