@@ -1,8 +1,6 @@
 using MediatR;
-
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-
 using TripMate.Api.Common;
 using TripMate.Application.Features.Admin.TourOperatorApplications.Approve;
 using TripMate.Application.Features.Admin.TourOperatorApplications.GetDetail;

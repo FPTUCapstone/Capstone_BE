@@ -154,6 +154,22 @@ public sealed class GroupInvitationCommandHandlerTests
     }
 
     [Fact]
+    public async Task GetOrCreate_AcquiresCandidateCodeLockBeforeGroupLock()
+    {
+        await using var db = TestDbContext.Create();
+        var group = await AddGroupAsync(db);
+        var generator = new SequenceGroupInvitationCodeGenerator("LOCKCODE");
+        var handler = new GetOrCreateGroupInvitationCommandHandler(db, _clock, _lock, generator);
+
+        var result = await handler.Handle(
+            new GetOrCreateGroupInvitationCommand(group.Id, group.HostUserId, Guid.NewGuid()),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        _lock.AcquisitionOrder.Should().StartWith("code:LOCKCODE", $"group:{group.Id}");
+    }
+
+    [Fact]
     public async Task GetOrCreate_WhenGeneratedCodeCollides_RetriesWithAnotherCode()
     {
         await using var db = TestDbContext.Create();
@@ -175,7 +191,7 @@ public sealed class GroupInvitationCommandHandlerTests
 
         result.IsSuccess.Should().BeTrue();
         result.Value.InviteCode.Should().Be("UNIQUE02");
-        generator.GeneratedCodes.Should().Equal("COLLIDE1", "UNIQUE02");
+        generator.GeneratedCodes.Take(2).Should().Equal("COLLIDE1", "UNIQUE02");
     }
 
     [Fact]
@@ -250,14 +266,20 @@ internal sealed class RecordingGroupInvitationLock : IGroupInvitationLock
 {
     public List<(long GroupId, long TravelerUserId, Guid IdempotencyKey)> AcquiredResources { get; } = [];
 
+    public List<string> AcquisitionOrder { get; } = [];
+
     public Task AcquireAsync(long groupId, long travelerUserId, Guid idempotencyKey, CancellationToken cancellationToken)
     {
         AcquiredResources.Add((groupId, travelerUserId, idempotencyKey));
+        AcquisitionOrder.Add($"group:{groupId}");
         return Task.CompletedTask;
     }
 
-    public Task AcquireCodeAsync(string inviteCode, CancellationToken cancellationToken) =>
-        Task.CompletedTask;
+    public Task AcquireCodeAsync(string inviteCode, CancellationToken cancellationToken)
+    {
+        AcquisitionOrder.Add($"code:{inviteCode}");
+        return Task.CompletedTask;
+    }
 }
 
 internal sealed class SequenceGroupInvitationCodeGenerator(params string[] codes) : IGroupInvitationCodeGenerator
@@ -268,7 +290,7 @@ internal sealed class SequenceGroupInvitationCodeGenerator(params string[] codes
 
     public string Generate()
     {
-        var code = _codes.Dequeue();
+        var code = _codes.Count > 0 ? _codes.Dequeue() : $"ZZZZ{GeneratedCodes.Count:D4}";
         GeneratedCodes.Add(code);
         return code;
     }

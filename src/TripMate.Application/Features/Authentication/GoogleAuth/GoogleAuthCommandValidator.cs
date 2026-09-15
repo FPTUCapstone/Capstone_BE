@@ -1,5 +1,4 @@
 using FluentValidation;
-
 using TripMate.Application.Features.Authentication.Common;
 
 namespace TripMate.Application.Features.Authentication.GoogleAuth;

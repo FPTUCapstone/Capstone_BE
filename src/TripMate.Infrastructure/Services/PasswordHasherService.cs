@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Identity;
-
 using TripMate.Application.Common.Interfaces;
 
 namespace TripMate.Infrastructure.Services;

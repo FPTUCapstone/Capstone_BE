@@ -1,16 +1,12 @@
 using FluentAssertions;
-
 using Microsoft.Extensions.Logging.Abstractions;
-
 using Moq;
-
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Authentication.Common;
 using TripMate.Application.Features.Authentication.VerifyEmail;
 using TripMate.Application.UnitTests.TestUtilities;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
-
 using Xunit;
 
 namespace TripMate.Application.UnitTests.Features.Authentication.VerifyEmail;

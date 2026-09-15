@@ -1,5 +1,4 @@
 using MediatR;
-
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Authentication.Common;
 

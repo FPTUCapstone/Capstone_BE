@@ -69,31 +69,40 @@ internal static class GroupInvitationCommandExecutor
         long currentUserId,
         Guid idempotencyKey,
         GroupInvitationOperationType operationType,
-        CancellationToken cancellationToken) =>
-        dbContext.ExecuteInSerializableTransactionAsync(
+        CancellationToken cancellationToken)
+    {
+        var candidateCodes = GenerateCandidateCodes(codeGenerator);
+
+        return dbContext.ExecuteInSerializableTransactionAsync(
             transactionCancellationToken => ExecuteInTransactionAsync(
                 dbContext,
                 dateTimeProvider,
                 invitationLock,
-                codeGenerator,
+                candidateCodes,
                 groupId,
                 currentUserId,
                 idempotencyKey,
                 operationType,
                 transactionCancellationToken),
             cancellationToken);
+    }
 
     private static async Task<Result<GetGroupInvitationResponse>> ExecuteInTransactionAsync(
         IApplicationDbContext dbContext,
         IDateTimeProvider dateTimeProvider,
         IGroupInvitationLock invitationLock,
-        IGroupInvitationCodeGenerator codeGenerator,
+        IReadOnlyList<string> candidateCodes,
         long groupId,
         long currentUserId,
         Guid idempotencyKey,
         GroupInvitationOperationType operationType,
         CancellationToken cancellationToken)
     {
+        foreach (var candidateCode in candidateCodes.Order(StringComparer.Ordinal))
+        {
+            await invitationLock.AcquireCodeAsync(candidateCode, cancellationToken);
+        }
+
         await invitationLock.AcquireAsync(groupId, currentUserId, idempotencyKey, cancellationToken);
 
         var previousOperation = await dbContext.GroupInvitationOperations
@@ -151,8 +160,7 @@ internal static class GroupInvitationCommandExecutor
             invitation = usableInvitations.FirstOrDefault()
                 ?? await CreateUniqueInvitationAsync(
                     dbContext,
-                    invitationLock,
-                    codeGenerator,
+                    candidateCodes,
                     group.Id,
                     currentUserId,
                     now,
@@ -176,8 +184,7 @@ internal static class GroupInvitationCommandExecutor
 
             invitation = await CreateUniqueInvitationAsync(
                 dbContext,
-                invitationLock,
-                codeGenerator,
+                candidateCodes,
                 group.Id,
                 currentUserId,
                 now,
@@ -199,17 +206,14 @@ internal static class GroupInvitationCommandExecutor
 
     private static async Task<GroupInvitation> CreateUniqueInvitationAsync(
         IApplicationDbContext dbContext,
-        IGroupInvitationLock invitationLock,
-        IGroupInvitationCodeGenerator codeGenerator,
+        IReadOnlyList<string> candidateCodes,
         long groupId,
         long currentUserId,
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
-        for (var attempt = 0; attempt < MaximumCodeGenerationAttempts; attempt++)
+        foreach (var inviteCode in candidateCodes)
         {
-            var inviteCode = codeGenerator.Generate();
-            await invitationLock.AcquireCodeAsync(inviteCode, cancellationToken);
             var exists = await dbContext.GroupInvitations.AnyAsync(
                 invitation => invitation.InviteCode == inviteCode,
                 cancellationToken);
@@ -231,6 +235,13 @@ internal static class GroupInvitationCommandExecutor
 
         throw new InvalidOperationException("Could not generate a unique invitation code.");
     }
+
+    private static IReadOnlyList<string> GenerateCandidateCodes(
+        IGroupInvitationCodeGenerator codeGenerator) =>
+        Enumerable.Range(0, MaximumCodeGenerationAttempts)
+            .Select(_ => codeGenerator.Generate())
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
 
     private static GetGroupInvitationResponse ToResponse(TravelGroup group, GroupInvitation invitation) =>
         new(

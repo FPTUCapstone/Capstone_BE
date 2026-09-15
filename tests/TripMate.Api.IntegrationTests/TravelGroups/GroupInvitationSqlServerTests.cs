@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
@@ -289,6 +291,133 @@ public sealed class GroupInvitationSqlServerTests
         (await verification.GroupInvitationOperations.CountAsync()).Should().Be(1);
     }
 
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task InvitationOperationMigration_WhenOperationTableIsEmpty_CreatesItAndCanRunTwice()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await database.ExecuteNonQueryAsync("DROP TABLE social.GroupInvitationOperations;");
+
+        await ApplyInvitationOperationMigrationAsync(database);
+        await ApplyInvitationOperationMigrationAsync(database);
+
+        await database.ExecuteNonQueryAsync("""
+            IF OBJECT_ID(N'social.GroupInvitationOperations', N'U') IS NULL
+                THROW 51000, 'Migration did not create the operation table.', 1;
+
+            IF EXISTS (SELECT 1 FROM social.GroupInvitationOperations)
+                THROW 51000, 'Migration inserted unexpected operation data.', 1;
+            """);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task InvitationOperationMigration_WhenTableIsPartiallyCreated_CompletesInvariantsAndCanRunTwice()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database);
+        var now = new FixedDateTimeProvider().UtcNow;
+        long invitationId;
+
+        await using (var setup = database.CreateDbContext())
+        {
+            var invitation = GroupInvitation.Create(
+                seed.GroupId,
+                seed.HostUserId,
+                "MIGRTEST",
+                now.AddDays(TravelGroupConstants.InvitationCodeExpiryDays),
+                TravelGroupConstants.UnlimitedInvitationUses,
+                now);
+            setup.GroupInvitations.Add(invitation);
+            await setup.SaveChangesAsync();
+            invitationId = invitation.Id;
+        }
+
+        await database.ExecuteNonQueryAsync($"""
+            DROP TABLE social.GroupInvitationOperations;
+            CREATE TABLE social.GroupInvitationOperations (
+                operation_id BIGINT IDENTITY(1,1) PRIMARY KEY,
+                traveler_user_id BIGINT NOT NULL,
+                group_id BIGINT NOT NULL,
+                operation_type VARCHAR(20) NOT NULL,
+                idempotency_key UNIQUEIDENTIFIER NOT NULL,
+                invitation_id BIGINT NOT NULL,
+                created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+            );
+            INSERT INTO social.GroupInvitationOperations
+                (traveler_user_id, group_id, operation_type, idempotency_key, invitation_id)
+            VALUES ({seed.HostUserId}, {seed.GroupId}, 'GetOrCreate', '{Guid.NewGuid()}', {invitationId});
+            """);
+
+        await ApplyInvitationOperationMigrationAsync(database);
+        await ApplyInvitationOperationMigrationAsync(database);
+
+        await database.ExecuteNonQueryAsync("""
+            IF OBJECT_ID(N'social.GroupInvitationOperations', N'U') IS NULL
+                THROW 51000, 'Migration did not retain the operation table.', 1;
+
+            IF (SELECT COUNT(*) FROM social.GroupInvitationOperations) <> 1
+                THROW 51000, 'Migration did not preserve existing operation data.', 1;
+
+            IF NOT EXISTS (
+                SELECT 1
+                FROM sys.foreign_key_columns AS foreignKeyColumn
+                WHERE foreignKeyColumn.parent_object_id = OBJECT_ID(N'social.GroupInvitationOperations')
+                  AND COL_NAME(foreignKeyColumn.parent_object_id, foreignKeyColumn.parent_column_id) = N'traveler_user_id'
+                  AND foreignKeyColumn.referenced_object_id = OBJECT_ID(N'dbo.Users'))
+                THROW 51000, 'Migration did not add the traveler foreign key.', 1;
+
+            IF NOT EXISTS (
+                SELECT 1
+                FROM sys.foreign_key_columns AS foreignKeyColumn
+                WHERE foreignKeyColumn.parent_object_id = OBJECT_ID(N'social.GroupInvitationOperations')
+                  AND COL_NAME(foreignKeyColumn.parent_object_id, foreignKeyColumn.parent_column_id) = N'group_id'
+                  AND foreignKeyColumn.referenced_object_id = OBJECT_ID(N'social.TravelGroups'))
+                THROW 51000, 'Migration did not add the group foreign key.', 1;
+
+            IF NOT EXISTS (
+                SELECT 1
+                FROM sys.foreign_key_columns AS foreignKeyColumn
+                WHERE foreignKeyColumn.parent_object_id = OBJECT_ID(N'social.GroupInvitationOperations')
+                  AND COL_NAME(foreignKeyColumn.parent_object_id, foreignKeyColumn.parent_column_id) = N'invitation_id'
+                  AND foreignKeyColumn.referenced_object_id = OBJECT_ID(N'social.GroupInvitations'))
+                THROW 51000, 'Migration did not add the invitation foreign key.', 1;
+
+            IF NOT EXISTS (
+                SELECT 1
+                FROM sys.check_constraints
+                WHERE parent_object_id = OBJECT_ID(N'social.GroupInvitationOperations')
+                  AND definition LIKE N'%operation_type%')
+                THROW 51000, 'Migration did not add the operation-type check constraint.', 1;
+
+            IF NOT EXISTS (
+                SELECT 1
+                FROM sys.indexes AS [index]
+                WHERE [index].object_id = OBJECT_ID(N'social.GroupInvitationOperations')
+                  AND [index].is_unique = 1
+                  AND (SELECT COUNT(*)
+                       FROM sys.index_columns AS indexColumn
+                       WHERE indexColumn.object_id = [index].object_id
+                         AND indexColumn.index_id = [index].index_id
+                         AND indexColumn.key_ordinal > 0) = 2
+                  AND EXISTS (
+                      SELECT 1
+                      FROM sys.index_columns AS indexColumn
+                      WHERE indexColumn.object_id = [index].object_id
+                        AND indexColumn.index_id = [index].index_id
+                        AND indexColumn.key_ordinal = 1
+                        AND COL_NAME(indexColumn.object_id, indexColumn.column_id) = N'traveler_user_id')
+                  AND EXISTS (
+                      SELECT 1
+                      FROM sys.index_columns AS indexColumn
+                      WHERE indexColumn.object_id = [index].object_id
+                        AND indexColumn.index_id = [index].index_id
+                        AND indexColumn.key_ordinal = 2
+                        AND COL_NAME(indexColumn.object_id, indexColumn.column_id) = N'idempotency_key'))
+                THROW 51000, 'Migration did not add the traveler/idempotency unique constraint.', 1;
+            """);
+    }
+
     private static async Task<(long HostUserId, long GroupId)> SeedAsync(SqlServerTestDatabase database)
     {
         await using var context = database.CreateDbContext();
@@ -332,6 +461,18 @@ public sealed class GroupInvitationSqlServerTests
         return group.Id;
     }
 
+    private static async Task ApplyInvitationOperationMigrationAsync(SqlServerTestDatabase database)
+    {
+        var migrationPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "Database",
+            "migrations",
+            "20260914_add_group_invitation_operations.sql");
+        var migration = await File.ReadAllTextAsync(migrationPath);
+        migration = Regex.Replace(migration, @"^\s*GO\s*$", string.Empty, RegexOptions.Multiline);
+        await database.ExecuteNonQueryAsync(migration);
+    }
+
     private sealed class FixedDateTimeProvider : IDateTimeProvider
     {
         public DateTimeOffset UtcNow { get; } = new(2026, 9, 14, 10, 0, 0, TimeSpan.Zero);
@@ -341,6 +482,10 @@ public sealed class GroupInvitationSqlServerTests
     {
         private readonly Queue<string> _codes = new(codes);
 
-        public string Generate() => _codes.Dequeue();
+        private int _fallbackCodeNumber;
+
+        public string Generate() => _codes.Count > 0
+            ? _codes.Dequeue()
+            : $"ZZZZ{++_fallbackCodeNumber:D4}";
     }
 }
