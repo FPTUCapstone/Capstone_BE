@@ -142,19 +142,25 @@ internal static class GroupInvitationCommandExecutor
         GroupInvitation invitation;
         if (operationType == GroupInvitationOperationType.GetOrCreate)
         {
-            invitation = await dbContext.GroupInvitations
+            var usableInvitations = await dbContext.GroupInvitations
                 .Where(item => item.GroupId == group.Id
                     && item.ExpiresAtUtc > now
                     && item.UsedCount < item.MaxUses)
                 .OrderByDescending(item => item.CreatedAtUtc)
-                .FirstOrDefaultAsync(cancellationToken)
+                .ToListAsync(cancellationToken);
+            invitation = usableInvitations.FirstOrDefault()
                 ?? await CreateUniqueInvitationAsync(
                     dbContext,
+                    invitationLock,
                     codeGenerator,
                     group.Id,
                     currentUserId,
                     now,
                     cancellationToken);
+            foreach (var duplicateInvitation in usableInvitations.Skip(1))
+            {
+                duplicateInvitation.Expire(now);
+            }
         }
         else
         {
@@ -170,6 +176,7 @@ internal static class GroupInvitationCommandExecutor
 
             invitation = await CreateUniqueInvitationAsync(
                 dbContext,
+                invitationLock,
                 codeGenerator,
                 group.Id,
                 currentUserId,
@@ -192,6 +199,7 @@ internal static class GroupInvitationCommandExecutor
 
     private static async Task<GroupInvitation> CreateUniqueInvitationAsync(
         IApplicationDbContext dbContext,
+        IGroupInvitationLock invitationLock,
         IGroupInvitationCodeGenerator codeGenerator,
         long groupId,
         long currentUserId,
@@ -201,6 +209,7 @@ internal static class GroupInvitationCommandExecutor
         for (var attempt = 0; attempt < MaximumCodeGenerationAttempts; attempt++)
         {
             var inviteCode = codeGenerator.Generate();
+            await invitationLock.AcquireCodeAsync(inviteCode, cancellationToken);
             var exists = await dbContext.GroupInvitations.AnyAsync(
                 invitation => invitation.InviteCode == inviteCode,
                 cancellationToken);

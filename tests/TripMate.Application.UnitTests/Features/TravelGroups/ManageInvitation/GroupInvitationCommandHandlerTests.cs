@@ -58,6 +58,38 @@ public sealed class GroupInvitationCommandHandlerTests
     }
 
     [Fact]
+    public async Task GetOrCreate_WhenSeveralUsableInvitationsExist_KeepsNewestAndExpiresTheOthers()
+    {
+        await using var db = TestDbContext.Create();
+        var group = await AddGroupAsync(db);
+        var older = GroupInvitation.Create(
+            group.Id,
+            group.HostUserId,
+            "OLDER001",
+            _clock.UtcNow.AddDays(10),
+            TravelGroupConstants.UnlimitedInvitationUses,
+            _clock.UtcNow.AddMinutes(-1));
+        var newer = GroupInvitation.Create(
+            group.Id,
+            group.HostUserId,
+            "NEWER002",
+            _clock.UtcNow.AddDays(10),
+            TravelGroupConstants.UnlimitedInvitationUses,
+            _clock.UtcNow);
+        db.GroupInvitations.AddRange(older, newer);
+        await db.SaveChangesAsync();
+
+        var result = await CreateGetOrCreateHandler(db).Handle(
+            new GetOrCreateGroupInvitationCommand(group.Id, group.HostUserId, Guid.NewGuid()),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.InviteCode.Should().Be("NEWER002");
+        older.ExpiresAtUtc.Should().Be(_clock.UtcNow);
+        newer.IsUsableAt(_clock.UtcNow).Should().BeTrue();
+    }
+
+    [Fact]
     public async Task Regenerate_ExpiresCurrentInvitationAndCreatesReplacement()
     {
         await using var db = TestDbContext.Create();
@@ -223,6 +255,9 @@ internal sealed class RecordingGroupInvitationLock : IGroupInvitationLock
         AcquiredResources.Add((groupId, travelerUserId, idempotencyKey));
         return Task.CompletedTask;
     }
+
+    public Task AcquireCodeAsync(string inviteCode, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
 }
 
 internal sealed class SequenceGroupInvitationCodeGenerator(params string[] codes) : IGroupInvitationCodeGenerator

@@ -1,8 +1,8 @@
 # Specification: TM-64 [UC-18] Invite Group Members
 
-**Feature**: Invite Group Members  
-**Jira Ticket**: TM-64  
-**Use Case**: UC-18  
+**Feature**: Invite Group Members
+**Jira Ticket**: TM-64
+**Use Case**: UC-18
 **Branch**: `feature/khanhpq-invite-group-members`
 **Target Repositories**: `Capstone_BE`, `Capstone_Mobile`
 **Status**: Approved for implementation

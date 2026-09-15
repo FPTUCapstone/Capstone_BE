@@ -169,6 +169,9 @@ internal sealed class NoOpGroupInvitationLock : IGroupInvitationLock
 {
     public Task AcquireAsync(long groupId, long travelerUserId, Guid idempotencyKey, CancellationToken cancellationToken) =>
         Task.CompletedTask;
+
+    public Task AcquireCodeAsync(string inviteCode, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
 }
 
 internal sealed class TestAuthenticationHandler(

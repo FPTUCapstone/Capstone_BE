@@ -22,6 +22,14 @@ public sealed class SqlServerGroupInvitationLock(ApplicationDbContext dbContext)
         await AcquireResourceAsync(groupResource, cancellationToken);
     }
 
+    public Task AcquireCodeAsync(string inviteCode, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(inviteCode);
+        return AcquireResourceAsync(
+            $"TripMate:GroupInvitationCode:{inviteCode}",
+            cancellationToken);
+    }
+
     private Task AcquireResourceAsync(string resource, CancellationToken cancellationToken) =>
         dbContext.Database.ExecuteSqlInterpolatedAsync($"""
             DECLARE @lockResult INT;

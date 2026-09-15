@@ -64,6 +64,21 @@ public sealed class GroupInvitationEndpointTests
     }
 
     [Fact]
+    public async Task GetOrCreateInvitation_WhenGroupDoesNotExist_ReturnsDocumentedNotFoundCode()
+    {
+        await using var factory = new TripMateApiFactory();
+        using var client = factory.CreateAuthenticatedClient(999_999, UserRole.Traveler);
+        client.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
+
+        var response = await client.PostAsync("/api/v1/travel-groups/999999/invitation", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("errorCode").GetString()
+            .Should().Be("travel_group.group_not_found");
+    }
+
+    [Fact]
     public async Task GetOrCreateInvitation_WithRepeatedKey_ReturnsSameInvitation()
     {
         await using var factory = new TripMateApiFactory();
