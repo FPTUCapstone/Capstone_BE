@@ -123,7 +123,7 @@ public sealed class PoiContractSchemaFilter : ISchemaFilter
                 .Cast<JsonNode>()
                 .Append(null!)
                 .ToList(),
-            Default = JsonValue.Create("Outdoor"),
+            Default = JsonValue.Create(nameof(IndoorOutdoorType.Outdoor)),
         };
 
         Property(schema, "hasShelter").Default = JsonValue.Create(false);

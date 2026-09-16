@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.PointsOfInterest.Common;
+using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.PointsOfInterest.Explore;
@@ -82,10 +83,10 @@ public sealed class ExplorePoisQueryHandler(
                         : (x.HaversineA.Value < 0.0 ? 0.0 : x.HaversineA.Value))))
                 : null,
             AverageRating = dbContext.Reviews
-                .Where(r => r.TargetType == "POI" && r.TargetId == x.Poi.Id)
+                .Where(r => r.TargetType == Review.TargetTypePoi && r.TargetId == x.Poi.Id)
                 .Average(r => (decimal?)r.Rating),
             ReviewCount = dbContext.Reviews
-                .Where(r => r.TargetType == "POI" && r.TargetId == x.Poi.Id)
+                .Where(r => r.TargetType == Review.TargetTypePoi && r.TargetId == x.Poi.Id)
                 .Count(),
             ThumbnailUrl = dbContext.PoiPhotos
                 .Where(ph => ph.PointOfInterestId == x.Poi.Id)
@@ -137,11 +138,11 @@ public sealed class ExplorePoisQueryHandler(
 
         var sorted = request.Sort switch
         {
-            "distance" => projected
+            ExplorePoisQuery.SortDistance => projected
                 .OrderBy(x => x.Distance)
                 .ThenBy(x => x.Poi.Name)
                 .ThenBy(x => x.Poi.Id),
-            "rating" => projected
+            ExplorePoisQuery.SortRating => projected
                 .OrderByDescending(x => x.AverageRating.HasValue)
                 .ThenByDescending(x => x.AverageRating)
                 .ThenByDescending(x => x.ReviewCount)

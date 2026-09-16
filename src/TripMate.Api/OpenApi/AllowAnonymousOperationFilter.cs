@@ -45,54 +45,49 @@ public sealed class AllowAnonymousOperationFilter : IOperationFilter
 
             mutableParam.Name = char.ToLowerInvariant(mutableParam.Name[0]) + mutableParam.Name[1..];
 
-            switch (mutableParam.Name)
+            if (string.Equals(mutableParam.Name, nameof(ExplorePoisQuery.Search), StringComparison.OrdinalIgnoreCase))
             {
-                case "search":
-                    schema.MaxLength = ExplorePoisQuery.SearchMaxLength;
-                    break;
-
-                case "categoryId":
-                    schema.Minimum = "1";
-                    break;
-
-                case "originLatitude":
-                    schema.Minimum = "-90";
-                    schema.Maximum = "90";
-                    break;
-
-                case "originLongitude":
-                    schema.Minimum = "-180";
-                    schema.Maximum = "180";
-                    break;
-
-                case "maxDistanceKm":
-                    schema.ExclusiveMinimum = "0";
-                    break;
-
-                case "openNow":
-                    schema.Default = JsonValue.Create(false);
-                    break;
-
-                case "sort":
-                    schema.Default = JsonValue.Create(ExplorePoisQuery.DefaultSort);
-                    schema.Enum = new List<JsonNode>
-                    {
-                        JsonValue.Create("name")!,
-                        JsonValue.Create("distance")!,
-                        JsonValue.Create("rating")!,
-                    };
-                    break;
-
-                case "page":
-                    schema.Default = JsonValue.Create(ExplorePoisQuery.DefaultPage);
-                    schema.Minimum = "1";
-                    break;
-
-                case "pageSize":
-                    schema.Default = JsonValue.Create(ExplorePoisQuery.DefaultPageSize);
-                    schema.Minimum = "1";
-                    schema.Maximum = ExplorePoisQuery.MaxPageSize.ToString();
-                    break;
+                schema.MaxLength = ExplorePoisQuery.SearchMaxLength;
+            }
+            else if (string.Equals(mutableParam.Name, nameof(ExplorePoisQuery.CategoryId), StringComparison.OrdinalIgnoreCase))
+            {
+                schema.Minimum = ExplorePoisQuery.MinCategoryId.ToString();
+            }
+            else if (string.Equals(mutableParam.Name, nameof(ExplorePoisQuery.OriginLatitude), StringComparison.OrdinalIgnoreCase))
+            {
+                schema.Minimum = ExplorePoisQuery.MinLatitude.ToString();
+                schema.Maximum = ExplorePoisQuery.MaxLatitude.ToString();
+            }
+            else if (string.Equals(mutableParam.Name, nameof(ExplorePoisQuery.OriginLongitude), StringComparison.OrdinalIgnoreCase))
+            {
+                schema.Minimum = ExplorePoisQuery.MinLongitude.ToString();
+                schema.Maximum = ExplorePoisQuery.MaxLongitude.ToString();
+            }
+            else if (string.Equals(mutableParam.Name, nameof(ExplorePoisQuery.MaxDistanceKm), StringComparison.OrdinalIgnoreCase))
+            {
+                schema.ExclusiveMinimum = ExplorePoisQuery.MinDistanceKm.ToString();
+            }
+            else if (string.Equals(mutableParam.Name, nameof(ExplorePoisQuery.OpenNow), StringComparison.OrdinalIgnoreCase))
+            {
+                schema.Default = JsonValue.Create(false);
+            }
+            else if (string.Equals(mutableParam.Name, nameof(ExplorePoisQuery.Sort), StringComparison.OrdinalIgnoreCase))
+            {
+                schema.Default = JsonValue.Create(ExplorePoisQuery.DefaultSort);
+                schema.Enum = ExplorePoisQuery.AllowedSorts
+                    .Select(s => (JsonNode)JsonValue.Create(s)!)
+                    .ToList();
+            }
+            else if (string.Equals(mutableParam.Name, nameof(ExplorePoisQuery.Page), StringComparison.OrdinalIgnoreCase))
+            {
+                schema.Default = JsonValue.Create(ExplorePoisQuery.DefaultPage);
+                schema.Minimum = ExplorePoisQuery.MinPage.ToString();
+            }
+            else if (string.Equals(mutableParam.Name, nameof(ExplorePoisQuery.PageSize), StringComparison.OrdinalIgnoreCase))
+            {
+                schema.Default = JsonValue.Create(ExplorePoisQuery.DefaultPageSize);
+                schema.Minimum = ExplorePoisQuery.MinPageSize.ToString();
+                schema.Maximum = ExplorePoisQuery.MaxPageSize.ToString();
             }
         }
     }
