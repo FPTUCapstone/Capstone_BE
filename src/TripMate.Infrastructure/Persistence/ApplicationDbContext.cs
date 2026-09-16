@@ -41,6 +41,11 @@ public class ApplicationDbContext(
         CancellationToken cancellationToken)
         => await ExecuteInTransactionAsync(operation, IsolationLevel.ReadCommitted, cancellationToken);
 
+    /// <summary>UC-04 BR-02 race recovery: drop all tracked entities so a failed save's
+    /// leftover Added entries are never re-saved on a retry.</summary>
+    public void ClearTrackedEntities()
+        => ChangeTracker.Clear();
+
     public async Task<T> ExecuteInSerializableTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken)

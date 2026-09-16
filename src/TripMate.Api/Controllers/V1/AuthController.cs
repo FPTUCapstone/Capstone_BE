@@ -1,11 +1,17 @@
 using MediatR;
+
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+
 using TripMate.Api.Common;
+using TripMate.Application.Features.Authentication.Common;
 using TripMate.Application.Features.Authentication.GoogleAuth;
 using TripMate.Application.Features.Authentication.Login;
 using TripMate.Application.Features.Authentication.Register;
 using TripMate.Application.Features.Authentication.VerifyEmail;
+using TripMate.Application.Features.Authentication.WebRefresh;
+using TripMate.Application.Features.Authentication.WebSignIn;
+using TripMate.Application.Features.Authentication.WebVerifyEmail;
 
 namespace TripMate.Api.Controllers.V1;
 
@@ -18,8 +24,10 @@ public record RegisterTravelerRequestDto(
 
 [AllowAnonymous]
 [Route("api/v1/auth")]
-public class AuthController(ISender sender) : ApiControllerBase(sender)
+public class AuthController(ISender sender, IWebHostEnvironment environment) : ApiControllerBase(sender)
 {
+    // Used only by the UC-01 flows (register / verify-email), whose contract requires the
+    // Firebase ID token as `Authorization: Bearer`. The Google flow (UC-04) is body-only.
     private string? ExtractBearerToken()
     {
         var authHeader = Request.Headers.Authorization.ToString();
@@ -81,23 +89,113 @@ public class AuthController(ISender sender) : ApiControllerBase(sender)
             : HandleFailure(result);
     }
 
+    [HttpPost("web/login")]
+    [Consumes("application/json")]
+    [ProducesResponseType(typeof(ApiResponse<WebAuthResponseDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status415UnsupportedMediaType)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    public Task<IActionResult> WebLogin(WebPasswordRequest request, CancellationToken cancellationToken) =>
+        WebPasswordLogin(request, false, cancellationToken);
+
+    [HttpPost("web/admin/login")]
+    [Consumes("application/json")]
+    [ProducesResponseType(typeof(ApiResponse<WebAuthResponseDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status415UnsupportedMediaType)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    public Task<IActionResult> WebAdminLogin(WebPasswordRequest request, CancellationToken cancellationToken) =>
+        WebPasswordLogin(request, true, cancellationToken);
+
+    private async Task<IActionResult> WebPasswordLogin(WebPasswordRequest request, bool administratorOnly, CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(new WebPasswordSignInCommand(request.Email, request.Password, administratorOnly), cancellationToken);
+        if (result.IsFailure) return HandleFailure(result);
+        WebRefreshCookie.Append(HttpContext, environment, result.Value.RefreshToken,
+            result.Value.RefreshTokenExpiresAtUtc, request.KeepMeSignedIn);
+        return Success(WebAuthResponseDto.From(result.Value), message: "Sign in successful.");
+    }
+
+    [HttpPost("web/google")]
+    [Consumes("application/json")]
+    [ProducesResponseType(typeof(ApiResponse<WebGoogleAuthResponseDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status415UnsupportedMediaType)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> WebGoogle(WebGoogleRequest request, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.IdToken))
+            return Problem(title: "Google ID token is required.", statusCode: StatusCodes.Status400BadRequest,
+                extensions: new Dictionary<string, object?> { ["errorCode"] = AuthErrorCodes.AuthTokenMissing });
+        var result = await Sender.Send(new GoogleAuthCommand(request.IdToken), cancellationToken);
+        if (result.IsFailure) return HandleFailure(result);
+        WebRefreshCookie.Append(HttpContext, environment, result.Value.RefreshToken,
+            result.Value.RefreshTokenExpiresAtUtc, request.KeepMeSignedIn);
+        return Success(WebGoogleAuthResponseDto.From(result.Value), message: "Google authentication successful.");
+    }
+
+    [HttpPost("web/refresh")]
+    [ProducesResponseType(typeof(ApiResponse<WebAuthResponseDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> WebRefresh(CancellationToken cancellationToken)
+    {
+        // S01 restoration: the HttpOnly cookie is the only credential; no body is read.
+        // The refresh row itself is never rotated (fixed expiry), and no Set-Cookie is emitted.
+        var token = Request.Cookies[WebRefreshCookie.Name];
+        var result = await Sender.Send(new WebRefreshCommand(token), cancellationToken);
+        if (result.IsFailure) return HandleFailure(result);
+        return Success(WebAuthResponseDto.From(result.Value), message: "Session restored.");
+    }
+
+    [HttpPost("web/verify-email")]
+    [ProducesResponseType(typeof(ApiResponse<WebVerifyEmailResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> WebVerifyEmail(CancellationToken cancellationToken)
+    {
+        // Strict Web Bearer contract; do not alter the legacy Mobile header parser.
+        var header = Request.Headers.Authorization.ToString();
+        const string prefix = "Bearer ";
+        var token = header.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ? header[prefix.Length..].Trim() : null;
+        if (string.IsNullOrWhiteSpace(token))
+            return Problem(title: "Bearer Firebase ID token is required in the Authorization header.",
+                statusCode: StatusCodes.Status401Unauthorized,
+                extensions: new Dictionary<string, object?> { ["errorCode"] = AuthErrorCodes.AuthHeaderMissing });
+        var result = await Sender.Send(new WebVerifyEmailCommand(token), cancellationToken);
+        return result.IsSuccess ? Success(result.Value, StatusCodes.Status200OK, "Email verified successfully.") : HandleFailure(result);
+    }
+
     [HttpPost("google")]
+    [ProducesResponseType(typeof(ApiResponse<GoogleAuthResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> GoogleAuth(
         [FromBody] GoogleAuthCommand? command,
         CancellationToken cancellationToken)
     {
+        // Body-only (UC-04 spec §6.3): the Bearer header is not an input channel for the
+        // Google flow — a missing token is a ProblemDetails 400 with a stable errorCode.
         var token = command?.IdToken;
         if (string.IsNullOrWhiteSpace(token))
         {
-            token = ExtractBearerToken();
-        }
-
-        if (string.IsNullOrWhiteSpace(token))
-        {
-            return Error(
-                StatusCodes.Status400BadRequest,
-                "Firebase ID token or Google token is required.",
-                new { code = "AUTH_TOKEN_MISSING" });
+            return Problem(
+                title: "Google ID token is required.",
+                statusCode: StatusCodes.Status400BadRequest,
+                extensions: new Dictionary<string, object?>
+                {
+                    ["errorCode"] = AuthErrorCodes.AuthTokenMissing,
+                });
         }
 
         var cmd = new GoogleAuthCommand(token);
@@ -110,9 +208,11 @@ public class AuthController(ISender sender) : ApiControllerBase(sender)
     [HttpPost("login")]
     public async Task<IActionResult> Login(LoginCommand command, CancellationToken cancellationToken)
     {
-        var result = await Sender.Send(command, cancellationToken);
+        var result = await Sender.Send(LoginCommand.ForMobile(command.Email, command.Password), cancellationToken);
         return result.IsSuccess
             ? Success(result.Value, StatusCodes.Status200OK, "Sign in successful.")
             : HandleFailure(result);
     }
 }
+public sealed record WebPasswordRequest(string? Email, string? Password, bool KeepMeSignedIn = false);
+public sealed record WebGoogleRequest(string? IdToken, bool KeepMeSignedIn = false);

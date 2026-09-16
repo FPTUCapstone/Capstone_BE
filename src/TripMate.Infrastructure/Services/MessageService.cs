@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+
 using TripMate.Application.Common.Interfaces;
 
 namespace TripMate.Infrastructure.Services;

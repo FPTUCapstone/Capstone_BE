@@ -29,7 +29,8 @@ public sealed class TripMateApiFactory(
     ApiTestAuthenticationMode authenticationMode = ApiTestAuthenticationMode.HeaderStub,
     string? sqlServerConnectionString = null,
     IReadOnlyList<string>? corsAllowedOrigins = null,
-    string environmentName = "Testing") : WebApplicationFactory<Program>
+    string environmentName = "Testing",
+    Func<IServiceProvider, IFirebaseAuthService>? firebaseServiceFactory = null) : WebApplicationFactory<Program>
 {
     internal const string JwtIssuer = "TripMate.Tests";
     internal const string JwtAudience = "TripMate.Tests";
@@ -74,6 +75,12 @@ public sealed class TripMateApiFactory(
                     provider.GetRequiredService<TestApiDbContext>());
                 services.AddScoped<ITravelGroupCreationLock, NoOpTravelGroupCreationLock>();
                 services.AddScoped<IGroupInvitationLock, NoOpGroupInvitationLock>();
+            }
+
+            if (firebaseServiceFactory is not null)
+            {
+                services.RemoveAll<IFirebaseAuthService>();
+                services.AddSingleton<IFirebaseAuthService>(sp => firebaseServiceFactory(sp));
             }
 
             if (authenticationMode == ApiTestAuthenticationMode.HeaderStub)
@@ -151,6 +158,8 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken) =>
         operation(cancellationToken);
+
+    public void ClearTrackedEntities() => ChangeTracker.Clear();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
