@@ -11,17 +11,17 @@ SQLPID=$!
 
 echo "Waiting for SQL Server to start..."
 for _ in $(seq 1 60); do
-  if "$SQLCMD" -C -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -Q "SELECT 1" >/dev/null 2>&1; then
+  if "$SQLCMD" -b -V 11 -C -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -Q "SELECT 1" >/dev/null 2>&1; then
     echo "SQL Server is up."
     break
   fi
   sleep 1
 done
 
-"$SQLCMD" -C -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -d master \
+"$SQLCMD" -b -V 11 -C -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -d master \
   -Q "CREATE DATABASE TripMateDb;"
 
-"$SQLCMD" -C -I -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -d TripMateDb \
+"$SQLCMD" -b -V 11 -C -I -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -d TripMateDb \
   -i /tmp/tripmate_schema_v7.sql
 
 echo "Schema seeded. Shutting down SQL Server so the data gets committed into the image..."

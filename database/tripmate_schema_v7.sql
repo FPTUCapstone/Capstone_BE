@@ -1049,6 +1049,19 @@ CREATE TABLE social.TravelGroups (
 );
 GO
 
+CREATE TABLE social.TravelGroupCreationRequests (
+    request_id              BIGINT IDENTITY(1,1) PRIMARY KEY,
+    traveler_user_id        BIGINT NOT NULL REFERENCES dbo.Users(user_id),
+    idempotency_key         UNIQUEIDENTIFIER NOT NULL,
+    itinerary_id            BIGINT NOT NULL REFERENCES planning.Itineraries(itinerary_id),
+    group_name              NVARCHAR(150) NOT NULL,
+    group_id                BIGINT NOT NULL REFERENCES social.TravelGroups(group_id) ON DELETE CASCADE,
+    created_at              DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT UQ_TravelGroupCreationRequests_TravelerKey
+        UNIQUE (traveler_user_id, idempotency_key)
+);
+GO
+
 CREATE TABLE social.GroupMembers (
     group_id                     BIGINT NOT NULL REFERENCES social.TravelGroups(group_id) ON DELETE CASCADE,
     user_id                         BIGINT NOT NULL REFERENCES dbo.Users(user_id),
@@ -1071,6 +1084,20 @@ CREATE TABLE social.GroupInvitations (
     used_count                            INT NOT NULL DEFAULT 0,
     created_at                              DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
     CONSTRAINT CK_GroupInvitations_UsageWithinLimit CHECK (used_count <= max_uses)
+);
+GO
+
+CREATE TABLE social.GroupInvitationOperations (
+    operation_id         BIGINT IDENTITY(1,1) PRIMARY KEY,
+    traveler_user_id     BIGINT NOT NULL REFERENCES dbo.Users(user_id),
+    group_id             BIGINT NOT NULL REFERENCES social.TravelGroups(group_id),
+    operation_type       VARCHAR(20) NOT NULL
+        CHECK (operation_type IN ('GetOrCreate', 'Regenerate')),
+    idempotency_key      UNIQUEIDENTIFIER NOT NULL,
+    invitation_id        BIGINT NOT NULL REFERENCES social.GroupInvitations(invitation_id) ON DELETE CASCADE,
+    created_at           DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT UQ_GroupInvitationOperations_TravelerKey
+        UNIQUE (traveler_user_id, idempotency_key)
 );
 GO
 

@@ -40,6 +40,18 @@ public class TestDbContext(
 
     public DbSet<Message> Messages => Set<Message>();
 
+    public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
+
+    public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
+
+    public DbSet<Itinerary> Itineraries => Set<Itinerary>();
+
+    public DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests => Set<TravelGroupCreationRequest>();
+
+    public DbSet<GroupInvitation> GroupInvitations => Set<GroupInvitation>();
+
+    public DbSet<GroupInvitationOperation> GroupInvitationOperations => Set<GroupInvitationOperation>();
+
     public int TransactionExecutionCount { get; private set; }
 
     public async Task<T> ExecuteInTransactionAsync<T>(
@@ -48,6 +60,14 @@ public class TestDbContext(
     {
         TransactionExecutionCount++;
         return await operation(cancellationToken);
+    }
+
+    public Task<T> ExecuteInSerializableTransactionAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
+        CancellationToken cancellationToken)
+    {
+        TransactionExecutionCount++;
+        return operation(cancellationToken);
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -107,6 +127,9 @@ public class TestDbContext(
 
         modelBuilder.Entity<Message>()
             .HasKey(message => message.MessageCode);
+
+        modelBuilder.Entity<GroupMember>()
+            .HasKey(member => new { member.GroupId, member.UserId });
 
         base.OnModelCreating(modelBuilder);
     }

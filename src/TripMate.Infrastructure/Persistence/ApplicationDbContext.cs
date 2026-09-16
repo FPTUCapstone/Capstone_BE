@@ -1,3 +1,4 @@
+using System.Data;
 using System.Reflection;
 
 using Microsoft.EntityFrameworkCore;
@@ -42,6 +43,17 @@ public class ApplicationDbContext(
     public async Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken)
+        => await ExecuteInTransactionAsync(operation, IsolationLevel.ReadCommitted, cancellationToken);
+
+    public async Task<T> ExecuteInSerializableTransactionAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
+        CancellationToken cancellationToken)
+        => await ExecuteInTransactionAsync(operation, IsolationLevel.Serializable, cancellationToken);
+
+    private async Task<T> ExecuteInTransactionAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
+        IsolationLevel isolationLevel,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(operation);
 
@@ -50,12 +62,25 @@ public class ApplicationDbContext(
         return await executionStrategy.ExecuteAsync(async strategyCancellationToken =>
         {
             await using var transaction = await Database.BeginTransactionAsync(
+                isolationLevel,
                 strategyCancellationToken);
             var result = await operation(strategyCancellationToken);
             await transaction.CommitAsync(strategyCancellationToken);
             return result;
         }, cancellationToken);
     }
+
+    public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
+
+    public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
+
+    public DbSet<Itinerary> Itineraries => Set<Itinerary>();
+
+    public DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests => Set<TravelGroupCreationRequest>();
+
+    public DbSet<GroupInvitation> GroupInvitations => Set<GroupInvitation>();
+
+    public DbSet<GroupInvitationOperation> GroupInvitationOperations => Set<GroupInvitationOperation>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
