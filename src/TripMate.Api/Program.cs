@@ -145,9 +145,9 @@ try
         app.UseSwaggerUI();
     }
 
-    app.UseHttpsRedirection();
-
     app.UseCors(corsPolicyName);
+
+    app.UseHttpsRedirection();
 
     app.UseAuthentication();
     app.UseAuthorization();

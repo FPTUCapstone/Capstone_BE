@@ -19,18 +19,18 @@ apply_incremental_migrations() {
   shopt -s nullglob
   for migration in "$SCRIPT_DIR"/migrations/*.sql; do
     echo "Applying $(basename "$migration") to [$DB_NAME]..."
-    "$SQLCMD" -C -I -S "$DB_SERVER" -U sa -P "$SA_PASSWORD" -d "$DB_NAME" -i "$migration"
+    "$SQLCMD" -b -V 11 -C -I -S "$DB_SERVER" -U sa -P "$SA_PASSWORD" -d "$DB_NAME" -i "$migration"
   done
 }
 
 echo "Ensuring database [$DB_NAME] exists on $DB_SERVER..."
-"$SQLCMD" -C -S "$DB_SERVER" -U sa -P "$SA_PASSWORD" -d master \
+"$SQLCMD" -b -V 11 -C -S "$DB_SERVER" -U sa -P "$SA_PASSWORD" -d master \
   -Q "IF DB_ID(N'$DB_NAME') IS NULL CREATE DATABASE [$DB_NAME];"
 
 # 'empty'   -> nothing applied yet, safe to run the full script.
 # 'current' -> v7 already present (MSG130 only exists from v7 onward), skip.
 # 'stale'   -> an older version (e.g. v6) is applied; MSG130 is missing.
-STATE=$("$SQLCMD" -C -S "$DB_SERVER" -U sa -P "$SA_PASSWORD" -d "$DB_NAME" -h -1 -W \
+STATE=$("$SQLCMD" -b -V 11 -C -S "$DB_SERVER" -U sa -P "$SA_PASSWORD" -d "$DB_NAME" -h -1 -W \
   -Q "SET NOCOUNT ON;
       IF SCHEMA_ID(N'catalog') IS NULL SELECT 'empty';
       ELSE IF EXISTS (SELECT 1 FROM dbo.Messages WHERE message_code = 'MSG130') SELECT 'current';
@@ -53,6 +53,6 @@ esac
 echo "Applying $(basename "$SCHEMA_FILE") to [$DB_NAME]..."
 # -I: turn on QUOTED_IDENTIFIER for the session — required for the filtered/unique
 # indexes in this script (sqlcmd defaults it OFF; SSMS would have set it ON for you).
-"$SQLCMD" -C -I -S "$DB_SERVER" -U sa -P "$SA_PASSWORD" -d "$DB_NAME" -i "$SCHEMA_FILE"
+"$SQLCMD" -b -V 11 -C -I -S "$DB_SERVER" -U sa -P "$SA_PASSWORD" -d "$DB_NAME" -i "$SCHEMA_FILE"
 apply_incremental_migrations
 echo "Schema applied successfully."

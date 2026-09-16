@@ -30,9 +30,25 @@ public interface IApplicationDbContext
 
     DbSet<Message> Messages { get; }
 
+    DbSet<TravelGroup> TravelGroups { get; }
+
+    DbSet<GroupMember> GroupMembers { get; }
+
+    DbSet<Itinerary> Itineraries { get; }
+
+    DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests { get; }
+
+    DbSet<GroupInvitation> GroupInvitations { get; }
+
+    DbSet<GroupInvitationOperation> GroupInvitationOperations { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 
     Task<T> ExecuteInTransactionAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
+        CancellationToken cancellationToken);
+
+    Task<T> ExecuteInSerializableTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken);
 }

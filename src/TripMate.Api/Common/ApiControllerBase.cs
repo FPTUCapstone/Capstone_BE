@@ -57,6 +57,10 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             PoiErrorCodes.AdminAccessRequired => StatusCodes.Status403Forbidden,
             PoiErrorCodes.ReferenceNotFound => StatusCodes.Status404NotFound,
             PoiErrorCodes.PossibleDuplicate => StatusCodes.Status409Conflict,
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.ItineraryNotFound => StatusCodes.Status404NotFound,
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.GroupNotFound => StatusCodes.Status404NotFound,
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.HostPermissionRequired => StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.IdempotencyKeyPayloadMismatch => StatusCodes.Status409Conflict,
             _ => StatusCodes.Status400BadRequest,
         };
 
