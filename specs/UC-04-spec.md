@@ -267,7 +267,7 @@ email exists.
 | **BR-15** | Session persistence (refresh-token row + `LastLoginAtUtc`) happens **only on success**, inside a transaction (`ExecuteInTransactionAsync`); token generation and the response follow the commit. No partially-created sessions. |
 | **BR-16** | Firebase unavailability rejects Google requests with `503 auth.firebase_unavailable`. Firebase is **not** a dependency of the email+password flow — per-flow failure domains. |
 | **BR-17** | The Google response shape equals the login shape plus `isNewAccount` (G1-A): `userId, email, fullName, role, status, accessToken, refreshToken, accessTokenExpiresAtUtc, isNewAccount`. `role` always from the DB. Additive changes only. |
-| **BR-18** | Administrator must use email/password. Google identity resolving to Administrator is rejected with **403 `auth.admin_google_sign_in_disabled`**, after status gates and before mutation/session issuance, including concurrency re-fetch. Verify-email must not issue an Administrator session from a Google provider token. Supersedes v2.0 D3-A. |
+| **BR-18** | Administrator authentication is Web-only through `POST /api/v1/auth/web/admin/login`. Mobile password login through `POST /api/v1/auth/login` is rejected with **403 `auth.admin_mobile_sign_in_disabled`** after credential/eligibility checks and before token/session/last-login side effects. Google keeps **403 `auth.admin_google_sign_in_disabled`** after status gates and before mutation/session issuance; verify-email must not issue an Administrator session from a Google provider token. |
 
 ---
 
@@ -521,7 +521,7 @@ existing tests are red.
 | BR-12: `email_verified` false **and MISSING** → 403 | BR-12 🔧 |
 | Token without email → 401 | B6 |
 | Firebase verify fail → 401; Firebase unavailable → typed exception → 503 | S5 🔧 |
-| Existing Administrator via Google → 403 method-disabled code; no mutation/session (normal + re-fetch); email/password still succeeds | BR-18 v2.1 |
+| Existing Administrator via Google → Google-specific 403; Mobile password → `auth.admin_mobile_sign_in_disabled` 403; dedicated Web Admin password still succeeds; refused paths have no mutation/session | BR-18 |
 | Administrator Google token via verify-email → 403; pending email status not activated; no session | BR-18 v2.1 |
 
 ### C. Infrastructure unit
@@ -662,7 +662,7 @@ Keep existing /auth/verify-email Mobile verification-plus-session response and A
 
 ### R3-02 — Admin-only gate and failed sign-in
 
-Admin UI uses explicit server Admin contract: credentials → account gates → current DB role → only Administrator session. Non-admin403 auth.admin_access_required before any new token/refresh persistence/cookie replacement. Failed B sign-in does not revoke existing A/cookie. Public Web supported roles retain generic entry; Administrator password → admin, Google denied.
+Admin UI uses explicit server Admin contract: credentials → account gates → current DB role → only Administrator session. Non-admin403 auth.admin_access_required before any new token/refresh persistence/cookie replacement. Failed B sign-in does not revoke existing A/cookie. Administrator password is supported only through the dedicated Web Admin endpoint; the Mobile password endpoint rejects it with `auth.admin_mobile_sign_in_disabled`, and Google remains denied with its Google-specific code.
 
 ### R3-03 - Account/profile separation and shared compatibility
 
@@ -798,6 +798,7 @@ Exact copy below is English to match existing Web auth UI/mapper language, excep
 | Any account Inactive/unsupported restricted state | 403 | auth.account_inactive | Your account is inactive. Please contact support. | Stop auth, support |
 | Admin entry non-admin eligible account | 403 | auth.admin_access_required (new) | Tài khoản này không có quyền truy cập khu vực quản trị. Vui lòng đăng nhập tại trang dành cho người dùng. | Public sign-in link; no new session/cookie |
 | Google Administrator | 403 | auth.admin_google_sign_in_disabled | Administrator accounts must sign in with email and password. | Password sign-in link, no auto email fill |
+| Mobile password Administrator | 403 | auth.admin_mobile_sign_in_disabled | Administrator accounts are supported on Web only. | Dedicated Web Administrator sign-in; no Mobile session |
 | Legacy insufficient/conflicting eligibility | 403 | auth.account_state_unresolved (new) | Chưa thể xác định trạng thái tài khoản. Vui lòng liên hệ hỗ trợ. | No session; support, no activation |
 | Google missing/empty body token | 400 | AUTH_TOKEN_MISSING | Unable to complete Google sign-in. Please try again. | User may retry popup explicitly |
 | Google invalid token/wrong provider/missing provider/email | 401 | AUTH_TOKEN_INVALID | Your Google authentication could not be verified. Please try again. | Explicit new Google attempt, no raw SDK text |

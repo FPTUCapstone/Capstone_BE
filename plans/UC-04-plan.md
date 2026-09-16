@@ -32,7 +32,7 @@ the narrowly listed FE removal/error-mapping changes. User approval authorizes i
 - Files: VerifyEmailCommandHandler.cs, its unit tests and auth API integration tests.
 - RED: Administrator + Google provider rejected before activation/mutation/session issuance;
   cover statuses and retain Locked/Inactive precedence. Assert non-Google verification and
-  Administrator email/password sign-in still work.
+  dedicated Web Administrator email/password sign-in still works; Mobile password is rejected.
 - GREEN: provider/role gate before mutations/session issuance with the same 403/code.
 - Verify: focused verification/login/API tests; review all Firebase session issuance paths.
 
@@ -51,7 +51,7 @@ the narrowly listed FE removal/error-mapping changes. User approval authorizes i
 - Applicable FE tests, lint and typecheck; report environment limitations and skipped checks.
 - Review final diff twice: revised spec compliance, then authorization/mutation/regression risk.
 - Definition of done: Administrator cannot obtain a new session through either audited Google
-  token path; password and non-admin flows retain behavior; available required checks pass.
+  token path or the Mobile password endpoint; dedicated Web Admin and non-admin flows retain behavior.
 - Delivery correction: commit/push/PR ownership belongs to the developer; delivery was intentionally deferred until final validation and explicit approval. Work remains on existing sign-in branches.
   Broader FE sign-in spec completion still waits for all checklist approvals.
 
@@ -340,7 +340,7 @@ APPROVED: core Web endpoints/request/DTO contract; cookie tripmate_refresh; HTTP
 - User authorized continuation, without commit/push/PR/new branch/migration. Both team rules documents re-read before implementation; approved Web contract and existing handlers inspected.
 - RED: four Web login/Admin HTTP tests returned 404 before endpoints existed. GREEN: POST /api/v1/auth/web/login, /web/admin/login and /web/google now return approved Web DTOs with applicationStatus always present and no refreshToken.
 - Dedicated WebPasswordSignInCommand normalizes email, preserves password and returns approved field codes (errors.email/password arrays of MSG01/MSG02) through Result/ProblemDetails; binding/type/null-boolean failures get Web-only auth.request_invalid. Unsupported Content-Type ->415. Existing Mobile binding/error behavior remains unchanged.
-- Admin entry is server-selected by endpoint and passed as an internal LoginCommand gate; client DTO has no role/gate authority. Shared credentials/current eligibility checks execute first; non-Administrator fails auth.admin_access_required/403 BEFORE refresh generation/persistence, LastLogin or JWT issuance. Public password and Mobile contracts retain normal login behavior. Google retains existing Administrator rejection and current-context/re-fetch paths.
+- Admin entry is server-selected by endpoint and passed as an internal LoginCommand gate; client DTO has no role/gate authority. Shared credentials/current eligibility checks execute first; non-Administrator fails auth.admin_access_required/403 BEFORE refresh generation/persistence, LastLogin or JWT issuance. Public Web supported-role behavior remains; Mobile Administrator password now fails with `auth.admin_mobile_sign_in_disabled` before the same side effects. Google retains its distinct Administrator rejection and current-context/re-fetch paths.
 - Refresh expiry is exposed internally (JsonIgnore) from session issuance and used for cookie persistence; one password timestamp fixes created/expiry exactly seven days apart. Cookie tripmate_refresh: HttpOnly, SameSite=Lax, Path=/api/v1/auth, no Domain. Production and HTTPS use Secure; only Development HTTP localhost may omit Secure. KeepMeSignedIn false omits Expires; true uses original refresh expiry, not another computed lifetime. Token stored hashed in DB, excluded from Web JSON. Failed replacement emits no Set-Cookie and leaves prior refresh record intact.
 - CORS uses explicitly configured origins and now enables credentials; exact allowed/disallowed preflights tested. Production deployment still requires approved HTTPS same-site topology and configured FE origin; this task does not deploy or add Origin/custom-header hardening.
 - 29 new HTTP tests: password cookie/expiry/hash/access15min, Administrator success, nonadmin gate, client-role/gate spoof rejection, failed replacement preservation, binding/field/credential/content-type failures, account-before-role precedence, legacy/application contexts including unresolved null, existing/new Google and Google Admin denial, environment Secure and CORS.

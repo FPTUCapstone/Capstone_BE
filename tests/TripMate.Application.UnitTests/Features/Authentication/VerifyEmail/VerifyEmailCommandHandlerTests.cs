@@ -147,6 +147,105 @@ public class VerifyEmailCommandHandlerTests
         updatedUser.EmailVerifiedAtUtc.Should().NotBeNull();
     }
 
+    // A2 — verify-email must return full routing identity (role + effective status +
+    // applicationStatus) so Mobile can route immediately without a second login.
+    [Fact]
+    public async Task Handle_WhenTravelerVerified_ReturnsRoleAndNullApplicationStatus()
+    {
+        var user = new User
+        {
+            Email = "rv@example.com",
+            FullName = "R V",
+            Role = UserRole.Traveler,
+            Status = AccountStatus.PendingEmailVerification,
+            CreatedAtUtc = DateTimeOffset.UtcNow.AddDays(-1),
+            UpdatedAtUtc = DateTimeOffset.UtcNow.AddDays(-1),
+        };
+        _dbContext.Users.Add(user);
+        await _dbContext.SaveChangesAsync();
+        _firebaseAuthService.Setup(s => s.VerifyIdTokenAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FirebaseTokenValidationResult("fb-rv", user.Email, true, null, null, "password"));
+
+        var result = await _handler.Handle(new VerifyEmailCommand("rv-token"), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Role.Should().Be("Traveler");
+        result.Value.Status.Should().Be(AccountStatus.Active.ToString());
+        result.Value.ApplicationStatus.Should().BeNull();
+        result.Value.AccessToken.Should().Be("sample-access-token");
+        result.Value.RefreshToken.Should().Be("sample-refresh-token");
+    }
+
+    [Fact]
+    public async Task Handle_WhenActiveTourOperatorVerified_ReturnsCurrentApplicationStatus()
+    {
+        var user = new User
+        {
+            Email = "op-verify@example.com",
+            FullName = "Op",
+            Role = UserRole.TourOperator,
+            Status = AccountStatus.Active,
+            EmailVerifiedAtUtc = DateTimeOffset.UtcNow.AddDays(-1),
+            CreatedAtUtc = DateTimeOffset.UtcNow.AddDays(-2),
+            UpdatedAtUtc = DateTimeOffset.UtcNow.AddDays(-2),
+        };
+        _dbContext.Users.Add(user);
+        await _dbContext.SaveChangesAsync();
+        _dbContext.OperatorProfiles.Add(new OperatorProfile
+        {
+            UserId = user.Id,
+            CompanyName = "Op Co",
+            TaxCode = "0400000009",
+            BusinessLicenseNo = "BL-0009",
+            ApprovalStatus = OperatorApprovalStatus.PendingApproval,
+        });
+        await _dbContext.SaveChangesAsync();
+        _firebaseAuthService.Setup(s => s.VerifyIdTokenAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FirebaseTokenValidationResult("fb-op", user.Email, true, null, null, "password"));
+
+        var result = await _handler.Handle(new VerifyEmailCommand("op-token"), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Role.Should().Be("TourOperator");
+        result.Value.Status.Should().Be(AccountStatus.Active.ToString());
+        result.Value.ApplicationStatus.Should().Be("PendingApproval");
+    }
+
+    [Fact]
+    public async Task Handle_WhenLegacyMarkerOperatorVerified_ReturnsEffectiveActiveNotRawStatus()
+    {
+        var user = new User
+        {
+            Email = "legacy-verify@example.com",
+            FullName = "Legacy",
+            Role = UserRole.TourOperator,
+            Status = AccountStatus.PendingApproval,
+            EmailVerifiedAtUtc = DateTimeOffset.UtcNow.AddDays(-1),
+            CreatedAtUtc = DateTimeOffset.UtcNow.AddDays(-2),
+            UpdatedAtUtc = DateTimeOffset.UtcNow.AddDays(-2),
+        };
+        _dbContext.Users.Add(user);
+        await _dbContext.SaveChangesAsync();
+        _dbContext.OperatorProfiles.Add(new OperatorProfile
+        {
+            UserId = user.Id,
+            CompanyName = "Legacy Co",
+            TaxCode = "0400000010",
+            BusinessLicenseNo = "BL-0010",
+            ApprovalStatus = OperatorApprovalStatus.PendingApproval,
+        });
+        await _dbContext.SaveChangesAsync();
+        _firebaseAuthService.Setup(s => s.VerifyIdTokenAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FirebaseTokenValidationResult("fb-lg", user.Email, true, null, null, "password"));
+
+        var result = await _handler.Handle(new VerifyEmailCommand("legacy-token"), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Status.Should().Be(AccountStatus.Active.ToString());
+        result.Value.ApplicationStatus.Should().Be("PendingApproval");
+        user.Status.Should().Be(AccountStatus.PendingApproval); // DB status never mutated
+    }
+
     [Fact]
     public async Task Handle_WhenTokenVerificationThrows_ReturnsGenericMessageWithoutExceptionDetails()
     {

@@ -208,7 +208,7 @@ public class AuthController(ISender sender, IWebHostEnvironment environment) : A
     [HttpPost("login")]
     public async Task<IActionResult> Login(LoginCommand command, CancellationToken cancellationToken)
     {
-        var result = await Sender.Send(command, cancellationToken);
+        var result = await Sender.Send(LoginCommand.ForMobile(command.Email, command.Password), cancellationToken);
         return result.IsSuccess
             ? Success(result.Value, StatusCodes.Status200OK, "Sign in successful.")
             : HandleFailure(result);

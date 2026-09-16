@@ -15,8 +15,10 @@ public record AuthResponseDto(
     DateTimeOffset AccessTokenExpiresAtUtc
 )
 {
-    // Internal context for Web projection; preserve the existing Mobile wire contract.
-    [JsonIgnore]
+    // Backend-authoritative application status, serialized on the Mobile/shared wire (A1).
+    // Never is required so the field is present even under a null-omitting policy; null means
+    // non-operator or unresolved. RefreshTokenExpiresAtUtc stays internal.
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
     public string? ApplicationStatus { get; init; }
 
     [JsonIgnore]

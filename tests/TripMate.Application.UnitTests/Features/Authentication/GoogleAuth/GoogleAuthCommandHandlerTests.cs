@@ -503,7 +503,11 @@ public class GoogleAuthCommandHandlerTests
         web.RootElement.TryGetProperty("refreshToken", out _).Should().BeFalse();
         using var mobile = JsonDocument.Parse(JsonSerializer.Serialize(result.Value, options));
         mobile.RootElement.GetProperty("refreshToken").GetString().Should().Be("sample-refresh-token");
-        mobile.RootElement.TryGetProperty("applicationStatus", out _).Should().BeFalse();
+        mobile.RootElement.TryGetProperty("applicationStatus", out var mobileApp).Should().BeTrue();
+        if (expected is null) mobileApp.ValueKind.Should().Be(JsonValueKind.Null);
+        else mobileApp.GetString().Should().Be(expected);
+        // A1 is additive only: the refresh expiry stays internal on the Mobile/shared contract.
+        mobile.RootElement.TryGetProperty("refreshTokenExpiresAtUtc", out _).Should().BeFalse();
         if (approval.HasValue)
         {
             _dbContext.OperatorProfiles.Single().ApprovalStatus = OperatorApprovalStatus.Approved;

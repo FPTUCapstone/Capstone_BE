@@ -58,5 +58,6 @@ public static class AuthErrorCodes
     public const string AdminAccessRequired = "auth.admin_access_required";
     public const string RequestInvalid = "auth.request_invalid";
     public const string AdminGoogleSignInDisabled = "auth.admin_google_sign_in_disabled";
+    public const string AdminMobileSignInDisabled = "auth.admin_mobile_sign_in_disabled";
     public const string EmailAlreadyRegistered = Msg03;
 }

@@ -12,10 +12,20 @@ public class FakePasswordHasher : IPasswordHasher, IPasswordHasherService
 
 public class FakeJwtTokenService : IJwtTokenService
 {
-    public (string Token, DateTimeOffset ExpiresAtUtc) GenerateAccessToken(User user) =>
-        ($"access-token-for-{user.Id}", DateTimeOffset.UtcNow.AddMinutes(15));
+    public int AccessTokenGenerationCount { get; private set; }
+    public int RefreshTokenGenerationCount { get; private set; }
 
-    public string GenerateRefreshToken() => $"refresh-token-{Guid.NewGuid()}";
+    public (string Token, DateTimeOffset ExpiresAtUtc) GenerateAccessToken(User user)
+    {
+        AccessTokenGenerationCount++;
+        return ($"access-token-for-{user.Id}", DateTimeOffset.UtcNow.AddMinutes(15));
+    }
+
+    public string GenerateRefreshToken()
+    {
+        RefreshTokenGenerationCount++;
+        return $"refresh-token-{Guid.NewGuid()}";
+    }
 
     public string HashRefreshToken(string rawRefreshToken) => $"hashed:{rawRefreshToken}";
 }

@@ -103,6 +103,17 @@ public class VerifyEmailCommandHandler(
             user.UpdatedAtUtc = now;
         }
 
+        // A2: effective eligibility and current application status come from the SAME shared
+        // resolver login uses, so a legacy PendingApproval/Rejected marker is reported as the
+        // effective Active status (never a raw marker) and unresolved markers fail closed before
+        // any session is issued. The DB account status is not mutated by resolving.
+        var eligibility = await AccountEligibilityResolver.ResolveAsync(
+            dbContext, user, now, cancellationToken);
+        if (eligibility.IsFailure)
+        {
+            return Result.Failure<VerifyEmailResponse>(eligibility.ErrorCode!, eligibility.ErrorMessage!);
+        }
+
         var refreshTokenValue = jwtTokenService.GenerateRefreshToken();
         dbContext.RefreshTokens.Add(new RefreshToken
         {
@@ -119,10 +130,11 @@ public class VerifyEmailCommandHandler(
         return Result.Success(new VerifyEmailResponse(
             user.Id,
             user.Email!,
-            user.Status.ToString(),
+            eligibility.Value.Status.ToString(),
             user.EmailVerifiedAtUtc ?? now,
             accessToken,
             refreshTokenValue,
-            accessTokenExpiresAtUtc));
+            accessTokenExpiresAtUtc)
+        { Role = user.Role.ToString(), ApplicationStatus = eligibility.Value.ApplicationStatus });
     }
 }

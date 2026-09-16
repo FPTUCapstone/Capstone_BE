@@ -37,7 +37,26 @@ public class LoginCommandHandlerTests
     }
 
     [Fact]
-    public async Task Handle_WithActiveAdministratorPassword_StillIssuesSession()
+    public async Task Handle_WithActiveAdministratorOnMobile_RejectsBeforeSessionSideEffects()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var user = await SeedUser(dbContext, "admin@example.com", "CorrectPass1", AccountStatus.Active, UserRole.Administrator);
+        var result = await CreateHandler(dbContext).Handle(
+            LoginCommand.ForMobile("admin@example.com", "CorrectPass1"), CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(AuthErrorCodes.AdminMobileSignInDisabled);
+        result.ErrorMessage.Should().Be("Administrator accounts are supported on Web only.");
+        _jwtTokenService.AccessTokenGenerationCount.Should().Be(0);
+        _jwtTokenService.RefreshTokenGenerationCount.Should().Be(0);
+        dbContext.RefreshTokens.Should().BeEmpty();
+        user.LastLoginAtUtc.Should().BeNull();
+        user.Role.Should().Be(UserRole.Administrator);
+        user.Status.Should().Be(AccountStatus.Active);
+    }
+
+    [Fact]
+    public async Task Handle_WithActiveAdministratorOnNonMobilePath_StillIssuesSession()
     {
         await using var dbContext = TestDbContext.Create();
         var user = await SeedUser(dbContext, "admin@example.com", "CorrectPass1", AccountStatus.Active, UserRole.Administrator);
@@ -46,7 +65,6 @@ public class LoginCommandHandlerTests
 
         result.IsSuccess.Should().BeTrue();
         result.Value.Role.Should().Be(UserRole.Administrator);
-        result.Value.AccessToken.Should().NotBeNullOrWhiteSpace();
         dbContext.RefreshTokens.Should().ContainSingle(t => t.UserId == user.Id);
         user.LastLoginAtUtc.Should().NotBeNull();
     }
@@ -65,6 +83,37 @@ public class LoginCommandHandlerTests
         result.IsFailure.Should().BeTrue();
         result.ErrorCode.Should().Be(AuthErrorCodes.InvalidCredentials);
         result.ErrorMessage.Should().Be("Invalid email or password.");
+    }
+
+    [Fact]
+    public async Task Handle_WithAdministratorWrongPasswordOnMobile_RemainsGenericInvalidCredentials()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var user = await SeedUser(dbContext, "admin@example.com", "CorrectPass1", AccountStatus.Active, UserRole.Administrator);
+
+        var result = await CreateHandler(dbContext).Handle(
+            LoginCommand.ForMobile("admin@example.com", "WrongPass1"), CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(AuthErrorCodes.InvalidCredentials);
+        result.ErrorMessage.Should().Be("Invalid email or password.");
+        dbContext.RefreshTokens.Should().BeEmpty();
+        user.LastLoginAtUtc.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Handle_WithLockedAdministratorOnMobile_PreservesEligibilityPrecedence()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var user = await SeedUser(dbContext, "admin@example.com", "CorrectPass1", AccountStatus.Locked, UserRole.Administrator);
+
+        var result = await CreateHandler(dbContext).Handle(
+            LoginCommand.ForMobile("admin@example.com", "CorrectPass1"), CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(AuthErrorCodes.AccountLocked);
+        dbContext.RefreshTokens.Should().BeEmpty();
+        user.LastLoginAtUtc.Should().BeNull();
     }
 
     [Fact]
@@ -286,7 +335,12 @@ public class LoginCommandHandlerTests
         web.RootElement.GetProperty("role").GetString().Should().Be(role.ToString());
         using var mobile = JsonDocument.Parse(JsonSerializer.Serialize(session, options));
         mobile.RootElement.GetProperty("refreshToken").GetString().Should().Be("private-refresh");
-        mobile.RootElement.TryGetProperty("applicationStatus", out _).Should().BeFalse();
+        mobile.RootElement.TryGetProperty("applicationStatus", out var mobileApp).Should().BeTrue();
+        if (application is null) mobileApp.ValueKind.Should().Be(JsonValueKind.Null);
+        else mobileApp.GetString().Should().Be(application);
+        // A1 is additive only: exposing applicationStatus must not widen the wire further —
+        // the refresh expiry stays internal on the Mobile/shared contract.
+        mobile.RootElement.TryGetProperty("refreshTokenExpiresAtUtc", out _).Should().BeFalse();
     }
 
     private LoginCommandHandler CreateHandler(TestDbContext dbContext) =>

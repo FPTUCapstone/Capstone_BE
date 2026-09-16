@@ -76,6 +76,9 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             AuthErrorCodes.AdminGoogleSignInDisabled =>
                 StatusCodes.Status403Forbidden,
 
+            AuthErrorCodes.AdminMobileSignInDisabled =>
+                StatusCodes.Status403Forbidden,
+
             AuthErrorCodes.VerificationUnavailable =>
                 StatusCodes.Status503ServiceUnavailable,
 
