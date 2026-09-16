@@ -3,6 +3,12 @@
 
 > **Status: Canonical (Rev. 3 — Aligned with Firebase Authentication & Database Schema `database/tripmate_schema_v7.sql`).**
 > This document reconciles all prior drafts and is aligned with SRS (Report 3, §3.2.1) and the TripMate technology stack. Primary Identity Provider is **Firebase Authentication**. Email verification is performed via Firebase email action links (`sendEmailVerification` / `applyActionCode`). Backend verifies Firebase ID tokens using the Firebase Admin SDK (`FirebaseAuthService`), validates account constraints, manages Traveler records, and issues TripMate JWT session tokens upon verification.
+>
+> **Amendment (2026-09-13, per UC-04 spec v2.0):** BR-06 Google flow aligned with the ratified
+> UC-04 status matrix — Sign In **never** activates or status-changes an **existing** account;
+> a pending account receives `403 MSG_UNVERIFIED` (UC-04 BR-03/BR-14). The nonexistent
+> `Suspended` status was removed from the §3.1 Status enum (the domain enum is
+> `PendingEmailVerification, Active, Locked, PendingApproval, Rejected, Inactive`).
 
 ---
 
@@ -14,7 +20,7 @@ A Guest creates a Traveler account by submitting full name, email, password (+ o
 3. **Verification Email:** The frontend triggers an email verification link via Firebase (`sendEmailVerification`) pointing to `${origin}/verify-email`. The user is navigated to an instruction screen (`/verify-account`).
 4. **Email Confirmation & Activation:** When the Traveler clicks the verification link (`/verify-email?mode=verifyEmail&oobCode=...`), Firebase verifies the action code (`applyActionCode`). The frontend reloads the user session, requests a refreshed Firebase ID token (with claim `email_verified: true`), and sends it via `Authorization: Bearer <token>` to `POST /api/v1/auth/verify-email`.
 5. **Session Token Issuance:** The backend verifies the updated Firebase ID token, checks `email_verified == true`, marks the account **Active**, stores a hashed refresh token in `dbo.RefreshTokens`, and issues TripMate JWT access & refresh tokens.
-6. **Google Social Login:** A Guest may alternatively register/sign in via **Continue with Google** (`signInWithPopup` with `GoogleAuthProvider`), acquiring a Firebase ID token and sending it to `POST /api/v1/auth/google`. The backend validates the token, activates or provisions the account, and issues TripMate JWT session tokens immediately.
+6. **Google Social Login:** A Guest may alternatively register/sign in via **Continue with Google** (`signInWithPopup` with `GoogleAuthProvider`), acquiring a Firebase ID token and sending it to `POST /api/v1/auth/google`. The backend validates the token and **provisions** the account only when the email is new (Traveler, `Active`); an **existing** account is never activated or status-changed by this endpoint — a `PendingEmailVerification` account receives `403 MSG_UNVERIFIED` (see UC-04 spec v2.0, BR-03/BR-14).
 
 ---
 
@@ -37,7 +43,7 @@ A Guest creates a Traveler account by submitting full name, email, password (+ o
 | `PhoneNumber` | `string(20)` (`phone_number`) | optional, format `0[0-9]{9}`, unique index `UX_Users_Phone` if provided |
 | `PasswordHash` | `string(256)` (`password_hash`) | null if account has no password (Google-only) |
 | `Role` | `enum: Traveler, TourOperator, Administrator` (`role`) | system-assigned, always `Traveler` here |
-| `Status` | `enum: PendingEmailVerification, Active, Locked, Suspended` (`status`) | starts `PendingEmailVerification` (standard) or `Active` (Google) |
+| `Status` | `enum: PendingEmailVerification, Active, Locked, PendingApproval, Rejected, Inactive` (`status`) | starts `PendingEmailVerification` (standard) or `Active` (Google). NOTE: `Suspended` removed — it does not exist in the domain enum |
 | `AvatarUrl` | `string(500)` (`avatar_url`) | profile picture (synced from Google if available) |
 | `EmailVerifiedAtUtc` | `DATETIME2` (`email_verified_at`) | set upon successful email verification or Google sign-in |
 | `CreatedAtUtc` / `UpdatedAtUtc` | `DATETIME2` (`created_at`, `updated_at`) | audit timestamps |
@@ -64,7 +70,7 @@ A Guest creates a Traveler account by submitting full name, email, password (+ o
 - **BR-05 (Access Restriction):** A `PendingEmailVerification` account cannot log in or access protected endpoints. A login attempt with correct credentials but unverified email returns `403 MSG_UNVERIFIED`.
 - **BR-06 (Google Flow Decision Table):**
   - Email not yet registered $\rightarrow$ create a new `User` (Traveler, `Active`), record `EmailVerifiedAtUtc = now`, issue TripMate JWT session tokens (`isNewAccount: true`).
-  - Email already registered $\rightarrow$ activate account if pending, update avatar if empty, update `LastLoginAtUtc`, issue TripMate JWT session tokens (`isNewAccount: false`).
+  - Email already registered $\rightarrow$ **no status change** (Sign In is not activation — UC-04 BR-14): if the account is `PendingEmailVerification` $\rightarrow$ reject with `403 MSG_UNVERIFIED`; otherwise (per the ratified UC-04 status matrix) update avatar if empty, update `LastLoginAtUtc`, issue TripMate JWT session tokens (`isNewAccount: false`).
   - Google ID token invalid or fails server verification $\rightarrow$ `401 MSG_GOOGLE_TOKEN_INVALID`.
 - **BR-07 (Firebase ID Token Enforcement):**
   - Registration requires a valid Firebase ID token in `Authorization: Bearer <token>`. The email claimed in the token must match the registration email.

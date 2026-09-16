@@ -39,7 +39,14 @@ try
     builder.Services
         .AddControllers()
         .AddJsonOptions(options =>
-            options.JsonSerializerOptions.PropertyNamingPolicy = jsonNamingPolicy);
+        {
+            options.JsonSerializerOptions.PropertyNamingPolicy = jsonNamingPolicy;
+
+            // UC-04 v2.0 contract: enums serialize as strings (e.g. "Traveler", "Active") —
+            // aligning the runtime serializer with the enum-as-string OpenAPI schema the API
+            // already documents, so clients never depend on numeric enum values.
+            options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+        });
 
     builder.Services.Configure<ApiBehaviorOptions>(options =>
     {
@@ -58,6 +65,9 @@ try
             ValidationErrorKeyNormalizer.NormalizeInPlace(
                 problem.Errors,
                 serializerOptions.PropertyNamingPolicy);
+
+            if (context.HttpContext.Request.Path.StartsWithSegments("/api/v1/auth/web"))
+                problem.Extensions["errorCode"] = TripMate.Application.Features.Authentication.Common.AuthErrorCodes.RequestInvalid;
 
             var result = new BadRequestObjectResult(problem);
             result.ContentTypes.Add("application/problem+json");
@@ -131,7 +141,7 @@ try
                 .GetSection("Cors:AllowedOrigins")
                 .Get<string[]>() ?? [];
 
-            policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod();
+            policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials();
         });
     });
 

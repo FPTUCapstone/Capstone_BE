@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Authentication.Common;
@@ -11,4 +13,14 @@ public record AuthResponseDto(
     string AccessToken,
     string RefreshToken,
     DateTimeOffset AccessTokenExpiresAtUtc
-);
+)
+{
+    // Backend-authoritative application status, serialized on the Mobile/shared wire (A1).
+    // Never is required so the field is present even under a null-omitting policy; null means
+    // non-operator or unresolved. RefreshTokenExpiresAtUtc stays internal.
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? ApplicationStatus { get; init; }
+
+    [JsonIgnore]
+    public DateTimeOffset RefreshTokenExpiresAtUtc { get; init; }
+}

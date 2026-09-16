@@ -1,6 +1,9 @@
+using System.Diagnostics;
+
 using MediatR;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
@@ -12,90 +15,126 @@ namespace TripMate.Application.Features.Authentication.Login;
 
 /// <summary>
 /// Order matters here (FR5): credentials are validated first with a generic error, then account
-/// status is checked independently (BR-05/BR-07/BR-09/BR-10/BR-11), and only then is the session
-/// issued. PendingApproval and Rejected — a Tour Operator's account status while its application
-/// is under review or was turned down — must NOT block sign-in (BR-07, BR-09): a Rejected
-/// operator has to be able to sign in to resubmit (UC-03). Only PendingEmailVerification, Locked
-/// and Inactive block authentication.
+/// eligibility is resolved before session creation. Legacy operator states require a matching
+/// application and trusted persisted verification evidence; effective Active never updates DB status.
 /// </summary>
 public class LoginCommandHandler(
     IApplicationDbContext dbContext,
     IPasswordHasherService passwordHasher,
     IJwtTokenService jwtTokenService,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    ILogger<LoginCommandHandler> logger)
     : IRequestHandler<LoginCommand, Result<AuthResponseDto>>
 {
     public async Task<Result<AuthResponseDto>> Handle(
         LoginCommand request,
         CancellationToken cancellationToken)
     {
-        var normalizedEmail = request.Email.Trim().ToLowerInvariant();
+        var startedAt = Stopwatch.GetTimestamp();
+        long? userId = null;
 
-        var user = await dbContext.Users.FirstOrDefaultAsync(
-            u => u.Email == normalizedEmail,
-            cancellationToken);
+        var result = await HandleCore(request, cancellationToken, resolvedUserId => userId = resolvedUserId);
 
-        if (user is null)
+        // N3.3: one structured outcome event per request — no secrets (S11).
+        logger.LogInformation(
+            "UC-04 login {Outcome}; UserId={UserId}; ErrorCode={ErrorCode}; LatencyMs={LatencyMs:F0}",
+            result.IsSuccess ? "Success" : "Failure",
+            userId,
+            result.IsSuccess ? "-" : result.ErrorCode,
+            Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
+
+        return result;
+
+        async Task<Result<AuthResponseDto>> HandleCore(
+            LoginCommand command,
+            CancellationToken ct,
+            Action<long?> onUserResolved)
         {
-            return Result.Failure<AuthResponseDto>(
-                AuthErrorCodes.InvalidCredentials,
-                "Invalid email or password.");
+            var normalizedEmail = command.Email.Trim().ToLowerInvariant();
+
+            var user = await dbContext.Users.FirstOrDefaultAsync(
+                u => u.Email == normalizedEmail,
+                ct);
+
+            if (user is null)
+            {
+                return Result.Failure<AuthResponseDto>(
+                    AuthErrorCodes.InvalidCredentials,
+                    "Invalid email or password.");
+            }
+
+            onUserResolved(user.Id);
+
+            if (user.PasswordHash is null)
+            {
+                // Same generic message as unknown email / wrong password — never reveal that the
+                // account exists without a password (UC-04 §4.1 identical-response rule).
+                return Result.Failure<AuthResponseDto>(
+                    AuthErrorCodes.InvalidCredentials,
+                    "Invalid email or password.");
+            }
+
+            var isValid = passwordHasher.Verify(command.Password, user.PasswordHash);
+            if (!isValid)
+            {
+                return Result.Failure<AuthResponseDto>(
+                    AuthErrorCodes.InvalidCredentials,
+                    "Invalid email or password.");
+            }
+
+            var eligibility = await AccountEligibilityResolver.ResolveAsync(
+                dbContext, user, dateTimeProvider.UtcNow, ct);
+            if (eligibility.IsFailure)
+            {
+                return Result.Failure<AuthResponseDto>(eligibility.ErrorCode!, eligibility.ErrorMessage!);
+            }
+
+            if (command.AdministratorOnly && user.Role != UserRole.Administrator)
+                return Result.Failure<AuthResponseDto>(AuthErrorCodes.AdminAccessRequired, "Administrator access is required.");
+
+            if (command.IsMobileEndpoint && user.Role == UserRole.Administrator)
+                return Result.Failure<AuthResponseDto>(
+                    AuthErrorCodes.AdminMobileSignInDisabled,
+                    "Administrator accounts are supported on Web only.");
+
+            var now = dateTimeProvider.UtcNow;
+            var refreshExpiresAt = now.AddDays(7);
+            var refreshTokenValue = jwtTokenService.GenerateRefreshToken();
+
+            // BR-15: session persistence is atomic — the refresh-token row and LastLoginAtUtc commit
+            // together inside a transaction; access-token generation and the response follow the
+            // commit, so a mid-flight failure can never leave a half-created session.
+            await dbContext.ExecuteInTransactionAsync<bool>(async transactionCancellationToken =>
+            {
+                // Added via the DbSet, not the User.RefreshTokens navigation: a new entity discovered
+                // only through collection fixup is tracked as Modified (not Added) once it already has a
+                // non-default key, which fails as a no-op update against both InMemory and SQL Server.
+                dbContext.RefreshTokens.Add(new RefreshToken
+                {
+                    UserId = user.Id,
+                    TokenHash = jwtTokenService.HashRefreshToken(refreshTokenValue),
+                    CreatedAtUtc = now,
+                    ExpiresAtUtc = refreshExpiresAt,
+                });
+
+                user.LastLoginAtUtc = now;
+
+                await dbContext.SaveChangesAsync(transactionCancellationToken);
+                return true;
+            }, ct);
+
+            var (accessToken, accessTokenExpiresAtUtc) = jwtTokenService.GenerateAccessToken(user);
+
+            return Result.Success(new AuthResponseDto(
+                user.Id,
+                user.Email,
+                user.FullName,
+                user.Role,
+                eligibility.Value.Status,
+                accessToken,
+                refreshTokenValue,
+                accessTokenExpiresAtUtc)
+            { ApplicationStatus = eligibility.Value.ApplicationStatus, RefreshTokenExpiresAtUtc = refreshExpiresAt });
         }
-
-        if (user.PasswordHash is null)
-        {
-            return Result.Failure<AuthResponseDto>(
-                AuthErrorCodes.InvalidCredentials,
-                "This account does not use password login.");
-        }
-
-        var isValid = passwordHasher.Verify(request.Password, user.PasswordHash);
-        if (!isValid)
-        {
-            return Result.Failure<AuthResponseDto>(
-                AuthErrorCodes.InvalidCredentials,
-                "Invalid email or password.");
-        }
-
-        var statusError = user.Status switch
-        {
-            AccountStatus.PendingEmailVerification => AuthErrorCodes.AccountPendingVerification,
-            AccountStatus.Locked => AuthErrorCodes.AccountLocked,
-            AccountStatus.Inactive => AuthErrorCodes.AccountInactive,
-            _ => null,
-        };
-
-        if (statusError is not null)
-        {
-            return Result.Failure<AuthResponseDto>(statusError, "Email has not been verified or account is not active.");
-        }
-
-        var (accessToken, accessTokenExpiresAtUtc) = jwtTokenService.GenerateAccessToken(user);
-        var refreshTokenValue = jwtTokenService.GenerateRefreshToken();
-
-        // Added via the DbSet, not the User.RefreshTokens navigation: a new entity discovered
-        // only through collection fixup is tracked as Modified (not Added) once it already has a
-        // non-default key, which fails as a no-op update against both InMemory and SQL Server.
-        dbContext.RefreshTokens.Add(new RefreshToken
-        {
-            UserId = user.Id,
-            TokenHash = jwtTokenService.HashRefreshToken(refreshTokenValue),
-            CreatedAtUtc = dateTimeProvider.UtcNow,
-            ExpiresAtUtc = dateTimeProvider.UtcNow.AddDays(7),
-        });
-
-        user.LastLoginAtUtc = dateTimeProvider.UtcNow;
-
-        await dbContext.SaveChangesAsync(cancellationToken);
-
-        return Result.Success(new AuthResponseDto(
-            user.Id,
-            user.Email,
-            user.FullName,
-            user.Role,
-            user.Status,
-            accessToken,
-            refreshTokenValue,
-            accessTokenExpiresAtUtc));
     }
 }

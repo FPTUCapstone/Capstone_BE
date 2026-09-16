@@ -111,6 +111,60 @@ public class FirebaseAuthServiceTests
     }
 
     [Fact]
+    public void ExtractSignInProvider_WithNewtonsoftJObjectClaim_ReturnsProvider()
+    {
+        // The REAL-world shape: FirebaseAdmin deserializes the nested `firebase` claim with
+        // Newtonsoft.Json, so it surfaces as a JObject in the decoded claims dictionary.
+        var firebaseObject = Newtonsoft.Json.Linq.JObject.FromObject(new { sign_in_provider = "google.com" });
+        var claims = new Dictionary<string, object> { ["firebase"] = firebaseObject };
+
+        FirebaseAuthService.ExtractSignInProvider(claims).Should().Be("google.com");
+    }
+
+    [Fact]
+    public void ExtractSignInProvider_WithNestedDictionaryClaim_ReturnsProvider()
+    {
+        var claims = new Dictionary<string, object>
+        {
+            ["firebase"] = new Dictionary<string, object> { ["sign_in_provider"] = "google.com" },
+        };
+
+        FirebaseAuthService.ExtractSignInProvider(claims).Should().Be("google.com");
+    }
+
+    [Fact]
+    public void ExtractSignInProvider_WithJsonElementClaim_ReturnsProvider()
+    {
+        var element = System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(
+            """{"identities":{},"sign_in_provider":"google.com"}""");
+        var claims = new Dictionary<string, object> { ["firebase"] = element };
+
+        FirebaseAuthService.ExtractSignInProvider(claims).Should().Be("google.com");
+    }
+
+    [Fact]
+    public void ExtractSignInProvider_WhenFirebaseClaimMissing_ReturnsNull()
+    {
+        var claims = new Dictionary<string, object> { ["sub"] = "some-uid" };
+
+        // A missing provider claim must stay missing so BR-11 can fail closed downstream.
+        FirebaseAuthService.ExtractSignInProvider(claims).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Verify_WhenFirebaseAdminNotConfigured_ThrowsFirebaseUnavailable()
+    {
+        // UC-04 BR-16: infrastructure unavailability is distinct from a token rejection —
+        // it must surface as FirebaseUnavailableException so the API can answer 503.
+        var service = CreateServiceWithoutCredentials();
+
+        var act = async () => await service.VerifyIdTokenAsync(ForgedTokenFixture(), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<FirebaseUnavailableException>())
+            .Which.Message.Should().Contain("unavailable");
+    }
+
+    [Fact]
     public void Source_FirebaseAuthService_ContainsNoJwtDecodeFallback()
     {
         var sourcePath = LocateFirebaseAuthServiceSource();
