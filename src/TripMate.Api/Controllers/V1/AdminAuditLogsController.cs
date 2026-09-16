@@ -1,6 +1,8 @@
 using MediatR;
+
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+
 using TripMate.Api.Common;
 using TripMate.Application.Features.Admin.AuditLogs.GetDetail;
 using TripMate.Application.Features.Admin.AuditLogs.GetList;
@@ -31,4 +33,3 @@ public class AdminAuditLogsController(ISender sender) : ApiControllerBase(sender
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 }
-

@@ -1,5 +1,7 @@
 using MediatR;
+
 using Microsoft.AspNetCore.Mvc;
+
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Authentication.Common;
 using TripMate.Application.Features.PointsOfInterest.Common;

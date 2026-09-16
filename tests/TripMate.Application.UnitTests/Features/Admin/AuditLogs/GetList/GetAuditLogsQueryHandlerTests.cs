@@ -2,12 +2,15 @@ using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+
 using FluentAssertions;
+
 using TripMate.Application.Features.Admin.AuditLogs.Common;
 using TripMate.Application.Features.Admin.AuditLogs.GetList;
 using TripMate.Application.UnitTests.TestUtilities;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
+
 using Xunit;
 
 namespace TripMate.Application.UnitTests.Features.Admin.AuditLogs.GetList;

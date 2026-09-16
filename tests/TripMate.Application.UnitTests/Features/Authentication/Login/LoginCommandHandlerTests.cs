@@ -1,9 +1,11 @@
 using FluentAssertions;
+
 using TripMate.Application.Features.Authentication.Common;
 using TripMate.Application.Features.Authentication.Login;
 using TripMate.Application.UnitTests.TestUtilities;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
+
 using Xunit;
 
 namespace TripMate.Application.UnitTests.Features.Authentication.Login;

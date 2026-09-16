@@ -1,4 +1,5 @@
 using MediatR;
+
 using TripMate.Application.Common.Models;
 using TripMate.Domain.Enums;
 
