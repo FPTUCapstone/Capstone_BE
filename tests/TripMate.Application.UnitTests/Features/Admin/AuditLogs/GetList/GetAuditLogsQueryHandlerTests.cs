@@ -43,7 +43,7 @@ public class GetAuditLogsQueryHandlerTests
         // Assert
         result.IsSuccess.Should().BeFalse();
         result.ErrorCode.Should().Be(AuditLogErrorCodes.Forbidden);
-        result.ErrorMessage.Should().Be("Access denied. Administrator role required.");
+        result.ErrorMessage.Should().Be("You do not have permission to access this function.");
     }
 
     [Fact]

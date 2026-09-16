@@ -17,15 +17,15 @@ public class GetAuditLogsQueryHandler(
         GetAuditLogsQuery request,
         CancellationToken cancellationToken)
     {
-        // 1. Authorization check (BR-115 / MSG126)
+        // 1. Authorization check (SRS 3.1.3 / CR-11, locked MSG126)
         if (currentUserService.UserId is null || currentUserService.Role != "Administrator")
         {
             return Result.Failure<PaginatedList<AuditLogSummaryDto>>(
                 AuditLogErrorCodes.Forbidden,
-                "Access denied. Administrator role required.");
+                "You do not have permission to access this function.");
         }
 
-        // 2. Event date range validation (MSG29)
+        // 2. Event date range validation (proposed MSG131 — pending SRS message-list approval)
         if (request.FromDateUtc.HasValue && request.ToDateUtc.HasValue && request.FromDateUtc.Value > request.ToDateUtc.Value)
         {
             return Result.Failure<PaginatedList<AuditLogSummaryDto>>(

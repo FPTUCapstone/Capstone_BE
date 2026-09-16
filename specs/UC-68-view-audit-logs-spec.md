@@ -44,10 +44,13 @@ It covers strictly:
 
 | Message ID | Type | Content / Usage |
 |---|---|---|
-| **MSG29** | Validation Error | `"The submitted Event Date range is logically invalid."` *(Returned when `fromDateUtc > toDateUtc`)* |
-| **MSG126** | Authorization Error | `"Access denied. Administrator role required."` *(Returned on 403 Forbidden per BR-115)* |
-| **MSG127** | System Error | `"The list cannot be retrieved because of a system or network failure."` *(Returned on 500/Internal Server Error)* |
-| **MSG128** | Information | `"No audit log entry matches the submitted criteria."` *(Returned when query yields 0 matching records)* |
+| **MSG126** | Authorization Error | `"You do not have permission to access this function."` *(Locked SRS 5.3 content — returned on 403 Forbidden)* |
+| **MSG127** | System Error | `"TripMate is temporarily unable to process your request. Please check your connection and try again."` *(Locked SRS 5.3 content — returned on 500/Internal Server Error)* |
+| **MSG128** | Information | `"No records found matching your criteria."` *(Locked SRS 5.3 content — returned when query yields 0 matching records)* |
+| **MSG131 (proposed)** | Validation Error | `"The submitted Event Date range is logically invalid."` *(Returned when `fromDateUtc > toDateUtc`)* |
+
+> [!NOTE]
+> SRS §3.9.12.1 references `MSG29` for the invalid Event Date range, but the locked SRS 5.3 message list defines `MSG29` as the invalid-POI-coordinates message. Following the Batch 1 message reconciliation rules, the locked content of a wrong reference must never be displayed; no locked message exists for this situation, so a new message is proposed (`MSG131`) with neutral placeholder wording — **pending developer approval before it is added to the SRS 5.3 list**.
 
 ---
 
@@ -76,7 +79,7 @@ Authorization: Bearer <Admin_JWT>
 #### Validation Rules
 - `pageNumber >= 1`
 - `1 <= pageSize <= 100`
-- `fromDateUtc <= toDateUtc` when both parameters are provided (returns `422 Unprocessable Entity` with `MSG29` if `fromDateUtc > toDateUtc`).
+- `fromDateUtc <= toDateUtc` when both parameters are provided (returns `422 Unprocessable Entity` with `MSG131` (proposed) if `fromDateUtc > toDateUtc`).
 
 ---
 
@@ -149,7 +152,7 @@ Authorization: Bearer <Admin_JWT>
 | Error Code | HTTP Status | Description |
 |---|---|---|
 | `admin.audit_log_forbidden` | `403` | Caller is not an Administrator (`MSG126`) |
-| `admin.audit_log_invalid_date_range` | `422` | `FromDateUtc` is after `ToDateUtc` (`MSG29`) |
+| `admin.audit_log_invalid_date_range` | `422` | `FromDateUtc` is after `ToDateUtc` (`MSG131` proposed — see note above) |
 
 ---
 
@@ -160,5 +163,5 @@ Authorization: Bearer <Admin_JWT>
 3. Results are paginated according to page number and page size parameters.
 4. System-triggered events (`actor_user_id = null`) are handled safely without errors, displaying `"System"` as the actor name.
 5. Non-administrators receive `403 Forbidden` (`MSG126`).
-6. Invalid date range (`FromDateUtc > ToDateUtc`) returns `422 Unprocessable Entity` (`MSG29`).
+6. Invalid date range (`FromDateUtc > ToDateUtc`) returns `422 Unprocessable Entity` (`MSG131` proposed).
 7. 100% green unit test pass rate.
