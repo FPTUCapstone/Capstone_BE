@@ -4,8 +4,6 @@ namespace TripMate.Application.Features.PointsOfInterest.Explore;
 
 public sealed class ExplorePoisQueryValidator : AbstractValidator<ExplorePoisQuery>
 {
-    private static readonly string[] AllowedSortValues = ["name", "distance", "rating"];
-
     public ExplorePoisQueryValidator()
     {
         RuleFor(q => q.Search)
@@ -14,11 +12,11 @@ public sealed class ExplorePoisQueryValidator : AbstractValidator<ExplorePoisQue
                 $"'{{PropertyName}}' must be {ExplorePoisQuery.SearchMaxLength} characters or fewer after trimming.");
 
         RuleFor(q => q.CategoryId)
-            .GreaterThan(0)
+            .GreaterThanOrEqualTo(ExplorePoisQuery.MinCategoryId)
             .When(q => q.CategoryId.HasValue);
 
         RuleFor(q => q.OriginLatitude)
-            .InclusiveBetween(-90m, 90m)
+            .InclusiveBetween(ExplorePoisQuery.MinLatitude, ExplorePoisQuery.MaxLatitude)
             .When(q => q.OriginLatitude.HasValue);
 
         RuleFor(q => q.OriginLatitude)
@@ -27,7 +25,7 @@ public sealed class ExplorePoisQueryValidator : AbstractValidator<ExplorePoisQue
             .When(q => q.OriginLongitude.HasValue);
 
         RuleFor(q => q.OriginLongitude)
-            .InclusiveBetween(-180m, 180m)
+            .InclusiveBetween(ExplorePoisQuery.MinLongitude, ExplorePoisQuery.MaxLongitude)
             .When(q => q.OriginLongitude.HasValue);
 
         RuleFor(q => q.OriginLongitude)
@@ -36,7 +34,7 @@ public sealed class ExplorePoisQueryValidator : AbstractValidator<ExplorePoisQue
             .When(q => q.OriginLatitude.HasValue);
 
         RuleFor(q => q.MaxDistanceKm)
-            .GreaterThan(0m)
+            .GreaterThan(ExplorePoisQuery.MinDistanceKm)
             .When(q => q.MaxDistanceKm.HasValue);
 
         RuleFor(q => q.MaxDistanceKm)
@@ -45,18 +43,18 @@ public sealed class ExplorePoisQueryValidator : AbstractValidator<ExplorePoisQue
             .When(q => !q.OriginLatitude.HasValue || !q.OriginLongitude.HasValue);
 
         RuleFor(q => q.Sort)
-            .Must(sort => AllowedSortValues.Contains(sort))
+            .Must(sort => ExplorePoisQuery.AllowedSorts.Contains(sort))
             .WithMessage(
-                $"'{{PropertyName}}' must be one of: {string.Join(", ", AllowedSortValues)}.");
+                $"'{{PropertyName}}' must be one of: {string.Join(", ", ExplorePoisQuery.AllowedSorts)}.");
 
         RuleFor(q => q.Sort)
             .Must((q, _) => q.OriginLatitude.HasValue && q.OriginLongitude.HasValue)
             .WithMessage("Sorting by distance requires both origin coordinates.")
-            .When(q => q.Sort == "distance");
+            .When(q => q.Sort == ExplorePoisQuery.SortDistance);
 
-        RuleFor(q => q.Page).GreaterThan(0);
+        RuleFor(q => q.Page).GreaterThanOrEqualTo(ExplorePoisQuery.MinPage);
 
         RuleFor(q => q.PageSize)
-            .InclusiveBetween(1, ExplorePoisQuery.MaxPageSize);
+            .InclusiveBetween(ExplorePoisQuery.MinPageSize, ExplorePoisQuery.MaxPageSize);
     }
 }
