@@ -26,7 +26,7 @@ public class ExplorePoisQueryValidatorTests
         query.Page.Should().Be(1);
         query.PageSize.Should().Be(20);
         query.OpenNow.Should().BeFalse();
-        query.Sort.Should().Be("name");
+        query.Sort.Should().Be(ExplorePoisQuery.DefaultSort);
     }
 
     // --- Search ---
@@ -226,7 +226,7 @@ public class ExplorePoisQueryValidatorTests
         var query = new ExplorePoisQuery { Sort = sort };
 
         // distance sort requires origin, but sort-value validation is separate
-        if (sort == "distance")
+        if (sort == ExplorePoisQuery.SortDistance)
         {
             query = query with { OriginLatitude = 16.0m, OriginLongitude = 108.0m };
         }
@@ -252,7 +252,7 @@ public class ExplorePoisQueryValidatorTests
     [Fact]
     public void Validate_WithDistanceSortWithoutOrigin_HasErrors()
     {
-        var query = new ExplorePoisQuery { Sort = "distance" };
+        var query = new ExplorePoisQuery { Sort = ExplorePoisQuery.SortDistance };
 
         var result = _validator.Validate(query);
 
