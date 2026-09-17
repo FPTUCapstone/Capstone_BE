@@ -60,7 +60,7 @@ public class GroupMember
 
     public void Reactivate(DateTimeOffset rejoinedAtUtc)
     {
-        if (Status != GroupMemberStatus.Left)
+        if (Status != GroupMemberStatus.Left && Status != GroupMemberStatus.Removed)
         {
             throw new InvalidOperationException($"Cannot reactivate a membership with status {Status}.");
         }

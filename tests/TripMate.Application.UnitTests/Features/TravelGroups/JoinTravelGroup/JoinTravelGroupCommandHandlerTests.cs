@@ -113,7 +113,7 @@ public sealed class JoinTravelGroupCommandHandlerTests
     }
 
     [Fact]
-    public async Task Join_WhenCallerWasRemoved_ReturnsInvitationUnavailableWithoutRevealingRemoval()
+    public async Task Join_WhenCallerWasRemoved_ReactivatesMembershipAndResetsLocationSharing()
     {
         await using var db = TestDbContext.Create();
         var group = await AddGroupAsync(db);
@@ -127,10 +127,13 @@ public sealed class JoinTravelGroupCommandHandlerTests
         db.GroupInvitations.Add(invitation);
 
         var travelerId = 99L;
-        var member = GroupMember.CreateMember(group, travelerId, _clock.UtcNow);
-        // Set member status to Removed via reflection/field since it represents a removed user
+        var member = GroupMember.CreateMember(group, travelerId, _clock.UtcNow.AddDays(-10));
         typeof(GroupMember).GetProperty(nameof(GroupMember.Status))!
             .SetValue(member, GroupMemberStatus.Removed);
+        typeof(GroupMember).GetProperty(nameof(GroupMember.LeftAtUtc))!
+            .SetValue(member, _clock.UtcNow.AddDays(-2));
+        typeof(GroupMember).GetProperty(nameof(GroupMember.LocationSharingEnabled))!
+            .SetValue(member, true);
         db.GroupMembers.Add(member);
         await db.SaveChangesAsync();
 
@@ -139,10 +142,14 @@ public sealed class JoinTravelGroupCommandHandlerTests
             new JoinTravelGroupCommand("VALID001", travelerId, Guid.NewGuid()),
             CancellationToken.None);
 
-        result.IsFailure.Should().BeTrue();
-        result.ErrorCode.Should().Be(TravelGroupErrorCodes.InvitationUnavailable);
-        invitation.UsedCount.Should().Be(0);
+        result.IsSuccess.Should().BeTrue();
+        member.Status.Should().Be(GroupMemberStatus.Active);
+        member.JoinedAtUtc.Should().Be(_clock.UtcNow);
+        member.LeftAtUtc.Should().BeNull();
+        member.LocationSharingEnabled.Should().BeFalse();
+        invitation.UsedCount.Should().Be(1);
     }
+
 
     [Fact]
     public async Task Join_WhenCallerPreviouslyLeft_ReactivatesMembershipAndResetsLocationSharing()

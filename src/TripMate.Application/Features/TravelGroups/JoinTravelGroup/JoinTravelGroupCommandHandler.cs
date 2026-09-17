@@ -61,14 +61,18 @@ public sealed class JoinTravelGroupCommandHandler(
                     "The Idempotency-Key was already used with different request data.");
             }
 
-            var groupName = existingOperation.TravelGroup?.Name ?? "Travel Group";
-            var itineraryId = existingOperation.TravelGroup?.ItineraryId ?? 0L;
+            if (existingOperation.TravelGroup is null)
+            {
+                return Result.Failure<JoinTravelGroupResponse>(
+                    TravelGroupErrorCodes.GroupNotFound,
+                    "The travel group associated with this operation could not be found.");
+            }
 
             return Result.Success(
                 new JoinTravelGroupResponse(
                     existingOperation.GroupId,
-                    groupName,
-                    itineraryId));
+                    existingOperation.TravelGroup.Name,
+                    existingOperation.TravelGroup.ItineraryId));
         }
 
         // 3. Read invitation
@@ -103,18 +107,12 @@ public sealed class JoinTravelGroupCommandHandler(
             {
                 return Result.Failure<JoinTravelGroupResponse>(
                     TravelGroupErrorCodes.AlreadyActiveMember,
-                    "You are already an active member of this travel group.");
+                    "You are already an active member of this travel group.",
+                    new Dictionary<string, object?> { ["groupId"] = groupId });
             }
 
-            if (existingMember.Status == GroupMemberStatus.Removed)
-            {
-                // Must return unavailable invitation outcome without revealing removal or group details
-                return Result.Failure<JoinTravelGroupResponse>(
-                    TravelGroupErrorCodes.InvitationUnavailable,
-                    "The invitation code is invalid, expired, or has reached its maximum uses.");
-            }
-
-            if (existingMember.Status == GroupMemberStatus.Left)
+            if (existingMember.Status == GroupMemberStatus.Left
+                || existingMember.Status == GroupMemberStatus.Removed)
             {
                 existingMember.Reactivate(now);
             }

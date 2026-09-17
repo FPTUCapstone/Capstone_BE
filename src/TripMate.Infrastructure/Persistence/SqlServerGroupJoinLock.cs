@@ -19,7 +19,7 @@ public sealed class SqlServerGroupJoinLock(ApplicationDbContext dbContext) : IGr
     }
 
     public Task AcquireGroupLockAsync(long groupId, CancellationToken cancellationToken) =>
-        AcquireResourceAsync($"TripMate:TravelGroup:{groupId}", cancellationToken);
+        AcquireResourceAsync($"TripMate:GroupInvitation:{groupId}", cancellationToken);
 
     private Task AcquireResourceAsync(string resource, CancellationToken cancellationToken) =>
         dbContext.Database.ExecuteSqlInterpolatedAsync($"""
