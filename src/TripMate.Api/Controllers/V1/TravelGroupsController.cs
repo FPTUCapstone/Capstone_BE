@@ -9,6 +9,7 @@ using TripMate.Api.Controllers.V1.Requests;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.TravelGroups.CreateTravelGroup;
 using TripMate.Application.Features.TravelGroups.GetInvitation;
+using TripMate.Application.Features.TravelGroups.JoinTravelGroup;
 using TripMate.Application.Features.TravelGroups.ManageInvitation;
 using TripMate.Domain.Enums;
 
@@ -63,6 +64,42 @@ public class TravelGroupsController(
 
         return result.IsSuccess
             ? StatusCode(StatusCodes.Status201Created, result.Value)
+            : HandleFailure(result);
+    }
+
+    [HttpPost("join")]
+    [ProducesResponseType(typeof(JoinTravelGroupResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Join(
+        [FromBody] JoinTravelGroupRequest request,
+        [BindRequired, FromHeader(Name = "Idempotency-Key")] string idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        if (!currentUserService.UserId.HasValue)
+        {
+            return Unauthorized();
+        }
+
+        if (!Guid.TryParse(idempotencyKey, out var parsedIdempotencyKey)
+            || parsedIdempotencyKey == Guid.Empty)
+        {
+            return Problem(
+                title: "A valid Idempotency-Key header is required.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var command = new JoinTravelGroupCommand(
+            request.InvitationCode,
+            currentUserService.UserId.Value,
+            parsedIdempotencyKey);
+
+        var result = await Sender.Send(command, cancellationToken);
+
+        return result.IsSuccess
+            ? Ok(result.Value)
             : HandleFailure(result);
     }
 

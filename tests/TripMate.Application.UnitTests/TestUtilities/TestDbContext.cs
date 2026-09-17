@@ -48,6 +48,8 @@ public class TestDbContext(
 
     public DbSet<GroupInvitationOperation> GroupInvitationOperations => Set<GroupInvitationOperation>();
 
+    public DbSet<GroupJoinOperation> GroupJoinOperations => Set<GroupJoinOperation>();
+
     public int TransactionExecutionCount { get; private set; }
 
     public async Task<T> ExecuteInTransactionAsync<T>(

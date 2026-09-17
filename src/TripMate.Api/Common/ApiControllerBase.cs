@@ -109,6 +109,9 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.IdempotencyKeyPayloadMismatch =>
                 StatusCodes.Status409Conflict,
 
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.AlreadyActiveMember =>
+                StatusCodes.Status409Conflict,
+
             _ => StatusCodes.Status400BadRequest,
         };
 
