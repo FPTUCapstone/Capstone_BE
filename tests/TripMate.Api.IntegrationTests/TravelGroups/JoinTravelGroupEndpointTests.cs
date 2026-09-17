@@ -5,7 +5,6 @@ using System.Text.Json;
 using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 
 using TripMate.Api.Controllers.V1.Requests;
 using TripMate.Api.IntegrationTests.Infrastructure;
@@ -123,36 +122,37 @@ public sealed class JoinTravelGroupEndpointTests
     }
 
     private static async Task<(long GroupId, string GroupName, long HostUserId, string InviteCode)> SeedAsync(
-        TripMateApiFactory factory)
-    {
-        await using var scope = factory.Services.CreateAsyncScope();
-        var db = scope.ServiceProvider.GetRequiredService<TripMate.Infrastructure.Persistence.ApplicationDbContext>();
-
-        var host = new User
+        TripMateApiFactory factory) =>
+        await factory.WithDbContextAsync(async db =>
         {
-            Email = $"host-{Guid.NewGuid():N}@example.com",
-            FullName = "Join Endpoint Host",
-            Role = UserRole.Traveler,
-            Status = AccountStatus.Active,
-        };
-        db.Users.Add(host);
-        await db.SaveChangesAsync();
+            var now = DateTimeOffset.UtcNow;
+            var host = new User
+            {
+                Email = $"host-{Guid.NewGuid():N}@example.com",
+                FullName = "Join Endpoint Host",
+                Role = UserRole.Traveler,
+                Status = AccountStatus.Active,
+                CreatedAtUtc = now,
+                UpdatedAtUtc = now,
+            };
+            db.Users.Add(host);
+            await db.SaveChangesAsync();
 
-        var group = TravelGroup.Create(1, host.Id, "Endpoint Test Group", DateTimeOffset.UtcNow);
-        db.TravelGroups.Add(group);
-        await db.SaveChangesAsync();
+            var group = TravelGroup.Create(1, host.Id, "Endpoint Test Group", now);
+            db.TravelGroups.Add(group);
+            await db.SaveChangesAsync();
 
-        var inviteCode = $"J{Guid.NewGuid():N}"[..8].ToUpperInvariant();
-        var invitation = GroupInvitation.Create(
-            group.Id,
-            host.Id,
-            inviteCode,
-            DateTimeOffset.UtcNow.AddDays(7),
-            TravelGroupConstants.UnlimitedInvitationUses,
-            DateTimeOffset.UtcNow);
-        db.GroupInvitations.Add(invitation);
-        await db.SaveChangesAsync();
+            var inviteCode = $"J{Guid.NewGuid():N}"[..8].ToUpperInvariant();
+            var invitation = GroupInvitation.Create(
+                group.Id,
+                host.Id,
+                inviteCode,
+                now.AddDays(7),
+                TravelGroupConstants.UnlimitedInvitationUses,
+                now);
+            db.GroupInvitations.Add(invitation);
+            await db.SaveChangesAsync();
 
-        return (group.Id, group.Name, host.Id, inviteCode);
-    }
+            return (group.Id, group.Name, host.Id, inviteCode);
+        });
 }
