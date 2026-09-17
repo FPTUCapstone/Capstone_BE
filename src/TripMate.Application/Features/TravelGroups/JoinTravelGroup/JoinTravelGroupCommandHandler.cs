@@ -61,11 +61,14 @@ public sealed class JoinTravelGroupCommandHandler(
                     "The Idempotency-Key was already used with different request data.");
             }
 
+            var groupName = existingOperation.TravelGroup?.Name ?? "Travel Group";
+            var itineraryId = existingOperation.TravelGroup?.ItineraryId ?? 0L;
+
             return Result.Success(
                 new JoinTravelGroupResponse(
                     existingOperation.GroupId,
-                    existingOperation.TravelGroup.Name,
-                    existingOperation.TravelGroup.ItineraryId));
+                    groupName,
+                    itineraryId));
         }
 
         // 3. Read invitation
