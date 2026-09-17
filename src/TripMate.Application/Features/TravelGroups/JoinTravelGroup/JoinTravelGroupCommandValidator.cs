@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+
 using FluentValidation;
 
 namespace TripMate.Application.Features.TravelGroups.JoinTravelGroup;
