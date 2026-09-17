@@ -30,7 +30,8 @@ public class JwtTokenService(IOptions<JwtOptions> options) : IJwtTokenService
 
         var keyString = !string.IsNullOrWhiteSpace(_options.SigningKey)
             ? _options.SigningKey
-            : "us+B0GY0f7eU1MFpPzxjhShqgYTEQK+85cwxKvuApkw=";
+            : throw new InvalidOperationException(
+                "Jwt:SigningKey is not configured. Set it via environment variable or User Secrets.");
 
         var signingKey = new SymmetricSecurityKey(Convert.FromBase64String(keyString));
         var credentials = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256);
