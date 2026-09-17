@@ -1,7 +1,11 @@
 using System.Reflection;
+
 using FluentValidation;
+
 using MediatR;
+
 using Microsoft.Extensions.DependencyInjection;
+
 using TripMate.Application.Common.Behaviours;
 
 namespace TripMate.Application;

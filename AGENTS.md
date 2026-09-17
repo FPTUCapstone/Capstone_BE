@@ -74,14 +74,6 @@ The backend strictly implements **Clean Architecture** with inward dependency fl
 - **DRY**: Share logic only when domain concepts are genuinely identical. Do not prematurely abstract distinct business use cases.
 - **Zero Regression**: Changes must pass all existing unit and integration tests. Run `dotnet test` before marking any step complete.
 
-### 4.1 Zero Magic Strings & Schema Consistency Rule
-- **Entity Discriminators & Target Types**: Never use raw string literals in queries, handlers, or configurations (e.g. `"POI"`). Always reference domain constants defined on the entity (e.g. `Review.TargetTypePoi`).
-- **Query Sort & Filter Keys**: When a Command/Query accepts a set of allowed sort fields or filter modes, define them as `public const string` on the query record itself (e.g. `SortName`, `SortDistance`, `SortRating`, `DefaultSort = SortName`) along with `public static readonly string[] AllowedSorts = [...]`. Use these constants in validators, handlers, and tests.
-- **OpenAPI & Swagger Schema Filters**:
-  - Never hardcode property names as raw strings (e.g. `"search"`, `"categoryId"`) in `IOperationFilter` or `ISchemaFilter`. Match parameter/property names using `nameof(Query.Property)` (with case-insensitive matching if the filter works with camelCase) to prevent silent drift during refactoring.
-  - Reference validation bounds (min/max values, string lengths) directly from the query or entity constants rather than duplicating literal numbers/strings.
-  - Enum and default values must reference strongly typed enum names (e.g. `nameof(IndoorOutdoorType.Outdoor)`) or query constants.
-
 ---
 
 # 5. Git, Secrets & Commit Rules

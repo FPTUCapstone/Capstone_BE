@@ -62,6 +62,8 @@ public class TestDbContext(
         return await operation(cancellationToken);
     }
 
+    public void ClearTrackedEntities() => ChangeTracker.Clear();
+
     public Task<T> ExecuteInSerializableTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken)

@@ -48,6 +48,13 @@ public interface IApplicationDbContext
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Resets all tracked entities so a failed save can be retried cleanly (e.g. the UC-04
+    /// BR-02 race recovery must clear the failed Added entries before re-loading and adopting
+    /// the concurrent winner's account).
+    /// </summary>
+    void ClearTrackedEntities();
+
     Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken);

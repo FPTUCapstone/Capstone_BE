@@ -41,7 +41,6 @@ public static class DependencyInjection
         services.AddMemoryCache();
         services.AddScoped<IMessageService, MessageService>();
         services.AddSingleton<IFirebaseAuthService, FirebaseAuthService>();
-        services.AddScoped<IGoogleTokenValidator, GoogleTokenValidator>();
 
         return services;
     }
