@@ -16,25 +16,57 @@ public sealed class JoinTravelGroupCommandHandler(
     IGroupJoinLock joinLock)
     : IRequestHandler<JoinTravelGroupCommand, Result<JoinTravelGroupResponse>>
 {
-    public Task<Result<JoinTravelGroupResponse>> Handle(
+    public async Task<Result<JoinTravelGroupResponse>> Handle(
         JoinTravelGroupCommand request,
         CancellationToken cancellationToken)
     {
         var normalizedCode = request.InvitationCode.Trim().ToUpperInvariant();
 
-        return dbContext.ExecuteInSerializableTransactionAsync(
+        var targetGroupId = await ResolveGroupIdAsync(
+            request.TravelerUserId,
+            request.IdempotencyKey,
+            normalizedCode,
+            cancellationToken);
+
+        return await dbContext.ExecuteInSerializableTransactionAsync(
             transactionCancellationToken => ExecuteInTransactionAsync(
                 normalizedCode,
                 request.TravelerUserId,
                 request.IdempotencyKey,
+                targetGroupId,
                 transactionCancellationToken),
             cancellationToken);
+    }
+
+    private async Task<long?> ResolveGroupIdAsync(
+        long travelerUserId,
+        Guid idempotencyKey,
+        string normalizedCode,
+        CancellationToken cancellationToken)
+    {
+        var existingOpGroupId = await dbContext.GroupJoinOperations
+            .AsNoTracking()
+            .Where(op => op.TravelerUserId == travelerUserId && op.IdempotencyKey == idempotencyKey)
+            .Select(op => (long?)op.GroupId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (existingOpGroupId.HasValue)
+        {
+            return existingOpGroupId.Value;
+        }
+
+        return await dbContext.GroupInvitations
+            .AsNoTracking()
+            .Where(inv => inv.InviteCode == normalizedCode)
+            .Select(inv => (long?)inv.GroupId)
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     private async Task<Result<JoinTravelGroupResponse>> ExecuteInTransactionAsync(
         string normalizedCode,
         long travelerUserId,
         Guid idempotencyKey,
+        long? targetGroupId,
         CancellationToken cancellationToken)
     {
         var now = dateTimeProvider.UtcNow;
@@ -44,6 +76,12 @@ public sealed class JoinTravelGroupCommandHandler(
 
         // 2. Acquire code lock: normalized invitation code
         await joinLock.AcquireCodeLockAsync(normalizedCode, cancellationToken);
+
+        // 3. Acquire group lock before querying tables in serializable transaction
+        if (targetGroupId.HasValue)
+        {
+            await joinLock.AcquireGroupLockAsync(targetGroupId.Value, cancellationToken);
+        }
 
         // Check for existing operation replay (e.g. retry after success, even if code expired or regenerated)
         var existingOperation = await dbContext.GroupJoinOperations
@@ -75,7 +113,7 @@ public sealed class JoinTravelGroupCommandHandler(
                     existingOperation.TravelGroup.ItineraryId));
         }
 
-        // 3. Read invitation
+        // 4. Read invitation
         var invitation = await dbContext.GroupInvitations
             .Include(inv => inv.TravelGroup)
             .FirstOrDefaultAsync(
@@ -92,8 +130,10 @@ public sealed class JoinTravelGroupCommandHandler(
         var travelGroup = invitation.TravelGroup;
         var groupId = travelGroup.Id;
 
-        // 4. Acquire travel group lock
-        await joinLock.AcquireGroupLockAsync(groupId, cancellationToken);
+        if (!targetGroupId.HasValue)
+        {
+            await joinLock.AcquireGroupLockAsync(groupId, cancellationToken);
+        }
 
         // 5. Check existing membership
         var existingMember = await dbContext.GroupMembers
