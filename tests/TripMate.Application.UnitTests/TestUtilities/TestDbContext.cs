@@ -126,6 +126,34 @@ public class TestDbContext(
         modelBuilder.Entity<GroupMember>()
             .HasKey(member => new { member.GroupId, member.UserId });
 
+        modelBuilder.Entity<GroupMember>()
+            .HasOne(m => m.TravelGroup)
+            .WithMany(g => g.GroupMembers)
+            .HasForeignKey(m => m.GroupId);
+
+        modelBuilder.Entity<TravelGroup>()
+            .Navigation(g => g.GroupMembers)
+            .UsePropertyAccessMode(PropertyAccessMode.Field);
+
+        modelBuilder.Entity<TravelGroup>()
+            .Navigation(g => g.GroupInvitations)
+            .UsePropertyAccessMode(PropertyAccessMode.Field);
+
+        modelBuilder.Entity<GroupInvitation>()
+            .HasOne(i => i.TravelGroup)
+            .WithMany(g => g.GroupInvitations)
+            .HasForeignKey(i => i.GroupId);
+
+        modelBuilder.Entity<GroupJoinOperation>()
+            .HasOne(op => op.TravelGroup)
+            .WithMany()
+            .HasForeignKey(op => op.GroupId);
+
+        modelBuilder.Entity<GroupJoinOperation>()
+            .HasOne(op => op.Invitation)
+            .WithMany()
+            .HasForeignKey(op => op.InvitationId);
+
         base.OnModelCreating(modelBuilder);
     }
 

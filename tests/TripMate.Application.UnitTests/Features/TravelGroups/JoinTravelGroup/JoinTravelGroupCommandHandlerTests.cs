@@ -254,7 +254,8 @@ public sealed class JoinTravelGroupCommandHandlerTests
         firstResult.IsSuccess.Should().BeTrue();
 
         // Expire the invitation to prove replay works even after expiration
-        invitation.Expire(_clock.UtcNow.AddHours(-1));
+        invitation.Expire(_clock.UtcNow);
+        _clock.UtcNow = _clock.UtcNow.AddHours(1);
         await db.SaveChangesAsync();
 
         var replayResult = await handler.Handle(
