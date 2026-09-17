@@ -5,7 +5,7 @@
 **Use Case**: UC-23  
 **Branch**: `feature/khanhpq-join-shared-group-trip`  
 **Target Repositories**: `Capstone_BE`, `Capstone_Mobile`  
-**Status**: In Progress
+**Status**: Completed
 
 ## Objective
 
@@ -27,12 +27,10 @@ and regeneration remain UC-18 responsibilities.
 ## Explicitly Out of Scope
 
 - Creating, sharing, or regenerating invitations (UC-18).
+- Host member management and removal operations (UC-20).
 - Invitation quotas, public group discovery, or friend discovery.
 - Automatic location-sharing opt-in (UC-22).
 - Group closure and Host succession (UC-21).
-- Restoring a `Removed` member. UC-20 must later provide an explicit Host
-  action such as **Allow rejoin** or **Add member again**; a new invitation
-  must never silently bypass removal.
 - OS-level Android App Links and iOS Universal Links. QR codes are scanned
   inside TripMate for this MVP.
 
@@ -47,20 +45,19 @@ and regeneration remain UC-18 responsibilities.
 - A valid invitation is one that exists, has not expired, has remaining
   technical capacity, and belongs to an existing group. UC-18 represents
   unlimited business usage with its technical `int.MaxValue` capacity.
-- `Active` membership: reject with MSG57. It must not create a second row or
-  increment invitation usage.
-- `Left` membership: reactivate the existing `(group_id, user_id)` row, set
-  `JoinedAtUtc` to the rejoin time, clear `LeftAtUtc`, and set
-  `LocationSharingEnabled` to `false`. This avoids restoring a location
-  consent that the Traveler has not renewed.
-- `Removed` membership: return the same unavailable-invitation outcome as an
-  invalid or expired invitation (MSG56). The response must not reveal removal
-  status or group information.
+- `Active` membership: reject with MSG57 (409 Conflict) and include `groupId`
+  in the problem details metadata so client can route to the existing group.
+  It must not create a second row or increment invitation usage.
+- `Left` or `Removed` membership: reactivate the existing `(group_id, user_id)`
+  row to `Active`, set `JoinedAtUtc` to the rejoin time, clear `LeftAtUtc`,
+  and set `LocationSharingEnabled` to `false`. This allows a previously departed
+  or removed user with a valid invitation to rejoin per Report 3 while avoiding
+  restoring unconsented location sharing.
 - A successful new join or rejoin increments `GroupInvitations.UsedCount`
   once. It is audit/technical data only and does not introduce a member quota.
-- An active group member receives read-only access to the associated shared
-  itinerary when a group-itinerary read operation is implemented. Group
-  membership does not grant itinerary-edit permission or ownership.
+- An active group member receives access to the associated shared itinerary
+  (`itineraryId` returned in response) and permitted group information. Group
+  membership does not grant itinerary-edit permission or itinerary ownership.
 - The current schema has no group lifecycle status. For this UC, group
   availability means that the group record exists and the invitation is usable.
   UC-21 must add and enforce an explicit closed/unavailable state later.
@@ -106,8 +103,8 @@ synthetic response envelope is introduced.
 | Missing or malformed invitation code | 400 | Validation failure; Mobile shows MSG01 for an empty code. |
 | Unauthenticated caller | 401 | Existing authentication behavior / MSG125 on Mobile. |
 | Authenticated non-Traveler | 403 | Existing role authorization behavior / MSG126 on Mobile. |
-| Invalid, expired, regenerated, unavailable, or removed-member invitation | 400 | `travel_group.invitation_unavailable`; Mobile shows MSG56. |
-| Already active member | 409 | `travel_group.already_active_member`; Mobile shows MSG57. |
+| Invalid, expired, regenerated, or unavailable invitation | 400 | `travel_group.invitation_unavailable`; Mobile shows MSG56. |
+| Already active member | 409 | `travel_group.already_active_member`; returns `groupId` in metadata; Mobile shows MSG57 and navigates to group. |
 | Reused operation key with a different normalized code | 409 | `travel_group.idempotency_key_payload_mismatch`. |
 | Unexpected persistence or network failure | 5xx | Mobile shows MSG127; no partial membership is retained. |
 
@@ -127,14 +124,15 @@ The operation record binds a retry key to its normalized request payload. A
 retry after a successful commit returns the same group, even if the invitation
 later expires or is regenerated.
 
-The command executes one SQL Server serializable transaction. It acquires
-transaction-scoped application locks in this order:
+The command executes one SQL Server serializable transaction. To prevent
+deadlocks with UC-18 invitation regeneration, target group ID is pre-resolved
+so application locks are acquired before any database tables are touched:
 
 ```text
 operation key (Traveler + UUID) -> invitation code -> travel group
 ```
 
-After acquiring the relevant locks, it re-reads the invitation and membership,
+After acquiring all locks, it re-reads the invitation and membership,
 then performs one of: replay, reject, create member, or reactivate member. The
 membership update, invitation usage count, and join-operation record are saved
 in the same transaction. This prevents duplicate active memberships for retries
@@ -151,18 +149,19 @@ and for simultaneous requests using different keys.
    of the same attempt.
 5. On success, Mobile displays MSG58 using `groupName`, then opens the exact
    `groupId` route.
-6. Mobile maps unavailable, already-member, auth, and unexpected failures to
-   MSG56, MSG57, MSG125/MSG126, and MSG127 respectively without exposing raw
-   server details.
+6. On 409 already-active member, Mobile extracts `groupId`, shows MSG57, and
+   redirects to the group screen.
+7. Mobile maps unavailable, auth, and unexpected failures to MSG56,
+   MSG125/MSG126, and MSG127 respectively without exposing raw server details.
 
 ## Acceptance Criteria
 
 - A valid invitation creates one `Active` membership with a joined timestamp
   and returns the target group.
-- A `Left` membership is reactivated rather than inserted as another member.
-- A `Removed` membership cannot redeem any invitation for that group and sees
-  only MSG56.
-- An already `Active` member sees MSG57 and no state changes occur.
+- A `Left` or `Removed` membership is reactivated to `Active` with
+  `LocationSharingEnabled = false` rather than inserted as another member.
+- An already `Active` member receives 409 Conflict with `groupId` in metadata,
+  sees MSG57, and is routed to their group.
 - A regenerated or expired invitation sees MSG56 and creates no membership.
 - Two concurrent calls using the same Traveler and idempotency key return the
   same group; database state contains one membership and one join operation.
@@ -179,7 +178,8 @@ and for simultaneous requests using different keys.
 - Domain unit tests for membership creation, rejoin, and forbidden transitions.
 - Command/validator tests for every rule and failure above.
 - SQL Server integration tests for same-key concurrency, different-key
-  membership races, transaction rollback, replay, and payload mismatch.
+  membership races, transaction rollback, replay, payload mismatch, and
+  UC-18 invitation regeneration race.
 - Endpoint/OpenAPI tests for request body, required header, 401, 403, 400,
   409, and success contracts.
 - Mobile parser, Cubit, repository, and widget tests for manual and QR paths.
