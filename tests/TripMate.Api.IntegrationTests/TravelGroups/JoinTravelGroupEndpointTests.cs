@@ -5,6 +5,7 @@ using System.Text.Json;
 using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 using TripMate.Api.Controllers.V1.Requests;
 using TripMate.Api.IntegrationTests.Infrastructure;
