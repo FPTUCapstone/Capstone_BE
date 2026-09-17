@@ -177,7 +177,7 @@ public sealed class JoinTravelGroupCommandHandlerTests
 
         result.IsSuccess.Should().BeTrue();
         result.Value.GroupId.Should().Be(group.Id);
-        result.Value.GroupName.Should().Be(group.GroupName);
+        result.Value.GroupName.Should().Be(group.Name);
         result.Value.ItineraryId.Should().Be(group.ItineraryId);
 
         var updatedMember = await db.GroupMembers.FirstAsync(m => m.GroupId == group.Id && m.UserId == travelerId);
@@ -213,7 +213,7 @@ public sealed class JoinTravelGroupCommandHandlerTests
 
         result.IsSuccess.Should().BeTrue();
         result.Value.GroupId.Should().Be(group.Id);
-        result.Value.GroupName.Should().Be(group.GroupName);
+        result.Value.GroupName.Should().Be(group.Name);
         result.Value.ItineraryId.Should().Be(group.ItineraryId);
 
         var member = await db.GroupMembers.FirstOrDefaultAsync(m => m.GroupId == group.Id && m.UserId == travelerId);

@@ -56,14 +56,15 @@ public sealed class JoinTravelGroupCommandHandler(
         {
             if (existingOperation.InvitationCode != normalizedCode)
             {
-                return Result<JoinTravelGroupResponse>.Failure(
-                    TravelGroupErrorCodes.IdempotencyKeyPayloadMismatch);
+                return Result.Failure<JoinTravelGroupResponse>(
+                    TravelGroupErrorCodes.IdempotencyKeyPayloadMismatch,
+                    "The Idempotency-Key was already used with different request data.");
             }
 
-            return Result<JoinTravelGroupResponse>.Success(
+            return Result.Success(
                 new JoinTravelGroupResponse(
                     existingOperation.GroupId,
-                    existingOperation.TravelGroup.GroupName,
+                    existingOperation.TravelGroup.Name,
                     existingOperation.TravelGroup.ItineraryId));
         }
 
@@ -76,8 +77,9 @@ public sealed class JoinTravelGroupCommandHandler(
 
         if (invitation is null || !invitation.IsUsableAt(now) || invitation.TravelGroup is null)
         {
-            return Result<JoinTravelGroupResponse>.Failure(
-                TravelGroupErrorCodes.InvitationUnavailable);
+            return Result.Failure<JoinTravelGroupResponse>(
+                TravelGroupErrorCodes.InvitationUnavailable,
+                "The invitation code is invalid, expired, or has reached its maximum uses.");
         }
 
         var travelGroup = invitation.TravelGroup;
@@ -96,15 +98,17 @@ public sealed class JoinTravelGroupCommandHandler(
         {
             if (existingMember.Status == GroupMemberStatus.Active)
             {
-                return Result<JoinTravelGroupResponse>.Failure(
-                    TravelGroupErrorCodes.AlreadyActiveMember);
+                return Result.Failure<JoinTravelGroupResponse>(
+                    TravelGroupErrorCodes.AlreadyActiveMember,
+                    "You are already an active member of this travel group.");
             }
 
             if (existingMember.Status == GroupMemberStatus.Removed)
             {
                 // Must return unavailable invitation outcome without revealing removal or group details
-                return Result<JoinTravelGroupResponse>.Failure(
-                    TravelGroupErrorCodes.InvitationUnavailable);
+                return Result.Failure<JoinTravelGroupResponse>(
+                    TravelGroupErrorCodes.InvitationUnavailable,
+                    "The invitation code is invalid, expired, or has reached its maximum uses.");
             }
 
             if (existingMember.Status == GroupMemberStatus.Left)
@@ -134,10 +138,10 @@ public sealed class JoinTravelGroupCommandHandler(
 
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        return Result<JoinTravelGroupResponse>.Success(
+        return Result.Success(
             new JoinTravelGroupResponse(
                 groupId,
-                travelGroup.GroupName,
+                travelGroup.Name,
                 travelGroup.ItineraryId));
     }
 }

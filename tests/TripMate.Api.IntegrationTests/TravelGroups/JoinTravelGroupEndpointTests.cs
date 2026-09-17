@@ -152,6 +152,6 @@ public sealed class JoinTravelGroupEndpointTests
         db.GroupInvitations.Add(invitation);
         await db.SaveChangesAsync();
 
-        return (group.Id, group.GroupName, host.Id, inviteCode);
+        return (group.Id, group.Name, host.Id, inviteCode);
     }
 }
