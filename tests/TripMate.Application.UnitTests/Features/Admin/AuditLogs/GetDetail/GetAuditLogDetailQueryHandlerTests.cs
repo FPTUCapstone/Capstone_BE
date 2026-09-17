@@ -78,19 +78,17 @@ public class GetAuditLogDetailQueryHandlerTests
         _dbContext.Users.Add(adminUser);
 
         var utcTime = new DateTimeOffset(2026, 9, 13, 10, 0, 0, TimeSpan.Zero);
-        var auditLog = new AuditLog
-        {
-            Id = 101L,
-            ActorUserId = adminUser.Id,
-            ActorUser = adminUser,
-            ActionType = "ApproveOperatorApplication",
-            AffectedEntity = "OperatorProfile",
-            AffectedEntityId = 5L,
-            BeforeData = "{\"status\":\"Pending\"}",
-            AfterData = "{\"status\":\"Approved\"}",
-            IpAddress = "127.0.0.1",
-            CreatedAtUtc = utcTime
-        };
+        var auditLog = new AuditLog(
+            actorUserId: adminUser.Id,
+            actionType: "ApproveOperatorApplication",
+            affectedEntity: "OperatorProfile",
+            affectedEntityId: 5L,
+            createdAtUtc: utcTime,
+            beforeData: "{\"status\":\"Pending\"}",
+            afterData: "{\"status\":\"Approved\"}",
+            ipAddress: "127.0.0.1");
+        auditLog.Id = 101L;
+
         _dbContext.AuditLogs.Add(auditLog);
         _dbContext.SaveChanges();
 
@@ -120,19 +118,14 @@ public class GetAuditLogDetailQueryHandlerTests
     {
         // Arrange
         var utcTime = new DateTimeOffset(2026, 9, 13, 12, 0, 0, TimeSpan.Zero);
-        var systemLog = new AuditLog
-        {
-            Id = 202L,
-            ActorUserId = null,
-            ActorUser = null,
-            ActionType = "SystemAutoSync",
-            AffectedEntity = "TourDeparture",
-            AffectedEntityId = 88L,
-            BeforeData = null,
-            AfterData = null,
-            IpAddress = null,
-            CreatedAtUtc = utcTime
-        };
+        var systemLog = new AuditLog(
+            actorUserId: null,
+            actionType: "SystemAutoSync",
+            affectedEntity: "TourDeparture",
+            affectedEntityId: 88L,
+            createdAtUtc: utcTime);
+        systemLog.Id = 202L;
+
         _dbContext.AuditLogs.Add(systemLog);
         _dbContext.SaveChanges();
 

@@ -154,15 +154,12 @@ public class GetAuditLogsQueryHandlerTests
     public async Task Handle_WhenSystemTriggeredLogHasNullActor_ShouldHandleNullActorSafelyAndDisplaySystem()
     {
         // Arrange
-        var log = new AuditLog
-        {
-            ActorUserId = null,
-            ActorUser = null,
-            ActionType = "HandleEmergencyCancellation",
-            AffectedEntity = "TourDeparture",
-            AffectedEntityId = 555L,
-            CreatedAtUtc = DateTimeOffset.UtcNow,
-        };
+        var log = new AuditLog(
+            actorUserId: null,
+            actionType: "HandleEmergencyCancellation",
+            affectedEntity: "TourDeparture",
+            affectedEntityId: 555L,
+            createdAtUtc: DateTimeOffset.UtcNow);
         _dbContext.AuditLogs.Add(log);
         _dbContext.SaveChanges();
 
@@ -225,15 +222,12 @@ public class GetAuditLogsQueryHandlerTests
 
     private void SeedAuditLog(User user, string actionType, string affectedEntity, long entityId, DateTimeOffset createdAt)
     {
-        var log = new AuditLog
-        {
-            ActorUserId = user.Id,
-            ActorUser = user,
-            ActionType = actionType,
-            AffectedEntity = affectedEntity,
-            AffectedEntityId = entityId,
-            CreatedAtUtc = createdAt,
-        };
+        var log = new AuditLog(
+            actorUserId: user.Id,
+            actionType: actionType,
+            affectedEntity: affectedEntity,
+            affectedEntityId: entityId,
+            createdAtUtc: createdAt);
         _dbContext.AuditLogs.Add(log);
         _dbContext.SaveChanges();
     }

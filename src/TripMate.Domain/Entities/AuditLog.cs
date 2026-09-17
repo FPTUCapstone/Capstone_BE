@@ -33,23 +33,23 @@ public class AuditLog : BaseEntity
         IpAddress = ipAddress;
     }
 
-    public long? ActorUserId { get; set; }
+    public long? ActorUserId { get; private set; }
 
-    public User? ActorUser { get; set; }
+    public User? ActorUser { get; private set; }
 
-    public string ActionType { get; set; } = string.Empty;
+    public string ActionType { get; private set; } = string.Empty;
 
-    public string AffectedEntity { get; set; } = string.Empty;
+    public string AffectedEntity { get; private set; } = string.Empty;
 
-    public long? AffectedEntityId { get; set; }
+    public long? AffectedEntityId { get; private set; }
 
-    public string? BeforeData { get; set; }
+    public string? BeforeData { get; private set; }
 
-    public string? AfterData { get; set; }
+    public string? AfterData { get; private set; }
 
-    public string? IpAddress { get; set; }
+    public string? IpAddress { get; private set; }
 
-    public DateTimeOffset CreatedAtUtc { get; set; }
+    public DateTimeOffset CreatedAtUtc { get; private set; }
 
     public static AuditLog CreatePoiCreated(
         long actorUserId,
@@ -72,15 +72,13 @@ public class AuditLog : BaseEntity
             throw new ArgumentException("Audit data is required.", nameof(afterData));
         }
 
-        return new AuditLog
-        {
-            ActorUserId = actorUserId,
-            ActionType = AuditActionTypes.PoiCreate,
-            AffectedEntity = AuditEntityTypes.PointOfInterest,
-            AffectedEntityId = pointOfInterestId,
-            AfterData = afterData,
-            CreatedAtUtc = createdAtUtc,
-        };
+        return new AuditLog(
+            actorUserId: actorUserId,
+            actionType: AuditActionTypes.PoiCreate,
+            affectedEntity: AuditEntityTypes.PointOfInterest,
+            affectedEntityId: pointOfInterestId,
+            createdAtUtc: createdAtUtc,
+            afterData: afterData);
     }
 
     public static AuditLog CreateOperatorApplicationApproved(
@@ -110,15 +108,13 @@ public class AuditLog : BaseEntity
             throw new ArgumentException("Audit data is required.", nameof(afterData));
         }
 
-        return new AuditLog
-        {
-            ActorUserId = actorUserId,
-            ActionType = AuditActionTypes.OperatorApplicationApprove,
-            AffectedEntity = AuditEntityTypes.OperatorProfile,
-            AffectedEntityId = operatorUserId,
-            BeforeData = beforeData,
-            AfterData = afterData,
-            CreatedAtUtc = createdAtUtc,
-        };
+        return new AuditLog(
+            actorUserId: actorUserId,
+            actionType: AuditActionTypes.OperatorApplicationApprove,
+            affectedEntity: AuditEntityTypes.OperatorProfile,
+            affectedEntityId: operatorUserId,
+            createdAtUtc: createdAtUtc,
+            beforeData: beforeData,
+            afterData: afterData);
     }
 }
