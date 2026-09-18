@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
@@ -377,6 +378,55 @@ public sealed class JoinTravelGroupSqlServerTests
         var migration = await File.ReadAllTextAsync(migrationPath);
         migration = Regex.Replace(migration, @"^\s*GO\s*$", string.Empty, RegexOptions.Multiline);
         await database.ExecuteNonQueryAsync(migration);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task PersistenceFailure_RollsBackTransaction_LeavingNoMembershipUsageOrOperation()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database);
+        var key = Guid.NewGuid();
+
+        await using (var failingContext = database.CreateDbContext(new FailingSaveChangesInterceptor()))
+        {
+            var handler = new JoinTravelGroupCommandHandler(
+                failingContext,
+                new FixedDateTimeProvider(),
+                new SqlServerGroupJoinLock(failingContext));
+
+            var act = () => handler.Handle(
+                new JoinTravelGroupCommand(seed.InviteCode, seed.TravelerUserId, key),
+                CancellationToken.None);
+
+            await act.Should().ThrowAsync<DbUpdateException>();
+        }
+
+        // Verify across real SQL Server connection that the transaction rolled back cleanly
+        await using var verification = database.CreateDbContext();
+
+        var memberCount = await verification.GroupMembers.CountAsync(
+            member => member.GroupId == seed.GroupId && member.UserId == seed.TravelerUserId);
+        memberCount.Should().Be(0);
+
+        var invitation = await verification.GroupInvitations.FirstAsync(
+            inv => inv.GroupId == seed.GroupId);
+        invitation.UsedCount.Should().Be(0);
+
+        var opCount = await verification.GroupJoinOperations.CountAsync(
+            op => op.TravelerUserId == seed.TravelerUserId && op.IdempotencyKey == key);
+        opCount.Should().Be(0);
+    }
+
+    private sealed class FailingSaveChangesInterceptor : SaveChangesInterceptor
+    {
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            throw new DbUpdateException("Simulated SQL Server persistence failure during join transaction.");
+        }
     }
 
     private sealed class FixedDateTimeProvider : IDateTimeProvider

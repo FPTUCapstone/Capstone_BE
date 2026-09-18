@@ -5,7 +5,7 @@
 **Use Case**: UC-23  
 **Branch**: `feature/khanhpq-join-shared-group-trip`  
 **Target Repositories**: `Capstone_BE`, `Capstone_Mobile`  
-**Status**: Completed
+**Status**: In Review (Addressing Re-review Findings)
 
 ## Objective
 
@@ -153,6 +153,20 @@ and for simultaneous requests using different keys.
    redirects to the group screen.
 7. Mobile maps unavailable, auth, and unexpected failures to MSG56,
    MSG125/MSG126, and MSG127 respectively without exposing raw server details.
+
+## Permitted Shared-Trip Information Access Flow
+
+Report 3 UC-23 specifies that upon successful join, TripMate "adds the Traveler to the group and synchronizes the shared itinerary and other permitted group-trip information to the Traveler's application."
+
+The concrete end-to-end read flow satisfying this requirement:
+1. **Join Completion**: The successful `POST /api/v1/travel-groups/join` command creates/reactivates active membership and returns `JoinTravelGroupResponse(long GroupId, string GroupName, long ItineraryId)`.
+2. **Mobile Navigation**: Upon receiving `200 OK` (or `409 Conflict` with `groupId` for an already-active member), the mobile app displays MSG58 (or MSG57) and routes the Traveler to `/traveler/groups/{groupId}` (`TravelGroupDetailsPage`).
+3. **Group Trip Information Read**:
+   - `GET /api/v1/travel-groups/{groupId}`: Returns group summary, Host information, and active member list.
+   - Authorization: Any active member of the group (`TravelGroupMember` with status `Active`) is authorized to read group data. Regular members view the group information with member privileges (host-only actions such as invitation code display or regeneration are hidden).
+4. **Shared Itinerary Read**:
+   - `GET /api/v1/itineraries/{itineraryId}`: Returns the complete shared itinerary, including daily timelines, activities, route segments, and POIs.
+   - Authorization & Boundary: Read access is permitted to all active members of the associated group. Itinerary editing, modification, or deletion remains strictly restricted to the itinerary creator/Host (UC-19 / UC-20).
 
 ## Acceptance Criteria
 

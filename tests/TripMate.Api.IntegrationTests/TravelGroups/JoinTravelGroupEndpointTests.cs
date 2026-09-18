@@ -121,6 +121,53 @@ public sealed class JoinTravelGroupEndpointTests
         replayResponse.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
+    [Fact]
+    public async Task Join_WhenAlreadyActiveMember_ReturnsConflictWithGroupIdExtension_AndLeavesUsageUnchanged()
+    {
+        await using var factory = new TripMateApiFactory();
+        var seed = await SeedAsync(factory);
+
+        var joiningUserId = seed.HostUserId + 10;
+
+        // First join succeeds and creates active membership
+        using var client1 = factory.CreateAuthenticatedClient(joiningUserId, UserRole.Traveler);
+        client1.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
+        var firstResponse = await client1.PostAsJsonAsync(
+            "/api/v1/travel-groups/join",
+            new JoinTravelGroupRequest(seed.InviteCode));
+        firstResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Second join with different idempotency key returns 409 Conflict
+        using var client2 = factory.CreateAuthenticatedClient(joiningUserId, UserRole.Traveler);
+        client2.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
+        var conflictResponse = await client2.PostAsJsonAsync(
+            "/api/v1/travel-groups/join",
+            new JoinTravelGroupRequest(seed.InviteCode));
+
+        conflictResponse.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var body = await conflictResponse.Content.ReadAsStringAsync();
+        body.Should().Contain(TravelGroupErrorCodes.AlreadyActiveMember);
+
+        using var doc = JsonDocument.Parse(body);
+        var root = doc.RootElement;
+        var extensions = root.GetProperty("extensions");
+        extensions.GetProperty("errorCode").GetString().Should().Be(TravelGroupErrorCodes.AlreadyActiveMember);
+        extensions.GetProperty("groupId").GetInt64().Should().Be(seed.GroupId);
+
+        // Verify membership count and invitation usage remain unchanged
+        await factory.WithDbContextAsync(async db =>
+        {
+            var memberCount = await db.GroupMembers.CountAsync(
+                m => m.GroupId == seed.GroupId && m.UserId == joiningUserId);
+            memberCount.Should().Be(1);
+
+            var invitation = await db.GroupInvitations.FirstAsync(
+                i => i.GroupId == seed.GroupId);
+            invitation.UsedCount.Should().Be(1);
+            return true;
+        });
+    }
+
     private static async Task<(long GroupId, string GroupName, long HostUserId, string InviteCode)> SeedAsync(
         TripMateApiFactory factory) =>
         await factory.WithDbContextAsync(async db =>

@@ -98,13 +98,17 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
         }
     }
 
-    public ApplicationDbContext CreateDbContext()
+    public ApplicationDbContext CreateDbContext(params Microsoft.EntityFrameworkCore.Diagnostics.IInterceptor[] interceptors)
     {
-        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseSqlServer(ConnectionString)
-            .Options;
+        var builder = new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseSqlServer(ConnectionString);
 
-        return new ApplicationDbContext(options);
+        if (interceptors is { Length: > 0 })
+        {
+            builder.AddInterceptors(interceptors);
+        }
+
+        return new ApplicationDbContext(builder.Options);
     }
 
     public async Task ExecuteNonQueryAsync(
