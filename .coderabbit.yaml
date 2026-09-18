@@ -2,10 +2,9 @@
 language: "en-US"
 
 tone_instructions: >
-  Group feedback into three buckets matching this team's pipeline: Bug (correctness, edge cases,
-  logic errors), Security (injection, auth/authz gaps, secret handling, unsafe deserialization),
-  Architecture (violations of this repo's AGENTS.md — Clean Architecture layering, database-first
-  rules, Result pattern usage). Label each comment with its bucket.
+  Group feedback into 3 buckets: Bug (correctness, edge cases), Security (injection, auth gaps,
+  secrets, unsafe deserialization), Architecture (violates AGENTS.md: Clean Architecture
+  layering, database-first rules, Result pattern). Label each.
 
 reviews:
   profile: assertive
