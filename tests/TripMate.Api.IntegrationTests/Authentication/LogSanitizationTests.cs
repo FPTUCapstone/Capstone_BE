@@ -37,6 +37,7 @@ public class LogSanitizationTests
     private static void ResetLogFile()
     {
         Directory.CreateDirectory(Path.GetDirectoryName(LogFullPath)!);
+
         if (File.Exists(LogFullPath))
         {
             File.Delete(LogFullPath);
@@ -53,10 +54,12 @@ public class LogSanitizationTests
         await factory.WithDbContextAsync(async db =>
         {
             string hash;
+
             using (var scope = factory.Services.CreateScope())
             {
                 var hasher = scope.ServiceProvider
                     .GetRequiredService<IPasswordHasherService>();
+
                 hash = hasher.Hash(password);
             }
 
@@ -68,6 +71,7 @@ public class LogSanitizationTests
                 Status = AccountStatus.Active,
                 PasswordHash = hash,
             });
+
             await db.SaveChangesAsync();
             return true;
         });
@@ -79,7 +83,10 @@ public class LogSanitizationTests
         });
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        var data = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("data");
+
+        var data = (await response.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("data");
+
         return (
             data.GetProperty("accessToken").GetString()!,
             data.GetProperty("userId").GetInt64());
@@ -99,11 +106,16 @@ public class LogSanitizationTests
             email = "s11.user@example.com",
             password = WrongPassword,
         });
+
         failed.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
         // 2. Successful login → 200 (response carries a real access token).
         var (accessToken, _) = await SeedAndLoginAsync(
-            factory, client, "s11.user@example.com", Password);
+            factory,
+            client,
+            "s11.user@example.com",
+            Password);
+
         accessToken.Should().NotBeNullOrWhiteSpace();
 
         // 3. Google call carrying a marked fake Firebase ID token → 503 in Testing
@@ -112,14 +124,17 @@ public class LogSanitizationTests
         {
             idToken = FakeGoogleIdToken,
         });
+
         google.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
 
         // Allow the Serilog file sink to flush, then inspect the captured output.
         // The sink keeps the file open for writing, so reads must share write access.
         var logged = string.Empty;
+
         for (var attempt = 0; attempt < 20; attempt++)
         {
             await Task.Delay(300);
+
             if (!File.Exists(LogFullPath))
             {
                 continue;
@@ -128,7 +143,11 @@ public class LogSanitizationTests
             try
             {
                 using var stream = new FileStream(
-                    LogFullPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    LogFullPath,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.ReadWrite);
+
                 using var reader = new StreamReader(stream);
                 logged = await reader.ReadToEndAsync();
             }
@@ -145,7 +164,8 @@ public class LogSanitizationTests
             }
         }
 
-        logged.Should().Contain("/api/v1/auth/login",
+        logged.Should().Contain(
+            "/api/v1/auth/login",
             $"log file: {LogFullPath}; length: {logged.Length}; head: {logged[..Math.Min(400, logged.Length)]}");
 
         // S11: none of the marked secrets may appear anywhere in the log output.
@@ -153,28 +173,36 @@ public class LogSanitizationTests
         logged.Should().NotContain(WrongPassword);
         logged.Should().NotContain(accessToken);
         logged.Should().NotContain(FakeGoogleIdToken);
-        logged.Should().NotContain("eyJhbGci", "no JWT-shaped string may be logged");
+        logged.Should().NotContain(
+            "eyJhbGci",
+            "no JWT-shaped string may be logged");
     }
 
     [Fact]
     public async Task SuccessfulSignOut_NeverLogsAuthenticationSecrets()
     {
         ResetLogFile();
+
         const string rawRefreshToken = "tc09/raw+refresh=secret";
         const string accessToken = "tc09.access.jwt.secret";
         const string markedPassword = "tc09-password-secret";
         const string markedPasswordHash = "tc09-password-hash-secret";
+
         var encodedRefreshToken = Uri.EscapeDataString(rawRefreshToken);
         var cookieHeader = $"tripmate_refresh={encodedRefreshToken}";
 
         await using var factory = new TripMateApiFactory();
         using var client = factory.CreateClient();
+
         using (var scope = factory.Services.CreateScope())
         {
-            var jwtTokenService = scope.ServiceProvider.GetRequiredService<IJwtTokenService>();
+            var jwtTokenService = scope.ServiceProvider
+                .GetRequiredService<IJwtTokenService>();
+
             await factory.WithDbContextAsync(async db =>
             {
                 var now = DateTimeOffset.UtcNow;
+
                 var user = new User
                 {
                     Email = "tc09-signout@example.com",
@@ -185,8 +213,10 @@ public class LogSanitizationTests
                     CreatedAtUtc = now.AddDays(-1),
                     UpdatedAtUtc = now.AddHours(-1),
                 };
+
                 db.Users.Add(user);
                 await db.SaveChangesAsync();
+
                 db.RefreshTokens.Add(new RefreshToken
                 {
                     UserId = user.Id,
@@ -194,26 +224,47 @@ public class LogSanitizationTests
                     CreatedAtUtc = now.AddHours(-1),
                     ExpiresAtUtc = now.AddDays(7),
                 });
+
                 await db.SaveChangesAsync();
                 return true;
             });
         }
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/web/logout");
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            "/api/v1/auth/web/logout");
+
         request.Headers.Add("Cookie", cookieHeader);
+
         request.Headers.Authorization =
-            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
-        request.Headers.Add("X-Test-Password", markedPassword);
-        request.Headers.Add("X-Test-Password-Hash", markedPasswordHash);
+            new System.Net.Http.Headers.AuthenticationHeaderValue(
+                "Bearer",
+                accessToken);
+
+        request.Headers.Add(
+            "X-Test-Password",
+            markedPassword);
+
+        request.Headers.Add(
+            "X-Test-Password-Hash",
+            markedPasswordHash);
 
         var response = await client.SendAsync(request);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
+
         var logged = await ReadLogUntil(
-            text => text.Contains("/api/v1/auth/web/logout", StringComparison.Ordinal)
-                && text.Contains("200", StringComparison.Ordinal));
+            text =>
+                text.Contains(
+                    "/api/v1/auth/web/logout",
+                    StringComparison.Ordinal)
+                && text.Contains(
+                    "200",
+                    StringComparison.Ordinal));
+
         logged.Should().Contain("/api/v1/auth/web/logout");
         logged.Should().Contain("200");
+
         logged.Should().NotContain(rawRefreshToken);
         logged.Should().NotContain(encodedRefreshToken);
         logged.Should().NotContain(cookieHeader);
@@ -223,12 +274,15 @@ public class LogSanitizationTests
         logged.Should().NotContain(markedPasswordHash);
     }
 
-    private static async Task<string> ReadLogUntil(Func<string, bool> completed)
+    private static async Task<string> ReadLogUntil(
+        Func<string, bool> completed)
     {
         var logged = string.Empty;
+
         for (var attempt = 0; attempt < 20; attempt++)
         {
             await Task.Delay(300);
+
             if (!File.Exists(LogFullPath))
             {
                 continue;
@@ -237,7 +291,11 @@ public class LogSanitizationTests
             try
             {
                 using var stream = new FileStream(
-                    LogFullPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    LogFullPath,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.ReadWrite);
+
                 using var reader = new StreamReader(stream);
                 logged = await reader.ReadToEndAsync();
             }
