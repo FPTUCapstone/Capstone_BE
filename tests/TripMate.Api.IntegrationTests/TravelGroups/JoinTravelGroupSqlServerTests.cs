@@ -418,6 +418,106 @@ public sealed class JoinTravelGroupSqlServerTests
         opCount.Should().Be(0);
     }
 
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task UnresolvedTargetGroupId_FailsFastWithoutDeadlockOrStateMutation()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database);
+        var nonexistentCode = "NONEXIST";
+        var key = Guid.NewGuid();
+
+        await using (var context = database.CreateDbContext())
+        {
+            var handler = new JoinTravelGroupCommandHandler(
+                context,
+                new FixedDateTimeProvider(),
+                new SqlServerGroupJoinLock(context));
+
+            var result = await handler.Handle(
+                new JoinTravelGroupCommand(nonexistentCode, seed.TravelerUserId, key),
+                CancellationToken.None);
+
+            result.IsSuccess.Should().BeFalse();
+            result.ErrorCode.Should().Be(TravelGroupErrorCodes.InvitationUnavailable);
+        }
+
+        // Verify across real SQL Server connection that no database mutation occurred
+        await using var verification = database.CreateDbContext();
+
+        var memberCount = await verification.GroupMembers.CountAsync(
+            member => member.GroupId == seed.GroupId && member.UserId == seed.TravelerUserId);
+        memberCount.Should().Be(0);
+
+        var invitation = await verification.GroupInvitations.FirstAsync(
+            inv => inv.GroupId == seed.GroupId);
+        invitation.UsedCount.Should().Be(0);
+
+        var opCount = await verification.GroupJoinOperations.CountAsync(
+            op => op.TravelerUserId == seed.TravelerUserId && op.IdempotencyKey == key);
+        opCount.Should().Be(0);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task UnresolvedTargetGroupIdRace_WithConcurrentHostRegeneration_PreservesConsistencyAndNoDeadlock()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database);
+        var nonexistentCode = "UNRESOLV";
+        var key = Guid.NewGuid();
+        var startGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        async Task<Application.Common.Models.Result<JoinTravelGroupResponse>> JoinUnresolvedAsync()
+        {
+            await startGate.Task;
+            await using var context = database.CreateDbContext();
+            var handler = new JoinTravelGroupCommandHandler(
+                context,
+                new FixedDateTimeProvider(),
+                new SqlServerGroupJoinLock(context));
+            return await handler.Handle(
+                new JoinTravelGroupCommand(nonexistentCode, seed.TravelerUserId, key),
+                CancellationToken.None);
+        }
+
+        async Task<Application.Common.Models.Result<GetGroupInvitationResponse>> RegenerateAsync()
+        {
+            await startGate.Task;
+            await using var context = database.CreateDbContext();
+            var handler = new RegenerateGroupInvitationCommandHandler(
+                context,
+                new FixedDateTimeProvider(),
+                new SqlServerGroupInvitationLock(context),
+                new RandomGroupInvitationCodeGenerator());
+            return await handler.Handle(
+                new RegenerateGroupInvitationCommand(seed.GroupId, seed.HostUserId, Guid.NewGuid()),
+                CancellationToken.None);
+        }
+
+        var joinTask = JoinUnresolvedAsync();
+        var regenTask = RegenerateAsync();
+        startGate.SetResult();
+        await Task.WhenAll(joinTask, regenTask);
+
+        var joinResult = await joinTask;
+        var regenResult = await regenTask;
+
+        joinResult.IsSuccess.Should().BeFalse();
+        joinResult.ErrorCode.Should().Be(TravelGroupErrorCodes.InvitationUnavailable);
+
+        regenResult.IsSuccess.Should().BeTrue();
+
+        await using var verification = database.CreateDbContext();
+        var memberCount = await verification.GroupMembers.CountAsync(
+            m => m.GroupId == seed.GroupId && m.UserId == seed.TravelerUserId);
+        memberCount.Should().Be(0);
+
+        var opCount = await verification.GroupJoinOperations.CountAsync(
+            op => op.TravelerUserId == seed.TravelerUserId && op.IdempotencyKey == key);
+        opCount.Should().Be(0);
+    }
+
     private sealed class FailingSaveChangesInterceptor : SaveChangesInterceptor
     {
         public override ValueTask<InterceptionResult<int>> SavingChangesAsync(

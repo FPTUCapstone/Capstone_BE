@@ -28,12 +28,19 @@ public sealed class JoinTravelGroupCommandHandler(
             normalizedCode,
             cancellationToken);
 
+        if (!targetGroupId.HasValue)
+        {
+            return Result.Failure<JoinTravelGroupResponse>(
+                TravelGroupErrorCodes.InvitationUnavailable,
+                "The invitation code is invalid, expired, or has reached its maximum uses.");
+        }
+
         return await dbContext.ExecuteInSerializableTransactionAsync(
             transactionCancellationToken => ExecuteInTransactionAsync(
                 normalizedCode,
                 request.TravelerUserId,
                 request.IdempotencyKey,
-                targetGroupId,
+                targetGroupId.Value,
                 transactionCancellationToken),
             cancellationToken);
     }
@@ -66,7 +73,7 @@ public sealed class JoinTravelGroupCommandHandler(
         string normalizedCode,
         long travelerUserId,
         Guid idempotencyKey,
-        long? targetGroupId,
+        long targetGroupId,
         CancellationToken cancellationToken)
     {
         var now = dateTimeProvider.UtcNow;
@@ -78,10 +85,7 @@ public sealed class JoinTravelGroupCommandHandler(
         await joinLock.AcquireCodeLockAsync(normalizedCode, cancellationToken);
 
         // 3. Acquire group lock before querying tables in serializable transaction
-        if (targetGroupId.HasValue)
-        {
-            await joinLock.AcquireGroupLockAsync(targetGroupId.Value, cancellationToken);
-        }
+        await joinLock.AcquireGroupLockAsync(targetGroupId, cancellationToken);
 
         // Check for existing operation replay (e.g. retry after success, even if code expired or regenerated)
         var existingOperation = await dbContext.GroupJoinOperations
@@ -120,7 +124,7 @@ public sealed class JoinTravelGroupCommandHandler(
                 inv => inv.InviteCode == normalizedCode,
                 cancellationToken);
 
-        if (invitation is null || !invitation.IsUsableAt(now) || invitation.TravelGroup is null)
+        if (invitation is null || !invitation.IsUsableAt(now) || invitation.TravelGroup is null || invitation.GroupId != targetGroupId)
         {
             return Result.Failure<JoinTravelGroupResponse>(
                 TravelGroupErrorCodes.InvitationUnavailable,
@@ -129,11 +133,6 @@ public sealed class JoinTravelGroupCommandHandler(
 
         var travelGroup = invitation.TravelGroup;
         var groupId = travelGroup.Id;
-
-        if (!targetGroupId.HasValue)
-        {
-            await joinLock.AcquireGroupLockAsync(groupId, cancellationToken);
-        }
 
         // 5. Check existing membership
         var existingMember = await dbContext.GroupMembers
