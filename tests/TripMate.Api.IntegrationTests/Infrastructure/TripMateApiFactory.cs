@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
@@ -30,7 +31,8 @@ public sealed class TripMateApiFactory(
     string? sqlServerConnectionString = null,
     IReadOnlyList<string>? corsAllowedOrigins = null,
     string environmentName = "Testing",
-    Func<IServiceProvider, IFirebaseAuthService>? firebaseServiceFactory = null) : WebApplicationFactory<Program>
+    Func<IServiceProvider, IFirebaseAuthService>? firebaseServiceFactory = null,
+    SaveChangesInterceptor? saveChangesInterceptor = null) : WebApplicationFactory<Program>
 {
     internal const string JwtIssuer = "TripMate.Tests";
     internal const string JwtAudience = "TripMate.Tests";
@@ -71,9 +73,18 @@ public sealed class TripMateApiFactory(
                 services.RemoveAll<IGroupJoinLock>();
 
                 services.AddDbContext<TestApiDbContext>(options =>
-                    options.UseInMemoryDatabase(_databaseName));
+                {
+                    options.UseInMemoryDatabase(_databaseName);
+
+                    if (saveChangesInterceptor is not null)
+                    {
+                        options.AddInterceptors(saveChangesInterceptor);
+                    }
+                });
+
                 services.AddScoped<IApplicationDbContext>(provider =>
                     provider.GetRequiredService<TestApiDbContext>());
+
                 services.AddScoped<ITravelGroupCreationLock, NoOpTravelGroupCreationLock>();
                 services.AddScoped<IGroupInvitationLock, NoOpGroupInvitationLock>();
                 services.AddScoped<IGroupJoinLock, NoOpGroupJoinLock>();
@@ -106,8 +117,15 @@ public sealed class TripMateApiFactory(
         {
             BaseAddress = new Uri("https://localhost"),
         });
-        client.DefaultRequestHeaders.Add(TestAuthenticationHandler.UserIdHeader, userId.ToString());
-        client.DefaultRequestHeaders.Add(TestAuthenticationHandler.RoleHeader, role.ToString());
+
+        client.DefaultRequestHeaders.Add(
+            TestAuthenticationHandler.UserIdHeader,
+            userId.ToString());
+
+        client.DefaultRequestHeaders.Add(
+            TestAuthenticationHandler.RoleHeader,
+            role.ToString());
+
         return client;
     }
 
@@ -117,14 +135,21 @@ public sealed class TripMateApiFactory(
         {
             BaseAddress = new Uri("https://localhost"),
         });
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", token);
+
         return client;
     }
 
-    public async Task<T> WithDbContextAsync<T>(Func<TestApiDbContext, Task<T>> operation)
+    public async Task<T> WithDbContextAsync<T>(
+        Func<TestApiDbContext, Task<T>> operation)
     {
         using var scope = Services.CreateScope();
-        var context = scope.ServiceProvider.GetRequiredService<TestApiDbContext>();
+
+        var context = scope.ServiceProvider
+            .GetRequiredService<TestApiDbContext>();
+
         return await operation(context);
     }
 }
@@ -147,10 +172,13 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
     public DbSet<Itinerary> Itineraries => Set<Itinerary>();
-    public DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests => Set<TravelGroupCreationRequest>();
+    public DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests =>
+        Set<TravelGroupCreationRequest>();
     public DbSet<GroupInvitation> GroupInvitations => Set<GroupInvitation>();
-    public DbSet<GroupInvitationOperation> GroupInvitationOperations => Set<GroupInvitationOperation>();
-    public DbSet<GroupJoinOperation> GroupJoinOperations => Set<GroupJoinOperation>();
+    public DbSet<GroupInvitationOperation> GroupInvitationOperations =>
+        Set<GroupInvitationOperation>();
+    public DbSet<GroupJoinOperation> GroupJoinOperations =>
+        Set<GroupJoinOperation>();
 
     public Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
@@ -166,23 +194,34 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        modelBuilder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
+        modelBuilder.ApplyConfigurationsFromAssembly(
+            typeof(ApplicationDbContext).Assembly);
+
         base.OnModelCreating(modelBuilder);
     }
 }
 
 internal sealed class NoOpTravelGroupCreationLock : ITravelGroupCreationLock
 {
-    public Task AcquireAsync(long travelerUserId, Guid idempotencyKey, CancellationToken cancellationToken) =>
+    public Task AcquireAsync(
+        long travelerUserId,
+        Guid idempotencyKey,
+        CancellationToken cancellationToken) =>
         Task.CompletedTask;
 }
 
 internal sealed class NoOpGroupInvitationLock : IGroupInvitationLock
 {
-    public Task AcquireAsync(long groupId, long travelerUserId, Guid idempotencyKey, CancellationToken cancellationToken) =>
+    public Task AcquireAsync(
+        long groupId,
+        long travelerUserId,
+        Guid idempotencyKey,
+        CancellationToken cancellationToken) =>
         Task.CompletedTask;
 
-    public Task AcquireCodeAsync(string inviteCode, CancellationToken cancellationToken) =>
+    public Task AcquireCodeAsync(
+        string inviteCode,
+        CancellationToken cancellationToken) =>
         Task.CompletedTask;
 }
 
@@ -223,7 +262,11 @@ internal sealed class TestAuthenticationHandler(
         ],
         SchemeName);
 
-        var ticket = new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName);
-        return Task.FromResult(AuthenticateResult.Success(ticket));
+        var ticket = new AuthenticationTicket(
+            new ClaimsPrincipal(identity),
+            SchemeName);
+
+        return Task.FromResult(
+            AuthenticateResult.Success(ticket));
     }
 }
