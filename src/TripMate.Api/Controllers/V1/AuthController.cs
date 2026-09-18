@@ -8,6 +8,7 @@ using TripMate.Application.Features.Authentication.Common;
 using TripMate.Application.Features.Authentication.GoogleAuth;
 using TripMate.Application.Features.Authentication.Login;
 using TripMate.Application.Features.Authentication.Register;
+using TripMate.Application.Features.Authentication.SignOut;
 using TripMate.Application.Features.Authentication.VerifyEmail;
 using TripMate.Application.Features.Authentication.WebRefresh;
 using TripMate.Application.Features.Authentication.WebSignIn;
@@ -154,6 +155,29 @@ public class AuthController(ISender sender, IWebHostEnvironment environment) : A
         return Success(WebAuthResponseDto.From(result.Value), message: "Session restored.");
     }
 
+    [HttpPost("web/logout")]
+    public async Task<IActionResult> WebLogout(CancellationToken cancellationToken)
+    {
+        var cookie = Request.Cookies[WebRefreshCookie.Name];
+        IActionResult result;
+
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(cookie))
+            {
+                await Sender.Send(new SignOutCommand(cookie), cancellationToken);
+            }
+
+            result = Ok(new SignOutResponseDto());
+        }
+        finally
+        {
+            WebRefreshCookie.Delete(HttpContext, environment);
+        }
+
+        return result;
+    }
+
     [HttpPost("web/verify-email")]
     [ProducesResponseType(typeof(ApiResponse<WebVerifyEmailResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
@@ -212,6 +236,15 @@ public class AuthController(ISender sender, IWebHostEnvironment environment) : A
         return result.IsSuccess
             ? Success(result.Value, StatusCodes.Status200OK, "Sign in successful.")
             : HandleFailure(result);
+    }
+
+    [HttpPost("logout")]
+    public async Task<IActionResult> Logout(
+        [FromBody] SignOutRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        await Sender.Send(new SignOutCommand(request.RefreshToken), cancellationToken);
+        return Ok(new SignOutResponseDto());
     }
 }
 public sealed record WebPasswordRequest(string? Email, string? Password, bool KeepMeSignedIn = false);

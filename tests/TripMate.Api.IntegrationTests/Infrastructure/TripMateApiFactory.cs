@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
@@ -30,7 +31,8 @@ public sealed class TripMateApiFactory(
     string? sqlServerConnectionString = null,
     IReadOnlyList<string>? corsAllowedOrigins = null,
     string environmentName = "Testing",
-    Func<IServiceProvider, IFirebaseAuthService>? firebaseServiceFactory = null) : WebApplicationFactory<Program>
+    Func<IServiceProvider, IFirebaseAuthService>? firebaseServiceFactory = null,
+    SaveChangesInterceptor? saveChangesInterceptor = null) : WebApplicationFactory<Program>
 {
     internal const string JwtIssuer = "TripMate.Tests";
     internal const string JwtAudience = "TripMate.Tests";
@@ -70,7 +72,13 @@ public sealed class TripMateApiFactory(
                 services.RemoveAll<IGroupInvitationLock>();
 
                 services.AddDbContext<TestApiDbContext>(options =>
-                    options.UseInMemoryDatabase(_databaseName));
+                {
+                    options.UseInMemoryDatabase(_databaseName);
+                    if (saveChangesInterceptor is not null)
+                    {
+                        options.AddInterceptors(saveChangesInterceptor);
+                    }
+                });
                 services.AddScoped<IApplicationDbContext>(provider =>
                     provider.GetRequiredService<TestApiDbContext>());
                 services.AddScoped<ITravelGroupCreationLock, NoOpTravelGroupCreationLock>();

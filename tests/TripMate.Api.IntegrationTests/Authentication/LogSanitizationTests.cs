@@ -155,4 +155,103 @@ public class LogSanitizationTests
         logged.Should().NotContain(FakeGoogleIdToken);
         logged.Should().NotContain("eyJhbGci", "no JWT-shaped string may be logged");
     }
+
+    [Fact]
+    public async Task SuccessfulSignOut_NeverLogsAuthenticationSecrets()
+    {
+        ResetLogFile();
+        const string rawRefreshToken = "tc09/raw+refresh=secret";
+        const string accessToken = "tc09.access.jwt.secret";
+        const string markedPassword = "tc09-password-secret";
+        const string markedPasswordHash = "tc09-password-hash-secret";
+        var encodedRefreshToken = Uri.EscapeDataString(rawRefreshToken);
+        var cookieHeader = $"tripmate_refresh={encodedRefreshToken}";
+
+        await using var factory = new TripMateApiFactory();
+        using var client = factory.CreateClient();
+        using (var scope = factory.Services.CreateScope())
+        {
+            var jwtTokenService = scope.ServiceProvider.GetRequiredService<IJwtTokenService>();
+            await factory.WithDbContextAsync(async db =>
+            {
+                var now = DateTimeOffset.UtcNow;
+                var user = new User
+                {
+                    Email = "tc09-signout@example.com",
+                    FullName = "TC09 Sign Out User",
+                    Role = UserRole.Traveler,
+                    Status = AccountStatus.Active,
+                    PasswordHash = markedPasswordHash,
+                    CreatedAtUtc = now.AddDays(-1),
+                    UpdatedAtUtc = now.AddHours(-1),
+                };
+                db.Users.Add(user);
+                await db.SaveChangesAsync();
+                db.RefreshTokens.Add(new RefreshToken
+                {
+                    UserId = user.Id,
+                    TokenHash = jwtTokenService.HashRefreshToken(rawRefreshToken),
+                    CreatedAtUtc = now.AddHours(-1),
+                    ExpiresAtUtc = now.AddDays(7),
+                });
+                await db.SaveChangesAsync();
+                return true;
+            });
+        }
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/web/logout");
+        request.Headers.Add("Cookie", cookieHeader);
+        request.Headers.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+        request.Headers.Add("X-Test-Password", markedPassword);
+        request.Headers.Add("X-Test-Password-Hash", markedPasswordHash);
+
+        var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var logged = await ReadLogUntil(
+            text => text.Contains("/api/v1/auth/web/logout", StringComparison.Ordinal)
+                && text.Contains("200", StringComparison.Ordinal));
+        logged.Should().Contain("/api/v1/auth/web/logout");
+        logged.Should().Contain("200");
+        logged.Should().NotContain(rawRefreshToken);
+        logged.Should().NotContain(encodedRefreshToken);
+        logged.Should().NotContain(cookieHeader);
+        logged.Should().NotContain(accessToken);
+        logged.Should().NotContain($"Bearer {accessToken}");
+        logged.Should().NotContain(markedPassword);
+        logged.Should().NotContain(markedPasswordHash);
+    }
+
+    private static async Task<string> ReadLogUntil(Func<string, bool> completed)
+    {
+        var logged = string.Empty;
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            await Task.Delay(300);
+            if (!File.Exists(LogFullPath))
+            {
+                continue;
+            }
+
+            try
+            {
+                using var stream = new FileStream(
+                    LogFullPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                using var reader = new StreamReader(stream);
+                logged = await reader.ReadToEndAsync();
+            }
+            catch (IOException)
+            {
+                continue;
+            }
+
+            if (completed(logged))
+            {
+                break;
+            }
+        }
+
+        return logged;
+    }
 }

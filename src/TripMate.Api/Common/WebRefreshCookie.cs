@@ -17,4 +17,17 @@ public static class WebRefreshCookie
             Expires = keepMeSignedIn ? expiresAt : null
         });
     }
+
+    public static void Delete(HttpContext context, IWebHostEnvironment environment)
+    {
+        context.Response.Cookies.Append(Name, string.Empty, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = context.Request.IsHttps || !environment.IsDevelopment() || !context.Request.Host.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase),
+            SameSite = SameSiteMode.Lax,
+            Path = Path,
+            MaxAge = TimeSpan.Zero,
+            Expires = DateTimeOffset.UnixEpoch
+        });
+    }
 }
