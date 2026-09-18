@@ -150,9 +150,8 @@ public sealed class JoinTravelGroupEndpointTests
 
         using var doc = JsonDocument.Parse(body);
         var root = doc.RootElement;
-        var extensions = root.GetProperty("extensions");
-        extensions.GetProperty("errorCode").GetString().Should().Be(TravelGroupErrorCodes.AlreadyActiveMember);
-        extensions.GetProperty("groupId").GetInt64().Should().Be(seed.GroupId);
+        root.GetProperty("errorCode").GetString().Should().Be(TravelGroupErrorCodes.AlreadyActiveMember);
+        root.GetProperty("groupId").GetInt64().Should().Be(seed.GroupId);
 
         // Verify membership count and invitation usage remain unchanged
         await factory.WithDbContextAsync(async db =>
