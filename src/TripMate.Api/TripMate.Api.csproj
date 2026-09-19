@@ -4,6 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>tripmate-api-b7f3c2a1-4e6d-4f8a-9c5b-1d2e3f4a5b6c</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>

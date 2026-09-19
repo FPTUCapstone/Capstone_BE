@@ -35,6 +35,14 @@ try
     builder.Services.AddApplication();
     builder.Services.AddInfrastructure(builder.Configuration);
 
+    // AGENTS.md §5.4: credentials must come from environment variables or User Secrets,
+    // never from committed configuration files.
+    if (string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("Default")))
+    {
+        throw new InvalidOperationException(
+            "ConnectionStrings:Default is not configured. Set it via environment variable (ConnectionStrings__Default) or User Secrets.");
+    }
+
     var jsonNamingPolicy = JsonNamingPolicy.CamelCase;
     builder.Services
         .AddControllers()
@@ -99,8 +107,18 @@ try
         });
     });
 
-    var jwtOptions = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
-        ?? throw new InvalidOperationException("Jwt configuration section is missing.");
+    var jwtSection = builder.Configuration.GetSection(JwtOptions.SectionName);
+    var jwtOptions = jwtSection.Get<JwtOptions>() ?? new JwtOptions();
+    var signingKey = !string.IsNullOrWhiteSpace(jwtOptions.SigningKey)
+        ? jwtOptions.SigningKey
+        : jwtSection["SigningKey"];
+    if (string.IsNullOrWhiteSpace(signingKey))
+    {
+        throw new InvalidOperationException(
+            "Jwt:SigningKey is not configured. Set it via environment variable or User Secrets.");
+    }
+    var issuer = !string.IsNullOrWhiteSpace(jwtOptions.Issuer) ? jwtOptions.Issuer : "TripMate";
+    var audience = !string.IsNullOrWhiteSpace(jwtOptions.Audience) ? jwtOptions.Audience : "TripMateClients";
 
     builder.Services
         .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -112,10 +130,10 @@ try
                 ValidateAudience = true,
                 ValidateLifetime = true,
                 ValidateIssuerSigningKey = true,
-                ValidIssuer = jwtOptions.Issuer,
-                ValidAudience = jwtOptions.Audience,
+                ValidIssuer = issuer,
+                ValidAudience = audience,
                 IssuerSigningKey = new SymmetricSecurityKey(
-                    Convert.FromBase64String(jwtOptions.SigningKey)),
+                    Convert.FromBase64String(signingKey)),
                 ClockSkew = TimeSpan.FromMinutes(1),
             };
         });
@@ -140,6 +158,8 @@ try
 
     var app = builder.Build();
 
+    // Outer middleware observes the status after validation exceptions are mapped to 400.
+    app.UseMiddleware<RequestRejectionLoggingMiddleware>();
     app.UseMiddleware<ExceptionHandlingMiddleware>();
 
     if (app.Environment.IsDevelopment())

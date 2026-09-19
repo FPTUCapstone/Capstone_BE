@@ -28,6 +28,14 @@ public class AuditLogConfiguration : IEntityTypeConfiguration<AuditLog>
         builder.Property(audit => audit.AffectedEntityId).HasColumnName("affected_entity_id");
         builder.Property(audit => audit.BeforeData).HasColumnName("before_data");
         builder.Property(audit => audit.AfterData).HasColumnName("after_data");
+        builder.Property(audit => audit.Result)
+            .HasColumnName("result")
+            .HasConversion<string>()
+            .HasMaxLength(20)
+            .IsUnicode(false);
+        builder.Property(audit => audit.Reason)
+            .HasColumnName("reason")
+            .HasMaxLength(1000);
         builder.Property(audit => audit.IpAddress)
             .HasColumnName("ip_address")
             .HasMaxLength(45)
