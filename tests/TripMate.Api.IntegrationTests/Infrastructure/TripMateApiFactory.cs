@@ -30,7 +30,9 @@ public sealed class TripMateApiFactory(
     string? sqlServerConnectionString = null,
     IReadOnlyList<string>? corsAllowedOrigins = null,
     string environmentName = "Testing",
-    Func<IServiceProvider, IFirebaseAuthService>? firebaseServiceFactory = null) : WebApplicationFactory<Program>
+    Func<IServiceProvider, IFirebaseAuthService>? firebaseServiceFactory = null,
+    Func<IServiceProvider, IEmailSender>? emailSenderFactory = null,
+    Func<IServiceProvider, IDateTimeProvider>? dateTimeProviderFactory = null) : WebApplicationFactory<Program>
 {
     internal const string JwtIssuer = "TripMate.Tests";
     internal const string JwtAudience = "TripMate.Tests";
@@ -45,6 +47,7 @@ public sealed class TripMateApiFactory(
         builder.UseSetting("Jwt:Issuer", JwtIssuer);
         builder.UseSetting("Jwt:Audience", JwtAudience);
         builder.UseSetting("Jwt:SigningKey", JwtSigningKey);
+        builder.UseSetting("PasswordResetSecurity:OtpPepper", "test-only-pepper-0123456789abcdef");
 
         if (corsAllowedOrigins is not null)
         {
@@ -83,6 +86,18 @@ public sealed class TripMateApiFactory(
             {
                 services.RemoveAll<IFirebaseAuthService>();
                 services.AddSingleton<IFirebaseAuthService>(sp => firebaseServiceFactory(sp));
+            }
+
+            if (emailSenderFactory is not null)
+            {
+                services.RemoveAll<IEmailSender>();
+                services.AddSingleton<IEmailSender>(sp => emailSenderFactory(sp));
+            }
+
+            if (dateTimeProviderFactory is not null)
+            {
+                services.RemoveAll<IDateTimeProvider>();
+                services.AddSingleton<IDateTimeProvider>(sp => dateTimeProviderFactory(sp));
             }
 
             if (authenticationMode == ApiTestAuthenticationMode.HeaderStub)

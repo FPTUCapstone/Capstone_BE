@@ -66,6 +66,13 @@ services:
       Cors__AllowedOrigins__2: http://localhost:3000
       Firebase__ProjectId: "tripmate-82be3"
       Google__ClientId: 1015595969076-socm44rbtpnbv0o4upl88h4btesqgr6i.apps.googleusercontent.com
+      # UC-06 password reset: SMTP credentials + OTP pepper come from .env — never committed.
+      # Windows dotnet user-secrets do not exist inside the container, so the values are
+      # passed as .NET configuration environment variables (double-underscore nesting).
+      Email__Username: ${EMAIL_USERNAME:?EMAIL_USERNAME must be set in .env}
+      Email__Password: ${EMAIL_PASSWORD:?EMAIL_PASSWORD must be set in .env}
+      Email__FromEmail: ${EMAIL_FROM_EMAIL:?EMAIL_FROM_EMAIL must be set in .env}
+      PasswordResetSecurity__OtpPepper: ${PASSWORD_RESET_OTP_PEPPER:?PASSWORD_RESET_OTP_PEPPER must be set in .env}
       # Firebase Admin service-account JSON (never committed — see .env.example / README §9).
       # Put the file at ./secrets/tripmate-firebase-admin.json on the host. If it is missing,
       # Firebase Admin initialization is unavailable and Firebase ID-token authentication
