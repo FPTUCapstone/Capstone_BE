@@ -144,6 +144,8 @@ public class ConfirmPasswordResetFlowTests
 
         DbSet<Domain.Entities.GroupInvitationOperation> IApplicationDbContext.GroupInvitationOperations =>
             throw new NotSupportedException();
+        DbSet<Domain.Entities.GroupJoinOperation> IApplicationDbContext.GroupJoinOperations =>
+            throw new NotSupportedException();
 
         public Task<T> ExecuteInTransactionAsync<T>(
             Func<CancellationToken, Task<T>> operation,
@@ -172,6 +174,7 @@ public class ConfirmPasswordResetFlowTests
             modelBuilder.Ignore<Domain.Entities.TravelGroupCreationRequest>();
             modelBuilder.Ignore<Domain.Entities.GroupInvitation>();
             modelBuilder.Ignore<Domain.Entities.GroupInvitationOperation>();
+            modelBuilder.Ignore<Domain.Entities.GroupJoinOperation>();
             base.OnModelCreating(modelBuilder);
         }
 
