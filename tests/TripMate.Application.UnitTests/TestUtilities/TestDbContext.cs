@@ -76,7 +76,11 @@ public class TestDbContext(
 
     public DbSet<GroupJoinOperation> GroupJoinOperations => Set<GroupJoinOperation>();
 
+<<<<<<< HEAD
     public DbSet<ItineraryVersionOperation> ItineraryVersionOperations => Set<ItineraryVersionOperation>();
+=======
+    public DbSet<SystemConfig> SystemConfigs => Set<SystemConfig>();
+>>>>>>> 162a29c (feat(system-configs): implement UC-57 configure algorithm parameters)
 
     public int TransactionExecutionCount { get; private set; }
 
@@ -158,6 +162,9 @@ public class TestDbContext(
     {
         modelBuilder.Entity<PoiOpeningHour>()
             .HasKey(hours => new { hours.PointOfInterestId, hours.DayOfWeek });
+
+        modelBuilder.Entity<SystemConfig>()
+            .HasKey(config => config.ConfigKey);
 
         modelBuilder.Entity<PoiTag>()
             .HasKey(mapping => new

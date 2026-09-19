@@ -73,6 +73,8 @@ public interface IApplicationDbContext
 
     DbSet<ItineraryVersionOperation> ItineraryVersionOperations { get; }
 
+    DbSet<SystemConfig> SystemConfigs { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 
     Task<int> RevokeRefreshTokenAsync(
