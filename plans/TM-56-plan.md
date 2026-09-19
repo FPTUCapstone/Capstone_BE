@@ -33,9 +33,8 @@ Dio, go_router, uuid.
   committed or shipped in Flutter.
 - Haversine can prefilter candidates only; all displayed leg durations come
   from the route provider.
-- The API generates one itinerary per request and permits at most three
-  successful generation requests per Traveler per `Asia/Ho_Chi_Minh` date;
-  idempotency replays do not consume an additional quota.
+- The API generates one itinerary per request. Idempotency replays return the
+  original result and do not create a second itinerary.
 - UI copy is English. Do not introduce an Administrator Flutter feature.
 - Do not commit, push, or open a PR without a separate developer instruction.
 
@@ -55,6 +54,8 @@ Dio, go_router, uuid.
   item/request navigation.
 - `src/TripMate.Domain/Entities/PointOfInterest.cs` — planning metadata,
   including cost/source verification.
+- `src/TripMate.Domain/Entities/TravelerProfile.cs` — saved interest-tag
+  preferences used as optional ranking input.
 - `src/TripMate.Application/Features/Scheduling/*` — query/command DTOs,
   validator, generator, application ports, handler, and error contracts.
 - `src/TripMate.Infrastructure/Routing/OpenRouteServiceRouteDurationProvider.cs`
@@ -306,9 +307,12 @@ Expected: failure because the port/service are absent.
 Prefilter by Haversine only, request one route matrix, find the minimum feasible
 mandatory sequence (at most six), then greedily add eligible optional stops.
 Treat start/end time, opening hours, mandatory POIs, end/return point, and
-budget as hard constraints. Treat pace/scenic/photo preferences as ranking only.
+budget as hard constraints. Read saved Traveler interest tags when available and
+use them as a deterministic soft ranking signal together with scenic/photo
+scores, route time, and cost. Treat these preferences as ranking only.
 Reserve per-leg/final buffers, insert rest according to the approved policy,
-and return a typed infeasible reason instead of a partial plan.
+including after optional stops, and return a typed infeasible reason instead of a
+partial plan.
 
 - [ ] **Step 4: Implement the ORS adapter and configuration**
 
@@ -330,7 +334,7 @@ Expected: PASS.
 Verify the key is absent from tracked configuration, a provider outage does not
 produce an itinerary, and all displayed travel legs originate from the port.
 
-### Task 4: Create the scheduling request API with quota and idempotency
+### Task 4: Create the scheduling request API with idempotency
 
 **Files:**
 - Create: `src/TripMate.Application/Features/Scheduling/Create/CreateSchedulingRequestCommand.cs`
@@ -359,20 +363,12 @@ Idempotency-Key: <UUID>
 The endpoint binds the header explicitly with
 `[FromHeader(Name = "Idempotency-Key")] Guid idempotencyKey` so Swagger shows
 it. It returns 201 with the original result for an equal-key/equal-payload
-replay, 409 for a key/payload mismatch, 422 for feasibility, 429 after three
-successful requests on the Traveler's local day, and standard 401/403 for role
-failure.
+replay, 409 for a key/payload mismatch, 422 for feasibility, and standard
+401/403 for role failure.
 
 - [ ] **Step 1: Write failing command/endpoint tests**
 
 ```csharp
-[Fact]
-public async Task Handle_FourthSuccessfulRequestOnSameLocalDate_ReturnsDailyLimit()
-{
-    var result = await handler.Handle(fourthDistinctOperation, CancellationToken.None);
-    Assert.Equal(SchedulingErrorCodes.DailyGenerationLimitReached, result.ErrorCode);
-}
-
 [Fact]
 public async Task Post_SameKeyAndPayload_ReplaysOriginalItinerary()
 {
@@ -393,11 +389,11 @@ Expected: failure because command/endpoint are absent.
 Validate time-zone, local same-day duration, coordinates, distinct max-six
 mandatory POIs, exact end choice, 60-720 minute duration, 1-50km radius,
 positive budget, enum values, and UUID header. Normalize and hash the complete
-payload. Under a SQL Server application lock derived from Traveler/local date
-and operation key, replay equal requests, reject mismatched requests, enforce
-the success quota, generate, and persist request + CSP draft + item graph in a
-serializable transaction. Persist an infeasible request for stable 422 replay;
-roll back unexpected failures without consuming the operation key.
+payload. Under a SQL Server application lock derived from Traveler and the
+operation key, replay equal requests, reject mismatched requests, generate, and
+persist request + CSP draft + item graph in a serializable transaction.
+Persist an infeasible request for stable 422 replay; roll back unexpected
+failures without consuming the operation key.
 
 - [ ] **Step 4: Implement explicit controller/OpenAPI binding**
 
@@ -415,8 +411,7 @@ Expected: PASS.
 - [ ] **Step 6: Review task boundary**
 
 Confirm same operation cannot create duplicates, a payload mismatch is not
-silently replayed, failed provider calls are not persisted as success, and
-quota counts only completed requests.
+silently replayed, and failed provider calls are not persisted as success.
 
 ### Task 5: Prove SQL Server atomicity, concurrency, and route-error behavior
 
@@ -515,7 +510,7 @@ Expected: compile/test failure because new domain/data types are absent.
 - [ ] **Step 3: Implement models, repository, and typed failures**
 
 Send only the approved contract, include `Idempotency-Key`, parse 201/replay as
-the same result, and map 422, 409, and 429 to actionable typed failures.
+the same result, and map 422 and 409 to actionable typed failures.
 Retain the original form request on errors; do not leak raw Dio messages.
 
 - [ ] **Step 4: Run focused tests and confirm GREEN**
@@ -547,7 +542,7 @@ presented to a Traveler.
 - Route: `/traveler/itineraries/create`; result receives a typed generated
   itinerary in `GoRouter.extra`, never serializes it into the URL.
 - Cubit states: `initial`, `searchingPois`, `submitting`, `success`,
-  `validationFailure`, `infeasible`, `dailyLimit`, and `failure`.
+  `validationFailure`, `infeasible`, and `failure`.
 
 - [ ] **Step 1: Write failing Cubit/widget tests**
 
@@ -573,8 +568,8 @@ Expected: compile/test failure because UI/Cubit are absent.
 
 Validate required form input locally; generate one UUID per submit attempt and
 reuse it only for retrying the same unchanged attempt. Search POIs through the
-repository. Preserve input on 422/429/system failure. Map error codes to English
-copy, including exact daily-limit, provider-unavailable, and constraint advice.
+repository. Preserve input on 422/system failure. Map error codes to English
+copy, including provider-unavailable and constraint advice.
 
 - [ ] **Step 4: Implement responsive pages and routing**
 
@@ -628,8 +623,8 @@ flutter build apk --debug
 - [ ] **Step 3: Perform local integration smoke checks**
 
 Use the Docker SQL Server and a configured ORS key to verify: POI search, one
-valid generation, same-key replay, changed-payload 409, infeasible 422, fourth
-daily success attempt 429, and an `Auto` rest break on a long itinerary.
+valid generation, same-key replay, changed-payload 409, infeasible 422, and an
+`Auto` rest break on a long itinerary.
 
 - [ ] **Step 4: Two-pass self-review**
 
@@ -646,7 +641,7 @@ failure paths. Classify and fix Critical findings before handoff.
 | Verified POIs over all Da Nang and searchable Mobile selection | Task 2 |
 | ORS routing with no paid/mobile key and no Haversine display | Task 3 |
 | Hard constraints, budget, opening hours, start/end, rest policy | Tasks 3, 4, 7 |
-| 3/day limit, idempotency replay/mismatch and concurrency | Tasks 4, 5 |
+| Idempotency replay/mismatch and concurrency | Tasks 4, 5 |
 | Traveler API/OpenAPI/security/error contract | Tasks 2, 4 |
 | Mobile form, English states, retry, result rendering | Tasks 6, 7 |
 | Final validation and manual smoke tests | Task 8 |

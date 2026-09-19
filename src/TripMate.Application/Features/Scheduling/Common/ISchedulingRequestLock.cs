@@ -1,14 +1,13 @@
 namespace TripMate.Application.Features.Scheduling.Common;
 
 /// <summary>
-/// Serializes an operation retry and the per-traveler local-day quota check.
+/// Serializes retries for the same scheduling operation.
 /// Its lifetime is the surrounding serializable database transaction.
 /// </summary>
 public interface ISchedulingRequestLock
 {
     Task AcquireAsync(
         long travelerUserId,
-        DateOnly localDate,
         Guid idempotencyKey,
         CancellationToken cancellationToken);
 }

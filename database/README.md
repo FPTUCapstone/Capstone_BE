@@ -205,6 +205,7 @@ ARG SA_PASSWORD
 ENV ACCEPT_EULA=Y
 ENV MSSQL_SA_PASSWORD=${SA_PASSWORD}
 COPY database/tripmate_schema_v7.sql /tmp/tripmate_schema_v7.sql
+COPY database/migrations /tmp/migrations
 COPY database/seed-image.sh /tmp/seed-image.sh
 RUN /tmp/seed-image.sh    # ← đây là bước "nướng" schema vào image
 ```

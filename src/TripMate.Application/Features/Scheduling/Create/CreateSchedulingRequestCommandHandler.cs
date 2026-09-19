@@ -23,22 +23,18 @@ public sealed class CreateSchedulingRequestCommandHandler(
     SchedulingGenerationOptions? generationOptions = null)
     : IRequestHandler<CreateSchedulingRequestCommand, Result<SchedulingResponseDto>>
 {
-    private const int DailySuccessfulGenerationLimit = 3;
-
     public async Task<Result<SchedulingResponseDto>> Handle(
         CreateSchedulingRequestCommand command,
         CancellationToken cancellationToken)
     {
         var timeZone = TimeZoneInfo.FindSystemTimeZoneById(command.TimeZoneId.Trim());
         var startAtUtc = command.StartAt.ToUniversalTime();
-        var localDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(startAtUtc, timeZone).Date);
         var requestHash = ComputeRequestHash(command, startAtUtc);
 
         return await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
         {
             await schedulingRequestLock.AcquireAsync(
                 command.TravelerUserId,
-                localDate,
                 command.IdempotencyKey,
                 transactionCancellationToken);
 
@@ -52,21 +48,18 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 return await ReplayAsync(previousRequest, requestHash, transactionCancellationToken);
             }
 
-            var localDayCompletedCount = await CountSuccessfulRequestsForLocalDayAsync(
-                command.TravelerUserId,
-                localDate,
-                timeZone,
-                transactionCancellationToken);
-            if (localDayCompletedCount >= DailySuccessfulGenerationLimit)
-            {
-                return Result.Failure<SchedulingResponseDto>(
-                    SchedulingErrorCodes.DailyGenerationLimitReached,
-                    "You can generate up to 3 itineraries per day. Please try again tomorrow.");
-            }
-
+            var travelerInterestTags = await dbContext.TravelerProfiles
+                .AsNoTracking()
+                .Where(profile => profile.UserId == command.TravelerUserId)
+                .Select(profile => profile.InterestTagsJson)
+                .SingleOrDefaultAsync(transactionCancellationToken);
+            var preferenceTokens = ParsePreferenceTokens(travelerInterestTags);
             var activePois = await dbContext.PointsOfInterest
                 .AsNoTracking()
+                .Include(poi => poi.Category)
                 .Include(poi => poi.OpeningHours)
+                .Include(poi => poi.PoiTags)
+                .ThenInclude(mapping => mapping.Tag)
                 .Where(poi => poi.Status == PointOfInterestStatus.Active)
                 .ToListAsync(transactionCancellationToken);
             var endPoi = command.EndPoiId.HasValue
@@ -136,7 +129,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 command.TransportMode,
                 command.RestPreference,
                 command.BudgetVnd,
-                selectablePois.Select(ToCandidate).ToArray(),
+                selectablePois.Select(poi => ToCandidate(poi, preferenceTokens)).ToArray(),
                 command.MandatoryPoiIds);
             var plan = await new ItineraryGenerationService(routeDurationProvider, generationOptions)
                 .GenerateAsync(input, transactionCancellationToken);
@@ -159,6 +152,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 itinerary.AddItem(item.Kind == ItineraryItemKind.Rest
                     ? ItineraryItem.CreateRest(
                         item.SequenceNo,
+                        item.PointOfInterestId,
                         item.PlannedArrivalUtc,
                         item.PlannedDepartureUtc,
                         item.RecommendationReason)
@@ -207,22 +201,6 @@ public sealed class CreateSchedulingRequestCommandHandler(
         return Result.Success(ToResponse(previousRequest, itinerary));
     }
 
-    private async Task<int> CountSuccessfulRequestsForLocalDayAsync(
-        long travelerUserId,
-        DateOnly localDate,
-        TimeZoneInfo timeZone,
-        CancellationToken cancellationToken)
-    {
-        var completedRequestTimes = await dbContext.SchedulingRequests
-            .Where(request => request.TravelerUserId == travelerUserId
-                && request.Status == SchedulingRequestStatus.Completed)
-            .Select(request => request.RequestedAtUtc)
-            .ToListAsync(cancellationToken);
-
-        return completedRequestTimes.Count(requestedAt =>
-            DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(requestedAt, timeZone).Date) == localDate);
-    }
-
     private static Result<SchedulingResponseDto> Infeasible(string message) =>
         Result.Failure<SchedulingResponseDto>(SchedulingErrorCodes.ConstraintsInfeasible, message);
 
@@ -231,7 +209,9 @@ public sealed class CreateSchedulingRequestCommandHandler(
         && poi.VerifiedAtUtc.HasValue
         && poi.OpeningHours.Any(hours => !hours.IsClosed && hours.OpenTime.HasValue && hours.CloseTime.HasValue);
 
-    private static GenerationCandidate ToCandidate(PointOfInterest poi) =>
+    private static GenerationCandidate ToCandidate(
+        PointOfInterest poi,
+        IReadOnlySet<string> preferenceTokens) =>
         new(
             poi.Id,
             poi.Name,
@@ -244,7 +224,54 @@ public sealed class CreateSchedulingRequestCommandHandler(
                     hours.DayOfWeek,
                     hours.OpenTime!.Value,
                     hours.CloseTime!.Value))
-                .ToArray());
+                .ToArray(),
+            PreferenceScore: CalculatePreferenceScore(poi, preferenceTokens),
+            ScenicScore: poi.ScenicScore,
+            PhotoRating: poi.PhotoRating,
+            CategoryName: poi.Category.Name,
+            HasShelter: poi.HasShelter);
+
+    private static int CalculatePreferenceScore(
+        PointOfInterest poi,
+        IReadOnlySet<string> preferenceTokens)
+    {
+        var categoryScore = preferenceTokens.Contains(NormalizePreferenceToken(poi.Category.Name))
+            ? 100
+            : 0;
+        var tagScore = poi.PoiTags.Count(mapping =>
+            preferenceTokens.Contains(NormalizePreferenceToken(mapping.Tag.Name))) * 100;
+        return categoryScore + tagScore;
+    }
+
+    private static HashSet<string> ParsePreferenceTokens(string? interestTagsJson)
+    {
+        if (string.IsNullOrWhiteSpace(interestTagsJson))
+        {
+            return [];
+        }
+
+        try
+        {
+            var tags = JsonSerializer.Deserialize<string[]>(interestTagsJson) ?? [];
+            return tags
+                .Where(tag => !string.IsNullOrWhiteSpace(tag))
+                .Select(NormalizePreferenceToken)
+                .ToHashSet(StringComparer.Ordinal);
+        }
+        catch (JsonException)
+        {
+            return [];
+        }
+    }
+
+    private static string NormalizePreferenceToken(string value) =>
+        new string(value
+            .Trim()
+            .Normalize(NormalizationForm.FormD)
+            .Where(character => CharUnicodeInfo.GetUnicodeCategory(character)
+                != UnicodeCategory.NonSpacingMark)
+            .ToArray())
+        .ToLowerInvariant();
 
     private static SchedulingResponseDto ToResponse(
         SchedulingRequest schedulingRequest,

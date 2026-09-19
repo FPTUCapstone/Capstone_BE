@@ -40,6 +40,9 @@
     <None Include="..\..\database\migrations\20260915_extend_scheduling_request_contract.sql"
           Link="Database\migrations\20260915_extend_scheduling_request_contract.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20260919_allow_named_rest_items.sql"
+          Link="Database\migrations\20260919_allow_named_rest_items.sql"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

@@ -79,8 +79,9 @@ public sealed class ItineraryGenerationService(
         var items = new List<GeneratedItineraryItem>();
         var previousIndex = 0;
 
-        foreach (var candidate in sequence)
+        for (var sequenceIndex = 0; sequenceIndex < sequence.Count; sequenceIndex++)
         {
+            var candidate = sequence[sequenceIndex];
             var candidateIndex = matrixCandidates
                 .Select((matrixCandidate, index) => new { matrixCandidate.Id, Index = index })
                 .Single(item => item.Id == candidate.Id)
@@ -124,24 +125,67 @@ public sealed class ItineraryGenerationService(
 
             if (NeedsRest(input, continuousMinutes, items.Count(item => item.Kind == ItineraryItemKind.Rest)))
             {
-                var restEnd = currentTime.AddMinutes(RestDurationMinutes);
-                items.Add(new GeneratedItineraryItem(
-                    items.Count + 1,
-                    null,
-                    null,
-                    ItineraryItemKind.Rest,
+                var nextIndex = sequenceIndex + 1 < sequence.Count
+                    ? MatrixCandidateIndex(sequence[sequenceIndex + 1], matrixCandidates)
+                    : matrix.PointCount - 1;
+                var restCandidate = FindQualifiedRestCandidate(
+                    matrixCandidates,
+                    input,
+                    previousIndex,
+                    nextIndex,
                     currentTime,
-                    restEnd,
-                    false,
-                    null,
-                    "Free/rest time"));
-                currentTime = restEnd;
+                    matrix);
+                if (restCandidate is not null)
+                {
+                    var restIndex = MatrixCandidateIndex(restCandidate, matrixCandidates);
+                    var restArrival = currentTime.AddMinutes(
+                        matrix.GetMinutes(previousIndex, restIndex)
+                        + _options.TransitionBufferMinutes);
+                    var restDeparture = restArrival.AddMinutes(RestDurationMinutes);
+                    items.Add(new GeneratedItineraryItem(
+                        items.Count + 1,
+                        restCandidate.Id,
+                        restCandidate.Name,
+                        ItineraryItemKind.Rest,
+                        restArrival,
+                        restDeparture,
+                        false,
+                        null,
+                        "Suggested rest stop"));
+                    currentTime = restDeparture;
+                    previousIndex = restIndex;
+                }
+                else
+                {
+                    var restEnd = currentTime.AddMinutes(RestDurationMinutes);
+                    items.Add(new GeneratedItineraryItem(
+                        items.Count + 1,
+                        null,
+                        null,
+                        ItineraryItemKind.Rest,
+                        currentTime,
+                        restEnd,
+                        false,
+                        null,
+                        "Free/rest time"));
+                    currentTime = restEnd;
+                }
                 continuousMinutes = 0;
             }
         }
 
-        foreach (var candidate in matrixCandidates.Where(candidate =>
-                     !input.MandatoryPoiIds.Contains(candidate.Id)))
+        var optionalCandidates = matrixCandidates
+            .Where(candidate => !input.MandatoryPoiIds.Contains(candidate.Id)
+                && !IsQualifiedRestCandidate(candidate))
+            .OrderByDescending(candidate => candidate.PreferenceScore)
+            .ThenByDescending(candidate => candidate.ScenicScore ?? decimal.MinValue)
+            .ThenByDescending(candidate => candidate.PhotoRating ?? decimal.MinValue)
+            .ThenBy(candidate => MatrixMinutesFromStart(candidate, matrixCandidates, matrix))
+            .ThenBy(candidate => candidate.EstimatedVisitCost ?? decimal.MaxValue)
+            .ThenBy(candidate => candidate.Id)
+            .ToArray();
+
+        foreach (var candidate in optionalCandidates)
         {
             if (input.BudgetVnd.HasValue && candidate.EstimatedVisitCost is null)
             {
@@ -152,9 +196,10 @@ public sealed class ItineraryGenerationService(
                 .Select((matrixCandidate, index) => new { matrixCandidate.Id, Index = index })
                 .Single(item => item.Id == candidate.Id)
                 .Index + 1;
+            var travelMinutes = matrix.GetMinutes(previousIndex, candidateIndex)
+                + _options.TransitionBufferMinutes;
             var arrivalTime = currentTime.AddMinutes(
-                matrix.GetMinutes(previousIndex, candidateIndex)
-                + _options.TransitionBufferMinutes);
+                travelMinutes);
             arrivalTime = AlignToOpeningHours(arrivalTime, candidate, input.TimeZone);
             if (arrivalTime == DateTimeOffset.MinValue)
             {
@@ -163,9 +208,35 @@ public sealed class ItineraryGenerationService(
 
             var departureTime = arrivalTime.AddMinutes(candidate.VisitDurationMinutes);
             var proposedCost = totalCost + (candidate.EstimatedVisitCost ?? 0m);
-            var endTime = departureTime.AddMinutes(
-                matrix.GetMinutes(candidateIndex, matrix.PointCount - 1)
-                + _options.FinalReturnBufferMinutes);
+            var continuousMinutesAfterVisit = continuousMinutes
+                + travelMinutes
+                + candidate.VisitDurationMinutes;
+            var nextCandidate = optionalCandidates
+                .SkipWhile(optionalCandidate => optionalCandidate.Id != candidate.Id)
+                .Skip(1)
+                .FirstOrDefault();
+            var nextIndex = nextCandidate is null
+                ? matrix.PointCount - 1
+                : MatrixCandidateIndex(nextCandidate, matrixCandidates);
+            var restInsertion = NeedsRest(
+                    input,
+                    continuousMinutesAfterVisit,
+                    items.Count(item => item.Kind == ItineraryItemKind.Rest))
+                ? CreateRestInsertion(
+                    input,
+                    matrixCandidates,
+                    previousIndex: candidateIndex,
+                    nextIndex: nextIndex,
+                    currentTime: departureTime,
+                    matrix: matrix)
+                : null;
+            var endTime = restInsertion is null
+                ? departureTime.AddMinutes(
+                    matrix.GetMinutes(candidateIndex, matrix.PointCount - 1)
+                    + _options.FinalReturnBufferMinutes)
+                : restInsertion.Value.EndAtUtc.AddMinutes(
+                    matrix.GetMinutes(restInsertion.Value.PreviousIndex, matrix.PointCount - 1)
+                    + _options.FinalReturnBufferMinutes);
             if (!FitsOpeningHours(arrivalTime, departureTime, candidate, input.TimeZone)
                 || (input.BudgetVnd.HasValue && proposedCost > input.BudgetVnd.Value)
                 || endTime > input.StartAtUtc.AddMinutes(input.AvailableMinutes))
@@ -184,9 +255,13 @@ public sealed class ItineraryGenerationService(
                 candidate.EstimatedVisitCost,
                 "Suggested nearby location"));
             totalCost = proposedCost;
-            currentTime = departureTime;
-            previousIndex = candidateIndex;
-            break;
+            currentTime = restInsertion?.EndAtUtc ?? departureTime;
+            previousIndex = restInsertion?.PreviousIndex ?? candidateIndex;
+            continuousMinutes = restInsertion is null ? continuousMinutesAfterVisit : 0;
+            if (restInsertion is not null)
+            {
+                items.Add(restInsertion.Value.Item with { SequenceNo = items.Count + 1 });
+            }
         }
 
         if (items.All(item => item.Kind != ItineraryItemKind.Visit))
@@ -218,6 +293,143 @@ public sealed class ItineraryGenerationService(
             RestPreference.Frequent => continuousMinutes >= 120,
             _ => false,
         };
+
+    private static int MatrixMinutesFromStart(
+        GenerationCandidate candidate,
+        IReadOnlyList<GenerationCandidate> matrixCandidates,
+        RouteDurationMatrix matrix)
+    {
+        var candidateIndex = matrixCandidates
+            .Select((matrixCandidate, index) => new { matrixCandidate.Id, Index = index })
+            .Single(item => item.Id == candidate.Id)
+            .Index + 1;
+        return matrix.GetMinutes(0, candidateIndex);
+    }
+
+    private GenerationCandidate? FindQualifiedRestCandidate(
+        IReadOnlyList<GenerationCandidate> candidates,
+        GenerationInput input,
+        int previousIndex,
+        int nextIndex,
+        DateTimeOffset currentTime,
+        RouteDurationMatrix matrix)
+    {
+        return candidates
+            .Where(candidate =>
+                !input.MandatoryPoiIds.Contains(candidate.Id)
+                && IsQualifiedRestCandidate(candidate))
+            .OrderBy(candidate => matrix.GetMinutes(
+                previousIndex,
+                MatrixCandidateIndex(candidate, candidates)))
+            .ThenBy(candidate => candidate.Id)
+            .FirstOrDefault(candidate =>
+            {
+                var restIndex = MatrixCandidateIndex(candidate, candidates);
+                var restArrival = currentTime.AddMinutes(
+                    matrix.GetMinutes(previousIndex, restIndex)
+                    + _options.TransitionBufferMinutes);
+                var restDeparture = restArrival.AddMinutes(RestDurationMinutes);
+                var nextArrival = restDeparture.AddMinutes(
+                    matrix.GetMinutes(restIndex, nextIndex)
+                    + (nextIndex == matrix.PointCount - 1
+                        ? _options.FinalReturnBufferMinutes
+                        : _options.TransitionBufferMinutes));
+                return FitsOpeningHours(
+                        restArrival,
+                        restDeparture,
+                        candidate,
+                        input.TimeZone)
+                    && nextArrival <= input.StartAtUtc.AddMinutes(input.AvailableMinutes);
+            });
+    }
+
+    private (GeneratedItineraryItem Item, DateTimeOffset EndAtUtc, int PreviousIndex)? CreateRestInsertion(
+        GenerationInput input,
+        IReadOnlyList<GenerationCandidate> candidates,
+        int previousIndex,
+        int nextIndex,
+        DateTimeOffset currentTime,
+        RouteDurationMatrix matrix)
+    {
+        var restCandidate = FindQualifiedRestCandidate(
+            candidates,
+            input,
+            previousIndex,
+            nextIndex,
+            currentTime,
+            matrix);
+        if (restCandidate is not null)
+        {
+            var restIndex = MatrixCandidateIndex(restCandidate, candidates);
+            var restArrival = currentTime.AddMinutes(
+                matrix.GetMinutes(previousIndex, restIndex)
+                + _options.TransitionBufferMinutes);
+            var restDeparture = restArrival.AddMinutes(RestDurationMinutes);
+            return (
+                new GeneratedItineraryItem(
+                    0,
+                    restCandidate.Id,
+                    restCandidate.Name,
+                    ItineraryItemKind.Rest,
+                    restArrival,
+                    restDeparture,
+                    false,
+                    null,
+                    "Suggested rest stop"),
+                restDeparture,
+                restIndex);
+        }
+
+        var restEnd = currentTime.AddMinutes(RestDurationMinutes);
+        return (
+            new GeneratedItineraryItem(
+                0,
+                null,
+                null,
+                ItineraryItemKind.Rest,
+                currentTime,
+                restEnd,
+                false,
+                null,
+                "Free/rest time"),
+            restEnd,
+            previousIndex);
+    }
+
+    private static bool IsQualifiedRestCandidate(GenerationCandidate candidate) =>
+        candidate.CategoryName is not null
+        && IsRestCategory(candidate.CategoryName, candidate.HasShelter);
+
+    private static bool IsRestCategory(string categoryName, bool hasShelter)
+    {
+        var normalizedCategory = new string(categoryName
+            .Trim()
+            .Normalize(System.Text.NormalizationForm.FormD)
+            .Where(character => System.Globalization.CharUnicodeInfo.GetUnicodeCategory(character)
+                != System.Globalization.UnicodeCategory.NonSpacingMark)
+            .ToArray())
+            .ToLowerInvariant();
+
+        if (normalizedCategory is "cafe" or "coffee shop" or "restaurant" or "rest area" or "rest stop")
+        {
+            return true;
+        }
+
+        return hasShelter
+            && normalizedCategory is ("beach"
+                or "natural attraction"
+                or "park"
+                or "theme park"
+                or "water park");
+    }
+
+    private static int MatrixCandidateIndex(
+        GenerationCandidate candidate,
+        IReadOnlyList<GenerationCandidate> candidates) =>
+        candidates
+            .Select((matrixCandidate, index) => new { matrixCandidate.Id, Index = index })
+            .Single(item => item.Id == candidate.Id)
+            .Index + 1;
 
     private static DateTimeOffset AlignToOpeningHours(
         DateTimeOffset arrivalUtc,

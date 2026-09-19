@@ -54,7 +54,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
     }
 
     [Fact]
-    public async Task Handle_FourthSuccessfulRequestOnSameLocalDate_ReturnsDailyLimit()
+    public async Task Handle_FourthSuccessfulRequestOnSameLocalDate_IsAllowed()
     {
         await using var dbContext = TestDbContext.Create();
         await SeedSelectablePoiAsync(dbContext);
@@ -68,8 +68,52 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
 
         var fourth = await handler.Handle(CreateCommand(Guid.NewGuid()), CancellationToken.None);
 
-        fourth.IsFailure.Should().BeTrue();
-        fourth.ErrorCode.Should().Be(SchedulingErrorCodes.DailyGenerationLimitReached);
+        fourth.IsSuccess.Should().BeTrue();
+        (await dbContext.SchedulingRequests.CountAsync()).Should().Be(4);
+    }
+
+    [Fact]
+    public async Task Handle_UsesSavedTravelerInterestTagsToRankOptionalPois()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var preferredCategory = PoiCategory.Create("Culture", null);
+        var otherCategory = PoiCategory.Create("Nature", null);
+        var preferredPoi = PointOfInterest.Create(
+            preferredCategory,
+            "Preferred museum",
+            16.0471m,
+            108.2068m,
+            1,
+            _clock.UtcNow,
+            averageVisitDurationMinutes: 60);
+        preferredPoi.ConfigurePlanningMetadata(60_000m, "https://example.com/preferred", _clock.UtcNow);
+        preferredPoi.AddOpeningHour(PoiOpeningHour.Create(2, new TimeOnly(7, 0), new TimeOnly(20, 0), false));
+        var otherPoi = PointOfInterest.Create(
+            otherCategory,
+            "Other attraction",
+            16.0472m,
+            108.2069m,
+            1,
+            _clock.UtcNow,
+            averageVisitDurationMinutes: 60);
+        otherPoi.ConfigurePlanningMetadata(60_000m, "https://example.com/other", _clock.UtcNow);
+        otherPoi.AddOpeningHour(PoiOpeningHour.Create(2, new TimeOnly(7, 0), new TimeOnly(20, 0), false));
+        dbContext.PointsOfInterest.AddRange(otherPoi, preferredPoi);
+        dbContext.TravelerProfiles.Add(TravelerProfile.Create(
+            42,
+            "[\"culture\"]",
+            _clock.UtcNow));
+        await dbContext.SaveChangesAsync();
+
+        var result = await CreateHandler(dbContext).Handle(
+            CreateCommand(Guid.NewGuid()),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Items
+            .Where(item => item.Kind == ItineraryItemKind.Visit)
+            .Select(item => item.PointOfInterestId)
+            .Should().StartWith(preferredPoi.Id);
     }
 
     private CreateSchedulingRequestCommandHandler CreateHandler(TestDbContext dbContext) =>
@@ -138,7 +182,6 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
     {
         public Task AcquireAsync(
             long travelerUserId,
-            DateOnly localDate,
             Guid idempotencyKey,
             CancellationToken cancellationToken) => Task.CompletedTask;
     }

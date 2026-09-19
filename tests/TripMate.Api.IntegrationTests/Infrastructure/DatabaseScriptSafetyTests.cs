@@ -4,6 +4,19 @@ namespace TripMate.Api.IntegrationTests.Infrastructure;
 
 public sealed class DatabaseScriptSafetyTests
 {
+    [Fact]
+    public async Task SeedImage_AppliesSchemaMigrationsAfterBaseSchema()
+    {
+        var dockerfile = await File.ReadAllTextAsync(
+            Path.Combine(AppContext.BaseDirectory, "Database", "Dockerfile.seeded"));
+        var seedScript = await File.ReadAllTextAsync(
+            Path.Combine(AppContext.BaseDirectory, "Database", "seed-image.sh"));
+
+        dockerfile.Should().Contain("COPY database/migrations /tmp/migrations");
+        seedScript.Should().Contain("for migrationPath in /tmp/migrations/*.sql");
+        seedScript.Should().Contain("-i \"$migrationPath\"");
+    }
+
     [Theory]
     [InlineData("apply-schema.sh")]
     [InlineData("seed-image.sh")]
