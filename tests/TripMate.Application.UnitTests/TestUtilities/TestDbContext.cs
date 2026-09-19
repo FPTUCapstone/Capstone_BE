@@ -62,6 +62,8 @@ public class TestDbContext(
 
     public DbSet<GroupJoinOperation> GroupJoinOperations => Set<GroupJoinOperation>();
 
+    public DbSet<SystemConfig> SystemConfigs => Set<SystemConfig>();
+
     public int TransactionExecutionCount { get; private set; }
 
     public async Task<int> RevokeRefreshTokenAsync(
@@ -117,6 +119,9 @@ public class TestDbContext(
     {
         modelBuilder.Entity<PoiOpeningHour>()
             .HasKey(hours => new { hours.PointOfInterestId, hours.DayOfWeek });
+
+        modelBuilder.Entity<SystemConfig>()
+            .HasKey(config => config.ConfigKey);
 
         modelBuilder.Entity<PoiTag>()
             .HasKey(mapping => new

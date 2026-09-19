@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Admin.SystemConfigs.UpdateAlgorithmParameters;
 using TripMate.Application.Features.Admin.TourOperatorApplications.Approve;
 using TripMate.Application.Features.Admin.TourOperatorApplications.Common;
 using TripMate.Application.Features.PointsOfInterest.Common;
@@ -26,6 +27,8 @@ public sealed class AuditFailureBehaviour<TRequest, TResponse>(
             ApproveOperatorApplicationCommand command =>
                 (AuditActionTypes.OperatorApplicationApprove, AuditEntityTypes.OperatorProfile,
                     command.UserId > 0 ? (long?)command.UserId : null),
+            UpdateAlgorithmParametersCommand =>
+                (AuditActionTypes.AlgorithmParametersUpdate, AuditEntityTypes.SystemConfig, (long?)null),
             _ => default,
         };
         if (target.Item1 is null || currentUser.UserId is not > 0 || currentUser.Role != "Administrator")

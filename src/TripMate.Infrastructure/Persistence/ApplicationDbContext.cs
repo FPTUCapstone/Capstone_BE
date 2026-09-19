@@ -116,6 +116,8 @@ public class ApplicationDbContext(
 
     public DbSet<GroupJoinOperation> GroupJoinOperations => Set<GroupJoinOperation>();
 
+    public DbSet<SystemConfig> SystemConfigs => Set<SystemConfig>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(

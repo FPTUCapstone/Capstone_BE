@@ -8,4 +8,6 @@ public static class AuditEntityTypes
 
     // UC-05 Sign Out
     public const string RefreshToken = "RefreshToken";
+
+    public const string SystemConfig = "SystemConfig";
 }

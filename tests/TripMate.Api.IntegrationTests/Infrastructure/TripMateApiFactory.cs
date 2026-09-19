@@ -239,6 +239,8 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
         return audits.Count;
     }
 
+    public DbSet<SystemConfig> SystemConfigs => Set<SystemConfig>();
+
     public Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken) =>
