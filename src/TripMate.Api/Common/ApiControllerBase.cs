@@ -43,34 +43,93 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
     {
         var statusCode = result.ErrorCode switch
         {
-            AuthErrorCodes.InvalidCredentials => StatusCodes.Status401Unauthorized,
-            AuthErrorCodes.AuthTokenInvalid => StatusCodes.Status401Unauthorized,
-            AuthErrorCodes.Msg14 => StatusCodes.Status401Unauthorized,
-            AuthErrorCodes.AccountPendingVerification => StatusCodes.Status403Forbidden,
-            AuthErrorCodes.AccountStateUnresolved => StatusCodes.Status403Forbidden,
-            AuthErrorCodes.AccountPendingApproval => StatusCodes.Status403Forbidden,
-            AuthErrorCodes.MsgEmailNotVerified => StatusCodes.Status403Forbidden,
-            AuthErrorCodes.AccountLocked => StatusCodes.Status403Forbidden,
-            AuthErrorCodes.AccountInactive => StatusCodes.Status403Forbidden,
-            AuthErrorCodes.AdminAccessRequired => StatusCodes.Status403Forbidden,
-            AuthErrorCodes.AdminGoogleSignInDisabled => StatusCodes.Status403Forbidden,
-            AuthErrorCodes.AdminMobileSignInDisabled => StatusCodes.Status403Forbidden,
-            AuthErrorCodes.VerificationUnavailable => StatusCodes.Status503ServiceUnavailable,
-            AuthErrorCodes.FirebaseUnavailable => StatusCodes.Status503ServiceUnavailable,
-            AuthErrorCodes.EmailAlreadyRegistered => StatusCodes.Status409Conflict,
-            TripMate.Application.Features.Admin.AuditLogs.Common.AuditLogErrorCodes.Forbidden => StatusCodes.Status403Forbidden,
-            TripMate.Application.Features.Admin.AuditLogs.Common.AuditLogErrorCodes.InvalidDateRange => StatusCodes.Status422UnprocessableEntity,
-            TripMate.Application.Features.Admin.AuditLogs.Common.AuditLogErrorCodes.NotFound => StatusCodes.Status404NotFound,
-            TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.Forbidden => StatusCodes.Status403Forbidden,
-            TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.NotFound => StatusCodes.Status404NotFound,
-            TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.NotPending => StatusCodes.Status409Conflict,
-            PoiErrorCodes.AdminAccessRequired => StatusCodes.Status403Forbidden,
-            PoiErrorCodes.ReferenceNotFound => StatusCodes.Status404NotFound,
-            PoiErrorCodes.PossibleDuplicate => StatusCodes.Status409Conflict,
-            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.ItineraryNotFound => StatusCodes.Status404NotFound,
-            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.GroupNotFound => StatusCodes.Status404NotFound,
-            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.HostPermissionRequired => StatusCodes.Status403Forbidden,
-            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.IdempotencyKeyPayloadMismatch => StatusCodes.Status409Conflict,
+            AuthErrorCodes.InvalidCredentials =>
+                StatusCodes.Status401Unauthorized,
+
+            AuthErrorCodes.AuthTokenInvalid =>
+                StatusCodes.Status401Unauthorized,
+
+            AuthErrorCodes.Msg14 =>
+                StatusCodes.Status401Unauthorized,
+
+            AuthErrorCodes.AccountPendingVerification =>
+                StatusCodes.Status403Forbidden,
+
+            AuthErrorCodes.AccountStateUnresolved =>
+                StatusCodes.Status403Forbidden,
+
+            AuthErrorCodes.AccountPendingApproval =>
+                StatusCodes.Status403Forbidden,
+
+            AuthErrorCodes.MsgEmailNotVerified =>
+                StatusCodes.Status403Forbidden,
+
+            AuthErrorCodes.AccountLocked =>
+                StatusCodes.Status403Forbidden,
+
+            AuthErrorCodes.AccountInactive =>
+                StatusCodes.Status403Forbidden,
+
+            AuthErrorCodes.AdminAccessRequired =>
+                StatusCodes.Status403Forbidden,
+
+            AuthErrorCodes.AdminGoogleSignInDisabled =>
+                StatusCodes.Status403Forbidden,
+
+            AuthErrorCodes.AdminMobileSignInDisabled =>
+                StatusCodes.Status403Forbidden,
+
+            AuthErrorCodes.VerificationUnavailable =>
+                StatusCodes.Status503ServiceUnavailable,
+
+            AuthErrorCodes.FirebaseUnavailable =>
+                StatusCodes.Status503ServiceUnavailable,
+
+            AuthErrorCodes.EmailAlreadyRegistered =>
+                StatusCodes.Status409Conflict,
+
+            TripMate.Application.Features.Admin.AuditLogs.Common.AuditLogErrorCodes.Forbidden =>
+                StatusCodes.Status403Forbidden,
+
+            TripMate.Application.Features.Admin.AuditLogs.Common.AuditLogErrorCodes.InvalidDateRange =>
+                StatusCodes.Status422UnprocessableEntity,
+
+            TripMate.Application.Features.Admin.AuditLogs.Common.AuditLogErrorCodes.NotFound =>
+                StatusCodes.Status404NotFound,
+
+            TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.Forbidden =>
+                StatusCodes.Status403Forbidden,
+
+            TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.NotFound =>
+                StatusCodes.Status404NotFound,
+
+            TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.NotPending =>
+                StatusCodes.Status409Conflict,
+
+            PoiErrorCodes.AdminAccessRequired =>
+                StatusCodes.Status403Forbidden,
+
+            PoiErrorCodes.ReferenceNotFound =>
+                StatusCodes.Status404NotFound,
+
+            PoiErrorCodes.PossibleDuplicate =>
+                StatusCodes.Status409Conflict,
+
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.ItineraryNotFound =>
+                StatusCodes.Status404NotFound,
+
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.GroupNotFound =>
+                StatusCodes.Status404NotFound,
+
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.HostPermissionRequired =>
+                StatusCodes.Status403Forbidden,
+
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.IdempotencyKeyPayloadMismatch =>
+                StatusCodes.Status409Conflict,
+
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.AlreadyActiveMember =>
+                StatusCodes.Status409Conflict,
+
             _ => StatusCodes.Status400BadRequest,
         };
 

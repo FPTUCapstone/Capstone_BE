@@ -1103,6 +1103,19 @@ CREATE TABLE social.GroupInvitationOperations (
 );
 GO
 
+CREATE TABLE social.GroupJoinOperations (
+    join_operation_id    BIGINT IDENTITY(1,1) PRIMARY KEY,
+    traveler_user_id     BIGINT NOT NULL REFERENCES dbo.Users(user_id),
+    group_id             BIGINT NOT NULL REFERENCES social.TravelGroups(group_id),
+    invitation_id        BIGINT NOT NULL REFERENCES social.GroupInvitations(invitation_id) ON DELETE CASCADE,
+    invitation_code      VARCHAR(20) NOT NULL,
+    idempotency_key      UNIQUEIDENTIFIER NOT NULL,
+    created_at           DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT UQ_GroupJoinOperations_TravelerKey
+        UNIQUE (traveler_user_id, idempotency_key)
+);
+GO
+
 -- NEW in v2 — actual storage for members' shared location; GroupMembers.location_sharing_enabled
 -- was previously just a flag with nowhere for the location itself to land
 CREATE TABLE social.GroupLocationSharing (

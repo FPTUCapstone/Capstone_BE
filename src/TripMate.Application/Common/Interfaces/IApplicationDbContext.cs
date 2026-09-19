@@ -42,6 +42,8 @@ public interface IApplicationDbContext
 
     DbSet<GroupInvitationOperation> GroupInvitationOperations { get; }
 
+    DbSet<GroupJoinOperation> GroupJoinOperations { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 
     /// <summary>

@@ -106,4 +106,9 @@ public class GroupInvitation : BaseEntity
             ExpiresAtUtc = now;
         }
     }
+
+    public void IncrementUsedCount()
+    {
+        UsedCount++;
+    }
 }
