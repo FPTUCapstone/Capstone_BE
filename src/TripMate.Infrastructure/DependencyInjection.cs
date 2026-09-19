@@ -29,6 +29,7 @@ public static class DependencyInjection
             sp.GetRequiredService<ApplicationDbContext>());
         services.AddScoped<ITravelGroupCreationLock, SqlServerTravelGroupCreationLock>();
         services.AddScoped<IGroupInvitationLock, SqlServerGroupInvitationLock>();
+        services.AddScoped<IGroupJoinLock, SqlServerGroupJoinLock>();
         services.AddSingleton<IGroupInvitationCodeGenerator, RandomGroupInvitationCodeGenerator>();
 
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
