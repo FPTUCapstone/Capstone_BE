@@ -35,6 +35,7 @@ public static class DependencyInjection
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUserService, CurrentUserService>();
         services.AddSingleton<IDateTimeProvider, DateTimeProvider>();
+        services.AddScoped<IAuditFailureRecorder, AuditFailureRecorder>();
         services.AddScoped<IPasswordHasherService, PasswordHasherService>();
         services.AddScoped<IPasswordHasher>(sp => sp.GetRequiredService<IPasswordHasherService>());
         services.AddScoped<IJwtTokenService, JwtTokenService>();

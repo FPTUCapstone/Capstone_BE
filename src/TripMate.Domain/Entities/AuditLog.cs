@@ -1,4 +1,5 @@
 using TripMate.Domain.Common;
+using TripMate.Domain.Enums;
 
 namespace TripMate.Domain.Entities;
 
@@ -7,7 +8,7 @@ namespace TripMate.Domain.Entities;
 /// </summary>
 public class AuditLog : BaseEntity
 {
-    public AuditLog()
+    private AuditLog()
     {
     }
 
@@ -22,6 +23,23 @@ public class AuditLog : BaseEntity
         string? afterData = null,
         string? ipAddress = null)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(actionType);
+        ArgumentException.ThrowIfNullOrWhiteSpace(affectedEntity);
+        if (actionType.Length > 50 || affectedEntity.Length > 80 || ipAddress?.Length > 45)
+        {
+            throw new ArgumentException("Audit metadata exceeds its database column length.");
+        }
+
+        if (actorUserId is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(actorUserId));
+        }
+
+        if (affectedEntityId is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(affectedEntityId));
+        }
+
         ActorUserId = actorUserId;
         ActionType = actionType;
         AffectedEntity = affectedEntity;
@@ -49,7 +67,42 @@ public class AuditLog : BaseEntity
 
     public string? IpAddress { get; private set; }
 
+    // Null is reserved for historical records whose outcome was not captured.
+    public AuditOutcome? Result { get; private set; }
+
+    public string? Reason { get; private set; }
+
     public DateTimeOffset CreatedAtUtc { get; private set; }
+
+    public static AuditLog CreateRecordedOutcome(
+        long? actorUserId,
+        string actionType,
+        string affectedEntity,
+        long? affectedEntityId,
+        DateTimeOffset createdAtUtc,
+        AuditOutcome result,
+        string? reason = null,
+        string? beforeData = null,
+        string? afterData = null,
+        string? ipAddress = null)
+    {
+        if (!Enum.IsDefined(result))
+        {
+            throw new ArgumentOutOfRangeException(nameof(result));
+        }
+
+        if (reason?.Length > 1000)
+        {
+            throw new ArgumentException("Audit reason cannot exceed 1000 characters.", nameof(reason));
+        }
+
+        return new AuditLog(actorUserId, actionType, affectedEntity, affectedEntityId,
+            createdAtUtc, beforeData: beforeData, afterData: afterData, ipAddress: ipAddress)
+        {
+            Result = result,
+            Reason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim()
+        };
+    }
 
     public static AuditLog CreatePoiCreated(
         long actorUserId,
@@ -72,13 +125,14 @@ public class AuditLog : BaseEntity
             throw new ArgumentException("Audit data is required.", nameof(afterData));
         }
 
-        return new AuditLog(
+        return CreateRecordedOutcome(
             actorUserId: actorUserId,
             actionType: AuditActionTypes.PoiCreate,
             affectedEntity: AuditEntityTypes.PointOfInterest,
             affectedEntityId: pointOfInterestId,
             createdAtUtc: createdAtUtc,
-            afterData: afterData);
+            afterData: afterData,
+            result: AuditOutcome.Success);
     }
 
     public static AuditLog CreateOperatorApplicationApproved(
@@ -108,13 +162,14 @@ public class AuditLog : BaseEntity
             throw new ArgumentException("Audit data is required.", nameof(afterData));
         }
 
-        return new AuditLog(
+        return CreateRecordedOutcome(
             actorUserId: actorUserId,
             actionType: AuditActionTypes.OperatorApplicationApprove,
             affectedEntity: AuditEntityTypes.OperatorProfile,
             affectedEntityId: operatorUserId,
             createdAtUtc: createdAtUtc,
             beforeData: beforeData,
-            afterData: afterData);
+            afterData: afterData,
+            result: AuditOutcome.Success);
     }
 }

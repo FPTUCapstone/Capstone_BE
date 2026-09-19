@@ -70,10 +70,13 @@ public class GetAuditLogsQueryHandler(
             query = query.Where(a => a.CreatedAtUtc <= request.ToDateUtc.Value);
         }
 
-        // 8. Keyword search across Actor (Email, FullName), ActionType, AffectedEntity, and AffectedEntityId
+        // 8. Keyword search across Actor (Email, FullName), ActionType, AffectedEntity, and
+        //    AffectedEntityId. Numeric keywords match the entity id exactly (sargable — the
+        //    approved long.TryParse approach; never converts the column for LIKE).
         if (!string.IsNullOrWhiteSpace(request.Keyword))
         {
             var kw = request.Keyword.Trim();
+            var isNumericKeyword = long.TryParse(kw, out var keywordEntityId);
 
             query = query.Where(a =>
                 (a.ActorUser != null && (
@@ -81,11 +84,14 @@ public class GetAuditLogsQueryHandler(
                     EF.Functions.Like(a.ActorUser.FullName, $"%{kw}%"))) ||
                 EF.Functions.Like(a.ActionType, $"%{kw}%") ||
                 EF.Functions.Like(a.AffectedEntity, $"%{kw}%") ||
-                (a.AffectedEntityId != null && EF.Functions.Like(a.AffectedEntityId.ToString(), $"%{kw}%")));
+                (isNumericKeyword && a.AffectedEntityId == keywordEntityId));
         }
 
-        // 9. Order descending by timestamp (BR-52 / PC-01)
-        query = query.OrderByDescending(a => a.CreatedAtUtc);
+        // 9. Order descending by timestamp (BR-52 / PC-01), id as tie-breaker so pagination
+        //    is deterministic when entries share the same CreatedAtUtc.
+        query = query
+            .OrderByDescending(a => a.CreatedAtUtc)
+            .ThenByDescending(a => a.Id);
 
         // 10. Execute count & paginated fetch
         var totalCount = await query.CountAsync(cancellationToken);
@@ -110,7 +116,8 @@ public class GetAuditLogsQueryHandler(
             a.AffectedEntityId,
             a.IpAddress,
             a.CreatedAtUtc,
-            a.CreatedAtUtc.ToOffset(VietnamUtcOffset).ToString("dd/MM/yyyy HH:mm:ss")
+            a.CreatedAtUtc.ToOffset(VietnamUtcOffset).ToString("dd/MM/yyyy HH:mm:ss"),
+            a.Result?.ToString()
         )).ToList();
 
         var result = new PaginatedList<AuditLogSummaryDto>(dtoItems, totalCount, pageNumber, pageSize);

@@ -19,12 +19,12 @@ public class GetAuditLogDetailQueryHandler(
         GetAuditLogDetailQuery request,
         CancellationToken cancellationToken)
     {
-        // 1. Authorization check (BR-115 / MSG126)
+        // 1. Authorization check (SRS 3.1.3 / CR-11, locked MSG126)
         if (currentUserService.UserId is null || currentUserService.Role != "Administrator")
         {
             return Result.Failure<AuditLogDetailDto>(
                 AuditLogErrorCodes.Forbidden,
-                "Access denied. Administrator role required.");
+                "You do not have permission to access this function.");
         }
 
         // 2. Fetch single audit log with ActorUser included
@@ -33,7 +33,7 @@ public class GetAuditLogDetailQueryHandler(
             .Include(a => a.ActorUser)
             .FirstOrDefaultAsync(a => a.Id == request.Id, cancellationToken);
 
-        // 3. Not found handling (MSG129)
+        // 3. Not found handling (proposed MSG132 — pending SRS message-list approval)
         if (auditLog == null)
         {
             return Result.Failure<AuditLogDetailDto>(
@@ -51,11 +51,13 @@ public class GetAuditLogDetailQueryHandler(
             auditLog.ActorUser?.Role,
             auditLog.AffectedEntity,
             auditLog.AffectedEntityId,
-            auditLog.BeforeData,
-            auditLog.AfterData,
+            AuditLogPayloadRedactor.Redact(auditLog.BeforeData),
+            AuditLogPayloadRedactor.Redact(auditLog.AfterData),
             auditLog.IpAddress,
             auditLog.CreatedAtUtc,
-            auditLog.CreatedAtUtc.ToOffset(VietnamUtcOffset).ToString("dd/MM/yyyy HH:mm:ss")
+            auditLog.CreatedAtUtc.ToOffset(VietnamUtcOffset).ToString("dd/MM/yyyy HH:mm:ss"),
+            auditLog.Result?.ToString(),
+            AuditLogPayloadRedactor.RedactReason(auditLog.Reason)
         );
 
         return Result.Success(dto);

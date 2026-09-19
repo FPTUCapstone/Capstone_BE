@@ -13,4 +13,5 @@ public record AuditLogSummaryDto(
     long? AffectedEntityId,
     string? IpAddress,
     DateTimeOffset CreatedAtUtc,
-    string CreatedAtLocal);
+    string CreatedAtLocal,
+    string? Result = null);

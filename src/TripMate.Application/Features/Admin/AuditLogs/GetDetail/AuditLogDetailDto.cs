@@ -15,5 +15,7 @@ public record AuditLogDetailDto(
     string? AfterData,
     string? IpAddress,
     DateTimeOffset CreatedAtUtc,
-    string CreatedAtLocal
+    string CreatedAtLocal,
+    string? Result = null,
+    string? Reason = null
 );

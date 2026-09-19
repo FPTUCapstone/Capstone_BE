@@ -14,8 +14,9 @@ public class GetAuditLogsQueryValidator : AbstractValidator<GetAuditLogsQuery>
             .InclusiveBetween(1, 100)
             .WithMessage("PageSize must be between 1 and 100.");
 
-        RuleFor(x => x)
-            .Must(x => !x.FromDateUtc.HasValue || !x.ToDateUtc.HasValue || x.FromDateUtc.Value <= x.ToDateUtc.Value)
-            .WithMessage("The submitted Event Date range is logically invalid.");
+        // The FromDateUtc > ToDateUtc check is intentionally NOT a validation rule here:
+        // ValidationBehaviour runs before the handler and would surface it as HTTP 400,
+        // while the UC-68 contract maps the invalid date range to 422 Unprocessable Entity
+        // (MSG131 proposed) via Result.Failure in GetAuditLogsQueryHandler.
     }
 }
