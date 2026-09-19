@@ -10,7 +10,12 @@ public sealed record GenerationCandidate(
     RoutePoint Location,
     int VisitDurationMinutes,
     decimal? EstimatedVisitCost,
-    IReadOnlyCollection<GenerationOpeningHours> OpeningHours);
+    IReadOnlyCollection<GenerationOpeningHours> OpeningHours,
+    int PreferenceScore = 0,
+    decimal? ScenicScore = null,
+    decimal? PhotoRating = null,
+    string? CategoryName = null,
+    bool HasShelter = false);
 
 public sealed record GenerationInput(
     DateTimeOffset StartAtUtc,

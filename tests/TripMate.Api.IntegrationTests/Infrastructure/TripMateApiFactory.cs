@@ -185,6 +185,7 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     : DbContext(options), IApplicationDbContext
 {
     public DbSet<User> Users => Set<User>();
+    public DbSet<TravelerProfile> TravelerProfiles => Set<TravelerProfile>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<PoiCategory> PoiCategories => Set<PoiCategory>();
     public DbSet<PointOfInterest> PointsOfInterest => Set<PointOfInterest>();
@@ -307,7 +308,6 @@ internal sealed class NoOpSchedulingRequestLock : ISchedulingRequestLock
 {
     public Task AcquireAsync(
         long travelerUserId,
-        DateOnly localDate,
         Guid idempotencyKey,
         CancellationToken cancellationToken) => Task.CompletedTask;
 }

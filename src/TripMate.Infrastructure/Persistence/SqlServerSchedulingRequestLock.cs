@@ -9,14 +9,11 @@ public sealed class SqlServerSchedulingRequestLock(ApplicationDbContext dbContex
 {
     public async Task AcquireAsync(
         long travelerUserId,
-        DateOnly localDate,
         Guid idempotencyKey,
         CancellationToken cancellationToken)
     {
-        var dateResource = $"TripMate:SchedulingQuota:{travelerUserId}:{localDate:yyyyMMdd}";
         var keyResource = $"TripMate:SchedulingRequest:{travelerUserId}:{idempotencyKey:N}";
 
-        await AcquireResourceAsync(dateResource, cancellationToken);
         await AcquireResourceAsync(keyResource, cancellationToken);
     }
 

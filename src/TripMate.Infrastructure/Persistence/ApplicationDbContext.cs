@@ -14,6 +14,8 @@ public class ApplicationDbContext(
 {
     public DbSet<User> Users => Set<User>();
 
+    public DbSet<TravelerProfile> TravelerProfiles => Set<TravelerProfile>();
+
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     public DbSet<PoiCategory> PoiCategories => Set<PoiCategory>();

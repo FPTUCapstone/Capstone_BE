@@ -40,6 +40,5 @@ public sealed class CreateSchedulingRequestOpenApiTests
         responses.TryGetProperty("403", out _).Should().BeTrue();
         responses.TryGetProperty("409", out _).Should().BeTrue();
         responses.TryGetProperty("422", out _).Should().BeTrue();
-        responses.TryGetProperty("429", out _).Should().BeTrue();
     }
 }

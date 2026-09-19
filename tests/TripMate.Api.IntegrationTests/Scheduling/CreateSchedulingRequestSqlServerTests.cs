@@ -144,6 +144,7 @@ public sealed class CreateSchedulingRequestSqlServerTests
                  {
                      "20260914_add_scheduling_request_generation.sql",
                      "20260915_extend_scheduling_request_contract.sql",
+                     "20260919_allow_named_rest_items.sql",
                  })
         {
             var migrationPath = Path.Combine(

@@ -70,15 +70,35 @@ public class ItineraryItem : BaseEntity
         DateTimeOffset plannedArrivalUtc,
         DateTimeOffset plannedDepartureUtc,
         string recommendationReason) =>
-        Create(
+        CreateRest(
+            sequenceNo,
+            null,
+            plannedArrivalUtc,
+            plannedDepartureUtc,
+            recommendationReason);
+
+    public static ItineraryItem CreateRest(
+        int sequenceNo,
+        long? pointOfInterestId,
+        DateTimeOffset plannedArrivalUtc,
+        DateTimeOffset plannedDepartureUtc,
+        string recommendationReason)
+    {
+        if (pointOfInterestId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(pointOfInterestId));
+        }
+
+        return Create(
             sequenceNo,
             ItineraryItemKind.Rest,
-            null,
+            pointOfInterestId,
             plannedArrivalUtc,
             plannedDepartureUtc,
             false,
             null,
             recommendationReason);
+    }
 
     internal void AttachTo(Itinerary itinerary)
     {
@@ -117,9 +137,9 @@ public class ItineraryItem : BaseEntity
             throw new ArgumentException("A visit requires a point of interest.", nameof(pointOfInterestId));
         }
 
-        if (kind == ItineraryItemKind.Rest && (pointOfInterestId.HasValue || isMandatory))
+        if (kind == ItineraryItemKind.Rest && isMandatory)
         {
-            throw new ArgumentException("A rest item cannot be mandatory or require a point of interest.");
+            throw new ArgumentException("A rest item cannot be mandatory.");
         }
 
         var normalizedReason = NormalizeOptional(recommendationReason);

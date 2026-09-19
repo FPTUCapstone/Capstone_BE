@@ -156,6 +156,142 @@ public class ItineraryGenerationServiceTests
     }
 
     [Fact]
+    public async Task Generate_AddsMultipleOptionalPoisInDeterministicPreferenceOrder()
+    {
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(
+            RouteDurationMatrix.Create(
+            new int[,]
+            {
+                { 0, 10, 10, 10 },
+                { 10, 0, 10, 10 },
+                { 10, 10, 0, 10 },
+                { 10, 10, 10, 0 },
+            })));
+        var input = CreateInput(
+            availableMinutes: 240,
+            restPreference: RestPreference.None,
+            candidates:
+            [
+                Candidate(12, "Lower-ranked museum", 30, 20_000m) with
+                {
+                    ScenicScore = 2m,
+                    PhotoRating = 3m,
+                },
+                Candidate(28, "Higher-ranked museum", 30, 40_000m) with
+                {
+                    ScenicScore = 5m,
+                    PhotoRating = 4m,
+                },
+            ],
+            mandatoryPoiIds: []);
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Items
+            .Where(item => item.Kind == ItineraryItemKind.Visit)
+            .Select(item => item.PointOfInterestId)
+            .Should().Equal(28L, 12L);
+    }
+
+    [Fact]
+    public async Task Generate_AutoRestPrefersAQualifiedRestPoi()
+    {
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(
+            RouteDurationMatrix.Create(
+            new int[,]
+            {
+                { 0, 20, 10, 15 },
+                { 20, 0, 10, 20 },
+                { 10, 10, 0, 10 },
+                { 15, 20, 10, 0 },
+            })));
+        var input = CreateInput(
+            availableMinutes: 300,
+            restPreference: RestPreference.Auto,
+            candidates:
+            [
+                Candidate(12, "Long museum visit", 150, 60_000m),
+                Candidate(28, "Riverside cafe", 30, 20_000m) with
+                {
+                    CategoryName = "Cafe",
+                    HasShelter = true,
+                },
+            ],
+            mandatoryPoiIds: [12]);
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Items.Should().Contain(item =>
+            item.Kind == ItineraryItemKind.Rest
+            && item.PointOfInterestId == 28
+            && item.PointOfInterestName == "Riverside cafe");
+    }
+
+    [Fact]
+    public async Task Generate_AutoRestTracksOptionalStopsAndInsertsBreak()
+    {
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(
+            RouteDurationMatrix.Create(
+            new int[,]
+            {
+                { 0, 20, 35, 15 },
+                { 20, 0, 15, 25 },
+                { 35, 15, 0, 20 },
+                { 15, 25, 20, 0 },
+            })));
+        var input = CreateInput(
+            availableMinutes: 480,
+            restPreference: RestPreference.Auto,
+            candidates:
+            [
+                Candidate(12, "Long optional museum", 150, 60_000m),
+                Candidate(28, "Second optional museum", 120, 20_000m),
+            ],
+            mandatoryPoiIds: []);
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Items.Should().Contain(item => item.Kind == ItineraryItemKind.Rest);
+    }
+
+    [Fact]
+    public async Task Generate_AutoRestAcceptsShelteredOutdoorRestCategory()
+    {
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(
+            RouteDurationMatrix.Create(
+            new int[,]
+            {
+                { 0, 20, 10, 15 },
+                { 20, 0, 10, 20 },
+                { 10, 10, 0, 10 },
+                { 15, 20, 10, 0 },
+            })));
+        var input = CreateInput(
+            availableMinutes: 300,
+            restPreference: RestPreference.Auto,
+            candidates:
+            [
+                Candidate(12, "Long museum visit", 150, 60_000m),
+                Candidate(28, "Sheltered riverside stop", 30, 0m) with
+                {
+                    CategoryName = "Natural attraction",
+                    HasShelter = true,
+                },
+            ],
+            mandatoryPoiIds: [12]);
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Items.Should().Contain(item =>
+            item.Kind == ItineraryItemKind.Rest
+            && item.PointOfInterestId == 28);
+    }
+
+    [Fact]
     public async Task Generate_FrequentRest_InsertsBreaksAfterTwoHoursOfContinuousSchedule()
     {
         var service = new ItineraryGenerationService(new FixedRouteDurationProvider(

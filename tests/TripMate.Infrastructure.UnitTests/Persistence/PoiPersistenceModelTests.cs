@@ -75,6 +75,15 @@ public class PoiPersistenceModelTests
         auditLog.GetIndexes()
             .Single(index => index.GetDatabaseName() == "IX_AuditLogs_Actor_Date")
             .IsDescending.Should().Equal(false, true);
+
+        var travelerProfile = model.FindEntityType(typeof(TravelerProfile));
+        travelerProfile.Should().NotBeNull();
+        travelerProfile!.GetSchema().Should().Be("dbo");
+        travelerProfile.GetTableName().Should().Be("TravelerProfiles");
+        ColumnName(travelerProfile, nameof(TravelerProfile.InterestTagsJson)).Should()
+            .Be("interest_tags_json");
+        travelerProfile.FindProperty(nameof(TravelerProfile.UpdatedAtUtc))!
+            .GetTypeMapping().Converter!.ProviderClrType.Should().Be(typeof(DateTime));
     }
 
     private static ApplicationDbContext CreateContext()

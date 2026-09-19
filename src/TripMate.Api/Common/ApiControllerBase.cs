@@ -137,9 +137,6 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             SchedulingErrorCodes.ConstraintsInfeasible =>
                 StatusCodes.Status422UnprocessableEntity,
 
-            SchedulingErrorCodes.DailyGenerationLimitReached =>
-                StatusCodes.Status429TooManyRequests,
-
             _ => StatusCodes.Status400BadRequest,
         };
 
