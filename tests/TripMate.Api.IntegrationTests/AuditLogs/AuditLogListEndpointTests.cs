@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 
 using FluentAssertions;
+
 using Microsoft.Extensions.DependencyInjection;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
@@ -36,13 +37,13 @@ public sealed class AuditLogListEndpointTests
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         response.Content.Headers.ContentType!.MediaType.Should().Be("application/problem+json");
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        
+
         body.RootElement.GetProperty("title").GetString().Should().Be("One or more validation errors occurred.");
         body.RootElement.GetProperty("status").GetInt32().Should().Be(400);
-        
+
         var errors = body.RootElement.GetProperty("errors");
         var hasDateRangeError = false;
-        
+
         foreach (var error in errors.EnumerateObject())
         {
             foreach (var message in error.Value.EnumerateArray())
@@ -53,7 +54,7 @@ public sealed class AuditLogListEndpointTests
                 }
             }
         }
-        
+
         hasDateRangeError.Should().BeTrue();
     }
 }
