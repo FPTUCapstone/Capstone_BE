@@ -11,7 +11,7 @@ This specification defines the Backend implementation for **UC-68: View Audit Lo
 It covers strictly:
 - Retrieving a paginated, read-only list of system audit log entries from `dbo.AuditLogs`.
 - Filtering audit log entries by:
-  - `keyword`: free-text search matched against `ActorUser.Email`, `ActorUser.FullName`, `ActionType`, `AffectedEntity`, or partial string match on `AffectedEntityId`.
+  - `keyword`: free-text search matched against `ActorUser.Email`, `ActorUser.FullName`, `ActionType`, `AffectedEntity`, or exact numeric match on `AffectedEntityId` (sargable `long.TryParse`; a numeric keyword no longer substring-matches other ids).
   - `actionType`: exact match on `ActionType` (e.g. `ApproveOperatorApplication`, `RejectOperatorApplication`).
   - `actorRole`: exact match on `ActorUser.Role` (`Traveler`, `TourOperator`, `Administrator`).
   - `affectedEntity`: exact match on `AffectedEntity` (e.g. `OperatorProfile`, `TourPackage`).
@@ -67,7 +67,7 @@ Authorization: Bearer <Admin_JWT>
 
 | Parameter | Type | Required | Default | Description / Validation |
 |---|---|---|---|---|
-| `keyword` | string | No | null | Search term matched against `ActorUser.Email`, `ActorUser.FullName`, `ActionType`, `AffectedEntity`, or partial string match on `AffectedEntityId` |
+| `keyword` | string | No | null | Search term matched against `ActorUser.Email`, `ActorUser.FullName`, `ActionType`, `AffectedEntity`, or exact numeric match on `AffectedEntityId` |
 | `actionType` | string | No | null | Filter by exact action type |
 | `actorRole` | enum | No | null | Filter by actor role (`Traveler`, `TourOperator`, `Administrator`) |
 | `affectedEntity` | string | No | null | Filter by affected entity type |
@@ -98,6 +98,7 @@ Authorization: Bearer <Admin_JWT>
       "affectedEntity": "OperatorProfile",
       "affectedEntityId": 42,
       "ipAddress": "192.168.1.1",
+      "result": "Success",
       "createdAtUtc": "2026-09-10T14:30:00Z",
       "createdAtLocal": "10/09/2026 21:30:00"
     },
@@ -111,6 +112,7 @@ Authorization: Bearer <Admin_JWT>
       "affectedEntity": "TourDeparture",
       "affectedEntityId": 88,
       "ipAddress": null,
+      "result": null,
       "createdAtUtc": "2026-09-10T12:00:00Z",
       "createdAtLocal": "10/09/2026 19:00:00"
     }
@@ -164,4 +166,5 @@ Authorization: Bearer <Admin_JWT>
 4. System-triggered events (`actor_user_id = null`) are handled safely without errors, displaying `"System"` as the actor name.
 5. Non-administrators receive `403 Forbidden` (`MSG126`).
 6. Invalid date range (`FromDateUtc > ToDateUtc`) returns `422 Unprocessable Entity` (`MSG131` proposed).
-7. 100% green unit test pass rate.
+7. Each list item includes `result` (`"Success"` / `"Failure"`) when recorded; `null` for legacy entries.
+8. 100% green unit test pass rate.
