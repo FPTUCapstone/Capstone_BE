@@ -91,9 +91,6 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripMate.Application.Features.Admin.AuditLogs.Common.AuditLogErrorCodes.Forbidden =>
                 StatusCodes.Status403Forbidden,
 
-            TripMate.Application.Features.Admin.AuditLogs.Common.AuditLogErrorCodes.InvalidDateRange =>
-                StatusCodes.Status422UnprocessableEntity,
-
             TripMate.Application.Features.Admin.AuditLogs.Common.AuditLogErrorCodes.NotFound =>
                 StatusCodes.Status404NotFound,
 

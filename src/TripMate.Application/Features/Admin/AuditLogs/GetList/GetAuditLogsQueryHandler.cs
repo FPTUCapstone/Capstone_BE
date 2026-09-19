@@ -27,14 +27,6 @@ public class GetAuditLogsQueryHandler(
                 "You do not have permission to access this function.");
         }
 
-        // 2. Event date range validation (proposed MSG131 — pending SRS message-list approval)
-        if (request.FromDateUtc.HasValue && request.ToDateUtc.HasValue && request.FromDateUtc.Value > request.ToDateUtc.Value)
-        {
-            return Result.Failure<PaginatedList<AuditLogSummaryDto>>(
-                AuditLogErrorCodes.InvalidDateRange,
-                "The submitted Event Date range is logically invalid.");
-        }
-
         // 3. Base Query with LEFT JOIN to Users (handles system actions & missing users safely)
         var query = dbContext.AuditLogs
             .AsNoTracking()

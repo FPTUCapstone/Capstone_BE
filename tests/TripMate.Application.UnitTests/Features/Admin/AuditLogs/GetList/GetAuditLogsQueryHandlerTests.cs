@@ -50,23 +50,6 @@ public class GetAuditLogsQueryHandlerTests
     }
 
     [Fact]
-    public async Task Handle_WhenInvalidDateRange_ShouldReturnInvalidDateRangeFailure()
-    {
-        // Arrange
-        var fromDate = DateTimeOffset.UtcNow;
-        var toDate = fromDate.AddDays(-1); // Invalid: FromDate > ToDate
-        var query = new GetAuditLogsQuery(FromDateUtc: fromDate, ToDateUtc: toDate);
-
-        // Act
-        var result = await _handler.Handle(query, CancellationToken.None);
-
-        // Assert
-        result.IsSuccess.Should().BeFalse();
-        result.ErrorCode.Should().Be(AuditLogErrorCodes.InvalidDateRange);
-        result.ErrorMessage.Should().Be("The submitted Event Date range is logically invalid.");
-    }
-
-    [Fact]
     public async Task Handle_WhenNoFiltersProvided_ShouldReturnRecentLogsOrderedDescending()
     {
         // Arrange

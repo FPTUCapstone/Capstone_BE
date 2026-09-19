@@ -79,7 +79,7 @@ Authorization: Bearer <Admin_JWT>
 #### Validation Rules
 - `pageNumber >= 1`
 - `1 <= pageSize <= 100`
-- `fromDateUtc <= toDateUtc` when both parameters are provided (returns `422 Unprocessable Entity` with `MSG131` (proposed) if `fromDateUtc > toDateUtc`).
+- `fromDateUtc <= toDateUtc` when both parameters are provided (returns `400 Bad Request` with `ValidationProblemDetails` if `fromDateUtc > toDateUtc`).
 
 ---
 
@@ -154,17 +154,16 @@ Authorization: Bearer <Admin_JWT>
 | Error Code | HTTP Status | Description |
 |---|---|---|
 | `admin.audit_log_forbidden` | `403` | Caller is not an Administrator (`MSG126`) |
-| `admin.audit_log_invalid_date_range` | `422` | `FromDateUtc` is after `ToDateUtc` (`MSG131` proposed — see note above) |
+| `ValidationProblemDetails` | `400` | `FromDateUtc` is after `ToDateUtc` (`MSG131` proposed — see note above) |
 
 ---
 
-## Acceptance Criteria
-
-1. Administrator can query audit logs with optional filtering by keyword, action type, actor role, entity, and date range.
-2. Log list is returned ordered descending by timestamp (`CreatedAtUtc DESC`).
-3. Results are paginated according to page number and page size parameters.
-4. System-triggered events (`actor_user_id = null`) are handled safely without errors, displaying `"System"` as the actor name.
-5. Non-administrators receive `403 Forbidden` (`MSG126`).
-6. Invalid date range (`FromDateUtc > ToDateUtc`) returns `422 Unprocessable Entity` (`MSG131` proposed).
+### Definition of Done (Acceptance Criteria)
+1. Administrator can fetch a paginated list of audit logs.
+2. Unauthenticated request returns `401 Unauthorized`.
+3. Non-Administrator role returns `403 Forbidden` (`MSG126`).
+4. Logs are ordered correctly (latest first by `CreatedAtUtc`).
+5. All query parameters (`actionType`, `actorRole`, `affectedEntity`, `fromDateUtc`, `toDateUtc`, `keyword`) correctly filter the database exactly as specified.
+6. Invalid date range (`FromDateUtc > ToDateUtc`) returns `400 Bad Request` with `ValidationProblemDetails`.
 7. Each list item includes `result` (`"Success"` / `"Failure"`) when recorded; `null` for legacy entries.
 8. 100% green unit test pass rate.

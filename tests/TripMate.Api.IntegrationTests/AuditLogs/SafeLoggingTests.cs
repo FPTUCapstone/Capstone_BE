@@ -19,7 +19,7 @@ public class SafeLoggingTests
     [InlineData(401, null, "/api/v1/admin/audit-logs")]
     [InlineData(403, "Traveler", "/api/v1/admin/audit-logs")]
     [InlineData(400, "Administrator", "/api/v1/admin/audit-logs?pageNumber=0")]
-    [InlineData(422, "Administrator", "/api/v1/admin/audit-logs?fromDateUtc=2026-09-20T00:00:00Z&toDateUtc=2026-09-19T00:00:00Z")]
+    [InlineData(400, "Administrator", "/api/v1/admin/audit-logs?fromDateUtc=2026-09-20T00:00:00Z&toDateUtc=2026-09-19T00:00:00Z")]
     public async Task RealHttpPipeline_LogsRejectedRequestAndPreservesStatus(int status, string? role, string path)
     {
         var logger = new RecordingLogger<RequestRejectionLoggingMiddleware>();

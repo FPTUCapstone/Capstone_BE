@@ -29,7 +29,7 @@ UC-68 is strictly focused on searching, filtering, paginating, and listing syste
    - In `GetAuditLogsQueryHandler`, use `long.TryParse(keyword, out long entityId)` before building the `Where` clause to ensure EF Core translates string/number comparisons cleanly across all DB providers and InMemory test contexts.
 7. **Controller Error Mapping & Message Alignment:**
    - `AuditLogErrorCodes.Forbidden` maps to `403 Forbidden` (`MSG126`: `"You do not have permission to access this function."` — locked SRS 5.3 content).
-   - `AuditLogErrorCodes.InvalidDateRange` maps to `422 Unprocessable Entity` (`MSG131` proposed: `"The submitted Event Date range is logically invalid."` — SRS §3.9.12.1's `MSG29` reference conflicts with the locked SRS 5.3 catalog).
+   - Validation failure for `FromDateUtc > ToDateUtc` maps to `400 Bad Request` with `ValidationProblemDetails` (matching middleware).
 
 ---
 
