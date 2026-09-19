@@ -104,7 +104,7 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
         var builder = new DbContextOptionsBuilder<ApplicationDbContext>()
             .UseSqlServer(ConnectionString);
 
-        if (interceptors.Length > 0)
+        if (interceptors is { Length: > 0 })
         {
             builder.AddInterceptors(interceptors);
         }

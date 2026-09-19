@@ -24,7 +24,8 @@ public class GroupMember
     private GroupMember(
         TravelGroup travelGroup,
         long userId,
-        DateTimeOffset joinedAtUtc)
+        DateTimeOffset joinedAtUtc,
+        bool isHost)
     {
         ArgumentNullException.ThrowIfNull(travelGroup);
 
@@ -33,7 +34,7 @@ public class GroupMember
             throw new ArgumentOutOfRangeException(nameof(userId));
         }
 
-        if (travelGroup.HostUserId != userId)
+        if (isHost && travelGroup.HostUserId != userId)
         {
             throw new ArgumentException("The initial member must be the travel group host.", nameof(userId));
         }
@@ -49,7 +50,26 @@ public class GroupMember
         TravelGroup travelGroup,
         long userId,
         DateTimeOffset joinedAtUtc) =>
-        new(travelGroup, userId, joinedAtUtc);
+        new(travelGroup, userId, joinedAtUtc, isHost: true);
+
+    public static GroupMember CreateMember(
+        TravelGroup travelGroup,
+        long userId,
+        DateTimeOffset joinedAtUtc) =>
+        new(travelGroup, userId, joinedAtUtc, isHost: false);
+
+    public void Reactivate(DateTimeOffset rejoinedAtUtc)
+    {
+        if (Status != GroupMemberStatus.Left && Status != GroupMemberStatus.Removed)
+        {
+            throw new InvalidOperationException($"Cannot reactivate a membership with status {Status}.");
+        }
+
+        Status = GroupMemberStatus.Active;
+        JoinedAtUtc = rejoinedAtUtc;
+        LeftAtUtc = null;
+        LocationSharingEnabled = false;
+    }
 
     public long GroupId { get; private set; }
 

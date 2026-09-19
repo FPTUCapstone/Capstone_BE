@@ -68,6 +68,7 @@ public sealed class TripMateApiFactory(
                 services.RemoveAll<IApplicationDbContext>();
                 services.RemoveAll<ITravelGroupCreationLock>();
                 services.RemoveAll<IGroupInvitationLock>();
+                services.RemoveAll<IGroupJoinLock>();
 
                 services.AddDbContext<TestApiDbContext>(options =>
                     options.UseInMemoryDatabase(_databaseName));
@@ -75,6 +76,7 @@ public sealed class TripMateApiFactory(
                     provider.GetRequiredService<TestApiDbContext>());
                 services.AddScoped<ITravelGroupCreationLock, NoOpTravelGroupCreationLock>();
                 services.AddScoped<IGroupInvitationLock, NoOpGroupInvitationLock>();
+                services.AddScoped<IGroupJoinLock, NoOpGroupJoinLock>();
             }
 
             if (firebaseServiceFactory is not null)
@@ -150,6 +152,7 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests => Set<TravelGroupCreationRequest>();
     public DbSet<GroupInvitation> GroupInvitations => Set<GroupInvitation>();
     public DbSet<GroupInvitationOperation> GroupInvitationOperations => Set<GroupInvitationOperation>();
+    public DbSet<GroupJoinOperation> GroupJoinOperations => Set<GroupJoinOperation>();
 
     public Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
@@ -182,6 +185,18 @@ internal sealed class NoOpGroupInvitationLock : IGroupInvitationLock
         Task.CompletedTask;
 
     public Task AcquireCodeAsync(string inviteCode, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+}
+
+internal sealed class NoOpGroupJoinLock : IGroupJoinLock
+{
+    public Task AcquireOperationLockAsync(long travelerUserId, Guid idempotencyKey, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+
+    public Task AcquireCodeLockAsync(string normalizedInviteCode, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+
+    public Task AcquireGroupLockAsync(long groupId, CancellationToken cancellationToken) =>
         Task.CompletedTask;
 }
 

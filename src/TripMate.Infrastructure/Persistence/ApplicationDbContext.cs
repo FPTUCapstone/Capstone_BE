@@ -87,6 +87,8 @@ public class ApplicationDbContext(
 
     public DbSet<GroupInvitationOperation> GroupInvitationOperations => Set<GroupInvitationOperation>();
 
+    public DbSet<GroupJoinOperation> GroupJoinOperations => Set<GroupJoinOperation>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(
