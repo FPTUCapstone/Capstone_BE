@@ -112,7 +112,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         result.IsSuccess.Should().BeTrue();
         result.Value.Items
             .Where(item => item.ItemKind == ItineraryItemKind.Visit)
-            .Select(item => item.PointOfInterestId)
+            .Select(item => item.PoiId)
             .Should().StartWith(preferredPoi.Id);
     }
 
