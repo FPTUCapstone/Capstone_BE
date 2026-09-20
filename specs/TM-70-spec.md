@@ -462,4 +462,4 @@ Không suy diễn có 0 bug sau checklist. Mục tiêu là giảm lỗi lặp l�
 
 Sau duyệt, thay đổi field/filter/visibility/capacity/date/price là contract hoặc business change: sửa spec + plan + acceptance matrix trước code. Không thêm “tiện thể” booking, map, categories, ảnh, keyword hoặc rename nhánh người khác.
 
-**Trạng thái 20/09/2026:** Database/Backend trong worktree `Capstone_BE_tm70` đã đổi sang D1 nhiều vùng; local full SQL-enabled suite **283/283 pass, 0 skip**, SQL-only **28/28 pass, 0 skip**. Chưa migrate TripMateDb cloud, chưa backfill dữ liệu vùng thật, chưa đo tải AC-31, chưa xác minh UTC schedule/`reserved_capacity`, chưa có CI trên head được push. Chưa commit, push hay tạo PR; Web/Mobile để Phase 2.
+**Trạng thái 20/09/2026:** Database/Backend trong worktree `Capstone_BE_tm70` đã đổi sang D1 nhiều vùng và đồng bộ `origin/develop@930a5f9`; local full SQL-enabled suite **601/601 pass, 0 skip**, SQL-only **41/41 pass, 0 skip**. Chưa migrate TripMateDb cloud, chưa backfill dữ liệu vùng thật, chưa đo tải AC-31, chưa xác minh UTC schedule/`reserved_capacity`; CI trên PR head phải được xác minh riêng. Web/Mobile để Phase 2.
