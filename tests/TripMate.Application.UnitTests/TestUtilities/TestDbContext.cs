@@ -149,6 +149,9 @@ public class TestDbContext(
         modelBuilder.Entity<OperatorProfile>()
             .HasKey(profile => profile.UserId);
 
+        modelBuilder.Entity<TravelerProfile>()
+            .HasKey(profile => profile.UserId);
+
         modelBuilder.Entity<OperatorProfile>()
             .HasOne(profile => profile.User)
             .WithOne()
