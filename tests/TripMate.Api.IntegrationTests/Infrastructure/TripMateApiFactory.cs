@@ -63,6 +63,12 @@ public sealed class TripMateApiFactory(
         {
             builder.UseSetting("ConnectionStrings:Default", sqlServerConnectionString);
         }
+        else
+        {
+            // InMemory mode never opens a SQL connection, but Program.cs fails fast when
+            // no connection string is configured (AGENTS.md §5.4 credential guard).
+            builder.UseSetting("ConnectionStrings:Default", "Server=unused;Database=unused;");
+        }
 
         builder.ConfigureTestServices(services =>
         {

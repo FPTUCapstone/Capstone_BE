@@ -191,13 +191,15 @@ Không tự ý thêm project/layer/NuGet package mới để giải quyết vi�
 | --- | --- |
 | `ConnectionStrings:Default` | Connection string SQL Server. |
 | `Jwt:Issuer` / `Jwt:Audience` | Dùng để validate JWT claim. |
-| `Jwt:SigningKey` | Khoá đối xứng (base64) ký access token. **Không tái sử dụng giá trị trong `appsettings.Development.json` ngoài môi trường local.** |
+| `Jwt:SigningKey` | Khoá đối xứng (base64) ký access token; bắt buộc cấp qua User Secrets hoặc `Jwt__SigningKey`. Không có key dự phòng trong code. |
 | `Jwt:AccessTokenLifetimeMinutes` | Thời hạn access token. |
 | `Cors:AllowedOrigins` | Domain được phép gọi API từ trình duyệt (Next.js admin web). |
 
-`appsettings.Development.json` đã có sẵn giá trị placeholder cho môi trường local nên chạy được
-ngay sau khi clone. Mọi môi trường chia sẻ/triển khai thật phải tự cấp secret riêng qua biến môi
-trường hoặc secret manager — **không bao giờ commit secret thật**.
+Các file appsettings được theo dõi trong Git không chứa signing key hoặc connection string.
+Trước khi chạy local, cấu hình `Jwt:SigningKey` và `ConnectionStrings:Default` bằng .NET User
+Secrets cho project `src/TripMate.Api`, hoặc biến môi trường `Jwt__SigningKey` và
+`ConnectionStrings__Default`. API dừng khởi động khi thiếu các giá trị bắt buộc này.
+Mỗi môi trường phải cấp secret riêng — **không bao giờ commit secret thật**.
 
 ### 9.1 Firebase Admin credentials (bắt buộc cho đăng nhập Firebase)
 
