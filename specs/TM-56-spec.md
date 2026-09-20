@@ -1,10 +1,10 @@
 # Specification: TM-56 [UC-10] Create Scheduling Request
 
-**Feature**: Create Scheduling Request and generate a one-day itinerary  
-**Jira Ticket**: TM-56  
-**Use Case**: UC-10  
-**Branch**: `feature/khanhpq-create-scheduling-request`  
-**Target Repositories**: `Capstone_BE`, `Capstone_Mobile`  
+**Feature**: Create Scheduling Request and generate a one-day itinerary
+**Jira Ticket**: TM-56
+**Use Case**: UC-10
+**Branch**: `feature/khanhpq-create-scheduling-request`
+**Target Repositories**: `Capstone_BE`, `Capstone_Mobile`
 **Status**: Approved for planning
 
 ## Objective
