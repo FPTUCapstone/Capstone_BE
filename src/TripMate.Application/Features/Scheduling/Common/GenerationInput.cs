@@ -38,7 +38,8 @@ public sealed record GeneratedItineraryItem(
     DateTimeOffset PlannedDepartureUtc,
     bool IsMandatory,
     decimal? EstimatedCost,
-    string RecommendationReason);
+    string RecommendationReason,
+    int? TravelDurationToNextMinutes = null);
 
 public sealed record GeneratedItineraryPlan(
     IReadOnlyCollection<GeneratedItineraryItem> Items,

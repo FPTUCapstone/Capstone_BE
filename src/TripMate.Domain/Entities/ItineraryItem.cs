@@ -29,6 +29,8 @@ public class ItineraryItem : BaseEntity
 
     public int StayDurationMinutes { get; private set; }
 
+    public int? TravelDurationToNextMinutes { get; private set; }
+
     public bool IsMandatory { get; private set; }
 
     public decimal? EstimatedCost { get; private set; }
@@ -42,7 +44,8 @@ public class ItineraryItem : BaseEntity
         DateTimeOffset plannedDepartureUtc,
         bool isMandatory,
         decimal? estimatedCost,
-        string? recommendationReason)
+        string? recommendationReason,
+        int? travelDurationToNextMinutes = null)
     {
         if (pointOfInterestId <= 0)
         {
@@ -62,27 +65,31 @@ public class ItineraryItem : BaseEntity
             plannedDepartureUtc,
             isMandatory,
             estimatedCost,
-            recommendationReason);
+            recommendationReason,
+            travelDurationToNextMinutes);
     }
 
     public static ItineraryItem CreateRest(
         int sequenceNo,
         DateTimeOffset plannedArrivalUtc,
         DateTimeOffset plannedDepartureUtc,
-        string recommendationReason) =>
+        string recommendationReason,
+        int? travelDurationToNextMinutes = null) =>
         CreateRest(
             sequenceNo,
             null,
             plannedArrivalUtc,
             plannedDepartureUtc,
-            recommendationReason);
+            recommendationReason,
+            travelDurationToNextMinutes);
 
     public static ItineraryItem CreateRest(
         int sequenceNo,
         long? pointOfInterestId,
         DateTimeOffset plannedArrivalUtc,
         DateTimeOffset plannedDepartureUtc,
-        string recommendationReason)
+        string recommendationReason,
+        int? travelDurationToNextMinutes = null)
     {
         if (pointOfInterestId <= 0)
         {
@@ -97,7 +104,8 @@ public class ItineraryItem : BaseEntity
             plannedDepartureUtc,
             false,
             null,
-            recommendationReason);
+            recommendationReason,
+            travelDurationToNextMinutes);
     }
 
     internal void AttachTo(Itinerary itinerary)
@@ -113,7 +121,8 @@ public class ItineraryItem : BaseEntity
         DateTimeOffset plannedDepartureUtc,
         bool isMandatory,
         decimal? estimatedCost,
-        string? recommendationReason)
+        string? recommendationReason,
+        int? travelDurationToNextMinutes)
     {
         if (sequenceNo <= 0)
         {
@@ -142,6 +151,11 @@ public class ItineraryItem : BaseEntity
             throw new ArgumentException("A rest item cannot be mandatory.");
         }
 
+        if (travelDurationToNextMinutes < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(travelDurationToNextMinutes));
+        }
+
         var normalizedReason = NormalizeOptional(recommendationReason);
         var duration = checked((int)(plannedDepartureUtc - plannedArrivalUtc).TotalMinutes);
 
@@ -156,6 +170,7 @@ public class ItineraryItem : BaseEntity
             IsMandatory = isMandatory,
             EstimatedCost = estimatedCost,
             RecommendationReason = normalizedReason,
+            TravelDurationToNextMinutes = travelDurationToNextMinutes,
         };
     }
 

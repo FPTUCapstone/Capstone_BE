@@ -277,11 +277,45 @@ public sealed class ItineraryGenerationService(
             return null;
         }
 
-        return new GeneratedItineraryPlan(
+        var itemsWithTravelDurations = AddTravelDurations(
             items,
+            matrix,
+            matrixCandidates);
+
+        return new GeneratedItineraryPlan(
+            itemsWithTravelDurations,
             currentTime,
             (int)Math.Ceiling((currentTime - input.StartAtUtc).TotalMinutes),
             totalCost);
+    }
+
+    private static IReadOnlyCollection<GeneratedItineraryItem> AddTravelDurations(
+        IReadOnlyList<GeneratedItineraryItem> items,
+        RouteDurationMatrix matrix,
+        IReadOnlyList<GenerationCandidate> candidates)
+    {
+        var locationIndices = new int[items.Count];
+        var previousIndex = 0;
+        for (var index = 0; index < items.Count; index++)
+        {
+            if (items[index].PointOfInterestId is { } poiId)
+            {
+                previousIndex = MatrixCandidateIndex(
+                    candidates.Single(candidate => candidate.Id == poiId),
+                    candidates);
+            }
+
+            locationIndices[index] = previousIndex;
+        }
+
+        return items
+            .Select((item, index) => item with
+            {
+                TravelDurationToNextMinutes = index == items.Count - 1
+                    ? null
+                    : matrix.GetMinutes(locationIndices[index], locationIndices[index + 1]),
+            })
+            .ToArray();
     }
 
     private static bool NeedsRest(GenerationInput input, int continuousMinutes, int restCount) =>

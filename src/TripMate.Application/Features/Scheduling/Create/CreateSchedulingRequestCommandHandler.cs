@@ -155,7 +155,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
                         item.PointOfInterestId,
                         item.PlannedArrivalUtc,
                         item.PlannedDepartureUtc,
-                        item.RecommendationReason)
+                        item.RecommendationReason,
+                        item.TravelDurationToNextMinutes)
                     : ItineraryItem.CreateVisit(
                         item.SequenceNo,
                         item.PointOfInterestId!.Value,
@@ -163,7 +164,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
                         item.PlannedDepartureUtc,
                         item.IsMandatory,
                         item.EstimatedCost,
-                        item.RecommendationReason));
+                        item.RecommendationReason,
+                        item.TravelDurationToNextMinutes));
             }
 
             schedulingRequest.Complete(now);
@@ -292,7 +294,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 item.PlannedArrivalUtc,
                 item.PlannedDepartureUtc,
                 (int)(item.PlannedDepartureUtc - item.PlannedArrivalUtc).TotalMinutes,
-                null,
+                item.TravelDurationToNextMinutes,
                 item.EstimatedCost,
                 item.IsMandatory,
                 item.RecommendationReason)).ToArray());
@@ -317,7 +319,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 item.PlannedArrivalUtc,
                 item.PlannedDepartureUtc,
                 item.StayDurationMinutes,
-                null,
+                item.TravelDurationToNextMinutes,
                 item.EstimatedCost,
                 item.IsMandatory,
                 item.RecommendationReason)).ToArray());

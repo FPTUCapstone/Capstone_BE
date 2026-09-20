@@ -44,6 +44,36 @@ public class ItineraryGenerationServiceTests
     }
 
     [Fact]
+    public async Task Generate_PreservesTravelDurationBetweenItineraryItems()
+    {
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(
+            RouteDurationMatrix.Create(
+            new int[,]
+            {
+                { 0, 20, 35, 15 },
+                { 20, 0, 15, 25 },
+                { 35, 15, 0, 20 },
+                { 15, 25, 20, 0 },
+            })));
+        var input = CreateInput(
+            availableMinutes: 240,
+            restPreference: RestPreference.None,
+            candidates:
+            [
+                Candidate(12, "Cham Museum", 60, 60_000m),
+                Candidate(28, "Fine Arts Museum", 60, 20_000m),
+            ],
+            mandatoryPoiIds: [12, 28]);
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var items = result.Value.Items.ToArray();
+        items[^1].TravelDurationToNextMinutes.Should().BeNull();
+        items[0].TravelDurationToNextMinutes.Should().BeOneOf(15, 25);
+    }
+
+    [Fact]
     public async Task Generate_AutoRest_InsertsRestAfterLongContinuousSchedule()
     {
         var service = new ItineraryGenerationService(new FixedRouteDurationProvider(
