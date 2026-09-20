@@ -202,6 +202,7 @@ public class AuditLog : BaseEntity
                 Platform = platform,
                 TraceId = traceId,
             }),
+            Result = AuditOutcome.Success,
             IpAddress = ipAddress,
             CreatedAtUtc = occurredAtUtc,
         };
@@ -240,6 +241,7 @@ public class AuditLog : BaseEntity
                 Platform = platform,
                 TraceId = traceId,
             }),
+            Result = AuditOutcome.Success,
             IpAddress = ipAddress,
             CreatedAtUtc = occurredAtUtc,
         };
