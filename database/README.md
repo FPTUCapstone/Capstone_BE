@@ -8,8 +8,8 @@ Thư mục này chứa schema vật lý chính thức của TripMate (`tripmate_
 | File                       | Vai trò                                                                                                                                                                                                                                                                                               |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `tripmate_schema_v7.sql` | Toàn bộ DDL: 8 schema (`dbo`, `catalog`, `commerce`, `planning`, `trip`, `payment`, `commercial`, `social`), ~56 bảng, seed data cho `SystemConfigs` và `Messages` (130 message thật từ SRS §5.3, MSG01–MSG130).                                                           |
-| `tripmate_schema_v6.sql` | Bản trước, giữ lại theo đúng convention versioning của file (mỗi lần đổi schema ghi changelog ở đầu file thay vì sửa đè) — không dùng để chạy, chỉ để tham chiếu lịch sử.                                                                                               |
-| `apply-schema.sh`        | Tạo database`TripMateDb` nếu chưa có, rồi áp `tripmate_schema_v7.sql` vào. Chạy lại nhiều lần vẫn an toàn — tự động bỏ qua nếu v7 đã được áp rồi, và **báo lỗi rõ ràng** (không âm thầm bỏ qua) nếu phát hiện DB đang có bản cũ hơn (ví dụ v6). |
+| `migrations/*.sql`       | Các nâng cấp cộng thêm, idempotent cho database đang ở v7. TM-70 thêm `catalog.Destinations`, `commerce.TourDestinations` và constraint giá nguyên VND, không tự gán vùng hoặc làm tròn giá cũ. |
+| `apply-schema.sh`        | Tạo `TripMateDb` nếu chưa có, áp full schema cho DB trống, rồi luôn chạy các migration idempotent. Với DB đã có v7, script bỏ qua full schema nhưng vẫn chạy migration; DB cũ hơn v7 vẫn bị chặn rõ ràng. |
 
 ## 2. Yêu cầu trước khi bắt đầu
 
@@ -54,27 +54,66 @@ curl http://localhost:5000/health # phải trả {"status":"healthy"}
 ```
 
 Chạy `docker compose up -d` lần thứ 2 trở đi, `db-init` sẽ in ra
-`TripMate schema (v7) already present — skipping.` — đây là điều **bình thường**, không phải lỗi.
+`TripMate schema (v7) already present — skipping.` rồi chạy lại các file trong `migrations/`.
+Đây là điều **bình thường**: migration bắt buộc idempotent nên không nhân đôi cột/constraint.
 
 Nếu DB đang có bản **cũ hơn v7** (ví dụ bạn đã chạy stack này từ trước khi có v7), `db-init` sẽ
 **báo lỗi và dừng lại** thay vì âm thầm bỏ qua hoặc chạy đè gây lỗi "object already exists" — làm
-theo hướng dẫn trong thông báo lỗi đó (reset volume, xem mục 5).
+việc với data owner để backup và lập migration từ version thực tế. **Không reset volume** để vượt lỗi.
 
 ## 4. Áp schema thủ công (không cần restart cả stack)
 
-Dùng khi bạn chỉ mới rebuild lại container `sqlserver` và muốn áp (lại) schema bằng tay:
+Dùng `db-init` để tạo DB trống hoặc nâng cấp DB đã có v7; script tự chọn full schema hay migration:
 
 ```bash
-docker compose exec sqlserver bash /scripts/apply-schema.sh
+docker compose run --rm db-init
 ```
 
-Hoặc chạy thẳng file `.sql` bằng `sqlcmd` bên trong container:
+Chỉ nếu **TripMateDb hoàn toàn trống** và bạn chủ động khởi tạo thủ công, có thể chạy full schema
+bằng `sqlcmd` bên trong container. **Không chạy lại file full schema trên DB có bảng/dữ liệu**:
 
 ```bash
-docker compose exec sqlserver /opt/mssql-tools18/bin/sqlcmd \
-  -C -I -S localhost -U sa -P "$SA_PASSWORD" -d TripMateDb \
-  -i /scripts/tripmate_schema_v7.sql
+docker compose exec sqlserver bash -lc \
+  '/opt/mssql-tools18/bin/sqlcmd -b -V 11 -C -I -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -d TripMateDb -i /scripts/tripmate_schema_v7.sql'
 ```
+
+Nếu database đã có v7 và chỉ cần nâng cấp TM-70, chạy đúng migration (không chạy lại full schema):
+
+```bash
+docker compose exec sqlserver bash -lc \
+  '/opt/mssql-tools18/bin/sqlcmd -b -V 11 -C -I -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -d TripMateDb -i /scripts/migrations/20260915_add_tour_search_fields.sql'
+```
+
+Migration TM-70 sẽ dừng và rollback nếu `base_price` cũ có phần lẻ hoặc bảng/index/constraint cùng tên
+đang có shape khác. Phải audit và phối hợp data owner; không sửa bằng cách làm tròn âm thầm.
+`Tours.destination` do bản nháp cũ thêm (nếu có) được giữ lại để không mất dữ liệu nhưng API mới
+**không đọc cột này**. Việc gắn vùng cho tour cũ là thao tác backfill nghiệp vụ riêng, không tự suy
+đoán từ tên tour, điểm hẹn hoặc POI.
+
+### Nếu TripMateDb đang chạy trên cloud
+
+Các lệnh `docker compose` ở trên chỉ áp dụng cho SQL Server container của repo; **không tự
+động nâng cấp cloud DB**. Sau khi backup/snapshot cloud DB và xác nhận chính xác server, database,
+quyền DDL và phiên bản schema v7, data owner kiểm tra giá lẻ và danh sách tour chưa gắn vùng:
+
+```sql
+SELECT tour_id, base_price FROM commerce.Tours
+WHERE base_price <> FLOOR(base_price);
+
+SELECT t.tour_id, t.title
+FROM commerce.Tours AS t
+WHERE NOT EXISTS (
+    SELECT 1 FROM commerce.TourDestinations AS td WHERE td.tour_id = t.tour_id
+);
+```
+
+Truy vấn thứ hai chỉ chạy **sau migration**. Migration phải được thử trên bản sao DB cloud
+trước, rồi mới áp đúng file `migrations/20260915_add_tour_search_fields.sql` lên cloud DB qua
+công cụ SQL đã được cấp quyền. Không chạy `tripmate_schema_v7.sql` trên DB có dữ liệu; không
+chạy `docker compose down -v`. Migration có thể chạy lại nhưng **không backfill tự động**. Sau đó
+data owner tạo danh mục vùng và mapping `tour_id → destination_id, sequence_no` đã được duyệt,
+kiểm tra tìm Đà Nẵng/Hội An trên dữ liệu thật; tour chưa gắn vùng vẫn hiện khi không lọc nhưng
+không xuất hiện khi lọc điểm đến. Không lưu credential/connection string trong repo hoặc ticket.
 
 Cờ `-I` quan trọng: nó bật `QUOTED_IDENTIFIER` cho session. Thiếu cờ này, 4 unique/filtered index
 trong script (`UX_Users_Email`, `UX_Users_Phone`, `UX_Itineraries_ShareToken`,
@@ -82,23 +121,23 @@ trong script (`UX_Users_Email`, `UX_Users_Phone`, `UX_Itineraries_ShareToken`,
 khác với SSMS tự bật sẵn. `apply-schema.sh` đã có sẵn cờ này rồi; chỉ cần quan tâm nếu bạn tự gõ
 `sqlcmd` tay.
 
-## 5. Làm sạch lại từ đầu (reset database)
+## 5. Làm sạch lại từ đầu (chỉ DB test có thể bỏ)
 
 ```bash
 docker compose down -v   # -v = xoá luôn volume dữ liệu SQL Server — MẤT HẾT DATA hiện có
 docker compose up -d
 ```
 
-⚠️ `-v` xoá vĩnh viễn volume `tripmate-sqlserver-data` — chỉ dùng khi bạn thật sự muốn database về
-trạng thái trống sạch (ví dụ sau khi đổi schema, hoặc data test bị rối). Nếu chỉ muốn dừng container
-mà giữ nguyên data, dùng `docker compose down` (không có `-v`) hoặc `docker compose stop`.
+⚠️ `-v` xoá vĩnh viễn volume `tripmate-sqlserver-data` — **không dùng để nâng cấp schema hoặc xử lý
+lỗi migration trên DB có dữ liệu cần giữ**. Chỉ thực hiện với DB test/disposable đã xác nhận đúng
+volume và có quyền xoá. Nếu chỉ muốn dừng container mà giữ data, dùng `docker compose down`
+(không có `-v`) hoặc `docker compose stop`.
 
 ## 6. Xác minh schema đã lên đúng
 
 ```bash
-docker compose exec sqlserver /opt/mssql-tools18/bin/sqlcmd \
-  -C -S localhost -U sa -P "$SA_PASSWORD" -d TripMateDb \
-  -Q "SELECT s.name AS schema_name, COUNT(*) AS tables FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id GROUP BY s.name ORDER BY s.name;"
+docker compose exec sqlserver bash -lc \
+  '/opt/mssql-tools18/bin/sqlcmd -b -V 11 -C -I -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -d TripMateDb -Q "SELECT s.name AS schema_name, COUNT(*) AS tables FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id GROUP BY s.name ORDER BY s.name;"'
 ```
 
 Kết quả kỳ vọng: `catalog` (8), `commerce` (13), `commercial` (4), `dbo` (11), `payment` (4),
@@ -107,9 +146,8 @@ Kết quả kỳ vọng: `catalog` (8), `commerce` (13), `commercial` (4), `dbo`
 Kiểm tra riêng bảng message catalog đã có đủ 130 message thật (không phải 5 dòng placeholder cũ):
 
 ```bash
-docker compose exec sqlserver /opt/mssql-tools18/bin/sqlcmd \
-  -C -S localhost -U sa -P "$SA_PASSWORD" -d TripMateDb \
-  -Q "SELECT COUNT(*) AS total_messages FROM dbo.Messages;"
+docker compose exec sqlserver bash -lc \
+  '/opt/mssql-tools18/bin/sqlcmd -b -V 11 -C -I -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -d TripMateDb -Q "SELECT COUNT(*) AS total_messages FROM dbo.Messages;"'
 ```
 
 Kết quả kỳ vọng: `130`.
@@ -139,21 +177,23 @@ Container phải đang chạy (`docker compose ps` thấy `sqlserver` là `Up`) 
 | `sqlserver` mãi không "Healthy", `db-init` không bao giờ chạy                                                                                                                   | Port`14330` (giá trị `DB_HOST_PORT`) trên máy bạn đang bị chương trình khác chiếm. Đổi `DB_HOST_PORT` trong `.env` sang port khác.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | Chạy code local (`dotnet run`, ngoài Docker) gọi API bị lỗi 500, log báo `Login failed for user 'sa'` — trong khi `db-init` log lại báo áp schema **thành công** | Đây**không phải sai mật khẩu**. Máy bạn có SQL Server cài native (Windows service `sqlservr.exe`) đang chiếm sẵn port `1433` trên host — kiểm tra bằng `netstat -ano \| findstr :1433`, nếu thấy 2 dòng LISTENING là đúng tình huống này. `db-init` connect qua mạng nội bộ Docker (`sqlserver,1433`) nên không bị ảnh hưởng, nhưng `dotnet run` chạy trên host lại nối nhầm vào SQL Server native đó thay vì container. Repo đã mặc định map SQL Server container ra port `14330` (không phải `1433`) đúng để tránh việc này — kiểm tra `ConnectionStrings:Default` trong `appsettings.Development.json` có đang trỏ đúng `localhost,14330` không, và `.env` có `DB_HOST_PORT=14330` khớp với nó không. |
 | `db-init` báo lỗi `Msg 1934` khi tạo index                                                                                                                                        | Đang tự chạy`sqlcmd` tay mà quên cờ `-I` (xem mục 4) — `apply-schema.sh` đã tự có cờ này nên không gặp lỗi này nếu chạy qua script.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| Sửa nội dung trong`tripmate_schema_v7.sql` xong chạy `docker compose up -d` mà không thấy áp lại                                                                             | Nếu bảng`catalog` và `MSG130` đều đã tồn tại, script coi như "đã áp v7 rồi" và bỏ qua — sửa nội dung *bên trong* v7 không tự động được nhận diện là bản mới. Reset volume (mục 5) để áp lại từ đầu, hoặc tạo hẳn `tripmate_schema_v8.sql` mới theo đúng convention nếu đó là một thay đổi thật sự (xem `AGENTS.md`).                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `db-init` báo lỗi "has an older schema version applied"                                                                                                                              | DB đang có bản cũ hơn v7 (ví dụ v6) từ trước. Đây là chủ đích — script từ chối chạy đè lên schema cũ để tránh lỗi "object already exists" nửa chừng. Reset volume theo mục 5 rồi chạy lại.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Sửa `tripmate_schema_v7.sql` rồi chạy `docker compose up -d` mà không thấy áp lại | Full schema chỉ chạy với DB trống. DB đã có v7 cần migration SQL additive/idempotent tương ứng; cập nhật full schema và migration trong cùng thay đổi. Không reset volume có dữ liệu để áp thay đổi. |
+| `db-init` báo lỗi "has an older schema version applied" | Script chủ động dừng để tránh ghi đè schema cũ. Giữ nguyên volume; nhờ data owner xác định version, backup và lập migration phù hợp. Không dùng migration TM-70/v7 trực tiếp trên v6. |
 | Trên Windows, sau khi sửa`apply-schema.sh` thì chạy báo lỗi khó hiểu trong container                                                                                           | Editor lưu file với line ending CRLF thay vì LF, script Linux không chạy được. Repo đã có`.gitattributes` ép LF cho `.sh`/`.sql` — đảm bảo bạn không tắt/bypass nó, và nếu tự tạo file `.sh` mới nhớ lưu LF.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | Muốn xem log chi tiết một service                                                                                                                                                     | `docker compose logs -f <tên-service>` (ví dụ `docker compose logs -f sqlserver`, `docker compose logs -f api`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | Muốn dừng hẳn mà giữ data để hôm sau chạy tiếp                                                                                                                                 | `docker compose stop` (khác với `down -v` — không xoá container lẫn volume).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 ## 9. ⚠️ Quan trọng — đây là Database-First, không dùng EF Core migrations
 
-`tripmate_schema_v7.sql` là **nguồn chân lý duy nhất** cho schema. `TripMate.Infrastructure` map
+`tripmate_schema_v7.sql` là **nguồn chân lý của DB tạo mới**; `migrations/*.sql` là đường nâng cấp
+được kiểm thử cho DB v7 đang tồn tại. Cả hai phải được cập nhật cùng một thay đổi. `TripMate.Infrastructure` map
 thủ công vào đó — `Domain/Entities/User.cs`, `RefreshToken.cs`, và các class
 `IEntityTypeConfiguration<T>` trong `Persistence/Configurations/` phản ánh đúng từng cột của
 `dbo.Users` và `dbo.RefreshTokens` (tên cột snake_case, khoá `BIGINT`, mọi cột `DATETIME2` được
 map qua `AsUtcDateTime2()`).
 
-Repo **không có** thư mục `Migrations`, và không nên thêm lại — **tuyệt đối không chạy
+Repo có SQL scripts trong `database/migrations/`, nhưng **không có EF Core `Migrations`** và
+không nên thêm EF migrations — **tuyệt đối không chạy
 `dotnet ef migrations add` hay `dotnet ef database update`** trong project này. Khi cần đổi bảng
 hoặc thêm bảng mới: sửa/thêm file `.sql` ở đây trước, rồi mới cập nhật tay `Domain` entity và
 configuration tương ứng cho khớp. Xem `AGENTS.md` để biết đầy đủ quy tắc, gồm 2 lỗi dễ dính đã gặp
