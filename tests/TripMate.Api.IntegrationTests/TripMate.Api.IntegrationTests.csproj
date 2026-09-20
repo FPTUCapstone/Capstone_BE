@@ -22,6 +22,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="..\..\database\Dockerfile.seeded"
+          Link="Database\Dockerfile.seeded"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\database\tripmate_schema_v7.sql"
           Link="Database\tripmate_schema_v7.sql"
           CopyToOutputDirectory="PreserveNewest" />
