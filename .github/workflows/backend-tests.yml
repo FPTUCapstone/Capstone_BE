@@ -37,6 +37,10 @@ jobs:
 
       - run: dotnet restore TripMate.slnx
 
+      - name: Require SQL Server integration-test configuration
+        shell: bash
+        run: test -n "$TRIPMATE_SQLSERVER_TEST_CONNECTION"
+
       - name: Verify formatting of changed C# files
         shell: bash
         run: |
@@ -55,5 +59,30 @@ jobs:
             dotnet format TripMate.slnx --verify-no-changes --no-restore \
               --include "${changed_files[@]}"
           fi
+
+      - name: Run SQL Server integration tests without skips
+        shell: bash
+        run: |
+          dotnet test tests/TripMate.Api.IntegrationTests/TripMate.Api.IntegrationTests.csproj \
+            -c Release --no-restore --filter "Category=SqlServer" \
+            --logger "trx;LogFileName=sql-server.trx" \
+            --results-directory "$RUNNER_TEMP/tm70-sql"
+          python3 - "$RUNNER_TEMP/tm70-sql/sql-server.trx" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+
+          counters = ET.parse(sys.argv[1]).getroot().find('.//{*}Counters')
+          if counters is None:
+              raise SystemExit('SQL test result counters are missing')
+
+          passed = int(counters.attrib.get('passed', '0'))
+          failed = int(counters.attrib.get('failed', '0'))
+          skipped = int(counters.attrib.get('skipped', '0'))
+          not_executed = int(counters.attrib.get('notExecuted', '0'))
+          print(f'SQL tests: {passed} passed, {failed} failed, '
+                f'{skipped} skipped, {not_executed} not executed')
+          if passed == 0 or failed or skipped or not_executed:
+              raise SystemExit('SQL integration suite did not fully execute')
+          PY
 
       - run: dotnet test TripMate.slnx -c Release --no-restore
