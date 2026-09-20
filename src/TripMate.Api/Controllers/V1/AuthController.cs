@@ -12,6 +12,7 @@ using TripMate.Application.Features.Authentication.SignOut;
 using TripMate.Application.Features.Authentication.VerifyEmail;
 using TripMate.Application.Features.Authentication.WebRefresh;
 using TripMate.Application.Features.Authentication.WebSignIn;
+using TripMate.Application.Features.Authentication.WebSignOut;
 using TripMate.Application.Features.Authentication.WebVerifyEmail;
 
 namespace TripMate.Api.Controllers.V1;
@@ -220,32 +221,6 @@ public class AuthController(ISender sender, IWebHostEnvironment environment) : A
             message: "Session restored.");
     }
 
-    [HttpPost("web/logout")]
-    public async Task<IActionResult> WebLogout(
-        CancellationToken cancellationToken)
-    {
-        var cookie = Request.Cookies[WebRefreshCookie.Name];
-        IActionResult result;
-
-        try
-        {
-            if (!string.IsNullOrWhiteSpace(cookie))
-            {
-                await Sender.Send(
-                    new SignOutCommand(cookie),
-                    cancellationToken);
-            }
-
-            result = Ok(new SignOutResponseDto());
-        }
-        finally
-        {
-            WebRefreshCookie.Delete(HttpContext, environment);
-        }
-
-        return result;
-    }
-
     [HttpPost("web/verify-email")]
     [ProducesResponseType(typeof(ApiResponse<WebVerifyEmailResponse>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
@@ -341,16 +316,108 @@ public class AuthController(ISender sender, IWebHostEnvironment environment) : A
             : HandleFailure(result);
     }
 
+    // ========== UC-05 Sign Out ==========
+
+    /// <summary>
+    /// UC-05: Mobile sign out - revokes current refresh session.
+    /// </summary>
     [HttpPost("logout")]
+    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> Logout(
-        [FromBody] SignOutRequestDto request,
+        [FromBody] LogoutRequest? request,
         CancellationToken cancellationToken)
     {
-        await Sender.Send(
-            new SignOutCommand(request.RefreshToken),
+        var result = await Sender.Send(
+            new SignOutCommand(
+                request?.RefreshToken,
+                "Mobile",
+                HttpContext.TraceIdentifier,
+                HttpContext.Connection.RemoteIpAddress?.ToString()),
+            cancellationToken);
+        return result.IsSuccess
+            ? Success(result.Value, StatusCodes.Status200OK, "Signed out successfully.")
+            : HandleFailure(result);
+    }
+
+    /// <summary>
+    /// UC-05 D3: Mobile Sign Out All Devices - revokes all active sessions for current user.
+    /// </summary>
+    [HttpPost("logout-all")]
+    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> LogoutAll(
+        [FromBody] LogoutRequest? request,
+        CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(
+            new SignOutAllCommand(
+                request?.RefreshToken,
+                "Mobile",
+                HttpContext.TraceIdentifier,
+                HttpContext.Connection.RemoteIpAddress?.ToString()),
+            cancellationToken);
+        return result.IsSuccess
+            ? Success(result.Value, StatusCodes.Status200OK, "Signed out from all devices.")
+            : HandleFailure(result);
+    }
+
+    /// <summary>
+    /// UC-05: Web sign out - revokes current refresh session and deletes cookie.
+    /// D1: Cookie is only deleted after successful DB revoke.
+    /// </summary>
+    [HttpPost("web/logout")]
+    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> WebLogout(CancellationToken cancellationToken)
+    {
+        var rawToken = Request.Cookies[WebRefreshCookie.Name];
+
+        var result = await Sender.Send(
+            new WebSignOutCommand(
+                rawToken,
+                HttpContext.TraceIdentifier,
+                HttpContext.Connection.RemoteIpAddress?.ToString()),
             cancellationToken);
 
-        return Ok(new SignOutResponseDto());
+        // D1: Delete cookie only on success or idempotent no-op
+        if (result.IsSuccess)
+        {
+            WebRefreshCookie.Delete(HttpContext, environment);
+            return Success(true, StatusCodes.Status200OK, "Signed out successfully.");
+        }
+
+        // DB failure: keep cookie, return 500
+        return HandleFailure(result);
+    }
+
+    /// <summary>
+    /// UC-05 D3: Web Sign Out All Devices - revokes all active sessions and deletes cookie.
+    /// </summary>
+    [HttpPost("web/logout-all")]
+    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> WebLogoutAll(CancellationToken cancellationToken)
+    {
+        var rawToken = Request.Cookies[WebRefreshCookie.Name];
+
+        var result = await Sender.Send(
+            new WebSignOutAllCommand(
+                rawToken,
+                HttpContext.TraceIdentifier,
+                HttpContext.Connection.RemoteIpAddress?.ToString()),
+            cancellationToken);
+
+        // D1: Delete cookie only on success
+        if (result.IsSuccess)
+        {
+            WebRefreshCookie.Delete(HttpContext, environment);
+            return Success(true, StatusCodes.Status200OK, "Signed out from all devices.");
+        }
+
+        return HandleFailure(result);
     }
 }
 
@@ -362,3 +429,5 @@ public sealed record WebPasswordRequest(
 public sealed record WebGoogleRequest(
     string? IdToken,
     bool KeepMeSignedIn = false);
+
+public sealed record LogoutRequest(string? RefreshToken);

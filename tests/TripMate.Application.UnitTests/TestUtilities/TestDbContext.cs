@@ -52,6 +52,54 @@ public class TestDbContext(
 
     public int TransactionExecutionCount { get; private set; }
 
+    public async Task<int> RevokeRefreshTokenAsync(
+        string tokenHash,
+        DateTimeOffset revokedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var token = await RefreshTokens.SingleOrDefaultAsync(
+            candidate => candidate.TokenHash == tokenHash && candidate.RevokedAtUtc == null,
+            cancellationToken);
+        if (token is null)
+        {
+            return 0;
+        }
+
+        token.RevokedAtUtc = revokedAtUtc;
+        return 1;
+    }
+
+    public async Task<int> RevokeUserRefreshTokensAsync(
+        long userId,
+        DateTimeOffset revokedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var tokens = await RefreshTokens
+            .Where(token => token.UserId == userId && token.RevokedAtUtc == null)
+            .ToListAsync(cancellationToken);
+        foreach (var token in tokens)
+        {
+            token.RevokedAtUtc = revokedAtUtc;
+        }
+
+        return tokens.Count;
+    }
+
+    public async Task<int> DeleteSignOutAuditEventsBeforeAsync(
+        DateTimeOffset cutoffUtc,
+        CancellationToken cancellationToken)
+    {
+        var audits = await AuditLogs
+            .Where(audit =>
+                (audit.ActionType == TripMate.Domain.Common.AuditActionTypes.AuthSignOut ||
+                 audit.ActionType == TripMate.Domain.Common.AuditActionTypes.AuthSignOutAll) &&
+                audit.CreatedAtUtc < cutoffUtc)
+            .ToListAsync(cancellationToken);
+        AuditLogs.RemoveRange(audits);
+        await SaveChangesAsync(cancellationToken);
+        return audits.Count;
+    }
+
     public async Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken)

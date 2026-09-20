@@ -99,4 +99,76 @@ public class AuditLog : BaseEntity
             CreatedAtUtc = createdAtUtc,
         };
     }
+
+    // ========== UC-05 Sign Out Factory Methods ==========
+
+    public static AuditLog CreateSignOut(
+        long actorUserId,
+        long refreshTokenId,
+        DateTimeOffset occurredAtUtc,
+        string platform,
+        string? traceId,
+        string? ipAddress)
+    {
+        if (actorUserId is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(actorUserId));
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(platform);
+
+        return new AuditLog
+        {
+            ActorUserId = actorUserId,
+            ActionType = AuditActionTypes.AuthSignOut,
+            AffectedEntity = AuditEntityTypes.RefreshToken,
+            AffectedEntityId = refreshTokenId,
+            AfterData = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                Result = "Success",
+                Platform = platform,
+                TraceId = traceId,
+            }),
+            IpAddress = ipAddress,
+            CreatedAtUtc = occurredAtUtc,
+        };
+    }
+
+    public static AuditLog CreateSignOutAll(
+        long actorUserId,
+        int revokedSessionCount,
+        DateTimeOffset occurredAtUtc,
+        string platform,
+        string? traceId,
+        string? ipAddress)
+    {
+        if (actorUserId is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(actorUserId));
+        }
+
+        if (revokedSessionCount < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(revokedSessionCount));
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(platform);
+
+        return new AuditLog
+        {
+            ActorUserId = actorUserId,
+            ActionType = AuditActionTypes.AuthSignOutAll,
+            AffectedEntity = AuditEntityTypes.RefreshToken,
+            AffectedEntityId = null,
+            AfterData = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                Result = "Success",
+                RevokedSessionCount = revokedSessionCount,
+                Platform = platform,
+                TraceId = traceId,
+            }),
+            IpAddress = ipAddress,
+            CreatedAtUtc = occurredAtUtc,
+        };
+    }
 }

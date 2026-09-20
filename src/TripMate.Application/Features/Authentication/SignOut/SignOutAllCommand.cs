@@ -4,34 +4,33 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Authentication.Common;
 using TripMate.Domain.Entities;
 
 namespace TripMate.Application.Features.Authentication.SignOut;
 
-public sealed record SignOutCommand(
+public sealed record SignOutAllCommand(
     string? RefreshToken,
     string Platform = "Mobile",
     string? TraceId = null,
     string? ClientIp = null) : IRequest<Result<bool>>;
 
-public sealed class SignOutCommandHandler(
+public sealed class SignOutAllCommandHandler(
     IApplicationDbContext dbContext,
     IJwtTokenService jwtTokenService,
     IDateTimeProvider dateTimeProvider)
-    : IRequestHandler<SignOutCommand, Result<bool>>
+    : IRequestHandler<SignOutAllCommand, Result<bool>>
 {
-    public Task<Result<bool>> Handle(SignOutCommand request, CancellationToken cancellationToken)
+    public Task<Result<bool>> Handle(SignOutAllCommand request, CancellationToken cancellationToken)
     {
         var now = dateTimeProvider.UtcNow;
 
         return dbContext.ExecuteInTransactionAsync(async transactionCancellationToken =>
         {
-            string? tokenHash = null;
             RefreshToken? session = null;
-
             if (!string.IsNullOrWhiteSpace(request.RefreshToken))
             {
-                tokenHash = jwtTokenService.HashRefreshToken(request.RefreshToken);
+                var tokenHash = jwtTokenService.HashRefreshToken(request.RefreshToken);
                 session = await dbContext.RefreshTokens
                     .AsNoTracking()
                     .SingleOrDefaultAsync(
@@ -39,24 +38,26 @@ public sealed class SignOutCommandHandler(
                         transactionCancellationToken);
             }
 
-            var revokedCount = tokenHash is null
-                ? 0
-                : await dbContext.RevokeRefreshTokenAsync(
-                    tokenHash,
-                    now,
-                    transactionCancellationToken);
-
-            if (revokedCount == 1)
+            if (session is null)
             {
-                dbContext.AuditLogs.Add(AuditLog.CreateSignOut(
-                    session!.UserId,
-                    session.Id,
-                    now,
-                    request.Platform,
-                    request.TraceId,
-                    request.ClientIp));
-                await dbContext.SaveChangesAsync(transactionCancellationToken);
+                return Result.Failure<bool>(
+                    AuthErrorCodes.AuthTokenInvalid,
+                    "Refresh token is invalid.");
             }
+
+            var revokedCount = await dbContext.RevokeUserRefreshTokensAsync(
+                session.UserId,
+                now,
+                transactionCancellationToken);
+
+            dbContext.AuditLogs.Add(AuditLog.CreateSignOutAll(
+                session.UserId,
+                revokedCount,
+                now,
+                request.Platform,
+                request.TraceId,
+                request.ClientIp));
+            await dbContext.SaveChangesAsync(transactionCancellationToken);
 
             return Result.Success(true);
         }, cancellationToken);

@@ -260,7 +260,7 @@ public class SignOutIntegrationTests
     }
 
     [Fact]
-    public async Task Post_WebLogout_SaveChangesThrows_Returns500ClearsCookieAndDoesNotLogSecrets()
+    public async Task Post_WebLogout_SaveChangesThrows_Returns500PreservesCookieAndDoesNotLogSecrets()
     {
         ResetLogFile();
         var interceptor = new ToggleSaveChangesFailureInterceptor();
@@ -292,7 +292,9 @@ public class SignOutIntegrationTests
         var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
         problem.GetProperty("status").GetInt32().Should().Be(500);
         problem.GetProperty("title").GetString().Should().Be("An unexpected error occurred.");
-        AssertDeletionCookie(response);
+        response.Headers.TryGetValues("Set-Cookie", out _)
+            .Should()
+            .BeFalse("a persistence failure must preserve the refresh cookie for retry");
         interceptor.FaultCount.Should().Be(1);
 
         var logged = await ReadLogUntil(

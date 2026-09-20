@@ -32,7 +32,10 @@ public sealed class TripMateApiFactory(
     IReadOnlyList<string>? corsAllowedOrigins = null,
     string environmentName = "Testing",
     Func<IServiceProvider, IFirebaseAuthService>? firebaseServiceFactory = null,
-    SaveChangesInterceptor? saveChangesInterceptor = null) : WebApplicationFactory<Program>
+    SaveChangesInterceptor? saveChangesInterceptor = null,
+    Func<IServiceProvider, IDateTimeProvider>? dateTimeProviderFactory = null,
+    Action<IServiceCollection>? configureTestServices = null,
+    IInterceptor? dbInterceptor = null) : WebApplicationFactory<Program>
 {
     internal const string JwtIssuer = "TripMate.Tests";
     internal const string JwtAudience = "TripMate.Tests";
@@ -80,8 +83,12 @@ public sealed class TripMateApiFactory(
                     {
                         options.AddInterceptors(saveChangesInterceptor);
                     }
-                });
 
+                    if (dbInterceptor is not null)
+                    {
+                        options.AddInterceptors(dbInterceptor);
+                    }
+                });
                 services.AddScoped<IApplicationDbContext>(provider =>
                     provider.GetRequiredService<TestApiDbContext>());
 
@@ -96,6 +103,12 @@ public sealed class TripMateApiFactory(
                 services.AddSingleton<IFirebaseAuthService>(sp => firebaseServiceFactory(sp));
             }
 
+            if (dateTimeProviderFactory is not null)
+            {
+                services.RemoveAll<IDateTimeProvider>();
+                services.AddSingleton<IDateTimeProvider>(sp => dateTimeProviderFactory(sp));
+            }
+
             if (authenticationMode == ApiTestAuthenticationMode.HeaderStub)
             {
                 services.AddAuthentication(options =>
@@ -108,6 +121,8 @@ public sealed class TripMateApiFactory(
                         TestAuthenticationHandler.SchemeName,
                         _ => { });
             }
+
+            configureTestServices?.Invoke(services);
         });
     }
 
@@ -152,6 +167,7 @@ public sealed class TripMateApiFactory(
 
         return await operation(context);
     }
+
 }
 
 public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
@@ -179,6 +195,54 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
         Set<GroupInvitationOperation>();
     public DbSet<GroupJoinOperation> GroupJoinOperations =>
         Set<GroupJoinOperation>();
+
+    public async Task<int> RevokeRefreshTokenAsync(
+        string tokenHash,
+        DateTimeOffset revokedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var token = await RefreshTokens.SingleOrDefaultAsync(
+            candidate => candidate.TokenHash == tokenHash && candidate.RevokedAtUtc == null,
+            cancellationToken);
+        if (token is null)
+        {
+            return 0;
+        }
+
+        token.RevokedAtUtc = revokedAtUtc;
+        return 1;
+    }
+
+    public async Task<int> RevokeUserRefreshTokensAsync(
+        long userId,
+        DateTimeOffset revokedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var tokens = await RefreshTokens
+            .Where(token => token.UserId == userId && token.RevokedAtUtc == null)
+            .ToListAsync(cancellationToken);
+        foreach (var token in tokens)
+        {
+            token.RevokedAtUtc = revokedAtUtc;
+        }
+
+        return tokens.Count;
+    }
+
+    public async Task<int> DeleteSignOutAuditEventsBeforeAsync(
+        DateTimeOffset cutoffUtc,
+        CancellationToken cancellationToken)
+    {
+        var audits = await AuditLogs
+            .Where(audit =>
+                (audit.ActionType == TripMate.Domain.Common.AuditActionTypes.AuthSignOut ||
+                 audit.ActionType == TripMate.Domain.Common.AuditActionTypes.AuthSignOutAll) &&
+                audit.CreatedAtUtc < cutoffUtc)
+            .ToListAsync(cancellationToken);
+        AuditLogs.RemoveRange(audits);
+        await SaveChangesAsync(cancellationToken);
+        return audits.Count;
+    }
 
     public Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
