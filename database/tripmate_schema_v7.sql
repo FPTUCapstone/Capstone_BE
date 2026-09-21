@@ -310,6 +310,8 @@ CREATE TABLE dbo.AuditLogs (
     affected_entity_id   BIGINT NULL,
     before_data           NVARCHAR(MAX) NULL,
     after_data            NVARCHAR(MAX) NULL,
+    result                VARCHAR(20) NULL CONSTRAINT CK_AuditLogs_Result CHECK (result IN ('Success', 'Failure')),
+    reason                NVARCHAR(1000) NULL,
     ip_address            VARCHAR(45) NULL,
     created_at            DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
 );

@@ -25,6 +25,9 @@
     <None Include="..\..\database\tripmate_schema_v7.sql"
           Link="Database\tripmate_schema_v7.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20260918_add_audit_result_reason.sql"
+          Link="Database\migrations\20260918_add_audit_result_reason.sql"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\database\apply-schema.sh"
           Link="Database\apply-schema.sh"
           CopyToOutputDirectory="PreserveNewest" />

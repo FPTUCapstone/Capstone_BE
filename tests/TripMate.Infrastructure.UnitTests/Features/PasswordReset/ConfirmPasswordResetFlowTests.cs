@@ -129,6 +129,10 @@ public class ConfirmPasswordResetFlowTests
 
         DbSet<Domain.Entities.Notification> IApplicationDbContext.Notifications => throw new NotSupportedException();
 
+        DbSet<Domain.Entities.PoiPhoto> IApplicationDbContext.PoiPhotos => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.Review> IApplicationDbContext.Reviews => throw new NotSupportedException();
+
         DbSet<Domain.Entities.Message> IApplicationDbContext.Messages => throw new NotSupportedException();
 
         DbSet<Domain.Entities.TravelGroup> IApplicationDbContext.TravelGroups => throw new NotSupportedException();
@@ -167,6 +171,8 @@ public class ConfirmPasswordResetFlowTests
             modelBuilder.Ignore<Domain.Entities.OperatorDocument>();
             modelBuilder.Ignore<Domain.Entities.AuditLog>();
             modelBuilder.Ignore<Domain.Entities.Notification>();
+            modelBuilder.Ignore<Domain.Entities.PoiPhoto>();
+            modelBuilder.Ignore<Domain.Entities.Review>();
             modelBuilder.Ignore<Domain.Entities.Message>();
             modelBuilder.Ignore<Domain.Entities.TravelGroup>();
             modelBuilder.Ignore<Domain.Entities.GroupMember>();
