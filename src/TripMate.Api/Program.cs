@@ -90,6 +90,7 @@ try
         options.SchemaFilter<PoiEnumSchemaFilter>();
         options.SchemaFilter<PoiContractSchemaFilter>();
         options.SchemaFilter<ProblemDetailsContractSchemaFilter>();
+        options.OperationFilter<AllowAnonymousOperationFilter>();
 
         options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
         {
