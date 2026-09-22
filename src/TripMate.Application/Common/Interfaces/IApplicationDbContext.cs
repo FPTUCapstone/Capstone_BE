@@ -24,6 +24,14 @@ public interface IApplicationDbContext
 
     DbSet<OperatorDocument> OperatorDocuments { get; }
 
+    DbSet<Tour> Tours { get; }
+
+    DbSet<TourSchedule> TourSchedules { get; }
+
+    DbSet<Destination> Destinations { get; }
+
+    DbSet<TourDestination> TourDestinations { get; }
+
     DbSet<AuditLog> AuditLogs { get; }
 
     DbSet<Notification> Notifications { get; }

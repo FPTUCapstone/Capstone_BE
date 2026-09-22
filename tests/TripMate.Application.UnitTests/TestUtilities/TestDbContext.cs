@@ -30,6 +30,14 @@ public class TestDbContext(
 
     public DbSet<OperatorDocument> OperatorDocuments => Set<OperatorDocument>();
 
+    public DbSet<Tour> Tours => Set<Tour>();
+
+    public DbSet<TourSchedule> TourSchedules => Set<TourSchedule>();
+
+    public DbSet<Destination> Destinations => Set<Destination>();
+
+    public DbSet<TourDestination> TourDestinations => Set<TourDestination>();
+
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
     public DbSet<Notification> Notifications => Set<Notification>();
@@ -193,6 +201,9 @@ public class TestDbContext(
             .HasOne(op => op.Invitation)
             .WithMany()
             .HasForeignKey(op => op.InvitationId);
+
+        modelBuilder.Entity<TourDestination>()
+            .HasKey(link => new { link.TourId, link.DestinationId });
 
         base.OnModelCreating(modelBuilder);
     }

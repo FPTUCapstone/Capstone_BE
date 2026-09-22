@@ -50,6 +50,24 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
 
     public static async Task<SqlServerTestDatabase> CreateAsync()
     {
+        return await CreateAsync(applyCurrentSchema: true);
+    }
+
+    public static async Task<SqlServerTestDatabase> CreateEmptyAsync()
+    {
+        return await CreateAsync(applyCurrentSchema: false);
+    }
+
+    public async Task ExecuteScriptAsync(
+        string scriptPath,
+        CancellationToken cancellationToken = default)
+    {
+        var script = await File.ReadAllTextAsync(scriptPath, cancellationToken);
+        await ExecuteBatchesAsync(script, cancellationToken);
+    }
+
+    private static async Task<SqlServerTestDatabase> CreateAsync(bool applyCurrentSchema)
+    {
         var configuredConnectionString = Environment.GetEnvironmentVariable(
             ConnectionStringEnvironmentVariable);
 
@@ -78,7 +96,7 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
 
         try
         {
-            await database.InitializeAsync();
+            await database.InitializeAsync(applyCurrentSchema);
             return database;
         }
         catch (Exception initializationException)
@@ -183,7 +201,7 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
         _databaseCreated = false;
     }
 
-    private async Task InitializeAsync()
+    private async Task InitializeAsync(bool applyCurrentSchema)
     {
         EnsureSafeDatabaseName(DatabaseName);
 
@@ -198,22 +216,30 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
             _databaseCreated = true;
         }
 
-        var schemaPath = Path.Combine(
-            AppContext.BaseDirectory,
-            "Database",
-            "tripmate_schema_v7.sql");
-        var schema = await File.ReadAllTextAsync(schemaPath);
+        if (!applyCurrentSchema)
+        {
+            return;
+        }
+
+        var schemaPath = Path.Combine(AppContext.BaseDirectory, "Database", "tripmate_schema_v7.sql");
+        await ExecuteScriptAsync(schemaPath);
+    }
+
+    private async Task ExecuteBatchesAsync(
+        string script,
+        CancellationToken cancellationToken = default)
+    {
 
         await using var schemaConnection = new SqlConnection(ConnectionString);
-        await schemaConnection.OpenAsync();
+        await schemaConnection.OpenAsync(cancellationToken);
 
         await using (var quotedIdentifierCommand = schemaConnection.CreateCommand())
         {
             quotedIdentifierCommand.CommandText = "SET QUOTED_IDENTIFIER ON;";
-            await quotedIdentifierCommand.ExecuteNonQueryAsync();
+            await quotedIdentifierCommand.ExecuteNonQueryAsync(cancellationToken);
         }
 
-        foreach (var batch in BatchSeparator.Split(schema))
+        foreach (var batch in BatchSeparator.Split(script))
         {
             if (string.IsNullOrWhiteSpace(batch))
             {
@@ -223,7 +249,7 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
             await using var command = schemaConnection.CreateCommand();
             command.CommandText = batch;
             command.CommandTimeout = 120;
-            await command.ExecuteNonQueryAsync();
+            await command.ExecuteNonQueryAsync(cancellationToken);
         }
     }
 
