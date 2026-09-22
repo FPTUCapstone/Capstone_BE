@@ -76,7 +76,9 @@ The changes were protected in local commits and rebased onto Backend
   `feature/linhnv-configure-algorithm-parameters`. `Capstone_BE` is a separate
   worktree and is not part of this evidence set.
 
-- Post-rebase verification HEAD: `4af01c2`.
+- Full local verification was executed at `4af01c2`. Commits after that point
+  only update verification documentation; the final pushed HEAD is identified
+  by the PR and its CI run rather than embedded into a self-referential commit.
 - `dotnet format TripMate.slnx --no-restore --verify-no-changes`: passed.
 - `dotnet build TripMate.slnx -c Release --no-restore`: passed with 0 warnings and 0 errors.
 - Full SQL Server run with `TRIPMATE_SQLSERVER_TEST_CONNECTION` targeting
