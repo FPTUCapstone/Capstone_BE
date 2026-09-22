@@ -45,7 +45,9 @@ public class UpdateAlgorithmParametersCommandHandler(
         // 2. Range/enum validation inside the handler (locked MSG118, 422) — deliberately
         //    not FluentValidation rules, which ValidationBehaviour would surface as 400.
         if (request.BufferTimeMinutes is < 5 or > 60 ||
+            !double.IsFinite(request.DefaultTravelSpeedKmh) ||
             request.DefaultTravelSpeedKmh is < 10 or > 120 ||
+            !double.IsFinite(request.ReroutingSearchRadiusKm) ||
             request.ReroutingSearchRadiusKm is < 1 or > 50 ||
             !AlgorithmParameterDefinitions.TryNormalizeSeverity(
                 request.WeatherAlertThresholdSeverity, out var severity))

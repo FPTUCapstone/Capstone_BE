@@ -3,7 +3,7 @@ using System.Globalization;
 namespace TripMate.Application.Features.Admin.SystemConfigs.Common;
 
 /// <summary>
-/// The four algorithm configuration rows managed by UC-57 (SRS §3.9.5). Other
+/// The four algorithm configuration rows in the approved UC-57 scope. Other
 /// dbo.SystemConfigs rows belong to their owning use cases and are never touched here.
 /// </summary>
 public static class AlgorithmParameterDefinitions

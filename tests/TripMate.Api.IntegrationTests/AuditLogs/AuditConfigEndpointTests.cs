@@ -42,16 +42,27 @@ public sealed class AuditConfigEndpointTests
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
-    [Fact]
-    public async Task Get_WithNonAdministrator_ReturnsForbiddenProblemDetails()
+    [Theory]
+    [InlineData("GET", UserRole.Traveler)]
+    [InlineData("PUT", UserRole.Traveler)]
+    [InlineData("GET", UserRole.TourOperator)]
+    [InlineData("PUT", UserRole.TourOperator)]
+    public async Task Request_WithNonAdministrator_ReturnsForbiddenProblemDetails(string method, UserRole role)
     {
         await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
-        using var client = CreateClient(factory, UserRole.Traveler);
+        using var client = CreateClient(factory, role);
 
-        var response = await client.GetAsync("/api/v1/admin/system-configs/algorithm-parameters");
+        using var request = new HttpRequestMessage(new HttpMethod(method),
+            "/api/v1/admin/system-configs/algorithm-parameters");
+        var response = await client.SendAsync(request);
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        (await response.Content.ReadAsStringAsync()).Should().NotContain("bufferTimeMinutes");
+        response.Content.Headers.ContentType!.MediaType.Should().Be("application/problem+json");
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("title").GetString().Should().Be("You do not have permission to access this function.");
+        body.RootElement.GetProperty("errorCode").GetString().Should().Be("admin.algorithm_config_forbidden");
+        (await factory.WithDbContextAsync(db => db.SystemConfigs.CountAsync())).Should().Be(0);
+        (await factory.WithDbContextAsync(db => db.AuditLogs.CountAsync())).Should().Be(0);
     }
 
     [Fact]
