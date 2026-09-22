@@ -4,8 +4,8 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 using TripMate.Application.Common.Interfaces;
-using TripMate.Application.Features.TravelGroups.ManageInvitation;
 using TripMate.Application.Features.Scheduling.Common;
+using TripMate.Application.Features.TravelGroups.ManageInvitation;
 using TripMate.Infrastructure.Authentication;
 using TripMate.Infrastructure.Persistence;
 using TripMate.Infrastructure.Routing;
