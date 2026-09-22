@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved for implementation (developer instruction, 2026-09-19). Revised from the
+Approved four-parameter scope by the user on 2026-09-21. Revised from the
 original proposal: locked SRS 5.3 message wording, handler-side 422 validation
 (CONTRACT-01 lesson from the UC-68/69 review), and audit writes via the approved
 `CreateRecordedOutcome` factory (Result/Reason amendment 2026-09-18).
@@ -11,13 +11,21 @@ original proposal: locked SRS 5.3 message wording, handler-side 422 validation
 
 This specification defines the Backend implementation for **UC-57: Configure Algorithm Parameters** (Administrator Settings for Algorithm & System Configurations).
 
+The approved release follows the four-parameter UC summary, not the conflicting
+eleven-parameter SRS section 3.9.5. Booking timeout, QR expiry, tour recommendation
+threshold and commercial commission remain outside this API. No schema extension,
+configuration versioning, scheduled activation or algorithm implementation is included.
+Existing algorithm services have not been verified to consume these values; API
+persistence alone is not evidence of runtime algorithm integration. Authentication
+uses the existing JWT Administrator role contract without changing the login feature.
+
 It covers:
 - Reading and updating algorithm parameters stored in `dbo.SystemConfigs` (`tripmate_schema_v7.sql`).
 - Parameter range validation per `MSG118`:
   - `CSP.BufferTimeMinutes`: 5 to 60 minutes (default 15).
   - `CSP.DefaultTravelSpeedKmh`: 10 to 120 km/h (default 30).
   - `Rerouting.SearchRadiusKm`: 1 to 50 km (default 5).
-  - `Weather.AlertThresholdSeverity`: 'Moderate' | 'Severe' | 'Extreme' (default 'Severe').
+  - `Weather.AlertThresholdSeverity`: 'Moderate' | 'Severe' | 'Extreme' (default 'Severe'); input matching is case-insensitive and the stored/returned value is normalized to this canonical casing.
 - Recording an audit log entry in `dbo.AuditLogs` (`ActionType = "UpdateAlgorithmParameters"`) upon successful update (`MSG119`).
 - Timezone standard (CR-07): `updatedAtLocal` formatted in Vietnam Time (`Asia/Ho_Chi_Minh` UTC+7) as `dd/MM/yyyy HH:mm:ss`.
 - Role authorization (BR-115): Administrator role required (`UserRole.Administrator`).
@@ -46,6 +54,7 @@ It covers:
 > [!NOTE]
 > - Locked SRS 5.3 wording is authoritative for MSG117/118/119/126/127 (Batch 1 reconciliation rule). Do not invent variants.
 > - Range/enum validation runs **inside the update handler** and returns `Result.Failure` → `422` with MSG118. Range rules must NOT be FluentValidation rules: `ValidationBehaviour` runs before the handler and would surface them as HTTP 400 (the CONTRACT-01 defect found in the UC-68/69 review).
+> - Malformed JSON or a property whose JSON type cannot bind to the request model is rejected by ASP.NET Core model binding as `400 Bad Request` before the handler runs. `422` with MSG118 is reserved for a successfully bound request whose value violates a semantic range, finite-number, or severity rule.
 > - No 404 path exists by design: GET falls back to seeded defaults when a row is missing and PUT upserts — do not invent a not-found contract for this use case.
 
 ---
@@ -71,6 +80,9 @@ Authorization: Bearer <Admin_JWT>
   "updatedAtLocal": "16/09/2026 19:00:00"
 }
 ```
+
+`updatedAtUtc` and `updatedAtLocal` are both `null` when none of the four
+managed rows exists. The parameter values still use their documented defaults.
 
 ---
 
@@ -113,7 +125,8 @@ Content-Type: application/json
 | Error Code | HTTP Status | Description |
 |---|---|---|
 | `admin.algorithm_config_forbidden` | `403` | Caller is not an Administrator (`MSG126`) |
-| `admin.algorithm_config_invalid_value` | `422` | Parameter value out of allowed range (`MSG118`) |
+| `admin.algorithm_config_invalid_value` | `422` | A successfully bound value violates a range, finite-number, or severity rule (`MSG118`) |
+| Model binding failure | `400` | Malformed JSON or a property with an incompatible JSON type; rejected before the handler |
 
 ---
 
@@ -121,10 +134,10 @@ Content-Type: application/json
 
 1. Administrator can fetch current algorithm configurations via `GET /api/v1/admin/system-configs/algorithm-parameters`.
 2. Administrator can update algorithm parameters via `PUT /api/v1/admin/system-configs/algorithm-parameters`.
-3. Validates inputs against strict ranges (Buffer: 5-60, Speed: 10-120, Radius: 1-50, Weather: Moderate/Severe/Extreme).
-4. Invalid inputs return `422 Unprocessable Entity` with `MSG118`.
+3. Validates inputs against strict ranges (Buffer: 5-60 integer, Speed: 10-120 finite number, Radius: 1-50 finite number, Weather: Moderate/Severe/Extreme). Severity matching is case-insensitive and successful input is normalized to canonical casing.
+4. Successfully bound values that violate semantic validation return `422 Unprocessable Entity` with `MSG118`; malformed or type-incompatible JSON returns `400 Bad Request` during model binding.
 5. Successful updates persist to `dbo.SystemConfigs` and automatically log an audit entry in `dbo.AuditLogs` via `AuditLog.CreateRecordedOutcome(..., result: AuditOutcome.Success)` — action type `UpdateAlgorithmParameters`, affected entity `SystemConfig`, `beforeData`/`afterData` JSON containing only the four managed keys.
 6. Only the four algorithm keys are read/updated; other `dbo.SystemConfigs` rows (Booking.*, Tour.*, Ticket.*, CommercialService.*) are never touched by this use case.
-7. Failed updates (422 validation, 403) write no audit entry and change no config row.
-8. `updatedAtUtc` in the GET response is the latest `updated_at` among the four managed rows; `updatedAtLocal` follows CR-07 (`dd/MM/yyyy HH:mm:ss`, Asia/Ho_Chi_Minh).
+7. Rejected updates (400 binding, 422 validation, 401/403 authorization) write no audit entry and change no config row.
+8. `updatedAtUtc` in the GET response is the latest `updated_at` among the four managed rows; `updatedAtLocal` follows CR-07 (`dd/MM/yyyy HH:mm:ss`, Asia/Ho_Chi_Minh). Both fields are `null` when no managed row exists.
 9. 100% unit test pass rate for Query and Command Handlers; endpoint behavior covered by integration tests (401/403/200/422).

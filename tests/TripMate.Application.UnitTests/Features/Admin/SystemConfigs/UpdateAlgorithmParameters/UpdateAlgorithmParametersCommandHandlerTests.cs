@@ -113,6 +113,11 @@ public class UpdateAlgorithmParametersCommandHandlerTests
     [InlineData(20, 121, 10, "Severe")]
     [InlineData(20, 35, 0, "Severe")]
     [InlineData(20, 35, 51, "Severe")]
+    [InlineData(20, double.NaN, 10, "Severe")]
+    [InlineData(20, 35, double.NaN, "Severe")]
+    [InlineData(20, double.PositiveInfinity, 10, "Severe")]
+    [InlineData(20, 35, double.NegativeInfinity, "Severe")]
+    [InlineData(20, 35, 10, "")]
     [InlineData(20, 35, 10, "Catastrophic")]
     public async Task Handle_WhenValueOutOfRange_ShouldReturn422AndChangeNothing(
         int buffer, double speed, double radius, string severity)
