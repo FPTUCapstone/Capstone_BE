@@ -4,7 +4,7 @@
 
 This implementation plan outlines the Clean Architecture Backend implementation for **UC-57: Configure Algorithm Parameters** in `Capstone_BE` (Administrator Algorithm Parameters Configuration). Revised 2026-09-19 per the UC-68/69 cross-review lessons; approved for implementation by the developer.
 
-**Branch dependency**: implemented on `feature/linhnv-configure-algorithm-parameters`, stacked on `feature/linhnv-view-audit-log-details` (PR #17) — it reuses `AuditLog.CreateRecordedOutcome` and `AuditFailureBehaviour` from that branch; PR #17 must merge first (merge order: #17 → this PR).
+**Branch baseline**: implemented on `feature/linhnv-configure-algorithm-parameters` and rebased on Backend `origin/develop` at `25551b1` on 2026-09-22. PR #17 is present in develop as squash commit `930a5f9`, so this branch now reuses `AuditLog.CreateRecordedOutcome` and `AuditFailureBehaviour` without carrying the old PR #17 commit history.
 
 ## Technical Directives
 
@@ -37,8 +37,8 @@ an explicit integration dependency, not a completed behavior claim.
 ## Proposed Component Changes
 
 ### Component 1: Domain & EF Core Mapping
-- [NEW] [`SystemConfig.cs`](file:///d:/study/Project-Capstone/Capstone_BE/src/TripMate.Domain/Entities/SystemConfig.cs): entity with guarded constructor + `UpdateValue` (invariant: key/value required, column lengths enforced).
-- [NEW] [`SystemConfigConfiguration.cs`](file:///d:/study/Project-Capstone/Capstone_BE/src/TripMate.Infrastructure/Persistence/Configurations/SystemConfigConfiguration.cs): column mappings.
+- [NEW] `SystemConfig.cs`: entity with guarded constructor + `UpdateValue` (invariant: key/value required, column lengths enforced).
+- [NEW] `SystemConfigConfiguration.cs`: column mappings.
 - [MODIFY] `IApplicationDbContext.cs` / `ApplicationDbContext.cs` / `TestApiDbContext`: add `DbSet<SystemConfig> SystemConfigs`.
 - [MODIFY] `AuditActionTypes.cs` / `AuditEntityTypes.cs`: add the two constants.
 
@@ -63,19 +63,19 @@ an explicit integration dependency, not a completed behavior claim.
 - Full `dotnet build -c Release` + `dotnet test` + `dotnet format --verify-no-changes`
 - SQL-gated integration tests with `TRIPMATE_SQLSERVER_TEST_CONNECTION` set.
 
-## Verification Evidence (working tree)
+## Verification Evidence
 
-Verified on 2026-09-22 from baseline HEAD
-`76a14aad6f70770bdfd64d6d35c37b9e03a4e1fe` with the UC-57 changes still
-uncommitted:
+The original working-tree checks were run on 2026-09-22 before synchronization.
+The changes were then protected in local commits and rebased onto Backend
+`origin/develop` `25551b1`:
+
+- UC-57 implementation after rebase: `f53c290`.
+- Review safeguards and SQL evidence tests after rebase: `1267b5b`.
 
 - Evidence working directory:
   `D:\study\Project-Capstone\Capstone_BE-uc57`, branch
-  `feature/linhnv-configure-algorithm-parameters`. Do not run these checks from
-  `Capstone_BE`, which is a separate worktree currently used by PR #17.
-- Commands such as `git show feature/linhnv-configure-algorithm-parameters:<file>`
-  inspect the committed branch tip only and therefore do not include the
-  working-tree `double.IsFinite` fix or the untracked SQL Server test file.
+  `feature/linhnv-configure-algorithm-parameters`. `Capstone_BE` is a separate
+  worktree and is not part of this evidence set.
 
 - `dotnet format --verify-no-changes`: passed.
 - `dotnet build -c Release`: passed with 0 warnings and 0 errors.
@@ -89,9 +89,9 @@ uncommitted:
   for invalid input.
 - `git diff --check`: passed.
 
-This evidence is suitable for working-tree review only. After commit/push, rerun
-the required checks on the final PR HEAD and record its SHA and remote CI result
-before marking the PR merge-ready.
+The checks above are pre-sync evidence. Rerun them after this rebase and record
+the exact pushed HEAD plus remote CI result in the PR description or re-review
+message before marking the PR merge-ready.
 
 Known integration boundary: configuration management is implemented and tested,
 but no current algorithm/runtime consumer of these four keys was found. Actual
