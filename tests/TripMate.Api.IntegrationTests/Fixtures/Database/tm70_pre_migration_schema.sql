@@ -6,6 +6,11 @@
 CREATE SCHEMA commerce;
 GO
 
+CREATE TABLE dbo.Users (
+    user_id BIGINT NOT NULL PRIMARY KEY
+);
+GO
+
 CREATE TABLE dbo.OperatorProfiles (
     user_id BIGINT NOT NULL PRIMARY KEY
 );
@@ -21,12 +26,15 @@ CREATE TABLE commerce.Tours (
     status VARCHAR(12) NOT NULL DEFAULT 'Draft'
         CHECK (status IN ('Draft','Pending','Approved','Rejected','Inactive')),
     rejection_reason NVARCHAR(500) NULL,
-    reviewed_by BIGINT NULL,
+    reviewed_by BIGINT NULL REFERENCES dbo.Users(user_id),
     reviewed_at DATETIME2 NULL,
     published_at DATETIME2 NULL,
     created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
     updated_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
 );
+GO
+CREATE INDEX IX_Tours_Operator ON commerce.Tours(operator_user_id);
+CREATE INDEX IX_Tours_Status ON commerce.Tours(status);
 GO
 
 CREATE TABLE commerce.TourSchedules (
