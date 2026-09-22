@@ -176,15 +176,28 @@ public class SignOutEndpointsTests
     }
 
     [Fact]
-    public async Task WebLogoutAll_MissingCredential_ReturnsUnauthorizedWithoutDeletingCookie()
+    public async Task WebLogoutAll_MissingCredential_IsIdempotentAndDeletesCookie()
     {
         await using var factory = new TripMateApiFactory();
         using var client = factory.CreateClient();
 
         var response = await client.PostAsync("/api/v1/auth/web/logout-all", null);
 
-        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
-        response.Headers.Contains("Set-Cookie").Should().BeFalse();
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        AssertDeletesRefreshCookie(response);
+    }
+
+    [Fact]
+    public async Task WebLogoutAll_UnknownCredential_IsIdempotentAndDeletesCookie()
+    {
+        await using var factory = new TripMateApiFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("Cookie", "tripmate_refresh=unknown-refresh");
+
+        var response = await client.PostAsync("/api/v1/auth/web/logout-all", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        AssertDeletesRefreshCookie(response);
     }
 
     [Fact]
