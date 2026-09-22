@@ -65,9 +65,8 @@ an explicit integration dependency, not a completed behavior claim.
 
 ## Verification Evidence
 
-The original working-tree checks were run on 2026-09-22 before synchronization.
-The changes were then protected in local commits and rebased onto Backend
-`origin/develop` `25551b1`:
+The changes were protected in local commits and rebased onto Backend
+`origin/develop` `25551b1` on 2026-09-22:
 
 - UC-57 implementation after rebase: `f53c290`.
 - Review safeguards and SQL evidence tests after rebase: `1267b5b`.
@@ -77,11 +76,12 @@ The changes were then protected in local commits and rebased onto Backend
   `feature/linhnv-configure-algorithm-parameters`. `Capstone_BE` is a separate
   worktree and is not part of this evidence set.
 
-- `dotnet format --verify-no-changes`: passed.
-- `dotnet build -c Release`: passed with 0 warnings and 0 errors.
+- Post-rebase verification HEAD: `4af01c2`.
+- `dotnet format TripMate.slnx --no-restore --verify-no-changes`: passed.
+- `dotnet build TripMate.slnx -c Release --no-restore`: passed with 0 warnings and 0 errors.
 - Full SQL Server run with `TRIPMATE_SQLSERVER_TEST_CONNECTION` targeting
-  `Server=.\SQLEXPRESS;Database=master`: 585 passed, 0 failed, 0 skipped
-  (Infrastructure 4, Application 376, API integration 205). Provider tests
+  `Server=.\SQLEXPRESS;Database=master`: 776 passed, 0 failed, 0 skipped
+  (Infrastructure 9, Application 496, API integration 271). Provider tests
   create and drop isolated `TripMate_Test_*` databases.
 - SQL coverage verifies all four values and metadata, preservation of the four
   unrelated seeded rows, Success auditing, transaction rollback plus one
@@ -89,9 +89,9 @@ The changes were then protected in local commits and rebased onto Backend
   for invalid input.
 - `git diff --check`: passed.
 
-The checks above are pre-sync evidence. Rerun them after this rebase and record
-the exact pushed HEAD plus remote CI result in the PR description or re-review
-message before marking the PR merge-ready.
+The checks above are post-rebase local evidence. The exact pushed HEAD and remote
+CI result must still be recorded in the PR description or re-review message
+before marking the PR merge-ready.
 
 Known integration boundary: configuration management is implemented and tested,
 but no current algorithm/runtime consumer of these four keys was found. Actual
