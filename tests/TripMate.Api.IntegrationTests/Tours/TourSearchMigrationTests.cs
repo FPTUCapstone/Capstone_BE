@@ -134,6 +134,29 @@ public sealed class TourSearchMigrationTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
+    public async Task Migration_WhenLegacyDestinationColumnHasWrongShape_RejectsWithoutPartialChanges()
+    {
+        await using var database = await CreateOldSchemaDatabaseAsync();
+        await database.ExecuteNonQueryAsync(
+            "ALTER TABLE commerce.Tours ADD destination NVARCHAR(100) NULL;");
+
+        Func<Task> action = () => ApplyMigrationAsync(database);
+
+        await action.Should()
+            .ThrowAsync<SqlException>()
+            .WithMessage("*legacy destination column shape mismatch*");
+        await database.ExecuteNonQueryAsync("""
+            IF OBJECT_ID(N'catalog.Destinations', N'U') IS NOT NULL
+                THROW 51000, 'Wrong legacy destination shape left Destinations behind.', 1;
+            IF OBJECT_ID(N'commerce.TourDestinations', N'U') IS NOT NULL
+                THROW 51000, 'Wrong legacy destination shape left TourDestinations behind.', 1;
+            IF OBJECT_ID(N'commerce.CK_Tours_BasePriceWholeVnd', N'C') IS NOT NULL
+                THROW 51000, 'Wrong legacy destination shape left the price constraint behind.', 1;
+            """);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
     public async Task Migration_WhenNamedConstraintHasWrongDefinition_RejectsIt()
     {
         await using var database = await CreateOldSchemaDatabaseAsync();
@@ -213,6 +236,20 @@ public sealed class TourSearchMigrationTests
     private static Task AssertTargetShapeAsync(SqlServerTestDatabase database)
     {
         return database.ExecuteNonQueryAsync("""
+            IF NOT EXISTS (
+                SELECT 1
+                FROM sys.columns AS c
+                JOIN sys.types AS t ON t.user_type_id = c.user_type_id
+                WHERE c.object_id = OBJECT_ID(N'commerce.Tours')
+                  AND c.name = N'destination'
+                  AND t.name = N'nvarchar'
+                  AND c.max_length = 600
+                  AND c.collation_name = N'Vietnamese_100_CI_AS'
+                  AND c.is_nullable = 1
+                  AND c.is_identity = 0
+                  AND c.is_computed = 0)
+                THROW 51000, 'Tours legacy destination does not have the approved shape.', 1;
+
             IF NOT EXISTS (
                 SELECT 1 FROM sys.columns AS c
                 WHERE c.object_id = OBJECT_ID(N'catalog.Destinations')

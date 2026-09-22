@@ -13,6 +13,27 @@ BEGIN TRY
     IF OBJECT_ID(N'commerce.Tours', N'U') IS NULL
         THROW 51000, 'TM-70 migration requires commerce.Tours.', 1;
 
+    -- Full schema v7 retains this owner-managed legacy draft field. Upgrade
+    -- databases must receive the same column, but TM-70 never derives public
+    -- search regions from it.
+    IF COL_LENGTH(N'commerce.Tours', N'destination') IS NULL
+        ALTER TABLE commerce.Tours
+            ADD destination NVARCHAR(300) COLLATE Vietnamese_100_CI_AS NULL;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.columns AS c
+        JOIN sys.types AS t ON t.user_type_id = c.user_type_id
+        WHERE c.object_id = OBJECT_ID(N'commerce.Tours')
+          AND c.name = N'destination'
+          AND t.name = N'nvarchar'
+          AND c.max_length = 600
+          AND c.collation_name = N'Vietnamese_100_CI_AS'
+          AND c.is_nullable = 1
+          AND c.is_identity = 0
+          AND c.is_computed = 0)
+        THROW 51000, 'TM-70 legacy destination column shape mismatch; manual reconciliation is required.', 1;
+
     IF EXISTS (SELECT 1 FROM commerce.Tours WHERE base_price <> FLOOR(base_price))
         THROW 51000, 'TM-70 cannot enforce whole-VND prices while fractional base_price values exist.', 1;
 
