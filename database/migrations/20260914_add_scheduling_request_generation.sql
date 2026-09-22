@@ -98,6 +98,17 @@ BEGIN TRY
         ALTER TABLE catalog.POIs ADD estimated_visit_cost DECIMAL(12, 2) NULL;
     END;
 
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.check_constraints
+        WHERE name = N'CK_POIs_EstimatedVisitCost_NonNegative'
+          AND parent_object_id = OBJECT_ID(N'catalog.POIs'))
+    BEGIN
+        ALTER TABLE catalog.POIs
+            ADD CONSTRAINT CK_POIs_EstimatedVisitCost_NonNegative
+            CHECK (estimated_visit_cost IS NULL OR estimated_visit_cost >= 0);
+    END;
+
     IF COL_LENGTH(N'catalog.POIs', N'source_url') IS NULL
     BEGIN
         ALTER TABLE catalog.POIs ADD source_url NVARCHAR(500) NULL;

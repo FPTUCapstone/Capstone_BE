@@ -2,6 +2,7 @@ using System.Text.RegularExpressions;
 
 using FluentAssertions;
 
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
@@ -19,6 +20,55 @@ public sealed class CreateSchedulingRequestSqlServerTests
 {
     private const string RejectGeneratedItineraryConstraint =
         "CK_Itineraries_RejectGeneratedForSchedulingRollback";
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task CanonicalSchema_AndSchedulingMigrations_ExposeSameSchedulingConstraints()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await ApplySchedulingMigrationsAsync(database);
+        await ApplySchedulingMigrationsAsync(database);
+        var seed = await SeedAsync(database);
+
+        var schedulingColumns = await database.ExecuteScalarAsync<int>("""
+            SELECT COUNT(*)
+            FROM sys.columns
+            WHERE object_id = OBJECT_ID(N'planning.SchedulingRequests')
+              AND name IN (
+                  N'idempotency_key', N'request_hash', N'start_at', N'time_zone_id',
+                  N'end_poi_id', N'return_to_start', N'transport_mode',
+                  N'rest_preference', N'failure_code');
+            """);
+        var hasOperationIndex = await database.ExecuteScalarAsync<int>("""
+            SELECT COUNT(*)
+            FROM sys.indexes
+            WHERE object_id = OBJECT_ID(N'planning.SchedulingRequests')
+              AND name = N'UX_SchedulingRequests_Traveler_Key';
+            """);
+        var hasEndPoiForeignKey = await database.ExecuteScalarAsync<int>("""
+            SELECT COUNT(*)
+            FROM sys.foreign_keys
+            WHERE parent_object_id = OBJECT_ID(N'planning.SchedulingRequests')
+              AND name = N'FK_SchedulingRequests_EndPoi';
+            """);
+        var hasItemKindConstraint = await database.ExecuteScalarAsync<int>("""
+            SELECT COUNT(*)
+            FROM sys.check_constraints
+            WHERE parent_object_id = OBJECT_ID(N'planning.ItineraryItems')
+              AND name = N'CK_ItineraryItems_KindPoi';
+            """);
+
+        schedulingColumns.Should().Be(9);
+        hasOperationIndex.Should().Be(1);
+        hasEndPoiForeignKey.Should().Be(1);
+        hasItemKindConstraint.Should().Be(1);
+        var writeNegativeCost = () => database.ExecuteNonQueryAsync($"""
+            UPDATE catalog.POIs
+            SET estimated_visit_cost = -1
+            WHERE poi_id = {seed.PoiId};
+            """);
+        await writeNegativeCost.Should().ThrowAsync<SqlException>();
+    }
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]

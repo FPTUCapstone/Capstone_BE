@@ -359,7 +359,9 @@ CREATE TABLE catalog.POIs (
     status                       VARCHAR(10) NOT NULL DEFAULT 'Active' CHECK (status IN ('Active','Inactive')),
     created_by                   BIGINT NULL REFERENCES dbo.Users(user_id),
     created_at                   DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
-    updated_at                   DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+    updated_at                   DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT CK_POIs_EstimatedVisitCost_NonNegative
+        CHECK (estimated_visit_cost IS NULL OR estimated_visit_cost >= 0)
 );
 GO
 CREATE INDEX IX_POIs_Category ON catalog.POIs(category_id);
@@ -570,22 +572,40 @@ GO
 CREATE TABLE planning.SchedulingRequests (
     request_id                 BIGINT IDENTITY(1,1) PRIMARY KEY,
     traveler_user_id            BIGINT NOT NULL REFERENCES dbo.Users(user_id),
+    idempotency_key             UNIQUEIDENTIFIER NOT NULL,
+    request_hash                CHAR(64) NOT NULL,
+    start_at                    DATETIME2 NOT NULL,
+    time_zone_id                VARCHAR(100) NOT NULL DEFAULT 'Asia/Ho_Chi_Minh',
     start_latitude                DECIMAL(9,6) NOT NULL,
     start_longitude               DECIMAL(9,6) NOT NULL,
-    destination_latitude          DECIMAL(9,6) NULL,
-    destination_longitude         DECIMAL(9,6) NULL,
+    destination_latitude          DECIMAL(9,6) NOT NULL,
+    destination_longitude         DECIMAL(9,6) NOT NULL,
+    end_poi_id                    BIGINT NULL,
+    return_to_start               BIT NOT NULL DEFAULT 1,
     available_minutes             INT NOT NULL CHECK (available_minutes > 0),
-    search_radius_km               DECIMAL(6,2) NULL,   -- NEW in v4: bounds "explore around this area" requests
+    transport_mode                VARCHAR(20) NOT NULL DEFAULT 'Walking'
+        CHECK (transport_mode IN ('Walking','Motorbike','Car','PublicTransit')),
+    search_radius_km               DECIMAL(6,2) NOT NULL,   -- NEW in v4: bounds "explore around this area" requests
     budget                         DECIMAL(12,2) NULL,
-    mandatory_poi_ids_json          NVARCHAR(500) NULL,
+    mandatory_poi_ids_json          NVARCHAR(500) NOT NULL DEFAULT N'[]',
     preferences_snapshot_json        NVARCHAR(MAX) NULL,
+    rest_preference                VARCHAR(10) NOT NULL DEFAULT 'Auto'
+        CHECK (rest_preference IN ('Auto','None','Frequent')),
     status                            VARCHAR(12) NOT NULL DEFAULT 'Pending'
         CHECK (status IN ('Pending','Processing','Completed','Failed')),
     requested_at                       DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
-    completed_at                        DATETIME2 NULL
+    completed_at                        DATETIME2 NULL,
+    failure_code                       VARCHAR(100) NULL,
+    CONSTRAINT FK_SchedulingRequests_EndPoi
+        FOREIGN KEY (end_poi_id) REFERENCES catalog.POIs(poi_id),
+    CONSTRAINT CK_SchedulingRequests_EndChoice CHECK (
+        (return_to_start = 1 AND end_poi_id IS NULL)
+        OR (return_to_start = 0 AND end_poi_id IS NOT NULL))
 );
 GO
 CREATE INDEX IX_SchedulingRequests_Traveler ON planning.SchedulingRequests(traveler_user_id);
+CREATE UNIQUE INDEX UX_SchedulingRequests_Traveler_Key
+    ON planning.SchedulingRequests(traveler_user_id, idempotency_key);
 GO
 
 CREATE TABLE planning.Itineraries (
@@ -620,10 +640,12 @@ CREATE TABLE planning.ItineraryItems (
     item_id                       BIGINT IDENTITY(1,1) PRIMARY KEY,
     itinerary_id                   BIGINT NOT NULL REFERENCES planning.Itineraries(itinerary_id) ON DELETE CASCADE,
     sequence_no                     INT NOT NULL CHECK (sequence_no > 0),
-    poi_id                            BIGINT NOT NULL REFERENCES catalog.POIs(poi_id),
+    poi_id                            BIGINT NULL REFERENCES catalog.POIs(poi_id),
     planned_arrival                    DATETIME2 NULL,
     planned_departure                   DATETIME2 NULL,
     stay_duration_minutes                INT NOT NULL DEFAULT 60 CHECK (stay_duration_minutes > 0),
+    item_kind                          VARCHAR(10) NOT NULL DEFAULT 'Visit'
+        CHECK (item_kind IN ('Visit','Rest')),
     is_mandatory                          BIT NOT NULL DEFAULT 0,
     estimated_cost                          DECIMAL(12,2) NULL,   -- NEW in v4: per-stop cost, lets the CSP engine track budget as it builds the itinerary
     recommendation_reason                     NVARCHAR(500) NULL,   -- NEW in v4: explains why the CSP engine chose this stop
@@ -632,7 +654,10 @@ CREATE TABLE planning.ItineraryItems (
     travel_duration_to_next_minutes         INT NULL,
     status                                   VARCHAR(10) NOT NULL DEFAULT 'Planned'
         CHECK (status IN ('Planned','Visited','Skipped')),
-    CONSTRAINT UQ_ItineraryItems UNIQUE (itinerary_id, sequence_no)
+    CONSTRAINT UQ_ItineraryItems UNIQUE (itinerary_id, sequence_no),
+    CONSTRAINT CK_ItineraryItems_KindPoi CHECK (
+        (item_kind = 'Visit' AND poi_id IS NOT NULL)
+        OR (item_kind = 'Rest' AND is_mandatory = 0))
 );
 GO
 CREATE INDEX IX_ItineraryItems_POI ON planning.ItineraryItems(poi_id);

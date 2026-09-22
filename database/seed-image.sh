@@ -6,6 +6,7 @@
 set -euo pipefail
 
 SQLCMD="/opt/mssql-tools18/bin/sqlcmd"
+: "${MSSQL_SA_PASSWORD:?The BuildKit sa_password secret must be supplied when building the seeded image.}"
 
 /opt/mssql/bin/sqlservr --accept-eula &
 SQLPID=$!

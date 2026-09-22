@@ -23,25 +23,28 @@ public sealed class CreateSchedulingRequestCommandHandler(
     SchedulingGenerationOptions? generationOptions = null)
     : IRequestHandler<CreateSchedulingRequestCommand, Result<SchedulingResponseDto>>
 {
+    private readonly SchedulingGenerationOptions _generationOptions =
+        generationOptions ?? new SchedulingGenerationOptions();
+
     public async Task<Result<SchedulingResponseDto>> Handle(
         CreateSchedulingRequestCommand command,
         CancellationToken cancellationToken)
     {
-        var timeZone = TimeZoneInfo.FindSystemTimeZoneById(command.TimeZoneId.Trim());
-        var startAtUtc = command.StartAt.ToUniversalTime();
-        var requestHash = ComputeRequestHash(command, startAtUtc);
+        var canonical = CanonicalSchedulingRequest.From(command);
+        var timeZone = TimeZoneInfo.FindSystemTimeZoneById(canonical.TimeZoneId);
+        var requestHash = ComputeRequestHash(canonical);
 
         return await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
         {
             await schedulingRequestLock.AcquireAsync(
-                command.TravelerUserId,
-                command.IdempotencyKey,
+                canonical.TravelerUserId,
+                canonical.IdempotencyKey,
                 transactionCancellationToken);
 
             var previousRequest = await dbContext.SchedulingRequests
                 .SingleOrDefaultAsync(request =>
-                    request.TravelerUserId == command.TravelerUserId
-                    && request.IdempotencyKey == command.IdempotencyKey,
+                    request.TravelerUserId == canonical.TravelerUserId
+                    && request.IdempotencyKey == canonical.IdempotencyKey,
                     transactionCancellationToken);
             if (previousRequest is not null)
             {
@@ -50,7 +53,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
 
             var travelerInterestTags = await dbContext.TravelerProfiles
                 .AsNoTracking()
-                .Where(profile => profile.UserId == command.TravelerUserId)
+                .Where(profile => profile.UserId == canonical.TravelerUserId)
                 .Select(profile => profile.InterestTagsJson)
                 .SingleOrDefaultAsync(transactionCancellationToken);
             var preferenceTokens = ParsePreferenceTokens(travelerInterestTags);
@@ -62,90 +65,110 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 .ThenInclude(mapping => mapping.Tag)
                 .Where(poi => poi.Status == PointOfInterestStatus.Active)
                 .ToListAsync(transactionCancellationToken);
-            var endPoi = command.EndPoiId.HasValue
-                ? activePois.SingleOrDefault(poi => poi.Id == command.EndPoiId.Value)
+            var now = dateTimeProvider.UtcNow;
+            var schedulingRequest = SchedulingRequest.Create(
+                canonical.TravelerUserId,
+                canonical.IdempotencyKey,
+                requestHash,
+                canonical.StartAtUtc,
+                canonical.TimeZoneId,
+                canonical.StartLatitude,
+                canonical.StartLongitude,
+                canonical.ExplorationLatitude,
+                canonical.ExplorationLongitude,
+                canonical.EndPoiId,
+                canonical.ReturnToStart,
+                canonical.AvailableMinutes,
+                canonical.TransportMode,
+                canonical.SearchRadiusKm,
+                canonical.BudgetVnd,
+                JsonSerializer.Serialize(canonical.MandatoryPoiIds),
+                canonical.RestPreference,
+                now);
+            dbContext.SchedulingRequests.Add(schedulingRequest);
+
+            var endPoi = canonical.EndPoiId.HasValue
+                ? activePois.SingleOrDefault(poi => poi.Id == canonical.EndPoiId.Value)
                 : null;
-            if (command.EndPoiId.HasValue && endPoi is null)
+            if (canonical.EndPoiId.HasValue && endPoi is null)
             {
-                return Infeasible("The selected ending location is unavailable.");
+                return await PersistInfeasibleAsync(
+                    schedulingRequest,
+                    "The selected ending location is unavailable.",
+                    now,
+                    transactionCancellationToken);
             }
 
             var selectablePois = activePois
                 .Where(IsPlanningReady)
                 .Where(poi => DistanceInKilometers(
-                    command.ExplorationLatitude,
-                    command.ExplorationLongitude,
+                    canonical.ExplorationLatitude,
+                    canonical.ExplorationLongitude,
                     poi.Latitude,
-                    poi.Longitude) <= command.SearchRadiusKm)
+                    poi.Longitude) <= canonical.SearchRadiusKm)
                 .ToArray();
             var selectableIds = selectablePois.Select(poi => poi.Id).ToHashSet();
-            if (command.MandatoryPoiIds.Any(id => !selectableIds.Contains(id)))
+            if (canonical.MandatoryPoiIds.Any(id => !selectableIds.Contains(id)))
             {
-                return Infeasible("A mandatory location is unavailable or outside the selected area.");
+                return await PersistInfeasibleAsync(
+                    schedulingRequest,
+                    "A mandatory location is unavailable or outside the selected area.",
+                    now,
+                    transactionCancellationToken);
             }
 
             if (selectablePois.Length == 0)
             {
-                return Infeasible("No selectable locations were found in the selected area.");
+                return await PersistInfeasibleAsync(
+                    schedulingRequest,
+                    "No selectable locations were found in the selected area.",
+                    now,
+                    transactionCancellationToken);
             }
 
-            if (command.TransportMode == TransportMode.PublicTransit)
+            if (canonical.TransportMode == TransportMode.PublicTransit)
             {
-                return Infeasible("Public transit routing is not available yet. Choose walking, motorbike, or car.");
+                return await PersistInfeasibleAsync(
+                    schedulingRequest,
+                    "Public transit routing is not available yet. Choose walking, motorbike, or car.",
+                    now,
+                    transactionCancellationToken);
             }
 
-            var now = dateTimeProvider.UtcNow;
-            var mandatoryIdsJson = JsonSerializer.Serialize(command.MandatoryPoiIds.Order());
-            var schedulingRequest = SchedulingRequest.Create(
-                command.TravelerUserId,
-                command.IdempotencyKey,
-                requestHash,
-                startAtUtc,
-                command.TimeZoneId,
-                command.StartLatitude,
-                command.StartLongitude,
-                command.ExplorationLatitude,
-                command.ExplorationLongitude,
-                command.EndPoiId,
-                command.ReturnToStart,
-                command.AvailableMinutes,
-                command.TransportMode,
-                command.SearchRadiusKm,
-                command.BudgetVnd,
-                mandatoryIdsJson,
-                command.RestPreference,
-                now);
-            dbContext.SchedulingRequests.Add(schedulingRequest);
+            var matrixCandidates = SelectMatrixCandidates(
+                selectablePois,
+                canonical,
+                preferenceTokens);
 
             var end = endPoi is null
-                ? new RoutePoint(command.StartLatitude, command.StartLongitude)
+                ? new RoutePoint(canonical.StartLatitude, canonical.StartLongitude)
                 : new RoutePoint(endPoi.Latitude, endPoi.Longitude);
             var input = new GenerationInput(
-                startAtUtc,
+                canonical.StartAtUtc,
                 timeZone,
-                new RoutePoint(command.StartLatitude, command.StartLongitude),
+                new RoutePoint(canonical.StartLatitude, canonical.StartLongitude),
                 end,
-                command.AvailableMinutes,
-                command.TransportMode,
-                command.RestPreference,
-                command.BudgetVnd,
-                selectablePois.Select(poi => ToCandidate(poi, preferenceTokens)).ToArray(),
-                command.MandatoryPoiIds);
-            var plan = await new ItineraryGenerationService(routeDurationProvider, generationOptions)
+                canonical.AvailableMinutes,
+                canonical.TransportMode,
+                canonical.RestPreference,
+                canonical.BudgetVnd,
+                matrixCandidates.Select(poi => ToCandidate(poi, preferenceTokens)).ToArray(),
+                canonical.MandatoryPoiIds);
+            var plan = await new ItineraryGenerationService(routeDurationProvider, _generationOptions)
                 .GenerateAsync(input, transactionCancellationToken);
             if (plan.IsFailure)
             {
-                schedulingRequest.FailInfeasible(SchedulingErrorCodes.ConstraintsInfeasible, now);
-                await dbContext.SaveChangesAsync(transactionCancellationToken);
-                return Result.Failure<SchedulingResponseDto>(
-                    SchedulingErrorCodes.ConstraintsInfeasible,
-                    plan.ErrorMessage ?? "The selected constraints cannot produce an itinerary.");
+                return await PersistInfeasibleAsync(
+                    schedulingRequest,
+                    plan.ErrorMessage ?? "The selected constraints cannot produce an itinerary.",
+                    now,
+                    transactionCancellationToken);
             }
 
             var itinerary = Itinerary.CreateCspGenerated(
                 schedulingRequest,
-                $"Generated itinerary - {TimeZoneInfo.ConvertTime(startAtUtc, timeZone):dd MMM yyyy}",
-                startAtUtc,
+                $"Generated itinerary - {TimeZoneInfo.ConvertTime(canonical.StartAtUtc, timeZone):dd MMM yyyy}",
+                canonical.StartAtUtc,
                 plan.Value.EndAtUtc);
             foreach (var item in plan.Value.Items)
             {
@@ -206,10 +229,51 @@ public sealed class CreateSchedulingRequestCommandHandler(
     private static Result<SchedulingResponseDto> Infeasible(string message) =>
         Result.Failure<SchedulingResponseDto>(SchedulingErrorCodes.ConstraintsInfeasible, message);
 
+    private async Task<Result<SchedulingResponseDto>> PersistInfeasibleAsync(
+        SchedulingRequest schedulingRequest,
+        string message,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        schedulingRequest.FailInfeasible(SchedulingErrorCodes.ConstraintsInfeasible, now);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return Infeasible(message);
+    }
+
     private static bool IsPlanningReady(PointOfInterest poi) =>
         poi.SourceUrl is not null
         && poi.VerifiedAtUtc.HasValue
         && poi.OpeningHours.Any(hours => !hours.IsClosed && hours.OpenTime.HasValue && hours.CloseTime.HasValue);
+
+    private IReadOnlyList<PointOfInterest> SelectMatrixCandidates(
+        IReadOnlyCollection<PointOfInterest> selectablePois,
+        CanonicalSchedulingRequest command,
+        IReadOnlySet<string> preferenceTokens)
+    {
+        var mandatoryIds = command.MandatoryPoiIds.ToHashSet();
+        var mandatoryPois = selectablePois
+            .Where(poi => mandatoryIds.Contains(poi.Id))
+            .OrderBy(poi => poi.Id)
+            .ToArray();
+        var remainingCapacity = _generationOptions.EffectiveMaxMatrixCandidates - mandatoryPois.Length;
+
+        var optionalPois = selectablePois
+            .Where(poi => !mandatoryIds.Contains(poi.Id))
+            .OrderByDescending(poi => CalculatePreferenceScore(poi, preferenceTokens))
+            .ThenByDescending(poi => poi.ScenicScore ?? decimal.MinValue)
+            .ThenByDescending(poi => poi.PhotoRating ?? decimal.MinValue)
+            .ThenBy(poi => DistanceInKilometers(
+                command.ExplorationLatitude,
+                command.ExplorationLongitude,
+                poi.Latitude,
+                poi.Longitude))
+            .ThenBy(poi => poi.EstimatedVisitCost ?? decimal.MaxValue)
+            .ThenBy(poi => poi.Id)
+            .Take(remainingCapacity)
+            .ToArray();
+
+        return mandatoryPois.Concat(optionalPois).ToArray();
+    }
 
     private static GenerationCandidate ToCandidate(
         PointOfInterest poi,
@@ -325,11 +389,11 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 item.RecommendationReason)).ToArray());
     }
 
-    private static string ComputeRequestHash(CreateSchedulingRequestCommand command, DateTimeOffset startAtUtc)
+    private static string ComputeRequestHash(CanonicalSchedulingRequest command)
     {
         var payload = string.Join('|',
-            startAtUtc.ToString("O", CultureInfo.InvariantCulture),
-            command.TimeZoneId.Trim(),
+            command.StartAtUtc.ToString("O", CultureInfo.InvariantCulture),
+            command.TimeZoneId,
             command.StartLatitude.ToString("G29", CultureInfo.InvariantCulture),
             command.StartLongitude.ToString("G29", CultureInfo.InvariantCulture),
             command.ExplorationLatitude.ToString("G29", CultureInfo.InvariantCulture),
@@ -343,6 +407,50 @@ public sealed class CreateSchedulingRequestCommandHandler(
             string.Join(',', command.MandatoryPoiIds.Order()),
             command.RestPreference);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload))).ToLowerInvariant();
+    }
+
+    private sealed record CanonicalSchedulingRequest(
+        long TravelerUserId,
+        Guid IdempotencyKey,
+        DateTimeOffset StartAtUtc,
+        string TimeZoneId,
+        decimal StartLatitude,
+        decimal StartLongitude,
+        decimal ExplorationLatitude,
+        decimal ExplorationLongitude,
+        long? EndPoiId,
+        bool ReturnToStart,
+        int AvailableMinutes,
+        TransportMode TransportMode,
+        decimal SearchRadiusKm,
+        decimal? BudgetVnd,
+        IReadOnlyList<long> MandatoryPoiIds,
+        RestPreference RestPreference)
+    {
+        public static CanonicalSchedulingRequest From(CreateSchedulingRequestCommand command) =>
+            new(
+                command.TravelerUserId,
+                command.IdempotencyKey,
+                command.StartAt.ToUniversalTime(),
+                command.TimeZoneId.Trim(),
+                NormalizeCoordinate(command.StartLatitude),
+                NormalizeCoordinate(command.StartLongitude),
+                NormalizeCoordinate(command.ExplorationLatitude),
+                NormalizeCoordinate(command.ExplorationLongitude),
+                command.EndPoiId,
+                command.ReturnToStart,
+                command.AvailableMinutes,
+                command.TransportMode,
+                NormalizeDecimal(command.SearchRadiusKm, 2),
+                command.BudgetVnd is decimal budget ? NormalizeDecimal(budget, 2) : null,
+                command.MandatoryPoiIds.Order().ToArray(),
+                command.RestPreference);
+
+        private static decimal NormalizeCoordinate(decimal value) =>
+            NormalizeDecimal(value, 6);
+
+        private static decimal NormalizeDecimal(decimal value, int decimals) =>
+            Math.Round(value, decimals, MidpointRounding.AwayFromZero);
     }
 
     private static decimal DistanceInKilometers(

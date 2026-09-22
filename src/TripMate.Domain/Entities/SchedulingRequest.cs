@@ -145,8 +145,8 @@ public class SchedulingRequest : BaseEntity
             ReturnToStart = returnToStart,
             AvailableMinutes = availableMinutes,
             TransportMode = transportMode,
-            SearchRadiusKm = searchRadiusKm,
-            BudgetVnd = budgetVnd,
+            SearchRadiusKm = NormalizeDecimal(searchRadiusKm, 2),
+            BudgetVnd = budgetVnd is decimal budget ? NormalizeDecimal(budget, 2) : null,
             MandatoryPoiIdsJson = mandatoryPoiIdsJson,
             RestPreference = restPreference,
             Status = SchedulingRequestStatus.Pending,
@@ -212,5 +212,8 @@ public class SchedulingRequest : BaseEntity
     }
 
     private static decimal NormalizeCoordinate(decimal value) =>
-        Math.Round(value, 6, MidpointRounding.AwayFromZero);
+        NormalizeDecimal(value, 6);
+
+    private static decimal NormalizeDecimal(decimal value, int decimals) =>
+        Math.Round(value, decimals, MidpointRounding.AwayFromZero);
 }
