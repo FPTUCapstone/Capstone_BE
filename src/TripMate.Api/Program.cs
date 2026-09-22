@@ -91,6 +91,7 @@ try
         options.SchemaFilter<PoiContractSchemaFilter>();
         options.SchemaFilter<ProblemDetailsContractSchemaFilter>();
         options.OperationFilter<AllowAnonymousOperationFilter>();
+        options.OperationFilter<TourSearchOperationFilter>();
 
         options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
         {
