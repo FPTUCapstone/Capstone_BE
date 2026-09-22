@@ -208,42 +208,4 @@ public class AuditLog : BaseEntity
         };
     }
 
-    public static AuditLog CreateSignOutAll(
-        long actorUserId,
-        int revokedSessionCount,
-        DateTimeOffset occurredAtUtc,
-        string platform,
-        string? traceId,
-        string? ipAddress)
-    {
-        if (actorUserId is <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(actorUserId));
-        }
-
-        if (revokedSessionCount < 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(revokedSessionCount));
-        }
-
-        ArgumentException.ThrowIfNullOrWhiteSpace(platform);
-
-        return new AuditLog
-        {
-            ActorUserId = actorUserId,
-            ActionType = AuditActionTypes.AuthSignOutAll,
-            AffectedEntity = AuditEntityTypes.RefreshToken,
-            AffectedEntityId = null,
-            AfterData = System.Text.Json.JsonSerializer.Serialize(new
-            {
-                Result = "Success",
-                RevokedSessionCount = revokedSessionCount,
-                Platform = platform,
-                TraceId = traceId,
-            }),
-            Result = AuditOutcome.Success,
-            IpAddress = ipAddress,
-            CreatedAtUtc = occurredAtUtc,
-        };
-    }
 }

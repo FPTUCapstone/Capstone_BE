@@ -22,7 +22,7 @@ public class AuditRetentionTests
         db.AuditLogs.AddRange(
             AuditLog.CreateSignOut(1, 10, cutoff.AddTicks(-1), "Web", null, null),
             AuditLog.CreateSignOut(1, 11, cutoff, "Web", null, null),
-            AuditLog.CreateSignOutAll(1, 2, now.AddDays(-29).AddHours(-23), "Mobile", null, null),
+            AuditLog.CreateSignOut(1, 12, now.AddDays(-29).AddHours(-23), "Mobile", null, null),
             AuditLog.CreatePoiCreated(1, 1, "{}", cutoff.AddDays(-10)));
         await db.SaveChangesAsync();
         var service = new AuditService(db, NullLogger<AuditService>.Instance);

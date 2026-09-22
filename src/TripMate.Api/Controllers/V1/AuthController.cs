@@ -341,29 +341,6 @@ public class AuthController(ISender sender, IWebHostEnvironment environment) : A
     }
 
     /// <summary>
-    /// UC-05 D3: Mobile Sign Out All Devices - revokes all active sessions for current user.
-    /// </summary>
-    [HttpPost("logout-all")]
-    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> LogoutAll(
-        [FromBody] LogoutRequest? request,
-        CancellationToken cancellationToken)
-    {
-        var result = await Sender.Send(
-            new SignOutAllCommand(
-                request?.RefreshToken,
-                "Mobile",
-                HttpContext.TraceIdentifier,
-                HttpContext.Connection.RemoteIpAddress?.ToString()),
-            cancellationToken);
-        return result.IsSuccess
-            ? Success(result.Value, StatusCodes.Status200OK, "Signed out from all devices.")
-            : HandleFailure(result);
-    }
-
-    /// <summary>
     /// UC-05: Web sign out - revokes current refresh session and deletes cookie.
     /// D1: Cookie is only deleted after successful DB revoke.
     /// </summary>
@@ -392,33 +369,6 @@ public class AuthController(ISender sender, IWebHostEnvironment environment) : A
         return HandleFailure(result);
     }
 
-    /// <summary>
-    /// UC-05 D3: Web Sign Out All Devices - revokes all active sessions and deletes cookie.
-    /// </summary>
-    [HttpPost("web/logout-all")]
-    [ProducesResponseType(typeof(ApiResponse<bool>), StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
-    public async Task<IActionResult> WebLogoutAll(CancellationToken cancellationToken)
-    {
-        var rawToken = Request.Cookies[WebRefreshCookie.Name];
-
-        var result = await Sender.Send(
-            new WebSignOutAllCommand(
-                rawToken,
-                HttpContext.TraceIdentifier,
-                HttpContext.Connection.RemoteIpAddress?.ToString()),
-            cancellationToken);
-
-        // D1: Delete cookie only on success
-        if (result.IsSuccess)
-        {
-            WebRefreshCookie.Delete(HttpContext, environment);
-            return Success(true, StatusCodes.Status200OK, "Signed out from all devices.");
-        }
-
-        return HandleFailure(result);
-    }
 }
 
 public sealed record WebPasswordRequest(

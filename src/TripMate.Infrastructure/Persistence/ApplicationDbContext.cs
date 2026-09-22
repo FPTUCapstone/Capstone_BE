@@ -50,23 +50,12 @@ public class ApplicationDbContext(
                 setters => setters.SetProperty(token => token.RevokedAtUtc, revokedAtUtc),
                 cancellationToken);
 
-    public Task<int> RevokeUserRefreshTokensAsync(
-        long userId,
-        DateTimeOffset revokedAtUtc,
-        CancellationToken cancellationToken) =>
-        RefreshTokens
-            .Where(token => token.UserId == userId && token.RevokedAtUtc == null)
-            .ExecuteUpdateAsync(
-                setters => setters.SetProperty(token => token.RevokedAtUtc, revokedAtUtc),
-                cancellationToken);
-
     public Task<int> DeleteSignOutAuditEventsBeforeAsync(
         DateTimeOffset cutoffUtc,
         CancellationToken cancellationToken) =>
         AuditLogs
             .Where(audit =>
-                (audit.ActionType == TripMate.Domain.Common.AuditActionTypes.AuthSignOut ||
-                 audit.ActionType == TripMate.Domain.Common.AuditActionTypes.AuthSignOutAll) &&
+                audit.ActionType == TripMate.Domain.Common.AuditActionTypes.AuthSignOut &&
                 audit.CreatedAtUtc < cutoffUtc)
             .ExecuteDeleteAsync(cancellationToken);
 

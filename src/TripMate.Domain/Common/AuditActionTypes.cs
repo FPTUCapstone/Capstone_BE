@@ -8,6 +8,4 @@ public static class AuditActionTypes
 
     // UC-05 Sign Out
     public const string AuthSignOut = "AUTH_SIGN_OUT";
-
-    public const string AuthSignOutAll = "AUTH_SIGN_OUT_ALL";
 }

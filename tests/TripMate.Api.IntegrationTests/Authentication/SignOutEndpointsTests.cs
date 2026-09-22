@@ -3,17 +3,12 @@ using System.Net.Http.Json;
 
 using FluentAssertions;
 
-using MediatR;
-
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
-using TripMate.Application.Common.Models;
-using TripMate.Application.Features.Authentication.WebSignOut;
 using TripMate.Domain.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
@@ -146,108 +141,6 @@ public class SignOutEndpointsTests
     }
 
     [Fact]
-    public async Task WebLogoutAll_RevokesOnlyCurrentUserAndDeletesCookie()
-    {
-        await using var factory = new TripMateApiFactory();
-        const string currentToken = "current-user-session";
-        var (currentUserId, otherUserId) = await SeedSessionsAsync(
-            factory,
-            currentToken,
-            includeSecondUser: true);
-        using var client = factory.CreateClient();
-        client.DefaultRequestHeaders.Add("Cookie", $"tripmate_refresh={currentToken}");
-
-        var response = await client.PostAsync("/api/v1/auth/web/logout-all", null);
-
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        AssertDeletesRefreshCookie(response);
-        await factory.WithDbContextAsync(async db =>
-        {
-            (await db.RefreshTokens.CountAsync(
-                token => token.UserId == currentUserId && token.RevokedAtUtc == null)).Should().Be(0);
-            (await db.RefreshTokens.CountAsync(
-                token => token.UserId == otherUserId && token.RevokedAtUtc == null)).Should().Be(1);
-            (await db.AuditLogs.SingleAsync()).ActionType.Should().Be(AuditActionTypes.AuthSignOutAll);
-            return true;
-        });
-
-        var refreshResponse = await client.PostAsync("/api/v1/auth/web/refresh", null);
-        refreshResponse.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
-    }
-
-    [Fact]
-    public async Task WebLogoutAll_MissingCredential_IsIdempotentAndDeletesCookie()
-    {
-        await using var factory = new TripMateApiFactory();
-        using var client = factory.CreateClient();
-
-        var response = await client.PostAsync("/api/v1/auth/web/logout-all", null);
-
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        AssertDeletesRefreshCookie(response);
-    }
-
-    [Fact]
-    public async Task WebLogoutAll_UnknownCredential_IsIdempotentAndDeletesCookie()
-    {
-        await using var factory = new TripMateApiFactory();
-        using var client = factory.CreateClient();
-        client.DefaultRequestHeaders.Add("Cookie", "tripmate_refresh=unknown-refresh");
-
-        var response = await client.PostAsync("/api/v1/auth/web/logout-all", null);
-
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        AssertDeletesRefreshCookie(response);
-    }
-
-    [Fact]
-    public async Task WebLogoutAll_WhenPersistenceFails_ReturnsProblemAndKeepsCookie()
-    {
-        await using var factory = new TripMateApiFactory(
-            configureTestServices: services =>
-            {
-                services.RemoveAll<IRequestHandler<WebSignOutAllCommand, Result<bool>>>();
-                services.AddTransient<IRequestHandler<WebSignOutAllCommand, Result<bool>>, ThrowingWebSignOutAllHandler>();
-            });
-        using var client = factory.CreateClient();
-        client.DefaultRequestHeaders.Add("Cookie", "tripmate_refresh=retryable-refresh");
-
-        var response = await client.PostAsync("/api/v1/auth/web/logout-all", null);
-
-        response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
-        response.Content.Headers.ContentType?.MediaType.Should().Be("application/problem+json");
-        response.Headers.Contains("Set-Cookie").Should().BeFalse();
-    }
-
-    [Fact]
-    public async Task MobileLogoutAll_UsesBodyCredentialAndRevokesAllUserSessions()
-    {
-        await using var factory = new TripMateApiFactory();
-        const string currentToken = "mobile-current-session";
-        var (currentUserId, otherUserId) = await SeedSessionsAsync(
-            factory,
-            currentToken,
-            includeSecondUser: true);
-        using var client = factory.CreateClient();
-
-        var response = await client.PostAsJsonAsync(
-            "/api/v1/auth/logout-all",
-            new { refreshToken = currentToken });
-
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        response.Headers.Contains("Set-Cookie").Should().BeFalse();
-        await factory.WithDbContextAsync(async db =>
-        {
-            (await db.RefreshTokens.CountAsync(
-                token => token.UserId == currentUserId && token.RevokedAtUtc == null)).Should().Be(0);
-            (await db.RefreshTokens.CountAsync(
-                token => token.UserId == otherUserId && token.RevokedAtUtc == null)).Should().Be(1);
-            (await db.AuditLogs.SingleAsync()).ActionType.Should().Be(AuditActionTypes.AuthSignOutAll);
-            return true;
-        });
-    }
-
-    [Fact]
     public async Task MobileLogout_RevokedCredentialIsRejectedByWebRefresh()
     {
         await using var factory = new TripMateApiFactory();
@@ -364,9 +257,4 @@ public class SignOutEndpointsTests
         }
     }
 
-    private sealed class ThrowingWebSignOutAllHandler : IRequestHandler<WebSignOutAllCommand, Result<bool>>
-    {
-        public Task<Result<bool>> Handle(WebSignOutAllCommand request, CancellationToken cancellationToken) =>
-            throw new InvalidOperationException("simulated persistence failure");
-    }
 }

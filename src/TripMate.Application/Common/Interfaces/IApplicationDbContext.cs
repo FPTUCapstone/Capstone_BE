@@ -55,11 +55,6 @@ public interface IApplicationDbContext
         DateTimeOffset revokedAtUtc,
         CancellationToken cancellationToken);
 
-    Task<int> RevokeUserRefreshTokensAsync(
-        long userId,
-        DateTimeOffset revokedAtUtc,
-        CancellationToken cancellationToken);
-
     Task<int> DeleteSignOutAuditEventsBeforeAsync(
         DateTimeOffset cutoffUtc,
         CancellationToken cancellationToken);

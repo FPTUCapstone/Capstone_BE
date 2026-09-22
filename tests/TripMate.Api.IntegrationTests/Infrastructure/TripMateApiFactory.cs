@@ -221,30 +221,13 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
         return 1;
     }
 
-    public async Task<int> RevokeUserRefreshTokensAsync(
-        long userId,
-        DateTimeOffset revokedAtUtc,
-        CancellationToken cancellationToken)
-    {
-        var tokens = await RefreshTokens
-            .Where(token => token.UserId == userId && token.RevokedAtUtc == null)
-            .ToListAsync(cancellationToken);
-        foreach (var token in tokens)
-        {
-            token.RevokedAtUtc = revokedAtUtc;
-        }
-
-        return tokens.Count;
-    }
-
     public async Task<int> DeleteSignOutAuditEventsBeforeAsync(
         DateTimeOffset cutoffUtc,
         CancellationToken cancellationToken)
     {
         var audits = await AuditLogs
             .Where(audit =>
-                (audit.ActionType == TripMate.Domain.Common.AuditActionTypes.AuthSignOut ||
-                 audit.ActionType == TripMate.Domain.Common.AuditActionTypes.AuthSignOutAll) &&
+                audit.ActionType == TripMate.Domain.Common.AuditActionTypes.AuthSignOut &&
                 audit.CreatedAtUtc < cutoffUtc)
             .ToListAsync(cancellationToken);
         AuditLogs.RemoveRange(audits);
