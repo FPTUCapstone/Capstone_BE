@@ -64,6 +64,37 @@ public class TestDbContext(
 
     public int TransactionExecutionCount { get; private set; }
 
+    public async Task<int> RevokeRefreshTokenAsync(
+        string tokenHash,
+        DateTimeOffset revokedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var token = await RefreshTokens.SingleOrDefaultAsync(
+            candidate => candidate.TokenHash == tokenHash && candidate.RevokedAtUtc == null,
+            cancellationToken);
+        if (token is null)
+        {
+            return 0;
+        }
+
+        token.RevokedAtUtc = revokedAtUtc;
+        return 1;
+    }
+
+    public async Task<int> DeleteSignOutAuditEventsBeforeAsync(
+        DateTimeOffset cutoffUtc,
+        CancellationToken cancellationToken)
+    {
+        var audits = await AuditLogs
+            .Where(audit =>
+                audit.ActionType == TripMate.Domain.Common.AuditActionTypes.AuthSignOut &&
+                audit.CreatedAtUtc < cutoffUtc)
+            .ToListAsync(cancellationToken);
+        AuditLogs.RemoveRange(audits);
+        await SaveChangesAsync(cancellationToken);
+        return audits.Count;
+    }
+
     public async Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken)
