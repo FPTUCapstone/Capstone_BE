@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Applies tripmate_schema_v7.sql to the TripMateDb database.
-# Safe to run repeatedly on a database that already has v7: skips silently.
-# Refuses (with an actionable message) to run against a database that still
-# has an older schema version — there is no incremental upgrade path here,
-# each version is a full recreate script, so an older DB must be reset first.
+# Safe to run repeatedly: a fresh database receives the full v7 schema and an
+# existing v7 database receives every idempotent script in migrations/.
+# Databases older than v7 still require the documented reset/version upgrade.
 set -euo pipefail
 
 SQLCMD="/opt/mssql-tools18/bin/sqlcmd"
@@ -28,7 +27,7 @@ echo "Ensuring database [$DB_NAME] exists on $DB_SERVER..."
   -Q "IF DB_ID(N'$DB_NAME') IS NULL CREATE DATABASE [$DB_NAME];"
 
 # 'empty'   -> nothing applied yet, safe to run the full script.
-# 'current' -> v7 already present (MSG130 only exists from v7 onward), skip.
+# 'current' -> v7 already present (MSG130 only exists from v7 onward), run migrations.
 # 'stale'   -> an older version (e.g. v6) is applied; MSG130 is missing.
 STATE=$("$SQLCMD" -b -V 11 -C -S "$DB_SERVER" -U sa -P "$SA_PASSWORD" -d "$DB_NAME" -h -1 -W \
   -Q "SET NOCOUNT ON;
@@ -44,8 +43,8 @@ case "$STATE" in
     ;;
   stale)
     echo "ERROR: [$DB_NAME] has an older schema version applied (missing MSG130 seed data)." >&2
-    echo "This project has no incremental upgrade path — each version is a full recreate script." >&2
-    echo "Reset the database first: docker compose down -v && docker compose up -d" >&2
+    echo "No verified upgrade path from this version is included. Preserve the database and ask the data owner for a backup and migration plan." >&2
+    echo "Do not run the full schema or remove the SQL Server volume on a database with data." >&2
     exit 1
     ;;
 esac
