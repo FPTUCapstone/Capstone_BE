@@ -40,5 +40,23 @@ public sealed class CreateSchedulingRequestOpenApiTests
         responses.TryGetProperty("403", out _).Should().BeTrue();
         responses.TryGetProperty("409", out _).Should().BeTrue();
         responses.TryGetProperty("422", out _).Should().BeTrue();
+
+        var requestSchemaReference = operation
+            .GetProperty("requestBody")
+            .GetProperty("content")
+            .GetProperty("application/json")
+            .GetProperty("schema")
+            .GetProperty("$ref")
+            .GetString();
+        var requestSchemaName = requestSchemaReference!.Split('/').Last();
+        var requestSchema = openApi.RootElement
+            .GetProperty("components")
+            .GetProperty("schemas")
+            .GetProperty(requestSchemaName);
+        var requiredProperties = requestSchema.TryGetProperty("required", out var required)
+            ? required.EnumerateArray().Select(property => property.GetString()).ToArray()
+            : Array.Empty<string?>();
+
+        requiredProperties.Should().NotContain("mandatoryPoiIds");
     }
 }

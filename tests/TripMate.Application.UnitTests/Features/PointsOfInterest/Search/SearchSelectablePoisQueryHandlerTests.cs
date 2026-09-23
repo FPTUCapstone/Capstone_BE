@@ -69,6 +69,30 @@ public class SearchSelectablePoisQueryHandlerTests
         result.Value.Items.Single().Name.Should().Be("Cham Museum");
     }
 
+    [Fact]
+    public async Task Handle_WhenRequestedPageOffsetExceedsIntRange_ReturnsAnEmptyPage()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var category = PoiCategory.Create("Museum", null);
+        dbContext.PoiCategories.Add(category);
+        await dbContext.SaveChangesAsync();
+
+        var poi = CreatePoi(category, "Cham Museum", 16.043m, 108.222m);
+        poi.ConfigurePlanningMetadata(60_000m, "https://example.com/cham", SeedTime);
+        poi.AddOpeningHour(PoiOpeningHour.Create(1, new TimeOnly(7, 30), new TimeOnly(17, 0), false));
+        dbContext.PointsOfInterest.Add(poi);
+        await dbContext.SaveChangesAsync();
+
+        var handler = new SearchSelectablePoisQueryHandler(dbContext);
+        var result = await handler.Handle(
+            new SearchSelectablePoisQuery(null, null, null, null, int.MaxValue, 50),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.TotalCount.Should().Be(1);
+        result.Value.Items.Should().BeEmpty();
+    }
+
     private static PointOfInterest CreatePoi(
         PoiCategory category,
         string name,

@@ -215,7 +215,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
         {
             return Result.Failure<SchedulingResponseDto>(
                 previousRequest.FailureCode ?? SchedulingErrorCodes.ConstraintsInfeasible,
-                "The selected constraints cannot produce an itinerary.");
+                previousRequest.FailureMessage ?? "The selected constraints cannot produce an itinerary.");
         }
 
         var itinerary = await dbContext.Itineraries
@@ -235,7 +235,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
-        schedulingRequest.FailInfeasible(SchedulingErrorCodes.ConstraintsInfeasible, now);
+        schedulingRequest.FailInfeasible(SchedulingErrorCodes.ConstraintsInfeasible, message, now);
         await dbContext.SaveChangesAsync(cancellationToken);
         return Infeasible(message);
     }
@@ -443,7 +443,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 command.TransportMode,
                 NormalizeDecimal(command.SearchRadiusKm, 2),
                 command.BudgetVnd is decimal budget ? NormalizeDecimal(budget, 2) : null,
-                command.MandatoryPoiIds.Order().ToArray(),
+                (command.MandatoryPoiIds ?? []).Order().ToArray(),
                 command.RestPreference);
 
         private static decimal NormalizeCoordinate(decimal value) =>

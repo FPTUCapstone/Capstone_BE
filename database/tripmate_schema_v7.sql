@@ -575,27 +575,35 @@ CREATE TABLE planning.SchedulingRequests (
     idempotency_key             UNIQUEIDENTIFIER NOT NULL,
     request_hash                CHAR(64) NOT NULL,
     start_at                    DATETIME2 NOT NULL,
-    time_zone_id                VARCHAR(100) NOT NULL DEFAULT 'Asia/Ho_Chi_Minh',
+    time_zone_id                VARCHAR(100) NOT NULL
+        CONSTRAINT DF_SchedulingRequests_TimeZoneId DEFAULT 'Asia/Ho_Chi_Minh',
     start_latitude                DECIMAL(9,6) NOT NULL,
     start_longitude               DECIMAL(9,6) NOT NULL,
     destination_latitude          DECIMAL(9,6) NOT NULL,
     destination_longitude         DECIMAL(9,6) NOT NULL,
     end_poi_id                    BIGINT NULL,
-    return_to_start               BIT NOT NULL DEFAULT 1,
+    return_to_start               BIT NOT NULL
+        CONSTRAINT DF_SchedulingRequests_ReturnToStart DEFAULT 1,
     available_minutes             INT NOT NULL CHECK (available_minutes > 0),
-    transport_mode                VARCHAR(20) NOT NULL DEFAULT 'Walking'
+    transport_mode                VARCHAR(20) NOT NULL
+        CONSTRAINT DF_SchedulingRequests_TransportMode DEFAULT 'Walking'
+        CONSTRAINT CK_SchedulingRequests_TransportMode
         CHECK (transport_mode IN ('Walking','Motorbike','Car','PublicTransit')),
     search_radius_km               DECIMAL(6,2) NOT NULL,   -- NEW in v4: bounds "explore around this area" requests
     budget                         DECIMAL(12,2) NULL,
-    mandatory_poi_ids_json          NVARCHAR(500) NOT NULL DEFAULT N'[]',
+    mandatory_poi_ids_json          NVARCHAR(500) NOT NULL
+        CONSTRAINT DF_SchedulingRequests_MandatoryPoiIds DEFAULT N'[]',
     preferences_snapshot_json        NVARCHAR(MAX) NULL,
-    rest_preference                VARCHAR(10) NOT NULL DEFAULT 'Auto'
+    rest_preference                VARCHAR(10) NOT NULL
+        CONSTRAINT DF_SchedulingRequests_RestPreference DEFAULT 'Auto'
+        CONSTRAINT CK_SchedulingRequests_RestPreference
         CHECK (rest_preference IN ('Auto','None','Frequent')),
     status                            VARCHAR(12) NOT NULL DEFAULT 'Pending'
         CHECK (status IN ('Pending','Processing','Completed','Failed')),
     requested_at                       DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
     completed_at                        DATETIME2 NULL,
     failure_code                       VARCHAR(100) NULL,
+    failure_message                    NVARCHAR(500) NULL,
     CONSTRAINT FK_SchedulingRequests_EndPoi
         FOREIGN KEY (end_poi_id) REFERENCES catalog.POIs(poi_id),
     CONSTRAINT CK_SchedulingRequests_EndChoice CHECK (

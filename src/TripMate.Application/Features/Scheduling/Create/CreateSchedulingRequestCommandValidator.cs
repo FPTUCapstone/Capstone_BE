@@ -25,8 +25,6 @@ public sealed class CreateSchedulingRequestCommandValidator
             .GreaterThan(0m)
             .When(command => command.BudgetVnd.HasValue);
         RuleFor(command => command.MandatoryPoiIds)
-            .Must(ids => ids is not null)
-            .WithMessage("Mandatory locations are required.")
             .Must(ids => ids is null || ids.Count <= 6)
             .WithMessage("You can select up to six mandatory locations.")
             .Must(ids => ids is null || ids.All(id => id > 0))

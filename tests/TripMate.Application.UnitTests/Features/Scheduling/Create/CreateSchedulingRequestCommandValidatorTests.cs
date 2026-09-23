@@ -39,6 +39,14 @@ public sealed class CreateSchedulingRequestCommandValidatorTests
         result.Errors.Should().Contain(error => error.PropertyName == nameof(command.MandatoryPoiIds));
     }
 
+    [Fact]
+    public void Validate_WhenMandatoryLocationsAreOmitted_HasNoErrors()
+    {
+        var command = CreateValidCommand() with { MandatoryPoiIds = null };
+
+        _validator.Validate(command).IsValid.Should().BeTrue();
+    }
+
     private static CreateSchedulingRequestCommand CreateValidCommand() => new(
         TravelerUserId: 42,
         IdempotencyKey: Guid.NewGuid(),

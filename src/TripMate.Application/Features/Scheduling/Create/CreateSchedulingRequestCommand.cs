@@ -21,6 +21,6 @@ public sealed record CreateSchedulingRequestCommand(
     TransportMode TransportMode,
     decimal SearchRadiusKm,
     decimal? BudgetVnd,
-    IReadOnlyCollection<long> MandatoryPoiIds,
+    IReadOnlyCollection<long>? MandatoryPoiIds,
     RestPreference RestPreference)
     : IRequest<Result<SchedulingResponseDto>>;

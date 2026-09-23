@@ -83,6 +83,102 @@ BEGIN TRY
         ALTER TABLE planning.SchedulingRequests ADD failure_code VARCHAR(100) NULL;
     END;
 
+    IF COL_LENGTH(N'planning.SchedulingRequests', N'failure_message') IS NULL
+    BEGIN
+        ALTER TABLE planning.SchedulingRequests ADD failure_message NVARCHAR(500) NULL;
+    END;
+
+    IF EXISTS (
+        SELECT 1
+        FROM sys.columns
+        WHERE object_id = OBJECT_ID(N'planning.SchedulingRequests')
+          AND name = N'destination_latitude'
+          AND is_nullable = 1)
+    BEGIN
+        EXEC sys.sp_executesql N'
+            UPDATE planning.SchedulingRequests
+            SET destination_latitude = start_latitude
+            WHERE destination_latitude IS NULL;
+
+            ALTER TABLE planning.SchedulingRequests ALTER COLUMN destination_latitude DECIMAL(9,6) NOT NULL;';
+    END;
+
+    IF EXISTS (
+        SELECT 1
+        FROM sys.columns
+        WHERE object_id = OBJECT_ID(N'planning.SchedulingRequests')
+          AND name = N'destination_longitude'
+          AND is_nullable = 1)
+    BEGIN
+        EXEC sys.sp_executesql N'
+            UPDATE planning.SchedulingRequests
+            SET destination_longitude = start_longitude
+            WHERE destination_longitude IS NULL;
+
+            ALTER TABLE planning.SchedulingRequests ALTER COLUMN destination_longitude DECIMAL(9,6) NOT NULL;';
+    END;
+
+    IF EXISTS (
+        SELECT 1
+        FROM sys.columns
+        WHERE object_id = OBJECT_ID(N'planning.SchedulingRequests')
+          AND name = N'search_radius_km'
+          AND is_nullable = 1)
+    BEGIN
+        EXEC sys.sp_executesql N'
+            UPDATE planning.SchedulingRequests
+            SET search_radius_km = 10.00
+            WHERE search_radius_km IS NULL;
+
+            ALTER TABLE planning.SchedulingRequests ALTER COLUMN search_radius_km DECIMAL(6,2) NOT NULL;';
+    END;
+
+    IF EXISTS (
+        SELECT 1
+        FROM sys.columns
+        WHERE object_id = OBJECT_ID(N'planning.SchedulingRequests')
+          AND name = N'mandatory_poi_ids_json'
+          AND is_nullable = 1)
+    BEGIN
+        EXEC sys.sp_executesql N'
+            UPDATE planning.SchedulingRequests
+            SET mandatory_poi_ids_json = N''[]''
+            WHERE mandatory_poi_ids_json IS NULL;
+
+            ALTER TABLE planning.SchedulingRequests ALTER COLUMN mandatory_poi_ids_json NVARCHAR(500) NOT NULL;';
+    END;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.default_constraints
+        WHERE parent_object_id = OBJECT_ID(N'planning.SchedulingRequests')
+          AND parent_column_id = COLUMNPROPERTY(
+              OBJECT_ID(N'planning.SchedulingRequests'),
+              N'mandatory_poi_ids_json',
+              'ColumnId'))
+    BEGIN
+        ALTER TABLE planning.SchedulingRequests
+            ADD CONSTRAINT DF_SchedulingRequests_MandatoryPoiIds
+            DEFAULT N'[]' FOR mandatory_poi_ids_json;
+    END;
+
+    EXEC sys.sp_executesql N'
+        UPDATE planning.SchedulingRequests
+        SET rest_preference = ''Auto''
+        WHERE rest_preference NOT IN (''Auto'', ''None'', ''Frequent'')
+           OR rest_preference IS NULL;
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM sys.check_constraints
+            WHERE parent_object_id = OBJECT_ID(N''planning.SchedulingRequests'')
+              AND name = N''CK_SchedulingRequests_RestPreference'')
+        BEGIN
+            ALTER TABLE planning.SchedulingRequests
+                ADD CONSTRAINT CK_SchedulingRequests_RestPreference
+                CHECK (rest_preference IN (''Auto'', ''None'', ''Frequent''));
+        END;';
+
     IF NOT EXISTS (
         SELECT 1
         FROM sys.indexes
@@ -98,16 +194,17 @@ BEGIN TRY
         ALTER TABLE catalog.POIs ADD estimated_visit_cost DECIMAL(12, 2) NULL;
     END;
 
-    IF NOT EXISTS (
-        SELECT 1
-        FROM sys.check_constraints
-        WHERE name = N'CK_POIs_EstimatedVisitCost_NonNegative'
-          AND parent_object_id = OBJECT_ID(N'catalog.POIs'))
-    BEGIN
-        ALTER TABLE catalog.POIs
-            ADD CONSTRAINT CK_POIs_EstimatedVisitCost_NonNegative
-            CHECK (estimated_visit_cost IS NULL OR estimated_visit_cost >= 0);
-    END;
+    EXEC sys.sp_executesql N'
+        IF NOT EXISTS (
+            SELECT 1
+            FROM sys.check_constraints
+            WHERE name = N''CK_POIs_EstimatedVisitCost_NonNegative''
+              AND parent_object_id = OBJECT_ID(N''catalog.POIs''))
+        BEGIN
+            ALTER TABLE catalog.POIs
+                ADD CONSTRAINT CK_POIs_EstimatedVisitCost_NonNegative
+                CHECK (estimated_visit_cost IS NULL OR estimated_visit_cost >= 0);
+        END;';
 
     IF COL_LENGTH(N'catalog.POIs', N'source_url') IS NULL
     BEGIN

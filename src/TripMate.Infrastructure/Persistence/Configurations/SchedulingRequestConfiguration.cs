@@ -101,6 +101,9 @@ public sealed class SchedulingRequestConfiguration
             .HasColumnName("failure_code")
             .HasMaxLength(100)
             .IsUnicode(false);
+        builder.Property(request => request.FailureMessage)
+            .HasColumnName("failure_message")
+            .HasMaxLength(500);
 
         builder.HasIndex(request => new { request.TravelerUserId, request.IdempotencyKey })
             .HasDatabaseName("UX_SchedulingRequests_Traveler_Key")

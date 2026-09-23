@@ -49,6 +49,38 @@ public sealed class CreateSchedulingRequestEndpointTests
     }
 
     [Fact]
+    public async Task Post_WithoutMandatoryPoiIds_CreatesAnItinerary()
+    {
+        using var factory = new TripMateApiFactory();
+        await SeedSelectablePoiAsync(factory);
+        using var client = factory.CreateAuthenticatedClient(42, UserRole.Traveler);
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/scheduling-requests")
+        {
+            Content = JsonContent.Create(new
+            {
+                startAt = "2026-10-20T08:00:00+07:00",
+                timeZoneId = "Asia/Ho_Chi_Minh",
+                startLatitude = 16.0544m,
+                startLongitude = 108.2022m,
+                explorationLatitude = 16.0471m,
+                explorationLongitude = 108.2068m,
+                endPoiId = (long?)null,
+                returnToStart = true,
+                availableMinutes = 480,
+                transportMode = "Motorbike",
+                searchRadiusKm = 10m,
+                budgetVnd = 800000m,
+                restPreference = "None",
+            }),
+        };
+        request.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
+
+        using var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+    }
+
+    [Fact]
     public async Task Post_AsUnauthenticatedCaller_ReturnsUnauthorized()
     {
         using var factory = new TripMateApiFactory();

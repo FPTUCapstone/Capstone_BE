@@ -37,7 +37,7 @@ public sealed class CreateSchedulingRequestSqlServerTests
               AND name IN (
                   N'idempotency_key', N'request_hash', N'start_at', N'time_zone_id',
                   N'end_poi_id', N'return_to_start', N'transport_mode',
-                  N'rest_preference', N'failure_code');
+                  N'rest_preference', N'failure_code', N'failure_message');
             """);
         var hasOperationIndex = await database.ExecuteScalarAsync<int>("""
             SELECT COUNT(*)
@@ -58,7 +58,7 @@ public sealed class CreateSchedulingRequestSqlServerTests
               AND name = N'CK_ItineraryItems_KindPoi';
             """);
 
-        schedulingColumns.Should().Be(9);
+        schedulingColumns.Should().Be(10);
         hasOperationIndex.Should().Be(1);
         hasEndPoiForeignKey.Should().Be(1);
         hasItemKindConstraint.Should().Be(1);
@@ -68,6 +68,46 @@ public sealed class CreateSchedulingRequestSqlServerTests
             WHERE poi_id = {seed.PoiId};
             """);
         await writeNegativeCost.Should().ThrowAsync<SqlException>();
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task LegacySchedulingSchema_Upgrade_ConvergesWithFreshSchedulingRequestContract()
+    {
+        await using var upgradedDatabase = await SqlServerTestDatabase.CreateEmptyAsync();
+        var fixturePath = Path.Combine(
+            AppContext.BaseDirectory,
+            "Database",
+            "Fixtures",
+            "tm56_pre_migration_schema.sql");
+        await upgradedDatabase.ExecuteScriptAsync(fixturePath);
+        await upgradedDatabase.ExecuteNonQueryAsync("""
+            INSERT INTO dbo.Users DEFAULT VALUES;
+            INSERT INTO planning.SchedulingRequests (
+                traveler_user_id, start_latitude, start_longitude,
+                destination_latitude, destination_longitude, available_minutes,
+                search_radius_km, mandatory_poi_ids_json)
+            VALUES (1, 16.054400, 108.202200, NULL, NULL, 480, NULL, NULL);
+            """);
+
+        await ApplySchedulingMigrationsAsync(upgradedDatabase);
+        await ApplySchedulingMigrationsAsync(upgradedDatabase);
+        await using var freshDatabase = await SqlServerTestDatabase.CreateAsync();
+
+        (await SchedulingColumnInventoryAsync(upgradedDatabase))
+            .Should().Be(await SchedulingColumnInventoryAsync(freshDatabase));
+        (await SchedulingConstraintInventoryAsync(upgradedDatabase))
+            .Should().Be(await SchedulingConstraintInventoryAsync(freshDatabase));
+        var backfilledValues = await upgradedDatabase.ExecuteScalarAsync<string>("""
+            SELECT CONCAT(
+                CONVERT(VARCHAR(20), destination_latitude), N'|',
+                CONVERT(VARCHAR(20), destination_longitude), N'|',
+                CONVERT(VARCHAR(20), search_radius_km), N'|',
+                mandatory_poi_ids_json)
+            FROM planning.SchedulingRequests
+            WHERE request_id = 1;
+            """);
+        backfilledValues.Should().Be("16.054400|108.202200|10.00|[]");
     }
 
     [SqlServerFact]
@@ -207,6 +247,41 @@ public sealed class CreateSchedulingRequestSqlServerTests
             await database.ExecuteNonQueryAsync(migration);
         }
     }
+
+    private static Task<string> SchedulingColumnInventoryAsync(SqlServerTestDatabase database) =>
+        database.ExecuteScalarAsync<string>("""
+            SELECT STRING_AGG(
+                CONCAT(name, N':', system_type_id, N':', max_length, N':', precision, N':', scale, N':', is_nullable),
+                N'|') WITHIN GROUP (ORDER BY name)
+            FROM sys.columns
+            WHERE object_id = OBJECT_ID(N'planning.SchedulingRequests')
+              AND name IN (
+                  N'destination_latitude', N'destination_longitude',
+                  N'search_radius_km', N'mandatory_poi_ids_json');
+            """);
+
+    private static Task<string> SchedulingConstraintInventoryAsync(SqlServerTestDatabase database) =>
+        database.ExecuteScalarAsync<string>("""
+            SELECT STRING_AGG(CONCAT(constraint_type, N':', name), N'|')
+                WITHIN GROUP (ORDER BY constraint_type, name)
+            FROM (
+                SELECT N'CHECK' AS constraint_type, name
+                FROM sys.check_constraints
+                WHERE parent_object_id = OBJECT_ID(N'planning.SchedulingRequests')
+                  AND name IN (
+                      N'CK_SchedulingRequests_TransportMode',
+                      N'CK_SchedulingRequests_RestPreference')
+                UNION ALL
+                SELECT N'DEFAULT' AS constraint_type, columns.name
+                FROM sys.default_constraints AS defaults
+                INNER JOIN sys.columns AS columns
+                    ON columns.object_id = defaults.parent_object_id
+                    AND columns.column_id = defaults.parent_column_id
+                WHERE defaults.parent_object_id = OBJECT_ID(N'planning.SchedulingRequests')
+                  AND columns.name IN (
+                      N'time_zone_id', N'return_to_start', N'transport_mode',
+                      N'mandatory_poi_ids_json', N'rest_preference')) AS scheduling_constraints;
+            """);
 
     private sealed class FixedDateTimeProvider : IDateTimeProvider
     {

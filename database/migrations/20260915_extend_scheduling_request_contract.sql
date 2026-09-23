@@ -13,6 +13,23 @@ BEGIN TRY
     IF COL_LENGTH(N'planning.SchedulingRequests', N'transport_mode') IS NULL
         ALTER TABLE planning.SchedulingRequests ADD transport_mode VARCHAR(20) NOT NULL CONSTRAINT DF_SchedulingRequests_TransportMode DEFAULT 'Walking';
 
+    EXEC sys.sp_executesql N'
+        UPDATE planning.SchedulingRequests
+        SET transport_mode = ''Walking''
+        WHERE transport_mode NOT IN (''Walking'', ''Motorbike'', ''Car'', ''PublicTransit'')
+           OR transport_mode IS NULL;
+
+        IF NOT EXISTS (
+            SELECT 1
+            FROM sys.check_constraints
+            WHERE parent_object_id = OBJECT_ID(N''planning.SchedulingRequests'')
+              AND name = N''CK_SchedulingRequests_TransportMode'')
+        BEGIN
+            ALTER TABLE planning.SchedulingRequests
+                ADD CONSTRAINT CK_SchedulingRequests_TransportMode
+                CHECK (transport_mode IN (''Walking'', ''Motorbike'', ''Car'', ''PublicTransit''));
+        END;';
+
     IF NOT EXISTS (
         SELECT 1 FROM sys.foreign_keys
         WHERE name = N'FK_SchedulingRequests_EndPoi'

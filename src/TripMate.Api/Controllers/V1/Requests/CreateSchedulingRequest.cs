@@ -15,5 +15,5 @@ public sealed record CreateSchedulingRequest(
     TransportMode TransportMode,
     decimal SearchRadiusKm,
     decimal? BudgetVnd,
-    IReadOnlyCollection<long> MandatoryPoiIds,
+    IReadOnlyCollection<long>? MandatoryPoiIds,
     RestPreference RestPreference);

@@ -56,6 +56,8 @@ public class SchedulingRequest : BaseEntity
 
     public string? FailureCode { get; private set; }
 
+    public string? FailureMessage { get; private set; }
+
     public static SchedulingRequest Create(
         long travelerUserId,
         Guid operationKey,
@@ -159,9 +161,10 @@ public class SchedulingRequest : BaseEntity
         Status = SchedulingRequestStatus.Completed;
         CompletedAtUtc = completedAtUtc.ToUniversalTime();
         FailureCode = null;
+        FailureMessage = null;
     }
 
-    public void FailInfeasible(string failureCode, DateTimeOffset completedAtUtc)
+    public void FailInfeasible(string failureCode, string failureMessage, DateTimeOffset completedAtUtc)
     {
         if (string.IsNullOrWhiteSpace(failureCode))
         {
@@ -170,6 +173,9 @@ public class SchedulingRequest : BaseEntity
 
         Status = SchedulingRequestStatus.Failed;
         FailureCode = failureCode.Trim();
+        FailureMessage = string.IsNullOrWhiteSpace(failureMessage)
+            ? throw new ArgumentException("A failure message is required.", nameof(failureMessage))
+            : failureMessage.Trim();
         CompletedAtUtc = completedAtUtc.ToUniversalTime();
     }
 

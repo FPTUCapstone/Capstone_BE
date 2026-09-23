@@ -55,6 +55,9 @@
     <None Include="Fixtures\Database\tm70_pre_migration_schema.sql"
           Link="Database\Fixtures\tm70_pre_migration_schema.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures\Database\tm56_pre_migration_schema.sql"
+          Link="Database\Fixtures\tm56_pre_migration_schema.sql"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\database\migrations\20260914_add_scheduling_request_generation.sql"
           Link="Database\migrations\20260914_add_scheduling_request_generation.sql"
           CopyToOutputDirectory="PreserveNewest" />

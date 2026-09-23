@@ -57,8 +57,10 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
 
         first.IsFailure.Should().BeTrue();
         first.ErrorCode.Should().Be(SchedulingErrorCodes.ConstraintsInfeasible);
+        first.ErrorMessage.Should().Be("The selected ending location is unavailable.");
         replay.IsFailure.Should().BeTrue();
         replay.ErrorCode.Should().Be(SchedulingErrorCodes.ConstraintsInfeasible);
+        replay.ErrorMessage.Should().Be(first.ErrorMessage);
         (await dbContext.SchedulingRequests.CountAsync()).Should().Be(1);
         var persisted = await dbContext.SchedulingRequests.SingleAsync();
         persisted.Status.Should().Be(SchedulingRequestStatus.Failed);
