@@ -44,6 +44,12 @@ public static class DependencyInjection
         services.AddScoped<IMessageService, MessageService>();
         services.AddSingleton<IFirebaseAuthService, FirebaseAuthService>();
 
+        // UC-05 Sign Out: Audit service
+        services.AddScoped<IAuditService, AuditService>();
+
+        // UC-05 Sign Out: Audit retention cleanup job
+        services.AddHostedService<AuditRetentionCleanupService>();
+
         return services;
     }
 }
