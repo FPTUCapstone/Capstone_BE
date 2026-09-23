@@ -652,7 +652,8 @@ CREATE TABLE planning.ItineraryItems (
     planned_arrival                    DATETIME2 NULL,
     planned_departure                   DATETIME2 NULL,
     stay_duration_minutes                INT NOT NULL DEFAULT 60 CHECK (stay_duration_minutes > 0),
-    item_kind                          VARCHAR(10) NOT NULL DEFAULT 'Visit'
+    item_kind                          VARCHAR(10) NOT NULL
+        CONSTRAINT DF_ItineraryItems_ItemKind DEFAULT 'Visit'
         CHECK (item_kind IN ('Visit','Rest')),
     is_mandatory                          BIT NOT NULL DEFAULT 0,
     estimated_cost                          DECIMAL(12,2) NULL,   -- NEW in v4: per-stop cost, lets the CSP engine track budget as it builds the itinerary

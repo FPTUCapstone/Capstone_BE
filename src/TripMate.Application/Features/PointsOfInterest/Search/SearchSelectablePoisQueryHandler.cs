@@ -1,5 +1,3 @@
-using System.Linq.Expressions;
-
 using MediatR;
 
 using Microsoft.EntityFrameworkCore;
@@ -20,6 +18,7 @@ public sealed class SearchSelectablePoisQueryHandler(IApplicationDbContext dbCon
     {
         var normalizedQuery = request.Query?.Trim();
         var hasLocation = request.Latitude.HasValue;
+        DistanceCalculation? distance = null;
         IQueryable<PointOfInterest> eligiblePois = dbContext.PointsOfInterest
             .AsNoTracking()
             .Where(poi =>
@@ -36,47 +35,56 @@ public sealed class SearchSelectablePoisQueryHandler(IApplicationDbContext dbCon
         if (hasLocation)
         {
             var bounds = LocationBounds.From(request.Latitude!.Value, request.Longitude!.Value, request.RadiusKm!.Value);
+            distance = DistanceCalculation.Create(
+                request.Latitude.Value,
+                request.Longitude!.Value,
+                bounds);
             eligiblePois = eligiblePois.Where(poi =>
                 poi.Latitude >= bounds.MinimumLatitude
                 && poi.Latitude <= bounds.MaximumLatitude
                 && poi.Longitude >= bounds.MinimumLongitude
-                && poi.Longitude <= bounds.MaximumLongitude);
+                && poi.Longitude <= bounds.MaximumLongitude
+                && ((poi.Latitude - distance.Latitude) * (poi.Latitude - distance.Latitude)
+                    * distance.LatitudeWeight)
+                   + ((poi.Longitude - distance.Longitude) * (poi.Longitude - distance.Longitude)
+                    * distance.LongitudeWeight)
+                   <= distance.RadiusMetric);
         }
 
-        var matches = eligiblePois.Select(CreateMatchProjection(
-            hasLocation,
-            request.Latitude,
-            request.Longitude));
-
-        if (hasLocation)
-        {
-            matches = matches.Where(match => match.DistanceKm <= request.RadiusKm!.Value);
-        }
-
-        var totalCount = await matches.CountAsync(cancellationToken);
+        var totalCount = await eligiblePois.CountAsync(cancellationToken);
         var offset = checked((long)(request.Page - 1) * request.PageSize);
-        var orderedMatches = hasLocation
-            ? matches.OrderBy(match => match.DistanceKm).ThenBy(match => match.Name)
-            : matches.OrderBy(match => match.Name);
-        var pageMatches = offset > int.MaxValue
-            ? Array.Empty<SearchMatch>()
-            : await orderedMatches
+        IOrderedQueryable<PointOfInterest> orderedPois;
+        if (distance is not null)
+        {
+            orderedPois = eligiblePois
+                .OrderBy(poi =>
+                    ((poi.Latitude - distance.Latitude) * (poi.Latitude - distance.Latitude)
+                     * distance.LatitudeWeight)
+                    + ((poi.Longitude - distance.Longitude) * (poi.Longitude - distance.Longitude)
+                     * distance.LongitudeWeight))
+                .ThenBy(poi => poi.Name);
+        }
+        else
+        {
+            orderedPois = eligiblePois.OrderBy(poi => poi.Name);
+        }
+        var items = offset > int.MaxValue
+            ? Array.Empty<SelectablePoiDto>()
+            : await orderedPois
                 .Skip((int)offset)
                 .Take(request.PageSize)
+                .Select(poi => new SelectablePoiDto(
+                    poi.Id,
+                    poi.Name,
+                    poi.Category.Name,
+                    poi.Address,
+                    poi.Latitude,
+                    poi.Longitude,
+                    poi.AverageVisitDurationMinutes,
+                    poi.EstimatedVisitCost,
+                    true,
+                    poi.HasShelter))
                 .ToArrayAsync(cancellationToken);
-
-        var items = pageMatches.Select(match => new SelectablePoiDto(
-                match.Id,
-                match.Name,
-                match.CategoryName,
-                match.Address,
-                match.Latitude,
-                match.Longitude,
-                match.AverageVisitDurationMinutes,
-                match.EstimatedVisitCost,
-                true,
-                match.HasShelter))
-            .ToArray();
 
         return Result.Success(new SelectablePoiSearchResult(
             items,
@@ -85,55 +93,32 @@ public sealed class SearchSelectablePoisQueryHandler(IApplicationDbContext dbCon
             totalCount));
     }
 
-    private static Expression<Func<PointOfInterest, SearchMatch>> CreateMatchProjection(
-        bool hasLocation,
-        decimal? originLatitude,
-        decimal? originLongitude)
-    {
-        var latitudeRadians = (double)(originLatitude ?? 0m) * Math.PI / 180d;
-        var longitudeRadians = (double)(originLongitude ?? 0m) * Math.PI / 180d;
-        return poi => new SearchMatch(
-            poi.Id,
-            poi.Name,
-            poi.Category.Name,
-            poi.Address,
-            poi.Latitude,
-            poi.Longitude,
-            poi.AverageVisitDurationMinutes,
-            poi.EstimatedVisitCost,
-            poi.HasShelter,
-            hasLocation
-                ? 12_742d * Math.Atan2(
-                    Math.Sqrt(
-                        Math.Sin((((double)poi.Latitude * Math.PI / 180d) - latitudeRadians) / 2d)
-                        * Math.Sin((((double)poi.Latitude * Math.PI / 180d) - latitudeRadians) / 2d)
-                        + Math.Cos(latitudeRadians)
-                        * Math.Cos((double)poi.Latitude * Math.PI / 180d)
-                        * Math.Sin((((double)poi.Longitude * Math.PI / 180d) - longitudeRadians) / 2d)
-                        * Math.Sin((((double)poi.Longitude * Math.PI / 180d) - longitudeRadians) / 2d)),
-                    Math.Sqrt(1d - (
-                        Math.Sin((((double)poi.Latitude * Math.PI / 180d) - latitudeRadians) / 2d)
-                        * Math.Sin((((double)poi.Latitude * Math.PI / 180d) - latitudeRadians) / 2d)
-                        + Math.Cos(latitudeRadians)
-                        * Math.Cos((double)poi.Latitude * Math.PI / 180d)
-                        * Math.Sin((((double)poi.Longitude * Math.PI / 180d) - longitudeRadians) / 2d)
-                        * Math.Sin((((double)poi.Longitude * Math.PI / 180d) - longitudeRadians) / 2d))))
-                : 0d);
-    }
-
     private static double DegreesToRadians(double degrees) => degrees * Math.PI / 180d;
 
-    private sealed record SearchMatch(
-        long Id,
-        string Name,
-        string CategoryName,
-        string? Address,
+    private sealed record DistanceCalculation(
         decimal Latitude,
         decimal Longitude,
-        int AverageVisitDurationMinutes,
-        decimal? EstimatedVisitCost,
-        bool HasShelter,
-        double DistanceKm);
+        decimal LatitudeWeight,
+        decimal LongitudeWeight,
+        decimal RadiusMetric)
+    {
+        public static DistanceCalculation Create(
+            decimal latitude,
+            decimal longitude,
+            LocationBounds bounds)
+        {
+            var latitudeRadiusDegrees = bounds.MaximumLatitude - latitude;
+            var longitudeRadiusDegrees = bounds.MaximumLongitude - longitude;
+            var latitudeRadiusSquared = latitudeRadiusDegrees * latitudeRadiusDegrees;
+            var longitudeRadiusSquared = longitudeRadiusDegrees * longitudeRadiusDegrees;
+            return new DistanceCalculation(
+                latitude,
+                longitude,
+                longitudeRadiusSquared,
+                latitudeRadiusSquared,
+                latitudeRadiusSquared * longitudeRadiusSquared);
+        }
+    }
 
     private sealed record LocationBounds(
         decimal MinimumLatitude,

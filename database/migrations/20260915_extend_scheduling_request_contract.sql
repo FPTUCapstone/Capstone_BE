@@ -4,6 +4,28 @@ SET NOCOUNT ON;
 BEGIN TRY
     BEGIN TRANSACTION;
 
+    IF EXISTS (
+        SELECT 1
+        FROM sys.foreign_keys
+        WHERE parent_object_id = OBJECT_ID(N'planning.SchedulingRequests')
+          AND name = N'FK_SchedulingRequests_EndPoi')
+       AND NOT EXISTS (
+            SELECT 1
+            FROM sys.foreign_keys AS foreign_key
+            INNER JOIN sys.foreign_key_columns AS column_map
+                ON column_map.constraint_object_id = foreign_key.object_id
+            WHERE foreign_key.parent_object_id = OBJECT_ID(N'planning.SchedulingRequests')
+              AND foreign_key.referenced_object_id = OBJECT_ID(N'catalog.POIs')
+              AND foreign_key.name = N'FK_SchedulingRequests_EndPoi'
+              AND foreign_key.delete_referential_action = 0
+              AND foreign_key.update_referential_action = 0
+              AND foreign_key.is_disabled = 0
+              AND foreign_key.is_not_trusted = 0
+              AND column_map.constraint_column_id = 1
+              AND COL_NAME(column_map.parent_object_id, column_map.parent_column_id) = N'end_poi_id'
+              AND COL_NAME(column_map.referenced_object_id, column_map.referenced_column_id) = N'poi_id')
+        THROW 51000, 'Scheduling schema contract mismatch: ending POI foreign key.', 1;
+
     IF COL_LENGTH(N'planning.SchedulingRequests', N'end_poi_id') IS NULL
         ALTER TABLE planning.SchedulingRequests ADD end_poi_id BIGINT NULL;
 

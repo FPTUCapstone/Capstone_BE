@@ -4,6 +4,67 @@ SET NOCOUNT ON;
 BEGIN TRY
     BEGIN TRANSACTION;
 
+    -- A pre-existing named object is not proof that it enforces the UC-10
+    -- contract. Fail safely rather than silently accepting a conflicting
+    -- schema that would diverge from a fresh installation.
+    IF EXISTS (
+        SELECT 1
+        FROM sys.check_constraints
+        WHERE parent_object_id = OBJECT_ID(N'planning.SchedulingRequests')
+          AND name = N'CK_SchedulingRequests_RestPreference')
+    BEGIN
+        DECLARE @restPreferenceDefinition NVARCHAR(MAX) = LOWER(REPLACE(REPLACE(REPLACE(REPLACE(
+            OBJECT_DEFINITION(OBJECT_ID(N'planning.CK_SchedulingRequests_RestPreference', N'C')),
+            N'[', N''), N']', N''), N'(', N''), N')', N''));
+        SET @restPreferenceDefinition = REPLACE(REPLACE(REPLACE(
+            @restPreferenceDefinition, N' ', N''), CHAR(13), N''), CHAR(10), N'');
+
+        IF @restPreferenceDefinition
+            <> N'rest_preference=''frequent''orrest_preference=''none''orrest_preference=''auto'''
+           OR EXISTS (
+                SELECT 1
+                FROM sys.check_constraints
+                WHERE parent_object_id = OBJECT_ID(N'planning.SchedulingRequests')
+                  AND name = N'CK_SchedulingRequests_RestPreference'
+                  AND (is_disabled = 1 OR is_not_trusted = 1))
+            THROW 51000, 'Scheduling schema contract mismatch: rest preference constraint.', 1;
+    END;
+
+    IF EXISTS (
+        SELECT 1
+        FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'planning.SchedulingRequests')
+          AND name = N'UX_SchedulingRequests_Traveler_Key')
+    BEGIN
+        DECLARE @operationIndexId INT = INDEXPROPERTY(
+            OBJECT_ID(N'planning.SchedulingRequests'),
+            N'UX_SchedulingRequests_Traveler_Key',
+            N'IndexId');
+
+        IF @operationIndexId IS NULL
+           OR NOT EXISTS (
+                SELECT 1
+                FROM sys.indexes
+                WHERE object_id = OBJECT_ID(N'planning.SchedulingRequests')
+                  AND index_id = @operationIndexId
+                  AND type = 2
+                  AND is_unique = 1
+                  AND is_disabled = 0
+                  AND has_filter = 0)
+           OR INDEX_COL(N'planning.SchedulingRequests', @operationIndexId, 1)
+              <> N'traveler_user_id'
+           OR INDEX_COL(N'planning.SchedulingRequests', @operationIndexId, 2)
+              <> N'idempotency_key'
+           OR INDEX_COL(N'planning.SchedulingRequests', @operationIndexId, 3) IS NOT NULL
+           OR EXISTS (
+                SELECT 1
+                FROM sys.index_columns
+                WHERE object_id = OBJECT_ID(N'planning.SchedulingRequests')
+                  AND index_id = @operationIndexId
+                  AND is_included_column = 1)
+            THROW 51000, 'Scheduling schema contract mismatch: idempotency index.', 1;
+    END;
+
     IF COL_LENGTH(N'planning.SchedulingRequests', N'start_at') IS NULL
     BEGIN
         ALTER TABLE planning.SchedulingRequests ADD start_at DATETIME2 NULL;
