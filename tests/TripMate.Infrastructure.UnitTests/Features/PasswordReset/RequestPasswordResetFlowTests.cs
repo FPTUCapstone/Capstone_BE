@@ -32,6 +32,7 @@ public class RequestPasswordResetFlowTests
         new(
             new FixedEligibilityResolver(UserId),
             _store,
+            new InMemoryPasswordResetAccountLock(),
             new FixedOtpCodeGenerator(RawOtp),
             new HmacOtpProtectionService(Options.Create(new PasswordResetSecurityOptions
             {

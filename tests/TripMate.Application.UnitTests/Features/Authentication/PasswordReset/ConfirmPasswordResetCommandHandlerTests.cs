@@ -47,6 +47,7 @@ public class ConfirmPasswordResetCommandHandlerTests
         _handler = new ConfirmPasswordResetCommandHandler(
             _dbContext,
             _store.Object,
+            new FakePasswordResetAccountLock(),
             _protectionService.Object,
             _passwordHasher,
             _resolver,
@@ -353,7 +354,8 @@ public class ConfirmPasswordResetCommandHandlerTests
         failingDbContext.SaveChanges();
         var resolver = new PasswordResetEligibilityResolver(failingDbContext);
         var handler = new ConfirmPasswordResetCommandHandler(
-            failingDbContext, _store.Object, _protectionService.Object, _passwordHasher, resolver, _clock.Object,
+            failingDbContext, _store.Object, new FakePasswordResetAccountLock(), _protectionService.Object,
+            _passwordHasher, resolver, _clock.Object,
             NullLogger<ConfirmPasswordResetCommandHandler>.Instance);
 
         var result = await handler.Handle(
@@ -364,7 +366,7 @@ public class ConfirmPasswordResetCommandHandlerTests
         _store.Verify(s => s.TryConsume(It.IsAny<long>(), It.IsAny<long>()), Times.Never);
     }
 
-    [Fact(DisplayName = "PLAN-CONF-16: TryConsume false after a committed reset does not turn success into failure")]
+    [Fact(DisplayName = "PLAN-CONF-16: post-commit consume false does not misreport DB success")]
     public async Task Handle_TryConsumeFalseAfterCommit_StillSucceeds()
     {
         CreateUser();
@@ -374,8 +376,6 @@ public class ConfirmPasswordResetCommandHandlerTests
         var result = await _handler.Handle(
             new ConfirmPasswordResetCommand(Email, CorrectCode, NewPassword), CancellationToken.None);
 
-        // The DB transaction is authoritative once committed: the reset state may have been
-        // lazily removed after crossing ExpiresAtUtc.
         result.IsSuccess.Should().BeTrue();
         result.Value.Message.Should().Be(ConfirmPasswordResetResponse.SuccessMessage);
     }

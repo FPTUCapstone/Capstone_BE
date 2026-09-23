@@ -2,6 +2,7 @@ using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.InMemory;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging.Abstractions;
 
 using TripMate.Application.Common.Interfaces;
@@ -31,17 +32,23 @@ public class ConfirmPasswordResetFlowTests
         var store = new InMemoryPasswordResetStateStore(clock);
         var protector = new HmacOtpProtectionService(Microsoft.Extensions.Options.Options.Create(
             new PasswordResetSecurityOptions { OtpPepper = "test-only-pepper-0123456789abcdef" }));
-        using var dbContext = new SerializingConfirmDbContext();
-        var user = new User
+        var databaseRoot = new InMemoryDatabaseRoot();
+        var databaseName = $"tripmate-confirm-flow-{Guid.NewGuid():N}";
+        var options = new DbContextOptionsBuilder<ConcurrentConfirmDbContext>()
+            .UseInMemoryDatabase(databaseName, databaseRoot)
+            .Options;
+        using (var seedContext = new ConcurrentConfirmDbContext(options))
         {
-            Id = UserId,
-            Email = Email,
-            FullName = "Test User",
-            Status = Domain.Enums.AccountStatus.Active,
-            PasswordHash = "hashed:old",
-        };
-        dbContext.Users.Add(user);
-        await dbContext.SaveChangesAsync();
+            seedContext.Users.Add(new User
+            {
+                Id = UserId,
+                Email = Email,
+                FullName = "Test User",
+                Status = Domain.Enums.AccountStatus.Active,
+                PasswordHash = "hashed:old",
+            });
+            await seedContext.SaveChangesAsync();
+        }
 
         // Issue a Sent generation exactly as the request handler would.
         var protectedOtp = protector.Protect(Code, UserId, CreatedAtUtc);
@@ -49,24 +56,88 @@ public class ConfirmPasswordResetFlowTests
         store.GetCurrent(UserId)!.DeliveryState.Should().Be(PasswordResetDeliveryState.Pending);
         store.TryTransitionDelivery(UserId, 1, PasswordResetDeliveryState.Sent).Should().BeTrue();
 
-        var handler = new ConfirmPasswordResetCommandHandler(
-            dbContext,
+        using var firstContext = new ConcurrentConfirmDbContext(options);
+        using var secondContext = new ConcurrentConfirmDbContext(options);
+        using var hasher = new CoordinatingPasswordHasher();
+        var accountLock = new InMemoryPasswordResetAccountLock();
+        var firstHandler = new ConfirmPasswordResetCommandHandler(
+            firstContext,
             store,
+            accountLock,
+            protector,
+            hasher,
+            new FixedEligibilityResolver(UserId),
+            clock,
+            NullLogger<ConfirmPasswordResetCommandHandler>.Instance);
+        var secondHandler = new ConfirmPasswordResetCommandHandler(
+            secondContext,
+            store,
+            accountLock,
+            protector,
+            hasher,
+            new FixedEligibilityResolver(UserId),
+            clock,
+            NullLogger<ConfirmPasswordResetCommandHandler>.Instance);
+
+        var command = new ConfirmPasswordResetCommand(Email, Code, NewPassword);
+        var results = await Task.WhenAll(
+            Task.Run(() => firstHandler.Handle(command, CancellationToken.None)),
+            Task.Run(() => secondHandler.Handle(command, CancellationToken.None)));
+
+        results.Count(r => r.IsSuccess).Should().Be(1);
+        results.Count(r => r.IsFailure && r.ErrorCode == AuthErrorCodes.Msg14).Should().Be(1);
+        hasher.HashCalls.Should().Be(1);
+        store.GetCurrent(UserId).Should().BeNull();
+        using var verificationContext = new ConcurrentConfirmDbContext(options);
+        var user = await verificationContext.Users.FindAsync(UserId);
+        user!.PasswordHash.Should().Be($"hashed:{NewPassword}");
+    }
+
+    [Fact(DisplayName = "PLAN-CONF-19: commit failure leaves the OTP unconsumed")]
+    public async Task CommitFailure_LeavesOtpUnconsumed()
+    {
+        var clock = new FixedDateTimeProvider(CreatedAtUtc);
+        var store = new InMemoryPasswordResetStateStore(clock);
+        var protector = new HmacOtpProtectionService(Microsoft.Extensions.Options.Options.Create(
+            new PasswordResetSecurityOptions { OtpPepper = "test-only-pepper-0123456789abcdef" }));
+        var databaseRoot = new InMemoryDatabaseRoot();
+        var options = new DbContextOptionsBuilder<ConcurrentConfirmDbContext>()
+            .UseInMemoryDatabase($"tripmate-confirm-commit-failure-{Guid.NewGuid():N}", databaseRoot)
+            .Options;
+        using var context = new ConcurrentConfirmDbContext(options, failAfterOperation: true);
+        context.Users.Add(new User
+        {
+            Id = UserId,
+            Email = Email,
+            FullName = "Test User",
+            Status = Domain.Enums.AccountStatus.Active,
+            PasswordHash = "hashed:old",
+        });
+        await context.SaveChangesAsync();
+
+        var protectedOtp = protector.Protect(Code, UserId, CreatedAtUtc);
+        var issued = store.Issue(UserId, protectedOtp, CreatedAtUtc);
+        store.TryTransitionDelivery(
+            UserId,
+            issued.State!.Generation,
+            PasswordResetDeliveryState.Sent).Should().BeTrue();
+        var handler = new ConfirmPasswordResetCommandHandler(
+            context,
+            store,
+            new InMemoryPasswordResetAccountLock(),
             protector,
             new FakePasswordHasher(),
             new FixedEligibilityResolver(UserId),
             clock,
             NullLogger<ConfirmPasswordResetCommandHandler>.Instance);
 
-        var results = await Task.WhenAll(Enumerable.Range(0, 2)
-            .Select(_ => Task.Run(() => handler.Handle(
-                new ConfirmPasswordResetCommand(Email, Code, NewPassword), CancellationToken.None))));
+        var result = await handler.Handle(
+            new ConfirmPasswordResetCommand(Email, Code, NewPassword),
+            CancellationToken.None);
 
-        results.Count(r => r.IsSuccess).Should().Be(1);
-        results.Count(r => r.IsFailure && r.ErrorCode == AuthErrorCodes.Msg14).Should().Be(1);
-        store.GetCurrent(UserId).Should().BeNull();
-        dbContext.Users.Entry(user).Reload();
-        user.PasswordHash.Should().Be(new FakePasswordHasher().Hash(NewPassword));
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(AuthErrorCodes.Msg127);
+        store.GetCurrent(UserId).Should().NotBeNull();
     }
 
     private sealed class FixedEligibilityResolver(long userId) : IPasswordResetEligibilityResolver
@@ -84,25 +155,52 @@ public class ConfirmPasswordResetFlowTests
         public bool Verify(string password, string passwordHash) => passwordHash == Hash(password);
     }
 
+    private sealed class CoordinatingPasswordHasher : IPasswordHasherService, IDisposable
+    {
+        private readonly ManualResetEventSlim secondHashCallEntered = new(false);
+        private int hashCalls;
+
+        public int HashCalls => Volatile.Read(ref hashCalls);
+
+        public string Hash(string password)
+        {
+            if (Interlocked.Increment(ref hashCalls) == 1)
+            {
+                secondHashCallEntered.Wait(TimeSpan.FromSeconds(2));
+            }
+            else
+            {
+                secondHashCallEntered.Set();
+            }
+
+            return $"hashed:{password}";
+        }
+
+        public bool Verify(string password, string passwordHash) => passwordHash == $"hashed:{password}";
+
+        public void Dispose() => secondHashCallEntered.Dispose();
+    }
+
     private sealed class FixedDateTimeProvider(DateTimeOffset utcNow) : IDateTimeProvider
     {
         public DateTimeOffset UtcNow { get; set; } = utcNow;
     }
 
     /// <summary>
-    /// In-memory stand-in whose ExecuteInTransactionAsync serializes operations like a real
-    /// SQL Server row lock would, so concurrent confirms cannot both re-verify the same
-    /// generation inside their transaction.
+    /// In-memory stand-in with independent DbContext instances and no artificial transaction
+    /// gate. Production correctness must come from the password-reset account lock, not a test
+    /// double that serializes the operation on its behalf.
     /// </summary>
-    private sealed class SerializingConfirmDbContext : DbContext, IApplicationDbContext
+    private sealed class ConcurrentConfirmDbContext : DbContext, IApplicationDbContext
     {
-        private readonly SemaphoreSlim transactionGate = new(1, 1);
+        private readonly bool failAfterOperation;
 
-        public SerializingConfirmDbContext()
-            : base(new DbContextOptionsBuilder<SerializingConfirmDbContext>()
-                .UseInMemoryDatabase($"tripmate-confirm-flow-{Guid.NewGuid():N}")
-                .Options)
+        public ConcurrentConfirmDbContext(
+            DbContextOptions<ConcurrentConfirmDbContext> options,
+            bool failAfterOperation = false)
+            : base(options)
         {
+            this.failAfterOperation = failAfterOperation;
         }
 
         public DbSet<User> Users => Set<User>();
@@ -170,11 +268,17 @@ public class ConfirmPasswordResetFlowTests
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
 
-        public Task<T> ExecuteInTransactionAsync<T>(
+        public async Task<T> ExecuteInTransactionAsync<T>(
             Func<CancellationToken, Task<T>> operation,
             CancellationToken cancellationToken)
         {
-            return ExecuteSerializedAsync(operation, cancellationToken);
+            var result = await operation(cancellationToken);
+            if (failAfterOperation)
+            {
+                throw new InvalidOperationException("Simulated commit failure.");
+            }
+
+            return result;
         }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -209,26 +313,8 @@ public class ConfirmPasswordResetFlowTests
 
         public Task<T> ExecuteInSerializableTransactionAsync<T>(
             Func<CancellationToken, Task<T>> operation,
-            CancellationToken cancellationToken)
-        {
-            return ExecuteSerializedAsync(operation, cancellationToken);
-        }
+            CancellationToken cancellationToken) => operation(cancellationToken);
 
         public void ClearTrackedEntities() => ChangeTracker.Clear();
-
-        private async Task<T> ExecuteSerializedAsync<T>(
-            Func<CancellationToken, Task<T>> operation,
-            CancellationToken cancellationToken)
-        {
-            await transactionGate.WaitAsync(cancellationToken);
-            try
-            {
-                return await operation(cancellationToken);
-            }
-            finally
-            {
-                transactionGate.Release();
-            }
-        }
     }
 }

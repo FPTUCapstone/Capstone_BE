@@ -7,6 +7,7 @@ using Moq;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Authentication.PasswordReset;
+using TripMate.Application.UnitTests.TestUtilities;
 
 using Xunit;
 
@@ -46,6 +47,7 @@ public class RequestPasswordResetCommandHandlerTests
         _handler = new RequestPasswordResetCommandHandler(
             _resolver.Object,
             _store.Object,
+            new FakePasswordResetAccountLock(),
             _otpGenerator.Object,
             _protectionService.Object,
             _emailSender.Object,

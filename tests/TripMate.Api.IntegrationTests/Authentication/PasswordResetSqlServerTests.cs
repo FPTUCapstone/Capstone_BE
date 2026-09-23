@@ -52,6 +52,36 @@ public sealed class PasswordResetSqlServerTests
             !passwordHash.StartsWith(ForcedFailureHashPrefix, StringComparison.Ordinal);
     }
 
+    private sealed class CoordinatingPasswordHasher : IPasswordHasherService, IDisposable
+    {
+        private readonly ManualResetEventSlim secondHashCallEntered = new(false);
+        private int hashCalls;
+
+        public int HashCalls => Volatile.Read(ref hashCalls);
+
+        public string Hash(string password)
+        {
+            if (Interlocked.Increment(ref hashCalls) == 1)
+            {
+                // On the vulnerable path both independent requests pass reset-state
+                // verification and reach hashing together. Once per-account serialization
+                // is present, this bounded wait expires and only the winner reaches hashing.
+                secondHashCallEntered.Wait(TimeSpan.FromSeconds(2));
+            }
+            else
+            {
+                secondHashCallEntered.Set();
+            }
+
+            return $"concurrent-hash:{password}";
+        }
+
+        public bool Verify(string password, string passwordHash) =>
+            passwordHash == $"concurrent-hash:{password}";
+
+        public void Dispose() => secondHashCallEntered.Dispose();
+    }
+
     private static async Task<long> SeedUserAsync(
         SqlServerTestDatabase database,
         string email)
@@ -123,6 +153,55 @@ public sealed class PasswordResetSqlServerTests
         var tokens = await verificationContext.RefreshTokens.ToListAsync();
         tokens.Should().HaveCount(2);
         tokens.Should().OnlyContain(t => t.RevokedAtUtc != null);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task ConcurrentConfirm_WithIndependentScopes_AllowsExactlyOneSuccess()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var email = "concurrent-confirm@example.com";
+        var userId = await SeedUserAsync(database, email);
+        var sender = new FakeEmailSender();
+        using var hasher = new CoordinatingPasswordHasher();
+        using var factory = new TripMateApiFactory(
+                sqlServerConnectionString: database.ConnectionString,
+                emailSenderFactory: _ => sender)
+            .WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+            {
+                services.RemoveAll<IPasswordHasherService>();
+                services.AddSingleton<IPasswordHasherService>(hasher);
+            }));
+        using var firstClient = factory.CreateClient();
+        using var secondClient = factory.CreateClient();
+
+        var requestResponse = await firstClient.PostAsJsonAsync(
+            "/api/v1/auth/password-reset/request", new { email });
+        requestResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        var otp = sender.LastOtp!;
+        var confirmBody = new { email, code = otp, newPassword = "NewPassword1!" };
+
+        var responses = await Task.WhenAll(
+            firstClient.PostAsJsonAsync("/api/v1/auth/password-reset/confirm", confirmBody),
+            secondClient.PostAsJsonAsync("/api/v1/auth/password-reset/confirm", confirmBody));
+
+        responses.Count(response => response.StatusCode == HttpStatusCode.OK).Should().Be(1);
+        var rejected = responses.Single(response => response.StatusCode == HttpStatusCode.BadRequest);
+        var rejectedJson = await rejected.Content.ReadFromJsonAsync<JsonElement>();
+        rejectedJson.GetProperty("errorCode").GetString().Should().Be("MSG14");
+        hasher.HashCalls.Should().Be(1);
+
+        var replayResponse = await firstClient.PostAsJsonAsync(
+            "/api/v1/auth/password-reset/confirm", confirmBody);
+        replayResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var replayJson = await replayResponse.Content.ReadFromJsonAsync<JsonElement>();
+        replayJson.GetProperty("errorCode").GetString().Should().Be("MSG14");
+
+        await using var verificationContext = database.CreateDbContext();
+        var user = await verificationContext.Users.FindAsync(userId);
+        user!.PasswordHash.Should().Be("concurrent-hash:NewPassword1!");
+        var tokens = await verificationContext.RefreshTokens.ToListAsync();
+        tokens.Should().OnlyContain(token => token.RevokedAtUtc != null);
     }
 
     [SqlServerFact]

@@ -18,6 +18,7 @@ namespace TripMate.Application.Features.Authentication.PasswordReset;
 public sealed class RequestPasswordResetCommandHandler(
     IPasswordResetEligibilityResolver eligibilityResolver,
     IPasswordResetStateStore stateStore,
+    IPasswordResetAccountLock accountLock,
     IOtpCodeGenerator otpCodeGenerator,
     IOtpProtectionService otpProtectionService,
     IEmailSender emailSender,
@@ -40,34 +41,43 @@ public sealed class RequestPasswordResetCommandHandler(
             return await GenericSuccessAsync(startedAtUtc, cancellationToken);
         }
 
-        // The raw OTP exists only in local variables and the outbound email payload.
-        var otp = otpCodeGenerator.Generate();
-        var protectedOtp = otpProtectionService.Protect(otp, resolved.Value, startedAtUtc);
+        await accountLock.ExecuteAsync(
+            resolved.Value,
+            async lockCancellationToken =>
+            {
+                // The raw OTP exists only in local variables and the outbound email payload.
+                var otp = otpCodeGenerator.Generate();
+                var protectedOtp = otpProtectionService.Protect(otp, resolved.Value, startedAtUtc);
 
-        var issue = stateStore.Issue(resolved.Value, protectedOtp, startedAtUtc);
-        if (issue.Outcome == PasswordResetIssueOutcome.CooldownSuppressed)
-        {
-            // No new OTP, no email, and the existing usable generation stays untouched.
-            return await GenericSuccessAsync(startedAtUtc, cancellationToken);
-        }
+                var issue = stateStore.Issue(resolved.Value, protectedOtp, startedAtUtc);
+                if (issue.Outcome == PasswordResetIssueOutcome.CooldownSuppressed)
+                {
+                    // No new OTP, no email, and the existing usable generation stays untouched.
+                    return;
+                }
 
-        var state = issue.State!;
-        var delivery = await emailSender.SendPasswordResetOtpAsync(
-            request.Email.Trim().ToLowerInvariant(),
-            otp,
+                var state = issue.State!;
+                var delivery = await emailSender.SendPasswordResetOtpAsync(
+                    request.Email.Trim().ToLowerInvariant(),
+                    otp,
+                    lockCancellationToken);
+
+                switch (delivery.Status)
+                {
+                    case EmailDeliveryStatus.Delivered:
+                        stateStore.TryTransitionDelivery(
+                            state.UserId,
+                            state.Generation,
+                            PasswordResetDeliveryState.Sent);
+                        break;
+
+                    case EmailDeliveryStatus.DefiniteFailure:
+                    case EmailDeliveryStatus.Unknown:
+                        stateStore.TryInvalidate(state.UserId, state.Generation);
+                        break;
+                }
+            },
             cancellationToken);
-
-        switch (delivery.Status)
-        {
-            case EmailDeliveryStatus.Delivered:
-                stateStore.TryTransitionDelivery(state.UserId, state.Generation, PasswordResetDeliveryState.Sent);
-                break;
-
-            case EmailDeliveryStatus.DefiniteFailure:
-            case EmailDeliveryStatus.Unknown:
-                stateStore.TryInvalidate(state.UserId, state.Generation);
-                break;
-        }
 
         return await GenericSuccessAsync(startedAtUtc, cancellationToken);
     }
