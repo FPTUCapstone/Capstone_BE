@@ -468,6 +468,47 @@ CREATE INDEX IX_Tours_Operator ON commerce.Tours(operator_user_id);
 CREATE INDEX IX_Tours_Status ON commerce.Tours(status);
 GO
 
+-- TM-206: Tour-owned Cloudinary image metadata. Raw image binaries are never
+-- stored in SQL Server. Normal media removal is represented by lifecycle soft
+-- deletion; the cascade applies only when the parent Tour is physically deleted.
+CREATE TABLE commerce.TourMedia (
+    tour_media_id BIGINT IDENTITY(1,1) NOT NULL
+        CONSTRAINT PK_TourMedia PRIMARY KEY,
+    tour_id BIGINT NOT NULL,
+    cloudinary_public_id NVARCHAR(500) NOT NULL,
+    delivery_url NVARCHAR(1000) NOT NULL,
+    caption NVARCHAR(500) NULL,
+    sort_order INT NOT NULL,
+    is_primary BIT NOT NULL
+        CONSTRAINT DF_TourMedia_IsPrimary DEFAULT 0,
+    lifecycle_status VARCHAR(16) NOT NULL
+        CONSTRAINT DF_TourMedia_LifecycleStatus DEFAULT 'Active',
+    created_at DATETIME2 NOT NULL
+        CONSTRAINT DF_TourMedia_CreatedAt DEFAULT SYSUTCDATETIME(),
+    updated_at DATETIME2 NOT NULL
+        CONSTRAINT DF_TourMedia_UpdatedAt DEFAULT SYSUTCDATETIME(),
+    deleted_at DATETIME2 NULL,
+    CONSTRAINT FK_TourMedia_Tours FOREIGN KEY (tour_id)
+        REFERENCES commerce.Tours(tour_id) ON DELETE CASCADE,
+    CONSTRAINT CK_TourMedia_SortOrderPositive CHECK (sort_order > 0),
+    CONSTRAINT CK_TourMedia_Lifecycle CHECK (
+        lifecycle_status IN ('Active','Deleted')),
+    CONSTRAINT CK_TourMedia_DeletedAt CHECK (
+        (lifecycle_status = 'Active' AND deleted_at IS NULL)
+        OR (lifecycle_status = 'Deleted' AND deleted_at IS NOT NULL))
+);
+GO
+CREATE UNIQUE INDEX UX_TourMedia_ActiveSortOrder
+    ON commerce.TourMedia(tour_id, sort_order)
+    WHERE lifecycle_status = 'Active';
+CREATE UNIQUE INDEX UX_TourMedia_ActivePrimary
+    ON commerce.TourMedia(tour_id)
+    WHERE lifecycle_status = 'Active' AND is_primary = 1;
+CREATE INDEX IX_TourMedia_TourLifecycleOrder
+    ON commerce.TourMedia(
+        tour_id, lifecycle_status, sort_order, tour_media_id);
+GO
+
 CREATE TABLE commerce.TourDestinations (
     tour_id BIGINT NOT NULL,
     destination_id BIGINT NOT NULL,
