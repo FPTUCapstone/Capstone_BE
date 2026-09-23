@@ -159,6 +159,17 @@ public class ConfirmPasswordResetFlowTests
         DbSet<Domain.Entities.GroupJoinOperation> IApplicationDbContext.GroupJoinOperations =>
             throw new NotSupportedException();
 
+        public Task<int> RevokeRefreshTokenAsync(
+            string tokenHash,
+            DateTimeOffset revokedAtUtc,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<int> DeleteSignOutAuditEventsBeforeAsync(
+            DateTimeOffset cutoffUtc,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
         public Task<T> ExecuteInTransactionAsync<T>(
             Func<CancellationToken, Task<T>> operation,
             CancellationToken cancellationToken)
