@@ -162,6 +162,10 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<PoiTag> PoiTags => Set<PoiTag>();
     public DbSet<OperatorProfile> OperatorProfiles => Set<OperatorProfile>();
     public DbSet<OperatorDocument> OperatorDocuments => Set<OperatorDocument>();
+    public DbSet<Tour> Tours => Set<Tour>();
+    public DbSet<TourSchedule> TourSchedules => Set<TourSchedule>();
+    public DbSet<Destination> Destinations => Set<Destination>();
+    public DbSet<TourDestination> TourDestinations => Set<TourDestination>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<PoiPhoto> PoiPhotos => Set<PoiPhoto>();

@@ -75,8 +75,8 @@ curl -X POST http://localhost:5000/api/v1/auth/login \
   -d '{"email":"you@example.com","password":"Passw0rd123"}'
 ```
 
-Dừng lại: `docker compose stop` (giữ data) hoặc `docker compose down -v` (xoá sạch data, chạy lại
-từ đầu). Chi tiết đầy đủ hơn về Docker, database, cách áp schema tay, xử lý lỗi thường gặp
+Dừng lại bằng `docker compose stop` để giữ data. `docker compose down -v` **xoá vĩnh viễn volume
+SQL**, chỉ dùng cho DB test/disposable đã xác nhận; không dùng để nâng cấp schema. Chi tiết đầy đủ hơn về Docker, database, cách áp schema tay, xử lý lỗi thường gặp
 (Docker chưa mở, port bận, kết nối bằng GUI tool...): xem **[`database/README.md`](database/README.md)**.
 
 ## 4. Gửi database (đã có sẵn schema) cho team qua file `.tar` — không cần chạy code
@@ -115,18 +115,20 @@ riêng phần database, đúng với việc bạn chỉ muốn chạy SQL trên 
    một lần để bật, rồi `dotnet user-secrets set "ConnectionStrings:Default" "<chuỗi trên>" --project src/TripMate.Api`.
    Chạy qua Docker thì không cần bước này — `docker-compose.yml` tự set `ConnectionStrings__Default`
    từ `SA_PASSWORD` trong `.env`.
-3. Áp schema tay:
+3. Chỉ trên **database mới/trống**, áp full schema tay:
 
    ```bash
    sqlcmd -S <server> -U sa -P <password> -d master -Q "CREATE DATABASE TripMateDb"
    sqlcmd -S <server> -U sa -P <password> -I -d TripMateDb -i database/tripmate_schema_v7.sql
    ```
 
+   Nếu DB đã có v7, **không chạy lại full schema**; sau backup và preflight dữ liệu, áp file
+   `database/migrations/20260915_add_tour_search_fields.sql` với `sqlcmd -b -V 11 -I -d TripMateDb -i ...`.
    Cờ `-I` bắt buộc phải có (bật `QUOTED_IDENTIFIER`), thiếu sẽ lỗi khi tạo filtered index — xem
    giải thích ở `database/README.md` mục 4.
 
    ⚠️ Đây là project database-first — **không chạy** `dotnet ef migrations add` hay
-   `dotnet ef database update`, project này không có và không nên có thư mục `Migrations`.
+   `dotnet ef database update`; các file `database/migrations/*.sql` là SQL thủ công, không phải EF migrations.
 
 4. Chạy API:
 
@@ -160,9 +162,10 @@ Tài khoản trong connection string cần quyền tạo và xóa database test.
 
 ## 7. ⚠️ Database-First — không dùng EF Core migrations
 
-`database/tripmate_schema_v7.sql` là **nguồn chân lý duy nhất** cho schema, áp bằng
-`database/apply-schema.sh`. `TripMate.Infrastructure` map thủ công vào đó qua
-`Persistence/Configurations/*Configuration.cs` — không có thư mục `Migrations`, và
+`database/tripmate_schema_v7.sql` là **nguồn chân lý cho DB mới**; các file
+`database/migrations/*.sql` nâng cấp an toàn DB v7 đang tồn tại. `database/apply-schema.sh`
+áp full schema hoặc incremental SQL tương ứng. `TripMate.Infrastructure` map thủ công qua
+`Persistence/Configurations/*Configuration.cs` — không dùng EF Core migrations, và
 `dotnet ef migrations add` / `dotnet ef database update` **không bao giờ được chạy** trong repo
 này. Chi tiết đầy đủ, gồm 2 lỗi dễ dính đã gặp và fix (đã verify thật trên DB thật, không phải
 đoán): xem [`database/README.md`](database/README.md) mục 9 và `AGENTS.md`.

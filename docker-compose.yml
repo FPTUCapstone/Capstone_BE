@@ -23,8 +23,8 @@ services:
       timeout: 5s
       retries: 10
 
-  # One-shot: creates TripMateDb (if missing) and applies database/tripmate_schema_v7.sql.
-  # Safe to re-run — apply-schema.sh skips if the schema is already present.
+  # One-shot: creates TripMateDb (if missing), applies the full v7 schema on a fresh
+  # database, and applies idempotent SQL migrations on both fresh and existing v7 DBs.
   db-init:
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: tripmate-db-init

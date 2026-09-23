@@ -22,6 +22,10 @@
         change): TM-98 leaves catalog.POIs.scenic_score and photo_rating
         NULL on creation. Populating them later requires a separately
         approved aggregation flow.
+     4. TM-70 adds commerce.Tours.destination as nullable NVARCHAR(300)
+        using Vietnamese_100_CI_AS and enforces whole-VND base_price
+        values. Existing v7 databases use the matching idempotent script
+        in database/migrations/20260915_add_tour_search_fields.sql.
 
    v6 changes vs v5:
 
@@ -428,11 +432,22 @@ GO
    Covers UC-35..UC-37, UC-60, UC-61
    ===================================================================== */
 
+-- TM-70: TripMate-managed search regions; POIs and itinerary stops remain independent.
+CREATE TABLE catalog.Destinations (
+    destination_id BIGINT IDENTITY(1,1) NOT NULL
+        CONSTRAINT PK_Destinations PRIMARY KEY,
+    name NVARCHAR(300) COLLATE Vietnamese_100_CI_AS NOT NULL
+);
+GO
+CREATE UNIQUE INDEX UX_Destinations_Name ON catalog.Destinations(name);
+GO
+
 CREATE TABLE commerce.Tours (
     tour_id             BIGINT IDENTITY(1,1) PRIMARY KEY,
     operator_user_id    BIGINT NOT NULL REFERENCES dbo.OperatorProfiles(user_id),
     title                NVARCHAR(200) NOT NULL,
     description           NVARCHAR(MAX) NULL,
+    destination            NVARCHAR(300) COLLATE Vietnamese_100_CI_AS NULL, -- legacy draft data only; TM-70 reads TourDestinations
     base_price            DECIMAL(12,2) NOT NULL CHECK (base_price >= 0),
     duration_days           INT NOT NULL DEFAULT 1 CHECK (duration_days > 0),
     status                  VARCHAR(12) NOT NULL DEFAULT 'Draft'
@@ -442,13 +457,33 @@ CREATE TABLE commerce.Tours (
     reviewed_at                DATETIME2 NULL,
     published_at                DATETIME2 NULL,
     created_at                  DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
-    updated_at                  DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+    updated_at                  DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT CK_Tours_BasePriceWholeVnd
+        CHECK (base_price = FLOOR(base_price))
     -- v2: slot_capacity/slots_booked moved to commerce.TourSchedules —
     -- a Tour is now a reusable template that can run on multiple dates.
 );
 GO
 CREATE INDEX IX_Tours_Operator ON commerce.Tours(operator_user_id);
 CREATE INDEX IX_Tours_Status ON commerce.Tours(status);
+GO
+
+CREATE TABLE commerce.TourDestinations (
+    tour_id BIGINT NOT NULL,
+    destination_id BIGINT NOT NULL,
+    sequence_no INT NOT NULL,
+    CONSTRAINT PK_TourDestinations PRIMARY KEY (tour_id, destination_id),
+    CONSTRAINT FK_TourDestinations_Tours FOREIGN KEY (tour_id)
+        REFERENCES commerce.Tours(tour_id) ON DELETE CASCADE,
+    CONSTRAINT FK_TourDestinations_Destinations FOREIGN KEY (destination_id)
+        REFERENCES catalog.Destinations(destination_id),
+    CONSTRAINT CK_TourDestinations_SequencePositive CHECK (sequence_no > 0)
+);
+GO
+CREATE UNIQUE INDEX UX_TourDestinations_TourSequence
+    ON commerce.TourDestinations(tour_id, sequence_no);
+CREATE INDEX IX_TourDestinations_Destination
+    ON commerce.TourDestinations(destination_id);
 GO
 
 CREATE TABLE commerce.TourItineraryItems (

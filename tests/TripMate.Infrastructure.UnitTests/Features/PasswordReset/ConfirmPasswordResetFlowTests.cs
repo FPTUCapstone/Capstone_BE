@@ -125,6 +125,14 @@ public class ConfirmPasswordResetFlowTests
 
         DbSet<Domain.Entities.OperatorDocument> IApplicationDbContext.OperatorDocuments => throw new NotSupportedException();
 
+        DbSet<Domain.Entities.Tour> IApplicationDbContext.Tours => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.TourSchedule> IApplicationDbContext.TourSchedules => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.Destination> IApplicationDbContext.Destinations => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.TourDestination> IApplicationDbContext.TourDestinations => throw new NotSupportedException();
+
         DbSet<Domain.Entities.AuditLog> IApplicationDbContext.AuditLogs => throw new NotSupportedException();
 
         DbSet<Domain.Entities.Notification> IApplicationDbContext.Notifications => throw new NotSupportedException();
@@ -169,6 +177,10 @@ public class ConfirmPasswordResetFlowTests
             modelBuilder.Ignore<Domain.Entities.PoiTag>();
             modelBuilder.Ignore<Domain.Entities.OperatorProfile>();
             modelBuilder.Ignore<Domain.Entities.OperatorDocument>();
+            modelBuilder.Ignore<Domain.Entities.Tour>();
+            modelBuilder.Ignore<Domain.Entities.TourSchedule>();
+            modelBuilder.Ignore<Domain.Entities.Destination>();
+            modelBuilder.Ignore<Domain.Entities.TourDestination>();
             modelBuilder.Ignore<Domain.Entities.AuditLog>();
             modelBuilder.Ignore<Domain.Entities.Notification>();
             modelBuilder.Ignore<Domain.Entities.PoiPhoto>();
