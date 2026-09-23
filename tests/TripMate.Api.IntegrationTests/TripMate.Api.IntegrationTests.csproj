@@ -28,6 +28,9 @@
     <None Include="..\..\database\migrations\20260918_add_audit_result_reason.sql"
           Link="Database\migrations\20260918_add_audit_result_reason.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20260923_add_tour_media.sql"
+          Link="Database\migrations\20260923_add_tour_media.sql"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\database\apply-schema.sh"
           Link="Database\apply-schema.sh"
           CopyToOutputDirectory="PreserveNewest" />
@@ -48,6 +51,9 @@
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="Fixtures\Database\tm70_pre_migration_schema.sql"
           Link="Database\Fixtures\tm70_pre_migration_schema.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures\Database\tm206_pre_migration_schema.sql"
+          Link="Database\Fixtures\tm206_pre_migration_schema.sql"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
