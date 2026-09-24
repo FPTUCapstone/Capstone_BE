@@ -119,7 +119,7 @@ BEGIN TRY
             @estimatedVisitCostDefinition, N' ', N''), CHAR(13), N''), CHAR(10), N'');
 
         IF @estimatedVisitCostDefinition
-            <> N'estimated_visit_costisnulloreestimated_visit_cost>=0'
+            <> N'estimated_visit_costisnullorestimated_visit_cost>=0'
            OR EXISTS (
                 SELECT 1
                 FROM sys.check_constraints

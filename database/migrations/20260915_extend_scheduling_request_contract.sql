@@ -17,7 +17,7 @@ BEGIN TRY
             @transportModeDefinition, N' ', N''), CHAR(13), N''), CHAR(10), N'');
 
         IF @transportModeDefinition
-            <> N'transport_modein(''walking'',''motorbike'',''car'',''publictransit'')'
+            <> N'transport_mode=''publictransit''ortransport_mode=''car''ortransport_mode=''motorbike''ortransport_mode=''walking'''
            OR EXISTS (
                 SELECT 1
                 FROM sys.check_constraints
