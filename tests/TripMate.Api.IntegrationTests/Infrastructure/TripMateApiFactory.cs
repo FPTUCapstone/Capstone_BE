@@ -32,6 +32,7 @@ public sealed class TripMateApiFactory(
     IReadOnlyList<string>? corsAllowedOrigins = null,
     string environmentName = "Testing",
     Func<IServiceProvider, IFirebaseAuthService>? firebaseServiceFactory = null,
+    Func<IServiceProvider, IEmailSender>? emailSenderFactory = null,
     SaveChangesInterceptor? saveChangesInterceptor = null,
     Func<IServiceProvider, IDateTimeProvider>? dateTimeProviderFactory = null,
     Action<IServiceCollection>? configureTestServices = null,
@@ -50,6 +51,7 @@ public sealed class TripMateApiFactory(
         builder.UseSetting("Jwt:Issuer", JwtIssuer);
         builder.UseSetting("Jwt:Audience", JwtAudience);
         builder.UseSetting("Jwt:SigningKey", JwtSigningKey);
+        builder.UseSetting("PasswordResetSecurity:OtpPepper", "test-only-pepper-0123456789abcdef");
 
         if (corsAllowedOrigins is not null)
         {
@@ -107,6 +109,12 @@ public sealed class TripMateApiFactory(
             {
                 services.RemoveAll<IFirebaseAuthService>();
                 services.AddSingleton<IFirebaseAuthService>(sp => firebaseServiceFactory(sp));
+            }
+
+            if (emailSenderFactory is not null)
+            {
+                services.RemoveAll<IEmailSender>();
+                services.AddSingleton<IEmailSender>(sp => emailSenderFactory(sp));
             }
 
             if (dateTimeProviderFactory is not null)
