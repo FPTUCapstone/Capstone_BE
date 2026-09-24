@@ -291,6 +291,7 @@ public class ConfirmPasswordResetFlowTests
         {
             // The confirm flow only persists Users and RefreshTokens; excluding the rest
             // avoids building a model for entities this test never touches.
+            modelBuilder.Ignore<Domain.Entities.TravelerProfile>();
             modelBuilder.Ignore<Domain.Entities.PoiCategory>();
             modelBuilder.Ignore<Domain.Entities.PointOfInterest>();
             modelBuilder.Ignore<Domain.Entities.PoiOpeningHour>();
