@@ -11,9 +11,9 @@ namespace TripMate.Application.Features.Authentication.PasswordReset;
 /// returns the same generic success; nothing about existence, status, provider type,
 /// cooldown, delivery result, generation, or OTP is exposed. One CreatedAtUtc is captured
 /// per issuance and used both for HMAC binding and the store stamp, so later verification
-/// recomputes over the exact recorded creation time. Delivery outcomes act on the matching
-/// generation only: Delivered → Sent, DefiniteFailure/Unknown → invalidated; a stale result
-/// can never mutate a newer generation (store guard).
+/// recomputes over the exact recorded creation time. SMTP delivery is handed to a bounded,
+/// process-local queue so account eligibility cannot be inferred from transport latency.
+/// A saturated queue invalidates the matching generation and still returns generic success.
 /// </summary>
 public sealed class RequestPasswordResetCommandHandler(
     IPasswordResetEligibilityResolver eligibilityResolver,
@@ -21,7 +21,7 @@ public sealed class RequestPasswordResetCommandHandler(
     IPasswordResetAccountLock accountLock,
     IOtpCodeGenerator otpCodeGenerator,
     IOtpProtectionService otpProtectionService,
-    IEmailSender emailSender,
+    IPasswordResetEmailQueue emailQueue,
     IRequestTimingNormalizer timingNormalizer,
     IDateTimeProvider dateTimeProvider)
     : IRequestHandler<RequestPasswordResetCommand, Result<RequestPasswordResetResponse>>
@@ -43,7 +43,7 @@ public sealed class RequestPasswordResetCommandHandler(
 
         await accountLock.ExecuteAsync(
             resolved.Value,
-            async lockCancellationToken =>
+            _ =>
             {
                 // The raw OTP exists only in local variables and the outbound email payload.
                 var otp = otpCodeGenerator.Generate();
@@ -53,29 +53,21 @@ public sealed class RequestPasswordResetCommandHandler(
                 if (issue.Outcome == PasswordResetIssueOutcome.CooldownSuppressed)
                 {
                     // No new OTP, no email, and the existing usable generation stays untouched.
-                    return;
+                    return Task.CompletedTask;
                 }
 
                 var state = issue.State!;
-                var delivery = await emailSender.SendPasswordResetOtpAsync(
+                var queued = emailQueue.TryEnqueue(new PasswordResetEmailDelivery(
+                    state.UserId,
+                    state.Generation,
                     request.Email.Trim().ToLowerInvariant(),
-                    otp,
-                    lockCancellationToken);
-
-                switch (delivery.Status)
+                    otp));
+                if (!queued)
                 {
-                    case EmailDeliveryStatus.Delivered:
-                        stateStore.TryTransitionDelivery(
-                            state.UserId,
-                            state.Generation,
-                            PasswordResetDeliveryState.Sent);
-                        break;
-
-                    case EmailDeliveryStatus.DefiniteFailure:
-                    case EmailDeliveryStatus.Unknown:
-                        stateStore.TryInvalidate(state.UserId, state.Generation);
-                        break;
+                    stateStore.TryInvalidate(state.UserId, state.Generation);
                 }
+
+                return Task.CompletedTask;
             },
             cancellationToken);
 

@@ -29,11 +29,15 @@ public class PasswordResetEndpointsTests
 
     private sealed class FakeEmailSender : IEmailSender
     {
+        private readonly TaskCompletionSource _attempted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public EmailDeliveryStatus DeliveryStatusToReturn { get; set; } = EmailDeliveryStatus.Delivered;
 
         public string? LastDestination { get; private set; }
 
         public string? LastOtp { get; private set; }
+
+        public Task WaitForAttemptAsync() => _attempted.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
         public Task<EmailDeliveryResult> SendPasswordResetOtpAsync(
             string destinationEmail,
@@ -42,11 +46,32 @@ public class PasswordResetEndpointsTests
         {
             LastDestination = destinationEmail;
             LastOtp = otp;
+            _attempted.TrySetResult();
             return Task.FromResult(DeliveryStatusToReturn == EmailDeliveryStatus.Delivered
                 ? EmailDeliveryResult.Delivered
                 : DeliveryStatusToReturn == EmailDeliveryStatus.DefiniteFailure
                     ? EmailDeliveryResult.DefiniteFailure
                     : EmailDeliveryResult.Unknown);
+        }
+    }
+
+    private sealed class BlockingEmailSender : IEmailSender
+    {
+        private readonly TaskCompletionSource _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task Started => _started.Task;
+
+        public void Release() => _release.TrySetResult();
+
+        public async Task<EmailDeliveryResult> SendPasswordResetOtpAsync(
+            string destinationEmail,
+            string otp,
+            CancellationToken cancellationToken)
+        {
+            _started.TrySetResult();
+            await _release.Task.WaitAsync(cancellationToken);
+            return EmailDeliveryResult.Delivered;
         }
     }
 
@@ -88,6 +113,7 @@ public class PasswordResetEndpointsTests
         await SeedUserAsync(factory, "user@example.com");
 
         var response = await client.PostAsJsonAsync("/api/v1/auth/password-reset/request", new { email = "user@example.com" });
+        await sender.WaitForAttemptAsync();
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var json = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -105,6 +131,7 @@ public class PasswordResetEndpointsTests
         await SeedUserAsync(factory, "user@example.com");
 
         var known = await client.PostAsJsonAsync("/api/v1/auth/password-reset/request", new { email = "user@example.com" });
+        await sender.WaitForAttemptAsync();
         var otpAfterKnownRequest = sender.LastOtp;
         var unknown = await client.PostAsJsonAsync("/api/v1/auth/password-reset/request", new { email = "unknown@example.com" });
 
@@ -113,6 +140,60 @@ public class PasswordResetEndpointsTests
         var unknownBody = await unknown.Content.ReadAsStringAsync();
         unknownBody.Should().Be(knownBody);
         sender.LastOtp.Should().Be(otpAfterKnownRequest, "no new OTP may be generated for an unknown email");
+    }
+
+    [Fact(DisplayName = "PLAN-API-14: eligible response does not wait for SMTP delivery")]
+    public async Task Request_EligibleAccount_CompletesWhileSmtpDeliveryIsBlocked()
+    {
+        var sender = new BlockingEmailSender();
+        using var factory = new TripMateApiFactory(emailSenderFactory: _ => sender);
+        using var client = factory.CreateClient();
+        await SeedUserAsync(factory, "user@example.com");
+
+        var request = client.PostAsJsonAsync(
+            "/api/v1/auth/password-reset/request",
+            new { email = "user@example.com" });
+
+        await sender.Started.WaitAsync(TimeSpan.FromSeconds(2));
+        try
+        {
+            var response = await request.WaitAsync(TimeSpan.FromSeconds(2));
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+        finally
+        {
+            sender.Release();
+        }
+    }
+
+    [Fact(DisplayName = "PLAN-API-15: repeated eligible request does not wait for blocked SMTP")]
+    public async Task Request_RepeatedEligibleAccount_CompletesWhileSmtpDeliveryIsBlocked()
+    {
+        var sender = new BlockingEmailSender();
+        using var factory = new TripMateApiFactory(emailSenderFactory: _ => sender);
+        using var client = factory.CreateClient();
+        await SeedUserAsync(factory, "user@example.com");
+
+        var firstRequest = client.PostAsJsonAsync(
+            "/api/v1/auth/password-reset/request",
+            new { email = "user@example.com" });
+        await sender.Started.WaitAsync(TimeSpan.FromSeconds(2));
+
+        try
+        {
+            (await firstRequest.WaitAsync(TimeSpan.FromSeconds(2))).StatusCode.Should().Be(HttpStatusCode.OK);
+
+            var repeatedResponse = await client.PostAsJsonAsync(
+                    "/api/v1/auth/password-reset/request",
+                    new { email = "user@example.com" })
+                .WaitAsync(TimeSpan.FromSeconds(2));
+
+            repeatedResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+        finally
+        {
+            sender.Release();
+        }
     }
 
     [Fact(DisplayName = "PLAN-API-03: Google-only account returns the same generic 200 with no email")]
@@ -158,6 +239,7 @@ public class PasswordResetEndpointsTests
         await SeedUserAsync(factory, "user@example.com");
 
         await client.PostAsJsonAsync("/api/v1/auth/password-reset/request", new { email = "user@example.com" });
+        await sender.WaitForAttemptAsync();
         var otpAfterFirst = sender.LastOtp;
         var response = await client.PostAsJsonAsync("/api/v1/auth/password-reset/request", new { email = "user@example.com" });
 
@@ -183,6 +265,7 @@ public class PasswordResetEndpointsTests
             await SeedUserAsync(factory, "user@example.com");
 
             var response = await client.PostAsJsonAsync("/api/v1/auth/password-reset/request", new { email = "user@example.com" });
+            await sender.WaitForAttemptAsync();
 
             response.StatusCode.Should().Be(HttpStatusCode.OK);
             var json = await response.Content.ReadFromJsonAsync<JsonElement>();
@@ -228,6 +311,7 @@ public class PasswordResetEndpointsTests
         });
 
         await client.PostAsJsonAsync("/api/v1/auth/password-reset/request", new { email = "user@example.com" });
+        await sender.WaitForAttemptAsync();
         var otp = sender.LastOtp!;
 
         var response = await client.PostAsJsonAsync("/api/v1/auth/password-reset/confirm",
@@ -254,6 +338,7 @@ public class PasswordResetEndpointsTests
         using var client = factory.CreateClient();
         await SeedUserAsync(factory, "user@example.com");
         await client.PostAsJsonAsync("/api/v1/auth/password-reset/request", new { email = "user@example.com" });
+        await sender.WaitForAttemptAsync();
 
         var response = await client.PostAsJsonAsync("/api/v1/auth/password-reset/confirm",
             new { email = "user@example.com", code = "000000", newPassword = "NewPassword1!" });
@@ -275,6 +360,7 @@ public class PasswordResetEndpointsTests
         await SeedUserAsync(factory, "user@example.com");
 
         await client.PostAsJsonAsync("/api/v1/auth/password-reset/request", new { email = "user@example.com" });
+        await sender1.WaitForAttemptAsync();
         fixedTime.UtcNow = fixedTime.UtcNow.AddMinutes(4);
 
         var response = await client.PostAsJsonAsync("/api/v1/auth/password-reset/confirm",
@@ -293,6 +379,7 @@ public class PasswordResetEndpointsTests
         using var client = factory.CreateClient();
         await SeedUserAsync(factory, "user@example.com");
         await client.PostAsJsonAsync("/api/v1/auth/password-reset/request", new { email = "user@example.com" });
+        await sender.WaitForAttemptAsync();
         var otp = sender.LastOtp!;
         await client.PostAsJsonAsync("/api/v1/auth/password-reset/confirm",
             new { email = "user@example.com", code = otp, newPassword = "NewPassword1!" });
@@ -313,6 +400,7 @@ public class PasswordResetEndpointsTests
         using var client = factory.CreateClient();
         await SeedUserAsync(factory, "user@example.com");
         await client.PostAsJsonAsync("/api/v1/auth/password-reset/request", new { email = "user@example.com" });
+        await sender.WaitForAttemptAsync();
 
         var response = await client.PostAsJsonAsync("/api/v1/auth/password-reset/confirm",
             new { email = "user@example.com", code = sender.LastOtp!, newPassword = "short" });

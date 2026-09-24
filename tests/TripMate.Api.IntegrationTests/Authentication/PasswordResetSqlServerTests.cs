@@ -32,7 +32,13 @@ public sealed class PasswordResetSqlServerTests
 
     private sealed class FakeEmailSender : IEmailSender
     {
+        private readonly TaskCompletionSource _attempted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public string? LastOtp { get; private set; }
+
+        public Task WaitForAttemptAsync() =>
+            _attempted.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
         public Task<EmailDeliveryResult> SendPasswordResetOtpAsync(
             string destinationEmail,
@@ -40,6 +46,7 @@ public sealed class PasswordResetSqlServerTests
             CancellationToken cancellationToken)
         {
             LastOtp = otp;
+            _attempted.TrySetResult();
             return Task.FromResult(EmailDeliveryResult.Delivered);
         }
     }
@@ -136,6 +143,7 @@ public sealed class PasswordResetSqlServerTests
         var requestResponse = await client.PostAsJsonAsync(
             "/api/v1/auth/password-reset/request", new { email });
         requestResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        await sender.WaitForAttemptAsync();
         var otp = sender.LastOtp!;
 
         var confirmResponse = await client.PostAsJsonAsync("/api/v1/auth/password-reset/confirm",
@@ -178,6 +186,7 @@ public sealed class PasswordResetSqlServerTests
         var requestResponse = await firstClient.PostAsJsonAsync(
             "/api/v1/auth/password-reset/request", new { email });
         requestResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        await sender.WaitForAttemptAsync();
         var otp = sender.LastOtp!;
         var confirmBody = new { email, code = otp, newPassword = "NewPassword1!" };
 
@@ -228,6 +237,7 @@ public sealed class PasswordResetSqlServerTests
         using var client = factory.CreateClient();
 
         await client.PostAsJsonAsync("/api/v1/auth/password-reset/request", new { email });
+        await sender.WaitForAttemptAsync();
         var otp = sender.LastOtp!;
 
         var confirmResponse = await client.PostAsJsonAsync("/api/v1/auth/password-reset/confirm",

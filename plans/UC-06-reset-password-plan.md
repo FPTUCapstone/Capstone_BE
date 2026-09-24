@@ -310,6 +310,8 @@ IEmailSender
 
 EmailDeliveryResult
 
+IPasswordResetEmailQueue for a non-blocking, bounded, process-local handoff;
+
 Results:
 
 Delivered
@@ -321,6 +323,10 @@ Unknown
 Infrastructure:
 
 Gmail SMTP/MailKit according to current config;
+
+bounded Channel queue with a hosted delivery worker;
+
+several bounded consumers prevent one slow SMTP attempt from blocking every account;
 
 timeout → Unknown;
 
@@ -352,7 +358,15 @@ create new Pending generation with 3-minute expiry;
 
 supersede previous generation;
 
-send OTP;
+enqueue OTP delivery without waiting for SMTP;
+
+if the bounded queue is full, invalidate the matching generation and fail closed;
+
+the worker checks the pending generation, releases the account lock before SMTP, then
+re-enters the lock and generation-guards the delivery result;
+
+if an older SMTP send is already in flight when a resend supersedes it, that older email may
+still arrive, but its OTP is unusable and its late result cannot mutate the newer generation;
 
 guarded transition:
 
@@ -599,6 +613,10 @@ Application email port;
 
 Infrastructure adapter;
 
+bounded process-local delivery queue + hosted worker;
+
+non-blocking HTTP handoff and guarded asynchronous delivery transitions;
+
 timeout/failure mapping;
 
 secret/log hygiene.
@@ -615,7 +633,7 @@ OTP generation;
 
 state generation;
 
-delivery lifecycle;
+non-blocking delivery enqueue;
 
 timing normalization.
 

@@ -42,6 +42,10 @@ public static class DependencyInjection
         services.AddSingleton<IOtpCodeGenerator, CryptographicOtpCodeGenerator>();
         services.AddSingleton<IOtpProtectionService, HmacOtpProtectionService>();
         services.AddSingleton<IRequestTimingNormalizer, ResponseTimingNormalizer>();
+        services.AddSingleton<PasswordResetEmailQueue>();
+        services.AddSingleton<IPasswordResetEmailQueue>(sp =>
+            sp.GetRequiredService<PasswordResetEmailQueue>());
+        services.AddHostedService<PasswordResetEmailDeliveryService>();
         services.AddScoped<IPasswordResetEligibilityResolver, PasswordResetEligibilityResolver>();
         services.AddSingleton<ISmtpTransportFactory, MailKitSmtpClientFactory>();
         services.AddScoped<IEmailSender, SmtpEmailSender>();

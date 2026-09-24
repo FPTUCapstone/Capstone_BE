@@ -21,7 +21,7 @@ public class RequestPasswordResetFlowTests
 
     private readonly MutableDateTimeProvider _clock = new(BaseTime);
     private readonly InMemoryPasswordResetStateStore _store;
-    private readonly ScriptableEmailSender _emailSender = new();
+    private readonly ScriptableEmailQueue _emailQueue = new();
 
     public RequestPasswordResetFlowTests()
     {
@@ -38,7 +38,7 @@ public class RequestPasswordResetFlowTests
             {
                 OtpPepper = "test-only-pepper-0123456789abcdef",
             })),
-            _emailSender,
+            _emailQueue,
             new NoOpTimingNormalizer(),
             _clock);
 
@@ -47,15 +47,15 @@ public class RequestPasswordResetFlowTests
     {
         var handler = CreateHandler();
         var protectedOtpOfNewGeneration = string.Empty;
-        _emailSender.OnSend = () =>
+        _emailQueue.OnEnqueue = () =>
         {
-            // While the first request's email send is in flight, the cooldown expires and a
-            // resend supersedes the generation that request created.
+            // While the first request hands off delivery, the cooldown expires and a resend
+            // supersedes the generation that request created.
             _clock.UtcNow = BaseTime + PasswordResetPolicy.ResendCooldown;
             var newOtpProtected = "resend-protected-otp";
             _store.Issue(UserId, newOtpProtected, _clock.UtcNow);
             protectedOtpOfNewGeneration = newOtpProtected;
-            return EmailDeliveryResult.Delivered;
+            return true;
         };
 
         await handler.Handle(new RequestPasswordResetCommand(Email), CancellationToken.None);
@@ -79,11 +79,11 @@ public class RequestPasswordResetFlowTests
         responses.Should().OnlyContain(r => r.IsSuccess);
         responses.Select(r => r.Value.Message)
             .Should().OnlyContain(message => message == RequestPasswordResetResponse.GenericMessage);
-        _emailSender.SendCount.Should().Be(1);
+        _emailQueue.EnqueueCount.Should().Be(1);
 
         var current = _store.GetCurrent(UserId);
         current.Should().NotBeNull();
-        current!.DeliveryState.Should().Be(PasswordResetDeliveryState.Sent);
+        current!.DeliveryState.Should().Be(PasswordResetDeliveryState.Pending);
 
         // The HMAC is bound to exactly the CreatedAtUtc the store recorded, so verification
         // against the stored generation succeeds.
@@ -107,19 +107,16 @@ public class RequestPasswordResetFlowTests
         public string Generate() => code;
     }
 
-    private sealed class ScriptableEmailSender : IEmailSender
+    private sealed class ScriptableEmailQueue : IPasswordResetEmailQueue
     {
-        public Func<EmailDeliveryResult> OnSend { get; set; } = () => EmailDeliveryResult.Delivered;
+        public Func<bool> OnEnqueue { get; set; } = () => true;
 
-        public int SendCount { get; private set; }
+        public int EnqueueCount { get; private set; }
 
-        public Task<EmailDeliveryResult> SendPasswordResetOtpAsync(
-            string destinationEmail,
-            string otp,
-            CancellationToken cancellationToken)
+        public bool TryEnqueue(PasswordResetEmailDelivery delivery)
         {
-            SendCount++;
-            return Task.FromResult(OnSend());
+            EnqueueCount++;
+            return OnEnqueue();
         }
     }
 

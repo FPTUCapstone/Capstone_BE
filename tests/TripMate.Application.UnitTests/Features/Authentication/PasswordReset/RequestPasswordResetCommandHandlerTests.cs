@@ -25,7 +25,7 @@ public class RequestPasswordResetCommandHandlerTests
     private readonly Mock<IPasswordResetStateStore> _store = new();
     private readonly Mock<IOtpCodeGenerator> _otpGenerator = new();
     private readonly Mock<IOtpProtectionService> _protectionService = new();
-    private readonly Mock<IEmailSender> _emailSender = new();
+    private readonly Mock<IPasswordResetEmailQueue> _emailQueue = new();
     private readonly Mock<IDateTimeProvider> _clock = new();
     private readonly FakeTimingNormalizer _timingNormalizer = new();
     private readonly Queue<DateTimeOffset> _clockValues = new();
@@ -40,9 +40,9 @@ public class RequestPasswordResetCommandHandlerTests
         _protectionService
             .Setup(p => p.Protect(RawOtp, UserId, It.IsAny<DateTimeOffset>()))
             .Returns(ProtectedOtp);
-        _emailSender
-            .Setup(s => s.SendPasswordResetOtpAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(EmailDeliveryResult.Delivered);
+        _emailQueue
+            .Setup(q => q.TryEnqueue(It.IsAny<PasswordResetEmailDelivery>()))
+            .Returns(true);
 
         _handler = new RequestPasswordResetCommandHandler(
             _resolver.Object,
@@ -50,7 +50,7 @@ public class RequestPasswordResetCommandHandlerTests
             new FakePasswordResetAccountLock(),
             _otpGenerator.Object,
             _protectionService.Object,
-            _emailSender.Object,
+            _emailQueue.Object,
             _timingNormalizer,
             _clock.Object);
     }
@@ -117,43 +117,30 @@ public class RequestPasswordResetCommandHandlerTests
         result.Value.Message.Should().NotContain(RawOtp);
     }
 
-    [Fact(DisplayName = "PLAN-REQ-03: Delivered transitions the matching generation to Sent")]
-    public async Task Handle_WhenDelivered_TransitionsGenerationToSent()
+    [Fact(DisplayName = "PLAN-REQ-03: issued generation is handed to the delivery queue")]
+    public async Task Handle_WhenIssued_QueuesMatchingGeneration()
     {
         SetupEligible();
         SetupStoreIssuesGeneration(7);
 
         await _handler.Handle(new RequestPasswordResetCommand(Email), CancellationToken.None);
 
-        _store.Verify(s => s.TryTransitionDelivery(UserId, 7, PasswordResetDeliveryState.Sent), Times.Once);
+        _emailQueue.Verify(q => q.TryEnqueue(It.Is<PasswordResetEmailDelivery>(delivery =>
+            delivery.UserId == UserId
+            && delivery.Generation == 7
+            && delivery.DestinationEmail == Email
+            && delivery.Otp == RawOtp)), Times.Once);
         _store.Verify(s => s.TryInvalidate(It.IsAny<long>(), It.IsAny<long>()), Times.Never);
     }
 
-    [Fact(DisplayName = "PLAN-REQ-04: DefiniteFailure invalidates the matching generation")]
-    public async Task Handle_WhenDefiniteFailure_InvalidatesGeneration()
+    [Fact(DisplayName = "PLAN-REQ-04: saturated delivery queue invalidates the matching generation")]
+    public async Task Handle_WhenQueueIsFull_InvalidatesGeneration()
     {
         SetupEligible();
         SetupStoreIssuesGeneration(7);
-        _emailSender
-            .Setup(s => s.SendPasswordResetOtpAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(EmailDeliveryResult.DefiniteFailure);
-
-        await _handler.Handle(new RequestPasswordResetCommand(Email), CancellationToken.None);
-
-        _store.Verify(s => s.TryInvalidate(UserId, 7), Times.Once);
-        _store.Verify(
-            s => s.TryTransitionDelivery(It.IsAny<long>(), It.IsAny<long>(), It.IsAny<PasswordResetDeliveryState>()),
-            Times.Never);
-    }
-
-    [Fact(DisplayName = "PLAN-REQ-05: Unknown delivery invalidates the matching generation")]
-    public async Task Handle_WhenDeliveryUnknown_InvalidatesGeneration()
-    {
-        SetupEligible();
-        SetupStoreIssuesGeneration(7);
-        _emailSender
-            .Setup(s => s.SendPasswordResetOtpAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(EmailDeliveryResult.Unknown);
+        _emailQueue
+            .Setup(q => q.TryEnqueue(It.IsAny<PasswordResetEmailDelivery>()))
+            .Returns(false);
 
         await _handler.Handle(new RequestPasswordResetCommand(Email), CancellationToken.None);
 
@@ -170,9 +157,7 @@ public class RequestPasswordResetCommandHandlerTests
         result.IsSuccess.Should().BeTrue();
         result.Value.Message.Should().Be(RequestPasswordResetResponse.GenericMessage);
         _store.Verify(s => s.Issue(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<DateTimeOffset>()), Times.Never);
-        _emailSender.Verify(
-            s => s.SendPasswordResetOtpAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
-            Times.Never);
+        _emailQueue.Verify(q => q.TryEnqueue(It.IsAny<PasswordResetEmailDelivery>()), Times.Never);
     }
 
     [Fact(DisplayName = "PLAN-REQ-07: Google-only account returns generic success with no state and no email")]
@@ -186,9 +171,7 @@ public class RequestPasswordResetCommandHandlerTests
 
         result.Value.Message.Should().Be(RequestPasswordResetResponse.GenericMessage);
         _store.Verify(s => s.Issue(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<DateTimeOffset>()), Times.Never);
-        _emailSender.Verify(
-            s => s.SendPasswordResetOtpAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
-            Times.Never);
+        _emailQueue.Verify(q => q.TryEnqueue(It.IsAny<PasswordResetEmailDelivery>()), Times.Never);
     }
 
     [Fact(DisplayName = "PLAN-REQ-08: Locked/Inactive account returns generic success with no state and no email")]
@@ -200,9 +183,7 @@ public class RequestPasswordResetCommandHandlerTests
 
         result.Value.Message.Should().Be(RequestPasswordResetResponse.GenericMessage);
         _store.Verify(s => s.Issue(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<DateTimeOffset>()), Times.Never);
-        _emailSender.Verify(
-            s => s.SendPasswordResetOtpAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
-            Times.Never);
+        _emailQueue.Verify(q => q.TryEnqueue(It.IsAny<PasswordResetEmailDelivery>()), Times.Never);
     }
 
     [Fact(DisplayName = "PLAN-REQ-09: cooldown returns generic success with no new OTP, email, or state replacement")]
@@ -214,12 +195,7 @@ public class RequestPasswordResetCommandHandlerTests
         var result = await _handler.Handle(new RequestPasswordResetCommand(Email), CancellationToken.None);
 
         result.Value.Message.Should().Be(RequestPasswordResetResponse.GenericMessage);
-        _emailSender.Verify(
-            s => s.SendPasswordResetOtpAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()),
-            Times.Never);
-        _store.Verify(
-            s => s.TryTransitionDelivery(It.IsAny<long>(), It.IsAny<long>(), It.IsAny<PasswordResetDeliveryState>()),
-            Times.Never);
+        _emailQueue.Verify(q => q.TryEnqueue(It.IsAny<PasswordResetEmailDelivery>()), Times.Never);
         _store.Verify(s => s.TryInvalidate(It.IsAny<long>(), It.IsAny<long>()), Times.Never);
     }
 
@@ -243,10 +219,8 @@ public class RequestPasswordResetCommandHandlerTests
         await _handler.Handle(new RequestPasswordResetCommand(Email), CancellationToken.None);
         await _handler.Handle(new RequestPasswordResetCommand(Email), CancellationToken.None);
 
-        _store.Verify(s => s.TryTransitionDelivery(UserId, 1, PasswordResetDeliveryState.Sent), Times.Once);
-        _store.Verify(s => s.TryTransitionDelivery(UserId, 2, PasswordResetDeliveryState.Sent), Times.Once);
-        _emailSender.Verify(
-            s => s.SendPasswordResetOtpAsync(It.IsAny<string>(), RawOtp, It.IsAny<CancellationToken>()),
+        _emailQueue.Verify(
+            q => q.TryEnqueue(It.Is<PasswordResetEmailDelivery>(delivery => delivery.Otp == RawOtp)),
             Times.Exactly(2));
     }
 
@@ -266,9 +240,9 @@ public class RequestPasswordResetCommandHandlerTests
         SetupStoreCooldownSuppressed();
         results.Add(await _handler.Handle(new RequestPasswordResetCommand(Email), CancellationToken.None));
 
-        _emailSender
-            .Setup(s => s.SendPasswordResetOtpAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(EmailDeliveryResult.DefiniteFailure);
+        _emailQueue
+            .Setup(q => q.TryEnqueue(It.IsAny<PasswordResetEmailDelivery>()))
+            .Returns(false);
         SetupStoreIssuesGeneration(2);
         results.Add(await _handler.Handle(new RequestPasswordResetCommand(Email), CancellationToken.None));
 
