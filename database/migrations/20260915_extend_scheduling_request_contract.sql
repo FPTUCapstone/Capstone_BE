@@ -212,10 +212,9 @@ BEGIN TRY
                     QUOTENAME(expected.SchemaName) + N'.' + QUOTENAME(expected.TableName))
                 OR column_metadata.name <> expected.ColumnName
                 OR REPLACE(
-                       LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                       LOWER(REPLACE(REPLACE(REPLACE(
                            default_constraint.definition,
-                           N'[', N''), N']', N''), N'(', N''), N')', N''),
-                           N' ', N'')),
+                           N'(', N''), N')', N''), N' ', N'')),
                        N'n''', N'''')
                     <> expected.ExpectedDefinition
               ))
