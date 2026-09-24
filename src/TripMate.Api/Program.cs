@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -156,6 +157,36 @@ try
         });
     });
 
+    // UC-06 password reset: account-independent per-IP abuse limiting. The account-level
+    // 60-second resend cooldown stays inside the request flow (generic 200) and never
+    // becomes an HTTP 429.
+    builder.Services.AddRateLimiter(options =>
+    {
+        options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+        options.OnRejected = static async (context, cancellationToken) =>
+        {
+            // The 429 payload matches the documented ProblemDetails contract and carries no
+            // account information — only the fact that this transport/IP is throttled.
+            context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+            await context.HttpContext.Response.WriteAsJsonAsync(
+                new ProblemDetails
+                {
+                    Title = "Too many requests.",
+                    Status = StatusCodes.Status429TooManyRequests,
+                },
+                cancellationToken);
+        };
+        options.AddPolicy(PasswordResetRateLimiter.PolicyName, context =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = PasswordResetRateLimiter.PermitLimit,
+                    Window = PasswordResetRateLimiter.Window,
+                    QueueLimit = 0,
+                }));
+    });
+
     var app = builder.Build();
 
     // Outer middleware observes the status after validation exceptions are mapped to 400.
@@ -174,6 +205,8 @@ try
 
     app.UseAuthentication();
     app.UseAuthorization();
+
+    app.UseRateLimiter();
 
     app.MapControllers();
 
