@@ -234,6 +234,66 @@ public sealed class CreateSchedulingRequestSqlServerTests
             .WithMessage("*Scheduling schema contract mismatch*");
     }
 
+    [Theory]
+    [Trait("Category", "SqlServer")]
+    [InlineData(
+        "planning.SchedulingRequests",
+        "DF_SchedulingRequests_TimeZoneId",
+        "time_zone_id",
+        "'asia/ho_chi_minh'")]
+    [InlineData(
+        "planning.SchedulingRequests",
+        "DF_SchedulingRequests_RestPreference",
+        "rest_preference",
+        "'auto'")]
+    [InlineData(
+        "planning.SchedulingRequests",
+        "DF_SchedulingRequests_MandatoryPoiIds",
+        "mandatory_poi_ids_json",
+        "'[]'")]
+    [InlineData(
+        "planning.SchedulingRequests",
+        "DF_SchedulingRequests_ReturnToStart",
+        "return_to_start",
+        "1")]
+    [InlineData(
+        "planning.SchedulingRequests",
+        "DF_SchedulingRequests_TransportMode",
+        "transport_mode",
+        "'walking'")]
+    [InlineData(
+        "planning.ItineraryItems",
+        "DF_ItineraryItems_ItemKind",
+        "item_kind",
+        "'visit'")]
+    public async Task SchedulingMigration_WhenCanonicalDefaultIsMissing_RepairsIt(
+        string tableName,
+        string constraintName,
+        string columnName,
+        string expectedDefinition)
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await database.ExecuteNonQueryAsync(
+            $"ALTER TABLE {tableName} DROP CONSTRAINT {constraintName};");
+
+        await ApplySchedulingMigrationsAsync(database);
+        await ApplySchedulingMigrationsAsync(database);
+
+        var actualDefinition = await database.ExecuteScalarAsync<string>($"""
+            SELECT LOWER(REPLACE(REPLACE(REPLACE(REPLACE(
+                defaults.definition, N'(', N''), N')', N''), N' ', N''), N'n''', N''''))
+            FROM sys.default_constraints AS defaults
+            INNER JOIN sys.columns AS columns
+                ON columns.object_id = defaults.parent_object_id
+               AND columns.column_id = defaults.parent_column_id
+            WHERE defaults.name = N'{constraintName}'
+              AND defaults.parent_object_id = OBJECT_ID(N'{tableName}')
+              AND columns.name = N'{columnName}';
+            """);
+
+        actualDefinition.Should().Be(expectedDefinition);
+    }
+
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
     public async Task SchedulingMigration_WhenManagedColumnHasWrongShape_RejectsUpgrade()

@@ -121,6 +121,81 @@ BEGIN TRY
                     OR (return_to_start = 0 AND end_poi_id IS NOT NULL));';
     END;
 
+    -- A missing default is safe to repair. A default with the canonical name
+    -- but a different target or literal is rejected by the final inventory
+    -- validation below instead of being silently replaced.
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.default_constraints AS defaults
+        INNER JOIN sys.columns AS columns
+            ON columns.object_id = defaults.parent_object_id
+           AND columns.column_id = defaults.parent_column_id
+        WHERE defaults.parent_object_id = OBJECT_ID(N'planning.SchedulingRequests')
+          AND columns.name = N'time_zone_id')
+        ALTER TABLE planning.SchedulingRequests
+            ADD CONSTRAINT DF_SchedulingRequests_TimeZoneId
+            DEFAULT 'Asia/Ho_Chi_Minh' FOR time_zone_id;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.default_constraints AS defaults
+        INNER JOIN sys.columns AS columns
+            ON columns.object_id = defaults.parent_object_id
+           AND columns.column_id = defaults.parent_column_id
+        WHERE defaults.parent_object_id = OBJECT_ID(N'planning.SchedulingRequests')
+          AND columns.name = N'return_to_start')
+        ALTER TABLE planning.SchedulingRequests
+            ADD CONSTRAINT DF_SchedulingRequests_ReturnToStart
+            DEFAULT 1 FOR return_to_start;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.default_constraints AS defaults
+        INNER JOIN sys.columns AS columns
+            ON columns.object_id = defaults.parent_object_id
+           AND columns.column_id = defaults.parent_column_id
+        WHERE defaults.parent_object_id = OBJECT_ID(N'planning.SchedulingRequests')
+          AND columns.name = N'transport_mode')
+        ALTER TABLE planning.SchedulingRequests
+            ADD CONSTRAINT DF_SchedulingRequests_TransportMode
+            DEFAULT 'Walking' FOR transport_mode;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.default_constraints AS defaults
+        INNER JOIN sys.columns AS columns
+            ON columns.object_id = defaults.parent_object_id
+           AND columns.column_id = defaults.parent_column_id
+        WHERE defaults.parent_object_id = OBJECT_ID(N'planning.SchedulingRequests')
+          AND columns.name = N'mandatory_poi_ids_json')
+        ALTER TABLE planning.SchedulingRequests
+            ADD CONSTRAINT DF_SchedulingRequests_MandatoryPoiIds
+            DEFAULT (N'[]') FOR mandatory_poi_ids_json;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.default_constraints AS defaults
+        INNER JOIN sys.columns AS columns
+            ON columns.object_id = defaults.parent_object_id
+           AND columns.column_id = defaults.parent_column_id
+        WHERE defaults.parent_object_id = OBJECT_ID(N'planning.SchedulingRequests')
+          AND columns.name = N'rest_preference')
+        ALTER TABLE planning.SchedulingRequests
+            ADD CONSTRAINT DF_SchedulingRequests_RestPreference
+            DEFAULT 'Auto' FOR rest_preference;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.default_constraints AS defaults
+        INNER JOIN sys.columns AS columns
+            ON columns.object_id = defaults.parent_object_id
+           AND columns.column_id = defaults.parent_column_id
+        WHERE defaults.parent_object_id = OBJECT_ID(N'planning.ItineraryItems')
+          AND columns.name = N'item_kind')
+        ALTER TABLE planning.ItineraryItems
+            ADD CONSTRAINT DF_ItineraryItems_ItemKind
+            DEFAULT 'Visit' FOR item_kind;
+
     DECLARE @expectedSchedulingColumns TABLE (
         SchemaName SYSNAME NOT NULL,
         TableName SYSNAME NOT NULL,
@@ -202,12 +277,13 @@ BEGIN TRY
     IF EXISTS (
         SELECT 1
         FROM @finalSchedulingDefaults AS expected
-        INNER JOIN sys.default_constraints AS default_constraint
+        LEFT JOIN sys.default_constraints AS default_constraint
             ON default_constraint.name = expected.ConstraintName
-        INNER JOIN sys.columns AS column_metadata
+        LEFT JOIN sys.columns AS column_metadata
             ON column_metadata.object_id = default_constraint.parent_object_id
            AND column_metadata.column_id = default_constraint.parent_column_id
-        WHERE (
+        WHERE default_constraint.object_id IS NULL
+           OR (
                 default_constraint.parent_object_id <> OBJECT_ID(
                     QUOTENAME(expected.SchemaName) + N'.' + QUOTENAME(expected.TableName))
                 OR column_metadata.name <> expected.ColumnName
