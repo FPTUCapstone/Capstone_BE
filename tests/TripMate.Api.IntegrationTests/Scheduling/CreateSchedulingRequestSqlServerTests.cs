@@ -512,4 +512,3 @@ public sealed class CreateSchedulingRequestSqlServerTests
         }
     }
 }
-}
