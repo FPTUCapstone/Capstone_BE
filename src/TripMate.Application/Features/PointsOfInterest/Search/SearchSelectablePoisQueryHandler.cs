@@ -46,10 +46,10 @@ public sealed class SearchSelectablePoisQueryHandler(IApplicationDbContext dbCon
                 && poi.Latitude <= bounds.MaximumLatitude
                 && poi.Longitude >= bounds.MinimumLongitude
                 && poi.Longitude <= bounds.MaximumLongitude
-                && ((poi.Latitude - distance.Latitude) * (poi.Latitude - distance.Latitude)
-                    * distance.LatitudeWeight)
-                   + ((poi.Longitude - distance.Longitude) * (poi.Longitude - distance.Longitude)
-                    * distance.LongitudeWeight)
+                && ((poi.Latitude - distance.Latitude) * distance.LatitudeKilometersPerDegree)
+                    * ((poi.Latitude - distance.Latitude) * distance.LatitudeKilometersPerDegree)
+                   + ((poi.Longitude - distance.Longitude) * distance.LongitudeKilometersPerDegree)
+                    * ((poi.Longitude - distance.Longitude) * distance.LongitudeKilometersPerDegree)
                    <= distance.RadiusSquared);
         }
 
@@ -60,10 +60,10 @@ public sealed class SearchSelectablePoisQueryHandler(IApplicationDbContext dbCon
         {
             orderedPois = eligiblePois
                 .OrderBy(poi =>
-                    ((poi.Latitude - distance.Latitude) * (poi.Latitude - distance.Latitude)
-                     * distance.LatitudeWeight)
-                    + ((poi.Longitude - distance.Longitude) * (poi.Longitude - distance.Longitude)
-                     * distance.LongitudeWeight))
+                    ((poi.Latitude - distance.Latitude) * distance.LatitudeKilometersPerDegree)
+                    * ((poi.Latitude - distance.Latitude) * distance.LatitudeKilometersPerDegree)
+                    + ((poi.Longitude - distance.Longitude) * distance.LongitudeKilometersPerDegree)
+                    * ((poi.Longitude - distance.Longitude) * distance.LongitudeKilometersPerDegree))
                 .ThenBy(poi => poi.Name)
                 .ThenBy(poi => poi.Id);
         }
@@ -101,8 +101,8 @@ public sealed class SearchSelectablePoisQueryHandler(IApplicationDbContext dbCon
     private sealed record DistanceCalculation(
         decimal Latitude,
         decimal Longitude,
-        decimal LatitudeWeight,
-        decimal LongitudeWeight,
+        decimal LatitudeKilometersPerDegree,
+        decimal LongitudeKilometersPerDegree,
         decimal RadiusSquared)
     {
         public static DistanceCalculation Create(
@@ -111,15 +111,12 @@ public sealed class SearchSelectablePoisQueryHandler(IApplicationDbContext dbCon
             LocationBounds bounds,
             int radiusKm)
         {
-            var latitudeWeight = GeoDistance.LatitudeKilometersPerDegree
-                * GeoDistance.LatitudeKilometersPerDegree;
             var longitudeKilometersPerDegree = GeoDistance.LongitudeKilometersPerDegree(latitude);
-            var longitudeWeight = longitudeKilometersPerDegree * longitudeKilometersPerDegree;
             return new DistanceCalculation(
                 latitude,
                 longitude,
-                latitudeWeight,
-                longitudeWeight,
+                GeoDistance.LatitudeKilometersPerDegree,
+                longitudeKilometersPerDegree,
                 radiusKm * radiusKm);
         }
     }

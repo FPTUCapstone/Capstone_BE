@@ -55,10 +55,10 @@ public sealed class SearchSelectablePoisSqlServerTests
     public async Task Search_Endpoint_UsesSharedRadiusBoundaryAndStableIdTieBreakInSqlServer()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
-        await SeedBoundaryPoisAsync(database);
+        var travelerId = await SeedBoundaryPoisAsync(database);
         using var factory = new TripMateApiFactory(
             sqlServerConnectionString: database.ConnectionString);
-        using var client = factory.CreateAuthenticatedClient(100, UserRole.Traveler);
+        using var client = factory.CreateAuthenticatedClient(travelerId, UserRole.Traveler);
 
         using var firstResponse = await client.GetAsync(
             "/api/v1/points-of-interest/search?latitude=16&longitude=108&radiusKm=5"
@@ -111,19 +111,30 @@ public sealed class SearchSelectablePoisSqlServerTests
         await context.SaveChangesAsync();
     }
 
-    private static async Task SeedBoundaryPoisAsync(SqlServerTestDatabase database)
+    private static async Task<long> SeedBoundaryPoisAsync(SqlServerTestDatabase database)
     {
         await using var context = database.CreateDbContext();
+        var traveler = new User
+        {
+            Email = "poi-boundary-sql@example.com",
+            FullName = "POI Boundary SQL Traveler",
+            Role = UserRole.Traveler,
+            Status = AccountStatus.Active,
+            CreatedAtUtc = SeedTime,
+            UpdatedAtUtc = SeedTime,
+        };
         var category = PoiCategory.Create("Museum", null);
+        context.Users.Add(traveler);
         context.PoiCategories.Add(category);
         await context.SaveChangesAsync();
 
-        var first = CreateSelectablePoi(category, 100, "Same Name", 16.001m, 108m);
-        var second = CreateSelectablePoi(category, 100, "Same Name", 16.001m, 108m);
-        var boundaryInside = CreateSelectablePoi(category, 100, "Boundary Inside", 16.045m, 108m);
-        var boundaryOutside = CreateSelectablePoi(category, 100, "Boundary Outside", 16.046m, 108m);
+        var first = CreateSelectablePoi(category, traveler.Id, "Same Name", 16.001m, 108m);
+        var second = CreateSelectablePoi(category, traveler.Id, "Same Name", 16.001m, 108m);
+        var boundaryInside = CreateSelectablePoi(category, traveler.Id, "Boundary Inside", 16.045m, 108m);
+        var boundaryOutside = CreateSelectablePoi(category, traveler.Id, "Boundary Outside", 16.046m, 108m);
         context.PointsOfInterest.AddRange(first, second, boundaryInside, boundaryOutside);
         await context.SaveChangesAsync();
+        return traveler.Id;
     }
 
     private static PointOfInterest CreateSelectablePoi(

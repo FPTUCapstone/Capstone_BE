@@ -211,10 +211,13 @@ BEGIN TRY
                 default_constraint.parent_object_id <> OBJECT_ID(
                     QUOTENAME(expected.SchemaName) + N'.' + QUOTENAME(expected.TableName))
                 OR column_metadata.name <> expected.ColumnName
-                OR LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
-                    default_constraint.definition,
-                    N'[', N''), N']', N''), N'(', N''), N')', N''),
-                    N' ', N'')) <> expected.ExpectedDefinition
+                OR REPLACE(
+                       LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                           default_constraint.definition,
+                           N'[', N''), N']', N''), N'(', N''), N')', N''),
+                           N' ', N'')),
+                       N'n''', N'''')
+                    <> REPLACE(expected.ExpectedDefinition, N'n''', N'''')
               ))
         THROW 51000, 'Scheduling schema contract mismatch: default constraint.', 1;
 
