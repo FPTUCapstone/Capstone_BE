@@ -193,7 +193,7 @@ BEGIN TRY
         (N'planning', N'SchedulingRequests', N'transport_mode',
             N'DF_SchedulingRequests_TransportMode', N'''walking'''),
         (N'planning', N'SchedulingRequests', N'mandatory_poi_ids_json',
-            N'DF_SchedulingRequests_MandatoryPoiIds', N'n''[]'''),
+            N'DF_SchedulingRequests_MandatoryPoiIds', N'''[]'''),
         (N'planning', N'SchedulingRequests', N'rest_preference',
             N'DF_SchedulingRequests_RestPreference', N'''auto'''),
         (N'planning', N'ItineraryItems', N'item_kind',
@@ -217,7 +217,7 @@ BEGIN TRY
                            N'[', N''), N']', N''), N'(', N''), N')', N''),
                            N' ', N'')),
                        N'n''', N'''')
-                    <> REPLACE(expected.ExpectedDefinition, N'n''', N'''')
+                    <> expected.ExpectedDefinition
               ))
         THROW 51000, 'Scheduling schema contract mismatch: default constraint.', 1;
 

@@ -592,7 +592,7 @@ CREATE TABLE planning.SchedulingRequests (
     search_radius_km               DECIMAL(6,2) NOT NULL,   -- NEW in v4: bounds "explore around this area" requests
     budget                         DECIMAL(12,2) NULL,
     mandatory_poi_ids_json          NVARCHAR(500) NOT NULL
-        CONSTRAINT DF_SchedulingRequests_MandatoryPoiIds DEFAULT N'[]',
+        CONSTRAINT DF_SchedulingRequests_MandatoryPoiIds DEFAULT (N'[]'),
     preferences_snapshot_json        NVARCHAR(MAX) NULL,
     rest_preference                VARCHAR(10) NOT NULL
         CONSTRAINT DF_SchedulingRequests_RestPreference DEFAULT 'Auto'
