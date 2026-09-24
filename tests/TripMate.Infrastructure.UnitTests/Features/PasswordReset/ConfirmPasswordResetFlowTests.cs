@@ -205,6 +205,8 @@ public class ConfirmPasswordResetFlowTests
 
         public DbSet<User> Users => Set<User>();
 
+        DbSet<Domain.Entities.TravelerProfile> IApplicationDbContext.TravelerProfiles => throw new NotSupportedException();
+
         public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
         // The confirm flow only touches Users and RefreshTokens; the remaining context
@@ -246,6 +248,10 @@ public class ConfirmPasswordResetFlowTests
         DbSet<Domain.Entities.GroupMember> IApplicationDbContext.GroupMembers => throw new NotSupportedException();
 
         DbSet<Domain.Entities.Itinerary> IApplicationDbContext.Itineraries => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.ItineraryItem> IApplicationDbContext.ItineraryItems => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.SchedulingRequest> IApplicationDbContext.SchedulingRequests => throw new NotSupportedException();
 
         DbSet<Domain.Entities.TravelGroupCreationRequest> IApplicationDbContext.TravelGroupCreationRequests =>
             throw new NotSupportedException();

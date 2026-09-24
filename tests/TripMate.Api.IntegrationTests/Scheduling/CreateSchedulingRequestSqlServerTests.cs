@@ -511,4 +511,5 @@ public sealed class CreateSchedulingRequestSqlServerTests
             return Task.FromResult(RouteDurationMatrix.Create(durations));
         }
     }
-}}
+}
+}
