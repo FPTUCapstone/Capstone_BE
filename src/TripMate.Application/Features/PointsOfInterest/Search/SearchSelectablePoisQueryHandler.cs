@@ -2,6 +2,7 @@ using MediatR;
 
 using Microsoft.EntityFrameworkCore;
 
+using TripMate.Application.Common.Geo;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Domain.Entities;
@@ -38,7 +39,8 @@ public sealed class SearchSelectablePoisQueryHandler(IApplicationDbContext dbCon
             distance = DistanceCalculation.Create(
                 request.Latitude.Value,
                 request.Longitude!.Value,
-                bounds);
+                bounds,
+                request.RadiusKm.Value);
             eligiblePois = eligiblePois.Where(poi =>
                 poi.Latitude >= bounds.MinimumLatitude
                 && poi.Latitude <= bounds.MaximumLatitude
@@ -48,7 +50,7 @@ public sealed class SearchSelectablePoisQueryHandler(IApplicationDbContext dbCon
                     * distance.LatitudeWeight)
                    + ((poi.Longitude - distance.Longitude) * (poi.Longitude - distance.Longitude)
                     * distance.LongitudeWeight)
-                   <= distance.RadiusMetric);
+                   <= distance.RadiusSquared);
         }
 
         var totalCount = await eligiblePois.CountAsync(cancellationToken);
@@ -62,11 +64,12 @@ public sealed class SearchSelectablePoisQueryHandler(IApplicationDbContext dbCon
                      * distance.LatitudeWeight)
                     + ((poi.Longitude - distance.Longitude) * (poi.Longitude - distance.Longitude)
                      * distance.LongitudeWeight))
-                .ThenBy(poi => poi.Name);
+                .ThenBy(poi => poi.Name)
+                .ThenBy(poi => poi.Id);
         }
         else
         {
-            orderedPois = eligiblePois.OrderBy(poi => poi.Name);
+            orderedPois = eligiblePois.OrderBy(poi => poi.Name).ThenBy(poi => poi.Id);
         }
         var items = offset > int.MaxValue
             ? Array.Empty<SelectablePoiDto>()
@@ -100,23 +103,24 @@ public sealed class SearchSelectablePoisQueryHandler(IApplicationDbContext dbCon
         decimal Longitude,
         decimal LatitudeWeight,
         decimal LongitudeWeight,
-        decimal RadiusMetric)
+        decimal RadiusSquared)
     {
         public static DistanceCalculation Create(
             decimal latitude,
             decimal longitude,
-            LocationBounds bounds)
+            LocationBounds bounds,
+            int radiusKm)
         {
-            var latitudeRadiusDegrees = bounds.MaximumLatitude - latitude;
-            var longitudeRadiusDegrees = bounds.MaximumLongitude - longitude;
-            var latitudeRadiusSquared = latitudeRadiusDegrees * latitudeRadiusDegrees;
-            var longitudeRadiusSquared = longitudeRadiusDegrees * longitudeRadiusDegrees;
+            var latitudeWeight = GeoDistance.LatitudeKilometersPerDegree
+                * GeoDistance.LatitudeKilometersPerDegree;
+            var longitudeKilometersPerDegree = GeoDistance.LongitudeKilometersPerDegree(latitude);
+            var longitudeWeight = longitudeKilometersPerDegree * longitudeKilometersPerDegree;
             return new DistanceCalculation(
                 latitude,
                 longitude,
-                longitudeRadiusSquared,
-                latitudeRadiusSquared,
-                latitudeRadiusSquared * longitudeRadiusSquared);
+                latitudeWeight,
+                longitudeWeight,
+                radiusKm * radiusKm);
         }
     }
 
@@ -126,18 +130,16 @@ public sealed class SearchSelectablePoisQueryHandler(IApplicationDbContext dbCon
         decimal MinimumLongitude,
         decimal MaximumLongitude)
     {
-        private const decimal LatitudeKilometersPerDegree = 110.574m;
-        private const double LongitudeKilometersPerDegreeAtEquator = 111.320d;
-
         public static LocationBounds From(decimal latitude, decimal longitude, int radiusKm)
         {
-            var latitudeDelta = radiusKm / LatitudeKilometersPerDegree;
+            var latitudeDelta = radiusKm / GeoDistance.LatitudeKilometersPerDegree;
             var cosine = Math.Abs(Math.Cos(DegreesToRadians((double)latitude)));
             var longitudeDelta = cosine < 0.000001d
                 ? 180m
                 : Math.Min(
                     180m,
-                    (decimal)(radiusKm / (LongitudeKilometersPerDegreeAtEquator * cosine)));
+                    (decimal)(radiusKm
+                        / (GeoDistance.LongitudeKilometersPerDegreeAtEquator * cosine)));
             return new LocationBounds(
                 Math.Max(-90m, latitude - latitudeDelta),
                 Math.Min(90m, latitude + latitudeDelta),

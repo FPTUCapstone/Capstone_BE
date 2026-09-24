@@ -156,6 +156,103 @@ public sealed class CreateSchedulingRequestSqlServerTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
+    public async Task SchedulingMigration_WhenNamedTransportModeCheckHasWrongShape_RejectsUpgrade()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await database.ExecuteNonQueryAsync("""
+            ALTER TABLE planning.SchedulingRequests
+                DROP CONSTRAINT CK_SchedulingRequests_TransportMode;
+            ALTER TABLE planning.SchedulingRequests
+                ADD CONSTRAINT CK_SchedulingRequests_TransportMode
+                CHECK (transport_mode = 'Walking');
+            """);
+
+        Func<Task> applyMigration = () => ApplySchedulingMigrationsAsync(database);
+
+        await applyMigration.Should()
+            .ThrowAsync<SqlException>()
+            .WithMessage("*Scheduling schema contract mismatch*");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task SchedulingMigration_WhenNamedEndChoiceCheckHasWrongShape_RejectsUpgrade()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await database.ExecuteNonQueryAsync("""
+            ALTER TABLE planning.SchedulingRequests
+                DROP CONSTRAINT CK_SchedulingRequests_EndChoice;
+            ALTER TABLE planning.SchedulingRequests
+                ADD CONSTRAINT CK_SchedulingRequests_EndChoice
+                CHECK (return_to_start = 1);
+            """);
+
+        Func<Task> applyMigration = () => ApplySchedulingMigrationsAsync(database);
+
+        await applyMigration.Should()
+            .ThrowAsync<SqlException>()
+            .WithMessage("*Scheduling schema contract mismatch*");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task SchedulingMigration_WhenNamedPoiCostCheckHasWrongShape_RejectsUpgrade()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await database.ExecuteNonQueryAsync("""
+            ALTER TABLE catalog.POIs
+                DROP CONSTRAINT CK_POIs_EstimatedVisitCost_NonNegative;
+            ALTER TABLE catalog.POIs
+                ADD CONSTRAINT CK_POIs_EstimatedVisitCost_NonNegative
+                CHECK (estimated_visit_cost >= -1);
+            """);
+
+        Func<Task> applyMigration = () => ApplySchedulingMigrationsAsync(database);
+
+        await applyMigration.Should()
+            .ThrowAsync<SqlException>()
+            .WithMessage("*Scheduling schema contract mismatch*");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task SchedulingMigration_WhenNamedDefaultHasWrongShape_RejectsUpgrade()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await database.ExecuteNonQueryAsync("""
+            ALTER TABLE planning.SchedulingRequests
+                DROP CONSTRAINT DF_SchedulingRequests_MandatoryPoiIds;
+            ALTER TABLE planning.SchedulingRequests
+                ADD CONSTRAINT DF_SchedulingRequests_MandatoryPoiIds
+                DEFAULT N'[1]' FOR mandatory_poi_ids_json;
+            """);
+
+        Func<Task> applyMigration = () => ApplySchedulingMigrationsAsync(database);
+
+        await applyMigration.Should()
+            .ThrowAsync<SqlException>()
+            .WithMessage("*Scheduling schema contract mismatch*");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task SchedulingMigration_WhenManagedColumnHasWrongShape_RejectsUpgrade()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await database.ExecuteNonQueryAsync("""
+            ALTER TABLE catalog.POIs
+                ALTER COLUMN source_url NVARCHAR(100) NULL;
+            """);
+
+        Func<Task> applyMigration = () => ApplySchedulingMigrationsAsync(database);
+
+        await applyMigration.Should()
+            .ThrowAsync<SqlException>()
+            .WithMessage("*Scheduling schema contract mismatch*");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
     public async Task ConcurrentSameKey_CreatesOneItineraryAndReplaysOriginalResult()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
@@ -414,4 +511,4 @@ public sealed class CreateSchedulingRequestSqlServerTests
             return Task.FromResult(RouteDurationMatrix.Create(durations));
         }
     }
-}
+}}

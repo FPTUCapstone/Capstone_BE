@@ -7,6 +7,7 @@ using MediatR;
 
 using Microsoft.EntityFrameworkCore;
 
+using TripMate.Application.Common.Geo;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Scheduling.Common;
@@ -101,7 +102,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
 
             var selectablePois = activePois
                 .Where(IsPlanningReady)
-                .Where(poi => DistanceInKilometers(
+                .Where(poi => GeoDistance.EquirectangularKilometers(
                     canonical.ExplorationLatitude,
                     canonical.ExplorationLongitude,
                     poi.Latitude,
@@ -262,7 +263,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
             .OrderByDescending(poi => CalculatePreferenceScore(poi, preferenceTokens))
             .ThenByDescending(poi => poi.ScenicScore ?? decimal.MinValue)
             .ThenByDescending(poi => poi.PhotoRating ?? decimal.MinValue)
-            .ThenBy(poi => DistanceInKilometers(
+            .ThenBy(poi => GeoDistance.EquirectangularKilometers(
                 command.ExplorationLatitude,
                 command.ExplorationLongitude,
                 poi.Latitude,
@@ -453,22 +454,4 @@ public sealed class CreateSchedulingRequestCommandHandler(
             Math.Round(value, decimals, MidpointRounding.AwayFromZero);
     }
 
-    private static decimal DistanceInKilometers(
-        decimal firstLatitude,
-        decimal firstLongitude,
-        decimal secondLatitude,
-        decimal secondLongitude)
-    {
-        const double earthRadiusKm = 6371d;
-        var latitudeDelta = DegreesToRadians((double)(secondLatitude - firstLatitude));
-        var longitudeDelta = DegreesToRadians((double)(secondLongitude - firstLongitude));
-        var firstLatitudeRadians = DegreesToRadians((double)firstLatitude);
-        var secondLatitudeRadians = DegreesToRadians((double)secondLatitude);
-        var haversine = Math.Sin(latitudeDelta / 2) * Math.Sin(latitudeDelta / 2)
-            + Math.Cos(firstLatitudeRadians) * Math.Cos(secondLatitudeRadians)
-            * Math.Sin(longitudeDelta / 2) * Math.Sin(longitudeDelta / 2);
-        return (decimal)(earthRadiusKm * 2 * Math.Atan2(Math.Sqrt(haversine), Math.Sqrt(1 - haversine)));
-    }
-
-    private static double DegreesToRadians(double value) => value * Math.PI / 180d;
 }

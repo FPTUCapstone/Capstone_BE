@@ -4,6 +4,45 @@ SET NOCOUNT ON;
 BEGIN TRY
     BEGIN TRANSACTION;
 
+    DECLARE @expectedSchedulingDefaults TABLE (
+        SchemaName SYSNAME NOT NULL,
+        TableName SYSNAME NOT NULL,
+        ColumnName SYSNAME NOT NULL,
+        ConstraintName SYSNAME NOT NULL,
+        ExpectedDefinition NVARCHAR(200) NOT NULL
+    );
+
+    INSERT INTO @expectedSchedulingDefaults
+        (SchemaName, TableName, ColumnName, ConstraintName, ExpectedDefinition)
+    VALUES
+        (N'planning', N'SchedulingRequests', N'time_zone_id',
+            N'DF_SchedulingRequests_TimeZoneId', N'''asia/ho_chi_minh'''),
+        (N'planning', N'SchedulingRequests', N'rest_preference',
+            N'DF_SchedulingRequests_RestPreference', N'''auto'''),
+        (N'planning', N'SchedulingRequests', N'mandatory_poi_ids_json',
+            N'DF_SchedulingRequests_MandatoryPoiIds', N'n''[]'''),
+        (N'planning', N'ItineraryItems', N'item_kind',
+            N'DF_ItineraryItems_ItemKind', N'''visit''');
+
+    IF EXISTS (
+        SELECT 1
+        FROM @expectedSchedulingDefaults AS expected
+        INNER JOIN sys.default_constraints AS default_constraint
+            ON default_constraint.name = expected.ConstraintName
+        INNER JOIN sys.columns AS column_metadata
+            ON column_metadata.object_id = default_constraint.parent_object_id
+           AND column_metadata.column_id = default_constraint.parent_column_id
+        WHERE default_constraint.parent_object_id = OBJECT_ID(
+                  QUOTENAME(expected.SchemaName) + N'.' + QUOTENAME(expected.TableName))
+          AND (
+                column_metadata.name <> expected.ColumnName
+                OR LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                    default_constraint.definition,
+                    N'[', N''), N']', N''), N'(', N''), N')', N''),
+                    N' ', N'')) <> expected.ExpectedDefinition
+              ))
+        THROW 51000, 'Scheduling schema contract mismatch: default constraint.', 1;
+
     -- A pre-existing named object is not proof that it enforces the UC-10
     -- contract. Fail safely rather than silently accepting a conflicting
     -- schema that would diverge from a fresh installation.
@@ -63,6 +102,52 @@ BEGIN TRY
                   AND index_id = @operationIndexId
                   AND is_included_column = 1)
             THROW 51000, 'Scheduling schema contract mismatch: idempotency index.', 1;
+    END;
+
+    IF EXISTS (
+        SELECT 1
+        FROM sys.check_constraints
+        WHERE parent_object_id = OBJECT_ID(N'catalog.POIs')
+          AND name = N'CK_POIs_EstimatedVisitCost_NonNegative')
+    BEGIN
+        DECLARE @estimatedVisitCostDefinition NVARCHAR(MAX) = LOWER(REPLACE(REPLACE(REPLACE(REPLACE(
+            OBJECT_DEFINITION(OBJECT_ID(N'catalog.CK_POIs_EstimatedVisitCost_NonNegative', N'C')),
+            N'[', N''), N']', N''), N'(', N''), N')', N''));
+        SET @estimatedVisitCostDefinition = REPLACE(REPLACE(REPLACE(
+            @estimatedVisitCostDefinition, N' ', N''), CHAR(13), N''), CHAR(10), N'');
+
+        IF @estimatedVisitCostDefinition
+            <> N'estimated_visit_costisnulloreestimated_visit_cost>=0'
+           OR EXISTS (
+                SELECT 1
+                FROM sys.check_constraints
+                WHERE parent_object_id = OBJECT_ID(N'catalog.POIs')
+                  AND name = N'CK_POIs_EstimatedVisitCost_NonNegative'
+                  AND (is_disabled = 1 OR is_not_trusted = 1))
+            THROW 51000, 'Scheduling schema contract mismatch: POI cost constraint.', 1;
+    END;
+
+    IF EXISTS (
+        SELECT 1
+        FROM sys.check_constraints
+        WHERE parent_object_id = OBJECT_ID(N'planning.ItineraryItems')
+          AND name = N'CK_ItineraryItems_KindPoi')
+    BEGIN
+        DECLARE @itineraryItemDefinition NVARCHAR(MAX) = LOWER(REPLACE(REPLACE(REPLACE(REPLACE(
+            OBJECT_DEFINITION(OBJECT_ID(N'planning.CK_ItineraryItems_KindPoi', N'C')),
+            N'[', N''), N']', N''), N'(', N''), N')', N''));
+        SET @itineraryItemDefinition = REPLACE(REPLACE(REPLACE(
+            @itineraryItemDefinition, N' ', N''), CHAR(13), N''), CHAR(10), N'');
+
+        IF @itineraryItemDefinition
+            <> N'item_kind=''visit''andpoi_idisnotnulloritem_kind=''rest''andis_mandatory=0'
+           OR EXISTS (
+                SELECT 1
+                FROM sys.check_constraints
+                WHERE parent_object_id = OBJECT_ID(N'planning.ItineraryItems')
+                  AND name = N'CK_ItineraryItems_KindPoi'
+                  AND (is_disabled = 1 OR is_not_trusted = 1))
+            THROW 51000, 'Scheduling schema contract mismatch: itinerary item constraint.', 1;
     END;
 
     IF COL_LENGTH(N'planning.SchedulingRequests', N'start_at') IS NULL
