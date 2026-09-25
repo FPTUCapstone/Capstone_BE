@@ -52,7 +52,11 @@ public static class DependencyInjection
         services.AddScoped<IEmailSender>(sp => sp.GetRequiredService<SmtpEmailSender>());
         services.AddScoped<IEmailVerificationSender>(sp => sp.GetRequiredService<SmtpEmailSender>());
         services.AddSingleton<IEmailVerificationResendCooldown, EmailVerificationResendCooldown>();
-        services.AddSingleton<IEmailVerificationLinkService, FirebaseEmailVerificationLinkService>();
+        services.AddSingleton<FirebaseEmailVerificationLinkService>();
+        services.AddSingleton<IEmailVerificationLinkService>(sp =>
+            sp.GetRequiredService<FirebaseEmailVerificationLinkService>());
+        services.AddSingleton<IEmailVerificationStatusService>(sp =>
+            sp.GetRequiredService<FirebaseEmailVerificationLinkService>());
 
         services.AddDistributedMemoryCache();
 

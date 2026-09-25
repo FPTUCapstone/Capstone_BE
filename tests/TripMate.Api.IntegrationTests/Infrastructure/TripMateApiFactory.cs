@@ -52,6 +52,7 @@ public sealed class TripMateApiFactory(
         builder.UseSetting("Jwt:Audience", JwtAudience);
         builder.UseSetting("Jwt:SigningKey", JwtSigningKey);
         builder.UseSetting("PasswordResetSecurity:OtpPepper", "test-only-pepper-0123456789abcdef");
+        builder.UseSetting("EmailVerification:ContinueUrl", "https://tripmate.test/verify-email");
 
         if (corsAllowedOrigins is not null)
         {

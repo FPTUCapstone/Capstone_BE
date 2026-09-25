@@ -4,6 +4,7 @@ using MediatR;
 
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Authentication.Common;
+using TripMate.Application.Features.Authentication.EmailVerificationResend;
 using TripMate.Application.Features.Authentication.Login;
 
 namespace TripMate.Application.Features.Authentication.WebSignIn;
@@ -25,8 +26,23 @@ public sealed class WebPasswordSignInCommandHandler(ISender sender)
             return Result.Failure<AuthResponseDto>(AuthErrorCodes.RequestInvalid, "Invalid sign-in request.",
                 new Dictionary<string, object?> { ["errors"] = fields });
         }
-        return await sender.Send(new LoginCommand(normalized.Email!, normalized.Password!)
-        { AdministratorOnly = normalized.AdministratorOnly }, cancellationToken);
+        var login = new LoginCommand(normalized.Email!, normalized.Password!)
+        { AdministratorOnly = normalized.AdministratorOnly };
+        var result = await sender.Send(login, cancellationToken);
+
+        // A Firebase action link can be opened without a Firebase browser session. Once the
+        // DB password has been proven, reconcile Firebase's authoritative verified flag and
+        // retry the same Backend login without ever authenticating the password in Firebase.
+        if (result.IsFailure && result.ErrorCode == AuthErrorCodes.AccountPendingVerification)
+        {
+            var confirmation = await sender.Send(
+                new ConfirmEmailVerificationCommand(normalized.Email),
+                cancellationToken);
+            if (confirmation.IsSuccess)
+                return await sender.Send(login, cancellationToken);
+        }
+
+        return result;
     }
 
     private sealed class InputValidator : AbstractValidator<WebPasswordSignInCommand>

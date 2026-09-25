@@ -7,6 +7,11 @@ public interface IEmailVerificationLinkService
     Task<string> GenerateAsync(string email, CancellationToken cancellationToken);
 }
 
+public interface IEmailVerificationStatusService
+{
+    Task<bool> IsVerifiedAsync(string email, CancellationToken cancellationToken);
+}
+
 public interface IEmailVerificationSender
 {
     Task<EmailDeliveryResult> SendAsync(

@@ -7,7 +7,7 @@ using TripMate.Application.Common.Interfaces;
 
 namespace TripMate.Infrastructure.Services;
 
-public sealed class FirebaseEmailVerificationLinkService : IEmailVerificationLinkService
+public sealed class FirebaseEmailVerificationLinkService : IEmailVerificationLinkService, IEmailVerificationStatusService
 {
     private readonly FirebaseAuth? firebaseAuth;
     private readonly string continueUrl;
@@ -71,6 +71,27 @@ public sealed class FirebaseEmailVerificationLinkService : IEmailVerificationLin
         {
             logger.LogError(exception, "Firebase email verification link generation failed.");
             throw new FirebaseUnavailableException("Firebase email verification link generation failed.", exception);
+        }
+    }
+
+    public async Task<bool> IsVerifiedAsync(string email, CancellationToken cancellationToken)
+    {
+        if (firebaseAuth is null)
+            throw new FirebaseUnavailableException("Firebase Admin SDK is not configured.");
+
+        try
+        {
+            var user = await firebaseAuth.GetUserByEmailAsync(email, cancellationToken);
+            return user.EmailVerified;
+        }
+        catch (FirebaseAuthException exception) when (exception.AuthErrorCode == AuthErrorCode.UserNotFound)
+        {
+            return false;
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(exception, "Firebase email verification status lookup failed.");
+            throw new FirebaseUnavailableException("Firebase email verification status lookup failed.", exception);
         }
     }
 }

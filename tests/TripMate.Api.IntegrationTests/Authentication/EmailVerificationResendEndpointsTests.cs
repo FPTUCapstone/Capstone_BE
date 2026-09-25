@@ -43,6 +43,68 @@ public sealed class EmailVerificationResendEndpointsTests
     }
 
     [Fact]
+    public async Task WebLogin_AfterFirebaseLinkWasVerified_ReconcilesPendingAccount()
+    {
+        var sender = new RecordingSender();
+        using var factory = CreateFactory(sender, statusService: new VerifiedStatusService());
+        using var client = factory.CreateClient();
+        await Seed(factory, AccountStatus.PendingEmailVerification);
+
+        var login = await client.PostAsJsonAsync(
+            "/api/v1/auth/web/login",
+            new { email = "pending@example.com", password = "CorrectPass1" });
+
+        login.StatusCode.Should().Be(HttpStatusCode.OK);
+        await factory.WithDbContextAsync(async db =>
+        {
+            var user = await db.Users.SingleAsync();
+            user.Status.Should().Be(AccountStatus.Active);
+            user.EmailVerifiedAtUtc.Should().NotBeNull();
+            return true;
+        });
+    }
+
+    [Fact]
+    public async Task WebLogin_WhenFirebaseStillUnverified_RemainsForbiddenAndPending()
+    {
+        var sender = new RecordingSender();
+        using var factory = CreateFactory(sender, statusService: new UnverifiedStatusService());
+        using var client = factory.CreateClient();
+        await Seed(factory, AccountStatus.PendingEmailVerification);
+
+        var login = await client.PostAsJsonAsync(
+            "/api/v1/auth/web/login",
+            new { email = "pending@example.com", password = "CorrectPass1" });
+
+        login.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        await factory.WithDbContextAsync(async db =>
+        {
+            (await db.Users.SingleAsync()).Status.Should().Be(AccountStatus.PendingEmailVerification);
+            return true;
+        });
+    }
+
+    [Fact]
+    public async Task WebLogin_WhenFirebaseStatusIsUnavailable_FailsClosedAsPending()
+    {
+        var sender = new RecordingSender();
+        using var factory = CreateFactory(sender, statusService: new FailingStatusService());
+        using var client = factory.CreateClient();
+        await Seed(factory, AccountStatus.PendingEmailVerification);
+
+        var login = await client.PostAsJsonAsync(
+            "/api/v1/auth/web/login",
+            new { email = "pending@example.com", password = "CorrectPass1" });
+
+        login.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        await factory.WithDbContextAsync(async db =>
+        {
+            (await db.Users.SingleAsync()).Status.Should().Be(AccountStatus.PendingEmailVerification);
+            return true;
+        });
+    }
+
+    [Fact]
     public async Task WrongPassword_ReturnsUnauthorized_AndSendsNothing()
     {
         var sender = new RecordingSender();
@@ -159,13 +221,17 @@ public sealed class EmailVerificationResendEndpointsTests
 
     private static TripMateApiFactory CreateFactory(
         RecordingSender sender,
-        IEmailVerificationLinkService? linkService = null) => new(
+        IEmailVerificationLinkService? linkService = null,
+        IEmailVerificationStatusService? statusService = null) => new(
         configureTestServices: services =>
         {
             services.RemoveAll<IEmailVerificationLinkService>();
             services.RemoveAll<IEmailVerificationSender>();
+            services.RemoveAll<IEmailVerificationStatusService>();
             services.AddSingleton<IEmailVerificationLinkService>(linkService ?? new StubLinkService());
             services.AddSingleton<IEmailVerificationSender>(sender);
+            if (statusService is not null)
+                services.AddSingleton(statusService);
         });
 
     private static Task<bool> Seed(TripMateApiFactory factory, AccountStatus status) =>
@@ -196,6 +262,24 @@ public sealed class EmailVerificationResendEndpointsTests
     private sealed class FailingLinkService : IEmailVerificationLinkService
     {
         public Task<string> GenerateAsync(string email, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("test failure");
+    }
+
+    private sealed class VerifiedStatusService : IEmailVerificationStatusService
+    {
+        public Task<bool> IsVerifiedAsync(string email, CancellationToken cancellationToken) =>
+            Task.FromResult(true);
+    }
+
+    private sealed class UnverifiedStatusService : IEmailVerificationStatusService
+    {
+        public Task<bool> IsVerifiedAsync(string email, CancellationToken cancellationToken) =>
+            Task.FromResult(false);
+    }
+
+    private sealed class FailingStatusService : IEmailVerificationStatusService
+    {
+        public Task<bool> IsVerifiedAsync(string email, CancellationToken cancellationToken) =>
             throw new InvalidOperationException("test failure");
     }
 
