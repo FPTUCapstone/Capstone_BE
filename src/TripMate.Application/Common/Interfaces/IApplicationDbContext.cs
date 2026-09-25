@@ -8,6 +8,8 @@ public interface IApplicationDbContext
 {
     DbSet<User> Users { get; }
 
+    DbSet<TravelerProfile> TravelerProfiles { get; }
+
     DbSet<RefreshToken> RefreshTokens { get; }
 
     DbSet<PoiCategory> PoiCategories { get; }
@@ -47,6 +49,10 @@ public interface IApplicationDbContext
     DbSet<GroupMember> GroupMembers { get; }
 
     DbSet<Itinerary> Itineraries { get; }
+
+    DbSet<ItineraryItem> ItineraryItems { get; }
+
+    DbSet<SchedulingRequest> SchedulingRequests { get; }
 
     DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests { get; }
 

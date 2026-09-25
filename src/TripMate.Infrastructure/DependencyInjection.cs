@@ -5,10 +5,12 @@ using Microsoft.Extensions.DependencyInjection;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Authentication.PasswordReset;
+using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.TravelGroups.ManageInvitation;
 using TripMate.Infrastructure.Authentication;
 using TripMate.Infrastructure.Email;
 using TripMate.Infrastructure.Persistence;
+using TripMate.Infrastructure.Routing;
 using TripMate.Infrastructure.Security;
 using TripMate.Infrastructure.Services;
 
@@ -31,8 +33,26 @@ public static class DependencyInjection
         services.AddScoped<IGroupInvitationLock, SqlServerGroupInvitationLock>();
         services.AddScoped<IGroupJoinLock, SqlServerGroupJoinLock>();
         services.AddSingleton<IGroupInvitationCodeGenerator, RandomGroupInvitationCodeGenerator>();
+        services.AddScoped<ISchedulingRequestLock, SqlServerSchedulingRequestLock>();
 
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
+        services.Configure<OpenRouteServiceOptions>(
+            configuration.GetSection(OpenRouteServiceOptions.SectionName));
+        services.AddSingleton(
+            configuration.GetSection(SchedulingGenerationOptions.SectionName)
+                .Get<SchedulingGenerationOptions>()
+            ?? new SchedulingGenerationOptions());
+        services.AddHttpClient<OpenRouteServiceRouteDurationProvider>(
+            (serviceProvider, client) =>
+            {
+                var routingOptions = serviceProvider
+                    .GetRequiredService<Microsoft.Extensions.Options.IOptions<OpenRouteServiceOptions>>()
+                    .Value;
+                client.BaseAddress = new Uri(routingOptions.BaseUrl, UriKind.Absolute);
+                client.Timeout = TimeSpan.FromSeconds(20);
+            });
+        services.AddScoped<IRouteDurationProvider>(serviceProvider =>
+            serviceProvider.GetRequiredService<OpenRouteServiceRouteDurationProvider>());
         services.Configure<EmailOptions>(configuration.GetSection(EmailOptions.SectionName));
         services.Configure<PasswordResetSecurityOptions>(configuration.GetSection(PasswordResetSecurityOptions.SectionName));
 

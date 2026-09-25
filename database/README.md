@@ -241,18 +241,18 @@ trong volume rời, tách biệt khỏi image.
 
 ```dockerfile
 FROM mcr.microsoft.com/mssql/server:2022-latest
-ARG SA_PASSWORD
 ENV ACCEPT_EULA=Y
-ENV MSSQL_SA_PASSWORD=${SA_PASSWORD}
 COPY database/tripmate_schema_v7.sql /tmp/tripmate_schema_v7.sql
+COPY database/migrations /tmp/migrations
 COPY database/seed-image.sh /tmp/seed-image.sh
-RUN /tmp/seed-image.sh    # ← đây là bước "nướng" schema vào image
+RUN --mount=type=secret,id=sa_password,uid=10001,gid=10001,mode=0400 \
+  MSSQL_SA_PASSWORD="$(cat /run/secrets/sa_password)" /tmp/seed-image.sh
 ```
 
-⚠️ Mật khẩu `sa` được truyền lúc build qua `--build-arg SA_PASSWORD=...` (lấy từ `.env`), không còn
-hardcode trong Dockerfile. Giá trị truyền vào vẫn được "nướng" vào image (xem được bằng
-`docker history`/`docker inspect`) — chỉ dùng cho **local dev** khi phân phối image cho team, tuyệt
-đối không dùng cách này hay mật khẩu này cho production/cloud.
+⚠️ Mật khẩu `sa` được BuildKit mount như một secret chỉ trong lệnh seed. Nó không được lưu vào
+`ENV`, layer, `docker history`, `docker inspect` hoặc file `.tar`. Khi chạy image, mỗi máy phải
+truyền lại cùng mật khẩu từ `.env` của chính máy đó; image seed chỉ dùng cho **local dev**, tuyệt đối
+không dùng cho production/cloud.
 
 ---
 
@@ -260,8 +260,9 @@ hardcode trong Dockerfile. Giá trị truyền vào vẫn được "nướng" v�
 
 ```bash
 cd Capstone_BE
-# Truyền mật khẩu sa qua build-arg (lấy từ .env, không hardcode trong Dockerfile):
-docker build -f database/Dockerfile.seeded -t tripmate-db:v7 --build-arg SA_PASSWORD="<SA_PASSWORD trong .env>" .
+# SA_PASSWORD phải có trong environment (ví dụ lấy từ .env), không truyền qua build-arg:
+DOCKER_BUILDKIT=1 docker build --secret id=sa_password,env=SA_PASSWORD \
+  -f database/Dockerfile.seeded -t tripmate-db:v7 .
 ```
 
 Theo dõi log build: sẽ thấy SQL Server khởi động, `CREATE DATABASE`, rồi log tương tự `(8 rows affected)` / `(130 rows affected)` (đúng số schema + message của `tripmate_schema_v7.sql`), cuối
@@ -299,13 +300,14 @@ Nếu không thấy dòng `tripmate-db` sau khi load → file `.tar` tải bị 
 ### 10.6 [TEAM] Bước 5 — Tạo và chạy container từ image
 
 ```bash
-docker run -d --name tripmate-sqlserver -p 14330:1433 tripmate-db:v7
+docker run -d --name tripmate-sqlserver -p 14330:1433 \
+  -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD="$SA_PASSWORD" tripmate-db:v7
 ```
 
 Đây là bước "tạo container" — `docker run` tạo container mới từ image `tripmate-db:v7` và khởi
-động nó ngay, map port `14330` trên máy bạn vào port `1433` bên trong container. Không cần truyền
-`-e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD=...` vì 2 biến đó đã nằm sẵn trong image từ lúc build. Không
-cần `docker-compose.yml`, không cần chạy `apply-schema.sh` — schema đã có sẵn trong image rồi.
+động nó ngay, map port `14330` trên máy bạn vào port `1433` bên trong container. Phải truyền
+`MSSQL_SA_PASSWORD` lúc chạy từ `.env` của máy bạn; password không nằm trong image hay file `.tar`.
+Không cần `docker-compose.yml`, không cần chạy `apply-schema.sh` — schema đã có sẵn trong image rồi.
 
 Kiểm tra container đã chạy:
 
@@ -317,7 +319,7 @@ docker ps    # thấy "tripmate-sqlserver" đang "Up"
 
 ```bash
 docker exec tripmate-sqlserver /opt/mssql-tools18/bin/sqlcmd \
-  -C -S localhost -U sa -P "<SA_PASSWORD mà người build đã truyền lúc build>" -d TripMateDb \
+  -C -S localhost -U sa -P "$SA_PASSWORD" -d TripMateDb \
   -Q "SELECT COUNT(*) AS tables FROM sys.tables;"
 ```
 

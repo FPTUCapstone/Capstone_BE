@@ -21,6 +21,19 @@ internal sealed class SqlServerFactAttribute : FactAttribute
     }
 }
 
+internal sealed class SqlServerTheoryAttribute : TheoryAttribute
+{
+    public SqlServerTheoryAttribute()
+    {
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(
+            SqlServerTestDatabase.ConnectionStringEnvironmentVariable)))
+        {
+            Skip = $"Set {SqlServerTestDatabase.ConnectionStringEnvironmentVariable} "
+                + "to run SQL Server integration tests.";
+        }
+    }
+}
+
 internal sealed class SqlServerTestDatabase : IAsyncDisposable
 {
     public const string ConnectionStringEnvironmentVariable =
@@ -157,6 +170,19 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
         command.CommandText = commandText;
         command.CommandTimeout = 120;
         await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task<T> ExecuteScalarAsync<T>(
+        string commandText,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = new SqlConnection(ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = commandText;
+        command.CommandTimeout = 120;
+        var value = await command.ExecuteScalarAsync(cancellationToken);
+        return (T)Convert.ChangeType(value, typeof(T));
     }
 
     public async Task<long?> ReadPoiIdentityLastValueAsync(

@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Authentication.Common;
 using TripMate.Application.Features.PointsOfInterest.Common;
+using TripMate.Application.Features.Scheduling.Common;
 
 namespace TripMate.Api.Common;
 
@@ -138,6 +139,12 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
 
             TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.AlreadyActiveMember =>
                 StatusCodes.Status409Conflict,
+
+            SchedulingErrorCodes.IdempotencyKeyPayloadMismatch =>
+                StatusCodes.Status409Conflict,
+
+            SchedulingErrorCodes.ConstraintsInfeasible =>
+                StatusCodes.Status422UnprocessableEntity,
 
             _ => StatusCodes.Status400BadRequest,
         };

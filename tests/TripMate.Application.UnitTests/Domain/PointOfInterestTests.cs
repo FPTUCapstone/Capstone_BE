@@ -65,6 +65,27 @@ public class PointOfInterestTests
         poi.Description.Should().Be(expectedDescription);
     }
 
+    [Fact]
+    public void ConfigurePlanningMetadata_WithVerifiedSource_NormalizesAndStoresPlanningData()
+    {
+        var poi = PointOfInterest.Create(
+            PoiCategory.Create("Museum", null),
+            "Cham Museum",
+            16.043m,
+            108.222m,
+            17,
+            Now);
+
+        poi.ConfigurePlanningMetadata(
+            60_000m,
+            "  https://danangfantasticity.com/cham-museum  ",
+            new DateTimeOffset(2026, 9, 14, 7, 0, 0, TimeSpan.FromHours(7)));
+
+        poi.EstimatedVisitCost.Should().Be(60_000m);
+        poi.SourceUrl.Should().Be("https://danangfantasticity.com/cham-museum");
+        poi.VerifiedAtUtc.Should().Be(new DateTimeOffset(2026, 9, 14, 0, 0, 0, TimeSpan.Zero));
+    }
+
     [Theory]
     [InlineData("name")]
     [InlineData("address")]
