@@ -44,6 +44,17 @@ try
             "ConnectionStrings:Default is not configured. Set it via environment variable (ConnectionStrings__Default) or User Secrets.");
     }
 
+    if (!builder.Environment.IsDevelopment()
+        && !builder.Environment.IsEnvironment("Testing")
+        && !Uri.TryCreate(
+            builder.Configuration["EmailVerification:ContinueUrl"],
+            UriKind.Absolute,
+            out _))
+    {
+        throw new InvalidOperationException(
+            "EmailVerification:ContinueUrl must be configured as an absolute public FE callback URL.");
+    }
+
     var jsonNamingPolicy = JsonNamingPolicy.CamelCase;
     builder.Services
         .AddControllers()
