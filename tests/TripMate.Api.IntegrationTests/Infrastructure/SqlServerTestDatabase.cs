@@ -21,6 +21,19 @@ internal sealed class SqlServerFactAttribute : FactAttribute
     }
 }
 
+internal sealed class SqlServerTheoryAttribute : TheoryAttribute
+{
+    public SqlServerTheoryAttribute()
+    {
+        if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(
+            SqlServerTestDatabase.ConnectionStringEnvironmentVariable)))
+        {
+            Skip = $"Set {SqlServerTestDatabase.ConnectionStringEnvironmentVariable} "
+                + "to run SQL Server integration tests.";
+        }
+    }
+}
+
 internal sealed class SqlServerTestDatabase : IAsyncDisposable
 {
     public const string ConnectionStringEnvironmentVariable =

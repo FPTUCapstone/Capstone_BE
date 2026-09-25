@@ -1,10 +1,16 @@
 using System.Net;
+using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 using FluentAssertions;
 
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Geo;
+using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.PointsOfInterest.Search;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
@@ -55,10 +61,16 @@ public sealed class SearchSelectablePoisSqlServerTests
     public async Task Search_Endpoint_UsesSharedRadiusBoundaryAndStableIdTieBreakInSqlServer()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
-        var travelerId = await SeedBoundaryPoisAsync(database);
+        await ApplySchedulingMigrationsAsync(database);
+        var seed = await SeedBoundaryPoisAsync(database);
         using var factory = new TripMateApiFactory(
-            sqlServerConnectionString: database.ConnectionString);
-        using var client = factory.CreateAuthenticatedClient(travelerId, UserRole.Traveler);
+            sqlServerConnectionString: database.ConnectionString,
+            configureTestServices: services =>
+            {
+                services.RemoveAll<IRouteDurationProvider>();
+                services.AddScoped<IRouteDurationProvider, TestRouteDurationProvider>();
+            });
+        using var client = factory.CreateAuthenticatedClient(seed.TravelerId, UserRole.Traveler);
 
         using var firstResponse = await client.GetAsync(
             "/api/v1/points-of-interest/search?latitude=16&longitude=108&radiusKm=5"
@@ -74,17 +86,121 @@ public sealed class SearchSelectablePoisSqlServerTests
         var firstItem = firstBody.RootElement.GetProperty("items").EnumerateArray().Single();
         var secondItem = secondBody.RootElement.GetProperty("items").EnumerateArray().Single();
 
-        firstBody.RootElement.GetProperty("totalCount").GetInt32().Should().Be(3);
-        secondBody.RootElement.GetProperty("totalCount").GetInt32().Should().Be(3);
+        firstBody.RootElement.GetProperty("totalCount").GetInt32().Should().Be(6);
+        secondBody.RootElement.GetProperty("totalCount").GetInt32().Should().Be(6);
         firstItem.GetProperty("name").GetString().Should().Be("Same Name");
         secondItem.GetProperty("name").GetString().Should().Be("Same Name");
         firstItem.GetProperty("id").GetInt64()
             .Should().BeLessThan(secondItem.GetProperty("id").GetInt64());
 
-        GeoDistance.EquirectangularKilometers(16m, 108m, 16.045m, 108m)
-            .Should().BeLessThan(5m);
-        GeoDistance.EquirectangularKilometers(16m, 108m, 16.046m, 108m)
-            .Should().BeGreaterThan(5m);
+        using var allInsideResponse = await client.GetAsync(
+            "/api/v1/points-of-interest/search?latitude=16&longitude=108&radiusKm=5"
+            + "&page=1&pageSize=50");
+        allInsideResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var allInsideBody = JsonDocument.Parse(await allInsideResponse.Content.ReadAsStringAsync());
+        var returnedNames = allInsideBody.RootElement.GetProperty("items")
+            .EnumerateArray()
+            .Select(element => element.GetProperty("name").GetString())
+            .ToHashSet();
+
+        foreach (var insidePoi in seed.InsidePois)
+        {
+            returnedNames.Should().Contain(insidePoi.Name);
+
+            var insideDistance = GeoDistance.EquirectangularKilometers(
+                16m, 108m, insidePoi.Latitude, insidePoi.Longitude);
+            insideDistance.Should().BeLessThan(5m);
+            (insideDistance <= 5m).Should().BeTrue();
+
+            using var acceptRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/scheduling-requests")
+            {
+                Content = JsonContent.Create(new
+                {
+                    startAt = "2026-10-20T08:00:00+07:00",
+                    timeZoneId = "Asia/Ho_Chi_Minh",
+                    startLatitude = 16.0000m,
+                    startLongitude = 108.0000m,
+                    explorationLatitude = 16.0000m,
+                    explorationLongitude = 108.0000m,
+                    endPoiId = (long?)null,
+                    returnToStart = true,
+                    availableMinutes = 480,
+                    transportMode = "Walking",
+                    searchRadiusKm = 5m,
+                    budgetVnd = 800_000m,
+                    mandatoryPoiIds = new[] { insidePoi.Id },
+                    restPreference = "None",
+                }),
+            };
+            acceptRequest.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
+            using var acceptResponse = await client.SendAsync(acceptRequest);
+            acceptResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+        }
+
+        foreach (var outsidePoi in seed.OutsidePois)
+        {
+            returnedNames.Should().NotContain(outsidePoi.Name);
+
+            var outsideDistance = GeoDistance.EquirectangularKilometers(
+                16m, 108m, outsidePoi.Latitude, outsidePoi.Longitude);
+            outsideDistance.Should().BeGreaterThan(5m);
+            (outsideDistance <= 5m).Should().BeFalse();
+
+            using var rejectRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/scheduling-requests")
+            {
+                Content = JsonContent.Create(new
+                {
+                    startAt = "2026-10-20T08:00:00+07:00",
+                    timeZoneId = "Asia/Ho_Chi_Minh",
+                    startLatitude = 16.0000m,
+                    startLongitude = 108.0000m,
+                    explorationLatitude = 16.0000m,
+                    explorationLongitude = 108.0000m,
+                    endPoiId = (long?)null,
+                    returnToStart = true,
+                    availableMinutes = 480,
+                    transportMode = "Walking",
+                    searchRadiusKm = 5m,
+                    budgetVnd = 800_000m,
+                    mandatoryPoiIds = new[] { outsidePoi.Id },
+                    restPreference = "None",
+                }),
+            };
+            rejectRequest.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
+            using var rejectResponse = await client.SendAsync(rejectRequest);
+            rejectResponse.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+            var rejectBody = await rejectResponse.Content.ReadAsStringAsync();
+            rejectBody.Should().Contain("outside the selected area");
+        }
+    }
+
+    [SqlServerTheory]
+    [Trait("Category", "SqlServer")]
+    [InlineData("North", 16.045218, 108.000000, true)]
+    [InlineData("North", 16.045220, 108.000000, false)]
+    [InlineData("South", 15.954782, 108.000000, true)]
+    [InlineData("South", 15.954780, 108.000000, false)]
+    [InlineData("East", 16.000000, 108.046725, true)]
+    [InlineData("East", 16.000000, 108.046727, false)]
+    [InlineData("West", 16.000000, 107.953275, true)]
+    [InlineData("West", 16.000000, 107.953273, false)]
+    public void Boundary_Coordinates_MatchExpectedInsideOutside(
+        string direction,
+        decimal latitude,
+        decimal longitude,
+        bool expectedInside)
+    {
+        var distance = GeoDistance.EquirectangularKilometers(16m, 108m, latitude, longitude);
+        if (expectedInside)
+        {
+            distance.Should().BeLessThan(5m);
+            (distance <= 5m).Should().BeTrue();
+        }
+        else
+        {
+            distance.Should().BeGreaterThan(5m);
+            (distance <= 5m).Should().BeFalse();
+        }
     }
 
     private static async Task SeedSelectablePoisAsync(SqlServerTestDatabase database)
@@ -111,7 +227,7 @@ public sealed class SearchSelectablePoisSqlServerTests
         await context.SaveChangesAsync();
     }
 
-    private static async Task<long> SeedBoundaryPoisAsync(SqlServerTestDatabase database)
+    private static async Task<BoundarySeed> SeedBoundaryPoisAsync(SqlServerTestDatabase database)
     {
         await using var context = database.CreateDbContext();
         var traveler = new User
@@ -130,11 +246,26 @@ public sealed class SearchSelectablePoisSqlServerTests
 
         var first = CreateSelectablePoi(category, traveler.Id, "Same Name", 16.001m, 108m);
         var second = CreateSelectablePoi(category, traveler.Id, "Same Name", 16.001m, 108m);
-        var boundaryInside = CreateSelectablePoi(category, traveler.Id, "Boundary Inside", 16.045m, 108m);
-        var boundaryOutside = CreateSelectablePoi(category, traveler.Id, "Boundary Outside", 16.046m, 108m);
-        context.PointsOfInterest.AddRange(first, second, boundaryInside, boundaryOutside);
+
+        var northInside = CreateSelectablePoi(category, traveler.Id, "North Inside", 16.045218m, 108.000000m);
+        var northOutside = CreateSelectablePoi(category, traveler.Id, "North Outside", 16.045220m, 108.000000m);
+        var southInside = CreateSelectablePoi(category, traveler.Id, "South Inside", 15.954782m, 108.000000m);
+        var southOutside = CreateSelectablePoi(category, traveler.Id, "South Outside", 15.954780m, 108.000000m);
+        var eastInside = CreateSelectablePoi(category, traveler.Id, "East Inside", 16.000000m, 108.046725m);
+        var eastOutside = CreateSelectablePoi(category, traveler.Id, "East Outside", 16.000000m, 108.046727m);
+        var westInside = CreateSelectablePoi(category, traveler.Id, "West Inside", 16.000000m, 107.953275m);
+        var westOutside = CreateSelectablePoi(category, traveler.Id, "West Outside", 16.000000m, 107.953273m);
+
+        var insidePois = new[] { northInside, southInside, eastInside, westInside };
+        var outsidePois = new[] { northOutside, southOutside, eastOutside, westOutside };
+        var tieBreakPois = new[] { first, second };
+
+        context.PointsOfInterest.AddRange(first, second);
+        context.PointsOfInterest.AddRange(insidePois);
+        context.PointsOfInterest.AddRange(outsidePois);
         await context.SaveChangesAsync();
-        return traveler.Id;
+
+        return new BoundarySeed(traveler.Id, insidePois, outsidePois, tieBreakPois);
     }
 
     private static PointOfInterest CreateSelectablePoi(
@@ -159,4 +290,30 @@ public sealed class SearchSelectablePoisSqlServerTests
             false));
         return poi;
     }
+
+    private static async Task ApplySchedulingMigrationsAsync(SqlServerTestDatabase database)
+    {
+        foreach (var fileName in new[]
+                 {
+                     "20260914_add_scheduling_request_generation.sql",
+                     "20260915_extend_scheduling_request_contract.sql",
+                     "20260919_allow_named_rest_items.sql",
+                 })
+        {
+            var migrationPath = Path.Combine(
+                AppContext.BaseDirectory,
+                "Database",
+                "migrations",
+                fileName);
+            var migration = await File.ReadAllTextAsync(migrationPath);
+            migration = Regex.Replace(migration, @"^\s*GO\s*$", string.Empty, RegexOptions.Multiline);
+            await database.ExecuteNonQueryAsync(migration);
+        }
+    }
+
+    private sealed record BoundarySeed(
+        long TravelerId,
+        PointOfInterest[] InsidePois,
+        PointOfInterest[] OutsidePois,
+        PointOfInterest[] TieBreakPois);
 }

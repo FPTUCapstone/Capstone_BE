@@ -234,7 +234,24 @@ public sealed class CreateSchedulingRequestSqlServerTests
             .WithMessage("*Scheduling schema contract mismatch*");
     }
 
-    [Theory]
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task SchedulingMigration_WhenPoiCostCheckIsDisabledOrUntrusted_RejectsUpgrade()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await database.ExecuteNonQueryAsync("""
+            ALTER TABLE catalog.POIs
+                NOCHECK CONSTRAINT CK_POIs_EstimatedVisitCost_NonNegative;
+            """);
+
+        Func<Task> applyMigration = () => ApplySchedulingMigrationsAsync(database);
+
+        await applyMigration.Should()
+            .ThrowAsync<SqlException>()
+            .WithMessage("*Scheduling schema contract mismatch*");
+    }
+
+    [SqlServerTheory]
     [Trait("Category", "SqlServer")]
     [InlineData(
         "planning.SchedulingRequests",
