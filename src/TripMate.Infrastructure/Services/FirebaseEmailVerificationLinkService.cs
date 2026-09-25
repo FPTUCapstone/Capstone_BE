@@ -18,8 +18,7 @@ public sealed class FirebaseEmailVerificationLinkService : IEmailVerificationLin
         ILogger<FirebaseEmailVerificationLinkService> logger)
     {
         this.logger = logger;
-        continueUrl = configuration["EmailVerification:ContinueUrl"]
-            ?? "http://localhost:3001/verify-email";
+        continueUrl = configuration["EmailVerification:ContinueUrl"] ?? string.Empty;
         var projectId = configuration["Firebase:ProjectId"] ?? "tripmate-82be3";
 
         try
@@ -51,6 +50,11 @@ public sealed class FirebaseEmailVerificationLinkService : IEmailVerificationLin
 
     public async Task<string> GenerateAsync(string email, CancellationToken cancellationToken)
     {
+        if (!Uri.TryCreate(continueUrl, UriKind.Absolute, out _))
+        {
+            throw new FirebaseUnavailableException("Email verification continue URL is not configured.");
+        }
+
         if (firebaseAuth is null)
         {
             throw new FirebaseUnavailableException("Firebase Admin SDK is not configured.");

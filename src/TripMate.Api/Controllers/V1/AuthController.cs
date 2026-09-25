@@ -123,9 +123,7 @@ public class AuthController(ISender sender, IWebHostEnvironment environment) : A
             new ResendEmailVerificationCommand(request.Email, request.Password),
             cancellationToken);
 
-        return result.IsSuccess
-            ? Success(result.Value, message: "Verification email sent.")
-            : HandleFailure(result);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 
     [HttpPost("web/admin/login")]
