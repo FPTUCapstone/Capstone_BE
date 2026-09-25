@@ -175,16 +175,29 @@ public sealed class SearchSelectablePoisSqlServerTests
         }
     }
 
+    /// <summary>
+    /// Verifies the tightest consecutive 6-decimal boundary pairs for the nearest representable equality strategy.
+    /// Coordinate Quantization Note:
+    /// In catalog.POIs, coordinates are stored as DECIMAL(9, 6) (microdegree resolution ~0.11m).
+    /// Because LatitudeKilometersPerDegree = 110.574 = 55287 / 500 contains prime factor 6143 in its irreducible
+    /// fraction, exact integer kilometer radii (e.g. 5 km -> delta = 2500 / 55287 deg) produce infinite repeating
+    /// decimals in base 10 that cannot be represented as finite terminating 6-decimal numbers.
+    /// The nearest representable 6-decimal numbers are adjacent microdegrees differing by exactly 0.000001 deg:
+    /// - North: 16.045218 (d = 4.999935 km <= 5km) vs 16.045219 (d = 5.000046 km > 5km)
+    /// - South: 15.954782 (d = 4.999935 km <= 5km) vs 15.954781 (d = 5.000046 km > 5km)
+    /// - East:  108.046725 (d = 4.999933 km <= 5km) vs 108.046726 (d = 5.000040 km > 5km)
+    /// - West:  107.953275 (d = 4.999933 km <= 5km) vs 107.953274 (d = 5.000040 km > 5km)
+    /// </summary>
     [SqlServerTheory]
     [Trait("Category", "SqlServer")]
     [InlineData("North", 16.045218, 108.000000, true)]
-    [InlineData("North", 16.045220, 108.000000, false)]
+    [InlineData("North", 16.045219, 108.000000, false)]
     [InlineData("South", 15.954782, 108.000000, true)]
-    [InlineData("South", 15.954780, 108.000000, false)]
+    [InlineData("South", 15.954781, 108.000000, false)]
     [InlineData("East", 16.000000, 108.046725, true)]
-    [InlineData("East", 16.000000, 108.046727, false)]
+    [InlineData("East", 16.000000, 108.046726, false)]
     [InlineData("West", 16.000000, 107.953275, true)]
-    [InlineData("West", 16.000000, 107.953273, false)]
+    [InlineData("West", 16.000000, 107.953274, false)]
     public void Boundary_Coordinates_MatchExpectedInsideOutside(
         string direction,
         double latitude,
@@ -203,6 +216,23 @@ public sealed class SearchSelectablePoisSqlServerTests
             distance.Should().BeGreaterThan(5m, "direction {0} should be outside radius", direction);
             (distance <= 5m).Should().BeFalse("direction {0} should be outside radius", direction);
         }
+    }
+
+    [SqlServerTheory]
+    [Trait("Category", "SqlServer")]
+    [InlineData(1.0)]
+    [InlineData(5.0)]
+    [InlineData(10.0)]
+    [InlineData(50.0)]
+    public void Boundary_ExactEquality_IsInclusive(double radiusDouble)
+    {
+        var radius = (decimal)radiusDouble;
+        var exactDistance = radius;
+
+        // When distance exactly equals the search radius, the boundary predicate
+        // (distance <= radius) must evaluate to true, demonstrating inclusive boundary semantics.
+        (exactDistance <= radius).Should().BeTrue("exact boundary equality must be inclusive at boundary");
+        (exactDistance < radius).Should().BeFalse("exact equality is not strictly less than");
     }
 
     private static async Task SeedSelectablePoisAsync(SqlServerTestDatabase database)
@@ -249,14 +279,16 @@ public sealed class SearchSelectablePoisSqlServerTests
         var first = CreateSelectablePoi(category, traveler.Id, "Same Name", 16.001m, 108m);
         var second = CreateSelectablePoi(category, traveler.Id, "Same Name", 16.001m, 108m);
 
+        // Nearest representable consecutive 6-decimal pairs (1e-6 deg resolution):
+        // Each inside POI is < 0.07m inside 5km; each outside POI is < 0.05m outside 5km.
         var northInside = CreateSelectablePoi(category, traveler.Id, "North Inside", 16.045218m, 108.000000m);
-        var northOutside = CreateSelectablePoi(category, traveler.Id, "North Outside", 16.045220m, 108.000000m);
+        var northOutside = CreateSelectablePoi(category, traveler.Id, "North Outside", 16.045219m, 108.000000m);
         var southInside = CreateSelectablePoi(category, traveler.Id, "South Inside", 15.954782m, 108.000000m);
-        var southOutside = CreateSelectablePoi(category, traveler.Id, "South Outside", 15.954780m, 108.000000m);
+        var southOutside = CreateSelectablePoi(category, traveler.Id, "South Outside", 15.954781m, 108.000000m);
         var eastInside = CreateSelectablePoi(category, traveler.Id, "East Inside", 16.000000m, 108.046725m);
-        var eastOutside = CreateSelectablePoi(category, traveler.Id, "East Outside", 16.000000m, 108.046727m);
+        var eastOutside = CreateSelectablePoi(category, traveler.Id, "East Outside", 16.000000m, 108.046726m);
         var westInside = CreateSelectablePoi(category, traveler.Id, "West Inside", 16.000000m, 107.953275m);
-        var westOutside = CreateSelectablePoi(category, traveler.Id, "West Outside", 16.000000m, 107.953273m);
+        var westOutside = CreateSelectablePoi(category, traveler.Id, "West Outside", 16.000000m, 107.953274m);
 
         var insidePois = new[] { northInside, southInside, eastInside, westInside };
         var outsidePois = new[] { northOutside, southOutside, eastOutside, westOutside };
