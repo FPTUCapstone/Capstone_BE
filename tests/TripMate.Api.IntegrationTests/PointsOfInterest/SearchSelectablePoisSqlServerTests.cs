@@ -12,6 +12,7 @@ using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Geo;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.PointsOfInterest.Search;
+using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -186,20 +187,21 @@ public sealed class SearchSelectablePoisSqlServerTests
     [InlineData("West", 16.000000, 107.953273, false)]
     public void Boundary_Coordinates_MatchExpectedInsideOutside(
         string direction,
-        decimal latitude,
-        decimal longitude,
+        double latitude,
+        double longitude,
         bool expectedInside)
     {
-        var distance = GeoDistance.EquirectangularKilometers(16m, 108m, latitude, longitude);
+        var distance = GeoDistance.EquirectangularKilometers(
+            16m, 108m, (decimal)latitude, (decimal)longitude);
         if (expectedInside)
         {
-            distance.Should().BeLessThan(5m);
-            (distance <= 5m).Should().BeTrue();
+            distance.Should().BeLessThan(5m, "direction {0} should be within radius", direction);
+            (distance <= 5m).Should().BeTrue("direction {0} should be within radius", direction);
         }
         else
         {
-            distance.Should().BeGreaterThan(5m);
-            (distance <= 5m).Should().BeFalse();
+            distance.Should().BeGreaterThan(5m, "direction {0} should be outside radius", direction);
+            (distance <= 5m).Should().BeFalse("direction {0} should be outside radius", direction);
         }
     }
 
