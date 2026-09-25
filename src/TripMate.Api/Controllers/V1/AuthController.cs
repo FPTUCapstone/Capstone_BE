@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using TripMate.Api.Common;
 using TripMate.Application.Features.Authentication.Common;
 using TripMate.Application.Features.Authentication.GoogleAuth;
+using TripMate.Application.Features.Authentication.EmailVerificationResend;
 using TripMate.Application.Features.Authentication.Login;
 using TripMate.Application.Features.Authentication.Register;
 using TripMate.Application.Features.Authentication.SignOut;
@@ -14,6 +15,7 @@ using TripMate.Application.Features.Authentication.WebRefresh;
 using TripMate.Application.Features.Authentication.WebSignIn;
 using TripMate.Application.Features.Authentication.WebSignOut;
 using TripMate.Application.Features.Authentication.WebVerifyEmail;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace TripMate.Api.Controllers.V1;
 
@@ -110,6 +112,21 @@ public class AuthController(ISender sender, IWebHostEnvironment environment) : A
         WebPasswordRequest request,
         CancellationToken cancellationToken) =>
         WebPasswordLogin(request, false, cancellationToken);
+
+    [HttpPost("web/resend-verification")]
+    [EnableRateLimiting(EmailVerificationResendRateLimiter.PolicyName)]
+    public async Task<IActionResult> ResendVerification(
+        WebPasswordRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(
+            new ResendEmailVerificationCommand(request.Email, request.Password),
+            cancellationToken);
+
+        return result.IsSuccess
+            ? Success(result.Value, message: "Verification email sent.")
+            : HandleFailure(result);
+    }
 
     [HttpPost("web/admin/login")]
     [Consumes("application/json")]

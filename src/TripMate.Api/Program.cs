@@ -187,6 +187,15 @@ try
                     Window = PasswordResetRateLimiter.Window,
                     QueueLimit = 0,
                 }));
+        options.AddPolicy(EmailVerificationResendRateLimiter.PolicyName, context =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = EmailVerificationResendRateLimiter.PermitLimit,
+                    Window = EmailVerificationResendRateLimiter.Window,
+                    QueueLimit = 0,
+                }));
     });
 
     var app = builder.Build();

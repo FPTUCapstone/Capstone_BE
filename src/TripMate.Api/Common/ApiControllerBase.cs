@@ -85,6 +85,15 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             AuthErrorCodes.FirebaseUnavailable =>
                 StatusCodes.Status503ServiceUnavailable,
 
+            AuthErrorCodes.MsgEmailSendFailed =>
+                StatusCodes.Status503ServiceUnavailable,
+
+            AuthErrorCodes.MsgCooldown =>
+                StatusCodes.Status429TooManyRequests,
+
+            AuthErrorCodes.VerificationResendNotAllowed =>
+                StatusCodes.Status409Conflict,
+
             AuthErrorCodes.EmailAlreadyRegistered =>
                 StatusCodes.Status409Conflict,
 

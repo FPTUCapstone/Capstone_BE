@@ -48,7 +48,11 @@ public static class DependencyInjection
         services.AddHostedService<PasswordResetEmailDeliveryService>();
         services.AddScoped<IPasswordResetEligibilityResolver, PasswordResetEligibilityResolver>();
         services.AddSingleton<ISmtpTransportFactory, MailKitSmtpClientFactory>();
-        services.AddScoped<IEmailSender, SmtpEmailSender>();
+        services.AddScoped<SmtpEmailSender>();
+        services.AddScoped<IEmailSender>(sp => sp.GetRequiredService<SmtpEmailSender>());
+        services.AddScoped<IEmailVerificationSender>(sp => sp.GetRequiredService<SmtpEmailSender>());
+        services.AddSingleton<IEmailVerificationResendCooldown, EmailVerificationResendCooldown>();
+        services.AddSingleton<IEmailVerificationLinkService, FirebaseEmailVerificationLinkService>();
 
         services.AddDistributedMemoryCache();
 
