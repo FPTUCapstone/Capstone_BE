@@ -285,11 +285,14 @@ public sealed class SearchSelectablePoisSqlServerTests
             travelerId,
             SeedTime);
         poi.ConfigurePlanningMetadata(0m, "https://example.com/poi-search-sql", SeedTime);
-        poi.AddOpeningHour(PoiOpeningHour.Create(
-            1,
-            new TimeOnly(7, 0),
-            new TimeOnly(20, 0),
-            false));
+        for (byte day = 0; day <= 6; day++)
+        {
+            poi.AddOpeningHour(PoiOpeningHour.Create(
+                day,
+                new TimeOnly(7, 0),
+                new TimeOnly(20, 0),
+                false));
+        }
         return poi;
     }
 
