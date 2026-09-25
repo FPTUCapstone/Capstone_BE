@@ -2,9 +2,11 @@ using MediatR;
 
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 using TripMate.Api.Common;
 using TripMate.Application.Features.Authentication.Common;
+using TripMate.Application.Features.Authentication.EmailVerificationResend;
 using TripMate.Application.Features.Authentication.GoogleAuth;
 using TripMate.Application.Features.Authentication.Login;
 using TripMate.Application.Features.Authentication.Register;
@@ -110,6 +112,19 @@ public class AuthController(ISender sender, IWebHostEnvironment environment) : A
         WebPasswordRequest request,
         CancellationToken cancellationToken) =>
         WebPasswordLogin(request, false, cancellationToken);
+
+    [HttpPost("web/resend-verification")]
+    [EnableRateLimiting(EmailVerificationResendRateLimiter.PolicyName)]
+    public async Task<IActionResult> ResendVerification(
+        WebPasswordRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(
+            new ResendEmailVerificationCommand(request.Email, request.Password),
+            cancellationToken);
+
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
 
     [HttpPost("web/admin/login")]
     [Consumes("application/json")]

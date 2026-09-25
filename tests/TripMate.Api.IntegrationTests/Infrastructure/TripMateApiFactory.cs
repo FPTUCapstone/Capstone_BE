@@ -14,6 +14,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 using TripMate.Application.Common.Interfaces;
+using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 using TripMate.Infrastructure.Persistence;
@@ -32,6 +33,7 @@ public sealed class TripMateApiFactory(
     IReadOnlyList<string>? corsAllowedOrigins = null,
     string environmentName = "Testing",
     Func<IServiceProvider, IFirebaseAuthService>? firebaseServiceFactory = null,
+    Func<IServiceProvider, IEmailSender>? emailSenderFactory = null,
     SaveChangesInterceptor? saveChangesInterceptor = null,
     Func<IServiceProvider, IDateTimeProvider>? dateTimeProviderFactory = null,
     Action<IServiceCollection>? configureTestServices = null,
@@ -50,6 +52,8 @@ public sealed class TripMateApiFactory(
         builder.UseSetting("Jwt:Issuer", JwtIssuer);
         builder.UseSetting("Jwt:Audience", JwtAudience);
         builder.UseSetting("Jwt:SigningKey", JwtSigningKey);
+        builder.UseSetting("PasswordResetSecurity:OtpPepper", "test-only-pepper-0123456789abcdef");
+        builder.UseSetting("EmailVerification:ContinueUrl", "https://tripmate.test/verify-email");
 
         if (corsAllowedOrigins is not null)
         {
@@ -80,6 +84,8 @@ public sealed class TripMateApiFactory(
                 services.RemoveAll<ITravelGroupCreationLock>();
                 services.RemoveAll<IGroupInvitationLock>();
                 services.RemoveAll<IGroupJoinLock>();
+                services.RemoveAll<ISchedulingRequestLock>();
+                services.RemoveAll<IRouteDurationProvider>();
 
                 services.AddDbContext<TestApiDbContext>(options =>
                 {
@@ -101,12 +107,20 @@ public sealed class TripMateApiFactory(
                 services.AddScoped<ITravelGroupCreationLock, NoOpTravelGroupCreationLock>();
                 services.AddScoped<IGroupInvitationLock, NoOpGroupInvitationLock>();
                 services.AddScoped<IGroupJoinLock, NoOpGroupJoinLock>();
+                services.AddScoped<ISchedulingRequestLock, NoOpSchedulingRequestLock>();
+                services.AddScoped<IRouteDurationProvider, TestRouteDurationProvider>();
             }
 
             if (firebaseServiceFactory is not null)
             {
                 services.RemoveAll<IFirebaseAuthService>();
                 services.AddSingleton<IFirebaseAuthService>(sp => firebaseServiceFactory(sp));
+            }
+
+            if (emailSenderFactory is not null)
+            {
+                services.RemoveAll<IEmailSender>();
+                services.AddSingleton<IEmailSender>(sp => emailSenderFactory(sp));
             }
 
             if (dateTimeProviderFactory is not null)
@@ -180,6 +194,7 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     : DbContext(options), IApplicationDbContext
 {
     public DbSet<User> Users => Set<User>();
+    public DbSet<TravelerProfile> TravelerProfiles => Set<TravelerProfile>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<PoiCategory> PoiCategories => Set<PoiCategory>();
     public DbSet<PointOfInterest> PointsOfInterest => Set<PointOfInterest>();
@@ -200,6 +215,8 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
     public DbSet<Itinerary> Itineraries => Set<Itinerary>();
+    public DbSet<ItineraryItem> ItineraryItems => Set<ItineraryItem>();
+    public DbSet<SchedulingRequest> SchedulingRequests => Set<SchedulingRequest>();
     public DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests =>
         Set<TravelGroupCreationRequest>();
     public DbSet<GroupInvitation> GroupInvitations => Set<GroupInvitation>();
@@ -296,6 +313,34 @@ internal sealed class NoOpGroupJoinLock : IGroupJoinLock
 
     public Task AcquireGroupLockAsync(long groupId, CancellationToken cancellationToken) =>
         Task.CompletedTask;
+}
+
+internal sealed class NoOpSchedulingRequestLock : ISchedulingRequestLock
+{
+    public Task AcquireAsync(
+        long travelerUserId,
+        Guid idempotencyKey,
+        CancellationToken cancellationToken) => Task.CompletedTask;
+}
+
+internal sealed class TestRouteDurationProvider : IRouteDurationProvider
+{
+    public Task<RouteDurationMatrix> GetMatrixAsync(
+        IReadOnlyList<RoutePoint> points,
+        TransportMode transportMode,
+        CancellationToken cancellationToken)
+    {
+        var durations = new int[points.Count, points.Count];
+        for (var row = 0; row < points.Count; row++)
+        {
+            for (var column = 0; column < points.Count; column++)
+            {
+                durations[row, column] = row == column ? 0 : 15;
+            }
+        }
+
+        return Task.FromResult(RouteDurationMatrix.Create(durations));
+    }
 }
 
 internal sealed class TestAuthenticationHandler(

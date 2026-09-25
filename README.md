@@ -88,13 +88,16 @@ Nếu bạn chỉ muốn team có ngay 1 SQL Server **đã có sẵn `TripMateDb
 Tóm tắt cực nhanh (chi tiết + giải thích từng bước, số liệu thật đã verify: xem link trên):
 
 ```bash
-# Người gửi — build 1 lần, xuất file (~600 MB). Truyền mật khẩu sa qua build-arg (lấy từ .env):
-docker build -f database/Dockerfile.seeded -t tripmate-db:v7 --build-arg SA_PASSWORD="<SA_PASSWORD trong .env>" .
+# Người gửi — build 1 lần bằng BuildKit secret, xuất file (~600 MB).
+# SA_PASSWORD lấy từ .env vào environment, không truyền qua build-arg:
+DOCKER_BUILDKIT=1 docker build --secret id=sa_password,env=SA_PASSWORD \
+  -f database/Dockerfile.seeded -t tripmate-db:v7 .
 docker save -o tripmate-db.tar tripmate-db:v7
 
-# Người nhận — load và chạy, có DB ngay, không cần bước nào khác
+# Người nhận — load và chạy với SA_PASSWORD cục bộ; tar không chứa password
 docker load -i tripmate-db.tar
-docker run -d --name tripmate-sqlserver -p 14330:1433 tripmate-db:v7
+docker run -d --name tripmate-sqlserver -p 14330:1433 \
+  -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD="$SA_PASSWORD" tripmate-db:v7
 ```
 
 Code (`src/`) bạn vẫn chạy trực tiếp bằng `dotnet run` như mục 5 bên dưới — cách này chỉ đóng gói
@@ -189,6 +192,11 @@ Không tự ý thêm project/layer/NuGet package mới để giải quyết vi�
 được — giữ đúng pattern vertical slice xuyên suốt mọi feature.
 
 ## 9. Cấu hình (`appsettings.json`)
+
+Web verification-email resend requires `EmailVerification__ContinueUrl` (or
+`EMAIL_VERIFICATION_CONTINUE_URL` through Docker Compose) to be the public absolute FE
+`/verify-email` URL. Development defaults to `http://localhost:3001/verify-email`; production
+fails closed when the value is absent or invalid.
 
 | Key | Ý nghĩa |
 | --- | --- |
