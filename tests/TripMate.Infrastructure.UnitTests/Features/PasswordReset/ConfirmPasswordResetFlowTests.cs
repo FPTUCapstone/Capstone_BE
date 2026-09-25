@@ -205,6 +205,8 @@ public class ConfirmPasswordResetFlowTests
 
         public DbSet<User> Users => Set<User>();
 
+        DbSet<Domain.Entities.TravelerProfile> IApplicationDbContext.TravelerProfiles => throw new NotSupportedException();
+
         public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
         // The confirm flow only touches Users and RefreshTokens; the remaining context
@@ -247,6 +249,10 @@ public class ConfirmPasswordResetFlowTests
 
         DbSet<Domain.Entities.Itinerary> IApplicationDbContext.Itineraries => throw new NotSupportedException();
 
+        DbSet<Domain.Entities.ItineraryItem> IApplicationDbContext.ItineraryItems => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.SchedulingRequest> IApplicationDbContext.SchedulingRequests => throw new NotSupportedException();
+
         DbSet<Domain.Entities.TravelGroupCreationRequest> IApplicationDbContext.TravelGroupCreationRequests =>
             throw new NotSupportedException();
 
@@ -285,6 +291,7 @@ public class ConfirmPasswordResetFlowTests
         {
             // The confirm flow only persists Users and RefreshTokens; excluding the rest
             // avoids building a model for entities this test never touches.
+            modelBuilder.Ignore<Domain.Entities.TravelerProfile>();
             modelBuilder.Ignore<Domain.Entities.PoiCategory>();
             modelBuilder.Ignore<Domain.Entities.PointOfInterest>();
             modelBuilder.Ignore<Domain.Entities.PoiOpeningHour>();

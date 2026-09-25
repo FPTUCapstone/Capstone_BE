@@ -42,6 +42,15 @@ public class PointOfInterestConfiguration : IEntityTypeConfiguration<PointOfInte
         builder.Property(poi => poi.HasShelter)
             .HasColumnName("has_shelter")
             .HasDefaultValue(false);
+        builder.Property(poi => poi.EstimatedVisitCost)
+            .HasColumnName("estimated_visit_cost")
+            .HasPrecision(12, 2);
+        builder.Property(poi => poi.SourceUrl)
+            .HasColumnName("source_url")
+            .HasMaxLength(PointOfInterest.SourceUrlMaxLength);
+        builder.Property(poi => poi.VerifiedAtUtc)
+            .HasColumnName("verified_at")
+            .AsUtcDateTime2();
         builder.Property(poi => poi.Status)
             .HasColumnName("status")
             .HasConversion<string>()

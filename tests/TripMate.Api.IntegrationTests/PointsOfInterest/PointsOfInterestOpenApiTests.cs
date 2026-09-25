@@ -16,6 +16,32 @@ namespace TripMate.Api.IntegrationTests.PointsOfInterest;
 public sealed class PointsOfInterestOpenApiTests
 {
     [Fact]
+    public async Task SearchSelectablePois_DocumentsTravelerSearchContract()
+    {
+        await using var factory = new TripMateApiFactory();
+        var swaggerProvider = factory.Services.GetRequiredService<ISwaggerProvider>();
+        var document = swaggerProvider.GetSwagger("v1");
+        var json = await document.SerializeAsJsonAsync(OpenApiSpecVersion.OpenApi3_0);
+
+        using var openApi = JsonDocument.Parse(json);
+        var operation = openApi.RootElement
+            .GetProperty("paths")
+            .GetProperty("/api/v1/points-of-interest/search")
+            .GetProperty("get");
+        var parameterNames = operation
+            .GetProperty("parameters")
+            .EnumerateArray()
+            .Select(parameter => parameter.GetProperty("name").GetString())
+            .ToArray();
+
+        parameterNames.Should().BeEquivalentTo(
+            ["query", "latitude", "longitude", "radiusKm", "page", "pageSize"]);
+        operation.GetProperty("responses").TryGetProperty("200", out _).Should().BeTrue();
+        operation.GetProperty("responses").TryGetProperty("401", out _).Should().BeTrue();
+        operation.GetProperty("responses").TryGetProperty("403", out _).Should().BeTrue();
+    }
+
+    [Fact]
     public async Task CreatePoi_RequestAndResponseSchemas_DocumentRuntimeContract()
     {
         await using var factory = new TripMateApiFactory();
