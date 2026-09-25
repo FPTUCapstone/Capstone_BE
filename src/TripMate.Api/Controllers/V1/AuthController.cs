@@ -2,11 +2,12 @@ using MediatR;
 
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 using TripMate.Api.Common;
 using TripMate.Application.Features.Authentication.Common;
-using TripMate.Application.Features.Authentication.GoogleAuth;
 using TripMate.Application.Features.Authentication.EmailVerificationResend;
+using TripMate.Application.Features.Authentication.GoogleAuth;
 using TripMate.Application.Features.Authentication.Login;
 using TripMate.Application.Features.Authentication.Register;
 using TripMate.Application.Features.Authentication.SignOut;
@@ -15,7 +16,6 @@ using TripMate.Application.Features.Authentication.WebRefresh;
 using TripMate.Application.Features.Authentication.WebSignIn;
 using TripMate.Application.Features.Authentication.WebSignOut;
 using TripMate.Application.Features.Authentication.WebVerifyEmail;
-using Microsoft.AspNetCore.RateLimiting;
 
 namespace TripMate.Api.Controllers.V1;
 

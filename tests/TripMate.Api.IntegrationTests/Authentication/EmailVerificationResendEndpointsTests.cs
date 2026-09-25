@@ -1,12 +1,15 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+
 using FluentAssertions;
+
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using TripMate.Api.IntegrationTests.Infrastructure;
+
 using TripMate.Api.Common;
+using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Domain.Entities;
