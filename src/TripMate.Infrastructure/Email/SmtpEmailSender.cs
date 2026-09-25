@@ -18,7 +18,7 @@ namespace TripMate.Infrastructure.Email;
 /// Cancellation before any delivery attempt preserves normal CancellationToken semantics.
 /// Logs carry classifications only — never the OTP, credentials, recipient, or raw SMTP payloads.
 /// </summary>
-public sealed class SmtpEmailSender : IEmailSender
+public sealed class SmtpEmailSender : IEmailSender, IEmailVerificationSender
 {
     private const int SendTimeoutMilliseconds = 10_000;
 
@@ -57,6 +57,30 @@ public sealed class SmtpEmailSender : IEmailSender
         ArgumentException.ThrowIfNullOrWhiteSpace(otp);
 
         var content = PasswordResetEmailComposer.Compose(otp);
+        return await SendAsync(destinationEmail, content, "Password reset", cancellationToken);
+    }
+
+    async Task<EmailDeliveryResult> IEmailVerificationSender.SendAsync(
+        string destinationEmail,
+        string verificationLink,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(destinationEmail);
+        ArgumentException.ThrowIfNullOrWhiteSpace(verificationLink);
+
+        return await SendAsync(
+            destinationEmail,
+            EmailVerificationEmailComposer.Compose(verificationLink),
+            "Email verification",
+            cancellationToken);
+    }
+
+    private async Task<EmailDeliveryResult> SendAsync(
+        string destinationEmail,
+        PasswordResetEmailContent content,
+        string purpose,
+        CancellationToken cancellationToken)
+    {
         var sendAttempted = false;
         await using var client = smtpClientFactory.Create();
         try
@@ -69,7 +93,7 @@ public sealed class SmtpEmailSender : IEmailSender
                 options.FromName, options.FromEmail, destinationEmail, content.Subject, content.TextBody, cancellationToken);
             await DisconnectQuietlyAsync(client);
 
-            logger.LogInformation("Password reset email delivered.");
+            logger.LogInformation("{Purpose} email delivered.", purpose);
             return EmailDeliveryResult.Delivered;
         }
         catch (OperationCanceledException) when (!sendAttempted && cancellationToken.IsCancellationRequested)
@@ -82,7 +106,8 @@ public sealed class SmtpEmailSender : IEmailSender
         {
             var result = ClassifyFailure(exception);
             logger.LogWarning(
-                "Password reset email delivery {Classification} ({ExceptionType}).",
+                "{Purpose} email delivery {Classification} ({ExceptionType}).",
+                purpose,
                 result.Status == EmailDeliveryStatus.DefiniteFailure ? "failed" : "outcome unknown",
                 exception.GetType().Name);
 

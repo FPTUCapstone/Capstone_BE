@@ -193,6 +193,11 @@ Không tự ý thêm project/layer/NuGet package mới để giải quyết vi�
 
 ## 9. Cấu hình (`appsettings.json`)
 
+Web verification-email resend requires `EmailVerification__ContinueUrl` (or
+`EMAIL_VERIFICATION_CONTINUE_URL` through Docker Compose) to be the public absolute FE
+`/verify-email` URL. Development defaults to `http://localhost:3001/verify-email`; production
+fails closed when the value is absent or invalid.
+
 | Key | Ý nghĩa |
 | --- | --- |
 | `ConnectionStrings:Default` | Connection string SQL Server. |

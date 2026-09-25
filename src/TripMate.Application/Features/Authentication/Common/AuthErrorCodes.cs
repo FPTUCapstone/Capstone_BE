@@ -51,6 +51,7 @@ public static class AuthErrorCodes
     public const string AccountLocked = "auth.account_locked";
     public const string AccountInactive = "auth.account_inactive";
     public const string VerificationUnavailable = "auth.verification_unavailable";
+    public const string VerificationResendNotAllowed = "auth.verification_resend_not_allowed";
     public const string VerificationEmailMissing = "auth.verification_email_missing";
     public const string VerificationUserNotFound = "MSG_USER_NOT_FOUND";
     public const string AuthHeaderMissing = "AUTH_HEADER_MISSING";

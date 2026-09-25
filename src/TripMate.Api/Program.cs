@@ -45,6 +45,17 @@ try
             "ConnectionStrings:Default is not configured. Set it via environment variable (ConnectionStrings__Default) or User Secrets.");
     }
 
+    if (!builder.Environment.IsDevelopment()
+        && !builder.Environment.IsEnvironment("Testing")
+        && !Uri.TryCreate(
+            builder.Configuration["EmailVerification:ContinueUrl"],
+            UriKind.Absolute,
+            out _))
+    {
+        throw new InvalidOperationException(
+            "EmailVerification:ContinueUrl must be configured as an absolute public FE callback URL.");
+    }
+
     var jsonNamingPolicy = JsonNamingPolicy.CamelCase;
     builder.Services
         .AddControllers()
@@ -183,6 +194,15 @@ try
                 {
                     PermitLimit = PasswordResetRateLimiter.PermitLimit,
                     Window = PasswordResetRateLimiter.Window,
+                    QueueLimit = 0,
+                }));
+        options.AddPolicy(EmailVerificationResendRateLimiter.PolicyName, context =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = EmailVerificationResendRateLimiter.PermitLimit,
+                    Window = EmailVerificationResendRateLimiter.Window,
                     QueueLimit = 0,
                 }));
     });
