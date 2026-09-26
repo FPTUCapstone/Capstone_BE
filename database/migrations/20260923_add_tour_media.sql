@@ -60,7 +60,7 @@ BEGIN TRY
         SYSNAME, DATABASEPROPERTYEX(DB_NAME(), N'Collation'));
 
     IF (SELECT COUNT(*) FROM sys.columns
-        WHERE object_id = OBJECT_ID(N'commerce.TourMedia')) <> 11
+        WHERE object_id = OBJECT_ID(N'commerce.TourMedia')) NOT IN (11, 12)
         THROW 51000, 'TM-206 TourMedia column count mismatch; manual reconciliation is required.', 1;
 
     IF EXISTS (
@@ -117,6 +117,23 @@ BEGIN TRY
                 default_constraint.definition, N'(', N''), N')', N''), N' ', N'')), N'<null>')
               <> ISNULL(expected.default_definition, N'<null>'))
         THROW 51000, 'TM-206 TourMedia column/default shape mismatch; manual reconciliation is required.', 1;
+
+    IF (SELECT COUNT(*) FROM sys.columns
+        WHERE object_id = OBJECT_ID(N'commerce.TourMedia')) = 12
+       AND NOT EXISTS (
+            SELECT 1
+            FROM sys.columns AS column_info
+            JOIN sys.types AS type_info
+              ON type_info.user_type_id = column_info.user_type_id
+            WHERE column_info.object_id = OBJECT_ID(N'commerce.TourMedia')
+              AND column_info.name = N'alt_text'
+              AND type_info.name = N'nvarchar'
+              AND column_info.max_length = 1000
+              AND column_info.is_nullable = 0
+              AND column_info.is_identity = 0
+              AND column_info.is_computed = 0
+              AND column_info.collation_name = N'Vietnamese_100_CI_AS')
+        THROW 51000, 'TM-206 found an unrecognized additive TourMedia column.', 1;
 
     IF (SELECT COUNT(*) FROM sys.default_constraints
         WHERE parent_object_id = OBJECT_ID(N'commerce.TourMedia')) <> 4
@@ -197,8 +214,29 @@ BEGIN TRY
 
     IF (SELECT COUNT(*) FROM sys.indexes
         WHERE object_id = OBJECT_ID(N'commerce.TourMedia')
-          AND index_id > 0 AND is_hypothetical = 0) <> 4
+          AND index_id > 0 AND is_hypothetical = 0) NOT IN (4, 5)
         THROW 51000, 'TM-206 TourMedia index inventory mismatch.', 1;
+
+    IF (SELECT COUNT(*) FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'commerce.TourMedia')
+          AND index_id > 0 AND is_hypothetical = 0) = 5
+    BEGIN
+        DECLARE @tm207PublicIdIndexId INT = INDEXPROPERTY(
+            OBJECT_ID(N'commerce.TourMedia'),
+            N'UX_TourMedia_CloudinaryPublicId', N'IndexId');
+        IF @tm207PublicIdIndexId IS NULL
+           OR NOT EXISTS (
+                SELECT 1 FROM sys.indexes
+                WHERE object_id = OBJECT_ID(N'commerce.TourMedia')
+                  AND index_id = @tm207PublicIdIndexId
+                  AND type = 2 AND is_unique = 1 AND is_primary_key = 0
+                  AND is_unique_constraint = 0 AND is_disabled = 0
+                  AND has_filter = 0)
+           OR INDEX_COL(N'commerce.TourMedia', @tm207PublicIdIndexId, 1)
+                <> N'cloudinary_public_id'
+           OR INDEX_COL(N'commerce.TourMedia', @tm207PublicIdIndexId, 2) IS NOT NULL
+            THROW 51000, 'TM-206 found an unrecognized additive TourMedia index.', 1;
+    END;
 
     DECLARE @activeOrderIndexId INT = INDEXPROPERTY(
         OBJECT_ID(N'commerce.TourMedia'), N'UX_TourMedia_ActiveSortOrder', N'IndexId');

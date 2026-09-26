@@ -7,8 +7,8 @@ Thư mục này chứa schema vật lý chính thức của TripMate (`tripmate_
 
 | File                       | Vai trò                                                                                                                                                                                                                                                                                               |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `tripmate_schema_v7.sql` | Toàn bộ DDL: 8 schema (`dbo`, `catalog`, `commerce`, `planning`, `trip`, `payment`, `commercial`, `social`), ~56 bảng, seed data cho `SystemConfigs` và `Messages` (130 message thật từ SRS §5.3, MSG01–MSG130).                                                           |
-| `migrations/*.sql`       | Các nâng cấp cộng thêm, idempotent cho database đang ở v7. TM-70 thêm `catalog.Destinations`, `commerce.TourDestinations` và constraint giá nguyên VND, không tự gán vùng hoặc làm tròn giá cũ. |
+| `tripmate_schema_v7.sql` | Toàn bộ DDL: 8 schema (`dbo`, `catalog`, `commerce`, `planning`, `trip`, `payment`, `commercial`, `social`), 64 bảng, seed data cho `SystemConfigs` và `Messages` (130 message thật từ SRS §5.3, MSG01–MSG130).                                                           |
+| `migrations/*.sql`       | Các nâng cấp cộng thêm, idempotent cho database đang ở v7. TM-70 thêm dữ liệu tìm kiếm Tour; TM-206 thêm `commerce.TourMedia`; TM-207 thêm alt text, upload-idempotency và cleanup-outbox metadata cho Cloudinary. Không migration nào lưu raw image binary hoặc credential. |
 | `apply-schema.sh`        | Tạo `TripMateDb` nếu chưa có, áp full schema cho DB trống, rồi luôn chạy các migration idempotent. Với DB đã có v7, script bỏ qua full schema nhưng vẫn chạy migration; DB cũ hơn v7 vẫn bị chặn rõ ràng. |
 
 ## 2. Yêu cầu trước khi bắt đầu
@@ -90,6 +90,13 @@ Migration TM-70 sẽ dừng và rollback nếu `base_price` cũ có phần lẻ 
 **không đọc cột này**. Việc gắn vùng cho tour cũ là thao tác backfill nghiệp vụ riêng, không tự suy
 đoán từ tên tour, điểm hẹn hoặc POI.
 
+Để nâng cấp database đã có TM-206 sang persistence contract TM-207, backup/snapshot trước rồi chạy
+`migrations/20260927_add_tour_media_management.sql`. Migration backfill `alt_text = N'Tour image'`
+chỉ cho row TM-206 cũ, sau đó chuyển cột về `NOT NULL`; upload mới phải cung cấp alt text hợp lệ ở
+application workflow. Migration cũng thêm unique provider ID, bảng upload-idempotency và cleanup
+outbox, có thể chạy lại, và rollback toàn transaction khi gặp object cùng tên sai shape. Giới hạn
+10 active images vẫn thuộc application workflow, không phải SQL count/CHECK constraint.
+
 ### Nếu TripMateDb đang chạy trên cloud
 
 Các lệnh `docker compose` ở trên chỉ áp dụng cho SQL Server container của repo; **không tự
@@ -140,8 +147,8 @@ docker compose exec sqlserver bash -lc \
   '/opt/mssql-tools18/bin/sqlcmd -b -V 11 -C -I -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -d TripMateDb -Q "SELECT s.name AS schema_name, COUNT(*) AS tables FROM sys.tables t JOIN sys.schemas s ON t.schema_id = s.schema_id GROUP BY s.name ORDER BY s.name;"'
 ```
 
-Kết quả kỳ vọng: `catalog` (8), `commerce` (13), `commercial` (4), `dbo` (11), `payment` (4),
-`planning` (3), `social` (5), `trip` (8) — tổng 56 bảng.
+Kết quả theo schema hiện tại: `catalog` (9), `commerce` (17), `commercial` (4), `dbo` (11),
+`payment` (4), `planning` (3), `social` (8), `trip` (8) — tổng 64 bảng.
 
 Kiểm tra riêng bảng message catalog đã có đủ 130 message thật (không phải 5 dòng placeholder cũ):
 

@@ -351,8 +351,23 @@ public sealed class TourMediaMigrationTests
                 THROW 51000, 'commerce.TourMedia is missing.', 1;
 
             IF (SELECT COUNT(*) FROM sys.columns
-                WHERE object_id = OBJECT_ID(N'commerce.TourMedia')) <> 11
+                WHERE object_id = OBJECT_ID(N'commerce.TourMedia')) NOT IN (11, 12)
                 THROW 51000, 'TourMedia column count mismatch.', 1;
+
+            IF (SELECT COUNT(*) FROM sys.columns
+                WHERE object_id = OBJECT_ID(N'commerce.TourMedia')) = 12
+               AND NOT EXISTS (
+                    SELECT 1
+                    FROM sys.columns AS column_info
+                    JOIN sys.types AS type_info
+                        ON type_info.user_type_id = column_info.user_type_id
+                    WHERE column_info.object_id = OBJECT_ID(N'commerce.TourMedia')
+                      AND column_info.name = N'alt_text'
+                      AND type_info.name = N'nvarchar'
+                      AND column_info.max_length = 1000
+                      AND column_info.is_nullable = 0
+                      AND column_info.collation_name = N'Vietnamese_100_CI_AS')
+                THROW 51000, 'Unexpected additive TourMedia column shape.', 1;
 
             IF EXISTS (
                 SELECT expected.name
@@ -509,6 +524,7 @@ public sealed class TourMediaMigrationTests
                     ON default_info.parent_object_id = column_info.object_id
                     AND default_info.parent_column_id = column_info.column_id
                 WHERE column_info.object_id = OBJECT_ID(N'commerce.TourMedia')
+                  AND column_info.name <> N'alt_text'
 
                 UNION ALL
 
@@ -578,6 +594,7 @@ public sealed class TourMediaMigrationTests
                     COLLATE DATABASE_DEFAULT
                 FROM sys.indexes AS index_info
                 WHERE index_info.object_id = OBJECT_ID(N'commerce.TourMedia')
+                  AND index_info.name <> N'UX_TourMedia_CloudinaryPublicId'
                   AND index_info.index_id > 0
                   AND index_info.is_hypothetical = 0
             )
