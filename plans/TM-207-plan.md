@@ -1,6 +1,6 @@
 # TM-207 — Atomic implementation plan
 
-Status: **APPROVED — 2026-09-26; TASKS 1–2 COMPLETE — 2026-09-27**
+Status: **APPROVED — 2026-09-26; TASKS 1–3 COMPLETE — 2026-09-27**
 Spec: `specs/TM-207-spec.md` (approved 2026-09-26)
 Branch: `feature/datmnt-tour-media-management-api`
 
@@ -243,6 +243,32 @@ dotnet test tests/TripMate.Application.UnitTests/TripMate.Application.UnitTests.
 
 The new model is persistence-compatible, all invalid transitions are covered,
 and no API/provider behavior has leaked into Domain.
+
+**Measured RED/GREEN evidence — 2026-09-27**
+
+- RED: both approved `FullyQualifiedName~TourMedia` filters exited 1 during
+  compilation because the three TM-207 entities and status enums did not yet
+  exist. A test-only namespace qualification issue exposed by that first run
+  was corrected before production implementation.
+- Added `TourMedia`, `TourMediaUploadOperation`, and
+  `TourMediaCleanupOutboxItem` with guarded lifecycle/state transitions,
+  private mutation setters, navigation ownership, and narrowly scoped enums.
+- Added SQL-compatible EF configurations for every TM-207 column, UTC
+  converter, string enum, default, FK/delete behavior, check constraint,
+  named index/filter, and the active-media query filter. Updated `Tour`, the
+  application context contract, the production context, and all three context
+  test doubles.
+- Focused Application domain suite: 7 passed, 0 failed, 0 skipped, exit 0.
+- Focused Infrastructure persistence suite: 4 passed, 0 failed, 0 skipped,
+  exit 0. Existing `TourPersistenceModelTests`: 4 passed, 0 failed, 0 skipped.
+- Full Application unit tests: 603 passed, 0 failed, 0 skipped, exit 0. Full
+  Infrastructure unit tests: 77 passed, 0 failed, 0 skipped, exit 0.
+- `dotnet format TripMate.slnx --verify-no-changes --no-restore` passed after
+  applying the repository formatter. Release solution build passed with
+  0 warnings and 0 errors. `git diff --check` passed.
+- Review pass 1 found no spec/scope violation; review pass 2 found no
+  unresolved code-quality, persistence, or secret-handling finding. No API,
+  Cloudinary adapter/configuration, worker, or EF migration was added.
 
 ## Task 4 — Define and implement the Cloudinary boundary (Red → Green)
 

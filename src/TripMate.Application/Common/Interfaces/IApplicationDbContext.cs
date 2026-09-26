@@ -34,6 +34,12 @@ public interface IApplicationDbContext
 
     DbSet<TourDestination> TourDestinations { get; }
 
+    DbSet<TourMedia> TourMedia { get; }
+
+    DbSet<TourMediaUploadOperation> TourMediaUploadOperations { get; }
+
+    DbSet<TourMediaCleanupOutboxItem> TourMediaCleanupOutbox { get; }
+
     DbSet<AuditLog> AuditLogs { get; }
 
     DbSet<Notification> Notifications { get; }

@@ -40,6 +40,14 @@ public class ApplicationDbContext(
 
     public DbSet<TourDestination> TourDestinations => Set<TourDestination>();
 
+    public DbSet<TourMedia> TourMedia => Set<TourMedia>();
+
+    public DbSet<TourMediaUploadOperation> TourMediaUploadOperations =>
+        Set<TourMediaUploadOperation>();
+
+    public DbSet<TourMediaCleanupOutboxItem> TourMediaCleanupOutbox =>
+        Set<TourMediaCleanupOutboxItem>();
+
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
     public DbSet<Notification> Notifications => Set<Notification>();

@@ -207,6 +207,11 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<TourSchedule> TourSchedules => Set<TourSchedule>();
     public DbSet<Destination> Destinations => Set<Destination>();
     public DbSet<TourDestination> TourDestinations => Set<TourDestination>();
+    public DbSet<TourMedia> TourMedia => Set<TourMedia>();
+    public DbSet<TourMediaUploadOperation> TourMediaUploadOperations =>
+        Set<TourMediaUploadOperation>();
+    public DbSet<TourMediaCleanupOutboxItem> TourMediaCleanupOutbox =>
+        Set<TourMediaCleanupOutboxItem>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<PoiPhoto> PoiPhotos => Set<PoiPhoto>();
