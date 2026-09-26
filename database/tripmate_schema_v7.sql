@@ -493,6 +493,7 @@ CREATE TABLE commerce.TourMedia (
     updated_at DATETIME2 NOT NULL
         CONSTRAINT DF_TourMedia_UpdatedAt DEFAULT SYSUTCDATETIME(),
     deleted_at DATETIME2 NULL,
+    alt_text NVARCHAR(500) COLLATE Vietnamese_100_CI_AS NOT NULL,
     CONSTRAINT FK_TourMedia_Tours FOREIGN KEY (tour_id)
         REFERENCES commerce.Tours(tour_id) ON DELETE CASCADE,
     CONSTRAINT CK_TourMedia_SortOrderPositive CHECK (sort_order > 0),
@@ -512,6 +513,121 @@ CREATE UNIQUE INDEX UX_TourMedia_ActivePrimary
 CREATE INDEX IX_TourMedia_TourLifecycleOrder
     ON commerce.TourMedia(
         tour_id, lifecycle_status, sort_order, tour_media_id);
+CREATE UNIQUE INDEX UX_TourMedia_CloudinaryPublicId
+    ON commerce.TourMedia(cloudinary_public_id);
+GO
+
+-- TM-207 upload idempotency state. File bytes, provider credentials,
+-- signatures, and raw Cloudinary responses are never persisted here.
+CREATE TABLE commerce.TourMediaUploadOperations (
+    upload_operation_id BIGINT IDENTITY(1,1) NOT NULL
+        CONSTRAINT PK_TourMediaUploadOperations PRIMARY KEY,
+    actor_user_id BIGINT NOT NULL,
+    tour_id BIGINT NOT NULL,
+    idempotency_key UNIQUEIDENTIFIER NOT NULL,
+    payload_fingerprint CHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
+    cloudinary_public_id NVARCHAR(500) NOT NULL,
+    operation_status VARCHAR(16) NOT NULL
+        CONSTRAINT DF_TourMediaUploadOperations_Status DEFAULT 'Pending',
+    tour_media_id BIGINT NULL,
+    provider_uploaded_at DATETIME2 NULL,
+    completed_at DATETIME2 NULL,
+    created_at DATETIME2 NOT NULL
+        CONSTRAINT DF_TourMediaUploadOperations_CreatedAt DEFAULT SYSUTCDATETIME(),
+    updated_at DATETIME2 NOT NULL
+        CONSTRAINT DF_TourMediaUploadOperations_UpdatedAt DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT FK_TourMediaUploadOperations_Actor FOREIGN KEY (actor_user_id)
+        REFERENCES dbo.Users(user_id),
+    CONSTRAINT FK_TourMediaUploadOperations_Tour FOREIGN KEY (tour_id)
+        REFERENCES commerce.Tours(tour_id) ON DELETE CASCADE,
+    CONSTRAINT CK_TourMediaUploadOperations_Fingerprint CHECK (
+        LEN(payload_fingerprint) = 64
+        AND payload_fingerprint NOT LIKE '%[^0-9A-F]%'
+            COLLATE Latin1_General_100_BIN2),
+    CONSTRAINT CK_TourMediaUploadOperations_Status CHECK (
+        operation_status IN ('Pending','Uploaded','Completed')),
+    CONSTRAINT CK_TourMediaUploadOperations_State CHECK (
+        (operation_status = 'Pending'
+            AND provider_uploaded_at IS NULL
+            AND tour_media_id IS NULL
+            AND completed_at IS NULL)
+        OR (operation_status = 'Uploaded'
+            AND provider_uploaded_at IS NOT NULL
+            AND tour_media_id IS NULL
+            AND completed_at IS NULL)
+        OR (operation_status = 'Completed'
+            AND provider_uploaded_at IS NOT NULL
+            AND tour_media_id IS NOT NULL
+            AND completed_at IS NOT NULL))
+);
+GO
+CREATE UNIQUE INDEX UX_TourMediaUploadOperations_ActorTourKey
+    ON commerce.TourMediaUploadOperations(
+        actor_user_id, tour_id, idempotency_key);
+CREATE UNIQUE INDEX UX_TourMediaUploadOperations_PublicId
+    ON commerce.TourMediaUploadOperations(cloudinary_public_id);
+CREATE INDEX IX_TourMediaUploadOperations_TourStatus
+    ON commerce.TourMediaUploadOperations(
+        tour_id, operation_status, upload_operation_id);
+GO
+
+-- TM-207 delayed Cloudinary cleanup. The media FK uses SET NULL so provider
+-- cleanup survives a physical parent-Tour cascade.
+CREATE TABLE commerce.TourMediaCleanupOutbox (
+    cleanup_outbox_id BIGINT IDENTITY(1,1) NOT NULL
+        CONSTRAINT PK_TourMediaCleanupOutbox PRIMARY KEY,
+    tour_media_id BIGINT NULL,
+    cloudinary_public_id NVARCHAR(500) NOT NULL,
+    cleanup_status VARCHAR(16) NOT NULL
+        CONSTRAINT DF_TourMediaCleanupOutbox_Status DEFAULT 'Pending',
+    not_before_at DATETIME2 NOT NULL,
+    attempt_count INT NOT NULL
+        CONSTRAINT DF_TourMediaCleanupOutbox_AttemptCount DEFAULT 0,
+    max_attempts INT NOT NULL
+        CONSTRAINT DF_TourMediaCleanupOutbox_MaxAttempts DEFAULT 8,
+    lease_token UNIQUEIDENTIFIER NULL,
+    lease_expires_at DATETIME2 NULL,
+    last_error_code NVARCHAR(100) NULL,
+    created_at DATETIME2 NOT NULL
+        CONSTRAINT DF_TourMediaCleanupOutbox_CreatedAt DEFAULT SYSUTCDATETIME(),
+    updated_at DATETIME2 NOT NULL
+        CONSTRAINT DF_TourMediaCleanupOutbox_UpdatedAt DEFAULT SYSUTCDATETIME(),
+    completed_at DATETIME2 NULL,
+    CONSTRAINT FK_TourMediaCleanupOutbox_TourMedia FOREIGN KEY (tour_media_id)
+        REFERENCES commerce.TourMedia(tour_media_id) ON DELETE SET NULL,
+    CONSTRAINT CK_TourMediaCleanupOutbox_Status CHECK (
+        cleanup_status IN ('Pending','InProgress','Completed','Exhausted')),
+    CONSTRAINT CK_TourMediaCleanupOutbox_Attempts CHECK (
+        max_attempts BETWEEN 1 AND 100
+        AND attempt_count BETWEEN 0 AND max_attempts),
+    CONSTRAINT CK_TourMediaCleanupOutbox_State CHECK (
+        (cleanup_status = 'Pending'
+            AND lease_token IS NULL
+            AND lease_expires_at IS NULL
+            AND completed_at IS NULL)
+        OR (cleanup_status = 'InProgress'
+            AND lease_token IS NOT NULL
+            AND lease_expires_at IS NOT NULL
+            AND completed_at IS NULL)
+        OR (cleanup_status = 'Completed'
+            AND lease_token IS NULL
+            AND lease_expires_at IS NULL
+            AND completed_at IS NOT NULL)
+        OR (cleanup_status = 'Exhausted'
+            AND lease_token IS NULL
+            AND lease_expires_at IS NULL
+            AND completed_at IS NOT NULL
+            AND attempt_count = max_attempts))
+);
+GO
+CREATE UNIQUE INDEX UX_TourMediaCleanupOutbox_PublicId
+    ON commerce.TourMediaCleanupOutbox(cloudinary_public_id);
+CREATE UNIQUE INDEX UX_TourMediaCleanupOutbox_Media
+    ON commerce.TourMediaCleanupOutbox(tour_media_id)
+    WHERE tour_media_id IS NOT NULL;
+CREATE INDEX IX_TourMediaCleanupOutbox_Due
+    ON commerce.TourMediaCleanupOutbox(
+        cleanup_status, not_before_at, lease_expires_at, cleanup_outbox_id);
 GO
 
 CREATE TABLE commerce.TourDestinations (
