@@ -80,6 +80,10 @@ public class TestDbContext(
 
     public DbSet<SystemConfig> SystemConfigs => Set<SystemConfig>();
 
+    public DbSet<TripSession> TripSessions => Set<TripSession>();
+
+    public DbSet<Incident> Incidents => Set<Incident>();
+
     public int TransactionExecutionCount { get; private set; }
 
     public bool IsExecutingSerializableTransaction { get; private set; }

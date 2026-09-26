@@ -137,6 +137,10 @@ public class ApplicationDbContext(
 
     public DbSet<SystemConfig> SystemConfigs => Set<SystemConfig>();
 
+    public DbSet<TripSession> TripSessions => Set<TripSession>();
+
+    public DbSet<Incident> Incidents => Set<Incident>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(
