@@ -122,6 +122,10 @@ public class ApplicationDbContext(
 
     public DbSet<GroupJoinOperation> GroupJoinOperations => Set<GroupJoinOperation>();
 
+    public DbSet<TripSession> TripSessions => Set<TripSession>();
+
+    public DbSet<Incident> Incidents => Set<Incident>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(

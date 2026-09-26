@@ -68,6 +68,10 @@ public class TestDbContext(
 
     public DbSet<GroupJoinOperation> GroupJoinOperations => Set<GroupJoinOperation>();
 
+    public DbSet<TripSession> TripSessions => Set<TripSession>();
+
+    public DbSet<Incident> Incidents => Set<Incident>();
+
     public int TransactionExecutionCount { get; private set; }
 
     public async Task<int> RevokeRefreshTokenAsync(

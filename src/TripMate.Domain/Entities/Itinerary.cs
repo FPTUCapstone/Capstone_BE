@@ -12,6 +12,7 @@ public class Itinerary : BaseEntity
     public const int TitleMaxLength = 200;
     public const string ManualSourceType = "Manual";
     public const string CspGeneratedSourceType = "CSPGenerated";
+    public const string BookedTourSourceType = "BookedTour";
     public const string DraftStatus = "Draft";
     public const string ActiveStatus = "Active";
     public const string CompletedStatus = "Completed";
@@ -107,6 +108,10 @@ public class Itinerary : BaseEntity
     public long? SchedulingRequestId { get; private set; }
 
     public SchedulingRequest? SchedulingRequest { get; private set; }
+
+    public long? SourceTourId { get; private set; }
+
+    public Tour? SourceTour { get; private set; }
 
     public DateTimeOffset? ValidFromUtc { get; private set; }
 

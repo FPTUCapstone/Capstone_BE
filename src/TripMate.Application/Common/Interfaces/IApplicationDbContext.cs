@@ -62,6 +62,10 @@ public interface IApplicationDbContext
 
     DbSet<GroupJoinOperation> GroupJoinOperations { get; }
 
+    DbSet<TripSession> TripSessions { get; }
+
+    DbSet<Incident> Incidents { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 
     Task<int> RevokeRefreshTokenAsync(

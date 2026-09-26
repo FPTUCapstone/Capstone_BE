@@ -24,6 +24,7 @@ public class ItineraryConfiguration : IEntityTypeConfiguration<Itinerary>
         builder.Property(i => i.Title).HasColumnName("title").HasMaxLength(200);
         builder.Property(i => i.Status).HasColumnName("status").HasMaxLength(10).IsRequired();
         builder.Property(i => i.SchedulingRequestId).HasColumnName("scheduling_request_id");
+        builder.Property(i => i.SourceTourId).HasColumnName("source_tour_id");
         builder.Property(i => i.ValidFromUtc).HasColumnName("valid_from").AsUtcDateTime2();
         builder.Property(i => i.ValidToUtc).HasColumnName("valid_to").AsUtcDateTime2();
         builder.Property(i => i.CreatedAtUtc).HasColumnName("created_at").AsUtcDateTime2().IsRequired();
@@ -36,6 +37,10 @@ public class ItineraryConfiguration : IEntityTypeConfiguration<Itinerary>
         builder.HasOne(i => i.SchedulingRequest)
             .WithMany()
             .HasForeignKey(i => i.SchedulingRequestId)
+            .OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(i => i.SourceTour)
+            .WithMany()
+            .HasForeignKey(i => i.SourceTourId)
             .OnDelete(DeleteBehavior.Restrict);
 
         builder.Navigation(i => i.TravelGroups)
