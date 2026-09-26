@@ -65,6 +65,19 @@ public sealed class ActiveTripsEndpointTests
     }
 
     [Fact]
+    public async Task Get_FutureDateRange_ReturnsBadRequest()
+    {
+        await using var factory = new TripMateApiFactory(
+            dateTimeProviderFactory: _ => new FixedClock());
+        using var client = factory.CreateAuthenticatedClient(1, UserRole.Administrator);
+
+        var response = await client.GetAsync(
+            "/api/v1/admin/trips/active?startDateFrom=2026-09-28&startDateTo=2026-09-28");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task Get_ActiveSession_ReturnsDerivedRowSummaryAndVietnamCurrentDay()
     {
         await using var factory = new TripMateApiFactory(

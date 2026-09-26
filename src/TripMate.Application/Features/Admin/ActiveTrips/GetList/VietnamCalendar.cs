@@ -10,10 +10,13 @@ internal static class VietnamCalendar
         return new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(local, Zone), TimeSpan.Zero);
     }
 
+    public static DateOnly Today(DateTimeOffset nowUtc) =>
+        DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(nowUtc, Zone).DateTime);
+
     public static int CurrentDay(DateTimeOffset startedAtUtc, DateTimeOffset nowUtc)
     {
         var start = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(startedAtUtc, Zone).DateTime);
-        var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(nowUtc, Zone).DateTime);
+        var today = Today(nowUtc);
         return Math.Max(1, today.DayNumber - start.DayNumber + 1);
     }
 }
