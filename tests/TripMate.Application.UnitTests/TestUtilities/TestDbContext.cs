@@ -76,11 +76,9 @@ public class TestDbContext(
 
     public DbSet<GroupJoinOperation> GroupJoinOperations => Set<GroupJoinOperation>();
 
-<<<<<<< HEAD
     public DbSet<ItineraryVersionOperation> ItineraryVersionOperations => Set<ItineraryVersionOperation>();
-=======
+
     public DbSet<SystemConfig> SystemConfigs => Set<SystemConfig>();
->>>>>>> 162a29c (feat(system-configs): implement UC-57 configure algorithm parameters)
 
     public int TransactionExecutionCount { get; private set; }
 
