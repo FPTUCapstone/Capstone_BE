@@ -62,6 +62,8 @@ public interface IApplicationDbContext
 
     DbSet<GroupJoinOperation> GroupJoinOperations { get; }
 
+    DbSet<SystemConfig> SystemConfigs { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 
     Task<int> RevokeRefreshTokenAsync(
