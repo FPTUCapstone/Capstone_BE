@@ -1,5 +1,6 @@
 using FluentAssertions;
 
+using TripMate.Application.Features.Authentication.Common;
 using TripMate.Application.Features.Authentication.Register;
 
 using Xunit;
@@ -109,6 +110,26 @@ public class RegisterTravelerCommandValidatorTests
             null,
             true,
             "valid-token")).IsValid.Should().Be(expectedIsValid);
+    }
+
+    [Theory]
+    [InlineData(" Password123!")]
+    [InlineData("Password 123!")]
+    [InlineData("Password123! ")]
+    [InlineData("Password\t123!")]
+    [InlineData("Password\u00A0123!")]
+    public void Validate_WithWhitespaceInPassword_HasPolicyError(string password)
+    {
+        var result = _validator.Validate(new RegisterTravelerCommand(
+            "jane@example.com",
+            password,
+            "Jane Traveler",
+            null,
+            true,
+            "valid-token"));
+
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().Contain(f => f.ErrorCode == AuthErrorCodes.Msg05);
     }
 
     [Theory]
