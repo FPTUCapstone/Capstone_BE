@@ -39,13 +39,13 @@ Authentication and authorization:
 | `keyword` | string? | `null` | Trimmed; maximum 200 characters; case-insensitive substring match against derived Trip Code, linked Group Name, or Tour Title. Search runs only when the Web submits it. |
 | `tripType` | string? | `null` | `SelfPlanned` or `Tour`; omission means all. |
 | `destination` | string? | `null` | Trimmed; maximum 300 characters; case-insensitive match against a Tour's normalized destination names. A Self-Planned row never matches a non-empty destination filter because it has no canonical destination. |
-| `startDateFrom` | date? | `null` | ISO calendar date `yyyy-MM-dd`, interpreted in `Asia/Ho_Chi_Minh`; inclusive. |
-| `startDateTo` | date? | `null` | ISO calendar date `yyyy-MM-dd`, interpreted in `Asia/Ho_Chi_Minh`; inclusive. Must not precede `startDateFrom`. |
+| `startDateFrom` | date? | `null` | ISO calendar date `yyyy-MM-dd`, interpreted in `Asia/Ho_Chi_Minh`; inclusive and must not be later than the current Vietnam calendar date. |
+| `startDateTo` | date? | `null` | ISO calendar date `yyyy-MM-dd`, interpreted in `Asia/Ho_Chi_Minh`; inclusive. Must not precede `startDateFrom` or be later than the current Vietnam calendar date. |
 | `alertState` | string? | `null` | `WithOpenAlerts` or `WithoutOpenAlerts`; omission means all. |
 | `pageNumber` | integer | `1` | Minimum 1. |
 | `pageSize` | integer | `20` | Minimum 1, maximum 100. The Web uses 20 in accordance with CR-01. |
 
-Malformed or semantically invalid query parameters return `400` ProblemDetails with field errors. An inverted date range maps to MSG29 in the Web.
+Malformed or semantically invalid query parameters return `400` ProblemDetails with field errors. An inverted range or a future date maps to MSG29 in the Web.
 
 Date/time normalization follows CR-07 and the Backend persistence convention:
 

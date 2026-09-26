@@ -1,10 +1,12 @@
 using FluentValidation;
 
+using TripMate.Application.Common.Interfaces;
+
 namespace TripMate.Application.Features.Admin.ActiveTrips.GetList;
 
 public sealed class GetActiveTripsQueryValidator : AbstractValidator<GetActiveTripsQuery>
 {
-    public GetActiveTripsQueryValidator()
+    public GetActiveTripsQueryValidator(IDateTimeProvider dateTimeProvider)
     {
         RuleFor(query => query.Keyword)
             .Must(value => value is null || value.Trim().Length <= GetActiveTripsQuery.MaximumKeywordLength)
@@ -20,9 +22,15 @@ public sealed class GetActiveTripsQueryValidator : AbstractValidator<GetActiveTr
             .WithMessage("AlertState is invalid.");
         RuleFor(query => query.PageNumber).GreaterThanOrEqualTo(1);
         RuleFor(query => query.PageSize).InclusiveBetween(1, GetActiveTripsQuery.MaximumPageSize);
+        RuleFor(query => query.StartDateFrom)
+            .Must(value => !value.HasValue || value.Value <= VietnamCalendar.Today(dateTimeProvider.UtcNow))
+            .WithMessage("StartDateFrom must not be in the future.");
         RuleFor(query => query.StartDateTo)
             .Must(value => !value.HasValue || value.Value < DateOnly.MaxValue)
             .WithMessage("StartDateTo is outside the supported range.");
+        RuleFor(query => query.StartDateTo)
+            .Must(value => !value.HasValue || value.Value <= VietnamCalendar.Today(dateTimeProvider.UtcNow))
+            .WithMessage("StartDateTo must not be in the future.");
         RuleFor(query => query)
             .Must(query => !query.StartDateFrom.HasValue || !query.StartDateTo.HasValue || query.StartDateFrom <= query.StartDateTo)
             .WithMessage("The submitted Start Date range is logically invalid.");
