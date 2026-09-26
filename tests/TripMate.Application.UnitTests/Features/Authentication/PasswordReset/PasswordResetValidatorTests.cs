@@ -107,4 +107,19 @@ public class PasswordResetValidatorTests
         missingSpecial.IsValid.Should().BeFalse();
         missingSpecial.Errors.Should().Contain(f => f.ErrorCode == AuthErrorCodes.Msg05);
     }
+
+    [Theory]
+    [InlineData(" Password123!")]
+    [InlineData("Password 123!")]
+    [InlineData("Password123! ")]
+    [InlineData("Password\t123!")]
+    [InlineData("Password\u00A0123!")]
+    public void Confirm_WhenNewPasswordContainsWhitespace_IsInvalid(string password)
+    {
+        var result = _confirmValidator.Validate(new ConfirmPasswordResetCommand(
+            ValidEmail, "000001", password));
+
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().Contain(f => f.ErrorCode == AuthErrorCodes.Msg05);
+    }
 }
