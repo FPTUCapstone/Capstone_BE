@@ -67,7 +67,7 @@ Exit: the existing live-trip tables are mapped without a SQL schema change and t
 Tests first:
 
 - Add `tests/TripMate.Application.UnitTests/Features/Admin/ActiveTrips/GetList/GetActiveTripsQueryValidatorTests.cs`.
-- Cover keyword/destination post-trim limits, allowed enum-like values, page bounds, strict local calendar dates, and inverted date range.
+- Cover keyword/destination post-trim limits, allowed enum-like values, page bounds, strict local calendar dates, inverted date range, and rejection of either date when it is later than the injected current Vietnam calendar date.
 
 Production changes:
 
