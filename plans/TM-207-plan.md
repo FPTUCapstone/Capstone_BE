@@ -306,6 +306,44 @@ and no API/provider behavior has leaked into Domain.
 Adapter tests use controlled fakes/stubs and contain no secret. Invalid config
 fails closed; safe logs and errors reveal no credentials/signatures/raw body.
 
+**Measured RED/GREEN evidence — 2026-09-27**
+
+- RED: the focused Infrastructure media filter exited 1 during compilation
+  because the approved application media ports, Cloudinary adapter/options,
+  and image inspector did not yet exist. Production implementation followed
+  that failing contract.
+- Added application-only image inspection/storage contracts and an
+  Infrastructure Cloudinary boundary. Uploads are signed server-side through
+  `CloudinaryDotNet` 1.29.3, use opaque UUID public IDs under
+  `{configuredRoot}/{tourId}`, disable overwrite and filename reuse, and never
+  use an unsigned preset. Destroy requests always request CDN invalidation.
+- Added SkiaSharp 4.152.1 plus its Linux no-dependencies native asset for
+  magic/decode validation and metadata-stripping re-encode. ImageSharp 4 was
+  rejected during implementation because its build requires a Six Labors
+  license key; no ImageSharp reference or implementation remains.
+- The inspector enforces JPEG/PNG/WebP only, declared MIME/extension matching,
+  exact container boundaries against trailing polyglot payloads, positive
+  dimensions, the 24-megapixel limit, the 10-MiB encoded limit, cancellation,
+  and safe corrupt-file rejection.
+- Focused Release Infrastructure media suite: 38 passed, 0 failed, 0 skipped,
+  exit 0. Tests use controlled fakes only; no real Cloudinary request ran.
+- Full Release solution suite: Application 603 passed; Infrastructure 110
+  passed; API Integration 262 passed, 98 SQL-gated tests skipped, 0 failed;
+  exit 0. The SQL-specific TM-207 migration suites had already passed against
+  the identified SQL Server database in Tasks 1–2.
+- `dotnet list ... package --vulnerable --include-transitive` reported no
+  vulnerable package from the configured NuGet source. Cloudinary and
+  SkiaSharp versions are pinned in the Infrastructure project.
+- Required options are bound with startup validation. `.env.example` and
+  Compose contain key names/placeholders only; the ignored `.env` was not
+  printed or changed. `docker compose config --quiet` passed with test-only
+  placeholder environment values.
+- `dotnet format TripMate.slnx --verify-no-changes --no-restore` and
+  `git diff --check` passed. Review pass 1 found no scope/spec violation;
+  review pass 2 found no unresolved security, secret/log-redaction, package,
+  or code-quality finding. No API endpoint, application workflow, cleanup
+  worker, UI, commit, push, or live provider smoke call was added.
+
 ## Task 5 — Implement idempotent upload workflow (Red → Green)
 
 **Files (planned)**
@@ -342,6 +380,38 @@ fails closed; safe logs and errors reveal no credentials/signatures/raw body.
 Unit and SQL concurrency tests prove one logical operation, one media row, and
 at most one provider asset for concurrent same-key requests; two different
 keys cannot exceed ten active images.
+
+**Measured RED/GREEN evidence — 2026-09-27**
+
+- RED: the focused Application upload test filter initially exited 1 because
+  the command, validator, handler, response/error contracts, and upload lock
+  did not exist.
+- Added the application upload workflow with content-plus-normalized-metadata
+  SHA-256 idempotency fingerprints, a persisted actor/Tour/key claim and opaque
+  provider public ID before provider I/O, completed-result replay, payload
+  mismatch conflict, and safe retry using the stored public ID.
+- Provider I/O is outside database transactions. SQL Server uses transaction-
+  owned `sp_getapplock` resources in fixed `Tour -> operation` order; completion
+  uses a short serializable Tour lock and rechecks authorization, lifecycle,
+  primary, capacity, and order before committing media, operation, and audit.
+- If database completion fails after a provider success, the handler attempts
+  immediate destruction and records an orphan cleanup outbox item only when
+  deletion cannot be confirmed. No provider detail or public identifier enters
+  a response or audit record.
+- Focused Application upload suite: 16 passed, 0 failed, 0 skipped, exit 0.
+  Full Release Application suite: 619 passed, 0 failed, 0 skipped, exit 0.
+- Added two real-SQL-Server concurrency tests: same key proves one operation,
+  one media row, and one retained provider asset; different keys at nine active
+  images prove the final active count remains ten and the losing provider asset
+  is compensated. The filter first discovered both tests (0 passed, 0 failed,
+  2 skipped, exit 0) when no `TRIPMATE_SQLSERVER_TEST_CONNECTION` was present.
+  A second attempt configured that variable only within the test process from
+  the existing local developer configuration, without printing credentials;
+  it failed before database creation because the local SQL Server endpoint
+  timed out and Docker Desktop's engine pipe was unavailable. This is an
+  environment prerequisite failure, not an assertion failure. The tests remain
+  automatically executable when the repository-supported variable points to a
+  reachable SQL Server instance.
 
 ## Task 6 — Implement list, metadata edit, reorder/primary, and removal (Red → Green)
 
