@@ -1,6 +1,6 @@
-# TM-208 — Nullable public Tour search thumbnail (draft)
+# TM-208 — Nullable public Tour search thumbnail
 
-Status: **selection rule confirmed by owner on 2026-09-27; implementation plan pending approval**
+Status: **spec and plan approved; implementation delivered in BE PR #29 and Docs PR #8; independent review and merge pending**
 
 ## Sources and dependency
 
@@ -12,7 +12,7 @@ Status: **selection rule confirmed by owner on 2026-09-27; implementation plan p
   public primary exists, return null; do not silently choose another image.
 - TM-207 adds `commerce.TourMedia`, its EF mapping and operator write workflow.
   This branch starts from TM-207 commit `ca9ec3a` while PR #28 awaits merge.
-  Rebase onto `develop` after TM-207 is merged, before delivery.
+  Reconcile with `develop` after TM-207 is merged, before final merge.
 
 ## Scope
 
@@ -64,7 +64,7 @@ approval state or expose a Draft Tour's media.
   does not force them to display the new field.
 - Update OpenAPI operation/schema documentation and the public API contract.
 
-## Verification required after approval
+## Verification
 
 1. Runtime response/OpenAPI tests cover the new nullable property and old
    fields, filters, anonymous access and error behavior.
@@ -75,8 +75,6 @@ approval state or expose a Draft Tour's media.
    per-item query loop).
 4. Existing TM-70 and TM-207 tests remain green.
 
-## Approval gate
-
-The selection/publication interpretation above is confirmed. The atomic
-implementation plan still requires explicit approval under repository
-`AGENTS.md` before tests or production code are changed.
+The approved selection/publication interpretation and implementation are
+covered by `docs/TM-208-verification.md`. Independent review and merge remain
+outside the implementation gate.
