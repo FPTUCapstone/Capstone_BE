@@ -617,6 +617,31 @@ recovery, and no secret leakage.
 
 ## Task 9 — Full SQL/API/provider verification and review
 
+**Progress — 2026-09-27 (not complete)**
+
+- Sequential cleanup claiming and barrier-based tests were added after review
+  found that parallel provider work would concurrently use the scoped EF
+  `DbContext`.
+- Application and Infrastructure unit tests pass (630 and 132 respectively);
+  the opt-in Cloudinary smoke test is skipped in the default suite.
+- The live Cloudinary smoke attempt returned sanitized HTTP 401. Do not treat
+  provider verification as passed until the development credentials/config are
+  corrected and the smoke test succeeds.
+- Full solution verification now completes: 1,034 passed, 0 failed, 105
+  skipped. All SQL-gated tests and the opt-in provider smoke are among the
+  skips; this does not satisfy the zero-skip SQL/provider gates.
+- A user-run attempt at the local TM-70 SQL container failed all three cleanup
+  SQL tests at connection-open with TCP timeout. The later full suite ran
+  without `TRIPMATE_SQLSERVER_TEST_CONNECTION`, so those tests skipped again.
+- `dotnet restore`, format verification, Release build, and vulnerability scan
+  succeeded. Current NuGet sources reported no vulnerable packages.
+- The Cloudinary smoke attempt returned HTTP 401. The credential was exposed in
+  pasted terminal text and must be rotated before another live provider run.
+- Current evidence and exact limitations are recorded in
+  `docs/TM-207-verification.md`. Independent review and zero-skip SQL/provider
+  validation remain outstanding. No Task 10 is defined in this approved plan;
+  the next coordination step is completing the existing Draft PR for review.
+
 **Files**
 
 - Add `docs/TM-207-verification.md` with reproducible final-head evidence.

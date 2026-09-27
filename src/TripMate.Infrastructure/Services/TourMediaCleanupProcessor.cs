@@ -51,22 +51,26 @@ internal sealed class TourMediaCleanupProcessor(
         int batchSize,
         CancellationToken cancellationToken)
     {
-        IReadOnlyList<TourMediaCleanupClaim> claims = await outbox.ClaimDueAsync(
-            clock.UtcNow,
-            leaseDuration,
-            batchSize,
-            cancellationToken);
-
-        await Parallel.ForEachAsync(
-            claims,
-            new ParallelOptions
+        var processed = 0;
+        while (processed < batchSize && !cancellationToken.IsCancellationRequested)
+        {
+            // Claim only immediately before provider I/O. This avoids holding leases while
+            // earlier items wait in a queue and keeps this scoped EF DbContext sequential.
+            IReadOnlyList<TourMediaCleanupClaim> claims = await outbox.ClaimDueAsync(
+                clock.UtcNow,
+                leaseDuration,
+                batchSize: 1,
+                cancellationToken);
+            if (claims.Count == 0)
             {
-                MaxDegreeOfParallelism = batchSize,
-                CancellationToken = cancellationToken,
-            },
-            async (claim, token) => await ProcessClaimAsync(claim, token));
+                break;
+            }
 
-        return claims.Count;
+            await ProcessClaimAsync(claims[0], cancellationToken);
+            processed++;
+        }
+
+        return processed;
     }
 
     private async ValueTask ProcessClaimAsync(
