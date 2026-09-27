@@ -62,6 +62,9 @@ public sealed class ToursOpenApiTests
             .GetString().Should().Be("array");
         IsNullable(itemProperties.GetProperty("departureAtUtc")).Should().BeTrue();
         IsNullable(itemProperties.GetProperty("remainingSlots")).Should().BeTrue();
+        var thumbnail = itemProperties.GetProperty("thumbnailUrl");
+        thumbnail.GetProperty("type").GetString().Should().Be("string");
+        IsNullable(thumbnail).Should().BeTrue();
     }
 
     private static void AssertResponseSchema(JsonElement response, string expectedSchema)
