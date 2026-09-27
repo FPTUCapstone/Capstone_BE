@@ -11,4 +11,5 @@ public sealed record TourSearchItemDto(
     string? RepresentativeScheduleId,
     DateTime? DepartureAtUtc,
     string AvailabilityStatus,
-    int? RemainingSlots);
+    int? RemainingSlots,
+    string? ThumbnailUrl);
