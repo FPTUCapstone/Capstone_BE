@@ -11,4 +11,5 @@ public sealed record TourMediaDto(
     string AltText,
     int SortOrder,
     bool IsPrimary,
-    DateTimeOffset CreatedAtUtc);
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset UpdatedAtUtc);
