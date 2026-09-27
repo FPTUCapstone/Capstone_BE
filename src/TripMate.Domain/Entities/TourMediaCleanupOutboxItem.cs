@@ -82,6 +82,33 @@ public sealed class TourMediaCleanupOutboxItem : BaseEntity
         };
     }
 
+    /// <summary>
+    /// Records cleanup for an uploaded provider asset when metadata persistence could not commit.
+    /// The provider identity is retained without inventing a TourMedia row.
+    /// </summary>
+    public static TourMediaCleanupOutboxItem CreateForOrphanedProviderAsset(
+        string cloudinaryPublicId,
+        DateTimeOffset createdAtUtc,
+        int maxAttempts = DefaultMaxAttempts)
+    {
+        if (maxAttempts is < 1 or > MaximumAllowedAttempts)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maxAttempts));
+        }
+
+        var createdAt = createdAtUtc.ToUniversalTime();
+        return new TourMediaCleanupOutboxItem
+        {
+            CloudinaryPublicId = NormalizePublicId(cloudinaryPublicId),
+            Status = TourMediaCleanupStatus.Pending,
+            NotBeforeAtUtc = createdAt,
+            AttemptCount = 0,
+            MaxAttempts = maxAttempts,
+            CreatedAtUtc = createdAt,
+            UpdatedAtUtc = createdAt,
+        };
+    }
+
     public void BeginAttempt(
         Guid leaseToken,
         DateTimeOffset leaseExpiresAtUtc,
@@ -192,6 +219,24 @@ public sealed class TourMediaCleanupOutboxItem : BaseEntity
         {
             throw new ArgumentException(
                 $"The error code cannot exceed {LastErrorCodeMaxLength} characters.",
+                nameof(value));
+        }
+
+        return normalized;
+    }
+
+    private static string NormalizePublicId(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new ArgumentException("A Cloudinary public identifier is required.", nameof(value));
+        }
+
+        var normalized = value.Trim();
+        if (normalized.Length > CloudinaryPublicIdMaxLength)
+        {
+            throw new ArgumentException(
+                $"The Cloudinary public identifier cannot exceed {CloudinaryPublicIdMaxLength} characters.",
                 nameof(value));
         }
 
