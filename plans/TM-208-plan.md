@@ -1,6 +1,6 @@
 # TM-208 — Public Tour search thumbnail: atomic implementation plan
 
-Status: **approved 2026-09-27; Tasks 0–3 implemented, Task 4 verified with a documented unrelated Windows test-lock exception**
+Status: **approved 2026-09-27; Tasks 0–4 implemented and verified; independent review, TM-207 reconciliation and merge pending**
 
 Spec: `specs/TM-208-spec.md`
 
@@ -139,5 +139,6 @@ failures/skips, clean diff, and human review/delivery choice presented.
 - Task 4: format and Release build passed. The combined full suite had three
   unrelated UC-04 Windows log-file lock failures; those three passed alone,
   and the other 390 API tests passed in a separate SQL-enabled run. Complete
-  evidence and the still-open review/delivery gates are in
-  `docs/TM-208-verification.md`.
+  evidence is in `docs/TM-208-verification.md`. After delivery, the BE PR #29
+  GitHub CI rerun passed both SQL integration and the complete solution suite.
+  Docs PR #8 is also open. Independent review and merge remain outstanding.
