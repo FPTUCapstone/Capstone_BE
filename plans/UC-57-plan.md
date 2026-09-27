@@ -58,6 +58,27 @@ an explicit integration dependency, not a completed behavior claim.
 - [NEW] `AuditConfigEndpointTests.cs` (integration): 401/403/200 GET/PUT/422 through the real pipeline.
 - [NEW] `AlgorithmParametersSqlServerTests.cs`: real-provider coverage for four-key persistence and readback, preservation of unrelated rows, Success audit, transactional rollback plus independent Failure audit when audit persistence fails, and zero writes for invalid input.
 
+## Deployment Prerequisite — Audit Schema
+
+Deploy the database schema before starting the UC-57 backend version. The update
+operation writes `SystemConfigs` and its `UpdateAlgorithmParameters` audit record in
+one transaction, so `dbo.AuditLogs.result` and `dbo.AuditLogs.reason` must exist before
+the endpoint receives traffic.
+
+- Fresh databases already contain both columns in `database/tripmate_schema_v7.sql`.
+- Existing databases must run
+  `database/migrations/20260918_add_audit_result_reason.sql` through `database/apply-schema.sh`
+  before the application deployment.
+- The migration is idempotent: it checks column and constraint existence before adding
+  them, and historical audit outcomes remain `NULL` rather than being guessed.
+- Local or deployed environments that reuse an older SQL Server volume or seeded image
+  must rerun the migration step. Pulling and starting the backend alone does not update
+  an already-created database.
+
+Deployment order: **database migration → schema verification → backend rollout**. If
+this order is skipped, configuration persistence is rolled back when audit insertion
+fails, and the client receives the safe temporary-unavailable response (`MSG127`).
+
 ## Verification Plan
 - `dotnet test tests/TripMate.Application.UnitTests/... --filter FullyQualifiedName~SystemConfigs`
 - Full `dotnet build -c Release` + `dotnet test` + `dotnet format --verify-no-changes`
