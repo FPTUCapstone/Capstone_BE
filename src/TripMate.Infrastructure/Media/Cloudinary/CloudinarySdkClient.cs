@@ -24,16 +24,7 @@ internal sealed class CloudinarySdkClient : ICloudinaryClient
         CancellationToken cancellationToken)
     {
         await using var stream = new MemoryStream(request.Bytes, writable: false);
-        var upload = new ImageUploadParams
-        {
-            File = new FileDescription("tour-media", stream),
-            PublicId = request.PublicId,
-            Overwrite = request.Overwrite,
-            UseFilename = request.UseFilename,
-            UniqueFilename = request.UniqueFilename,
-            DiscardOriginalFilename = request.DiscardOriginalFilename,
-            Unsigned = false,
-        };
+        ImageUploadParams upload = CreateSignedUploadParams(request, stream);
 
         ImageUploadResult result;
         try
@@ -75,6 +66,21 @@ internal sealed class CloudinarySdkClient : ICloudinaryClient
 
         return CloudinaryUploadResponse.Succeeded(result.PublicId, result.SecureUrl);
     }
+
+    internal static ImageUploadParams CreateSignedUploadParams(
+        CloudinaryUploadRequest request,
+        Stream stream) => new()
+        {
+            File = new FileDescription("tour-media", stream),
+            PublicId = request.PublicId,
+            Overwrite = request.Overwrite,
+            UseFilename = request.UseFilename,
+            UniqueFilename = request.UniqueFilename,
+            DiscardOriginalFilename = request.DiscardOriginalFilename,
+            // Do not set Unsigned=false. The SDK includes an explicitly set false
+            // in its signature but Cloudinary omits it from the signed request.
+            // Unset means the SDK performs a signed upload by default.
+        };
 
     public async Task<CloudinaryDeleteOutcome> DestroyAsync(
         CloudinaryDeleteRequest request,
