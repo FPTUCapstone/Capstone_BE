@@ -73,6 +73,10 @@ public sealed class UploadTourMediaCommandHandler(
 
         try
         {
+            // Provider I/O happens after the claim transaction. Another request with
+            // the same idempotency key may have completed the operation meanwhile;
+            // discard claim-time tracked entities so completion observes that state.
+            dbContext.ClearTrackedEntities();
             CompletionResult completion = await CompleteAsync(
                 canonical,
                 claim.CloudinaryPublicId!,

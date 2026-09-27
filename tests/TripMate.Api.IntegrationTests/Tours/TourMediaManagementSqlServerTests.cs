@@ -48,7 +48,9 @@ public sealed class TourMediaManagementSqlServerTests
 
         await using var verification = database.CreateDbContext();
         var remaining = await verification.TourMedia.SingleAsync(media => media.Id == seed.FirstMediaId);
-        var deleted = await verification.TourMedia.SingleAsync(media => media.Id == seed.SecondMediaId);
+        var deleted = await verification.TourMedia
+            .IgnoreQueryFilters()
+            .SingleAsync(media => media.Id == seed.SecondMediaId);
         remaining.SortOrder.Should().Be(1);
         remaining.IsPrimary.Should().BeFalse();
         deleted.LifecycleStatus.Should().Be(TourMediaLifecycleStatus.Deleted);

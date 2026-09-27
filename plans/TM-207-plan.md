@@ -627,19 +627,25 @@ recovery, and no secret leakage.
 - The live Cloudinary smoke attempt returned sanitized HTTP 401. Do not treat
   provider verification as passed until the development credentials/config are
   corrected and the smoke test succeeds.
-- Full solution verification now completes: 1,034 passed, 0 failed, 105
-  skipped. All SQL-gated tests and the opt-in provider smoke are among the
-  skips; this does not satisfy the zero-skip SQL/provider gates.
-- A user-run attempt at the local TM-70 SQL container failed all three cleanup
-  SQL tests at connection-open with TCP timeout. The later full suite ran
-  without `TRIPMATE_SQLSERVER_TEST_CONNECTION`, so those tests skipped again.
+- The full suite before the final SQL fixes completed at 1,034 passed, 0
+  failed, and 105 skipped. After the fixes, both full unit suites and all
+  focused TM-207 SQL suites were rerun successfully.
+- Focused SQL verification now passes 26/26 with zero skips across TourMedia
+  migration, management migration, management, upload concurrency, and cleanup
+  outbox tests. It ran against a disposable SQL Server 2022 container with a
+  generated credential and `TripMate_Test_<GUID>` databases; the container,
+  generated password, and environment variables were removed afterwards.
+- SQL verification exposed and fixed two test/code issues: inspect soft-deleted
+  media with `IgnoreQueryFilters`, and clear claim-time EF tracking before
+  completion so a concurrent same-key request observes a completed operation.
 - `dotnet restore`, format verification, Release build, and vulnerability scan
   succeeded. Current NuGet sources reported no vulnerable packages.
-- The Cloudinary smoke attempt returned HTTP 401. The credential was exposed in
-  pasted terminal text and must be rotated before another live provider run.
+- The Cloudinary smoke attempt returned HTTP 401. The Cloudinary account owner
+  must verify the development API key/secret configuration before another
+  live provider run.
 - Current evidence and exact limitations are recorded in
-  `docs/TM-207-verification.md`. Independent review and zero-skip SQL/provider
-  validation remain outstanding. No Task 10 is defined in this approved plan;
+  `docs/TM-207-verification.md`. Independent review and successful live
+  Cloudinary verification remain outstanding. No Task 10 is defined in this approved plan;
   the next coordination step is completing the existing Draft PR for review.
 
 **Files**
