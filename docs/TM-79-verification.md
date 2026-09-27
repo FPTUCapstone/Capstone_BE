@@ -261,3 +261,62 @@ status --short --branch`: exit 0. Final status:
 The pre-existing spec, plan and implementation prompt remain unchanged.
 Only the verification ledger was updated among documents. Task 0: COMPLETE.
 Task 1 was not started. No commit or push was performed.
+
+## Task 1 — freeze scope, DTO and acceptance matrix (2026-09-28)
+
+Status: **COMPLETE for the approved commerce.Bookings Backend contract**.
+Task 0 remains COMPLETE; Tasks 2–17 have not started. This is a
+documentation-only contract step, not evidence that endpoints/schema exist.
+
+Previous HEAD: `5c035f7e4f03df5bc9c4a050fb910b4248ea0702`.
+Fetched `origin/develop`: `4afd56cabcda7dbbd83062086121d32e77848885`;
+merge base: `525489b61ee2a2791b3d0cf71313e80a4a0445e7`.
+No rebase/merge/reset/force push was used. The develop delta adds TM-207 Tour
+media. Its safe image inspector has a 24,000,000-pixel area limit and RGBA8888
+decode; Task 1 records that resource ceiling but keeps the distinct 5,000,000
+encoded-byte review limit. This feature branch does not yet contain TM-207
+code, so Task 8 must reconcile the actual implementation base.
+
+Changed this Task: `docs/TM-79-api-contract.md` (new),
+`plans/TM-79-plan.md` (stale progress footer only), and this ledger.
+Pre-existing untracked `docs/TM-79-implementation-prompt.md` is untouched.
+No production source, SQL, tests, or shared/Azure DB changed. The central Docs
+repo is outside this Backend worktree; the exact dedicated-branch handoff
+target/delta is recorded in the contract, not written under a fake path here.
+
+Frozen: three route methods; commerce booking identity; subject/owner and
+new/legacy/none discriminators; direct DTO fields/nullability and reasons;
+multipart create and closed JSON edit; exact pacing wire values; text
+normalization; independent C4/POI eligibility; image/transport/resource limits;
+consent/snapshot/fallback; new+legacy duplicate recovery; Base64 SQL rowversion;
+exclusive original seven-day deadline; feature ProblemDetails codes; Tour/POI
+aggregate formulas; OpenAPI target; requirement-to-test matrix for Tasks 2–13
+and client handoff. No Task 2 schema was created or guessed.
+
+Open gates: G-SCOPE approved (commerce.Bookings subset); G-POLICY open before
+Task 7, including unsupported-language disposition; G-VISITS open for real
+booking-attributable historical Visited evidence, with POI capability
+unavailable meanwhile; G-LEGACY open for authorized samples and within-window
+edit disposition. Route pacing remains unavailable for schedule-only bookings
+without authoritative booking-route provenance. Central Docs publication is a
+cross-repo dependency.
+
+Verification: manually compared each D1–D7 and plan Task 1 requirement with
+the contract; checked the current Booking/Review/Itinerary SQL/domain shapes,
+TM-207 media inspector, and existing direct-DTO/ProblemDetails conventions.
+Checked PUT's exact five-member set including null/empty/unchanged immutable
+payloads, UTF-16 post-trim lengths, independent route/CSP/POI capabilities,
+and separate unresolved gates. Independent spec review found a reason
+precedence ambiguity when multiple GET ineligibility conditions coexist;
+the contract now defines deterministic precedence and distinguishes ordinary
+legacy duplicate from ambiguous legacy conflict. No application tests are
+claimed or fabricated for this docs-only Task 1.
+
+Independent two-stage review: spec compliance PASS and document quality PASS,
+no remaining Critical or Minor finding. The reviewer also required explicit
+booking-status wire values; all five SQL values are now enumerated. Exact
+checks: `git -c safe.directory=D:/CapStone/Capstone_BE_tm79 diff --check`
+(exit 0), plus a PowerShell `Select-String -Pattern '[\t ]+$'` scan of the
+new contract, plan and ledger (exit 0, no trailing whitespace). No test
+command was run for this documentation-only change; Task 0's full SQL-enabled
+baseline remains recorded above. Task 2 was not started.

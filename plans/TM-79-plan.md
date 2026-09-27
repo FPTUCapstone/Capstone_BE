@@ -505,12 +505,12 @@ and delivery, and when shared changes warrant them; scoped gates run between
 atomic steps. Docs-only planning needs content/path/whitespace review, not a
 fabricated application test run.
 
-Progress: **Task 0 IN PROGRESS**.
-Spec/plan v3 and G-SCOPE are approved.
-The isolated SQL Server has been verified and the full baseline completed on
-2026-09-28. Task 0 remains blocked on three full-suite log-file-lock failures
-(the same three tests pass in a fresh focused run). See the verification ledger.
-Tasks 1-17 have not started; do not advance to Task 1 until Task 0 meets its
-definition of done.
+Progress: **Task 0 COMPLETE; Task 1 COMPLETE**.
+Spec/plan v3 and G-SCOPE are approved. Task 0's logging-isolation correction
+produced two reproducibly green full SQL-enabled baselines. Task 1 froze the
+first-delivery Backend wire contract and test matrix in
+`docs/TM-79-api-contract.md`; its central Docs publication remains a separate
+cross-repository handoff. G-POLICY, G-VISITS and G-LEGACY remain open for their
+dependent behavior. Tasks 2-17 have not started. See the verification ledger.
 The handoff prompt is docs/TM-79-implementation-prompt.md; its existence or
 use does not itself mark proposals approved.
