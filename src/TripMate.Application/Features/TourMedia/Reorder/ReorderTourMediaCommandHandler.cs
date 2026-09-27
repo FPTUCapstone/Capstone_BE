@@ -57,6 +57,9 @@ public sealed class ReorderTourMediaCommandHandler(
 
             var byId = active.ToDictionary(media => media.Id);
             List<DomainTourMedia> desired = command.MediaIds.Select(id => byId[id]).ToList();
+            // Snapshot before phase one clears flags to satisfy the filtered unique index.
+            long? primaryMediaId = command.PrimaryMediaId ??
+                active.SingleOrDefault(media => media.IsPrimary)?.Id;
             var now = dateTimeProvider.UtcNow;
 
             if (active.Count == 0)
@@ -92,7 +95,7 @@ public sealed class ReorderTourMediaCommandHandler(
             {
                 desired[index].SetOrderAndPrimary(
                     index + 1,
-                    command.PrimaryMediaId == desired[index].Id,
+                    primaryMediaId == desired[index].Id,
                     now);
             }
             dbContext.AuditLogs.Add(DomainAuditLog.CreateRecordedOutcome(

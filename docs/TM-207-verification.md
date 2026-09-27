@@ -61,3 +61,55 @@ commit remain before merge. No credentials are recorded here.
    instance using the repository-supported `TRIPMATE_SQLSERVER_TEST_CONNECTION`.
 2. Obtain independent review. Resolve any review findings and rerun affected
    checks. Rerun CI after the Cloudinary upload fix is pushed to the PR.
+
+## PR #28 review follow-up — 2026-09-27
+
+Source: https://github.com/FPTUCapstone/Capstone_BE/pull/28#issuecomment-5857581603
+
+- Reorder with omitted/null primaryMediaId now snapshots the existing active
+  primary before temporary-order changes clear the flags. Explicit replacement
+  still works; zero-primary Tours stay at zero. Added two unit regressions and
+  a SQL regression that verifies the result from another DbContext.
+- RED: focused management handler tests exited 1 with exactly the expected
+  primary-preservation failure (1 failed, 10 passed, 0 skipped).
+- Initial GREEN: all TourMedia application tests exited 0 (36 passed,
+  0 failed, 0 skipped). The complete regression run below also covers the
+  subsequent shared authorization refactor.
+- Upload now delegates account/profile/ownership checks to the existing
+  TourMediaAccessResolver, retaining its existing public failure messages.
+- Approved-Tour alt-text-only edits are intentional under the approved minor
+  accessibility-edit rule. Existing tests cover this and Pending rejection;
+  the handler now documents the distinction from material caption changes.
+- ITourMediaUploadLock now documents its active same-connection transaction
+  requirement and commit/rollback lifetime.
+- Cleanup batchSize is a per-run processing limit. Claims remain one-at-a-time
+  to avoid lease expiration while preceding provider calls wait. This behavior
+  is documented; no batched claim or throughput change was introduced.
+- Deferred nonblocking finding: when provider upload succeeds but persistence
+  and compensation both fail, reuse of the same public ID with overwrite=false
+  can reject same-key retries until cleanup succeeds. Bounded cleanup can also
+  exhaust, so eventual automatic recovery is not guaranteed. This patch does
+  not add a terminal upload-operation status or change SQL lifecycle rules.
+  A follow-up needs a defined terminal response/recovery contract plus
+  concurrency and compensation tests before changing that behavior. Do not
+  describe this retry finding as fixed.
+- Shared applock/idempotency abstractions and repeated audit/error-code
+  construction remain nonblocking technical debt; no broad abstraction was
+  introduced in this correction.
+- Docker daemon is unavailable in this session. New SQL regression execution
+  remains gated on an isolated TRIPMATE_SQLSERVER_TEST_CONNECTION.
+- Final regression command: `dotnet test TripMate.slnx -c Release --logger
+  "console;verbosity=minimal" --blame-hang-timeout 2m`. Exit 0: Application
+  632 passed / 0 skipped; Infrastructure 133 passed / 1 skipped; API integration
+  272 passed / 105 skipped. Total 1,037 passed, 0 failed, 106 skipped. SQL tests
+  and opt-in Cloudinary smoke were skipped, including the new SQL regression;
+  no hang timeout was triggered.
+- Scoped `dotnet format TripMate.slnx --verify-no-changes --no-restore --include
+  <changed C# files>` exited 0 after formatting those files. `git diff --check`
+  exited 0. Spec-compliance review confirms null preserves the pre-reorder
+  primary and explicit selection still replaces it. Code-quality review
+  confirms the snapshot precedes the two-phase update and Upload shares the
+  existing access resolver without changing its error messages.
+- The owner requested committing and pushing this correction to the existing
+  PR #28 branch. No review resolution or reviewer message is included in that
+  delivery; the upload-retry finding remains explicitly deferred above.

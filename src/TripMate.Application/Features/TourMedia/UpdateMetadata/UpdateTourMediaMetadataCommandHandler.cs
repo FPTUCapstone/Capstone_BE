@@ -47,6 +47,8 @@ public sealed class UpdateTourMediaMetadataCommandHandler(
                 TourMediaErrorCodes.InvalidRequest, "The media metadata is invalid.");
         }
 
+        // Approved spec treats alt-text-only accessibility corrections as minor edits.
+        // Caption changes remain material, and Pending tours freeze both fields.
         if (access.Tour!.Status == TourStatus.Pending ||
             (!TourMediaAccessResolver.AllowsMaterialChange(access.Tour.Status) &&
              !string.Equals(media.Caption, normalizedCaption, StringComparison.Ordinal)))

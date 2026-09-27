@@ -92,6 +92,9 @@ Base route: `/api/v1/operator/tours/{tourId}/media`
 - Server assigns contiguous one-based sort order.
 - `primaryMediaId` must be null or identify one active media row in the same
   Tour.
+- Omitted/null `primaryMediaId` preserves the current active primary image.
+  A Tour with no active primary remains without one; reorder does not promote
+  an image implicitly. A supplied ID replaces the primary atomically.
 - Missing, duplicate, deleted, or foreign media IDs reject the complete
   request. No partial order changes are committed.
 - Concurrent requests are serialized for the Tour. Last committed complete
