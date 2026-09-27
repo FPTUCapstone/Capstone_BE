@@ -21,14 +21,28 @@ public sealed class TourMediaCleanupOutboxSqlServerTests
         await using var database = await SqlServerTestDatabase.CreateAsync();
         await SeedOrphanAsync(database, "tripmate/tours/42/concurrent-cleanup");
 
+        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var callersReady = 0;
+
         async Task<IReadOnlyList<TourMediaCleanupClaim>> ClaimAsync()
         {
             await using ApplicationDbContext context = database.CreateDbContext();
             var store = new SqlServerTourMediaCleanupOutboxStore(context);
+            if (Interlocked.Increment(ref callersReady) == 2)
+            {
+                ready.TrySetResult();
+            }
+
+            await start.Task;
             return await store.ClaimDueAsync(Now, TimeSpan.FromMinutes(2), 1, CancellationToken.None);
         }
 
-        IReadOnlyList<TourMediaCleanupClaim>[] results = await Task.WhenAll(ClaimAsync(), ClaimAsync());
+        Task<IReadOnlyList<TourMediaCleanupClaim>> first = ClaimAsync();
+        Task<IReadOnlyList<TourMediaCleanupClaim>> second = ClaimAsync();
+        await ready.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        start.TrySetResult();
+        IReadOnlyList<TourMediaCleanupClaim>[] results = await Task.WhenAll(first, second);
 
         results.Sum(result => result.Count).Should().Be(1);
         results.SelectMany(result => result).Should().ContainSingle();

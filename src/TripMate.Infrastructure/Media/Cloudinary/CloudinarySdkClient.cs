@@ -56,9 +56,16 @@ internal sealed class CloudinarySdkClient : ICloudinaryClient
         if (result.Error is not null)
         {
             int statusCode = (int)result.StatusCode;
-            return statusCode == 429 || statusCode >= 500
-                ? CloudinaryUploadResponse.TransientFailure(UnavailableErrorCode)
-                : CloudinaryUploadResponse.Rejected(RejectedErrorCode);
+            if (statusCode == 429 || statusCode >= 500)
+            {
+                return CloudinaryUploadResponse.TransientFailure(UnavailableErrorCode);
+            }
+
+            // Keep the diagnostic useful without retaining the provider's raw response text.
+            string safeErrorCode = statusCode is 400 or 401 or 403
+                ? $"{RejectedErrorCode}_HTTP_{statusCode}"
+                : RejectedErrorCode;
+            return CloudinaryUploadResponse.Rejected(safeErrorCode);
         }
 
         if (string.IsNullOrWhiteSpace(result.PublicId) || result.SecureUrl is null)
