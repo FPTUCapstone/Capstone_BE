@@ -353,7 +353,8 @@ BEGIN TRY
                 OR (cleanup_status = 'InProgress'
                     AND lease_token IS NOT NULL
                     AND lease_expires_at IS NOT NULL
-                    AND completed_at IS NULL)
+                    AND completed_at IS NULL
+                    AND attempt_count BETWEEN 1 AND max_attempts)
                 OR (cleanup_status = 'Completed'
                     AND lease_token IS NULL
                     AND lease_expires_at IS NULL
@@ -362,7 +363,7 @@ BEGIN TRY
                     AND lease_token IS NULL
                     AND lease_expires_at IS NULL
                     AND completed_at IS NOT NULL
-                    AND attempt_count = max_attempts))
+                    AND attempt_count BETWEEN 1 AND max_attempts))
         );
 
         CREATE UNIQUE INDEX UX_TourMediaCleanupOutbox_PublicId
@@ -500,9 +501,9 @@ BEGIN TRY
         @cleanupStateCheck, N' ', N''), CHAR(13), N''), CHAR(10), N'');
     IF @cleanupStateCheck IS NULL
        OR @cleanupStateCheck NOT LIKE N'%cleanup_status=''pending''andlease_tokenisnullandlease_expires_atisnullandcompleted_atisnull%'
-       OR @cleanupStateCheck NOT LIKE N'%cleanup_status=''inprogress''andlease_tokenisnotnullandlease_expires_atisnotnullandcompleted_atisnull%'
+       OR @cleanupStateCheck NOT LIKE N'%cleanup_status=''inprogress''andlease_tokenisnotnullandlease_expires_atisnotnullandcompleted_atisnullandattempt_count>=1andattempt_count<=max_attempts%'
        OR @cleanupStateCheck NOT LIKE N'%cleanup_status=''completed''andlease_tokenisnullandlease_expires_atisnullandcompleted_atisnotnull%'
-       OR @cleanupStateCheck NOT LIKE N'%cleanup_status=''exhausted''andlease_tokenisnullandlease_expires_atisnullandcompleted_atisnotnullandattempt_count=max_attempts%'
+       OR @cleanupStateCheck NOT LIKE N'%cleanup_status=''exhausted''andlease_tokenisnullandlease_expires_atisnullandcompleted_atisnotnullandattempt_count>=1andattempt_count<=max_attempts%'
         THROW 51000, 'TM-207 cleanup-outbox state check mismatch.', 1;
 
     DECLARE @cleanupPublicIdIndexId INT = INDEXPROPERTY(

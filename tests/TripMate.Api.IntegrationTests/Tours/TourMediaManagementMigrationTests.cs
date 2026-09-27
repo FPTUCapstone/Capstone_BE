@@ -283,6 +283,19 @@ public sealed class TourMediaManagementMigrationTests
         (await pendingWithLease.Should().ThrowAsync<SqlException>())
             .Which.Number.Should().Be(547);
 
+        Func<Task> inProgressWithoutAttempt = () => database.ExecuteNonQueryAsync("""
+            INSERT INTO commerce.TourMediaCleanupOutbox
+                (tour_media_id, cloudinary_public_id, cleanup_status,
+                 not_before_at, attempt_count, max_attempts,
+                 lease_token, lease_expires_at)
+            VALUES
+                (NULL, N'tripmate/tours/5001/invalid-zero-attempt', 'InProgress',
+                 SYSUTCDATETIME(), 0, 8,
+                 NEWID(), DATEADD(MINUTE, 5, SYSUTCDATETIME()));
+            """);
+        (await inProgressWithoutAttempt.Should().ThrowAsync<SqlException>())
+            .Which.Number.Should().Be(547);
+
         Func<Task> attemptsPastBound = () => database.ExecuteNonQueryAsync("""
             INSERT INTO commerce.TourMediaCleanupOutbox
                 (tour_media_id, cloudinary_public_id, cleanup_status,
@@ -293,6 +306,15 @@ public sealed class TourMediaManagementMigrationTests
             """);
         (await attemptsPastBound.Should().ThrowAsync<SqlException>())
             .Which.Number.Should().Be(547);
+
+        await database.ExecuteNonQueryAsync("""
+            INSERT INTO commerce.TourMediaCleanupOutbox
+                (tour_media_id, cloudinary_public_id, cleanup_status,
+                 not_before_at, attempt_count, max_attempts, completed_at)
+            VALUES
+                (NULL, N'tripmate/tours/5001/permanent-provider-rejection', 'Exhausted',
+                 SYSUTCDATETIME(), 1, 8, SYSUTCDATETIME());
+            """);
     }
 
     [SqlServerFact]

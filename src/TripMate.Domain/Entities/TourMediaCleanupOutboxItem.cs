@@ -170,6 +170,29 @@ public sealed class TourMediaCleanupOutboxItem : BaseEntity
         UpdatedAtUtc = updatedAt;
     }
 
+    public bool RecoverExpiredLease(DateTimeOffset recoveredAtUtc)
+    {
+        EnsureStatus(TourMediaCleanupStatus.InProgress);
+        var recoveredAt = recoveredAtUtc.ToUniversalTime();
+        if (LeaseExpiresAtUtc is null || LeaseExpiresAtUtc > recoveredAt)
+        {
+            throw new InvalidOperationException("The cleanup lease has not expired.");
+        }
+
+        if (AttemptCount >= MaxAttempts)
+        {
+            Exhaust("TOUR_MEDIA_CLEANUP_LEASE_EXPIRED", recoveredAt);
+            return false;
+        }
+
+        Status = TourMediaCleanupStatus.Pending;
+        NotBeforeAtUtc = recoveredAt;
+        LeaseToken = null;
+        LeaseExpiresAtUtc = null;
+        UpdatedAtUtc = recoveredAt;
+        return true;
+    }
+
     public void Complete(DateTimeOffset completedAtUtc)
     {
         EnsureStatus(TourMediaCleanupStatus.InProgress);
@@ -184,9 +207,9 @@ public sealed class TourMediaCleanupOutboxItem : BaseEntity
     public void Exhaust(string errorCode, DateTimeOffset completedAtUtc)
     {
         EnsureStatus(TourMediaCleanupStatus.InProgress);
-        if (AttemptCount != MaxAttempts)
+        if (AttemptCount is < 1 || AttemptCount > MaxAttempts)
         {
-            throw new InvalidOperationException("Cleanup can only be exhausted after its final attempt.");
+            throw new InvalidOperationException("Cleanup attempt count is outside its configured bounds.");
         }
 
         var completedAt = completedAtUtc.ToUniversalTime();

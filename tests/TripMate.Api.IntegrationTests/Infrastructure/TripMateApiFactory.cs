@@ -18,6 +18,7 @@ using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 using TripMate.Infrastructure.Persistence;
+using TripMate.Infrastructure.Services;
 
 namespace TripMate.Api.IntegrationTests.Infrastructure;
 
@@ -90,6 +91,7 @@ public sealed class TripMateApiFactory(
                 services.RemoveAll<IGroupJoinLock>();
                 services.RemoveAll<ISchedulingRequestLock>();
                 services.RemoveAll<ITourMediaUploadLock>();
+                services.RemoveAll<ITourMediaCleanupOutboxStore>();
                 services.RemoveAll<IRouteDurationProvider>();
 
                 services.AddDbContext<TestApiDbContext>(options =>
@@ -114,6 +116,7 @@ public sealed class TripMateApiFactory(
                 services.AddScoped<IGroupJoinLock, NoOpGroupJoinLock>();
                 services.AddScoped<ISchedulingRequestLock, NoOpSchedulingRequestLock>();
                 services.AddScoped<ITourMediaUploadLock, NoOpTourMediaUploadLock>();
+                services.AddScoped<ITourMediaCleanupOutboxStore, NoOpTourMediaCleanupOutboxStore>();
                 services.AddScoped<IRouteDurationProvider, TestRouteDurationProvider>();
             }
 
@@ -338,6 +341,34 @@ internal sealed class NoOpTourMediaUploadLock : ITourMediaUploadLock
         CancellationToken cancellationToken) => Task.CompletedTask;
 
     public Task AcquireTourAsync(long tourId, CancellationToken cancellationToken) => Task.CompletedTask;
+}
+
+internal sealed class NoOpTourMediaCleanupOutboxStore : ITourMediaCleanupOutboxStore
+{
+    public Task<IReadOnlyList<TourMediaCleanupClaim>> ClaimDueAsync(
+        DateTimeOffset nowUtc,
+        TimeSpan leaseDuration,
+        int batchSize,
+        CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<TourMediaCleanupClaim>>([]);
+
+    public Task CompleteAsync(long id, Guid leaseToken, DateTimeOffset completedAtUtc, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+
+    public Task RetryAsync(
+        long id,
+        Guid leaseToken,
+        string safeErrorCode,
+        DateTimeOffset notBeforeUtc,
+        DateTimeOffset updatedAtUtc,
+        CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public Task ExhaustAsync(
+        long id,
+        Guid leaseToken,
+        string safeErrorCode,
+        DateTimeOffset completedAtUtc,
+        CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
 internal sealed class TestRouteDurationProvider : IRouteDurationProvider

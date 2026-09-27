@@ -536,6 +536,16 @@ unsigned/direct-client Cloudinary upload path.
 
 ## Task 8 — Implement persistent 30-day cleanup processing (Red → Green)
 
+**Operational decisions approved — 2026-09-27**
+
+- Retry transient failures up to the existing default of eight attempts using
+  exponential delay starting at one minute and capped at 24 hours.
+- A permanent provider rejection moves directly to `Exhausted` for manual
+  handling; an already-absent provider asset is treated as successful cleanup.
+- The hosted worker runs by default. Poll interval and lease duration are
+  validated configuration, with safe defaults; no Cloudinary secrets are
+  duplicated in worker options.
+
 **Files (planned)**
 
 - Add cleanup options, service, lease/claim abstraction if needed, and hosted
@@ -563,6 +573,47 @@ unsigned/direct-client Cloudinary upload path.
 
 Tests prove delayed deletion, single-claimer behavior, bounded retries, safe
 recovery, and no secret leakage.
+
+**Implementation and verification — 2026-09-27**
+
+- Added the default-on hosted cleanup worker with validated poll interval,
+  lease duration, and batch size configuration; Compose/.env examples contain
+  values only, no provider credentials.
+- Added SQL Server due-row claiming with `UPDLOCK`, `READPAST`, and `ROWLOCK`;
+  expired claims receive a new lease token, and all post-provider state changes
+  re-lock and fence on the current token in a transaction. Cloudinary calls
+  happen only after claim commit, never inside a SQL transaction.
+- Deleted and already-absent provider results complete the outbox item;
+  transient failures use exponential backoff (1 minute doubling, capped at
+  24 hours) and exhaust after eight attempts; permanent/unclassified failures
+  go directly to manual `Exhausted` state. Cancellation leaves the lease to
+  expire safely, and cleanup never changes the soft-deleted media row.
+- Updated the canonical schema and TM-207 migration/model state constraint so
+  permanent failures may become `Exhausted` before consuming all retry
+  attempts, while every in-progress/exhausted row must have a valid attempt
+  count. SQL tests cover that state rule, 30-day due time, concurrent claim,
+  lease reclaim, and stale-token fencing.
+- RED/GREEN evidence: the new retry-policy test initially failed compilation
+  because the policy did not exist; after implementation, the cleanup-focused
+  Infrastructure suite passed 20 tests (then 21 after the integer-overflow
+  cap case was added). Full Application tests passed 630; full Infrastructure
+  tests passed 131; the Task 7 operator endpoint suite passed 10.
+- Release solution build passed with 0 warnings/errors; format verification
+  and `git diff --check` passed.
+- SQL verification completed against an isolated, disposable SQL Server
+  container using a generated per-run credential and loopback-only port
+  mapping; the user's existing containers/databases were not used. All 14
+  targeted SQL tests passed with zero skips: 3 cleanup claim/lease tests and
+  11 TM-207 migration/schema tests (fresh schema, upgrade parity, idempotency,
+  rollback, constraints, and cascade preservation). Tests were run individually
+  and sequentially because the full xUnit parallel batch caused host TCP
+  timeouts; the isolated test also exposed and fixed SQL Server's normalized
+  `BETWEEN` representation in the migration shape assertion. The temporary
+  container was stopped and removed automatically after the run.
+- Prior focused Application, Infrastructure, API, Release build, and format
+  gates remain as recorded above. Full end-to-end API suite and real
+  Cloudinary smoke-test review are still assigned to Task 9; they are not
+  represented as complete by the SQL verification.
 
 ## Task 9 — Full SQL/API/provider verification and review
 
