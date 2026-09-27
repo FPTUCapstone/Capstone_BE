@@ -35,7 +35,7 @@ public sealed class DeleteTourMediaCommandHandler(
                 return Result.Failure(access.FailureCode!, "The tour is unavailable.");
             }
 
-            DomainTourMedia? media = await dbContext.TourMedia.SingleOrDefaultAsync(candidate =>
+            DomainTourMedia? media = await dbContext.TourMedia.IgnoreQueryFilters().SingleOrDefaultAsync(candidate =>
                 candidate.Id == command.TourMediaId && candidate.TourId == command.TourId,
                 transactionCancellationToken);
             if (media is null)

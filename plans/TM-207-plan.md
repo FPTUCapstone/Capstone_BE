@@ -503,6 +503,37 @@ Real authorization middleware and application ownership checks are both
 tested. The contract matches the approved spec exactly and introduces no
 unsigned/direct-client Cloudinary upload path.
 
+**Measured RED/GREEN evidence — 2026-09-27**
+
+- Added the Tour Operator-only controller for GET, multipart POST, metadata
+  PATCH, complete-order PUT, and soft-delete DELETE. The actor ID is taken from
+  `ICurrentUserService`; an owner check still runs in every application handler.
+- Upload requires a parseable non-empty `Idempotency-Key`, requires file and
+  alt text, and caps both the request and multipart body at 11 MiB to allow
+  multipart overhead above the 10-MiB image policy. Cancellation is passed
+  through the handlers and provider boundary.
+- Feature errors map to RFC 7807 statuses: operator access 403; ownership/media
+  non-disclosure 404; state/order/capacity/primary/idempotency conflict 409;
+  provider unavailable/rejected 503; persistence failure 500. Responses use
+  the approved DTO and tests verify no Cloudinary public identifier or provider
+  body leaks.
+- OpenAPI tests verify all five routes, multipart binary file schema, required
+  idempotency header, long media IDs, DTO timestamps, and upload response codes
+  including 201, 400, 413, and 503.
+- Task-specific API endpoint suite: 10 passed, 0 failed, 0 skipped, exit 0.
+  It covers unauthenticated/wrong-role access, owner success across all five
+  endpoints, repeated soft-delete, non-owner 404, locked-Tour 409 before
+  provider I/O, redacted provider 503, missing upload inputs, and OpenAPI.
+- Full Release Application suite: 628 passed. Full Release Infrastructure
+  suite: 110 passed. `dotnet format --verify-no-changes` and `git diff --check`
+  passed after formatting.
+- A full API integration run was started but interrupted after more than eight
+  minutes because the existing suite's sequential `WebApplicationFactory`
+  startup did not finish in a practical local run. SQL Server gated tests were
+  skipped because no reachable SQL Server test endpoint is available. The
+  focused TM-207 HTTP/OpenAPI suite completed successfully; the complete API
+  and SQL verification remains for Task 9.
+
 ## Task 8 — Implement persistent 30-day cleanup processing (Red → Green)
 
 **Files (planned)**
