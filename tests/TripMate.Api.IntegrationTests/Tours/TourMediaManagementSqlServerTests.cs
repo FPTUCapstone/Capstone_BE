@@ -22,6 +22,32 @@ public sealed class TourMediaManagementSqlServerTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
+    public async Task Reorder_WithoutPrimaryMediaId_PreservesPrimaryAcrossContexts()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database);
+
+        await using (var context = database.CreateDbContext())
+        {
+            var result = await new ReorderTourMediaCommandHandler(
+                context, new FixedDateTimeProvider(), new SqlServerTourMediaUploadLock(context))
+                .Handle(new ReorderTourMediaCommand(
+                    seed.TourId, seed.ActorUserId, [seed.SecondMediaId, seed.FirstMediaId], null),
+                    CancellationToken.None);
+            result.IsSuccess.Should().BeTrue();
+        }
+
+        await using var verification = database.CreateDbContext();
+        var first = await verification.TourMedia.SingleAsync(media => media.Id == seed.FirstMediaId);
+        var second = await verification.TourMedia.SingleAsync(media => media.Id == seed.SecondMediaId);
+        first.SortOrder.Should().Be(2);
+        first.IsPrimary.Should().BeTrue();
+        second.SortOrder.Should().Be(1);
+        second.IsPrimary.Should().BeFalse();
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
     public async Task ReorderThenDelete_PreservesFilteredIndexesOutboxAndAudit()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();

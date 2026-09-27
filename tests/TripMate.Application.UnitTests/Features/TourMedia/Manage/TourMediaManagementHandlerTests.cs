@@ -141,6 +141,48 @@ public sealed class TourMediaManagementHandlerTests
     }
 
     [Fact]
+    public async Task Reorder_WithoutPrimaryMediaId_PreservesExistingPrimaryAfterReload()
+    {
+        await using var db = TestDbContext.Create();
+        var actor = SeedOperator(db, 7);
+        var tour = SeedTour(db, 42, actor.Id, TourStatus.Draft);
+        var first = SeedMedia(db, tour, 1, true, "one");
+        var second = SeedMedia(db, tour, 2, false, "two");
+        await db.SaveChangesAsync();
+
+        var result = await new ReorderTourMediaCommandHandler(
+            db, new FixedDateTimeProvider(), new NoopTourMediaLock()).Handle(
+            new ReorderTourMediaCommand(tour.Id, actor.Id, [second.Id, first.Id], null),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Select(item => (item.TourMediaId, item.SortOrder, item.IsPrimary))
+            .Should().Equal((second.Id, 1, false), (first.Id, 2, true));
+        db.ChangeTracker.Clear();
+        (await db.TourMedia.FindAsync(first.Id))!.IsPrimary.Should().BeTrue();
+        (await db.TourMedia.FindAsync(second.Id))!.IsPrimary.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Reorder_WithoutPrimaryMediaIdAndNoExistingPrimary_DoesNotPromoteAnImage()
+    {
+        await using var db = TestDbContext.Create();
+        var actor = SeedOperator(db, 7);
+        var tour = SeedTour(db, 42, actor.Id, TourStatus.Draft);
+        var first = SeedMedia(db, tour, 1, false, "one");
+        var second = SeedMedia(db, tour, 2, false, "two");
+        await db.SaveChangesAsync();
+
+        var result = await new ReorderTourMediaCommandHandler(
+            db, new FixedDateTimeProvider(), new NoopTourMediaLock()).Handle(
+            new ReorderTourMediaCommand(tour.Id, actor.Id, [second.Id, first.Id], null),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Should().OnlyContain(item => !item.IsPrimary);
+    }
+
+    [Fact]
     public async Task Reorder_EmptyOwnedTour_AllowsZeroPrimaryAndRecordsAudit()
     {
         await using var db = TestDbContext.Create();

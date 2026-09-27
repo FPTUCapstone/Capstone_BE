@@ -291,29 +291,15 @@ public sealed class UploadTourMediaCommandHandler(
         long actorUserId,
         CancellationToken cancellationToken)
     {
-        User? actor = await dbContext.Users.SingleOrDefaultAsync(
-            user => user.Id == actorUserId &&
-                user.Role == UserRole.TourOperator &&
-                user.Status == AccountStatus.Active,
-            cancellationToken);
-        if (actor is null || !await dbContext.OperatorProfiles.AnyAsync(
-                profile => profile.UserId == actorUserId &&
-                    profile.ApprovalStatus == OperatorApprovalStatus.Approved,
-                cancellationToken))
-        {
-            return AuthorizationResult.FromFailure(Result.Failure<TourMediaDto>(
-                TourMediaErrorCodes.OperatorAccessRequired,
-                "An active approved Tour Operator account is required."));
-        }
-
-        Tour? tour = await dbContext.Tours.SingleOrDefaultAsync(
-            candidate => candidate.Id == tourId && candidate.OperatorUserId == actorUserId,
-            cancellationToken);
-        return tour is null
+        TourMediaAccess access = await TourMediaAccessResolver.AuthorizeAsync(
+            dbContext, tourId, actorUserId, cancellationToken);
+        return !access.IsAuthorized
             ? AuthorizationResult.FromFailure(Result.Failure<TourMediaDto>(
-                TourMediaErrorCodes.TourNotFound,
-                "The tour is unavailable."))
-            : AuthorizationResult.FromAuthorized(actor, tour);
+                access.FailureCode!,
+                access.FailureCode == TourMediaErrorCodes.OperatorAccessRequired
+                    ? "An active approved Tour Operator account is required."
+                    : "The tour is unavailable."))
+            : AuthorizationResult.FromAuthorized(access.Actor!, access.Tour!);
     }
 
     private async Task<Result<TourMediaDto>?> ValidateMaterialChangeAsync(
