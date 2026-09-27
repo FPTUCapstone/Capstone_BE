@@ -39,6 +39,14 @@ public static class DependencyInjection
         services.AddSingleton<IGroupInvitationCodeGenerator, RandomGroupInvitationCodeGenerator>();
         services.AddScoped<ISchedulingRequestLock, SqlServerSchedulingRequestLock>();
         services.AddScoped<ITourMediaUploadLock, SqlServerTourMediaUploadLock>();
+        services.AddScoped<ITourMediaCleanupOutboxStore, SqlServerTourMediaCleanupOutboxStore>();
+        services.AddScoped<TourMediaCleanupProcessor>();
+
+        services.AddOptions<TourMediaCleanupOptions>()
+            .Bind(configuration.GetSection(TourMediaCleanupOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.AddHostedService<TourMediaCleanupBackgroundService>();
 
         services.AddOptions<CloudinaryOptions>()
             .Bind(configuration.GetSection(CloudinaryOptions.SectionName))

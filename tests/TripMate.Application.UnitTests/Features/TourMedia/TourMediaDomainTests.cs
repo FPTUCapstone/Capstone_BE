@@ -168,6 +168,41 @@ public sealed class TourMediaDomainTests
         item.CompletedAtUtc.Should().Be(Now.AddDays(30).AddMinutes(1));
     }
 
+    [Fact]
+    public void CleanupOutbox_PermanentFailureCanBeExhaustedAfterFirstAttempt()
+    {
+        var media = CreateMedia();
+        media.SoftDelete(Now);
+        var item = TourMediaCleanupOutboxItem.Create(media, Now, Now);
+        item.BeginAttempt(Guid.NewGuid(), Now.AddMinutes(2), Now);
+
+        item.Exhaust("TOUR_MEDIA_STORAGE_REJECTED", Now.AddSeconds(1));
+
+        item.Status.Should().Be(TourMediaCleanupStatus.Exhausted);
+        item.AttemptCount.Should().Be(1);
+        item.CompletedAtUtc.Should().Be(Now.AddSeconds(1));
+    }
+
+    [Fact]
+    public void CleanupOutbox_ExpiredLeaseCanBeReclaimedOrExhaustedAtAttemptLimit()
+    {
+        var media = CreateMedia();
+        media.SoftDelete(Now);
+        var item = TourMediaCleanupOutboxItem.Create(media, Now, Now, maxAttempts: 2);
+        item.BeginAttempt(Guid.NewGuid(), Now.AddMinutes(2), Now);
+
+        item.RecoverExpiredLease(Now.AddMinutes(2)).Should().BeTrue();
+        item.Status.Should().Be(TourMediaCleanupStatus.Pending);
+        item.LeaseToken.Should().BeNull();
+        item.NotBeforeAtUtc.Should().Be(Now.AddMinutes(2));
+        item.BeginAttempt(Guid.NewGuid(), Now.AddMinutes(4), Now.AddMinutes(2));
+        item.RecoverExpiredLease(Now.AddMinutes(4)).Should().BeFalse();
+
+        item.Status.Should().Be(TourMediaCleanupStatus.Exhausted);
+        item.AttemptCount.Should().Be(2);
+        item.LastErrorCode.Should().Be("TOUR_MEDIA_CLEANUP_LEASE_EXPIRED");
+    }
+
     private static global::TripMate.Domain.Entities.TourMedia CreateMedia() =>
         global::TripMate.Domain.Entities.TourMedia.Create(
             CreateTour(42),

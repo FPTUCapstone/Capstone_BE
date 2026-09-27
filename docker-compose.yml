@@ -79,6 +79,9 @@ services:
       Cloudinary__ApiKey: ${Cloudinary__ApiKey:?Cloudinary__ApiKey must be set in .env}
       Cloudinary__ApiSecret: ${Cloudinary__ApiSecret:?Cloudinary__ApiSecret must be set in .env}
       Cloudinary__TourMediaFolderRoot: ${Cloudinary__TourMediaFolderRoot:?Cloudinary__TourMediaFolderRoot must be set in .env}
+      TourMediaCleanup__PollInterval: ${TourMediaCleanup__PollInterval:-00:00:30}
+      TourMediaCleanup__LeaseDuration: ${TourMediaCleanup__LeaseDuration:-00:02:00}
+      TourMediaCleanup__BatchSize: ${TourMediaCleanup__BatchSize:-20}
       # Firebase Admin service-account JSON (never committed — see .env.example / README §9).
       # Put the file at ./secrets/tripmate-firebase-admin.json on the host. If it is missing,
       # Firebase Admin initialization is unavailable and Firebase ID-token authentication

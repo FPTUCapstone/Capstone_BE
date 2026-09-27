@@ -608,7 +608,8 @@ CREATE TABLE commerce.TourMediaCleanupOutbox (
         OR (cleanup_status = 'InProgress'
             AND lease_token IS NOT NULL
             AND lease_expires_at IS NOT NULL
-            AND completed_at IS NULL)
+            AND completed_at IS NULL
+            AND attempt_count BETWEEN 1 AND max_attempts)
         OR (cleanup_status = 'Completed'
             AND lease_token IS NULL
             AND lease_expires_at IS NULL
@@ -617,7 +618,7 @@ CREATE TABLE commerce.TourMediaCleanupOutbox (
             AND lease_token IS NULL
             AND lease_expires_at IS NULL
             AND completed_at IS NOT NULL
-            AND attempt_count = max_attempts))
+            AND attempt_count BETWEEN 1 AND max_attempts))
 );
 GO
 CREATE UNIQUE INDEX UX_TourMediaCleanupOutbox_PublicId
