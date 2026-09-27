@@ -617,16 +617,21 @@ recovery, and no secret leakage.
 
 ## Task 9 — Full SQL/API/provider verification and review
 
-**Progress — 2026-09-27 (not complete)**
+**Progress — 2026-09-27 (provider verified; independent review pending)**
 
 - Sequential cleanup claiming and barrier-based tests were added after review
   found that parallel provider work would concurrently use the scoped EF
   `DbContext`.
-- Application and Infrastructure unit tests pass (630 and 132 respectively);
-  the opt-in Cloudinary smoke test is skipped in the default suite.
-- The live Cloudinary smoke attempt returned sanitized HTTP 401. Do not treat
-  provider verification as passed until the development credentials/config are
-  corrected and the smoke test succeeds.
+- Application and Infrastructure unit tests pass (630 and 133 respectively
+  after the upload adapter fix); the opt-in Cloudinary smoke test is skipped
+  in the default suite and passed when explicitly enabled.
+- The first live Cloudinary smoke attempt returned sanitized HTTP 401. A
+  read-only authenticated provider request and direct signed upload established
+  that the configured key pair works. Explicitly setting `Unsigned=false`
+  caused the SDK to sign a field that Cloudinary omitted from its signed
+  request. Leaving it unset preserves the SDK's signed-upload default. The
+  smoke test then passed upload, HTTPS delivery, and deletion against the
+  configured development account.
 - The full suite before the final SQL fixes completed at 1,034 passed, 0
   failed, and 105 skipped. After the fixes, both full unit suites and all
   focused TM-207 SQL suites were rerun successfully.
@@ -640,13 +645,15 @@ recovery, and no secret leakage.
   completion so a concurrent same-key request observes a completed operation.
 - `dotnet restore`, format verification, Release build, and vulnerability scan
   succeeded. Current NuGet sources reported no vulnerable packages.
-- The Cloudinary smoke attempt returned HTTP 401. The Cloudinary account owner
-  must verify the development API key/secret configuration before another
-  live provider run.
+- A focused adapter unit test verifies that `unsigned` is absent from the SDK
+  parameter dictionary while the no-overwrite and filename-privacy settings
+  remain intact.
+- The local post-fix API integration run exceeded the expected duration and
+  was interrupted without a final result. The PR CI must verify the final
+  commit's full API and SQL suites.
 - Current evidence and exact limitations are recorded in
-  `docs/TM-207-verification.md`. Independent review and successful live
-  Cloudinary verification remain outstanding. No Task 10 is defined in this approved plan;
-  the next coordination step is completing the existing Draft PR for review.
+  `docs/TM-207-verification.md`. Independent review remains outstanding. No
+  Task 10 is defined in this approved plan; the existing PR is ready for review.
 
 **Files**
 

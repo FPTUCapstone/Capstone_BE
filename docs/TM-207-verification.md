@@ -1,10 +1,10 @@
 # TM-207 verification evidence
 
-Status: **ready for independent review; Cloudinary provider gate remains open**
+Status: **ready for independent review; live Cloudinary smoke passed locally**
 
-This evidence records the current local verification on 2026-09-27. It does
-not claim SQL/provider gates are passed or that TM-207 is ready to merge. No
-credentials are recorded here.
+This evidence records the current local verification on 2026-09-27. The SQL
+and Cloudinary provider gates passed. Independent review and CI of the final
+commit remain before merge. No credentials are recorded here.
 
 ## Revision
 
@@ -24,6 +24,13 @@ credentials are recorded here.
 - Cloudinary upload failures expose only a sanitized HTTP status code in the
   internal safe error code; provider response bodies and credentials remain
   excluded.
+- The configured credential pair authenticated successfully against Cloudinary
+  and direct signed uploads succeeded. The SDK upload path returned an
+  invalid-signature HTTP 401 because the code explicitly set `Unsigned=false`:
+  the SDK included that field in its signature while Cloudinary omitted it.
+  Leaving `Unsigned` unset retains the SDK's signed-upload default. A focused
+  unit test checks that the field is absent and the non-overwriting,
+  synthetic-filename request shape is preserved.
 - Added an opt-in smoke test using an in-memory generated image. The smoke test
   prints only cloud/folder identity and a public-ID hash, and attempts cleanup
   even when upload verification fails.
@@ -41,7 +48,9 @@ credentials are recorded here.
 | Full solution tests (pre-final SQL fixes) | `dotnet test TripMate.slnx -c Release --no-build --no-restore --logger "console;verbosity=minimal"` | Exit 0; API integration 272 passed / 104 skipped, Infrastructure 132 passed / 1 skipped, Application 630 passed / 0 skipped. Total: 1,034 passed, 0 failed, 105 skipped. SQL-gated tests and opt-in Cloudinary smoke were skipped. Final code was subsequently revalidated with all application/infrastructure unit tests and all focused TM-207 SQL tests below. |
 | Focused TM-207 SQL integration suites | Sequential filters: `TourMediaMigrationTests`, `TourMediaManagementMigrationTests`, `TourMediaManagementSqlServerTests`, `UploadTourMediaSqlServerTests`, `TourMediaCleanupOutboxSqlServerTests` on `tests/TripMate.Api.IntegrationTests/TripMate.Api.IntegrationTests.csproj` | Exit 0 across all 5 filters; 26 passed, 0 failed, 0 skipped (9 + 11 + 1 + 2 + 3). Ran on disposable `mcr.microsoft.com/mssql/server:2022-latest`, container `codex-tm207-sqltest`, host port 14332. The test harness created/dropped its `TripMate_Test_<GUID>` databases. Container had no mounted volume and was stopped/removed afterwards; generated SA password and test connection environment variables were cleared. |
 | Final unit regression after SQL fixes | `dotnet test tests/TripMate.Application.UnitTests/TripMate.Application.UnitTests.csproj -c Release --no-build --no-restore`; `dotnet test tests/TripMate.Infrastructure.UnitTests/TripMate.Infrastructure.UnitTests.csproj -c Release --no-build --no-restore` | Application: 630 passed, 0 failed, 0 skipped. Infrastructure: 132 passed, 0 failed, 1 skipped (opt-in Cloudinary smoke). |
-| Live Cloudinary smoke | Opt-in `CloudinarySmokeTest` against configured development account | **Failed**: provider returned HTTP 401 (sanitized code `TOUR_MEDIA_STORAGE_REJECTED_HTTP_401`). Cleanup fallback was attempted and reported verified for the generated asset hash. No upload success or delivery URL is claimed. The Cloudinary account owner must verify the development API key/secret configuration and the smoke must be rerun. |
+| Signed upload adapter test after provider fix | `dotnet test tests/TripMate.Infrastructure.UnitTests/TripMate.Infrastructure.UnitTests.csproj -c Release --no-restore --filter FullyQualifiedName~CloudinarySdkClientUploadTests` | Exit 0; 1 passed, 0 failed, 0 skipped. |
+| Post-fix Infrastructure unit regression | `dotnet test tests/TripMate.Infrastructure.UnitTests/TripMate.Infrastructure.UnitTests.csproj -c Release --no-build --no-restore` | Exit 0; 133 passed, 0 failed, 1 skipped (opt-in smoke). A prior local whole-solution API integration run ran unusually long and was interrupted without a final result; CI verification of the pushed fix remains required. |
+| Live Cloudinary smoke | Opt-in `CloudinarySmokeTest` against configured development account | Exit 0; 1 passed, 0 failed, 0 skipped. Generated image uploaded with server-side signature, HTTPS delivery URL verified, and the exact smoke asset destroyed. No credential or delivery URL was printed. |
 | Vulnerability scan | `dotnet list TripMate.slnx package --vulnerable --include-transitive` | Exit 0; current NuGet sources reported no vulnerable packages. |
 | `git diff --check` | `git diff --check` | Exit 0 after code changes. |
 
@@ -50,10 +59,5 @@ credentials are recorded here.
 1. The focused TM-207 SQL suites now pass with zero skips on an isolated test
    SQL Server. A reviewer may independently rerun them on an authorized test
    instance using the repository-supported `TRIPMATE_SQLSERVER_TEST_CONNECTION`.
-2. The live Cloudinary smoke remains blocked by HTTP 401. Have the Cloudinary
-   account owner verify the development API key/secret in local configuration,
-   then rerun the opt-in smoke to confirm HTTPS delivery metadata and provider
-   deletion.
-3. Obtain independent review. Resolve any review findings and rerun affected
-   checks. The PR is not merge-ready until the provider gate passes or an
-   approved exception is documented.
+2. Obtain independent review. Resolve any review findings and rerun affected
+   checks. Rerun CI after the Cloudinary upload fix is pushed to the PR.
