@@ -399,15 +399,7 @@ public sealed class UploadTourMediaCommandHandler(
         }
     }
 
-    private static TourMediaDto ToDto(DomainTourMedia media) => new(
-        media.Id,
-        media.TourId,
-        media.DeliveryUrl,
-        media.Caption,
-        media.AltText,
-        media.SortOrder,
-        media.IsPrimary,
-        media.CreatedAtUtc);
+    private static TourMediaDto ToDto(DomainTourMedia media) => TourMediaProjection.ToDto(media);
 
     private sealed record CanonicalUpload(
         long TourId,

@@ -445,6 +445,30 @@ keys cannot exceed ten active images.
 Every approved state/ownership/order/deletion branch has a deterministic test;
 all writes are atomic and preserve the TM-206 constraints.
 
+**Measured RED/GREEN evidence — 2026-09-27**
+
+- RED: the focused management-handler test filter exited 1 because the List,
+  UpdateMetadata, Reorder, and Delete application feature namespaces did not
+  exist.
+- Added active-only owned listing with deterministic `sort_order, tour_media_id`
+  ordering and a public-safe DTO now including both created and updated UTC
+  timestamps.
+- Added metadata classification: Draft/Rejected permit edits; Pending rejects
+  every mutation; Approved/Inactive permit alt-text-only correction and reject
+  caption changes. Client input cannot declare itself minor.
+- Added serializable Tour-locked reorder with exact-set validation, zero-or-one
+  primary, and a two-save temporary-order phase so the filtered unique sort-order
+  index is never transiently violated during swaps.
+- Added idempotent soft-delete with no implicit primary promotion, contiguous
+  active-order compaction, 30-day cleanup-outbox enqueue, and safe audit data
+  inside the same production transaction.
+- Focused management suite: 9 passed, 0 failed, 0 skipped, exit 0. Full
+  Release Application suite: 628 passed, 0 failed, 0 skipped, exit 0.
+- The real-SQL-Server reorder/delete test was discovered (0 passed, 0 failed,
+  1 skipped, exit 0) but remains gated on the same unreachable local SQL Server
+  prerequisite recorded for Task 5. It executes automatically when
+  `TRIPMATE_SQLSERVER_TEST_CONNECTION` targets a reachable instance.
+
 ## Task 7 — Expose the secured RFC 7807 API and OpenAPI contract (Red → Green)
 
 **Files (planned)**
