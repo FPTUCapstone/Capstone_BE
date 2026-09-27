@@ -89,6 +89,7 @@ public sealed class TripMateApiFactory(
                 services.RemoveAll<IGroupInvitationLock>();
                 services.RemoveAll<IGroupJoinLock>();
                 services.RemoveAll<ISchedulingRequestLock>();
+                services.RemoveAll<ITourMediaUploadLock>();
                 services.RemoveAll<IRouteDurationProvider>();
 
                 services.AddDbContext<TestApiDbContext>(options =>
@@ -112,6 +113,7 @@ public sealed class TripMateApiFactory(
                 services.AddScoped<IGroupInvitationLock, NoOpGroupInvitationLock>();
                 services.AddScoped<IGroupJoinLock, NoOpGroupJoinLock>();
                 services.AddScoped<ISchedulingRequestLock, NoOpSchedulingRequestLock>();
+                services.AddScoped<ITourMediaUploadLock, NoOpTourMediaUploadLock>();
                 services.AddScoped<IRouteDurationProvider, TestRouteDurationProvider>();
             }
 
@@ -328,6 +330,14 @@ internal sealed class NoOpSchedulingRequestLock : ISchedulingRequestLock
         long travelerUserId,
         Guid idempotencyKey,
         CancellationToken cancellationToken) => Task.CompletedTask;
+}
+
+internal sealed class NoOpTourMediaUploadLock : ITourMediaUploadLock
+{
+    public Task AcquireOperationAsync(long tourId, long actorUserId, Guid idempotencyKey,
+        CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public Task AcquireTourAsync(long tourId, CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
 internal sealed class TestRouteDurationProvider : IRouteDurationProvider
