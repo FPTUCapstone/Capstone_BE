@@ -16,6 +16,27 @@ public sealed class TravelerProfileConfiguration : IEntityTypeConfiguration<Trav
         builder.Property(profile => profile.InterestTagsJson)
             .HasColumnName("interest_tags_json")
             .HasMaxLength(1000);
+        builder.Property(profile => profile.PreferredTransportMode)
+            .HasColumnName("preferred_transport_mode")
+            .HasConversion<string>()
+            .HasMaxLength(20)
+            .IsUnicode(false);
+        builder.Property(profile => profile.TravelPace)
+            .HasColumnName("travel_pace")
+            .HasConversion<string>()
+            .HasMaxLength(20)
+            .IsUnicode(false);
+        builder.Property(profile => profile.RiskTolerance)
+            .HasColumnName("risk_tolerance")
+            .HasConversion<string>()
+            .HasMaxLength(20)
+            .IsUnicode(false);
+        builder.Property(profile => profile.FoodPreferencesJson)
+            .HasColumnName("food_preferences_json")
+            .HasMaxLength(1000);
+        builder.Property(profile => profile.DefaultBudget)
+            .HasColumnName("default_budget")
+            .HasPrecision(12, 2);
         builder.Property(profile => profile.UpdatedAtUtc)
             .HasColumnName("updated_at")
             .AsUtcDateTime2();
