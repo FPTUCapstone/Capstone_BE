@@ -76,6 +76,9 @@
     <None Include="..\..\database\migrations\20260919_allow_named_rest_items.sql"
           Link="Database\migrations\20260919_allow_named_rest_items.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20260920_add_itinerary_version_operations.sql"
+          Link="Database\migrations\20260920_add_itinerary_version_operations.sql"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

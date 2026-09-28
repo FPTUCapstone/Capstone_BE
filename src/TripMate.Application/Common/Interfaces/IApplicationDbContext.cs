@@ -71,6 +71,8 @@ public interface IApplicationDbContext
 
     DbSet<GroupJoinOperation> GroupJoinOperations { get; }
 
+    DbSet<ItineraryVersionOperation> ItineraryVersionOperations { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 
     Task<int> RevokeRefreshTokenAsync(

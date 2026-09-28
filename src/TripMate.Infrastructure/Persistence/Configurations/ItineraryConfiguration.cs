@@ -28,6 +28,7 @@ public class ItineraryConfiguration : IEntityTypeConfiguration<Itinerary>
         builder.Property(i => i.ValidToUtc).HasColumnName("valid_to").AsUtcDateTime2();
         builder.Property(i => i.CreatedAtUtc).HasColumnName("created_at").AsUtcDateTime2().IsRequired();
         builder.Property(i => i.UpdatedAtUtc).HasColumnName("updated_at").AsUtcDateTime2().IsRequired();
+        builder.Property(i => i.Version).HasColumnName("version").IsRequired();
 
         builder.HasOne(i => i.TravelerUser)
             .WithMany()

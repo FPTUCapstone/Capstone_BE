@@ -46,6 +46,7 @@ public class ItineraryTests
 
         itinerary.SourceType.Should().Be(Itinerary.CspGeneratedSourceType);
         itinerary.Status.Should().Be(Itinerary.DraftStatus);
+        itinerary.Version.Should().Be(1);
         itinerary.SchedulingRequest.Should().BeSameAs(request);
         itinerary.Items.Should().ContainSingle().Which.Should().BeSameAs(rest);
         rest.Itinerary.Should().BeSameAs(itinerary);

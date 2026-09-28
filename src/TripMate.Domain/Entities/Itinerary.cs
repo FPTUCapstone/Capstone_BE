@@ -26,7 +26,8 @@ public class Itinerary : BaseEntity
         string? title,
         string status,
         DateTimeOffset createdAtUtc,
-        DateTimeOffset updatedAtUtc)
+        DateTimeOffset updatedAtUtc,
+        int version)
     {
         if (travelerUserId <= 0)
         {
@@ -47,12 +48,18 @@ public class Itinerary : BaseEntity
             throw new ArgumentException("An itinerary status is invalid.", nameof(status));
         }
 
+        if (version <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(version));
+        }
+
         TravelerUserId = travelerUserId;
         Title = normalizedTitle;
         SourceType = ManualSourceType;
         Status = normalizedStatus;
         CreatedAtUtc = createdAtUtc;
         UpdatedAtUtc = updatedAtUtc;
+        Version = version;
     }
 
     public static Itinerary CreateManual(
@@ -61,13 +68,14 @@ public class Itinerary : BaseEntity
         string status,
         DateTimeOffset createdAtUtc,
         DateTimeOffset? updatedAtUtc = null) =>
-        new(travelerUserId, title, status, createdAtUtc, updatedAtUtc ?? createdAtUtc);
+        new(travelerUserId, title, status, createdAtUtc, updatedAtUtc ?? createdAtUtc, version: 1);
 
     public static Itinerary CreateCspGenerated(
         SchedulingRequest schedulingRequest,
         string title,
         DateTimeOffset validFromUtc,
-        DateTimeOffset validToUtc)
+        DateTimeOffset validToUtc,
+        int version = 1)
     {
         ArgumentNullException.ThrowIfNull(schedulingRequest);
 
@@ -83,7 +91,8 @@ public class Itinerary : BaseEntity
             title,
             DraftStatus,
             schedulingRequest.RequestedAtUtc,
-            schedulingRequest.RequestedAtUtc)
+            schedulingRequest.RequestedAtUtc,
+            version)
         {
             SourceType = CspGeneratedSourceType,
             SchedulingRequest = schedulingRequest,
@@ -115,6 +124,24 @@ public class Itinerary : BaseEntity
     public DateTimeOffset CreatedAtUtc { get; private set; }
 
     public DateTimeOffset UpdatedAtUtc { get; private set; }
+
+    public int Version { get; private set; } = 1;
+
+    public void Accept(DateTimeOffset acceptedAtUtc)
+    {
+        if (Status == ActiveStatus)
+        {
+            return;
+        }
+
+        if (Status != DraftStatus)
+        {
+            throw new InvalidOperationException("Only a draft itinerary can be accepted.");
+        }
+
+        Status = ActiveStatus;
+        UpdatedAtUtc = acceptedAtUtc.ToUniversalTime();
+    }
 
     private readonly List<TravelGroup> _travelGroups = [];
 

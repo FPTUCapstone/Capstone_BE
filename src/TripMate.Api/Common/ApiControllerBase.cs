@@ -181,6 +181,24 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
                 StatusCodes.Status503ServiceUnavailable,
             TourMediaErrorCodes.PersistenceFailed => StatusCodes.Status500InternalServerError,
 
+            TripMate.Application.Features.Itineraries.Common.ItineraryErrorCodes.NotFound =>
+                StatusCodes.Status404NotFound,
+
+            TripMate.Application.Features.Itineraries.Common.ItineraryErrorCodes.AccessDenied =>
+                StatusCodes.Status403Forbidden,
+
+            TripMate.Application.Features.Itineraries.Common.ItineraryErrorCodes.OwnerPermissionRequired =>
+                StatusCodes.Status403Forbidden,
+
+            TripMate.Application.Features.Itineraries.Common.ItineraryErrorCodes.IdempotencyKeyPayloadMismatch =>
+                StatusCodes.Status409Conflict,
+
+            TripMate.Application.Features.Itineraries.Common.ItineraryErrorCodes.InvalidState =>
+                StatusCodes.Status422UnprocessableEntity,
+
+            TripMate.Application.Features.Itineraries.Common.ItineraryErrorCodes.ConstraintsInfeasible =>
+                StatusCodes.Status422UnprocessableEntity,
+
             _ => StatusCodes.Status400BadRequest,
         };
 

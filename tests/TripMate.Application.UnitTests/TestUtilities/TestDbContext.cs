@@ -76,6 +76,8 @@ public class TestDbContext(
 
     public DbSet<GroupJoinOperation> GroupJoinOperations => Set<GroupJoinOperation>();
 
+    public DbSet<ItineraryVersionOperation> ItineraryVersionOperations => Set<ItineraryVersionOperation>();
+
     public int TransactionExecutionCount { get; private set; }
 
     public bool ThrowOnSaveConcurrency { get; set; }
