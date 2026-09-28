@@ -433,3 +433,81 @@ only master/model/msdb/tempdb and `remaining_test_databases = 0` (exit 0).
 Original Tasks 2/3 remain incomplete for deferred Tasks 2b/3b and evidence
 gates. Task 4 was not started. Existing unrelated implementation prompt was
 not changed or staged. Task 2a commit: `1480d4e`; no push performed.
+
+## Task 4a — approved parent domain and EF persistence (2026-09-28)
+
+Owner explicitly approved Task 4a plus commit/push to existing Draft PR #30.
+Scope: parent TripReview entity, nullable RoutePacingFeedback, exact parent EF
+mapping, DbSets and required test-double wiring. No POI children, review media,
+operation journal, API, moderation provider or publication handler. Task 4b
+and original full Task 4 remain deferred to their schema/evidence prerequisites.
+
+Refreshed `origin/develop` and the PR branch: develop remains `4afd56c`, remote
+feature head `309edd26`, local parent-schema head `28d4179`. No rebase/merge,
+force push or shared-history rewrite. Existing unrelated untracked handoff
+prompt remains untouched. Baseline before Task 4a was 1059/1059 PASS with SQL.
+
+Files: new `src/TripMate.Domain/Entities/TripReview.cs`,
+`src/TripMate.Domain/Enums/RoutePacingFeedback.cs`,
+`src/TripMate.Infrastructure/Persistence/Configurations/TripReviewConfiguration.cs`,
+`tests/TripMate.Application.UnitTests/Domain/TripReviewTests.cs`,
+`tests/TripMate.Api.IntegrationTests/Reviews/TripReviewPersistenceTests.cs`;
+existing `IApplicationDbContext`, `ApplicationDbContext`, Application test
+context, API test context and password-reset concurrent test double only gain
+the parent DbSet/member. Legacy Review entity/configuration remains unchanged.
+
+Tests were written before implementation. RED commands:
+`dotnet test tests/TripMate.Application.UnitTests/TripMate.Application.UnitTests.csproj
+-c Release --no-restore --filter FullyQualifiedName~TripReviewTests
+--logger 'console;verbosity=minimal'` and the corresponding API project command
+with filter `FullyQualifiedName~TripReviewPersistenceTests`.
+Both exited 1 because TripReview/RoutePacingFeedback did not yet exist (CS0246/
+CS0103). These are compile-time RED results, not discovered failing test counts.
+After implementation, one unexpected harness issue affected five cases:
+xUnit could not convert int InlineData to nullable long; changed only literals
+to long. That run: exit 1, 29 passed, 5 failed, 0 skipped. Re-run: exit 0,
+34 passed, 0 failed, 0 skipped. No tests were weakened or skipped.
+
+SQL focused GREEN: API command above, exit 0, 4 passed, 0 failed, 0 skipped
+(8s). New-context round-trip verifies all parent fields, UTC offset/100ns
+precision, real identity and 8-byte rowversion; nullable C4/Tour subject;
+two-context optimistic concurrency retains winning state; rollback leaves
+parent/legacy unchanged and no Tour mirror row is generated. SQL uses only
+the identified isolated container/127.0.0.1:14331 and random disposable DBs.
+
+The factory/edit methods accept already-normalized, policy-accepted text
+without changing it. They do not certify authorization, completion, moderation
+or route/CSP provenance; those are later application tasks. Edit failure at
+the original exclusive deadline does not mutate state. Consent changes
+regenerate the public snapshot; the unchanged preference preserves it.
+Bookings is not mapped at this base, so BookingId maps as a scalar with the
+real SQL FK still enforced; no invented Booking model or workflow was added.
+
+Fresh independent Task 4a review: spec-compliance PASS and code-quality PASS,
+no blocking findings. The optional coverage suggestion (unchanged true consent
+after profile rename) was implemented by parameterizing the same-preference
+test. Final focused domain result: exit 0, 35 passed, 0 failed, 0 skipped.
+Scoped `dotnet format TripMate.slnx --no-restore --include` the five new C#
+files exited 0; same command with `--verify-no-changes` exited 0 before this
+coverage-only addition. The coverage-only patch introduced a final-newline
+formatting error (verify exit 1); scoped formatter fixed it (exit 0) and final
+verify-no-changes exited 0. Both `git diff --check` and
+`git diff --cached --check` exited 0; unrelated prompt was excluded from staging.
+
+Full solution command:
+`dotnet test TripMate.slnx -c Release --no-restore
+--logger 'console;verbosity=minimal' --blame-hang-timeout 3m` with the same
+process-only isolated SQL environment, cleared in finally without logging
+credentials. First full run: exit 0, 1097 passed (630 Application + 73
+Infrastructure + 394 API), 0 failed, 0 skipped; API duration 2m46s. Final run
+including both same-consent snapshot cases: exit 0, **1098 passed
+(631 + 73 + 394), 0 failed, 0 skipped**, API duration 2m45s. Both runs returned
+a final process result. No retries hid a failure; the second run validates
+the additional test case.
+
+Task 4a COMPLETE. Original full Task 4/Task 4b remain deferred; Task 5 was not
+started. Post-run read-only database inventory returned only
+master/model/msdb/tempdb, `remaining_test_databases = 0`, exit 0. Task 5 was not
+started. User-authorized delivery is a Task 4a Conventional Commit and ordinary
+fast-forward push of this branch to existing Draft PR #30, not a new PR,
+merge, rebase, force push or claim that all TM-79 is ready to merge.

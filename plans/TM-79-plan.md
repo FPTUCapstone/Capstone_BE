@@ -210,6 +210,13 @@ wrong-shape failure leaves original DB intact.
 
 ### Task 4 — Domain and EF persistence
 
+Owner approved staged Task 4a on 2026-09-28: implement only the canonical
+TripReview parent and RoutePacingFeedback, parent EF configuration/DbSets,
+domain invariants and real SQL persistence/concurrency tests. Task 4b retains
+children/media/operation entities and consistency/navigation tests after
+Tasks 2b/3b and their evidence gates. Task 4a does not complete original Task 4.
+No API, moderation implementation or POI/media workflow belongs to Task 4a.
+
 Files: `src/TripMate.Domain/Entities/TripReview.cs`, `TripReviewMedia.cs`,
 `TripReviewMediaOperation.cs`; `Enums/RoutePacingFeedback.cs`; matching
 Infrastructure `Persistence/Configurations/*Configuration.cs`; existing
@@ -516,7 +523,7 @@ and delivery, and when shared changes warrant them; scoped gates run between
 atomic steps. Docs-only planning needs content/path/whitespace review, not a
 fabricated application test run.
 
-Progress: **Task 0 COMPLETE; Task 1 COMPLETE; Task 2a COMPLETE; Task 3a COMPLETE**.
+Progress: **Task 0 COMPLETE; Task 1 COMPLETE; Task 2a COMPLETE; Task 3a COMPLETE; Task 4a COMPLETE**.
 Spec/plan v3 and G-SCOPE are approved. Task 0's logging-isolation correction
 produced two reproducibly green full SQL-enabled baselines. Task 1 froze the
 first-delivery Backend wire contract and test matrix in
@@ -526,6 +533,9 @@ dependent behavior. Approved parent-only Task 2a has completed RED; Task 3a
 has completed focused GREEN, independent review and final SQL-enabled full
 regression (1059 passed, 0 failed, 0 skipped, exit 0). Original Tasks 2/3 are
 not complete: deferred Tasks 2b/3b remain gated.
-Tasks 4-17 have not started. See the verification ledger.
+Task 4a parent domain/EF passed focused, independent review and full SQL-enabled
+regression (1098 passed, 0 failed, 0 skipped, exit 0). Original full Task 4
+remains incomplete: Task 4b is deferred behind child/media schema evidence.
+Tasks 5-17 have not started. See the verification ledger.
 The handoff prompt is docs/TM-79-implementation-prompt.md; its existence or
 use does not itself mark proposals approved.
