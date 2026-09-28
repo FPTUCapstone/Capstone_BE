@@ -9,6 +9,7 @@ using TripMate.Api.Controllers.V1.Requests;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.TravelGroups.CreateTravelGroup;
 using TripMate.Application.Features.TravelGroups.GetInvitation;
+using TripMate.Application.Features.TravelGroups.GetMembers;
 using TripMate.Application.Features.TravelGroups.JoinTravelGroup;
 using TripMate.Application.Features.TravelGroups.ManageInvitation;
 using TripMate.Domain.Enums;
@@ -29,6 +30,26 @@ public class TravelGroupsController(
     ISender sender,
     ICurrentUserService currentUserService) : ApiControllerBase(sender)
 {
+    [HttpGet("{groupId:long}/members")]
+    [ProducesResponseType(typeof(GetTravelGroupMembersResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetMembers(long groupId, CancellationToken cancellationToken)
+    {
+        if (!currentUserService.UserId.HasValue)
+        {
+            return Unauthorized();
+        }
+
+        var result = await Sender.Send(
+            new GetTravelGroupMembersQuery(groupId, currentUserService.UserId.Value),
+            cancellationToken);
+
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
     [HttpPost]
     [ProducesResponseType(typeof(CreateTravelGroupResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
