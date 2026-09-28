@@ -354,3 +354,14 @@ trạng thái sạch" ở trên, phải tự quản lý volume như cách compos
 Chỉ khi `database/tripmate_schema_v7.sql` đổi (thêm bảng, đổi cột, lên `v8`...) — leader build lại
 từ mục 10.2 và gửi file `.tar` mới cho team. Image này là ảnh chụp cố định tại thời điểm build,
 không tự đồng bộ theo `.sql` — sửa `.sql` xong mà không build lại thì file `.tar` cũ vẫn y nguyên.
+
+## TM-79 staged parent schema
+
+`migrations/20260928_add_trip_review_parent.sql` adds only `social.TripReviews`
+for the approved commerce.Bookings first delivery. Full schema contains the
+same parent definition. Reruns validate complete affected parent inventory
+against a transaction-local canonical comparison table; incompatible shape
+fails and rolls back without repair. Existing `social.Reviews` stays unchanged.
+Published parent FKs use NO ACTION, not cascade removal of review history.
+Review-media/POI evidence/legacy edit gates are not implemented by this script.
+Do not apply to shared/production data without the ordinary reviewed rollout.

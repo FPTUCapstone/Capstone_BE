@@ -170,6 +170,13 @@ invent a snapshot. G-LEGACY edit behavior is a recorded acceptance gate.
 
 ### Task 2 — Migration contract tests (RED)
 
+Owner approved staged execution on 2026-09-28: **Task 2a** covers only the
+canonical parent, unchanged legacy Reviews, rating/C4, unique booking,
+rowversion and full affected inventory parity. **Task 2b** retains the
+child/visit-evidence/media lifecycle contract after its prerequisites are
+resolved. The parent-only migration is `20260928_add_trip_review_parent.sql`.
+Completing 2a does not complete original Task 2 in full.
+
 Files: `tests/TripMate.Api.IntegrationTests/Reviews/TripReviewMigrationTests.cs`;
 `tests/TripMate.Api.IntegrationTests/Fixtures/Database/tm79_pre_migration_schema.sql`.
 Reuse the existing Tour migration inventory normalizer, extracting a shared
@@ -187,6 +194,10 @@ Run: `dotnet test tests/TripMate.Api.IntegrationTests/TripMate.Api.IntegrationTe
 Done: discovered SQL tests fail specifically for missing TM-79 objects/rules.
 
 ### Task 3 — SQL migration (GREEN)
+
+Approved staged **Task 3a** implements only the parent tested by Task 2a.
+It must not alter legacy Reviews, add child linkage or invent visit/media
+evidence tables. Remaining Task 3b depends on Task 2b and its approved decisions.
 
 Files: `database/migrations/20260927_add_trip_reviews.sql` (verify unused name
 and adjust date/order at execution); `database/tripmate_schema_v7.sql`;
@@ -505,12 +516,16 @@ and delivery, and when shared changes warrant them; scoped gates run between
 atomic steps. Docs-only planning needs content/path/whitespace review, not a
 fabricated application test run.
 
-Progress: **Task 0 COMPLETE; Task 1 COMPLETE**.
+Progress: **Task 0 COMPLETE; Task 1 COMPLETE; Task 2a COMPLETE; Task 3a COMPLETE**.
 Spec/plan v3 and G-SCOPE are approved. Task 0's logging-isolation correction
 produced two reproducibly green full SQL-enabled baselines. Task 1 froze the
 first-delivery Backend wire contract and test matrix in
 `docs/TM-79-api-contract.md`; its central Docs publication remains a separate
 cross-repository handoff. G-POLICY, G-VISITS and G-LEGACY remain open for their
-dependent behavior. Tasks 2-17 have not started. See the verification ledger.
+dependent behavior. Approved parent-only Task 2a has completed RED; Task 3a
+has completed focused GREEN, independent review and final SQL-enabled full
+regression (1059 passed, 0 failed, 0 skipped, exit 0). Original Tasks 2/3 are
+not complete: deferred Tasks 2b/3b remain gated.
+Tasks 4-17 have not started. See the verification ledger.
 The handoff prompt is docs/TM-79-implementation-prompt.md; its existence or
 use does not itself mark proposals approved.

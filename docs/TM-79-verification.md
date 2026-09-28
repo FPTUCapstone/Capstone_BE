@@ -347,3 +347,89 @@ their SQL constraints can be asserted; TourMedia business rules must not be
 silently reused for review media. Independent parent/legacy constraints can
 be implemented separately once SQL readiness is confirmed, but that subset
 must not be reported as full Task 2 completion. Task 3 was not started.
+
+## Approved staged Tasks 2a and 3a
+
+Owner approved proceeding with independent parent/legacy migration tests (2a)
+followed by matching parent-only schema (3a). POI evidence/children/media
+remain deferred; original Tasks 2/3 are not complete in their full scope.
+
+SQL target reverified: stopped container `88e5c351ed00` was started using
+`docker start tripmate-tm70-sql` (exit 0); configured port is only
+`127.0.0.1:14331`. Test connection is reconstructed from its password in memory
+and cleared in finally. No credential was logged/stored, no shared/Azure DB
+was accessed. Only disposable `TripMate_Test_*` databases are used.
+
+Task 2a RED: `dotnet test tests/TripMate.Api.IntegrationTests/TripMate.Api.IntegrationTests.csproj
+-c Release --no-restore --filter FullyQualifiedName~TripReviewMigrationTests
+--logger 'console;verbosity=minimal'`. Initial 14 cases: exit 1, 0 passed,
+14 failed, 0 skipped. Expanded 19 cases: exit 1, 0 passed, 19 failed, 0 skipped.
+Final 21 cases: exit 1, 0 passed, 21 failed, 0 skipped. Failures are missing
+parent table/migration, not compilation, connectivity or discovery. The
+wrong-shape case initially reports the assertion for the missing migration
+instead of the future SqlException; its cause is the same absent script.
+No SQL implementation existed before RED. Independent review found weak
+canonical-key assertions and lossy CHECK normalization; both were strengthened
+before GREEN. Inventory preserves CHECK grouping and literal casing verbatim;
+PK and booking uniqueness require enabled, exact single-column keys.
+
+Task 2a files: new `Reviews/TripReviewMigrationTests.cs` (21 cases),
+`Infrastructure/TripReviewSchemaInventory.cs` (full column/default/key/FK/check/
+index inventory for parent and legacy), frozen complete
+`Fixtures/Database/tm79_pre_migration_schema.sql` from HEAD `309edd26`, and
+test project asset copying. The full baseline fixture avoids invented
+dependency stubs; SQL fixtures include repeated author/subject across
+bookings, ambiguous booking-linked and unlinked legacy Tour/POI/Operator rows.
+These are isolated test data, not evidence that G-LEGACY is resolved.
+
+Task 3a files: `database/migrations/20260928_add_trip_review_parent.sql`,
+`database/tripmate_schema_v7.sql`, and `database/README.md`. Parent subject
+is exactly one nullable Tour/Itinerary FK; booking/author and subject FKs use
+NO ACTION. Immutable deadline is checked as original creation + seven days;
+separate nullable pacing/CSP, normalized text bounds, rowversion and unique
+booking are represented independently. Public-label/policy text use
+NVARCHAR(MAX) to avoid inventing new product length limits. Cross-table legacy
+duplicate protection remains the planned application write-lock protocol,
+not a false claim from parent uniqueness alone.
+
+Migration reruns compare canonical full inventory using a transaction-scoped
+comparison table, then drop that table. Any wrong shape/constraint throws and
+rolls back, without repairing existing parent or legacy data. This does not
+implement moderation policy, edit workflow, route provenance or visit writer.
+First GREEN command same as RED: exit 0, **21 passed, 0 failed, 0 skipped**,
+duration 45s. Scoped `dotnet format TripMate.slnx --no-restore --include
+tests/TripMate.Api.IntegrationTests/Reviews/TripReviewMigrationTests.cs
+tests/TripMate.Api.IntegrationTests/Infrastructure/TripReviewSchemaInventory.cs`
+exited 0.
+
+Independent Task 3a review identified an omitted `sys.indexes.ignore_dup_key`
+in canonical inventory validation. A new regression test first failed with
+"Expected SqlException ... no exception was thrown": exit 1, 0 passed,
+1 failed, 0 skipped. Command: same focused test command above with filter
+`FullyQualifiedName~Rerun_WithIgnoreDuplicateKey`. Both SQL inventory branches
+and the test inventory now include that flag. The regression verifies unchanged
+row count, rowversion and inventory after rejection/rollback. Final focused
+command above: exit 0, **22 passed, 0 failed, 0 skipped**, duration 45s.
+Fresh independent two-stage re-review: spec-compliance PASS, code-quality PASS;
+the finding is closed, with no remaining actionable findings.
+
+Full regression command (SQL environment configured safely as above):
+`dotnet test TripMate.slnx -c Release --no-restore
+--logger 'console;verbosity=minimal' --blame-hang-timeout 3m`.
+Before the review correction: exit 0, 1058 passed (596 Application + 73
+Infrastructure + 389 API), 0 failed, 0 skipped. Final run after correction:
+exit 0, **1059 passed (596 + 73 + 390), 0 failed, 0 skipped**; API duration
+2m42s. Both runs finished with a final process result.
+
+Scoped format verification initially exited 1 for final-newline formatting;
+scoped `dotnet format` fixed it (exit 0), then the same command with
+`--verify-no-changes` exited 0. `git diff --check` exited 0. Staged fixture
+check initially caught inherited extra EOF blank lines; removed only those
+blank lines, then `git diff --cached --check` exited 0.
+
+Task 2a COMPLETE; Task 3a COMPLETE (approved parent-only stages).
+Post-run read-only inventory query on the identified local container returned
+only master/model/msdb/tempdb and `remaining_test_databases = 0` (exit 0).
+Original Tasks 2/3 remain incomplete for deferred Tasks 2b/3b and evidence
+gates. Task 4 was not started. Existing unrelated implementation prompt was
+not changed or staged. Task 2a commit: `1480d4e`; no push performed.
