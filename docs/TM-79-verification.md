@@ -320,3 +320,30 @@ checks: `git -c safe.directory=D:/CapStone/Capstone_BE_tm79 diff --check`
 new contract, plan and ledger (exit 0, no trailing whitespace). No test
 command was run for this documentation-only change; Task 0's full SQL-enabled
 baseline remains recorded above. Task 2 was not started.
+
+## Task 2 — prerequisite inspection
+
+Status: **IN PROGRESS; migration test implementation not started**.
+HEAD inspected: `309edd26dde59c9e6028ba80b5076a564e213c45`.
+Reviewed Task 2, the approved G-VISITS schema restriction, existing Tour
+migration inventory tests and the isolated SQL database creation/drop helper.
+No Task 3 schema, production code or new migration tests were written.
+
+Read-only environment check: `docker inspect tripmate-tm70-sql --format
+'{{.State.Running}} {{json .NetworkSettings.Ports}}'` and the existing
+container SQL identity query both exited 1: Docker Desktop Linux Engine pipe
+was absent. Service inspection showed `com.docker.service` stopped.
+`Start-Process -FilePath 'C:\Program Files\Docker\Docker\Docker Desktop.exe'
+-WindowStyle Hidden` exited 0, but the subsequent Docker verification was
+aborted; SQL readiness is not yet confirmed. No test run/count/RED is claimed.
+No shared/Azure database was contacted.
+
+Task 2's full migration contract includes POI evidence and media lifecycle /
+historical-delete restrictions. The plan explicitly forbids freezing evidence
+storage before G-VISITS is resolved. The public contract freezes unavailable
+capability semantics, not that storage source. Media lifecycle/status and
+historical deletion matrix likewise need a scoped persistence decision before
+their SQL constraints can be asserted; TourMedia business rules must not be
+silently reused for review media. Independent parent/legacy constraints can
+be implemented separately once SQL readiness is confirmed, but that subset
+must not be reported as full Task 2 completion. Task 3 was not started.
