@@ -6,6 +6,7 @@ using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Admin.TourOperatorApplications.Approve;
 using TripMate.Application.Features.Admin.TourOperatorApplications.Common;
+using TripMate.Application.Features.Admin.TourOperatorApplications.Reject;
 using TripMate.Application.Features.PointsOfInterest.Common;
 using TripMate.Application.Features.PointsOfInterest.Create;
 using TripMate.Domain.Common;
@@ -25,6 +26,9 @@ public sealed class AuditFailureBehaviour<TRequest, TResponse>(
             CreatePoiCommand => (AuditActionTypes.PoiCreate, AuditEntityTypes.PointOfInterest, (long?)null),
             ApproveOperatorApplicationCommand command =>
                 (AuditActionTypes.OperatorApplicationApprove, AuditEntityTypes.OperatorProfile,
+                    command.UserId > 0 ? (long?)command.UserId : null),
+            RejectOperatorApplicationCommand command =>
+                (AuditActionTypes.OperatorApplicationReject, AuditEntityTypes.OperatorProfile,
                     command.UserId > 0 ? (long?)command.UserId : null),
             _ => default,
         };

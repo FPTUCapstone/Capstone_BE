@@ -173,6 +173,44 @@ public class AuditLog : BaseEntity
             result: AuditOutcome.Success);
     }
 
+    public static AuditLog CreateOperatorApplicationRejected(
+        long actorUserId,
+        long operatorUserId,
+        string beforeData,
+        string afterData,
+        DateTimeOffset createdAtUtc)
+    {
+        if (actorUserId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(actorUserId));
+        }
+
+        if (operatorUserId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(operatorUserId));
+        }
+
+        if (string.IsNullOrWhiteSpace(beforeData))
+        {
+            throw new ArgumentException("Audit data is required.", nameof(beforeData));
+        }
+
+        if (string.IsNullOrWhiteSpace(afterData))
+        {
+            throw new ArgumentException("Audit data is required.", nameof(afterData));
+        }
+
+        return CreateRecordedOutcome(
+            actorUserId: actorUserId,
+            actionType: AuditActionTypes.OperatorApplicationReject,
+            affectedEntity: AuditEntityTypes.OperatorProfile,
+            affectedEntityId: operatorUserId,
+            createdAtUtc: createdAtUtc,
+            beforeData: beforeData,
+            afterData: afterData,
+            result: AuditOutcome.Success);
+    }
+
     // ========== UC-05 Sign Out Factory Methods ==========
 
     public static AuditLog CreateSignOut(

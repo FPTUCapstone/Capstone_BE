@@ -174,5 +174,5 @@ Expected HTTP mapping:
 | 1 | `OperatorDocuments.status` on approval | **Resolved:** all documents for the operator change from `Submitted` to `Approved` in the same transaction. |
 | 2 | Audit log | **Resolved (Solution A):** one `AuditLogs` row is written in the same `SaveChangesAsync` call as the approval. |
 | 3 | Notification channel | **Resolved:** one `Notifications` row with `channel = 'Email'` and `status = 'Pending'` is inserted on approval. Email delivery to `Users.email` (Gmail or any address) is handled by a background service outside this handler. |
-| 4 | Mandatory documents | **Resolved:** `BusinessLicense` and `TaxCode` are both mandatory. The `TaxCertificate` document type name is not used in this project. |
+| 4 | Mandatory documents | **Resolved:** `TaxCode` text attribute (on profile) and `BusinessLicense` (uploaded document file) are both mandatory. A separate uploaded TaxCode document file is not required as MST is embedded in the Business License / ĐKKD per SRS §3.2.2. |
 | 5 | Reject scope | **Resolved:** the Reject endpoint is a UI-dependency stub in this task. Full business logic for rejection is owned by UC-51. |
