@@ -22,10 +22,18 @@ public sealed class ItineraryVersionService(
         CancellationToken cancellationToken)
     {
         var timeZone = TimeZoneInfo.FindSystemTimeZoneById(request.TimeZoneId);
+        var travelerInterestTags = await dbContext.TravelerProfiles
+            .AsNoTracking()
+            .Where(profile => profile.UserId == request.TravelerUserId)
+            .Select(profile => profile.InterestTagsJson)
+            .SingleOrDefaultAsync(cancellationToken);
+        var preferenceTokens = TravelerPreferenceScoring.ParsePreferenceTokens(travelerInterestTags);
         var pois = await dbContext.PointsOfInterest
             .AsNoTracking()
             .Include(poi => poi.Category)
             .Include(poi => poi.OpeningHours)
+            .Include(poi => poi.PoiTags)
+            .ThenInclude(mapping => mapping.Tag)
             .Where(poi => poi.Status == PointOfInterestStatus.Active)
             .ToListAsync(cancellationToken);
 
@@ -58,6 +66,9 @@ public sealed class ItineraryVersionService(
                         hour.DayOfWeek,
                         hour.OpenTime!.Value,
                         hour.CloseTime!.Value)).ToArray(),
+                PreferenceScore: TravelerPreferenceScoring.CalculatePreferenceScore(poi, preferenceTokens),
+                ScenicScore: poi.ScenicScore,
+                PhotoRating: poi.PhotoRating,
                 CategoryName: poi.Category.Name,
                 HasShelter: poi.HasShelter))
             .ToArray();
@@ -128,10 +139,18 @@ public sealed class ItineraryVersionService(
         CancellationToken cancellationToken)
     {
         var timeZone = TimeZoneInfo.FindSystemTimeZoneById(request.TimeZoneId);
+        var travelerInterestTags = await dbContext.TravelerProfiles
+            .AsNoTracking()
+            .Where(profile => profile.UserId == request.TravelerUserId)
+            .Select(profile => profile.InterestTagsJson)
+            .SingleOrDefaultAsync(cancellationToken);
+        var preferenceTokens = TravelerPreferenceScoring.ParsePreferenceTokens(travelerInterestTags);
         var pois = await dbContext.PointsOfInterest
             .AsNoTracking()
             .Include(poi => poi.Category)
             .Include(poi => poi.OpeningHours)
+            .Include(poi => poi.PoiTags)
+            .ThenInclude(mapping => mapping.Tag)
             .Where(poi => poi.Status == PointOfInterestStatus.Active)
             .ToListAsync(cancellationToken);
         var endPoi = request.EndPointOfInterestId.HasValue
@@ -163,6 +182,9 @@ public sealed class ItineraryVersionService(
                         hour.DayOfWeek,
                         hour.OpenTime!.Value,
                         hour.CloseTime!.Value)).ToArray(),
+                PreferenceScore: TravelerPreferenceScoring.CalculatePreferenceScore(poi, preferenceTokens),
+                ScenicScore: poi.ScenicScore,
+                PhotoRating: poi.PhotoRating,
                 CategoryName: poi.Category.Name,
                 HasShelter: poi.HasShelter))
             .ToArray();

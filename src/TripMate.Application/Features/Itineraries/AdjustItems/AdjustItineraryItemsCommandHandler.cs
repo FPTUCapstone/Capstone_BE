@@ -29,8 +29,19 @@ public sealed class AdjustItineraryItemsCommandHandler(
         return await dbContext.ExecuteInSerializableTransactionAsync(
             async transactionCancellationToken =>
             {
-                await itineraryMutationLock.AcquireAsync(
+                var lockResource = await ItineraryMutationLockResource.ResolveAsync(
+                    dbContext,
                     command.ItineraryId,
+                    transactionCancellationToken);
+                if (lockResource.IsFailure)
+                {
+                    return Result.Failure<ItineraryDetailResponse>(
+                        lockResource.ErrorCode!,
+                        lockResource.ErrorMessage!);
+                }
+
+                await itineraryMutationLock.AcquireAsync(
+                    lockResource.Value,
                     transactionCancellationToken);
 
                 var accessResult = await accessService.ResolveCurrentAsync(

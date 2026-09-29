@@ -59,7 +59,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 .Where(profile => profile.UserId == canonical.TravelerUserId)
                 .Select(profile => profile.InterestTagsJson)
                 .SingleOrDefaultAsync(transactionCancellationToken);
-            var preferenceTokens = TravelerPreferenceScoring.ParsePreferenceTokens(travelerInterestTags);
+var preferenceTokens = TravelerPreferenceScoring.ParsePreferenceTokens(travelerInterestTags);
             var activePois = await dbContext.PointsOfInterest
                 .AsNoTracking()
                 .Include(poi => poi.Category)
@@ -262,8 +262,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
 
         var optionalPois = selectablePois
             .Where(poi => !mandatoryIds.Contains(poi.Id))
-            .OrderByDescending(poi =>
-                TravelerPreferenceScoring.CalculatePreferenceScore(poi, preferenceTokens))
+    .OrderByDescending(poi =>
+        TravelerPreferenceScoring.CalculatePreferenceScore(poi, preferenceTokens))
             .ThenByDescending(poi => poi.ScenicScore ?? decimal.MinValue)
             .ThenByDescending(poi => poi.PhotoRating ?? decimal.MinValue)
             .ThenBy(poi => GeoDistance.EquirectangularKilometers(
@@ -295,7 +295,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
                     hours.OpenTime!.Value,
                     hours.CloseTime!.Value))
                 .ToArray(),
-            PreferenceScore: TravelerPreferenceScoring.CalculatePreferenceScore(poi, preferenceTokens),
+    PreferenceScore: TravelerPreferenceScoring.CalculatePreferenceScore(poi, preferenceTokens),
             ScenicScore: poi.ScenicScore,
             PhotoRating: poi.PhotoRating,
             CategoryName: poi.Category.Name,

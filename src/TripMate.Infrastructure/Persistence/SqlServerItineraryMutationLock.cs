@@ -8,10 +8,10 @@ public sealed class SqlServerItineraryMutationLock(ApplicationDbContext dbContex
     : IItineraryMutationLock
 {
     public async Task AcquireAsync(
-        long itineraryId,
+        long mutationResourceId,
         CancellationToken cancellationToken)
     {
-        var resource = $"TripMate:ItineraryMutation:{itineraryId}";
+        var resource = $"TripMate:ItineraryMutation:{mutationResourceId}";
 
         await dbContext.Database.ExecuteSqlInterpolatedAsync($"""
             DECLARE @lockResult INT;

@@ -11,6 +11,7 @@ namespace TripMate.Application.Features.Itineraries.Accept;
 public sealed class AcceptItineraryCommandHandler(
     IApplicationDbContext dbContext,
     IItineraryAccessService accessService,
+    IItineraryMutationLock itineraryMutationLock,
     IDateTimeProvider dateTimeProvider)
     : IRequestHandler<AcceptItineraryCommand, Result<ItineraryDetailResponse>>
 {
@@ -21,6 +22,21 @@ public sealed class AcceptItineraryCommandHandler(
         return await dbContext.ExecuteInSerializableTransactionAsync(
             async transactionCancellationToken =>
             {
+                var lockResource = await ItineraryMutationLockResource.ResolveAsync(
+                    dbContext,
+                    request.ItineraryId,
+                    transactionCancellationToken);
+                if (lockResource.IsFailure)
+                {
+                    return Result.Failure<ItineraryDetailResponse>(
+                        lockResource.ErrorCode!,
+                        lockResource.ErrorMessage!);
+                }
+
+                await itineraryMutationLock.AcquireAsync(
+                    lockResource.Value,
+                    transactionCancellationToken);
+
                 var accessResult = await accessService.ResolveCurrentAsync(
                     request.ItineraryId,
                     request.TravelerUserId,

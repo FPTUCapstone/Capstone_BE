@@ -4,8 +4,11 @@ using System.Net.Http.Json;
 using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
+using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -14,6 +17,27 @@ namespace TripMate.Api.IntegrationTests.Itineraries;
 [Collection(nameof(TripMateApiFactory))]
 public sealed class ItineraryMutationEndpointTests
 {
+    [Fact]
+    public async Task Accept_AcquiresTheSharedItineraryMutationLock()
+    {
+        var mutationLock = new RecordingItineraryMutationLock();
+        await using var factory = new TripMateApiFactory(
+            configureTestServices: services =>
+            {
+                services.RemoveAll<IItineraryMutationLock>();
+                services.AddSingleton<IItineraryMutationLock>(mutationLock);
+            });
+        var itineraryId = await SeedManualItineraryAsync(factory, Itinerary.DraftStatus);
+        using var client = factory.CreateAuthenticatedClient(1, UserRole.Traveler);
+
+        var response = await client.PostAsync(
+            $"/api/v1/itineraries/{itineraryId}/accept",
+            content: null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        mutationLock.AcquiredResources.Should().Equal(itineraryId);
+    }
+
     [Fact]
     public async Task Accept_OwnerDraftTransitionsToActive()
     {
@@ -145,5 +169,16 @@ public sealed class ItineraryMutationEndpointTests
                 UpdatedAtUtc = now,
             });
         await context.SaveChangesAsync();
+    }
+
+    private sealed class RecordingItineraryMutationLock : IItineraryMutationLock
+    {
+        public List<long> AcquiredResources { get; } = [];
+
+        public Task AcquireAsync(long itineraryId, CancellationToken cancellationToken)
+        {
+            AcquiredResources.Add(itineraryId);
+            return Task.CompletedTask;
+        }
     }
 }

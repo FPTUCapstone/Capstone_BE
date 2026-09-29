@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Itineraries.Accept;
 using TripMate.Application.Features.Itineraries.AdjustItems;
 using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Itineraries.Regenerate;
@@ -123,6 +124,80 @@ public sealed class ItineraryMutationSqlServerTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
+    public async Task ConcurrentRegenerateFromDifferentHistoricalVersionsSerializesOnTheSameSeries()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedWithHistoricalSuccessorAsync(database);
+        var barrier = new MutationLockStartBarrier(expectedWaiters: 2);
+
+        async Task<Result<ItineraryDetailResponse>> ExecuteAsync(long itineraryId)
+        {
+            await using var context = database.CreateDbContext();
+            return await CreateRegenerateHandler(context, barrier).Handle(
+                new RegenerateItineraryCommand(itineraryId, seed.UserId, Guid.NewGuid()),
+                CancellationToken.None);
+        }
+
+        var results = await Task.WhenAll(
+            ExecuteAsync(seed.PredecessorItineraryId),
+            ExecuteAsync(seed.CurrentItineraryId));
+
+        results.Should().OnlyContain(result => result.IsSuccess);
+        barrier.AcquiredResources.Should().OnlyContain(resource => resource == seed.SchedulingRequestId);
+
+        await using var verification = database.CreateDbContext();
+        var versions = await verification.Itineraries
+            .Where(itinerary => itinerary.SchedulingRequestId == seed.SchedulingRequestId)
+            .OrderBy(itinerary => itinerary.Version)
+            .Select(itinerary => itinerary.Version)
+            .ToArrayAsync();
+        versions.Should().Equal(1, 2, 3, 4);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task ConcurrentAcceptAndRegenerateShareTheSeriesMutationLock()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database);
+        var barrier = new MutationLockStartBarrier(expectedWaiters: 2);
+
+        async Task<Result<ItineraryDetailResponse>> AcceptAsync()
+        {
+            await using var context = database.CreateDbContext();
+            return await new AcceptItineraryCommandHandler(
+                    context,
+                    new ItineraryAccessService(context),
+                    new CoordinatedSqlServerItineraryMutationLock(context, barrier),
+                    new FixedDateTimeProvider())
+                .Handle(
+                    new AcceptItineraryCommand(seed.ItineraryId, seed.UserId),
+                    CancellationToken.None);
+        }
+
+        async Task<Result<ItineraryDetailResponse>> RegenerateAsync()
+        {
+            await using var context = database.CreateDbContext();
+            return await CreateRegenerateHandler(context, barrier).Handle(
+                new RegenerateItineraryCommand(seed.ItineraryId, seed.UserId, Guid.NewGuid()),
+                CancellationToken.None);
+        }
+
+        var results = await Task.WhenAll(AcceptAsync(), RegenerateAsync());
+
+        results.Should().OnlyContain(result => result.IsSuccess);
+        barrier.AcquiredResources.Should().OnlyContain(resource => resource == seed.SchedulingRequestId);
+
+        await using var verification = database.CreateDbContext();
+        var itineraries = await verification.Itineraries
+            .Where(itinerary => itinerary.SchedulingRequestId == seed.SchedulingRequestId)
+            .ToArrayAsync();
+        itineraries.Should().HaveCount(2);
+        itineraries.Count(itinerary => itinerary.Status == Itinerary.ActiveStatus).Should().Be(1);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
     public async Task Regenerate_WhenOperationPersistenceFailsRollsBackSuccessorAndOperation()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
@@ -180,13 +255,50 @@ public sealed class ItineraryMutationSqlServerTests
     }
 
     private static RegenerateItineraryCommandHandler CreateRegenerateHandler(
-        ApplicationDbContext context) =>
+        ApplicationDbContext context,
+        MutationLockStartBarrier? barrier = null) =>
         new(
             context,
             new ItineraryAccessService(context),
             new ItineraryVersionService(context, new FixedRouteDurationProvider()),
-            new SqlServerItineraryMutationLock(context),
+            barrier is null
+                ? new SqlServerItineraryMutationLock(context)
+                : new CoordinatedSqlServerItineraryMutationLock(context, barrier),
             new FixedDateTimeProvider());
+
+    private static async Task<HistoricalSeedData> SeedWithHistoricalSuccessorAsync(SqlServerTestDatabase database)
+    {
+        var seed = await SeedAsync(database);
+        await using var context = database.CreateDbContext();
+        var schedulingRequestId = await context.Itineraries
+            .Where(itinerary => itinerary.Id == seed.ItineraryId)
+            .Select(itinerary => itinerary.SchedulingRequestId)
+            .SingleAsync();
+        var request = await context.SchedulingRequests.SingleAsync(
+            item => item.Id == schedulingRequestId!.Value);
+        var successor = Itinerary.CreateCspGenerated(
+            request,
+            "UC11 SQL Trip v2",
+            FixedDateTimeProvider.StartAt,
+            FixedDateTimeProvider.StartAt.AddHours(4),
+            version: 2);
+        successor.AddItem(ItineraryItem.CreateVisit(
+            1,
+            seed.FirstPoiId,
+            FixedDateTimeProvider.StartAt.AddMinutes(30),
+            FixedDateTimeProvider.StartAt.AddMinutes(90),
+            false,
+            50_000m,
+            "Historical visit"));
+        context.Itineraries.Add(successor);
+        await context.SaveChangesAsync();
+
+        return new HistoricalSeedData(
+            seed.UserId,
+            seed.ItineraryId,
+            successor.Id,
+            request.Id);
+    }
 
     private static async Task<SeedData> SeedAsync(SqlServerTestDatabase database)
     {
@@ -258,7 +370,7 @@ public sealed class ItineraryMutationSqlServerTests
         context.Itineraries.Add(itinerary);
         await context.SaveChangesAsync();
 
-        return new SeedData(user.Id, itinerary.Id, firstPoi.Id, secondPoi.Id);
+        return new SeedData(user.Id, itinerary.Id, request.Id, firstPoi.Id, secondPoi.Id);
     }
 
     private static async Task ApplySchedulingMigrationsAsync(SqlServerTestDatabase database)
@@ -300,7 +412,51 @@ public sealed class ItineraryMutationSqlServerTests
         return poi;
     }
 
-    private sealed record SeedData(long UserId, long ItineraryId, long FirstPoiId, long SecondPoiId);
+    private sealed record SeedData(
+        long UserId,
+        long ItineraryId,
+        long SchedulingRequestId,
+        long FirstPoiId,
+        long SecondPoiId);
+
+    private sealed record HistoricalSeedData(
+        long UserId,
+        long PredecessorItineraryId,
+        long CurrentItineraryId,
+        long SchedulingRequestId);
+
+    private sealed class MutationLockStartBarrier(int expectedWaiters)
+    {
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _waiterCount;
+
+        public List<long> AcquiredResources { get; } = [];
+
+        public Task WaitAsync(long resource, CancellationToken cancellationToken)
+        {
+            AcquiredResources.Add(resource);
+            if (Interlocked.Increment(ref _waiterCount) == expectedWaiters)
+            {
+                _release.TrySetResult();
+            }
+
+            return _release.Task.WaitAsync(cancellationToken);
+        }
+    }
+
+    private sealed class CoordinatedSqlServerItineraryMutationLock(
+        ApplicationDbContext dbContext,
+        MutationLockStartBarrier barrier)
+        : IItineraryMutationLock
+    {
+        private readonly SqlServerItineraryMutationLock _inner = new(dbContext);
+
+        public async Task AcquireAsync(long mutationResourceId, CancellationToken cancellationToken)
+        {
+            await barrier.WaitAsync(mutationResourceId, cancellationToken);
+            await _inner.AcquireAsync(mutationResourceId, cancellationToken);
+        }
+    }
 
     private sealed class FixedDateTimeProvider : IDateTimeProvider
     {
