@@ -46,6 +46,7 @@ internal sealed class TourMediaCleanupProcessor(
 {
     private const string UnknownProviderFailureCode = "TOUR_MEDIA_CLEANUP_UNCLASSIFIED";
 
+    /// <summary>Processes at most batchSize items per run, claiming each just before I/O.</summary>
     public async Task<int> ProcessDueBatchAsync(
         TimeSpan leaseDuration,
         int batchSize,

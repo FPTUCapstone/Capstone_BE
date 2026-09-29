@@ -170,33 +170,41 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         (await dbContext.SchedulingRequests.CountAsync()).Should().Be(4);
     }
 
+    [Theory]
+    [InlineData(false, null)]
+    [InlineData(true, null)]
+    [InlineData(true, "")]
+    [InlineData(true, "   ")]
+    [InlineData(true, "not-json")]
+    [InlineData(true, "[\"unknown\"]")]
+    public async Task Handle_ProfileWithoutMatchingInterest_PreservesFallbackOrdering(
+        bool profileExists,
+        string? interestTagsJson)
+    {
+        await using var dbContext = TestDbContext.Create();
+        var (fallbackPoi, _) = await SeedPreferenceRankingPoisAsync(dbContext);
+        if (profileExists)
+        {
+            dbContext.TravelerProfiles.Add(TravelerProfile.Create(
+                42,
+                interestTagsJson,
+                _clock.UtcNow));
+            await dbContext.SaveChangesAsync();
+        }
+
+        var result = await CreateHandler(dbContext).Handle(
+            CreateCommand(Guid.NewGuid()),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        VisitPoiIds(result.Value).Should().StartWith(fallbackPoi.Id);
+    }
+
     [Fact]
     public async Task Handle_UsesSavedTravelerInterestTagsToRankOptionalPois()
     {
         await using var dbContext = TestDbContext.Create();
-        var preferredCategory = PoiCategory.Create("Culture", null);
-        var otherCategory = PoiCategory.Create("Nature", null);
-        var preferredPoi = PointOfInterest.Create(
-            preferredCategory,
-            "Preferred museum",
-            16.0471m,
-            108.2068m,
-            1,
-            _clock.UtcNow,
-            averageVisitDurationMinutes: 60);
-        preferredPoi.ConfigurePlanningMetadata(60_000m, "https://example.com/preferred", _clock.UtcNow);
-        preferredPoi.AddOpeningHour(PoiOpeningHour.Create(2, new TimeOnly(7, 0), new TimeOnly(20, 0), false));
-        var otherPoi = PointOfInterest.Create(
-            otherCategory,
-            "Other attraction",
-            16.0472m,
-            108.2069m,
-            1,
-            _clock.UtcNow,
-            averageVisitDurationMinutes: 60);
-        otherPoi.ConfigurePlanningMetadata(60_000m, "https://example.com/other", _clock.UtcNow);
-        otherPoi.AddOpeningHour(PoiOpeningHour.Create(2, new TimeOnly(7, 0), new TimeOnly(20, 0), false));
-        dbContext.PointsOfInterest.AddRange(otherPoi, preferredPoi);
+        var (_, preferredPoi) = await SeedPreferenceRankingPoisAsync(dbContext);
         dbContext.TravelerProfiles.Add(TravelerProfile.Create(
             42,
             "[\"culture\"]",
@@ -208,10 +216,82 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
             CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
-        result.Value.Items
-            .Where(item => item.ItemKind == ItineraryItemKind.Visit)
-            .Select(item => item.PoiId)
-            .Should().StartWith(preferredPoi.Id);
+        VisitPoiIds(result.Value).Should().StartWith(preferredPoi.Id);
+    }
+
+    [Fact]
+    public async Task Handle_SameKeyAndPayload_WhenTravelerProfileAdded_ReplaysOriginalItinerary()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var (fallbackPoi, _) = await SeedPreferenceRankingPoisAsync(dbContext);
+        var handler = CreateHandler(dbContext);
+        var command = CreateCommand(Guid.NewGuid());
+
+        var first = await handler.Handle(command, CancellationToken.None);
+        first.IsSuccess.Should().BeTrue();
+        var originalOrder = VisitPoiIds(first.Value);
+        originalOrder.Should().StartWith(fallbackPoi.Id);
+
+        dbContext.TravelerProfiles.Add(TravelerProfile.Create(
+            42,
+            "[\"culture\"]",
+            _clock.UtcNow));
+        await dbContext.SaveChangesAsync();
+
+        var replay = await handler.Handle(command, CancellationToken.None);
+
+        replay.IsSuccess.Should().BeTrue();
+        await AssertSuccessfulReplayAsync(dbContext, first.Value, replay.Value, originalOrder);
+    }
+
+    [Fact]
+    public async Task Handle_SameKeyAndPayload_WhenTravelerProfileChanged_ReplaysOriginalItinerary()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var (fallbackPoi, _) = await SeedPreferenceRankingPoisAsync(dbContext);
+        var profile = TravelerProfile.Create(42, "[\"unknown\"]", _clock.UtcNow);
+        dbContext.TravelerProfiles.Add(profile);
+        await dbContext.SaveChangesAsync();
+        var handler = CreateHandler(dbContext);
+        var command = CreateCommand(Guid.NewGuid());
+
+        var first = await handler.Handle(command, CancellationToken.None);
+        first.IsSuccess.Should().BeTrue();
+        var originalOrder = VisitPoiIds(first.Value);
+        originalOrder.Should().StartWith(fallbackPoi.Id);
+
+        dbContext.Entry(profile).Property(item => item.InterestTagsJson).CurrentValue = "[\"culture\"]";
+        await dbContext.SaveChangesAsync();
+
+        var replay = await handler.Handle(command, CancellationToken.None);
+
+        replay.IsSuccess.Should().BeTrue();
+        await AssertSuccessfulReplayAsync(dbContext, first.Value, replay.Value, originalOrder);
+    }
+
+    [Fact]
+    public async Task Handle_SameKeyAndPayload_WhenTravelerProfileRemoved_ReplaysOriginalItinerary()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var (_, preferredPoi) = await SeedPreferenceRankingPoisAsync(dbContext);
+        var profile = TravelerProfile.Create(42, "[\"culture\"]", _clock.UtcNow);
+        dbContext.TravelerProfiles.Add(profile);
+        await dbContext.SaveChangesAsync();
+        var handler = CreateHandler(dbContext);
+        var command = CreateCommand(Guid.NewGuid());
+
+        var first = await handler.Handle(command, CancellationToken.None);
+        first.IsSuccess.Should().BeTrue();
+        var originalOrder = VisitPoiIds(first.Value);
+        originalOrder.Should().StartWith(preferredPoi.Id);
+
+        dbContext.TravelerProfiles.Remove(profile);
+        await dbContext.SaveChangesAsync();
+
+        var replay = await handler.Handle(command, CancellationToken.None);
+
+        replay.IsSuccess.Should().BeTrue();
+        await AssertSuccessfulReplayAsync(dbContext, first.Value, replay.Value, originalOrder);
     }
 
     [Fact]
@@ -274,6 +354,69 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         dbContext.PointsOfInterest.Add(poi);
         await dbContext.SaveChangesAsync();
         return poi;
+    }
+
+    private async Task<(PointOfInterest FallbackPoi, PointOfInterest PreferredPoi)>
+        SeedPreferenceRankingPoisAsync(TestDbContext dbContext)
+    {
+        var fallbackPoi = CreateSelectablePoi(
+            PoiCategory.Create("Nature", null),
+            "Fallback attraction",
+            16.0471m,
+            108.2068m,
+            "https://example.com/fallback");
+        var preferredPoi = CreateSelectablePoi(
+            PoiCategory.Create("Culture", null),
+            "Preferred museum",
+            16.0472m,
+            108.2069m,
+            "https://example.com/preferred");
+
+        dbContext.PointsOfInterest.AddRange(fallbackPoi, preferredPoi);
+        await dbContext.SaveChangesAsync();
+        return (fallbackPoi, preferredPoi);
+    }
+
+    private PointOfInterest CreateSelectablePoi(
+        PoiCategory category,
+        string name,
+        decimal latitude,
+        decimal longitude,
+        string sourceUrl)
+    {
+        var poi = PointOfInterest.Create(
+            category,
+            name,
+            latitude,
+            longitude,
+            1,
+            _clock.UtcNow,
+            averageVisitDurationMinutes: 60);
+        poi.ConfigurePlanningMetadata(60_000m, sourceUrl, _clock.UtcNow);
+        poi.AddOpeningHour(PoiOpeningHour.Create(
+            2,
+            new TimeOnly(7, 0),
+            new TimeOnly(20, 0),
+            false));
+        return poi;
+    }
+
+    private static long?[] VisitPoiIds(SchedulingResponseDto response) =>
+        response.Items
+            .Where(item => item.ItemKind == ItineraryItemKind.Visit)
+            .Select(item => item.PoiId)
+            .ToArray();
+
+    private static async Task AssertSuccessfulReplayAsync(
+        TestDbContext dbContext,
+        SchedulingResponseDto first,
+        SchedulingResponseDto replay,
+        IReadOnlyCollection<long?> originalOrder)
+    {
+        replay.ItineraryId.Should().Be(first.ItineraryId);
+        VisitPoiIds(replay).Should().Equal(originalOrder);
+        (await dbContext.Itineraries.CountAsync()).Should().Be(1);
+        (await dbContext.SchedulingRequests.CountAsync()).Should().Be(1);
     }
 
     private static CreateSchedulingRequestCommand CreateCommand(Guid key) => new(

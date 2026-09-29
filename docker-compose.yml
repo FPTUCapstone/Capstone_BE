@@ -61,6 +61,8 @@ services:
       Jwt__Issuer: TripMate
       Jwt__Audience: TripMateClients
       Jwt__SigningKey: ${JWT_SIGNING_KEY}
+      OPENROUTESERVICE__APIKEY: ${OPENROUTESERVICE__APIKEY:?OPENROUTESERVICE__APIKEY must be set in .env}
+      OPENROUTESERVICE__BASEURL: ${OPENROUTESERVICE__BASEURL:-https://api.heigit.org/openrouteservice/}
       Cors__AllowedOrigins__0: http://localhost:3001
       Cors__AllowedOrigins__1: http://localhost:3005
       Cors__AllowedOrigins__2: http://localhost:3000

@@ -330,6 +330,106 @@ public sealed class CreateSchedulingRequestSqlServerTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
+    public async Task Tm213_TravelerProfileRawSqlRoundTrip_MaterializesAllPreferenceFields()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database);
+        await database.ExecuteNonQueryAsync($"""
+            INSERT INTO dbo.TravelerProfiles (
+                user_id,
+                interest_tags_json,
+                preferred_transport_mode,
+                travel_pace,
+                risk_tolerance,
+                food_preferences_json,
+                default_budget)
+            VALUES (
+                {seed.UserId},
+                N'["beach","cafe"]',
+                'Motorbike',
+                'Moderate',
+                'Medium',
+                N'["vegetarian"]',
+                1000000.00);
+            """);
+
+        await using var context = database.CreateDbContext();
+        var profile = await context.TravelerProfiles
+            .AsNoTracking()
+            .SingleAsync(item => item.UserId == seed.UserId);
+
+        profile.InterestTagsJson.Should().Be("[\"beach\",\"cafe\"]");
+        profile.PreferredTransportMode.Should().Be(TransportMode.Motorbike);
+        profile.TravelPace.Should().Be(TravelerPace.Moderate);
+        profile.RiskTolerance.Should().Be(RiskToleranceLevel.Medium);
+        profile.FoodPreferencesJson.Should().Be("[\"vegetarian\"]");
+        profile.DefaultBudget.Should().Be(1_000_000.00m);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Tm213_MatchingInterest_OutranksHigherScenicPoi()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await ApplySchedulingMigrationsAsync(database);
+        var seed = await SeedPreferenceScenarioAsync(database, includeProfile: true);
+
+        long itineraryId;
+        await using (var context = database.CreateDbContext())
+        {
+            var result = await CreateHandler(context).Handle(
+                CreateCommand(seed.UserId, Guid.NewGuid()),
+                CancellationToken.None);
+            result.IsSuccess.Should().BeTrue();
+            itineraryId = result.Value.ItineraryId;
+        }
+
+        await using var verification = database.CreateDbContext();
+        var persistedOrder = await verification.ItineraryItems
+            .AsNoTracking()
+            .Where(item => item.ItineraryId == itineraryId
+                && item.Kind == ItineraryItemKind.Visit)
+            .OrderBy(item => item.SequenceNo)
+            .Select(item => item.PointOfInterestId)
+            .ToArrayAsync();
+
+        persistedOrder.Should().StartWith(
+            new long?[] { seed.PreferredPoiId, seed.HigherScenicPoiId });
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Tm213_AbsentProfile_UsesFallbackScenicOrdering()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await ApplySchedulingMigrationsAsync(database);
+        var seed = await SeedPreferenceScenarioAsync(database, includeProfile: false);
+
+        long itineraryId;
+        await using (var context = database.CreateDbContext())
+        {
+            var result = await CreateHandler(context).Handle(
+                CreateCommand(seed.UserId, Guid.NewGuid()),
+                CancellationToken.None);
+            result.IsSuccess.Should().BeTrue();
+            itineraryId = result.Value.ItineraryId;
+        }
+
+        await using var verification = database.CreateDbContext();
+        var persistedOrder = await verification.ItineraryItems
+            .AsNoTracking()
+            .Where(item => item.ItineraryId == itineraryId
+                && item.Kind == ItineraryItemKind.Visit)
+            .OrderBy(item => item.SequenceNo)
+            .Select(item => item.PointOfInterestId)
+            .ToArrayAsync();
+
+        persistedOrder.Should().StartWith(
+            new long?[] { seed.HigherScenicPoiId, seed.PreferredPoiId });
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
     public async Task ConcurrentSameKey_CreatesOneItineraryAndReplaysOriginalResult()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
@@ -426,6 +526,91 @@ public sealed class CreateSchedulingRequestSqlServerTests
         context.PointsOfInterest.Add(poi);
         await context.SaveChangesAsync();
         return (user.Id, poi.Id);
+    }
+
+    private static async Task<(long UserId, long PreferredPoiId, long HigherScenicPoiId)>
+        SeedPreferenceScenarioAsync(
+            SqlServerTestDatabase database,
+            bool includeProfile)
+    {
+        await using var context = database.CreateDbContext();
+        var now = new FixedDateTimeProvider().UtcNow;
+        var user = new User
+        {
+            Email = "tm213-scheduling-sql@example.com",
+            FullName = "TM-213 SQL Traveler",
+            Role = UserRole.Traveler,
+            Status = AccountStatus.Active,
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now,
+        };
+        context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        var preferredPoi = CreateSelectablePoi(
+            PoiCategory.Create("Culture", null),
+            "TM-213 preferred museum",
+            16.0472m,
+            108.2069m,
+            user.Id,
+            now,
+            "https://example.com/tm213-preferred");
+        var higherScenicPoi = CreateSelectablePoi(
+            PoiCategory.Create("Nature", null),
+            "TM-213 higher scenic attraction",
+            16.0471m,
+            108.2068m,
+            user.Id,
+            now,
+            "https://example.com/tm213-scenic");
+        context.PointsOfInterest.AddRange(preferredPoi, higherScenicPoi);
+        await context.SaveChangesAsync();
+
+        await database.ExecuteNonQueryAsync($"""
+            UPDATE catalog.POIs
+            SET scenic_score = CASE
+                WHEN poi_id = {preferredPoi.Id} THEN 1.00
+                WHEN poi_id = {higherScenicPoi.Id} THEN 9.00
+                ELSE scenic_score
+            END
+            WHERE poi_id IN ({preferredPoi.Id}, {higherScenicPoi.Id});
+            """);
+
+        if (includeProfile)
+        {
+            await database.ExecuteNonQueryAsync($"""
+                INSERT INTO dbo.TravelerProfiles (user_id, interest_tags_json)
+                VALUES ({user.Id}, N'["culture"]');
+                """);
+        }
+
+        return (user.Id, preferredPoi.Id, higherScenicPoi.Id);
+    }
+
+    private static PointOfInterest CreateSelectablePoi(
+        PoiCategory category,
+        string name,
+        decimal latitude,
+        decimal longitude,
+        long createdById,
+        DateTimeOffset now,
+        string sourceUrl)
+    {
+        var poi = PointOfInterest.Create(
+            category,
+            name,
+            latitude,
+            longitude,
+            createdById,
+            now,
+            averageVisitDurationMinutes: 60);
+        poi.ConfigurePlanningMetadata(60_000m, sourceUrl, now);
+        poi.AddOpeningHour(PoiOpeningHour.Create(
+            2,
+            new TimeOnly(7, 0),
+            new TimeOnly(20, 0),
+            false));
+        return poi;
     }
 
     private static CreateSchedulingRequestCommand CreateCommand(long userId, Guid key) => new(
