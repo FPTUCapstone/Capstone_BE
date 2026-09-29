@@ -6,6 +6,8 @@ public static class AuditActionTypes
 
     public const string OperatorApplicationApprove = "ApproveOperatorApplication";
 
+    public const string OperatorApplicationReject = "RejectOperatorApplication";
+
     public const string TourMediaUpload = "TOUR_MEDIA_UPLOAD";
     public const string TourMediaMetadataUpdated = "TOUR_MEDIA_METADATA_UPDATED";
     public const string TourMediaReordered = "TOUR_MEDIA_REORDERED";

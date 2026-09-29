@@ -119,6 +119,29 @@ public sealed class TripMateApiFactory(
                 services.AddScoped<ITourMediaCleanupOutboxStore, NoOpTourMediaCleanupOutboxStore>();
                 services.AddScoped<IRouteDurationProvider, TestRouteDurationProvider>();
             }
+            else if (saveChangesInterceptor is not null || dbInterceptor is not null)
+            {
+                services.RemoveAll<ApplicationDbContext>();
+                services.RemoveAll<DbContextOptions<ApplicationDbContext>>();
+                services.RemoveAll<IApplicationDbContext>();
+
+                services.AddDbContext<ApplicationDbContext>(options =>
+                {
+                    options.UseSqlServer(sqlServerConnectionString);
+
+                    if (saveChangesInterceptor is not null)
+                    {
+                        options.AddInterceptors(saveChangesInterceptor);
+                    }
+
+                    if (dbInterceptor is not null)
+                    {
+                        options.AddInterceptors(dbInterceptor);
+                    }
+                });
+                services.AddScoped<IApplicationDbContext>(provider =>
+                    provider.GetRequiredService<ApplicationDbContext>());
+            }
 
             if (firebaseServiceFactory is not null)
             {

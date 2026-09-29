@@ -7,6 +7,8 @@ namespace TripMate.Domain.Entities;
 /// </summary>
 public class OperatorProfile
 {
+    public const int RejectionReasonMaxLength = 500;
+
     public long UserId { get; set; }
 
     public User User { get; set; } = null!;

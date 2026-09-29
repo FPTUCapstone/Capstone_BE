@@ -114,6 +114,21 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.NotPending =>
                 StatusCodes.Status409Conflict,
 
+            TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.WrongRole =>
+                StatusCodes.Status422UnprocessableEntity,
+
+            TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.Incomplete =>
+                StatusCodes.Status422UnprocessableEntity,
+
+            TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.DocumentInvalid =>
+                StatusCodes.Status422UnprocessableEntity,
+
+            TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.RejectionReasonRequired =>
+                StatusCodes.Status422UnprocessableEntity,
+
+            TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.RejectionReasonTooLong =>
+                StatusCodes.Status422UnprocessableEntity,
+
             PoiErrorCodes.AdminAccessRequired =>
                 StatusCodes.Status403Forbidden,
 
