@@ -60,6 +60,9 @@ public interface IApplicationDbContext
 
     DbSet<SchedulingRequest> SchedulingRequests { get; }
 
+    DbSet<RecommendationBehaviorEvent> RecommendationBehaviorEvents =>
+        throw new NotSupportedException("Recommendation behavior events are unavailable in this context.");
+
     DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests { get; }
 
     DbSet<GroupInvitation> GroupInvitations { get; }
