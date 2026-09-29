@@ -1,9 +1,22 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
+
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
+
 using Serilog;
+
+using TripMate.Api.Authorization;
+using TripMate.Api.Common;
 using TripMate.Api.Middleware;
+using TripMate.Api.OpenApi;
 using TripMate.Application;
 using TripMate.Infrastructure;
 using TripMate.Infrastructure.Authentication;
@@ -24,12 +37,71 @@ try
     builder.Services.AddApplication();
     builder.Services.AddInfrastructure(builder.Configuration);
 
-    builder.Services.AddControllers();
+    // AGENTS.md §5.4: credentials must come from environment variables or User Secrets,
+    // never from committed configuration files.
+    if (string.IsNullOrWhiteSpace(builder.Configuration.GetConnectionString("Default")))
+    {
+        throw new InvalidOperationException(
+            "ConnectionStrings:Default is not configured. Set it via environment variable (ConnectionStrings__Default) or User Secrets.");
+    }
+
+    if (!builder.Environment.IsDevelopment()
+        && !builder.Environment.IsEnvironment("Testing")
+        && !Uri.TryCreate(
+            builder.Configuration["EmailVerification:ContinueUrl"],
+            UriKind.Absolute,
+            out _))
+    {
+        throw new InvalidOperationException(
+            "EmailVerification:ContinueUrl must be configured as an absolute public FE callback URL.");
+    }
+
+    var jsonNamingPolicy = JsonNamingPolicy.CamelCase;
+    builder.Services
+        .AddControllers()
+        .AddJsonOptions(options =>
+        {
+            options.JsonSerializerOptions.PropertyNamingPolicy = jsonNamingPolicy;
+            options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+        });
+
+    builder.Services.Configure<ApiBehaviorOptions>(options =>
+    {
+        options.InvalidModelStateResponseFactory = context =>
+        {
+            var services = context.HttpContext.RequestServices;
+            var problemDetailsFactory = services.GetRequiredService<ProblemDetailsFactory>();
+            var serializerOptions = services
+                .GetRequiredService<IOptions<JsonOptions>>()
+                .Value
+                .JsonSerializerOptions;
+            var problem = problemDetailsFactory.CreateValidationProblemDetails(
+                context.HttpContext,
+                context.ModelState);
+
+            ValidationErrorKeyNormalizer.NormalizeInPlace(
+                problem.Errors,
+                serializerOptions.PropertyNamingPolicy);
+
+            if (context.HttpContext.Request.Path.StartsWithSegments("/api/v1/auth/web"))
+                problem.Extensions["errorCode"] = TripMate.Application.Features.Authentication.Common.AuthErrorCodes.RequestInvalid;
+
+            var result = new BadRequestObjectResult(problem);
+            result.ContentTypes.Add("application/problem+json");
+            return result;
+        };
+    });
 
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen(options =>
     {
         options.SwaggerDoc("v1", new OpenApiInfo { Title = "TripMate API", Version = "v1" });
+        options.SchemaFilter<PoiEnumSchemaFilter>();
+        options.SchemaFilter<PoiContractSchemaFilter>();
+        options.SchemaFilter<ProblemDetailsContractSchemaFilter>();
+        options.OperationFilter<AllowAnonymousOperationFilter>();
+        options.OperationFilter<TourSearchOperationFilter>();
+        options.OperationFilter<QueryParameterCamelCaseOperationFilter>();
 
         options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
         {
@@ -47,8 +119,18 @@ try
         });
     });
 
-    var jwtOptions = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>()
-        ?? throw new InvalidOperationException("Jwt configuration section is missing.");
+    var jwtSection = builder.Configuration.GetSection(JwtOptions.SectionName);
+    var jwtOptions = jwtSection.Get<JwtOptions>() ?? new JwtOptions();
+    var signingKey = !string.IsNullOrWhiteSpace(jwtOptions.SigningKey)
+        ? jwtOptions.SigningKey
+        : jwtSection["SigningKey"];
+    if (string.IsNullOrWhiteSpace(signingKey))
+    {
+        throw new InvalidOperationException(
+            "Jwt:SigningKey is not configured. Set it via environment variable or User Secrets.");
+    }
+    var issuer = !string.IsNullOrWhiteSpace(jwtOptions.Issuer) ? jwtOptions.Issuer : "TripMate";
+    var audience = !string.IsNullOrWhiteSpace(jwtOptions.Audience) ? jwtOptions.Audience : "TripMateClients";
 
     builder.Services
         .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -60,15 +142,18 @@ try
                 ValidateAudience = true,
                 ValidateLifetime = true,
                 ValidateIssuerSigningKey = true,
-                ValidIssuer = jwtOptions.Issuer,
-                ValidAudience = jwtOptions.Audience,
+                ValidIssuer = issuer,
+                ValidAudience = audience,
                 IssuerSigningKey = new SymmetricSecurityKey(
-                    Convert.FromBase64String(jwtOptions.SigningKey)),
+                    Convert.FromBase64String(signingKey)),
                 ClockSkew = TimeSpan.FromMinutes(1),
             };
         });
 
     builder.Services.AddAuthorization();
+    builder.Services.AddSingleton<
+        IAuthorizationMiddlewareResultHandler,
+        ProblemDetailsAuthorizationMiddlewareResultHandler>();
 
     const string corsPolicyName = "TripMateClients";
     builder.Services.AddCors(options =>
@@ -79,12 +164,53 @@ try
                 .GetSection("Cors:AllowedOrigins")
                 .Get<string[]>() ?? [];
 
-            policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod();
+            policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials();
         });
+    });
+
+    // UC-06 password reset: account-independent per-IP abuse limiting. The account-level
+    // 60-second resend cooldown stays inside the request flow (generic 200) and never
+    // becomes an HTTP 429.
+    builder.Services.AddRateLimiter(options =>
+    {
+        options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+        options.OnRejected = static async (context, cancellationToken) =>
+        {
+            // The 429 payload matches the documented ProblemDetails contract and carries no
+            // account information — only the fact that this transport/IP is throttled.
+            context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+            await context.HttpContext.Response.WriteAsJsonAsync(
+                new ProblemDetails
+                {
+                    Title = "Too many requests.",
+                    Status = StatusCodes.Status429TooManyRequests,
+                },
+                cancellationToken);
+        };
+        options.AddPolicy(PasswordResetRateLimiter.PolicyName, context =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = PasswordResetRateLimiter.PermitLimit,
+                    Window = PasswordResetRateLimiter.Window,
+                    QueueLimit = 0,
+                }));
+        options.AddPolicy(EmailVerificationResendRateLimiter.PolicyName, context =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = EmailVerificationResendRateLimiter.PermitLimit,
+                    Window = EmailVerificationResendRateLimiter.Window,
+                    QueueLimit = 0,
+                }));
     });
 
     var app = builder.Build();
 
+    // Outer middleware observes the status after validation exceptions are mapped to 400.
+    app.UseMiddleware<RequestRejectionLoggingMiddleware>();
     app.UseMiddleware<ExceptionHandlingMiddleware>();
 
     if (app.Environment.IsDevelopment())
@@ -93,12 +219,14 @@ try
         app.UseSwaggerUI();
     }
 
-    app.UseHttpsRedirection();
-
     app.UseCors(corsPolicyName);
+
+    app.UseHttpsRedirection();
 
     app.UseAuthentication();
     app.UseAuthorization();
+
+    app.UseRateLimiter();
 
     app.MapControllers();
 

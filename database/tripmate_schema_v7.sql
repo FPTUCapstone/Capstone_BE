@@ -18,6 +18,14 @@
         §5.3 was authored for TripMate. Replaced with the full, real
         130-row Application Messages List (MSG01–MSG130) from the
         authored SRS §5.3.
+     3. TM-98 documentation clarification only (no DDL or seed-data
+        change): TM-98 leaves catalog.POIs.scenic_score and photo_rating
+        NULL on creation. Populating them later requires a separately
+        approved aggregation flow.
+     4. TM-70 adds commerce.Tours.destination as nullable NVARCHAR(300)
+        using Vietnamese_100_CI_AS and enforces whole-VND base_price
+        values. Existing v7 databases use the matching idempotent script
+        in database/migrations/20260915_add_tour_search_fields.sql.
 
    v6 changes vs v5:
 
@@ -63,11 +71,10 @@
         redeploy to change. Flagging this trade-off explicitly.
      3. NEW catalog.FavoritePOIs — lets a Traveler bookmark a POI.
      4. social.Reviews — added scenic_rating/photo_rating (only when
-        target_type = 'POI'). catalog.POIs.scenic_score/photo_rating are
-        Admin-seeded on POI creation (UC-52) as a cold-start value, then
-        intended to be refreshed periodically as an average of these
-        per-review ratings once enough reviews exist (batch job, not yet
-        implemented — application-layer concern).
+        target_type = 'POI'). The original Admin-seeded cold-start
+        proposal was superseded by TM-98: catalog.POIs.scenic_score and
+        photo_rating remain NULL on creation and may be populated only by
+        a separately approved review-aggregation flow.
      5. commerce.BookingParticipants — added id_document_type,
         id_document_number, nationality for premium/international tours
         that require real identity verification. Contains PII — per
@@ -160,7 +167,7 @@ CREATE TABLE dbo.Users (
         CHECK (role IN ('Traveler','TourOperator','Administrator')),
     email               NVARCHAR(256) NULL,
     phone_number        NVARCHAR(20)  NULL,
-    password_hash       NVARCHAR(256) NULL,          -- NULL allowed: social-login-only accounts
+    password_hash       NVARCHAR(256) NULL,
     full_name           NVARCHAR(150) NOT NULL,
     avatar_url          NVARCHAR(500) NULL,
     status              VARCHAR(24)   NOT NULL DEFAULT 'Active'
@@ -307,6 +314,8 @@ CREATE TABLE dbo.AuditLogs (
     affected_entity_id   BIGINT NULL,
     before_data           NVARCHAR(MAX) NULL,
     after_data            NVARCHAR(MAX) NULL,
+    result                VARCHAR(20) NULL CONSTRAINT CK_AuditLogs_Result CHECK (result IN ('Success', 'Failure')),
+    reason                NVARCHAR(1000) NULL,
     ip_address            VARCHAR(45) NULL,
     created_at            DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
 );
@@ -337,18 +346,22 @@ CREATE TABLE catalog.POIs (
     address                     NVARCHAR(400) NULL,
     indoor_outdoor               VARCHAR(10) NOT NULL DEFAULT 'Outdoor'
         CHECK (indoor_outdoor IN ('Indoor','Outdoor','Mixed')),
-    -- Admin-seeded on creation (UC-52) as a cold-start value. Once a POI has
-    -- enough reviews, intended to be refreshed as an average of
-    -- social.Reviews.scenic_rating / photo_rating (target_type = 'POI') via
-    -- a periodic job — not yet implemented, application-layer concern.
+    -- TM-98 leaves these nullable cold-start scores unset on creation.
+    -- A later approved aggregation flow may populate them from
+    -- social.Reviews.scenic_rating / photo_rating (target_type = 'POI').
     scenic_score                 DECIMAL(3,1) NULL CHECK (scenic_score BETWEEN 0 AND 10),
     photo_rating                 DECIMAL(3,1) NULL CHECK (photo_rating BETWEEN 0 AND 10),
     avg_visit_duration_minutes  INT NOT NULL DEFAULT 60 CHECK (avg_visit_duration_minutes > 0),
     has_shelter                  BIT NOT NULL DEFAULT 0,
+    estimated_visit_cost         DECIMAL(12,2) NULL,
+    source_url                   NVARCHAR(500) NULL,
+    verified_at                  DATETIME2 NULL,
     status                       VARCHAR(10) NOT NULL DEFAULT 'Active' CHECK (status IN ('Active','Inactive')),
     created_by                   BIGINT NULL REFERENCES dbo.Users(user_id),
     created_at                   DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
-    updated_at                   DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+    updated_at                   DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT CK_POIs_EstimatedVisitCost_NonNegative
+        CHECK (estimated_visit_cost IS NULL OR estimated_visit_cost >= 0)
 );
 GO
 CREATE INDEX IX_POIs_Category ON catalog.POIs(category_id);
@@ -424,11 +437,22 @@ GO
    Covers UC-35..UC-37, UC-60, UC-61
    ===================================================================== */
 
+-- TM-70: TripMate-managed search regions; POIs and itinerary stops remain independent.
+CREATE TABLE catalog.Destinations (
+    destination_id BIGINT IDENTITY(1,1) NOT NULL
+        CONSTRAINT PK_Destinations PRIMARY KEY,
+    name NVARCHAR(300) COLLATE Vietnamese_100_CI_AS NOT NULL
+);
+GO
+CREATE UNIQUE INDEX UX_Destinations_Name ON catalog.Destinations(name);
+GO
+
 CREATE TABLE commerce.Tours (
     tour_id             BIGINT IDENTITY(1,1) PRIMARY KEY,
     operator_user_id    BIGINT NOT NULL REFERENCES dbo.OperatorProfiles(user_id),
     title                NVARCHAR(200) NOT NULL,
     description           NVARCHAR(MAX) NULL,
+    destination            NVARCHAR(300) COLLATE Vietnamese_100_CI_AS NULL, -- legacy draft data only; TM-70 reads TourDestinations
     base_price            DECIMAL(12,2) NOT NULL CHECK (base_price >= 0),
     duration_days           INT NOT NULL DEFAULT 1 CHECK (duration_days > 0),
     status                  VARCHAR(12) NOT NULL DEFAULT 'Draft'
@@ -438,13 +462,191 @@ CREATE TABLE commerce.Tours (
     reviewed_at                DATETIME2 NULL,
     published_at                DATETIME2 NULL,
     created_at                  DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
-    updated_at                  DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+    updated_at                  DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT CK_Tours_BasePriceWholeVnd
+        CHECK (base_price = FLOOR(base_price))
     -- v2: slot_capacity/slots_booked moved to commerce.TourSchedules —
     -- a Tour is now a reusable template that can run on multiple dates.
 );
 GO
 CREATE INDEX IX_Tours_Operator ON commerce.Tours(operator_user_id);
 CREATE INDEX IX_Tours_Status ON commerce.Tours(status);
+GO
+
+-- TM-206: Tour-owned Cloudinary image metadata. Raw image binaries are never
+-- stored in SQL Server. Normal media removal is represented by lifecycle soft
+-- deletion; the cascade applies only when the parent Tour is physically deleted.
+CREATE TABLE commerce.TourMedia (
+    tour_media_id BIGINT IDENTITY(1,1) NOT NULL
+        CONSTRAINT PK_TourMedia PRIMARY KEY,
+    tour_id BIGINT NOT NULL,
+    cloudinary_public_id NVARCHAR(500) NOT NULL,
+    delivery_url NVARCHAR(1000) NOT NULL,
+    caption NVARCHAR(500) NULL,
+    sort_order INT NOT NULL,
+    is_primary BIT NOT NULL
+        CONSTRAINT DF_TourMedia_IsPrimary DEFAULT 0,
+    lifecycle_status VARCHAR(16) NOT NULL
+        CONSTRAINT DF_TourMedia_LifecycleStatus DEFAULT 'Active',
+    created_at DATETIME2 NOT NULL
+        CONSTRAINT DF_TourMedia_CreatedAt DEFAULT SYSUTCDATETIME(),
+    updated_at DATETIME2 NOT NULL
+        CONSTRAINT DF_TourMedia_UpdatedAt DEFAULT SYSUTCDATETIME(),
+    deleted_at DATETIME2 NULL,
+    alt_text NVARCHAR(500) COLLATE Vietnamese_100_CI_AS NOT NULL,
+    CONSTRAINT FK_TourMedia_Tours FOREIGN KEY (tour_id)
+        REFERENCES commerce.Tours(tour_id) ON DELETE CASCADE,
+    CONSTRAINT CK_TourMedia_SortOrderPositive CHECK (sort_order > 0),
+    CONSTRAINT CK_TourMedia_Lifecycle CHECK (
+        lifecycle_status IN ('Active','Deleted')),
+    CONSTRAINT CK_TourMedia_DeletedAt CHECK (
+        (lifecycle_status = 'Active' AND deleted_at IS NULL)
+        OR (lifecycle_status = 'Deleted' AND deleted_at IS NOT NULL))
+);
+GO
+CREATE UNIQUE INDEX UX_TourMedia_ActiveSortOrder
+    ON commerce.TourMedia(tour_id, sort_order)
+    WHERE lifecycle_status = 'Active';
+CREATE UNIQUE INDEX UX_TourMedia_ActivePrimary
+    ON commerce.TourMedia(tour_id)
+    WHERE lifecycle_status = 'Active' AND is_primary = 1;
+CREATE INDEX IX_TourMedia_TourLifecycleOrder
+    ON commerce.TourMedia(
+        tour_id, lifecycle_status, sort_order, tour_media_id);
+CREATE UNIQUE INDEX UX_TourMedia_CloudinaryPublicId
+    ON commerce.TourMedia(cloudinary_public_id);
+GO
+
+-- TM-207 upload idempotency state. File bytes, provider credentials,
+-- signatures, and raw Cloudinary responses are never persisted here.
+CREATE TABLE commerce.TourMediaUploadOperations (
+    upload_operation_id BIGINT IDENTITY(1,1) NOT NULL
+        CONSTRAINT PK_TourMediaUploadOperations PRIMARY KEY,
+    actor_user_id BIGINT NOT NULL,
+    tour_id BIGINT NOT NULL,
+    idempotency_key UNIQUEIDENTIFIER NOT NULL,
+    payload_fingerprint CHAR(64) COLLATE Latin1_General_100_BIN2 NOT NULL,
+    cloudinary_public_id NVARCHAR(500) NOT NULL,
+    operation_status VARCHAR(16) NOT NULL
+        CONSTRAINT DF_TourMediaUploadOperations_Status DEFAULT 'Pending',
+    tour_media_id BIGINT NULL,
+    provider_uploaded_at DATETIME2 NULL,
+    completed_at DATETIME2 NULL,
+    created_at DATETIME2 NOT NULL
+        CONSTRAINT DF_TourMediaUploadOperations_CreatedAt DEFAULT SYSUTCDATETIME(),
+    updated_at DATETIME2 NOT NULL
+        CONSTRAINT DF_TourMediaUploadOperations_UpdatedAt DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT FK_TourMediaUploadOperations_Actor FOREIGN KEY (actor_user_id)
+        REFERENCES dbo.Users(user_id),
+    CONSTRAINT FK_TourMediaUploadOperations_Tour FOREIGN KEY (tour_id)
+        REFERENCES commerce.Tours(tour_id) ON DELETE CASCADE,
+    CONSTRAINT CK_TourMediaUploadOperations_Fingerprint CHECK (
+        LEN(payload_fingerprint) = 64
+        AND payload_fingerprint NOT LIKE '%[^0-9A-F]%'
+            COLLATE Latin1_General_100_BIN2),
+    CONSTRAINT CK_TourMediaUploadOperations_Status CHECK (
+        operation_status IN ('Pending','Uploaded','Completed')),
+    CONSTRAINT CK_TourMediaUploadOperations_State CHECK (
+        (operation_status = 'Pending'
+            AND provider_uploaded_at IS NULL
+            AND tour_media_id IS NULL
+            AND completed_at IS NULL)
+        OR (operation_status = 'Uploaded'
+            AND provider_uploaded_at IS NOT NULL
+            AND tour_media_id IS NULL
+            AND completed_at IS NULL)
+        OR (operation_status = 'Completed'
+            AND provider_uploaded_at IS NOT NULL
+            AND tour_media_id IS NOT NULL
+            AND completed_at IS NOT NULL))
+);
+GO
+CREATE UNIQUE INDEX UX_TourMediaUploadOperations_ActorTourKey
+    ON commerce.TourMediaUploadOperations(
+        actor_user_id, tour_id, idempotency_key);
+CREATE UNIQUE INDEX UX_TourMediaUploadOperations_PublicId
+    ON commerce.TourMediaUploadOperations(cloudinary_public_id);
+CREATE INDEX IX_TourMediaUploadOperations_TourStatus
+    ON commerce.TourMediaUploadOperations(
+        tour_id, operation_status, upload_operation_id);
+GO
+
+-- TM-207 delayed Cloudinary cleanup. The media FK uses SET NULL so provider
+-- cleanup survives a physical parent-Tour cascade.
+CREATE TABLE commerce.TourMediaCleanupOutbox (
+    cleanup_outbox_id BIGINT IDENTITY(1,1) NOT NULL
+        CONSTRAINT PK_TourMediaCleanupOutbox PRIMARY KEY,
+    tour_media_id BIGINT NULL,
+    cloudinary_public_id NVARCHAR(500) NOT NULL,
+    cleanup_status VARCHAR(16) NOT NULL
+        CONSTRAINT DF_TourMediaCleanupOutbox_Status DEFAULT 'Pending',
+    not_before_at DATETIME2 NOT NULL,
+    attempt_count INT NOT NULL
+        CONSTRAINT DF_TourMediaCleanupOutbox_AttemptCount DEFAULT 0,
+    max_attempts INT NOT NULL
+        CONSTRAINT DF_TourMediaCleanupOutbox_MaxAttempts DEFAULT 8,
+    lease_token UNIQUEIDENTIFIER NULL,
+    lease_expires_at DATETIME2 NULL,
+    last_error_code NVARCHAR(100) NULL,
+    created_at DATETIME2 NOT NULL
+        CONSTRAINT DF_TourMediaCleanupOutbox_CreatedAt DEFAULT SYSUTCDATETIME(),
+    updated_at DATETIME2 NOT NULL
+        CONSTRAINT DF_TourMediaCleanupOutbox_UpdatedAt DEFAULT SYSUTCDATETIME(),
+    completed_at DATETIME2 NULL,
+    CONSTRAINT FK_TourMediaCleanupOutbox_TourMedia FOREIGN KEY (tour_media_id)
+        REFERENCES commerce.TourMedia(tour_media_id) ON DELETE SET NULL,
+    CONSTRAINT CK_TourMediaCleanupOutbox_Status CHECK (
+        cleanup_status IN ('Pending','InProgress','Completed','Exhausted')),
+    CONSTRAINT CK_TourMediaCleanupOutbox_Attempts CHECK (
+        max_attempts BETWEEN 1 AND 100
+        AND attempt_count BETWEEN 0 AND max_attempts),
+    CONSTRAINT CK_TourMediaCleanupOutbox_State CHECK (
+        (cleanup_status = 'Pending'
+            AND lease_token IS NULL
+            AND lease_expires_at IS NULL
+            AND completed_at IS NULL)
+        OR (cleanup_status = 'InProgress'
+            AND lease_token IS NOT NULL
+            AND lease_expires_at IS NOT NULL
+            AND completed_at IS NULL
+            AND attempt_count BETWEEN 1 AND max_attempts)
+        OR (cleanup_status = 'Completed'
+            AND lease_token IS NULL
+            AND lease_expires_at IS NULL
+            AND completed_at IS NOT NULL)
+        OR (cleanup_status = 'Exhausted'
+            AND lease_token IS NULL
+            AND lease_expires_at IS NULL
+            AND completed_at IS NOT NULL
+            AND attempt_count BETWEEN 1 AND max_attempts))
+);
+GO
+CREATE UNIQUE INDEX UX_TourMediaCleanupOutbox_PublicId
+    ON commerce.TourMediaCleanupOutbox(cloudinary_public_id);
+CREATE UNIQUE INDEX UX_TourMediaCleanupOutbox_Media
+    ON commerce.TourMediaCleanupOutbox(tour_media_id)
+    WHERE tour_media_id IS NOT NULL;
+CREATE INDEX IX_TourMediaCleanupOutbox_Due
+    ON commerce.TourMediaCleanupOutbox(
+        cleanup_status, not_before_at, lease_expires_at, cleanup_outbox_id);
+GO
+
+CREATE TABLE commerce.TourDestinations (
+    tour_id BIGINT NOT NULL,
+    destination_id BIGINT NOT NULL,
+    sequence_no INT NOT NULL,
+    CONSTRAINT PK_TourDestinations PRIMARY KEY (tour_id, destination_id),
+    CONSTRAINT FK_TourDestinations_Tours FOREIGN KEY (tour_id)
+        REFERENCES commerce.Tours(tour_id) ON DELETE CASCADE,
+    CONSTRAINT FK_TourDestinations_Destinations FOREIGN KEY (destination_id)
+        REFERENCES catalog.Destinations(destination_id),
+    CONSTRAINT CK_TourDestinations_SequencePositive CHECK (sequence_no > 0)
+);
+GO
+CREATE UNIQUE INDEX UX_TourDestinations_TourSequence
+    ON commerce.TourDestinations(tour_id, sequence_no);
+CREATE INDEX IX_TourDestinations_Destination
+    ON commerce.TourDestinations(destination_id);
 GO
 
 CREATE TABLE commerce.TourItineraryItems (
@@ -487,22 +689,48 @@ GO
 CREATE TABLE planning.SchedulingRequests (
     request_id                 BIGINT IDENTITY(1,1) PRIMARY KEY,
     traveler_user_id            BIGINT NOT NULL REFERENCES dbo.Users(user_id),
+    idempotency_key             UNIQUEIDENTIFIER NOT NULL,
+    request_hash                CHAR(64) NOT NULL,
+    start_at                    DATETIME2 NOT NULL,
+    time_zone_id                VARCHAR(100) NOT NULL
+        CONSTRAINT DF_SchedulingRequests_TimeZoneId DEFAULT 'Asia/Ho_Chi_Minh',
     start_latitude                DECIMAL(9,6) NOT NULL,
     start_longitude               DECIMAL(9,6) NOT NULL,
-    destination_latitude          DECIMAL(9,6) NULL,
-    destination_longitude         DECIMAL(9,6) NULL,
+    destination_latitude          DECIMAL(9,6) NOT NULL,
+    destination_longitude         DECIMAL(9,6) NOT NULL,
+    end_poi_id                    BIGINT NULL,
+    return_to_start               BIT NOT NULL
+        CONSTRAINT DF_SchedulingRequests_ReturnToStart DEFAULT 1,
     available_minutes             INT NOT NULL CHECK (available_minutes > 0),
-    search_radius_km               DECIMAL(6,2) NULL,   -- NEW in v4: bounds "explore around this area" requests
+    transport_mode                VARCHAR(20) NOT NULL
+        CONSTRAINT DF_SchedulingRequests_TransportMode DEFAULT 'Walking'
+        CONSTRAINT CK_SchedulingRequests_TransportMode
+        CHECK (transport_mode IN ('Walking','Motorbike','Car','PublicTransit')),
+    search_radius_km               DECIMAL(6,2) NOT NULL,   -- NEW in v4: bounds "explore around this area" requests
     budget                         DECIMAL(12,2) NULL,
-    mandatory_poi_ids_json          NVARCHAR(500) NULL,
+    mandatory_poi_ids_json          NVARCHAR(500) NOT NULL
+        CONSTRAINT DF_SchedulingRequests_MandatoryPoiIds DEFAULT (N'[]'),
     preferences_snapshot_json        NVARCHAR(MAX) NULL,
+    rest_preference                VARCHAR(10) NOT NULL
+        CONSTRAINT DF_SchedulingRequests_RestPreference DEFAULT 'Auto'
+        CONSTRAINT CK_SchedulingRequests_RestPreference
+        CHECK (rest_preference IN ('Auto','None','Frequent')),
     status                            VARCHAR(12) NOT NULL DEFAULT 'Pending'
         CHECK (status IN ('Pending','Processing','Completed','Failed')),
     requested_at                       DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
-    completed_at                        DATETIME2 NULL
+    completed_at                        DATETIME2 NULL,
+    failure_code                       VARCHAR(100) NULL,
+    failure_message                    NVARCHAR(500) NULL,
+    CONSTRAINT FK_SchedulingRequests_EndPoi
+        FOREIGN KEY (end_poi_id) REFERENCES catalog.POIs(poi_id),
+    CONSTRAINT CK_SchedulingRequests_EndChoice CHECK (
+        (return_to_start = 1 AND end_poi_id IS NULL)
+        OR (return_to_start = 0 AND end_poi_id IS NOT NULL))
 );
 GO
 CREATE INDEX IX_SchedulingRequests_Traveler ON planning.SchedulingRequests(traveler_user_id);
+CREATE UNIQUE INDEX UX_SchedulingRequests_Traveler_Key
+    ON planning.SchedulingRequests(traveler_user_id, idempotency_key);
 GO
 
 CREATE TABLE planning.Itineraries (
@@ -537,10 +765,13 @@ CREATE TABLE planning.ItineraryItems (
     item_id                       BIGINT IDENTITY(1,1) PRIMARY KEY,
     itinerary_id                   BIGINT NOT NULL REFERENCES planning.Itineraries(itinerary_id) ON DELETE CASCADE,
     sequence_no                     INT NOT NULL CHECK (sequence_no > 0),
-    poi_id                            BIGINT NOT NULL REFERENCES catalog.POIs(poi_id),
+    poi_id                            BIGINT NULL REFERENCES catalog.POIs(poi_id),
     planned_arrival                    DATETIME2 NULL,
     planned_departure                   DATETIME2 NULL,
     stay_duration_minutes                INT NOT NULL DEFAULT 60 CHECK (stay_duration_minutes > 0),
+    item_kind                          VARCHAR(10) NOT NULL
+        CONSTRAINT DF_ItineraryItems_ItemKind DEFAULT 'Visit'
+        CHECK (item_kind IN ('Visit','Rest')),
     is_mandatory                          BIT NOT NULL DEFAULT 0,
     estimated_cost                          DECIMAL(12,2) NULL,   -- NEW in v4: per-stop cost, lets the CSP engine track budget as it builds the itinerary
     recommendation_reason                     NVARCHAR(500) NULL,   -- NEW in v4: explains why the CSP engine chose this stop
@@ -549,7 +780,10 @@ CREATE TABLE planning.ItineraryItems (
     travel_duration_to_next_minutes         INT NULL,
     status                                   VARCHAR(10) NOT NULL DEFAULT 'Planned'
         CHECK (status IN ('Planned','Visited','Skipped')),
-    CONSTRAINT UQ_ItineraryItems UNIQUE (itinerary_id, sequence_no)
+    CONSTRAINT UQ_ItineraryItems UNIQUE (itinerary_id, sequence_no),
+    CONSTRAINT CK_ItineraryItems_KindPoi CHECK (
+        (item_kind = 'Visit' AND poi_id IS NOT NULL)
+        OR (item_kind = 'Rest' AND is_mandatory = 0))
 );
 GO
 CREATE INDEX IX_ItineraryItems_POI ON planning.ItineraryItems(poi_id);
@@ -1047,6 +1281,19 @@ CREATE TABLE social.TravelGroups (
 );
 GO
 
+CREATE TABLE social.TravelGroupCreationRequests (
+    request_id              BIGINT IDENTITY(1,1) PRIMARY KEY,
+    traveler_user_id        BIGINT NOT NULL REFERENCES dbo.Users(user_id),
+    idempotency_key         UNIQUEIDENTIFIER NOT NULL,
+    itinerary_id            BIGINT NOT NULL REFERENCES planning.Itineraries(itinerary_id),
+    group_name              NVARCHAR(150) NOT NULL,
+    group_id                BIGINT NOT NULL REFERENCES social.TravelGroups(group_id) ON DELETE CASCADE,
+    created_at              DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT UQ_TravelGroupCreationRequests_TravelerKey
+        UNIQUE (traveler_user_id, idempotency_key)
+);
+GO
+
 CREATE TABLE social.GroupMembers (
     group_id                     BIGINT NOT NULL REFERENCES social.TravelGroups(group_id) ON DELETE CASCADE,
     user_id                         BIGINT NOT NULL REFERENCES dbo.Users(user_id),
@@ -1069,6 +1316,33 @@ CREATE TABLE social.GroupInvitations (
     used_count                            INT NOT NULL DEFAULT 0,
     created_at                              DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
     CONSTRAINT CK_GroupInvitations_UsageWithinLimit CHECK (used_count <= max_uses)
+);
+GO
+
+CREATE TABLE social.GroupInvitationOperations (
+    operation_id         BIGINT IDENTITY(1,1) PRIMARY KEY,
+    traveler_user_id     BIGINT NOT NULL REFERENCES dbo.Users(user_id),
+    group_id             BIGINT NOT NULL REFERENCES social.TravelGroups(group_id),
+    operation_type       VARCHAR(20) NOT NULL
+        CHECK (operation_type IN ('GetOrCreate', 'Regenerate')),
+    idempotency_key      UNIQUEIDENTIFIER NOT NULL,
+    invitation_id        BIGINT NOT NULL REFERENCES social.GroupInvitations(invitation_id) ON DELETE CASCADE,
+    created_at           DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT UQ_GroupInvitationOperations_TravelerKey
+        UNIQUE (traveler_user_id, idempotency_key)
+);
+GO
+
+CREATE TABLE social.GroupJoinOperations (
+    join_operation_id    BIGINT IDENTITY(1,1) PRIMARY KEY,
+    traveler_user_id     BIGINT NOT NULL REFERENCES dbo.Users(user_id),
+    group_id             BIGINT NOT NULL REFERENCES social.TravelGroups(group_id),
+    invitation_id        BIGINT NOT NULL REFERENCES social.GroupInvitations(invitation_id) ON DELETE CASCADE,
+    invitation_code      VARCHAR(20) NOT NULL,
+    idempotency_key      UNIQUEIDENTIFIER NOT NULL,
+    created_at           DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT UQ_GroupJoinOperations_TravelerKey
+        UNIQUE (traveler_user_id, idempotency_key)
 );
 GO
 

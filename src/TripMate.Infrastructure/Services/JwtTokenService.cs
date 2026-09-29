@@ -1,8 +1,10 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
+
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+
 using TripMate.Application.Common.Interfaces;
 using TripMate.Domain.Entities;
 using TripMate.Infrastructure.Authentication;
@@ -26,7 +28,12 @@ public class JwtTokenService(IOptions<JwtOptions> options) : IJwtTokenService
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
         };
 
-        var signingKey = new SymmetricSecurityKey(Convert.FromBase64String(_options.SigningKey));
+        var keyString = !string.IsNullOrWhiteSpace(_options.SigningKey)
+            ? _options.SigningKey
+            : throw new InvalidOperationException(
+                "Jwt:SigningKey is not configured. Set it via environment variable or User Secrets.");
+
+        var signingKey = new SymmetricSecurityKey(Convert.FromBase64String(keyString));
         var credentials = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256);
 
         var token = new JwtSecurityToken(

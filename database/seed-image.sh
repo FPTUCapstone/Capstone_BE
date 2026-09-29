@@ -1,29 +1,37 @@
 #!/usr/bin/env bash
 # Runs ONLY during `docker build` of database/Dockerfile.seeded — starts SQL Server temporarily,
-# applies tripmate_schema_v7.sql, then shuts it down so the resulting layer (with TripMateDb
-# already created) gets committed into the image itself. Not used at container runtime.
+# applies tripmate_schema_v7.sql and every ordered database migration, then shuts it down so the
+# resulting layer (with TripMateDb already created) gets committed into the image itself. Not used
+# at container runtime.
 set -euo pipefail
 
 SQLCMD="/opt/mssql-tools18/bin/sqlcmd"
+: "${MSSQL_SA_PASSWORD:?The BuildKit sa_password secret must be supplied when building the seeded image.}"
 
 /opt/mssql/bin/sqlservr --accept-eula &
 SQLPID=$!
 
 echo "Waiting for SQL Server to start..."
 for _ in $(seq 1 60); do
-  if "$SQLCMD" -C -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -Q "SELECT 1" >/dev/null 2>&1; then
+  if "$SQLCMD" -b -V 11 -C -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -Q "SELECT 1" >/dev/null 2>&1; then
     echo "SQL Server is up."
     break
   fi
   sleep 1
 done
 
-"$SQLCMD" -C -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -d master \
+"$SQLCMD" -b -V 11 -C -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -d master \
   -Q "CREATE DATABASE TripMateDb;"
 
-"$SQLCMD" -C -I -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -d TripMateDb \
+"$SQLCMD" -b -V 11 -C -I -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -d TripMateDb \
   -i /tmp/tripmate_schema_v7.sql
 
-echo "Schema seeded. Shutting down SQL Server so the data gets committed into the image..."
+for migrationPath in /tmp/migrations/*.sql; do
+  echo "Applying database migration: ${migrationPath}"
+  "$SQLCMD" -b -V 11 -C -I -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -d TripMateDb \
+    -i "$migrationPath"
+done
+
+echo "Schema and migrations seeded. Shutting down SQL Server so the data gets committed into the image..."
 kill -SIGTERM "$SQLPID"
 wait "$SQLPID" || true

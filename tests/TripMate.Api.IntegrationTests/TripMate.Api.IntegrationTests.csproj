@@ -1,0 +1,85 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FluentAssertions" Version="7.2.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\TripMate.Api\TripMate.Api.csproj" />
+    <ProjectReference Include="..\..\src\TripMate.Infrastructure\TripMate.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\database\Dockerfile.seeded"
+          Link="Database\Dockerfile.seeded"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\tripmate_schema_v7.sql"
+          Link="Database\tripmate_schema_v7.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20260918_add_audit_result_reason.sql"
+          Link="Database\migrations\20260918_add_audit_result_reason.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20260923_add_tour_media.sql"
+          Link="Database\migrations\20260923_add_tour_media.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20260927_add_tour_media_management.sql"
+          Link="Database\migrations\20260927_add_tour_media_management.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\apply-schema.sh"
+          Link="Database\apply-schema.sh"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\seed-image.sh"
+          Link="Database\seed-image.sh"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20260912_add_travel_group_creation_requests.sql"
+          Link="Database\migrations\20260912_add_travel_group_creation_requests.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20260914_add_group_invitation_operations.sql"
+          Link="Database\migrations\20260914_add_group_invitation_operations.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20260917_add_group_join_operations.sql"
+          Link="Database\migrations\20260917_add_group_join_operations.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20260915_add_tour_search_fields.sql"
+          Link="Database\migrations\20260915_add_tour_search_fields.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures\Database\tm70_pre_migration_schema.sql"
+          Link="Database\Fixtures\tm70_pre_migration_schema.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures\Database\tm56_pre_migration_schema.sql"
+          Link="Database\Fixtures\tm56_pre_migration_schema.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20260914_add_scheduling_request_generation.sql"
+          Link="Database\migrations\20260914_add_scheduling_request_generation.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20260915_extend_scheduling_request_contract.sql"
+          Link="Database\migrations\20260915_extend_scheduling_request_contract.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures\Database\tm206_pre_migration_schema.sql"
+          Link="Database\Fixtures\tm206_pre_migration_schema.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures\Database\tm207_pre_migration_data.sql"
+          Link="Database\Fixtures\tm207_pre_migration_data.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20260919_allow_named_rest_items.sql"
+          Link="Database\migrations\20260919_allow_named_rest_items.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>

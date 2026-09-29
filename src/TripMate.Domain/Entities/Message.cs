@@ -1,7 +1,7 @@
 namespace TripMate.Domain.Entities;
 
 /// <summary>
-/// Maps dbo.Messages in database/tripmate_schema_v7.sql.
+/// Maps dbo.Messages in database/tripmate_schema_v7.sql — SRS §5.3 Application Messages List (MSG01–MSG130).
 /// </summary>
 public class Message
 {

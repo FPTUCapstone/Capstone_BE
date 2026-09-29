@@ -4,7 +4,9 @@ services:
     container_name: tripmate-sqlserver
     environment:
       ACCEPT_EULA: "Y"
-      MSSQL_SA_PASSWORD: ${SA_PASSWORD:-Passw0rd!Local}
+      # No committed default — the password comes from SA_PASSWORD in .env
+      # (copy .env.example to .env). Compose fails fast with the message below if unset.
+      MSSQL_SA_PASSWORD: ${SA_PASSWORD:?SA_PASSWORD must be set in .env (copy .env.example to .env)}
     ports:
       # Host-side port is intentionally not 1433: a native SQL Server instance already bound to
       # 1433 on a dev machine silently steals connections meant for this container (the request
@@ -21,8 +23,8 @@ services:
       timeout: 5s
       retries: 10
 
-  # One-shot: creates TripMateDb (if missing) and applies database/tripmate_schema_v7.sql.
-  # Safe to re-run — apply-schema.sh skips if the schema is already present.
+  # One-shot: creates TripMateDb (if missing), applies the full v7 schema on a fresh
+  # database, and applies idempotent SQL migrations on both fresh and existing v7 DBs.
   db-init:
     image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: tripmate-db-init
@@ -32,7 +34,7 @@ services:
     volumes:
       - ./database:/scripts:ro
     environment:
-      SA_PASSWORD: ${SA_PASSWORD:-Passw0rd!Local}
+      SA_PASSWORD: ${SA_PASSWORD:?SA_PASSWORD must be set in .env (copy .env.example to .env)}
     entrypoint: ["/bin/bash", "/scripts/apply-schema.sh"]
     restart: "no"
 
@@ -54,11 +56,41 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
-      ConnectionStrings__Default: "Server=sqlserver,1433;Database=TripMateDb;User Id=sa;Password=${SA_PASSWORD:-Passw0rd!Local};TrustServerCertificate=True;"
+      # Built from SA_PASSWORD in .env — no committed credential.
+      ConnectionStrings__Default: "Server=sqlserver,1433;Database=TripMateDb;User Id=sa;Password=${SA_PASSWORD:?SA_PASSWORD must be set in .env (copy .env.example to .env)};TrustServerCertificate=True;"
       Jwt__Issuer: TripMate
       Jwt__Audience: TripMateClients
-      Jwt__SigningKey: ${JWT_SIGNING_KEY:-us+B0GY0f7eU1MFpPzxjhShqgYTEQK+85cwxKvuApkw=}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY}
+      OPENROUTESERVICE__APIKEY: ${OPENROUTESERVICE__APIKEY:?OPENROUTESERVICE__APIKEY must be set in .env}
+      OPENROUTESERVICE__BASEURL: ${OPENROUTESERVICE__BASEURL:-https://api.heigit.org/openrouteservice/}
       Cors__AllowedOrigins__0: http://localhost:3001
+      Cors__AllowedOrigins__1: http://localhost:3005
+      Cors__AllowedOrigins__2: http://localhost:3000
+      EmailVerification__ContinueUrl: ${EMAIL_VERIFICATION_CONTINUE_URL}
+      Firebase__ProjectId: "tripmate-82be3"
+      Google__ClientId: 1015595969076-socm44rbtpnbv0o4upl88h4btesqgr6i.apps.googleusercontent.com
+      # UC-06 password reset: SMTP credentials + OTP pepper come from .env — never committed.
+      # Windows dotnet user-secrets do not exist inside the container, so the values are
+      # passed as .NET configuration environment variables (double-underscore nesting).
+      Email__Username: ${EMAIL_USERNAME:?EMAIL_USERNAME must be set in .env}
+      Email__Password: ${EMAIL_PASSWORD:?EMAIL_PASSWORD must be set in .env}
+      Email__FromEmail: ${EMAIL_FROM_EMAIL:?EMAIL_FROM_EMAIL must be set in .env}
+      PasswordResetSecurity__OtpPepper: ${PASSWORD_RESET_OTP_PEPPER:?PASSWORD_RESET_OTP_PEPPER must be set in .env}
+      # TM-207 Tour media: signed server-side Cloudinary operations. No unsigned upload preset.
+      Cloudinary__CloudName: ${Cloudinary__CloudName:?Cloudinary__CloudName must be set in .env}
+      Cloudinary__ApiKey: ${Cloudinary__ApiKey:?Cloudinary__ApiKey must be set in .env}
+      Cloudinary__ApiSecret: ${Cloudinary__ApiSecret:?Cloudinary__ApiSecret must be set in .env}
+      Cloudinary__TourMediaFolderRoot: ${Cloudinary__TourMediaFolderRoot:?Cloudinary__TourMediaFolderRoot must be set in .env}
+      TourMediaCleanup__PollInterval: ${TourMediaCleanup__PollInterval:-00:00:30}
+      TourMediaCleanup__LeaseDuration: ${TourMediaCleanup__LeaseDuration:-00:02:00}
+      TourMediaCleanup__BatchSize: ${TourMediaCleanup__BatchSize:-20}
+      # Firebase Admin service-account JSON (never committed — see .env.example / README §9).
+      # Put the file at ./secrets/tripmate-firebase-admin.json on the host. If it is missing,
+      # Firebase Admin initialization is unavailable and Firebase ID-token authentication
+      # fails closed (tokens are rejected) — the API still boots.
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/tripmate-firebase-admin.json
+    volumes:
+      - ./secrets:/run/secrets:ro
     ports:
       - "5000:8080"
 

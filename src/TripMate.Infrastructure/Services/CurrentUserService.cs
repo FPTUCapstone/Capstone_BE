@@ -1,5 +1,7 @@
 using System.Security.Claims;
+
 using Microsoft.AspNetCore.Http;
+
 using TripMate.Application.Common.Interfaces;
 
 namespace TripMate.Infrastructure.Services;

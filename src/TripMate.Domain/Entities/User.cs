@@ -3,7 +3,7 @@ using TripMate.Domain.Enums;
 
 namespace TripMate.Domain.Entities;
 
-/// <summary>Maps dbo.Users in database/tripmate_schema_v6.sql — see UserConfiguration.</summary>
+/// <summary>Maps dbo.Users in database/tripmate_schema_v7.sql — see UserConfiguration.</summary>
 public class User : BaseEntity
 {
     public UserRole Role { get; set; }

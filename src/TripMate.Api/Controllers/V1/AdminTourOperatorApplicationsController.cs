@@ -1,6 +1,8 @@
 using MediatR;
+
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+
 using TripMate.Api.Common;
 using TripMate.Application.Features.Admin.TourOperatorApplications.Approve;
 using TripMate.Application.Features.Admin.TourOperatorApplications.GetDetail;
@@ -31,16 +33,15 @@ public class AdminTourOperatorApplicationsController(ISender sender) : ApiContro
     [HttpPost("{userId:long}/reject")]
     public async Task<IActionResult> Reject(
         long userId,
-        [FromBody] RejectTourOperatorApplicationRequest? request,
+        [FromBody] RejectTourOperatorApplicationRequest request,
         CancellationToken cancellationToken)
     {
-        var reason = request?.Reason ?? string.Empty;
         var result = await Sender.Send(
-            new RejectOperatorApplicationCommand(userId, reason),
+            new RejectOperatorApplicationCommand(userId, request.Reason),
             cancellationToken);
 
         return result.IsSuccess ? Ok() : HandleFailure(result);
     }
 }
 
-public record RejectTourOperatorApplicationRequest(string? Reason);
+public record RejectTourOperatorApplicationRequest(string Reason);
