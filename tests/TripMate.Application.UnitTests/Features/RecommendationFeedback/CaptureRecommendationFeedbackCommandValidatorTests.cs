@@ -1,4 +1,5 @@
 using FluentAssertions;
+
 using FluentValidation.TestHelper;
 
 using TripMate.Application.Features.RecommendationFeedback.Capture;
