@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Authentication.Common;
 using TripMate.Application.Features.PointsOfInterest.Common;
+using TripMate.Application.Features.RecommendationFeedback.Common;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.TourMedia.Common;
 
@@ -145,6 +146,15 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
                 StatusCodes.Status409Conflict,
 
             SchedulingErrorCodes.ConstraintsInfeasible =>
+                StatusCodes.Status422UnprocessableEntity,
+
+            FeedbackErrorCodes.PoiNotFound or FeedbackErrorCodes.ItineraryNotFound =>
+                StatusCodes.Status404NotFound,
+
+            FeedbackErrorCodes.EventTokenConflict =>
+                StatusCodes.Status409Conflict,
+
+            FeedbackErrorCodes.ContextMismatch =>
                 StatusCodes.Status422UnprocessableEntity,
 
             TourMediaErrorCodes.OperatorAccessRequired => StatusCodes.Status403Forbidden,

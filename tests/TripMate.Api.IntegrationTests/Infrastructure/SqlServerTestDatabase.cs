@@ -249,6 +249,17 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
 
         var schemaPath = Path.Combine(AppContext.BaseDirectory, "Database", "tripmate_schema_v7.sql");
         await ExecuteScriptAsync(schemaPath);
+
+        var migrationsDirectory = Path.Combine(
+            FindRepositoryRoot(),
+            "database",
+            "migrations");
+        foreach (var migrationPath in Directory
+            .EnumerateFiles(migrationsDirectory, "*.sql", SearchOption.TopDirectoryOnly)
+            .OrderBy(Path.GetFileName, StringComparer.Ordinal))
+        {
+            await ExecuteScriptAsync(migrationPath);
+        }
     }
 
     private async Task ExecuteBatchesAsync(
@@ -289,6 +300,22 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
             throw new InvalidOperationException(
                 "Refusing to manage a database outside the isolated test naming convention.");
         }
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "TripMate.slnx")))
+            {
+                return directory.FullName;
+            }
+
+            directory = directory.Parent;
+        }
+
+        throw new InvalidOperationException("Could not locate the TripMate repository root.");
     }
 }
 
