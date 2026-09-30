@@ -145,7 +145,6 @@ public sealed class SearchToursQueryHandler(
                     : await dbContext.TourMedia
                         .AsNoTracking()
                         .Where(media => pageTourIds.Contains(media.TourId)
-                            && media.LifecycleStatus == TourMediaLifecycleStatus.Active
                             && media.IsPrimary)
                         .Select(media => new { media.TourId, media.DeliveryUrl })
                         .ToDictionaryAsync(
