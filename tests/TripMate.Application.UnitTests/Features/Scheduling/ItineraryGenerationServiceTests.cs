@@ -506,6 +506,11 @@ public class ItineraryGenerationServiceTests
             candidates,
             mandatoryPoiIds);
 
+    private static readonly GenerationOpeningHours[] DefaultPermissiveTuesdayHours =
+    [
+        new GenerationOpeningHours(2, new TimeOnly(7, 0), new TimeOnly(20, 0)),
+    ];
+
     private static GenerationCandidate Candidate(
         long id,
         string name,
@@ -515,14 +520,15 @@ public class ItineraryGenerationServiceTests
         decimal effectiveDesirabilityScore,
         decimal? scenicScoreForRanking,
         decimal? photoRatingForRanking,
-        decimal? estimatedVisitCostForRanking) =>
+        decimal? estimatedVisitCostForRanking,
+        GenerationOpeningHours[]? openingHours = null) =>
         new(
             id,
             name,
             new RoutePoint(16m + (id / 10_000m), 108m + (id / 10_000m)),
             visitDurationMinutes,
             cost,
-            [new GenerationOpeningHours(2, new TimeOnly(7, 0), new TimeOnly(20, 0))],
+            openingHours ?? DefaultPermissiveTuesdayHours,
             tripMateBaseScore,
             effectiveDesirabilityScore,
             scenicScoreForRanking,
