@@ -14,7 +14,9 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 using TripMate.Application.Common.Interfaces;
+using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Scheduling.Common;
+using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 using TripMate.Infrastructure.Persistence;
@@ -161,6 +163,14 @@ public sealed class TripMateApiFactory(
                 services.AddSingleton<IDateTimeProvider>(sp => dateTimeProviderFactory(sp));
             }
 
+            services.AddScoped(provider => new PoiRankingOrchestrator(
+                new PersonalBehaviorFeatureAggregator(
+                    provider.GetRequiredService<IApplicationDbContext>()),
+                ProviderDisabledPoiRankingProvider.Instance,
+                new PersonalizationRankingOptions(),
+                providerEnabled: false,
+                provider.GetRequiredService<ILogger<PoiRankingOrchestrator>>()));
+
             if (authenticationMode == ApiTestAuthenticationMode.HeaderStub)
             {
                 services.AddAuthentication(options =>
@@ -254,6 +264,8 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<Itinerary> Itineraries => Set<Itinerary>();
     public DbSet<ItineraryItem> ItineraryItems => Set<ItineraryItem>();
     public DbSet<SchedulingRequest> SchedulingRequests => Set<SchedulingRequest>();
+    public DbSet<RecommendationBehaviorEvent> RecommendationBehaviorEvents =>
+        Set<RecommendationBehaviorEvent>();
     public DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests =>
         Set<TravelGroupCreationRequest>();
     public DbSet<GroupInvitation> GroupInvitations => Set<GroupInvitation>();
@@ -312,6 +324,16 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
 
         base.OnModelCreating(modelBuilder);
     }
+}
+
+internal sealed class ProviderDisabledPoiRankingProvider : IPoiRankingProvider
+{
+    public static readonly ProviderDisabledPoiRankingProvider Instance = new();
+
+    public Task<Result<PoiRankingResult>> RankAsync(
+        PoiRankingRequest request,
+        CancellationToken cancellationToken) =>
+        throw new InvalidOperationException("The provider-disabled test path cannot call a provider.");
 }
 
 internal sealed class NoOpTravelGroupCreationLock : ITravelGroupCreationLock
