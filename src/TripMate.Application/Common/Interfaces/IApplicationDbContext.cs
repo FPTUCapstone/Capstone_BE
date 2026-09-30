@@ -34,6 +34,12 @@ public interface IApplicationDbContext
 
     DbSet<TourDestination> TourDestinations { get; }
 
+    DbSet<TourMedia> TourMedia { get; }
+
+    DbSet<TourMediaUploadOperation> TourMediaUploadOperations { get; }
+
+    DbSet<TourMediaCleanupOutboxItem> TourMediaCleanupOutbox { get; }
+
     DbSet<AuditLog> AuditLogs { get; }
 
     DbSet<Notification> Notifications { get; }
@@ -53,6 +59,9 @@ public interface IApplicationDbContext
     DbSet<ItineraryItem> ItineraryItems { get; }
 
     DbSet<SchedulingRequest> SchedulingRequests { get; }
+
+    DbSet<RecommendationBehaviorEvent> RecommendationBehaviorEvents =>
+        throw new NotSupportedException("Recommendation behavior events are unavailable in this context.");
 
     DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests { get; }
 

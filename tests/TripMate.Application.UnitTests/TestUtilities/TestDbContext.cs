@@ -40,6 +40,14 @@ public class TestDbContext(
 
     public DbSet<TourDestination> TourDestinations => Set<TourDestination>();
 
+    public DbSet<TourMedia> TourMedia => Set<TourMedia>();
+
+    public DbSet<TourMediaUploadOperation> TourMediaUploadOperations =>
+        Set<TourMediaUploadOperation>();
+
+    public DbSet<TourMediaCleanupOutboxItem> TourMediaCleanupOutbox =>
+        Set<TourMediaCleanupOutboxItem>();
+
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
     public DbSet<Notification> Notifications => Set<Notification>();
@@ -73,6 +81,18 @@ public class TestDbContext(
     public DbSet<Incident> Incidents => Set<Incident>();
 
     public int TransactionExecutionCount { get; private set; }
+
+    public bool ThrowOnSaveConcurrency { get; set; }
+
+    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        if (ThrowOnSaveConcurrency)
+        {
+            throw new DbUpdateConcurrencyException("Concurrency conflict simulated in test.");
+        }
+
+        return base.SaveChangesAsync(cancellationToken);
+    }
 
     public async Task<int> RevokeRefreshTokenAsync(
         string tokenHash,

@@ -15,6 +15,8 @@ public class Tour : BaseEntity
 
     private readonly List<TourSchedule> _schedules = [];
     private readonly List<TourDestination> _destinations = [];
+    private readonly List<TourMedia> _media = [];
+    private readonly List<TourMediaUploadOperation> _mediaUploadOperations = [];
 
     private Tour()
     {
@@ -51,4 +53,9 @@ public class Tour : BaseEntity
     public IReadOnlyCollection<TourSchedule> Schedules => _schedules.AsReadOnly();
 
     public IReadOnlyCollection<TourDestination> Destinations => _destinations.AsReadOnly();
+
+    public IReadOnlyCollection<TourMedia> Media => _media.AsReadOnly();
+
+    public IReadOnlyCollection<TourMediaUploadOperation> MediaUploadOperations =>
+        _mediaUploadOperations.AsReadOnly();
 }

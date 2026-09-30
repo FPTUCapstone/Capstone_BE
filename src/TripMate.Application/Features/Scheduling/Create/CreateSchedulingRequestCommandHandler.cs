@@ -52,12 +52,14 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 return await ReplayAsync(previousRequest, requestHash, transactionCancellationToken);
             }
 
+            // Preferences are live-read for first generation and excluded from request identity.
+            // Replay returns the original itinerary; a fresh preference result requires a new key.
             var travelerInterestTags = await dbContext.TravelerProfiles
                 .AsNoTracking()
                 .Where(profile => profile.UserId == canonical.TravelerUserId)
                 .Select(profile => profile.InterestTagsJson)
                 .SingleOrDefaultAsync(transactionCancellationToken);
-            var preferenceTokens = ParsePreferenceTokens(travelerInterestTags);
+            var preferenceTokens = TravelerPreferenceScoring.ParsePreferenceTokens(travelerInterestTags);
             var activePois = await dbContext.PointsOfInterest
                 .AsNoTracking()
                 .Include(poi => poi.Category)
@@ -260,7 +262,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
 
         var optionalPois = selectablePois
             .Where(poi => !mandatoryIds.Contains(poi.Id))
-            .OrderByDescending(poi => CalculatePreferenceScore(poi, preferenceTokens))
+            .OrderByDescending(poi =>
+                TravelerPreferenceScoring.CalculatePreferenceScore(poi, preferenceTokens))
             .ThenByDescending(poi => poi.ScenicScore ?? decimal.MinValue)
             .ThenByDescending(poi => poi.PhotoRating ?? decimal.MinValue)
             .ThenBy(poi => GeoDistance.EquirectangularKilometers(
@@ -292,53 +295,11 @@ public sealed class CreateSchedulingRequestCommandHandler(
                     hours.OpenTime!.Value,
                     hours.CloseTime!.Value))
                 .ToArray(),
-            PreferenceScore: CalculatePreferenceScore(poi, preferenceTokens),
+            PreferenceScore: TravelerPreferenceScoring.CalculatePreferenceScore(poi, preferenceTokens),
             ScenicScore: poi.ScenicScore,
             PhotoRating: poi.PhotoRating,
             CategoryName: poi.Category.Name,
             HasShelter: poi.HasShelter);
-
-    private static int CalculatePreferenceScore(
-        PointOfInterest poi,
-        IReadOnlySet<string> preferenceTokens)
-    {
-        var categoryScore = preferenceTokens.Contains(NormalizePreferenceToken(poi.Category.Name))
-            ? 100
-            : 0;
-        var tagScore = poi.PoiTags.Count(mapping =>
-            preferenceTokens.Contains(NormalizePreferenceToken(mapping.Tag.Name))) * 100;
-        return categoryScore + tagScore;
-    }
-
-    private static HashSet<string> ParsePreferenceTokens(string? interestTagsJson)
-    {
-        if (string.IsNullOrWhiteSpace(interestTagsJson))
-        {
-            return [];
-        }
-
-        try
-        {
-            var tags = JsonSerializer.Deserialize<string[]>(interestTagsJson) ?? [];
-            return tags
-                .Where(tag => !string.IsNullOrWhiteSpace(tag))
-                .Select(NormalizePreferenceToken)
-                .ToHashSet(StringComparer.Ordinal);
-        }
-        catch (JsonException)
-        {
-            return [];
-        }
-    }
-
-    private static string NormalizePreferenceToken(string value) =>
-        new string(value
-            .Trim()
-            .Normalize(NormalizationForm.FormD)
-            .Where(character => CharUnicodeInfo.GetUnicodeCategory(character)
-                != UnicodeCategory.NonSpacingMark)
-            .ToArray())
-        .ToLowerInvariant();
 
     private static SchedulingResponseDto ToResponse(
         SchedulingRequest schedulingRequest,

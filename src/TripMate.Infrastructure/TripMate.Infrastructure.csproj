@@ -9,6 +9,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="CloudinaryDotNet" Version="1.29.3" />
     <PackageReference Include="FirebaseAdmin" Version="3.1.0" />
     <PackageReference Include="Google.Apis.Auth" Version="1.68.0" />
     <PackageReference Include="MailKit" Version="4.16.0" />
@@ -17,6 +18,8 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.0" />
+    <PackageReference Include="SkiaSharp" Version="4.152.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.152.1" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.22.0" />
   </ItemGroup>
 
@@ -29,6 +32,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="TripMate.Infrastructure.UnitTests" />
+    <InternalsVisibleTo Include="TripMate.Api.IntegrationTests" />
   </ItemGroup>
 
 </Project>

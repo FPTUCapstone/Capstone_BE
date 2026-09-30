@@ -18,6 +18,7 @@ using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 using TripMate.Infrastructure.Persistence;
+using TripMate.Infrastructure.Services;
 
 namespace TripMate.Api.IntegrationTests.Infrastructure;
 
@@ -54,6 +55,10 @@ public sealed class TripMateApiFactory(
         builder.UseSetting("Jwt:SigningKey", JwtSigningKey);
         builder.UseSetting("PasswordResetSecurity:OtpPepper", "test-only-pepper-0123456789abcdef");
         builder.UseSetting("EmailVerification:ContinueUrl", "https://tripmate.test/verify-email");
+        builder.UseSetting("Cloudinary:CloudName", "test-cloud");
+        builder.UseSetting("Cloudinary:ApiKey", "test-api-key");
+        builder.UseSetting("Cloudinary:ApiSecret", "test-api-secret");
+        builder.UseSetting("Cloudinary:TourMediaFolderRoot", "tripmate/tests/tours");
 
         if (corsAllowedOrigins is not null)
         {
@@ -85,6 +90,8 @@ public sealed class TripMateApiFactory(
                 services.RemoveAll<IGroupInvitationLock>();
                 services.RemoveAll<IGroupJoinLock>();
                 services.RemoveAll<ISchedulingRequestLock>();
+                services.RemoveAll<ITourMediaUploadLock>();
+                services.RemoveAll<ITourMediaCleanupOutboxStore>();
                 services.RemoveAll<IRouteDurationProvider>();
 
                 services.AddDbContext<TestApiDbContext>(options =>
@@ -108,7 +115,32 @@ public sealed class TripMateApiFactory(
                 services.AddScoped<IGroupInvitationLock, NoOpGroupInvitationLock>();
                 services.AddScoped<IGroupJoinLock, NoOpGroupJoinLock>();
                 services.AddScoped<ISchedulingRequestLock, NoOpSchedulingRequestLock>();
+                services.AddScoped<ITourMediaUploadLock, NoOpTourMediaUploadLock>();
+                services.AddScoped<ITourMediaCleanupOutboxStore, NoOpTourMediaCleanupOutboxStore>();
                 services.AddScoped<IRouteDurationProvider, TestRouteDurationProvider>();
+            }
+            else if (saveChangesInterceptor is not null || dbInterceptor is not null)
+            {
+                services.RemoveAll<ApplicationDbContext>();
+                services.RemoveAll<DbContextOptions<ApplicationDbContext>>();
+                services.RemoveAll<IApplicationDbContext>();
+
+                services.AddDbContext<ApplicationDbContext>(options =>
+                {
+                    options.UseSqlServer(sqlServerConnectionString);
+
+                    if (saveChangesInterceptor is not null)
+                    {
+                        options.AddInterceptors(saveChangesInterceptor);
+                    }
+
+                    if (dbInterceptor is not null)
+                    {
+                        options.AddInterceptors(dbInterceptor);
+                    }
+                });
+                services.AddScoped<IApplicationDbContext>(provider =>
+                    provider.GetRequiredService<ApplicationDbContext>());
             }
 
             if (firebaseServiceFactory is not null)
@@ -207,6 +239,11 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<TourSchedule> TourSchedules => Set<TourSchedule>();
     public DbSet<Destination> Destinations => Set<Destination>();
     public DbSet<TourDestination> TourDestinations => Set<TourDestination>();
+    public DbSet<TourMedia> TourMedia => Set<TourMedia>();
+    public DbSet<TourMediaUploadOperation> TourMediaUploadOperations =>
+        Set<TourMediaUploadOperation>();
+    public DbSet<TourMediaCleanupOutboxItem> TourMediaCleanupOutbox =>
+        Set<TourMediaCleanupOutboxItem>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<PoiPhoto> PoiPhotos => Set<PoiPhoto>();
@@ -322,6 +359,42 @@ internal sealed class NoOpSchedulingRequestLock : ISchedulingRequestLock
     public Task AcquireAsync(
         long travelerUserId,
         Guid idempotencyKey,
+        CancellationToken cancellationToken) => Task.CompletedTask;
+}
+
+internal sealed class NoOpTourMediaUploadLock : ITourMediaUploadLock
+{
+    public Task AcquireOperationAsync(long tourId, long actorUserId, Guid idempotencyKey,
+        CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public Task AcquireTourAsync(long tourId, CancellationToken cancellationToken) => Task.CompletedTask;
+}
+
+internal sealed class NoOpTourMediaCleanupOutboxStore : ITourMediaCleanupOutboxStore
+{
+    public Task<IReadOnlyList<TourMediaCleanupClaim>> ClaimDueAsync(
+        DateTimeOffset nowUtc,
+        TimeSpan leaseDuration,
+        int batchSize,
+        CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<TourMediaCleanupClaim>>([]);
+
+    public Task CompleteAsync(long id, Guid leaseToken, DateTimeOffset completedAtUtc, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+
+    public Task RetryAsync(
+        long id,
+        Guid leaseToken,
+        string safeErrorCode,
+        DateTimeOffset notBeforeUtc,
+        DateTimeOffset updatedAtUtc,
+        CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public Task ExhaustAsync(
+        long id,
+        Guid leaseToken,
+        string safeErrorCode,
+        DateTimeOffset completedAtUtc,
         CancellationToken cancellationToken) => Task.CompletedTask;
 }
 

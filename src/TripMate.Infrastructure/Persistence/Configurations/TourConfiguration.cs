@@ -82,10 +82,22 @@ public class TourConfiguration : IEntityTypeConfiguration<Tour>
             .WithOne(link => link.Tour)
             .HasForeignKey(link => link.TourId)
             .OnDelete(DeleteBehavior.Cascade);
+        builder.HasMany(tour => tour.Media)
+            .WithOne(media => media.Tour)
+            .HasForeignKey(media => media.TourId)
+            .OnDelete(DeleteBehavior.Cascade);
+        builder.HasMany(tour => tour.MediaUploadOperations)
+            .WithOne(operation => operation.Tour)
+            .HasForeignKey(operation => operation.TourId)
+            .OnDelete(DeleteBehavior.Cascade);
 
         builder.Navigation(tour => tour.Schedules)
             .UsePropertyAccessMode(PropertyAccessMode.Field);
         builder.Navigation(tour => tour.Destinations)
+            .UsePropertyAccessMode(PropertyAccessMode.Field);
+        builder.Navigation(tour => tour.Media)
+            .UsePropertyAccessMode(PropertyAccessMode.Field);
+        builder.Navigation(tour => tour.MediaUploadOperations)
             .UsePropertyAccessMode(PropertyAccessMode.Field);
 
         builder.HasIndex(tour => tour.OperatorUserId)

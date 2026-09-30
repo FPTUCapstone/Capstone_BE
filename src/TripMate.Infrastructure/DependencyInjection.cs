@@ -2,13 +2,17 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 using TripMate.Application.Common.Interfaces;
+using TripMate.Application.Common.Media;
 using TripMate.Application.Features.Authentication.PasswordReset;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.TravelGroups.ManageInvitation;
 using TripMate.Infrastructure.Authentication;
 using TripMate.Infrastructure.Email;
+using TripMate.Infrastructure.Media;
+using TripMate.Infrastructure.Media.Cloudinary;
 using TripMate.Infrastructure.Persistence;
 using TripMate.Infrastructure.Routing;
 using TripMate.Infrastructure.Security;
@@ -34,6 +38,23 @@ public static class DependencyInjection
         services.AddScoped<IGroupJoinLock, SqlServerGroupJoinLock>();
         services.AddSingleton<IGroupInvitationCodeGenerator, RandomGroupInvitationCodeGenerator>();
         services.AddScoped<ISchedulingRequestLock, SqlServerSchedulingRequestLock>();
+        services.AddScoped<ITourMediaUploadLock, SqlServerTourMediaUploadLock>();
+        services.AddScoped<ITourMediaCleanupOutboxStore, SqlServerTourMediaCleanupOutboxStore>();
+        services.AddScoped<TourMediaCleanupProcessor>();
+
+        services.AddOptions<TourMediaCleanupOptions>()
+            .Bind(configuration.GetSection(TourMediaCleanupOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.AddHostedService<TourMediaCleanupBackgroundService>();
+
+        services.AddOptions<CloudinaryOptions>()
+            .Bind(configuration.GetSection(CloudinaryOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<CloudinaryOptions>, CloudinaryOptionsValidator>();
+        services.AddSingleton<ICloudinaryClient, CloudinarySdkClient>();
+        services.AddSingleton<ITourMediaImageInspector, SkiaSharpTourMediaImageInspector>();
+        services.AddSingleton<ITourMediaStorage, CloudinaryTourMediaStorage>();
 
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
         services.Configure<OpenRouteServiceOptions>(

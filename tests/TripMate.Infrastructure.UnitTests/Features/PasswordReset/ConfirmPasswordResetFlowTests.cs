@@ -233,6 +233,14 @@ public class ConfirmPasswordResetFlowTests
 
         DbSet<Domain.Entities.TourDestination> IApplicationDbContext.TourDestinations => throw new NotSupportedException();
 
+        DbSet<Domain.Entities.TourMedia> IApplicationDbContext.TourMedia => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.TourMediaUploadOperation> IApplicationDbContext.TourMediaUploadOperations =>
+            throw new NotSupportedException();
+
+        DbSet<Domain.Entities.TourMediaCleanupOutboxItem> IApplicationDbContext.TourMediaCleanupOutbox =>
+            throw new NotSupportedException();
+
         DbSet<Domain.Entities.AuditLog> IApplicationDbContext.AuditLogs => throw new NotSupportedException();
 
         DbSet<Domain.Entities.Notification> IApplicationDbContext.Notifications => throw new NotSupportedException();

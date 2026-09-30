@@ -15,3 +15,15 @@ seed does not copy Google Maps/Places content, photos, ratings, or reviews.
 Opening hours and admission prices are sourced from the Da Nang Tourism
 Promotion Center's 2026 reference article, whose URL is stored in every seeded
 POI row together with the UTC verification timestamp.
+
+## UC-51 operator application fixtures
+
+`20260928_seed_uc51_operator_applications.sql` is an idempotent manual seed for
+development and test environments. It resets six `@tripmate.local` Tour
+Operator fixtures: four independent PendingApproval records for ordinary,
+500-character-boundary, whitespace-trimming, and extra manual tests, plus Approved and
+Rejected records for conflict-state tests. This lets UC-51 flows run without
+repeating registration or resetting a record between successful decisions.
+It deliberately creates no usable passwords and is not included in the normal
+schema application path. Use an existing development Administrator session to
+review the seeded records.
