@@ -26,20 +26,20 @@ public sealed class RegenerateItineraryCommandHandler(
         RegenerateItineraryCommand command,
         CancellationToken cancellationToken)
     {
+        var lockResource = await ItineraryMutationLockResource.ResolveAsync(
+            dbContext,
+            command.ItineraryId,
+            cancellationToken);
+        if (lockResource.IsFailure)
+        {
+            return Result.Failure<ItineraryDetailResponse>(
+                lockResource.ErrorCode!,
+                lockResource.ErrorMessage!);
+        }
+
         return await dbContext.ExecuteInSerializableTransactionAsync(
             async transactionCancellationToken =>
             {
-                var lockResource = await ItineraryMutationLockResource.ResolveAsync(
-                    dbContext,
-                    command.ItineraryId,
-                    transactionCancellationToken);
-                if (lockResource.IsFailure)
-                {
-                    return Result.Failure<ItineraryDetailResponse>(
-                        lockResource.ErrorCode!,
-                        lockResource.ErrorMessage!);
-                }
-
                 await itineraryMutationLock.AcquireAsync(
                     lockResource.Value,
                     transactionCancellationToken);
