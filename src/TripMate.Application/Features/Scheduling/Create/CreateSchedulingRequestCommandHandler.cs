@@ -59,7 +59,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 .Where(profile => profile.UserId == canonical.TravelerUserId)
                 .Select(profile => profile.InterestTagsJson)
                 .SingleOrDefaultAsync(transactionCancellationToken);
-var preferenceTokens = TravelerPreferenceScoring.ParsePreferenceTokens(travelerInterestTags);
+            var preferenceTokens = TravelerPreferenceScoring.ParsePreferenceTokens(travelerInterestTags);
             var activePois = await dbContext.PointsOfInterest
                 .AsNoTracking()
                 .Include(poi => poi.Category)
@@ -414,5 +414,4 @@ var preferenceTokens = TravelerPreferenceScoring.ParsePreferenceTokens(travelerI
         private static decimal NormalizeDecimal(decimal value, int decimals) =>
             Math.Round(value, decimals, MidpointRounding.AwayFromZero);
     }
-
 }
