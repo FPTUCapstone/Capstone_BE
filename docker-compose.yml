@@ -48,6 +48,8 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: tripmate-api
+    env_file:
+      - .env
     depends_on:
       sqlserver:
         condition: service_healthy
@@ -63,6 +65,12 @@ services:
       Jwt__SigningKey: ${JWT_SIGNING_KEY}
       OPENROUTESERVICE__APIKEY: ${OPENROUTESERVICE__APIKEY:?OPENROUTESERVICE__APIKEY must be set in .env}
       OPENROUTESERVICE__BASEURL: ${OPENROUTESERVICE__BASEURL:-https://api.heigit.org/openrouteservice/}
+      # TM-215 AI POI ranking. Windows User Secrets are unavailable inside Docker, so the
+      # provider configuration must be supplied through the local, git-ignored .env file.
+      AiRanking__Enabled: ${AiRanking__Enabled:-true}
+      AiRanking__Endpoint: ${AiRanking__Endpoint:-https://generativelanguage.googleapis.com/v1/interactions}
+      AiRanking__ApiKey: ${AiRanking__ApiKey:?AiRanking__ApiKey must be set in .env}
+      AiRanking__ModelName: ${AiRanking__ModelName:-gemini-3.6-flash}
       Cors__AllowedOrigins__0: http://localhost:3001
       Cors__AllowedOrigins__1: http://localhost:3005
       Cors__AllowedOrigins__2: http://localhost:3000

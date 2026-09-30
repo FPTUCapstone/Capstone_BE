@@ -177,11 +177,14 @@ public sealed class ItineraryGenerationService(
         var optionalCandidates = matrixCandidates
             .Where(candidate => !input.MandatoryPoiIds.Contains(candidate.Id)
                 && !IsQualifiedRestCandidate(candidate))
-            .OrderByDescending(candidate => candidate.PreferenceScore)
-            .ThenByDescending(candidate => candidate.ScenicScore ?? decimal.MinValue)
-            .ThenByDescending(candidate => candidate.PhotoRating ?? decimal.MinValue)
+            .OrderByDescending(candidate => candidate.EffectiveDesirabilityScore)
+            .ThenByDescending(candidate =>
+                candidate.ScenicScoreForRanking ?? decimal.MinValue)
+            .ThenByDescending(candidate =>
+                candidate.PhotoRatingForRanking ?? decimal.MinValue)
             .ThenBy(candidate => MatrixMinutesFromStart(candidate, matrixCandidates, matrix))
-            .ThenBy(candidate => candidate.EstimatedVisitCost ?? decimal.MaxValue)
+            .ThenBy(candidate =>
+                candidate.EstimatedVisitCostForRanking ?? decimal.MaxValue)
             .ThenBy(candidate => candidate.Id)
             .ToArray();
 

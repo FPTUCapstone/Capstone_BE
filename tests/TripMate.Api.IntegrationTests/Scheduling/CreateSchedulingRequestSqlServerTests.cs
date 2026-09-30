@@ -4,11 +4,13 @@ using FluentAssertions;
 
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Create;
+using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 using TripMate.Infrastructure.Persistence;
@@ -493,7 +495,13 @@ public sealed class CreateSchedulingRequestSqlServerTests
             context,
             new FixedDateTimeProvider(),
             new FixedRouteDurationProvider(),
-            new SqlServerSchedulingRequestLock(context));
+            new SqlServerSchedulingRequestLock(context),
+            new PoiRankingOrchestrator(
+                new PersonalBehaviorFeatureAggregator(context),
+                ProviderDisabledPoiRankingProvider.Instance,
+                new PersonalizationRankingOptions(),
+                providerEnabled: false,
+                NullLogger<PoiRankingOrchestrator>.Instance));
 
     private static async Task<(long UserId, long PoiId)> SeedAsync(SqlServerTestDatabase database)
     {

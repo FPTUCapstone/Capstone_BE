@@ -55,7 +55,7 @@ internal static class TravelerPreferenceScoring
         return categoryScore + tagScore;
     }
 
-    private static string NormalizePreferenceToken(string value) =>
+    internal static string NormalizePreferenceToken(string value) =>
         new string(value
             .Trim()
             .Normalize(NormalizationForm.FormD)
