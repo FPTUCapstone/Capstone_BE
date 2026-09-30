@@ -9,6 +9,7 @@ using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Admin.AuditLogs.Common;
 using TripMate.Application.Features.Admin.TourOperatorApplications.Approve;
 using TripMate.Application.Features.Admin.TourOperatorApplications.Common;
+using TripMate.Application.Features.Admin.TourOperatorApplications.Reject;
 using TripMate.Application.UnitTests.TestUtilities;
 
 namespace TripMate.Application.UnitTests.Features.Admin.AuditLogs;
@@ -26,6 +27,28 @@ public class AuditFailureBehaviourTests
         actual.Should().BeSameAs(expected);
         _recorder.Verify(x => x.RecordAsync(It.Is<AuditFailureEvent>(e => e.ActorUserId == 1 && e.AffectedEntityId == 42
             && e.ErrorCode == TourOperatorApplicationErrorCodes.NotPending)), Times.Once);
+    }
+
+    [Fact]
+    public async Task RejectStateFailure_IsRecordedWithRejectAction()
+    {
+        var expected = Result.Failure<RejectOperatorApplicationResponseDto>(
+            TourOperatorApplicationErrorCodes.NotPending,
+            "Already reviewed");
+        var behaviour = new AuditFailureBehaviour<RejectOperatorApplicationCommand,
+            Result<RejectOperatorApplicationResponseDto>>(_recorder.Object, _user);
+
+        var actual = await behaviour.Handle(
+            new RejectOperatorApplicationCommand(42, "Invalid licence"),
+            _ => Task.FromResult(expected),
+            CancellationToken.None);
+
+        actual.Should().BeSameAs(expected);
+        _recorder.Verify(x => x.RecordAsync(It.Is<AuditFailureEvent>(e =>
+            e.ActorUserId == 1 &&
+            e.ActionType == TripMate.Domain.Common.AuditActionTypes.OperatorApplicationReject &&
+            e.AffectedEntityId == 42 &&
+            e.ErrorCode == TourOperatorApplicationErrorCodes.NotPending)), Times.Once);
     }
 
     [Theory]

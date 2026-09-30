@@ -78,6 +78,18 @@ public class TestDbContext(
 
     public int TransactionExecutionCount { get; private set; }
 
+    public bool ThrowOnSaveConcurrency { get; set; }
+
+    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        if (ThrowOnSaveConcurrency)
+        {
+            throw new DbUpdateConcurrencyException("Concurrency conflict simulated in test.");
+        }
+
+        return base.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task<int> RevokeRefreshTokenAsync(
         string tokenHash,
         DateTimeOffset revokedAtUtc,
