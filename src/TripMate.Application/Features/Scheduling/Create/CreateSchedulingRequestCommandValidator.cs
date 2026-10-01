@@ -1,12 +1,18 @@
 using FluentValidation;
 
+using TripMate.Application.Common.Interfaces;
+
 namespace TripMate.Application.Features.Scheduling.Create;
 
 public sealed class CreateSchedulingRequestCommandValidator
     : AbstractValidator<CreateSchedulingRequestCommand>
 {
-    public CreateSchedulingRequestCommandValidator()
+    public CreateSchedulingRequestCommandValidator(IDateTimeProvider? dateTimeProvider = null)
     {
+        RuleFor(command => command.StartAt)
+            .Must(startAt => startAt.ToUniversalTime() > (dateTimeProvider?.UtcNow ?? DateTimeOffset.UtcNow))
+            .WithMessage("Start time must be in the future.");
+
         RuleFor(command => command.TravelerUserId).GreaterThan(0);
         RuleFor(command => command.IdempotencyKey).NotEqual(Guid.Empty);
         RuleFor(command => command.TimeZoneId)

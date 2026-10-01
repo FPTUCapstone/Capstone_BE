@@ -18,8 +18,28 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
 {
     private readonly FakeDateTimeProvider _clock = new()
     {
-        UtcNow = new DateTimeOffset(2026, 10, 20, 1, 0, 0, TimeSpan.Zero),
+        UtcNow = new DateTimeOffset(2026, 10, 20, 0, 0, 0, TimeSpan.Zero),
     };
+
+    [Fact]
+    public async Task Handle_WhenStartAtIsInPast_ReturnsInvalidRequestFailure()
+    {
+        await using var dbContext = TestDbContext.Create();
+        await SeedSelectablePoiAsync(dbContext);
+        var handler = CreateHandler(dbContext);
+        var command = CreateCommand(Guid.NewGuid()) with
+        {
+            StartAt = _clock.UtcNow.AddMinutes(-5),
+        };
+
+        var result = await handler.Handle(command, CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(SchedulingErrorCodes.InvalidRequest);
+        result.ErrorMessage.Should().Be("Start time must be in the future.");
+        (await dbContext.SchedulingRequests.CountAsync()).Should().Be(0);
+        (await dbContext.Itineraries.CountAsync()).Should().Be(0);
+    }
 
     [Fact]
     public async Task Handle_SameKeyAndPayload_ReplaysOriginalItinerary()

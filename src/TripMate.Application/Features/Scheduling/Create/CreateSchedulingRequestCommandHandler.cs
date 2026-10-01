@@ -128,6 +128,13 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 .Where(poi => poi.Status == PointOfInterestStatus.Active)
                 .ToListAsync(transactionCancellationToken);
             var now = dateTimeProvider.UtcNow;
+            if (canonical.StartAtUtc <= now)
+            {
+                return Result<SchedulingResponseDto>.Failure(
+                    SchedulingErrorCodes.InvalidRequest,
+                    "Start time must be in the future.");
+            }
+
             var schedulingRequest = SchedulingRequest.Create(
                 canonical.TravelerUserId,
                 canonical.IdempotencyKey,

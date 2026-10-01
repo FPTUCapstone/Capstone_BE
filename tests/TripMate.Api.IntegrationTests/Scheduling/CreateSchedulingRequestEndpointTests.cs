@@ -96,6 +96,42 @@ public sealed class CreateSchedulingRequestEndpointTests
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
+    [Fact]
+    public async Task Post_WhenStartAtIsInPast_ReturnsBadRequestWithValidationProblemDetails()
+    {
+        using var factory = new TripMateApiFactory();
+        using var client = factory.CreateAuthenticatedClient(42, UserRole.Traveler);
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/scheduling-requests")
+        {
+            Content = JsonContent.Create(new
+            {
+                startAt = "2020-01-01T08:00:00+07:00",
+                timeZoneId = "Asia/Ho_Chi_Minh",
+                startLatitude = 16.0544m,
+                startLongitude = 108.2022m,
+                explorationLatitude = 16.0471m,
+                explorationLongitude = 108.2068m,
+                endPoiId = (long?)null,
+                returnToStart = true,
+                availableMinutes = 480,
+                transportMode = "Motorbike",
+                searchRadiusKm = 10m,
+                budgetVnd = 800000m,
+                restPreference = "None",
+            }),
+        };
+        request.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
+
+        using var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var problem = await response.Content.ReadFromJsonAsync<Microsoft.AspNetCore.Mvc.ValidationProblemDetails>();
+        problem.Should().NotBeNull();
+        problem!.Errors.Should().Contain(entry =>
+            entry.Key.Equals("startAt", StringComparison.OrdinalIgnoreCase) &&
+            entry.Value.Contains("Start time must be in the future."));
+    }
+
     private static async Task<HttpResponseMessage> SendValidRequestAsync(HttpClient client, Guid idempotencyKey)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/scheduling-requests")
