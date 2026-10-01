@@ -79,6 +79,30 @@ Deployment order: **database migration → schema verification → backend rollo
 this order is skipped, configuration persistence is rolled back when audit insertion
 fails, and the client receives the safe temporary-unavailable response (`MSG127`).
 
+### Pipeline coverage and manual deployments
+
+- **Docker Compose deployments are covered automatically**: the `db-init` service runs
+  `database/apply-schema.sh` before the API starts (`depends_on:
+  service_completed_successfully`), and `apply-schema.sh` detects an existing v7 database
+  and applies every idempotent script in `database/migrations/` — including
+  `20260918_add_audit_result_reason.sql` — before `api` receives traffic. No operator
+  action is required beyond `docker compose up`.
+- **Non-Compose deployments** (`dotnet run` against an existing database) must run
+  `apply-schema.sh` (or the individual migration) before starting the application; this
+  remains a documented operator step because no pipeline wraps it.
+
+## Follow-ups (explicitly out of UC-57 scope)
+
+1. **Algorithm consumption of the four configured keys** — verified on 2026-10-01: no
+   scheduling, rerouting, or weather service reads `CSP.BufferTimeMinutes`,
+   `CSP.DefaultTravelSpeedKmh`, `Rerouting.SearchRadiusKm`, or
+   `Weather.AlertThresholdSeverity` (only `AlgorithmParameterDefinitions.cs` names them).
+   Until a consumer exists, changing these values changes stored configuration but not
+   algorithm behavior. UC-57 deliberately ships configuration management only (approved
+   scope; SRS §3.9.5 conflict recorded in the UC-57 scope review). A separate approved task
+   must wire the CSP/rerouting/weather services to `SystemConfigs` and add behavioral tests
+   before the settings screen may claim operational effect.
+
 ## Verification Plan
 - `dotnet test tests/TripMate.Application.UnitTests/... --filter FullyQualifiedName~SystemConfigs`
 - Full `dotnet build -c Release` + `dotnet test` + `dotnet format --verify-no-changes`
