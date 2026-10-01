@@ -37,8 +37,12 @@ public class SchedulingGenerationPersistenceModelTests
         item.GetTableName().Should().Be("ItineraryItems");
         ColumnName(item, nameof(ItineraryItem.Kind)).Should().Be("item_kind");
         item.FindProperty(nameof(ItineraryItem.Kind))!.GetProviderClrType().Should().Be(typeof(string));
+        // Nullable to match planning.ItineraryItems.planned_arrival (DATETIME2 NULL); the
+        // provider type follows the nullable CLR shape while the store type stays DATETIME2.
         item.FindProperty(nameof(ItineraryItem.PlannedArrivalUtc))!
-            .GetTypeMapping().Converter!.ProviderClrType.Should().Be(typeof(DateTime));
+            .GetTypeMapping().Converter!.ProviderClrType.Should().Be(typeof(DateTime?));
+        item.FindProperty(nameof(ItineraryItem.PlannedArrivalUtc))!.IsNullable.Should().BeTrue();
+        item.FindProperty(nameof(ItineraryItem.Status))!.IsNullable.Should().BeFalse();
         item.FindProperty(nameof(ItineraryItem.PointOfInterestId))!.IsNullable.Should().BeTrue();
     }
 

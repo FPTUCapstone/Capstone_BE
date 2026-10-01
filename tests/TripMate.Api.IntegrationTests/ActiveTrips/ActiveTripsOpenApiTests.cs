@@ -37,4 +37,29 @@ public sealed class ActiveTripsOpenApiTests
         schemas.GetProperty("ActiveTripListItemDto").GetProperty("properties")
             .GetProperty("tripId").GetProperty("type").GetString().Should().Be("string");
     }
+
+    [Fact]
+    public async Task GetDetails_DocumentsResponseAndErrorContract()
+    {
+        await using var factory = new TripMateApiFactory();
+        var provider = factory.Services.GetRequiredService<ISwaggerProvider>();
+        var json = await provider.GetSwagger("v1").SerializeAsJsonAsync(OpenApiSpecVersion.OpenApi3_0);
+        using var document = JsonDocument.Parse(json);
+        var operation = document.RootElement.GetProperty("paths")
+            .GetProperty("/api/v1/admin/trips/active/{tripId}").GetProperty("get");
+
+        var parameter = operation.GetProperty("parameters").EnumerateArray().Single();
+        parameter.GetProperty("name").GetString().Should().Be("tripId");
+        parameter.GetProperty("in").GetString().Should().Be("path");
+        var responses = operation.GetProperty("responses");
+        foreach (var status in new[] { "200", "400", "401", "403", "404", "500" })
+        {
+            responses.TryGetProperty(status, out _).Should().BeTrue($"HTTP {status} is part of the contract");
+        }
+
+        var schemas = document.RootElement.GetProperty("components").GetProperty("schemas");
+        schemas.TryGetProperty("ActiveTripDetailDto", out _).Should().BeTrue();
+        schemas.TryGetProperty("GroupPanelDto", out _).Should().BeTrue();
+        schemas.TryGetProperty("CurrentLocationDto", out _).Should().BeTrue();
+    }
 }

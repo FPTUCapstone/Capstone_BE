@@ -275,6 +275,14 @@ public class ConfirmPasswordResetFlowTests
 
         DbSet<Domain.Entities.Incident> IApplicationDbContext.Incidents => throw new NotSupportedException();
 
+        DbSet<Domain.Entities.TripStateHistory> IApplicationDbContext.TripStateHistories => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.TripLocationLog> IApplicationDbContext.TripLocationLogs => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.WeatherEvent> IApplicationDbContext.WeatherEvents => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.ReroutingEvent> IApplicationDbContext.ReroutingEvents => throw new NotSupportedException();
+
         public Task<int> RevokeRefreshTokenAsync(
             string tokenHash,
             DateTimeOffset revokedAtUtc,

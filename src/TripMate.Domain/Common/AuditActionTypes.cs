@@ -15,4 +15,7 @@ public static class AuditActionTypes
 
     // UC-05 Sign Out
     public const string AuthSignOut = "AUTH_SIGN_OUT";
+
+    // UC-59 BR-130: Administrator access to active trip details
+    public const string ActiveTripDetailsViewed = "ViewActiveTripDetails";
 }

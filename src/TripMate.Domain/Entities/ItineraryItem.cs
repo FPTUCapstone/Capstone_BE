@@ -7,6 +7,12 @@ public class ItineraryItem : BaseEntity
 {
     public const int RecommendationReasonMaxLength = 500;
 
+    // Column planning.ItineraryItems.status CHECK values (UC-59 reads rows persisted by
+    // external flows, so the status is an observed value, not an enforced state machine).
+    public const string StatusPlanned = "Planned";
+    public const string StatusVisited = "Visited";
+    public const string StatusSkipped = "Skipped";
+
     private ItineraryItem()
     {
     }
@@ -23,9 +29,12 @@ public class ItineraryItem : BaseEntity
 
     public ItineraryItemKind Kind { get; private set; }
 
-    public DateTimeOffset PlannedArrivalUtc { get; private set; }
+    // Nullable to match the schema; the write-path factory still requires both values.
+    public DateTimeOffset? PlannedArrivalUtc { get; private set; }
 
-    public DateTimeOffset PlannedDepartureUtc { get; private set; }
+    public DateTimeOffset? PlannedDepartureUtc { get; private set; }
+
+    public string Status { get; private set; } = StatusPlanned;
 
     public int StayDurationMinutes { get; private set; }
 
