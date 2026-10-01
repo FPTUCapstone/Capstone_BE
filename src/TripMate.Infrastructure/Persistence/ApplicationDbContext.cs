@@ -240,6 +240,8 @@ public class ApplicationDbContext(
 
     public DbSet<ReroutingEvent> ReroutingEvents => Set<ReroutingEvent>();
 
+    public DbSet<Payout> Payouts => Set<Payout>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(
