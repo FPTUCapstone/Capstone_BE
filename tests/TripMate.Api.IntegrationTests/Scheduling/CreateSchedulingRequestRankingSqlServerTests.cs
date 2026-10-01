@@ -605,7 +605,7 @@ public sealed class CreateSchedulingRequestRankingSqlServerTests
 
     private sealed class FixedDateTimeProvider : IDateTimeProvider
     {
-        public DateTimeOffset UtcNow => new(2026, 10, 20, 1, 0, 0, TimeSpan.Zero);
+        public DateTimeOffset UtcNow => new(2026, 10, 20, 0, 0, 0, TimeSpan.Zero);
     }
 
     private sealed class RecordingRouteDurationProvider : IRouteDurationProvider
