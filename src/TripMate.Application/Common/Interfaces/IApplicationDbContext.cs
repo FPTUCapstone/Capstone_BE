@@ -54,6 +54,8 @@ public interface IApplicationDbContext
 
     DbSet<GroupMember> GroupMembers { get; }
 
+    DbSet<GroupLocation> GroupLocations { get; }
+
     DbSet<Itinerary> Itineraries { get; }
 
     DbSet<ItineraryItem> ItineraryItems { get; }

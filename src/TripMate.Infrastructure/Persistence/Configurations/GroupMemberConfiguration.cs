@@ -27,6 +27,10 @@ public class GroupMemberConfiguration : IEntityTypeConfiguration<GroupMember>
             .HasDefaultValue(false)
             .IsRequired();
 
+        builder.Property(m => m.LocationSharingUpdatedAtUtc)
+            .HasColumnName("location_sharing_updated_at")
+            .AsUtcDateTime2();
+
         builder.Property(m => m.Status)
             .HasColumnName("status")
             .HasConversion<string>()

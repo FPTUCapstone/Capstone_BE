@@ -62,6 +62,8 @@ public class TestDbContext(
 
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
 
+    public DbSet<GroupLocation> GroupLocations => Set<GroupLocation>();
+
     public DbSet<Itinerary> Itineraries => Set<Itinerary>();
 
     public DbSet<ItineraryItem> ItineraryItems => Set<ItineraryItem>();

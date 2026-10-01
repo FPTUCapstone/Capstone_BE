@@ -5,9 +5,6 @@ using Microsoft.AspNetCore.Mvc;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Authentication.Common;
 using TripMate.Application.Features.PointsOfInterest.Common;
-using TripMate.Application.Features.RecommendationFeedback.Common;
-using TripMate.Application.Features.Scheduling.Common;
-using TripMate.Application.Features.TourMedia.Common;
 
 namespace TripMate.Api.Common;
 
@@ -88,15 +85,6 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             AuthErrorCodes.FirebaseUnavailable =>
                 StatusCodes.Status503ServiceUnavailable,
 
-            AuthErrorCodes.MsgEmailSendFailed =>
-                StatusCodes.Status503ServiceUnavailable,
-
-            AuthErrorCodes.MsgCooldown =>
-                StatusCodes.Status429TooManyRequests,
-
-            AuthErrorCodes.VerificationResendNotAllowed =>
-                StatusCodes.Status409Conflict,
-
             AuthErrorCodes.EmailAlreadyRegistered =>
                 StatusCodes.Status409Conflict,
 
@@ -114,21 +102,6 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
 
             TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.NotPending =>
                 StatusCodes.Status409Conflict,
-
-            TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.WrongRole =>
-                StatusCodes.Status422UnprocessableEntity,
-
-            TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.Incomplete =>
-                StatusCodes.Status422UnprocessableEntity,
-
-            TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.DocumentInvalid =>
-                StatusCodes.Status422UnprocessableEntity,
-
-            TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.RejectionReasonRequired =>
-                StatusCodes.Status422UnprocessableEntity,
-
-            TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.RejectionReasonTooLong =>
-                StatusCodes.Status422UnprocessableEntity,
 
             PoiErrorCodes.AdminAccessRequired =>
                 StatusCodes.Status403Forbidden,
@@ -151,35 +124,23 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.HostPermissionRequired =>
                 StatusCodes.Status403Forbidden,
 
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.ActiveMembershipRequired =>
+                StatusCodes.Status403Forbidden,
+
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.LocationSharingNotEnabled =>
+                StatusCodes.Status409Conflict,
+
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.LocationSharingSessionExpired =>
+                StatusCodes.Status409Conflict,
+
             TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.IdempotencyKeyPayloadMismatch =>
                 StatusCodes.Status409Conflict,
 
             TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.AlreadyActiveMember =>
                 StatusCodes.Status409Conflict,
 
-            SchedulingErrorCodes.IdempotencyKeyPayloadMismatch =>
-                StatusCodes.Status409Conflict,
-
-            SchedulingErrorCodes.ConstraintsInfeasible =>
-                StatusCodes.Status422UnprocessableEntity,
-
-            FeedbackErrorCodes.PoiNotFound or FeedbackErrorCodes.ItineraryNotFound =>
-                StatusCodes.Status404NotFound,
-
-            FeedbackErrorCodes.EventTokenConflict =>
-                StatusCodes.Status409Conflict,
-
-            FeedbackErrorCodes.ContextMismatch =>
-                StatusCodes.Status422UnprocessableEntity,
-
-            TourMediaErrorCodes.OperatorAccessRequired => StatusCodes.Status403Forbidden,
-            TourMediaErrorCodes.TourNotFound or TourMediaErrorCodes.TourMediaNotFound => StatusCodes.Status404NotFound,
-            TourMediaErrorCodes.TourMediaChangeLocked or TourMediaErrorCodes.InvalidCompleteOrder or
-                TourMediaErrorCodes.ActiveImageLimitReached or TourMediaErrorCodes.ActivePrimaryAlreadyExists or
-                TourMediaErrorCodes.IdempotencyKeyPayloadMismatch => StatusCodes.Status409Conflict,
-            TourMediaErrorCodes.ProviderUnavailable or TourMediaErrorCodes.ProviderRejected =>
-                StatusCodes.Status503ServiceUnavailable,
-            TourMediaErrorCodes.PersistenceFailed => StatusCodes.Status500InternalServerError,
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.MemberListInconsistent =>
+                StatusCodes.Status500InternalServerError,
 
             _ => StatusCodes.Status400BadRequest,
         };

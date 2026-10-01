@@ -1298,6 +1298,7 @@ CREATE TABLE social.GroupMembers (
     group_id                     BIGINT NOT NULL REFERENCES social.TravelGroups(group_id) ON DELETE CASCADE,
     user_id                         BIGINT NOT NULL REFERENCES dbo.Users(user_id),
     location_sharing_enabled          BIT NOT NULL DEFAULT 0,
+    location_sharing_updated_at       DATETIME2 NULL,
     status                               VARCHAR(10) NOT NULL DEFAULT 'Active'
         CHECK (status IN ('Active','Removed','Left')),
     joined_at                              DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
