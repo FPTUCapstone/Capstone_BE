@@ -722,6 +722,109 @@ public class ItineraryGenerationServiceTests
         result.ErrorCode.Should().Be(SchedulingErrorCodes.ConstraintsInfeasible);
     }
 
+    [Fact]
+    public async Task Generate_MaxEffectiveScoreCandidate_ViolatingHours_StillExcluded()
+    {
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(
+            RouteDurationMatrix.Create(
+            new int[,]
+            {
+                { 0, 10, 10, 10 },
+                { 10, 0, 10, 10 },
+                { 10, 10, 0, 10 },
+                { 10, 10, 10, 0 },
+            })));
+        var input = CreateInput(
+            availableMinutes: 240,
+            restPreference: RestPreference.None,
+            candidates:
+            [
+                Candidate(
+                    12,
+                    "Maximum score but closed",
+                    30,
+                    40_000m,
+                    0m,
+                    1.0m,
+                    null,
+                    null,
+                    null,
+                    [new GenerationOpeningHours(2, new TimeOnly(7, 0), new TimeOnly(8, 0))]),
+                Candidate(
+                    28,
+                    "Zero score and feasible",
+                    30,
+                    40_000m,
+                    0m,
+                    0.0m,
+                    null,
+                    null,
+                    null,
+                    [new GenerationOpeningHours(2, new TimeOnly(7, 0), new TimeOnly(20, 0))]),
+            ],
+            mandatoryPoiIds: []);
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Items
+            .Where(item => item.Kind == ItineraryItemKind.Visit)
+            .Select(item => item.PointOfInterestId)
+            .Should().Equal(28L);
+    }
+
+    [Fact]
+    public async Task Generate_MaxEffectiveScoreCandidate_ViolatingTimeWindow_StillExcluded()
+    {
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(
+            RouteDurationMatrix.Create(
+            new int[,]
+            {
+                { 0, 10, 10, 10 },
+                { 10, 0, 10, 10 },
+                { 10, 10, 0, 10 },
+                { 10, 10, 10, 0 },
+            })));
+        var input = CreateInput(
+            availableMinutes: 240,
+            restPreference: RestPreference.None,
+            candidates:
+            [
+                Candidate(
+                    12,
+                    "Maximum score but exceeds time window",
+                    300,
+                    40_000m,
+                    0m,
+                    1.0m,
+                    null,
+                    null,
+                    null,
+                    [new GenerationOpeningHours(2, new TimeOnly(0, 0), new TimeOnly(23, 59))]),
+                Candidate(
+                    28,
+                    "Zero score and within time window",
+                    30,
+                    40_000m,
+                    0m,
+                    0.0m,
+                    null,
+                    null,
+                    null,
+                    [new GenerationOpeningHours(2, new TimeOnly(7, 0), new TimeOnly(20, 0))]),
+            ],
+            mandatoryPoiIds: []);
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Items
+            .Where(item => item.Kind == ItineraryItemKind.Visit)
+            .Select(item => item.PointOfInterestId)
+            .Should().Equal(28L);
+        result.Value.TotalDurationMinutes.Should().BeLessThanOrEqualTo(240);
+    }
+
     private static GenerationInput CreateInput(
         int availableMinutes,
         RestPreference restPreference,
