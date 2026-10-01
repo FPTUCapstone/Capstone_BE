@@ -415,7 +415,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 item.TravelDurationToNextMinutes,
                 item.EstimatedCost,
                 item.IsMandatory,
-                item.RecommendationReason)).ToArray());
+                item.RecommendationReason,
+                null)).ToArray());
 
     private static SchedulingResponseDto ToResponse(SchedulingRequest schedulingRequest, Itinerary itinerary)
     {
@@ -440,7 +441,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 item.TravelDurationToNextMinutes,
                 item.EstimatedCost,
                 item.IsMandatory,
-                item.RecommendationReason)).ToArray());
+                item.RecommendationReason,
+                item.FriendlyExplanation)).ToArray());
     }
 
     private static string ComputeRequestHash(CanonicalSchedulingRequest command)

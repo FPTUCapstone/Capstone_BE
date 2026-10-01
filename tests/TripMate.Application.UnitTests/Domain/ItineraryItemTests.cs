@@ -1,3 +1,5 @@
+using System.Reflection;
+
 using FluentAssertions;
 
 using TripMate.Domain.Entities;
@@ -9,6 +11,12 @@ public class ItineraryItemTests
 {
     private static readonly DateTimeOffset Arrival = new(2026, 10, 20, 3, 0, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset Departure = new(2026, 10, 20, 3, 30, 0, TimeSpan.Zero);
+    private static readonly Action<ItineraryItem, string?> AttachFriendlyExplanation =
+        typeof(ItineraryItem)
+            .GetMethod(
+                "AttachFriendlyExplanation",
+                BindingFlags.Instance | BindingFlags.NonPublic)!
+            .CreateDelegate<Action<ItineraryItem, string?>>();
 
     [Fact]
     public void CreateRest_WithoutPoi_CreatesTypedBreak()
@@ -49,4 +57,66 @@ public class ItineraryItemTests
 
         action.Should().Throw<ArgumentException>();
     }
+
+    [Fact]
+    public void AttachFriendlyExplanation_WithPaddedText_TrimsAndStoresText()
+    {
+        var item = CreateVisit();
+
+        AttachFriendlyExplanation(item, "  Phù hợp với sở thích văn hóa của bạn.  ");
+
+        item.FriendlyExplanation.Should().Be("Phù hợp với sở thích văn hóa của bạn.");
+    }
+
+    [Fact]
+    public void AttachFriendlyExplanation_WithWhitespaceOnly_StoresNull()
+    {
+        var item = CreateVisit();
+
+        AttachFriendlyExplanation(item, "   ");
+
+        item.FriendlyExplanation.Should().BeNull();
+    }
+
+    [Fact]
+    public void AttachFriendlyExplanation_WithExactlyMaxLength_StoresText()
+    {
+        var item = CreateVisit();
+        var explanation = new string('x', ItineraryItem.FriendlyExplanationMaxLength);
+
+        AttachFriendlyExplanation(item, explanation);
+
+        item.FriendlyExplanation.Should().Be(explanation);
+    }
+
+    [Fact]
+    public void AttachFriendlyExplanation_ExceedingMaxLength_ThrowsArgumentException()
+    {
+        var item = CreateVisit();
+        var explanation = new string('x', ItineraryItem.FriendlyExplanationMaxLength + 1);
+
+        var action = () => AttachFriendlyExplanation(item, explanation);
+
+        action.Should().Throw<ArgumentException>();
+    }
+
+    [Fact]
+    public void AttachFriendlyExplanation_DoesNotChangeRecommendationReason()
+    {
+        var item = CreateVisit();
+
+        AttachFriendlyExplanation(item, "Phù hợp với sở thích văn hóa của bạn.");
+
+        item.RecommendationReason.Should().Be("Popular cultural stop");
+    }
+
+    private static ItineraryItem CreateVisit() =>
+        ItineraryItem.CreateVisit(
+            1,
+            42,
+            Arrival,
+            Departure,
+            isMandatory: false,
+            estimatedCost: 40_000m,
+            recommendationReason: "Popular cultural stop");
 }

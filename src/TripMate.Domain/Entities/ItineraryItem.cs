@@ -7,6 +7,8 @@ public class ItineraryItem : BaseEntity
 {
     public const int RecommendationReasonMaxLength = 500;
 
+    public const int FriendlyExplanationMaxLength = 500;
+
     private ItineraryItem()
     {
     }
@@ -36,6 +38,8 @@ public class ItineraryItem : BaseEntity
     public decimal? EstimatedCost { get; private set; }
 
     public string? RecommendationReason { get; private set; }
+
+    public string? FriendlyExplanation { get; private set; }
 
     public static ItineraryItem CreateVisit(
         int sequenceNo,
@@ -111,6 +115,19 @@ public class ItineraryItem : BaseEntity
     internal void AttachTo(Itinerary itinerary)
     {
         Itinerary = itinerary ?? throw new ArgumentNullException(nameof(itinerary));
+    }
+
+    internal void AttachFriendlyExplanation(string? text)
+    {
+        var normalized = string.IsNullOrWhiteSpace(text) ? null : text.Trim();
+        if (normalized?.Length > FriendlyExplanationMaxLength)
+        {
+            throw new ArgumentException(
+                $"Friendly explanation cannot exceed {FriendlyExplanationMaxLength} characters.",
+                nameof(text));
+        }
+
+        FriendlyExplanation = normalized;
     }
 
     private static ItineraryItem Create(

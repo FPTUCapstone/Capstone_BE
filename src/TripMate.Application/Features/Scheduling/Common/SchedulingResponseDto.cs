@@ -22,4 +22,5 @@ public sealed record SchedulingItemDto(
     int? TravelDurationToNextMinutes,
     decimal? EstimatedCost,
     bool IsMandatory,
-    string? RecommendationReason);
+    string? RecommendationReason,
+    string? FriendlyExplanation);
