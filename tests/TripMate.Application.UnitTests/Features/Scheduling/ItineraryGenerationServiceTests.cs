@@ -488,6 +488,240 @@ public class ItineraryGenerationServiceTests
         result.Value.TotalEstimatedCost.Should().Be(40_000m);
     }
 
+    [Fact]
+    public async Task Generate_TopRankedOptionalClosedBeforeArrival_IsExcluded()
+    {
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(
+            RouteDurationMatrix.Create(
+            new int[,]
+            {
+                { 0, 10, 10, 10 },
+                { 10, 0, 10, 10 },
+                { 10, 10, 0, 10 },
+                { 10, 10, 10, 0 },
+            })));
+        var input = CreateInput(
+            availableMinutes: 240,
+            restPreference: RestPreference.None,
+            candidates:
+            [
+                Candidate(
+                    12,
+                    "Top-ranked but closed",
+                    30,
+                    40_000m,
+                    0m,
+                    0.9m,
+                    null,
+                    null,
+                    null,
+                    [new GenerationOpeningHours(2, new TimeOnly(7, 0), new TimeOnly(8, 0))]),
+                Candidate(
+                    28,
+                    "Lower-ranked and open",
+                    30,
+                    40_000m,
+                    0m,
+                    0.1m,
+                    null,
+                    null,
+                    null,
+                    [new GenerationOpeningHours(2, new TimeOnly(7, 0), new TimeOnly(20, 0))]),
+            ],
+            mandatoryPoiIds: []);
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Items
+            .Where(item => item.Kind == ItineraryItemKind.Visit)
+            .Select(item => item.PointOfInterestId)
+            .Should().Equal(28L);
+    }
+
+    [Fact]
+    public async Task Generate_OptionalArrivingBeforeOpening_IsAlignedToOpeningTime()
+    {
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(
+            RouteDurationMatrix.Create(
+            new int[,]
+            {
+                { 0, 10, 10 },
+                { 10, 0, 10 },
+                { 10, 10, 0 },
+            })));
+        var input = CreateInput(
+            availableMinutes: 240,
+            restPreference: RestPreference.None,
+            candidates:
+            [
+                Candidate(
+                    12,
+                    "Museum opening later",
+                    60,
+                    40_000m,
+                    0m,
+                    1.0m,
+                    null,
+                    null,
+                    null,
+                    [new GenerationOpeningHours(2, new TimeOnly(10, 0), new TimeOnly(18, 0))]),
+            ],
+            mandatoryPoiIds: []);
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var visits = result.Value.Items
+            .Where(item => item.Kind == ItineraryItemKind.Visit)
+            .ToArray();
+        visits.Should().ContainSingle(item => item.PointOfInterestId == 12);
+        var timeZone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Ho_Chi_Minh");
+        TimeZoneInfo.ConvertTime(visits[0].PlannedArrivalUtc, timeZone).TimeOfDay
+            .Should().Be(new TimeSpan(10, 0, 0));
+        TimeZoneInfo.ConvertTime(visits[0].PlannedDepartureUtc, timeZone).TimeOfDay
+            .Should().Be(new TimeSpan(11, 0, 0));
+    }
+
+    [Fact]
+    public async Task Generate_OptionalVisitOverrunningClose_IsExcluded()
+    {
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(
+            RouteDurationMatrix.Create(
+            new int[,]
+            {
+                { 0, 10, 10, 10 },
+                { 10, 0, 10, 10 },
+                { 10, 10, 0, 10 },
+                { 10, 10, 10, 0 },
+            })));
+        var input = CreateInput(
+            availableMinutes: 240,
+            restPreference: RestPreference.None,
+            candidates:
+            [
+                Candidate(
+                    12,
+                    "Visit overruns close",
+                    120,
+                    40_000m,
+                    0m,
+                    0.9m,
+                    null,
+                    null,
+                    null,
+                    [new GenerationOpeningHours(2, new TimeOnly(7, 0), new TimeOnly(9, 30))]),
+                Candidate(
+                    28,
+                    "Feasible alternative",
+                    30,
+                    40_000m,
+                    0m,
+                    0.1m,
+                    null,
+                    null,
+                    null,
+                    [new GenerationOpeningHours(2, new TimeOnly(7, 0), new TimeOnly(20, 0))]),
+            ],
+            mandatoryPoiIds: []);
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Items
+            .Where(item => item.Kind == ItineraryItemKind.Visit)
+            .Select(item => item.PointOfInterestId)
+            .Should().Equal(28L);
+    }
+
+    [Fact]
+    public async Task Generate_OptionalWithoutHoursForArrivalDay_IsExcluded()
+    {
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(
+            RouteDurationMatrix.Create(
+            new int[,]
+            {
+                { 0, 10, 10, 10 },
+                { 10, 0, 10, 10 },
+                { 10, 10, 0, 10 },
+                { 10, 10, 10, 0 },
+            })));
+        var input = CreateInput(
+            availableMinutes: 240,
+            restPreference: RestPreference.None,
+            candidates:
+            [
+                // Closed days are absent here because ToCandidate filters closed rows.
+                Candidate(
+                    12,
+                    "No Tuesday hours",
+                    30,
+                    40_000m,
+                    0m,
+                    0.9m,
+                    null,
+                    null,
+                    null,
+                    [new GenerationOpeningHours(1, new TimeOnly(7, 0), new TimeOnly(20, 0))]),
+                Candidate(
+                    28,
+                    "Open Tuesday",
+                    30,
+                    40_000m,
+                    0m,
+                    0.1m,
+                    null,
+                    null,
+                    null,
+                    [new GenerationOpeningHours(2, new TimeOnly(7, 0), new TimeOnly(20, 0))]),
+            ],
+            mandatoryPoiIds: []);
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Items
+            .Where(item => item.Kind == ItineraryItemKind.Visit)
+            .Select(item => item.PointOfInterestId)
+            .Should().Equal(28L);
+    }
+
+    [Fact]
+    public async Task Generate_MandatoryWithImpossibleHours_ReturnsConstraintsInfeasible()
+    {
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(
+            RouteDurationMatrix.Create(
+            new int[,]
+            {
+                { 0, 10, 10 },
+                { 10, 0, 10 },
+                { 10, 10, 0 },
+            })));
+        var input = CreateInput(
+            availableMinutes: 240,
+            restPreference: RestPreference.None,
+            candidates:
+            [
+                Candidate(
+                    12,
+                    "Mandatory but closed",
+                    60,
+                    40_000m,
+                    0m,
+                    0m,
+                    null,
+                    null,
+                    null,
+                    [new GenerationOpeningHours(2, new TimeOnly(7, 0), new TimeOnly(8, 0))]),
+            ],
+            mandatoryPoiIds: [12]);
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(SchedulingErrorCodes.ConstraintsInfeasible);
+    }
+
     private static GenerationInput CreateInput(
         int availableMinutes,
         RestPreference restPreference,
