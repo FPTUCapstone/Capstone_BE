@@ -10,8 +10,10 @@ using TripMate.Application.Common.Media;
 using TripMate.Application.Features.Authentication.PasswordReset;
 using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Scheduling.Common;
+using TripMate.Application.Features.Scheduling.Explanation;
 using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Application.Features.TravelGroups.ManageInvitation;
+using TripMate.Infrastructure.AiExplanation;
 using TripMate.Infrastructure.AiRanking;
 using TripMate.Infrastructure.Authentication;
 using TripMate.Infrastructure.Email;
@@ -83,6 +85,20 @@ public static class DependencyInjection
             IValidateOptions<PoiRankingProviderOptions>,
             PoiRankingProviderOptionsValidator>();
         services.AddHttpClient<IPoiRankingProvider, HttpPoiRankingProvider>();
+        services.AddOptions<ExplanationProviderOptions>()
+            .Bind(configuration.GetSection(ExplanationProviderOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<
+            IValidateOptions<ExplanationProviderOptions>,
+            ExplanationProviderOptionsValidator>();
+        services.AddHttpClient<
+            IItineraryExplanationProvider,
+            HttpItineraryExplanationProvider>();
+        services.AddOptions<ItineraryExplanationExecutionOptions>()
+            .ValidateOnStart();
+        services.AddSingleton<
+            IValidateOptions<ItineraryExplanationExecutionOptions>,
+            ItineraryExplanationExecutionOptionsValidator>();
         services.AddScoped<PersonalBehaviorFeatureAggregator>();
         services.AddScoped(serviceProvider => new PoiRankingOrchestrator(
             serviceProvider.GetRequiredService<PersonalBehaviorFeatureAggregator>(),
