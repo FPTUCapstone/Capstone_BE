@@ -76,6 +76,8 @@ public class TestDbContext(
 
     public DbSet<GroupJoinOperation> GroupJoinOperations => Set<GroupJoinOperation>();
 
+    public DbSet<Payout> Payouts => Set<Payout>();
+
     public int TransactionExecutionCount { get; private set; }
 
     public bool ThrowOnSaveConcurrency { get; set; }

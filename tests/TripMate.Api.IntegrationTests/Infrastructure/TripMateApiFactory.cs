@@ -274,6 +274,8 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<GroupJoinOperation> GroupJoinOperations =>
         Set<GroupJoinOperation>();
 
+    public DbSet<Payout> Payouts => Set<Payout>();
+
     public async Task<int> RevokeRefreshTokenAsync(
         string tokenHash,
         DateTimeOffset revokedAtUtc,
