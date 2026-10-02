@@ -107,7 +107,19 @@ public class UpdateAlgorithmParametersCommandHandler(
 
         dbContext.AuditLogs.Add(auditEntry);
 
-        await dbContext.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException)
+        {
+            // Review 2026-10-01 (MAJOR-2): the single failed save already rolled the
+            // configuration back; surface the locked MSG127 contract through 503 instead of
+            // a generic 500 so direct BE callers see the same behavior as the Web proxy.
+            return Result.Failure<AlgorithmParametersDto>(
+                AlgorithmConfigErrorCodes.AuditUnavailable,
+                AlgorithmConfigErrorCodes.AuditUnavailableMessage);
+        }
 
         return Result.Success(new AlgorithmParametersDto(
             request.BufferTimeMinutes,

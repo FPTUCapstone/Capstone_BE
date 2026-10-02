@@ -69,15 +69,15 @@ public class GetAlgorithmParametersQueryHandlerTests
     }
 
     [Fact]
-    public async Task Handle_WhenRowsMissing_ShouldReturnSeededDefaults()
+    public async Task Handle_WhenRowsMissing_ShouldReturnNotInitializedFailure()
     {
+        // Review 2026-10-01 (MAJOR-1): missing managed rows are never masked with the seeded
+        // defaults; the operator must fix the database instead of being shown fabricated data.
         var result = await _handler.Handle(new GetAlgorithmParametersQuery(), CancellationToken.None);
 
-        result.IsSuccess.Should().BeTrue();
-        result.Value.BufferTimeMinutes.Should().Be(15);
-        result.Value.DefaultTravelSpeedKmh.Should().Be(30);
-        result.Value.ReroutingSearchRadiusKm.Should().Be(5);
-        result.Value.WeatherAlertThresholdSeverity.Should().Be("Severe");
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be(AlgorithmConfigErrorCodes.NotInitialized);
+        result.ErrorMessage.Should().Be(AlgorithmConfigErrorCodes.NotInitializedMessage);
     }
 
     [Fact]
@@ -89,7 +89,8 @@ public class GetAlgorithmParametersQueryHandlerTests
 
         var result = await _handler.Handle(new GetAlgorithmParametersQuery(), CancellationToken.None);
 
-        result.Value.BufferTimeMinutes.Should().Be(15);
+        result.IsSuccess.Should().BeFalse("foreign config rows do not initialize the managed keys");
+        result.ErrorCode.Should().Be(AlgorithmConfigErrorCodes.NotInitialized);
     }
 
     [Fact]
@@ -102,6 +103,7 @@ public class GetAlgorithmParametersQueryHandlerTests
 
         var result = await _handler.Handle(new GetAlgorithmParametersQuery(), CancellationToken.None);
 
-        result.Value.UpdatedAtUtc.Should().Be(latest);
+        result.IsSuccess.Should().BeFalse("partial rows are an incomplete configuration");
+        result.ErrorCode.Should().Be(AlgorithmConfigErrorCodes.NotInitialized);
     }
 }

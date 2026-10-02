@@ -27,11 +27,23 @@ public class GetAlgorithmParametersQueryHandler(
                 "You do not have permission to access this function.");
         }
 
-        // 2. Read only the four managed keys; missing rows fall back to seeded defaults.
+        // 2. Read only the four managed keys. Missing rows are NEVER masked with seeded
+        //    defaults (review 2026-10-01): the operator must fix the database instead of
+        //    being shown fabricated values that a later save would silently re-create.
         var rows = await dbContext.SystemConfigs
             .AsNoTracking()
             .Where(config => AlgorithmParameterDefinitions.ManagedKeys.Contains(config.ConfigKey))
             .ToDictionaryAsync(config => config.ConfigKey, cancellationToken);
+
+        var missingKeys = AlgorithmParameterDefinitions.ManagedKeys
+            .Where(key => !rows.ContainsKey(key))
+            .ToList();
+        if (missingKeys.Count > 0)
+        {
+            return Result.Failure<AlgorithmParametersDto>(
+                AlgorithmConfigErrorCodes.NotInitialized,
+                AlgorithmConfigErrorCodes.NotInitializedMessage);
+        }
 
         string? ValueOf(string key) =>
             rows.TryGetValue(key, out var row) ? row.ConfigValue : null;
@@ -41,9 +53,7 @@ public class GetAlgorithmParametersQueryHandler(
         var searchRadius = AlgorithmParameterDefinitions.ParseSearchRadius(ValueOf(AlgorithmParameterDefinitions.ReroutingSearchRadiusKmKey));
         var severity = AlgorithmParameterDefinitions.ParseSeverity(ValueOf(AlgorithmParameterDefinitions.WeatherAlertThresholdSeverityKey));
 
-        DateTimeOffset? latestUpdate = rows.Count == 0
-            ? null
-            : rows.Values.Max(config => config.UpdatedAtUtc);
+        var latestUpdate = rows.Values.Max(config => config.UpdatedAtUtc);
 
         return Result.Success(new AlgorithmParametersDto(
             bufferTimeMinutes,
@@ -51,6 +61,6 @@ public class GetAlgorithmParametersQueryHandler(
             searchRadius,
             severity,
             latestUpdate,
-            latestUpdate?.ToOffset(VietnamUtcOffset).ToString("dd/MM/yyyy HH:mm:ss")));
+            latestUpdate.ToOffset(VietnamUtcOffset).ToString("dd/MM/yyyy HH:mm:ss")));
     }
 }
