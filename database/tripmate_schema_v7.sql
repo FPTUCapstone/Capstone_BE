@@ -761,6 +761,24 @@ CREATE INDEX IX_Itineraries_Traveler ON planning.Itineraries(traveler_user_id, s
 CREATE UNIQUE INDEX UX_Itineraries_ShareToken ON planning.Itineraries(share_token) WHERE share_token IS NOT NULL;
 GO
 
+CREATE TABLE planning.ItineraryVersionOperations (
+    operation_id             BIGINT IDENTITY(1,1) PRIMARY KEY,
+    traveler_user_id         BIGINT NOT NULL REFERENCES dbo.Users(user_id),
+    source_itinerary_id      BIGINT NOT NULL REFERENCES planning.Itineraries(itinerary_id),
+    operation_type           VARCHAR(20) NOT NULL
+        CHECK (operation_type IN ('Regenerate','Adjust')),
+    idempotency_key          UNIQUEIDENTIFIER NOT NULL,
+    request_hash             VARCHAR(128) NOT NULL,
+    result_itinerary_id      BIGINT NULL REFERENCES planning.Itineraries(itinerary_id),
+    created_at               DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT UQ_ItineraryVersionOperations_TravelerKey
+        UNIQUE (traveler_user_id, idempotency_key)
+);
+GO
+CREATE INDEX IX_ItineraryVersionOperations_Source
+    ON planning.ItineraryVersionOperations(source_itinerary_id);
+GO
+
 CREATE TABLE planning.ItineraryItems (
     item_id                       BIGINT IDENTITY(1,1) PRIMARY KEY,
     itinerary_id                   BIGINT NOT NULL REFERENCES planning.Itineraries(itinerary_id) ON DELETE CASCADE,

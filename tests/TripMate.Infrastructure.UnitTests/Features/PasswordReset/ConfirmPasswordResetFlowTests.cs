@@ -271,6 +271,9 @@ public class ConfirmPasswordResetFlowTests
         DbSet<Domain.Entities.GroupJoinOperation> IApplicationDbContext.GroupJoinOperations =>
             throw new NotSupportedException();
 
+        DbSet<Domain.Entities.ItineraryVersionOperation> IApplicationDbContext.ItineraryVersionOperations =>
+            throw new NotSupportedException();
+
         public Task<int> RevokeRefreshTokenAsync(
             string tokenHash,
             DateTimeOffset revokedAtUtc,
@@ -323,6 +326,7 @@ public class ConfirmPasswordResetFlowTests
             modelBuilder.Ignore<Domain.Entities.GroupInvitation>();
             modelBuilder.Ignore<Domain.Entities.GroupInvitationOperation>();
             modelBuilder.Ignore<Domain.Entities.GroupJoinOperation>();
+            modelBuilder.Ignore<Domain.Entities.ItineraryVersionOperation>();
             base.OnModelCreating(modelBuilder);
         }
 

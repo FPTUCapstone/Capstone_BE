@@ -506,5 +506,4 @@ public sealed class CreateSchedulingRequestCommandHandler(
         private static decimal NormalizeDecimal(decimal value, int decimals) =>
             Math.Round(value, decimals, MidpointRounding.AwayFromZero);
     }
-
 }

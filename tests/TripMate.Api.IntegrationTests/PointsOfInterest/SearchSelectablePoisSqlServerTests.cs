@@ -18,6 +18,7 @@ using TripMate.Domain.Enums;
 
 namespace TripMate.Api.IntegrationTests.PointsOfInterest;
 
+[Collection(nameof(TripMateApiFactory))]
 public sealed class SearchSelectablePoisSqlServerTests
 {
     private static readonly DateTimeOffset SeedTime =

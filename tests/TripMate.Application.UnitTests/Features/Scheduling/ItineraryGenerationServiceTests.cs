@@ -314,6 +314,37 @@ public class ItineraryGenerationServiceTests
     }
 
     [Fact]
+    public async Task GenerateFixedOrder_DoesNotAllowRemovingMandatoryPoi()
+    {
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(
+            RouteDurationMatrix.Create(
+            new int[,]
+            {
+                { 0, 10, 10, 10 },
+                { 10, 0, 10, 10 },
+                { 10, 10, 0, 10 },
+                { 10, 10, 10, 0 },
+            })));
+        var input = CreateInput(
+            availableMinutes: 240,
+            restPreference: RestPreference.None,
+            candidates:
+            [
+                Candidate(12, "Mandatory museum", 30, 20_000m),
+                Candidate(28, "Optional museum", 30, 20_000m),
+            ],
+            mandatoryPoiIds: [12]);
+
+        var result = await service.GenerateFixedOrderAsync(
+            input,
+            orderedVisitPoiIds: [28],
+            CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorMessage.Should().Contain("Mandatory locations");
+    }
+
+    [Fact]
     public async Task Generate_FrequentRest_InsertsBreaksAfterTwoHoursOfContinuousSchedule()
     {
         var service = new ItineraryGenerationService(new FixedRouteDurationProvider(
@@ -853,11 +884,11 @@ public class ItineraryGenerationServiceTests
         string name,
         int visitDurationMinutes,
         decimal? cost,
-        decimal tripMateBaseScore,
-        decimal effectiveDesirabilityScore,
-        decimal? scenicScoreForRanking,
-        decimal? photoRatingForRanking,
-        decimal? estimatedVisitCostForRanking,
+        decimal tripMateBaseScore = 0m,
+        decimal effectiveDesirabilityScore = 0m,
+        decimal? scenicScoreForRanking = null,
+        decimal? photoRatingForRanking = null,
+        decimal? estimatedVisitCostForRanking = null,
         GenerationOpeningHours[]? openingHours = null) =>
         new(
             id,

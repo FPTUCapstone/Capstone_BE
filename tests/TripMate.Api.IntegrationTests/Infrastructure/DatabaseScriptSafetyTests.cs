@@ -17,6 +17,24 @@ public sealed class DatabaseScriptSafetyTests
         seedScript.Should().Contain("-i \"$migrationPath\"");
     }
 
+    [Fact]
+    public async Task ItineraryVersionOperationsMigration_IsIdempotentAndContainsRequiredGuards()
+    {
+        var migration = await File.ReadAllTextAsync(
+            Path.Combine(
+                AppContext.BaseDirectory,
+                "Database",
+                "migrations",
+                "20260920_add_itinerary_version_operations.sql"));
+
+        migration.Should().Contain("IF OBJECT_ID(N'planning.ItineraryVersionOperations', N'U') IS NULL");
+        migration.Should().Contain("CK_ItineraryVersionOperations_Type");
+        migration.Should().Contain("UQ_ItineraryVersionOperations_TravelerKey");
+        migration.Should().Contain("FK_ItineraryVersionOperations_Source");
+        migration.Should().Contain("FK_ItineraryVersionOperations_Result");
+        migration.Should().Contain("COMMIT TRANSACTION");
+    }
+
     [Theory]
     [InlineData("apply-schema.sh")]
     [InlineData("seed-image.sh")]

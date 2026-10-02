@@ -67,11 +67,60 @@ public sealed class ItineraryGenerationService(
             : Result.Success(bestPlan);
     }
 
+    public async Task<Result<GeneratedItineraryPlan>> GenerateFixedOrderAsync(
+        GenerationInput input,
+        IReadOnlyList<long> orderedVisitPoiIds,
+        CancellationToken cancellationToken)
+    {
+        if (orderedVisitPoiIds.Count == 0
+            || orderedVisitPoiIds.Distinct().Count() != orderedVisitPoiIds.Count)
+        {
+            return Infeasible("At least one distinct visit location is required.");
+        }
+
+        var candidates = input.Candidates.ToDictionary(candidate => candidate.Id);
+        if (candidates.Count != input.Candidates.Count
+            || orderedVisitPoiIds.Any(id => !candidates.ContainsKey(id)))
+        {
+            return Infeasible("A selected visit location is unavailable.");
+        }
+
+        if (input.MandatoryPoiIds.Any(id => !orderedVisitPoiIds.Contains(id)))
+        {
+            return Infeasible("Mandatory locations cannot be removed from an itinerary.");
+        }
+
+        var matrixCandidates = input.Candidates.ToArray();
+        var routePoints = new List<RoutePoint> { input.Start };
+        routePoints.AddRange(matrixCandidates.Select(candidate => candidate.Location));
+        routePoints.Add(input.End);
+        var matrix = await routeDurationProvider.GetMatrixAsync(
+            routePoints,
+            input.TransportMode,
+            cancellationToken);
+        if (matrix.PointCount != routePoints.Count)
+        {
+            throw new InvalidOperationException("Route provider returned a matrix with an unexpected size.");
+        }
+
+        var orderedCandidates = orderedVisitPoiIds.Select(id => candidates[id]).ToArray();
+        var plan = TryBuildPlan(
+            input,
+            orderedCandidates,
+            matrix,
+            matrixCandidates,
+            includeOptional: false);
+        return plan is null
+            ? Infeasible("The selected visit order cannot fit within the selected constraints.")
+            : Result.Success(plan);
+    }
+
     private GeneratedItineraryPlan? TryBuildPlan(
         GenerationInput input,
         IReadOnlyList<GenerationCandidate> sequence,
         RouteDurationMatrix matrix,
-        IReadOnlyList<GenerationCandidate> matrixCandidates)
+        IReadOnlyList<GenerationCandidate> matrixCandidates,
+        bool includeOptional = true)
     {
         var currentTime = input.StartAtUtc;
         var continuousMinutes = 0;
@@ -174,7 +223,8 @@ public sealed class ItineraryGenerationService(
             }
         }
 
-        var optionalCandidates = matrixCandidates
+        var optionalCandidates = includeOptional
+            ? matrixCandidates
             .Where(candidate => !input.MandatoryPoiIds.Contains(candidate.Id)
                 && !IsQualifiedRestCandidate(candidate))
             .OrderByDescending(candidate => candidate.EffectiveDesirabilityScore)
@@ -186,7 +236,8 @@ public sealed class ItineraryGenerationService(
             .ThenBy(candidate =>
                 candidate.EstimatedVisitCostForRanking ?? decimal.MaxValue)
             .ThenBy(candidate => candidate.Id)
-            .ToArray();
+            .ToArray()
+            : [];
 
         foreach (var candidate in optionalCandidates)
         {

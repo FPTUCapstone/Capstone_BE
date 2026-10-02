@@ -15,6 +15,7 @@ using Microsoft.Extensions.Options;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Domain.Entities;
@@ -89,6 +90,7 @@ public sealed class TripMateApiFactory(
                 services.RemoveAll<DbContextOptions<ApplicationDbContext>>();
                 services.RemoveAll<IApplicationDbContext>();
                 services.RemoveAll<ITravelGroupCreationLock>();
+                services.RemoveAll<IItineraryMutationLock>();
                 services.RemoveAll<IGroupInvitationLock>();
                 services.RemoveAll<IGroupJoinLock>();
                 services.RemoveAll<ISchedulingRequestLock>();
@@ -114,6 +116,7 @@ public sealed class TripMateApiFactory(
                     provider.GetRequiredService<TestApiDbContext>());
 
                 services.AddScoped<ITravelGroupCreationLock, NoOpTravelGroupCreationLock>();
+                services.AddScoped<IItineraryMutationLock, NoOpItineraryMutationLock>();
                 services.AddScoped<IGroupInvitationLock, NoOpGroupInvitationLock>();
                 services.AddScoped<IGroupJoinLock, NoOpGroupJoinLock>();
                 services.AddScoped<ISchedulingRequestLock, NoOpSchedulingRequestLock>();
@@ -273,6 +276,8 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
         Set<GroupInvitationOperation>();
     public DbSet<GroupJoinOperation> GroupJoinOperations =>
         Set<GroupJoinOperation>();
+    public DbSet<ItineraryVersionOperation> ItineraryVersionOperations =>
+        Set<ItineraryVersionOperation>();
 
     public async Task<int> RevokeRefreshTokenAsync(
         string tokenHash,
@@ -414,6 +419,12 @@ internal sealed class NoOpTourMediaCleanupOutboxStore : ITourMediaCleanupOutboxS
         string safeErrorCode,
         DateTimeOffset completedAtUtc,
         CancellationToken cancellationToken) => Task.CompletedTask;
+}
+
+internal sealed class NoOpItineraryMutationLock : IItineraryMutationLock
+{
+    public Task AcquireAsync(long itineraryId, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
 }
 
 internal sealed class TestRouteDurationProvider : IRouteDurationProvider
