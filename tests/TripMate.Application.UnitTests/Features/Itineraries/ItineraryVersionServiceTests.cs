@@ -64,6 +64,28 @@ public sealed class ItineraryVersionServiceTests
             .Should().StartWith(preferred.Id);
     }
 
+    [Fact]
+    public async Task CreateRegeneratedVersion_PersistsRoadDurationForTheNextItineraryItem()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var request = await AddRequestAsync(dbContext, travelerUserId: 42);
+        var original = await AddItineraryAsync(dbContext, request);
+        _ = await AddPlanningReadyPoiAsync(dbContext, "Culture", "First stop");
+        _ = await AddPlanningReadyPoiAsync(dbContext, "Nature", "Second stop");
+
+        var result = await new ItineraryVersionService(
+                dbContext,
+                new FixedRouteDurationProvider())
+            .CreateRegeneratedVersionAsync(original, request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Items
+            .OrderBy(item => item.SequenceNo)
+            .First()
+            .TravelDurationToNextMinutes
+            .Should().Be(10);
+    }
+
     private static async Task<SchedulingRequest> AddRequestAfterTwoUnrelatedRequestsAsync(TestDbContext dbContext)
     {
         dbContext.SchedulingRequests.AddRange(

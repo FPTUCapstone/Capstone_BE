@@ -14,8 +14,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 using TripMate.Application.Common.Interfaces;
-using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Domain.Entities;

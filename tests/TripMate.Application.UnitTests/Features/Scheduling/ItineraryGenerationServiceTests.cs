@@ -884,11 +884,11 @@ public class ItineraryGenerationServiceTests
         string name,
         int visitDurationMinutes,
         decimal? cost,
-        decimal tripMateBaseScore,
-        decimal effectiveDesirabilityScore,
-        decimal? scenicScoreForRanking,
-        decimal? photoRatingForRanking,
-        decimal? estimatedVisitCostForRanking,
+        decimal tripMateBaseScore = 0m,
+        decimal effectiveDesirabilityScore = 0m,
+        decimal? scenicScoreForRanking = null,
+        decimal? photoRatingForRanking = null,
+        decimal? estimatedVisitCostForRanking = null,
         GenerationOpeningHours[]? openingHours = null) =>
         new(
             id,

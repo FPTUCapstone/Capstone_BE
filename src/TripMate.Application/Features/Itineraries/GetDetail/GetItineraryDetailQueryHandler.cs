@@ -59,8 +59,7 @@ public sealed class GetItineraryDetailQueryHandler(
                 item.PlannedDepartureUtc,
                 index == 0
                     ? null
-                    : Math.Max(0, (int)Math.Ceiling((item.PlannedArrivalUtc
-                        - orderedItems[index - 1].PlannedDepartureUtc).TotalMinutes)),
+                    : orderedItems[index - 1].TravelDurationToNextMinutes,
                 item.StayDurationMinutes,
                 item.EstimatedCost,
                 item.IsMandatory,

@@ -66,6 +66,15 @@ public sealed class ItineraryVersionService(
                         hour.DayOfWeek,
                         hour.OpenTime!.Value,
                         hour.CloseTime!.Value)).ToArray(),
+                TripMateBaseScore: TravelerPreferenceScoring.CalculatePreferenceScore(
+                    poi,
+                    preferenceTokens),
+                EffectiveDesirabilityScore: TravelerPreferenceScoring.CalculatePreferenceScore(
+                    poi,
+                    preferenceTokens),
+                ScenicScoreForRanking: poi.ScenicScore,
+                PhotoRatingForRanking: poi.PhotoRating,
+                EstimatedVisitCostForRanking: poi.EstimatedVisitCost,
                 PreferenceScore: TravelerPreferenceScoring.CalculatePreferenceScore(poi, preferenceTokens),
                 ScenicScore: poi.ScenicScore,
                 PhotoRating: poi.PhotoRating,
@@ -117,7 +126,8 @@ public sealed class ItineraryVersionService(
                     item.PointOfInterestId,
                     item.PlannedArrivalUtc,
                     item.PlannedDepartureUtc,
-                    item.RecommendationReason)
+                    item.RecommendationReason,
+                    item.TravelDurationToNextMinutes)
                 : ItineraryItem.CreateVisit(
                     item.SequenceNo,
                     item.PointOfInterestId!.Value,
@@ -125,7 +135,8 @@ public sealed class ItineraryVersionService(
                     item.PlannedDepartureUtc,
                     item.IsMandatory,
                     item.EstimatedCost,
-                    item.RecommendationReason));
+                    item.RecommendationReason,
+                    item.TravelDurationToNextMinutes));
         }
 
         dbContext.Itineraries.Add(successor);
@@ -182,6 +193,15 @@ public sealed class ItineraryVersionService(
                         hour.DayOfWeek,
                         hour.OpenTime!.Value,
                         hour.CloseTime!.Value)).ToArray(),
+                TripMateBaseScore: TravelerPreferenceScoring.CalculatePreferenceScore(
+                    poi,
+                    preferenceTokens),
+                EffectiveDesirabilityScore: TravelerPreferenceScoring.CalculatePreferenceScore(
+                    poi,
+                    preferenceTokens),
+                ScenicScoreForRanking: poi.ScenicScore,
+                PhotoRatingForRanking: poi.PhotoRating,
+                EstimatedVisitCostForRanking: poi.EstimatedVisitCost,
                 PreferenceScore: TravelerPreferenceScoring.CalculatePreferenceScore(poi, preferenceTokens),
                 ScenicScore: poi.ScenicScore,
                 PhotoRating: poi.PhotoRating,
@@ -231,7 +251,8 @@ public sealed class ItineraryVersionService(
                     item.PointOfInterestId,
                     item.PlannedArrivalUtc,
                     item.PlannedDepartureUtc,
-                    item.RecommendationReason)
+                    item.RecommendationReason,
+                    item.TravelDurationToNextMinutes)
                 : ItineraryItem.CreateVisit(
                     item.SequenceNo,
                     item.PointOfInterestId!.Value,
@@ -239,7 +260,8 @@ public sealed class ItineraryVersionService(
                     item.PlannedDepartureUtc,
                     mandatoryIds.Contains(item.PointOfInterestId.Value),
                     item.EstimatedCost,
-                    item.RecommendationReason));
+                    item.RecommendationReason,
+                    item.TravelDurationToNextMinutes));
         }
 
         dbContext.Itineraries.Add(successor);
