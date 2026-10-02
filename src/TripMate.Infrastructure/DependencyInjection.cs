@@ -15,6 +15,7 @@ using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Application.Features.TravelGroups.ManageInvitation;
 using TripMate.Infrastructure.AiExplanation;
 using TripMate.Infrastructure.AiRanking;
+using TripMate.Infrastructure.Ai;
 using TripMate.Infrastructure.Authentication;
 using TripMate.Infrastructure.Email;
 using TripMate.Infrastructure.Media;
@@ -72,6 +73,13 @@ public static class DependencyInjection
             configuration.GetSection(SchedulingGenerationOptions.SectionName)
                 .Get<SchedulingGenerationOptions>()
             ?? new SchedulingGenerationOptions());
+        services.AddOptions<SchedulingRateLimitOptions>()
+            .Bind(configuration.GetSection(SchedulingRateLimitOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<SchedulingRateLimitOptions>, SchedulingRateLimitOptionsValidator>();
+        services.AddSingleton(serviceProvider =>
+            serviceProvider.GetRequiredService<IOptions<SchedulingRateLimitOptions>>().Value);
+        services.AddSingleton<IGenerateRateLimiter, InMemoryGenerateRateLimiter>();
         services.AddOptions<PersonalizationRankingOptions>()
             .Bind(configuration.GetSection(PersonalizationRankingOptions.SectionName))
             .ValidateOnStart();
@@ -84,6 +92,15 @@ public static class DependencyInjection
         services.AddSingleton<
             IValidateOptions<PoiRankingProviderOptions>,
             PoiRankingProviderOptionsValidator>();
+        services.AddSingleton(serviceProvider => new InMemoryAiProviderBudget(
+            serviceProvider.GetRequiredService<IDateTimeProvider>(),
+            new AiProviderBudgetSettings(
+                serviceProvider.GetRequiredService<IOptions<PoiRankingProviderOptions>>().Value.RateLimitPerMinute,
+                serviceProvider.GetRequiredService<IOptions<PoiRankingProviderOptions>>().Value.MaxConcurrency),
+            new AiProviderBudgetSettings(
+                serviceProvider.GetRequiredService<IOptions<ExplanationProviderOptions>>().Value.RateLimitPerMinute,
+                serviceProvider.GetRequiredService<IOptions<ExplanationProviderOptions>>().Value.MaxConcurrency)));
+        services.AddSingleton<IAiProviderBudget>(sp => sp.GetRequiredService<InMemoryAiProviderBudget>());
         services.AddHttpClient<IPoiRankingProvider, HttpPoiRankingProvider>();
         services.AddOptions<ExplanationProviderOptions>()
             .Bind(configuration.GetSection(ExplanationProviderOptions.SectionName))
@@ -95,10 +112,26 @@ public static class DependencyInjection
             IItineraryExplanationProvider,
             HttpItineraryExplanationProvider>();
         services.AddOptions<ItineraryExplanationExecutionOptions>()
+            .Configure<IOptions<ExplanationProviderOptions>>((executionOptions, providerOptions) =>
+            {
+                ExplanationProviderOptions options = providerOptions.Value;
+                executionOptions.ProviderTimeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
+                executionOptions.OverallTimeout = TimeSpan.FromSeconds(options.OverallTimeoutSeconds);
+                executionOptions.MaxAttempts = options.MaxAttempts;
+                executionOptions.RetryBaseDelayMilliseconds = options.RetryBaseDelayMilliseconds;
+            })
             .ValidateOnStart();
         services.AddSingleton<
             IValidateOptions<ItineraryExplanationExecutionOptions>,
             ItineraryExplanationExecutionOptionsValidator>();
+        services.AddSingleton(serviceProvider => serviceProvider
+            .GetRequiredService<IOptions<ItineraryExplanationExecutionOptions>>()
+            .Value);
+        services.AddSingleton(
+            typeof(bool),
+            serviceProvider => serviceProvider
+                .GetRequiredService<IOptions<ExplanationProviderOptions>>()
+                .Value.Enabled);
         services.AddScoped<PersonalBehaviorFeatureAggregator>();
         services.AddScoped(serviceProvider => new PoiRankingOrchestrator(
             serviceProvider.GetRequiredService<PersonalBehaviorFeatureAggregator>(),

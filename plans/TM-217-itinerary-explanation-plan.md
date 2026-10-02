@@ -79,8 +79,10 @@ documented-flake failure that does not pass an isolated re-run, is a STOP condit
 - **Files:**
   - `src/TripMate.Domain/Entities/ItineraryItem.cs` — `FriendlyExplanationMaxLength = 500`,
     `string? FriendlyExplanation { get; private set; }`,
-    `internal void AttachFriendlyExplanation(string? text)` using the same
+    `public void AttachFriendlyExplanation(string? text)` using the same
     normalization as `RecommendationReason` (trim → null-if-empty → throw on >500).
+    Application may invoke this public domain behavior during Phase 2; the property setter
+    remains private, so mutation is still encapsulated by the domain entity.
   - `src/TripMate.Application/Features/Scheduling/Common/SchedulingResponseDto.cs` —
     `SchedulingItemDto` gains trailing `string? FriendlyExplanation`.
   - `src/TripMate.Application/Features/Scheduling/Create/CreateSchedulingRequestCommandHandler.cs` —
@@ -162,18 +164,26 @@ documented-flake failure that does not pass an isolated re-run, is a STOP condit
   - `ItineraryExplanationFallback.cs` — the four exact Vietnamese constants from spec
     §11 + resolver by (Kind, IsMandatory, has-PoiId).
   - `ItineraryExplanationExecutionOptions.cs` — Application execution policy with the
-    following frozen semantics (the exact C# form may follow repository conventions):
+    following corrective runtime semantics based on real manual Gemini evidence (where successful
+    responses regularly required ~5.5s to ~8.2s, proving the old 5s fixed timeout too short):
     ```csharp
     sealed class ItineraryExplanationExecutionOptions
     {
-        public static readonly TimeSpan DefaultProviderTimeout = TimeSpan.FromSeconds(5);
+        public static readonly TimeSpan DefaultProviderTimeout = TimeSpan.FromSeconds(10);
+        public static readonly TimeSpan DefaultOverallTimeout = TimeSpan.FromSeconds(20);
+        public const int DefaultMaxAttempts = 2;
+        public const int DefaultRetryBaseDelayMilliseconds = 500;
 
-        public TimeSpan ProviderTimeout { get; init; } = DefaultProviderTimeout;
+        public TimeSpan ProviderTimeout { get; set; } = DefaultProviderTimeout;
+        public TimeSpan OverallTimeout { get; set; } = DefaultOverallTimeout;
+        public int MaxAttempts { get; set; } = DefaultMaxAttempts;
+        public int RetryBaseDelayMilliseconds { get; set; } = DefaultRetryBaseDelayMilliseconds;
     }
     ```
-    The default is exactly 5 seconds and `ProviderTimeout` must be greater than zero.
-    This is Application execution policy, not Gemini transport authority. TM-217 adds
-    no user-facing/configurable timeout and no `AiExplanation:Timeout` appsettings field.
+    Per-attempt default is 10 seconds; overall explanation budget is 20 seconds.
+    At most 2 attempts (1 retry) are permitted for transient provider responses (429, 502, 503, 504).
+    Deterministic fallback remains the authoritative failure behavior, and the scheduling result
+    remains completely independent from LLM availability.
 - **Behavior added:** contracts and pure logic only; nothing wired into the handler yet.
 - **Tests (new, `tests/TripMate.Application.UnitTests/Features/Scheduling/Explanation/`):**
   - `ItineraryExplanationValidatorTests` — full §10 matrix (valid; wrong count; missing
@@ -428,6 +438,17 @@ or pushing from this plan.
 7. `git diff --check` clean; `git status` shows only the untracked spec + plan files. ✔
 
 ## 9. Commit Sequence Overview
+
+## 10. Final hardening notes
+
+The approved closure patch adds context-aware deterministic fallback variants and
+process-local gates: three fresh generations per rolling minute with a 15-second
+cooldown per user, plus four ranking/explanation provider attempts per minute and two
+concurrent calls per provider. Replays are checked before consuming a user permit;
+provider failure remains a local degradation path, never a traveler-facing 429.
+
+The in-memory implementation is intentionally single-instance only. Multi-instance
+coordination, Redis, queues, and circuit breakers remain out of scope.
 
 | Order | Work item | Commit |
 | --- | --- | --- |

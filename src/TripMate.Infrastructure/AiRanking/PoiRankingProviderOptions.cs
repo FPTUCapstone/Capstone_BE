@@ -11,4 +11,8 @@ public sealed class PoiRankingProviderOptions
     public string? ApiKey { get; init; }
 
     public string? ModelName { get; init; }
+
+    public int RateLimitPerMinute { get; init; } = 4;
+
+    public int MaxConcurrency { get; init; } = 2;
 }

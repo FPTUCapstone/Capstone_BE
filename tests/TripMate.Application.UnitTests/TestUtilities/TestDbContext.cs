@@ -80,10 +80,15 @@ public class TestDbContext(
 
     public int TransactionExecutionCount { get; private set; }
 
+    public bool IsExecutingSerializableTransaction { get; private set; }
+
+    public int SaveChangesAsyncCallCount { get; private set; }
+
     public bool ThrowOnSaveConcurrency { get; set; }
 
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
+        SaveChangesAsyncCallCount++;
         if (ThrowOnSaveConcurrency)
         {
             throw new DbUpdateConcurrencyException("Concurrency conflict simulated in test.");
@@ -133,12 +138,20 @@ public class TestDbContext(
 
     public void ClearTrackedEntities() => ChangeTracker.Clear();
 
-    public Task<T> ExecuteInSerializableTransactionAsync<T>(
+    public async Task<T> ExecuteInSerializableTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken)
     {
         TransactionExecutionCount++;
-        return operation(cancellationToken);
+        IsExecutingSerializableTransaction = true;
+        try
+        {
+            return await operation(cancellationToken);
+        }
+        finally
+        {
+            IsExecutingSerializableTransaction = false;
+        }
     }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

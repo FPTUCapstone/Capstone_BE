@@ -124,8 +124,10 @@ fails, the request fails exactly as today — no explanation code executes.
 **Phase 2 — explanation (new, post-commit, best-effort).**
 1. The handler captures the validated plan and persisted itinerary from Phase 1 and
    builds `ItineraryExplanationInput` (in-memory; no extra DB read).
-2. Provider invoked once (5 s timeout). Validated output → LLM explanations; any
-   failure/invalid output → deterministic fallback explanations.
+2. Provider invoked with 10s per-attempt timeout and 20s overall budget (allowing up to 1 retry
+   for transient 429/502/503/504 based on real manual Gemini evidence where successful responses
+   took ~5.5s to ~8.2s). Validated output → LLM explanations; any failure/invalid output/exhaustion
+   → deterministic fallback explanations.
 3. Persist in a **short second transaction (T2)**: load the itinerary's
    `ItineraryItem`s with change tracking enabled (AGENTS.md §3.2), apply
    `AttachFriendlyExplanation` per item, `SaveChangesAsync`.
@@ -259,9 +261,11 @@ Fallback text is defined as `public const` strings on `ItineraryExplanationFallb
 - New column: `planning.ItineraryItems.friendly_explanation NVARCHAR(500) NULL`
   (Unicode, matches Vietnamese; same cap as `recommendation_reason`).
 - Domain: `ItineraryItem.FriendlyExplanation { get; private set; }` +
-  `FriendlyExplanationMaxLength = 500` + `internal void AttachFriendlyExplanation(string? text)`
+  `FriendlyExplanationMaxLength = 500` + `public void AttachFriendlyExplanation(string? text)`
   applying the same normalization as `RecommendationReason` (trim, null-if-empty,
   throw on overflow). No changes to `RecommendationReason` or any factory signature.
+  Application may invoke this public domain behavior during Phase 2; the property setter
+  remains private, so mutation is still encapsulated by the domain entity.
 - EF: `ItineraryItemConfiguration` maps the column; nothing else changes.
 - Written only by Phase 2 (T2), tracked entities, one `SaveChangesAsync`.
 - Historical rows and persistence-failure rows stay NULL — no guessed backfill
@@ -285,12 +289,12 @@ Fallback text is defined as `public const` strings on `ItineraryExplanationFallb
 | Condition | Outcome | Outcome label |
 | --- | --- | --- |
 | Provider disabled (`AiExplanation:Enabled=false`) | Fallback, no HTTP call | `provider-skipped` |
-| 5 s timeout (linked CTS `CancelAfter`, mirroring TM-215) | Fallback | `timeout` |
+| Attempt/Overall timeout (10s attempt, 20s overall budget) | Fallback | `timeout` |
 | HTTP/IO exception | Fallback | `network` |
-| HTTP 429 | Fallback | `quota` |
-| HTTP 5xx | Fallback | `server-error` |
-| 4xx / malformed JSON / schema/count/sequence/length violations | Fallback | `invalid-response` |
-| Validated LLM output | LLM text persisted | `success` |
+| HTTP 429 (quota exceeded, after at most 1 bounded retry) | Fallback | `quota` |
+| HTTP 5xx (server error, after at most 1 retry for 502/503/504) | Fallback | `server-error` |
+| 4xx / malformed JSON / schema/count/sequence/length violations | Fallback, no retry | `invalid-response` |
+| Validated LLM output (first attempt or after retry) | LLM text persisted | `success` |
 | T2 persistence failure | Response keeps computed text; rows stay NULL | `persistence-failed` |
 
 Caller cancellation (`OperationCanceledException` with the caller token) must still
@@ -377,6 +381,25 @@ All automated tests must use fakes, stubs, or controlled test HTTP handlers.
 2. Does the synchronous POST accepting up to ~5 s added latency in Phase 2 need a
    product sign-off? (Worst case now ≈ ranking 5 s + explanation 5 s.)
 
-## 22. Verdict
+## 22. Verdict (original TM-217 baseline)
+
+## 23. Final UX and provider safety hardening
+
+The local fallback is context-aware, Vietnamese, deterministic, provider-independent,
+and selected from stable travel context only. It never uses user identity or runtime
+randomness; replay returns the persisted text.
+
+Fresh Generate requests are limited to three per rolling 60 seconds per authenticated
+user, with a 15-second cooldown. Exact idempotent replays do not consume a permit.
+Violations return TripMate HTTP 429 with a bounded `Retry-After` value.
+
+Ranking and explanation each have a process-local budget of four external attempts per
+minute and two concurrent calls. Every actual explanation retry consumes another
+permit. Local denial, provider quota exhaustion, and provider HTTP 429 all degrade to
+the deterministic fallback and never become a traveler-facing HTTP 429.
+
+These in-memory gates protect one API instance only; they are not authoritative across
+multiple replicas. A future horizontally scaled deployment would require distributed
+rate limiting. Redis, circuit breakers, and queues are explicitly out of scope.
 
 SPEC READY — pending developer approval before any implementation task is planned.

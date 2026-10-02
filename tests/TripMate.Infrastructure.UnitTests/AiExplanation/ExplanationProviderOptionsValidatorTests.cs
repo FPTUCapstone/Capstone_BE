@@ -60,4 +60,39 @@ public sealed class ExplanationProviderOptionsValidatorTests
 
         result.Succeeded.Should().BeTrue();
     }
+
+    [Theory]
+    [InlineData(0, 20, 2, 500, nameof(ExplanationProviderOptions.TimeoutSeconds))]
+    [InlineData(-1, 20, 2, 500, nameof(ExplanationProviderOptions.TimeoutSeconds))]
+    [InlineData(15, 10, 2, 500, "cannot exceed")]
+    [InlineData(10, 0, 2, 500, nameof(ExplanationProviderOptions.OverallTimeoutSeconds))]
+    [InlineData(10, 31, 2, 500, nameof(ExplanationProviderOptions.OverallTimeoutSeconds))]
+    [InlineData(10, 20, 0, 500, nameof(ExplanationProviderOptions.MaxAttempts))]
+    [InlineData(10, 20, 3, 500, nameof(ExplanationProviderOptions.MaxAttempts))]
+    [InlineData(10, 20, 2, -1, nameof(ExplanationProviderOptions.RetryBaseDelayMilliseconds))]
+    [InlineData(10, 20, 2, 5001, nameof(ExplanationProviderOptions.RetryBaseDelayMilliseconds))]
+    public void Validate_WhenEnabledWithInvalidTimeoutOrRetry_Fails(
+        int timeout,
+        int overallTimeout,
+        int maxAttempts,
+        int delayMs,
+        string expectedError)
+    {
+        ValidateOptionsResult result = _validator.Validate(
+            null,
+            new ExplanationProviderOptions
+            {
+                Enabled = true,
+                Endpoint = "https://provider.test/v1/interactions",
+                ApiKey = "key",
+                ModelName = "model",
+                TimeoutSeconds = timeout,
+                OverallTimeoutSeconds = overallTimeout,
+                MaxAttempts = maxAttempts,
+                RetryBaseDelayMilliseconds = delayMs,
+            });
+
+        result.Failed.Should().BeTrue();
+        result.FailureMessage.Should().Contain(expectedError);
+    }
 }

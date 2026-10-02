@@ -1,18 +1,24 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
+using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Scheduling.Explanation;
+using TripMate.Infrastructure.Ai;
 
 namespace TripMate.Infrastructure.AiExplanation;
 
 public sealed class HttpItineraryExplanationProvider(
     HttpClient httpClient,
-    IOptions<ExplanationProviderOptions> options) : IItineraryExplanationProvider
+    IOptions<ExplanationProviderOptions> options,
+    ILogger<HttpItineraryExplanationProvider>? logger = null,
+    IAiProviderBudget? budget = null) : IItineraryExplanationProvider
 {
     private const string SystemInstruction = """
         Bạn là trợ lý giải thích lịch trình du lịch.
@@ -34,6 +40,8 @@ public sealed class HttpItineraryExplanationProvider(
         ?? throw new ArgumentNullException(nameof(httpClient));
     private readonly ExplanationProviderOptions _options = options?.Value
         ?? throw new ArgumentNullException(nameof(options));
+    private readonly ILogger<HttpItineraryExplanationProvider>? _logger = logger;
+    private readonly IAiProviderBudget? _budget = budget;
 
     public async Task<Result<ItineraryExplanationResult>> ExplainAsync(
         ItineraryExplanationInput input,
@@ -53,55 +61,143 @@ public sealed class HttpItineraryExplanationProvider(
                 "application/json",
                 ResponseSchema));
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, _options.Endpoint)
-        {
-            Content = JsonContent.Create(payload, options: SerializerOptions),
-        };
-        request.Headers.Add("x-goog-api-key", _options.ApiKey);
+        int maxAttempts = Math.Clamp(_options.MaxAttempts, 1, 2);
+        TimeSpan overallBudget = TimeSpan.FromSeconds(_options.OverallTimeoutSeconds);
+        TimeSpan attemptTimeout = TimeSpan.FromSeconds(_options.TimeoutSeconds);
+        long overallStart = Stopwatch.GetTimestamp();
 
-        HttpResponseMessage response;
-        try
+        for (int attempt = 1; attempt <= maxAttempts; attempt++)
         {
-            response = await _httpClient.SendAsync(request, cancellationToken);
-        }
-        catch (HttpRequestException)
-        {
-            return NetworkFailure();
-        }
-        catch (IOException)
-        {
-            return NetworkFailure();
-        }
+            cancellationToken.ThrowIfCancellationRequested();
 
-        using (response)
-        {
-            if (!response.IsSuccessStatusCode)
+            TimeSpan elapsed = Stopwatch.GetElapsedTime(overallStart);
+            TimeSpan remainingBudget = overallBudget - elapsed;
+            if (remainingBudget <= TimeSpan.Zero)
             {
-                return MapHttpFailure(response.StatusCode);
+                LogAttempt(attempt, maxAttempts, "timeout", httpStatus: null, latencyMs: elapsed.TotalMilliseconds, retryScheduled: false);
+                return TimeoutFailure();
             }
 
-            string responseBody;
+            TimeSpan currentAttemptTimeout = remainingBudget < attemptTimeout ? remainingBudget : attemptTimeout;
+            if (currentAttemptTimeout <= TimeSpan.Zero)
+            {
+                LogAttempt(attempt, maxAttempts, "timeout", httpStatus: null, latencyMs: elapsed.TotalMilliseconds, retryScheduled: false);
+                return TimeoutFailure();
+            }
+
+            using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            attemptCts.CancelAfter(currentAttemptTimeout);
+
+            IDisposable? permit = null;
+            if (_budget is not null
+                && !_budget.TryAcquire(AiProviderNames.Explanation, out permit))
+            {
+                LogAttempt(attempt, maxAttempts, "local-budget", httpStatus: null, latencyMs: 0, retryScheduled: false);
+                return Result.Failure<ItineraryExplanationResult>(
+                    ExplanationProviderErrorCodes.Quota,
+                    "The local itinerary explanation provider budget is unavailable.");
+            }
+
+            long attemptStart = Stopwatch.GetTimestamp();
+            HttpResponseMessage response;
             try
             {
-                responseBody = await response.Content.ReadAsStringAsync(cancellationToken);
+                using var request = new HttpRequestMessage(HttpMethod.Post, _options.Endpoint)
+                {
+                    Content = JsonContent.Create(payload, options: SerializerOptions),
+                };
+                request.Headers.Add("x-goog-api-key", _options.ApiKey);
+
+                response = await _httpClient.SendAsync(request, attemptCts.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && attemptCts.IsCancellationRequested)
+            {
+                LogAttempt(attempt, maxAttempts, "timeout", httpStatus: null, latencyMs: Stopwatch.GetElapsedTime(attemptStart).TotalMilliseconds, retryScheduled: false);
+                return TimeoutFailure();
             }
             catch (HttpRequestException)
             {
+                LogAttempt(attempt, maxAttempts, "network", httpStatus: null, latencyMs: Stopwatch.GetElapsedTime(attemptStart).TotalMilliseconds, retryScheduled: false);
                 return NetworkFailure();
             }
             catch (IOException)
             {
+                LogAttempt(attempt, maxAttempts, "network", httpStatus: null, latencyMs: Stopwatch.GetElapsedTime(attemptStart).TotalMilliseconds, retryScheduled: false);
                 return NetworkFailure();
             }
-
-            string? output = ReadSingleModelOutput(responseBody);
-            if (output is null || !TryParseResult(output, input, out var result))
+            finally
             {
-                return InvalidResponseFailure();
+                permit?.Dispose();
             }
 
-            return Result.Success(result!);
+            using (response)
+            {
+                int statusCodeNumber = (int)response.StatusCode;
+                if (response.IsSuccessStatusCode)
+                {
+                    string responseBody;
+                    try
+                    {
+                        responseBody = await response.Content.ReadAsStringAsync(attemptCts.Token);
+                    }
+                    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && attemptCts.IsCancellationRequested)
+                    {
+                        LogAttempt(attempt, maxAttempts, "timeout", statusCodeNumber, latencyMs: Stopwatch.GetElapsedTime(attemptStart).TotalMilliseconds, retryScheduled: false);
+                        return TimeoutFailure();
+                    }
+                    catch (HttpRequestException)
+                    {
+                        LogAttempt(attempt, maxAttempts, "network", statusCodeNumber, latencyMs: Stopwatch.GetElapsedTime(attemptStart).TotalMilliseconds, retryScheduled: false);
+                        return NetworkFailure();
+                    }
+                    catch (IOException)
+                    {
+                        LogAttempt(attempt, maxAttempts, "network", statusCodeNumber, latencyMs: Stopwatch.GetElapsedTime(attemptStart).TotalMilliseconds, retryScheduled: false);
+                        return NetworkFailure();
+                    }
+
+                    string? output = ReadSingleModelOutput(responseBody);
+                    if (output is null || !TryParseResult(output, input, out var result))
+                    {
+                        LogAttempt(attempt, maxAttempts, "invalid-response", statusCodeNumber, latencyMs: Stopwatch.GetElapsedTime(attemptStart).TotalMilliseconds, retryScheduled: false);
+                        return InvalidResponseFailure();
+                    }
+
+                    LogAttempt(attempt, maxAttempts, "success", statusCodeNumber, latencyMs: Stopwatch.GetElapsedTime(attemptStart).TotalMilliseconds, retryScheduled: false);
+                    return Result.Success(result!);
+                }
+
+                bool isTransient = response.StatusCode is HttpStatusCode.TooManyRequests
+                    or HttpStatusCode.BadGateway
+                    or HttpStatusCode.ServiceUnavailable
+                    or HttpStatusCode.GatewayTimeout;
+
+                if (!isTransient || attempt >= maxAttempts)
+                {
+                    LogAttempt(attempt, maxAttempts, MapExplanationOutcome(response.StatusCode), statusCodeNumber, latencyMs: Stopwatch.GetElapsedTime(attemptStart).TotalMilliseconds, retryScheduled: false);
+                    return MapHttpFailure(response.StatusCode);
+                }
+
+                TimeSpan delay = GetBackoffDelay(response, _options.RetryBaseDelayMilliseconds);
+                TimeSpan elapsedSoFar = Stopwatch.GetElapsedTime(overallStart);
+                TimeSpan remaining = overallBudget - elapsedSoFar;
+
+                if (delay >= remaining)
+                {
+                    LogAttempt(attempt, maxAttempts, MapExplanationOutcome(response.StatusCode), statusCodeNumber, latencyMs: Stopwatch.GetElapsedTime(attemptStart).TotalMilliseconds, retryScheduled: false);
+                    return MapHttpFailure(response.StatusCode);
+                }
+
+                LogAttempt(attempt, maxAttempts, MapExplanationOutcome(response.StatusCode), statusCodeNumber, latencyMs: Stopwatch.GetElapsedTime(attemptStart).TotalMilliseconds, retryScheduled: true);
+
+                if (delay > TimeSpan.Zero)
+                {
+                    await Task.Delay(delay, cancellationToken);
+                }
+            }
         }
+
+        return MapHttpFailure(HttpStatusCode.ServiceUnavailable);
     }
 
     private static string? ReadSingleModelOutput(string responseBody)
@@ -222,6 +318,77 @@ public sealed class HttpItineraryExplanationProvider(
         return Result.Failure<ItineraryExplanationResult>(
             ExplanationProviderErrorCodes.InvalidResponse,
             "The itinerary explanation provider rejected the request.");
+    }
+
+    private static Result<ItineraryExplanationResult> TimeoutFailure() =>
+        Result.Failure<ItineraryExplanationResult>(
+            ExplanationProviderErrorCodes.Timeout,
+            "The itinerary explanation provider timed out.");
+
+    private static string MapExplanationOutcome(HttpStatusCode statusCode) => statusCode switch
+    {
+        HttpStatusCode.TooManyRequests => "quota",
+        _ when (int)statusCode >= 500 && (int)statusCode <= 599 => "server-error",
+        _ => "invalid-response",
+    };
+
+    private static TimeSpan GetBackoffDelay(HttpResponseMessage response, int retryBaseDelayMilliseconds)
+    {
+        if (response.StatusCode == HttpStatusCode.TooManyRequests && response.Headers.RetryAfter is not null)
+        {
+            if (response.Headers.RetryAfter.Delta.HasValue)
+            {
+                TimeSpan delta = response.Headers.RetryAfter.Delta.Value;
+                return delta > TimeSpan.Zero ? delta : TimeSpan.Zero;
+            }
+
+            if (response.Headers.RetryAfter.Date.HasValue)
+            {
+                TimeSpan diff = response.Headers.RetryAfter.Date.Value - DateTimeOffset.UtcNow;
+                return diff > TimeSpan.Zero ? diff : TimeSpan.Zero;
+            }
+        }
+
+        int baseMs = Math.Max(0, retryBaseDelayMilliseconds);
+        int jitter = baseMs > 0 ? Random.Shared.Next(0, 50) : 0;
+        return TimeSpan.FromMilliseconds(baseMs + jitter);
+    }
+
+    private void LogAttempt(
+        int attempt,
+        int maxAttempts,
+        string outcome,
+        int? httpStatus,
+        double latencyMs,
+        bool retryScheduled)
+    {
+        if (_logger is null)
+        {
+            return;
+        }
+
+        if (outcome == "success")
+        {
+            _logger.LogInformation(
+                "Itinerary explanation provider attempt={Attempt}/{MaxAttempts}; httpStatus={HttpStatus}; latencyMs={LatencyMs:F0}; outcome={Outcome}; retryScheduled={RetryScheduled}.",
+                attempt,
+                maxAttempts,
+                httpStatus,
+                latencyMs,
+                outcome,
+                retryScheduled);
+        }
+        else
+        {
+            _logger.LogWarning(
+                "Itinerary explanation provider attempt={Attempt}/{MaxAttempts}; httpStatus={HttpStatus}; latencyMs={LatencyMs:F0}; outcome={Outcome}; retryScheduled={RetryScheduled}.",
+                attempt,
+                maxAttempts,
+                httpStatus,
+                latencyMs,
+                outcome,
+                retryScheduled);
+        }
     }
 
     private static JsonSerializerOptions CreateSerializerOptions()

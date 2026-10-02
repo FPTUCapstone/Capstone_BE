@@ -6,6 +6,7 @@ using FluentAssertions;
 
 using Microsoft.Extensions.Options;
 
+using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Scheduling.Explanation;
 using TripMate.Domain.Enums;
 using TripMate.Infrastructure.AiExplanation;
@@ -42,7 +43,7 @@ public sealed class HttpItineraryExplanationProviderTests
 
         using JsonDocument body = JsonDocument.Parse(handler.RequestBody!);
         JsonElement root = body.RootElement;
-        root.GetProperty("model").GetString().Should().Be("gemini-3.6-flash");
+        root.GetProperty("model").GetString().Should().Be("gemini-3.5-flash-lite");
         root.GetProperty("store").GetBoolean().Should().BeFalse();
         JsonElement responseFormat = root.GetProperty("response_format");
         responseFormat.GetProperty("type").GetString().Should().Be("text");
@@ -86,6 +87,18 @@ public sealed class HttpItineraryExplanationProviderTests
             .Contain("Chỉ viết bằng tiếng Việt")
             .And.Contain("tối đa 500 ký tự")
             .And.Contain("Không thêm, xóa, thay thế, sắp xếp lại hoặc đổi thời gian");
+    }
+
+    [Fact]
+    public async Task ExplainAsync_WhenLocalBudgetDenied_DoesNotCallProvider()
+    {
+        using var handler = new StubHttpMessageHandler(_ => JsonResponse("{}"));
+        var provider = CreateProvider(new HttpClient(handler), budget: new DenyBudget());
+
+        var result = await provider.ExplainAsync(Request(), CancellationToken.None);
+
+        result.ErrorCode.Should().Be(ExplanationProviderErrorCodes.Quota);
+        handler.CallCount.Should().Be(0);
     }
 
     [Fact]
@@ -218,16 +231,134 @@ public sealed class HttpItineraryExplanationProviderTests
         }),
     };
 
-    private static HttpItineraryExplanationProvider CreateProvider(HttpClient client) =>
+    [Theory]
+    [InlineData(HttpStatusCode.ServiceUnavailable)]
+    [InlineData(HttpStatusCode.BadGateway)]
+    [InlineData(HttpStatusCode.GatewayTimeout)]
+    [InlineData(HttpStatusCode.TooManyRequests)]
+    public async Task ExplainAsync_WithFirstAttemptTransientFailure_RetriesAndSucceeds(
+        HttpStatusCode transientStatus)
+    {
+        int attempt = 0;
+        using var handler = new StubHttpMessageHandler(_ =>
+        {
+            attempt++;
+            return attempt == 1
+                ? new HttpResponseMessage(transientStatus)
+                : JsonResponse(CompletedResponse("""
+                    {"items":[{"sequenceNo":1,"poiId":7,"friendlyExplanation":"Giải thích thành công sau retry."}]}
+                    """));
+        });
+        var provider = CreateProvider(new HttpClient(handler));
+
+        var result = await provider.ExplainAsync(Request(), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Items.Should().ContainSingle().Which.FriendlyExplanation.Should().Be(
+            "Giải thích thành công sau retry.");
+        handler.CallCount.Should().Be(2);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.ServiceUnavailable, ExplanationProviderErrorCodes.ServerError)]
+    [InlineData(HttpStatusCode.TooManyRequests, ExplanationProviderErrorCodes.Quota)]
+    public async Task ExplainAsync_WithTransientFailureExhaustion_ReturnsFailureAfterTwoAttempts(
+        HttpStatusCode transientStatus,
+        string expectedErrorCode)
+    {
+        using var handler = new StubHttpMessageHandler(_ => new HttpResponseMessage(transientStatus));
+        var provider = CreateProvider(new HttpClient(handler));
+
+        var result = await provider.ExplainAsync(Request(), CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(expectedErrorCode);
+        handler.CallCount.Should().Be(2);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.BadRequest)]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    public async Task ExplainAsync_WithNonRetryableStatusCode_DoesNotRetry(HttpStatusCode statusCode)
+    {
+        using var handler = new StubHttpMessageHandler(_ => new HttpResponseMessage(statusCode));
+        var provider = CreateProvider(new HttpClient(handler));
+
+        var result = await provider.ExplainAsync(Request(), CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(ExplanationProviderErrorCodes.InvalidResponse);
+        handler.CallCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ExplainAsync_WhenRetryDelayExceedsRemainingBudget_SkipsRetry()
+    {
+        using var handler = new StubHttpMessageHandler(_ =>
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+            response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(
+                TimeSpan.FromSeconds(30));
+            return response;
+        });
+        var provider = CreateProvider(new HttpClient(handler), new ExplanationProviderOptions
+        {
+            Enabled = true,
+            Endpoint = Endpoint,
+            ApiKey = FakeApiKey,
+            ModelName = "gemini-3.5-flash-lite",
+            TimeoutSeconds = 5,
+            OverallTimeoutSeconds = 5,
+            MaxAttempts = 2,
+            RetryBaseDelayMilliseconds = 0,
+        });
+
+        var result = await provider.ExplainAsync(Request(), CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(ExplanationProviderErrorCodes.Quota);
+        handler.CallCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ExplainAsync_WhenAttemptTimesOut_ReturnsTimeoutFailureAndDoesNotRetry()
+    {
+        using var handler = new DelayingHttpMessageHandler(TimeSpan.FromSeconds(5));
+        var provider = CreateProvider(new HttpClient(handler), new ExplanationProviderOptions
+        {
+            Enabled = true,
+            Endpoint = Endpoint,
+            ApiKey = FakeApiKey,
+            ModelName = "gemini-3.5-flash-lite",
+            TimeoutSeconds = 1,
+            OverallTimeoutSeconds = 5,
+            MaxAttempts = 2,
+            RetryBaseDelayMilliseconds = 0,
+        });
+
+        var result = await provider.ExplainAsync(Request(), CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(ExplanationProviderErrorCodes.Timeout);
+        handler.CallCount.Should().Be(1);
+    }
+
+    private static HttpItineraryExplanationProvider CreateProvider(
+        HttpClient client,
+        ExplanationProviderOptions? customOptions = null,
+        IAiProviderBudget? budget = null) =>
         new(
             client,
-            Options.Create(new ExplanationProviderOptions
+            Options.Create(customOptions ?? new ExplanationProviderOptions
             {
                 Enabled = true,
                 Endpoint = Endpoint,
                 ApiKey = FakeApiKey,
-                ModelName = "gemini-3.6-flash",
-            }));
+                ModelName = "gemini-3.5-flash-lite",
+                RetryBaseDelayMilliseconds = 0,
+            }),
+            budget: budget);
 
     private static ItineraryExplanationInput Request() => new(
         [
@@ -279,6 +410,15 @@ public sealed class HttpItineraryExplanationProviderTests
     {
         Content = new StringContent(body, Encoding.UTF8, "application/json"),
     };
+
+    private sealed class DenyBudget : IAiProviderBudget
+    {
+        public bool TryAcquire(string provider, out IDisposable? permit)
+        {
+            permit = null;
+            return false;
+        }
+    }
 
     private static string CompletedResponse(string outputText) => JsonSerializer.Serialize(new
     {
@@ -336,6 +476,20 @@ public sealed class HttpItineraryExplanationProviderTests
             Called.SetResult();
             await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             throw new InvalidOperationException("Unreachable after cancellation.");
+        }
+    }
+
+    private sealed class DelayingHttpMessageHandler(TimeSpan delay) : HttpMessageHandler
+    {
+        public int CallCount { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            CallCount++;
+            await Task.Delay(delay, cancellationToken);
+            return new HttpResponseMessage(HttpStatusCode.OK);
         }
     }
 }

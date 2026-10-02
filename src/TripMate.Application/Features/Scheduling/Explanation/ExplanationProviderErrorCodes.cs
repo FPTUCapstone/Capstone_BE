@@ -9,4 +9,6 @@ public static class ExplanationProviderErrorCodes
     public const string ServerError = "itinerary_explanation.provider_server_error";
 
     public const string InvalidResponse = "itinerary_explanation.provider_invalid_response";
+
+    public const string Timeout = "itinerary_explanation.provider_timeout";
 }

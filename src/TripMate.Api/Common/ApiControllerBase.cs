@@ -169,6 +169,9 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             SchedulingErrorCodes.ConstraintsInfeasible =>
                 StatusCodes.Status422UnprocessableEntity,
 
+            SchedulingErrorCodes.GenerationCooldown or SchedulingErrorCodes.GenerationRateLimited =>
+                StatusCodes.Status429TooManyRequests,
+
             FeedbackErrorCodes.PoiNotFound or FeedbackErrorCodes.ItineraryNotFound =>
                 StatusCodes.Status404NotFound,
 
@@ -213,6 +216,13 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
         {
             ["errorCode"] = result.ErrorCode,
         };
+
+        if (statusCode == StatusCodes.Status429TooManyRequests
+            && result.ErrorMetadata.TryGetValue("retryAfterSeconds", out object? retryAfter)
+            && retryAfter is int retryAfterSeconds)
+        {
+            Response.Headers.RetryAfter = retryAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
 
         return Problem(
             title: result.ErrorMessage,

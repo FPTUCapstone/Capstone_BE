@@ -1,3 +1,5 @@
+using System.Collections.Frozen;
+using System.Diagnostics;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -6,11 +8,13 @@ using System.Text.Json;
 using MediatR;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 using TripMate.Application.Common.Geo;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Scheduling.Common;
+using TripMate.Application.Features.Scheduling.Explanation;
 using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
@@ -23,11 +27,18 @@ public sealed class CreateSchedulingRequestCommandHandler(
     IRouteDurationProvider routeDurationProvider,
     ISchedulingRequestLock schedulingRequestLock,
     PoiRankingOrchestrator poiRankingOrchestrator,
-    SchedulingGenerationOptions? generationOptions = null)
+    SchedulingGenerationOptions? generationOptions = null,
+    IItineraryExplanationProvider? explanationProvider = null,
+    ItineraryExplanationExecutionOptions? explanationOptions = null,
+    bool explanationProviderEnabled = false,
+    ILogger<CreateSchedulingRequestCommandHandler>? logger = null,
+    IGenerateRateLimiter? generateRateLimiter = null)
     : IRequestHandler<CreateSchedulingRequestCommand, Result<SchedulingResponseDto>>
 {
     private readonly SchedulingGenerationOptions _generationOptions =
         generationOptions ?? new SchedulingGenerationOptions();
+    private readonly ItineraryExplanationExecutionOptions _explanationOptions =
+        explanationOptions ?? new ItineraryExplanationExecutionOptions();
 
     public async Task<Result<SchedulingResponseDto>> Handle(
         CreateSchedulingRequestCommand command,
@@ -43,7 +54,25 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 && request.IdempotencyKey == canonical.IdempotencyKey,
                 cancellationToken);
 
+        if (!replayExists && generateRateLimiter is not null)
+        {
+            GenerateRateLimitDecision decision = generateRateLimiter.TryAcquire(
+                canonical.TravelerUserId);
+            if (!decision.Allowed)
+            {
+                return Result.Failure<SchedulingResponseDto>(
+                    decision.ErrorCode!,
+                    "Too many itinerary generation requests. Please try again later.",
+                    new Dictionary<string, object?>
+                    {
+                        ["retryAfterSeconds"] = decision.RetryAfterSeconds,
+                    });
+            }
+        }
+
         PoiRankingSnapshot? rankingSnapshot = null;
+        IReadOnlyDictionary<long, ExplanationPoiMetadata> explanationMetadata =
+            FrozenDictionary<long, ExplanationPoiMetadata>.Empty;
         if (!replayExists)
         {
             var travelerInterestTags = await dbContext.TravelerProfiles
@@ -62,6 +91,12 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 .Where(poi => poi.Status == PointOfInterestStatus.Active)
                 .ToListAsync(cancellationToken);
             var mandatoryIds = canonical.MandatoryPoiIds.ToHashSet();
+            explanationMetadata = phaseOnePois.ToFrozenDictionary(
+                poi => poi.Id,
+                poi => new ExplanationPoiMetadata(
+                    poi.Name,
+                    poi.Category?.Name,
+                    poi.PoiTags.Select(mapping => mapping.Tag.Name).ToArray()));
             var optionalCandidates = phaseOnePois
                 .Where(IsPlanningReady)
                 .Where(poi => GeoDistance.EquirectangularKilometers(
@@ -94,7 +129,9 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 cancellationToken);
         }
 
-        return await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
+        FreshGenerationContext? freshGeneration = null;
+        Result<SchedulingResponseDto> phaseOneResult =
+            await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
         {
             await schedulingRequestLock.AcquireAsync(
                 canonical.TravelerUserId,
@@ -276,8 +313,191 @@ public sealed class CreateSchedulingRequestCommandHandler(
             dbContext.Itineraries.Add(itinerary);
             await dbContext.SaveChangesAsync(transactionCancellationToken);
 
+            freshGeneration = new FreshGenerationContext(
+                schedulingRequest,
+                itinerary,
+                plan.Value,
+                preferenceTokens.ToArray());
             return Result.Success(ToResponse(schedulingRequest, itinerary, plan.Value));
         }, cancellationToken);
+
+        if (freshGeneration is null)
+        {
+            return phaseOneResult;
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        return await AttachExplanationsAsync(
+            freshGeneration,
+            explanationMetadata,
+            explanationProvider,
+            explanationProviderEnabled,
+            logger,
+            cancellationToken);
+    }
+
+    private async Task<Result<SchedulingResponseDto>> AttachExplanationsAsync(
+        FreshGenerationContext generation,
+        IReadOnlyDictionary<long, ExplanationPoiMetadata> metadataByPoiId,
+        IItineraryExplanationProvider? provider,
+        bool providerEnabled,
+        ILogger<CreateSchedulingRequestCommandHandler>? logger,
+        CancellationToken cancellationToken)
+    {
+        ItineraryExplanationInput input = ItineraryExplanationInput.Create(
+            generation.Plan,
+            metadataByPoiId,
+            generation.PreferenceTokens,
+            generation.SchedulingRequest.StartAtUtc,
+            generation.SchedulingRequest.TimeZoneId);
+        IReadOnlyDictionary<int, string> explanations = BuildFallback(input);
+        string outcome = "provider-skipped";
+        bool fallbackUsed = true;
+        bool timedOut = false;
+        long startedAt = Stopwatch.GetTimestamp();
+
+        if (providerEnabled && provider is not null)
+        {
+            using var providerCancellation =
+                CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            providerCancellation.CancelAfter(_explanationOptions.OverallTimeout);
+
+            try
+            {
+                Result<ItineraryExplanationResult> providerResult = await provider.ExplainAsync(
+                    input,
+                    providerCancellation.Token);
+                if (providerResult.IsSuccess
+                    && ItineraryExplanationValidator.TryValidate(
+                        input,
+                        providerResult.Value,
+                        out IReadOnlyDictionary<int, string> validated))
+                {
+                    explanations = validated;
+                    outcome = "success";
+                    fallbackUsed = false;
+                }
+                else
+                {
+                    outcome = providerResult.IsFailure
+                        ? MapExplanationOutcome(providerResult.ErrorCode)
+                        : "invalid-response";
+                    if (providerResult.ErrorCode == ExplanationProviderErrorCodes.Timeout)
+                    {
+                        timedOut = true;
+                    }
+                }
+            }
+            catch (OperationCanceledException) when (
+                !cancellationToken.IsCancellationRequested
+                && providerCancellation.IsCancellationRequested)
+            {
+                outcome = "timeout";
+                timedOut = true;
+            }
+        }
+
+        LogExplanationOutcome(
+            logger,
+            provider,
+            providerEnabled,
+            input.Items.Count,
+            Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
+            outcome,
+            fallbackUsed,
+            timedOut);
+
+        try
+        {
+            ItineraryItem[] persistedItems = await dbContext.ItineraryItems
+                .Where(item => item.ItineraryId == generation.Itinerary.Id)
+                .ToArrayAsync(cancellationToken);
+            foreach (ItineraryItem item in persistedItems)
+            {
+                item.AttachFriendlyExplanation(explanations[item.SequenceNo]);
+            }
+
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            dbContext.ClearTrackedEntities();
+            LogExplanationOutcome(
+                logger,
+                provider,
+                providerEnabled,
+                input.Items.Count,
+                Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
+                "persistence-failed",
+                fallbackUsed,
+                timedOut);
+        }
+
+        return Result.Success(ToResponse(
+            generation.SchedulingRequest,
+            generation.Itinerary,
+            generation.Plan,
+            explanations));
+    }
+
+    private static IReadOnlyDictionary<int, string> BuildFallback(
+        ItineraryExplanationInput input) =>
+        input.Items.ToFrozenDictionary(
+            item => item.SequenceNo,
+            ItineraryExplanationFallback.Resolve);
+
+    private static string MapExplanationOutcome(string? errorCode) => errorCode switch
+    {
+        ExplanationProviderErrorCodes.Network => "network",
+        ExplanationProviderErrorCodes.Quota => "quota",
+        ExplanationProviderErrorCodes.ServerError => "server-error",
+        ExplanationProviderErrorCodes.Timeout => "timeout",
+        _ => "invalid-response",
+    };
+
+    private static void LogExplanationOutcome(
+        ILogger<CreateSchedulingRequestCommandHandler>? logger,
+        IItineraryExplanationProvider? provider,
+        bool enabled,
+        int itemCount,
+        double latencyMs,
+        string outcome,
+        bool fallbackUsed,
+        bool timedOut)
+    {
+        if (logger is null)
+        {
+            return;
+        }
+
+        string providerName = provider?.GetType().Name ?? "none";
+        if (outcome is "success" or "provider-skipped")
+        {
+            logger.LogInformation(
+                "Itinerary explanation provider={Provider}; enabled={Enabled}; itemCount={ItemCount}; latencyMs={LatencyMs:F0}; outcome={Outcome}; fallbackUsed={FallbackUsed}; timedOut={TimedOut}.",
+                providerName,
+                enabled,
+                itemCount,
+                latencyMs,
+                outcome,
+                fallbackUsed,
+                timedOut);
+            return;
+        }
+
+        logger.LogWarning(
+            "Itinerary explanation provider={Provider}; enabled={Enabled}; itemCount={ItemCount}; latencyMs={LatencyMs:F0}; outcome={Outcome}; fallbackUsed={FallbackUsed}; timedOut={TimedOut}.",
+            providerName,
+            enabled,
+            itemCount,
+            latencyMs,
+            outcome,
+            fallbackUsed,
+            timedOut);
     }
 
     private async Task<Result<SchedulingResponseDto>> ReplayAsync(
@@ -396,7 +616,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
     private static SchedulingResponseDto ToResponse(
         SchedulingRequest schedulingRequest,
         Itinerary itinerary,
-        GeneratedItineraryPlan plan) =>
+        GeneratedItineraryPlan plan,
+        IReadOnlyDictionary<int, string>? explanations = null) =>
         new(
             schedulingRequest.Id,
             itinerary.Id,
@@ -416,7 +637,9 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 item.EstimatedCost,
                 item.IsMandatory,
                 item.RecommendationReason,
-                null)).ToArray());
+                explanations is not null
+                    ? explanations[item.SequenceNo]
+                    : null)).ToArray());
 
     private static SchedulingResponseDto ToResponse(SchedulingRequest schedulingRequest, Itinerary itinerary)
     {
@@ -508,4 +731,9 @@ public sealed class CreateSchedulingRequestCommandHandler(
         private static decimal NormalizeDecimal(decimal value, int decimals) =>
             Math.Round(value, decimals, MidpointRounding.AwayFromZero);
     }
+    private sealed record FreshGenerationContext(
+        SchedulingRequest SchedulingRequest,
+        Itinerary Itinerary,
+        GeneratedItineraryPlan Plan,
+        IReadOnlyCollection<string> PreferenceTokens);
 }

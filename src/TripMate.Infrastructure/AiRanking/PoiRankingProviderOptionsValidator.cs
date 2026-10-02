@@ -8,12 +8,15 @@ public sealed class PoiRankingProviderOptionsValidator
     public ValidateOptionsResult Validate(string? name, PoiRankingProviderOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
+        var failures = new List<string>();
+        ValidateBudget(options, failures);
         if (!options.Enabled)
         {
-            return ValidateOptionsResult.Success;
+            return failures.Count == 0
+                ? ValidateOptionsResult.Success
+                : ValidateOptionsResult.Fail(failures);
         }
 
-        var failures = new List<string>();
         if (!Uri.TryCreate(options.Endpoint, UriKind.Absolute, out Uri? endpoint)
             || endpoint.Scheme != Uri.UriSchemeHttps)
         {
@@ -36,5 +39,18 @@ public sealed class PoiRankingProviderOptionsValidator
         return failures.Count == 0
             ? ValidateOptionsResult.Success
             : ValidateOptionsResult.Fail(failures);
+    }
+
+    private static void ValidateBudget(PoiRankingProviderOptions options, List<string> failures)
+    {
+        if (options.RateLimitPerMinute is < 1 or > 1000)
+        {
+            failures.Add($"{nameof(options.RateLimitPerMinute)} must be between 1 and 1000.");
+        }
+
+        if (options.MaxConcurrency is < 1 or > 100)
+        {
+            failures.Add($"{nameof(options.MaxConcurrency)} must be between 1 and 100.");
+        }
     }
 }

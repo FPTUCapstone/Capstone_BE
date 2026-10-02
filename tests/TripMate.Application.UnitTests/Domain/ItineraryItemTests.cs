@@ -1,5 +1,3 @@
-using System.Reflection;
-
 using FluentAssertions;
 
 using TripMate.Domain.Entities;
@@ -12,11 +10,7 @@ public class ItineraryItemTests
     private static readonly DateTimeOffset Arrival = new(2026, 10, 20, 3, 0, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset Departure = new(2026, 10, 20, 3, 30, 0, TimeSpan.Zero);
     private static readonly Action<ItineraryItem, string?> AttachFriendlyExplanation =
-        typeof(ItineraryItem)
-            .GetMethod(
-                "AttachFriendlyExplanation",
-                BindingFlags.Instance | BindingFlags.NonPublic)!
-            .CreateDelegate<Action<ItineraryItem, string?>>();
+        static (item, text) => item.AttachFriendlyExplanation(text);
 
     [Fact]
     public void CreateRest_WithoutPoi_CreatesTypedBreak()

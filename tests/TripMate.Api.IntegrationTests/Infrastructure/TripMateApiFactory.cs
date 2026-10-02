@@ -17,6 +17,7 @@ using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Scheduling.Common;
+using TripMate.Application.Features.Scheduling.Explanation;
 using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
@@ -41,7 +42,9 @@ public sealed class TripMateApiFactory(
     SaveChangesInterceptor? saveChangesInterceptor = null,
     Func<IServiceProvider, IDateTimeProvider>? dateTimeProviderFactory = null,
     Action<IServiceCollection>? configureTestServices = null,
-    IInterceptor? dbInterceptor = null) : WebApplicationFactory<Program>
+    IInterceptor? dbInterceptor = null,
+    Func<IServiceProvider, IItineraryExplanationProvider>? explanationProviderFactory = null,
+    bool? explanationProviderEnabled = null) : WebApplicationFactory<Program>
 {
     internal const string JwtIssuer = "TripMate.Tests";
     internal const string JwtAudience = "TripMate.Tests";
@@ -68,6 +71,17 @@ public sealed class TripMateApiFactory(
             for (var index = 0; index < corsAllowedOrigins.Count; index++)
             {
                 builder.UseSetting($"Cors:AllowedOrigins:{index}", corsAllowedOrigins[index]);
+            }
+        }
+
+        if (explanationProviderEnabled.HasValue)
+        {
+            builder.UseSetting(
+                "AiExplanation:Enabled",
+                explanationProviderEnabled.Value ? "true" : "false");
+            if (explanationProviderEnabled.Value)
+            {
+                builder.UseSetting("AiExplanation:ApiKey", "test-explanation-api-key");
             }
         }
 
@@ -166,13 +180,25 @@ public sealed class TripMateApiFactory(
                 services.AddSingleton<IDateTimeProvider>(sp => dateTimeProviderFactory(sp));
             }
 
-            services.AddScoped(provider => new PoiRankingOrchestrator(
-                new PersonalBehaviorFeatureAggregator(
-                    provider.GetRequiredService<IApplicationDbContext>()),
-                ProviderDisabledPoiRankingProvider.Instance,
-                new PersonalizationRankingOptions(),
-                providerEnabled: false,
-                provider.GetRequiredService<ILogger<PoiRankingOrchestrator>>()));
+                services.AddScoped(provider => new PoiRankingOrchestrator(
+                    new PersonalBehaviorFeatureAggregator(
+                        provider.GetRequiredService<IApplicationDbContext>()),
+                    ProviderDisabledPoiRankingProvider.Instance,
+                    new PersonalizationRankingOptions(),
+                    providerEnabled: false,
+                    provider.GetRequiredService<ILogger<PoiRankingOrchestrator>>()));
+
+                if (explanationProviderFactory is not null)
+                {
+                    services.RemoveAll<IItineraryExplanationProvider>();
+                    services.AddScoped<IItineraryExplanationProvider>(sp => explanationProviderFactory(sp));
+                }
+
+                if (explanationProviderEnabled.HasValue)
+                {
+                    services.RemoveAll(typeof(bool));
+                    services.AddSingleton(typeof(bool), _ => explanationProviderEnabled.Value);
+                }
 
             if (authenticationMode == ApiTestAuthenticationMode.HeaderStub)
             {

@@ -125,7 +125,7 @@ public sealed class AiRankingDependencyInjectionTests
         aiRanking.Enabled.Should().BeFalse();
         aiRanking.Endpoint.Should().Be(
             "https://generativelanguage.googleapis.com/v1/interactions");
-        aiRanking.ModelName.Should().Be("gemini-3.6-flash");
+        aiRanking.ModelName.Should().Be("gemini-3.5-flash-lite");
         aiRanking.ApiKey.Should().BeNull();
         configuration["AiRanking:ApiKey"].Should().BeNull();
     }

@@ -117,7 +117,7 @@ public class ItineraryItem : BaseEntity
         Itinerary = itinerary ?? throw new ArgumentNullException(nameof(itinerary));
     }
 
-    internal void AttachFriendlyExplanation(string? text)
+    public void AttachFriendlyExplanation(string? text)
     {
         var normalized = string.IsNullOrWhiteSpace(text) ? null : text.Trim();
         if (normalized?.Length > FriendlyExplanationMaxLength)

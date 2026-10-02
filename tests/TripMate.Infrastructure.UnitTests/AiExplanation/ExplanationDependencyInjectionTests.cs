@@ -29,6 +29,9 @@ public sealed class ExplanationDependencyInjectionTests
         provider.GetRequiredService<IOptions<ItineraryExplanationExecutionOptions>>()
             .Value.ProviderTimeout.Should().Be(
                 ItineraryExplanationExecutionOptions.DefaultProviderTimeout);
+        provider.GetRequiredService<IOptions<ItineraryExplanationExecutionOptions>>()
+            .Value.OverallTimeout.Should().Be(
+                ItineraryExplanationExecutionOptions.DefaultOverallTimeout);
     }
 
     [Fact]
@@ -49,8 +52,12 @@ public sealed class ExplanationDependencyInjectionTests
         options.Enabled.Should().BeFalse();
         options.Endpoint.Should().Be(
             "https://generativelanguage.googleapis.com/v1/interactions");
-        options.ModelName.Should().Be("gemini-3.6-flash");
+        options.ModelName.Should().Be("gemini-3.5-flash-lite");
         options.ApiKey.Should().BeNull();
+        options.TimeoutSeconds.Should().Be(10);
+        options.OverallTimeoutSeconds.Should().Be(20);
+        options.MaxAttempts.Should().Be(2);
+        options.RetryBaseDelayMilliseconds.Should().Be(500);
         configuration["AiExplanation:ApiKey"].Should().BeNull();
         configuration["AiExplanation:Timeout"].Should().BeNull();
     }
