@@ -26,12 +26,14 @@ public sealed class ExplanationDependencyInjectionTests
             .Value.Enabled.Should().BeFalse();
         provider.GetRequiredService<IItineraryExplanationProvider>()
             .Should().BeOfType<HttpItineraryExplanationProvider>();
-        provider.GetRequiredService<IOptions<ItineraryExplanationExecutionOptions>>()
-            .Value.ProviderTimeout.Should().Be(
-                ItineraryExplanationExecutionOptions.DefaultProviderTimeout);
-        provider.GetRequiredService<IOptions<ItineraryExplanationExecutionOptions>>()
-            .Value.OverallTimeout.Should().Be(
-                ItineraryExplanationExecutionOptions.DefaultOverallTimeout);
+        var executionOptions = provider
+            .GetRequiredService<IOptions<ItineraryExplanationExecutionOptions>>()
+            .Value;
+        executionOptions.Enabled.Should().BeFalse();
+        executionOptions.ProviderTimeout.Should().Be(
+            ItineraryExplanationExecutionOptions.DefaultProviderTimeout);
+        executionOptions.OverallTimeout.Should().Be(
+            ItineraryExplanationExecutionOptions.DefaultOverallTimeout);
     }
 
     [Fact]
@@ -60,6 +62,32 @@ public sealed class ExplanationDependencyInjectionTests
         options.RetryBaseDelayMilliseconds.Should().Be(500);
         configuration["AiExplanation:ApiKey"].Should().BeNull();
         configuration["AiExplanation:Timeout"].Should().BeNull();
+        provider.GetRequiredService<IOptions<ItineraryExplanationExecutionOptions>>()
+            .Value.Enabled.Should().BeFalse();
+    }
+
+    [Fact]
+    public void AddInfrastructure_EnabledMapsFeatureStateWithoutRegisteringRawBoolean()
+    {
+        var services = new ServiceCollection();
+        services.AddInfrastructure(new ConfigurationBuilder()
+            .AddInMemoryCollection(BaselineConfiguration().Concat(
+            [
+                new KeyValuePair<string, string?>("AiExplanation:Enabled", "true"),
+                new KeyValuePair<string, string?>(
+                    "AiExplanation:Endpoint",
+                    "https://generativelanguage.googleapis.com/v1/interactions"),
+                new KeyValuePair<string, string?>("AiExplanation:ApiKey", "test-key"),
+                new KeyValuePair<string, string?>("AiExplanation:ModelName", "test-model"),
+            ]))
+            .Build());
+
+        services.Should().NotContain(descriptor => descriptor.ServiceType == typeof(bool));
+        using ServiceProvider provider = services.BuildServiceProvider();
+
+        provider.GetRequiredService<IStartupValidator>().Validate();
+        provider.GetRequiredService<IOptions<ItineraryExplanationExecutionOptions>>()
+            .Value.Enabled.Should().BeTrue();
     }
 
     private static ServiceProvider BuildProvider(

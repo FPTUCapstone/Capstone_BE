@@ -194,12 +194,6 @@ public sealed class TripMateApiFactory(
                 services.AddScoped<IItineraryExplanationProvider>(sp => explanationProviderFactory(sp));
             }
 
-            if (explanationProviderEnabled.HasValue)
-            {
-                services.RemoveAll(typeof(bool));
-                services.AddSingleton(typeof(bool), _ => explanationProviderEnabled.Value);
-            }
-
             if (authenticationMode == ApiTestAuthenticationMode.HeaderStub)
             {
                 services.AddAuthentication(options =>

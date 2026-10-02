@@ -79,7 +79,8 @@ order, times, durations, costs, mandatory flags, travel decisions, or feasibilit
     Phase 2.
 11. Provider failure/timeout/malformed output must never fail an otherwise successful
     scheduling request.
-12. Timeout: 5 seconds.
+12. Timeout: 10 seconds per attempt and 20 seconds overall, with at most 2 attempts
+    (1 retry) for transient 429/502/503/504 responses.
 13. Normalized preference tokens only; no traveler identity in any payload.
 14. LLM response must contain exactly the expected itinerary items, identified by
     sequence/item identity, with bounded text length.
@@ -378,8 +379,9 @@ All automated tests must use fakes, stubs, or controlled test HTTP handlers.
 
 1. Should shared-itinerary / other read surfaces expose `FriendlyExplanation` later?
    (Out of scope for TM-217; DTO is additive so it can be added without breaking.)
-2. Does the synchronous POST accepting up to ~5 s added latency in Phase 2 need a
-   product sign-off? (Worst case now ≈ ranking 5 s + explanation 5 s.)
+2. Does the synchronous POST accepting up to the 20 s overall explanation budget in
+   Phase 2 need product sign-off? (Worst case is approximately ranking 5 s plus
+   explanation 20 s.)
 
 ## 22. Verdict (original TM-217 baseline)
 

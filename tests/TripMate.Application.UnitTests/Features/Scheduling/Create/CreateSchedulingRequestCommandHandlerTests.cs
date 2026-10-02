@@ -47,7 +47,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         var result = await CreateHandler(
                 dbContext,
                 explanationProvider: explanationProvider,
-                explanationProviderEnabled: true)
+                explanationOptions: EnabledExplanationOptions())
             .Handle(command, CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
@@ -72,7 +72,6 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         var result = await CreateHandler(
                 dbContext,
                 explanationProvider: explanationProvider,
-                explanationProviderEnabled: false,
                 explanationLogger: logger)
             .Handle(CreateCommand(Guid.NewGuid()) with
             {
@@ -114,7 +113,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         var result = await CreateHandler(
                 dbContext,
                 explanationProvider: explanationProvider,
-                explanationProviderEnabled: true,
+                explanationOptions: EnabledExplanationOptions(),
                 explanationLogger: logger)
             .Handle(CreateCommand(key) with
             {
@@ -122,8 +121,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
             }, CancellationToken.None);
         var disabled = await CreateHandler(
                 disabledContext,
-                explanationProvider: new RecordingItineraryExplanationProvider(),
-                explanationProviderEnabled: false)
+                explanationProvider: new RecordingItineraryExplanationProvider())
             .Handle(CreateCommand(key) with
             {
                 MandatoryPoiIds = [disabledPoi.Id],
@@ -170,7 +168,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         var result = await CreateHandler(
                 dbContext,
                 explanationProvider: explanationProvider,
-                explanationProviderEnabled: true,
+                explanationOptions: EnabledExplanationOptions(),
                 explanationLogger: logger)
             .Handle(CreateCommand(Guid.NewGuid()) with
             {
@@ -215,9 +213,9 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
                 explanationProvider: explanationProvider,
                 explanationOptions: new ItineraryExplanationExecutionOptions
                 {
+                    Enabled = true,
                     ProviderTimeout = TimeSpan.FromMilliseconds(20),
                 },
-                explanationProviderEnabled: true,
                 explanationLogger: logger)
             .Handle(CreateCommand(Guid.NewGuid()) with
             {
@@ -259,9 +257,9 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
                 explanationProvider: explanationProvider,
                 explanationOptions: new ItineraryExplanationExecutionOptions
                 {
+                    Enabled = true,
                     ProviderTimeout = TimeSpan.FromSeconds(30),
                 },
-                explanationProviderEnabled: true,
                 explanationLogger: logger)
             .Handle(CreateCommand(Guid.NewGuid()) with
             {
@@ -315,7 +313,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         var result = await CreateHandler(
                 dbContext,
                 explanationProvider: explanationProvider,
-                explanationProviderEnabled: true,
+                explanationOptions: EnabledExplanationOptions(),
                 explanationLogger: logger)
             .Handle(CreateCommand(Guid.NewGuid()) with
             {
@@ -391,7 +389,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         var result = await CreateHandler(
                 dbContext,
                 explanationProvider: explanationProvider,
-                explanationProviderEnabled: true)
+                explanationOptions: EnabledExplanationOptions())
             .Handle(CreateCommand(Guid.NewGuid()) with
             {
                 MandatoryPoiIds = [firstPoi.Id, secondPoi.Id],
@@ -455,7 +453,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
                 dbContext,
                 rankingProvider: rankingProvider,
                 explanationProvider: explanationProvider,
-                explanationProviderEnabled: true)
+                explanationOptions: EnabledExplanationOptions())
             .Handle(CreateCommand(Guid.NewGuid()) with
             {
                 AvailableMinutes = 480,
@@ -494,7 +492,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         var result = await CreateHandler(
                 dbContext,
                 explanationProvider: explanationProvider,
-                explanationProviderEnabled: true)
+                explanationOptions: EnabledExplanationOptions())
             .Handle(CreateCommand(Guid.NewGuid()), CancellationToken.None);
 
         result.IsFailure.Should().BeTrue();
@@ -514,7 +512,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         var handler = CreateHandler(
             dbContext,
             explanationProvider: explanationProvider,
-            explanationProviderEnabled: true);
+            explanationOptions: EnabledExplanationOptions());
         var command = CreateCommand(Guid.NewGuid()) with
         {
             MandatoryPoiIds = [mandatoryPoi.Id],
@@ -551,7 +549,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         var firstResult = await CreateHandler(
                 dbContext,
                 explanationProvider: explanationProvider,
-                explanationProviderEnabled: true,
+                explanationOptions: EnabledExplanationOptions(),
                 explanationLogger: logger)
             .Handle(command, CancellationToken.None);
 
@@ -568,7 +566,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         var replayResult = await CreateHandler(
                 dbContext,
                 explanationProvider: replayProvider,
-                explanationProviderEnabled: true,
+                explanationOptions: EnabledExplanationOptions(),
                 explanationLogger: replayLogger)
             .Handle(command, CancellationToken.None);
 
@@ -608,15 +606,14 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         var enabled = await CreateHandler(
                 enabledContext,
                 explanationProvider: enabledProvider,
-                explanationProviderEnabled: true)
+                explanationOptions: EnabledExplanationOptions())
             .Handle(CreateCommand(key) with
             {
                 MandatoryPoiIds = [enabledPoi.Id],
             }, CancellationToken.None);
         var disabled = await CreateHandler(
                 disabledContext,
-                explanationProvider: disabledProvider,
-                explanationProviderEnabled: false)
+                explanationProvider: disabledProvider)
             .Handle(CreateCommand(key) with
             {
                 MandatoryPoiIds = [disabledPoi.Id],
@@ -1504,10 +1501,10 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         bool providerEnabled = true,
         IItineraryExplanationProvider? explanationProvider = null,
         ItineraryExplanationExecutionOptions? explanationOptions = null,
-        bool explanationProviderEnabled = false,
         ILogger<CreateSchedulingRequestCommandHandler>? explanationLogger = null,
-        IGenerateRateLimiter? generateRateLimiter = null) =>
-        new(
+        IGenerateRateLimiter? generateRateLimiter = null)
+    {
+        return new(
             dbContext,
             _clock,
             routeDurationProvider ?? new FixedRouteDurationProvider(),
@@ -1519,9 +1516,12 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
             generationOptions,
             explanationProvider,
             explanationOptions,
-            explanationProviderEnabled,
             explanationLogger,
             generateRateLimiter);
+    }
+
+    private static ItineraryExplanationExecutionOptions EnabledExplanationOptions() =>
+        new() { Enabled = true };
 
     private static PoiRankingOrchestrator CreateRankingOrchestrator(
         IPoiRankingProvider rankingProvider,

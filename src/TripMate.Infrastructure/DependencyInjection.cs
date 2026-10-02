@@ -115,6 +115,7 @@ public static class DependencyInjection
             .Configure<IOptions<ExplanationProviderOptions>>((executionOptions, providerOptions) =>
             {
                 ExplanationProviderOptions options = providerOptions.Value;
+                executionOptions.Enabled = options.Enabled;
                 executionOptions.ProviderTimeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
                 executionOptions.OverallTimeout = TimeSpan.FromSeconds(options.OverallTimeoutSeconds);
                 executionOptions.MaxAttempts = options.MaxAttempts;
@@ -127,11 +128,6 @@ public static class DependencyInjection
         services.AddSingleton(serviceProvider => serviceProvider
             .GetRequiredService<IOptions<ItineraryExplanationExecutionOptions>>()
             .Value);
-        services.AddSingleton(
-            typeof(bool),
-            serviceProvider => serviceProvider
-                .GetRequiredService<IOptions<ExplanationProviderOptions>>()
-                .Value.Enabled);
         services.AddScoped<PersonalBehaviorFeatureAggregator>();
         services.AddScoped(serviceProvider => new PoiRankingOrchestrator(
             serviceProvider.GetRequiredService<PersonalBehaviorFeatureAggregator>(),

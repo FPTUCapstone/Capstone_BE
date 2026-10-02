@@ -30,7 +30,6 @@ public sealed class CreateSchedulingRequestCommandHandler(
     SchedulingGenerationOptions? generationOptions = null,
     IItineraryExplanationProvider? explanationProvider = null,
     ItineraryExplanationExecutionOptions? explanationOptions = null,
-    bool explanationProviderEnabled = false,
     ILogger<CreateSchedulingRequestCommandHandler>? logger = null,
     IGenerateRateLimiter? generateRateLimiter = null)
     : IRequestHandler<CreateSchedulingRequestCommand, Result<SchedulingResponseDto>>
@@ -331,7 +330,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
             freshGeneration,
             explanationMetadata,
             explanationProvider,
-            explanationProviderEnabled,
+            _explanationOptions.Enabled,
             logger,
             cancellationToken);
     }

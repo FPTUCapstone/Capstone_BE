@@ -52,7 +52,9 @@ documented-flake failure that does not pass an isolated re-run, is a STOP condit
 - Normally completed Phase 2 persists validated LLM text or deterministic Vietnamese
   fallback text; accepted NULL cases: caller cancellation after T1 commit, process
   termination between T1/T2, T2 persistence failure (never weaken/rollback scheduling).
-- Timeout 5 s; whole-response fallback on any §10 validation violation; Vietnamese text.
+- Timeout 10 s per attempt and 20 s overall, with at most 2 attempts (1 retry) for
+  transient 429/502/503/504 responses; whole-response fallback on any §10 validation
+  violation; Vietnamese text.
 - Payload limits per spec §8/§9 (preference tokens, POI name/category/tags, timing/cost
   context only — no identity, coordinates, scores, aggregates, auth material).
 
@@ -197,7 +199,7 @@ documented-flake failure that does not pass an isolated re-run, is a STOP condit
     email/account id, coordinates, request hash, idempotency key, `BaseScore`, `AiScore`,
     `EffectiveDesirabilityScore`, behavior aggregates, or auth material.
   - `ItineraryExplanationExecutionOptionsTests` — default provider timeout is exactly
-    5 seconds; a non-positive timeout is rejected if options validation is implemented.
+    10 seconds, overall timeout is exactly 20 seconds, and non-positive timeouts are rejected.
 - **Gates:** build; Application tests; `git diff --check`.
 - **Expected:** Application 925 + W01 + W03 tests, 0 failed.
 - **Production risk:** none (new isolated files).
@@ -233,11 +235,11 @@ documented-flake failure that does not pass an isolated re-run, is a STOP condit
     `AddOptions<ExplanationProviderOptions>().Bind(configuration.GetSection("AiExplanation"))
     .ValidateOnStart()` + validator + `AddHttpClient<IItineraryExplanationProvider,
     HttpItineraryExplanationProvider>()`; wire the already-defined Application-side
-    `ItineraryExplanationExecutionOptions` if DI registration is needed, and register
-    the `explanationProviderEnabled` bool (from
-    `IOptions<ExplanationProviderOptions>.Value.Enabled`) so the handler's new
-    constructor parameters resolve. W04 does not create or own the Application timeout
-    policy and does not add an appsettings timeout field.
+    `ItineraryExplanationExecutionOptions` and map `Enabled`, timeout, and retry values
+    from `IOptions<ExplanationProviderOptions>`. Register only the typed options value
+    so the handler constructor resolves without placing a raw `bool` in the root
+    container. Application owns the execution-policy semantics; Infrastructure only
+    binds and maps the configured values.
   - `src/TripMate.Api/appsettings.json` — add `AiExplanation` section with
     `Enabled: false`, the same interactions endpoint/model defaults as `AiRanking`,
     no committed ApiKey (AGENTS.md §5.4).
@@ -271,8 +273,8 @@ documented-flake failure that does not pass an isolated re-run, is a STOP condit
 - **Files:**
   - `src/TripMate.Application/Features/Scheduling/Create/CreateSchedulingRequestCommandHandler.cs` —
     constructor gains `IItineraryExplanationProvider? explanationProvider = null`,
-    `ItineraryExplanationExecutionOptions? explanationOptions = null`,
-    `bool explanationProviderEnabled = false`,
+    `ItineraryExplanationExecutionOptions? explanationOptions = null` (including the
+    provider-enabled feature state),
     `ILogger<CreateSchedulingRequestCommandHandler>? logger = null` (defaults keep every
     existing direct construction compiling and behave as provider-disabled).
     Restructure: the T1 lambda captures `(schedulingRequest, itinerary, plan)` into
@@ -283,9 +285,9 @@ documented-flake failure that does not pass an isolated re-run, is a STOP condit
     descriptive metadata lookup, and normalized preference tokens. Build or retain that
     lookup during the existing pre-generation candidate-loading/ranking phase and reuse
     it after T1 commits; do not mutate scheduler/CSP records and do not query the DB after
-    T1 solely for category/tags. Run one provider call under a linked CTS using
-    `CancelAfter(explanationOptions.ProviderTimeout)` (default exactly 5 seconds; no
-    magic timeout literal in the handler), validate
+    T1 solely for category/tags. Run provider attempts with a 10-second per-attempt
+    timeout under a linked CTS using `CancelAfter(explanationOptions.OverallTimeout)`
+    (default overall budget exactly 20 seconds; no magic timeout literal in the handler), validate
     (W03) → LLM text or fallback, log outcome (provider, enabled, itemCount, latencyMs,
     outcome, fallbackUsed, timedOut), persist via **one** T2 attempt: load the
     itinerary's `ItineraryItem`s with change tracking (no `AsNoTracking`, AGENTS.md

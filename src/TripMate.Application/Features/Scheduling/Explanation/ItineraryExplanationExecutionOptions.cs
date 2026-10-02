@@ -11,6 +11,8 @@ public sealed class ItineraryExplanationExecutionOptions
 
     private TimeSpan? _overallTimeout;
 
+    public bool Enabled { get; set; }
+
     public TimeSpan ProviderTimeout { get; set; } = DefaultProviderTimeout;
 
     public TimeSpan OverallTimeout

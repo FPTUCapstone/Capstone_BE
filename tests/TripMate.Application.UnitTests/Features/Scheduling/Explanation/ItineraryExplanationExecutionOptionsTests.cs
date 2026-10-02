@@ -17,6 +17,7 @@ public sealed class ItineraryExplanationExecutionOptionsTests
             TimeSpan.FromSeconds(10));
         ItineraryExplanationExecutionOptions.DefaultOverallTimeout.Should().Be(
             TimeSpan.FromSeconds(20));
+        options.Enabled.Should().BeFalse();
         options.ProviderTimeout.Should().Be(TimeSpan.FromSeconds(10));
         options.OverallTimeout.Should().Be(TimeSpan.FromSeconds(20));
         options.MaxAttempts.Should().Be(2);
