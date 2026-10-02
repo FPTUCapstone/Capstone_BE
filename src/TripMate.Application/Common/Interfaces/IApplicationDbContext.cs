@@ -73,6 +73,14 @@ public interface IApplicationDbContext
 
     DbSet<Payout> Payouts { get; }
 
+    DbSet<PayoutItem> PayoutItems { get; }
+
+    DbSet<Booking> Bookings { get; }
+
+    DbSet<PaymentTransaction> PaymentTransactions { get; }
+
+    DbSet<Refund> Refunds { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 
     Task<int> RevokeRefreshTokenAsync(

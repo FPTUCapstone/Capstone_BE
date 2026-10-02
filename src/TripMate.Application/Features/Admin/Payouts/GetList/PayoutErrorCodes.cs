@@ -9,4 +9,9 @@ public static class PayoutErrorCodes
     public const string InvalidPeriodRange = "payout.invalid_period_range";
 
     public const string InvalidPeriodRangeMessage = "The submitted settlement period range is logically invalid.";
+
+    // UC-64: the SRS names locked MSG128 explicitly for a missing selected payout record (D3).
+    public const string NotFound = "Payouts.NotFound";
+
+    public const string NotFoundMessage = "No records found matching your criteria.";
 }

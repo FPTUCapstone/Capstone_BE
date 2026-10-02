@@ -135,6 +135,14 @@ public class ApplicationDbContext(
 
     public DbSet<Payout> Payouts => Set<Payout>();
 
+    public DbSet<PayoutItem> PayoutItems => Set<PayoutItem>();
+
+    public DbSet<Booking> Bookings => Set<Booking>();
+
+    public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
+
+    public DbSet<Refund> Refunds => Set<Refund>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(

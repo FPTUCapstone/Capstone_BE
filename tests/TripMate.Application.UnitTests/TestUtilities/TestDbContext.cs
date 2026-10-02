@@ -78,6 +78,14 @@ public class TestDbContext(
 
     public DbSet<Payout> Payouts => Set<Payout>();
 
+    public DbSet<PayoutItem> PayoutItems => Set<PayoutItem>();
+
+    public DbSet<Booking> Bookings => Set<Booking>();
+
+    public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
+
+    public DbSet<Refund> Refunds => Set<Refund>();
+
     public int TransactionExecutionCount { get; private set; }
 
     public bool ThrowOnSaveConcurrency { get; set; }

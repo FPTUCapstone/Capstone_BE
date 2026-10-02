@@ -1,0 +1,42 @@
+using System.Text.Json;
+
+using FluentAssertions;
+
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.OpenApi;
+
+using Swashbuckle.AspNetCore.Swagger;
+
+using TripMate.Api.IntegrationTests.Infrastructure;
+
+namespace TripMate.Api.IntegrationTests.Payouts;
+
+[Collection(nameof(TripMateApiFactory))]
+public sealed class PayoutDetailsOpenApiTests
+{
+    [Fact]
+    public async Task GetDetails_DocumentsResponseAndErrorContract()
+    {
+        await using var factory = new TripMateApiFactory();
+        var provider = factory.Services.GetRequiredService<ISwaggerProvider>();
+        var json = await provider.GetSwagger("v1").SerializeAsJsonAsync(OpenApiSpecVersion.OpenApi3_0);
+        using var document = JsonDocument.Parse(json);
+        var operation = document.RootElement.GetProperty("paths")
+            .GetProperty("/api/v1/admin/payouts/{id}").GetProperty("get");
+
+        var parameter = operation.GetProperty("parameters").EnumerateArray().Single();
+        parameter.GetProperty("name").GetString().Should().Be("id");
+        parameter.GetProperty("in").GetString().Should().Be("path");
+        var responses = operation.GetProperty("responses");
+        foreach (var status in new[] { "200", "400", "401", "403", "404", "500" })
+        {
+            responses.TryGetProperty(status, out _).Should().BeTrue($"HTTP {status} is part of the contract");
+        }
+
+        var schemas = document.RootElement.GetProperty("components").GetProperty("schemas");
+        schemas.TryGetProperty("PayoutDetailsDto", out _).Should().BeTrue();
+        schemas.TryGetProperty("PayoutBookingDto", out _).Should().BeTrue();
+        schemas.GetProperty("PayoutBookingDto").GetProperty("properties")
+            .GetProperty("bookingId").GetProperty("type").GetString().Should().Be("string");
+    }
+}

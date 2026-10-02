@@ -10,4 +10,7 @@ public static class AuditEntityTypes
 
     // UC-05 Sign Out
     public const string RefreshToken = "RefreshToken";
+
+    // UC-64 BR-130
+    public const string Payout = "Payout";
 }
