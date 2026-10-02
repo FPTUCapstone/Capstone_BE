@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Admin.SystemConfigs.Common;
 using TripMate.Application.Features.Admin.SystemConfigs.UpdateAlgorithmParameters;
 using TripMate.Application.Features.Admin.TourOperatorApplications.Approve;
 using TripMate.Application.Features.Admin.TourOperatorApplications.Common;
@@ -53,9 +54,21 @@ public sealed class AuditFailureBehaviour<TRequest, TResponse>(
             throw;
         }
 
-        if (response is Result { IsFailure: true } failure && IsStateFailure(failure.ErrorCode))
+        if (response is Result { IsFailure: true } failure)
         {
-            await Record(failure.ErrorCode!);
+            if (failure.ErrorCode == AlgorithmConfigErrorCodes.AuditUnavailable)
+            {
+                // The handler rolled back and mapped the audit-write failure to the 503 MSG127
+                // contract; the rejected audit attempt is still recorded as a Failure event so
+                // the audit trail never silently loses an audited operation.
+                await Record("audit.database_write_failed");
+                return response;
+            }
+
+            if (IsStateFailure(failure.ErrorCode))
+            {
+                await Record(failure.ErrorCode!);
+            }
         }
 
         return response;
