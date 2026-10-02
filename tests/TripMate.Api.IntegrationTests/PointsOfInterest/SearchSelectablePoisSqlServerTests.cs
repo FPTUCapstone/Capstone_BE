@@ -71,6 +71,8 @@ public sealed class SearchSelectablePoisSqlServerTests
             {
                 services.RemoveAll<IRouteDurationProvider>();
                 services.AddScoped<IRouteDurationProvider, TestRouteDurationProvider>();
+                services.RemoveAll<IGenerateRateLimiter>();
+                services.AddSingleton<IGenerateRateLimiter, AllowAllGenerateRateLimiter>();
             });
         using var client = factory.CreateAuthenticatedClient(seed.TravelerId, UserRole.Traveler);
 
@@ -354,4 +356,9 @@ public sealed class SearchSelectablePoisSqlServerTests
         PointOfInterest[] InsidePois,
         PointOfInterest[] OutsidePois,
         PointOfInterest[] TieBreakPois);
+
+    private sealed class AllowAllGenerateRateLimiter : IGenerateRateLimiter
+    {
+        public GenerateRateLimitDecision TryAcquire(long userId) => new(true);
+    }
 }

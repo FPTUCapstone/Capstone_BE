@@ -55,6 +55,9 @@ services:
         condition: service_healthy
       db-init:
         condition: service_completed_successfully
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
@@ -65,12 +68,29 @@ services:
       Jwt__SigningKey: ${JWT_SIGNING_KEY}
       OPENROUTESERVICE__APIKEY: ${OPENROUTESERVICE__APIKEY:?OPENROUTESERVICE__APIKEY must be set in .env}
       OPENROUTESERVICE__BASEURL: ${OPENROUTESERVICE__BASEURL:-https://api.heigit.org/openrouteservice/}
+      SchedulingRateLimit__MaxFreshGenerationsPerMinute: ${SchedulingRateLimit__MaxFreshGenerationsPerMinute:-3}
+      SchedulingRateLimit__CooldownSeconds: ${SchedulingRateLimit__CooldownSeconds:-15}
       # TM-215 AI POI ranking. Windows User Secrets are unavailable inside Docker, so the
       # provider configuration must be supplied through the local, git-ignored .env file.
+
       AiRanking__Enabled: ${AiRanking__Enabled:-true}
       AiRanking__Endpoint: ${AiRanking__Endpoint:-https://generativelanguage.googleapis.com/v1/interactions}
       AiRanking__ApiKey: ${AiRanking__ApiKey:?AiRanking__ApiKey must be set in .env}
-      AiRanking__ModelName: ${AiRanking__ModelName:-gemini-3.6-flash}
+      AiRanking__ModelName: ${AiRanking__ModelName:-gemini-3.5-flash-lite}
+      AiRanking__RateLimitPerMinute: ${AiRanking__RateLimitPerMinute:-4}
+      AiRanking__MaxConcurrency: ${AiRanking__MaxConcurrency:-2}
+
+      AiExplanation__Enabled: ${AiExplanation__Enabled:-false}
+      AiExplanation__Endpoint: ${AiExplanation__Endpoint:-https://generativelanguage.googleapis.com/v1/interactions}
+      AiExplanation__ApiKey: ${AiExplanation__ApiKey:-}
+      AiExplanation__ModelName: ${AiExplanation__ModelName:-gemini-3.5-flash-lite}
+      AiExplanation__TimeoutSeconds: ${AiExplanation__TimeoutSeconds:-10}
+      AiExplanation__OverallTimeoutSeconds: ${AiExplanation__OverallTimeoutSeconds:-20}
+      AiExplanation__MaxAttempts: ${AiExplanation__MaxAttempts:-2}
+      AiExplanation__RetryBaseDelayMilliseconds: ${AiExplanation__RetryBaseDelayMilliseconds:-500}
+      AiExplanation__RateLimitPerMinute: ${AiExplanation__RateLimitPerMinute:-4}
+      AiExplanation__MaxConcurrency: ${AiExplanation__MaxConcurrency:-2}
+
       Cors__AllowedOrigins__0: http://localhost:3001
       Cors__AllowedOrigins__1: http://localhost:3005
       Cors__AllowedOrigins__2: http://localhost:3000

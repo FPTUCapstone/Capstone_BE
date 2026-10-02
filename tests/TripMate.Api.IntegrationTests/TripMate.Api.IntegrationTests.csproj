@@ -79,6 +79,9 @@
     <None Include="..\..\database\migrations\20260920_add_itinerary_version_operations.sql"
           Link="Database\migrations\20260920_add_itinerary_version_operations.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261001_add_itinerary_item_friendly_explanation.sql"
+          Link="Database\migrations\20261001_add_itinerary_item_friendly_explanation.sql"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

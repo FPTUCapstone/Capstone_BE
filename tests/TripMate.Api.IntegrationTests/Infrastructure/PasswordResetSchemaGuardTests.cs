@@ -93,8 +93,10 @@ public sealed class PasswordResetSchemaGuardTests
             foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
             {
                 var relative = Path.GetRelativePath(root, file);
-                var candidate = relative.Split(Path.DirectorySeparatorChar).First();
-                if (candidate is "bin" or "obj" or "coverage")
+                var isBuildArtifact = relative
+                    .Split(Path.DirectorySeparatorChar)
+                    .Any(segment => segment is "bin" or "obj" or "coverage");
+                if (isBuildArtifact)
                 {
                     continue;
                 }

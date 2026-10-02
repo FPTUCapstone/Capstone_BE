@@ -5,14 +5,17 @@ using System.Text.Json.Serialization;
 
 using Microsoft.Extensions.Options;
 
+using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Scheduling.Personalization;
+using TripMate.Infrastructure.Ai;
 
 namespace TripMate.Infrastructure.AiRanking;
 
 public sealed class HttpPoiRankingProvider(
     HttpClient httpClient,
-    IOptions<PoiRankingProviderOptions> options) : IPoiRankingProvider
+    IOptions<PoiRankingProviderOptions> options,
+    IAiProviderBudget? budget = null) : IPoiRankingProvider
 {
     private const string SystemInstruction = """
         You are a semantic POI relevance scorer.
@@ -33,6 +36,7 @@ public sealed class HttpPoiRankingProvider(
         ?? throw new ArgumentNullException(nameof(httpClient));
     private readonly PoiRankingProviderOptions _options = options?.Value
         ?? throw new ArgumentNullException(nameof(options));
+    private readonly IAiProviderBudget? _budget = budget;
 
     public async Task<Result<PoiRankingResult>> RankAsync(
         PoiRankingRequest request,
@@ -66,6 +70,14 @@ public sealed class HttpPoiRankingProvider(
         };
         httpRequest.Headers.Add("x-goog-api-key", _options.ApiKey);
 
+        IDisposable? permit = null;
+        if (_budget is not null && !_budget.TryAcquire(AiProviderNames.Ranking, out permit))
+        {
+            return Result.Failure<PoiRankingResult>(
+                PoiRankingProviderErrorCodes.Quota,
+                "The local POI ranking provider budget is unavailable.");
+        }
+
         HttpResponseMessage response;
         try
         {
@@ -78,6 +90,10 @@ public sealed class HttpPoiRankingProvider(
         catch (IOException)
         {
             return NetworkFailure();
+        }
+        finally
+        {
+            permit?.Dispose();
         }
 
         using (response)

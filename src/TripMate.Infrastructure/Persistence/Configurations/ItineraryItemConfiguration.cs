@@ -43,6 +43,11 @@ public sealed class ItineraryItemConfiguration : IEntityTypeConfiguration<Itiner
         builder.Property(item => item.RecommendationReason)
             .HasColumnName("recommendation_reason")
             .HasMaxLength(ItineraryItem.RecommendationReasonMaxLength);
+        builder.Property(item => item.FriendlyExplanation)
+            .HasColumnName("friendly_explanation")
+            .HasMaxLength(ItineraryItem.FriendlyExplanationMaxLength)
+            .IsUnicode()
+            .IsRequired(false);
 
         builder.HasOne(item => item.Itinerary)
             .WithMany(itinerary => itinerary.Items)

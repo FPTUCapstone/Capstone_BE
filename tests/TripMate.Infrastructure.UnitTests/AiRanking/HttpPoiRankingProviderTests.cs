@@ -6,6 +6,7 @@ using FluentAssertions;
 
 using Microsoft.Extensions.Options;
 
+using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Infrastructure.AiRanking;
 
@@ -64,7 +65,7 @@ public sealed class HttpPoiRankingProviderTests
 
         using JsonDocument body = JsonDocument.Parse(handler.RequestBody!);
         JsonElement root = body.RootElement;
-        root.GetProperty("model").GetString().Should().Be("gemini-3.6-flash");
+        root.GetProperty("model").GetString().Should().Be("gemini-3.5-flash-lite");
         root.GetProperty("store").GetBoolean().Should().BeFalse();
         root.TryGetProperty("previous_interaction_id", out _).Should().BeFalse();
         root.TryGetProperty("stream", out _).Should().BeFalse();
@@ -103,6 +104,18 @@ public sealed class HttpPoiRankingProviderTests
         firstCandidate.GetProperty("tagNames").EnumerateArray()
             .Select(value => value.GetString()).Should().Equal("heritage");
         handler.RequestBody.Should().NotContain(FakeApiKey);
+    }
+
+    [Fact]
+    public async Task RankAsync_WhenLocalBudgetDenied_DoesNotCallProvider()
+    {
+        using var handler = new StubHttpMessageHandler(_ => JsonResponse("{}"));
+        var provider = CreateProvider(new HttpClient(handler), new DenyBudget());
+
+        var result = await provider.RankAsync(Request(), CancellationToken.None);
+
+        result.ErrorCode.Should().Be(PoiRankingProviderErrorCodes.Quota);
+        handler.CallCount.Should().Be(0);
     }
 
     [Theory]
@@ -293,7 +306,9 @@ public sealed class HttpPoiRankingProviderTests
         }),
     };
 
-    private static HttpPoiRankingProvider CreateProvider(HttpClient client) =>
+    private static HttpPoiRankingProvider CreateProvider(
+        HttpClient client,
+        IAiProviderBudget? budget = null) =>
         new(
             client,
             Options.Create(new PoiRankingProviderOptions
@@ -301,8 +316,9 @@ public sealed class HttpPoiRankingProviderTests
                 Enabled = true,
                 Endpoint = Endpoint,
                 ApiKey = FakeApiKey,
-                ModelName = "gemini-3.6-flash",
-            }));
+                ModelName = "gemini-3.5-flash-lite",
+            }),
+            budget);
 
     private static PoiRankingRequest Request() => new(
         [new PoiRankingCandidate(7L, "Museum", "Culture", ["heritage"])],
@@ -328,6 +344,15 @@ public sealed class HttpPoiRankingProviderTests
             },
         },
     });
+
+    private sealed class DenyBudget : IAiProviderBudget
+    {
+        public bool TryAcquire(string provider, out IDisposable? permit)
+        {
+            permit = null;
+            return false;
+        }
+    }
 
     private sealed class StubHttpMessageHandler(
         Func<HttpRequestMessage, HttpResponseMessage> responseFactory)
