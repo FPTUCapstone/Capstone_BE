@@ -180,25 +180,25 @@ public sealed class TripMateApiFactory(
                 services.AddSingleton<IDateTimeProvider>(sp => dateTimeProviderFactory(sp));
             }
 
-                services.AddScoped(provider => new PoiRankingOrchestrator(
-                    new PersonalBehaviorFeatureAggregator(
-                        provider.GetRequiredService<IApplicationDbContext>()),
-                    ProviderDisabledPoiRankingProvider.Instance,
-                    new PersonalizationRankingOptions(),
-                    providerEnabled: false,
-                    provider.GetRequiredService<ILogger<PoiRankingOrchestrator>>()));
+            services.AddScoped(provider => new PoiRankingOrchestrator(
+                new PersonalBehaviorFeatureAggregator(
+                    provider.GetRequiredService<IApplicationDbContext>()),
+                ProviderDisabledPoiRankingProvider.Instance,
+                new PersonalizationRankingOptions(),
+                providerEnabled: false,
+                provider.GetRequiredService<ILogger<PoiRankingOrchestrator>>()));
 
-                if (explanationProviderFactory is not null)
-                {
-                    services.RemoveAll<IItineraryExplanationProvider>();
-                    services.AddScoped<IItineraryExplanationProvider>(sp => explanationProviderFactory(sp));
-                }
+            if (explanationProviderFactory is not null)
+            {
+                services.RemoveAll<IItineraryExplanationProvider>();
+                services.AddScoped<IItineraryExplanationProvider>(sp => explanationProviderFactory(sp));
+            }
 
-                if (explanationProviderEnabled.HasValue)
-                {
-                    services.RemoveAll(typeof(bool));
-                    services.AddSingleton(typeof(bool), _ => explanationProviderEnabled.Value);
-                }
+            if (explanationProviderEnabled.HasValue)
+            {
+                services.RemoveAll(typeof(bool));
+                services.AddSingleton(typeof(bool), _ => explanationProviderEnabled.Value);
+            }
 
             if (authenticationMode == ApiTestAuthenticationMode.HeaderStub)
             {

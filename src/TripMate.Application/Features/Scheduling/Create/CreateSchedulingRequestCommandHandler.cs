@@ -736,4 +736,5 @@ public sealed class CreateSchedulingRequestCommandHandler(
         Itinerary Itinerary,
         GeneratedItineraryPlan Plan,
         IReadOnlyCollection<string> PreferenceTokens);
+
 }
