@@ -13,4 +13,6 @@ public static class TravelGroupErrorCodes
     public const string InvitationCodeGenerationFailed = "travel_group.invitation_code_generation_failed";
     public const string InvitationUnavailable = "travel_group.invitation_unavailable";
     public const string AlreadyActiveMember = "travel_group.already_active_member";
+    public const string ActiveMembershipRequired = "travel_group.active_membership_required";
+    public const string MemberListInconsistent = "travel_group.member_list_inconsistent";
 }

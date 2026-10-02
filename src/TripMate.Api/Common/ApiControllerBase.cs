@@ -151,11 +151,17 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.HostPermissionRequired =>
                 StatusCodes.Status403Forbidden,
 
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.ActiveMembershipRequired =>
+                StatusCodes.Status403Forbidden,
+
             TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.IdempotencyKeyPayloadMismatch =>
                 StatusCodes.Status409Conflict,
 
             TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.AlreadyActiveMember =>
                 StatusCodes.Status409Conflict,
+
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.MemberListInconsistent =>
+                StatusCodes.Status500InternalServerError,
 
             SchedulingErrorCodes.IdempotencyKeyPayloadMismatch =>
                 StatusCodes.Status409Conflict,

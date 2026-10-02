@@ -11,6 +11,7 @@ using TripMate.Application.Common.Geo;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Scheduling.Common;
+using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -21,6 +22,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
     IDateTimeProvider dateTimeProvider,
     IRouteDurationProvider routeDurationProvider,
     ISchedulingRequestLock schedulingRequestLock,
+    PoiRankingOrchestrator poiRankingOrchestrator,
     SchedulingGenerationOptions? generationOptions = null)
     : IRequestHandler<CreateSchedulingRequestCommand, Result<SchedulingResponseDto>>
 {
@@ -34,6 +36,63 @@ public sealed class CreateSchedulingRequestCommandHandler(
         var canonical = CanonicalSchedulingRequest.From(command);
         var timeZone = TimeZoneInfo.FindSystemTimeZoneById(canonical.TimeZoneId);
         var requestHash = ComputeRequestHash(canonical);
+        var replayExists = await dbContext.SchedulingRequests
+            .AsNoTracking()
+            .AnyAsync(request =>
+                request.TravelerUserId == canonical.TravelerUserId
+                && request.IdempotencyKey == canonical.IdempotencyKey,
+                cancellationToken);
+
+        PoiRankingSnapshot? rankingSnapshot = null;
+        if (!replayExists)
+        {
+            var travelerInterestTags = await dbContext.TravelerProfiles
+                .AsNoTracking()
+                .Where(profile => profile.UserId == canonical.TravelerUserId)
+                .Select(profile => profile.InterestTagsJson)
+                .SingleOrDefaultAsync(cancellationToken);
+            var preferenceTokens = TravelerPreferenceScoring.ParsePreferenceTokens(
+                travelerInterestTags);
+            var phaseOnePois = await dbContext.PointsOfInterest
+                .AsNoTracking()
+                .Include(poi => poi.Category)
+                .Include(poi => poi.OpeningHours)
+                .Include(poi => poi.PoiTags)
+                .ThenInclude(mapping => mapping.Tag)
+                .Where(poi => poi.Status == PointOfInterestStatus.Active)
+                .ToListAsync(cancellationToken);
+            var mandatoryIds = canonical.MandatoryPoiIds.ToHashSet();
+            var optionalCandidates = phaseOnePois
+                .Where(IsPlanningReady)
+                .Where(poi => GeoDistance.EquirectangularKilometers(
+                    canonical.ExplorationLatitude,
+                    canonical.ExplorationLongitude,
+                    poi.Latitude,
+                    poi.Longitude) <= canonical.SearchRadiusKm)
+                .Where(poi => !mandatoryIds.Contains(poi.Id))
+                .Select(poi => new PoiRankingInputCandidate(
+                    poi.Id,
+                    poi.CategoryId,
+                    poi.Name,
+                    poi.Category.Name,
+                    poi.PoiTags.Select(mapping => mapping.Tag.Name).ToArray(),
+                    poi.ScenicScore,
+                    poi.PhotoRating,
+                    GeoDistance.EquirectangularKilometers(
+                        canonical.ExplorationLatitude,
+                        canonical.ExplorationLongitude,
+                        poi.Latitude,
+                        poi.Longitude),
+                    poi.EstimatedVisitCost))
+                .ToArray();
+
+            rankingSnapshot = await poiRankingOrchestrator.BuildRankingAsync(
+                new PoiRankingInput(
+                    canonical.TravelerUserId,
+                    preferenceTokens,
+                    optionalCandidates),
+                cancellationToken);
+        }
 
         return await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
         {
@@ -138,10 +197,24 @@ public sealed class CreateSchedulingRequestCommandHandler(
                     transactionCancellationToken);
             }
 
+            var providerPoolPoiIds = rankingSnapshot?.ProviderPoolPoiIds
+                ?? throw new InvalidOperationException(
+                    "A ranking snapshot is required after the authoritative replay check.");
+            var mandatoryIds = canonical.MandatoryPoiIds.ToHashSet();
+            var poolBoundSelectablePois = selectablePois
+                .Where(poi =>
+                    mandatoryIds.Contains(poi.Id)
+                    || providerPoolPoiIds.Contains(poi.Id))
+                .ToArray();
+            var optionalRankingEntries = poolBoundSelectablePois
+                .Where(poi => !mandatoryIds.Contains(poi.Id))
+                .ToDictionary(
+                    poi => poi.Id,
+                    poi => GetRequiredRankingEntry(rankingSnapshot, poi.Id));
             var matrixCandidates = SelectMatrixCandidates(
-                selectablePois,
-                canonical,
-                preferenceTokens);
+                poolBoundSelectablePois,
+                canonical.MandatoryPoiIds,
+                optionalRankingEntries);
 
             var end = endPoi is null
                 ? new RoutePoint(canonical.StartLatitude, canonical.StartLongitude)
@@ -155,7 +228,12 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 canonical.TransportMode,
                 canonical.RestPreference,
                 canonical.BudgetVnd,
-                matrixCandidates.Select(poi => ToCandidate(poi, preferenceTokens)).ToArray(),
+                matrixCandidates.Select(poi => ToCandidate(
+                    poi,
+                    preferenceTokens,
+                    mandatoryIds.Contains(poi.Id)
+                        ? null
+                        : optionalRankingEntries[poi.Id])).ToArray(),
                 canonical.MandatoryPoiIds);
             var plan = await new ItineraryGenerationService(routeDurationProvider, _generationOptions)
                 .GenerateAsync(input, transactionCancellationToken);
@@ -250,10 +328,10 @@ public sealed class CreateSchedulingRequestCommandHandler(
 
     private IReadOnlyList<PointOfInterest> SelectMatrixCandidates(
         IReadOnlyCollection<PointOfInterest> selectablePois,
-        CanonicalSchedulingRequest command,
-        IReadOnlySet<string> preferenceTokens)
+        IReadOnlyCollection<long> mandatoryPoiIds,
+        IReadOnlyDictionary<long, PoiRankingSnapshotEntry> optionalRankingEntries)
     {
-        var mandatoryIds = command.MandatoryPoiIds.ToHashSet();
+        var mandatoryIds = mandatoryPoiIds.ToHashSet();
         var mandatoryPois = selectablePois
             .Where(poi => mandatoryIds.Contains(poi.Id))
             .OrderBy(poi => poi.Id)
@@ -262,26 +340,27 @@ public sealed class CreateSchedulingRequestCommandHandler(
 
         var optionalPois = selectablePois
             .Where(poi => !mandatoryIds.Contains(poi.Id))
-    .OrderByDescending(poi =>
-        TravelerPreferenceScoring.CalculatePreferenceScore(poi, preferenceTokens))
-            .ThenByDescending(poi => poi.ScenicScore ?? decimal.MinValue)
-            .ThenByDescending(poi => poi.PhotoRating ?? decimal.MinValue)
-            .ThenBy(poi => GeoDistance.EquirectangularKilometers(
-                command.ExplorationLatitude,
-                command.ExplorationLongitude,
-                poi.Latitude,
-                poi.Longitude))
-            .ThenBy(poi => poi.EstimatedVisitCost ?? decimal.MaxValue)
-            .ThenBy(poi => poi.Id)
+            .Select(poi => (Poi: poi, Ranking: optionalRankingEntries[poi.Id]))
+            .OrderByDescending(candidate => candidate.Ranking.EffectiveDesirabilityScore)
+            .ThenByDescending(candidate =>
+                candidate.Ranking.ScenicScoreForRanking ?? decimal.MinValue)
+            .ThenByDescending(candidate =>
+                candidate.Ranking.PhotoRatingForRanking ?? decimal.MinValue)
+            .ThenBy(candidate => candidate.Ranking.ExplorationDistanceForRanking)
+            .ThenBy(candidate =>
+                candidate.Ranking.EstimatedVisitCostForRanking ?? decimal.MaxValue)
+            .ThenBy(candidate => candidate.Ranking.PoiId)
             .Take(remainingCapacity)
+            .Select(candidate => candidate.Poi)
             .ToArray();
 
         return mandatoryPois.Concat(optionalPois).ToArray();
     }
 
-    private static GenerationCandidate ToCandidate(
+    internal static GenerationCandidate ToCandidate(
         PointOfInterest poi,
-        IReadOnlySet<string> preferenceTokens) =>
+        IReadOnlySet<string> preferenceTokens,
+        PoiRankingSnapshotEntry? rankingEntry) =>
         new(
             poi.Id,
             poi.Name,
@@ -295,11 +374,24 @@ public sealed class CreateSchedulingRequestCommandHandler(
                     hours.OpenTime!.Value,
                     hours.CloseTime!.Value))
                 .ToArray(),
-    PreferenceScore: TravelerPreferenceScoring.CalculatePreferenceScore(poi, preferenceTokens),
+            TripMateBaseScore: rankingEntry?.TripMateBaseScore ?? 0m,
+            EffectiveDesirabilityScore: rankingEntry?.EffectiveDesirabilityScore ?? 0m,
+            ScenicScoreForRanking: rankingEntry?.ScenicScoreForRanking,
+            PhotoRatingForRanking: rankingEntry?.PhotoRatingForRanking,
+            EstimatedVisitCostForRanking: rankingEntry?.EstimatedVisitCostForRanking,
+            PreferenceScore: TravelerPreferenceScoring.CalculatePreferenceScore(poi, preferenceTokens),
             ScenicScore: poi.ScenicScore,
             PhotoRating: poi.PhotoRating,
             CategoryName: poi.Category.Name,
             HasShelter: poi.HasShelter);
+
+    private static PoiRankingSnapshotEntry GetRequiredRankingEntry(
+        PoiRankingSnapshot snapshot,
+        long poiId) =>
+        snapshot.Entries.TryGetValue(poiId, out PoiRankingSnapshotEntry? entry)
+            ? entry
+            : throw new InvalidOperationException(
+                $"The ranking snapshot is missing the pooled POI {poiId}.");
 
     private static SchedulingResponseDto ToResponse(
         SchedulingRequest schedulingRequest,

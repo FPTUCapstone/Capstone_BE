@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 using TripMate.Application.Common.Interfaces;
@@ -9,7 +10,9 @@ using TripMate.Application.Common.Media;
 using TripMate.Application.Features.Authentication.PasswordReset;
 using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Scheduling.Common;
+using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Application.Features.TravelGroups.ManageInvitation;
+using TripMate.Infrastructure.AiRanking;
 using TripMate.Infrastructure.Authentication;
 using TripMate.Infrastructure.Email;
 using TripMate.Infrastructure.Media;
@@ -67,6 +70,26 @@ public static class DependencyInjection
             configuration.GetSection(SchedulingGenerationOptions.SectionName)
                 .Get<SchedulingGenerationOptions>()
             ?? new SchedulingGenerationOptions());
+        services.AddOptions<PersonalizationRankingOptions>()
+            .Bind(configuration.GetSection(PersonalizationRankingOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<
+            IValidateOptions<PersonalizationRankingOptions>,
+            PersonalizationRankingOptionsValidator>();
+        services.AddOptions<PoiRankingProviderOptions>()
+            .Bind(configuration.GetSection(PoiRankingProviderOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<
+            IValidateOptions<PoiRankingProviderOptions>,
+            PoiRankingProviderOptionsValidator>();
+        services.AddHttpClient<IPoiRankingProvider, HttpPoiRankingProvider>();
+        services.AddScoped<PersonalBehaviorFeatureAggregator>();
+        services.AddScoped(serviceProvider => new PoiRankingOrchestrator(
+            serviceProvider.GetRequiredService<PersonalBehaviorFeatureAggregator>(),
+            serviceProvider.GetRequiredService<IPoiRankingProvider>(),
+            serviceProvider.GetRequiredService<IOptions<PersonalizationRankingOptions>>().Value,
+            serviceProvider.GetRequiredService<IOptions<PoiRankingProviderOptions>>().Value.Enabled,
+            serviceProvider.GetRequiredService<ILogger<PoiRankingOrchestrator>>()));
         services.AddHttpClient<OpenRouteServiceRouteDurationProvider>(
             (serviceProvider, client) =>
             {
