@@ -70,6 +70,7 @@ public sealed class AuditConfigEndpointTests
     {
         await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
         using var client = CreateClient(factory, UserRole.Administrator);
+        await SeedManagedRowsAsync(factory);
 
         var response = await client.GetAsync("/api/v1/admin/system-configs/algorithm-parameters");
 
@@ -81,6 +82,39 @@ public sealed class AuditConfigEndpointTests
         root.GetProperty("reroutingSearchRadiusKm").GetDouble().Should().Be(5);
         root.GetProperty("weatherAlertThresholdSeverity").GetString().Should().Be("Severe");
         root.TryGetProperty("data", out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Get_WithMissingManagedRows_ReturnsNotInitializedContract()
+    {
+        // Review 2026-10-01 (MAJOR-1): missing rows are never masked with the seeded defaults.
+        await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
+        using var client = CreateClient(factory, UserRole.Administrator);
+
+        var response = await client.GetAsync("/api/v1/admin/system-configs/algorithm-parameters");
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        body.RootElement.GetProperty("errorCode").GetString().Should().Be("admin.algorithm_config_not_initialized");
+        body.RootElement.GetProperty("title").GetString().Should()
+            .Be("Algorithm configuration is not initialized. Please contact the system administrator.");
+    }
+
+    private static async Task SeedManagedRowsAsync(TripMateApiFactory factory)
+    {
+        var updatedAt = new DateTimeOffset(2026, 9, 16, 12, 0, 0, TimeSpan.Zero);
+        await factory.WithDbContextAsync(async db =>
+        {
+            db.SystemConfigs.Add(new SystemConfig(
+                "CSP.BufferTimeMinutes", "15", description: null, updatedBy: 1L, updatedAt));
+            db.SystemConfigs.Add(new SystemConfig(
+                "CSP.DefaultTravelSpeedKmh", "30", description: null, updatedBy: 1L, updatedAt));
+            db.SystemConfigs.Add(new SystemConfig(
+                "Rerouting.SearchRadiusKm", "5", description: null, updatedBy: 1L, updatedAt));
+            db.SystemConfigs.Add(new SystemConfig(
+                "Weather.AlertThresholdSeverity", "Severe", description: null, updatedBy: 1L, updatedAt));
+            return await db.SaveChangesAsync();
+        });
     }
 
     [Fact]

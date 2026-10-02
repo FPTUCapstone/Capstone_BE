@@ -92,8 +92,11 @@ public sealed class AlgorithmParametersSqlServerTests
 
         var response = await client.PutAsJsonAsync(Endpoint, Payload());
 
-        response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable,
+            "an audit-write failure is surfaced as the locked MSG127 contract, not a generic 500");
         var body = await response.Content.ReadAsStringAsync();
+        body.Should().Contain("admin.algorithm_config_unavailable");
+        body.Should().Contain("TripMate is temporarily unable to process your request");
         body.Should().NotContain("CK_AuditLogs_RejectAlgorithmUpdateForTest");
         body.Should().NotContain("SqlException");
         (await ReadConfigurationsAsync(database)).Should().BeEquivalentTo(before,

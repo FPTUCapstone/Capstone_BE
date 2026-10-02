@@ -106,6 +106,12 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripMate.Application.Features.Admin.AuditLogs.Common.AuditLogErrorCodes.NotFound =>
                 StatusCodes.Status404NotFound,
 
+            TripMate.Application.Features.Admin.SystemConfigs.Common.AlgorithmConfigErrorCodes.NotInitialized =>
+                StatusCodes.Status503ServiceUnavailable,
+
+            TripMate.Application.Features.Admin.SystemConfigs.Common.AlgorithmConfigErrorCodes.AuditUnavailable =>
+                StatusCodes.Status503ServiceUnavailable,
+
             TripMate.Application.Features.Admin.SystemConfigs.Common.AlgorithmConfigErrorCodes.Forbidden =>
                 StatusCodes.Status403Forbidden,
 
