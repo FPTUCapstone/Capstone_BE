@@ -8,10 +8,14 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+
+using Serilog;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
@@ -52,10 +56,29 @@ public sealed class TripMateApiFactory(
         "dGVzdC1vbmx5LXNpZ25pbmcta2V5LXRoYXQtaXMtbG9uZy1lbm91Z2g=";
 
     private readonly string _databaseName = $"tripmate-api-tests-{Guid.NewGuid():N}";
+    private readonly string _logDirectory = Path.Combine(
+        Path.GetTempPath(), "TripMate.Api.IntegrationTests", Guid.NewGuid().ToString("N"));
+    private const string LogPathConfigurationKey = "Serilog:WriteTo:0:Args:path";
+
+    public string LogFilePath => Services.GetRequiredService<IConfiguration>()[LogPathConfigurationKey]
+        ?? throw new InvalidOperationException("This factory has no configured test file sink.");
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(environmentName);
+        // Derived WithWebHostBuilder hosts need distinct files while their parent
+        // host is alive. This factory owns all files through its disposal lifetime.
+        string logPath = Path.Combine(_logDirectory, Guid.NewGuid().ToString("N"), "requests.log");
+        builder.ConfigureAppConfiguration((context, configuration) =>
+        {
+            if (context.HostingEnvironment.IsEnvironment("Testing"))
+            {
+                configuration.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    [LogPathConfigurationKey] = logPath,
+                });
+            }
+        });
         builder.UseSetting("Jwt:Issuer", JwtIssuer);
         builder.UseSetting("Jwt:Audience", JwtAudience);
         builder.UseSetting("Jwt:SigningKey", JwtSigningKey);
@@ -98,6 +121,13 @@ public sealed class TripMateApiFactory(
 
         builder.ConfigureTestServices(services =>
         {
+            // Own the logger through this host's DI lifetime. Disposing via the
+            // static Log.Logger could instead close another live test host's sink.
+            services.AddSerilog((provider, configuration) => configuration
+                .ReadFrom.Configuration(provider.GetRequiredService<IConfiguration>())
+                .ReadFrom.Services(provider)
+                .WriteTo.Console(), preserveStaticLogger: true);
+
             if (sqlServerConnectionString is null)
             {
                 services.RemoveAll<ApplicationDbContext>();
@@ -253,6 +283,29 @@ public sealed class TripMateApiFactory(
         return await operation(context);
     }
 
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+        if (disposing)
+        {
+            DeleteTestLogs();
+        }
+    }
+
+    public override async ValueTask DisposeAsync()
+    {
+        await base.DisposeAsync();
+        DeleteTestLogs();
+    }
+
+    private void DeleteTestLogs()
+    {
+        if (Directory.Exists(_logDirectory))
+        {
+            Directory.Delete(_logDirectory, recursive: true);
+        }
+    }
+
 }
 
 public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
@@ -281,6 +334,8 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<PoiPhoto> PoiPhotos => Set<PoiPhoto>();
     public DbSet<Review> Reviews => Set<Review>();
+
+    public DbSet<TripReview> TripReviews => Set<TripReview>();
     public DbSet<Message> Messages => Set<Message>();
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();

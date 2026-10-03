@@ -56,6 +56,8 @@ public class TestDbContext(
 
     public DbSet<Review> Reviews => Set<Review>();
 
+    public DbSet<TripReview> TripReviews => Set<TripReview>();
+
     public DbSet<Message> Messages => Set<Message>();
 
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
