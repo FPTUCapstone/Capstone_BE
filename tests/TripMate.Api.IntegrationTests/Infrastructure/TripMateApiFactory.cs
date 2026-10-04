@@ -282,6 +282,9 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<PoiPhoto> PoiPhotos => Set<PoiPhoto>();
     public DbSet<Review> Reviews => Set<Review>();
     public DbSet<Message> Messages => Set<Message>();
+    public DbSet<TripMate.Domain.Entities.ServiceProvider> ServiceProviders =>
+        Set<TripMate.Domain.Entities.ServiceProvider>();
+    public DbSet<CommercialService> CommercialServices => Set<CommercialService>();
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
     public DbSet<Itinerary> Itineraries => Set<Itinerary>();

@@ -82,6 +82,12 @@
     <None Include="..\..\database\migrations\20261001_add_itinerary_item_friendly_explanation.sql"
           Link="Database\migrations\20261001_add_itinerary_item_friendly_explanation.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261003_add_commercial_service_disclosures.sql"
+          Link="Database\migrations\20261003_add_commercial_service_disclosures.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\seeds\20261003_uc30_commercial_services_development.sql"
+          Link="Database\seeds\20261003_uc30_commercial_services_development.sql"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

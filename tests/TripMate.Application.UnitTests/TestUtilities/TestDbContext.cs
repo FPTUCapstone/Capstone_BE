@@ -58,6 +58,10 @@ public class TestDbContext(
 
     public DbSet<Message> Messages => Set<Message>();
 
+    public DbSet<ServiceProvider> ServiceProviders => Set<ServiceProvider>();
+
+    public DbSet<CommercialService> CommercialServices => Set<CommercialService>();
+
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
 
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
@@ -223,6 +227,11 @@ public class TestDbContext(
 
         modelBuilder.Entity<Message>()
             .HasKey(message => message.MessageCode);
+
+        modelBuilder.Entity<CommercialService>()
+            .HasOne(service => service.Provider)
+            .WithMany()
+            .HasForeignKey(service => service.ProviderId);
 
         modelBuilder.Entity<GroupMember>()
             .HasKey(member => new { member.GroupId, member.UserId });
