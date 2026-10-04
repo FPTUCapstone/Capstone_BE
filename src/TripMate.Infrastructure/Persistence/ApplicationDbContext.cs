@@ -58,6 +58,10 @@ public class ApplicationDbContext(
 
     public DbSet<Message> Messages => Set<Message>();
 
+    public DbSet<ServiceProvider> ServiceProviders => Set<ServiceProvider>();
+
+    public DbSet<CommercialService> CommercialServices => Set<CommercialService>();
+
     public Task<int> RevokeRefreshTokenAsync(
         string tokenHash,
         DateTimeOffset revokedAtUtc,

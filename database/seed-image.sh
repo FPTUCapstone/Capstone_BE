@@ -32,6 +32,12 @@ for migrationPath in /tmp/migrations/*.sql; do
     -i "$migrationPath"
 done
 
+for seedPath in /tmp/seeds/*.sql; do
+  echo "Applying development seed: ${seedPath}"
+  "$SQLCMD" -b -V 11 -C -I -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -d TripMateDb \
+    -i "$seedPath"
+done
+
 echo "Schema and migrations seeded. Shutting down SQL Server so the data gets committed into the image..."
 kill -SIGTERM "$SQLPID"
 wait "$SQLPID" || true

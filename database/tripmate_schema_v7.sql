@@ -1213,7 +1213,7 @@ GO
 
 CREATE TABLE commercial.ServiceProviders (
     provider_id         BIGINT IDENTITY(1,1) PRIMARY KEY,
-    name                   NVARCHAR(150) NOT NULL,
+    name                   NVARCHAR(150) COLLATE Vietnamese_100_CI_AS NOT NULL,
     service_category          VARCHAR(20) NOT NULL
         CHECK (service_category IN ('Vehicle','Hotel','Restaurant')),
     contact_email                NVARCHAR(200) NULL,
@@ -1233,7 +1233,7 @@ CREATE TABLE commercial.Services (
     provider_id              BIGINT NOT NULL REFERENCES commercial.ServiceProviders(provider_id),
     service_category            VARCHAR(20) NOT NULL
         CHECK (service_category IN ('Vehicle','Hotel','Restaurant')),
-    name                            NVARCHAR(200) NOT NULL,   -- e.g. "Honda Wave", "Deluxe Room", "Set Menu for 2"
+    name                            NVARCHAR(200) COLLATE Vietnamese_100_CI_AS NOT NULL,   -- e.g. "Honda Wave", "Deluxe Room", "Set Menu for 2"
     description                        NVARCHAR(2000) NULL,
     poi_id                                 BIGINT NULL REFERENCES catalog.POIs(poi_id),   -- physical venue on the map, if any (Hotel/Restaurant; usually NULL for a Vehicle fleet)
     price_amount                              DECIMAL(12,2) NOT NULL CHECK (price_amount >= 0),
@@ -1243,11 +1243,56 @@ CREATE TABLE commercial.Services (
     attributes_json                                       NVARCHAR(1000) NULL,   -- category-specific fields, e.g. Vehicle:{seats,transmission}, Hotel:{room_type,beds}, Restaurant:{cuisine,table_size}
     availability_status                                       VARCHAR(14) NOT NULL DEFAULT 'Available'
         CHECK (availability_status IN ('Available','Unavailable')),
+    currency_code                                             VARCHAR(3) NOT NULL
+        CONSTRAINT DF_Services_CurrencyCode DEFAULT 'VND'
+        CONSTRAINT CK_Services_CurrencyCode CHECK (currency_code = 'VND'),
+    price_includes_tax                                           BIT NOT NULL
+        CONSTRAINT DF_Services_PriceIncludesTax DEFAULT 0,
+    refundable_deposit_amount                              DECIMAL(12,2) NULL
+        CONSTRAINT CK_Services_RefundableDepositNonNegative
+            CHECK (refundable_deposit_amount IS NULL OR refundable_deposit_amount >= 0),
+    cover_image_url                                      NVARCHAR(500) NULL
+        CONSTRAINT CK_Services_CoverImageHttps
+            CHECK (cover_image_url IS NULL OR cover_image_url LIKE 'https://%'),
+    fulfilment_location_label                            NVARCHAR(300) NULL,
+    pickup_or_arrival_instructions                      NVARCHAR(1000) NULL
+        CONSTRAINT CK_Services_PickupInstructionsLength
+            CHECK (pickup_or_arrival_instructions IS NULL
+                OR LEN(pickup_or_arrival_instructions) <= 1000),
+    cancellation_policy_summary                           NVARCHAR(500) NULL
+        CONSTRAINT CK_Services_CancellationSummaryLength
+            CHECK (cancellation_policy_summary IS NULL
+                OR LEN(cancellation_policy_summary) <= 500),
+    last_updated_at                                           DATETIME2 NOT NULL
+        CONSTRAINT DF_Services_LastUpdatedAt DEFAULT SYSUTCDATETIME(),
     created_at                                                    DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
 );
 GO
 CREATE INDEX IX_Services_Provider ON commercial.Services(provider_id);
 CREATE INDEX IX_Services_Category ON commercial.Services(service_category, availability_status);
+GO
+
+CREATE OR ALTER TRIGGER commercial.TR_Services_SetLastUpdatedAt
+ON commercial.Services
+AFTER UPDATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF UPDATE(provider_id) OR UPDATE(service_category) OR UPDATE(name) OR UPDATE(description)
+        OR UPDATE(poi_id) OR UPDATE(price_amount) OR UPDATE(price_unit)
+        OR UPDATE(capacity) OR UPDATE(attributes_json) OR UPDATE(availability_status)
+        OR UPDATE(currency_code) OR UPDATE(price_includes_tax)
+        OR UPDATE(refundable_deposit_amount) OR UPDATE(cover_image_url)
+        OR UPDATE(fulfilment_location_label) OR UPDATE(pickup_or_arrival_instructions)
+        OR UPDATE(cancellation_policy_summary)
+    BEGIN
+        UPDATE service
+        SET last_updated_at = SYSUTCDATETIME()
+        FROM commercial.Services AS service
+        INNER JOIN inserted AS changed ON changed.service_id = service.service_id;
+    END;
+END;
 GO
 
 CREATE TABLE commercial.ServiceBookings (

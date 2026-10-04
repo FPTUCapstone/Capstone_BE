@@ -50,6 +50,10 @@ public interface IApplicationDbContext
 
     DbSet<Message> Messages { get; }
 
+    DbSet<ServiceProvider> ServiceProviders { get; }
+
+    DbSet<CommercialService> CommercialServices { get; }
+
     DbSet<TravelGroup> TravelGroups { get; }
 
     DbSet<GroupMember> GroupMembers { get; }
