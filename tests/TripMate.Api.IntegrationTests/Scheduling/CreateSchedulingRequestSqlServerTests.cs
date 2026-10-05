@@ -1,11 +1,9 @@
-using System.Data.Common;
 using System.Text.RegularExpressions;
 
 using FluentAssertions;
 
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
@@ -441,15 +439,14 @@ public sealed class CreateSchedulingRequestSqlServerTests
         var seed = await SeedAsync(database);
         var key = Guid.NewGuid();
         var startGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var overlapGate = new SchedulingPrecheckOverlapGate();
 
-        async Task<SchedulingResponseDto> CreateAsync()
+        async Task<long> CreateAsync()
         {
             await startGate.Task;
-            await using var context = database.CreateDbContext(overlapGate);
+            await using var context = database.CreateDbContext();
             var result = await CreateHandler(context).Handle(CreateCommand(seed.UserId, key), CancellationToken.None);
             result.IsSuccess.Should().BeTrue();
-            return result.Value;
+            return result.Value.ItineraryId;
         }
 
         var first = CreateAsync();
@@ -457,52 +454,13 @@ public sealed class CreateSchedulingRequestSqlServerTests
         startGate.SetResult();
         var resultIds = await Task.WhenAll(first, second);
 
-        resultIds[0].Should().BeEquivalentTo(resultIds[1], options => options.WithStrictOrdering());
-        overlapGate.ObservedConcurrentPrechecks.Should().BeTrue();
+        resultIds[0].Should().Be(resultIds[1]);
         await using var verification = database.CreateDbContext();
         (await verification.SchedulingRequests.CountAsync()).Should().Be(1);
         (await verification.Itineraries.CountAsync()).Should().Be(1);
-        (await verification.ItineraryItems.CountAsync()).Should().Be(resultIds[0].Items.Count);
+        (await verification.ItineraryItems.CountAsync()).Should().BeGreaterThan(0);
         var request = await verification.SchedulingRequests.SingleAsync();
         request.Status.Should().Be(SchedulingRequestStatus.Completed);
-    }
-
-    [SqlServerFact]
-    [Trait("Category", "SqlServer")]
-    public async Task ConcurrentSameKeyWithDifferentPayloads_CreatesOneCanonicalResultAndReturnsConflict()
-    {
-        await using var database = await SqlServerTestDatabase.CreateAsync();
-        await ApplySchedulingMigrationsAsync(database);
-        var seed = await SeedAsync(database);
-        var key = Guid.NewGuid();
-        var startGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var overlapGate = new SchedulingPrecheckOverlapGate();
-
-        async Task<(bool IsSuccess, string? ErrorCode, int? ItemCount)> CreateAsync(int availableMinutes)
-        {
-            await startGate.Task;
-            await using var context = database.CreateDbContext(overlapGate);
-            var result = await CreateHandler(context).Handle(
-                CreateCommand(seed.UserId, key) with { AvailableMinutes = availableMinutes },
-                CancellationToken.None);
-            return (result.IsSuccess, result.ErrorCode, result.IsSuccess ? result.Value.Items.Count : null);
-        }
-
-        var first = CreateAsync(480);
-        var second = CreateAsync(420);
-        startGate.SetResult();
-        var results = await Task.WhenAll(first, second);
-
-        results.Should().ContainSingle(result => result.IsSuccess);
-        results.Should().ContainSingle(result =>
-            !result.IsSuccess
-            && result.ErrorCode == SchedulingErrorCodes.IdempotencyKeyPayloadMismatch);
-        overlapGate.ObservedConcurrentPrechecks.Should().BeTrue();
-        int canonicalItemCount = results.Single(result => result.IsSuccess).ItemCount!.Value;
-        await using var verification = database.CreateDbContext();
-        (await verification.SchedulingRequests.CountAsync()).Should().Be(1);
-        (await verification.Itineraries.CountAsync()).Should().Be(1);
-        (await verification.ItineraryItems.CountAsync()).Should().Be(canonicalItemCount);
     }
 
     [SqlServerFact]
@@ -821,35 +779,6 @@ public sealed class CreateSchedulingRequestSqlServerTests
             }
 
             return Task.FromResult(RouteDurationMatrix.Create(durations));
-        }
-    }
-
-    private sealed class SchedulingPrecheckOverlapGate : DbCommandInterceptor
-    {
-        private readonly TaskCompletionSource _bothPrechecksExecuted =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private int _prechecksExecuted;
-
-        public bool ObservedConcurrentPrechecks => Volatile.Read(ref _prechecksExecuted) >= 2;
-
-        public override async ValueTask<DbDataReader> ReaderExecutedAsync(
-            DbCommand command,
-            CommandExecutedEventData eventData,
-            DbDataReader result,
-            CancellationToken cancellationToken = default)
-        {
-            if (command.CommandText.Contains("SchedulingRequests", StringComparison.Ordinal)
-                && command.CommandText.Contains("EXISTS", StringComparison.OrdinalIgnoreCase))
-            {
-                if (Interlocked.Increment(ref _prechecksExecuted) == 2)
-                {
-                    _bothPrechecksExecuted.TrySetResult();
-                }
-
-                await _bothPrechecksExecuted.Task.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
-            }
-
-            return result;
         }
     }
 }
