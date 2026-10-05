@@ -1025,6 +1025,48 @@ public class ItineraryGenerationServiceTests
         result.ErrorMessage.Should().Be("The itinerary request is invalid.");
     }
 
+    [Fact]
+    public async Task GenerateAsync_WithDuplicateCandidateIds_ReturnsInfeasibleWithoutThrowingException()
+    {
+        var service = new ItineraryGenerationService(new ThrowingRouteDurationProvider());
+        var input = CreateInput(
+            availableMinutes: 240,
+            restPreference: RestPreference.None,
+            candidates:
+            [
+                Candidate(12, "Cham Museum", 60, 60_000m),
+                Candidate(12, "Cham Museum Duplicate", 60, 60_000m),
+            ],
+            mandatoryPoiIds: [12]);
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(SchedulingErrorCodes.ConstraintsInfeasible);
+        result.ErrorMessage.Should().Be("A mandatory location is unavailable.");
+    }
+
+    [Fact]
+    public async Task GenerateFixedOrderAsync_WithDuplicateCandidateIds_ReturnsInfeasibleWithoutThrowingException()
+    {
+        var service = new ItineraryGenerationService(new ThrowingRouteDurationProvider());
+        var input = CreateInput(
+            availableMinutes: 240,
+            restPreference: RestPreference.None,
+            candidates:
+            [
+                Candidate(12, "Cham Museum", 60, 60_000m),
+                Candidate(12, "Cham Museum Duplicate", 60, 60_000m),
+            ],
+            mandatoryPoiIds: [12]);
+
+        var result = await service.GenerateFixedOrderAsync(input, [12], CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(SchedulingErrorCodes.ConstraintsInfeasible);
+        result.ErrorMessage.Should().Be("A selected visit location is unavailable.");
+    }
+
     private static GenerationInput CreateInput(
         int availableMinutes,
         RestPreference restPreference,
