@@ -26,6 +26,7 @@ public sealed class CloudinaryOptionsTests
     [InlineData(nameof(CloudinaryOptions.ApiKey))]
     [InlineData(nameof(CloudinaryOptions.ApiSecret))]
     [InlineData(nameof(CloudinaryOptions.TourMediaFolderRoot))]
+    [InlineData(nameof(CloudinaryOptions.OperatorDocumentsFolderRoot))]
     public void Validate_MissingRequiredValue_FailsWithoutEchoingAnyConfiguredValue(
         string propertyName)
     {
@@ -57,6 +58,21 @@ public sealed class CloudinaryOptionsTests
         result.FailureMessage.Should().Contain(nameof(CloudinaryOptions.TourMediaFolderRoot));
     }
 
+    [Theory]
+    [InlineData("/operator-docs")]
+    [InlineData("operator-docs/")]
+    [InlineData("operator//docs")]
+    public void Validate_UnsafeOperatorDocumentsFolderRoot_Fails(string folderRoot)
+    {
+        var options = ValidOptions();
+        options.OperatorDocumentsFolderRoot = folderRoot;
+
+        var result = new CloudinaryOptionsValidator().Validate(null, options);
+
+        result.Failed.Should().BeTrue();
+        result.FailureMessage.Should().Contain(nameof(CloudinaryOptions.OperatorDocumentsFolderRoot));
+    }
+
     [Fact]
     public void AddInfrastructure_CompleteCloudinaryConfiguration_BindsValidatedOptions()
     {
@@ -66,6 +82,7 @@ public sealed class CloudinaryOptionsTests
             ["Cloudinary:ApiKey"] = "api-key-value",
             ["Cloudinary:ApiSecret"] = "cloud-secret-value",
             ["Cloudinary:TourMediaFolderRoot"] = "tripmate/tours",
+            ["Cloudinary:OperatorDocumentsFolderRoot"] = "tripmate/operator-documents",
         });
         var services = new ServiceCollection();
         services.AddInfrastructure(configuration);
@@ -74,6 +91,7 @@ public sealed class CloudinaryOptionsTests
         CloudinaryOptions options = provider.GetRequiredService<IOptions<CloudinaryOptions>>().Value;
 
         options.TourMediaFolderRoot.Should().Be("tripmate/tours");
+        options.OperatorDocumentsFolderRoot.Should().Be("tripmate/operator-documents");
     }
 
     [Fact]
@@ -96,6 +114,7 @@ public sealed class CloudinaryOptionsTests
         ApiKey = "api-key-value",
         ApiSecret = "cloud-secret-value",
         TourMediaFolderRoot = "tripmate/tours",
+        OperatorDocumentsFolderRoot = "tripmate/operator-documents",
     };
 
     private static IConfiguration BuildConfiguration(

@@ -24,12 +24,28 @@ internal sealed class CloudinarySdkClient : ICloudinaryClient
         CancellationToken cancellationToken)
     {
         await using var stream = new MemoryStream(request.Bytes, writable: false);
-        ImageUploadParams upload = CreateSignedUploadParams(request, stream);
 
         ImageUploadResult result;
         try
         {
-            result = await cloudinary.UploadAsync(upload, cancellationToken);
+            if (request.IsRaw)
+            {
+                RawUploadParams rawUpload = CreateSignedRawUploadParams(request, stream);
+                RawUploadResult rawResult = await cloudinary.UploadAsync(
+                    rawUpload,
+                    ResourceType.Raw.ToString(),
+                    cancellationToken);
+                result = new ImageUploadResult
+                {
+                    PublicId = rawResult.PublicId,
+                    SecureUrl = rawResult.SecureUrl,
+                };
+            }
+            else
+            {
+                ImageUploadParams upload = CreateSignedUploadParams(request, stream);
+                result = await cloudinary.UploadAsync(upload, cancellationToken);
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -67,6 +83,15 @@ internal sealed class CloudinarySdkClient : ICloudinaryClient
         return CloudinaryUploadResponse.Succeeded(result.PublicId, result.SecureUrl);
     }
 
+    internal static RawUploadParams CreateSignedRawUploadParams(
+        CloudinaryUploadRequest request,
+        Stream stream) => new()
+        {
+            File = new FileDescription("operator-documents", stream),
+            PublicId = request.PublicId,
+            Overwrite = request.Overwrite,
+        };
+
     internal static ImageUploadParams CreateSignedUploadParams(
         CloudinaryUploadRequest request,
         Stream stream) => new()
@@ -86,11 +111,7 @@ internal sealed class CloudinarySdkClient : ICloudinaryClient
         CloudinaryDeleteRequest request,
         CancellationToken cancellationToken)
     {
-        var deletion = new DeletionParams(request.PublicId)
-        {
-            Invalidate = request.Invalidate,
-            ResourceType = ResourceType.Image,
-        };
+        var deletion = CreateDeletionParams(request);
 
         DeletionResult result;
         try
@@ -125,4 +146,10 @@ internal sealed class CloudinarySdkClient : ICloudinaryClient
             ? CloudinaryDeleteOutcome.TransientFailure
             : CloudinaryDeleteOutcome.PermanentFailure;
     }
+
+    internal static DeletionParams CreateDeletionParams(CloudinaryDeleteRequest request) => new(request.PublicId)
+    {
+        Invalidate = request.Invalidate,
+        ResourceType = request.IsRaw ? ResourceType.Raw : ResourceType.Image,
+    };
 }

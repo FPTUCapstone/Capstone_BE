@@ -27,4 +27,22 @@ public sealed class CloudinarySdkClientUploadTests
         fields["discard_original_filename"].Should().Be("true");
         fields.Should().NotContainKey("unique_filename");
     }
+
+    [Theory]
+    [InlineData(false, CloudinaryDotNet.Actions.ResourceType.Image)]
+    [InlineData(true, CloudinaryDotNet.Actions.ResourceType.Raw)]
+    public void CreateDeletionParams_SelectsTheRequestedResourceType(
+        bool isRaw, CloudinaryDotNet.Actions.ResourceType expected)
+    {
+        var request = new CloudinaryDeleteRequest("tripmate/operator-documents/opaque-id", true)
+        {
+            IsRaw = isRaw,
+        };
+
+        var deletion = CloudinarySdkClient.CreateDeletionParams(request);
+
+        deletion.PublicId.Should().Be(request.PublicId);
+        deletion.Invalidate.Should().BeTrue();
+        deletion.ResourceType.Should().Be(expected);
+    }
 }

@@ -91,6 +91,9 @@
     <None Include="..\..\database\seeds\20261003_uc30_commercial_services_development.sql"
           Link="Database\seeds\20261003_uc30_commercial_services_development.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261002_add_operator_license_unique.sql"
+          Link="Database\migrations\20261002_add_operator_license_unique.sql"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

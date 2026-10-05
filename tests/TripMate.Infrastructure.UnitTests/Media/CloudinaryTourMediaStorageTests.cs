@@ -169,6 +169,7 @@ public sealed class CloudinaryTourMediaStorageTests
                 ApiKey = "test-api-key",
                 ApiSecret = "test-api-secret",
                 TourMediaFolderRoot = "tripmate/tours",
+                OperatorDocumentsFolderRoot = "tripmate/operator-documents",
             }),
             logger ?? new CapturingLogger<CloudinaryTourMediaStorage>());
 

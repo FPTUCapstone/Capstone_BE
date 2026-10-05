@@ -13,6 +13,8 @@ public sealed class CloudinaryOptions
     public string ApiSecret { get; set; } = string.Empty;
 
     public string TourMediaFolderRoot { get; set; } = string.Empty;
+
+    public string OperatorDocumentsFolderRoot { get; set; } = string.Empty;
 }
 
 public sealed class CloudinaryOptionsValidator : IValidateOptions<CloudinaryOptions>
@@ -30,11 +32,24 @@ public sealed class CloudinaryOptionsValidator : IValidateOptions<CloudinaryOpti
             nameof(CloudinaryOptions.TourMediaFolderRoot),
             failures);
 
+        AddRequiredFailure(
+            options.OperatorDocumentsFolderRoot,
+            nameof(CloudinaryOptions.OperatorDocumentsFolderRoot),
+            failures);
+
         if (!string.IsNullOrWhiteSpace(options.TourMediaFolderRoot) &&
             !IsSafeFolderRoot(options.TourMediaFolderRoot))
         {
             failures.Add(
                 $"{nameof(CloudinaryOptions.TourMediaFolderRoot)} must contain only safe " +
+                "slash-separated folder segments without leading or trailing slashes.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.OperatorDocumentsFolderRoot) &&
+            !IsSafeFolderRoot(options.OperatorDocumentsFolderRoot))
+        {
+            failures.Add(
+                $"{nameof(CloudinaryOptions.OperatorDocumentsFolderRoot)} must contain only safe " +
                 "slash-separated folder segments without leading or trailing slashes.");
         }
 
