@@ -1,12 +1,17 @@
 using FluentValidation;
 
+using TripMate.Application.Common.Interfaces;
+
 namespace TripMate.Application.Features.Scheduling.Create;
 
 public sealed class CreateSchedulingRequestCommandValidator
     : AbstractValidator<CreateSchedulingRequestCommand>
 {
-    public CreateSchedulingRequestCommandValidator()
+    private readonly IDateTimeProvider _dateTimeProvider;
+
+    public CreateSchedulingRequestCommandValidator(IDateTimeProvider dateTimeProvider)
     {
+        _dateTimeProvider = dateTimeProvider;
         RuleFor(command => command.TravelerUserId).GreaterThan(0);
         RuleFor(command => command.IdempotencyKey).NotEqual(Guid.Empty);
         RuleFor(command => command.TimeZoneId)
@@ -15,6 +20,9 @@ public sealed class CreateSchedulingRequestCommandValidator
             .MaximumLength(100)
             .Must(BeKnownTimeZone)
             .WithMessage("Time zone ID is not supported.");
+        RuleFor(command => command.StartAt)
+            .Must((command, startAt) => NotInPast(command.TimeZoneId, startAt))
+            .WithMessage("Start time must not be in the past.");
         RuleFor(command => command.StartLatitude).InclusiveBetween(-90m, 90m);
         RuleFor(command => command.StartLongitude).InclusiveBetween(-180m, 180m);
         RuleFor(command => command.ExplorationLatitude).InclusiveBetween(-90m, 90m);
@@ -42,6 +50,19 @@ public sealed class CreateSchedulingRequestCommandValidator
         RuleFor(command => command)
             .Must(EndOnSameLocalDay)
             .WithMessage("The itinerary must end on the same local calendar day.");
+    }
+
+    private bool NotInPast(string? timeZoneId, DateTimeOffset startAt)
+    {
+        if (!BeKnownTimeZone(timeZoneId))
+        {
+            return true;
+        }
+
+        var timeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId!.Trim());
+        var localStart = TimeZoneInfo.ConvertTime(startAt, timeZone);
+        var localNow = TimeZoneInfo.ConvertTime(_dateTimeProvider.UtcNow, timeZone);
+        return localStart >= localNow;
     }
 
     private static bool BeKnownTimeZone(string? timeZoneId)

@@ -30,6 +30,7 @@ public sealed record ItineraryDetailItemDto(
     decimal? EstimatedCost,
     bool IsMandatory,
     string? RecommendationReason,
+    string? FriendlyExplanation,
     bool IsUnavailable);
 
 public sealed record ItineraryAccess(

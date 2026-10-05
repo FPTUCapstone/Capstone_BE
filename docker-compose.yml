@@ -80,9 +80,9 @@ services:
       AiRanking__RateLimitPerMinute: ${AiRanking__RateLimitPerMinute:-4}
       AiRanking__MaxConcurrency: ${AiRanking__MaxConcurrency:-2}
 
-      AiExplanation__Enabled: ${AiExplanation__Enabled:-false}
+      AiExplanation__Enabled: ${AiExplanation__Enabled:-true}
       AiExplanation__Endpoint: ${AiExplanation__Endpoint:-https://generativelanguage.googleapis.com/v1/interactions}
-      AiExplanation__ApiKey: ${AiExplanation__ApiKey:-}
+      AiExplanation__ApiKey: ${AiExplanation__ApiKey:?AiExplanation__ApiKey must be set in .env}
       AiExplanation__ModelName: ${AiExplanation__ModelName:-gemini-3.5-flash-lite}
       AiExplanation__TimeoutSeconds: ${AiExplanation__TimeoutSeconds:-10}
       AiExplanation__OverallTimeoutSeconds: ${AiExplanation__OverallTimeoutSeconds:-20}

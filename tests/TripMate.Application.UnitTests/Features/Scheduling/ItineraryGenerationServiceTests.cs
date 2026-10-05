@@ -345,6 +345,149 @@ public class ItineraryGenerationServiceTests
     }
 
     [Fact]
+    public async Task GenerateFixedOrder_ClassifiesEachStopByCanonicalMandatoryRequest()
+    {
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(
+            RouteDurationMatrix.Create(
+            new int[,]
+            {
+                { 0, 10, 10, 10 },
+                { 10, 0, 10, 10 },
+                { 10, 10, 0, 10 },
+                { 10, 10, 10, 0 },
+            })));
+        var input = CreateInput(
+            availableMinutes: 240,
+            restPreference: RestPreference.None,
+            candidates:
+            [
+                Candidate(12, "Mandatory museum", 30, 20_000m),
+                Candidate(28, "Optional museum", 30, 20_000m),
+            ],
+            mandatoryPoiIds: [12]);
+
+        var result = await service.GenerateFixedOrderAsync(
+            input,
+            orderedVisitPoiIds: [12, 28],
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var visitItems = result.Value.Items
+            .Where(item => item.Kind == ItineraryItemKind.Visit)
+            .ToArray();
+        var mandatoryItem = visitItems.Single(item => item.PointOfInterestId == 12);
+        mandatoryItem.IsMandatory.Should().BeTrue();
+        mandatoryItem.RecommendationReason.Should().Be("Mandatory location");
+        var optionalItem = visitItems.Single(item => item.PointOfInterestId == 28);
+        optionalItem.IsMandatory.Should().BeFalse();
+        optionalItem.RecommendationReason.Should().NotBe("Mandatory location");
+        optionalItem.RecommendationReason.Should().Be("Suggested nearby location");
+    }
+
+    [Fact]
+    public async Task Generate_ZeroMandatoryPois_NoStopIsLabeledMandatory()
+    {
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(
+            RouteDurationMatrix.Create(
+            new int[,]
+            {
+                { 0, 10, 10, 10 },
+                { 10, 0, 10, 10 },
+                { 10, 10, 0, 10 },
+                { 10, 10, 10, 0 },
+            })));
+        var input = CreateInput(
+            availableMinutes: 240,
+            restPreference: RestPreference.None,
+            candidates:
+            [
+                Candidate(12, "Cham Museum", 30, 20_000m),
+                Candidate(28, "Fine Arts Museum", 30, 20_000m),
+            ],
+            mandatoryPoiIds: []);
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var visitItems = result.Value.Items
+            .Where(item => item.Kind == ItineraryItemKind.Visit)
+            .ToArray();
+        visitItems.Should().NotBeEmpty();
+        visitItems.Should().OnlyContain(item =>
+            !item.IsMandatory
+            && item.RecommendationReason != "Mandatory location");
+    }
+
+    [Fact]
+    public async Task Generate_MixedMandatoryAndOptional_MatchesReasonToEachItemMetadata()
+    {
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(
+            RouteDurationMatrix.Create(
+            new int[,]
+            {
+                { 0, 20, 15, 15 },
+                { 20, 0, 10, 25 },
+                { 15, 10, 0, 15 },
+                { 15, 25, 15, 0 },
+            })));
+        var input = CreateInput(
+            availableMinutes: 240,
+            restPreference: RestPreference.None,
+            candidates:
+            [
+                Candidate(12, "Cham Museum", 60, 60_000m, 0m, 0m, null, null, null),
+                Candidate(28, "Fine Arts Museum", 45, 20_000m, 0m, 0m, null, null, null),
+            ],
+            mandatoryPoiIds: [12]);
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var mandatoryItem = result.Value.Items.Single(item => item.PointOfInterestId == 12);
+        mandatoryItem.IsMandatory.Should().BeTrue();
+        mandatoryItem.RecommendationReason.Should().Be("Mandatory location");
+        var optionalItem = result.Value.Items.Single(item => item.PointOfInterestId == 28);
+        optionalItem.IsMandatory.Should().BeFalse();
+        optionalItem.RecommendationReason.Should().Be("Suggested nearby location");
+    }
+
+    [Fact]
+    public async Task Generate_QualifiedRestPoi_KeepsRestWordingAndOptionalFlag()
+    {
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(
+            RouteDurationMatrix.Create(
+            new int[,]
+            {
+                { 0, 20, 10, 15 },
+                { 20, 0, 10, 20 },
+                { 10, 10, 0, 10 },
+                { 15, 20, 10, 0 },
+            })));
+        var input = CreateInput(
+            availableMinutes: 300,
+            restPreference: RestPreference.Auto,
+            candidates:
+            [
+                Candidate(12, "Long museum visit", 150, 60_000m, 0m, 0m, null, null, null),
+                Candidate(28, "Riverside cafe", 30, 20_000m, 0m, 0m, null, null, null) with
+                {
+                    CategoryName = "Cafe",
+                    HasShelter = true,
+                },
+            ],
+            mandatoryPoiIds: [12]);
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Items.Should().Contain(item =>
+            item.Kind == ItineraryItemKind.Rest
+            && item.PointOfInterestId == 28
+            && !item.IsMandatory
+            && item.RecommendationReason == "Suggested rest stop");
+    }
+
+    [Fact]
     public async Task Generate_FrequentRest_InsertsBreaksAfterTwoHoursOfContinuousSchedule()
     {
         var service = new ItineraryGenerationService(new FixedRouteDurationProvider(
@@ -856,6 +999,32 @@ public class ItineraryGenerationServiceTests
         result.Value.TotalDurationMinutes.Should().BeLessThanOrEqualTo(240);
     }
 
+    [Fact]
+    public async Task GenerateAsync_WithZeroBudget_ReturnsInvalidRequestResultWithoutCallingProvider()
+    {
+        var service = new ItineraryGenerationService(new ThrowingRouteDurationProvider());
+        var input = CreateInput(480, RestPreference.None,
+            [Candidate(12, "Museum", 60, 10_000m)], [12], budgetVnd: 0m);
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorMessage.Should().Be("The itinerary request is invalid.");
+    }
+
+    [Fact]
+    public async Task GenerateFixedOrderAsync_WithZeroBudget_ReturnsInvalidRequestResultWithoutCallingProvider()
+    {
+        var service = new ItineraryGenerationService(new ThrowingRouteDurationProvider());
+        var input = CreateInput(480, RestPreference.None,
+            [Candidate(12, "Museum", 60, 10_000m)], [12], budgetVnd: 0m);
+
+        var result = await service.GenerateFixedOrderAsync(input, [12], CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorMessage.Should().Be("The itinerary request is invalid.");
+    }
+
     private static GenerationInput CreateInput(
         int availableMinutes,
         RestPreference restPreference,
@@ -911,5 +1080,14 @@ public class ItineraryGenerationServiceTests
             TransportMode transportMode,
             CancellationToken cancellationToken) =>
             Task.FromResult(matrix);
+    }
+
+    private sealed class ThrowingRouteDurationProvider : IRouteDurationProvider
+    {
+        public Task<RouteDurationMatrix> GetMatrixAsync(
+            IReadOnlyList<RoutePoint> points,
+            TransportMode transportMode,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("Provider must not be called for invalid input.");
     }
 }

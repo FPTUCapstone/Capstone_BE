@@ -86,6 +86,115 @@ public sealed class ItineraryVersionServiceTests
             .Should().Be(10);
     }
 
+    [Fact]
+    public async Task CreateAdjustedVersion_OptionalStopKeepsOptionalFlagAndWording()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Mandatory museum");
+        var optionalPoi = await AddPlanningReadyPoiAsync(dbContext, "Nature", "Optional museum");
+        var request = await AddRequestAsync(
+            dbContext,
+            travelerUserId: 42,
+            mandatoryPoiIdsJson: $"[{mandatoryPoi.Id}]");
+        var original = await AddItineraryAsync(dbContext, request);
+
+        var result = await new ItineraryVersionService(
+                dbContext,
+                new FixedRouteDurationProvider())
+            .CreateAdjustedVersionAsync(
+                original,
+                request,
+                [mandatoryPoi.Id, optionalPoi.Id],
+                CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var mandatoryItem = result.Value.Items.Single(item => item.PointOfInterestId == mandatoryPoi.Id);
+        mandatoryItem.IsMandatory.Should().BeTrue();
+        mandatoryItem.RecommendationReason.Should().Be("Mandatory location");
+        var optionalItem = result.Value.Items.Single(item => item.PointOfInterestId == optionalPoi.Id);
+        optionalItem.IsMandatory.Should().BeFalse();
+        optionalItem.RecommendationReason.Should().NotBe("Mandatory location");
+        optionalItem.RecommendationReason.Should().Be("Suggested nearby location");
+    }
+
+    [Fact]
+    public async Task CreateRegeneratedVersion_LimitsRouteMatrixToConfiguredCandidateCap()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var request = await AddRequestAsync(dbContext, 42);
+        var original = await AddItineraryAsync(dbContext, request);
+        for (var index = 0; index < 45; index++)
+        {
+            _ = await AddPlanningReadyPoiAsync(dbContext, "Culture", $"POI {index:00}");
+        }
+
+        var provider = new RecordingRouteDurationProvider();
+        var result = await new ItineraryVersionService(dbContext, provider)
+            .CreateRegeneratedVersionAsync(original, request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        provider.LastPointCount.Should().Be(SchedulingGenerationOptions.DefaultMaxMatrixCandidates + 2);
+    }
+
+    [Fact]
+    public async Task CreateRegeneratedVersion_MandatoryCandidateSurvivesRouteMatrixCap()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await AddPlanningReadyPoiAsync(
+            dbContext,
+            "Culture",
+            "Mandatory boundary POI",
+            latitude: 16.05m,
+            longitude: 108.21m);
+        var request = await AddRequestAsync(dbContext, 42, $"[{mandatoryPoi.Id}]");
+        var original = await AddItineraryAsync(dbContext, request);
+        for (var index = 0; index < 45; index++)
+        {
+            _ = await AddPlanningReadyPoiAsync(dbContext, "Culture", $"Optional POI {index:00}");
+        }
+
+        var provider = new RecordingRouteDurationProvider();
+        var result = await new ItineraryVersionService(dbContext, provider)
+            .CreateRegeneratedVersionAsync(original, request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        provider.LastPointCount.Should().Be(SchedulingGenerationOptions.DefaultMaxMatrixCandidates + 2);
+        provider.LastPoints.Should().Contain(new RoutePoint(mandatoryPoi.Latitude, mandatoryPoi.Longitude));
+    }
+
+    [Fact]
+    public async Task CreateRegeneratedVersion_WhenPublicTransitIsStored_ReturnsControlledInfeasibleResult()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var request = await AddRequestAsync(dbContext, 42, transportMode: TransportMode.PublicTransit);
+        var original = await AddItineraryAsync(dbContext, request);
+        _ = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Museum");
+        var provider = new RecordingRouteDurationProvider();
+
+        var result = await new ItineraryVersionService(dbContext, provider)
+            .CreateRegeneratedVersionAsync(original, request, CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(ItineraryErrorCodes.ConstraintsInfeasible);
+        provider.LastPointCount.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task CreateAdjustedVersion_WhenPublicTransitIsStored_ReturnsControlledInfeasibleResult()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var request = await AddRequestAsync(dbContext, 42, transportMode: TransportMode.PublicTransit);
+        var original = await AddItineraryAsync(dbContext, request);
+        var provider = new RecordingRouteDurationProvider();
+
+        var result = await new ItineraryVersionService(dbContext, provider)
+            .CreateAdjustedVersionAsync(original, request, [], CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(ItineraryErrorCodes.ConstraintsInfeasible);
+        provider.LastPointCount.Should().BeNull();
+    }
+
     private static async Task<SchedulingRequest> AddRequestAfterTwoUnrelatedRequestsAsync(TestDbContext dbContext)
     {
         dbContext.SchedulingRequests.AddRange(
@@ -95,16 +204,24 @@ public sealed class ItineraryVersionServiceTests
         return await AddRequestAsync(dbContext, 42);
     }
 
-    private static async Task<SchedulingRequest> AddRequestAsync(TestDbContext dbContext, long travelerUserId)
+    private static async Task<SchedulingRequest> AddRequestAsync(
+        TestDbContext dbContext,
+        long travelerUserId,
+        string mandatoryPoiIdsJson = "[]",
+        TransportMode transportMode = TransportMode.Motorbike)
     {
-        var request = CreateRequest(travelerUserId, Guid.NewGuid());
+        var request = CreateRequest(travelerUserId, Guid.NewGuid(), mandatoryPoiIdsJson, transportMode);
         request.Complete(Now);
         dbContext.SchedulingRequests.Add(request);
         await dbContext.SaveChangesAsync();
         return request;
     }
 
-    private static SchedulingRequest CreateRequest(long travelerUserId, Guid idempotencyKey) =>
+    private static SchedulingRequest CreateRequest(
+        long travelerUserId,
+        Guid idempotencyKey,
+        string mandatoryPoiIdsJson = "[]",
+        TransportMode transportMode = TransportMode.Motorbike) =>
         SchedulingRequest.Create(
             travelerUserId,
             idempotencyKey,
@@ -118,10 +235,10 @@ public sealed class ItineraryVersionServiceTests
             null,
             true,
             480,
-            TransportMode.Motorbike,
+            transportMode,
             10m,
             800_000m,
-            "[]",
+            mandatoryPoiIdsJson,
             RestPreference.None,
             Now);
 
@@ -142,13 +259,15 @@ public sealed class ItineraryVersionServiceTests
     private static async Task<PointOfInterest> AddPlanningReadyPoiAsync(
         TestDbContext dbContext,
         string categoryName,
-        string poiName)
+        string poiName,
+        decimal latitude = 16.0471m,
+        decimal longitude = 108.2068m)
     {
         var poi = PointOfInterest.Create(
             PoiCategory.Create(categoryName, null),
             poiName,
-            16.0471m,
-            108.2068m,
+            latitude,
+            longitude,
             1,
             Now,
             averageVisitDurationMinutes: 60);
@@ -190,6 +309,23 @@ public sealed class ItineraryVersionServiceTests
                 }
             }
 
+            return Task.FromResult(RouteDurationMatrix.Create(durations));
+        }
+    }
+
+    private sealed class RecordingRouteDurationProvider : IRouteDurationProvider
+    {
+        public int? LastPointCount { get; private set; }
+        public IReadOnlyList<RoutePoint>? LastPoints { get; private set; }
+
+        public Task<RouteDurationMatrix> GetMatrixAsync(
+            IReadOnlyList<RoutePoint> points,
+            TransportMode transportMode,
+            CancellationToken cancellationToken)
+        {
+            LastPointCount = points.Count;
+            LastPoints = points.ToArray();
+            var durations = new int[points.Count, points.Count];
             return Task.FromResult(RouteDurationMatrix.Create(durations));
         }
     }

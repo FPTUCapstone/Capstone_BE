@@ -500,17 +500,81 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         explanationProvider.CallCount.Should().Be(0);
     }
 
+    [Theory]
+    [InlineData(RouteDurationProviderFailureKind.Timeout)]
+    [InlineData(RouteDurationProviderFailureKind.Unavailable)]
+    public async Task Handle_WhenRoutingProviderFails_ReturnsControlledFailureWithoutPartialPersistence(
+        RouteDurationProviderFailureKind failureKind)
+    {
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await SeedSelectablePoiAsync(dbContext);
+        var logger = new RecordingLogger<CreateSchedulingRequestCommandHandler>();
+        int savesBeforeHandle = dbContext.SaveChangesAsyncCallCount;
+
+        var result = await CreateHandler(
+                dbContext,
+                routeDurationProvider: new FailingRouteDurationProvider(failureKind),
+                explanationLogger: logger)
+            .Handle(CreateCommand(Guid.NewGuid()) with
+            {
+                MandatoryPoiIds = [mandatoryPoi.Id],
+            }, CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(SchedulingErrorCodes.RoutingProviderUnavailable);
+        result.ErrorMessage.Should().Be("The routing service is temporarily unavailable. Please try again.");
+        dbContext.SaveChangesAsyncCallCount.Should().Be(savesBeforeHandle);
+        (await dbContext.SchedulingRequests.CountAsync()).Should().Be(0);
+        (await dbContext.Itineraries.CountAsync()).Should().Be(0);
+        (await dbContext.ItineraryItems.CountAsync()).Should().Be(0);
+        dbContext.ChangeTracker.Entries().Should().BeEmpty();
+        LogEntry log = logger.Entries.Should().ContainSingle().Subject;
+        log.Level.Should().Be(LogLevel.Warning);
+        log.Properties["Provider"].Should().Be("OpenRouteService");
+        log.Properties["Operation"].Should().Be("duration-matrix");
+        log.Properties["Category"].Should().Be(failureKind);
+    }
+
+    [Fact]
+    public async Task Handle_AfterTransientRoutingFailure_SameKeyCanBeRetriedSuccessfully()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await SeedSelectablePoiAsync(dbContext);
+        var routeProvider = new FailOnceRouteDurationProvider();
+        var handler = CreateHandler(dbContext, routeDurationProvider: routeProvider);
+        var command = CreateCommand(Guid.NewGuid()) with
+        {
+            MandatoryPoiIds = [mandatoryPoi.Id],
+        };
+
+        var first = await handler.Handle(command, CancellationToken.None);
+        var retry = await handler.Handle(command, CancellationToken.None);
+
+        first.IsFailure.Should().BeTrue();
+        first.ErrorCode.Should().Be(SchedulingErrorCodes.RoutingProviderUnavailable);
+        retry.IsSuccess.Should().BeTrue();
+        routeProvider.CallCount.Should().Be(2);
+        (await dbContext.SchedulingRequests.CountAsync()).Should().Be(1);
+        (await dbContext.Itineraries.CountAsync()).Should().Be(1);
+        (await dbContext.ItineraryItems.CountAsync()).Should().BeGreaterThan(0);
+    }
+
     [Fact]
     public async Task Handle_Replay_ReturnsPersistedExplanationWithoutSecondProviderCall()
     {
         await using var dbContext = TestDbContext.Create();
         var mandatoryPoi = await SeedSelectablePoiAsync(dbContext);
+        await SeedSelectablePoiAsync(dbContext, "Optional riverside", 16.0472m, 108.2069m);
+        var routeProvider = new RecordingRouteDurationProvider();
+        var rankingProvider = new RecordingPoiRankingProvider();
         var explanationProvider = new RecordingItineraryExplanationProvider
         {
             ResultFactory = ValidExplanationResult,
         };
         var handler = CreateHandler(
             dbContext,
+            routeDurationProvider: routeProvider,
+            rankingProvider: rankingProvider,
             explanationProvider: explanationProvider,
             explanationOptions: EnabledExplanationOptions());
         var command = CreateCommand(Guid.NewGuid()) with
@@ -519,11 +583,24 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         };
 
         var first = await handler.Handle(command, CancellationToken.None);
+        int savesAfterFirst = dbContext.SaveChangesAsyncCallCount;
+        int schedulingRequestsAfterFirst = await dbContext.SchedulingRequests.CountAsync();
+        int itinerariesAfterFirst = await dbContext.Itineraries.CountAsync();
+        int itineraryItemsAfterFirst = await dbContext.ItineraryItems.CountAsync();
         var replay = await handler.Handle(command, CancellationToken.None);
 
         first.IsSuccess.Should().BeTrue();
         replay.IsSuccess.Should().BeTrue();
+        replay.Value.Should().BeEquivalentTo(first.Value, options => options.WithStrictOrdering());
+        replay.Value.SchedulingRequestId.Should().Be(first.Value.SchedulingRequestId);
+        replay.Value.ItineraryId.Should().Be(first.Value.ItineraryId);
+        routeProvider.CallCount.Should().Be(1);
+        rankingProvider.CallCount.Should().Be(1);
         explanationProvider.CallCount.Should().Be(1);
+        dbContext.SaveChangesAsyncCallCount.Should().Be(savesAfterFirst);
+        (await dbContext.SchedulingRequests.CountAsync()).Should().Be(schedulingRequestsAfterFirst);
+        (await dbContext.Itineraries.CountAsync()).Should().Be(itinerariesAfterFirst);
+        (await dbContext.ItineraryItems.CountAsync()).Should().Be(itineraryItemsAfterFirst);
         replay.Value.Items.Select(item => item.FriendlyExplanation)
             .Should().Equal(first.Value.Items.Select(item => item.FriendlyExplanation));
     }
@@ -724,17 +801,106 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
     {
         await using var dbContext = TestDbContext.Create();
         await SeedSelectablePoiAsync(dbContext);
-        var handler = CreateHandler(dbContext);
+        var routeProvider = new RecordingRouteDurationProvider();
+        var rankingProvider = new RecordingPoiRankingProvider();
+        var explanationProvider = new RecordingItineraryExplanationProvider
+        {
+            ResultFactory = ValidExplanationResult,
+        };
+        var handler = CreateHandler(
+            dbContext,
+            routeDurationProvider: routeProvider,
+            rankingProvider: rankingProvider,
+            explanationProvider: explanationProvider,
+            explanationOptions: EnabledExplanationOptions());
         var command = CreateCommand(Guid.NewGuid());
 
-        await handler.Handle(command, CancellationToken.None);
+        var first = await handler.Handle(command, CancellationToken.None);
+        int routeCallsAfterFirst = routeProvider.CallCount;
+        int rankingCallsAfterFirst = rankingProvider.CallCount;
+        int explanationCallsAfterFirst = explanationProvider.CallCount;
         var mismatch = await handler.Handle(
             command with { AvailableMinutes = 420 },
             CancellationToken.None);
+        var replay = await handler.Handle(command, CancellationToken.None);
 
+        first.IsSuccess.Should().BeTrue();
         mismatch.IsFailure.Should().BeTrue();
         mismatch.ErrorCode.Should().Be(SchedulingErrorCodes.IdempotencyKeyPayloadMismatch);
+        replay.IsSuccess.Should().BeTrue();
+        replay.Value.Should().BeEquivalentTo(first.Value, options => options.WithStrictOrdering());
+        routeProvider.CallCount.Should().Be(routeCallsAfterFirst);
+        rankingProvider.CallCount.Should().Be(rankingCallsAfterFirst);
+        explanationProvider.CallCount.Should().Be(explanationCallsAfterFirst);
+        (await dbContext.SchedulingRequests.CountAsync()).Should().Be(1);
         (await dbContext.Itineraries.CountAsync()).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Handle_SameKeyWithDifferentMandatoryPois_ReturnsConflict()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var firstMandatoryPoi = await SeedSelectablePoiAsync(dbContext);
+        var secondMandatoryPoi = await SeedSelectablePoiAsync(
+            dbContext,
+            "Dragon Bridge",
+            16.0615m,
+            108.2277m);
+        var handler = CreateHandler(dbContext);
+        var command = CreateCommand(Guid.NewGuid()) with
+        {
+            MandatoryPoiIds = [firstMandatoryPoi.Id],
+        };
+
+        var first = await handler.Handle(command, CancellationToken.None);
+        var mismatch = await handler.Handle(
+            command with { MandatoryPoiIds = [secondMandatoryPoi.Id] },
+            CancellationToken.None);
+
+        first.IsSuccess.Should().BeTrue();
+        mismatch.IsFailure.Should().BeTrue();
+        mismatch.ErrorCode.Should().Be(SchedulingErrorCodes.IdempotencyKeyPayloadMismatch);
+        (await dbContext.SchedulingRequests.CountAsync()).Should().Be(1);
+        (await dbContext.Itineraries.CountAsync()).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Handle_DifferentKeyWithSamePayload_CreatesIndependentOperations()
+    {
+        await using var dbContext = TestDbContext.Create();
+        await SeedSelectablePoiAsync(dbContext);
+        var handler = CreateHandler(dbContext);
+
+        var first = await handler.Handle(CreateCommand(Guid.NewGuid()), CancellationToken.None);
+        var second = await handler.Handle(CreateCommand(Guid.NewGuid()), CancellationToken.None);
+
+        first.IsSuccess.Should().BeTrue();
+        second.IsSuccess.Should().BeTrue();
+        second.Value.SchedulingRequestId.Should().NotBe(first.Value.SchedulingRequestId);
+        second.Value.ItineraryId.Should().NotBe(first.Value.ItineraryId);
+        (await dbContext.SchedulingRequests.CountAsync()).Should().Be(2);
+        (await dbContext.Itineraries.CountAsync()).Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Handle_DifferentTravelerWithSameKey_CreatesIndependentOperations()
+    {
+        await using var dbContext = TestDbContext.Create();
+        await SeedSelectablePoiAsync(dbContext);
+        var handler = CreateHandler(dbContext);
+        var key = Guid.NewGuid();
+
+        var first = await handler.Handle(CreateCommand(key), CancellationToken.None);
+        var second = await handler.Handle(
+            CreateCommand(key) with { TravelerUserId = 43 },
+            CancellationToken.None);
+
+        first.IsSuccess.Should().BeTrue();
+        second.IsSuccess.Should().BeTrue();
+        second.Value.SchedulingRequestId.Should().NotBe(first.Value.SchedulingRequestId);
+        second.Value.ItineraryId.Should().NotBe(first.Value.ItineraryId);
+        (await dbContext.SchedulingRequests.CountAsync()).Should().Be(2);
+        (await dbContext.Itineraries.CountAsync()).Should().Be(2);
     }
 
     [Fact]
@@ -1748,6 +1914,52 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         }
     }
 
+    private sealed class FailingRouteDurationProvider(
+        RouteDurationProviderFailureKind failureKind) : IRouteDurationProvider
+    {
+        public Task<RouteDurationMatrix> GetMatrixAsync(
+            IReadOnlyList<RoutePoint> points,
+            TransportMode transportMode,
+            CancellationToken cancellationToken) =>
+            Task.FromException<RouteDurationMatrix>(new RouteDurationProviderException(
+                "OpenRouteService",
+                failureKind,
+                "safe provider failure",
+                new HttpRequestException("sensitive transport detail")));
+    }
+
+    private sealed class FailOnceRouteDurationProvider : IRouteDurationProvider
+    {
+        public int CallCount { get; private set; }
+
+        public Task<RouteDurationMatrix> GetMatrixAsync(
+            IReadOnlyList<RoutePoint> points,
+            TransportMode transportMode,
+            CancellationToken cancellationToken)
+        {
+            CallCount++;
+            if (CallCount == 1)
+            {
+                return Task.FromException<RouteDurationMatrix>(new RouteDurationProviderException(
+                    "OpenRouteService",
+                    RouteDurationProviderFailureKind.Timeout,
+                    "safe provider failure",
+                    new TaskCanceledException("transient timeout")));
+            }
+
+            var durations = new int[points.Count, points.Count];
+            for (var from = 0; from < points.Count; from++)
+            {
+                for (var to = 0; to < points.Count; to++)
+                {
+                    durations[from, to] = from == to ? 0 : 10;
+                }
+            }
+
+            return Task.FromResult(RouteDurationMatrix.Create(durations));
+        }
+    }
+
     private sealed record SchedulingInvariantSnapshot(
         int SequenceNo,
         long? PoiId,
@@ -1762,6 +1974,8 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
 
     private sealed class RecordingRouteDurationProvider : IRouteDurationProvider
     {
+        public int CallCount { get; private set; }
+
         public int LastPointCount { get; private set; }
 
         public IReadOnlyList<RoutePoint> LastPoints { get; private set; } = [];
@@ -1771,6 +1985,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
             TransportMode transportMode,
             CancellationToken cancellationToken)
         {
+            CallCount++;
             LastPointCount = points.Count;
             LastPoints = points.ToArray();
             var durations = new int[points.Count, points.Count];

@@ -16,10 +16,7 @@ public sealed class ItineraryGenerationService(
         GenerationInput input,
         CancellationToken cancellationToken)
     {
-        if (input.AvailableMinutes is < 60 or > 720
-            || input.BudgetVnd is < 0
-            || input.MandatoryPoiIds.Count > 6
-            || input.MandatoryPoiIds.Distinct().Count() != input.MandatoryPoiIds.Count)
+        if (HasInvalidRequestConstraints(input))
         {
             return Infeasible("The itinerary request is invalid.");
         }
@@ -72,6 +69,11 @@ public sealed class ItineraryGenerationService(
         IReadOnlyList<long> orderedVisitPoiIds,
         CancellationToken cancellationToken)
     {
+        if (HasInvalidRequestConstraints(input))
+        {
+            return Infeasible("The itinerary request is invalid.");
+        }
+
         if (orderedVisitPoiIds.Count == 0
             || orderedVisitPoiIds.Distinct().Count() != orderedVisitPoiIds.Count)
         {
@@ -114,6 +116,12 @@ public sealed class ItineraryGenerationService(
             ? Infeasible("The selected visit order cannot fit within the selected constraints.")
             : Result.Success(plan);
     }
+
+    private static bool HasInvalidRequestConstraints(GenerationInput input) =>
+        input.AvailableMinutes is < 60 or > 720
+        || input.BudgetVnd is <= 0
+        || input.MandatoryPoiIds.Count > 6
+        || input.MandatoryPoiIds.Distinct().Count() != input.MandatoryPoiIds.Count;
 
     private GeneratedItineraryPlan? TryBuildPlan(
         GenerationInput input,
@@ -158,6 +166,10 @@ public sealed class ItineraryGenerationService(
                 return null;
             }
 
+            // The fixed-order path (adjust) can route optional POIs through this loop, so
+            // mandatory classification must come from the canonical request, never from
+            // loop position — otherwise an optional stop is persisted as "Mandatory location".
+            var isMandatoryStop = input.MandatoryPoiIds.Contains(candidate.Id);
             items.Add(new GeneratedItineraryItem(
                 items.Count + 1,
                 candidate.Id,
@@ -165,9 +177,9 @@ public sealed class ItineraryGenerationService(
                 ItineraryItemKind.Visit,
                 currentTime,
                 departureTime,
-                true,
+                isMandatoryStop,
                 candidate.EstimatedVisitCost,
-                "Mandatory location"));
+                isMandatoryStop ? "Mandatory location" : "Suggested nearby location"));
             continuousMinutes += candidate.VisitDurationMinutes;
             currentTime = departureTime;
             previousIndex = candidateIndex;

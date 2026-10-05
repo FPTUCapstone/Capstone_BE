@@ -97,7 +97,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
                     poi.Category?.Name,
                     poi.PoiTags.Select(mapping => mapping.Tag.Name).ToArray()));
             var optionalCandidates = phaseOnePois
-                .Where(IsPlanningReady)
+                .Where(PlanningPoiEligibility.IsPlanningReady)
                 .Where(poi => GeoDistance.EquirectangularKilometers(
                     canonical.ExplorationLatitude,
                     canonical.ExplorationLongitude,
@@ -129,8 +129,10 @@ public sealed class CreateSchedulingRequestCommandHandler(
         }
 
         FreshGenerationContext? freshGeneration = null;
-        Result<SchedulingResponseDto> phaseOneResult =
-            await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
+        Result<SchedulingResponseDto> phaseOneResult;
+        try
+        {
+            phaseOneResult = await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
         {
             await schedulingRequestLock.AcquireAsync(
                 canonical.TravelerUserId,
@@ -198,7 +200,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
             }
 
             var selectablePois = activePois
-                .Where(IsPlanningReady)
+                .Where(PlanningPoiEligibility.IsPlanningReady)
                 .Where(poi => GeoDistance.EquirectangularKilometers(
                     canonical.ExplorationLatitude,
                     canonical.ExplorationLongitude,
@@ -319,6 +321,20 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 preferenceTokens.ToArray());
             return Result.Success(ToResponse(schedulingRequest, itinerary, plan.Value));
         }, cancellationToken);
+        }
+        catch (RouteDurationProviderException ex)
+        {
+            dbContext.ClearTrackedEntities();
+            logger?.LogWarning(
+                ex,
+                "Route duration provider failure provider={Provider}; operation={Operation}; category={Category}.",
+                ex.ProviderName,
+                "duration-matrix",
+                ex.FailureKind);
+            return Result.Failure<SchedulingResponseDto>(
+                SchedulingErrorCodes.RoutingProviderUnavailable,
+                "The routing service is temporarily unavailable. Please try again.");
+        }
 
         if (freshGeneration is null)
         {
@@ -539,11 +555,6 @@ public sealed class CreateSchedulingRequestCommandHandler(
         await dbContext.SaveChangesAsync(cancellationToken);
         return Infeasible(message);
     }
-
-    private static bool IsPlanningReady(PointOfInterest poi) =>
-        poi.SourceUrl is not null
-        && poi.VerifiedAtUtc.HasValue
-        && poi.OpeningHours.Any(hours => !hours.IsClosed && hours.OpenTime.HasValue && hours.CloseTime.HasValue);
 
     private IReadOnlyList<PointOfInterest> SelectMatrixCandidates(
         IReadOnlyCollection<PointOfInterest> selectablePois,
