@@ -107,6 +107,7 @@ public sealed class ExplanationDependencyInjectionTests
         yield return new("Cloudinary:ApiKey", "test-key");
         yield return new("Cloudinary:ApiSecret", "test-secret");
         yield return new("Cloudinary:TourMediaFolderRoot", "tripmate/tests/tours");
+        yield return new("Cloudinary:OperatorDocumentsFolderRoot", "tripmate/tests/operator-documents");
     }
 
     private static string FindRepositoryFile(params string[] relativeSegments)

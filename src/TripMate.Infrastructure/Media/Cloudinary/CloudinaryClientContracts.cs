@@ -7,7 +7,11 @@ internal sealed record CloudinaryUploadRequest(
     bool Overwrite,
     bool UseFilename,
     bool UniqueFilename,
-    bool DiscardOriginalFilename);
+    bool DiscardOriginalFilename)
+{
+    /// <summary>Raw uploads (documents) use ResourceType.raw instead of the image pipeline.</summary>
+    public bool IsRaw { get; init; }
+}
 
 internal enum CloudinaryUploadOutcome
 {
@@ -32,7 +36,10 @@ internal sealed record CloudinaryUploadResponse(
         new(CloudinaryUploadOutcome.Rejected, null, null, safeErrorCode);
 }
 
-internal sealed record CloudinaryDeleteRequest(string PublicId, bool Invalidate);
+internal sealed record CloudinaryDeleteRequest(string PublicId, bool Invalidate)
+{
+    public bool IsRaw { get; init; }
+}
 
 internal enum CloudinaryDeleteOutcome
 {

@@ -43,6 +43,8 @@ public static class DependencyInjection
 
         services.AddScoped<IApplicationDbContext>(sp =>
             sp.GetRequiredService<ApplicationDbContext>());
+        services.AddSingleton<IOperatorRegistrationConstraintClassifier,
+            OperatorRegistrationConstraintClassifier>();
         services.AddScoped<ITravelGroupCreationLock, SqlServerTravelGroupCreationLock>();
         services.AddScoped<IItineraryMutationLock, SqlServerItineraryMutationLock>();
         services.AddScoped<IItineraryAccessService, ItineraryAccessService>();
@@ -68,6 +70,7 @@ public static class DependencyInjection
         services.AddSingleton<ICloudinaryClient, CloudinarySdkClient>();
         services.AddSingleton<ITourMediaImageInspector, SkiaSharpTourMediaImageInspector>();
         services.AddSingleton<ITourMediaStorage, CloudinaryTourMediaStorage>();
+        services.AddSingleton<IOperatorDocumentStorage, CloudinaryOperatorDocumentStorage>();
 
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
         services.Configure<OpenRouteServiceOptions>(

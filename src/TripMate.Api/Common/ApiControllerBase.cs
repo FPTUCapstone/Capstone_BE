@@ -101,6 +101,12 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             AuthErrorCodes.EmailAlreadyRegistered =>
                 StatusCodes.Status409Conflict,
 
+            AuthErrorCodes.Msg159 or AuthErrorCodes.Msg160 =>
+                StatusCodes.Status409Conflict,
+
+            AuthErrorCodes.Msg127 =>
+                StatusCodes.Status503ServiceUnavailable,
+
             TripMate.Application.Features.Admin.AuditLogs.Common.AuditLogErrorCodes.Forbidden =>
                 StatusCodes.Status403Forbidden,
 
