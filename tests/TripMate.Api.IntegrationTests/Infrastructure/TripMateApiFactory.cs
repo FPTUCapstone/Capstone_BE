@@ -65,6 +65,10 @@ public sealed class TripMateApiFactory(
         builder.UseSetting("Cloudinary:ApiKey", "test-api-key");
         builder.UseSetting("Cloudinary:ApiSecret", "test-api-secret");
         builder.UseSetting("Cloudinary:TourMediaFolderRoot", "tripmate/tests/tours");
+        // Integration tests must not inherit Development's external-provider enablement
+        // or depend on developer User Secrets being present on the test host.
+        builder.UseSetting("AiRanking:Enabled", "false");
+        builder.UseSetting("AiExplanation:Enabled", "false");
 
         if (corsAllowedOrigins is not null)
         {
