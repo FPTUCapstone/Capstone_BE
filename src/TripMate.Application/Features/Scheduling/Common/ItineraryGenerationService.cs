@@ -21,8 +21,7 @@ public sealed class ItineraryGenerationService(
             return Infeasible("The itinerary request is invalid.");
         }
 
-        var candidatesById = input.Candidates.ToDictionary(candidate => candidate.Id);
-        if (candidatesById.Count != input.Candidates.Count
+        if (!TryBuildCandidateMap(input.Candidates, out var candidatesById)
             || input.MandatoryPoiIds.Any(id => !candidatesById.ContainsKey(id)))
         {
             return Infeasible("A mandatory location is unavailable.");
@@ -80,8 +79,7 @@ public sealed class ItineraryGenerationService(
             return Infeasible("At least one distinct visit location is required.");
         }
 
-        var candidates = input.Candidates.ToDictionary(candidate => candidate.Id);
-        if (candidates.Count != input.Candidates.Count
+        if (!TryBuildCandidateMap(input.Candidates, out var candidates)
             || orderedVisitPoiIds.Any(id => !candidates.ContainsKey(id)))
         {
             return Infeasible("A selected visit location is unavailable.");
@@ -586,6 +584,23 @@ public sealed class ItineraryGenerationService(
                 yield return new[] { candidate }.Concat(suffix).ToArray();
             }
         }
+    }
+
+    private static bool TryBuildCandidateMap(
+        IReadOnlyCollection<GenerationCandidate> candidates,
+        out Dictionary<long, GenerationCandidate> candidateMap)
+    {
+        candidateMap = new Dictionary<long, GenerationCandidate>(candidates.Count);
+        foreach (var candidate in candidates)
+        {
+            if (!candidateMap.TryAdd(candidate.Id, candidate))
+            {
+                candidateMap = null!;
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static Result<GeneratedItineraryPlan> Infeasible(string message) =>
