@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 
 using Microsoft.Extensions.Options;
 
@@ -40,32 +41,71 @@ public sealed class OpenRouteServiceRouteDurationProvider(
         };
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
 
-        using var response = await httpClient.SendAsync(request, cancellationToken);
-        response.EnsureSuccessStatusCode();
-        var payload = await response.Content.ReadFromJsonAsync<MatrixResponse>(cancellationToken);
-        if (payload?.Durations is null || payload.Durations.Length != points.Count
-            || payload.Durations.Any(row => row is null || row.Length != points.Count))
+        try
         {
-            throw new InvalidOperationException("OpenRouteService returned an invalid duration matrix.");
-        }
-
-        var minutes = new int[points.Count, points.Count];
-        for (var row = 0; row < points.Count; row++)
-        {
-            for (var column = 0; column < points.Count; column++)
+            using var response = await httpClient.SendAsync(request, cancellationToken);
+            response.EnsureSuccessStatusCode();
+            var payload = await response.Content.ReadFromJsonAsync<MatrixResponse>(cancellationToken);
+            if (payload?.Durations is null || payload.Durations.Length != points.Count
+                || payload.Durations.Any(row => row is null || row.Length != points.Count))
             {
-                var seconds = payload.Durations[row][column];
-                if (seconds is null || seconds < 0)
-                {
-                    throw new InvalidOperationException("OpenRouteService returned an invalid route duration.");
-                }
-
-                minutes[row, column] = (int)Math.Ceiling(seconds.Value / 60d);
+                throw InvalidProviderResponse("OpenRouteService returned an invalid duration matrix.");
             }
-        }
 
-        return RouteDurationMatrix.Create(minutes);
+            var minutes = new int[points.Count, points.Count];
+            for (var row = 0; row < points.Count; row++)
+            {
+                for (var column = 0; column < points.Count; column++)
+                {
+                    var seconds = payload.Durations[row][column];
+                    if (seconds is null || seconds < 0)
+                    {
+                        throw InvalidProviderResponse("OpenRouteService returned an invalid route duration.");
+                    }
+
+                    minutes[row, column] = (int)Math.Ceiling(seconds.Value / 60d);
+                }
+            }
+
+            return RouteDurationMatrix.Create(minutes);
+        }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new RouteDurationProviderException(
+                "OpenRouteService",
+                RouteDurationProviderFailureKind.Timeout,
+                "The routing service timed out.",
+                ex);
+        }
+        catch (TimeoutException ex)
+        {
+            throw new RouteDurationProviderException(
+                "OpenRouteService",
+                RouteDurationProviderFailureKind.Timeout,
+                "The routing service timed out.",
+                ex);
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new RouteDurationProviderException(
+                "OpenRouteService",
+                RouteDurationProviderFailureKind.Unavailable,
+                "The routing service is unavailable.",
+                ex);
+        }
+        catch (JsonException ex)
+        {
+            throw InvalidProviderResponse("OpenRouteService returned a malformed response.", ex);
+        }
     }
+
+    private static RouteDurationProviderException InvalidProviderResponse(
+        string message,
+        Exception? innerException = null) => new(
+            "OpenRouteService",
+            RouteDurationProviderFailureKind.Unavailable,
+            message,
+            innerException ?? new InvalidDataException(message));
 
     private static string ToProfile(TransportMode transportMode) => transportMode switch
     {

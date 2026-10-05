@@ -64,6 +64,7 @@ public sealed class GetItineraryDetailQueryHandler(
                 item.EstimatedCost,
                 item.IsMandatory,
                 item.RecommendationReason,
+                item.FriendlyExplanation,
                 item.PointOfInterest is not null
                     && item.PointOfInterest.Status != PointOfInterestStatus.Active))
             .ToArray();

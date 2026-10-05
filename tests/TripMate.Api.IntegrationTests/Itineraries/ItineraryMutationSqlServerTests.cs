@@ -10,6 +10,7 @@ using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Itineraries.Accept;
 using TripMate.Application.Features.Itineraries.AdjustItems;
 using TripMate.Application.Features.Itineraries.Common;
+using TripMate.Application.Features.Itineraries.GetDetail;
 using TripMate.Application.Features.Itineraries.Regenerate;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Domain.Entities;
@@ -21,6 +22,29 @@ namespace TripMate.Api.IntegrationTests.Itineraries;
 [Collection(nameof(TripMateApiFactory))]
 public sealed class ItineraryMutationSqlServerTests
 {
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task GetDetail_HistoricalIdReturnsCurrentPersistedFriendlyExplanation()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedWithHistoricalSuccessorAsync(database);
+        await using var context = database.CreateDbContext();
+
+        var result = await new GetItineraryDetailQueryHandler(
+                context,
+                new ItineraryAccessService(context))
+            .Handle(
+                new GetItineraryDetailQuery(seed.PredecessorItineraryId, seed.UserId),
+                CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.ItineraryId.Should().Be(seed.CurrentItineraryId);
+        result.Value.Version.Should().Be(2);
+        var item = result.Value.Items.Should().ContainSingle().Subject;
+        item.RecommendationReason.Should().Be("Current recommendation reason");
+        item.FriendlyExplanation.Should().Be("Current persisted explanation");
+    }
+
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
     public async Task Regenerate_SameKeyReplaysTheSameSuccessor()
@@ -282,14 +306,16 @@ public sealed class ItineraryMutationSqlServerTests
             FixedDateTimeProvider.StartAt,
             FixedDateTimeProvider.StartAt.AddHours(4),
             version: 2);
-        successor.AddItem(ItineraryItem.CreateVisit(
+        var successorItem = ItineraryItem.CreateVisit(
             1,
             seed.FirstPoiId,
             FixedDateTimeProvider.StartAt.AddMinutes(30),
             FixedDateTimeProvider.StartAt.AddMinutes(90),
             false,
             50_000m,
-            "Historical visit"));
+            "Current recommendation reason");
+        successorItem.AttachFriendlyExplanation("Current persisted explanation");
+        successor.AddItem(successorItem);
         context.Itineraries.Add(successor);
         await context.SaveChangesAsync();
 
@@ -351,14 +377,16 @@ public sealed class ItineraryMutationSqlServerTests
             "UC11 SQL Trip",
             FixedDateTimeProvider.StartAt,
             FixedDateTimeProvider.StartAt.AddHours(4));
-        itinerary.AddItem(ItineraryItem.CreateVisit(
+        var firstItem = ItineraryItem.CreateVisit(
             1,
             firstPoi.Id,
             FixedDateTimeProvider.StartAt.AddMinutes(30),
             FixedDateTimeProvider.StartAt.AddMinutes(90),
             false,
             50_000m,
-            "Initial visit"));
+            "Initial visit");
+        firstItem.AttachFriendlyExplanation("Historical persisted explanation");
+        itinerary.AddItem(firstItem);
         itinerary.AddItem(ItineraryItem.CreateVisit(
             2,
             secondPoi.Id,

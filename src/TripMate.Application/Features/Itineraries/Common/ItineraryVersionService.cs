@@ -2,6 +2,7 @@ using System.Text.Json;
 
 using Microsoft.EntityFrameworkCore;
 
+using TripMate.Application.Common.Geo;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Scheduling.Common;
@@ -21,6 +22,11 @@ public sealed class ItineraryVersionService(
         SchedulingRequest request,
         CancellationToken cancellationToken)
     {
+        if (request.TransportMode == TransportMode.PublicTransit)
+        {
+            return UnsupportedPublicTransit();
+        }
+
         var timeZone = TimeZoneInfo.FindSystemTimeZoneById(request.TimeZoneId);
         var travelerInterestTags = await dbContext.TravelerProfiles
             .AsNoTracking()
@@ -47,9 +53,10 @@ public sealed class ItineraryVersionService(
                 "The saved ending location is no longer available.");
         }
 
-        var candidates = pois
-            .Where(IsPlanningReady)
-            .Where(poi => DistanceInKilometers(
+        var mandatoryIds = JsonSerializer.Deserialize<long[]>(request.MandatoryPoiIdsJson) ?? [];
+        var candidates = LimitMatrixCandidates(pois
+            .Where(PlanningPoiEligibility.IsPlanningReady)
+            .Where(poi => GeoDistance.EquirectangularKilometers(
                 request.ExplorationLatitude,
                 request.ExplorationLongitude,
                 poi.Latitude,
@@ -79,10 +86,7 @@ public sealed class ItineraryVersionService(
                 ScenicScore: poi.ScenicScore,
                 PhotoRating: poi.PhotoRating,
                 CategoryName: poi.Category.Name,
-                HasShelter: poi.HasShelter))
-            .ToArray();
-
-        var mandatoryIds = JsonSerializer.Deserialize<long[]>(request.MandatoryPoiIdsJson) ?? [];
+                HasShelter: poi.HasShelter)), mandatoryIds);
         var end = endPoi is null
             ? new RoutePoint(request.StartLatitude, request.StartLongitude)
             : new RoutePoint(endPoi.Latitude, endPoi.Longitude);
@@ -149,6 +153,11 @@ public sealed class ItineraryVersionService(
         IReadOnlyList<long> orderedVisitPoiIds,
         CancellationToken cancellationToken)
     {
+        if (request.TransportMode == TransportMode.PublicTransit)
+        {
+            return UnsupportedPublicTransit();
+        }
+
         var timeZone = TimeZoneInfo.FindSystemTimeZoneById(request.TimeZoneId);
         var travelerInterestTags = await dbContext.TravelerProfiles
             .AsNoTracking()
@@ -174,9 +183,10 @@ public sealed class ItineraryVersionService(
                 "The saved ending location is no longer available.");
         }
 
-        var candidates = pois
-            .Where(IsPlanningReady)
-            .Where(poi => DistanceInKilometers(
+        var mandatoryIds = JsonSerializer.Deserialize<long[]>(request.MandatoryPoiIdsJson) ?? [];
+        var candidates = LimitMatrixCandidates(pois
+            .Where(PlanningPoiEligibility.IsPlanningReady)
+            .Where(poi => GeoDistance.EquirectangularKilometers(
                 request.ExplorationLatitude,
                 request.ExplorationLongitude,
                 poi.Latitude,
@@ -206,9 +216,7 @@ public sealed class ItineraryVersionService(
                 ScenicScore: poi.ScenicScore,
                 PhotoRating: poi.PhotoRating,
                 CategoryName: poi.Category.Name,
-                HasShelter: poi.HasShelter))
-            .ToArray();
-        var mandatoryIds = JsonSerializer.Deserialize<long[]>(request.MandatoryPoiIdsJson) ?? [];
+                HasShelter: poi.HasShelter)), mandatoryIds);
         var input = new GenerationInput(
             request.StartAtUtc,
             timeZone,
@@ -268,28 +276,28 @@ public sealed class ItineraryVersionService(
         return Result.Success(successor);
     }
 
-    private static bool IsPlanningReady(PointOfInterest poi) =>
-        poi.OpeningHours.Count > 0
-        && poi.SourceUrl is not null
-        && poi.VerifiedAtUtc.HasValue;
-
-    private static decimal DistanceInKilometers(
-        decimal originLatitude,
-        decimal originLongitude,
-        decimal destinationLatitude,
-        decimal destinationLongitude)
+    private IReadOnlyList<GenerationCandidate> LimitMatrixCandidates(
+        IEnumerable<GenerationCandidate> candidates,
+        IReadOnlyCollection<long> mandatoryPoiIds)
     {
-        const double earthRadiusKm = 6371d;
-        var latitudeDelta = DegreesToRadians((double)(destinationLatitude - originLatitude));
-        var longitudeDelta = DegreesToRadians((double)(destinationLongitude - originLongitude));
-        var originLatitudeRadians = DegreesToRadians((double)originLatitude);
-        var destinationLatitudeRadians = DegreesToRadians((double)destinationLatitude);
-        var haversine = Math.Sin(latitudeDelta / 2) * Math.Sin(latitudeDelta / 2)
-            + Math.Cos(originLatitudeRadians) * Math.Cos(destinationLatitudeRadians)
-            * Math.Sin(longitudeDelta / 2) * Math.Sin(longitudeDelta / 2);
-        var centralAngle = 2 * Math.Atan2(Math.Sqrt(haversine), Math.Sqrt(1 - haversine));
-        return (decimal)(earthRadiusKm * centralAngle);
+        var mandatoryIds = mandatoryPoiIds.ToHashSet();
+        var materialized = candidates.ToArray();
+        var mandatory = materialized
+            .Where(candidate => mandatoryIds.Contains(candidate.Id))
+            .OrderBy(candidate => candidate.Id);
+        var optional = materialized
+            .Where(candidate => !mandatoryIds.Contains(candidate.Id))
+            .OrderByDescending(candidate => candidate.EffectiveDesirabilityScore)
+            .ThenByDescending(candidate => candidate.ScenicScoreForRanking ?? decimal.MinValue)
+            .ThenByDescending(candidate => candidate.PhotoRatingForRanking ?? decimal.MinValue)
+            .ThenBy(candidate => candidate.EstimatedVisitCostForRanking ?? decimal.MaxValue)
+            .ThenBy(candidate => candidate.Id)
+            .Take(Math.Max(0, (generationOptions ?? new SchedulingGenerationOptions())
+                .EffectiveMaxMatrixCandidates - mandatoryIds.Count));
+        return mandatory.Concat(optional).ToArray();
     }
 
-    private static double DegreesToRadians(double degrees) => degrees * Math.PI / 180d;
+    private static Result<Itinerary> UnsupportedPublicTransit() => Result.Failure<Itinerary>(
+        ItineraryErrorCodes.ConstraintsInfeasible,
+        "Public transit routing is not available yet. Choose walking, motorbike, or car.");
 }
