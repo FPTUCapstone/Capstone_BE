@@ -182,8 +182,10 @@ Red tests first, one vertical case at a time:
 - same payload replays completed/failed outcomes; different payload conflicts;
 - expired/legacy pending reservation is claimed and generated;
 - generate rate-limit rejection releases the owner reservation;
-- routing-provider failure releases the reservation and same-key retry succeeds;
-- caller cancellation leaves recoverable processing state without corrupt writes.
+- routing-provider failure releases the reservation with an independent cleanup
+  token and same-key retry succeeds;
+- caller cancellation during preparation/finalization best-effort releases the
+  reservation before propagating without corrupt writes.
 
 Implementation:
 
@@ -193,8 +195,9 @@ Implementation:
 - move rate-limit ownership, catalog preparation, ranking, matrix call, and planner
   execution outside transactions;
 - perform wait delays with the caller cancellation token;
-- attempt an owner-checked best-effort release after unexpected preparation
-  failures while preserving the original exception;
+- attempt an owner-checked best-effort release with an independent cleanup token
+  after cancellation or unexpected preparation/finalization failures while
+  preserving the original exception;
 - retain explanation attachment after authoritative persistence.
 
 Verification:

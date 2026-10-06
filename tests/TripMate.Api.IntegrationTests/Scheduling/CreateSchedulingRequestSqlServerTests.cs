@@ -632,7 +632,7 @@ public sealed class CreateSchedulingRequestSqlServerTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
-    public async Task ItineraryPersistenceFailure_RollsBackItineraryAndLeavesRecoverableReservation()
+    public async Task ItineraryPersistenceFailure_RollsBackItineraryAndReleasesReservationForImmediateRetry()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
         await ApplySchedulingMigrationsAsync(database);
@@ -658,14 +658,15 @@ public sealed class CreateSchedulingRequestSqlServerTests
         (await verification.Itineraries.CountAsync()).Should().Be(0);
         (await verification.ItineraryItems.CountAsync()).Should().Be(0);
         var request = await verification.SchedulingRequests.SingleAsync();
-        request.Status.Should().Be(SchedulingRequestStatus.Processing);
+        request.Status.Should().Be(SchedulingRequestStatus.Pending);
+        request.GenerationOwnerId.Should().BeNull();
+        request.GenerationLeaseExpiresAtUtc.Should().BeNull();
         request.GenerationAttempt.Should().Be(1);
 
         await database.ExecuteNonQueryAsync($"""
             ALTER TABLE planning.Itineraries
                 DROP CONSTRAINT [{RejectGeneratedItineraryConstraint}];
             """);
-        clock.UtcNow = clock.UtcNow.AddMinutes(2);
         await using var retryContext = database.CreateDbContext();
         var retry = await CreateHandler(retryContext, dateTimeProvider: clock).Handle(
             CreateCommand(seed.UserId, key),

@@ -123,39 +123,59 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 }
                 catch (RouteDurationProviderException ex)
                 {
-                    await ReleaseReservationAsync(canonical, generationOwnerId, cancellationToken);
+                    await TryReleaseReservationAfterFailureAsync(
+                        canonical,
+                        generationOwnerId,
+                        ex);
                     logger?.LogWarning(
                         ex,
                         "Route duration provider failure provider={Provider}; operation={Operation}; category={Category}.",
                         ex.ProviderName,
                         "duration-matrix",
                         ex.FailureKind);
+                    cancellationToken.ThrowIfCancellationRequested();
                     return Result.Failure<SchedulingResponseDto>(
                         SchedulingErrorCodes.RoutingProviderUnavailable,
                         "The routing service is temporarily unavailable. Please try again.");
                 }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
                 {
+                    await TryReleaseReservationAfterFailureAsync(
+                        canonical,
+                        generationOwnerId,
+                        ex);
                     throw;
                 }
                 catch (Exception ex)
                 {
-                    await TryReleaseReservationAfterUnexpectedFailureAsync(
+                    await TryReleaseReservationAfterFailureAsync(
                         canonical,
                         generationOwnerId,
                         ex);
                     throw;
                 }
 
-                FinalizeDecision finalized = await FinalizeAsync(
-                    canonical,
-                    requestHash,
-                    generationOwnerId,
-                    reservation.GenerationAttempt,
-                    prepared,
-                    snapshotAttempt == 0,
-                    timeZone,
-                    cancellationToken);
+                FinalizeDecision finalized;
+                try
+                {
+                    finalized = await FinalizeAsync(
+                        canonical,
+                        requestHash,
+                        generationOwnerId,
+                        reservation.GenerationAttempt,
+                        prepared,
+                        snapshotAttempt == 0,
+                        timeZone,
+                        cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    await TryReleaseReservationAfterFailureAsync(
+                        canonical,
+                        generationOwnerId,
+                        ex);
+                    throw;
+                }
                 dbContext.ClearTrackedEntities();
 
                 if (finalized.Kind == FinalizeDecisionKind.RetrySnapshot)
@@ -581,7 +601,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
         dbContext.ClearTrackedEntities();
     }
 
-    private async Task TryReleaseReservationAfterUnexpectedFailureAsync(
+    private async Task TryReleaseReservationAfterFailureAsync(
         CanonicalSchedulingRequest canonical,
         Guid ownerId,
         Exception originalException)
@@ -595,7 +615,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
             dbContext.ClearTrackedEntities();
             logger?.LogWarning(
                 releaseException,
-                "Failed to release scheduling generation reservation after unexpected preparation failure. OriginalExceptionType={OriginalExceptionType}.",
+                "Failed to release scheduling generation reservation after generation failure. OriginalExceptionType={OriginalExceptionType}.",
                 originalException.GetType().Name);
         }
     }

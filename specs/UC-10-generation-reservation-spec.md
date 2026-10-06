@@ -207,14 +207,17 @@ production code must not use `Task.Delay` without the request cancellation token
 - Deterministic infeasibility is persisted as the existing `Failed` outcome and is
   replayed for the same key.
 - A controlled routing-provider failure releases the current reservation to
-  `Pending` in a short owner-checked transaction, preserving the existing behavior
-  that the same key can retry successfully.
-- Caller cancellation or process termination may leave `Processing`; another
-  request can take over only after lease expiry.
-- Unexpected preparation failures attempt an owner-checked best-effort release
-  without replacing the original exception. If that release fails, the active
-  lease remains available for expiry-based recovery. Unexpected failures must not
-  delete completed/failed data or permit a stale owner to write.
+  `Pending` in a short owner-checked transaction that is not cancelled with the
+  caller request, preserving the existing behavior that the same key can retry
+  successfully. Caller cancellation remains observable after cleanup.
+- Caller cancellation while the owner is preparing or finalizing generation
+  attempts an owner-checked best-effort release with an independent cleanup token
+  before propagating `OperationCanceledException`.
+- Unexpected preparation or finalization failures attempt the same owner-checked
+  best-effort release without replacing the original exception. If cleanup fails,
+  or the process terminates before cleanup, the active lease remains available for
+  expiry-based recovery. Failures must not delete completed/failed data or permit
+  a stale owner to write.
 - EF execution-strategy retries may repeat database-only reservation/persistence
   callbacks, but can no longer repeat AI or ORS side effects.
 
