@@ -195,6 +195,37 @@ public sealed class ItineraryVersionServiceTests
         provider.LastPointCount.Should().BeNull();
     }
 
+    [Fact]
+    public async Task CreateAdjustedVersion_DistantPoiOutsideBoundingBox_IsNotConsideredAsCandidate()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Mandatory museum");
+        var distantPoi = await AddPlanningReadyPoiAsync(
+            dbContext,
+            "Culture",
+            "Distant Hanoi museum",
+            latitude: 21.0285m,
+            longitude: 105.8542m);
+        var request = await AddRequestAsync(
+            dbContext,
+            42,
+            mandatoryPoiIdsJson: $"[{mandatoryPoi.Id}]");
+        var original = await AddItineraryAsync(dbContext, request);
+
+        var result = await new ItineraryVersionService(
+                dbContext,
+                new FixedRouteDurationProvider())
+            .CreateAdjustedVersionAsync(
+                original,
+                request,
+                [mandatoryPoi.Id, distantPoi.Id],
+                CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(ItineraryErrorCodes.ConstraintsInfeasible);
+        result.ErrorMessage.Should().Be("A selected visit location is unavailable.");
+    }
+
     private static async Task<SchedulingRequest> AddRequestAfterTwoUnrelatedRequestsAsync(TestDbContext dbContext)
     {
         dbContext.SchedulingRequests.AddRange(

@@ -497,6 +497,56 @@ public sealed class CreateSchedulingRequestSqlServerTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
+    public async Task PoiLoad_AppliesSpatialAndExplicitIdPredicatesBeforeMaterialization()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await ApplySchedulingMigrationsAsync(database);
+        var seed = await SeedAsync(database);
+        var interceptor = new TestCommandCounterInterceptor();
+        long endPoiId;
+        await using (var seedContext = database.CreateDbContext())
+        {
+            var category = await seedContext.PoiCategories.SingleAsync();
+            var endPoi = CreateSelectablePoi(
+                category,
+                "Distant explicit end",
+                21.0285m,
+                105.8542m,
+                seed.UserId,
+                new FixedDateTimeProvider().UtcNow,
+                "https://example.com/distant-explicit-end");
+            seedContext.PointsOfInterest.Add(endPoi);
+            await seedContext.SaveChangesAsync();
+            endPoiId = endPoi.Id;
+        }
+
+        await using var context = database.CreateDbContext(interceptor);
+        var result = await CreateHandler(context).Handle(
+            CreateCommand(seed.UserId, Guid.NewGuid()) with
+            {
+                MandatoryPoiIds = [seed.PoiId],
+                EndPoiId = endPoiId,
+                ReturnToStart = false,
+            },
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        string[] poiLoads = interceptor.CommandTexts
+            .Where(command => command.Contains("FROM [catalog].[POIs] AS [p]", StringComparison.Ordinal))
+            .ToArray();
+        poiLoads.Should().NotBeEmpty();
+        poiLoads.Should().Contain(command =>
+            command.Contains("[p].[status]", StringComparison.Ordinal)
+            && command.Contains("[p].[latitude] >=", StringComparison.Ordinal)
+            && command.Contains("[p].[latitude] <=", StringComparison.Ordinal)
+            && command.Contains("[p].[longitude] >=", StringComparison.Ordinal)
+            && command.Contains("[p].[longitude] <=", StringComparison.Ordinal)
+            && command.Contains("OR [p].[poi_id] IN (", StringComparison.Ordinal)
+            && command.Contains("OR [p].[poi_id] =", StringComparison.Ordinal));
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
     public async Task ConcurrentSameKey_CreatesOneItineraryAndReplaysOriginalResult()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
