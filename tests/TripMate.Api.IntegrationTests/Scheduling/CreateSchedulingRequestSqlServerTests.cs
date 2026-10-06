@@ -541,8 +541,11 @@ public sealed class CreateSchedulingRequestSqlServerTests
             && command.Contains("[p].[latitude] <=", StringComparison.Ordinal)
             && command.Contains("[p].[longitude] >=", StringComparison.Ordinal)
             && command.Contains("[p].[longitude] <=", StringComparison.Ordinal)
-            && command.Contains("OR [p].[poi_id] IN (", StringComparison.Ordinal)
-            && command.Contains("OR [p].[poi_id] =", StringComparison.Ordinal));
+            && (command.Contains("OR [p].[poi_id] = @mandatoryIds", StringComparison.Ordinal)
+                || command.Contains("OR [p].[poi_id] IN (", StringComparison.Ordinal))
+            && command.Contains(
+                "OR [p].[poi_id] = @endPoiId_Value",
+                StringComparison.Ordinal));
     }
 
     [SqlServerFact]
