@@ -73,6 +73,15 @@ public static class DependencyInjection
             configuration.GetSection(SchedulingGenerationOptions.SectionName)
                 .Get<SchedulingGenerationOptions>()
             ?? new SchedulingGenerationOptions());
+        services.AddOptions<SchedulingReservationOptions>()
+            .Bind(configuration.GetSection(SchedulingReservationOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<
+            IValidateOptions<SchedulingReservationOptions>,
+            SchedulingReservationOptionsValidator>();
+        services.AddSingleton(serviceProvider => serviceProvider
+            .GetRequiredService<IOptions<SchedulingReservationOptions>>()
+            .Value);
         services.AddOptions<SchedulingRateLimitOptions>()
             .Bind(configuration.GetSection(SchedulingRateLimitOptions.SectionName))
             .ValidateOnStart();
@@ -142,7 +151,7 @@ public static class DependencyInjection
                     .GetRequiredService<Microsoft.Extensions.Options.IOptions<OpenRouteServiceOptions>>()
                     .Value;
                 client.BaseAddress = new Uri(routingOptions.BaseUrl, UriKind.Absolute);
-                client.Timeout = TimeSpan.FromSeconds(20);
+                client.Timeout = SchedulingReservationOptions.RouteProviderTimeout;
             });
         services.AddScoped<IRouteDurationProvider>(serviceProvider =>
             serviceProvider.GetRequiredService<OpenRouteServiceRouteDurationProvider>());

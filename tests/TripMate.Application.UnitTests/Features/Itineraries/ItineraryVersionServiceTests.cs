@@ -211,7 +211,9 @@ public sealed class ItineraryVersionServiceTests
         TransportMode transportMode = TransportMode.Motorbike)
     {
         var request = CreateRequest(travelerUserId, Guid.NewGuid(), mandatoryPoiIdsJson, transportMode);
-        request.Complete(Now);
+        var generationOwnerId = Guid.NewGuid();
+        request.ClaimGeneration(generationOwnerId, Now.AddMinutes(1), Now);
+        request.CompleteGeneration(generationOwnerId, Now);
         dbContext.SchedulingRequests.Add(request);
         await dbContext.SaveChangesAsync();
         return request;

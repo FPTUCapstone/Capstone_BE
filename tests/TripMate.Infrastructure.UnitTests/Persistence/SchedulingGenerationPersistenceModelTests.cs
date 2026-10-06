@@ -24,8 +24,36 @@ public class SchedulingGenerationPersistenceModelTests
         request.GetTableName().Should().Be("SchedulingRequests");
         ColumnName(request, nameof(SchedulingRequest.Id)).Should().Be("request_id");
         ColumnName(request, nameof(SchedulingRequest.IdempotencyKey)).Should().Be("idempotency_key");
+        ColumnName(request, nameof(SchedulingRequest.GenerationOwnerId))
+            .Should().Be("generation_owner_id");
+        ColumnName(request, nameof(SchedulingRequest.GenerationLeaseExpiresAtUtc))
+            .Should().Be("generation_lease_expires_at");
+        ColumnName(request, nameof(SchedulingRequest.GenerationAttempt))
+            .Should().Be("generation_attempt");
         request.FindProperty(nameof(SchedulingRequest.StartAtUtc))!
             .GetTypeMapping().Converter!.ProviderClrType.Should().Be(typeof(DateTime));
+        request.FindProperty(nameof(SchedulingRequest.GenerationLeaseExpiresAtUtc))!
+            .GetTypeMapping().Converter!.ProviderClrType.Should().Be(typeof(DateTime?));
+        request.FindProperty(nameof(SchedulingRequest.GenerationOwnerId))!
+            .GetColumnType().Should().Be("uniqueidentifier");
+        request.FindProperty(nameof(SchedulingRequest.GenerationOwnerId))!
+            .IsNullable.Should().BeTrue();
+        request.FindProperty(nameof(SchedulingRequest.GenerationLeaseExpiresAtUtc))!
+            .GetColumnType().Should().Be("datetime2");
+        request.FindProperty(nameof(SchedulingRequest.GenerationLeaseExpiresAtUtc))!
+            .IsNullable.Should().BeTrue();
+        request.FindProperty(nameof(SchedulingRequest.GenerationAttempt))!
+            .GetColumnType().Should().Be("int");
+        request.FindProperty(nameof(SchedulingRequest.GenerationAttempt))!
+            .IsNullable.Should().BeFalse();
+        request.FindProperty(nameof(SchedulingRequest.GenerationAttempt))!
+            .GetDefaultValue().Should().Be(0);
+        request.GetCheckConstraints().Should().ContainSingle(constraint =>
+            constraint.Name == "CK_SchedulingRequests_GenerationReservation"
+            && constraint.Sql.Contains("[status] = 'Processing'", StringComparison.Ordinal)
+            && constraint.Sql.Contains("[generation_attempt] > 0", StringComparison.Ordinal)
+            && constraint.Sql.Contains("[status] <> 'Processing'", StringComparison.Ordinal)
+            && constraint.Sql.Contains("[generation_attempt] >= 0", StringComparison.Ordinal));
         request.GetIndexes().Should().ContainSingle(index =>
             index.IsUnique
             && index.Properties.Select(property => property.Name).SequenceEqual(

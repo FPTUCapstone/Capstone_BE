@@ -346,6 +346,41 @@ public sealed class CreateSchedulingRequestRankingSqlServerTests
         visits.Should().NotContain(expensivePoiId);
     }
 
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task BehaviorChangeOnce_RetriesWithCurrentSnapshotAndFrozenRanking()
+    {
+        await using var database = await CreateDatabaseAsync();
+        RankingSeed seed = await SeedAsync(database,
+        [
+            new PoiDefinition("Behavior candidate", 5m, 5m, 10_000m),
+        ]);
+        long candidatePoiId = seed.OptionalPoiIds.Single();
+        var provider = new RecordingRankingProvider(
+            beforeReturn: _ => database.ExecuteNonQueryAsync($"""
+                INSERT INTO social.RecommendationBehaviorEvents (
+                    traveler_user_id, poi_id, itinerary_id, event_type,
+                    original_position, new_position, was_mandatory, source,
+                    occurred_at_utc, client_event_id)
+                VALUES (
+                    {seed.UserId}, {candidatePoiId}, NULL, 'Like',
+                    NULL, NULL, NULL, 'PoiDetail', SYSUTCDATETIME(), NEWID());
+                """));
+        var routeProvider = new RecordingRouteDurationProvider();
+
+        long itineraryId = await ExecuteAsync(
+            database,
+            seed.UserId,
+            Guid.NewGuid(),
+            provider,
+            providerEnabled: true,
+            routeProvider: routeProvider);
+
+        provider.CallCount.Should().Be(1);
+        routeProvider.CallCount.Should().Be(2);
+        (await ReadVisitPoiIdsAsync(database, itineraryId)).Should().Contain(candidatePoiId);
+    }
+
     private static async Task<SqlServerTestDatabase> CreateDatabaseAsync()
     {
         SqlServerTestDatabase database = await SqlServerTestDatabase.CreateAsync();
@@ -571,8 +606,9 @@ public sealed class CreateSchedulingRequestRankingSqlServerTests
         foreach (string fileName in new[]
                  {
                      "20260914_add_scheduling_request_generation.sql",
-                     "20260915_extend_scheduling_request_contract.sql",
-                     "20260919_allow_named_rest_items.sql",
+                    "20260915_extend_scheduling_request_contract.sql",
+                    "20260919_allow_named_rest_items.sql",
+                    "20261004_add_scheduling_generation_reservation.sql",
                  })
         {
             string migrationPath = Path.Combine(
@@ -610,6 +646,8 @@ public sealed class CreateSchedulingRequestRankingSqlServerTests
 
     private sealed class RecordingRouteDurationProvider : IRouteDurationProvider
     {
+        public int CallCount { get; private set; }
+
         public IReadOnlyList<RoutePoint> LastPoints { get; private set; } = [];
 
         public Task<RouteDurationMatrix> GetMatrixAsync(
@@ -617,6 +655,7 @@ public sealed class CreateSchedulingRequestRankingSqlServerTests
             TransportMode transportMode,
             CancellationToken cancellationToken)
         {
+            CallCount++;
             LastPoints = points.ToArray();
             var durations = new int[points.Count, points.Count];
             for (var row = 0; row < points.Count; row++)
