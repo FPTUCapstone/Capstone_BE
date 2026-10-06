@@ -62,6 +62,8 @@ public class TestDbContext(
 
     public DbSet<CommercialService> CommercialServices => Set<CommercialService>();
 
+    public DbSet<Voucher> Vouchers => Set<Voucher>();
+
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
 
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
@@ -166,6 +168,9 @@ public class TestDbContext(
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<VoucherApplicableTour>()
+            .HasKey(mapping => new { mapping.VoucherId, mapping.TourId });
+
         modelBuilder.Entity<PoiOpeningHour>()
             .HasKey(hours => new { hours.PointOfInterestId, hours.DayOfWeek });
 
