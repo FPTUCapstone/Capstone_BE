@@ -181,7 +181,8 @@ Red tests first, one vertical case at a time:
 - a valid competing lease causes cancellable polling and no provider calls;
 - same payload replays completed/failed outcomes; different payload conflicts;
 - expired/legacy pending reservation is claimed and generated;
-- generate rate-limit rejection releases the owner reservation;
+- generate rate-limit rejection releases the owner reservation with an independent
+  cleanup token before propagating caller cancellation;
 - routing-provider failure releases the reservation with an independent cleanup
   token and same-key retry succeeds;
 - caller cancellation during preparation/finalization best-effort releases the

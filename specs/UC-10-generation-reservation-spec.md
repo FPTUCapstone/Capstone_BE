@@ -126,7 +126,9 @@ Run a short `SERIALIZABLE` transaction:
 
 Only the request that receives ownership may consume the generate rate-limit
 permit or invoke ranking/ORS. A rate-limit rejection releases the reservation in
-a short owner-checked transaction so the same idempotency key is not stranded.
+a short owner-checked transaction that is independent of caller cancellation so
+the same idempotency key is not stranded. Caller cancellation remains observable
+after cleanup.
 
 ### Wait path
 

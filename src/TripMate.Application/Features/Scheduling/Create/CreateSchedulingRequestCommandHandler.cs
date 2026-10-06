@@ -97,7 +97,11 @@ public sealed class CreateSchedulingRequestCommandHandler(
                     canonical.TravelerUserId);
                 if (!rateLimit.Allowed)
                 {
-                    await ReleaseReservationAsync(canonical, generationOwnerId, cancellationToken);
+                    await ReleaseReservationAsync(
+                        canonical,
+                        generationOwnerId,
+                        CancellationToken.None);
+                    cancellationToken.ThrowIfCancellationRequested();
                     return Result.Failure<SchedulingResponseDto>(
                         rateLimit.ErrorCode!,
                         "Too many itinerary generation requests. Please try again later.",

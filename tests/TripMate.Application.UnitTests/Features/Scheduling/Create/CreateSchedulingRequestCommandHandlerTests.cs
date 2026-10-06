@@ -1966,6 +1966,34 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         (await dbContext.Itineraries.CountAsync()).Should().Be(0);
     }
 
+    [Fact]
+    public async Task Handle_RateLimitRejectedWithCallerCancellation_ReleasesReservationAndPropagatesCancellation()
+    {
+        await using var dbContext = TestDbContext.Create();
+        await SeedSelectablePoiAsync(dbContext);
+        using var callerCancellation = new CancellationTokenSource();
+        var rankingProvider = new RecordingPoiRankingProvider();
+        var routeProvider = new RecordingRouteDurationProvider();
+        var handler = CreateHandler(
+            dbContext,
+            routeProvider,
+            rankingProvider,
+            generateRateLimiter: new CallerCancelingRejectingGenerateRateLimiter(callerCancellation));
+
+        Func<Task> act = async () => await handler.Handle(
+            CreateCommand(Guid.NewGuid()),
+            callerCancellation.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        rankingProvider.CallCount.Should().Be(0);
+        routeProvider.CallCount.Should().Be(0);
+        var request = await dbContext.SchedulingRequests.SingleAsync();
+        request.Status.Should().Be(SchedulingRequestStatus.Pending);
+        request.GenerationOwnerId.Should().BeNull();
+        request.GenerationLeaseExpiresAtUtc.Should().BeNull();
+        (await dbContext.Itineraries.CountAsync()).Should().Be(0);
+    }
+
     private CreateSchedulingRequestCommandHandler CreateHandler(
         TestDbContext dbContext,
         IRouteDurationProvider? routeDurationProvider = null,
@@ -2421,6 +2449,19 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
                 Allowed: false,
                 ErrorCode: SchedulingErrorCodes.GenerationRateLimited,
                 RetryAfterSeconds: 30);
+    }
+
+    private sealed class CallerCancelingRejectingGenerateRateLimiter(
+        CancellationTokenSource callerCancellation) : IGenerateRateLimiter
+    {
+        public GenerateRateLimitDecision TryAcquire(long userId)
+        {
+            callerCancellation.Cancel();
+            return new GenerateRateLimitDecision(
+                Allowed: false,
+                ErrorCode: SchedulingErrorCodes.GenerationRateLimited,
+                RetryAfterSeconds: 30);
+        }
     }
 
     private sealed class RecordingSchedulingRequestLock : ISchedulingRequestLock
