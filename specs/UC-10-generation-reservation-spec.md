@@ -172,7 +172,10 @@ Run a second short `SERIALIZABLE` transaction:
    `Completed`, or persist the deterministic infeasible outcome as `Failed`; clear
    owner and lease; save and commit.
 5. If the hash differs on the first preparation attempt, renew the same owner's
-   lease, commit without itinerary writes, and repeat Phase 2 exactly once.
+   lease, commit without itinerary writes, and repeat the data load, ORS call, and
+   generation exactly once. Reuse the first attempt's immutable ranking snapshot
+   and provider pool: do not call the ranking provider again, recompute
+   personalization, or backfill from outside that pool.
 6. If the hash differs again, release the reservation to `Pending`, commit, and
    return a controlled retryable failure. Do not persist a plan from either stale
    snapshot.

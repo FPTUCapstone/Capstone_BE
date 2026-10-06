@@ -122,6 +122,16 @@ public sealed class CreateSchedulingRequestSqlServerTests
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
         var seed = await SeedAsync(database);
+        await database.ExecuteNonQueryAsync("""
+            ALTER TABLE planning.SchedulingRequests
+                DROP CONSTRAINT CK_SchedulingRequests_GenerationReservation;
+            ALTER TABLE planning.SchedulingRequests
+                DROP CONSTRAINT DF_SchedulingRequests_GenerationAttempt;
+            ALTER TABLE planning.SchedulingRequests
+                DROP COLUMN generation_owner_id,
+                            generation_lease_expires_at,
+                            generation_attempt;
+            """);
         await database.ExecuteNonQueryAsync($"""
             INSERT INTO planning.SchedulingRequests (
                 traveler_user_id, idempotency_key, request_hash, start_at, time_zone_id,

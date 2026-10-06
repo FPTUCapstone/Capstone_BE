@@ -1657,10 +1657,10 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
             .Handle(command, CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
-        rankingProvider.CallCount.Should().Be(2);
+        rankingProvider.CallCount.Should().Be(1);
         VisitPoiIds(result.Value).Should().Contain(mandatoryPoi.Id);
         VisitPoiIds(result.Value).Should().NotContain(pooledPoi.Id);
-        VisitPoiIds(result.Value).Should().Contain(outsidePoolPoi.Id);
+        VisitPoiIds(result.Value).Should().NotContain(outsidePoolPoi.Id);
     }
 
     [Fact]
@@ -1673,7 +1673,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
             "Changing optional",
             16.0472m,
             108.2069m);
-        var rankingProvider = new RecordingPoiRankingProvider
+        var routeProvider = new RecordingRouteDurationProvider
         {
             BeforeReturn = () =>
             {
@@ -1684,7 +1684,11 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
             },
         };
 
-        var result = await CreateHandler(dbContext, rankingProvider: rankingProvider)
+        var rankingProvider = new RecordingPoiRankingProvider();
+        var result = await CreateHandler(
+                dbContext,
+                routeProvider,
+                rankingProvider)
             .Handle(CreateCommand(Guid.NewGuid()) with
             {
                 MandatoryPoiIds = [mandatoryPoi.Id],
@@ -1692,7 +1696,8 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
 
         result.IsFailure.Should().BeTrue();
         result.ErrorCode.Should().Be(SchedulingErrorCodes.GenerationTemporarilyUnavailable);
-        rankingProvider.CallCount.Should().Be(2);
+        rankingProvider.CallCount.Should().Be(1);
+        routeProvider.CallCount.Should().Be(2);
         (await dbContext.Itineraries.CountAsync()).Should().Be(0);
         var request = await dbContext.SchedulingRequests.SingleAsync();
         request.Status.Should().Be(SchedulingRequestStatus.Pending);
@@ -2046,6 +2051,8 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
 
     private sealed class RecordingRouteDurationProvider : IRouteDurationProvider
     {
+        public Action? BeforeReturn { get; init; }
+
         public int CallCount { get; private set; }
 
         public int LastPointCount { get; private set; }
@@ -2060,6 +2067,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
             CallCount++;
             LastPointCount = points.Count;
             LastPoints = points.ToArray();
+            BeforeReturn?.Invoke();
             var durations = new int[points.Count, points.Count];
             for (var row = 0; row < points.Count; row++)
             {

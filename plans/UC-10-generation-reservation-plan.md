@@ -235,6 +235,9 @@ Implementation:
 - add the short owner/attempt/lease validation transaction;
 - recompute the authoritative snapshot token inside that transaction;
 - commit without itinerary writes before the one allowed regeneration;
+- reuse the first attempt's immutable ranking snapshot/provider pool during that
+  regeneration, without a second AI call, personalization recomputation, or
+  outside-pool backfill;
 - add the controlled retryable error and standard `HandleFailure` mapping.
 
 Verification:

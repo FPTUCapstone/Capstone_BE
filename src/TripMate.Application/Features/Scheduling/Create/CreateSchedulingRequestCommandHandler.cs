@@ -108,12 +108,18 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 }
             }
 
+            PoiRankingSnapshot? frozenRanking = null;
             for (var snapshotAttempt = 0; snapshotAttempt < 2; snapshotAttempt++)
             {
                 PreparedGeneration prepared;
                 try
                 {
-                    prepared = await PrepareGenerationAsync(canonical, timeZone, cancellationToken);
+                    prepared = await PrepareGenerationAsync(
+                        canonical,
+                        timeZone,
+                        frozenRanking,
+                        cancellationToken);
+                    frozenRanking ??= prepared.RankingSnapshot;
                 }
                 catch (RouteDurationProviderException ex)
                 {
@@ -277,6 +283,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
     private async Task<PreparedGeneration> PrepareGenerationAsync(
         CanonicalSchedulingRequest canonical,
         TimeZoneInfo timeZone,
+        PoiRankingSnapshot? frozenRanking,
         CancellationToken cancellationToken)
     {
         var travelerInterestTags = await dbContext.TravelerProfiles
@@ -360,9 +367,10 @@ public sealed class CreateSchedulingRequestCommandHandler(
                     poi.Longitude),
                 poi.EstimatedVisitCost))
             .ToArray();
-        var ranking = await poiRankingOrchestrator.BuildRankingAsync(
-            new PoiRankingInput(canonical.TravelerUserId, preferenceTokens, optionalCandidates),
-            cancellationToken);
+        var ranking = frozenRanking
+            ?? await poiRankingOrchestrator.BuildRankingAsync(
+                new PoiRankingInput(canonical.TravelerUserId, preferenceTokens, optionalCandidates),
+                cancellationToken);
         snapshot = SchedulingGenerationSnapshot.Capture(snapshotData, ranking.BehaviorAggregation);
         var poolBoundSelectablePois = selectablePois
             .Where(poi => mandatoryIds.Contains(poi.Id) || ranking.ProviderPoolPoiIds.Contains(poi.Id))
@@ -399,12 +407,13 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 preferenceTokens,
                 explanationMetadata,
                 plan.ErrorMessage ?? "The selected constraints cannot produce an itinerary.",
-                behaviorWasUsed: true)
+                ranking)
             : PreparedGeneration.Successful(
                 snapshot.Hash,
                 preferenceTokens,
                 explanationMetadata,
-                plan.Value);
+                plan.Value,
+                ranking);
     }
 
     private async Task<FinalizeDecision> FinalizeAsync(
@@ -1007,34 +1016,37 @@ public sealed class CreateSchedulingRequestCommandHandler(
         IReadOnlyDictionary<long, ExplanationPoiMetadata> ExplanationMetadata,
         GeneratedItineraryPlan? Plan,
         string? FailureMessage,
-        bool BehaviorWasUsed)
+        PoiRankingSnapshot? RankingSnapshot)
     {
+        public bool BehaviorWasUsed => RankingSnapshot is not null;
+
         public static PreparedGeneration Infeasible(
             string snapshotHash,
             IReadOnlyCollection<string> preferenceTokens,
             IReadOnlyDictionary<long, ExplanationPoiMetadata> explanationMetadata,
             string failureMessage,
-            bool behaviorWasUsed = false) =>
+            PoiRankingSnapshot? rankingSnapshot = null) =>
             new(
                 snapshotHash,
                 preferenceTokens.ToArray(),
                 explanationMetadata,
                 null,
                 failureMessage,
-                behaviorWasUsed);
+                rankingSnapshot);
 
         public static PreparedGeneration Successful(
             string snapshotHash,
             IReadOnlyCollection<string> preferenceTokens,
             IReadOnlyDictionary<long, ExplanationPoiMetadata> explanationMetadata,
-            GeneratedItineraryPlan plan) =>
+            GeneratedItineraryPlan plan,
+            PoiRankingSnapshot rankingSnapshot) =>
             new(
                 snapshotHash,
                 preferenceTokens.ToArray(),
                 explanationMetadata,
                 plan,
                 null,
-                true);
+                rankingSnapshot);
     }
 
     private enum FinalizeDecisionKind
