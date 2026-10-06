@@ -182,7 +182,7 @@ public sealed class CreateSchedulingRequestEndpointTests
             Itineraries = await dbContext.Itineraries.CountAsync(),
             ItineraryItems = await dbContext.ItineraryItems.CountAsync(),
         });
-        rowCounts.SchedulingRequests.Should().Be(0);
+        rowCounts.SchedulingRequests.Should().Be(1);
         rowCounts.Itineraries.Should().Be(0);
         rowCounts.ItineraryItems.Should().Be(0);
     }

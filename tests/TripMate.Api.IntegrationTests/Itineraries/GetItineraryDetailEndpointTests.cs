@@ -177,7 +177,9 @@ public sealed class GetItineraryDetailEndpointTests
                 "[]",
                 RestPreference.None,
                 now);
-            request.Complete(now);
+            var generationOwnerId = Guid.NewGuid();
+            request.ClaimGeneration(generationOwnerId, now.AddMinutes(1), now);
+            request.CompleteGeneration(generationOwnerId, now);
             var historical = Itinerary.CreateCspGenerated(
                 request,
                 "Historical version",

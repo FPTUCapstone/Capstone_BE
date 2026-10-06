@@ -115,7 +115,8 @@ public sealed class PoiRankingOrchestrator
             return CreateBaseSnapshot(
                 providerPool,
                 providerPoolPoiIds,
-                PoiRankingOutcomeCategory.ProviderSkipped);
+                PoiRankingOutcomeCategory.ProviderSkipped,
+                aggregation);
         }
 
         var request = new PoiRankingRequest(
@@ -166,7 +167,8 @@ public sealed class PoiRankingOrchestrator
                 return CreateBaseSnapshot(
                     providerPool,
                     providerPoolPoiIds,
-                    PoiRankingOutcomeCategory.Timeout);
+                    PoiRankingOutcomeCategory.Timeout,
+                    aggregation);
             }
         }
 
@@ -184,7 +186,8 @@ public sealed class PoiRankingOrchestrator
             return CreateBaseSnapshot(
                 providerPool,
                 providerPoolPoiIds,
-                outcomeCategory);
+                outcomeCategory,
+                aggregation);
         }
 
         if (!TryValidateProviderResult(
@@ -203,7 +206,8 @@ public sealed class PoiRankingOrchestrator
             return CreateBaseSnapshot(
                 providerPool,
                 providerPoolPoiIds,
-                PoiRankingOutcomeCategory.InvalidResponse);
+                PoiRankingOutcomeCategory.InvalidResponse,
+                aggregation);
         }
 
         LogOutcome(
@@ -224,7 +228,8 @@ public sealed class PoiRankingOrchestrator
                     (_options.BaseWeight * candidate.BaseScore)
                     + (_options.AiWeight
                         * validatedItems[candidate.Candidate.PoiId].AiScore))),
-            PoiRankingOutcomeCategory.Success);
+            PoiRankingOutcomeCategory.Success,
+            aggregation);
     }
 
     internal static bool TryValidateProviderResult(
@@ -295,18 +300,23 @@ public sealed class PoiRankingOrchestrator
     private static PoiRankingSnapshot EmptySnapshot() => new(
         Array.Empty<long>().ToFrozenSet(),
         new Dictionary<long, PoiRankingSnapshotEntry>().ToFrozenDictionary(),
-        PoiRankingOutcomeCategory.ProviderSkipped);
+        PoiRankingOutcomeCategory.ProviderSkipped,
+        new PersonalBehaviorAggregation(
+            new Dictionary<long, PersonalBehaviorCounts>(),
+            new Dictionary<int, CategoryBehaviorCounts>()));
 
     private static PoiRankingSnapshot CreateBaseSnapshot(
         IReadOnlyCollection<ScoredCandidate> providerPool,
         FrozenSet<long> providerPoolPoiIds,
-        PoiRankingOutcomeCategory outcomeCategory) =>
+        PoiRankingOutcomeCategory outcomeCategory,
+        PersonalBehaviorAggregation behaviorAggregation) =>
         new(
             providerPoolPoiIds,
             providerPool.ToFrozenDictionary(
                 candidate => candidate.Candidate.PoiId,
                 candidate => CreateSnapshotEntry(candidate, candidate.BaseScore)),
-            outcomeCategory);
+            outcomeCategory,
+            behaviorAggregation);
 
     private static PoiRankingSnapshotEntry CreateSnapshotEntry(
         ScoredCandidate scoredCandidate,

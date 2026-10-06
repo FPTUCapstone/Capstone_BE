@@ -52,7 +52,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
 
         result.IsSuccess.Should().BeTrue();
         explanationProvider.CallCount.Should().Be(1);
-        dbContext.SaveChangesAsyncCallCount.Should().Be(savesBeforeHandle + 2);
+        dbContext.SaveChangesAsyncCallCount.Should().Be(savesBeforeHandle + 3);
         result.Value.Items.Should().OnlyContain(item =>
             item.FriendlyExplanation == $"Giải thích cho mục {item.SequenceNo}.");
         ItineraryItem persisted = await dbContext.ItineraryItems.SingleAsync();
@@ -279,7 +279,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         logger.Entries.Should().BeEmpty();
 
         // SchedulingRequest remains Completed in committed T1 transaction
-        dbContext.TransactionExecutionCount.Should().Be(1);
+        dbContext.TransactionExecutionCount.Should().Be(2);
         var persistedRequest = await dbContext.SchedulingRequests.SingleAsync();
         persistedRequest.Status.Should().Be(SchedulingRequestStatus.Completed);
 
@@ -290,7 +290,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
 
         // FriendlyExplanation remains NULL; no fallback persistence occurred
         persistedItinerary.Items.Single().FriendlyExplanation.Should().BeNull();
-        dbContext.SaveChangesAsyncCallCount.Should().Be(savesBeforeHandle + 1);
+        dbContext.SaveChangesAsyncCallCount.Should().Be(savesBeforeHandle + 2);
     }
 
     [Fact]
@@ -321,9 +321,9 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
             }, CancellationToken.None);
 
         // 1 & 2. T1 SaveChanges succeeded and transaction committed
-        dbContext.TransactionExecutionCount.Should().Be(1);
+        dbContext.TransactionExecutionCount.Should().Be(2);
         // 11 & 12. Exactly one T2 persistence attempt occurred; NO retry (T1 = 1 save, T2 = 1 failed save)
-        dbContext.SaveChangesAsyncCallCount.Should().Be(savesBeforeHandle + 2);
+        dbContext.SaveChangesAsyncCallCount.Should().Be(savesBeforeHandle + 3);
 
         // 4. Handler still preserves the successful scheduling result
         result.IsSuccess.Should().BeTrue();
@@ -432,18 +432,8 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
             .CurrentValue = 120;
         dbContext.Entry(missingMetadataPoi).Property(poi => poi.AverageVisitDurationMinutes)
             .CurrentValue = 120;
-        dbContext.Entry(missingMetadataPoi).Property(poi => poi.Status)
-            .CurrentValue = PointOfInterestStatus.Inactive;
         await dbContext.SaveChangesAsync();
-        var rankingProvider = new RecordingPoiRankingProvider
-        {
-            BeforeReturn = () =>
-            {
-                dbContext.Entry(missingMetadataPoi).Property(poi => poi.Status)
-                    .CurrentValue = PointOfInterestStatus.Active;
-                dbContext.SaveChanges();
-            },
-        };
+        var rankingProvider = new RecordingPoiRankingProvider();
         var explanationProvider = new RecordingItineraryExplanationProvider
         {
             ResultFactory = ValidExplanationResult,
@@ -472,7 +462,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
             .Should().Be("river walk");
         ItineraryExplanationItem missing = input.Items.Single(item =>
             item.PoiId == missingMetadataPoi.Id);
-        missing.CategoryName.Should().BeNull();
+        missing.CategoryName.Should().Be("Culture");
         missing.TagNames.Should().BeEmpty();
         ItineraryExplanationItem freeRest = input.Items.First(item =>
             item.Kind == ItineraryItemKind.Rest && item.PoiId is null);
@@ -523,10 +513,13 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         result.IsFailure.Should().BeTrue();
         result.ErrorCode.Should().Be(SchedulingErrorCodes.RoutingProviderUnavailable);
         result.ErrorMessage.Should().Be("The routing service is temporarily unavailable. Please try again.");
-        dbContext.SaveChangesAsyncCallCount.Should().Be(savesBeforeHandle);
-        (await dbContext.SchedulingRequests.CountAsync()).Should().Be(0);
+        dbContext.SaveChangesAsyncCallCount.Should().Be(savesBeforeHandle + 2);
+        var releasedRequest = await dbContext.SchedulingRequests.SingleAsync();
+        releasedRequest.Status.Should().Be(SchedulingRequestStatus.Pending);
+        releasedRequest.GenerationOwnerId.Should().BeNull();
         (await dbContext.Itineraries.CountAsync()).Should().Be(0);
         (await dbContext.ItineraryItems.CountAsync()).Should().Be(0);
+        dbContext.ClearTrackedEntities();
         dbContext.ChangeTracker.Entries().Should().BeEmpty();
         LogEntry log = logger.Entries.Should().ContainSingle().Subject;
         log.Level.Should().Be(LogLevel.Warning);
@@ -1120,11 +1113,11 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         replay.IsFailure.Should().BeTrue();
         replay.ErrorCode.Should().Be(SchedulingErrorCodes.IdempotencyKeyPayloadMismatch);
         rankingProvider.CallCount.Should().Be(1);
-        dbContext.TransactionExecutionCount.Should().Be(2);
+        dbContext.TransactionExecutionCount.Should().Be(3);
     }
 
     [Fact]
-    public async Task Handle_PrecheckMiss_ProjectsOnlyOptionalPoisAndRanksBeforeTransactionAndLock()
+    public async Task Handle_FirstOwner_CommitsReservationBeforeProvidersAndRunsThemOutsideTransactions()
     {
         await using var dbContext = TestDbContext.Create();
         var mandatoryPoi = await SeedSelectablePoiAsync(
@@ -1155,8 +1148,11 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         {
             BeforeReturn = () =>
             {
-                dbContext.TransactionExecutionCount.Should().Be(0);
-                schedulingLock.CallCount.Should().Be(0);
+                dbContext.TransactionExecutionCount.Should().Be(1);
+                schedulingLock.CallCount.Should().Be(1);
+                dbContext.IsExecutingSerializableTransaction.Should().BeFalse();
+                dbContext.SchedulingRequests.AsNoTracking().Single().Status
+                    .Should().Be(SchedulingRequestStatus.Processing);
             },
         };
         var handler = CreateHandler(
@@ -1184,7 +1180,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
                 ["River Walk"]));
         rankingProvider.LastRequest.Candidates.Should()
             .NotContain(candidate => candidate.PoiId == mandatoryPoi.Id);
-        schedulingLock.CallCount.Should().Be(1);
+        schedulingLock.CallCount.Should().Be(2);
     }
 
     [Fact]
@@ -1589,7 +1585,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
     [InlineData("not-planning-ready")]
     [InlineData("outside-radius")]
     [InlineData("missing")]
-    public async Task Handle_PooledOptionalInvalidatedInPhaseTwo_DropsWithoutBackfill(
+    public async Task Handle_GenerationSnapshotChanges_RegeneratesOnceFromCurrentData(
         string invalidation)
     {
         await using var dbContext = TestDbContext.Create();
@@ -1612,21 +1608,31 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         dbContext.Entry(outsidePoolPoi).Property(poi => poi.ScenicScore).CurrentValue = 9m;
         await dbContext.SaveChangesAsync();
 
+        var invalidationCount = 0;
         var rankingProvider = new RecordingPoiRankingProvider
         {
             BeforeReturn = () =>
             {
+                invalidationCount++;
+                if (invalidationCount > 1)
+                {
+                    return;
+                }
+
                 switch (invalidation)
                 {
                     case "inactive":
                         dbContext.Entry(pooledPoi).Property(poi => poi.Status).CurrentValue =
                             PointOfInterestStatus.Inactive;
+                        dbContext.Entry(pooledPoi).Property(poi => poi.Status).IsModified = true;
                         break;
                     case "not-planning-ready":
                         dbContext.Entry(pooledPoi).Property(poi => poi.SourceUrl).CurrentValue = null;
+                        dbContext.Entry(pooledPoi).Property(poi => poi.SourceUrl).IsModified = true;
                         break;
                     case "outside-radius":
                         dbContext.Entry(pooledPoi).Property(poi => poi.Latitude).CurrentValue = 17m;
+                        dbContext.Entry(pooledPoi).Property(poi => poi.Latitude).IsModified = true;
                         break;
                     case "missing":
                         dbContext.PointsOfInterest.Remove(pooledPoi);
@@ -1651,10 +1657,74 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
             .Handle(command, CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
-        rankingProvider.CallCount.Should().Be(1);
+        rankingProvider.CallCount.Should().Be(2);
         VisitPoiIds(result.Value).Should().Contain(mandatoryPoi.Id);
         VisitPoiIds(result.Value).Should().NotContain(pooledPoi.Id);
-        VisitPoiIds(result.Value).Should().NotContain(outsidePoolPoi.Id);
+        VisitPoiIds(result.Value).Should().Contain(outsidePoolPoi.Id);
+    }
+
+    [Fact]
+    public async Task Handle_GenerationSnapshotChangesTwice_ReleasesReservationAndReturnsRetryableFailure()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await SeedSelectablePoiAsync(dbContext);
+        var changingPoi = await SeedSelectablePoiAsync(
+            dbContext,
+            "Changing optional",
+            16.0472m,
+            108.2069m);
+        var rankingProvider = new RecordingPoiRankingProvider
+        {
+            BeforeReturn = () =>
+            {
+                var entry = dbContext.Entry(changingPoi).Property(poi => poi.ScenicScore);
+                entry.CurrentValue = (entry.CurrentValue ?? 0m) + 1m;
+                entry.IsModified = true;
+                dbContext.SaveChanges();
+            },
+        };
+
+        var result = await CreateHandler(dbContext, rankingProvider: rankingProvider)
+            .Handle(CreateCommand(Guid.NewGuid()) with
+            {
+                MandatoryPoiIds = [mandatoryPoi.Id],
+            }, CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(SchedulingErrorCodes.GenerationTemporarilyUnavailable);
+        rankingProvider.CallCount.Should().Be(2);
+        (await dbContext.Itineraries.CountAsync()).Should().Be(0);
+        var request = await dbContext.SchedulingRequests.SingleAsync();
+        request.Status.Should().Be(SchedulingRequestStatus.Pending);
+        request.GenerationOwnerId.Should().BeNull();
+        request.GenerationLeaseExpiresAtUtc.Should().BeNull();
+        request.GenerationAttempt.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Handle_RateLimitRejected_ReleasesReservationWithoutProviderWork()
+    {
+        await using var dbContext = TestDbContext.Create();
+        await SeedSelectablePoiAsync(dbContext);
+        var rankingProvider = new RecordingPoiRankingProvider();
+        var routeProvider = new RecordingRouteDurationProvider();
+
+        var result = await CreateHandler(
+                dbContext,
+                routeProvider,
+                rankingProvider,
+                generateRateLimiter: new RejectingGenerateRateLimiter())
+            .Handle(CreateCommand(Guid.NewGuid()), CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(SchedulingErrorCodes.GenerationRateLimited);
+        rankingProvider.CallCount.Should().Be(0);
+        routeProvider.CallCount.Should().Be(0);
+        var request = await dbContext.SchedulingRequests.SingleAsync();
+        request.Status.Should().Be(SchedulingRequestStatus.Pending);
+        request.GenerationOwnerId.Should().BeNull();
+        request.GenerationLeaseExpiresAtUtc.Should().BeNull();
+        (await dbContext.Itineraries.CountAsync()).Should().Be(0);
     }
 
     private CreateSchedulingRequestCommandHandler CreateHandler(
@@ -1668,7 +1738,8 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         IItineraryExplanationProvider? explanationProvider = null,
         ItineraryExplanationExecutionOptions? explanationOptions = null,
         ILogger<CreateSchedulingRequestCommandHandler>? explanationLogger = null,
-        IGenerateRateLimiter? generateRateLimiter = null)
+        IGenerateRateLimiter? generateRateLimiter = null,
+        SchedulingReservationOptions? reservationOptions = null)
     {
         return new(
             dbContext,
@@ -1683,7 +1754,8 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
             explanationProvider,
             explanationOptions,
             explanationLogger,
-            generateRateLimiter);
+            generateRateLimiter,
+            reservationOptions);
     }
 
     private static ItineraryExplanationExecutionOptions EnabledExplanationOptions() =>
@@ -2007,6 +2079,15 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
             long travelerUserId,
             Guid idempotencyKey,
             CancellationToken cancellationToken) => Task.CompletedTask;
+    }
+
+    private sealed class RejectingGenerateRateLimiter : IGenerateRateLimiter
+    {
+        public GenerateRateLimitDecision TryAcquire(long userId) =>
+            new(
+                Allowed: false,
+                ErrorCode: SchedulingErrorCodes.GenerationRateLimited,
+                RetryAfterSeconds: 30);
     }
 
     private sealed class RecordingSchedulingRequestLock : ISchedulingRequestLock

@@ -58,6 +58,12 @@ public class SchedulingRequest : BaseEntity
 
     public string? FailureMessage { get; private set; }
 
+    public Guid? GenerationOwnerId { get; private set; }
+
+    public DateTimeOffset? GenerationLeaseExpiresAtUtc { get; private set; }
+
+    public int GenerationAttempt { get; private set; }
+
     public static SchedulingRequest Create(
         long travelerUserId,
         Guid operationKey,
@@ -156,7 +162,7 @@ public class SchedulingRequest : BaseEntity
         };
     }
 
-    public void Complete(DateTimeOffset completedAtUtc)
+    private void MarkCompleted(DateTimeOffset completedAtUtc)
     {
         Status = SchedulingRequestStatus.Completed;
         CompletedAtUtc = completedAtUtc.ToUniversalTime();
@@ -164,19 +170,138 @@ public class SchedulingRequest : BaseEntity
         FailureMessage = null;
     }
 
-    public void FailInfeasible(string failureCode, string failureMessage, DateTimeOffset completedAtUtc)
+    private void MarkFailed(
+        string failureCode,
+        string failureMessage,
+        DateTimeOffset completedAtUtc)
     {
         if (string.IsNullOrWhiteSpace(failureCode))
         {
             throw new ArgumentException("A failure code is required.", nameof(failureCode));
         }
 
-        Status = SchedulingRequestStatus.Failed;
-        FailureCode = failureCode.Trim();
-        FailureMessage = string.IsNullOrWhiteSpace(failureMessage)
+        var normalizedFailureMessage = string.IsNullOrWhiteSpace(failureMessage)
             ? throw new ArgumentException("A failure message is required.", nameof(failureMessage))
             : failureMessage.Trim();
+
+        Status = SchedulingRequestStatus.Failed;
+        FailureCode = failureCode.Trim();
+        FailureMessage = normalizedFailureMessage;
         CompletedAtUtc = completedAtUtc.ToUniversalTime();
+    }
+
+    public void ClaimGeneration(
+        Guid ownerId,
+        DateTimeOffset leaseExpiresAtUtc,
+        DateTimeOffset claimedAtUtc)
+    {
+        ValidateOwner(ownerId);
+        var claimedAt = claimedAtUtc.ToUniversalTime();
+        var leaseExpiresAt = leaseExpiresAtUtc.ToUniversalTime();
+        if (leaseExpiresAt <= claimedAt)
+        {
+            throw new ArgumentException(
+                "The generation lease must expire after it is claimed.",
+                nameof(leaseExpiresAtUtc));
+        }
+
+        var canClaim = Status == SchedulingRequestStatus.Pending
+            || (Status == SchedulingRequestStatus.Processing
+                && GenerationLeaseExpiresAtUtc.HasValue
+                && GenerationLeaseExpiresAtUtc.Value <= claimedAt);
+        if (!canClaim)
+        {
+            throw new InvalidOperationException(
+                "The scheduling request is not available for generation.");
+        }
+
+        var nextAttempt = checked(GenerationAttempt + 1);
+        Status = SchedulingRequestStatus.Processing;
+        GenerationOwnerId = ownerId;
+        GenerationLeaseExpiresAtUtc = leaseExpiresAt;
+        GenerationAttempt = nextAttempt;
+    }
+
+    public void RenewGenerationLease(
+        Guid ownerId,
+        DateTimeOffset leaseExpiresAtUtc,
+        DateTimeOffset renewedAtUtc)
+    {
+        var renewedAt = renewedAtUtc.ToUniversalTime();
+        EnsureActiveOwner(ownerId, renewedAt);
+        var leaseExpiresAt = leaseExpiresAtUtc.ToUniversalTime();
+        if (leaseExpiresAt <= renewedAt)
+        {
+            throw new ArgumentException(
+                "The renewed generation lease must expire in the future.",
+                nameof(leaseExpiresAtUtc));
+        }
+
+        GenerationLeaseExpiresAtUtc = leaseExpiresAt;
+    }
+
+    public void CompleteGeneration(Guid ownerId, DateTimeOffset completedAtUtc)
+    {
+        var completedAt = completedAtUtc.ToUniversalTime();
+        EnsureActiveOwner(ownerId, completedAt);
+        MarkCompleted(completedAt);
+        ClearGenerationLease();
+    }
+
+    public void FailGeneration(
+        Guid ownerId,
+        string failureCode,
+        string failureMessage,
+        DateTimeOffset completedAtUtc)
+    {
+        var completedAt = completedAtUtc.ToUniversalTime();
+        EnsureActiveOwner(ownerId, completedAt);
+        MarkFailed(failureCode, failureMessage, completedAt);
+        ClearGenerationLease();
+    }
+
+    public void ReleaseGeneration(Guid ownerId, DateTimeOffset releasedAtUtc)
+    {
+        EnsureActiveOwner(ownerId, releasedAtUtc.ToUniversalTime());
+        Status = SchedulingRequestStatus.Pending;
+        CompletedAtUtc = null;
+        FailureCode = null;
+        FailureMessage = null;
+        ClearGenerationLease();
+    }
+
+    private void EnsureActiveOwner(Guid ownerId, DateTimeOffset observedAtUtc)
+    {
+        EnsureCurrentOwner(ownerId);
+        if (!GenerationLeaseExpiresAtUtc.HasValue
+            || GenerationLeaseExpiresAtUtc.Value <= observedAtUtc.ToUniversalTime())
+        {
+            throw new InvalidOperationException("The generation lease has expired.");
+        }
+    }
+
+    private void EnsureCurrentOwner(Guid ownerId)
+    {
+        ValidateOwner(ownerId);
+        if (Status != SchedulingRequestStatus.Processing || GenerationOwnerId != ownerId)
+        {
+            throw new InvalidOperationException(
+                "The caller does not own the active generation lease.");
+        }
+    }
+
+    private static void ValidateOwner(Guid ownerId)
+    {
+        if (ownerId == Guid.Empty)
+        {
+            throw new ArgumentException("A generation owner is required.", nameof(ownerId));
+        }
+    }
+
+    private void ClearGenerationLease()
+    {
+        GenerationOwnerId = null;
+        GenerationLeaseExpiresAtUtc = null;
     }
 
     private static string NormalizeRequestHash(string value)

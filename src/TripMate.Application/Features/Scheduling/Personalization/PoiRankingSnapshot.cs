@@ -16,7 +16,8 @@ internal enum PoiRankingOutcomeCategory
 internal sealed record PoiRankingSnapshot(
     FrozenSet<long> ProviderPoolPoiIds,
     FrozenDictionary<long, PoiRankingSnapshotEntry> Entries,
-    PoiRankingOutcomeCategory OutcomeCategory);
+    PoiRankingOutcomeCategory OutcomeCategory,
+    PersonalBehaviorAggregation BehaviorAggregation);
 
 internal sealed record PoiRankingSnapshotEntry(
     long PoiId,

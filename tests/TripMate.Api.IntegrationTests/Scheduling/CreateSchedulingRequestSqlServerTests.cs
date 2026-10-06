@@ -1,13 +1,16 @@
+using System.Data.Common;
 using System.Text.RegularExpressions;
 
 using FluentAssertions;
 
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging.Abstractions;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
+using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Create;
 using TripMate.Application.Features.Scheduling.Personalization;
@@ -95,6 +98,7 @@ public sealed class CreateSchedulingRequestSqlServerTests
         await ApplySchedulingMigrationsAsync(upgradedDatabase);
         await ApplySchedulingMigrationsAsync(upgradedDatabase);
         await using var freshDatabase = await SqlServerTestDatabase.CreateAsync();
+        await ApplySchedulingMigrationsAsync(freshDatabase);
 
         (await SchedulingColumnInventoryAsync(upgradedDatabase))
             .Should().Be(await SchedulingColumnInventoryAsync(freshDatabase));
@@ -110,6 +114,57 @@ public sealed class CreateSchedulingRequestSqlServerTests
             WHERE request_id = 1;
             """);
         backfilledValues.Should().Be("16.054400|108.202200|10.00|[]");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task GenerationReservationMigration_PreservesOutcomesAndRecoversLegacyProcessing()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database);
+        await database.ExecuteNonQueryAsync($"""
+            INSERT INTO planning.SchedulingRequests (
+                traveler_user_id, idempotency_key, request_hash, start_at, time_zone_id,
+                start_latitude, start_longitude, destination_latitude, destination_longitude,
+                return_to_start, available_minutes, transport_mode, search_radius_km,
+                mandatory_poi_ids_json, rest_preference, status, requested_at,
+                completed_at, failure_code, failure_message)
+            VALUES
+                ({seed.UserId}, NEWID(), REPLICATE('a', 64), '2026-10-20', 'Asia/Ho_Chi_Minh',
+                 16, 108, 16, 108, 1, 480, 'Motorbike', 10, N'[]', 'None',
+                 'Pending', '2026-10-01', NULL, NULL, NULL),
+                ({seed.UserId}, NEWID(), REPLICATE('b', 64), '2026-10-20', 'Asia/Ho_Chi_Minh',
+                 16, 108, 16, 108, 1, 480, 'Motorbike', 10, N'[]', 'None',
+                 'Completed', '2026-10-01', '2026-10-02', NULL, NULL),
+                ({seed.UserId}, NEWID(), REPLICATE('c', 64), '2026-10-20', 'Asia/Ho_Chi_Minh',
+                 16, 108, 16, 108, 1, 480, 'Motorbike', 10, N'[]', 'None',
+                 'Failed', '2026-10-01', '2026-10-02', 'planning.constraints_infeasible', N'No route.'),
+                ({seed.UserId}, NEWID(), REPLICATE('d', 64), '2026-10-20', 'Asia/Ho_Chi_Minh',
+                 16, 108, 16, 108, 1, 480, 'Motorbike', 10, N'[]', 'None',
+                 'Processing', '2026-10-01', NULL, NULL, NULL);
+            """);
+
+        await ApplySchedulingMigrationsAsync(database);
+        await ApplySchedulingMigrationsAsync(database);
+
+        var outcomes = await database.ExecuteScalarAsync<string>("""
+            SELECT STRING_AGG(
+                CONCAT(status, N':',
+                    COALESCE(failure_code, N'-'), N':',
+                    COALESCE(failure_message, N'-'), N':',
+                    CASE WHEN completed_at IS NULL THEN N'open' ELSE N'closed' END, N':',
+                    CASE WHEN generation_owner_id IS NULL THEN N'no-owner' ELSE N'owner' END, N':',
+                    CASE WHEN generation_lease_expires_at IS NULL THEN N'no-lease' ELSE N'lease' END, N':',
+                    generation_attempt),
+                N'|') WITHIN GROUP (ORDER BY request_id)
+            FROM planning.SchedulingRequests;
+            """);
+
+        outcomes.Should().Be(
+            "Pending:-:-:open:no-owner:no-lease:0"
+            + "|Completed:-:-:closed:no-owner:no-lease:0"
+            + "|Failed:planning.constraints_infeasible:No route.:closed:no-owner:no-lease:0"
+            + "|Pending:-:-:open:no-owner:no-lease:0");
     }
 
     [SqlServerFact]
@@ -438,34 +493,136 @@ public sealed class CreateSchedulingRequestSqlServerTests
         await ApplySchedulingMigrationsAsync(database);
         var seed = await SeedAsync(database);
         var key = Guid.NewGuid();
-        var startGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var routeProvider = new BlockingCountingRouteDurationProvider();
+        var rankingProvider = new CountingPoiRankingProvider();
+        var reservationReads = new SchedulingReservationReadObserver();
 
-        async Task<long> CreateAsync()
+        async Task<SchedulingResponseDto> CreateAsync()
         {
-            await startGate.Task;
-            await using var context = database.CreateDbContext();
-            var result = await CreateHandler(context).Handle(CreateCommand(seed.UserId, key), CancellationToken.None);
+            await using var context = database.CreateDbContext(reservationReads);
+            var result = await CreateHandler(
+                    context,
+                    routeProvider,
+                    rankingProvider: rankingProvider,
+                    rankingEnabled: true)
+                .Handle(CreateCommand(seed.UserId, key), CancellationToken.None);
             result.IsSuccess.Should().BeTrue();
-            return result.Value.ItineraryId;
+            return result.Value;
         }
 
         var first = CreateAsync();
+        await routeProvider.Started.Task.WaitAsync(TimeSpan.FromSeconds(10));
         var second = CreateAsync();
-        startGate.SetResult();
+        await reservationReads.CompetingRead.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        routeProvider.CallCount.Should().Be(1);
+        rankingProvider.CallCount.Should().Be(1);
+        routeProvider.Release();
         var resultIds = await Task.WhenAll(first, second);
 
-        resultIds[0].Should().Be(resultIds[1]);
+        resultIds[0].Should().BeEquivalentTo(resultIds[1], options => options.WithStrictOrdering());
+        routeProvider.CallCount.Should().Be(1);
+        rankingProvider.CallCount.Should().Be(1);
         await using var verification = database.CreateDbContext();
         (await verification.SchedulingRequests.CountAsync()).Should().Be(1);
         (await verification.Itineraries.CountAsync()).Should().Be(1);
-        (await verification.ItineraryItems.CountAsync()).Should().BeGreaterThan(0);
+        (await verification.ItineraryItems.CountAsync()).Should().Be(resultIds[0].Items.Count);
         var request = await verification.SchedulingRequests.SingleAsync();
         request.Status.Should().Be(SchedulingRequestStatus.Completed);
     }
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
-    public async Task ItineraryPersistenceFailure_RollsBackRequestItineraryAndItems()
+    public async Task ConcurrentSameKeyWithDifferentPayloads_CreatesOneCanonicalResultAndReturnsConflict()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await ApplySchedulingMigrationsAsync(database);
+        var seed = await SeedAsync(database);
+        var key = Guid.NewGuid();
+        var routeProvider = new BlockingCountingRouteDurationProvider();
+
+        async Task<(bool IsSuccess, string? ErrorCode, int? ItemCount)> CreateAsync(
+            int availableMinutes)
+        {
+            await using var context = database.CreateDbContext();
+            var result = await CreateHandler(context, routeProvider).Handle(
+                CreateCommand(seed.UserId, key) with { AvailableMinutes = availableMinutes },
+                CancellationToken.None);
+            return (
+                result.IsSuccess,
+                result.ErrorCode,
+                result.IsSuccess ? result.Value.Items.Count : null);
+        }
+
+        var first = CreateAsync(480);
+        await routeProvider.Started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var second = CreateAsync(420);
+        (bool IsSuccess, string? ErrorCode, int? ItemCount) conflict = await second;
+        conflict.IsSuccess.Should().BeFalse();
+        conflict.ErrorCode.Should().Be(SchedulingErrorCodes.IdempotencyKeyPayloadMismatch);
+        routeProvider.Release();
+        var results = await Task.WhenAll(first, second);
+
+        results.Should().ContainSingle(result => result.IsSuccess);
+        results.Should().ContainSingle(result =>
+            !result.IsSuccess
+            && result.ErrorCode == SchedulingErrorCodes.IdempotencyKeyPayloadMismatch);
+        routeProvider.CallCount.Should().Be(1);
+        int canonicalItemCount = results.Single(result => result.IsSuccess).ItemCount!.Value;
+        await using var verification = database.CreateDbContext();
+        (await verification.SchedulingRequests.CountAsync()).Should().Be(1);
+        (await verification.Itineraries.CountAsync()).Should().Be(1);
+        (await verification.ItineraryItems.CountAsync()).Should().Be(canonicalItemCount);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task ExpiredLeaseTakeover_FencesStaleOwnerAndPersistsOneAuthoritativeItinerary()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await ApplySchedulingMigrationsAsync(database);
+        var seed = await SeedAsync(database);
+        var key = Guid.NewGuid();
+        var clock = new FixedDateTimeProvider();
+        var staleRouteProvider = new BlockingCountingRouteDurationProvider();
+
+        async Task<Result<SchedulingResponseDto>> RunStaleOwnerAsync()
+        {
+            await using var context = database.CreateDbContext();
+            return await CreateHandler(context, staleRouteProvider, clock).Handle(
+                CreateCommand(seed.UserId, key),
+                CancellationToken.None);
+        }
+
+        Task<Result<SchedulingResponseDto>> staleOwner = RunStaleOwnerAsync();
+        await staleRouteProvider.Started.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        clock.UtcNow = clock.UtcNow.AddMinutes(2);
+
+        Result<SchedulingResponseDto> takeover;
+        await using (var takeoverContext = database.CreateDbContext())
+        {
+            takeover = await CreateHandler(takeoverContext, dateTimeProvider: clock).Handle(
+                CreateCommand(seed.UserId, key),
+                CancellationToken.None);
+        }
+
+        staleRouteProvider.Release();
+        Result<SchedulingResponseDto> staleResult = await staleOwner.WaitAsync(
+            TimeSpan.FromSeconds(10));
+
+        takeover.IsSuccess.Should().BeTrue();
+        staleResult.IsSuccess.Should().BeTrue();
+        staleResult.Value.ItineraryId.Should().Be(takeover.Value.ItineraryId);
+        await using var verification = database.CreateDbContext();
+        (await verification.SchedulingRequests.CountAsync()).Should().Be(1);
+        (await verification.Itineraries.CountAsync()).Should().Be(1);
+        var request = await verification.SchedulingRequests.SingleAsync();
+        request.Status.Should().Be(SchedulingRequestStatus.Completed);
+        request.GenerationAttempt.Should().Be(2);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task ItineraryPersistenceFailure_RollsBackItineraryAndLeavesRecoverableReservation()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
         await ApplySchedulingMigrationsAsync(database);
@@ -476,31 +633,57 @@ public sealed class CreateSchedulingRequestSqlServerTests
                 CHECK (source_type <> 'CSPGenerated');
             """);
 
+        var clock = new FixedDateTimeProvider();
+        var key = Guid.NewGuid();
         await using (var context = database.CreateDbContext())
         {
-            var action = () => CreateHandler(context).Handle(
-                CreateCommand(seed.UserId, Guid.NewGuid()),
+            var action = () => CreateHandler(context, dateTimeProvider: clock).Handle(
+                CreateCommand(seed.UserId, key),
                 CancellationToken.None);
             await action.Should().ThrowAsync<DbUpdateException>();
         }
 
         await using var verification = database.CreateDbContext();
-        (await verification.SchedulingRequests.CountAsync()).Should().Be(0);
+        (await verification.SchedulingRequests.CountAsync()).Should().Be(1);
         (await verification.Itineraries.CountAsync()).Should().Be(0);
         (await verification.ItineraryItems.CountAsync()).Should().Be(0);
+        var request = await verification.SchedulingRequests.SingleAsync();
+        request.Status.Should().Be(SchedulingRequestStatus.Processing);
+        request.GenerationAttempt.Should().Be(1);
+
+        await database.ExecuteNonQueryAsync($"""
+            ALTER TABLE planning.Itineraries
+                DROP CONSTRAINT [{RejectGeneratedItineraryConstraint}];
+            """);
+        clock.UtcNow = clock.UtcNow.AddMinutes(2);
+        await using var retryContext = database.CreateDbContext();
+        var retry = await CreateHandler(retryContext, dateTimeProvider: clock).Handle(
+            CreateCommand(seed.UserId, key),
+            CancellationToken.None);
+        retry.IsSuccess.Should().BeTrue();
+
+        await verification.Entry(request).ReloadAsync();
+        request.Status.Should().Be(SchedulingRequestStatus.Completed);
+        request.GenerationAttempt.Should().Be(2);
+        (await verification.Itineraries.CountAsync()).Should().Be(1);
     }
 
-    private static CreateSchedulingRequestCommandHandler CreateHandler(ApplicationDbContext context) =>
+    private static CreateSchedulingRequestCommandHandler CreateHandler(
+        ApplicationDbContext context,
+        IRouteDurationProvider? routeDurationProvider = null,
+        IDateTimeProvider? dateTimeProvider = null,
+        IPoiRankingProvider? rankingProvider = null,
+        bool rankingEnabled = false) =>
         new(
             context,
-            new FixedDateTimeProvider(),
-            new FixedRouteDurationProvider(),
+            dateTimeProvider ?? new FixedDateTimeProvider(),
+            routeDurationProvider ?? new FixedRouteDurationProvider(),
             new SqlServerSchedulingRequestLock(context),
             new PoiRankingOrchestrator(
                 new PersonalBehaviorFeatureAggregator(context),
-                ProviderDisabledPoiRankingProvider.Instance,
+                rankingProvider ?? ProviderDisabledPoiRankingProvider.Instance,
                 new PersonalizationRankingOptions(),
-                providerEnabled: false,
+                providerEnabled: rankingEnabled,
                 NullLogger<PoiRankingOrchestrator>.Instance));
 
     private static async Task<(long UserId, long PoiId)> SeedAsync(SqlServerTestDatabase database)
@@ -644,8 +827,9 @@ public sealed class CreateSchedulingRequestSqlServerTests
         foreach (var fileName in new[]
                  {
                      "20260914_add_scheduling_request_generation.sql",
-                     "20260915_extend_scheduling_request_contract.sql",
-                     "20260919_allow_named_rest_items.sql",
+                    "20260915_extend_scheduling_request_contract.sql",
+                    "20260919_allow_named_rest_items.sql",
+                    "20261004_add_scheduling_generation_reservation.sql",
                  })
         {
             var migrationPath = Path.Combine(
@@ -676,7 +860,8 @@ public sealed class CreateSchedulingRequestSqlServerTests
                        N'rest_preference', N'failure_code', N'failure_message',
                        N'destination_latitude', N'destination_longitude', N'search_radius_km',
                        N'mandatory_poi_ids_json', N'end_poi_id', N'return_to_start',
-                       N'transport_mode'))
+                       N'transport_mode', N'generation_owner_id',
+                       N'generation_lease_expires_at', N'generation_attempt'))
                OR (columns.object_id = OBJECT_ID(N'planning.ItineraryItems')
                    AND columns.name IN (N'item_kind', N'poi_id'))
                OR (columns.object_id = OBJECT_ID(N'catalog.POIs')
@@ -702,6 +887,7 @@ public sealed class CreateSchedulingRequestSqlServerTests
                       N'CK_SchedulingRequests_TransportMode',
                       N'CK_SchedulingRequests_RestPreference',
                       N'CK_SchedulingRequests_EndChoice',
+                      N'CK_SchedulingRequests_GenerationReservation',
                       N'CK_ItineraryItems_KindPoi',
                       N'CK_POIs_EstimatedVisitCost_NonNegative')
                 UNION ALL
@@ -725,6 +911,7 @@ public sealed class CreateSchedulingRequestSqlServerTests
                       N'DF_SchedulingRequests_TransportMode',
                       N'DF_SchedulingRequests_MandatoryPoiIds',
                       N'DF_SchedulingRequests_RestPreference',
+                      N'DF_SchedulingRequests_GenerationAttempt',
                       N'DF_ItineraryItems_ItemKind')
                 UNION ALL
                 SELECT
@@ -759,7 +946,8 @@ public sealed class CreateSchedulingRequestSqlServerTests
 
     private sealed class FixedDateTimeProvider : IDateTimeProvider
     {
-        public DateTimeOffset UtcNow => new(2026, 10, 20, 1, 0, 0, TimeSpan.Zero);
+        public DateTimeOffset UtcNow { get; set; } =
+            new(2026, 10, 20, 1, 0, 0, TimeSpan.Zero);
     }
 
     private sealed class FixedRouteDurationProvider : IRouteDurationProvider
@@ -779,6 +967,84 @@ public sealed class CreateSchedulingRequestSqlServerTests
             }
 
             return Task.FromResult(RouteDurationMatrix.Create(durations));
+        }
+    }
+
+    private sealed class BlockingCountingRouteDurationProvider : IRouteDurationProvider
+    {
+        private readonly TaskCompletionSource _started =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _callCount;
+
+        public TaskCompletionSource Started => _started;
+
+        public int CallCount => Volatile.Read(ref _callCount);
+
+        public void Release() => _release.TrySetResult();
+
+        public async Task<RouteDurationMatrix> GetMatrixAsync(
+            IReadOnlyList<RoutePoint> points,
+            TransportMode transportMode,
+            CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _callCount);
+            _started.TrySetResult();
+            await _release.Task.WaitAsync(cancellationToken);
+            var durations = new int[points.Count, points.Count];
+            for (var row = 0; row < points.Count; row++)
+            {
+                for (var column = 0; column < points.Count; column++)
+                {
+                    durations[row, column] = row == column ? 0 : 15;
+                }
+            }
+
+            return RouteDurationMatrix.Create(durations);
+        }
+    }
+
+    private sealed class CountingPoiRankingProvider : IPoiRankingProvider
+    {
+        private int _callCount;
+
+        public int CallCount => Volatile.Read(ref _callCount);
+
+        public Task<Result<PoiRankingResult>> RankAsync(
+            PoiRankingRequest request,
+            CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _callCount);
+            return Task.FromResult(Result.Success(new PoiRankingResult(
+                request.Candidates
+                    .Select(candidate => new PoiRankingItem(candidate.PoiId, 0.5m, null))
+                    .ToArray())));
+        }
+    }
+
+    private sealed class SchedulingReservationReadObserver : DbCommandInterceptor
+    {
+        private readonly TaskCompletionSource _competingRead =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _reservationReads;
+
+        public TaskCompletionSource CompetingRead => _competingRead;
+
+        public override ValueTask<DbDataReader> ReaderExecutedAsync(
+            DbCommand command,
+            CommandExecutedEventData eventData,
+            DbDataReader result,
+            CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("SchedulingRequests", StringComparison.Ordinal)
+                && command.CommandText.Contains("SELECT", StringComparison.OrdinalIgnoreCase)
+                && Interlocked.Increment(ref _reservationReads) == 2)
+            {
+                _competingRead.TrySetResult();
+            }
+
+            return ValueTask.FromResult(result);
         }
     }
 }

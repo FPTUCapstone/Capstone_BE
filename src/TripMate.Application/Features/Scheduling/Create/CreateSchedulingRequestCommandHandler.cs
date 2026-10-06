@@ -31,13 +31,16 @@ public sealed class CreateSchedulingRequestCommandHandler(
     IItineraryExplanationProvider? explanationProvider = null,
     ItineraryExplanationExecutionOptions? explanationOptions = null,
     ILogger<CreateSchedulingRequestCommandHandler>? logger = null,
-    IGenerateRateLimiter? generateRateLimiter = null)
+    IGenerateRateLimiter? generateRateLimiter = null,
+    SchedulingReservationOptions? reservationOptions = null)
     : IRequestHandler<CreateSchedulingRequestCommand, Result<SchedulingResponseDto>>
 {
     private readonly SchedulingGenerationOptions _generationOptions =
         generationOptions ?? new SchedulingGenerationOptions();
     private readonly ItineraryExplanationExecutionOptions _explanationOptions =
         explanationOptions ?? new ItineraryExplanationExecutionOptions();
+    private readonly SchedulingReservationOptions _reservationOptions =
+        reservationOptions ?? new SchedulingReservationOptions();
 
     public async Task<Result<SchedulingResponseDto>> Handle(
         CreateSchedulingRequestCommand command,
@@ -46,250 +49,462 @@ public sealed class CreateSchedulingRequestCommandHandler(
         var canonical = CanonicalSchedulingRequest.From(command);
         var timeZone = TimeZoneInfo.FindSystemTimeZoneById(canonical.TimeZoneId);
         var requestHash = ComputeRequestHash(canonical);
-        var replayExists = await dbContext.SchedulingRequests
-            .AsNoTracking()
-            .AnyAsync(request =>
-                request.TravelerUserId == canonical.TravelerUserId
-                && request.IdempotencyKey == canonical.IdempotencyKey,
-                cancellationToken);
+        var generationOwnerId = Guid.NewGuid();
+        var rateLimitChecked = false;
 
-        if (!replayExists && generateRateLimiter is not null)
+        while (true)
         {
-            GenerateRateLimitDecision decision = generateRateLimiter.TryAcquire(
-                canonical.TravelerUserId);
-            if (!decision.Allowed)
+            ReservationDecision reservation = await ReserveAsync(
+                canonical,
+                requestHash,
+                generationOwnerId,
+                cancellationToken);
+            dbContext.ClearTrackedEntities();
+
+            if (reservation.Kind == ReservationDecisionKind.Replay)
             {
-                return Result.Failure<SchedulingResponseDto>(
-                    decision.ErrorCode!,
-                    "Too many itinerary generation requests. Please try again later.",
-                    new Dictionary<string, object?>
-                    {
-                        ["retryAfterSeconds"] = decision.RetryAfterSeconds,
-                    });
+                return await ReplayAsync(reservation.RequestId, requestHash, cancellationToken);
+            }
+
+            if (reservation.Kind == ReservationDecisionKind.Wait)
+            {
+                ReservationDecision observed = await AwaitReservationAvailabilityAsync(
+                    reservation.RequestId,
+                    requestHash,
+                    cancellationToken);
+                if (observed.Kind == ReservationDecisionKind.Replay)
+                {
+                    return await ReplayAsync(observed.RequestId, requestHash, cancellationToken);
+                }
+
+                if (observed.Failure is not null)
+                {
+                    return observed.Failure;
+                }
+
+                continue;
+            }
+
+            if (reservation.Failure is not null)
+            {
+                return reservation.Failure;
+            }
+
+            if (!rateLimitChecked && generateRateLimiter is not null)
+            {
+                rateLimitChecked = true;
+                GenerateRateLimitDecision rateLimit = generateRateLimiter.TryAcquire(
+                    canonical.TravelerUserId);
+                if (!rateLimit.Allowed)
+                {
+                    await ReleaseReservationAsync(canonical, generationOwnerId, cancellationToken);
+                    return Result.Failure<SchedulingResponseDto>(
+                        rateLimit.ErrorCode!,
+                        "Too many itinerary generation requests. Please try again later.",
+                        new Dictionary<string, object?>
+                        {
+                            ["retryAfterSeconds"] = rateLimit.RetryAfterSeconds,
+                        });
+                }
+            }
+
+            for (var snapshotAttempt = 0; snapshotAttempt < 2; snapshotAttempt++)
+            {
+                PreparedGeneration prepared;
+                try
+                {
+                    prepared = await PrepareGenerationAsync(canonical, timeZone, cancellationToken);
+                }
+                catch (RouteDurationProviderException ex)
+                {
+                    await ReleaseReservationAsync(canonical, generationOwnerId, cancellationToken);
+                    logger?.LogWarning(
+                        ex,
+                        "Route duration provider failure provider={Provider}; operation={Operation}; category={Category}.",
+                        ex.ProviderName,
+                        "duration-matrix",
+                        ex.FailureKind);
+                    return Result.Failure<SchedulingResponseDto>(
+                        SchedulingErrorCodes.RoutingProviderUnavailable,
+                        "The routing service is temporarily unavailable. Please try again.");
+                }
+
+                FinalizeDecision finalized = await FinalizeAsync(
+                    canonical,
+                    requestHash,
+                    generationOwnerId,
+                    reservation.GenerationAttempt,
+                    prepared,
+                    snapshotAttempt == 0,
+                    timeZone,
+                    cancellationToken);
+                dbContext.ClearTrackedEntities();
+
+                if (finalized.Kind == FinalizeDecisionKind.RetrySnapshot)
+                {
+                    continue;
+                }
+
+                if (finalized.Kind == FinalizeDecisionKind.LostOwnership)
+                {
+                    break;
+                }
+
+                if (finalized.FreshGeneration is null)
+                {
+                    return finalized.Result!;
+                }
+
+                cancellationToken.ThrowIfCancellationRequested();
+                return await AttachExplanationsAsync(
+                    finalized.FreshGeneration,
+                    prepared.ExplanationMetadata,
+                    explanationProvider,
+                    _explanationOptions.Enabled,
+                    logger,
+                    cancellationToken);
             }
         }
+    }
 
-        PoiRankingSnapshot? rankingSnapshot = null;
-        IReadOnlyDictionary<long, ExplanationPoiMetadata> explanationMetadata =
-            FrozenDictionary<long, ExplanationPoiMetadata>.Empty;
-        if (!replayExists)
-        {
-            var travelerInterestTags = await dbContext.TravelerProfiles
-                .AsNoTracking()
-                .Where(profile => profile.UserId == canonical.TravelerUserId)
-                .Select(profile => profile.InterestTagsJson)
-                .SingleOrDefaultAsync(cancellationToken);
-            var preferenceTokens = TravelerPreferenceScoring.ParsePreferenceTokens(
-                travelerInterestTags);
-            var phaseOnePois = await dbContext.PointsOfInterest
-                .AsNoTracking()
-                .Include(poi => poi.Category)
-                .Include(poi => poi.OpeningHours)
-                .Include(poi => poi.PoiTags)
-                .ThenInclude(mapping => mapping.Tag)
-                .Where(poi => poi.Status == PointOfInterestStatus.Active)
-                .ToListAsync(cancellationToken);
-            var mandatoryIds = canonical.MandatoryPoiIds.ToHashSet();
-            explanationMetadata = phaseOnePois.ToFrozenDictionary(
-                poi => poi.Id,
-                poi => new ExplanationPoiMetadata(
-                    poi.Name,
-                    poi.Category?.Name,
-                    poi.PoiTags.Select(mapping => mapping.Tag.Name).ToArray()));
-            var optionalCandidates = phaseOnePois
-                .Where(PlanningPoiEligibility.IsPlanningReady)
-                .Where(poi => GeoDistance.EquirectangularKilometers(
-                    canonical.ExplorationLatitude,
-                    canonical.ExplorationLongitude,
-                    poi.Latitude,
-                    poi.Longitude) <= canonical.SearchRadiusKm)
-                .Where(poi => !mandatoryIds.Contains(poi.Id))
-                .Select(poi => new PoiRankingInputCandidate(
-                    poi.Id,
-                    poi.CategoryId,
-                    poi.Name,
-                    poi.Category.Name,
-                    poi.PoiTags.Select(mapping => mapping.Tag.Name).ToArray(),
-                    poi.ScenicScore,
-                    poi.PhotoRating,
-                    GeoDistance.EquirectangularKilometers(
-                        canonical.ExplorationLatitude,
-                        canonical.ExplorationLongitude,
-                        poi.Latitude,
-                        poi.Longitude),
-                    poi.EstimatedVisitCost))
-                .ToArray();
-
-            rankingSnapshot = await poiRankingOrchestrator.BuildRankingAsync(
-                new PoiRankingInput(
-                    canonical.TravelerUserId,
-                    preferenceTokens,
-                    optionalCandidates),
-                cancellationToken);
-        }
-
-        FreshGenerationContext? freshGeneration = null;
-        Result<SchedulingResponseDto> phaseOneResult;
-        try
-        {
-            phaseOneResult = await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
+    private async Task<ReservationDecision> ReserveAsync(
+        CanonicalSchedulingRequest canonical,
+        string requestHash,
+        Guid ownerId,
+        CancellationToken cancellationToken) =>
+        await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
         {
             await schedulingRequestLock.AcquireAsync(
                 canonical.TravelerUserId,
                 canonical.IdempotencyKey,
                 transactionCancellationToken);
 
-            var previousRequest = await dbContext.SchedulingRequests
-                .SingleOrDefaultAsync(request =>
-                    request.TravelerUserId == canonical.TravelerUserId
-                    && request.IdempotencyKey == canonical.IdempotencyKey,
-                    transactionCancellationToken);
-            if (previousRequest is not null)
+            var request = await dbContext.SchedulingRequests.SingleOrDefaultAsync(item =>
+                item.TravelerUserId == canonical.TravelerUserId
+                && item.IdempotencyKey == canonical.IdempotencyKey,
+                transactionCancellationToken);
+            if (request is not null
+                && !string.Equals(request.RequestHash, requestHash, StringComparison.Ordinal))
             {
-                return await ReplayAsync(previousRequest, requestHash, transactionCancellationToken);
+                return ReservationDecision.Failed(Result.Failure<SchedulingResponseDto>(
+                    SchedulingErrorCodes.IdempotencyKeyPayloadMismatch,
+                    "The Idempotency-Key was already used with different request data."));
             }
 
-            // Preferences are live-read for first generation and excluded from request identity.
-            // Replay returns the original itinerary; a fresh preference result requires a new key.
+            if (request?.Status is SchedulingRequestStatus.Completed or SchedulingRequestStatus.Failed)
+            {
+                return ReservationDecision.Replay(request.Id);
+            }
+
+            var now = dateTimeProvider.UtcNow;
+            if (request?.Status == SchedulingRequestStatus.Processing
+                && request.GenerationLeaseExpiresAtUtc > now)
+            {
+                return ReservationDecision.Waiting(request.Id);
+            }
+
+            if (request is null)
+            {
+                request = SchedulingRequest.Create(
+                    canonical.TravelerUserId,
+                    canonical.IdempotencyKey,
+                    requestHash,
+                    canonical.StartAtUtc,
+                    canonical.TimeZoneId,
+                    canonical.StartLatitude,
+                    canonical.StartLongitude,
+                    canonical.ExplorationLatitude,
+                    canonical.ExplorationLongitude,
+                    canonical.EndPoiId,
+                    canonical.ReturnToStart,
+                    canonical.AvailableMinutes,
+                    canonical.TransportMode,
+                    canonical.SearchRadiusKm,
+                    canonical.BudgetVnd,
+                    JsonSerializer.Serialize(canonical.MandatoryPoiIds),
+                    canonical.RestPreference,
+                    now);
+                dbContext.SchedulingRequests.Add(request);
+            }
+
+            request.ClaimGeneration(ownerId, now.Add(_reservationOptions.LeaseDuration), now);
+            await dbContext.SaveChangesAsync(transactionCancellationToken);
+            return ReservationDecision.Owned(request.Id, request.GenerationAttempt);
+        }, cancellationToken);
+
+    private async Task<ReservationDecision> AwaitReservationAvailabilityAsync(
+        long requestId,
+        string requestHash,
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            await Task.Delay(_reservationOptions.PollInterval, cancellationToken);
+            var observed = await dbContext.SchedulingRequests
+                .AsNoTracking()
+                .Where(request => request.Id == requestId)
+                .Select(request => new ReservationObservation(
+                    request.Id,
+                    request.RequestHash,
+                    request.Status,
+                    request.GenerationLeaseExpiresAtUtc))
+                .SingleOrDefaultAsync(cancellationToken);
+            if (observed is null)
+            {
+                return ReservationDecision.Waiting(requestId);
+            }
+
+            if (!string.Equals(observed.RequestHash, requestHash, StringComparison.Ordinal))
+            {
+                return ReservationDecision.Failed(Result.Failure<SchedulingResponseDto>(
+                    SchedulingErrorCodes.IdempotencyKeyPayloadMismatch,
+                    "The Idempotency-Key was already used with different request data."));
+            }
+
+            if (observed.Status is SchedulingRequestStatus.Completed or SchedulingRequestStatus.Failed)
+            {
+                return ReservationDecision.Replay(observed.RequestId);
+            }
+
+            if (observed.Status == SchedulingRequestStatus.Pending
+                || observed.GenerationLeaseExpiresAtUtc <= dateTimeProvider.UtcNow)
+            {
+                return ReservationDecision.Waiting(observed.RequestId);
+            }
+        }
+    }
+
+    private async Task<PreparedGeneration> PrepareGenerationAsync(
+        CanonicalSchedulingRequest canonical,
+        TimeZoneInfo timeZone,
+        CancellationToken cancellationToken)
+    {
+        var travelerInterestTags = await dbContext.TravelerProfiles
+            .AsNoTracking()
+            .Where(profile => profile.UserId == canonical.TravelerUserId)
+            .Select(profile => profile.InterestTagsJson)
+            .SingleOrDefaultAsync(cancellationToken);
+        var preferenceTokens = TravelerPreferenceScoring.ParsePreferenceTokens(travelerInterestTags);
+        var activePois = await LoadActivePoisAsync(cancellationToken);
+        var snapshotData = SchedulingGenerationSnapshot.CaptureData(travelerInterestTags, activePois);
+        var snapshot = SchedulingGenerationSnapshot.Create(snapshotData);
+        var explanationMetadata = activePois.ToFrozenDictionary(
+            poi => poi.Id,
+            poi => new ExplanationPoiMetadata(
+                poi.Name,
+                poi.Category?.Name,
+                poi.PoiTags.Select(mapping => mapping.Tag.Name).ToArray()));
+        var endPoi = canonical.EndPoiId.HasValue
+            ? activePois.SingleOrDefault(poi => poi.Id == canonical.EndPoiId.Value)
+            : null;
+        if (canonical.EndPoiId.HasValue && endPoi is null)
+        {
+            return PreparedGeneration.Infeasible(
+                snapshot.Hash,
+                preferenceTokens,
+                explanationMetadata,
+                "The selected ending location is unavailable.");
+        }
+
+        var selectablePois = activePois
+            .Where(PlanningPoiEligibility.IsPlanningReady)
+            .Where(poi => GeoDistance.EquirectangularKilometers(
+                canonical.ExplorationLatitude,
+                canonical.ExplorationLongitude,
+                poi.Latitude,
+                poi.Longitude) <= canonical.SearchRadiusKm)
+            .ToArray();
+        var selectableIds = selectablePois.Select(poi => poi.Id).ToHashSet();
+        if (canonical.MandatoryPoiIds.Any(id => !selectableIds.Contains(id)))
+        {
+            return PreparedGeneration.Infeasible(
+                snapshot.Hash,
+                preferenceTokens,
+                explanationMetadata,
+                "A mandatory location is unavailable or outside the selected area.");
+        }
+
+        if (selectablePois.Length == 0)
+        {
+            return PreparedGeneration.Infeasible(
+                snapshot.Hash,
+                preferenceTokens,
+                explanationMetadata,
+                "No selectable locations were found in the selected area.");
+        }
+
+        if (canonical.TransportMode == TransportMode.PublicTransit)
+        {
+            return PreparedGeneration.Infeasible(
+                snapshot.Hash,
+                preferenceTokens,
+                explanationMetadata,
+                "Public transit routing is not available yet. Choose walking, motorbike, or car.");
+        }
+
+        var mandatoryIds = canonical.MandatoryPoiIds.ToHashSet();
+        var optionalCandidates = selectablePois
+            .Where(poi => !mandatoryIds.Contains(poi.Id))
+            .Select(poi => new PoiRankingInputCandidate(
+                poi.Id,
+                poi.CategoryId,
+                poi.Name,
+                poi.Category.Name,
+                poi.PoiTags.Select(mapping => mapping.Tag.Name).ToArray(),
+                poi.ScenicScore,
+                poi.PhotoRating,
+                GeoDistance.EquirectangularKilometers(
+                    canonical.ExplorationLatitude,
+                    canonical.ExplorationLongitude,
+                    poi.Latitude,
+                    poi.Longitude),
+                poi.EstimatedVisitCost))
+            .ToArray();
+        var ranking = await poiRankingOrchestrator.BuildRankingAsync(
+            new PoiRankingInput(canonical.TravelerUserId, preferenceTokens, optionalCandidates),
+            cancellationToken);
+        snapshot = SchedulingGenerationSnapshot.Capture(snapshotData, ranking.BehaviorAggregation);
+        var poolBoundSelectablePois = selectablePois
+            .Where(poi => mandatoryIds.Contains(poi.Id) || ranking.ProviderPoolPoiIds.Contains(poi.Id))
+            .ToArray();
+        var optionalRankingEntries = poolBoundSelectablePois
+            .Where(poi => !mandatoryIds.Contains(poi.Id))
+            .ToDictionary(poi => poi.Id, poi => GetRequiredRankingEntry(ranking, poi.Id));
+        var matrixCandidates = SelectMatrixCandidates(
+            poolBoundSelectablePois,
+            canonical.MandatoryPoiIds,
+            optionalRankingEntries);
+        var end = endPoi is null
+            ? new RoutePoint(canonical.StartLatitude, canonical.StartLongitude)
+            : new RoutePoint(endPoi.Latitude, endPoi.Longitude);
+        var input = new GenerationInput(
+            canonical.StartAtUtc,
+            timeZone,
+            new RoutePoint(canonical.StartLatitude, canonical.StartLongitude),
+            end,
+            canonical.AvailableMinutes,
+            canonical.TransportMode,
+            canonical.RestPreference,
+            canonical.BudgetVnd,
+            matrixCandidates.Select(poi => ToCandidate(
+                poi,
+                preferenceTokens,
+                mandatoryIds.Contains(poi.Id) ? null : optionalRankingEntries[poi.Id])).ToArray(),
+            canonical.MandatoryPoiIds);
+        var plan = await new ItineraryGenerationService(routeDurationProvider, _generationOptions)
+            .GenerateAsync(input, cancellationToken);
+        return plan.IsFailure
+            ? PreparedGeneration.Infeasible(
+                snapshot.Hash,
+                preferenceTokens,
+                explanationMetadata,
+                plan.ErrorMessage ?? "The selected constraints cannot produce an itinerary.",
+                behaviorWasUsed: true)
+            : PreparedGeneration.Successful(
+                snapshot.Hash,
+                preferenceTokens,
+                explanationMetadata,
+                plan.Value);
+    }
+
+    private async Task<FinalizeDecision> FinalizeAsync(
+        CanonicalSchedulingRequest canonical,
+        string requestHash,
+        Guid ownerId,
+        int generationAttempt,
+        PreparedGeneration prepared,
+        bool mayRetrySnapshot,
+        TimeZoneInfo timeZone,
+        CancellationToken cancellationToken)
+    {
+        dbContext.ClearTrackedEntities();
+        return await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
+        {
+            await schedulingRequestLock.AcquireAsync(
+                canonical.TravelerUserId,
+                canonical.IdempotencyKey,
+                transactionCancellationToken);
+            var request = await dbContext.SchedulingRequests.SingleAsync(item =>
+                item.TravelerUserId == canonical.TravelerUserId
+                && item.IdempotencyKey == canonical.IdempotencyKey,
+                transactionCancellationToken);
+            var now = dateTimeProvider.UtcNow;
+            if (!string.Equals(request.RequestHash, requestHash, StringComparison.Ordinal)
+                || request.Status != SchedulingRequestStatus.Processing
+                || request.GenerationOwnerId != ownerId
+                || request.GenerationAttempt != generationAttempt
+                || request.GenerationLeaseExpiresAtUtc <= now)
+            {
+                return FinalizeDecision.LostOwnership();
+            }
+
             var travelerInterestTags = await dbContext.TravelerProfiles
                 .AsNoTracking()
                 .Where(profile => profile.UserId == canonical.TravelerUserId)
                 .Select(profile => profile.InterestTagsJson)
                 .SingleOrDefaultAsync(transactionCancellationToken);
-            var preferenceTokens = TravelerPreferenceScoring.ParsePreferenceTokens(travelerInterestTags);
-            var activePois = await dbContext.PointsOfInterest
-                .AsNoTracking()
-                .Include(poi => poi.Category)
-                .Include(poi => poi.OpeningHours)
-                .Include(poi => poi.PoiTags)
-                .ThenInclude(mapping => mapping.Tag)
-                .Where(poi => poi.Status == PointOfInterestStatus.Active)
-                .ToListAsync(transactionCancellationToken);
-            var now = dateTimeProvider.UtcNow;
-            var schedulingRequest = SchedulingRequest.Create(
-                canonical.TravelerUserId,
-                canonical.IdempotencyKey,
-                requestHash,
-                canonical.StartAtUtc,
-                canonical.TimeZoneId,
-                canonical.StartLatitude,
-                canonical.StartLongitude,
-                canonical.ExplorationLatitude,
-                canonical.ExplorationLongitude,
-                canonical.EndPoiId,
-                canonical.ReturnToStart,
-                canonical.AvailableMinutes,
-                canonical.TransportMode,
-                canonical.SearchRadiusKm,
-                canonical.BudgetVnd,
-                JsonSerializer.Serialize(canonical.MandatoryPoiIds),
-                canonical.RestPreference,
-                now);
-            dbContext.SchedulingRequests.Add(schedulingRequest);
-
-            var endPoi = canonical.EndPoiId.HasValue
-                ? activePois.SingleOrDefault(poi => poi.Id == canonical.EndPoiId.Value)
-                : null;
-            if (canonical.EndPoiId.HasValue && endPoi is null)
+            var activePois = await LoadActivePoisAsync(transactionCancellationToken);
+            PersonalBehaviorAggregation? behaviorAggregation = null;
+            if (prepared.BehaviorWasUsed)
             {
-                return await PersistInfeasibleAsync(
-                    schedulingRequest,
-                    "The selected ending location is unavailable.",
-                    now,
-                    transactionCancellationToken);
+                var mandatoryIds = canonical.MandatoryPoiIds.ToHashSet();
+                var behaviorCandidates = activePois
+                    .Where(PlanningPoiEligibility.IsPlanningReady)
+                    .Where(poi => GeoDistance.EquirectangularKilometers(
+                        canonical.ExplorationLatitude,
+                        canonical.ExplorationLongitude,
+                        poi.Latitude,
+                        poi.Longitude) <= canonical.SearchRadiusKm)
+                    .Where(poi => !mandatoryIds.Contains(poi.Id))
+                    .ToArray();
+                behaviorAggregation = await new PersonalBehaviorFeatureAggregator(dbContext)
+                    .AggregateAsync(
+                        canonical.TravelerUserId,
+                        behaviorCandidates.Select(poi => poi.Id).ToArray(),
+                        behaviorCandidates.Select(poi => poi.CategoryId).Distinct().ToArray(),
+                        transactionCancellationToken);
             }
 
-            var selectablePois = activePois
-                .Where(PlanningPoiEligibility.IsPlanningReady)
-                .Where(poi => GeoDistance.EquirectangularKilometers(
-                    canonical.ExplorationLatitude,
-                    canonical.ExplorationLongitude,
-                    poi.Latitude,
-                    poi.Longitude) <= canonical.SearchRadiusKm)
-                .ToArray();
-            var selectableIds = selectablePois.Select(poi => poi.Id).ToHashSet();
-            if (canonical.MandatoryPoiIds.Any(id => !selectableIds.Contains(id)))
+            var authoritativeSnapshot = SchedulingGenerationSnapshot.Capture(
+                travelerInterestTags,
+                activePois,
+                behaviorAggregation);
+            if (!string.Equals(authoritativeSnapshot.Hash, prepared.SnapshotHash, StringComparison.Ordinal))
             {
-                return await PersistInfeasibleAsync(
-                    schedulingRequest,
-                    "A mandatory location is unavailable or outside the selected area.",
-                    now,
-                    transactionCancellationToken);
+                if (mayRetrySnapshot)
+                {
+                    request.RenewGenerationLease(
+                        ownerId,
+                        now.Add(_reservationOptions.LeaseDuration),
+                        now);
+                    await dbContext.SaveChangesAsync(transactionCancellationToken);
+                    return FinalizeDecision.RetrySnapshot();
+                }
+
+                request.ReleaseGeneration(ownerId, now);
+                await dbContext.SaveChangesAsync(transactionCancellationToken);
+                return FinalizeDecision.Completed(Result.Failure<SchedulingResponseDto>(
+                    SchedulingErrorCodes.GenerationTemporarilyUnavailable,
+                    "Planning data changed while the itinerary was generated. Please try again."));
             }
 
-            if (selectablePois.Length == 0)
+            if (prepared.Plan is null)
             {
-                return await PersistInfeasibleAsync(
-                    schedulingRequest,
-                    "No selectable locations were found in the selected area.",
-                    now,
-                    transactionCancellationToken);
-            }
-
-            if (canonical.TransportMode == TransportMode.PublicTransit)
-            {
-                return await PersistInfeasibleAsync(
-                    schedulingRequest,
-                    "Public transit routing is not available yet. Choose walking, motorbike, or car.",
-                    now,
-                    transactionCancellationToken);
-            }
-
-            var providerPoolPoiIds = rankingSnapshot?.ProviderPoolPoiIds
-                ?? throw new InvalidOperationException(
-                    "A ranking snapshot is required after the authoritative replay check.");
-            var mandatoryIds = canonical.MandatoryPoiIds.ToHashSet();
-            var poolBoundSelectablePois = selectablePois
-                .Where(poi =>
-                    mandatoryIds.Contains(poi.Id)
-                    || providerPoolPoiIds.Contains(poi.Id))
-                .ToArray();
-            var optionalRankingEntries = poolBoundSelectablePois
-                .Where(poi => !mandatoryIds.Contains(poi.Id))
-                .ToDictionary(
-                    poi => poi.Id,
-                    poi => GetRequiredRankingEntry(rankingSnapshot, poi.Id));
-            var matrixCandidates = SelectMatrixCandidates(
-                poolBoundSelectablePois,
-                canonical.MandatoryPoiIds,
-                optionalRankingEntries);
-
-            var end = endPoi is null
-                ? new RoutePoint(canonical.StartLatitude, canonical.StartLongitude)
-                : new RoutePoint(endPoi.Latitude, endPoi.Longitude);
-            var input = new GenerationInput(
-                canonical.StartAtUtc,
-                timeZone,
-                new RoutePoint(canonical.StartLatitude, canonical.StartLongitude),
-                end,
-                canonical.AvailableMinutes,
-                canonical.TransportMode,
-                canonical.RestPreference,
-                canonical.BudgetVnd,
-                matrixCandidates.Select(poi => ToCandidate(
-                    poi,
-                    preferenceTokens,
-                    mandatoryIds.Contains(poi.Id)
-                        ? null
-                        : optionalRankingEntries[poi.Id])).ToArray(),
-                canonical.MandatoryPoiIds);
-            var plan = await new ItineraryGenerationService(routeDurationProvider, _generationOptions)
-                .GenerateAsync(input, transactionCancellationToken);
-            if (plan.IsFailure)
-            {
-                return await PersistInfeasibleAsync(
-                    schedulingRequest,
-                    plan.ErrorMessage ?? "The selected constraints cannot produce an itinerary.",
-                    now,
-                    transactionCancellationToken);
+                request.FailGeneration(
+                    ownerId,
+                    SchedulingErrorCodes.ConstraintsInfeasible,
+                    prepared.FailureMessage!,
+                    now);
+                await dbContext.SaveChangesAsync(transactionCancellationToken);
+                return FinalizeDecision.Completed(Infeasible(prepared.FailureMessage!));
             }
 
             var itinerary = Itinerary.CreateCspGenerated(
-                schedulingRequest,
+                request,
                 $"Generated itinerary - {TimeZoneInfo.ConvertTime(canonical.StartAtUtc, timeZone):dd MMM yyyy}",
                 canonical.StartAtUtc,
-                plan.Value.EndAtUtc);
-            foreach (var item in plan.Value.Items)
+                prepared.Plan.EndAtUtc);
+            foreach (var item in prepared.Plan.Items)
             {
                 itinerary.AddItem(item.Kind == ItineraryItemKind.Rest
                     ? ItineraryItem.CreateRest(
@@ -310,46 +525,60 @@ public sealed class CreateSchedulingRequestCommandHandler(
                         item.TravelDurationToNextMinutes));
             }
 
-            schedulingRequest.Complete(now);
+            request.CompleteGeneration(ownerId, now);
             dbContext.Itineraries.Add(itinerary);
             await dbContext.SaveChangesAsync(transactionCancellationToken);
-
-            freshGeneration = new FreshGenerationContext(
-                schedulingRequest,
+            var fresh = new FreshGenerationContext(
+                request,
                 itinerary,
-                plan.Value,
-                preferenceTokens.ToArray());
-            return Result.Success(ToResponse(schedulingRequest, itinerary, plan.Value));
+                prepared.Plan,
+                prepared.PreferenceTokens);
+            return FinalizeDecision.Completed(
+                Result.Success(ToResponse(request, itinerary, prepared.Plan)),
+                fresh);
         }, cancellationToken);
-        }
-        catch (RouteDurationProviderException ex)
-        {
-            dbContext.ClearTrackedEntities();
-            logger?.LogWarning(
-                ex,
-                "Route duration provider failure provider={Provider}; operation={Operation}; category={Category}.",
-                ex.ProviderName,
-                "duration-matrix",
-                ex.FailureKind);
-            return Result.Failure<SchedulingResponseDto>(
-                SchedulingErrorCodes.RoutingProviderUnavailable,
-                "The routing service is temporarily unavailable. Please try again.");
-        }
-
-        if (freshGeneration is null)
-        {
-            return phaseOneResult;
-        }
-
-        cancellationToken.ThrowIfCancellationRequested();
-        return await AttachExplanationsAsync(
-            freshGeneration,
-            explanationMetadata,
-            explanationProvider,
-            _explanationOptions.Enabled,
-            logger,
-            cancellationToken);
     }
+
+    private async Task ReleaseReservationAsync(
+        CanonicalSchedulingRequest canonical,
+        Guid ownerId,
+        CancellationToken cancellationToken)
+    {
+        dbContext.ClearTrackedEntities();
+        await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
+        {
+            await schedulingRequestLock.AcquireAsync(
+                canonical.TravelerUserId,
+                canonical.IdempotencyKey,
+                transactionCancellationToken);
+            var request = await dbContext.SchedulingRequests.SingleOrDefaultAsync(item =>
+                item.TravelerUserId == canonical.TravelerUserId
+                && item.IdempotencyKey == canonical.IdempotencyKey,
+                transactionCancellationToken);
+            var now = dateTimeProvider.UtcNow;
+            if (request?.Status == SchedulingRequestStatus.Processing
+                && request.GenerationOwnerId == ownerId
+                && request.GenerationLeaseExpiresAtUtc > now)
+            {
+                request.ReleaseGeneration(ownerId, now);
+                await dbContext.SaveChangesAsync(transactionCancellationToken);
+            }
+
+            return true;
+        }, cancellationToken);
+        dbContext.ClearTrackedEntities();
+    }
+
+    private async Task<List<PointOfInterest>> LoadActivePoisAsync(
+        CancellationToken cancellationToken) =>
+        await dbContext.PointsOfInterest
+            .AsNoTracking()
+            .Include(poi => poi.Category)
+            .Include(poi => poi.OpeningHours)
+            .Include(poi => poi.PoiTags)
+            .ThenInclude(mapping => mapping.Tag)
+            .Where(poi => poi.Status == PointOfInterestStatus.Active)
+            .ToListAsync(cancellationToken);
 
     private async Task<Result<SchedulingResponseDto>> AttachExplanationsAsync(
         FreshGenerationContext generation,
@@ -516,10 +745,13 @@ public sealed class CreateSchedulingRequestCommandHandler(
     }
 
     private async Task<Result<SchedulingResponseDto>> ReplayAsync(
-        SchedulingRequest previousRequest,
+        long schedulingRequestId,
         string requestHash,
         CancellationToken cancellationToken)
     {
+        var previousRequest = await dbContext.SchedulingRequests
+            .AsNoTracking()
+            .SingleAsync(item => item.Id == schedulingRequestId, cancellationToken);
         if (!string.Equals(previousRequest.RequestHash, requestHash, StringComparison.Ordinal))
         {
             return Result.Failure<SchedulingResponseDto>(
@@ -544,17 +776,6 @@ public sealed class CreateSchedulingRequestCommandHandler(
 
     private static Result<SchedulingResponseDto> Infeasible(string message) =>
         Result.Failure<SchedulingResponseDto>(SchedulingErrorCodes.ConstraintsInfeasible, message);
-
-    private async Task<Result<SchedulingResponseDto>> PersistInfeasibleAsync(
-        SchedulingRequest schedulingRequest,
-        string message,
-        DateTimeOffset now,
-        CancellationToken cancellationToken)
-    {
-        schedulingRequest.FailInfeasible(SchedulingErrorCodes.ConstraintsInfeasible, message, now);
-        await dbContext.SaveChangesAsync(cancellationToken);
-        return Infeasible(message);
-    }
 
     private IReadOnlyList<PointOfInterest> SelectMatrixCandidates(
         IReadOnlyCollection<PointOfInterest> selectablePois,
@@ -746,5 +967,98 @@ public sealed class CreateSchedulingRequestCommandHandler(
         Itinerary Itinerary,
         GeneratedItineraryPlan Plan,
         IReadOnlyCollection<string> PreferenceTokens);
+
+    private enum ReservationDecisionKind
+    {
+        Owned,
+        Wait,
+        Replay,
+        Failed,
+    }
+
+    private sealed record ReservationDecision(
+        ReservationDecisionKind Kind,
+        long RequestId,
+        int GenerationAttempt,
+        Result<SchedulingResponseDto>? Failure)
+    {
+        public static ReservationDecision Owned(long requestId, int generationAttempt) =>
+            new(ReservationDecisionKind.Owned, requestId, generationAttempt, null);
+
+        public static ReservationDecision Waiting(long requestId) =>
+            new(ReservationDecisionKind.Wait, requestId, 0, null);
+
+        public static ReservationDecision Replay(long requestId) =>
+            new(ReservationDecisionKind.Replay, requestId, 0, null);
+
+        public static ReservationDecision Failed(Result<SchedulingResponseDto> failure) =>
+            new(ReservationDecisionKind.Failed, 0, 0, failure);
+    }
+
+    private sealed record ReservationObservation(
+        long RequestId,
+        string RequestHash,
+        SchedulingRequestStatus Status,
+        DateTimeOffset? GenerationLeaseExpiresAtUtc);
+
+    private sealed record PreparedGeneration(
+        string SnapshotHash,
+        IReadOnlyCollection<string> PreferenceTokens,
+        IReadOnlyDictionary<long, ExplanationPoiMetadata> ExplanationMetadata,
+        GeneratedItineraryPlan? Plan,
+        string? FailureMessage,
+        bool BehaviorWasUsed)
+    {
+        public static PreparedGeneration Infeasible(
+            string snapshotHash,
+            IReadOnlyCollection<string> preferenceTokens,
+            IReadOnlyDictionary<long, ExplanationPoiMetadata> explanationMetadata,
+            string failureMessage,
+            bool behaviorWasUsed = false) =>
+            new(
+                snapshotHash,
+                preferenceTokens.ToArray(),
+                explanationMetadata,
+                null,
+                failureMessage,
+                behaviorWasUsed);
+
+        public static PreparedGeneration Successful(
+            string snapshotHash,
+            IReadOnlyCollection<string> preferenceTokens,
+            IReadOnlyDictionary<long, ExplanationPoiMetadata> explanationMetadata,
+            GeneratedItineraryPlan plan) =>
+            new(
+                snapshotHash,
+                preferenceTokens.ToArray(),
+                explanationMetadata,
+                plan,
+                null,
+                true);
+    }
+
+    private enum FinalizeDecisionKind
+    {
+        Completed,
+        RetrySnapshot,
+        LostOwnership,
+    }
+
+    private sealed record FinalizeDecision(
+        FinalizeDecisionKind Kind,
+        Result<SchedulingResponseDto>? Result,
+        FreshGenerationContext? FreshGeneration)
+    {
+        public static FinalizeDecision Completed(
+            Result<SchedulingResponseDto> result,
+            FreshGenerationContext? freshGeneration = null) =>
+            new(FinalizeDecisionKind.Completed, result, freshGeneration);
+
+        public static FinalizeDecision RetrySnapshot() =>
+            new(FinalizeDecisionKind.RetrySnapshot, null, null);
+
+        public static FinalizeDecision LostOwnership() =>
+            new(FinalizeDecisionKind.LostOwnership, null, null);
+    }
 
 }

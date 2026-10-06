@@ -72,6 +72,9 @@ public class TestDbContext(
 
     public DbSet<SchedulingRequest> SchedulingRequests => Set<SchedulingRequest>();
 
+    public DbSet<RecommendationBehaviorEvent> RecommendationBehaviorEvents =>
+        Set<RecommendationBehaviorEvent>();
+
     public DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests => Set<TravelGroupCreationRequest>();
 
     public DbSet<GroupInvitation> GroupInvitations => Set<GroupInvitation>();
