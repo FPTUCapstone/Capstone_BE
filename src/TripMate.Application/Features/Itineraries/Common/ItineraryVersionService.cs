@@ -34,14 +34,8 @@ public sealed class ItineraryVersionService(
             .Select(profile => profile.InterestTagsJson)
             .SingleOrDefaultAsync(cancellationToken);
         var preferenceTokens = TravelerPreferenceScoring.ParsePreferenceTokens(travelerInterestTags);
-        var pois = await dbContext.PointsOfInterest
-            .AsNoTracking()
-            .Include(poi => poi.Category)
-            .Include(poi => poi.OpeningHours)
-            .Include(poi => poi.PoiTags)
-            .ThenInclude(mapping => mapping.Tag)
-            .Where(poi => poi.Status == PointOfInterestStatus.Active)
-            .ToListAsync(cancellationToken);
+        var mandatoryIds = JsonSerializer.Deserialize<long[]>(request.MandatoryPoiIdsJson) ?? [];
+        var pois = await LoadRelevantActivePoisAsync(request, mandatoryIds, cancellationToken);
 
         var endPoi = request.EndPointOfInterestId.HasValue
             ? pois.SingleOrDefault(poi => poi.Id == request.EndPointOfInterestId.Value)
@@ -53,7 +47,6 @@ public sealed class ItineraryVersionService(
                 "The saved ending location is no longer available.");
         }
 
-        var mandatoryIds = JsonSerializer.Deserialize<long[]>(request.MandatoryPoiIdsJson) ?? [];
         var candidates = LimitMatrixCandidates(pois
             .Where(PlanningPoiEligibility.IsPlanningReady)
             .Where(poi => GeoDistance.EquirectangularKilometers(
@@ -165,14 +158,8 @@ public sealed class ItineraryVersionService(
             .Select(profile => profile.InterestTagsJson)
             .SingleOrDefaultAsync(cancellationToken);
         var preferenceTokens = TravelerPreferenceScoring.ParsePreferenceTokens(travelerInterestTags);
-        var pois = await dbContext.PointsOfInterest
-            .AsNoTracking()
-            .Include(poi => poi.Category)
-            .Include(poi => poi.OpeningHours)
-            .Include(poi => poi.PoiTags)
-            .ThenInclude(mapping => mapping.Tag)
-            .Where(poi => poi.Status == PointOfInterestStatus.Active)
-            .ToListAsync(cancellationToken);
+        var mandatoryIds = JsonSerializer.Deserialize<long[]>(request.MandatoryPoiIdsJson) ?? [];
+        var pois = await LoadRelevantActivePoisAsync(request, mandatoryIds, cancellationToken);
         var endPoi = request.EndPointOfInterestId.HasValue
             ? pois.SingleOrDefault(poi => poi.Id == request.EndPointOfInterestId.Value)
             : null;
@@ -183,7 +170,6 @@ public sealed class ItineraryVersionService(
                 "The saved ending location is no longer available.");
         }
 
-        var mandatoryIds = JsonSerializer.Deserialize<long[]>(request.MandatoryPoiIdsJson) ?? [];
         var candidates = LimitMatrixCandidates(pois
             .Where(PlanningPoiEligibility.IsPlanningReady)
             .Where(poi => GeoDistance.EquirectangularKilometers(
@@ -296,6 +282,19 @@ public sealed class ItineraryVersionService(
                 .EffectiveMaxMatrixCandidates - mandatoryIds.Count));
         return mandatory.Concat(optional).ToArray();
     }
+
+    private async Task<List<PointOfInterest>> LoadRelevantActivePoisAsync(
+        SchedulingRequest request,
+        IReadOnlyCollection<long> mandatoryIds,
+        CancellationToken cancellationToken)
+        => await dbContext.PointsOfInterest
+            .WithPlanningDetails(
+                request.ExplorationLatitude,
+                request.ExplorationLongitude,
+                request.SearchRadiusKm,
+                mandatoryIds,
+                request.EndPointOfInterestId)
+            .ToListAsync(cancellationToken);
 
     private static Result<Itinerary> UnsupportedPublicTransit() => Result.Failure<Itinerary>(
         ItineraryErrorCodes.ConstraintsInfeasible,

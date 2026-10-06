@@ -1898,6 +1898,105 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
     }
 
     [Fact]
+    public async Task Handle_DistantPoiMutationOutsideBoundingBox_DoesNotTriggerSnapshotRetry()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await SeedSelectablePoiAsync(
+            dbContext,
+            "Mandatory museum",
+            16.0471m,
+            108.2068m);
+        await SeedSelectablePoiAsync(
+            dbContext,
+            "Optional attraction",
+            16.0472m,
+            108.2069m);
+        var distantPoi = await SeedSelectablePoiAsync(
+            dbContext,
+            "Distant Hanoi attraction",
+            21.0285m,
+            105.8542m);
+        var rankingProvider = new RecordingPoiRankingProvider
+        {
+            BeforeReturn = () =>
+            {
+                dbContext.Entry(distantPoi).Property(poi => poi.ScenicScore).CurrentValue = 10m;
+                dbContext.Entry(distantPoi).Property(poi => poi.ScenicScore).IsModified = true;
+                dbContext.SaveChanges();
+            },
+        };
+        var routeProvider = new RecordingRouteDurationProvider();
+
+        var result = await CreateHandler(
+                dbContext,
+                routeProvider,
+                rankingProvider: rankingProvider,
+                rankingOptions: TieBreakerOnlyOptions())
+            .Handle(CreateCommand(Guid.NewGuid()) with
+            {
+                AvailableMinutes = 600,
+                MandatoryPoiIds = [mandatoryPoi.Id],
+            }, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        rankingProvider.CallCount.Should().Be(1);
+        routeProvider.CallCount.Should().Be(1);
+        VisitPoiIds(result.Value).Should().Contain(mandatoryPoi.Id);
+    }
+
+    [Fact]
+    public async Task Handle_MandatoryPoiOutsideBoundingBox_IsLoadedAndReturnsControlledInfeasible()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var distantMandatoryPoi = await SeedSelectablePoiAsync(
+            dbContext,
+            "Far away mandatory attraction",
+            21.0285m,
+            105.8542m);
+
+        var result = await CreateHandler(dbContext)
+            .Handle(CreateCommand(Guid.NewGuid()) with
+            {
+                MandatoryPoiIds = [distantMandatoryPoi.Id],
+            }, CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(SchedulingErrorCodes.ConstraintsInfeasible);
+        result.ErrorMessage.Should().Be(
+            "A mandatory location is unavailable or outside the selected area.");
+    }
+
+    [Fact]
+    public async Task Handle_ActiveEndPoiOutsideBoundingBox_RemainsUsable()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await SeedSelectablePoiAsync(
+            dbContext,
+            "Mandatory museum",
+            16.0471m,
+            108.2068m);
+        var distantEndPoi = await SeedSelectablePoiAsync(
+            dbContext,
+            "Distant custom end",
+            21.0285m,
+            105.8542m);
+        var routeProvider = new RecordingRouteDurationProvider();
+
+        var result = await CreateHandler(dbContext, routeProvider)
+            .Handle(CreateCommand(Guid.NewGuid()) with
+            {
+                MandatoryPoiIds = [mandatoryPoi.Id],
+                EndPoiId = distantEndPoi.Id,
+                ReturnToStart = false,
+                AvailableMinutes = 600,
+            }, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        routeProvider.LastPoints.Should().Contain(
+            new RoutePoint(distantEndPoi.Latitude, distantEndPoi.Longitude));
+    }
+
+    [Fact]
     public async Task Handle_GenerationSnapshotChangesTwice_ReleasesReservationAndReturnsRetryableFailure()
     {
         await using var dbContext = TestDbContext.Create();

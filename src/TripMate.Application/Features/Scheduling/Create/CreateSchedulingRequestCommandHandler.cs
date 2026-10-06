@@ -328,7 +328,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
             .Select(profile => profile.InterestTagsJson)
             .SingleOrDefaultAsync(cancellationToken);
         var preferenceTokens = TravelerPreferenceScoring.ParsePreferenceTokens(travelerInterestTags);
-        var activePois = await LoadActivePoisAsync(cancellationToken);
+        var activePois = await LoadRelevantActivePoisAsync(canonical, cancellationToken);
         var snapshotData = SchedulingGenerationSnapshot.CaptureData(travelerInterestTags, activePois);
         var snapshot = SchedulingGenerationSnapshot.Create(snapshotData);
         var explanationMetadata = activePois.ToFrozenDictionary(
@@ -491,7 +491,9 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 .Where(profile => profile.UserId == canonical.TravelerUserId)
                 .Select(profile => profile.InterestTagsJson)
                 .SingleOrDefaultAsync(transactionCancellationToken);
-            var activePois = await LoadActivePoisAsync(transactionCancellationToken);
+            var activePois = await LoadRelevantActivePoisAsync(
+                canonical,
+                transactionCancellationToken);
             PersonalBehaviorAggregation? behaviorAggregation = null;
             if (prepared.BehaviorWasUsed)
             {
@@ -647,15 +649,16 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 cancellationToken);
     }
 
-    private async Task<List<PointOfInterest>> LoadActivePoisAsync(
-        CancellationToken cancellationToken) =>
-        await dbContext.PointsOfInterest
-            .AsNoTracking()
-            .Include(poi => poi.Category)
-            .Include(poi => poi.OpeningHours)
-            .Include(poi => poi.PoiTags)
-            .ThenInclude(mapping => mapping.Tag)
-            .Where(poi => poi.Status == PointOfInterestStatus.Active)
+    private async Task<List<PointOfInterest>> LoadRelevantActivePoisAsync(
+        CanonicalSchedulingRequest canonical,
+        CancellationToken cancellationToken)
+        => await dbContext.PointsOfInterest
+            .WithPlanningDetails(
+                canonical.ExplorationLatitude,
+                canonical.ExplorationLongitude,
+                canonical.SearchRadiusKm,
+                canonical.MandatoryPoiIds,
+                canonical.EndPoiId)
             .ToListAsync(cancellationToken);
 
     private async Task<Result<SchedulingResponseDto>> AttachExplanationsAsync(
