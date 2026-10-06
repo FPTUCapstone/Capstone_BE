@@ -134,6 +134,18 @@ public sealed class CreateSchedulingRequestCommandHandler(
                         SchedulingErrorCodes.RoutingProviderUnavailable,
                         "The routing service is temporarily unavailable. Please try again.");
                 }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    await TryReleaseReservationAfterUnexpectedFailureAsync(
+                        canonical,
+                        generationOwnerId,
+                        ex);
+                    throw;
+                }
 
                 FinalizeDecision finalized = await FinalizeAsync(
                     canonical,
@@ -371,7 +383,10 @@ public sealed class CreateSchedulingRequestCommandHandler(
             ?? await poiRankingOrchestrator.BuildRankingAsync(
                 new PoiRankingInput(canonical.TravelerUserId, preferenceTokens, optionalCandidates),
                 cancellationToken);
-        snapshot = SchedulingGenerationSnapshot.Capture(snapshotData, ranking.BehaviorAggregation);
+        var snapshotBehaviorAggregation = frozenRanking is null
+            ? ranking.BehaviorAggregation
+            : await LoadBehaviorAggregationAsync(canonical, activePois, cancellationToken);
+        snapshot = SchedulingGenerationSnapshot.Capture(snapshotData, snapshotBehaviorAggregation);
         var poolBoundSelectablePois = selectablePois
             .Where(poi => mandatoryIds.Contains(poi.Id) || ranking.ProviderPoolPoiIds.Contains(poi.Id))
             .ToArray();
@@ -456,22 +471,10 @@ public sealed class CreateSchedulingRequestCommandHandler(
             PersonalBehaviorAggregation? behaviorAggregation = null;
             if (prepared.BehaviorWasUsed)
             {
-                var mandatoryIds = canonical.MandatoryPoiIds.ToHashSet();
-                var behaviorCandidates = activePois
-                    .Where(PlanningPoiEligibility.IsPlanningReady)
-                    .Where(poi => GeoDistance.EquirectangularKilometers(
-                        canonical.ExplorationLatitude,
-                        canonical.ExplorationLongitude,
-                        poi.Latitude,
-                        poi.Longitude) <= canonical.SearchRadiusKm)
-                    .Where(poi => !mandatoryIds.Contains(poi.Id))
-                    .ToArray();
-                behaviorAggregation = await new PersonalBehaviorFeatureAggregator(dbContext)
-                    .AggregateAsync(
-                        canonical.TravelerUserId,
-                        behaviorCandidates.Select(poi => poi.Id).ToArray(),
-                        behaviorCandidates.Select(poi => poi.CategoryId).Distinct().ToArray(),
-                        transactionCancellationToken);
+                behaviorAggregation = await LoadBehaviorAggregationAsync(
+                    canonical,
+                    activePois,
+                    transactionCancellationToken);
             }
 
             var authoritativeSnapshot = SchedulingGenerationSnapshot.Capture(
@@ -576,6 +579,48 @@ public sealed class CreateSchedulingRequestCommandHandler(
             return true;
         }, cancellationToken);
         dbContext.ClearTrackedEntities();
+    }
+
+    private async Task TryReleaseReservationAfterUnexpectedFailureAsync(
+        CanonicalSchedulingRequest canonical,
+        Guid ownerId,
+        Exception originalException)
+    {
+        try
+        {
+            await ReleaseReservationAsync(canonical, ownerId, CancellationToken.None);
+        }
+        catch (Exception releaseException)
+        {
+            dbContext.ClearTrackedEntities();
+            logger?.LogWarning(
+                releaseException,
+                "Failed to release scheduling generation reservation after unexpected preparation failure. OriginalExceptionType={OriginalExceptionType}.",
+                originalException.GetType().Name);
+        }
+    }
+
+    private async Task<PersonalBehaviorAggregation> LoadBehaviorAggregationAsync(
+        CanonicalSchedulingRequest canonical,
+        IReadOnlyCollection<PointOfInterest> activePois,
+        CancellationToken cancellationToken)
+    {
+        var mandatoryIds = canonical.MandatoryPoiIds.ToHashSet();
+        var behaviorCandidates = activePois
+            .Where(PlanningPoiEligibility.IsPlanningReady)
+            .Where(poi => GeoDistance.EquirectangularKilometers(
+                canonical.ExplorationLatitude,
+                canonical.ExplorationLongitude,
+                poi.Latitude,
+                poi.Longitude) <= canonical.SearchRadiusKm)
+            .Where(poi => !mandatoryIds.Contains(poi.Id))
+            .ToArray();
+        return await new PersonalBehaviorFeatureAggregator(dbContext)
+            .AggregateAsync(
+                canonical.TravelerUserId,
+                behaviorCandidates.Select(poi => poi.Id).ToArray(),
+                behaviorCandidates.Select(poi => poi.CategoryId).Distinct().ToArray(),
+                cancellationToken);
     }
 
     private async Task<List<PointOfInterest>> LoadActivePoisAsync(

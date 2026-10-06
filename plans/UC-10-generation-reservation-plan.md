@@ -193,6 +193,8 @@ Implementation:
 - move rate-limit ownership, catalog preparation, ranking, matrix call, and planner
   execution outside transactions;
 - perform wait delays with the caller cancellation token;
+- attempt an owner-checked best-effort release after unexpected preparation
+  failures while preserving the original exception;
 - retain explanation attachment after authoritative persistence.
 
 Verification:
@@ -238,6 +240,8 @@ Implementation:
 - reuse the first attempt's immutable ranking snapshot/provider pool during that
   regeneration, without a second AI call, personalization recomputation, or
   outside-pool backfill;
+- recompute current behavior only for the retry consistency token so prepared and
+  authoritative snapshot hashes use the same contract;
 - add the controlled retryable error and standard `HandleFailure` mapping.
 
 Verification:

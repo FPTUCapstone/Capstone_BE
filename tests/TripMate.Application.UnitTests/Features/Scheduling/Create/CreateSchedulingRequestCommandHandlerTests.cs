@@ -529,6 +529,86 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
     }
 
     [Fact]
+    public async Task Handle_UnexpectedPreparationFailure_ReleasesReservationAndRethrowsOriginalException()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await SeedSelectablePoiAsync(dbContext);
+        var originalException = new InvalidOperationException("unexpected preparation failure");
+        var handler = CreateHandler(
+            dbContext,
+            routeDurationProvider: new UnexpectedFailureRouteDurationProvider(originalException));
+
+        Func<Task> act = async () => await handler.Handle(
+            CreateCommand(Guid.NewGuid()) with
+            {
+                MandatoryPoiIds = [mandatoryPoi.Id],
+            },
+            CancellationToken.None);
+
+        (await act.Should().ThrowAsync<InvalidOperationException>()).Which
+            .Should().BeSameAs(originalException);
+        var releasedRequest = await dbContext.SchedulingRequests.SingleAsync();
+        releasedRequest.Status.Should().Be(SchedulingRequestStatus.Pending);
+        releasedRequest.GenerationOwnerId.Should().BeNull();
+        releasedRequest.GenerationLeaseExpiresAtUtc.Should().BeNull();
+        (await dbContext.Itineraries.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Handle_NonCallerOperationCanceledException_ReleasesReservationAndRethrowsOriginalException()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await SeedSelectablePoiAsync(dbContext);
+        var originalException = new OperationCanceledException("provider canceled independently");
+        var handler = CreateHandler(
+            dbContext,
+            routeDurationProvider: new UnexpectedFailureRouteDurationProvider(originalException));
+
+        Func<Task> act = async () => await handler.Handle(
+            CreateCommand(Guid.NewGuid()) with
+            {
+                MandatoryPoiIds = [mandatoryPoi.Id],
+            },
+            CancellationToken.None);
+
+        (await act.Should().ThrowAsync<OperationCanceledException>()).Which
+            .Should().BeSameAs(originalException);
+        var releasedRequest = await dbContext.SchedulingRequests.SingleAsync();
+        releasedRequest.Status.Should().Be(SchedulingRequestStatus.Pending);
+        releasedRequest.GenerationOwnerId.Should().BeNull();
+        releasedRequest.GenerationLeaseExpiresAtUtc.Should().BeNull();
+        (await dbContext.Itineraries.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Handle_UnexpectedPreparationFailure_WhenReleaseFails_PreservesOriginalException()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await SeedSelectablePoiAsync(dbContext);
+        var originalException = new InvalidOperationException("unexpected preparation failure");
+        var schedulingLock = new FailOnSecondAcquireSchedulingRequestLock();
+        var handler = CreateHandler(
+            dbContext,
+            routeDurationProvider: new UnexpectedFailureRouteDurationProvider(originalException),
+            schedulingRequestLock: schedulingLock);
+
+        Func<Task> act = async () => await handler.Handle(
+            CreateCommand(Guid.NewGuid()) with
+            {
+                MandatoryPoiIds = [mandatoryPoi.Id],
+            },
+            CancellationToken.None);
+
+        (await act.Should().ThrowAsync<InvalidOperationException>()).Which
+            .Should().BeSameAs(originalException);
+        schedulingLock.CallCount.Should().Be(2);
+        var leasedRequest = await dbContext.SchedulingRequests.AsNoTracking().SingleAsync();
+        leasedRequest.Status.Should().Be(SchedulingRequestStatus.Processing);
+        leasedRequest.GenerationOwnerId.Should().NotBeNull();
+        leasedRequest.GenerationLeaseExpiresAtUtc.Should().NotBeNull();
+    }
+
+    [Fact]
     public async Task Handle_AfterTransientRoutingFailure_SameKeyCanBeRetriedSuccessfully()
     {
         await using var dbContext = TestDbContext.Create();
@@ -1664,6 +1744,55 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
     }
 
     [Fact]
+    public async Task Handle_BehaviorSnapshotChangesOnce_RetriesWithCurrentBehaviorAndFrozenRanking()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await SeedSelectablePoiAsync(
+            dbContext,
+            "Mandatory museum",
+            16.0471m,
+            108.2068m);
+        var optionalPoi = await SeedSelectablePoiAsync(
+            dbContext,
+            "Optional museum",
+            16.0472m,
+            108.2069m);
+        var rankingProvider = new RecordingPoiRankingProvider
+        {
+            BeforeReturn = () =>
+            {
+                dbContext.RecommendationBehaviorEvents.Add(RecommendationBehaviorEvent.Create(
+                    travelerUserId: 42,
+                    poiId: optionalPoi.Id,
+                    itineraryId: null,
+                    RecommendationEventType.Like,
+                    originalPosition: null,
+                    newPosition: null,
+                    wasMandatory: null,
+                    RecommendationCaptureSource.PoiDetail,
+                    _clock.UtcNow,
+                    Guid.NewGuid()));
+                dbContext.SaveChanges();
+            },
+        };
+        var routeProvider = new RecordingRouteDurationProvider();
+
+        var result = await CreateHandler(
+                dbContext,
+                routeProvider,
+                rankingProvider)
+            .Handle(CreateCommand(Guid.NewGuid()) with
+            {
+                MandatoryPoiIds = [mandatoryPoi.Id],
+            }, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        rankingProvider.CallCount.Should().Be(1);
+        routeProvider.CallCount.Should().Be(2);
+        VisitPoiIds(result.Value).Should().Contain(optionalPoi.Id);
+    }
+
+    [Fact]
     public async Task Handle_GenerationSnapshotChangesTwice_ReleasesReservationAndReturnsRetryableFailure()
     {
         await using var dbContext = TestDbContext.Create();
@@ -1752,6 +1881,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
             routeDurationProvider ?? new FixedRouteDurationProvider(),
             schedulingRequestLock ?? new NoOpSchedulingRequestLock(),
             CreateRankingOrchestrator(
+                dbContext,
                 rankingProvider ?? new RecordingPoiRankingProvider(),
                 rankingOptions,
                 providerEnabled),
@@ -1767,17 +1897,13 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         new() { Enabled = true };
 
     private static PoiRankingOrchestrator CreateRankingOrchestrator(
+        IApplicationDbContext dbContext,
         IPoiRankingProvider rankingProvider,
         PersonalizationRankingOptions? rankingOptions,
         bool providerEnabled = true)
     {
-        var aggregationOptions = new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            .Options;
-        var aggregationContext = new ApplicationDbContext(aggregationOptions);
-
         return new PoiRankingOrchestrator(
-            new PersonalBehaviorFeatureAggregator(aggregationContext),
+            new PersonalBehaviorFeatureAggregator(dbContext),
             rankingProvider,
             rankingOptions ?? new PersonalizationRankingOptions(),
             providerEnabled,
@@ -2005,6 +2131,16 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
                 new HttpRequestException("sensitive transport detail")));
     }
 
+    private sealed class UnexpectedFailureRouteDurationProvider(Exception exception)
+        : IRouteDurationProvider
+    {
+        public Task<RouteDurationMatrix> GetMatrixAsync(
+            IReadOnlyList<RoutePoint> points,
+            TransportMode transportMode,
+            CancellationToken cancellationToken) =>
+            Task.FromException<RouteDurationMatrix>(exception);
+    }
+
     private sealed class FailOnceRouteDurationProvider : IRouteDurationProvider
     {
         public int CallCount { get; private set; }
@@ -2087,6 +2223,22 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
             long travelerUserId,
             Guid idempotencyKey,
             CancellationToken cancellationToken) => Task.CompletedTask;
+    }
+
+    private sealed class FailOnSecondAcquireSchedulingRequestLock : ISchedulingRequestLock
+    {
+        public int CallCount { get; private set; }
+
+        public Task AcquireAsync(
+            long travelerUserId,
+            Guid idempotencyKey,
+            CancellationToken cancellationToken)
+        {
+            CallCount++;
+            return CallCount == 1
+                ? Task.CompletedTask
+                : Task.FromException(new InvalidOperationException("reservation release failed"));
+        }
     }
 
     private sealed class RejectingGenerateRateLimiter : IGenerateRateLimiter

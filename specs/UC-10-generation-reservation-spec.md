@@ -175,7 +175,10 @@ Run a second short `SERIALIZABLE` transaction:
    lease, commit without itinerary writes, and repeat the data load, ORS call, and
    generation exactly once. Reuse the first attempt's immutable ranking snapshot
    and provider pool: do not call the ranking provider again, recompute
-   personalization, or backfill from outside that pool.
+   personalization, or backfill from outside that pool. The retry reads the current
+   behavior aggregation for its consistency token only, so its prepared and
+   authoritative hashes use the same current-data contract without changing the
+   frozen ranking.
 6. If the hash differs again, release the reservation to `Pending`, commit, and
    return a controlled retryable failure. Do not persist a plan from either stale
    snapshot.
@@ -208,8 +211,10 @@ production code must not use `Task.Delay` without the request cancellation token
   that the same key can retry successfully.
 - Caller cancellation or process termination may leave `Processing`; another
   request can take over only after lease expiry.
-- Unexpected failures must not delete completed/failed data or permit a stale owner
-  to write. They may leave the active lease for expiry-based recovery.
+- Unexpected preparation failures attempt an owner-checked best-effort release
+  without replacing the original exception. If that release fails, the active
+  lease remains available for expiry-based recovery. Unexpected failures must not
+  delete completed/failed data or permit a stale owner to write.
 - EF execution-strategy retries may repeat database-only reservation/persistence
   callbacks, but can no longer repeat AI or ORS side effects.
 
