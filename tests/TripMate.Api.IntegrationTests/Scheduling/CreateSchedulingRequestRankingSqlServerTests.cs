@@ -46,7 +46,7 @@ public sealed class CreateSchedulingRequestRankingSqlServerTests
             Guid.NewGuid(),
             provider,
             providerEnabled: false,
-            availableMinutes: 150);
+            availableMinutes: 60);
 
         provider.CallCount.Should().Be(0);
         (await ReadVisitPoiIdsAsync(database, itineraryId)).Should().Equal(
@@ -77,7 +77,7 @@ public sealed class CreateSchedulingRequestRankingSqlServerTests
             Guid.NewGuid(),
             provider,
             new RecordingRouteDurationProvider(),
-            availableMinutes: 150);
+            availableMinutes: 60);
 
         // Base: 0.30 vs 0.20. Effective: 0.18 vs 0.52 under the canonical 60/40 blend.
         provider.CallCount.Should().Be(1);
