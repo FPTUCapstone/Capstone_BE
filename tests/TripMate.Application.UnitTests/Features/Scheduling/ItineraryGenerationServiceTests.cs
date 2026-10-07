@@ -1,6 +1,7 @@
 using FluentAssertions;
 
 using TripMate.Application.Features.Scheduling.Common;
+using TripMate.Application.UnitTests.Features.Scheduling.Fixtures;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Application.UnitTests.Features.Scheduling;
@@ -186,7 +187,7 @@ public class ItineraryGenerationServiceTests
     }
 
     [Fact]
-    public async Task Generate_AddsMultipleOptionalPoisInDeterministicPreferenceOrder()
+    public async Task Generate_AddsMultipleOptionalPoisInDeterministicRouteOrder()
     {
         var service = new ItineraryGenerationService(new FixedRouteDurationProvider(
             RouteDurationMatrix.Create(
@@ -213,7 +214,7 @@ public class ItineraryGenerationServiceTests
         result.Value.Items
             .Where(item => item.Kind == ItineraryItemKind.Visit)
             .Select(item => item.PointOfInterestId)
-            .Should().Equal(28L, 12L);
+            .Should().Equal(12L, 28L);
     }
 
     [Fact]
@@ -614,7 +615,7 @@ public class ItineraryGenerationServiceTests
                 { 10, 10, 10, 0 },
             })));
         var input = CreateInput(
-            availableMinutes: 240,
+            availableMinutes: 90,
             restPreference: RestPreference.None,
             candidates: [first, second],
             mandatoryPoiIds: []);
@@ -625,7 +626,7 @@ public class ItineraryGenerationServiceTests
         result.Value.Items
             .Where(item => item.Kind == ItineraryItemKind.Visit)
             .Select(item => item.PointOfInterestId)
-            .Should().StartWith(expectedFirstId);
+            .Should().Equal(expectedFirstId);
     }
 
     [Fact]
@@ -1067,6 +1068,450 @@ public class ItineraryGenerationServiceTests
         result.ErrorMessage.Should().Be("A selected visit location is unavailable.");
     }
 
+    [Fact]
+    public async Task GenerateAsync_Characterize_TailOnlyZigzagBehavior()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateZigzagScenario();
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(matrix));
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        // In legacy append-only, both mandatory POIs are visited, and whatever fits at the tail is appended.
+        result.Value.Items.Where(it => it.Kind == ItineraryItemKind.Visit)
+            .Select(it => it.PointOfInterestId)
+            .Should().Contain([101L, 102L]);
+    }
+
+    [Fact]
+    public async Task GenerateAsync_Characterize_TailInfeasibleCandidateIsOmittedInLegacy()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateTailInfeasibleMiddleFeasibleScenario();
+        var service = new ItineraryGenerationService(
+            new FixedRouteDurationProvider(matrix),
+            options: new SchedulingGenerationOptions { EnableOptionalRouteOptimization = false });
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        // Candidate 201 is feasible if inserted between Start and 101, but in legacy tail-append it is omitted.
+        result.Value.Items.Should().NotContain(item => item.PointOfInterestId == 201L);
+    }
+
+    [Fact]
+    public async Task GenerateAsync_Characterize_CanonicalRankingTieBreakOrderIsPreserved()
+    {
+        // 4 optional candidates with different tie-break attributes
+        var cand1 = OptionalRouteOptimizationScenarios.CreateCandidate(201, "Opt1", 30, 10_000m, 0.9m, scenicScoreForRanking: 5m, photoRatingForRanking: 4m);
+        var cand2 = OptionalRouteOptimizationScenarios.CreateCandidate(202, "Opt2", 30, 10_000m, 0.9m, scenicScoreForRanking: 4m, photoRatingForRanking: 5m);
+        var cand3 = OptionalRouteOptimizationScenarios.CreateCandidate(203, "Opt3", 30, 10_000m, 0.8m);
+
+        var matrix = RouteDurationMatrix.Create(new int[,]
+        {
+            { 0, 10, 10, 10, 10 },
+            { 10, 0, 10, 10, 10 },
+            { 10, 10, 0, 10, 10 },
+            { 10, 10, 10, 0, 10 },
+            { 10, 10, 10, 10, 0 },
+        });
+
+        var input = OptionalRouteOptimizationScenarios.CreateInput(240, [cand1, cand2, cand3], []);
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(matrix));
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        // Cand1 should be admitted before Cand2 because scenicScore 5 > 4
+        var visitIds = result.Value.Items.Where(i => i.Kind == ItineraryItemKind.Visit).Select(i => i.PointOfInterestId).ToList();
+        visitIds.Should().Contain([201L, 202L]);
+        visitIds.IndexOf(201L).Should().BeLessThan(visitIds.IndexOf(202L));
+    }
+
+    [Fact]
+    public async Task GenerateAsync_Characterize_AsymmetricMatrixPreservesDirectionality()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateAsymmetricScenario();
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(matrix));
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Items.Should().Contain(it => it.PointOfInterestId == 101L);
+    }
+
+    [Fact]
+    public async Task GenerateAsync_CallsRouteProviderExactlyOnce()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateZigzagScenario();
+        var countingProvider = new CountingRouteDurationProvider(matrix);
+        var service = new ItineraryGenerationService(countingProvider);
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        countingProvider.CallCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task GenerateAsync_ZigzagScenario_ReducesTravelTimeSubstantially()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateZigzagScenario();
+
+        var disabledService = new ItineraryGenerationService(
+            new FixedRouteDurationProvider(matrix),
+            options: new SchedulingGenerationOptions { EnableOptionalRouteOptimization = false });
+
+        var enabledService = new ItineraryGenerationService(
+            new FixedRouteDurationProvider(matrix),
+            options: new SchedulingGenerationOptions { EnableOptionalRouteOptimization = true });
+
+        var disabledResult = await disabledService.GenerateAsync(input, CancellationToken.None);
+        var enabledResult = await enabledService.GenerateAsync(input, CancellationToken.None);
+
+        disabledResult.IsSuccess.Should().BeTrue();
+        enabledResult.IsSuccess.Should().BeTrue();
+
+        // Enabled route should achieve strictly less total duration than disabled zigzag
+        enabledResult.Value.TotalDurationMinutes.Should().BeLessThan(disabledResult.Value.TotalDurationMinutes);
+
+        // Equal-objective route orders use the lexicographically lowest visit-ID sequence.
+        var visitIds = enabledResult.Value.Items
+            .Where(it => it.Kind == ItineraryItemKind.Visit)
+            .Select(it => it.PointOfInterestId)
+            .ToList();
+        visitIds.Should().Equal(101L, 201L, 102L, 202L);
+    }
+
+    [Fact]
+    public async Task GenerateAsync_TailInfeasibleMiddleFeasible_AdmitsCandidateThroughInsertion()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateTailInfeasibleMiddleFeasibleScenario();
+
+        var disabledService = new ItineraryGenerationService(
+            new FixedRouteDurationProvider(matrix),
+            options: new SchedulingGenerationOptions { EnableOptionalRouteOptimization = false });
+
+        var enabledService = new ItineraryGenerationService(
+            new FixedRouteDurationProvider(matrix),
+            options: new SchedulingGenerationOptions { EnableOptionalRouteOptimization = true });
+
+        var disabledResult = await disabledService.GenerateAsync(input, CancellationToken.None);
+        var enabledResult = await enabledService.GenerateAsync(input, CancellationToken.None);
+
+        disabledResult.IsSuccess.Should().BeTrue();
+        enabledResult.IsSuccess.Should().BeTrue();
+
+        // In disabled mode, optional 201 cannot fit at tail (only 101 is visited)
+        disabledResult.Value.Items
+            .Where(it => it.Kind == ItineraryItemKind.Visit)
+            .Select(it => it.PointOfInterestId)
+            .Should().Equal(101L);
+
+        // In enabled mode, optional 201 is inserted before 101 and both fit
+        enabledResult.Value.Items
+            .Where(it => it.Kind == ItineraryItemKind.Visit)
+            .Select(it => it.PointOfInterestId)
+            .Should().Equal(201L, 101L);
+    }
+
+    [Fact]
+    public async Task GenerateAsync_MovesNeverAlterMandatoryMetadata()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateZigzagScenario();
+        var service = new ItineraryGenerationService(
+            new FixedRouteDurationProvider(matrix),
+            options: new SchedulingGenerationOptions { EnableOptionalRouteOptimization = true });
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var visits = result.Value.Items.Where(it => it.Kind == ItineraryItemKind.Visit).ToList();
+
+        foreach (var visit in visits)
+        {
+            var isMandatory = input.MandatoryPoiIds.Contains(visit.PointOfInterestId!.Value);
+            visit.IsMandatory.Should().Be(isMandatory);
+            visit.RecommendationReason.Should().Be(isMandatory ? "Mandatory location" : "Suggested nearby location");
+        }
+    }
+
+    [Fact]
+    public async Task GenerateAsync_RepeatedRuns_AreStrictlyDeterministic()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(10, 2, seed: 123);
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(matrix));
+
+        var run1 = await service.GenerateAsync(input, CancellationToken.None);
+        var run2 = await service.GenerateAsync(input, CancellationToken.None);
+
+        run1.IsSuccess.Should().BeTrue();
+        run2.IsSuccess.Should().BeTrue();
+
+        run1.Value.TotalDurationMinutes.Should().Be(run2.Value.TotalDurationMinutes);
+        run1.Value.TotalEstimatedCost.Should().Be(run2.Value.TotalEstimatedCost);
+        run1.Value.EndAtUtc.Should().Be(run2.Value.EndAtUtc);
+        run1.Value.Items.Count.Should().Be(run2.Value.Items.Count);
+
+        for (var i = 0; i < run1.Value.Items.Count; i++)
+        {
+            var item1 = run1.Value.Items.ElementAt(i);
+            var item2 = run2.Value.Items.ElementAt(i);
+
+            item1.SequenceNo.Should().Be(item2.SequenceNo);
+            item1.PointOfInterestId.Should().Be(item2.PointOfInterestId);
+            item1.Kind.Should().Be(item2.Kind);
+            item1.PlannedArrivalUtc.Should().Be(item2.PlannedArrivalUtc);
+            item1.PlannedDepartureUtc.Should().Be(item2.PlannedDepartureUtc);
+            item1.TravelDurationToNextMinutes.Should().Be(item2.TravelDurationToNextMinutes);
+        }
+    }
+
+    [Fact]
+    public async Task GenerateAsync_Cancellation_ExitsPromptly()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(10, 2);
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(matrix));
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var act = async () => await service.GenerateAsync(input, cts.Token);
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    [Fact]
+    public async Task GenerateAsync_AttractiveButInfeasibleMove_IsRejected()
+    {
+        // POI 101 must be visited in morning (08:00 - 10:00).
+        // POI 102 must be visited in afternoon (14:00 - 16:00).
+        // Even if visiting 102 before 101 would have shorter travel, opening hours forbid it.
+        var opening101 = new GenerationOpeningHours[] { new(2, new TimeOnly(8, 0), new TimeOnly(10, 0)) };
+        var opening102 = new GenerationOpeningHours[] { new(2, new TimeOnly(14, 0), new TimeOnly(16, 0)) };
+
+        var cand1 = OptionalRouteOptimizationScenarios.CreateCandidate(101, "MorningMuseum", 30, 10_000m, 0.5m, openingHours: opening101);
+        var cand2 = OptionalRouteOptimizationScenarios.CreateCandidate(102, "AfternoonPark", 30, 10_000m, 0.5m, openingHours: opening102);
+
+        var matrix = RouteDurationMatrix.Create(new int[,]
+        {
+            { 0,  50, 10, 60 },
+            { 50,  0, 10, 20 },
+            { 10, 10,  0, 50 },
+            { 60, 20, 50,  0 },
+        });
+
+        var input = OptionalRouteOptimizationScenarios.CreateInput(600, [cand1, cand2], [101, 102]);
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(matrix));
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        // 101 must remain before 102 because of opening hours despite matrix distance
+        var visitIds = result.Value.Items.Where(it => it.Kind == ItineraryItemKind.Visit).Select(it => it.PointOfInterestId).ToList();
+        visitIds.Should().Equal(101L, 102L);
+    }
+
+    [Fact]
+    public void OptionalRouteOptimizer_TracksEvaluationAndMoveCountersAccurately()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateZigzagScenario();
+        var evaluator = new ItineraryScheduleEvaluator();
+        var options = new SchedulingGenerationOptions
+        {
+            EnableOptionalRouteOptimization = true,
+            MaxRouteEvaluations = 500,
+        };
+        var optimizer = new OptionalRouteOptimizer(evaluator, options);
+
+        var mandatoryCandidates = input.MandatoryPoiIds
+            .Select(id => input.Candidates.First(c => c.Id == id))
+            .ToArray();
+        var matrixCandidates = input.Candidates.ToArray();
+        var candidateMatrixIndices = new Dictionary<long, int>();
+        for (var i = 0; i < matrixCandidates.Length; i++)
+        {
+            candidateMatrixIndices[matrixCandidates[i].Id] = i + 1;
+        }
+
+        var result = optimizer.Optimize(
+            input,
+            mandatoryCandidates,
+            matrix,
+            matrixCandidates,
+            candidateMatrixIndices,
+            CancellationToken.None);
+
+        result.Should().NotBeNull();
+        result!.EvaluationsCount.Should().BeGreaterThan(0);
+        result.EvaluationsCount.Should().BeLessThanOrEqualTo(500);
+        result.BudgetExhausted.Should().BeFalse();
+        result.BaselineSchedule.Should().NotBeNull();
+        result.Schedule.TotalMatrixTravelMinutes.Should().BeLessThan(result.BaselineSchedule.TotalMatrixTravelMinutes);
+    }
+
+    [Fact]
+    public async Task GenerateAsync_RecordsActivitySourceDiagnostics()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateZigzagScenario();
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(matrix));
+
+        System.Diagnostics.Activity? recordedActivity = null;
+        using var listener = new System.Diagnostics.ActivityListener
+        {
+            ShouldListenTo = source => source.Name == RouteOptimizationDiagnostics.ActivitySourceName,
+            Sample = (ref System.Diagnostics.ActivityCreationOptions<System.Diagnostics.ActivityContext> _) => System.Diagnostics.ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = act => recordedActivity = act,
+        };
+        System.Diagnostics.ActivitySource.AddActivityListener(listener);
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        recordedActivity.Should().NotBeNull();
+        recordedActivity!.GetTagItem("optimization.enabled").Should().Be(true);
+        recordedActivity.GetTagItem("optimization.baseline_optional_count").Should().NotBeNull();
+        recordedActivity.GetTagItem("optimization.final_optional_count").Should().NotBeNull();
+        recordedActivity.GetTagItem("optimization.evaluations_count").Should().NotBeNull();
+        recordedActivity.GetTagItem("optimization.baseline_travel_minutes").Should().NotBeNull();
+        recordedActivity.GetTagItem("optimization.final_travel_minutes").Should().NotBeNull();
+        recordedActivity.GetTagItem("optimization.travel_delta_minutes").Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task GenerateAsync_TwoOptOperator_StrictlyImprovesTravelWithoutChangingVisitSet()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateTwoOptStrictImprovementScenario();
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(matrix));
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        // 2-opt uncrosses the segment [102, 103] into [103, 102]
+        var visitIds = result.Value.Items
+            .Where(it => it.Kind == ItineraryItemKind.Visit)
+            .Select(it => it.PointOfInterestId)
+            .ToList();
+        visitIds.Should().Equal(101L, 103L, 102L, 104L);
+
+        // Verify optimizer metrics directly
+        var evaluator = new ItineraryScheduleEvaluator();
+        var optimizer = new OptionalRouteOptimizer(evaluator);
+        var matrixCandidates = input.Candidates.ToArray();
+        var candidateMatrixIndices = matrixCandidates.Select((c, i) => (c.Id, Index: i + 1)).ToDictionary(x => x.Id, x => x.Index);
+        var mandatoryCandidates = input.MandatoryPoiIds.Select(id => matrixCandidates.First(c => c.Id == id)).ToArray();
+        var optResult = optimizer.Optimize(input, mandatoryCandidates, matrix, matrixCandidates, candidateMatrixIndices, CancellationToken.None);
+
+        optResult.Should().NotBeNull();
+        optResult!.TwoOptMovesCount.Should().BeGreaterThan(0);
+        optResult.Schedule.TotalMatrixTravelMinutes.Should().BeLessThan(optResult.BaselineSchedule.TotalMatrixTravelMinutes);
+        optResult.Schedule.VisitPoiIds.Should().BeEquivalentTo(optResult.BaselineSchedule.VisitPoiIds);
+    }
+
+    [Fact]
+    public async Task GenerateAsync_RelocateOperator_StrictlyImprovesTravelWhereTwoOptAloneCannot()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateRelocateStrictImprovementScenario();
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(matrix));
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        // Relocate moves item 102 to tail: [101, 103, 104, 102]
+        var visitIds = result.Value.Items
+            .Where(it => it.Kind == ItineraryItemKind.Visit)
+            .Select(it => it.PointOfInterestId)
+            .ToList();
+        visitIds.Should().Equal(101L, 103L, 104L, 102L);
+
+        // Verify optimizer metrics directly: relocate executed and reduced travel
+        var evaluator = new ItineraryScheduleEvaluator();
+        var optimizer = new OptionalRouteOptimizer(evaluator);
+        var matrixCandidates = input.Candidates.ToArray();
+        var candidateMatrixIndices = matrixCandidates.Select((c, i) => (c.Id, Index: i + 1)).ToDictionary(x => x.Id, x => x.Index);
+        var mandatoryCandidates = input.MandatoryPoiIds.Select(id => matrixCandidates.First(c => c.Id == id)).ToArray();
+        var optResult = optimizer.Optimize(input, mandatoryCandidates, matrix, matrixCandidates, candidateMatrixIndices, CancellationToken.None);
+
+        optResult.Should().NotBeNull();
+        optResult!.RelocateMovesCount.Should().BeGreaterThan(0);
+        optResult.Schedule.TotalMatrixTravelMinutes.Should().BeLessThan(optResult.BaselineSchedule.TotalMatrixTravelMinutes);
+        optResult.Schedule.VisitPoiIds.Should().BeEquivalentTo(optResult.BaselineSchedule.VisitPoiIds);
+    }
+
+    [Fact]
+    public async Task GenerateAsync_SkippedCandidate_ReconsideredAndAdmittedAfterLocalImprovement()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateReconsiderationScenario();
+
+        var disabledService = new ItineraryGenerationService(
+            new FixedRouteDurationProvider(matrix),
+            options: new SchedulingGenerationOptions { EnableOptionalRouteOptimization = false });
+
+        var enabledService = new ItineraryGenerationService(
+            new FixedRouteDurationProvider(matrix),
+            options: new SchedulingGenerationOptions { EnableOptionalRouteOptimization = true });
+
+        var disabledResult = await disabledService.GenerateAsync(input, CancellationToken.None);
+        var enabledResult = await enabledService.GenerateAsync(input, CancellationToken.None);
+
+        disabledResult.IsSuccess.Should().BeTrue();
+        enabledResult.IsSuccess.Should().BeTrue();
+
+        // In disabled mode, optional 205 is omitted because initial route travel exceeds available budget
+        disabledResult.Value.Items
+            .Where(it => it.Kind == ItineraryItemKind.Visit)
+            .Select(it => it.PointOfInterestId)
+            .Should().NotContain(205L);
+
+        // In enabled mode, local improvement cuts travel and reconsideration admits 205
+        enabledResult.Value.Items
+            .Where(it => it.Kind == ItineraryItemKind.Visit)
+            .Select(it => it.PointOfInterestId)
+            .Should().Contain(205L);
+
+        // Verify optimizer directly recorded reconsidered admission
+        var evaluator = new ItineraryScheduleEvaluator();
+        var optimizer = new OptionalRouteOptimizer(evaluator);
+        var matrixCandidates = input.Candidates.ToArray();
+        var candidateMatrixIndices = matrixCandidates.Select((c, i) => (c.Id, Index: i + 1)).ToDictionary(x => x.Id, x => x.Index);
+        var mandatoryCandidates = input.MandatoryPoiIds.Select(id => matrixCandidates.First(c => c.Id == id)).ToArray();
+        var optResult = optimizer.Optimize(input, mandatoryCandidates, matrix, matrixCandidates, candidateMatrixIndices, CancellationToken.None);
+
+        optResult.Should().NotBeNull();
+        optResult!.ReconsideredAdmissionsCount.Should().BeGreaterThan(0);
+        optResult.Schedule.VisitPoiIds.Should().Contain(205L);
+        optResult.BaselineSchedule.VisitPoiIds.Should().NotContain(205L);
+    }
+
+    [Fact]
+    public void ScheduleGlobalComparator_WhenMembershipAndObjectivesTie_UsesVisitIdsNotRankingPosition()
+    {
+        var higherRanked = OptionalRouteOptimizationScenarios.CreateCandidate(
+            20,
+            "Higher ranked",
+            30,
+            10_000m,
+            1m);
+        var lowerRanked = OptionalRouteOptimizationScenarios.CreateCandidate(
+            10,
+            "Lower ranked",
+            30,
+            10_000m,
+            0.5m);
+        var comparator = new ScheduleGlobalComparator([higherRanked, lowerRanked]);
+        var endAtUtc = OptionalRouteOptimizationScenarios.StartAtUtc.AddHours(2);
+        var emptyPlan = new GeneratedItineraryPlan([], endAtUtc, 120, 20_000m);
+        var idOrdered = new EvaluatedItinerarySchedule(
+            emptyPlan,
+            TotalMatrixTravelMinutes: 40,
+            TotalDurationMinutes: 120,
+            endAtUtc,
+            TotalEstimatedCost: 20_000m,
+            VisitPoiIds: [10, 20]);
+        var rankOrdered = idOrdered with { VisitPoiIds = [20, 10] };
+
+        comparator.Compare(idOrdered, rankOrdered).Should().BeNegative();
+    }
+
+
     private static GenerationInput CreateInput(
         int availableMinutes,
         RestPreference restPreference,
@@ -1131,5 +1576,19 @@ public class ItineraryGenerationServiceTests
             TransportMode transportMode,
             CancellationToken cancellationToken) =>
             throw new InvalidOperationException("Provider must not be called for invalid input.");
+    }
+
+    private sealed class CountingRouteDurationProvider(RouteDurationMatrix matrix) : IRouteDurationProvider
+    {
+        public int CallCount { get; private set; }
+
+        public Task<RouteDurationMatrix> GetMatrixAsync(
+            IReadOnlyList<RoutePoint> points,
+            TransportMode transportMode,
+            CancellationToken cancellationToken)
+        {
+            CallCount++;
+            return Task.FromResult(matrix);
+        }
     }
 }

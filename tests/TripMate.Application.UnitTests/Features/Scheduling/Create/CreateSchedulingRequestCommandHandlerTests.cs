@@ -1149,11 +1149,11 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         }
 
         var result = await CreateHandler(dbContext).Handle(
-            CreateCommand(Guid.NewGuid()),
+            CreateCommand(Guid.NewGuid()) with { AvailableMinutes = 150 },
             CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
-        VisitPoiIds(result.Value).Should().StartWith(fallbackPoi.Id);
+        VisitPoiIds(result.Value).Should().Equal(fallbackPoi.Id);
     }
 
     [Fact]
@@ -1168,13 +1168,13 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         await dbContext.SaveChangesAsync();
 
         var result = await CreateHandler(dbContext).Handle(
-            CreateCommand(Guid.NewGuid()),
+            CreateCommand(Guid.NewGuid()) with { AvailableMinutes = 150 },
             CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
         // This fixture isolates the positive BaseScore contribution from saved InterestTags;
         // it does not assert universal dominance over behavior, quality, AI, or feasibility.
-        VisitPoiIds(result.Value).Should().StartWith(preferredPoi.Id);
+        VisitPoiIds(result.Value).Should().Equal(preferredPoi.Id);
     }
 
     [Fact]
@@ -1183,12 +1183,12 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         await using var dbContext = TestDbContext.Create();
         var (fallbackPoi, _) = await SeedPreferenceRankingPoisAsync(dbContext);
         var handler = CreateHandler(dbContext);
-        var command = CreateCommand(Guid.NewGuid());
+        var command = CreateCommand(Guid.NewGuid()) with { AvailableMinutes = 150 };
 
         var first = await handler.Handle(command, CancellationToken.None);
         first.IsSuccess.Should().BeTrue();
         var originalOrder = VisitPoiIds(first.Value);
-        originalOrder.Should().StartWith(fallbackPoi.Id);
+        originalOrder.Should().Equal(fallbackPoi.Id);
 
         dbContext.TravelerProfiles.Add(TravelerProfile.Create(
             42,
@@ -1211,12 +1211,12 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         dbContext.TravelerProfiles.Add(profile);
         await dbContext.SaveChangesAsync();
         var handler = CreateHandler(dbContext);
-        var command = CreateCommand(Guid.NewGuid());
+        var command = CreateCommand(Guid.NewGuid()) with { AvailableMinutes = 150 };
 
         var first = await handler.Handle(command, CancellationToken.None);
         first.IsSuccess.Should().BeTrue();
         var originalOrder = VisitPoiIds(first.Value);
-        originalOrder.Should().StartWith(fallbackPoi.Id);
+        originalOrder.Should().Equal(fallbackPoi.Id);
 
         dbContext.Entry(profile).Property(item => item.InterestTagsJson).CurrentValue = "[\"culture\"]";
         await dbContext.SaveChangesAsync();
@@ -1236,12 +1236,12 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         dbContext.TravelerProfiles.Add(profile);
         await dbContext.SaveChangesAsync();
         var handler = CreateHandler(dbContext);
-        var command = CreateCommand(Guid.NewGuid());
+        var command = CreateCommand(Guid.NewGuid()) with { AvailableMinutes = 150 };
 
         var first = await handler.Handle(command, CancellationToken.None);
         first.IsSuccess.Should().BeTrue();
         var originalOrder = VisitPoiIds(first.Value);
-        originalOrder.Should().StartWith(preferredPoi.Id);
+        originalOrder.Should().Equal(preferredPoi.Id);
 
         dbContext.TravelerProfiles.Remove(profile);
         await dbContext.SaveChangesAsync();
