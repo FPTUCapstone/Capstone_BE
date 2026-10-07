@@ -51,7 +51,10 @@ For a healthy limiter, the endpoint contract remains unchanged:
 - Both failures carry `retryAfterSeconds`; `ApiControllerBase` emits the corresponding
   `Retry-After` response header.
 - The limiter runs only after the request has acquired generation ownership and immediately before
-  fresh preparation/generation. A rejected request releases its reservation as it does today.
+  fresh preparation/generation. A rejected request deletes the reservation row when that row was
+  created by the current attempt; a pre-existing reservation is released back to `Pending`.
+  This prevents callers from accumulating rows by rotating idempotency keys while preserving
+  retry/replay state that existed before the limiter decision.
 
 Store unavailability introduces one controlled technical failure:
 
@@ -154,8 +157,9 @@ The Application layer remains unaware of Redis. `GenerateRateLimitDecision` cont
 technical error code and a zero retry-after value.
 
 The handler awaits the limiter outside every database transaction. On any denied decision,
-including store unavailability, it releases the generation reservation before returning. If
-reservation release itself fails, existing owner/lease recovery rules remain authoritative.
+including store unavailability, it performs owner-checked cleanup before returning: delete a row
+created by the current attempt, otherwise release the existing reservation. If cleanup itself
+fails, existing owner/lease recovery rules remain authoritative.
 
 ## Configuration and Validation
 
@@ -213,7 +217,8 @@ deployment evidence rather than invented in unit tests.
 4. Redis inspection proves an idle user key expires without that user making another request, and
    the active-user registry no longer counts it after cleanup/sampling.
 5. Redis timeout, connection failure, and script failure invoke no ranking, routing, or itinerary
-   generation, release the owned reservation, and return the controlled 503 error.
+   generation, clean up the owned reservation without retaining a newly created pending row, and
+   return the controlled 503 error.
 6. Distributed mode never falls back to process-local state.
 7. Single-instance tests prove idle eviction, hard capacity, fail-closed capacity exhaustion, and
    bounded active-entry cardinality under many one-time users.

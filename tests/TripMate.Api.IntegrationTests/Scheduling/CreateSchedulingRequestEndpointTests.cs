@@ -219,7 +219,7 @@ public sealed class CreateSchedulingRequestEndpointTests
             Itineraries = await dbContext.Itineraries.CountAsync(),
             ItineraryItems = await dbContext.ItineraryItems.CountAsync(),
         });
-        rowCounts.SchedulingRequests.Should().Be(1);
+        rowCounts.SchedulingRequests.Should().Be(0);
         rowCounts.Itineraries.Should().Be(0);
         rowCounts.ItineraryItems.Should().Be(0);
     }
@@ -252,6 +252,10 @@ public sealed class CreateSchedulingRequestEndpointTests
         using JsonDocument problem = JsonDocument.Parse(responseBody);
         problem.RootElement.GetProperty("status").GetInt32().Should().Be(429);
         problem.RootElement.GetProperty("errorCode").GetString().Should().Be(errorCode);
+        var rowCounts = await ReadSchedulingCountsAsync(factory);
+        rowCounts.SchedulingRequests.Should().Be(0);
+        rowCounts.Itineraries.Should().Be(0);
+        rowCounts.ItineraryItems.Should().Be(0);
     }
 
     private static async Task<HttpResponseMessage> SendValidRequestAsync(

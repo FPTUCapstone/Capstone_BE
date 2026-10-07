@@ -28,6 +28,24 @@ public sealed class CreateSchedulingRequestSqlServerTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
+    public async Task RateLimitRejected_WithNewKey_DoesNotPersistSchedulingRequest()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database);
+        await using var context = database.CreateDbContext();
+
+        var result = await CreateHandler(
+                context,
+                generateRateLimiter: new RejectingGenerateRateLimiter())
+            .Handle(CreateCommand(seed.UserId, Guid.NewGuid()), CancellationToken.None);
+
+        result.ErrorCode.Should().Be(SchedulingErrorCodes.GenerationRateLimited);
+        (await context.SchedulingRequests.CountAsync()).Should().Be(0);
+        (await context.Itineraries.CountAsync()).Should().Be(0);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
     public async Task CanonicalSchema_AndSchedulingMigrations_ExposeSameSchedulingConstraints()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
@@ -737,7 +755,8 @@ public sealed class CreateSchedulingRequestSqlServerTests
         IRouteDurationProvider? routeDurationProvider = null,
         IDateTimeProvider? dateTimeProvider = null,
         IPoiRankingProvider? rankingProvider = null,
-        bool rankingEnabled = false) =>
+        bool rankingEnabled = false,
+        IGenerateRateLimiter? generateRateLimiter = null) =>
         new(
             context,
             dateTimeProvider ?? new FixedDateTimeProvider(),
@@ -748,7 +767,8 @@ public sealed class CreateSchedulingRequestSqlServerTests
                 rankingProvider ?? ProviderDisabledPoiRankingProvider.Instance,
                 new PersonalizationRankingOptions(),
                 providerEnabled: rankingEnabled,
-                NullLogger<PoiRankingOrchestrator>.Instance));
+                NullLogger<PoiRankingOrchestrator>.Instance),
+            generateRateLimiter: generateRateLimiter);
 
     private static async Task<(long UserId, long PoiId)> SeedAsync(SqlServerTestDatabase database)
     {
@@ -1085,6 +1105,17 @@ public sealed class CreateSchedulingRequestSqlServerTests
                     .Select(candidate => new PoiRankingItem(candidate.PoiId, 0.5m, null))
                     .ToArray())));
         }
+    }
+
+    private sealed class RejectingGenerateRateLimiter : IGenerateRateLimiter
+    {
+        public ValueTask<GenerateRateLimitDecision> TryAcquireAsync(
+            long userId,
+            CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new GenerateRateLimitDecision(
+                Allowed: false,
+                ErrorCode: SchedulingErrorCodes.GenerationRateLimited,
+                RetryAfterSeconds: 30));
     }
 
     private sealed class SchedulingReservationReadObserver : DbCommandInterceptor

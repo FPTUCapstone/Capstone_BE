@@ -102,8 +102,9 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 }
                 catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
                 {
-                    await TryReleaseReservationAfterFailureAsync(
+                    await TryCleanupReservationAfterRateLimitFailureAsync(
                         canonical,
+                        reservation,
                         generationOwnerId,
                         ex);
                     throw;
@@ -111,8 +112,9 @@ public sealed class CreateSchedulingRequestCommandHandler(
 
                 if (!rateLimit.Allowed)
                 {
-                    await ReleaseReservationAsync(
+                    await CleanupReservationAfterRateLimitDenialAsync(
                         canonical,
+                        reservation,
                         generationOwnerId,
                         CancellationToken.None);
                     cancellationToken.ThrowIfCancellationRequested();
@@ -269,8 +271,10 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 return ReservationDecision.Waiting(request.Id);
             }
 
+            var createdNew = false;
             if (request is null)
             {
+                createdNew = true;
                 request = SchedulingRequest.Create(
                     canonical.TravelerUserId,
                     canonical.IdempotencyKey,
@@ -295,7 +299,10 @@ public sealed class CreateSchedulingRequestCommandHandler(
 
             request.ClaimGeneration(ownerId, now.Add(_reservationOptions.LeaseDuration), now);
             await dbContext.SaveChangesAsync(transactionCancellationToken);
-            return ReservationDecision.Owned(request.Id, request.GenerationAttempt);
+            return ReservationDecision.Owned(
+                request.Id,
+                request.GenerationAttempt,
+                createdNew);
         }, cancellationToken);
 
     private async Task<ReservationDecision> AwaitReservationAvailabilityAsync(
@@ -629,6 +636,69 @@ public sealed class CreateSchedulingRequestCommandHandler(
             return true;
         }, cancellationToken);
         dbContext.ClearTrackedEntities();
+    }
+
+    private async Task CleanupReservationAfterRateLimitDenialAsync(
+        CanonicalSchedulingRequest canonical,
+        ReservationDecision reservation,
+        Guid ownerId,
+        CancellationToken cancellationToken)
+    {
+        if (!reservation.CreatedNew)
+        {
+            await ReleaseReservationAsync(canonical, ownerId, cancellationToken);
+            return;
+        }
+
+        dbContext.ClearTrackedEntities();
+        await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
+        {
+            await schedulingRequestLock.AcquireAsync(
+                canonical.TravelerUserId,
+                canonical.IdempotencyKey,
+                transactionCancellationToken);
+            var request = await dbContext.SchedulingRequests.SingleOrDefaultAsync(item =>
+                item.Id == reservation.RequestId
+                && item.TravelerUserId == canonical.TravelerUserId
+                && item.IdempotencyKey == canonical.IdempotencyKey,
+                transactionCancellationToken);
+            var now = dateTimeProvider.UtcNow;
+            if (request?.Status == SchedulingRequestStatus.Processing
+                && request.GenerationOwnerId == ownerId
+                && request.GenerationLeaseExpiresAtUtc > now
+                && request.GenerationAttempt == reservation.GenerationAttempt)
+            {
+                dbContext.SchedulingRequests.Remove(request);
+                await dbContext.SaveChangesAsync(transactionCancellationToken);
+            }
+
+            return true;
+        }, cancellationToken);
+        dbContext.ClearTrackedEntities();
+    }
+
+    private async Task TryCleanupReservationAfterRateLimitFailureAsync(
+        CanonicalSchedulingRequest canonical,
+        ReservationDecision reservation,
+        Guid ownerId,
+        Exception originalException)
+    {
+        try
+        {
+            await CleanupReservationAfterRateLimitDenialAsync(
+                canonical,
+                reservation,
+                ownerId,
+                CancellationToken.None);
+        }
+        catch (Exception cleanupException)
+        {
+            dbContext.ClearTrackedEntities();
+            logger?.LogWarning(
+                cleanupException,
+                "Failed to clean up scheduling reservation after rate limiter failure. OriginalExceptionType={OriginalExceptionType}.",
+                originalException.GetType().Name);
+        }
     }
 
     private async Task TryReleaseReservationAfterFailureAsync(
@@ -1085,19 +1155,23 @@ public sealed class CreateSchedulingRequestCommandHandler(
         ReservationDecisionKind Kind,
         long RequestId,
         int GenerationAttempt,
+        bool CreatedNew,
         Result<SchedulingResponseDto>? Failure)
     {
-        public static ReservationDecision Owned(long requestId, int generationAttempt) =>
-            new(ReservationDecisionKind.Owned, requestId, generationAttempt, null);
+        public static ReservationDecision Owned(
+            long requestId,
+            int generationAttempt,
+            bool createdNew) =>
+            new(ReservationDecisionKind.Owned, requestId, generationAttempt, createdNew, null);
 
         public static ReservationDecision Waiting(long requestId) =>
-            new(ReservationDecisionKind.Wait, requestId, 0, null);
+            new(ReservationDecisionKind.Wait, requestId, 0, false, null);
 
         public static ReservationDecision Replay(long requestId) =>
-            new(ReservationDecisionKind.Replay, requestId, 0, null);
+            new(ReservationDecisionKind.Replay, requestId, 0, false, null);
 
         public static ReservationDecision Failed(Result<SchedulingResponseDto> failure) =>
-            new(ReservationDecisionKind.Failed, 0, 0, failure);
+            new(ReservationDecisionKind.Failed, 0, 0, false, failure);
     }
 
     private sealed record ReservationObservation(
