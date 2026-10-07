@@ -463,7 +463,7 @@ public sealed class CreateSchedulingRequestSqlServerTests
         await using (var context = database.CreateDbContext())
         {
             var result = await CreateHandler(context).Handle(
-                CreateCommand(seed.UserId, Guid.NewGuid()),
+                CreateCommand(seed.UserId, Guid.NewGuid()) with { AvailableMinutes = 150 },
                 CancellationToken.None);
             result.IsSuccess.Should().BeTrue();
             itineraryId = result.Value.ItineraryId;
@@ -478,8 +478,7 @@ public sealed class CreateSchedulingRequestSqlServerTests
             .Select(item => item.PointOfInterestId)
             .ToArrayAsync();
 
-        persistedOrder.Should().StartWith(
-            new long?[] { seed.PreferredPoiId, seed.HigherScenicPoiId });
+        persistedOrder.Should().Equal(seed.PreferredPoiId);
     }
 
     [SqlServerFact]
@@ -494,7 +493,7 @@ public sealed class CreateSchedulingRequestSqlServerTests
         await using (var context = database.CreateDbContext())
         {
             var result = await CreateHandler(context).Handle(
-                CreateCommand(seed.UserId, Guid.NewGuid()),
+                CreateCommand(seed.UserId, Guid.NewGuid()) with { AvailableMinutes = 150 },
                 CancellationToken.None);
             result.IsSuccess.Should().BeTrue();
             itineraryId = result.Value.ItineraryId;
@@ -509,8 +508,7 @@ public sealed class CreateSchedulingRequestSqlServerTests
             .Select(item => item.PointOfInterestId)
             .ToArrayAsync();
 
-        persistedOrder.Should().StartWith(
-            new long?[] { seed.HigherScenicPoiId, seed.PreferredPoiId });
+        persistedOrder.Should().Equal(seed.HigherScenicPoiId);
     }
 
     [SqlServerFact]

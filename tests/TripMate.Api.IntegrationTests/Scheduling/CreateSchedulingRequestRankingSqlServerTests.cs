@@ -45,11 +45,12 @@ public sealed class CreateSchedulingRequestRankingSqlServerTests
             seed.UserId,
             Guid.NewGuid(),
             provider,
-            providerEnabled: false);
+            providerEnabled: false,
+            availableMinutes: 150);
 
         provider.CallCount.Should().Be(0);
-        (await ReadVisitPoiIdsAsync(database, itineraryId)).Should().StartWith(
-            [seed.OptionalPoiIds[0], seed.OptionalPoiIds[1]]);
+        (await ReadVisitPoiIdsAsync(database, itineraryId)).Should().Equal(
+            seed.OptionalPoiIds[0]);
     }
 
     [SqlServerFact]
@@ -75,14 +76,14 @@ public sealed class CreateSchedulingRequestRankingSqlServerTests
             seed.UserId,
             Guid.NewGuid(),
             provider,
-            new RecordingRouteDurationProvider());
+            new RecordingRouteDurationProvider(),
+            availableMinutes: 150);
 
         // Base: 0.30 vs 0.20. Effective: 0.18 vs 0.52 under the canonical 60/40 blend.
         provider.CallCount.Should().Be(1);
         provider.LastRequest!.Candidates.Select(candidate => candidate.PoiId)
             .Should().BeEquivalentTo(seed.OptionalPoiIds);
-        (await ReadVisitPoiIdsAsync(database, itineraryId)).Should().StartWith(
-            [lowerBasePoiId, higherBasePoiId]);
+        (await ReadVisitPoiIdsAsync(database, itineraryId)).Should().Equal(lowerBasePoiId);
     }
 
     [SqlServerFact]
@@ -398,7 +399,8 @@ public sealed class CreateSchedulingRequestRankingSqlServerTests
         RecordingRouteDurationProvider? routeProvider = null,
         PersonalizationRankingOptions? rankingOptions = null,
         SchedulingGenerationOptions? generationOptions = null,
-        decimal budgetVnd = 800_000m)
+        decimal budgetVnd = 800_000m,
+        int availableMinutes = 480)
     {
         await using var context = database.CreateDbContext();
         var handler = new CreateSchedulingRequestCommandHandler(
@@ -414,7 +416,10 @@ public sealed class CreateSchedulingRequestRankingSqlServerTests
                 NullLogger<PoiRankingOrchestrator>.Instance),
             generationOptions);
         var result = await handler.Handle(
-            CreateCommand(userId, key, mandatoryPoiIds ?? [], budgetVnd),
+            CreateCommand(userId, key, mandatoryPoiIds ?? [], budgetVnd) with
+            {
+                AvailableMinutes = availableMinutes,
+            },
             CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue(result.ErrorMessage);
@@ -426,7 +431,8 @@ public sealed class CreateSchedulingRequestRankingSqlServerTests
         long userId,
         Guid key,
         RecordingRankingProvider provider,
-        RecordingRouteDurationProvider routeProvider)
+        RecordingRouteDurationProvider routeProvider,
+        int availableMinutes = 480)
     {
         await using var factory = new TripMateApiFactory(
             sqlServerConnectionString: database.ConnectionString,
@@ -457,7 +463,7 @@ public sealed class CreateSchedulingRequestRankingSqlServerTests
                 explorationLatitude = CenterLatitude,
                 explorationLongitude = CenterLongitude,
                 returnToStart = true,
-                availableMinutes = 480,
+                availableMinutes,
                 transportMode = "Motorbike",
                 searchRadiusKm = 10m,
                 budgetVnd = 800_000m,
