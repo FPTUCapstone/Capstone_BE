@@ -72,10 +72,15 @@ public static class DependencyInjection
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
         services.Configure<OpenRouteServiceOptions>(
             configuration.GetSection(OpenRouteServiceOptions.SectionName));
-        services.AddSingleton(
-            configuration.GetSection(SchedulingGenerationOptions.SectionName)
-                .Get<SchedulingGenerationOptions>()
-            ?? new SchedulingGenerationOptions());
+        services.AddOptions<SchedulingGenerationOptions>()
+            .Bind(configuration.GetSection(SchedulingGenerationOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<
+            IValidateOptions<SchedulingGenerationOptions>,
+            SchedulingGenerationOptionsValidator>();
+        services.AddSingleton(serviceProvider => serviceProvider
+            .GetRequiredService<IOptions<SchedulingGenerationOptions>>()
+            .Value);
         services.AddOptions<SchedulingReservationOptions>()
             .Bind(configuration.GetSection(SchedulingReservationOptions.SectionName))
             .ValidateOnStart();
