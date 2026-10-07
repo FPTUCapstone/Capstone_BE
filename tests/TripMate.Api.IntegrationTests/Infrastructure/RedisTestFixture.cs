@@ -105,11 +105,18 @@ internal sealed class RedisTestFixture : IAsyncDisposable
 
     private static async Task<IConnectionMultiplexer> ConnectAsync(string connectionString)
     {
+        ConfigurationOptions config = BuildConfiguration(connectionString);
+        return await ConnectionMultiplexer.ConnectAsync(config);
+    }
+
+    internal static ConfigurationOptions BuildConfiguration(string connectionString)
+    {
         var config = ConfigurationOptions.Parse(connectionString);
         config.AbortOnConnectFail = false;
+        config.AllowAdmin = true;
         config.ConnectTimeout = 3000;
         config.SyncTimeout = 3000;
         config.AsyncTimeout = 3000;
-        return await ConnectionMultiplexer.ConnectAsync(config);
+        return config;
     }
 }
