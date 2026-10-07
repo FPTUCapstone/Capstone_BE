@@ -18,6 +18,7 @@ using TripMate.Api.Common;
 using TripMate.Api.Middleware;
 using TripMate.Api.OpenApi;
 using TripMate.Application;
+using TripMate.Domain.Enums;
 using TripMate.Infrastructure;
 using TripMate.Infrastructure.Authentication;
 
@@ -150,7 +151,15 @@ try
             };
         });
 
-    builder.Services.AddAuthorization();
+    builder.Services.AddAuthorization(options =>
+    {
+        options.AddPolicy(UserRoleExtensions.AdministratorOnly, policy =>
+            policy.RequireRole(nameof(UserRole.Administrator)));
+        options.AddPolicy(UserRoleExtensions.StaffOnly, policy =>
+            policy.RequireRole(nameof(UserRole.Staff)));
+        options.AddPolicy(UserRoleExtensions.StaffOrAdministrator, policy =>
+            policy.RequireRole(nameof(UserRole.Staff), nameof(UserRole.Administrator)));
+    });
     builder.Services.AddSingleton<
         IAuthorizationMiddlewareResultHandler,
         ProblemDetailsAuthorizationMiddlewareResultHandler>();
