@@ -3,6 +3,7 @@ using MediatR;
 using Microsoft.AspNetCore.Mvc;
 
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Admin.Users.Common;
 using TripMate.Application.Features.Authentication.Common;
 using TripMate.Application.Features.CommercialServices.Common;
 using TripMate.Application.Features.PointsOfInterest.Common;
@@ -139,6 +140,17 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
 
             TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.DocumentInvalid =>
                 StatusCodes.Status422UnprocessableEntity,
+
+            UserAdministrationErrorCodes.Forbidden or UserAdministrationErrorCodes.ProtectedAdministrator =>
+                StatusCodes.Status403Forbidden,
+
+            UserAdministrationErrorCodes.NotFound =>
+                StatusCodes.Status404NotFound,
+
+            UserAdministrationErrorCodes.NotLocked
+                or UserAdministrationErrorCodes.LockRecoveryStateMissing
+                or UserAdministrationErrorCodes.IdempotencyKeyPayloadMismatch =>
+                StatusCodes.Status409Conflict,
 
             TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.RejectionReasonRequired =>
                 StatusCodes.Status422UnprocessableEntity,

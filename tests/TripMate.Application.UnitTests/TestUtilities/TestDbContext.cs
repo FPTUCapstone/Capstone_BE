@@ -18,6 +18,8 @@ public class TestDbContext(
 
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
+    public DbSet<UserUnlockOperation> UserUnlockOperations => Set<UserUnlockOperation>();
+
     public DbSet<PoiCategory> PoiCategories => Set<PoiCategory>();
 
     public DbSet<PointOfInterest> PointsOfInterest => Set<PointOfInterest>();
@@ -125,6 +127,22 @@ public class TestDbContext(
 
         token.RevokedAtUtc = revokedAtUtc;
         return 1;
+    }
+
+    public async Task<int> RevokeActiveRefreshTokensForUserAsync(
+        long userId,
+        DateTimeOffset revokedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var activeTokens = await RefreshTokens
+            .Where(token => token.UserId == userId && token.RevokedAtUtc == null)
+            .ToListAsync(cancellationToken);
+        foreach (var token in activeTokens)
+        {
+            token.RevokedAtUtc = revokedAtUtc;
+        }
+
+        return activeTokens.Count;
     }
 
     public async Task<int> DeleteSignOutAuditEventsBeforeAsync(

@@ -25,6 +25,10 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(u => u.FullName).HasColumnName("full_name").HasMaxLength(150).IsRequired();
         builder.Property(u => u.AvatarUrl).HasColumnName("avatar_url").HasMaxLength(500);
         builder.Property(u => u.Status).HasColumnName("status").HasConversion<string>().HasMaxLength(24).IsConcurrencyToken();
+        builder.Property(u => u.StatusBeforeLock).HasColumnName("status_before_lock").HasConversion<string>().HasMaxLength(24);
+        builder.Property(u => u.LockedByUserId).HasColumnName("locked_by_user_id");
+        builder.Property(u => u.LockedAtUtc).HasColumnName("locked_at_utc").AsUtcDateTime2();
+        builder.Property(u => u.LockReason).HasColumnName("lock_reason").HasMaxLength(1000);
         builder.Property(u => u.EmailVerifiedAtUtc).HasColumnName("email_verified_at").AsUtcDateTime2();
         builder.Property(u => u.PhoneVerifiedAtUtc).HasColumnName("phone_verified_at").AsUtcDateTime2();
         builder.Property(u => u.CreatedAtUtc).HasColumnName("created_at").AsUtcDateTime2();
@@ -41,5 +45,10 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
             .WithOne(t => t.User)
             .HasForeignKey(t => t.UserId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(u => u.LockedByUserId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }

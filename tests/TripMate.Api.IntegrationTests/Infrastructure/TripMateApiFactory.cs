@@ -111,6 +111,7 @@ public sealed class TripMateApiFactory(
                 services.RemoveAll<IItineraryMutationLock>();
                 services.RemoveAll<IGroupInvitationLock>();
                 services.RemoveAll<IGroupJoinLock>();
+                services.RemoveAll<IUserUnlockLock>();
                 services.RemoveAll<ISchedulingRequestLock>();
                 services.RemoveAll<ITourMediaUploadLock>();
                 services.RemoveAll<ITourMediaCleanupOutboxStore>();
@@ -137,6 +138,7 @@ public sealed class TripMateApiFactory(
                 services.AddScoped<IItineraryMutationLock, NoOpItineraryMutationLock>();
                 services.AddScoped<IGroupInvitationLock, NoOpGroupInvitationLock>();
                 services.AddScoped<IGroupJoinLock, NoOpGroupJoinLock>();
+                services.AddScoped<IUserUnlockLock, NoOpUserUnlockLock>();
                 services.AddScoped<ISchedulingRequestLock, NoOpSchedulingRequestLock>();
                 services.AddScoped<ITourMediaUploadLock, NoOpTourMediaUploadLock>();
                 services.AddScoped<ITourMediaCleanupOutboxStore, NoOpTourMediaCleanupOutboxStore>();
@@ -265,6 +267,7 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<User> Users => Set<User>();
     public DbSet<TravelerProfile> TravelerProfiles => Set<TravelerProfile>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<UserUnlockOperation> UserUnlockOperations => Set<UserUnlockOperation>();
     public DbSet<PoiCategory> PoiCategories => Set<PoiCategory>();
     public DbSet<PointOfInterest> PointsOfInterest => Set<PointOfInterest>();
     public DbSet<PoiOpeningHour> PoiOpeningHours => Set<PoiOpeningHour>();
@@ -325,6 +328,22 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
 
         token.RevokedAtUtc = revokedAtUtc;
         return 1;
+    }
+
+    public async Task<int> RevokeActiveRefreshTokensForUserAsync(
+        long userId,
+        DateTimeOffset revokedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var activeTokens = await RefreshTokens
+            .Where(token => token.UserId == userId && token.RevokedAtUtc == null)
+            .ToListAsync(cancellationToken);
+        foreach (var token in activeTokens)
+        {
+            token.RevokedAtUtc = revokedAtUtc;
+        }
+
+        return activeTokens.Count;
     }
 
     public async Task<int> DeleteSignOutAuditEventsBeforeAsync(
@@ -407,6 +426,15 @@ internal sealed class NoOpGroupJoinLock : IGroupJoinLock
         Task.CompletedTask;
 
     public Task AcquireGroupLockAsync(long groupId, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+}
+
+internal sealed class NoOpUserUnlockLock : IUserUnlockLock
+{
+    public Task AcquireAsync(long administratorUserId, string idempotencyKey, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+
+    public Task AcquireTargetUserAsync(long targetUserId, CancellationToken cancellationToken) =>
         Task.CompletedTask;
 }
 

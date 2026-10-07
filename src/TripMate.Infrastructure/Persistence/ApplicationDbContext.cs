@@ -18,6 +18,8 @@ public class ApplicationDbContext(
 
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
+    public DbSet<UserUnlockOperation> UserUnlockOperations => Set<UserUnlockOperation>();
+
     public DbSet<PoiCategory> PoiCategories => Set<PoiCategory>();
 
     public DbSet<PointOfInterest> PointsOfInterest => Set<PointOfInterest>();
@@ -68,6 +70,16 @@ public class ApplicationDbContext(
         CancellationToken cancellationToken) =>
         RefreshTokens
             .Where(token => token.TokenHash == tokenHash && token.RevokedAtUtc == null)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(token => token.RevokedAtUtc, revokedAtUtc),
+                cancellationToken);
+
+    public Task<int> RevokeActiveRefreshTokensForUserAsync(
+        long userId,
+        DateTimeOffset revokedAtUtc,
+        CancellationToken cancellationToken) =>
+        RefreshTokens
+            .Where(token => token.UserId == userId && token.RevokedAtUtc == null)
             .ExecuteUpdateAsync(
                 setters => setters.SetProperty(token => token.RevokedAtUtc, revokedAtUtc),
                 cancellationToken);

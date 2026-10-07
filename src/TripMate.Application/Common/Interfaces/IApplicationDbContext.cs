@@ -12,6 +12,8 @@ public interface IApplicationDbContext
 
     DbSet<RefreshToken> RefreshTokens { get; }
 
+    DbSet<UserUnlockOperation> UserUnlockOperations { get; }
+
     DbSet<PoiCategory> PoiCategories { get; }
 
     DbSet<PointOfInterest> PointsOfInterest { get; }
@@ -87,6 +89,11 @@ public interface IApplicationDbContext
 
     Task<int> RevokeRefreshTokenAsync(
         string tokenHash,
+        DateTimeOffset revokedAtUtc,
+        CancellationToken cancellationToken);
+
+    Task<int> RevokeActiveRefreshTokensForUserAsync(
+        long userId,
         DateTimeOffset revokedAtUtc,
         CancellationToken cancellationToken);
 

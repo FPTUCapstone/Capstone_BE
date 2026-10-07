@@ -88,6 +88,9 @@
     <None Include="..\..\database\migrations\20261003_add_commercial_service_disclosures.sql"
           Link="Database\migrations\20261003_add_commercial_service_disclosures.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261007_add_user_unlock_operations.sql"
+          Link="Database\migrations\20261007_add_user_unlock_operations.sql"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\database\seeds\20261003_uc30_commercial_services_development.sql"
           Link="Database\seeds\20261003_uc30_commercial_services_development.sql"
           CopyToOutputDirectory="PreserveNewest" />
