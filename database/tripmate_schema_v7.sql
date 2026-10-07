@@ -155,6 +155,8 @@ CREATE SCHEMA commercial AUTHORIZATION dbo;
 GO
 CREATE SCHEMA social AUTHORIZATION dbo;
 GO
+CREATE SCHEMA admin AUTHORIZATION dbo;
+GO
 
 /* =====================================================================
    1. IDENTITY & ACCOUNTS  (dbo)
@@ -173,12 +175,28 @@ CREATE TABLE dbo.Users (
     status              VARCHAR(24)   NOT NULL DEFAULT 'Active'
         CHECK (status IN ('PendingEmailVerification','Active','Locked',
                            'PendingApproval','Rejected','Inactive')),
+    status_before_lock  VARCHAR(24) NULL,
+    locked_by_user_id   BIGINT NULL,
+    locked_at_utc       DATETIME2 NULL,
+    lock_reason         NVARCHAR(1000) NULL,
     email_verified_at   DATETIME2     NULL,
     phone_verified_at   DATETIME2     NULL,
     created_at          DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME(),
     updated_at          DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME(),
     last_login_at       DATETIME2     NULL,
-    CONSTRAINT CK_Users_HasIdentifier CHECK (email IS NOT NULL OR phone_number IS NOT NULL)
+    CONSTRAINT CK_Users_HasIdentifier CHECK (email IS NOT NULL OR phone_number IS NOT NULL),
+    CONSTRAINT CK_Users_LockRecoveryState CHECK (
+        (status <> 'Locked' AND status_before_lock IS NULL AND locked_by_user_id IS NULL
+            AND locked_at_utc IS NULL AND lock_reason IS NULL)
+        OR (status = 'Locked' AND (
+            (status_before_lock IS NULL AND locked_by_user_id IS NULL AND locked_at_utc IS NULL AND lock_reason IS NULL)
+            OR (status_before_lock IN ('PendingEmailVerification','Active','PendingApproval','Rejected','Inactive')
+                AND locked_by_user_id IS NOT NULL AND locked_at_utc IS NOT NULL
+                AND lock_reason IS NOT NULL AND LEN(LTRIM(RTRIM(lock_reason))) > 0)
+        ))
+    ),
+    CONSTRAINT FK_Users_LockedBy FOREIGN KEY (locked_by_user_id)
+        REFERENCES dbo.Users(user_id)
 );
 GO
 CREATE UNIQUE INDEX UX_Users_Email ON dbo.Users(email) WHERE email IS NOT NULL;
@@ -208,6 +226,27 @@ CREATE TABLE dbo.RefreshTokens (
 );
 GO
 CREATE INDEX IX_RefreshTokens_User ON dbo.RefreshTokens(user_id);
+GO
+
+CREATE TABLE admin.UserUnlockOperations (
+    operation_id            BIGINT IDENTITY(1,1) PRIMARY KEY,
+    administrator_user_id   BIGINT NOT NULL,
+    idempotency_key         VARCHAR(128) NOT NULL,
+    request_hash            VARCHAR(128) NOT NULL,
+    target_user_id          BIGINT NOT NULL,
+    restored_status         VARCHAR(24) NOT NULL,
+    unlocked_at_utc         DATETIME2 NOT NULL,
+    CONSTRAINT CK_UserUnlockOperations_RestoredStatus CHECK (
+        restored_status IN ('PendingEmailVerification','Active','PendingApproval','Rejected','Inactive')
+    ),
+    CONSTRAINT FK_UserUnlockOperations_Administrator FOREIGN KEY (administrator_user_id)
+        REFERENCES dbo.Users(user_id),
+    CONSTRAINT FK_UserUnlockOperations_Target FOREIGN KEY (target_user_id)
+        REFERENCES dbo.Users(user_id)
+);
+GO
+CREATE UNIQUE INDEX UX_UserUnlockOperations_AdministratorKey
+    ON admin.UserUnlockOperations(administrator_user_id, idempotency_key);
 GO
 
 -- v4: OtpCodes removed — OTP is short-lived (a few minutes) and deleted on

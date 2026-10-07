@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 
 using TripMate.Api.Common;
 using TripMate.Application.Features.Admin.ActiveTrips.GetList;
+using TripMate.Application.Features.Admin.Users.Common;
 
 using ValidationException = TripMate.Application.Common.Exceptions.ValidationException;
 
@@ -38,6 +39,10 @@ public class ExceptionHandlingMiddleware(
             };
 
             AddActiveTripsErrorCode(context, problem, ex.ErrorCodes.Values.SelectMany(code => code));
+            if (IsUserUnlockRequest(context.Request))
+            {
+                problem.Extensions["errorCode"] = UserAdministrationErrorCodes.RequestInvalid;
+            }
 
             await context.Response.WriteAsJsonAsync(
                 problem,
@@ -87,4 +92,8 @@ public class ExceptionHandlingMiddleware(
             ? ActiveTripErrorCodes.InvalidDateRange
             : ActiveTripErrorCodes.InvalidFilter;
     }
+
+    private static bool IsUserUnlockRequest(HttpRequest request) =>
+        request.Path.Value?.StartsWith("/api/v1/admin/users/", StringComparison.OrdinalIgnoreCase) == true
+        && request.Path.Value.EndsWith("/unlock", StringComparison.OrdinalIgnoreCase);
 }
