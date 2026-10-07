@@ -2043,7 +2043,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
     }
 
     [Fact]
-    public async Task Handle_RateLimitRejected_ReleasesReservationWithoutProviderWork()
+    public async Task Handle_RateLimitRejected_RemovesNewReservationWithoutProviderWork()
     {
         await using var dbContext = TestDbContext.Create();
         await SeedSelectablePoiAsync(dbContext);
@@ -2061,15 +2061,12 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         result.ErrorCode.Should().Be(SchedulingErrorCodes.GenerationRateLimited);
         rankingProvider.CallCount.Should().Be(0);
         routeProvider.CallCount.Should().Be(0);
-        var request = await dbContext.SchedulingRequests.SingleAsync();
-        request.Status.Should().Be(SchedulingRequestStatus.Pending);
-        request.GenerationOwnerId.Should().BeNull();
-        request.GenerationLeaseExpiresAtUtc.Should().BeNull();
+        (await dbContext.SchedulingRequests.CountAsync()).Should().Be(0);
         (await dbContext.Itineraries.CountAsync()).Should().Be(0);
     }
 
     [Fact]
-    public async Task Handle_RateLimiterUnavailable_ReleasesReservationWithoutProviderWork()
+    public async Task Handle_RateLimiterUnavailable_RemovesNewReservationWithoutProviderWork()
     {
         await using var dbContext = TestDbContext.Create();
         await SeedSelectablePoiAsync(dbContext);
@@ -2092,11 +2089,38 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         result.ErrorMetadata.Should().BeEmpty();
         rankingProvider.CallCount.Should().Be(0);
         routeProvider.CallCount.Should().Be(0);
+        (await dbContext.SchedulingRequests.CountAsync()).Should().Be(0);
+        (await dbContext.Itineraries.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Handle_RateLimitRejected_PreservesPreExistingPendingReservation()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await SeedSelectablePoiAsync(dbContext);
+        var command = CreateCommand(Guid.NewGuid()) with
+        {
+            MandatoryPoiIds = [mandatoryPoi.Id],
+        };
+        var initialResult = await CreateHandler(
+                dbContext,
+                routeDurationProvider: new FailingRouteDurationProvider(
+                    RouteDurationProviderFailureKind.Timeout))
+            .Handle(command, CancellationToken.None);
+        initialResult.ErrorCode.Should().Be(SchedulingErrorCodes.RoutingProviderUnavailable);
+        (await dbContext.SchedulingRequests.CountAsync()).Should().Be(1);
+
+        var rejectedResult = await CreateHandler(
+                dbContext,
+                generateRateLimiter: new RejectingGenerateRateLimiter())
+            .Handle(command, CancellationToken.None);
+
+        rejectedResult.ErrorCode.Should().Be(SchedulingErrorCodes.GenerationRateLimited);
         var request = await dbContext.SchedulingRequests.SingleAsync();
         request.Status.Should().Be(SchedulingRequestStatus.Pending);
         request.GenerationOwnerId.Should().BeNull();
         request.GenerationLeaseExpiresAtUtc.Should().BeNull();
-        (await dbContext.Itineraries.CountAsync()).Should().Be(0);
+        request.GenerationAttempt.Should().Be(2);
     }
 
     [Fact]
@@ -2120,10 +2144,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         await act.Should().ThrowAsync<OperationCanceledException>();
         rankingProvider.CallCount.Should().Be(0);
         routeProvider.CallCount.Should().Be(0);
-        var request = await dbContext.SchedulingRequests.SingleAsync();
-        request.Status.Should().Be(SchedulingRequestStatus.Pending);
-        request.GenerationOwnerId.Should().BeNull();
-        request.GenerationLeaseExpiresAtUtc.Should().BeNull();
+        (await dbContext.SchedulingRequests.CountAsync()).Should().Be(0);
         (await dbContext.Itineraries.CountAsync()).Should().Be(0);
     }
 

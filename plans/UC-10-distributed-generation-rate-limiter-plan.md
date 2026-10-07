@@ -79,7 +79,8 @@ Red tests first:
 - handler awaits one acquisition only after fresh-generation ownership;
 - replay/wait/payload mismatch do not acquire;
 - one allowed permit remains one charge across the existing snapshot retry;
-- denied cooldown/quota releases the reservation and preserves the existing result metadata;
+- denied cooldown/quota removes a reservation created by the current attempt, releases a
+  pre-existing reservation, and preserves the existing result metadata;
 - caller cancellation propagates rather than becoming store unavailable;
 - every invalid provider/TTL/timeout/capacity combination fails validation.
 
@@ -333,7 +334,7 @@ or an unresolved critical review finding.
 | Same-millisecond event collision | unique opaque sorted-set members | W03/W05 tests |
 | Redis Cluster cross-slot failure | common configured hash tag for script keys | W03 key tests, W05 real Redis |
 | Store outage bypasses quota | fixed fail-closed policy; no local fallback | W03/W04/W05 outage tests |
-| Limiter failure strands reservation | owner-checked release before returning 503 | W01/W04 handler tests |
+| Limiter denial accumulates pending rows | owner-checked delete for newly created reservations; release pre-existing reservations | W01/W04 handler and SQL Server tests |
 | Local memory grows forever | idle TTL, proactive sweep, hard capacity | W02 stress tests |
 | Rejections keep state alive | TTL refresh only on acceptance | W05 TTL test |
 | Host clock skew changes quota | Redis server time in distributed mode | W03 script review, W05 tests |
@@ -360,8 +361,8 @@ or an unresolved critical review finding.
 ## Verification Evidence
 
 1. **Unit Testing (`TripMate.Application.UnitTests`):**
-   - 1,160 tests passed, 0 failed locally in Release configuration.
-   - Verified async `TryAcquireAsync` acquisition, charge-point placement, reservation release on rate-limit/outage failure, and untouched replay semantics.
+   - 1,161 tests passed, 0 failed locally in Release configuration.
+   - Verified async `TryAcquireAsync` acquisition, charge-point placement, deletion of newly created reservations on rate-limit/outage failure, preservation of pre-existing reservations, and untouched replay semantics.
 
 2. **Infrastructure Unit Testing (`TripMate.Infrastructure.UnitTests`):**
    - 286 tests passed, 0 failed, 1 skipped locally in Release configuration.
@@ -373,7 +374,7 @@ or an unresolved critical review finding.
    - Local execution is pending because Docker Desktop/Redis is unavailable in the current environment; no pass result is claimed here.
 
 4. **API Integration Testing (`TripMate.Api.IntegrationTests`):**
-   - 347 tests passed, 0 failed, 171 skipped locally in Release configuration; the skips are external-service suites, including nine Redis cases without a local endpoint.
+   - 348 tests passed, 0 failed, 172 skipped locally in Release configuration; the skips are external-service suites, including the SQL Server regression and nine Redis cases without locally configured endpoints.
    - Verified HTTP 429 response structure and `Retry-After` header for cooldown and quota rejection.
    - Verified HTTP 503 Service Unavailable mapping for `planning.generation_rate_limiter_unavailable`.
    - Full suite verified healthy end-to-end.
