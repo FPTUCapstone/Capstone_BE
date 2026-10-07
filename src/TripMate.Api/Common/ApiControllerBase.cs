@@ -192,7 +192,8 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
                 StatusCodes.Status429TooManyRequests,
 
             SchedulingErrorCodes.RoutingProviderUnavailable
-                or SchedulingErrorCodes.GenerationTemporarilyUnavailable =>
+                or SchedulingErrorCodes.GenerationTemporarilyUnavailable
+                or SchedulingErrorCodes.GenerationRateLimiterUnavailable =>
                 StatusCodes.Status503ServiceUnavailable,
 
             FeedbackErrorCodes.PoiNotFound or FeedbackErrorCodes.ItineraryNotFound =>

@@ -52,13 +52,14 @@ cp .env.example .env      # chỉ 1 lần đầu, chỉnh giá trị nếu cần
 docker compose up -d --build
 ```
 
-Lệnh trên tự làm hết 3 việc theo đúng thứ tự: dựng SQL Server container → áp schema
-(`database/tripmate_schema_v7.sql`) → chạy API. Không cần tự canh thời gian chờ DB sẵn sàng.
+Lệnh trên dựng SQL Server và Redis, áp schema (`database/tripmate_schema_v7.sql`), rồi chạy API.
+Redis là state dùng chung cho rate limit tạo lịch trình khi API chạy nhiều instance. Không cần tự
+canh thời gian chờ các service sẵn sàng.
 
 Kiểm tra đã chạy đúng:
 
 ```bash
-docker compose ps                 # 3 service: sqlserver, api phải "Up"; db-init "Exited (0)"
+docker compose ps                 # sqlserver, redis, api phải "Up"; db-init "Exited (0)"
 curl http://localhost:5000/health # {"status":"healthy"}
 ```
 
@@ -139,6 +140,10 @@ riêng phần database, đúng với việc bạn chỉ muốn chạy SQL trên 
    dotnet run --project src/TripMate.Api
    ```
 
+   Cấu hình Development mặc định dùng rate limiter `SingleInstance`, nên cách chạy local này không
+   cần Redis. Môi trường production/multi-instance phải dùng `SchedulingRateLimit:Provider=Redis`
+   và cấp secret `ConnectionStrings__Redis`; không commit endpoint hoặc credential vào appsettings.
+
 5. Swagger UI ở `https://localhost:<port>/swagger` (môi trường Development).
 
 ## 6. Chạy test
@@ -162,6 +167,17 @@ Mỗi test tạo một database riêng tên `TripMate_Test_<guid>`, áp trực t
 `database/tripmate_schema_v7.sql`, và chỉ xóa đúng database tạm đó sau khi chạy. Nếu biến môi trường
 đã được đặt nhưng SQL Server, credential hoặc schema có lỗi, test sẽ fail thay vì tự động skip.
 Tài khoản trong connection string cần quyền tạo và xóa database test.
+
+Các test Redis thật được đánh dấu `Category=Redis`. Docker Compose đã có service Redis dùng chung:
+
+```powershell
+docker compose up -d redis
+$env:TRIPMATE_REDIS_TEST_CONNECTION = "localhost:6379"
+dotnet test tests/TripMate.Api.IntegrationTests/TripMate.Api.IntegrationTests.csproj --filter "Category=Redis"
+```
+
+Nếu biến này chưa được đặt, test Redis được skip ở local; workflow backend trên GitHub bắt buộc chạy
+toàn bộ nhóm này và fail nếu có test bị skip.
 
 ## 7. ⚠️ Database-First — không dùng EF Core migrations
 

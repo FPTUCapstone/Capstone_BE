@@ -360,6 +360,9 @@ public sealed class SearchSelectablePoisSqlServerTests
 
     private sealed class AllowAllGenerateRateLimiter : IGenerateRateLimiter
     {
-        public GenerateRateLimitDecision TryAcquire(long userId) => new(true);
+        public ValueTask<GenerateRateLimitDecision> TryAcquireAsync(
+            long userId,
+            CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new GenerateRateLimitDecision(true));
     }
 }

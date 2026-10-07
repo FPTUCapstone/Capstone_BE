@@ -93,8 +93,22 @@ public sealed class CreateSchedulingRequestCommandHandler(
             if (!rateLimitChecked && generateRateLimiter is not null)
             {
                 rateLimitChecked = true;
-                GenerateRateLimitDecision rateLimit = generateRateLimiter.TryAcquire(
-                    canonical.TravelerUserId);
+                GenerateRateLimitDecision rateLimit;
+                try
+                {
+                    rateLimit = await generateRateLimiter.TryAcquireAsync(
+                        canonical.TravelerUserId,
+                        cancellationToken);
+                }
+                catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
+                {
+                    await TryReleaseReservationAfterFailureAsync(
+                        canonical,
+                        generationOwnerId,
+                        ex);
+                    throw;
+                }
+
                 if (!rateLimit.Allowed)
                 {
                     await ReleaseReservationAsync(
@@ -102,6 +116,16 @@ public sealed class CreateSchedulingRequestCommandHandler(
                         generationOwnerId,
                         CancellationToken.None);
                     cancellationToken.ThrowIfCancellationRequested();
+                    if (string.Equals(
+                        rateLimit.ErrorCode,
+                        SchedulingErrorCodes.GenerationRateLimiterUnavailable,
+                        StringComparison.Ordinal))
+                    {
+                        return Result.Failure<SchedulingResponseDto>(
+                            SchedulingErrorCodes.GenerationRateLimiterUnavailable,
+                            "Itinerary generation is temporarily unavailable. Please try again.");
+                    }
+
                     return Result.Failure<SchedulingResponseDto>(
                         rateLimit.ErrorCode!,
                         "Too many itinerary generation requests. Please try again later.",
