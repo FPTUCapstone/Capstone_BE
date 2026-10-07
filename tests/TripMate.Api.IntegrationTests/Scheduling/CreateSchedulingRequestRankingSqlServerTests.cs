@@ -27,6 +27,8 @@ public sealed class CreateSchedulingRequestRankingSqlServerTests
 {
     private const decimal CenterLatitude = 16.0544m;
     private const decimal CenterLongitude = 108.2022m;
+    // One 30-minute visit plus travel and configured buffers fits; two visits require 140 minutes.
+    private const int SingleOptionalCapacityMinutes = 120;
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
@@ -46,7 +48,7 @@ public sealed class CreateSchedulingRequestRankingSqlServerTests
             Guid.NewGuid(),
             provider,
             providerEnabled: false,
-            availableMinutes: 60);
+            availableMinutes: SingleOptionalCapacityMinutes);
 
         provider.CallCount.Should().Be(0);
         (await ReadVisitPoiIdsAsync(database, itineraryId)).Should().Equal(
@@ -77,7 +79,7 @@ public sealed class CreateSchedulingRequestRankingSqlServerTests
             Guid.NewGuid(),
             provider,
             new RecordingRouteDurationProvider(),
-            availableMinutes: 60);
+            availableMinutes: SingleOptionalCapacityMinutes);
 
         // Base: 0.30 vs 0.20. Effective: 0.18 vs 0.52 under the canonical 60/40 blend.
         provider.CallCount.Should().Be(1);
