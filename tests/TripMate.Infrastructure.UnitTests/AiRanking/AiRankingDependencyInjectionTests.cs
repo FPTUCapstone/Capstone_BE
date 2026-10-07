@@ -159,6 +159,7 @@ public sealed class AiRankingDependencyInjectionTests
         yield return new("Cloudinary:ApiKey", "test-key");
         yield return new("Cloudinary:ApiSecret", "test-secret");
         yield return new("Cloudinary:TourMediaFolderRoot", "tripmate/tests/tours");
+        yield return new("SchedulingRateLimit:Provider", "SingleInstance");
     }
 
     private static string FindRepositoryFile(params string[] relativeSegments)

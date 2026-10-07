@@ -1881,11 +1881,13 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
             },
         };
         var routeProvider = new RecordingRouteDurationProvider();
+        var rateLimiter = new CountingAllowingGenerateRateLimiter();
 
         var result = await CreateHandler(
                 dbContext,
                 routeProvider,
-                rankingProvider)
+                rankingProvider,
+                generateRateLimiter: rateLimiter)
             .Handle(CreateCommand(Guid.NewGuid()) with
             {
                 MandatoryPoiIds = [mandatoryPoi.Id],
@@ -1894,6 +1896,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         result.IsSuccess.Should().BeTrue();
         rankingProvider.CallCount.Should().Be(1);
         routeProvider.CallCount.Should().Be(2);
+        rateLimiter.CallCount.Should().Be(1);
         VisitPoiIds(result.Value).Should().Contain(optionalPoi.Id);
     }
 
@@ -2056,6 +2059,37 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
 
         result.IsFailure.Should().BeTrue();
         result.ErrorCode.Should().Be(SchedulingErrorCodes.GenerationRateLimited);
+        rankingProvider.CallCount.Should().Be(0);
+        routeProvider.CallCount.Should().Be(0);
+        var request = await dbContext.SchedulingRequests.SingleAsync();
+        request.Status.Should().Be(SchedulingRequestStatus.Pending);
+        request.GenerationOwnerId.Should().BeNull();
+        request.GenerationLeaseExpiresAtUtc.Should().BeNull();
+        (await dbContext.Itineraries.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Handle_RateLimiterUnavailable_ReleasesReservationWithoutProviderWork()
+    {
+        await using var dbContext = TestDbContext.Create();
+        await SeedSelectablePoiAsync(dbContext);
+        var rankingProvider = new RecordingPoiRankingProvider();
+        var routeProvider = new RecordingRouteDurationProvider();
+
+        var result = await CreateHandler(
+                dbContext,
+                routeProvider,
+                rankingProvider,
+                generateRateLimiter: new RejectingGenerateRateLimiter(
+                    SchedulingErrorCodes.GenerationRateLimiterUnavailable,
+                    retryAfterSeconds: 0))
+            .Handle(CreateCommand(Guid.NewGuid()), CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(SchedulingErrorCodes.GenerationRateLimiterUnavailable);
+        result.ErrorMessage.Should().Be(
+            "Itinerary generation is temporarily unavailable. Please try again.");
+        result.ErrorMetadata.Should().BeEmpty();
         rankingProvider.CallCount.Should().Be(0);
         routeProvider.CallCount.Should().Be(0);
         var request = await dbContext.SchedulingRequests.SingleAsync();
@@ -2541,25 +2575,41 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         }
     }
 
-    private sealed class RejectingGenerateRateLimiter : IGenerateRateLimiter
+    private sealed class RejectingGenerateRateLimiter(
+        string errorCode = SchedulingErrorCodes.GenerationRateLimited,
+        int retryAfterSeconds = 30) : IGenerateRateLimiter
     {
-        public GenerateRateLimitDecision TryAcquire(long userId) =>
-            new(
+        public ValueTask<GenerateRateLimitDecision> TryAcquireAsync(
+            long userId,
+            CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new GenerateRateLimitDecision(
                 Allowed: false,
-                ErrorCode: SchedulingErrorCodes.GenerationRateLimited,
-                RetryAfterSeconds: 30);
+                ErrorCode: errorCode,
+                RetryAfterSeconds: retryAfterSeconds));
+    }
+
+    private sealed class CountingAllowingGenerateRateLimiter : IGenerateRateLimiter
+    {
+        public int CallCount { get; private set; }
+
+        public ValueTask<GenerateRateLimitDecision> TryAcquireAsync(
+            long userId,
+            CancellationToken cancellationToken)
+        {
+            CallCount++;
+            return ValueTask.FromResult(new GenerateRateLimitDecision(Allowed: true));
+        }
     }
 
     private sealed class CallerCancelingRejectingGenerateRateLimiter(
         CancellationTokenSource callerCancellation) : IGenerateRateLimiter
     {
-        public GenerateRateLimitDecision TryAcquire(long userId)
+        public ValueTask<GenerateRateLimitDecision> TryAcquireAsync(
+            long userId,
+            CancellationToken cancellationToken)
         {
             callerCancellation.Cancel();
-            return new GenerateRateLimitDecision(
-                Allowed: false,
-                ErrorCode: SchedulingErrorCodes.GenerationRateLimited,
-                RetryAfterSeconds: 30);
+            return ValueTask.FromCanceled<GenerateRateLimitDecision>(cancellationToken);
         }
     }
 

@@ -69,6 +69,7 @@ public sealed class TripMateApiFactory(
         // or depend on developer User Secrets being present on the test host.
         builder.UseSetting("AiRanking:Enabled", "false");
         builder.UseSetting("AiExplanation:Enabled", "false");
+        builder.UseSetting("SchedulingRateLimit:Provider", "SingleInstance");
 
         if (corsAllowedOrigins is not null)
         {

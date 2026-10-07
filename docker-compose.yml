@@ -38,6 +38,17 @@ services:
     entrypoint: ["/bin/bash", "/scripts/apply-schema.sh"]
     restart: "no"
 
+  redis:
+    image: redis:7-alpine
+    container_name: tripmate-redis
+    ports:
+      - "${REDIS_HOST_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   api:
     # Explicit, stable tag — independent of the folder name Compose would otherwise derive it
     # from (<project>-api). Needed so `docker save`/`docker load` round-trips to the same name
@@ -55,6 +66,8 @@ services:
         condition: service_healthy
       db-init:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     dns:
       - 8.8.8.8
       - 1.1.1.1
@@ -63,6 +76,7 @@ services:
       ASPNETCORE_URLS: http://+:8080
       # Built from SA_PASSWORD in .env — no committed credential.
       ConnectionStrings__Default: "Server=sqlserver,1433;Database=TripMateDb;User Id=sa;Password=${SA_PASSWORD:?SA_PASSWORD must be set in .env (copy .env.example to .env)};TrustServerCertificate=True;"
+      ConnectionStrings__Redis: ${REDIS_CONNECTION_STRING:-redis:6379}
       Jwt__Issuer: TripMate
       Jwt__Audience: TripMateClients
       Jwt__SigningKey: ${JWT_SIGNING_KEY}
@@ -70,6 +84,7 @@ services:
       OPENROUTESERVICE__BASEURL: ${OPENROUTESERVICE__BASEURL:-https://api.heigit.org/openrouteservice/}
       SchedulingRateLimit__MaxFreshGenerationsPerMinute: ${SchedulingRateLimit__MaxFreshGenerationsPerMinute:-3}
       SchedulingRateLimit__CooldownSeconds: ${SchedulingRateLimit__CooldownSeconds:-15}
+      SchedulingRateLimit__Provider: Redis
       # TM-215 AI POI ranking. Windows User Secrets are unavailable inside Docker, so the
       # provider configuration must be supplied through the local, git-ignored .env file.
 

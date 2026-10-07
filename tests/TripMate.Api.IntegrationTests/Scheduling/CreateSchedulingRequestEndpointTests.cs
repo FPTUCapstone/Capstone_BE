@@ -187,6 +187,73 @@ public sealed class CreateSchedulingRequestEndpointTests
         rowCounts.ItineraryItems.Should().Be(0);
     }
 
+    [Fact]
+    public async Task Post_WhenRateLimiterUnavailable_Returns503WithoutPartialRows()
+    {
+        using var factory = new TripMateApiFactory(configureTestServices: services =>
+        {
+            services.RemoveAll<IGenerateRateLimiter>();
+            services.AddSingleton<IGenerateRateLimiter>(new FixedDecisionGenerateRateLimiter(
+                new GenerateRateLimitDecision(
+                    Allowed: false,
+                    ErrorCode: SchedulingErrorCodes.GenerationRateLimiterUnavailable)));
+        });
+        await SeedSelectablePoiAsync(factory);
+        using var client = factory.CreateAuthenticatedClient(42, UserRole.Traveler);
+
+        using var response = await SendValidRequestAsync(client, Guid.NewGuid());
+
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        response.Headers.Should().NotContainKey("Retry-After");
+        string responseBody = await response.Content.ReadAsStringAsync();
+        using JsonDocument problem = JsonDocument.Parse(responseBody);
+        problem.RootElement.GetProperty("status").GetInt32().Should().Be(503);
+        problem.RootElement.GetProperty("errorCode").GetString()
+            .Should().Be(SchedulingErrorCodes.GenerationRateLimiterUnavailable);
+        problem.RootElement.GetProperty("title").GetString()
+            .Should().Be("Itinerary generation is temporarily unavailable. Please try again.");
+
+        var rowCounts = await factory.WithDbContextAsync(async dbContext => new
+        {
+            SchedulingRequests = await dbContext.SchedulingRequests.CountAsync(),
+            Itineraries = await dbContext.Itineraries.CountAsync(),
+            ItineraryItems = await dbContext.ItineraryItems.CountAsync(),
+        });
+        rowCounts.SchedulingRequests.Should().Be(1);
+        rowCounts.Itineraries.Should().Be(0);
+        rowCounts.ItineraryItems.Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData(SchedulingErrorCodes.GenerationRateLimited, 45)]
+    [InlineData(SchedulingErrorCodes.GenerationCooldown, 15)]
+    public async Task Post_WhenHealthyRateLimitRejects_Returns429WithRetryAfterHeader(
+        string errorCode,
+        int retryAfterSeconds)
+    {
+        using var factory = new TripMateApiFactory(configureTestServices: services =>
+        {
+            services.RemoveAll<IGenerateRateLimiter>();
+            services.AddSingleton<IGenerateRateLimiter>(new FixedDecisionGenerateRateLimiter(
+                new GenerateRateLimitDecision(
+                    Allowed: false,
+                    ErrorCode: errorCode,
+                    RetryAfterSeconds: retryAfterSeconds)));
+        });
+        await SeedSelectablePoiAsync(factory);
+        using var client = factory.CreateAuthenticatedClient(42, UserRole.Traveler);
+
+        using var response = await SendValidRequestAsync(client, Guid.NewGuid());
+
+        response.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
+        response.Headers.TryGetValues("Retry-After", out var retryAfterValues).Should().BeTrue();
+        retryAfterValues!.Should().ContainSingle().Which.Should().Be(retryAfterSeconds.ToString());
+        string responseBody = await response.Content.ReadAsStringAsync();
+        using JsonDocument problem = JsonDocument.Parse(responseBody);
+        problem.RootElement.GetProperty("status").GetInt32().Should().Be(429);
+        problem.RootElement.GetProperty("errorCode").GetString().Should().Be(errorCode);
+    }
+
     private static async Task<HttpResponseMessage> SendValidRequestAsync(
         HttpClient client,
         Guid idempotencyKey,
@@ -261,6 +328,18 @@ public sealed class CreateSchedulingRequestEndpointTests
 
     private sealed class AllowAllGenerateRateLimiter : IGenerateRateLimiter
     {
-        public GenerateRateLimitDecision TryAcquire(long userId) => new(true);
+        public ValueTask<GenerateRateLimitDecision> TryAcquireAsync(
+            long userId,
+            CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new GenerateRateLimitDecision(true));
+    }
+
+    private sealed class FixedDecisionGenerateRateLimiter(GenerateRateLimitDecision decision)
+        : IGenerateRateLimiter
+    {
+        public ValueTask<GenerateRateLimitDecision> TryAcquireAsync(
+            long userId,
+            CancellationToken cancellationToken) =>
+            ValueTask.FromResult(decision);
     }
 }

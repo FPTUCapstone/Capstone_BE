@@ -5,6 +5,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
+using StackExchange.Redis;
+
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Media;
 using TripMate.Application.Features.Authentication.PasswordReset;
@@ -24,6 +26,7 @@ using TripMate.Infrastructure.Persistence;
 using TripMate.Infrastructure.Routing;
 using TripMate.Infrastructure.Security;
 using TripMate.Infrastructure.Services;
+using TripMate.Infrastructure.Services.Redis;
 
 namespace TripMate.Infrastructure;
 
@@ -88,7 +91,39 @@ public static class DependencyInjection
         services.AddSingleton<IValidateOptions<SchedulingRateLimitOptions>, SchedulingRateLimitOptionsValidator>();
         services.AddSingleton(serviceProvider =>
             serviceProvider.GetRequiredService<IOptions<SchedulingRateLimitOptions>>().Value);
-        services.AddSingleton<IGenerateRateLimiter, InMemoryGenerateRateLimiter>();
+        services.AddSingleton<GenerateRateLimiterMetrics>();
+
+        var rateLimitOptions = configuration.GetSection(SchedulingRateLimitOptions.SectionName)
+            .Get<SchedulingRateLimitOptions>() ?? new SchedulingRateLimitOptions();
+        if (rateLimitOptions.Provider == SchedulingRateLimitProvider.Redis)
+        {
+            services.AddSingleton<IConnectionMultiplexer>(serviceProvider =>
+            {
+                var options = serviceProvider.GetRequiredService<SchedulingRateLimitOptions>();
+                var connectionString = configuration.GetConnectionString(
+                    options.RedisConnectionStringName);
+                if (string.IsNullOrWhiteSpace(connectionString))
+                {
+                    throw new InvalidOperationException(
+                        $"Redis rate limit provider requires a valid connection string named '{options.RedisConnectionStringName}'.");
+                }
+
+                var redisOptions = ConfigurationOptions.Parse(connectionString);
+                redisOptions.AbortOnConnectFail = false;
+                int timeoutMilliseconds = (int)Math.Max(
+                    1000,
+                    options.CommandTimeout.TotalMilliseconds);
+                redisOptions.ConnectTimeout = timeoutMilliseconds;
+                redisOptions.SyncTimeout = timeoutMilliseconds;
+                redisOptions.AsyncTimeout = timeoutMilliseconds;
+                return ConnectionMultiplexer.Connect(redisOptions);
+            });
+            services.AddSingleton<IGenerateRateLimiter, RedisGenerateRateLimiter>();
+        }
+        else
+        {
+            services.AddSingleton<IGenerateRateLimiter, InMemoryGenerateRateLimiter>();
+        }
         services.AddOptions<PersonalizationRankingOptions>()
             .Bind(configuration.GetSection(PersonalizationRankingOptions.SectionName))
             .ValidateOnStart();
