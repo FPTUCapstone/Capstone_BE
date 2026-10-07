@@ -15,6 +15,14 @@ namespace TripMate.Api.IntegrationTests.Scheduling;
 [Trait("Category", "Redis")]
 public sealed class GenerateRateLimiterRedisTests
 {
+    [Fact]
+    public void RedisFixtureConfiguration_EnablesAdminCommandsRequiredByRecoveryProbe()
+    {
+        ConfigurationOptions configuration = RedisTestFixture.BuildConfiguration("localhost:6379");
+
+        configuration.AllowAdmin.Should().BeTrue();
+    }
+
     [RedisFact]
     public async Task TwoIndependentInstances_SharingRedis_EnforceSharedRollingQuota()
     {
