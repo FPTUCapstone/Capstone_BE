@@ -1,3 +1,5 @@
+using System.Diagnostics.Metrics;
+
 using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
@@ -8,6 +10,7 @@ using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Create;
+using TripMate.Application.Features.Scheduling.Diagnostics;
 using TripMate.Application.Features.Scheduling.Explanation;
 using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Application.UnitTests.TestUtilities;
@@ -17,6 +20,7 @@ using TripMate.Infrastructure.Persistence;
 
 namespace TripMate.Application.UnitTests.Features.Scheduling.Create;
 
+[Collection("SchedulingFunnelTelemetry")]
 public sealed class CreateSchedulingRequestCommandHandlerTests
 {
     private readonly FakeDateTimeProvider _clock = new()
@@ -1773,6 +1777,8 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
     public async Task Handle_GenerationSnapshotChanges_RegeneratesOnceFromCurrentData(
         string invalidation)
     {
+        using var metrics = new FunnelMetricCapture();
+
         await using var dbContext = TestDbContext.Create();
         var mandatoryPoi = await SeedSelectablePoiAsync(
             dbContext,
@@ -1843,9 +1849,61 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
 
         result.IsSuccess.Should().BeTrue();
         rankingProvider.CallCount.Should().Be(1);
+        metrics.Attempts.Should().ContainInOrder(
+            "initial:snapshot_mismatch_retryable",
+            "snapshot_retry:success");
+        metrics.FinalizeCounts.Should().Contain(item =>
+            item.Attempt == "initial" && item.Value == 0);
         VisitPoiIds(result.Value).Should().Contain(mandatoryPoi.Id);
         VisitPoiIds(result.Value).Should().NotContain(pooledPoi.Id);
         VisitPoiIds(result.Value).Should().NotContain(outsidePoolPoi.Id);
+    }
+
+    [Fact]
+    public async Task Handle_MetadataOnlySnapshotChange_RetriesWithoutChangingValidPoolObservation()
+    {
+        using var metrics = new FunnelMetricCapture();
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await SeedSelectablePoiAsync(
+            dbContext,
+            "Mandatory museum",
+            16.0471m,
+            108.2068m);
+        var optionalPoi = await SeedSelectablePoiAsync(
+            dbContext,
+            "Optional museum",
+            16.0472m,
+            108.2069m);
+        var rankingProvider = new RecordingPoiRankingProvider
+        {
+            BeforeReturn = () =>
+            {
+                dbContext.Entry(optionalPoi).Property(poi => poi.Name).CurrentValue =
+                    "Renamed optional museum";
+                dbContext.Entry(optionalPoi).Property(poi => poi.Name).IsModified = true;
+                dbContext.SaveChanges();
+            },
+        };
+        var routeProvider = new RecordingRouteDurationProvider();
+
+        var result = await CreateHandler(
+                dbContext,
+                routeProvider,
+                rankingProvider)
+            .Handle(CreateCommand(Guid.NewGuid()) with
+            {
+                MandatoryPoiIds = [mandatoryPoi.Id],
+            }, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        rankingProvider.CallCount.Should().Be(1);
+        routeProvider.CallCount.Should().Be(2);
+        metrics.Attempts.Should().ContainInOrder(
+            "initial:snapshot_mismatch_retryable",
+            "snapshot_retry:success");
+        metrics.FinalizeCounts.Should().Contain(item =>
+            item.Attempt == "initial" && item.Value == 1);
+        VisitPoiIds(result.Value).Should().Contain(optionalPoi.Id);
     }
 
     [Fact]
@@ -2488,6 +2546,51 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
 
             return Task.FromResult(RouteDurationMatrix.Create(durations));
         }
+    }
+
+    private sealed class FunnelMetricCapture : IDisposable
+    {
+        private readonly MeterListener _listener;
+
+        public FunnelMetricCapture()
+        {
+            _listener = new MeterListener
+            {
+                InstrumentPublished = (instrument, listener) =>
+                {
+                    if (instrument.Meter.Name == CandidatePoolFunnelTelemetry.MeterName)
+                    {
+                        listener.EnableMeasurementEvents(instrument);
+                    }
+                },
+            };
+            _listener.SetMeasurementEventCallback<long>((instrument, value, tags, _) =>
+            {
+                string? attempt = tags.ToArray()
+                    .SingleOrDefault(tag => tag.Key == "attempt").Value?.ToString();
+                string? outcome = tags.ToArray()
+                    .SingleOrDefault(tag => tag.Key == "outcome").Value?.ToString();
+                string? stage = tags.ToArray()
+                    .SingleOrDefault(tag => tag.Key == "stage").Value?.ToString();
+                if (instrument.Name == CandidatePoolFunnelTelemetry.AttemptCountName)
+                {
+                    Attempts.Add($"{attempt}:{outcome}");
+                }
+
+                if (instrument.Name == CandidatePoolFunnelTelemetry.StageCandidateCountName
+                    && stage == CandidatePoolFunnelDimensions.StageFinalizeValidFrozenPool)
+                {
+                    FinalizeCounts.Add((value, attempt!));
+                }
+            });
+            _listener.Start();
+        }
+
+        public List<string> Attempts { get; } = [];
+
+        public List<(long Value, string Attempt)> FinalizeCounts { get; } = [];
+
+        public void Dispose() => _listener.Dispose();
     }
 
     private sealed record SchedulingInvariantSnapshot(
