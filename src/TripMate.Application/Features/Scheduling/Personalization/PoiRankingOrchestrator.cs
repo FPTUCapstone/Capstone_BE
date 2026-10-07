@@ -87,17 +87,12 @@ public sealed class PoiRankingOrchestrator
             candidates.Select(candidate => candidate.PoiId).Distinct().ToArray(),
             candidates.Select(candidate => candidate.CategoryId).Distinct().ToArray(),
             cancellationToken);
-        ScoredCandidate[] providerPool = candidates
-            .Select(candidate => ScoreCandidate(candidate, preferenceTokens, aggregation))
-            .OrderByDescending(candidate => candidate.BaseScore)
-            .ThenByDescending(candidate => candidate.Candidate.ScenicScore ?? decimal.MinValue)
-            .ThenByDescending(candidate => candidate.Candidate.PhotoRating ?? decimal.MinValue)
-            .ThenBy(candidate => candidate.Candidate.ExplorationDistanceForRanking)
-            .ThenBy(candidate =>
-                candidate.Candidate.EstimatedVisitCostForRanking ?? decimal.MaxValue)
-            .ThenBy(candidate => candidate.Candidate.PoiId)
-            .Take(_options.MaxProviderCandidates)
-            .ToArray();
+        ProviderPoolSelection poolSelection = ProviderPoolSelector.Select(
+            candidates
+                .Select(candidate => ScoreCandidate(candidate, preferenceTokens, aggregation))
+                .ToArray(),
+            _options.MaxProviderCandidates);
+        IReadOnlyList<ProviderPoolSelectionCandidate> providerPool = poolSelection.Candidates;
         FrozenSet<long> providerPoolPoiIds = providerPool
             .Select(candidate => candidate.Candidate.PoiId)
             .ToFrozenSet();
@@ -107,7 +102,7 @@ public sealed class PoiRankingOrchestrator
             LogOutcome(
                 LogLevel.Information,
                 candidates.Length,
-                providerPool.Length,
+                providerPool.Count,
                 latencyMilliseconds: 0,
                 outcome: "provider-skipped",
                 fallbackUsed: false,
@@ -146,7 +141,7 @@ public sealed class PoiRankingOrchestrator
                 LogOutcome(
                     LogLevel.Information,
                     candidates.Length,
-                    providerPool.Length,
+                    providerPool.Count,
                     providerLatency.ElapsedMilliseconds,
                     outcome: "cancelled",
                     fallbackUsed: false,
@@ -159,7 +154,7 @@ public sealed class PoiRankingOrchestrator
                 LogOutcome(
                     LogLevel.Warning,
                     candidates.Length,
-                    providerPool.Length,
+                    providerPool.Count,
                     providerLatency.ElapsedMilliseconds,
                     outcome: "timeout",
                     fallbackUsed: true,
@@ -178,7 +173,7 @@ public sealed class PoiRankingOrchestrator
             LogOutcome(
                 LogLevel.Warning,
                 candidates.Length,
-                providerPool.Length,
+                providerPool.Count,
                 providerLatency.ElapsedMilliseconds,
                 OutcomeName(outcomeCategory),
                 fallbackUsed: true,
@@ -198,7 +193,7 @@ public sealed class PoiRankingOrchestrator
             LogOutcome(
                 LogLevel.Warning,
                 candidates.Length,
-                providerPool.Length,
+                providerPool.Count,
                 providerLatency.ElapsedMilliseconds,
                 outcome: "invalid-response",
                 fallbackUsed: true,
@@ -213,7 +208,7 @@ public sealed class PoiRankingOrchestrator
         LogOutcome(
             LogLevel.Information,
             candidates.Length,
-            providerPool.Length,
+            providerPool.Count,
             providerLatency.ElapsedMilliseconds,
             outcome: "success",
             fallbackUsed: false,
@@ -276,7 +271,7 @@ public sealed class PoiRankingOrchestrator
         return items.Count == providerPoolPoiIds.Count;
     }
 
-    private ScoredCandidate ScoreCandidate(
+    private ProviderPoolSelectionCandidate ScoreCandidate(
         PoiRankingInputCandidate candidate,
         IReadOnlyCollection<string> preferenceTokens,
         PersonalBehaviorAggregation aggregation)
@@ -292,7 +287,7 @@ public sealed class PoiRankingOrchestrator
             candidate.CategoryId,
             aggregation);
 
-        return new ScoredCandidate(
+        return new ProviderPoolSelectionCandidate(
             candidate,
             _baseScorer.Score(features, behaviorAffinity));
     }
@@ -306,7 +301,7 @@ public sealed class PoiRankingOrchestrator
             new Dictionary<int, CategoryBehaviorCounts>()));
 
     private static PoiRankingSnapshot CreateBaseSnapshot(
-        IReadOnlyCollection<ScoredCandidate> providerPool,
+        IReadOnlyCollection<ProviderPoolSelectionCandidate> providerPool,
         FrozenSet<long> providerPoolPoiIds,
         PoiRankingOutcomeCategory outcomeCategory,
         PersonalBehaviorAggregation behaviorAggregation) =>
@@ -319,7 +314,7 @@ public sealed class PoiRankingOrchestrator
             behaviorAggregation);
 
     private static PoiRankingSnapshotEntry CreateSnapshotEntry(
-        ScoredCandidate scoredCandidate,
+        ProviderPoolSelectionCandidate scoredCandidate,
         decimal effectiveDesirabilityScore) =>
         new(
             scoredCandidate.Candidate.PoiId,
@@ -372,8 +367,4 @@ public sealed class PoiRankingOrchestrator
             outcome,
             fallbackUsed,
             timedOut);
-
-    private sealed record ScoredCandidate(
-        PoiRankingInputCandidate Candidate,
-        decimal BaseScore);
 }
