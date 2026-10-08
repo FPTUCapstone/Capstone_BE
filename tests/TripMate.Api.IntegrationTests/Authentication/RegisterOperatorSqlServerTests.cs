@@ -48,6 +48,9 @@ public sealed class RegisterOperatorSqlServerTests
 
         public int Deletes => Volatile.Read(ref _deletes);
 
+        public OperatorDocumentStorageDeleteOutcome DeleteOutcome { get; set; } =
+            OperatorDocumentStorageDeleteOutcome.Deleted;
+
         public string AllocatePublicId() => $"operators/sql-test-{Interlocked.Increment(ref _allocated)}";
 
         public Task<OperatorDocumentStorageUploadResult> UploadAsync(
@@ -60,7 +63,8 @@ public sealed class RegisterOperatorSqlServerTests
         {
             Interlocked.Increment(ref _deletes);
             return Task.FromResult(new OperatorDocumentStorageDeleteResult(
-                OperatorDocumentStorageDeleteOutcome.Deleted, null));
+                DeleteOutcome, DeleteOutcome == OperatorDocumentStorageDeleteOutcome.TransientFailure
+                    ? "PROVIDER_UNAVAILABLE" : null));
         }
 
         public Uri? CreateTemporaryDownloadUrl(string storedReference, DateTimeOffset expiresAtUtc) => null;
@@ -244,5 +248,31 @@ public sealed class RegisterOperatorSqlServerTests
         (await persisted.OperatorProfiles.CountAsync()).Should().Be(0);
         (await persisted.OperatorDocuments.CountAsync()).Should().Be(0);
         storage.Deletes.Should().Be(1);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task FailureAfterSqlWrites_AndDeleteFailure_PreservesDurableCleanupIntent()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var storage = new StorageStub
+        {
+            DeleteOutcome = OperatorDocumentStorageDeleteOutcome.TransientFailure,
+        };
+        using var factory = Factory(database, storage, new FailAfterSaveInterceptor());
+        using var client = factory.CreateClient();
+        using var form = Form("orphan@example.com");
+
+        var response = await client.PostAsync(Route, form);
+
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        await using var persisted = database.CreateDbContext();
+        (await persisted.Users.CountAsync()).Should().Be(0);
+        (await persisted.OperatorDocuments.CountAsync()).Should().Be(0);
+        storage.Deletes.Should().Be(1);
+        (await database.ExecuteScalarAsync<int>("""
+            SELECT COUNT(*) FROM dbo.OperatorDocumentCleanupOutbox
+            WHERE cleanup_status = 'Pending' AND content_type = 'application/pdf';
+            """)).Should().Be(1);
     }
 }

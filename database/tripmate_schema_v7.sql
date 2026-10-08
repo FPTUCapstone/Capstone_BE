@@ -263,6 +263,38 @@ GO
 CREATE INDEX IX_OperatorDocuments_Operator ON dbo.OperatorDocuments(operator_user_id);
 GO
 
+-- UC-02: a committed cleanup reservation exists before each private Cloudinary upload.
+-- The worker retries failed deletion and removes a reservation only after an asset is
+-- absent or confirmed as a document of a committed registration.
+CREATE TABLE dbo.OperatorDocumentCleanupOutbox (
+    cleanup_id          BIGINT IDENTITY(1,1) PRIMARY KEY,
+    public_id           NVARCHAR(500) NOT NULL,
+    content_type        VARCHAR(32) NOT NULL
+        CHECK (content_type IN ('application/pdf','image/jpeg','image/png')),
+    expected_reference  NVARCHAR(500) NOT NULL,
+    cleanup_status      VARCHAR(16) NOT NULL DEFAULT 'Pending'
+        CHECK (cleanup_status IN ('Pending','Leased')),
+    not_before_at       DATETIME2 NOT NULL,
+    attempt_count       INT NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+    lease_token         UNIQUEIDENTIFIER NULL,
+    lease_expires_at    DATETIME2 NULL,
+    last_error_code     VARCHAR(100) NULL,
+    created_at          DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    updated_at          DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT CK_OperatorDocumentCleanupOutbox_Lease CHECK (
+        (cleanup_status = 'Pending' AND lease_token IS NULL AND lease_expires_at IS NULL) OR
+        (cleanup_status = 'Leased' AND lease_token IS NOT NULL AND lease_expires_at IS NOT NULL))
+);
+GO
+CREATE UNIQUE INDEX UX_OperatorDocumentCleanupOutbox_PublicId
+    ON dbo.OperatorDocumentCleanupOutbox(public_id);
+GO
+CREATE INDEX IX_OperatorDocumentCleanupOutbox_Due
+    ON dbo.OperatorDocumentCleanupOutbox(cleanup_status, not_before_at, lease_expires_at, cleanup_id);
+GO
+CREATE INDEX IX_OperatorDocuments_FileUrl ON dbo.OperatorDocuments(file_url);
+GO
+
 CREATE TABLE dbo.SystemConfigs (
     config_key      VARCHAR(100) PRIMARY KEY,
     config_value    NVARCHAR(500) NOT NULL,

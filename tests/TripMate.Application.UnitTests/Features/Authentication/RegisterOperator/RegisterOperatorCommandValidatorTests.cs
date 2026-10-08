@@ -17,6 +17,23 @@ public sealed class RegisterOperatorCommandValidatorTests
         result.IsValid.Should().BeTrue();
     }
 
+    [Fact]
+    public void LengthBoundaries_AreCheckedAfterTrimmingLikePersistedValues()
+    {
+        var command = ValidCommand() with
+        {
+            CompanyName = "  " + new string('C', 200) + "  ",
+            ContactPerson = "  " + new string('N', 150) + "  ",
+            BusinessAddress = "  " + new string('A', 300) + "  ",
+        };
+
+        validator.Validate(command).IsValid.Should().BeTrue();
+        validator.Validate(command with { CompanyName = " " + new string('C', 201) + " " })
+            .Errors.Should().Contain(error => error.PropertyName == nameof(command.CompanyName));
+        validator.Validate(command with { BusinessAddress = " " + new string('A', 301) + " " })
+            .Errors.Should().Contain(error => error.PropertyName == nameof(command.BusinessAddress));
+    }
+
     [Theory]
     [InlineData("0101234567")]
     [InlineData("0315678901-001")]

@@ -18,11 +18,13 @@ public sealed class RegisterOperatorCommandHandler(
     IPasswordHasherService passwordHasher,
     IDateTimeProvider clock,
     IOperatorDocumentStorage storage,
+    IOperatorDocumentCleanupJournal cleanup,
     IOperatorRegistrationConstraintClassifier constraints,
     ILogger<RegisterOperatorCommandHandler> logger)
     : IRequestHandler<RegisterOperatorCommand, Result<RegisterOperatorResponse>>
 {
     private const string UnavailableMessage = "TripMate is temporarily unable to process your request. Please try again.";
+    private static readonly TimeSpan CleanupReservationGracePeriod = TimeSpan.FromMinutes(30);
     public async Task<Result<RegisterOperatorResponse>> Handle(
         RegisterOperatorCommand request,
         CancellationToken cancellationToken)
@@ -136,6 +138,10 @@ public sealed class RegisterOperatorCommandHandler(
                     // so compensation deletes the same object on later failure.
                     publicId += ".pdf";
                 }
+                // A separate SQL commit must precede provider I/O. If this process stops after
+                // the remote write, the worker can recover the durable reservation.
+                await cleanup.ReserveAsync(publicId, document.ContentType,
+                    clock.UtcNow + CleanupReservationGracePeriod, cancellationToken);
                 // Track before calling the provider: an exception may follow a successful remote write.
                 uploaded.Add((publicId, document.ContentType));
                 var response = await storage.UploadAsync(
@@ -165,6 +171,20 @@ public sealed class RegisterOperatorCommandHandler(
                 return new RegisterOperatorResponse(
                     user.Id, nameof(OperatorApprovalStatus.PendingApproval), AuthErrorCodes.Msg08);
             }, cancellationToken);
+            foreach (var (publicId, _) in uploaded)
+            {
+                try
+                {
+                    await cleanup.CompleteAsync(publicId, CancellationToken.None);
+                }
+                catch (Exception exception)
+                {
+                    // The registration is committed. The worker checks the persisted
+                    // document reference before deleting an expired reservation.
+                    logger.LogError(exception,
+                        "Could not close committed operator document reservation {PublicId}.", publicId);
+                }
+            }
             return Result.Success(responseValue);
         }
         catch (DbUpdateException exception)
@@ -224,9 +244,36 @@ public sealed class RegisterOperatorCommandHandler(
         {
             try
             {
+                string reference = OperatorDocumentReference.Create(publicId, contentType).AbsoluteUri;
+                if (await db.OperatorDocuments.AsNoTracking().AnyAsync(
+                        document => document.FileUrl == reference, CancellationToken.None))
+                {
+                    // A commit acknowledgment may have been lost after SQL committed.
+                    // Never compensate a document that now belongs to a saved profile.
+                    await cleanup.CompleteAsync(publicId, CancellationToken.None);
+                    continue;
+                }
+            }
+            catch (Exception exception)
+            {
+                // An unavailable DB cannot prove this asset is orphaned. The worker
+                // will check again later rather than risking deletion of a live file.
+                logger.LogError(exception,
+                    "Could not determine operator document ownership for {PublicId}.", publicId);
+                await ExpediteCleanupAsync(publicId);
+                continue;
+            }
+
+            try
+            {
                 var result = await storage.DeleteAsync(publicId, contentType, CancellationToken.None);
-                if (result.Outcome is OperatorDocumentStorageDeleteOutcome.TransientFailure or
-                    OperatorDocumentStorageDeleteOutcome.PermanentFailure)
+                if (result.Outcome is OperatorDocumentStorageDeleteOutcome.Deleted or
+                    OperatorDocumentStorageDeleteOutcome.AlreadyAbsent)
+                {
+                    await cleanup.CompleteAsync(publicId, CancellationToken.None);
+                    continue;
+                }
+                else
                 {
                     logger.LogError("Failed to compensate operator document {PublicId}: {Code}",
                         publicId, result.SafeErrorCode);
@@ -236,9 +283,23 @@ public sealed class RegisterOperatorCommandHandler(
             {
                 logger.LogError(exception, "Failed to compensate operator document {PublicId}", publicId);
             }
+            await ExpediteCleanupAsync(publicId);
         }
 
         uploaded.Clear();
+    }
+
+    private async Task ExpediteCleanupAsync(string publicId)
+    {
+        try
+        {
+            await cleanup.RetryNowAsync(publicId, CancellationToken.None);
+        }
+        catch (Exception exception)
+        {
+            // The reservation remains durable and will become due after its grace period.
+            logger.LogError(exception, "Could not expedite operator document cleanup {PublicId}", publicId);
+        }
     }
 
     private static Result<RegisterOperatorResponse> Unavailable() =>
