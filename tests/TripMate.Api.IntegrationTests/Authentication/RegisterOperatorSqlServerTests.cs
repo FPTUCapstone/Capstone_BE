@@ -106,17 +106,21 @@ public sealed class RegisterOperatorSqlServerTests
             });
 
     private static MultipartFormDataContent Form(
-        string email, string taxCode = "UC02-TAX", string licence = "UC02-LIC")
+        string email, string taxCode = "0101234567", string licence = "79-0123/2026/TCDL-GPLHQT",
+        string companyName = "UC-02 SQL Operator", string contactPerson = "SQL Operator",
+        string? businessAddress = null)
     {
         var form = new MultipartFormDataContent();
         form.Add(new StringContent(email), "firebaseIdToken");
         form.Add(new StringContent(email), "email");
         form.Add(new StringContent(Password), "password");
         form.Add(new StringContent(Password), "confirmPassword");
-        form.Add(new StringContent("UC-02 SQL Operator"), "companyName");
+        form.Add(new StringContent(companyName), "companyName");
         form.Add(new StringContent(licence), "businessLicenseNo");
         form.Add(new StringContent(taxCode), "taxCode");
-        form.Add(new StringContent("SQL Operator"), "contactPerson");
+        form.Add(new StringContent(contactPerson), "contactPerson");
+        if (businessAddress is not null)
+            form.Add(new StringContent(businessAddress), "businessAddress");
         form.Add(new StringContent("true"), "acceptTerms");
         var file = new ByteArrayContent("%PDF-test"u8.ToArray());
         file.Headers.ContentType = new MediaTypeHeaderValue("application/pdf");
@@ -128,11 +132,15 @@ public sealed class RegisterOperatorSqlServerTests
     [Trait("Category", "SqlServer")]
     public async Task RegisterVerifySignInAndAdminDetail_PersistOnePendingApplication()
     {
+        const string companyName = "Công ty Du lịch Đà Nẵng";
+        const string contactPerson = "Nguyễn Thị Ánh";
+        const string businessAddress = "123 đường Trần Phú, Đà Nẵng";
         await using var database = await SqlServerTestDatabase.CreateAsync();
         var storage = new StorageStub();
         using var factory = Factory(database, storage);
         using var client = factory.CreateClient();
-        using var form = Form("operator@example.com");
+        using var form = Form("operator@example.com", companyName: companyName,
+            contactPerson: contactPerson, businessAddress: businessAddress);
 
         var registration = await client.PostAsync(Route, form);
         registration.StatusCode.Should().Be(HttpStatusCode.Created);
@@ -146,8 +154,11 @@ public sealed class RegisterOperatorSqlServerTests
             user.Id.Should().Be(userId);
             user.Status.Should().Be(AccountStatus.PendingApproval);
             user.EmailVerifiedAtUtc.Should().BeNull();
-            (await persisted.OperatorProfiles.SingleAsync()).ApprovalStatus
-                .Should().Be(OperatorApprovalStatus.PendingApproval);
+            user.FullName.Should().Be(contactPerson);
+            var profile = await persisted.OperatorProfiles.SingleAsync();
+            profile.ApprovalStatus.Should().Be(OperatorApprovalStatus.PendingApproval);
+            profile.CompanyName.Should().Be(companyName);
+            profile.ContactAddress.Should().Be(businessAddress);
             (await persisted.OperatorDocuments.SingleAsync()).Status
                 .Should().Be(DocumentStatus.Submitted);
         }
@@ -188,11 +199,11 @@ public sealed class RegisterOperatorSqlServerTests
         using var factory = Factory(database, storage, new ConcurrentSaveInterceptor());
         using var firstClient = factory.CreateClient();
         using var secondClient = factory.CreateClient();
-        using var firstForm = Form("first@example.com", "UC02-TAX-1", "UC02-LIC-1");
+        using var firstForm = Form("first@example.com", "0101234567", "79-0123/2026/TCDL-GPLHQT");
         using var secondForm = Form(
             duplicate == "email" ? "first@example.com" : "second@example.com",
-            duplicate == "tax" ? "UC02-TAX-1" : "UC02-TAX-2",
-            duplicate == "licence" ? "UC02-LIC-1" : "UC02-LIC-2");
+            duplicate == "tax" ? "0101234567" : "0201234567",
+            duplicate == "licence" ? "79-0123/2026/TCDL-GPLHQT" : "01-0456/2025/SDL-GPLHND");
 
         var responses = await Task.WhenAll(
             firstClient.PostAsync(Route, firstForm),

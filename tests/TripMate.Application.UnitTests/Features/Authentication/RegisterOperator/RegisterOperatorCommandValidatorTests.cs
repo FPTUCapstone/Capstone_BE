@@ -18,6 +18,47 @@ public sealed class RegisterOperatorCommandValidatorTests
     }
 
     [Theory]
+    [InlineData("0101234567")]
+    [InlineData("0315678901-001")]
+    public void TaxCode_AcceptsHeadOfficeAndBranchFormats(string taxCode)
+    {
+        validator.Validate(ValidCommand() with { TaxCode = taxCode }).IsValid.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("010123456a")]
+    [InlineData("0315678901001")]
+    [InlineData("0315678901-01")]
+    [InlineData("0315678901 -001")]
+    public void TaxCode_RejectsInvalidFormat(string taxCode)
+    {
+        validator.Validate(ValidCommand() with { TaxCode = taxCode }).Errors.Should().Contain(error =>
+            error.PropertyName == nameof(RegisterOperatorCommand.TaxCode) &&
+            error.ErrorCode == "OPERATOR_TAX_CODE_INVALID");
+    }
+
+    [Theory]
+    [InlineData("79-0123/2026/TCDL-GPLHQT")]
+    [InlineData("01-0456/2025/SDL-GPLHND")]
+    [InlineData("01-7/2025/SDL-GPLHND")]
+    public void BusinessLicenseNo_AcceptsBothTravelLicenseTypes(string licence)
+    {
+        validator.Validate(ValidCommand() with { BusinessLicenseNo = licence }).IsValid.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("LIC-1")]
+    [InlineData("79-0123/2026/TCDL-GPLHND")]
+    [InlineData("79-ABCD/2026/TCDL-GPLHQT")]
+    [InlineData("79-0123/26/TCDL-GPLHQT")]
+    public void BusinessLicenseNo_RejectsInvalidFormat(string licence)
+    {
+        validator.Validate(ValidCommand() with { BusinessLicenseNo = licence }).Errors.Should().Contain(error =>
+            error.PropertyName == nameof(RegisterOperatorCommand.BusinessLicenseNo) &&
+            error.ErrorCode == "OPERATOR_TRAVEL_LICENSE_INVALID");
+    }
+
+    [Theory]
     [InlineData(nameof(RegisterOperatorCommand.FirebaseIdToken), AuthErrorCodes.AuthTokenMissing)]
     [InlineData(nameof(RegisterOperatorCommand.Email), AuthErrorCodes.Msg01)]
     [InlineData(nameof(RegisterOperatorCommand.Password), AuthErrorCodes.Msg01)]
@@ -263,8 +304,8 @@ public sealed class RegisterOperatorCommandValidatorTests
         Password: "Password123!",
         ConfirmPassword: "Password123!",
         CompanyName: "TripMate Tours",
-        BusinessLicenseNo: "LICENSE-001",
-        TaxCode: "TAX-001",
+        BusinessLicenseNo: "79-0123/2026/TCDL-GPLHQT",
+        TaxCode: "0101234567",
         ContactPerson: "Nguyễn An",
         BusinessAddress: null,
         ContactPhone: null,

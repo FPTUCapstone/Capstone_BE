@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 using FluentValidation;
 
 using TripMate.Application.Features.Authentication.Common;
@@ -31,6 +33,18 @@ public sealed class RegisterOperatorCommandValidator : AbstractValidator<Registe
         RequiredText(command => command.BusinessLicenseNo, 100);
         RequiredText(command => command.TaxCode, 50);
         RequiredText(command => command.ContactPerson, 150);
+
+        RuleFor(command => command.TaxCode)
+            .Must(value => string.IsNullOrWhiteSpace(value) ||
+                Regex.IsMatch(value.Trim(), @"\A[0-9]{10}(?:-[0-9]{3})?\z"))
+            .WithErrorCode(AuthErrorCodes.OperatorTaxCodeInvalid)
+            .WithMessage(OperatorRegistrationMessages.InvalidTaxCode);
+
+        RuleFor(command => command.BusinessLicenseNo)
+            .Must(value => string.IsNullOrWhiteSpace(value) ||
+                Regex.IsMatch(value.Trim(), @"\A[0-9]{2}-[0-9]+/[0-9]{4}/(?:TCDL-GPLHQT|SDL-GPLHND)\z"))
+            .WithErrorCode(AuthErrorCodes.OperatorTravelLicenseInvalid)
+            .WithMessage(OperatorRegistrationMessages.InvalidTravelLicense);
 
         RuleFor(command => command.BusinessAddress)
             .MaximumLength(300)
