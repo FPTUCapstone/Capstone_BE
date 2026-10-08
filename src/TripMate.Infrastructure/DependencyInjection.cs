@@ -56,6 +56,10 @@ public static class DependencyInjection
         services.AddScoped<ITourMediaUploadLock, SqlServerTourMediaUploadLock>();
         services.AddScoped<ITourMediaCleanupOutboxStore, SqlServerTourMediaCleanupOutboxStore>();
         services.AddScoped<TourMediaCleanupProcessor>();
+        services.AddSingleton<SqlOperatorDocumentCleanupJournal>();
+        services.AddSingleton<IOperatorDocumentCleanupJournal>(sp =>
+            sp.GetRequiredService<SqlOperatorDocumentCleanupJournal>());
+        services.AddHostedService<OperatorDocumentCleanupBackgroundService>();
 
         services.AddOptions<TourMediaCleanupOptions>()
             .Bind(configuration.GetSection(TourMediaCleanupOptions.SectionName))

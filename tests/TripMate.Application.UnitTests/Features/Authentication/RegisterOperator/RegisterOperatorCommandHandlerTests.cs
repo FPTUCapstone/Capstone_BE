@@ -22,6 +22,7 @@ public class RegisterOperatorCommandHandlerTests
     private readonly TestDbContext db = TestDbContext.Create();
     private readonly Mock<IFirebaseAuthService> firebase = new();
     private readonly Mock<IOperatorDocumentStorage> storage = new();
+    private readonly Mock<IOperatorDocumentCleanupJournal> cleanup = new();
     private readonly Mock<IDateTimeProvider> clock = new();
     private readonly Mock<IOperatorRegistrationConstraintClassifier> constraints = new();
     private readonly FakePasswordHasher hasher = new();
@@ -47,7 +48,7 @@ public class RegisterOperatorCommandHandlerTests
     }
 
     private RegisterOperatorCommandHandler Handler() => new(
-        db, firebase.Object, hasher, clock.Object, storage.Object, constraints.Object,
+        db, firebase.Object, hasher, clock.Object, storage.Object, cleanup.Object, constraints.Object,
         NullLogger<RegisterOperatorCommandHandler>.Instance);
 
     private static RegisterOperatorCommand Command(IReadOnlyList<OperatorRegistrationDocument>? extras = null) => new(
@@ -98,6 +99,10 @@ public class RegisterOperatorCommandHandlerTests
             x.OperatorUserId == user.Id &&
             x.FileUrl.StartsWith("https://cdn.example.com/operators/", StringComparison.Ordinal));
         deleted.Should().BeEmpty();
+        cleanup.Verify(x => x.ReserveAsync(It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+        cleanup.Verify(x => x.CompleteAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Exactly(2));
     }
 
     [Fact]
@@ -278,6 +283,58 @@ public class RegisterOperatorCommandHandlerTests
         var result = await Handler().Handle(Command(), CancellationToken.None);
         result.ErrorCode.Should().Be(AuthErrorCodes.Msg127);
         db.Users.Should().BeEmpty();
+        cleanup.Verify(x => x.RetryNowAsync("operators/1.pdf", It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task SaveFailureAndCloudinaryDeleteFailure_LeavesDurableCleanupReservation()
+    {
+        db.ThrowOnSaveConcurrency = true;
+        storage.Setup(x => x.DeleteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new OperatorDocumentStorageDeleteResult(
+                OperatorDocumentStorageDeleteOutcome.TransientFailure, "DELETE_UNAVAILABLE"));
+
+        var result = await Handler().Handle(Command(), CancellationToken.None);
+
+        result.ErrorCode.Should().Be(AuthErrorCodes.Msg127);
+        cleanup.Verify(x => x.ReserveAsync("operators/1.pdf", "application/pdf",
+            It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()), Times.Once);
+        cleanup.Verify(x => x.RetryNowAsync("operators/1.pdf", It.IsAny<CancellationToken>()), Times.Once);
+        cleanup.Verify(x => x.CompleteAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task CleanupReservationFailure_PreventsCloudinaryUpload()
+    {
+        cleanup.Setup(x => x.ReserveAsync(It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("SQL unavailable"));
+
+        var result = await Handler().Handle(Command(), CancellationToken.None);
+
+        result.ErrorCode.Should().Be(AuthErrorCodes.Msg127);
+        storage.Verify(x => x.UploadAsync(It.IsAny<OperatorDocumentStorageUpload>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task AmbiguousCommit_DoesNotDeleteDocumentReferencedBySavedProfile()
+    {
+        db.TransactionCompletionFailureFactory = _ => new InvalidOperationException("commit acknowledgment lost");
+        storage.Setup(x => x.UploadAsync(It.IsAny<OperatorDocumentStorageUpload>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync((OperatorDocumentStorageUpload upload, CancellationToken _) =>
+                OperatorDocumentStorageUploadResult.Succeeded(
+                    OperatorDocumentReference.Create(upload.PublicId, upload.ContentType)));
+
+        var result = await Handler().Handle(Command(), CancellationToken.None);
+
+        result.ErrorCode.Should().Be(AuthErrorCodes.Msg127);
+        db.OperatorDocuments.Should().ContainSingle();
+        storage.Verify(x => x.DeleteAsync(It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+        cleanup.Verify(x => x.CompleteAsync("operators/1.pdf", It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]

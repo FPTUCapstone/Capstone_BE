@@ -47,7 +47,7 @@ public sealed class RegisterOperatorCommandValidator : AbstractValidator<Registe
             .WithMessage(OperatorRegistrationMessages.InvalidTravelLicense);
 
         RuleFor(command => command.BusinessAddress)
-            .MaximumLength(300)
+            .Must(value => value is null || value.Trim().Length <= 300)
             .WithErrorCode(AuthErrorCodes.RequestInvalid)
             .WithMessage("Business Address must not exceed 300 characters.")
             .When(command => !string.IsNullOrWhiteSpace(command.BusinessAddress));
@@ -91,7 +91,7 @@ public sealed class RegisterOperatorCommandValidator : AbstractValidator<Registe
             .Must(value => !string.IsNullOrWhiteSpace(value))
                 .WithErrorCode(AuthErrorCodes.Msg01)
                 .WithMessage("This field is required.")
-            .MaximumLength(maximumLength)
+            .Must(value => value is not null && value.Trim().Length <= maximumLength)
                 .WithErrorCode(AuthErrorCodes.RequestInvalid)
                 .WithMessage($"This field must not exceed {maximumLength} characters.");
 

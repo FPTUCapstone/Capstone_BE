@@ -101,6 +101,8 @@ public class TestDbContext(
 
     public Func<int, Exception?>? SerializableTransactionCompletionFailureFactory { get; set; }
 
+    public Func<int, Exception?>? TransactionCompletionFailureFactory { get; set; }
+
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         SaveChangesAsyncCallCount++;
@@ -148,7 +150,15 @@ public class TestDbContext(
         CancellationToken cancellationToken)
     {
         TransactionExecutionCount++;
-        return await operation(cancellationToken);
+        T result = await operation(cancellationToken);
+        Exception? completionFailure =
+            TransactionCompletionFailureFactory?.Invoke(TransactionExecutionCount);
+        if (completionFailure is not null)
+        {
+            throw completionFailure;
+        }
+
+        return result;
     }
 
     public void ClearTrackedEntities() => ChangeTracker.Clear();

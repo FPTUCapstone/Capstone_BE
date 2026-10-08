@@ -8,6 +8,7 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.OpenApi;
 
 using Swashbuckle.AspNetCore.Swagger;
@@ -19,6 +20,7 @@ using TripMate.Application.Common.Media;
 using TripMate.Application.Features.Authentication.RegisterOperator;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
+using TripMate.Infrastructure.Services;
 
 namespace TripMate.Api.IntegrationTests.Authentication;
 
@@ -74,12 +76,32 @@ public class RegisterOperatorEndpointTests
         }
     }
 
+    private sealed class CleanupJournalStub : IOperatorDocumentCleanupJournal
+    {
+        public Task ReserveAsync(string publicId, string contentType,
+            DateTimeOffset notBeforeAtUtc, CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task CompleteAsync(string publicId, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+
+        public Task RetryNowAsync(string publicId, CancellationToken cancellationToken) =>
+            Task.CompletedTask;
+    }
+
     private static TripMateApiFactory Factory(FirebaseStub firebase, StorageStub storage) => new(
         firebaseServiceFactory: _ => firebase,
         configureTestServices: services =>
         {
             services.RemoveAll<IOperatorDocumentStorage>();
             services.AddSingleton<IOperatorDocumentStorage>(storage);
+            services.RemoveAll<IOperatorDocumentCleanupJournal>();
+            services.AddSingleton<IOperatorDocumentCleanupJournal, CleanupJournalStub>();
+            foreach (var worker in services.Where(descriptor =>
+                         descriptor.ServiceType == typeof(IHostedService) &&
+                         descriptor.ImplementationType == typeof(OperatorDocumentCleanupBackgroundService)).ToArray())
+            {
+                services.Remove(worker);
+            }
         });
 
     private static MultipartFormDataContent Form(

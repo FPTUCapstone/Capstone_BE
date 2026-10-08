@@ -87,15 +87,7 @@ internal sealed class CloudinaryOperatorDocumentStorage(
                     TourMediaStorageFailureKind.ProviderRejected, InvalidResponseErrorCode);
             }
 
-            string format = request.ContentType.ToLowerInvariant() switch
-            {
-                "application/pdf" => "pdf",
-                "image/jpeg" => "jpg",
-                _ => "png",
-            };
-            string resourceType = uploadRequest.IsRaw ? "raw" : "image";
-            var reference = new Uri(
-                $"cloudinary-operator://asset/{resourceType}/{format}/{Uri.EscapeDataString(response.PublicId)}");
+            Uri reference = OperatorDocumentReference.Create(response.PublicId, request.ContentType);
             return OperatorDocumentStorageUploadResult.Succeeded(reference);
         }
 

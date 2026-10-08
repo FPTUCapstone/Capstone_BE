@@ -56,3 +56,35 @@ other environment with legacy public documents, follow the migration steps below
 Do not copy public legacy URLs into the new reference format without changing
 the Cloudinary asset's delivery type: that would hide a link in the API while
 leaving the underlying file public.
+
+## Failed-registration cleanup
+
+Apply `database/migrations/20261008_add_operator_document_cleanup_outbox.sql`
+before deploying the UC-02 cleanup worker. The API commits one
+`dbo.OperatorDocumentCleanupOutbox` reservation before each Cloudinary upload;
+if SQL cannot record it, the upload does not start. A successful registration
+closes the reservation. A failed registration attempts immediate deletion and
+keeps the reservation if deletion fails. A process crash leaves the reservation
+due after a 30-minute grace period. The worker checks for a committed
+`dbo.OperatorDocuments.file_url` reference before deleting, then retries failed
+provider deletion with capped backoff (at most 24 hours between attempts).
+Transient and provider-reported permanent failures remain recorded until the
+asset is confirmed deleted or absent; they are never silently discarded.
+
+Monitor unresolved work and investigate repeated failures, especially after
+eight attempts:
+
+```sql
+SELECT cleanup_id, public_id, cleanup_status, attempt_count,
+       last_error_code, created_at, not_before_at, lease_expires_at
+FROM dbo.OperatorDocumentCleanupOutbox
+WHERE attempt_count >= 8 OR created_at < DATEADD(hour, -1, SYSUTCDATETIME())
+ORDER BY created_at;
+```
+
+The `public_id` is an opaque provider identifier; do not expose it to end
+users. Before manual provider cleanup, confirm that no current
+`dbo.OperatorDocuments.file_url` references the corresponding asset. Do not
+delete a reservation merely to silence an alert. The worker's in-memory
+polling is per API instance, but the SQL claim/lease prevents concurrent
+instances from owning the same cleanup attempt; an expired lease is reclaimed.
