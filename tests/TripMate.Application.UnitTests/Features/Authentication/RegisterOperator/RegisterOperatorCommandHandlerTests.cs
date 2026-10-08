@@ -63,6 +63,14 @@ public class RegisterOperatorCommandHandlerTests
             new OperatorRegistrationDocument("extra.png", "image/png", [137, 80, 78, 71, 13, 10, 26, 10])]), CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
+        storage.Verify(x => x.UploadAsync(
+            It.Is<OperatorDocumentStorageUpload>(upload =>
+                upload.ContentType == "application/pdf" && upload.PublicId.EndsWith(".pdf")),
+            It.IsAny<CancellationToken>()), Times.Once);
+        storage.Verify(x => x.UploadAsync(
+            It.Is<OperatorDocumentStorageUpload>(upload =>
+                upload.ContentType == "image/png" && !upload.PublicId.EndsWith(".pdf")),
+            It.IsAny<CancellationToken>()), Times.Once);
         result.Value.ApplicationStatus.Should().Be(nameof(OperatorApprovalStatus.PendingApproval));
         result.Value.MessageCode.Should().Be(AuthErrorCodes.Msg08);
         db.TransactionExecutionCount.Should().Be(1);
@@ -189,7 +197,7 @@ public class RegisterOperatorCommandHandlerTests
         var result = await Handler().Handle(Command([
             new OperatorRegistrationDocument("extra.pdf", "application/pdf", "%PDF-test"u8.ToArray())]), CancellationToken.None);
         result.ErrorCode.Should().Be(AuthErrorCodes.Msg127);
-        deleted.Should().BeEquivalentTo(["operators/1", "operators/2"]);
+        deleted.Should().BeEquivalentTo(["operators/1.pdf", "operators/2.pdf"]);
         db.Users.Should().BeEmpty();
     }
 
@@ -201,7 +209,7 @@ public class RegisterOperatorCommandHandlerTests
         var result = await Handler().Handle(Command(), CancellationToken.None);
         result.ErrorCode.Should().Be(AuthErrorCodes.Msg127);
         result.ErrorMessage.Should().NotContain("secret");
-        deleted.Should().BeEquivalentTo(["operators/1"]);
+        deleted.Should().BeEquivalentTo(["operators/1.pdf"]);
         db.Users.Should().BeEmpty();
     }
 
@@ -211,7 +219,7 @@ public class RegisterOperatorCommandHandlerTests
         db.ThrowOnSaveConcurrency = true;
         var result = await Handler().Handle(Command(), CancellationToken.None);
         result.ErrorCode.Should().Be(AuthErrorCodes.Msg127);
-        deleted.Should().BeEquivalentTo(["operators/1"]);
+        deleted.Should().BeEquivalentTo(["operators/1.pdf"]);
         db.ClearTrackedEntities();
         db.Users.Should().BeEmpty();
     }
@@ -226,7 +234,7 @@ public class RegisterOperatorCommandHandlerTests
         constraints.Setup(x => x.Classify(It.IsAny<DbUpdateException>())).Returns(violation);
         var result = await Handler().Handle(Command(), CancellationToken.None);
         result.ErrorCode.Should().Be(expectedCode);
-        deleted.Should().BeEquivalentTo(["operators/1"]);
+        deleted.Should().BeEquivalentTo(["operators/1.pdf"]);
     }
 
     [Fact]
@@ -256,7 +264,7 @@ public class RegisterOperatorCommandHandlerTests
 
         var result = await Handler().Handle(Command(), CancellationToken.None);
         result.ErrorCode.Should().Be(AuthErrorCodes.Msg160);
-        deleted.Should().BeEquivalentTo(["operators/1"]);
+        deleted.Should().BeEquivalentTo(["operators/1.pdf"]);
     }
 
     [Fact]
@@ -298,6 +306,6 @@ public class RegisterOperatorCommandHandlerTests
             .ThrowsAsync(new OperationCanceledException());
         Func<Task> act = () => Handler().Handle(Command(), CancellationToken.None);
         await act.Should().ThrowAsync<OperationCanceledException>();
-        deleted.Should().BeEquivalentTo(["operators/1"]);
+        deleted.Should().BeEquivalentTo(["operators/1.pdf"]);
     }
 }

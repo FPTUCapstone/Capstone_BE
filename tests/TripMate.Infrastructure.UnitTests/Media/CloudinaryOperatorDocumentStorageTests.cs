@@ -18,6 +18,7 @@ public sealed class CloudinaryOperatorDocumentStorageTests
             CloudinaryUploadResponse.TransientFailure("PROVIDER_UNAVAILABLE");
         public CloudinaryDeleteRequest? LastDelete { get; private set; }
         public CloudinaryDeleteOutcome DeleteOutcome { get; set; } = CloudinaryDeleteOutcome.Deleted;
+        public (string PublicId, string Format, bool IsRaw, DateTimeOffset ExpiresAtUtc)? LastDownload { get; private set; }
 
         public Task<CloudinaryUploadResponse> UploadAsync(
             CloudinaryUploadRequest request,
@@ -34,6 +35,13 @@ public sealed class CloudinaryOperatorDocumentStorageTests
             LastDelete = request;
             return Task.FromResult(DeleteOutcome);
         }
+
+        public Uri CreateTemporaryDownloadUrl(string publicId, string format, bool isRaw,
+            DateTimeOffset expiresAtUtc)
+        {
+            LastDownload = (publicId, format, isRaw, expiresAtUtc);
+            return new Uri("https://api.cloudinary.com/signed-download");
+        }
     }
 
     private static CloudinaryOptions ValidOptions() => new()
@@ -46,7 +54,7 @@ public sealed class CloudinaryOperatorDocumentStorageTests
     };
 
     private static OperatorDocumentStorageUpload ValidPdfUpload() =>
-        new("public-id-1", "application/pdf", [0x25, 0x50, 0x44, 0x46]);
+        new($"{FolderRoot}/public-id-1.pdf", "application/pdf", [0x25, 0x50, 0x44, 0x46]);
 
     [Fact]
     public void AllocatePublicId_PlacesDocumentUnderTheConfiguredFolder()
@@ -62,12 +70,13 @@ public sealed class CloudinaryOperatorDocumentStorageTests
     }
 
     [Fact]
-    public async Task UploadAsync_SuccessfulPdf_UsesRawResourceAndReturnsHttpsUrl()
+    public async Task UploadAsync_SuccessfulPdf_StoresAnOpaquePrivateReference()
     {
         var client = new RecordingCloudinaryClient
         {
             UploadResponse = CloudinaryUploadResponse.Succeeded(
-                "public-id-1", new Uri("https://res.cloudinary.com/test/file.pdf")),
+                $"{FolderRoot}/public-id-1.pdf",
+                new Uri($"https://res.cloudinary.com/test-cloud/raw/authenticated/v1/{FolderRoot}/public-id-1.pdf")),
         };
         var storage = new CloudinaryOperatorDocumentStorage(
             client, Microsoft.Extensions.Options.Options.Create(ValidOptions()));
@@ -75,8 +84,10 @@ public sealed class CloudinaryOperatorDocumentStorageTests
         var result = await storage.UploadAsync(ValidPdfUpload(), CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
-        result.DeliveryUrl!.Scheme.Should().Be(Uri.UriSchemeHttps);
+        result.DeliveryUrl!.Scheme.Should().Be("cloudinary-operator");
+        result.DeliveryUrl.AbsoluteUri.Should().NotContain("res.cloudinary.com");
         client.LastUpload!.IsRaw.Should().BeTrue("PDFs upload through the raw resource type");
+        client.LastUpload.IsPrivateDocument.Should().BeTrue();
         client.LastUpload.Overwrite.Should().BeFalse();
     }
 
@@ -86,17 +97,82 @@ public sealed class CloudinaryOperatorDocumentStorageTests
         var client = new RecordingCloudinaryClient
         {
             UploadResponse = CloudinaryUploadResponse.Succeeded(
-                "public-id-2", new Uri("https://res.cloudinary.com/test/file.png")),
+                $"{FolderRoot}/public-id-2",
+                new Uri($"https://res.cloudinary.com/test-cloud/image/authenticated/v1/{FolderRoot}/public-id-2.png")),
         };
         var storage = new CloudinaryOperatorDocumentStorage(
             client, Microsoft.Extensions.Options.Options.Create(ValidOptions()));
 
         var result = await storage.UploadAsync(
-            new OperatorDocumentStorageUpload("public-id-2", "image/png", [0x89, 0x50]),
+            new OperatorDocumentStorageUpload($"{FolderRoot}/public-id-2", "image/png", [0x89, 0x50]),
             CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
         client.LastUpload!.IsRaw.Should().BeFalse();
+        client.LastUpload.IsPrivateDocument.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task CreateTemporaryDownloadUrl_SignsOnlyOwnedPrivateReferences()
+    {
+        var client = new RecordingCloudinaryClient
+        {
+            UploadResponse = CloudinaryUploadResponse.Succeeded(
+                $"{FolderRoot}/opaque-id.pdf",
+                new Uri($"https://res.cloudinary.com/test-cloud/raw/authenticated/v1/{FolderRoot}/opaque-id.pdf")),
+        };
+        var storage = new CloudinaryOperatorDocumentStorage(
+            client, Microsoft.Extensions.Options.Options.Create(ValidOptions()));
+        var uploaded = await storage.UploadAsync(ValidPdfUpload() with
+        {
+            PublicId = $"{FolderRoot}/opaque-id.pdf",
+        }, CancellationToken.None);
+        var expiresAt = DateTimeOffset.Parse("2026-10-08T12:05:00Z");
+
+        var url = storage.CreateTemporaryDownloadUrl(uploaded.DeliveryUrl!.AbsoluteUri, expiresAt);
+
+        url!.AbsoluteUri.Should().Be("https://api.cloudinary.com/signed-download");
+        client.LastDownload.Should().Be(($"{FolderRoot}/opaque-id.pdf", "pdf", true, expiresAt));
+        storage.CreateTemporaryDownloadUrl(
+            "https://res.cloudinary.com/test/raw/upload/old-public-id.pdf", expiresAt)
+            .Should().BeNull("legacy public links must never be echoed to an admin response");
+        storage.CreateTemporaryDownloadUrl("cloudinary-operator://asset/raw/pdf/other-folder%2Fid", expiresAt)
+            .Should().BeNull();
+    }
+
+    [Fact]
+    public async Task UploadAsync_RejectsAProviderResponseThatRemainsPublic()
+    {
+        var client = new RecordingCloudinaryClient
+        {
+            UploadResponse = CloudinaryUploadResponse.Succeeded(
+                $"{FolderRoot}/public-id-1.pdf",
+                new Uri($"https://res.cloudinary.com/test-cloud/raw/upload/v1/{FolderRoot}/public-id-1.pdf")),
+        };
+        var storage = new CloudinaryOperatorDocumentStorage(
+            client, Microsoft.Extensions.Options.Options.Create(ValidOptions()));
+
+        var result = await storage.UploadAsync(ValidPdfUpload(), CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.SafeErrorCode.Should().Be("OPERATOR_DOCUMENT_STORAGE_INVALID_RESPONSE");
+    }
+
+    [Fact]
+    public async Task UploadAsync_RejectsAProviderResponseForAnotherDocument()
+    {
+        var client = new RecordingCloudinaryClient
+        {
+            UploadResponse = CloudinaryUploadResponse.Succeeded(
+                $"{FolderRoot}/another-id.pdf",
+                new Uri($"https://res.cloudinary.com/test-cloud/raw/authenticated/v1/{FolderRoot}/another-id.pdf")),
+        };
+        var storage = new CloudinaryOperatorDocumentStorage(
+            client, Microsoft.Extensions.Options.Options.Create(ValidOptions()));
+
+        var result = await storage.UploadAsync(ValidPdfUpload(), CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
     }
 
     [Fact]

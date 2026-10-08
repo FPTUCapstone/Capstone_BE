@@ -205,6 +205,15 @@ try
                     Window = EmailVerificationResendRateLimiter.Window,
                     QueueLimit = 0,
                 }));
+        options.AddPolicy(OperatorRegistrationRateLimiter.PolicyName, context =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = OperatorRegistrationRateLimiter.PermitLimit,
+                    Window = OperatorRegistrationRateLimiter.Window,
+                    QueueLimit = 0,
+                }));
     });
 
     var app = builder.Build();

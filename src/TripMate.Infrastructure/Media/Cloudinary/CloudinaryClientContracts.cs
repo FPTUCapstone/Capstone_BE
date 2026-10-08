@@ -11,6 +11,7 @@ internal sealed record CloudinaryUploadRequest(
 {
     /// <summary>Raw uploads (documents) use ResourceType.raw instead of the image pipeline.</summary>
     public bool IsRaw { get; init; }
+    public bool IsPrivateDocument { get; init; }
 }
 
 internal enum CloudinaryUploadOutcome
@@ -39,6 +40,7 @@ internal sealed record CloudinaryUploadResponse(
 internal sealed record CloudinaryDeleteRequest(string PublicId, bool Invalidate)
 {
     public bool IsRaw { get; init; }
+    public bool IsPrivateDocument { get; init; }
 }
 
 internal enum CloudinaryDeleteOutcome
@@ -58,4 +60,7 @@ internal interface ICloudinaryClient
     Task<CloudinaryDeleteOutcome> DestroyAsync(
         CloudinaryDeleteRequest request,
         CancellationToken cancellationToken);
+
+    Uri? CreateTemporaryDownloadUrl(string publicId, string format, bool isRaw,
+        DateTimeOffset expiresAtUtc);
 }

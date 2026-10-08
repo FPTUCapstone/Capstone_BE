@@ -37,8 +37,8 @@ public sealed record OperatorDocumentStorageDeleteResult(
     string? SafeErrorCode);
 
 /// <summary>
-/// Stores Tour Operator application documents submitted through UC-02 and returns the
-/// delivery URL persisted into dbo.OperatorDocuments.file_url.
+/// Stores Tour Operator application documents submitted through UC-02. The persisted
+/// reference is not a publicly accessible delivery URL.
 /// </summary>
 public interface IOperatorDocumentStorage
 {
@@ -53,4 +53,7 @@ public interface IOperatorDocumentStorage
         string publicId,
         string contentType,
         CancellationToken cancellationToken);
+
+    /// <summary>Returns a short-lived URL for an owned private document, or null for unsafe legacy references.</summary>
+    Uri? CreateTemporaryDownloadUrl(string storedReference, DateTimeOffset expiresAtUtc);
 }

@@ -62,6 +62,8 @@ public sealed class RegisterOperatorSqlServerTests
             return Task.FromResult(new OperatorDocumentStorageDeleteResult(
                 OperatorDocumentStorageDeleteOutcome.Deleted, null));
         }
+
+        public Uri? CreateTemporaryDownloadUrl(string storedReference, DateTimeOffset expiresAtUtc) => null;
     }
 
     private sealed class FailAfterSaveInterceptor : SaveChangesInterceptor

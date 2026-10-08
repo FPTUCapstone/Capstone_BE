@@ -90,6 +90,7 @@ internal sealed class CloudinarySdkClient : ICloudinaryClient
             File = new FileDescription("operator-documents", stream),
             PublicId = request.PublicId,
             Overwrite = request.Overwrite,
+            Type = request.IsPrivateDocument ? "authenticated" : null,
         };
 
     internal static ImageUploadParams CreateSignedUploadParams(
@@ -99,6 +100,7 @@ internal sealed class CloudinarySdkClient : ICloudinaryClient
             File = new FileDescription("tour-media", stream),
             PublicId = request.PublicId,
             Overwrite = request.Overwrite,
+            Type = request.IsPrivateDocument ? "authenticated" : null,
             UseFilename = request.UseFilename,
             UniqueFilename = request.UniqueFilename,
             DiscardOriginalFilename = request.DiscardOriginalFilename,
@@ -151,5 +153,21 @@ internal sealed class CloudinarySdkClient : ICloudinaryClient
     {
         Invalidate = request.Invalidate,
         ResourceType = request.IsRaw ? ResourceType.Raw : ResourceType.Image,
+        Type = request.IsPrivateDocument ? "authenticated" : null,
     };
+
+    public Uri? CreateTemporaryDownloadUrl(string publicId, string format, bool isRaw,
+        DateTimeOffset expiresAtUtc)
+    {
+        string signedUrl = cloudinary.DownloadPrivate(
+            publicId,
+            format: format,
+            type: "authenticated",
+            expiresAt: expiresAtUtc.ToUnixTimeSeconds(),
+            resourceType: isRaw ? "raw" : "image");
+        return Uri.TryCreate(signedUrl, UriKind.Absolute, out var url) &&
+               url.Scheme == Uri.UriSchemeHttps
+            ? url
+            : null;
+    }
 }

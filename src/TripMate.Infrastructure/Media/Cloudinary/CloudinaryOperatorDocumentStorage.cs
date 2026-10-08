@@ -52,6 +52,7 @@ internal sealed class CloudinaryOperatorDocumentStorage(
             DiscardOriginalFilename: true)
         {
             IsRaw = request.ContentType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase),
+            IsPrivateDocument = true,
         };
 
         CloudinaryUploadResponse response;
@@ -66,15 +67,36 @@ internal sealed class CloudinaryOperatorDocumentStorage(
 
         if (response.Outcome == CloudinaryUploadOutcome.Succeeded)
         {
+            string expectedResourceType = uploadRequest.IsRaw ? "raw" : "image";
+            string expectedPathPrefix =
+                $"/{options.CloudName}/{expectedResourceType}/authenticated/";
             if (response.SecureUrl is null || !response.SecureUrl.IsAbsoluteUri ||
-                !response.SecureUrl.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+                !response.SecureUrl.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
+                !response.SecureUrl.Host.Equals("res.cloudinary.com", StringComparison.OrdinalIgnoreCase) ||
+                !response.SecureUrl.AbsolutePath.StartsWith(expectedPathPrefix, StringComparison.Ordinal))
             {
                 return OperatorDocumentStorageUploadResult.Failed(
                     TourMediaStorageFailureKind.ProviderRejected,
                     InvalidResponseErrorCode);
             }
 
-            return OperatorDocumentStorageUploadResult.Succeeded(response.SecureUrl);
+            if (string.IsNullOrWhiteSpace(response.PublicId) ||
+                !response.PublicId.Equals(request.PublicId, StringComparison.Ordinal))
+            {
+                return OperatorDocumentStorageUploadResult.Failed(
+                    TourMediaStorageFailureKind.ProviderRejected, InvalidResponseErrorCode);
+            }
+
+            string format = request.ContentType.ToLowerInvariant() switch
+            {
+                "application/pdf" => "pdf",
+                "image/jpeg" => "jpg",
+                _ => "png",
+            };
+            string resourceType = uploadRequest.IsRaw ? "raw" : "image";
+            var reference = new Uri(
+                $"cloudinary-operator://asset/{resourceType}/{format}/{Uri.EscapeDataString(response.PublicId)}");
+            return OperatorDocumentStorageUploadResult.Succeeded(reference);
         }
 
         return response.Outcome == CloudinaryUploadOutcome.TransientFailure
@@ -107,6 +129,7 @@ internal sealed class CloudinaryOperatorDocumentStorage(
             new CloudinaryDeleteRequest(publicId, Invalidate: true)
             {
                 IsRaw = contentType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase),
+                IsPrivateDocument = true,
             },
             cancellationToken);
 
@@ -120,5 +143,36 @@ internal sealed class CloudinaryOperatorDocumentStorage(
                 OperatorDocumentStorageDeleteOutcome.TransientFailure, UnavailableErrorCode),
             _ => new(OperatorDocumentStorageDeleteOutcome.PermanentFailure, RejectedErrorCode),
         };
+    }
+
+    public Uri? CreateTemporaryDownloadUrl(string storedReference, DateTimeOffset expiresAtUtc)
+    {
+        if (!Uri.TryCreate(storedReference, UriKind.Absolute, out var reference) ||
+            reference.Scheme != "cloudinary-operator" ||
+            reference.Host != "asset" ||
+            !string.IsNullOrEmpty(reference.Query) ||
+            !string.IsNullOrEmpty(reference.Fragment))
+        {
+            return null;
+        }
+
+        string[] parts = reference.GetComponents(UriComponents.Path, UriFormat.UriEscaped)
+            .Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length != 3 ||
+            (parts[0] != "raw" && parts[0] != "image") ||
+            (parts[0] == "raw" && parts[1] != "pdf") ||
+            (parts[0] == "image" && parts[1] is not ("jpg" or "png")))
+        {
+            return null;
+        }
+
+        string publicId = Uri.UnescapeDataString(parts[2]);
+        if (!publicId.StartsWith($"{options.OperatorDocumentsFolderRoot}/", StringComparison.Ordinal) ||
+            publicId.Contains("..", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        return client.CreateTemporaryDownloadUrl(publicId, parts[1], parts[0] == "raw", expiresAtUtc);
     }
 }
