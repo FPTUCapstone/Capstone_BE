@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Authentication.Common;
 using TripMate.Application.Features.CommercialServices.Common;
+using TripMate.Application.Features.Coupons.Common;
 using TripMate.Application.Features.PointsOfInterest.Common;
 using TripMate.Application.Features.RecommendationFeedback.Common;
 using TripMate.Application.Features.Scheduling.Common;
@@ -160,6 +161,13 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
 
             CommercialServiceErrorCodes.NotFound =>
                 StatusCodes.Status404NotFound,
+
+            CouponErrorCodes.OperatorAccessRequired => StatusCodes.Status403Forbidden,
+            CouponErrorCodes.InvalidScope => StatusCodes.Status400BadRequest,
+            CouponErrorCodes.TourNotFound => StatusCodes.Status404NotFound,
+            CouponErrorCodes.TourNotOwned => StatusCodes.Status403Forbidden,
+            CouponErrorCodes.TourNotEligible => StatusCodes.Status422UnprocessableEntity,
+            CouponErrorCodes.CodeConflict => StatusCodes.Status409Conflict,
 
             TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.ItineraryNotFound =>
                 StatusCodes.Status404NotFound,

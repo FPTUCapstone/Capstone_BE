@@ -257,6 +257,9 @@ public class ConfirmPasswordResetFlowTests
         DbSet<Domain.Entities.CommercialService> IApplicationDbContext.CommercialServices =>
             throw new NotSupportedException();
 
+        DbSet<Domain.Entities.Voucher> IApplicationDbContext.Vouchers =>
+            throw new NotSupportedException();
+
         DbSet<Domain.Entities.TravelGroup> IApplicationDbContext.TravelGroups => throw new NotSupportedException();
 
         DbSet<Domain.Entities.GroupMember> IApplicationDbContext.GroupMembers => throw new NotSupportedException();
@@ -332,6 +335,8 @@ public class ConfirmPasswordResetFlowTests
             modelBuilder.Ignore<Domain.Entities.PoiPhoto>();
             modelBuilder.Ignore<Domain.Entities.Review>();
             modelBuilder.Ignore<Domain.Entities.Message>();
+            modelBuilder.Ignore<Domain.Entities.Voucher>();
+            modelBuilder.Ignore<Domain.Entities.VoucherApplicableTour>();
             modelBuilder.Ignore<Domain.Entities.TravelGroup>();
             modelBuilder.Ignore<Domain.Entities.GroupMember>();
             modelBuilder.Ignore<Domain.Entities.Itinerary>();

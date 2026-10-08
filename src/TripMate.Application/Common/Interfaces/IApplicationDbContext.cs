@@ -54,6 +54,8 @@ public interface IApplicationDbContext
 
     DbSet<CommercialService> CommercialServices { get; }
 
+    DbSet<Voucher> Vouchers { get; }
+
     DbSet<TravelGroup> TravelGroups { get; }
 
     DbSet<GroupMember> GroupMembers { get; }

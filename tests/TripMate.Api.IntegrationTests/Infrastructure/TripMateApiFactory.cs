@@ -290,6 +290,7 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<TripMate.Domain.Entities.ServiceProvider> ServiceProviders =>
         Set<TripMate.Domain.Entities.ServiceProvider>();
     public DbSet<CommercialService> CommercialServices => Set<CommercialService>();
+    public DbSet<Voucher> Vouchers => Set<Voucher>();
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
     public DbSet<Itinerary> Itineraries => Set<Itinerary>();
