@@ -12,6 +12,7 @@ using Microsoft.OpenApi;
 
 using Swashbuckle.AspNetCore.Swagger;
 
+using TripMate.Api.Common;
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Media;
@@ -44,6 +45,7 @@ public class RegisterOperatorEndpointTests
         public bool FailUpload { get; set; }
         public int Uploads { get; private set; }
         public int Deletes { get; private set; }
+        public DateTimeOffset? LastDownloadExpiry { get; private set; }
 
         public string AllocatePublicId() => $"operators/{Uploads + 1}";
 
@@ -54,7 +56,7 @@ public class RegisterOperatorEndpointTests
             return Task.FromResult(FailUpload
                 ? OperatorDocumentStorageUploadResult.Failed(TourMediaStorageFailureKind.Transient, "SAFE")
                 : OperatorDocumentStorageUploadResult.Succeeded(
-                    new Uri($"https://cdn.example.com/{request.PublicId}")));
+                    new Uri($"cloudinary-operator://asset/raw/pdf/{Uri.EscapeDataString(request.PublicId)}")));
         }
 
         public Task<OperatorDocumentStorageDeleteResult> DeleteAsync(
@@ -63,6 +65,12 @@ public class RegisterOperatorEndpointTests
             Deletes++;
             return Task.FromResult(new OperatorDocumentStorageDeleteResult(
                 OperatorDocumentStorageDeleteOutcome.Deleted, null));
+        }
+
+        public Uri? CreateTemporaryDownloadUrl(string storedReference, DateTimeOffset expiresAtUtc)
+        {
+            LastDownloadExpiry = expiresAtUtc;
+            return new Uri("https://api.cloudinary.com/signed-document?expires_at=1791461100");
         }
     }
 
@@ -100,6 +108,32 @@ public class RegisterOperatorEndpointTests
     }
 
     [Fact]
+    public async Task Post_ExceedingPerIpLimit_Returns429BeforeMultipartBindingOrUpload()
+    {
+        var firebase = new FirebaseStub();
+        var storage = new StorageStub();
+        using var factory = Factory(firebase, storage);
+        using var client = factory.CreateClient();
+
+        for (var attempt = 0; attempt < OperatorRegistrationRateLimiter.PermitLimit; attempt++)
+        {
+            using var content = Form();
+            using var allowed = await client.PostAsync("/api/v1/auth/register/operator", content);
+            allowed.StatusCode.Should().NotBe(HttpStatusCode.TooManyRequests);
+        }
+
+        using var rejectedContent = new ByteArrayContent("not-a-multipart-body"u8.ToArray());
+        rejectedContent.Headers.ContentType = MediaTypeHeaderValue.Parse(
+            "multipart/form-data; boundary=missing");
+        using var rejected = await client.PostAsync("/api/v1/auth/register/operator", rejectedContent);
+        rejected.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
+        var problem = await rejected.Content.ReadFromJsonAsync<JsonElement>();
+        problem.GetProperty("status").GetInt32().Should().Be(429);
+        firebase.Calls.Should().Be(OperatorRegistrationRateLimiter.PermitLimit);
+        storage.Uploads.Should().Be(1);
+    }
+
+    [Fact]
     public async Task Post_ValidMultipart_CreatesPendingApplicationAndReturns201()
     {
         var firebase = new FirebaseStub();
@@ -121,6 +155,36 @@ public class RegisterOperatorEndpointTests
             db.OperatorDocuments.Should().ContainSingle();
             return true;
         });
+    }
+
+    [Fact]
+    public async Task AdminDetail_IssuesSignedDocumentOnlyAfterAuthorization()
+    {
+        var storage = new StorageStub();
+        using var factory = Factory(new FirebaseStub(), storage);
+        using var registrationClient = factory.CreateClient();
+        using var form = Form();
+        using var registration = await registrationClient.PostAsync("/api/v1/auth/register/operator", form);
+        registration.StatusCode.Should().Be(HttpStatusCode.Created);
+        var registered = await registration.Content.ReadFromJsonAsync<JsonElement>();
+        long userId = registered.GetProperty("data").GetProperty("userId").GetInt64();
+        var route = $"/api/v1/admin/tour-operator-applications/{userId}";
+
+        using var anonymous = await registrationClient.GetAsync(route);
+        anonymous.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        using var travelerClient = factory.CreateAuthenticatedClient(10, UserRole.Traveler);
+        using var forbidden = await travelerClient.GetAsync(route);
+        forbidden.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        storage.LastDownloadExpiry.Should().BeNull();
+
+        using var adminClient = factory.CreateAuthenticatedClient(11, UserRole.Administrator);
+        using var allowed = await adminClient.GetAsync(route);
+        allowed.StatusCode.Should().Be(HttpStatusCode.OK);
+        allowed.Headers.CacheControl!.NoStore.Should().BeTrue();
+        var detail = await allowed.Content.ReadFromJsonAsync<JsonElement>();
+        detail.GetProperty("documents")[0].GetProperty("fileUrl").GetString()
+            .Should().StartWith("https://api.cloudinary.com/signed-document");
+        storage.LastDownloadExpiry.Should().NotBeNull();
     }
 
     [Theory]

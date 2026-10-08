@@ -1,6 +1,19 @@
 # UC-02 Register Tour Operator Account Backend Implementation Plan
 
-Status: **Approved design; MSG157-MSG160 use BE constants without message-table seeding; Task 7 local SQL verification completed; PC-03 queue and real Firebase/Cloudinary browser verification remain.** The 2026-10-04 decision is to stop on existing licence duplicates for manual data-owner resolution. Follow the BE specification in `specs/UC-02-spec.md`. Use TDD; rerun checks on the final head before a push.
+Status: **Approved design; MSG157-MSG160 use BE constants without message-table seeding; Task 7 local SQL verification completed; PC-03 queue and full Firebase/browser verification remain.** The 2026-10-04 decision is to stop on existing licence duplicates for manual data-owner resolution. Follow the BE specification in `specs/UC-02-spec.md`. Use TDD; rerun checks on the final head before a push.
+
+Security follow-up (2026-10-08): Cloudinary operator documents now upload as
+`authenticated` assets, persist internal references, and receive five-minute signed
+links only through the Administrator-authorized detail query. The registration endpoint
+has a five-per-IP-per-minute pre-binding limiter and a 429 integration test. Six
+test-only public assets in the shared cloud were deleted with CDN invalidation;
+their local SQL document rows were removed and all six old URLs returned 404.
+Before closing the finding in any other environment, deploy the signing BE and
+inventory any remaining public `upload` assets. A live shared-cloud smoke test passed
+for private PDF/PNG upload, anonymous public-URL denial, signed download, and cleanup;
+five-minute expiry remains covered by offline URL generation tests, not a live wait.
+The in-memory limiter is per API instance; configure a shared edge limit for multi-instance
+deployment and trusted proxy IP forwarding before relying on per-client IP fairness.
 
 Branch: `feature/linhnv-register-tour-operator`.
 

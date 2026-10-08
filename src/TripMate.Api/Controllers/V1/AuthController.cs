@@ -85,6 +85,7 @@ public class AuthController(
     }
 
     [HttpPost("register/operator")]
+    [EnableRateLimiting(OperatorRegistrationRateLimiter.PolicyName)]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(32 * 1024 * 1024)]
     [RequestFormLimits(MultipartBodyLengthLimit = 32 * 1024 * 1024)]
@@ -94,6 +95,7 @@ public class AuthController(
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status413PayloadTooLarge)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status415UnsupportedMediaType)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status429TooManyRequests)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> RegisterOperator(
         [FromForm] RegisterOperatorRequest request,

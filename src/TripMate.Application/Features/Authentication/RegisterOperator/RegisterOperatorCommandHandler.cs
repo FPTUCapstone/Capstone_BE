@@ -130,6 +130,12 @@ public sealed class RegisterOperatorCommandHandler(
             foreach (var (document, type) in documents)
             {
                 var publicId = storage.AllocatePublicId();
+                if (document.ContentType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Cloudinary raw public IDs include the extension. Track that exact ID
+                    // so compensation deletes the same object on later failure.
+                    publicId += ".pdf";
+                }
                 // Track before calling the provider: an exception may follow a successful remote write.
                 uploaded.Add((publicId, document.ContentType));
                 var response = await storage.UploadAsync(

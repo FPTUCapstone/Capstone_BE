@@ -82,6 +82,16 @@ Cloudinary's `raw` resource type (the shared client was extended with an `IsRaw`
 the image pipeline would reject PDFs). Rejected: deferring uploads (violates BR-07 and empties
 the UC-50 review queue).
 
+**Security amendment (leader review, 2026-10-08):** Operator documents must use Cloudinary
+`authenticated` delivery type for both raw PDFs and images. Persist an opaque provider
+reference in `file_url`, never a public `SecureUrl`. The Administrator-authorized UC-50
+detail endpoint converts only owned authenticated references into signed download URLs
+that expire after five minutes; legacy public URLs are not returned. The anonymous
+multipart registration endpoint is limited to five requests per remote IP per minute,
+with no queue and a 429 response before MVC binds the form. Existing documents uploaded
+under Cloudinary's public `upload` delivery type require a separate provider migration
+and invalidation of old URLs; hiding them from the API does not revoke previously shared URLs.
+
 ## Email verification (required implementation work)
 
 `AccountEligibilityResolver` only resolves sign-in for a `PendingApproval` TourOperator whose
