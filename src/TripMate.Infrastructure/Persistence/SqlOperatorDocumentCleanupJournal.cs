@@ -12,6 +12,70 @@ internal sealed record OperatorDocumentCleanupClaim(
     Guid LeaseToken, int AttemptCount);
 
 /// <summary>
+/// Keeps a SQL Server application lock for one document while its Cloudinary deletion is
+/// decided and executed. The registration transaction uses the same lock before it commits
+/// the document reference.
+/// </summary>
+internal sealed class OperatorDocumentCleanupDeletionLease : IAsyncDisposable
+{
+    private readonly SqlConnection connection;
+    private readonly OperatorDocumentCleanupClaim claim;
+    private readonly string lockResource;
+
+    public OperatorDocumentCleanupDeletionLease(SqlConnection connection,
+        OperatorDocumentCleanupClaim claim, string lockResource)
+    {
+        this.connection = connection;
+        this.claim = claim;
+        this.lockResource = lockResource;
+    }
+
+    public async Task CompleteAsync(CancellationToken cancellationToken)
+    {
+        await using var command = new SqlCommand("""
+            DELETE FROM dbo.OperatorDocumentCleanupOutbox
+            WHERE cleanup_id = @id AND cleanup_status = 'Leased' AND lease_token = @token
+            """, connection);
+        command.Parameters.Add("@id", SqlDbType.BigInt).Value = claim.Id;
+        command.Parameters.Add("@token", SqlDbType.UniqueIdentifier).Value = claim.LeaseToken;
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task RetryAsync(DateTimeOffset nextAttemptUtc, string safeErrorCode,
+        CancellationToken cancellationToken)
+    {
+        await using var command = new SqlCommand("""
+            UPDATE dbo.OperatorDocumentCleanupOutbox
+            SET cleanup_status = 'Pending', lease_token = NULL, lease_expires_at = NULL,
+                not_before_at = @nextAttempt, last_error_code = @errorCode,
+                updated_at = SYSUTCDATETIME()
+            WHERE cleanup_id = @id AND cleanup_status = 'Leased' AND lease_token = @token
+            """, connection);
+        command.Parameters.Add("@id", SqlDbType.BigInt).Value = claim.Id;
+        command.Parameters.Add("@token", SqlDbType.UniqueIdentifier).Value = claim.LeaseToken;
+        command.Parameters.Add("@nextAttempt", SqlDbType.DateTime2).Value = nextAttemptUtc.UtcDateTime;
+        command.Parameters.Add("@errorCode", SqlDbType.VarChar, 100).Value = safeErrorCode;
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await using var command = new SqlCommand("""
+                EXEC sp_releaseapplock @Resource = @resource, @LockOwner = 'Session';
+                """, connection);
+            command.Parameters.Add("@resource", SqlDbType.NVarChar, 255).Value = lockResource;
+            await command.ExecuteNonQueryAsync();
+        }
+        finally
+        {
+            await connection.DisposeAsync();
+        }
+    }
+}
+
+/// <summary>
 /// Uses its own SQL connection so the reservation survives a later rollback of the
 /// registration DbContext transaction. The worker uses the same durable table.
 /// </summary>
@@ -91,46 +155,96 @@ internal sealed class SqlOperatorDocumentCleanupJournal(IConfiguration configura
             reader.GetString(3), token, reader.GetInt32(4));
     }
 
-    public async Task<bool> IsRegisteredAsync(string expectedReference, CancellationToken cancellationToken)
+    /// <summary>
+    /// Acquires the same per-document lock used by the registration transaction. Once the
+    /// lock is held, a missing reservation means registration has already won; a persisted
+    /// document means a prior commit succeeded but closing its reservation did not.
+    /// </summary>
+    public async Task<OperatorDocumentCleanupDeletionLease?> AcquireDeletionLeaseAsync(
+        OperatorDocumentCleanupClaim claim, CancellationToken cancellationToken)
     {
-        await using var connection = await OpenAsync(cancellationToken);
-        await using var command = new SqlCommand("""
-            SELECT CASE WHEN EXISTS (
-                SELECT 1 FROM dbo.OperatorDocuments WHERE file_url = @reference
-            ) THEN 1 ELSE 0 END
-            """, connection);
-        command.Parameters.Add("@reference", SqlDbType.NVarChar, 500).Value = expectedReference;
-        return (int)(await command.ExecuteScalarAsync(cancellationToken) ?? 0) == 1;
+        var connection = await OpenAsync(cancellationToken);
+        string lockResource = OperatorDocumentCleanupLock.ForPublicId(claim.PublicId);
+        try
+        {
+            await using (var lockCommand = new SqlCommand("""
+                DECLARE @lockResult INT;
+                EXEC @lockResult = sp_getapplock
+                    @Resource = @resource,
+                    @LockMode = 'Exclusive',
+                    @LockOwner = 'Session',
+                    @LockTimeout = 10000;
+                SELECT @lockResult;
+                """, connection))
+            {
+                lockCommand.Parameters.Add("@resource", SqlDbType.NVarChar, 255).Value = lockResource;
+                int result = (int)(await lockCommand.ExecuteScalarAsync(cancellationToken) ?? -999);
+                if (result < 0)
+                {
+                    await connection.DisposeAsync();
+                    return null;
+                }
+            }
+
+            await using var ownershipCommand = new SqlCommand("""
+                SELECT CASE WHEN EXISTS (
+                    SELECT 1 FROM dbo.OperatorDocumentCleanupOutbox
+                    WHERE cleanup_id = @id AND cleanup_status = 'Leased' AND lease_token = @token
+                ) THEN 1 ELSE 0 END;
+                """, connection);
+            ownershipCommand.Parameters.Add("@id", SqlDbType.BigInt).Value = claim.Id;
+            ownershipCommand.Parameters.Add("@token", SqlDbType.UniqueIdentifier).Value = claim.LeaseToken;
+            bool ownsClaim = (int)(await ownershipCommand.ExecuteScalarAsync(cancellationToken) ?? 0) == 1;
+            if (!ownsClaim)
+            {
+                await ReleaseSessionLockAsync(connection, lockResource, cancellationToken);
+                await connection.DisposeAsync();
+                return null;
+            }
+
+            await using var documentCommand = new SqlCommand("""
+                SELECT CASE WHEN EXISTS (
+                    SELECT 1 FROM dbo.OperatorDocuments WHERE file_url = @reference
+                ) THEN 1 ELSE 0 END;
+                """, connection);
+            documentCommand.Parameters.Add("@reference", SqlDbType.NVarChar, 500).Value = claim.ExpectedReference;
+            bool registered = (int)(await documentCommand.ExecuteScalarAsync(cancellationToken) ?? 0) == 1;
+            if (registered)
+            {
+                await using var completeCommand = new SqlCommand("""
+                    DELETE FROM dbo.OperatorDocumentCleanupOutbox
+                    WHERE cleanup_id = @id AND cleanup_status = 'Leased' AND lease_token = @token
+                    """, connection);
+                completeCommand.Parameters.Add("@id", SqlDbType.BigInt).Value = claim.Id;
+                completeCommand.Parameters.Add("@token", SqlDbType.UniqueIdentifier).Value = claim.LeaseToken;
+                await completeCommand.ExecuteNonQueryAsync(cancellationToken);
+                await ReleaseSessionLockAsync(connection, lockResource, cancellationToken);
+                await connection.DisposeAsync();
+                return null;
+            }
+
+            return new OperatorDocumentCleanupDeletionLease(connection, claim, lockResource);
+        }
+        catch
+        {
+            await ReleaseSessionLockAsync(connection, lockResource, CancellationToken.None);
+            await connection.DisposeAsync();
+            throw;
+        }
     }
 
-    public async Task CompleteClaimAsync(OperatorDocumentCleanupClaim claim,
+    private static async Task ReleaseSessionLockAsync(SqlConnection connection, string lockResource,
         CancellationToken cancellationToken)
     {
-        await using var connection = await OpenAsync(cancellationToken);
-        await using var command = new SqlCommand("""
-            DELETE FROM dbo.OperatorDocumentCleanupOutbox
-            WHERE cleanup_id = @id AND cleanup_status = 'Leased' AND lease_token = @token
-            """, connection);
-        command.Parameters.Add("@id", SqlDbType.BigInt).Value = claim.Id;
-        command.Parameters.Add("@token", SqlDbType.UniqueIdentifier).Value = claim.LeaseToken;
-        await command.ExecuteNonQueryAsync(cancellationToken);
-    }
+        if (connection.State != ConnectionState.Open)
+        {
+            return;
+        }
 
-    public async Task RetryClaimAsync(OperatorDocumentCleanupClaim claim, DateTimeOffset nextAttemptUtc,
-        string safeErrorCode, CancellationToken cancellationToken)
-    {
-        await using var connection = await OpenAsync(cancellationToken);
         await using var command = new SqlCommand("""
-            UPDATE dbo.OperatorDocumentCleanupOutbox
-            SET cleanup_status = 'Pending', lease_token = NULL, lease_expires_at = NULL,
-                not_before_at = @nextAttempt, last_error_code = @errorCode,
-                updated_at = SYSUTCDATETIME()
-            WHERE cleanup_id = @id AND cleanup_status = 'Leased' AND lease_token = @token
+            EXEC sp_releaseapplock @Resource = @resource, @LockOwner = 'Session';
             """, connection);
-        command.Parameters.Add("@id", SqlDbType.BigInt).Value = claim.Id;
-        command.Parameters.Add("@token", SqlDbType.UniqueIdentifier).Value = claim.LeaseToken;
-        command.Parameters.Add("@nextAttempt", SqlDbType.DateTime2).Value = nextAttemptUtc.UtcDateTime;
-        command.Parameters.Add("@errorCode", SqlDbType.VarChar, 100).Value = safeErrorCode;
+        command.Parameters.Add("@resource", SqlDbType.NVarChar, 255).Value = lockResource;
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 

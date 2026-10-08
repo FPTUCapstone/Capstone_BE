@@ -102,7 +102,8 @@ public class RegisterOperatorCommandHandlerTests
         cleanup.Verify(x => x.ReserveAsync(It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<DateTimeOffset>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
         cleanup.Verify(x => x.CompleteAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
-            Times.Exactly(2));
+            Times.Never);
+        db.FinalizedOperatorDocumentCleanupPublicIds.Should().HaveCount(2);
     }
 
     [Fact]

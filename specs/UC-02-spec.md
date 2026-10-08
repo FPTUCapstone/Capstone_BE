@@ -177,16 +177,23 @@ handler-level pre-check cannot prevent two concurrent registrations. Resolution:
 3. The application-level pre-checks remain (fast, friendly errors) but are no longer the
    only defense.
 
-## Document compensation (leader re-review point 5 - resolved)
+## Document compensation and registration/cleanup race (leader re-review point 5 - resolved)
 
 The document upload happens before the database save, so "one transaction" covers only SQL.
-Resolution: `IOperatorDocumentStorage` gains `DeleteAsync(publicId, contentType)` (the
-Infrastructure implementation wraps `ICloudinaryClient.DestroyAsync` with the matching
-resource type — raw for PDFs, image for JPG/PNG). The handler tracks the uploaded public
-ids and, on any subsequent failure (validation, SQL), **deletes the uploaded files
-best-effort** and logs the outcome. The spec claims: no database records survive a failure,
-and uploaded files are compensated best-effort — orphaned files can remain only if the
-storage delete itself fails, and that limitation is logged, not hidden.
+Before every Cloudinary upload, the BE independently commits a durable cleanup reservation.
+Failed registration immediately attempts `IOperatorDocumentStorage.DeleteAsync(publicId,
+contentType)` and keeps the reservation for retry if deletion does not succeed.
+
+The worker and registration transaction must use the same SQL Server application lock derived
+from the opaque Cloudinary public ID. The registration transaction saves the User/Profile/
+OperatorDocument graph and deletes every corresponding reservation **before the transaction
+commits**. The worker revalidates both its lease and document ownership after it obtains that
+same lock, then holds it until Cloudinary delete and reservation completion/retry are decided.
+Thus, if registration wins, the worker skips deletion; if cleanup wins, registration finds no
+reservation and rolls back instead of committing a `file_url` for a missing asset. A grace
+period delays routine cleanup but is not relied on for correctness. SQL Server integration
+tests must force this interleaving and prove there is never a committed document reference to
+a deleted asset.
 
 ## SRS conflict record — operator role timing
 
