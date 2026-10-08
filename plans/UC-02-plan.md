@@ -4,6 +4,16 @@ Status: **Approved design; MSG157-MSG160 use BE constants without message-table 
 
 Branch: `feature/linhnv-register-tour-operator`.
 
+## Task 8 — Owner-decided business identifier formats (2026-10-08)
+
+Add BE field validation and feature-local error codes for the Tax Code and two
+Travel Licence Number formats in `RegisterOperatorCommandValidator` and
+`AuthErrorCodes`; preserve required/max-length checks. Update UC-02 endpoint
+and SQL test fixtures from placeholder identifiers to valid values. Test both
+valid types, malformed fields returning 400 before Firebase/storage work, and
+existing duplicate/rollback behavior. Coordinate matching FE/Mobile pre-submit
+validation and field messages. No database schema change is needed.
+
 ## Baseline evidence (2026-10-01)
 
 - Repository: `Capstone_BE`; baseline `aba94657592281122d4d075db67683c55a9f83f8` (`origin/develop` at the recorded time). The FE baseline is recorded separately in its plan.

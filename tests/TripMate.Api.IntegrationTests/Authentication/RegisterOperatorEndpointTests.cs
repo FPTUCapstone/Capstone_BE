@@ -77,7 +77,8 @@ public class RegisterOperatorEndpointTests
     private static MultipartFormDataContent Form(
         bool includeToken = true, bool includeLicense = true, string email = "operator@example.com",
         string confirmPassword = "Password123!", string fileName = "license.pdf",
-        string contentType = "application/pdf")
+        string contentType = "application/pdf", string taxCode = "0101234567",
+        string licence = "79-0123/2026/TCDL-GPLHQT")
     {
         var form = new MultipartFormDataContent();
         if (includeToken) form.Add(new StringContent("firebase-token"), "firebaseIdToken");
@@ -85,8 +86,8 @@ public class RegisterOperatorEndpointTests
         form.Add(new StringContent("Password123!"), "password");
         form.Add(new StringContent(confirmPassword), "confirmPassword");
         form.Add(new StringContent("Operator Co"), "companyName");
-        form.Add(new StringContent("LIC-1"), "businessLicenseNo");
-        form.Add(new StringContent("TAX-1"), "taxCode");
+        form.Add(new StringContent(licence), "businessLicenseNo");
+        form.Add(new StringContent(taxCode), "taxCode");
         form.Add(new StringContent("Operator Name"), "contactPerson");
         form.Add(new StringContent("true"), "acceptTerms");
         if (includeLicense)
@@ -140,6 +141,25 @@ public class RegisterOperatorEndpointTests
             .Should().ContainSingle(code);
         storage.Uploads.Should().Be(0);
         firebase.Calls.Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData("010123456A", "79-0123/2026/TCDL-GPLHQT", "taxCode", "OPERATOR_TAX_CODE_INVALID")]
+    [InlineData("0101234567", "79-0123/2026/TCDL-GPLHND", "businessLicenseNo", "OPERATOR_TRAVEL_LICENSE_INVALID")]
+    public async Task Post_InvalidBusinessIdentifier_ReturnsFieldErrorBeforeExternalCalls(
+        string taxCode, string licence, string field, string code)
+    {
+        var firebase = new FirebaseStub();
+        var storage = new StorageStub();
+        using var factory = Factory(firebase, storage);
+        using var client = factory.CreateClient();
+        using var form = Form(taxCode: taxCode, licence: licence);
+        var response = await client.PostAsync("/api/v1/auth/register/operator", form);
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("errors").GetProperty(field)[0].GetString().Should().Be(code);
+        firebase.Calls.Should().Be(0);
+        storage.Uploads.Should().Be(0);
     }
 
     [Theory]
@@ -234,8 +254,8 @@ public class RegisterOperatorEndpointTests
             {
                 User = user,
                 CompanyName = "Existing",
-                TaxCode = scenario == "tax" ? "TAX-1" : "OTHER-TAX",
-                BusinessLicenseNo = scenario == "license" ? "LIC-1" : "OTHER-LIC",
+                TaxCode = scenario == "tax" ? "0101234567" : "0201234567",
+                BusinessLicenseNo = scenario == "license" ? "79-0123/2026/TCDL-GPLHQT" : "01-0456/2025/SDL-GPLHND",
                 ApprovalStatus = OperatorApprovalStatus.PendingApproval,
             });
             await db.SaveChangesAsync();

@@ -9,6 +9,23 @@ merge-ready until the required decisions and registration/verification integrati
 following the established UC-50 approve-flow patterns (the review queue this UC feeds) and
 SRS §3.2.2 read in full. Implementation follows `plans/UC-02-plan.md`.
 
+## Business identifier format decision (2026-10-08)
+
+After trimming surrounding whitespace, `taxCode` must be 10 ASCII digits, or
+10 ASCII digits followed by `-` and 3 ASCII digits for a branch. Examples:
+`0101234567`, `0315678901-001`. `businessLicenseNo` must be a two-digit province
+code, `-`, one or more serial digits, `/`, a four-digit issue year, `/`, and
+exactly `TCDL-GPLHQT` (international) or `SDL-GPLHND` (domestic). Examples:
+`79-0123/2026/TCDL-GPLHQT`, `01-0456/2025/SDL-GPLHND`. The serial width was
+not specified, so only numeric content is checked. This checks format, not
+government issuance or document authenticity; Administrator review remains
+authoritative.
+
+The BE returns field-level `OPERATOR_TAX_CODE_INVALID` and
+`OPERATOR_TRAVEL_LICENSE_INVALID` for malformed non-empty values before Firebase
+lookup, document upload, or SQL write. Required and maximum-length checks remain.
+Web and Mobile use the same pre-submit checks and never rewrite text during input.
+
 ## Sources
 
 - SRS §3.2.2 "Register Tour Operator Account" — Guest submits account + company info +

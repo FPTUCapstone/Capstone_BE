@@ -25,6 +25,8 @@ public static class AuthErrorCodes
     public const string Msg158 = "MSG158"; // Operator document type/size invalid
     public const string Msg159 = "MSG159"; // Business licence number or tax code exists
     public const string Msg160 = "MSG160"; // Pending application already exists
+    public const string OperatorTaxCodeInvalid = "OPERATOR_TAX_CODE_INVALID";
+    public const string OperatorTravelLicenseInvalid = "OPERATOR_TRAVEL_LICENSE_INVALID";
     public const string AuthTokenMissing = "AUTH_TOKEN_MISSING";
     public const string AuthTokenInvalid = "AUTH_TOKEN_INVALID";
     public const string AuthEmailMismatch = "AUTH_EMAIL_MISMATCH";
