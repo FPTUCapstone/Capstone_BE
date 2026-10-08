@@ -197,5 +197,6 @@ internal static class CandidatePoolFunnelTelemetry
         or CandidatePoolFunnelDimensions.OutcomeCancelled
         or CandidatePoolFunnelDimensions.OutcomeSnapshotMismatchRetryable
         or CandidatePoolFunnelDimensions.OutcomeSnapshotMismatchTerminal
-        or CandidatePoolFunnelDimensions.OutcomeLostOwnership;
+        or CandidatePoolFunnelDimensions.OutcomeLostOwnership
+        or CandidatePoolFunnelDimensions.OutcomeUnexpectedFailure;
 }

@@ -147,6 +147,7 @@ Red tests first:
 - success emits all reached stage counts and exact derived drops once;
 - replay emits no funnel; snapshot retry uses the two allowed attempt values;
 - provider fallback, infeasible, routing failure, and cancellation stop at truthful stages;
+- transaction commit failure never emits success and emits `unexpected_failure` exactly once;
 - prepared-stage inequalities and matrix `points <= cap + 2` hold;
 - `finalize_valid_frozen_pool` may be lower than the already-built `matrix_optional` without
   violating telemetry consistency;
@@ -168,6 +169,8 @@ Implementation:
   to remove/backfill candidates, rebuild the matrix/plan, call AI/ORS, or select retry vs terminal
   failure; the existing all-or-nothing hash comparison remains the sole data-change gate;
 - emit counters/histograms plus one aggregate activity, never one event per candidate;
+- return the attempt outcome from transactional callbacks and emit it only after commit succeeds;
+- emit the bounded `unexpected_failure` outcome for unexpected preparation/finalization exceptions;
 - centralize dimension constants and count consistency checks;
 - derive conversion ratios only in reports/dashboard from matching count sums; do not emit a ratio
   histogram;

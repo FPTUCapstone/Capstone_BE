@@ -186,6 +186,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 }
                 catch (Exception ex)
                 {
+                    funnel.Emit(CandidatePoolFunnelDimensions.OutcomeUnexpectedFailure);
                     await TryReleaseReservationAfterFailureAsync(
                         canonical,
                         generationOwnerId,
@@ -213,6 +214,10 @@ public sealed class CreateSchedulingRequestCommandHandler(
                     {
                         funnel.Emit(CandidatePoolFunnelDimensions.OutcomeCancelled);
                     }
+                    else
+                    {
+                        funnel.Emit(CandidatePoolFunnelDimensions.OutcomeUnexpectedFailure);
+                    }
 
                     await TryReleaseReservationAfterFailureAsync(
                         canonical,
@@ -220,6 +225,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
                         ex);
                     throw;
                 }
+                funnel.Emit(finalized.Outcome);
                 dbContext.ClearTrackedEntities();
 
                 if (finalized.Kind == FinalizeDecisionKind.RetrySnapshot)
@@ -562,8 +568,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 || request.GenerationAttempt != generationAttempt
                 || request.GenerationLeaseExpiresAtUtc <= now)
             {
-                funnel.Emit(CandidatePoolFunnelDimensions.OutcomeLostOwnership);
-                return FinalizeDecision.LostOwnership();
+                return FinalizeDecision.LostOwnership(
+                    CandidatePoolFunnelDimensions.OutcomeLostOwnership);
             }
 
             var travelerInterestTags = await dbContext.TravelerProfiles
@@ -614,16 +620,16 @@ public sealed class CreateSchedulingRequestCommandHandler(
                         now.Add(_reservationOptions.LeaseDuration),
                         now);
                     await dbContext.SaveChangesAsync(transactionCancellationToken);
-                    funnel.Emit(CandidatePoolFunnelDimensions.OutcomeSnapshotMismatchRetryable);
-                    return FinalizeDecision.RetrySnapshot();
+                    return FinalizeDecision.RetrySnapshot(
+                        CandidatePoolFunnelDimensions.OutcomeSnapshotMismatchRetryable);
                 }
 
                 request.ReleaseGeneration(ownerId, now);
                 await dbContext.SaveChangesAsync(transactionCancellationToken);
-                funnel.Emit(CandidatePoolFunnelDimensions.OutcomeSnapshotMismatchTerminal);
                 return FinalizeDecision.Completed(Result.Failure<SchedulingResponseDto>(
                     SchedulingErrorCodes.GenerationTemporarilyUnavailable,
-                    "Planning data changed while the itinerary was generated. Please try again."));
+                    "Planning data changed while the itinerary was generated. Please try again."),
+                    CandidatePoolFunnelDimensions.OutcomeSnapshotMismatchTerminal);
             }
 
             if (prepared.Plan is null)
@@ -634,8 +640,9 @@ public sealed class CreateSchedulingRequestCommandHandler(
                     prepared.FailureMessage!,
                     now);
                 await dbContext.SaveChangesAsync(transactionCancellationToken);
-                funnel.Emit(CandidatePoolFunnelDimensions.OutcomeInfeasible);
-                return FinalizeDecision.Completed(Infeasible(prepared.FailureMessage!));
+                return FinalizeDecision.Completed(
+                    Infeasible(prepared.FailureMessage!),
+                    CandidatePoolFunnelDimensions.OutcomeInfeasible);
             }
 
             var itinerary = Itinerary.CreateCspGenerated(
@@ -672,9 +679,9 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 itinerary,
                 prepared.Plan,
                 prepared.PreferenceTokens);
-            funnel.Emit(CandidatePoolFunnelDimensions.OutcomeSuccess);
             return FinalizeDecision.Completed(
                 Result.Success(ToResponse(request, itinerary, prepared.Plan)),
+                CandidatePoolFunnelDimensions.OutcomeSuccess,
                 fresh);
         }, cancellationToken);
     }
@@ -1321,18 +1328,20 @@ public sealed class CreateSchedulingRequestCommandHandler(
     private sealed record FinalizeDecision(
         FinalizeDecisionKind Kind,
         Result<SchedulingResponseDto>? Result,
+        string Outcome,
         FreshGenerationContext? FreshGeneration)
     {
         public static FinalizeDecision Completed(
             Result<SchedulingResponseDto> result,
+            string outcome,
             FreshGenerationContext? freshGeneration = null) =>
-            new(FinalizeDecisionKind.Completed, result, freshGeneration);
+            new(FinalizeDecisionKind.Completed, result, outcome, freshGeneration);
 
-        public static FinalizeDecision RetrySnapshot() =>
-            new(FinalizeDecisionKind.RetrySnapshot, null, null);
+        public static FinalizeDecision RetrySnapshot(string outcome) =>
+            new(FinalizeDecisionKind.RetrySnapshot, null, outcome, null);
 
-        public static FinalizeDecision LostOwnership() =>
-            new(FinalizeDecisionKind.LostOwnership, null, null);
+        public static FinalizeDecision LostOwnership(string outcome) =>
+            new(FinalizeDecisionKind.LostOwnership, null, outcome, null);
     }
 
 }

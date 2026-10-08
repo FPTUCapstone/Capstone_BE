@@ -134,9 +134,11 @@ Use `System.Diagnostics.Metrics` plus one aggregate `ActivitySource` event. Requ
 | pipeline stage duration | histogram | `stage=ranking|selection|matrix|generation|finalize_observation`, `outcome` |
 
 The closed `outcome` set is exactly `success`, `infeasible`, `routing_failure`, `cancelled`,
-`snapshot_mismatch_retryable`, `snapshot_mismatch_terminal`, and `lost_ownership`. Provider outcome
-and fallback remain separate existing telemetry rather than overloading generation outcome. Names
-must be constants shared by emission and tests.
+`snapshot_mismatch_retryable`, `snapshot_mismatch_terminal`, `lost_ownership`, and
+`unexpected_failure`. Transactional outcomes must be emitted only after the transaction commits;
+a callback that completes but fails during commit emits `unexpected_failure`, never `success`.
+Provider outcome and fallback remain separate existing telemetry rather than overloading generation
+outcome. Names must be constants shared by emission and tests.
 
 Do not emit a per-request conversion-ratio histogram. Dashboard and replay reports derive ratios
 from aggregated stage-count sums over the same time window and dimensions, and must display the

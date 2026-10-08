@@ -15,8 +15,10 @@ Meter and activity source: `TripMate.Scheduling.CandidatePoolFunnel`.
 
 Allowed attempt values are `initial` and `snapshot_retry`. Outcomes are exactly `success`,
 `infeasible`, `routing_failure`, `cancelled`, `snapshot_mismatch_retryable`,
-`snapshot_mismatch_terminal`, and `lost_ownership`. No user/request/POI/category/coordinate/score or
-exception text is emitted. Idempotent replay emits no new attempt.
+`snapshot_mismatch_terminal`, `lost_ownership`, and `unexpected_failure`. Transactional outcomes are
+recorded only after commit succeeds; callback, persistence, or commit exceptions are recorded as
+`unexpected_failure`. No user/request/POI/category/coordinate/score or exception text is emitted.
+Idempotent replay emits no new attempt.
 
 `finalize_valid_frozen_pool` is an observation only. A lower count must never be used to backfill,
 change the prepared matrix, or choose retry. The authoritative snapshot hash remains the only
@@ -72,4 +74,4 @@ dotnet run --project tools/benchmarks/candidate-pool-funnel/CandidatePoolFunnelB
 ```
 
 Investigate missing stages by outcome before interpreting a funnel: early infeasible, routing
-failure, and cancellation attempts truthfully emit only stages they reached.
+failure, cancellation, and unexpected-failure attempts truthfully emit only stages they reached.

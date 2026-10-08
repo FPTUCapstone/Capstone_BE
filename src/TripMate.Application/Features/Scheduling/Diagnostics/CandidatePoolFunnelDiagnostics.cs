@@ -14,6 +14,7 @@ internal static class CandidatePoolFunnelDimensions
     public const string OutcomeSnapshotMismatchRetryable = "snapshot_mismatch_retryable";
     public const string OutcomeSnapshotMismatchTerminal = "snapshot_mismatch_terminal";
     public const string OutcomeLostOwnership = "lost_ownership";
+    public const string OutcomeUnexpectedFailure = "unexpected_failure";
 
     public const string StageEligibleOptional = "eligible_optional";
     public const string StageProviderPool = "provider_pool";
