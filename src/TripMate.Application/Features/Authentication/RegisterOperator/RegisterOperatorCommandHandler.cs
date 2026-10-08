@@ -168,23 +168,12 @@ public sealed class RegisterOperatorCommandHandler(
                 db.Users.Add(user);
                 db.OperatorProfiles.Add(profile);
                 await db.SaveChangesAsync(transactionToken);
+                await db.FinalizeOperatorDocumentCleanupReservationsAsync(
+                    uploaded.Select(document => document.PublicId).ToArray(), transactionToken);
                 return new RegisterOperatorResponse(
                     user.Id, nameof(OperatorApprovalStatus.PendingApproval), AuthErrorCodes.Msg08);
             }, cancellationToken);
-            foreach (var (publicId, _) in uploaded)
-            {
-                try
-                {
-                    await cleanup.CompleteAsync(publicId, CancellationToken.None);
-                }
-                catch (Exception exception)
-                {
-                    // The registration is committed. The worker checks the persisted
-                    // document reference before deleting an expired reservation.
-                    logger.LogError(exception,
-                        "Could not close committed operator document reservation {PublicId}.", publicId);
-                }
-            }
+            uploaded.Clear();
             return Result.Success(responseValue);
         }
         catch (DbUpdateException exception)

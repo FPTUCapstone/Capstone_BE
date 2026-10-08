@@ -59,11 +59,11 @@ internal sealed class OperatorDocumentCleanupBackgroundService(
                 break;
             }
 
-            // A registration may have committed while closing its reservation failed.
-            // Never delete a document that the database still references.
-            if (await journal.IsRegisteredAsync(claim.ExpectedReference, cancellationToken))
+            // The lease holds the same per-document SQL lock as registration finalization.
+            // It rechecks both the claim and document reference after acquiring that lock.
+            await using var deletionLease = await journal.AcquireDeletionLeaseAsync(claim, cancellationToken);
+            if (deletionLease is null)
             {
-                await journal.CompleteClaimAsync(claim, cancellationToken);
                 processed++;
                 continue;
             }
@@ -86,14 +86,14 @@ internal sealed class OperatorDocumentCleanupBackgroundService(
             if (result?.Outcome is OperatorDocumentStorageDeleteOutcome.Deleted or
                 OperatorDocumentStorageDeleteOutcome.AlreadyAbsent)
             {
-                await journal.CompleteClaimAsync(claim, cancellationToken);
+                await deletionLease.CompleteAsync(cancellationToken);
             }
             else
             {
                 // Keep the SQL intent indefinitely, with capped backoff. Even a provider
                 // "permanent" error can be repaired operationally without losing the asset ID.
                 var delay = RetryDelay(claim.AttemptCount);
-                await journal.RetryClaimAsync(claim, clock.UtcNow + delay,
+                await deletionLease.RetryAsync(clock.UtcNow + delay,
                     SafeErrorCode(result?.SafeErrorCode), cancellationToken);
                 logger.LogError("Operator document cleanup remains pending after attempt {Attempt}.",
                     claim.AttemptCount);

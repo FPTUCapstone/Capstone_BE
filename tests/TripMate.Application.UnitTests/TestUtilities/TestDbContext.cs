@@ -97,6 +97,8 @@ public class TestDbContext(
 
     public int SaveChangesAsyncCallCount { get; private set; }
 
+    public List<string> FinalizedOperatorDocumentCleanupPublicIds { get; } = [];
+
     public bool ThrowOnSaveConcurrency { get; set; }
 
     public Func<int, Exception?>? SerializableTransactionCompletionFailureFactory { get; set; }
@@ -159,6 +161,14 @@ public class TestDbContext(
         }
 
         return result;
+    }
+
+    public Task FinalizeOperatorDocumentCleanupReservationsAsync(
+        IReadOnlyCollection<string> publicIds,
+        CancellationToken cancellationToken)
+    {
+        FinalizedOperatorDocumentCleanupPublicIds.AddRange(publicIds);
+        return Task.CompletedTask;
     }
 
     public void ClearTrackedEntities() => ChangeTracker.Clear();

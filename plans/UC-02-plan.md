@@ -17,6 +17,16 @@ deployment and trusted proxy IP forwarding before relying on per-client IP fairn
 
 Branch: `feature/linhnv-register-tour-operator`.
 
+## Task 9 — Close the durable-cleanup race (2026-10-08)
+
+The cleanup worker previously checked `OperatorDocuments` and then called Cloudinary without
+coordinating with a still-running registration transaction. Add a deterministic per-public-ID
+SQL Server application lock: registration must save its graph and remove all cleanup
+reservations in its transaction under that lock; the worker must acquire the same lock,
+revalidate its lease and DB ownership, and hold it through the Cloudinary delete decision.
+If the worker deletes first, finalization fails and registration rolls back. Add a SQL Server
+barrier test covering that interleaving, then run the focused handler and SQL cleanup suites.
+
 ## Task 8 — Owner-decided business identifier formats (2026-10-08)
 
 Add BE field validation and feature-local error codes for the Tax Code and two

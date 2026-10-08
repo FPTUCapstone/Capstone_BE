@@ -108,4 +108,14 @@ public interface IApplicationDbContext
     Task<T> ExecuteInSerializableTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Removes durable document-cleanup reservations while the caller's database transaction
+    /// is still open. SQL Server implementations serialize this operation with the cleanup
+    /// worker by public ID, so a committed document can never reference an asset the worker
+    /// is deleting.
+    /// </summary>
+    Task FinalizeOperatorDocumentCleanupReservationsAsync(
+        IReadOnlyCollection<string> publicIds,
+        CancellationToken cancellationToken) => Task.CompletedTask;
 }

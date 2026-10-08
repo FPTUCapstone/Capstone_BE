@@ -4,6 +4,7 @@ using System.Reflection;
 using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
+using TripMate.Application.Common.Media;
 using TripMate.Domain.Entities;
 
 namespace TripMate.Infrastructure.Persistence;
@@ -95,6 +96,36 @@ public class ApplicationDbContext(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken)
         => await ExecuteInTransactionAsync(operation, IsolationLevel.Serializable, cancellationToken);
+
+    public async Task FinalizeOperatorDocumentCleanupReservationsAsync(
+        IReadOnlyCollection<string> publicIds,
+        CancellationToken cancellationToken)
+    {
+        foreach (string publicId in publicIds)
+        {
+            string lockResource = OperatorDocumentCleanupLock.ForPublicId(publicId);
+            int affected = await Database.ExecuteSqlInterpolatedAsync($"""
+                DECLARE @lockResult INT;
+                EXEC @lockResult = sp_getapplock
+                    @Resource = {lockResource},
+                    @LockMode = 'Exclusive',
+                    @LockOwner = 'Transaction',
+                    @LockTimeout = 10000;
+
+                IF @lockResult < 0
+                    THROW 51001, 'Could not finalize the operator document cleanup reservation.', 1;
+
+                DELETE FROM dbo.OperatorDocumentCleanupOutbox
+                WHERE public_id = {publicId};
+                """, cancellationToken);
+
+            if (affected != 1)
+            {
+                throw new InvalidOperationException(
+                    "The operator document cleanup reservation was consumed before registration committed.");
+            }
+        }
+    }
 
     private async Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
