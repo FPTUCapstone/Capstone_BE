@@ -209,6 +209,72 @@ public sealed class ReplayEngineTests
         }
     }
 
+    [Theory]
+    [InlineData("output-input")]
+    [InlineData("output-manifest")]
+    [InlineData("timing-input")]
+    [InlineData("timing-manifest")]
+    [InlineData("timing-output")]
+    public async Task Cli_OutputPathsCollideWithSourcesOrEachOther_RejectsWithoutOverwriting(
+        string collision)
+    {
+        string directory = Path.Combine(
+            Path.GetTempPath(),
+            $"tripmate-replay-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            string input = Path.Combine(directory, "input.jsonl");
+            string manifest = Path.Combine(directory, "manifest.json");
+            string output = Path.Combine(directory, "result.json");
+            string timing = Path.Combine(directory, "timing.json");
+            string inputContent = JsonSerializer.Serialize(Scenario(), JsonOptions);
+            string manifestContent = JsonSerializer.Serialize(Manifest(), JsonOptions);
+            await File.WriteAllTextAsync(input, inputContent);
+            await File.WriteAllTextAsync(manifest, manifestContent);
+
+            switch (collision)
+            {
+                case "output-input":
+                    output = Path.Combine(directory, "unused", "..", "input.jsonl");
+                    break;
+                case "output-manifest":
+                    output = manifest;
+                    break;
+                case "timing-input":
+                    timing = input;
+                    break;
+                case "timing-manifest":
+                    timing = Path.Combine(directory, ".", "manifest.json");
+                    break;
+                case "timing-output":
+                    timing = output;
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(collision));
+            }
+
+            using var error = new StringWriter();
+            int exitCode = await ReplayCli.RunAsync(
+                [
+                    "--input", input,
+                    "--manifest", manifest,
+                    "--output", output,
+                    "--timing-output", timing,
+                ],
+                error);
+
+            exitCode.Should().Be(1);
+            (await File.ReadAllTextAsync(input)).Should().Be(inputContent);
+            (await File.ReadAllTextAsync(manifest)).Should().Be(manifestContent);
+            error.ToString().Should().Contain("must not refer to the same file");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     private static ReplayManifest Manifest() => new(
         ReplayEngine.SchemaVersion,
         "test-fixture",

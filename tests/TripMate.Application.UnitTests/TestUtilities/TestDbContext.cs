@@ -99,6 +99,8 @@ public class TestDbContext(
 
     public bool ThrowOnSaveConcurrency { get; set; }
 
+    public Func<int, Exception?>? SerializableTransactionCompletionFailureFactory { get; set; }
+
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         SaveChangesAsyncCallCount++;
@@ -159,7 +161,15 @@ public class TestDbContext(
         IsExecutingSerializableTransaction = true;
         try
         {
-            return await operation(cancellationToken);
+            T result = await operation(cancellationToken);
+            Exception? completionFailure =
+                SerializableTransactionCompletionFailureFactory?.Invoke(TransactionExecutionCount);
+            if (completionFailure is not null)
+            {
+                throw completionFailure;
+            }
+
+            return result;
         }
         finally
         {

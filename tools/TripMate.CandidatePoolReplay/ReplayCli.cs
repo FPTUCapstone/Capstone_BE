@@ -11,11 +11,15 @@ public static class ReplayCli
         try
         {
             Dictionary<string, string> options = Parse(args);
-            string inputPath = Required(options, "--input");
-            string manifestPath = Required(options, "--manifest");
-            string outputPath = Required(options, "--output");
+            string inputPath = NormalizePath(Required(options, "--input"));
+            string manifestPath = NormalizePath(Required(options, "--manifest"));
+            string outputPath = NormalizePath(Required(options, "--output"));
             options.TryGetValue("--timing-output", out string? timingOutputPath);
-            temporaryPath = outputPath + ".tmp";
+            timingOutputPath = string.IsNullOrWhiteSpace(timingOutputPath)
+                ? null
+                : NormalizePath(timingOutputPath);
+            ValidateDistinctPaths(inputPath, manifestPath, outputPath, timingOutputPath);
+
             string corpus = await File.ReadAllTextAsync(inputPath);
             string manifestJson = await File.ReadAllTextAsync(manifestPath);
             ReplayManifest manifest = JsonSerializer.Deserialize(
@@ -24,7 +28,7 @@ public static class ReplayCli
                 ?? throw new ReplayValidationException("Manifest is null.");
             ReplayOutput output;
             ReplayTimingReport? timing = null;
-            if (string.IsNullOrWhiteSpace(timingOutputPath))
+            if (timingOutputPath is null)
             {
                 output = ReplayEngine.Run(corpus, manifest);
             }
@@ -33,16 +37,17 @@ public static class ReplayCli
                 ReplayMeasuredOutput measured = ReplayEngine.RunMeasured(corpus, manifest);
                 output = measured.Output;
                 timing = measured.Timing;
-                temporaryTimingPath = timingOutputPath + ".tmp";
             }
 
-            string? directory = Path.GetDirectoryName(Path.GetFullPath(outputPath));
+            string? directory = Path.GetDirectoryName(outputPath);
             Directory.CreateDirectory(directory!);
+            temporaryPath = TemporaryPath(outputPath);
             await File.WriteAllTextAsync(temporaryPath, ReplayEngine.Serialize(output));
             if (timing is not null)
             {
-                string? timingDirectory = Path.GetDirectoryName(Path.GetFullPath(timingOutputPath!));
+                string? timingDirectory = Path.GetDirectoryName(timingOutputPath!);
                 Directory.CreateDirectory(timingDirectory!);
+                temporaryTimingPath = TemporaryPath(timingOutputPath!);
                 await File.WriteAllTextAsync(
                     temporaryTimingPath!,
                     ReplayEngine.SerializeTiming(timing));
@@ -95,4 +100,34 @@ public static class ReplayCli
         options.TryGetValue(name, out string? value) && !string.IsNullOrWhiteSpace(value)
             ? value
             : throw new ArgumentException($"Missing required argument '{name}'.");
+
+    private static string NormalizePath(string path) => Path.GetFullPath(path);
+
+    private static void ValidateDistinctPaths(
+        string inputPath,
+        string manifestPath,
+        string outputPath,
+        string? timingOutputPath)
+    {
+        StringComparer comparer = OperatingSystem.IsWindows()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
+        if (comparer.Equals(outputPath, inputPath)
+            || comparer.Equals(outputPath, manifestPath)
+            || timingOutputPath is not null
+            && (comparer.Equals(timingOutputPath, inputPath)
+                || comparer.Equals(timingOutputPath, manifestPath)
+                || comparer.Equals(timingOutputPath, outputPath)))
+        {
+            throw new ArgumentException(
+                "Input, manifest, output, and timing output paths must not refer to the same file.");
+        }
+    }
+
+    private static string TemporaryPath(string destinationPath)
+    {
+        string directory = Path.GetDirectoryName(destinationPath)!;
+        string fileName = Path.GetFileName(destinationPath);
+        return Path.Combine(directory, $".{fileName}.{Guid.NewGuid():N}.tmp");
+    }
 }

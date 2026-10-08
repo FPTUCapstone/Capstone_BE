@@ -560,6 +560,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
     [Fact]
     public async Task Handle_UnexpectedPreparationFailure_ReleasesReservationAndRethrowsOriginalException()
     {
+        using var metrics = new FunnelMetricCapture();
         await using var dbContext = TestDbContext.Create();
         var mandatoryPoi = await SeedSelectablePoiAsync(dbContext);
         var originalException = new InvalidOperationException("unexpected preparation failure");
@@ -581,6 +582,8 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         releasedRequest.GenerationOwnerId.Should().BeNull();
         releasedRequest.GenerationLeaseExpiresAtUtc.Should().BeNull();
         (await dbContext.Itineraries.CountAsync()).Should().Be(0);
+        metrics.Attempts.Should().ContainSingle()
+            .Which.Should().Be("initial:unexpected_failure");
     }
 
     [Fact]
@@ -688,6 +691,31 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         releasedRequest.GenerationOwnerId.Should().BeNull();
         releasedRequest.GenerationLeaseExpiresAtUtc.Should().BeNull();
         (await dbContext.Itineraries.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Handle_FinalizeCommitFailure_DoesNotEmitSuccessAndEmitsUnexpectedFailure()
+    {
+        using var metrics = new FunnelMetricCapture();
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await SeedSelectablePoiAsync(dbContext);
+        var commitFailure = new InvalidOperationException("finalize commit failure");
+        dbContext.SerializableTransactionCompletionFailureFactory = executionCount =>
+            executionCount == 2 ? commitFailure : null;
+        var handler = CreateHandler(dbContext);
+
+        Func<Task> act = async () => await handler.Handle(
+            CreateCommand(Guid.NewGuid()) with
+            {
+                MandatoryPoiIds = [mandatoryPoi.Id],
+            },
+            CancellationToken.None);
+
+        (await act.Should().ThrowAsync<InvalidOperationException>()).Which
+            .Should().BeSameAs(commitFailure);
+        metrics.Attempts.Should().ContainSingle()
+            .Which.Should().Be("initial:unexpected_failure");
+        metrics.Attempts.Should().NotContain("initial:success");
     }
 
     [Fact]
