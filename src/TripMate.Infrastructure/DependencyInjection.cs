@@ -49,6 +49,7 @@ public static class DependencyInjection
         services.AddScoped<IItineraryVersionService, ItineraryVersionService>();
         services.AddScoped<IGroupInvitationLock, SqlServerGroupInvitationLock>();
         services.AddScoped<IGroupJoinLock, SqlServerGroupJoinLock>();
+        services.AddScoped<IUserUnlockLock, SqlServerUserUnlockLock>();
         services.AddSingleton<IGroupInvitationCodeGenerator, RandomGroupInvitationCodeGenerator>();
         services.AddScoped<ISchedulingRequestLock, SqlServerSchedulingRequestLock>();
         services.AddScoped<ITourMediaUploadLock, SqlServerTourMediaUploadLock>();
