@@ -14,6 +14,7 @@ using TripMate.Application.Common.Geo;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Scheduling.Common;
+using TripMate.Application.Features.Scheduling.Diagnostics;
 using TripMate.Application.Features.Scheduling.Explanation;
 using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Domain.Entities;
@@ -141,6 +142,10 @@ public sealed class CreateSchedulingRequestCommandHandler(
             PoiRankingSnapshot? frozenRanking = null;
             for (var snapshotAttempt = 0; snapshotAttempt < 2; snapshotAttempt++)
             {
+                var funnel = new CandidatePoolFunnelDiagnostics(
+                    snapshotAttempt == 0
+                        ? CandidatePoolFunnelDimensions.AttemptInitial
+                        : CandidatePoolFunnelDimensions.AttemptSnapshotRetry);
                 PreparedGeneration prepared;
                 try
                 {
@@ -148,11 +153,13 @@ public sealed class CreateSchedulingRequestCommandHandler(
                         canonical,
                         timeZone,
                         frozenRanking,
+                        funnel,
                         cancellationToken);
                     frozenRanking ??= prepared.RankingSnapshot;
                 }
                 catch (RouteDurationProviderException ex)
                 {
+                    funnel.Emit(CandidatePoolFunnelDimensions.OutcomeRoutingFailure);
                     await TryReleaseReservationAfterFailureAsync(
                         canonical,
                         generationOwnerId,
@@ -170,6 +177,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 }
                 catch (OperationCanceledException ex) when (cancellationToken.IsCancellationRequested)
                 {
+                    funnel.Emit(CandidatePoolFunnelDimensions.OutcomeCancelled);
                     await TryReleaseReservationAfterFailureAsync(
                         canonical,
                         generationOwnerId,
@@ -178,6 +186,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 }
                 catch (Exception ex)
                 {
+                    funnel.Emit(CandidatePoolFunnelDimensions.OutcomeUnexpectedFailure);
                     await TryReleaseReservationAfterFailureAsync(
                         canonical,
                         generationOwnerId,
@@ -194,18 +203,29 @@ public sealed class CreateSchedulingRequestCommandHandler(
                         generationOwnerId,
                         reservation.GenerationAttempt,
                         prepared,
+                        funnel,
                         snapshotAttempt == 0,
                         timeZone,
                         cancellationToken);
                 }
                 catch (Exception ex)
                 {
+                    if (ex is OperationCanceledException && cancellationToken.IsCancellationRequested)
+                    {
+                        funnel.Emit(CandidatePoolFunnelDimensions.OutcomeCancelled);
+                    }
+                    else
+                    {
+                        funnel.Emit(CandidatePoolFunnelDimensions.OutcomeUnexpectedFailure);
+                    }
+
                     await TryReleaseReservationAfterFailureAsync(
                         canonical,
                         generationOwnerId,
                         ex);
                     throw;
                 }
+                funnel.Emit(finalized.Outcome);
                 dbContext.ClearTrackedEntities();
 
                 if (finalized.Kind == FinalizeDecisionKind.RetrySnapshot)
@@ -351,6 +371,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
         CanonicalSchedulingRequest canonical,
         TimeZoneInfo timeZone,
         PoiRankingSnapshot? frozenRanking,
+        CandidatePoolFunnelDiagnostics funnel,
         CancellationToken cancellationToken)
     {
         var travelerInterestTags = await dbContext.TravelerProfiles
@@ -434,6 +455,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
                     poi.Longitude),
                 poi.EstimatedVisitCost))
             .ToArray();
+        funnel.SetEligibleOptional(optionalCandidates.Length);
+        long rankingStartedAt = Stopwatch.GetTimestamp();
         var ranking = frozenRanking
             ?? await poiRankingOrchestrator.BuildRankingAsync(
                 new PoiRankingInput(canonical.TravelerUserId, preferenceTokens, optionalCandidates),
@@ -441,6 +464,10 @@ public sealed class CreateSchedulingRequestCommandHandler(
         var snapshotBehaviorAggregation = frozenRanking is null
             ? ranking.BehaviorAggregation
             : await LoadBehaviorAggregationAsync(canonical, activePois, cancellationToken);
+        funnel.RecordStageDuration(
+            CandidatePoolFunnelDimensions.StageRanking,
+            Stopwatch.GetElapsedTime(rankingStartedAt));
+        funnel.SetProviderPool(ranking.ProviderPoolPoiIds.Count);
         snapshot = SchedulingGenerationSnapshot.Capture(snapshotData, snapshotBehaviorAggregation);
         var poolBoundSelectablePois = selectablePois
             .Where(poi => mandatoryIds.Contains(poi.Id) || ranking.ProviderPoolPoiIds.Contains(poi.Id))
@@ -448,10 +475,16 @@ public sealed class CreateSchedulingRequestCommandHandler(
         var optionalRankingEntries = poolBoundSelectablePois
             .Where(poi => !mandatoryIds.Contains(poi.Id))
             .ToDictionary(poi => poi.Id, poi => GetRequiredRankingEntry(ranking, poi.Id));
+        long selectionStartedAt = Stopwatch.GetTimestamp();
         var matrixCandidates = SelectMatrixCandidates(
             poolBoundSelectablePois,
             canonical.MandatoryPoiIds,
-            optionalRankingEntries);
+            optionalRankingEntries,
+            funnel,
+            canonical.TransportMode.ToString().ToLowerInvariant());
+        funnel.RecordStageDuration(
+            CandidatePoolFunnelDimensions.StageSelection,
+            Stopwatch.GetElapsedTime(selectionStartedAt));
         var end = endPoi is null
             ? new RoutePoint(canonical.StartLatitude, canonical.StartLongitude)
             : new RoutePoint(endPoi.Latitude, endPoi.Longitude);
@@ -469,8 +502,28 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 preferenceTokens,
                 mandatoryIds.Contains(poi.Id) ? null : optionalRankingEntries[poi.Id])).ToArray(),
             canonical.MandatoryPoiIds);
-        var plan = await new ItineraryGenerationService(routeDurationProvider, _generationOptions)
+        long generationStartedAt = Stopwatch.GetTimestamp();
+        var measuredRouteProvider = new FunnelMeasuringRouteDurationProvider(
+            routeDurationProvider,
+            funnel);
+        var plan = await new ItineraryGenerationService(measuredRouteProvider, _generationOptions)
             .GenerateAsync(input, cancellationToken);
+        funnel.RecordStageDuration(
+            CandidatePoolFunnelDimensions.StageGeneration,
+            Stopwatch.GetElapsedTime(generationStartedAt));
+        if (plan.IsSuccess)
+        {
+            funnel.SetPlanCounts(
+                plan.Value.Items.Count(item =>
+                    item.Kind == ItineraryItemKind.Visit
+                    && item.PointOfInterestId.HasValue
+                    && !mandatoryIds.Contains(item.PointOfInterestId.Value)),
+                plan.Value.Items.Count(item =>
+                    item.Kind == ItineraryItemKind.Rest
+                    && item.PointOfInterestId.HasValue
+                    && !mandatoryIds.Contains(item.PointOfInterestId.Value)));
+        }
+
         return plan.IsFailure
             ? PreparedGeneration.Infeasible(
                 snapshot.Hash,
@@ -492,6 +545,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
         Guid ownerId,
         int generationAttempt,
         PreparedGeneration prepared,
+        CandidatePoolFunnelDiagnostics funnel,
         bool mayRetrySnapshot,
         TimeZoneInfo timeZone,
         CancellationToken cancellationToken)
@@ -514,7 +568,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 || request.GenerationAttempt != generationAttempt
                 || request.GenerationLeaseExpiresAtUtc <= now)
             {
-                return FinalizeDecision.LostOwnership();
+                return FinalizeDecision.LostOwnership(
+                    CandidatePoolFunnelDimensions.OutcomeLostOwnership);
             }
 
             var travelerInterestTags = await dbContext.TravelerProfiles
@@ -525,6 +580,24 @@ public sealed class CreateSchedulingRequestCommandHandler(
             var activePois = await LoadRelevantActivePoisAsync(
                 canonical,
                 transactionCancellationToken);
+            long observationStartedAt = Stopwatch.GetTimestamp();
+            var mandatoryIds = canonical.MandatoryPoiIds.ToHashSet();
+            HashSet<long> authoritativeValidIds = activePois
+                .Where(PlanningPoiEligibility.IsPlanningReady)
+                .Where(poi => GeoDistance.EquirectangularKilometers(
+                    canonical.ExplorationLatitude,
+                    canonical.ExplorationLongitude,
+                    poi.Latitude,
+                    poi.Longitude) <= canonical.SearchRadiusKm)
+                .Where(poi => !mandatoryIds.Contains(poi.Id))
+                .Select(poi => poi.Id)
+                .ToHashSet();
+            funnel.SetFinalizeValidFrozenPool(
+                prepared.RankingSnapshot?.ProviderPoolPoiIds.Count(authoritativeValidIds.Contains)
+                    ?? 0);
+            funnel.RecordStageDuration(
+                CandidatePoolFunnelDimensions.StageFinalizeObservation,
+                Stopwatch.GetElapsedTime(observationStartedAt));
             PersonalBehaviorAggregation? behaviorAggregation = null;
             if (prepared.BehaviorWasUsed)
             {
@@ -547,14 +620,16 @@ public sealed class CreateSchedulingRequestCommandHandler(
                         now.Add(_reservationOptions.LeaseDuration),
                         now);
                     await dbContext.SaveChangesAsync(transactionCancellationToken);
-                    return FinalizeDecision.RetrySnapshot();
+                    return FinalizeDecision.RetrySnapshot(
+                        CandidatePoolFunnelDimensions.OutcomeSnapshotMismatchRetryable);
                 }
 
                 request.ReleaseGeneration(ownerId, now);
                 await dbContext.SaveChangesAsync(transactionCancellationToken);
                 return FinalizeDecision.Completed(Result.Failure<SchedulingResponseDto>(
                     SchedulingErrorCodes.GenerationTemporarilyUnavailable,
-                    "Planning data changed while the itinerary was generated. Please try again."));
+                    "Planning data changed while the itinerary was generated. Please try again."),
+                    CandidatePoolFunnelDimensions.OutcomeSnapshotMismatchTerminal);
             }
 
             if (prepared.Plan is null)
@@ -565,7 +640,9 @@ public sealed class CreateSchedulingRequestCommandHandler(
                     prepared.FailureMessage!,
                     now);
                 await dbContext.SaveChangesAsync(transactionCancellationToken);
-                return FinalizeDecision.Completed(Infeasible(prepared.FailureMessage!));
+                return FinalizeDecision.Completed(
+                    Infeasible(prepared.FailureMessage!),
+                    CandidatePoolFunnelDimensions.OutcomeInfeasible);
             }
 
             var itinerary = Itinerary.CreateCspGenerated(
@@ -604,6 +681,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 prepared.PreferenceTokens);
             return FinalizeDecision.Completed(
                 Result.Success(ToResponse(request, itinerary, prepared.Plan)),
+                CandidatePoolFunnelDimensions.OutcomeSuccess,
                 fresh);
         }, cancellationToken);
     }
@@ -955,32 +1033,30 @@ public sealed class CreateSchedulingRequestCommandHandler(
     private IReadOnlyList<PointOfInterest> SelectMatrixCandidates(
         IReadOnlyCollection<PointOfInterest> selectablePois,
         IReadOnlyCollection<long> mandatoryPoiIds,
-        IReadOnlyDictionary<long, PoiRankingSnapshotEntry> optionalRankingEntries)
+        IReadOnlyDictionary<long, PoiRankingSnapshotEntry> optionalRankingEntries,
+        CandidatePoolFunnelDiagnostics funnel,
+        string transportMode)
     {
         var mandatoryIds = mandatoryPoiIds.ToHashSet();
-        var mandatoryPois = selectablePois
+        PointOfInterest[] mandatoryPois = selectablePois
             .Where(poi => mandatoryIds.Contains(poi.Id))
-            .OrderBy(poi => poi.Id)
             .ToArray();
-        var remainingCapacity = _generationOptions.EffectiveMaxMatrixCandidates - mandatoryPois.Length;
-
-        var optionalPois = selectablePois
+        PoiRankingSnapshotEntry[] optionalCandidates = selectablePois
             .Where(poi => !mandatoryIds.Contains(poi.Id))
-            .Select(poi => (Poi: poi, Ranking: optionalRankingEntries[poi.Id]))
-            .OrderByDescending(candidate => candidate.Ranking.EffectiveDesirabilityScore)
-            .ThenByDescending(candidate =>
-                candidate.Ranking.ScenicScoreForRanking ?? decimal.MinValue)
-            .ThenByDescending(candidate =>
-                candidate.Ranking.PhotoRatingForRanking ?? decimal.MinValue)
-            .ThenBy(candidate => candidate.Ranking.ExplorationDistanceForRanking)
-            .ThenBy(candidate =>
-                candidate.Ranking.EstimatedVisitCostForRanking ?? decimal.MaxValue)
-            .ThenBy(candidate => candidate.Ranking.PoiId)
-            .Take(remainingCapacity)
-            .Select(candidate => candidate.Poi)
+            .Select(poi => optionalRankingEntries[poi.Id])
             .ToArray();
+        MatrixCandidateSelection selection = MatrixCandidateSelector.Select(
+            mandatoryPois.Select(poi => poi.Id).ToArray(),
+            optionalCandidates,
+            _generationOptions.EffectiveMaxMatrixCandidates);
+        funnel.SetMatrixSelection(
+            selection.OptionalCapacity,
+            selection.SelectedOptionalCount,
+            selection.OrderedPoiIds.Count + 2,
+            transportMode);
+        Dictionary<long, PointOfInterest> poisById = selectablePois.ToDictionary(poi => poi.Id);
 
-        return mandatoryPois.Concat(optionalPois).ToArray();
+        return selection.OrderedPoiIds.Select(id => poisById[id]).ToArray();
     }
 
     internal static GenerationCandidate ToCandidate(
@@ -1219,6 +1295,29 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 rankingSnapshot);
     }
 
+    private sealed class FunnelMeasuringRouteDurationProvider(
+        IRouteDurationProvider inner,
+        CandidatePoolFunnelDiagnostics funnel) : IRouteDurationProvider
+    {
+        public async Task<RouteDurationMatrix> GetMatrixAsync(
+            IReadOnlyList<RoutePoint> points,
+            TransportMode transportMode,
+            CancellationToken cancellationToken)
+        {
+            long startedAt = Stopwatch.GetTimestamp();
+            try
+            {
+                return await inner.GetMatrixAsync(points, transportMode, cancellationToken);
+            }
+            finally
+            {
+                funnel.RecordStageDuration(
+                    CandidatePoolFunnelDimensions.StageMatrix,
+                    Stopwatch.GetElapsedTime(startedAt));
+            }
+        }
+    }
+
     private enum FinalizeDecisionKind
     {
         Completed,
@@ -1229,18 +1328,20 @@ public sealed class CreateSchedulingRequestCommandHandler(
     private sealed record FinalizeDecision(
         FinalizeDecisionKind Kind,
         Result<SchedulingResponseDto>? Result,
+        string Outcome,
         FreshGenerationContext? FreshGeneration)
     {
         public static FinalizeDecision Completed(
             Result<SchedulingResponseDto> result,
+            string outcome,
             FreshGenerationContext? freshGeneration = null) =>
-            new(FinalizeDecisionKind.Completed, result, freshGeneration);
+            new(FinalizeDecisionKind.Completed, result, outcome, freshGeneration);
 
-        public static FinalizeDecision RetrySnapshot() =>
-            new(FinalizeDecisionKind.RetrySnapshot, null, null);
+        public static FinalizeDecision RetrySnapshot(string outcome) =>
+            new(FinalizeDecisionKind.RetrySnapshot, null, outcome, null);
 
-        public static FinalizeDecision LostOwnership() =>
-            new(FinalizeDecisionKind.LostOwnership, null, null);
+        public static FinalizeDecision LostOwnership(string outcome) =>
+            new(FinalizeDecisionKind.LostOwnership, null, outcome, null);
     }
 
 }
