@@ -6,7 +6,7 @@ Approved by the developer on 2026-09-26.
 
 ## Sources and approved decisions
 
-- SRS section 3.9.6.1, BR-32, BR-51, BR-52, BR-115, BR-124, CR-01, CR-02, CR-07, MSG29, MSG126, MSG127, and MSG128.
+- SRS section 3.9.6.1, BR-32, BR-51, BR-52, BR-115, BR-124, CR-01, CR-02, CR-07, MSG126, MSG127, and MSG128.
 - UC-58 is an Administrator Web-only, read-only monitoring function.
 - Approved on 2026-09-26: an active trip session has FSM state `Navigating`, `Exploring`, or `Interrupted`. `Planning` and `Completed` are excluded.
 - Approved on 2026-09-26: trip code is derived as `TRIP-{session_id}`; this use case does not add a database column.
@@ -45,7 +45,7 @@ Authentication and authorization:
 | `pageNumber` | integer | `1` | Minimum 1. |
 | `pageSize` | integer | `20` | Minimum 1, maximum 100. The Web uses 20 in accordance with CR-01. |
 
-Malformed or semantically invalid query parameters return `400` ProblemDetails with field errors. An inverted range or a future date maps to MSG29 in the Web.
+Malformed or semantically invalid query parameters return `400` ProblemDetails with field errors. The endpoint adds a stable `errorCode`: `ActiveTrips.InvalidDateRange` when either date field is invalid, otherwise `ActiveTrips.InvalidFilter`. This endpoint-specific contract deliberately does not reuse `MSG29`, which is reserved by the locked catalog for invalid POI coordinates.
 
 Date/time normalization follows CR-07 and the Backend persistence convention:
 
