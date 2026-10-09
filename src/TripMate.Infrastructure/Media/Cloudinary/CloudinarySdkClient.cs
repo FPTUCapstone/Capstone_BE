@@ -24,12 +24,28 @@ internal sealed class CloudinarySdkClient : ICloudinaryClient
         CancellationToken cancellationToken)
     {
         await using var stream = new MemoryStream(request.Bytes, writable: false);
-        ImageUploadParams upload = CreateSignedUploadParams(request, stream);
 
         ImageUploadResult result;
         try
         {
-            result = await cloudinary.UploadAsync(upload, cancellationToken);
+            if (request.IsRaw)
+            {
+                RawUploadParams rawUpload = CreateSignedRawUploadParams(request, stream);
+                RawUploadResult rawResult = await cloudinary.UploadAsync(
+                    rawUpload,
+                    ResourceType.Raw.ToString(),
+                    cancellationToken);
+                result = new ImageUploadResult
+                {
+                    PublicId = rawResult.PublicId,
+                    SecureUrl = rawResult.SecureUrl,
+                };
+            }
+            else
+            {
+                ImageUploadParams upload = CreateSignedUploadParams(request, stream);
+                result = await cloudinary.UploadAsync(upload, cancellationToken);
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -67,6 +83,16 @@ internal sealed class CloudinarySdkClient : ICloudinaryClient
         return CloudinaryUploadResponse.Succeeded(result.PublicId, result.SecureUrl);
     }
 
+    internal static RawUploadParams CreateSignedRawUploadParams(
+        CloudinaryUploadRequest request,
+        Stream stream) => new()
+        {
+            File = new FileDescription("operator-documents", stream),
+            PublicId = request.PublicId,
+            Overwrite = request.Overwrite,
+            Type = request.IsPrivateDocument ? "authenticated" : null,
+        };
+
     internal static ImageUploadParams CreateSignedUploadParams(
         CloudinaryUploadRequest request,
         Stream stream) => new()
@@ -74,6 +100,7 @@ internal sealed class CloudinarySdkClient : ICloudinaryClient
             File = new FileDescription("tour-media", stream),
             PublicId = request.PublicId,
             Overwrite = request.Overwrite,
+            Type = request.IsPrivateDocument ? "authenticated" : null,
             UseFilename = request.UseFilename,
             UniqueFilename = request.UniqueFilename,
             DiscardOriginalFilename = request.DiscardOriginalFilename,
@@ -86,11 +113,7 @@ internal sealed class CloudinarySdkClient : ICloudinaryClient
         CloudinaryDeleteRequest request,
         CancellationToken cancellationToken)
     {
-        var deletion = new DeletionParams(request.PublicId)
-        {
-            Invalidate = request.Invalidate,
-            ResourceType = ResourceType.Image,
-        };
+        var deletion = CreateDeletionParams(request);
 
         DeletionResult result;
         try
@@ -124,5 +147,27 @@ internal sealed class CloudinarySdkClient : ICloudinaryClient
         return statusCode == 429 || statusCode >= 500
             ? CloudinaryDeleteOutcome.TransientFailure
             : CloudinaryDeleteOutcome.PermanentFailure;
+    }
+
+    internal static DeletionParams CreateDeletionParams(CloudinaryDeleteRequest request) => new(request.PublicId)
+    {
+        Invalidate = request.Invalidate,
+        ResourceType = request.IsRaw ? ResourceType.Raw : ResourceType.Image,
+        Type = request.IsPrivateDocument ? "authenticated" : null,
+    };
+
+    public Uri? CreateTemporaryDownloadUrl(string publicId, string format, bool isRaw,
+        DateTimeOffset expiresAtUtc)
+    {
+        string signedUrl = cloudinary.DownloadPrivate(
+            publicId,
+            format: format,
+            type: "authenticated",
+            expiresAt: expiresAtUtc.ToUnixTimeSeconds(),
+            resourceType: isRaw ? "raw" : "image");
+        return Uri.TryCreate(signedUrl, UriKind.Absolute, out var url) &&
+               url.Scheme == Uri.UriSchemeHttps
+            ? url
+            : null;
     }
 }

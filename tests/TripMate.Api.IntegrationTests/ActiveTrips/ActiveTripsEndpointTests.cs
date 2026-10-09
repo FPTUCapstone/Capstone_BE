@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 
 using FluentAssertions;
 
@@ -62,6 +63,8 @@ public sealed class ActiveTripsEndpointTests
             "/api/v1/admin/trips/active?startDateFrom=2026-09-27&startDateTo=2026-09-26");
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
+        payload.GetProperty("errorCode").GetString().Should().Be(ActiveTripErrorCodes.InvalidDateRange);
     }
 
     [Fact]
@@ -75,6 +78,21 @@ public sealed class ActiveTripsEndpointTests
             "/api/v1/admin/trips/active?startDateFrom=2026-09-28&startDateTo=2026-09-28");
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
+        payload.GetProperty("errorCode").GetString().Should().Be(ActiveTripErrorCodes.InvalidDateRange);
+    }
+
+    [Fact]
+    public async Task Get_InvalidTripType_ReturnsTypedBadRequest()
+    {
+        await using var factory = new TripMateApiFactory();
+        using var client = factory.CreateAuthenticatedClient(1, UserRole.Administrator);
+
+        var response = await client.GetAsync("/api/v1/admin/trips/active?tripType=Unknown");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
+        payload.GetProperty("errorCode").GetString().Should().Be(ActiveTripErrorCodes.InvalidFilter);
     }
 
     [Fact]

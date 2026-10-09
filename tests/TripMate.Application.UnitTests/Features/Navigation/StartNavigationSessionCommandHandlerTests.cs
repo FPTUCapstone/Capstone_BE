@@ -41,7 +41,7 @@ public sealed class StartNavigationSessionCommandHandlerTests
         });
         (await db.TripSessions.CountAsync()).Should().Be(1);
         (await db.TripSessionItems.CountAsync()).Should().Be(1);
-        (await db.TripStateHistory.CountAsync()).Should().Be(1);
+        (await db.TripStateHistories.CountAsync()).Should().Be(1);
     }
 
     [Theory]
@@ -60,7 +60,7 @@ public sealed class StartNavigationSessionCommandHandlerTests
         result.IsFailure.Should().BeTrue();
         result.ErrorCode.Should().Be(NavigationErrorCodes.OutsideTripWindow);
         (await db.TripSessions.CountAsync()).Should().Be(0);
-        (await db.TripStateHistory.CountAsync()).Should().Be(0);
+        (await db.TripStateHistories.CountAsync()).Should().Be(0);
     }
 
     [Theory]
@@ -76,6 +76,39 @@ public sealed class StartNavigationSessionCommandHandlerTests
             CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task Handle_NavigableItemWithoutPlannedScheduleRejectsWithoutCreatingRows(
+        bool clearArrival,
+        bool clearDeparture)
+    {
+        await using var db = CreateDbContext();
+        var itinerary = await SeedActiveItineraryAsync(db, Now.AddHours(1));
+        var item = itinerary.Items.Single();
+        if (clearArrival)
+        {
+            db.Entry(item).Property(candidate => candidate.PlannedArrivalUtc).CurrentValue = null;
+        }
+
+        if (clearDeparture)
+        {
+            db.Entry(item).Property(candidate => candidate.PlannedDepartureUtc).CurrentValue = null;
+        }
+
+        await db.SaveChangesAsync();
+        db.ClearTrackedEntities();
+
+        var result = await CreateHandler(db, Now).Handle(
+            new StartNavigationSessionCommand(itinerary.Id, 7, Guid.NewGuid()),
+            CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(NavigationErrorCodes.ItineraryScheduleIncomplete);
+        (await db.TripSessions.CountAsync()).Should().Be(0);
+        (await db.TripStateHistories.CountAsync()).Should().Be(0);
     }
 
     [Fact]
@@ -98,7 +131,7 @@ public sealed class StartNavigationSessionCommandHandlerTests
         expired.CompletionReason.Should().Be(TripSession.ExpiredReason);
         expired.EndedAtUtc.Should().Be(stale.ExpiresAtUtc);
         expired.StateHistory.Should().HaveCount(2);
-        expired.StateHistory.Last().TriggeredBy.Should().Be(TripStateHistory.SystemTrigger);
+        expired.StateHistory.Last().TriggeredBy.Should().Be(TripStateHistory.TriggeredBySystem);
         (await db.TripSessions.CountAsync(session => session.EndedAtUtc == null)).Should().Be(1);
     }
 
@@ -175,7 +208,7 @@ public sealed class StartNavigationSessionCommandHandlerTests
             7,
             Guid.NewGuid(),
             startedAtUtc,
-            item.PlannedDepartureUtc + TimeSpan.FromHours(6),
+            item.PlannedDepartureUtc!.Value + TimeSpan.FromHours(6),
             [
                 TripSessionItem.Snapshot(
                     item.Id,
@@ -184,8 +217,8 @@ public sealed class StartNavigationSessionCommandHandlerTests
                     "Previous POI",
                     16m,
                     108m,
-                    item.PlannedArrivalUtc,
-                    item.PlannedDepartureUtc,
+                    item.PlannedArrivalUtc!.Value,
+                    item.PlannedDepartureUtc!.Value,
                     item.IsMandatory),
             ]);
         db.TripSessions.Add(session);

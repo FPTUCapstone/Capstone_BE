@@ -94,7 +94,7 @@ public sealed class NavigationSessionMutationHandlersTests
         stored.FsmState.Should().Be(TripSession.CompletedState);
         stored.CompletionReason.Should().Be(TripSession.ExpiredReason);
         stored.EndedAtUtc.Should().Be(ExpiresAtUtc);
-        stored.StateHistory.Last().TriggeredBy.Should().Be(TripStateHistory.SystemTrigger);
+        stored.StateHistory.Last().TriggeredBy.Should().Be(TripStateHistory.TriggeredBySystem);
     }
 
     [Fact]
@@ -299,8 +299,8 @@ public sealed class NavigationSessionMutationHandlersTests
                 pois[index].Name,
                 pois[index].Latitude,
                 pois[index].Longitude,
-                item.PlannedArrivalUtc,
-                item.PlannedDepartureUtc,
+                item.PlannedArrivalUtc!.Value,
+                item.PlannedDepartureUtc!.Value,
                 item.IsMandatory)));
         db.TripSessions.Add(session);
         await db.SaveChangesAsync();

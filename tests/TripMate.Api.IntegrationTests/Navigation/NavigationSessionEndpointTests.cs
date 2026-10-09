@@ -268,6 +268,10 @@ public sealed class NavigationSessionEndpointTests
             await StartAsync(client, ids.TomorrowItineraryId, "33333333-3333-3333-3333-333333333333"),
             HttpStatusCode.Conflict,
             "navigation.outside_trip_window");
+        await ExpectErrorAsync(
+            await StartAsync(client, ids.IncompleteScheduleItineraryId, "44444444-4444-4444-4444-444444444444"),
+            HttpStatusCode.UnprocessableEntity,
+            "navigation.itinerary_schedule_incomplete");
         await factory.WithDbContextAsync(async db =>
         {
             (await db.TripSessions.CountAsync()).Should().Be(0);
@@ -361,7 +365,11 @@ public sealed class NavigationSessionEndpointTests
         });
     }
 
-    private static async Task<(long InactiveItineraryId, long NoWaypointItineraryId, long TomorrowItineraryId)>
+    private static async Task<(
+        long InactiveItineraryId,
+        long NoWaypointItineraryId,
+        long TomorrowItineraryId,
+        long IncompleteScheduleItineraryId)>
         SeedRejectedStartsAsync(TripMateApiFactory factory) =>
         await factory.WithDbContextAsync(async db =>
         {
@@ -381,9 +389,15 @@ public sealed class NavigationSessionEndpointTests
             var tomorrow = Itinerary.CreateManual(7, "Tomorrow", Itinerary.ActiveStatus, now);
             tomorrow.AddItem(ItineraryItem.CreateVisit(
                 1, poi.Id, now.AddDays(1), now.AddDays(1).AddHours(1), true, 0m, "Required"));
-            db.Itineraries.AddRange(inactive, noWaypoint, tomorrow);
+            var incomplete = Itinerary.CreateManual(7, "Incomplete schedule", Itinerary.ActiveStatus, now);
+            incomplete.AddItem(ItineraryItem.CreateVisit(
+                1, poi.Id, now.AddHours(1), now.AddHours(2), true, 0m, "Required"));
+            db.Itineraries.AddRange(inactive, noWaypoint, tomorrow, incomplete);
             await db.SaveChangesAsync();
-            return (inactive.Id, noWaypoint.Id, tomorrow.Id);
+            db.Entry(incomplete.Items.Single())
+                .Property(item => item.PlannedArrivalUtc).CurrentValue = null;
+            await db.SaveChangesAsync();
+            return (inactive.Id, noWaypoint.Id, tomorrow.Id, incomplete.Id);
         });
 
     private static User Traveler(long id, DateTimeOffset now) => new()

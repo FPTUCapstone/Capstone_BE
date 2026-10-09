@@ -113,7 +113,7 @@ public sealed class TripSession : BaseEntity
             fromState: null,
             NavigatingState,
             TripStateHistory.NavigationStartedReason,
-            TripStateHistory.TravelerTrigger,
+            TripStateHistory.TriggeredByTraveler,
             startedAtUtc);
         return session;
     }
@@ -145,7 +145,7 @@ public sealed class TripSession : BaseEntity
                 FsmState,
                 ExploringState,
                 TripStateHistory.ItemReachedReason,
-                TripStateHistory.TravelerTrigger,
+                TripStateHistory.TriggeredByTraveler,
                 reachedAtUtc);
         }
 
@@ -198,7 +198,7 @@ public sealed class TripSession : BaseEntity
             FsmState,
             NavigatingState,
             TripStateHistory.TravelerDepartedReason,
-            TripStateHistory.TravelerTrigger,
+            TripStateHistory.TriggeredByTraveler,
             departedAtUtc);
         return TripSessionProgressOutcome.Applied;
     }
@@ -213,7 +213,7 @@ public sealed class TripSession : BaseEntity
 
         Complete(
             HasPendingItems ? TravelerStoppedReason : RouteFinishedReason,
-            TripStateHistory.TravelerTrigger,
+            TripStateHistory.TriggeredByTraveler,
             finishedAtUtc);
         return true;
     }
@@ -228,7 +228,7 @@ public sealed class TripSession : BaseEntity
 
         Complete(
             HasPendingItems ? ExpiredReason : RouteFinishedReason,
-            TripStateHistory.SystemTrigger,
+            TripStateHistory.TriggeredBySystem,
             expiresAtUtc);
         return true;
     }

@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
 using TripMate.Api.Common;
+using TripMate.Application.Features.Admin.ActiveTrips.GetList;
 
 using ValidationException = TripMate.Application.Common.Exceptions.ValidationException;
 
@@ -36,6 +37,8 @@ public class ExceptionHandlingMiddleware(
                 Status = (int)HttpStatusCode.BadRequest,
             };
 
+            AddActiveTripsErrorCode(context, problem, ex.ErrorCodes.Values.SelectMany(code => code));
+
             await context.Response.WriteAsJsonAsync(
                 problem,
                 options: serializerOptions,
@@ -65,5 +68,23 @@ public class ExceptionHandlingMiddleware(
                 options: jsonOptions.Value.JsonSerializerOptions,
                 contentType: "application/problem+json");
         }
+    }
+
+    internal static void AddActiveTripsErrorCode(
+        HttpContext context,
+        ProblemDetails problem,
+        IEnumerable<string>? validationErrorCodes = null)
+    {
+        if (!context.Request.Path.StartsWithSegments("/api/v1/admin/trips/active")) return;
+
+        var validation = problem as ValidationProblemDetails;
+        var hasDateError = validationErrorCodes?.Contains(ActiveTripErrorCodes.InvalidDateRange, StringComparer.Ordinal) == true ||
+            validation?.Errors.Keys.Any(key =>
+                string.Equals(key, "startDateFrom", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(key, "startDateTo", StringComparison.OrdinalIgnoreCase)) == true;
+
+        problem.Extensions["errorCode"] = hasDateError
+            ? ActiveTripErrorCodes.InvalidDateRange
+            : ActiveTripErrorCodes.InvalidFilter;
     }
 }

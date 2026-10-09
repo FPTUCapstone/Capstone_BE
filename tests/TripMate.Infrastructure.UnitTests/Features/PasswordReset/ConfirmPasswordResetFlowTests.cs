@@ -249,6 +249,9 @@ public class ConfirmPasswordResetFlowTests
 
         DbSet<Domain.Entities.Review> IApplicationDbContext.Reviews => throw new NotSupportedException();
 
+        DbSet<Domain.Entities.TripReview> IApplicationDbContext.TripReviews => throw new NotSupportedException();
+        DbSet<Domain.Entities.TripReviewMedia> IApplicationDbContext.TripReviewMedia => throw new NotSupportedException();
+
         DbSet<Domain.Entities.Message> IApplicationDbContext.Messages => throw new NotSupportedException();
 
         DbSet<Domain.Entities.ServiceProvider> IApplicationDbContext.ServiceProviders =>
@@ -286,6 +289,14 @@ public class ConfirmPasswordResetFlowTests
         DbSet<Domain.Entities.TripSession> IApplicationDbContext.TripSessions => throw new NotSupportedException();
 
         DbSet<Domain.Entities.Incident> IApplicationDbContext.Incidents => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.TripStateHistory> IApplicationDbContext.TripStateHistories => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.TripLocationLog> IApplicationDbContext.TripLocationLogs => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.WeatherEvent> IApplicationDbContext.WeatherEvents => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.ReroutingEvent> IApplicationDbContext.ReroutingEvents => throw new NotSupportedException();
 
         public Task<int> RevokeRefreshTokenAsync(
             string tokenHash,

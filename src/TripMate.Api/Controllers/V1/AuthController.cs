@@ -1,3 +1,5 @@
+using FluentValidation;
+
 using MediatR;
 
 using Microsoft.AspNetCore.Authorization;
@@ -5,11 +7,13 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 
 using TripMate.Api.Common;
+using TripMate.Api.Controllers.V1.Requests;
 using TripMate.Application.Features.Authentication.Common;
 using TripMate.Application.Features.Authentication.EmailVerificationResend;
 using TripMate.Application.Features.Authentication.GoogleAuth;
 using TripMate.Application.Features.Authentication.Login;
 using TripMate.Application.Features.Authentication.Register;
+using TripMate.Application.Features.Authentication.RegisterOperator;
 using TripMate.Application.Features.Authentication.SignOut;
 using TripMate.Application.Features.Authentication.VerifyEmail;
 using TripMate.Application.Features.Authentication.WebRefresh;
@@ -28,7 +32,10 @@ public record RegisterTravelerRequestDto(
 
 [AllowAnonymous]
 [Route("api/v1/auth")]
-public class AuthController(ISender sender, IWebHostEnvironment environment) : ApiControllerBase(sender)
+public class AuthController(
+    ISender sender,
+    IWebHostEnvironment environment,
+    IValidator<RegisterOperatorCommand> operatorRegistrationValidator) : ApiControllerBase(sender)
 {
     // Used only by the UC-01 flows (register / verify-email), whose contract requires the
     // Firebase ID token as `Authorization: Bearer`. The Google flow (UC-04) is body-only.
@@ -76,6 +83,113 @@ public class AuthController(ISender sender, IWebHostEnvironment environment) : A
                 "Account registered successfully! Please check your email for the verification code.")
             : HandleFailure(result);
     }
+
+    [HttpPost("register/operator")]
+    [EnableRateLimiting(OperatorRegistrationRateLimiter.PolicyName)]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(32 * 1024 * 1024)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 32 * 1024 * 1024)]
+    [ProducesResponseType(typeof(ApiResponse<RegisterOperatorResponse>), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status413PayloadTooLarge)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status415UnsupportedMediaType)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status429TooManyRequests)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> RegisterOperator(
+        [FromForm] RegisterOperatorRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (request.SupportingDocuments?.Count > RegisterOperatorCommandValidator.MaxSupportingDocuments)
+        {
+            return OperatorRegistrationFieldProblem(
+                nameof(RegisterOperatorCommand.SupportingDocuments),
+                AuthErrorCodes.RequestInvalid);
+        }
+
+        var command = new RegisterOperatorCommand(
+            request.FirebaseIdToken ?? string.Empty,
+            request.Email ?? string.Empty,
+            request.Password ?? string.Empty,
+            request.ConfirmPassword ?? string.Empty,
+            request.CompanyName ?? string.Empty,
+            request.BusinessLicenseNo ?? string.Empty,
+            request.TaxCode ?? string.Empty,
+            request.ContactPerson ?? string.Empty,
+            request.BusinessAddress,
+            request.ContactPhone,
+            await ReadOperatorDocumentAsync(request.BusinessLicenseDocument, cancellationToken),
+            request.SupportingDocuments is null
+                ? null
+                : await Task.WhenAll(request.SupportingDocuments.Select(file =>
+                    ReadRequiredOperatorDocumentAsync(file, cancellationToken))),
+            request.AcceptTerms);
+
+        var validation = await operatorRegistrationValidator.ValidateAsync(command, cancellationToken);
+        if (!validation.IsValid)
+        {
+            var errors = ValidationErrorKeyNormalizer.Normalize(
+                validation.Errors
+                    .GroupBy(error => error.PropertyName)
+                    .Select(group => new KeyValuePair<string, string[]>(
+                        group.Key,
+                        group.Select(error => string.IsNullOrWhiteSpace(error.ErrorCode)
+                            ? AuthErrorCodes.RequestInvalid
+                            : error.ErrorCode).ToArray())),
+                System.Text.Json.JsonNamingPolicy.CamelCase);
+            var topLevelCode = errors.Count == 1 &&
+                errors.TryGetValue("firebaseIdToken", out var tokenErrors) &&
+                tokenErrors.Length == 1
+                    ? AuthErrorCodes.AuthTokenMissing
+                    : AuthErrorCodes.RequestInvalid;
+            return Problem(
+                title: "One or more registration fields are invalid.",
+                statusCode: StatusCodes.Status400BadRequest,
+                extensions: new Dictionary<string, object?>
+                {
+                    ["errorCode"] = topLevelCode,
+                    ["errors"] = errors,
+                });
+        }
+
+        var result = await Sender.Send(command, cancellationToken);
+        return result.IsSuccess
+            ? Success(result.Value, StatusCodes.Status201Created, "Tour Operator application submitted.")
+            : HandleFailure(result);
+    }
+
+    private IActionResult OperatorRegistrationFieldProblem(string field, string code) =>
+        Problem(
+            title: "One or more registration fields are invalid.",
+            statusCode: StatusCodes.Status400BadRequest,
+            extensions: new Dictionary<string, object?>
+            {
+                ["errorCode"] = AuthErrorCodes.RequestInvalid,
+                ["errors"] = new Dictionary<string, string[]>
+                {
+                    [char.ToLowerInvariant(field[0]) + field[1..]] = [code],
+                },
+            });
+
+    private static async Task<OperatorRegistrationDocument?> ReadOperatorDocumentAsync(
+        IFormFile? file,
+        CancellationToken cancellationToken)
+    {
+        if (file is null) return null;
+        // The validator maps an oversized/empty file to MSG158; avoid copying its bytes.
+        if (file.Length is <= 0 or > RegisterOperatorCommandValidator.MaxFileSizeBytes)
+            return new OperatorRegistrationDocument(file.FileName, file.ContentType, []);
+
+        await using var stream = file.OpenReadStream();
+        using var buffer = new MemoryStream((int)file.Length);
+        await stream.CopyToAsync(buffer, cancellationToken);
+        return new OperatorRegistrationDocument(file.FileName, file.ContentType, buffer.ToArray());
+    }
+
+    private static async Task<OperatorRegistrationDocument> ReadRequiredOperatorDocumentAsync(
+        IFormFile file, CancellationToken cancellationToken) =>
+        (await ReadOperatorDocumentAsync(file, cancellationToken))!;
 
     [HttpPost("verify-email")]
     public async Task<IActionResult> VerifyEmail(CancellationToken cancellationToken)

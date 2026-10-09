@@ -7,6 +7,11 @@ public class ErrorCodeProblemDetails : ProblemDetails
     public required string ErrorCode { get; init; }
 }
 
+public sealed class ErrorCodeValidationProblemDetails : ValidationProblemDetails
+{
+    public required string ErrorCode { get; init; }
+}
+
 public sealed class PossibleDuplicateProblemDetails : ErrorCodeProblemDetails
 {
     public required long ExistingPoiId { get; init; }

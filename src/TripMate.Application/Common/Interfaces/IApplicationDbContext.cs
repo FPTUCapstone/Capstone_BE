@@ -48,6 +48,10 @@ public interface IApplicationDbContext
 
     DbSet<Review> Reviews { get; }
 
+    DbSet<TripReview> TripReviews { get; }
+
+    DbSet<TripReviewMedia> TripReviewMedia { get; }
+
     DbSet<Message> Messages { get; }
 
     DbSet<ServiceProvider> ServiceProviders { get; }
@@ -84,10 +88,15 @@ public interface IApplicationDbContext
     DbSet<TripSessionItem> TripSessionItems =>
         throw new NotSupportedException("Trip session items are unavailable in this context.");
 
-    DbSet<TripStateHistory> TripStateHistory =>
-        throw new NotSupportedException("Trip state history is unavailable in this context.");
-
     DbSet<Incident> Incidents { get; }
+
+    DbSet<TripStateHistory> TripStateHistories { get; }
+
+    DbSet<TripLocationLog> TripLocationLogs { get; }
+
+    DbSet<WeatherEvent> WeatherEvents { get; }
+
+    DbSet<ReroutingEvent> ReroutingEvents { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 
@@ -122,4 +131,14 @@ public interface IApplicationDbContext
     Task<T> ExecuteInSerializableTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Removes durable document-cleanup reservations while the caller's database transaction
+    /// is still open. SQL Server implementations serialize this operation with the cleanup
+    /// worker by public ID, so a committed document can never reference an asset the worker
+    /// is deleting.
+    /// </summary>
+    Task FinalizeOperatorDocumentCleanupReservationsAsync(
+        IReadOnlyCollection<string> publicIds,
+        CancellationToken cancellationToken) => Task.CompletedTask;
 }

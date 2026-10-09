@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -16,6 +17,8 @@ using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Explanation;
 using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Application.Features.TravelGroups.ManageInvitation;
+using TripMate.Application.Features.TripReviews.Common;
+using TripMate.Application.Features.TripReviews.Media;
 using TripMate.Infrastructure.Ai;
 using TripMate.Infrastructure.AiExplanation;
 using TripMate.Infrastructure.AiRanking;
@@ -24,6 +27,8 @@ using TripMate.Infrastructure.Email;
 using TripMate.Infrastructure.Media;
 using TripMate.Infrastructure.Media.Cloudinary;
 using TripMate.Infrastructure.Persistence;
+using TripMate.Infrastructure.Reviews.Media;
+using TripMate.Infrastructure.Reviews.Moderation;
 using TripMate.Infrastructure.Routing;
 using TripMate.Infrastructure.Security;
 using TripMate.Infrastructure.Services;
@@ -44,6 +49,8 @@ public static class DependencyInjection
 
         services.AddScoped<IApplicationDbContext>(sp =>
             sp.GetRequiredService<ApplicationDbContext>());
+        services.AddSingleton<IOperatorRegistrationConstraintClassifier,
+            OperatorRegistrationConstraintClassifier>();
         services.AddScoped<ITravelGroupCreationLock, SqlServerTravelGroupCreationLock>();
         services.AddScoped<IItineraryMutationLock, SqlServerItineraryMutationLock>();
         services.AddScoped<IItineraryAccessService, ItineraryAccessService>();
@@ -52,9 +59,35 @@ public static class DependencyInjection
         services.AddScoped<IGroupJoinLock, SqlServerGroupJoinLock>();
         services.AddSingleton<IGroupInvitationCodeGenerator, RandomGroupInvitationCodeGenerator>();
         services.AddScoped<ISchedulingRequestLock, SqlServerSchedulingRequestLock>();
+        services.AddScoped<ITripReviewContextReader, SqlServerTripReviewContextReader>();
+        services.AddScoped<ITripReviewWriteLock, SqlServerTripReviewWriteLock>();
+        services.AddSingleton<ITripReviewPersistenceErrorClassifier, SqlServerTripReviewPersistenceErrorClassifier>();
+        services.AddSingleton<IReviewContentModerator, LocalReviewContentModerator>();
+        services.AddSingleton<IReviewImageInspector, ReviewImageInspector>();
+        services.AddScoped<SqlServerReviewMediaJournal>();
+        services.AddScoped<IReviewMediaJournal>(sp => sp.GetRequiredService<SqlServerReviewMediaJournal>());
+        services.AddScoped<IReviewMediaRecoveryJournal>(sp => sp.GetRequiredService<SqlServerReviewMediaJournal>());
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddOptions<ReviewCloudinaryOptions>()
+            .Bind(configuration.GetSection("Cloudinary"))
+            .Validate(
+                options => options.ReviewMediaFolderRoot == ReviewCloudinaryOptions.StableReviewMediaFolderRoot,
+                "Cloudinary review media root is immutable for this schema version.")
+            .ValidateOnStart();
+        services.AddSingleton<IReviewCloudinaryClient, ReviewCloudinarySdkClient>();
+        services.AddSingleton<IReviewMediaStorage, CloudinaryReviewMediaStorage>();
+        services.AddScoped<ReviewMediaCoordinator>();
+        services.AddScoped<IReviewMediaCoordinator>(sp => sp.GetRequiredService<ReviewMediaCoordinator>());
+        services.AddScoped<ReviewMediaRecoveryRunner>();
+        services.AddHostedService<ReviewMediaRecoveryService>();
+
         services.AddScoped<ITourMediaUploadLock, SqlServerTourMediaUploadLock>();
         services.AddScoped<ITourMediaCleanupOutboxStore, SqlServerTourMediaCleanupOutboxStore>();
         services.AddScoped<TourMediaCleanupProcessor>();
+        services.AddSingleton<SqlOperatorDocumentCleanupJournal>();
+        services.AddSingleton<IOperatorDocumentCleanupJournal>(sp =>
+            sp.GetRequiredService<SqlOperatorDocumentCleanupJournal>());
+        services.AddHostedService<OperatorDocumentCleanupBackgroundService>();
 
         services.AddOptions<TourMediaCleanupOptions>()
             .Bind(configuration.GetSection(TourMediaCleanupOptions.SectionName))
@@ -69,6 +102,7 @@ public static class DependencyInjection
         services.AddSingleton<ICloudinaryClient, CloudinarySdkClient>();
         services.AddSingleton<ITourMediaImageInspector, SkiaSharpTourMediaImageInspector>();
         services.AddSingleton<ITourMediaStorage, CloudinaryTourMediaStorage>();
+        services.AddSingleton<IOperatorDocumentStorage, CloudinaryOperatorDocumentStorage>();
 
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
         services.Configure<OpenRouteServiceOptions>(

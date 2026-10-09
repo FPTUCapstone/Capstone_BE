@@ -96,9 +96,26 @@ public sealed class StartNavigationSessionCommandHandler(
                 "Navigation requires an Active itinerary.");
         }
 
-        var snapshot = itinerary.Items
+        var navigableItems = itinerary.Items
             .Where(item => item.PointOfInterest is not null)
             .OrderBy(item => item.SequenceNo)
+            .ToArray();
+        if (navigableItems.Length == 0)
+        {
+            return Result.Failure<NavigationSessionResponse>(
+                NavigationErrorCodes.NoNavigableItems,
+                "The itinerary has no navigable items.");
+        }
+
+        // The schedule drives the trip window and expiry, so a POI is never silently dropped.
+        if (navigableItems.Any(item => item.PlannedArrivalUtc is null || item.PlannedDepartureUtc is null))
+        {
+            return Result.Failure<NavigationSessionResponse>(
+                NavigationErrorCodes.ItineraryScheduleIncomplete,
+                "Every navigable itinerary item needs a planned arrival and departure.");
+        }
+
+        var snapshot = navigableItems
             .Select(item => TripSessionItem.Snapshot(
                 item.Id,
                 item.SequenceNo,
@@ -106,16 +123,10 @@ public sealed class StartNavigationSessionCommandHandler(
                 item.PointOfInterest!.Name,
                 item.PointOfInterest.Latitude,
                 item.PointOfInterest.Longitude,
-                item.PlannedArrivalUtc,
-                item.PlannedDepartureUtc,
+                item.PlannedArrivalUtc!.Value,
+                item.PlannedDepartureUtc!.Value,
                 item.IsMandatory))
             .ToArray();
-        if (snapshot.Length == 0)
-        {
-            return Result.Failure<NavigationSessionResponse>(
-                NavigationErrorCodes.NoNavigableItems,
-                "The itinerary has no navigable items.");
-        }
 
         var now = clock.UtcNow;
         var windowStartUtc = snapshot.Min(item => item.PlannedArrivalUtc) - _options.EarlyStartWindow;

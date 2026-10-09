@@ -86,6 +86,8 @@ try
             if (context.HttpContext.Request.Path.StartsWithSegments("/api/v1/auth/web"))
                 problem.Extensions["errorCode"] = TripMate.Application.Features.Authentication.Common.AuthErrorCodes.RequestInvalid;
 
+            ExceptionHandlingMiddleware.AddActiveTripsErrorCode(context.HttpContext, problem);
+
             var result = new BadRequestObjectResult(problem);
             result.ContentTypes.Add("application/problem+json");
             return result;
@@ -99,9 +101,11 @@ try
         options.SchemaFilter<PoiEnumSchemaFilter>();
         options.SchemaFilter<PoiContractSchemaFilter>();
         options.SchemaFilter<ProblemDetailsContractSchemaFilter>();
+        options.SchemaFilter<TripReviewRequestSchemaFilter>();
         options.OperationFilter<AllowAnonymousOperationFilter>();
         options.OperationFilter<TourSearchOperationFilter>();
         options.OperationFilter<QueryParameterCamelCaseOperationFilter>();
+        options.OperationFilter<TripReviewOperationFilter>();
 
         options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
         {
@@ -150,7 +154,16 @@ try
             };
         });
 
-    builder.Services.AddAuthorization();
+    builder.Services.AddAuthorization(options =>
+    {
+        options.AddPolicy(TripReviewAuthorizationPolicies.ActiveTraveler, policy =>
+        {
+            policy.RequireAuthenticatedUser();
+            policy.RequireRole(nameof(TripMate.Domain.Enums.UserRole.Traveler));
+            policy.AddRequirements(new ActiveTravelerRequirement());
+        });
+    });
+    builder.Services.AddScoped<IAuthorizationHandler, ActiveTravelerAuthorizationHandler>();
     builder.Services.AddSingleton<
         IAuthorizationMiddlewareResultHandler,
         ProblemDetailsAuthorizationMiddlewareResultHandler>();
@@ -203,6 +216,15 @@ try
                 {
                     PermitLimit = EmailVerificationResendRateLimiter.PermitLimit,
                     Window = EmailVerificationResendRateLimiter.Window,
+                    QueueLimit = 0,
+                }));
+        options.AddPolicy(OperatorRegistrationRateLimiter.PolicyName, context =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = OperatorRegistrationRateLimiter.PermitLimit,
+                    Window = OperatorRegistrationRateLimiter.Window,
                     QueueLimit = 0,
                 }));
     });

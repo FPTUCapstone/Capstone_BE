@@ -2,17 +2,22 @@ using FluentValidation;
 
 using MediatR;
 
+using Microsoft.EntityFrameworkCore;
+
+using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Authentication.Common;
 using TripMate.Application.Features.Authentication.EmailVerificationResend;
 using TripMate.Application.Features.Authentication.Login;
+using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Authentication.WebSignIn;
 
 public sealed record WebPasswordSignInCommand(string? Email, string? Password, bool AdministratorOnly)
     : IRequest<Result<AuthResponseDto>>;
 
-public sealed class WebPasswordSignInCommandHandler(ISender sender)
+public sealed class WebPasswordSignInCommandHandler(
+    ISender sender, IApplicationDbContext dbContext, IDateTimeProvider clock)
     : IRequestHandler<WebPasswordSignInCommand, Result<AuthResponseDto>>
 {
     public async Task<Result<AuthResponseDto>> Handle(WebPasswordSignInCommand request, CancellationToken cancellationToken)
@@ -41,8 +46,44 @@ public sealed class WebPasswordSignInCommandHandler(ISender sender)
             if (confirmation.IsSuccess)
                 return await sender.Send(login, cancellationToken);
         }
+        else if (result.IsFailure && result.ErrorCode == AuthErrorCodes.AccountStateUnresolved &&
+                 await IsUnverifiedPendingOperatorAsync(normalized.Email!, cancellationToken))
+        {
+            var confirmation = await sender.Send(
+                new ConfirmEmailVerificationCommand(normalized.Email),
+                cancellationToken);
+            if (confirmation.IsSuccess)
+                return await sender.Send(login, cancellationToken);
+        }
 
         return result;
+    }
+
+    private async Task<bool> IsUnverifiedPendingOperatorAsync(string email, CancellationToken cancellationToken)
+    {
+        var user = await dbContext.Users.AsNoTracking()
+            .Where(candidate => candidate.Email == email)
+            .Select(candidate => new
+            {
+                candidate.Id,
+                candidate.Role,
+                candidate.Status,
+                candidate.EmailVerifiedAtUtc,
+                candidate.CreatedAtUtc,
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+        if (user is null || user.Role != UserRole.TourOperator ||
+            user.Status != AccountStatus.PendingApproval ||
+            (user.EmailVerifiedAtUtc is { } verifiedAt &&
+             verifiedAt >= user.CreatedAtUtc && verifiedAt <= clock.UtcNow))
+        {
+            return false;
+        }
+
+        return await dbContext.OperatorProfiles.AsNoTracking().AnyAsync(
+            profile => profile.UserId == user.Id &&
+                profile.ApprovalStatus == OperatorApprovalStatus.PendingApproval,
+            cancellationToken);
     }
 
     private sealed class InputValidator : AbstractValidator<WebPasswordSignInCommand>

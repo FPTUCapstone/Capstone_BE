@@ -138,8 +138,8 @@ public sealed class NavigationSessionQueryHandlersTests
                     poi.Name,
                     poi.Latitude,
                     poi.Longitude,
-                    item.PlannedArrivalUtc,
-                    item.PlannedDepartureUtc,
+                    item.PlannedArrivalUtc!.Value,
+                    item.PlannedDepartureUtc!.Value,
                     item.IsMandatory),
             ]);
         session.ReachItem(item.Id, StartedAtUtc.AddMinutes(30));

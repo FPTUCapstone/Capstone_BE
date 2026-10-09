@@ -119,11 +119,13 @@ services:
       Email__Password: ${EMAIL_PASSWORD:?EMAIL_PASSWORD must be set in .env}
       Email__FromEmail: ${EMAIL_FROM_EMAIL:?EMAIL_FROM_EMAIL must be set in .env}
       PasswordResetSecurity__OtpPepper: ${PASSWORD_RESET_OTP_PEPPER:?PASSWORD_RESET_OTP_PEPPER must be set in .env}
-      # TM-207 Tour media: signed server-side Cloudinary operations. No unsigned upload preset.
+      # Tour/review media: signed server-side Cloudinary operations. No unsigned upload preset.
       Cloudinary__CloudName: ${Cloudinary__CloudName:?Cloudinary__CloudName must be set in .env}
       Cloudinary__ApiKey: ${Cloudinary__ApiKey:?Cloudinary__ApiKey must be set in .env}
       Cloudinary__ApiSecret: ${Cloudinary__ApiSecret:?Cloudinary__ApiSecret must be set in .env}
       Cloudinary__TourMediaFolderRoot: ${Cloudinary__TourMediaFolderRoot:?Cloudinary__TourMediaFolderRoot must be set in .env}
+      Cloudinary__ReviewMediaFolderRoot: ${Cloudinary__ReviewMediaFolderRoot:-tripmate/reviews}
+      Cloudinary__OperatorDocumentsFolderRoot: ${Cloudinary__OperatorDocumentsFolderRoot:?Cloudinary__OperatorDocumentsFolderRoot must be set in .env}
       TourMediaCleanup__PollInterval: ${TourMediaCleanup__PollInterval:-00:00:30}
       TourMediaCleanup__LeaseDuration: ${TourMediaCleanup__LeaseDuration:-00:02:00}
       TourMediaCleanup__BatchSize: ${TourMediaCleanup__BatchSize:-20}

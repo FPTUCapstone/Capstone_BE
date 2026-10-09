@@ -172,10 +172,10 @@ public sealed class PasswordResetSqlServerTests
         var userId = await SeedUserAsync(database, email);
         var sender = new FakeEmailSender();
         using var hasher = new CoordinatingPasswordHasher();
-        using var factory = new TripMateApiFactory(
+        using var parentFactory = new TripMateApiFactory(
                 sqlServerConnectionString: database.ConnectionString,
-                emailSenderFactory: _ => sender)
-            .WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+                emailSenderFactory: _ => sender);
+        using var factory = parentFactory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
             {
                 services.RemoveAll<IPasswordHasherService>();
                 services.AddSingleton<IPasswordHasherService>(hasher);
@@ -226,10 +226,10 @@ public sealed class PasswordResetSqlServerTests
             CHECK (password_hash NOT LIKE '{ForcedFailureHashPrefix}%');
             """);
         var sender = new FakeEmailSender();
-        using var factory = new TripMateApiFactory(
+        using var parentFactory = new TripMateApiFactory(
                 sqlServerConnectionString: database.ConnectionString,
-                emailSenderFactory: _ => sender)
-            .WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+                emailSenderFactory: _ => sender);
+        using var factory = parentFactory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
             {
                 services.RemoveAll<IPasswordHasherService>();
                 services.AddSingleton<IPasswordHasherService>(new ForcedFailurePasswordHasher());

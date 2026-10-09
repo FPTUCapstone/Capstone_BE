@@ -228,6 +228,14 @@ Secrets cho project `src/TripMate.Api`, hoặc biến môi trường `Jwt__Signi
 `ConnectionStrings__Default`. API dừng khởi động khi thiếu các giá trị bắt buộc này.
 Mỗi môi trường phải cấp secret riêng — **không bao giờ commit secret thật**.
 
+UC-02 upload giấy tờ operator lên Cloudinary dưới delivery type `authenticated`.
+Ngoài các biến Cloudinary hiện có, khi chạy API bằng Docker Compose cần đặt
+`Cloudinary__OperatorDocumentsFolderRoot` trong `.env` theo thư mục tài liệu
+operator của môi trường đó (xem `.env.example`). Với môi trường đã có tài liệu,
+giữ nguyên folder root cũ cho đến khi xử lý hết URL public; không đổi folder để
+che giấu URL vì asset cũ vẫn truy cập được. Chi tiết kiểm kê và xử lý tài liệu
+cũ nằm trong `docs/uc-02-legacy-operator-documents.md`.
+
 ### 9.1 Firebase Admin credentials (bắt buộc cho đăng nhập Firebase)
 
 Các flow xác thực bằng Firebase ID token (`/api/v1/auth/register`, `/api/v1/auth/verify-email`,

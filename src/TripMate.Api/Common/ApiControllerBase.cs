@@ -10,6 +10,7 @@ using TripMate.Application.Features.PointsOfInterest.Common;
 using TripMate.Application.Features.RecommendationFeedback.Common;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.TourMedia.Common;
+using TripMate.Application.Features.TripReviews.Common;
 
 namespace TripMate.Api.Common;
 
@@ -102,6 +103,12 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             AuthErrorCodes.EmailAlreadyRegistered =>
                 StatusCodes.Status409Conflict,
 
+            AuthErrorCodes.Msg159 or AuthErrorCodes.Msg160 =>
+                StatusCodes.Status409Conflict,
+
+            AuthErrorCodes.Msg127 =>
+                StatusCodes.Status503ServiceUnavailable,
+
             TripMate.Application.Features.Admin.AuditLogs.Common.AuditLogErrorCodes.Forbidden =>
                 StatusCodes.Status403Forbidden,
 
@@ -122,6 +129,9 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
 
             TripMate.Application.Features.Admin.ActiveTrips.GetList.ActiveTripErrorCodes.Forbidden =>
                 StatusCodes.Status403Forbidden,
+
+            TripMate.Application.Features.Admin.ActiveTrips.GetList.ActiveTripErrorCodes.NotFound =>
+                StatusCodes.Status404NotFound,
 
             TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.Forbidden =>
                 StatusCodes.Status403Forbidden,
@@ -189,6 +199,41 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             SchedulingErrorCodes.ConstraintsInfeasible =>
                 StatusCodes.Status422UnprocessableEntity,
 
+            TripReviewErrorCodes.Unauthorized =>
+                StatusCodes.Status401Unauthorized,
+
+            TripReviewErrorCodes.Forbidden =>
+                StatusCodes.Status403Forbidden,
+
+            TripReviewErrorCodes.BookingNotFound =>
+                StatusCodes.Status404NotFound,
+
+            TripReviewErrorCodes.Duplicate or
+            TripReviewErrorCodes.StaleVersion or
+            TripReviewErrorCodes.EditExpired or
+            TripReviewErrorCodes.BookingNotCompleted or
+            TripReviewErrorCodes.InconsistentContext or
+            TripReviewErrorCodes.LegacyConflict =>
+                StatusCodes.Status409Conflict,
+
+            TripReviewErrorCodes.UnsupportedSubject =>
+                StatusCodes.Status409Conflict,
+
+            TripReviewErrorCodes.PolicyRejected =>
+                StatusCodes.Status400BadRequest,
+
+            TripReviewErrorCodes.PolicyUnavailable =>
+                StatusCodes.Status503ServiceUnavailable,
+
+            TripReviewErrorCodes.BodyTooLarge =>
+                StatusCodes.Status413PayloadTooLarge,
+
+            TripReviewErrorCodes.UnsupportedMediaType =>
+                StatusCodes.Status415UnsupportedMediaType,
+
+            TripReviewErrorCodes.StorageUnavailable =>
+                StatusCodes.Status503ServiceUnavailable,
+
             SchedulingErrorCodes.GenerationCooldown or SchedulingErrorCodes.GenerationRateLimited =>
                 StatusCodes.Status429TooManyRequests,
 
@@ -242,6 +287,7 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
                 or NavigationErrorCodes.ItemAlreadyReached
                 or NavigationErrorCodes.SessionCompleted => StatusCodes.Status409Conflict,
             NavigationErrorCodes.NoNavigableItems
+                or NavigationErrorCodes.ItineraryScheduleIncomplete
                 or NavigationErrorCodes.ItemNotNavigable => StatusCodes.Status422UnprocessableEntity,
 
             _ => StatusCodes.Status400BadRequest,

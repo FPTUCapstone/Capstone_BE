@@ -111,13 +111,14 @@ Exit: handler matches the spec for InMemory-verifiable behavior and remains read
 
 Tests first:
 
-- Add `tests/TripMate.Api.IntegrationTests/ActiveTrips/ActiveTripsEndpointTests.cs` covering anonymous `401`, non-Admin `403`, Admin `200`, invalid query `400`, and empty `200`.
+- Add `tests/TripMate.Api.IntegrationTests/ActiveTrips/ActiveTripsEndpointTests.cs` covering anonymous `401`, non-Admin `403`, Admin `200`, empty `200`, `ActiveTrips.InvalidDateRange` for invalid date criteria, and `ActiveTrips.InvalidFilter` for other invalid filters.
 - Add `ActiveTripsOpenApiTests.cs` for parameter names/defaults/allowed values, string-shaped `tripId`, and documented `200/400/401/403/500` responses.
 
 Production changes:
 
 - Add `src/TripMate.Api/Controllers/V1/AdminActiveTripsController.cs` at `GET /api/v1/admin/trips/active`.
 - Keep the controller thin and route failures through `HandleFailure`/validation middleware.
+- Extend the existing model-binding and FluentValidation ProblemDetails paths only for this endpoint so `400` has a stable safe `errorCode`: `ActiveTrips.InvalidDateRange` for either date field and `ActiveTrips.InvalidFilter` otherwise. Do not reuse `MSG29`, which the locked catalog reserves for invalid POI coordinates.
 - Add a feature-scoped OpenAPI operation filter only if automatic schema generation cannot express the approved query contract; register it in `Program.cs` only when necessary.
 
 Verification:

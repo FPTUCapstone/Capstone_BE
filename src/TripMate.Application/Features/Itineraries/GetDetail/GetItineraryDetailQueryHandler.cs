@@ -55,8 +55,8 @@ public sealed class GetItineraryDetailQueryHandler(
                 item.PointOfInterest?.Name,
                 item.PointOfInterest?.Category?.Name,
                 item.Kind,
-                item.PlannedArrivalUtc,
-                item.PlannedDepartureUtc,
+                item.PlannedArrivalUtc.GetValueOrDefault(),
+                item.PlannedDepartureUtc.GetValueOrDefault(),
                 index == 0
                     ? null
                     : orderedItems[index - 1].TravelDurationToNextMinutes,

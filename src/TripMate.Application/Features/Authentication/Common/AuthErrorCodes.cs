@@ -11,6 +11,7 @@ public static class AuthErrorCodes
     public const string Msg06 = "MSG06"; // Confirm password mismatch
     public const string MsgTos = "MSG_TOS"; // Terms not accepted
     public const string Msg07 = "MSG07"; // Registration success
+    public const string Msg08 = "MSG08"; // Tour Operator submission success
     public const string Msg14 = "MSG14"; // OTP incorrect or expired
     public const string MsgCooldown = "MSG_COOLDOWN"; // Resend cooldown active
     public const string MsgUnverified = "MSG_UNVERIFIED"; // Email registered but unverified login attempt
@@ -20,6 +21,12 @@ public static class AuthErrorCodes
     public const string MsgEmailNotVerified = "MSG_EMAIL_NOT_VERIFIED"; // Google email not verified (BR-12)
     public const string MsgResendSuccess = "MSG_RESEND_SUCCESS"; // OTP resend success
     public const string Msg127 = "MSG127"; // Generic/server failure
+    public const string Msg157 = "MSG157"; // Required business licence document missing
+    public const string Msg158 = "MSG158"; // Operator document type/size invalid
+    public const string Msg159 = "MSG159"; // Business licence number or tax code exists
+    public const string Msg160 = "MSG160"; // Pending application already exists
+    public const string OperatorTaxCodeInvalid = "OPERATOR_TAX_CODE_INVALID";
+    public const string OperatorTravelLicenseInvalid = "OPERATOR_TRAVEL_LICENSE_INVALID";
     public const string AuthTokenMissing = "AUTH_TOKEN_MISSING";
     public const string AuthTokenInvalid = "AUTH_TOKEN_INVALID";
     public const string AuthEmailMismatch = "AUTH_EMAIL_MISMATCH";

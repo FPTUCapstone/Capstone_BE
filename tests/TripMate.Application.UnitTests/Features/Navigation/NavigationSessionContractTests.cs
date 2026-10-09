@@ -95,6 +95,7 @@ public sealed class NavigationSessionContractTests
     {
         NavigationErrorCodes.OutsideTripWindow.Should().Be("navigation.outside_trip_window");
         NavigationErrorCodes.ItemAlreadyReached.Should().Be("navigation.item_already_reached");
+        NavigationErrorCodes.ItineraryScheduleIncomplete.Should().Be("navigation.itinerary_schedule_incomplete");
         typeof(NavigationErrorCodes).GetField("ItemOutOfOrder").Should().BeNull();
     }
 

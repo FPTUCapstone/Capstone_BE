@@ -8,10 +8,14 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+
+using Serilog;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
@@ -52,10 +56,29 @@ public sealed class TripMateApiFactory(
         "dGVzdC1vbmx5LXNpZ25pbmcta2V5LXRoYXQtaXMtbG9uZy1lbm91Z2g=";
 
     private readonly string _databaseName = $"tripmate-api-tests-{Guid.NewGuid():N}";
+    private readonly string _logDirectory = Path.Combine(
+        Path.GetTempPath(), "TripMate.Api.IntegrationTests", Guid.NewGuid().ToString("N"));
+    private const string LogPathConfigurationKey = "Serilog:WriteTo:0:Args:path";
+
+    public string LogFilePath => Services.GetRequiredService<IConfiguration>()[LogPathConfigurationKey]
+        ?? throw new InvalidOperationException("This factory has no configured test file sink.");
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(environmentName);
+        // Derived WithWebHostBuilder hosts need distinct files while their parent
+        // host is alive. This factory owns all files through its disposal lifetime.
+        string logPath = Path.Combine(_logDirectory, Guid.NewGuid().ToString("N"), "requests.log");
+        builder.ConfigureAppConfiguration((context, configuration) =>
+        {
+            if (context.HostingEnvironment.IsEnvironment("Testing"))
+            {
+                configuration.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    [LogPathConfigurationKey] = logPath,
+                });
+            }
+        });
         builder.UseSetting("Jwt:Issuer", JwtIssuer);
         builder.UseSetting("Jwt:Audience", JwtAudience);
         builder.UseSetting("Jwt:SigningKey", JwtSigningKey);
@@ -65,6 +88,7 @@ public sealed class TripMateApiFactory(
         builder.UseSetting("Cloudinary:ApiKey", "test-api-key");
         builder.UseSetting("Cloudinary:ApiSecret", "test-api-secret");
         builder.UseSetting("Cloudinary:TourMediaFolderRoot", "tripmate/tests/tours");
+        builder.UseSetting("Cloudinary:OperatorDocumentsFolderRoot", "tripmate/tests/operator-documents");
         // Integration tests must not inherit Development's external-provider enablement
         // or depend on developer User Secrets being present on the test host.
         builder.UseSetting("AiRanking:Enabled", "false");
@@ -103,9 +127,31 @@ public sealed class TripMateApiFactory(
 
         builder.ConfigureTestServices(services =>
         {
+            // Own the logger through this host's DI lifetime. Disposing via the
+            // static Log.Logger could instead close another live test host's sink.
+            services.AddSerilog((provider, configuration) => configuration
+                .ReadFrom.Configuration(provider.GetRequiredService<IConfiguration>())
+                .ReadFrom.Services(provider)
+                .WriteTo.Console(), preserveStaticLogger: true);
+
+            // Ordinary API tests drive media recovery/cleanup explicitly when required.
+            // Never let production timers race SQL fixtures or make ambient provider calls.
+            for (var index = services.Count - 1; index >= 0; index--)
+            {
+                if (services[index].ServiceType == typeof(IHostedService)
+                    && (services[index].ImplementationType == typeof(TripMate.Infrastructure.Reviews.Media.ReviewMediaRecoveryService)
+                        || services[index].ImplementationType?.FullName
+                            == "TripMate.Infrastructure.Services.TourMediaCleanupBackgroundService"))
+                {
+                    services.RemoveAt(index);
+                }
+            }
+
             if (sqlServerConnectionString is null)
             {
                 services.RemoveAll<ApplicationDbContext>();
+                services.RemoveAll<TripMate.Application.Features.TripReviews.Common.ITripReviewContextReader>();
+                services.AddScoped<TripMate.Application.Features.TripReviews.Common.ITripReviewContextReader, UnsupportedInMemoryTripReviewContextReader>();
                 services.RemoveAll<DbContextOptions<ApplicationDbContext>>();
                 services.RemoveAll<IApplicationDbContext>();
                 services.RemoveAll<ITravelGroupCreationLock>();
@@ -133,6 +179,18 @@ public sealed class TripMateApiFactory(
                 });
                 services.AddScoped<IApplicationDbContext>(provider =>
                     provider.GetRequiredService<TestApiDbContext>());
+                // The media journal requires real SQL transactions/locks. InMemory
+                // factories must not resolve it or pretend to prove SQL durability.
+                services.RemoveAll<TripMate.Application.Features.TripReviews.Media.IReviewMediaJournal>();
+                services.AddScoped<TripMate.Application.Features.TripReviews.Media.IReviewMediaJournal, UnsupportedInMemoryReviewMediaJournal>();
+                services.RemoveAll<TripMate.Application.Features.TripReviews.Media.IReviewMediaRecoveryJournal>();
+                services.RemoveAll<TripMate.Infrastructure.Reviews.Media.SqlServerReviewMediaJournal>();
+                services.RemoveAll<TripMate.Application.Features.TripReviews.Media.ReviewMediaCoordinator>();
+                services.RemoveAll<TripMate.Application.Features.TripReviews.Media.IReviewMediaCoordinator>();
+                services.AddScoped<TripMate.Application.Features.TripReviews.Media.IReviewMediaCoordinator, UnsupportedInMemoryReviewMediaCoordinator>();
+                services.RemoveAll<TripMate.Application.Features.TripReviews.Media.ReviewMediaRecoveryRunner>();
+                services.RemoveAll<TripMate.Application.Features.TripReviews.Common.ITripReviewWriteLock>();
+                services.AddScoped<TripMate.Application.Features.TripReviews.Common.ITripReviewWriteLock, NoOpTripReviewWriteLock>();
 
                 services.AddScoped<ITravelGroupCreationLock, NoOpTravelGroupCreationLock>();
                 services.AddScoped<IItineraryMutationLock, NoOpItineraryMutationLock>();
@@ -258,6 +316,67 @@ public sealed class TripMateApiFactory(
         return await operation(context);
     }
 
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+        if (disposing)
+        {
+            DeleteTestLogs();
+        }
+    }
+
+    public override async ValueTask DisposeAsync()
+    {
+        await base.DisposeAsync();
+        DeleteTestLogs();
+    }
+
+    private void DeleteTestLogs()
+    {
+        if (Directory.Exists(_logDirectory))
+        {
+            Directory.Delete(_logDirectory, recursive: true);
+        }
+    }
+
+}
+
+internal sealed class UnsupportedInMemoryTripReviewContextReader
+    : TripMate.Application.Features.TripReviews.Common.ITripReviewContextReader
+{
+    public Task<TripMate.Application.Features.TripReviews.Common.TripReviewContextData?> ReadOwnedAsync(
+        long bookingId, long travelerUserId, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Booking evidence requires the isolated SQL Server test fixture.");
+
+    public Task<TripMate.Application.Features.TripReviews.Common.TripReviewContextData?> ReadOwnedForUpdateAsync(
+        long bookingId, long travelerUserId, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Locked booking evidence requires the isolated SQL Server test fixture.");
+}
+
+internal sealed class UnsupportedInMemoryReviewMediaJournal
+    : TripMate.Application.Features.TripReviews.Media.IReviewMediaJournal
+{
+    public Task<TripMate.Application.Common.Models.Result<IReadOnlyList<TripMate.Application.Features.TripReviews.Media.ReviewMediaVersion>>> ReserveAsync(
+        long bookingId, long travelerId, IReadOnlyList<TripMate.Domain.Entities.TripReviewMediaOperation> operations, CancellationToken ct) =>
+        throw new NotSupportedException("Media journal requires the isolated SQL Server test fixture.");
+
+    public Task<TripMate.Application.Common.Models.Result> AdoptAsync(
+        Guid batchId, long travelerId, IReadOnlyList<TripMate.Application.Features.TripReviews.Media.ReviewMediaVersion> expected,
+        TripMate.Domain.Entities.TripReview parent, DateTimeOffset now, CancellationToken ct) =>
+        throw new NotSupportedException("Media journal requires the isolated SQL Server test fixture.");
+
+    public Task<TripMate.Application.Common.Models.Result> MarkCleanupPendingAsync(
+        Guid batchId, long bookingId, long travelerId, IReadOnlyList<TripMate.Application.Features.TripReviews.Media.ReviewMediaVersion> expected,
+        DateTimeOffset now, CancellationToken ct) =>
+        throw new NotSupportedException("Media journal requires the isolated SQL Server test fixture.");
+}
+
+internal sealed class UnsupportedInMemoryReviewMediaCoordinator
+    : TripMate.Application.Features.TripReviews.Media.IReviewMediaCoordinator
+{
+    public Task<TripMate.Application.Common.Models.Result<TripMate.Application.Features.TripReviews.Media.PreparedReviewMedia>> PrepareAsync(
+        long bookingId, long travelerId, IReadOnlyList<TripMate.Application.Features.TripReviews.Media.ReviewImageSource> images, CancellationToken ct) =>
+        throw new NotSupportedException("Media coordinator requires the isolated SQL Server test fixture.");
 }
 
 public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
@@ -286,6 +405,9 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<PoiPhoto> PoiPhotos => Set<PoiPhoto>();
     public DbSet<Review> Reviews => Set<Review>();
+
+    public DbSet<TripReview> TripReviews => Set<TripReview>();
+    public DbSet<TripReviewMedia> TripReviewMedia => Set<TripReviewMedia>();
     public DbSet<Message> Messages => Set<Message>();
     public DbSet<TripMate.Domain.Entities.ServiceProvider> ServiceProviders =>
         Set<TripMate.Domain.Entities.ServiceProvider>();
@@ -310,6 +432,14 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<TripSession> TripSessions => Set<TripSession>();
 
     public DbSet<Incident> Incidents => Set<Incident>();
+
+    public DbSet<TripStateHistory> TripStateHistories => Set<TripStateHistory>();
+
+    public DbSet<TripLocationLog> TripLocationLogs => Set<TripLocationLog>();
+
+    public DbSet<WeatherEvent> WeatherEvents => Set<WeatherEvent>();
+
+    public DbSet<ReroutingEvent> ReroutingEvents => Set<ReroutingEvent>();
 
     public async Task<int> RevokeRefreshTokenAsync(
         string tokenHash,
@@ -417,6 +547,11 @@ internal sealed class NoOpSchedulingRequestLock : ISchedulingRequestLock
         long travelerUserId,
         Guid idempotencyKey,
         CancellationToken cancellationToken) => Task.CompletedTask;
+}
+
+internal sealed class NoOpTripReviewWriteLock : TripMate.Application.Features.TripReviews.Common.ITripReviewWriteLock
+{
+    public Task AcquireAsync(long bookingId, CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
 internal sealed class NoOpTourMediaUploadLock : ITourMediaUploadLock

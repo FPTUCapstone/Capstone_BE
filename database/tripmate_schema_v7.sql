@@ -263,6 +263,38 @@ GO
 CREATE INDEX IX_OperatorDocuments_Operator ON dbo.OperatorDocuments(operator_user_id);
 GO
 
+-- UC-02: a committed cleanup reservation exists before each private Cloudinary upload.
+-- The worker retries failed deletion and removes a reservation only after an asset is
+-- absent or confirmed as a document of a committed registration.
+CREATE TABLE dbo.OperatorDocumentCleanupOutbox (
+    cleanup_id          BIGINT IDENTITY(1,1) PRIMARY KEY,
+    public_id           NVARCHAR(500) NOT NULL,
+    content_type        VARCHAR(32) NOT NULL
+        CHECK (content_type IN ('application/pdf','image/jpeg','image/png')),
+    expected_reference  NVARCHAR(500) NOT NULL,
+    cleanup_status      VARCHAR(16) NOT NULL DEFAULT 'Pending'
+        CHECK (cleanup_status IN ('Pending','Leased')),
+    not_before_at       DATETIME2 NOT NULL,
+    attempt_count       INT NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+    lease_token         UNIQUEIDENTIFIER NULL,
+    lease_expires_at    DATETIME2 NULL,
+    last_error_code     VARCHAR(100) NULL,
+    created_at          DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    updated_at          DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT CK_OperatorDocumentCleanupOutbox_Lease CHECK (
+        (cleanup_status = 'Pending' AND lease_token IS NULL AND lease_expires_at IS NULL) OR
+        (cleanup_status = 'Leased' AND lease_token IS NOT NULL AND lease_expires_at IS NOT NULL))
+);
+GO
+CREATE UNIQUE INDEX UX_OperatorDocumentCleanupOutbox_PublicId
+    ON dbo.OperatorDocumentCleanupOutbox(public_id);
+GO
+CREATE INDEX IX_OperatorDocumentCleanupOutbox_Due
+    ON dbo.OperatorDocumentCleanupOutbox(cleanup_status, not_before_at, lease_expires_at, cleanup_id);
+GO
+CREATE INDEX IX_OperatorDocuments_FileUrl ON dbo.OperatorDocuments(file_url);
+GO
+
 CREATE TABLE dbo.SystemConfigs (
     config_key      VARCHAR(100) PRIMARY KEY,
     config_value    NVARCHAR(500) NOT NULL,
@@ -1421,6 +1453,136 @@ CREATE TABLE social.GroupLocationSharing (
 );
 GO
 CREATE INDEX IX_GroupLocationSharing_Group ON social.GroupLocationSharing(group_id, recorded_at DESC);
+GO
+
+-- TM-79 Task 3a: parent-only staged schema; legacy Reviews remain unchanged.
+CREATE TABLE social.TripReviews (
+    trip_review_id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_TripReviews PRIMARY KEY,
+    booking_id BIGINT NULL CONSTRAINT FK_TripReviews_Booking REFERENCES commerce.Bookings(booking_id),
+    service_booking_id BIGINT NULL CONSTRAINT FK_TripReviews_ServiceBooking REFERENCES commercial.ServiceBookings(service_booking_id),
+    traveler_user_id BIGINT NOT NULL CONSTRAINT FK_TripReviews_Traveler REFERENCES dbo.Users(user_id),
+    tour_id BIGINT NULL CONSTRAINT FK_TripReviews_Tour REFERENCES commerce.Tours(tour_id),
+    itinerary_id BIGINT NULL CONSTRAINT FK_TripReviews_Itinerary REFERENCES planning.Itineraries(itinerary_id),
+    poi_id BIGINT NULL CONSTRAINT FK_TripReviews_Poi REFERENCES catalog.POIs(poi_id),
+    overall_rating TINYINT NOT NULL,
+    title NVARCHAR(200) COLLATE Vietnamese_100_CI_AS NOT NULL,
+    content NVARCHAR(1000) COLLATE Vietnamese_100_CI_AS NOT NULL,
+    route_pacing VARCHAR(9) NULL,
+    csp_rating TINYINT NULL,
+    publish_display_name BIT NOT NULL,
+    public_display_name NVARCHAR(MAX) COLLATE Vietnamese_100_CI_AS NOT NULL,
+    publication_status VARCHAR(9) NOT NULL,
+    policy_version NVARCHAR(MAX) COLLATE Vietnamese_100_CI_AS NULL,
+    created_at DATETIME2(7) NOT NULL,
+    edit_deadline DATETIME2(7) NOT NULL,
+    updated_at DATETIME2(7) NOT NULL,
+    version ROWVERSION NOT NULL,
+    CONSTRAINT CK_TripReviews_Overall CHECK (overall_rating BETWEEN 1 AND 5),
+    CONSTRAINT CK_TripReviews_Csp CHECK (csp_rating BETWEEN 1 AND 5),
+    CONSTRAINT CK_TripReviews_Pacing CHECK (route_pacing IN ('tooTight','wellPaced','tooLoose')),
+    CONSTRAINT CK_TripReviews_Parent CHECK (
+        (booking_id IS NOT NULL AND service_booking_id IS NULL) OR
+        (booking_id IS NULL AND service_booking_id IS NOT NULL)),
+    CONSTRAINT CK_TripReviews_Subject CHECK (
+        (booking_id IS NOT NULL AND service_booking_id IS NULL AND poi_id IS NULL
+            AND ((tour_id IS NOT NULL AND itinerary_id IS NULL)
+                OR (tour_id IS NULL AND itinerary_id IS NOT NULL)))
+        OR
+        (booking_id IS NULL AND service_booking_id IS NOT NULL
+            AND tour_id IS NULL AND itinerary_id IS NULL AND poi_id IS NOT NULL)),
+    CONSTRAINT CK_TripReviews_Publication CHECK (publication_status = 'Published'),
+    CONSTRAINT CK_TripReviews_Title CHECK (LEN(title) > 0),
+    CONSTRAINT CK_TripReviews_Content CHECK (LEN(content) > 0),
+    -- NULL denotes unscreened text; reject the .NET whitespace set for non-null versions.
+    CONSTRAINT CK_TripReviews_Policy CHECK (policy_version IS NULL OR LEN(TRIM(
+        NCHAR(9)+NCHAR(10)+NCHAR(11)+NCHAR(12)+NCHAR(13)+NCHAR(32)+NCHAR(133)+NCHAR(160)+
+        NCHAR(5760)+NCHAR(8192)+NCHAR(8193)+NCHAR(8194)+NCHAR(8195)+NCHAR(8196)+NCHAR(8197)+
+        NCHAR(8198)+NCHAR(8199)+NCHAR(8200)+NCHAR(8201)+NCHAR(8202)+NCHAR(8232)+NCHAR(8233)+
+        NCHAR(8239)+NCHAR(8287)+NCHAR(12288) FROM policy_version COLLATE Latin1_General_100_BIN2)) > 0),
+    CONSTRAINT CK_TripReviews_Display CHECK (LEN(public_display_name) > 0),
+    CONSTRAINT CK_TripReviews_Deadline CHECK (edit_deadline = DATEADD(day, 7, created_at))
+);
+CREATE UNIQUE INDEX UX_TripReviews_CommerceBooking
+    ON social.TripReviews(booking_id) WHERE booking_id IS NOT NULL;
+CREATE UNIQUE INDEX UX_TripReviews_ServiceBooking
+    ON social.TripReviews(service_booking_id) WHERE service_booking_id IS NOT NULL;
+GO
+
+CREATE TABLE social.TripReviewMediaOperations (
+ operation_id UNIQUEIDENTIFIER NOT NULL CONSTRAINT PK_TripReviewMediaOperations PRIMARY KEY,
+ batch_id UNIQUEIDENTIFIER NOT NULL,
+ booking_id BIGINT NULL CONSTRAINT FK_TripReviewMediaOperations_Booking REFERENCES commerce.Bookings(booking_id),
+ service_booking_id BIGINT NULL CONSTRAINT FK_TripReviewMediaOperations_ServiceBooking REFERENCES commercial.ServiceBookings(service_booking_id),
+ traveler_user_id BIGINT NOT NULL CONSTRAINT FK_TripReviewMediaOperations_Traveler REFERENCES dbo.Users(user_id),
+ sort_order TINYINT NOT NULL,
+ public_id VARCHAR(255) COLLATE Latin1_General_100_BIN2 NOT NULL,
+ state VARCHAR(16) COLLATE Latin1_General_100_BIN2 NOT NULL,
+ content_type VARCHAR(10) COLLATE Latin1_General_100_BIN2 NOT NULL,
+ extension VARCHAR(5) COLLATE Latin1_General_100_BIN2 NOT NULL,
+ input_byte_length BIGINT NOT NULL,
+ stored_byte_length BIGINT NULL,
+ width INT NOT NULL, height INT NOT NULL,
+ delivery_url NVARCHAR(2048) COLLATE Vietnamese_100_CI_AS NULL,
+ created_at DATETIME2(7) NOT NULL, updated_at DATETIME2(7) NOT NULL,
+ uploaded_at DATETIME2(7) NULL, adopted_at DATETIME2(7) NULL, cleaned_at DATETIME2(7) NULL,
+ version ROWVERSION NOT NULL,
+ CONSTRAINT CK_TripReviewMediaOperations_Parent CHECK(
+  (booking_id IS NOT NULL AND service_booking_id IS NULL)
+  OR (booking_id IS NULL AND service_booking_id IS NOT NULL)),
+ CONSTRAINT CK_TripReviewMediaOperations_Slot CHECK(sort_order BETWEEN 0 AND 4),
+ CONSTRAINT CK_TripReviewMediaOperations_PublicId CHECK(LEN(TRIM(CHAR(9)+CHAR(10)+CHAR(13)+CHAR(32) FROM public_id))>0),
+ CONSTRAINT CK_TripReviewMediaOperations_Format CHECK(
+  (content_type='image/jpeg' AND extension='.jpg') OR
+  (content_type='image/png' AND extension='.png') OR
+  (content_type='image/webp' AND extension='.webp')),
+ CONSTRAINT CK_TripReviewMediaOperations_Bytes CHECK(input_byte_length BETWEEN 1 AND 5000000 AND (stored_byte_length IS NULL OR stored_byte_length>0)),
+ CONSTRAINT CK_TripReviewMediaOperations_Pixels CHECK(width>0 AND height>0 AND CONVERT(BIGINT,width)*height<=24000000),
+ CONSTRAINT CK_TripReviewMediaOperations_Url CHECK(delivery_url IS NULL OR LEN(TRIM(NCHAR(9)+NCHAR(10)+NCHAR(13)+NCHAR(32) FROM delivery_url))>0),
+ CONSTRAINT CK_TripReviewMediaOperations_State CHECK(
+  (state='Reserved' AND delivery_url IS NULL AND stored_byte_length IS NULL AND uploaded_at IS NULL AND adopted_at IS NULL AND cleaned_at IS NULL)
+  OR (state='Uploaded' AND delivery_url IS NOT NULL AND stored_byte_length IS NOT NULL AND uploaded_at IS NOT NULL AND adopted_at IS NULL AND cleaned_at IS NULL)
+  OR (state='Adopted' AND delivery_url IS NOT NULL AND stored_byte_length IS NOT NULL AND uploaded_at IS NOT NULL AND adopted_at IS NOT NULL AND cleaned_at IS NULL)
+  OR (state IN ('CleanupPending','Cleaned') AND adopted_at IS NULL
+    AND ((delivery_url IS NULL AND stored_byte_length IS NULL AND uploaded_at IS NULL)
+      OR (delivery_url IS NOT NULL AND stored_byte_length IS NOT NULL AND uploaded_at IS NOT NULL))
+    AND ((state='CleanupPending' AND cleaned_at IS NULL) OR (state='Cleaned' AND cleaned_at IS NOT NULL))))
+);
+CREATE UNIQUE INDEX UX_TripReviewMediaOperations_PublicId ON social.TripReviewMediaOperations(public_id);
+CREATE UNIQUE INDEX UX_TripReviewMediaOperations_BatchSlot ON social.TripReviewMediaOperations(batch_id,sort_order);
+CREATE INDEX IX_TripReviewMediaOperations_Recovery ON social.TripReviewMediaOperations(state,updated_at,operation_id);
+CREATE INDEX IX_TripReviewMediaOperations_CommerceBooking ON social.TripReviewMediaOperations(booking_id) WHERE booking_id IS NOT NULL;
+CREATE INDEX IX_TripReviewMediaOperations_ServiceBooking ON social.TripReviewMediaOperations(service_booking_id) WHERE service_booking_id IS NOT NULL;
+CREATE TABLE social.TripReviewMedia (
+ media_id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_TripReviewMedia PRIMARY KEY,
+ trip_review_id BIGINT NOT NULL CONSTRAINT FK_TripReviewMedia_Review REFERENCES social.TripReviews(trip_review_id),
+ operation_id UNIQUEIDENTIFIER NOT NULL CONSTRAINT FK_TripReviewMedia_Operation REFERENCES social.TripReviewMediaOperations(operation_id),
+ sort_order TINYINT NOT NULL CONSTRAINT CK_TripReviewMedia_Slot CHECK(sort_order BETWEEN 0 AND 4),
+ created_at DATETIME2(7) NOT NULL
+);
+CREATE UNIQUE INDEX UX_TripReviewMedia_Operation ON social.TripReviewMedia(operation_id);
+CREATE UNIQUE INDEX UX_TripReviewMedia_ReviewSlot ON social.TripReviewMedia(trip_review_id,sort_order);
+CREATE TABLE social.TripReviewMediaRecovery (
+ operation_id UNIQUEIDENTIFIER NOT NULL CONSTRAINT PK_TripReviewMediaRecovery PRIMARY KEY,
+ upload_fence UNIQUEIDENTIFIER NULL,
+ upload_lease_until DATETIME2(7) NULL,
+ upload_outcome VARCHAR(16) COLLATE Latin1_General_100_BIN2 NOT NULL,
+ cleanup_fence UNIQUEIDENTIFIER NULL,
+ cleanup_lease_until DATETIME2(7) NULL,
+ attempts INT NOT NULL CONSTRAINT DF_TripReviewMediaRecovery_Attempts DEFAULT(0),
+ next_attempt_at DATETIME2(7) NULL,
+ exhausted BIT NOT NULL CONSTRAINT DF_TripReviewMediaRecovery_Exhausted DEFAULT(0),
+ last_failure_code VARCHAR(24) COLLATE Latin1_General_100_BIN2 NULL,
+ last_failure_at DATETIME2(7) NULL,
+ version ROWVERSION NOT NULL,
+ CONSTRAINT FK_TripReviewMediaRecovery_Operation FOREIGN KEY(operation_id) REFERENCES social.TripReviewMediaOperations(operation_id),
+ CONSTRAINT CK_TripReviewMediaRecovery_Upload CHECK(upload_outcome IN ('NeverDispatched','Unknown','Succeeded','Rejected')),
+ CONSTRAINT CK_TripReviewMediaRecovery_UploadFence CHECK((upload_fence IS NULL AND upload_lease_until IS NULL) OR (upload_fence IS NOT NULL AND upload_lease_until IS NOT NULL)),
+ CONSTRAINT CK_TripReviewMediaRecovery_CleanupFence CHECK((cleanup_fence IS NULL AND cleanup_lease_until IS NULL) OR (cleanup_fence IS NOT NULL AND cleanup_lease_until IS NOT NULL)),
+ CONSTRAINT CK_TripReviewMediaRecovery_Attempts CHECK(attempts BETWEEN 0 AND 8),
+ CONSTRAINT CK_TripReviewMediaRecovery_Exhausted CHECK(exhausted=0 OR next_attempt_at IS NULL),
+ CONSTRAINT CK_TripReviewMediaRecovery_Failure CHECK((last_failure_code IS NULL AND last_failure_at IS NULL) OR (last_failure_code IS NOT NULL AND last_failure_at IS NOT NULL AND last_failure_code IN ('Transient','Permanent','Configuration','OutcomeUnknown')))
+);
+CREATE INDEX IX_TripReviewMediaRecovery_Due ON social.TripReviewMediaRecovery(exhausted,next_attempt_at,operation_id);
 GO
 
 CREATE TABLE social.Reviews (

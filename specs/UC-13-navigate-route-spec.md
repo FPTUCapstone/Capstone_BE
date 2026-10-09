@@ -10,9 +10,12 @@ Implemented locally (uncommitted) and verified on 2026-10-10 with SQL Server ena
 
 - `dotnet build -c Release`: 0 warnings, 0 errors; `dotnet format --verify-no-changes` and
   `git diff --check` clean.
-- Application.UnitTests 1280/1280, Infrastructure.UnitTests 287 passed (1 Cloudinary smoke skip),
-  CandidatePoolReplay 13/13, Api.IntegrationTests 550 passed with 9 skips that are all the
-  Redis-gated rate-limiter suite; no SQL Server test was skipped.
+- After merging `origin/develop` (UC-59, TM-79, UC-02): Application.UnitTests 1614/1614,
+  Infrastructure.UnitTests 715 passed (3 provider smoke skips), CandidatePoolReplay 13/13,
+  Api.IntegrationTests 878 passed with 10 skips (Redis-gated rate limiter and real-provider smoke
+  tests); no SQL Server test was skipped.
+- End-to-end smoke against the rebuilt API container and `TripMateDb` (pre-merge build): 55/55
+  checks passed.
 - Local development databases that ran revision 1 (`TripMateDb`) must re-run the migration; it
   upgrades that shape in place.
 
@@ -253,13 +256,16 @@ No body. Check order:
    re-authorizing current access; a different requested itinerary ID returns `409`.
 2. Resolve current version and access (`404`/`403`).
 3. Resolved version must be `Active` (`409`).
-4. At least one navigable item (`422`).
-5. `now` must be within `[min(PlannedArrival) − EarlyStartWindow, max(PlannedDeparture) +
+4. At least one navigable item (`422 navigation.no_navigable_items`).
+5. Every navigable item has a planned arrival and departure (`422
+   navigation.itinerary_schedule_incomplete`). `ItineraryItem` planned times are nullable in the
+   database; a POI is never silently dropped from the route.
+6. `now` must be within `[min(PlannedArrival) − EarlyStartWindow, max(PlannedDeparture) +
    ExpiryGracePeriod)` (`409 navigation.outside_trip_window`).
-6. An open session of the same Traveler that is past its expiry is expired first (persisted with
+7. An open session of the same Traveler that is past its expiry is expired first (persisted with
    its history row). Any other open session returns `409 active_session_exists` with
    `activeSessionId`, `activeSessionLocation`, and the `Location` header.
-7. Create session, snapshot, and start history atomically; `201` with
+8. Create session, snapshot, and start history atomically; `201` with
    `Location: /api/v1/navigation-sessions/{sessionId}`.
 
 Concurrent starts cannot create two open sessions; unique violations are translated to replay or
@@ -385,6 +391,7 @@ No GPS position, Mapbox token, route geometry, or other Traveler data is exposed
 | `409`  | `navigation.item_already_reached`               | Skip requested for a Reached item.                          |
 | `409`  | `navigation.session_completed`                  | Progress requested on a Completed session.                  |
 | `422`  | `navigation.no_navigable_items`                 | Active itinerary has no navigable item.                     |
+| `422`  | `navigation.itinerary_schedule_incomplete`      | A navigable item has no planned arrival or departure.       |
 | `422`  | `navigation.item_not_navigable`                 | Item is not in the session snapshot.                        |
 | `500`  | sanitized ProblemDetails                        | Unexpected failure.                                         |
 

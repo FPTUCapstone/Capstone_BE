@@ -1,6 +1,7 @@
 using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
@@ -503,10 +504,16 @@ public sealed class ExplorePoisSqlServerTests
     }
 
     private static ExplorePoisQueryHandler CreateExploreHandler(ApplicationDbContext context) =>
-        new(context, new TestDateTimeProvider(SundayTestTime));
+        new(
+            context,
+            new TestDateTimeProvider(SundayTestTime),
+            NullLogger<ExplorePoisQueryHandler>.Instance);
 
     private static GetPoiDetailQueryHandler CreateDetailHandler(ApplicationDbContext context) =>
-        new(context, new TestDateTimeProvider(SundayTestTime));
+        new(
+            context,
+            new TestDateTimeProvider(SundayTestTime),
+            NullLogger<GetPoiDetailQueryHandler>.Instance);
 
     private static async Task<ExplorationSeedResult> SeedExplorationDataAsync(SqlServerTestDatabase database)
     {

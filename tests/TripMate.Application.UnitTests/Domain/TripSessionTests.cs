@@ -31,7 +31,7 @@ public sealed class TripSessionTests
             FromState = (string?)null,
             ToState = TripSession.NavigatingState,
             Reason = TripStateHistory.NavigationStartedReason,
-            TriggeredBy = TripStateHistory.TravelerTrigger,
+            TriggeredBy = TripStateHistory.TriggeredByTraveler,
             ChangedAtUtc = StartedAtUtc,
         });
     }
@@ -69,7 +69,7 @@ public sealed class TripSessionTests
             FromState = TripSession.NavigatingState,
             ToState = TripSession.ExploringState,
             Reason = TripStateHistory.ItemReachedReason,
-            TriggeredBy = TripStateHistory.TravelerTrigger,
+            TriggeredBy = TripStateHistory.TriggeredByTraveler,
             ChangedAtUtc = reachedAt,
         });
     }
@@ -170,7 +170,7 @@ public sealed class TripSessionTests
             FromState = TripSession.ExploringState,
             ToState = TripSession.NavigatingState,
             Reason = TripStateHistory.TravelerDepartedReason,
-            TriggeredBy = TripStateHistory.TravelerTrigger,
+            TriggeredBy = TripStateHistory.TriggeredByTraveler,
             ChangedAtUtc = departedAt,
         });
 
@@ -199,7 +199,7 @@ public sealed class TripSessionTests
             FromState = TripSession.ExploringState,
             ToState = TripSession.CompletedState,
             Reason = TripSession.TravelerStoppedReason,
-            TriggeredBy = TripStateHistory.TravelerTrigger,
+            TriggeredBy = TripStateHistory.TriggeredByTraveler,
             ChangedAtUtc = finishedAt,
         });
     }
@@ -236,7 +236,7 @@ public sealed class TripSessionTests
             FromState = TripSession.ExploringState,
             ToState = TripSession.CompletedState,
             Reason = TripSession.ExpiredReason,
-            TriggeredBy = TripStateHistory.SystemTrigger,
+            TriggeredBy = TripStateHistory.TriggeredBySystem,
             ChangedAtUtc = ExpiresAtUtc,
         });
 

@@ -56,6 +56,9 @@ public class TestDbContext(
 
     public DbSet<Review> Reviews => Set<Review>();
 
+    public DbSet<TripReview> TripReviews => Set<TripReview>();
+    public DbSet<TripReviewMedia> TripReviewMedia => Set<TripReviewMedia>();
+
     public DbSet<Message> Messages => Set<Message>();
 
     public DbSet<ServiceProvider> ServiceProviders => Set<ServiceProvider>();
@@ -91,9 +94,15 @@ public class TestDbContext(
 
     public DbSet<TripSessionItem> TripSessionItems => Set<TripSessionItem>();
 
-    public DbSet<TripStateHistory> TripStateHistory => Set<TripStateHistory>();
-
     public DbSet<Incident> Incidents => Set<Incident>();
+
+    public DbSet<TripStateHistory> TripStateHistories => Set<TripStateHistory>();
+
+    public DbSet<TripLocationLog> TripLocationLogs => Set<TripLocationLog>();
+
+    public DbSet<WeatherEvent> WeatherEvents => Set<WeatherEvent>();
+
+    public DbSet<ReroutingEvent> ReroutingEvents => Set<ReroutingEvent>();
 
     public int TransactionExecutionCount { get; private set; }
 
@@ -101,9 +110,13 @@ public class TestDbContext(
 
     public int SaveChangesAsyncCallCount { get; private set; }
 
+    public List<string> FinalizedOperatorDocumentCleanupPublicIds { get; } = [];
+
     public bool ThrowOnSaveConcurrency { get; set; }
 
     public Func<int, Exception?>? SerializableTransactionCompletionFailureFactory { get; set; }
+
+    public Func<int, Exception?>? TransactionCompletionFailureFactory { get; set; }
 
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
@@ -147,12 +160,41 @@ public class TestDbContext(
         return audits.Count;
     }
 
+    public Action? OnTransactionCompleted { get; set; }
+    public Exception? ThrowOnTransaction { get; set; }
+
     public async Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken)
     {
         TransactionExecutionCount++;
-        return await operation(cancellationToken);
+        try
+        {
+            if (ThrowOnTransaction is not null)
+                throw ThrowOnTransaction;
+
+            T result = await operation(cancellationToken);
+            Exception? completionFailure =
+                TransactionCompletionFailureFactory?.Invoke(TransactionExecutionCount);
+            if (completionFailure is not null)
+            {
+                throw completionFailure;
+            }
+
+            return result;
+        }
+        finally
+        {
+            OnTransactionCompleted?.Invoke();
+        }
+    }
+
+    public Task FinalizeOperatorDocumentCleanupReservationsAsync(
+        IReadOnlyCollection<string> publicIds,
+        CancellationToken cancellationToken)
+    {
+        FinalizedOperatorDocumentCleanupPublicIds.AddRange(publicIds);
+        return Task.CompletedTask;
     }
 
     public void ClearTrackedEntities() => ChangeTracker.Clear();

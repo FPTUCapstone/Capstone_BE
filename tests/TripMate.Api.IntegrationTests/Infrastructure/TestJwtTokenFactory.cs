@@ -19,6 +19,23 @@ public enum TestJwtKind
 
 internal static class TestJwtTokenFactory
 {
+    public static string CreateValid(long userId, UserRole role)
+    {
+        var options = CreateOptions();
+        var user = new User
+        {
+            Id = userId,
+            Email = $"jwt-valid-{userId}@example.com",
+            FullName = "JWT Valid Case",
+            Role = role,
+            Status = AccountStatus.Active,
+        };
+
+        return new JwtTokenService(Options.Create(options))
+            .GenerateAccessToken(user)
+            .Token;
+    }
+
     public static string Create(TestJwtKind tokenKind)
     {
         if (tokenKind == TestJwtKind.Malformed)
@@ -26,18 +43,15 @@ internal static class TestJwtTokenFactory
             return "not-a-jwt";
         }
 
-        var options = new JwtOptions
-        {
-            Issuer = tokenKind == TestJwtKind.InvalidIssuer
-                ? "TripMate.Tests.InvalidIssuer"
-                : TripMateApiFactory.JwtIssuer,
-            Audience = TripMateApiFactory.JwtAudience,
-            SigningKey = tokenKind == TestJwtKind.InvalidSignature
-                ? Convert.ToBase64String(Encoding.UTF8.GetBytes(
-                    "different-test-only-signing-key-that-is-long-enough"))
-                : TripMateApiFactory.JwtSigningKey,
-            AccessTokenLifetimeMinutes = tokenKind == TestJwtKind.Expired ? -5 : 15,
-        };
+        var options = CreateOptions();
+        options.Issuer = tokenKind == TestJwtKind.InvalidIssuer
+            ? "TripMate.Tests.InvalidIssuer"
+            : TripMateApiFactory.JwtIssuer;
+        options.SigningKey = tokenKind == TestJwtKind.InvalidSignature
+            ? Convert.ToBase64String(Encoding.UTF8.GetBytes(
+                "different-test-only-signing-key-that-is-long-enough"))
+            : TripMateApiFactory.JwtSigningKey;
+        options.AccessTokenLifetimeMinutes = tokenKind == TestJwtKind.Expired ? -5 : 15;
         var user = new User
         {
             Id = 1,
@@ -51,4 +65,12 @@ internal static class TestJwtTokenFactory
             .GenerateAccessToken(user)
             .Token;
     }
+
+    private static JwtOptions CreateOptions() => new()
+    {
+        Issuer = TripMateApiFactory.JwtIssuer,
+        Audience = TripMateApiFactory.JwtAudience,
+        SigningKey = TripMateApiFactory.JwtSigningKey,
+        AccessTokenLifetimeMinutes = 15,
+    };
 }

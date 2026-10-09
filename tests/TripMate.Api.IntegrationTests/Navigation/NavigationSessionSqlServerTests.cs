@@ -38,7 +38,7 @@ public sealed class NavigationSessionSqlServerTests
         await using var assertionDb = database.CreateDbContext();
         (await assertionDb.TripSessions.CountAsync()).Should().Be(0);
         (await assertionDb.TripSessionItems.CountAsync()).Should().Be(0);
-        (await assertionDb.TripStateHistory.CountAsync()).Should().Be(0);
+        (await assertionDb.TripStateHistories.CountAsync()).Should().Be(0);
     }
 
     [SqlServerFact]
@@ -73,7 +73,7 @@ public sealed class NavigationSessionSqlServerTests
         (await assertionDb.TripSessions.CountAsync(session =>
             session.TravelerUserId == seed.TravelerId && session.EndedAtUtc == null)).Should().Be(1);
         (await assertionDb.TripSessionItems.CountAsync()).Should().Be(1);
-        (await assertionDb.TripStateHistory.CountAsync()).Should().Be(1);
+        (await assertionDb.TripStateHistories.CountAsync()).Should().Be(1);
     }
 
     [SqlServerFact]
@@ -290,8 +290,8 @@ public sealed class NavigationSessionSqlServerTests
                     pois[index].Name,
                     pois[index].Latitude,
                     pois[index].Longitude,
-                    item.PlannedArrivalUtc,
-                    item.PlannedDepartureUtc,
+                    item.PlannedArrivalUtc!.Value,
+                    item.PlannedDepartureUtc!.Value,
                     item.IsMandatory)));
             db.TripSessions.Add(session);
             await db.SaveChangesAsync();
