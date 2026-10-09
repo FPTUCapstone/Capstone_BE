@@ -21,7 +21,7 @@ public class TravelGroupConfiguration : IEntityTypeConfiguration<TravelGroup>
 
         builder.Property(g => g.ItineraryId).HasColumnName("itinerary_id").IsRequired();
         builder.Property(g => g.HostUserId).HasColumnName("host_user_id").IsRequired();
-        builder.Property(g => g.Name).HasColumnName("name").HasMaxLength(150);
+        builder.Property(g => g.Name).HasColumnName("name").HasMaxLength(150).IsRequired(false);
         builder.Property(g => g.CreatedAtUtc).HasColumnName("created_at").AsUtcDateTime2().IsRequired();
 
         builder.HasOne(g => g.Itinerary)

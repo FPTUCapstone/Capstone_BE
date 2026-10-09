@@ -1140,8 +1140,9 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 item.PointOfInterestId,
                 item.PointOfInterest?.Name,
                 item.Kind,
-                item.PlannedArrivalUtc,
-                item.PlannedDepartureUtc,
+                // Items were created via ItineraryItem.Create in this flow, so both values exist.
+                item.PlannedArrivalUtc!.Value,
+                item.PlannedDepartureUtc!.Value,
                 item.StayDurationMinutes,
                 item.TravelDurationToNextMinutes,
                 item.EstimatedCost,

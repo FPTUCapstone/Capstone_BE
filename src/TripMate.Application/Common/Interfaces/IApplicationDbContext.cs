@@ -87,6 +87,14 @@ public interface IApplicationDbContext
 
     DbSet<Incident> Incidents { get; }
 
+    DbSet<TripStateHistory> TripStateHistories { get; }
+
+    DbSet<TripLocationLog> TripLocationLogs { get; }
+
+    DbSet<WeatherEvent> WeatherEvents { get; }
+
+    DbSet<ReroutingEvent> ReroutingEvents { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 
     Task<int> RevokeRefreshTokenAsync(
