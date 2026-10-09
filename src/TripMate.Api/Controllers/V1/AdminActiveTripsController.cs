@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 using TripMate.Api.Common;
+using TripMate.Application.Features.Admin.ActiveTrips.GetDetails;
 using TripMate.Application.Features.Admin.ActiveTrips.GetList;
 
 namespace TripMate.Api.Controllers.V1;
@@ -23,6 +24,21 @@ public sealed class AdminActiveTripsController(ISender sender) : ApiControllerBa
         CancellationToken cancellationToken)
     {
         var result = await Sender.Send(query, cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    [HttpGet("{tripId:long}")]
+    [ProducesResponseType(typeof(ActiveTripDetailDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetDetails(
+        long tripId,
+        CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(new GetActiveTripDetailsQuery(tripId), cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 }
