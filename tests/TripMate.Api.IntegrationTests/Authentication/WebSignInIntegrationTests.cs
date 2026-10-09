@@ -51,8 +51,11 @@ public class WebSignInIntegrationTests
         data.GetProperty("status").GetString().Should().Be("Active");
         (data.GetProperty("accessTokenExpiresAtUtc").GetDateTimeOffset() - DateTimeOffset.UtcNow)
             .Should().BeCloseTo(TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(5));
-        var cookie = response.Headers.GetValues("Set-Cookie").Single();
-        cookie.Should().StartWith("tripmate_refresh=").And.Contain("httponly").And.Contain("secure").And.Contain("samesite=lax").And.Contain("path=/api/v1/auth");
+        var cookies = response.Headers.GetValues("Set-Cookie").ToArray();
+        cookies.Should().HaveCount(2);
+        cookies.Should().Contain(cookie => cookie.Contains("path=/api/v1/auth") && cookie.Contains("expires="));
+        var cookie = cookies.Single(cookie => cookie.Contains("path=/") && !cookie.Contains("path=/api/v1/auth"));
+        cookie.Should().StartWith("tripmate_refresh=").And.Contain("httponly").And.Contain("secure").And.Contain("samesite=lax").And.Contain("path=/");
         cookie.Should().NotContain("domain=");
         cookie.Contains("expires=").Should().Be(keep);
         await factory.WithDbContextAsync(async db =>
