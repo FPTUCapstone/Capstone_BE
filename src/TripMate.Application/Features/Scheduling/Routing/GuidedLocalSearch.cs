@@ -42,7 +42,7 @@ public sealed class GuidedLocalSearch
     private readonly Stopwatch _clock;
     private readonly CancellationToken _cancellationToken;
     private readonly Dictionary<(int From, int To), int> _arcPenalties = new();
-    private readonly EliteSet _elite;
+    private readonly RouteEliteSet _elite;
     private double _lambda;
 
     public GuidedLocalSearch(
@@ -57,7 +57,7 @@ public sealed class GuidedLocalSearch
         _stats = stats ?? throw new ArgumentNullException(nameof(stats));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _cancellationToken = cancellationToken;
-        _elite = new EliteSet(Math.Max(1, options.FinalCandidatesToValidate));
+        _elite = new RouteEliteSet(Math.Max(1, options.FinalCandidatesToValidate));
     }
 
     /// <summary>Chạy tìm kiếm và trả về các lời giải tốt nhất khác nhau, tốt nhất đứng đầu.</summary>
@@ -186,40 +186,5 @@ public sealed class GuidedLocalSearch
 
         _stats.TimeLimitReached = true;
         return true;
-    }
-
-    /// <summary>Giữ K lời giải tốt nhất, không trùng thứ tự, xếp theo mục tiêu thật rồi theo khóa.</summary>
-    private sealed class EliteSet(int capacity)
-    {
-        private readonly SortedDictionary<(long Objective, string Key), RouteState> _items = new();
-        private readonly HashSet<string> _keys = new(StringComparer.Ordinal);
-
-        public RouteState? Best => _items.Count == 0 ? null : _items.First().Value;
-
-        public IReadOnlyList<RouteState> Ordered => _items.Values.ToArray();
-
-        public void Offer(RouteState state)
-        {
-            var key = state.Key;
-            if (_keys.Contains(key))
-            {
-                return;
-            }
-
-            if (_items.Count >= capacity)
-            {
-                var worst = _items.Keys.Last();
-                if (worst.Objective <= state.Objective)
-                {
-                    return;
-                }
-
-                _items.Remove(worst);
-                _keys.Remove(worst.Key);
-            }
-
-            _items[(state.Objective, key)] = state;
-            _keys.Add(key);
-        }
     }
 }

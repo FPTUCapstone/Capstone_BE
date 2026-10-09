@@ -1,3 +1,4 @@
+using TripMate.Application.Features.Scheduling.Csp;
 using TripMate.Application.Features.Scheduling.Routing;
 
 namespace TripMate.Application.Features.Scheduling.Common;
@@ -13,6 +14,13 @@ public enum SchedulingSolverMode
     /// tự quay về <see cref="Heuristic"/>.
     /// </summary>
     MiniRouting = 1,
+
+    /// <summary>
+    /// Bộ giải CSP (<see cref="CspItinerarySolver"/>): backtracking, forward checking, branch and bound.
+    /// Chứng minh được vô nghiệm thì báo điểm bắt buộc gây xung đột; các trường hợp còn lại không có
+    /// lời giải thì tự quay về <see cref="Heuristic"/>.
+    /// </summary>
+    Csp = 2,
 }
 
 public sealed class SchedulingGenerationOptions
@@ -44,6 +52,8 @@ public sealed class SchedulingGenerationOptions
     public SchedulingSolverMode SolverMode { get; init; } = SchedulingSolverMode.Heuristic;
 
     public MiniRoutingOptions MiniRouting { get; init; } = new();
+
+    public CspOptions Csp { get; init; } = new();
 
     public int EffectiveMaxMatrixCandidates => MaxMatrixCandidates >= MinimumMaxMatrixCandidates
         ? MaxMatrixCandidates

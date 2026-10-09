@@ -1,4 +1,5 @@
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Scheduling.Csp;
 using TripMate.Application.Features.Scheduling.Routing;
 using TripMate.Domain.Enums;
 
@@ -56,12 +57,34 @@ public sealed class ItineraryGenerationService(
         var matrixCandidates = input.Candidates.ToArray();
         var candidateMatrixIndices = BuildCandidateMatrixIndices(matrixCandidates);
 
-        var optimizationResult = TrySolveWithMiniRouting(
+        OptimizationResult? alternativeResult = null;
+        if (_options.SolverMode == SchedulingSolverMode.Csp)
+        {
+            var csp = new CspItinerarySolver(_evaluator, _options).Solve(
                 input,
                 matrix,
                 matrixCandidates,
                 candidateMatrixIndices,
-                cancellationToken)
+                cancellationToken);
+
+            if (csp.ProvedInfeasible)
+            {
+                return Infeasible(DescribeCspInfeasibility(csp, candidatesById));
+            }
+
+            alternativeResult = ToOptimizationResult(csp);
+        }
+        else if (_options.SolverMode == SchedulingSolverMode.MiniRouting)
+        {
+            alternativeResult = TrySolveWithMiniRouting(
+                input,
+                matrix,
+                matrixCandidates,
+                candidateMatrixIndices,
+                cancellationToken);
+        }
+
+        var optimizationResult = alternativeResult
             ?? _optimizer.Optimize(
                 input,
                 mandatoryCandidates,
@@ -198,6 +221,45 @@ public sealed class ItineraryGenerationService(
                 + moves.GetValueOrDefault(RoutingMoveKind.Exchange),
             BudgetExhausted: result.Statistics.TimeLimitReached,
             ElapsedOptimization: result.Statistics.Elapsed);
+    }
+
+    private static OptimizationResult? ToOptimizationResult(CspResult result)
+    {
+        if (result.Schedule is null)
+        {
+            return null;
+        }
+
+        var stats = result.Statistics;
+        return new OptimizationResult(
+            result.Schedule,
+            result.Schedule,
+            EvaluationsCount: stats.NodesExpanded,
+            SeedCount: 1,
+            ReconsideredAdmissionsCount: 0,
+            TwoOptMovesCount: 0,
+            RelocateMovesCount: 0,
+            BudgetExhausted: !stats.SearchCompleted,
+            ElapsedOptimization: stats.Elapsed);
+    }
+
+    /// <summary>
+    /// CSP đã duyệt hết cây mà không có lời giải: nêu tên các điểm bắt buộc bị forward checking loại
+    /// nhiều nhất, để người dùng biết nên bỏ hoặc đổi điểm nào.
+    /// </summary>
+    private static string DescribeCspInfeasibility(
+        CspResult result,
+        IReadOnlyDictionary<long, GenerationCandidate> candidatesById)
+    {
+        const string baseMessage = "The mandatory locations cannot fit within the selected time, hours, budget, and end point.";
+        var names = result.ConflictingMandatoryPoiIds
+            .Where(candidatesById.ContainsKey)
+            .Select(id => candidatesById[id].Name)
+            .ToArray();
+
+        return names.Length == 0
+            ? baseMessage
+            : $"{baseMessage} Most conflicting: {string.Join(", ", names)}.";
     }
 
     private static bool HasInvalidRequestConstraints(GenerationInput input) =>
