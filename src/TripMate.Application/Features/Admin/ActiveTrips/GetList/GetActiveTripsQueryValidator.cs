@@ -24,15 +24,19 @@ public sealed class GetActiveTripsQueryValidator : AbstractValidator<GetActiveTr
         RuleFor(query => query.PageSize).InclusiveBetween(1, GetActiveTripsQuery.MaximumPageSize);
         RuleFor(query => query.StartDateFrom)
             .Must(value => !value.HasValue || value.Value <= VietnamCalendar.Today(dateTimeProvider.UtcNow))
+            .WithErrorCode(ActiveTripErrorCodes.InvalidDateRange)
             .WithMessage("StartDateFrom must not be in the future.");
         RuleFor(query => query.StartDateTo)
             .Must(value => !value.HasValue || value.Value < DateOnly.MaxValue)
+            .WithErrorCode(ActiveTripErrorCodes.InvalidDateRange)
             .WithMessage("StartDateTo is outside the supported range.");
         RuleFor(query => query.StartDateTo)
             .Must(value => !value.HasValue || value.Value <= VietnamCalendar.Today(dateTimeProvider.UtcNow))
+            .WithErrorCode(ActiveTripErrorCodes.InvalidDateRange)
             .WithMessage("StartDateTo must not be in the future.");
         RuleFor(query => query)
             .Must(query => !query.StartDateFrom.HasValue || !query.StartDateTo.HasValue || query.StartDateFrom <= query.StartDateTo)
+            .WithErrorCode(ActiveTripErrorCodes.InvalidDateRange)
             .WithMessage("The submitted Start Date range is logically invalid.");
     }
 }

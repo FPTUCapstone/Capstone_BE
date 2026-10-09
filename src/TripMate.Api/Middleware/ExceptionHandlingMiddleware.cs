@@ -37,7 +37,7 @@ public class ExceptionHandlingMiddleware(
                 Status = (int)HttpStatusCode.BadRequest,
             };
 
-            AddActiveTripsErrorCode(context, problem);
+            AddActiveTripsErrorCode(context, problem, ex.ErrorCodes.Values.SelectMany(code => code));
 
             await context.Response.WriteAsJsonAsync(
                 problem,
@@ -70,14 +70,18 @@ public class ExceptionHandlingMiddleware(
         }
     }
 
-    internal static void AddActiveTripsErrorCode(HttpContext context, ProblemDetails problem)
+    internal static void AddActiveTripsErrorCode(
+        HttpContext context,
+        ProblemDetails problem,
+        IEnumerable<string>? validationErrorCodes = null)
     {
         if (!context.Request.Path.StartsWithSegments("/api/v1/admin/trips/active")) return;
 
         var validation = problem as ValidationProblemDetails;
-        var hasDateError = validation?.Errors.Keys.Any(key =>
-            string.Equals(key, "startDateFrom", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(key, "startDateTo", StringComparison.OrdinalIgnoreCase)) == true;
+        var hasDateError = validationErrorCodes?.Contains(ActiveTripErrorCodes.InvalidDateRange, StringComparer.Ordinal) == true ||
+            validation?.Errors.Keys.Any(key =>
+                string.Equals(key, "startDateFrom", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(key, "startDateTo", StringComparison.OrdinalIgnoreCase)) == true;
 
         problem.Extensions["errorCode"] = hasDateError
             ? ActiveTripErrorCodes.InvalidDateRange
