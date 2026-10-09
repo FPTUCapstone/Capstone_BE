@@ -57,6 +57,10 @@ public class ApplicationDbContext(
 
     public DbSet<Review> Reviews => Set<Review>();
 
+    public DbSet<TripReview> TripReviews => Set<TripReview>();
+    public DbSet<TripReviewMediaOperation> TripReviewMediaOperations => Set<TripReviewMediaOperation>();
+    public DbSet<TripReviewMedia> TripReviewMedia => Set<TripReviewMedia>();
+
     public DbSet<Message> Messages => Set<Message>();
 
     public DbSet<ServiceProvider> ServiceProviders => Set<ServiceProvider>();

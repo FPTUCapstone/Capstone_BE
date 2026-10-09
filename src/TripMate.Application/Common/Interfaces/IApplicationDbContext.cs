@@ -48,6 +48,10 @@ public interface IApplicationDbContext
 
     DbSet<Review> Reviews { get; }
 
+    DbSet<TripReview> TripReviews { get; }
+
+    DbSet<TripReviewMedia> TripReviewMedia { get; }
+
     DbSet<Message> Messages { get; }
 
     DbSet<ServiceProvider> ServiceProviders { get; }

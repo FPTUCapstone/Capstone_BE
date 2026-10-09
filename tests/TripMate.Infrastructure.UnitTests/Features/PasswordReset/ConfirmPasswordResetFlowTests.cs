@@ -249,6 +249,9 @@ public class ConfirmPasswordResetFlowTests
 
         DbSet<Domain.Entities.Review> IApplicationDbContext.Reviews => throw new NotSupportedException();
 
+        DbSet<Domain.Entities.TripReview> IApplicationDbContext.TripReviews => throw new NotSupportedException();
+        DbSet<Domain.Entities.TripReviewMedia> IApplicationDbContext.TripReviewMedia => throw new NotSupportedException();
+
         DbSet<Domain.Entities.Message> IApplicationDbContext.Messages => throw new NotSupportedException();
 
         DbSet<Domain.Entities.ServiceProvider> IApplicationDbContext.ServiceProviders =>

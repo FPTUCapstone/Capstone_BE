@@ -101,6 +101,16 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <None Include="..\..\database\migrations\20260930_add_trip_review_media_recovery.sql" Condition="Exists('..\..\database\migrations\20260930_add_trip_review_media_recovery.sql')" Link="Database\migrations\20260930_add_trip_review_media_recovery.sql" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Fixtures\Database\tm79_pre_migration_schema.sql" Link="Database\Fixtures\tm79_pre_migration_schema.sql" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures\Database\tm79_pre_nullable_policy_parent.sql" Link="Database\Fixtures\tm79_pre_nullable_policy_parent.sql" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures\Database\tm79_pre_media_schema.sql" Link="Database\Fixtures\tm79_pre_media_schema.sql" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20260929_add_trip_review_media.sql" Condition="Exists('..\..\database\migrations\20260929_add_trip_review_media.sql')" Link="Database\migrations\20260929_add_trip_review_media.sql" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20260928_add_trip_review_parent.sql" Condition="Exists('..\..\database\migrations\20260928_add_trip_review_parent.sql')" Link="Database\migrations\20260928_add_trip_review_parent.sql" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261007_extend_trip_review_typed_parents.sql" Condition="Exists('..\..\database\migrations\20261007_extend_trip_review_typed_parents.sql')" Link="Database\migrations\20261007_extend_trip_review_typed_parents.sql" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

@@ -16,6 +16,35 @@ public sealed class ProblemDetailsAuthorizationMiddlewareResultHandler(
         AuthorizationPolicy policy,
         PolicyAuthorizationResult authorizeResult)
     {
+        var authorizationMetadata = context.GetEndpoint()?.Metadata
+            .GetMetadata<AuthorizationProblemDetailsAttribute>();
+
+        if (authorizationMetadata is not null
+            && (authorizeResult.Challenged || authorizeResult.Forbidden))
+        {
+            var status = authorizeResult.Challenged
+                ? StatusCodes.Status401Unauthorized
+                : StatusCodes.Status403Forbidden;
+            var title = authorizeResult.Challenged
+                ? authorizationMetadata.UnauthorizedTitle
+                : authorizationMetadata.ForbiddenTitle;
+            var errorCode = authorizeResult.Challenged
+                ? authorizationMetadata.UnauthorizedErrorCode
+                : authorizationMetadata.ForbiddenErrorCode;
+            var authorizationProblem = problemDetailsFactory.CreateProblemDetails(
+                context,
+                status,
+                title);
+            authorizationProblem.Extensions["errorCode"] = errorCode;
+            context.Response.StatusCode = status;
+
+            return context.Response.WriteAsJsonAsync(
+                authorizationProblem,
+                options: null,
+                contentType: "application/problem+json",
+                cancellationToken: context.RequestAborted);
+        }
+
         var responseMetadata = context.GetEndpoint()?.Metadata
             .GetMetadata<ForbiddenProblemDetailsAttribute>();
 
