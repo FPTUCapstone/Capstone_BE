@@ -1,6 +1,7 @@
 using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 using TripMate.Application.Features.PointsOfInterest.Common;
 using TripMate.Application.Features.PointsOfInterest.Detail;
@@ -255,5 +256,8 @@ public class GetPoiDetailQueryHandlerTests
     private static GetPoiDetailQueryHandler CreateHandler(
         TestDbContext dbContext,
         DateTimeOffset? utcNow = null) =>
-        new(dbContext, new FakeDateTimeProvider { UtcNow = utcNow ?? Now });
+        new(
+            dbContext,
+            new FakeDateTimeProvider { UtcNow = utcNow ?? Now },
+            NullLogger<GetPoiDetailQueryHandler>.Instance);
 }

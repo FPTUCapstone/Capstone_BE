@@ -56,6 +56,9 @@ public class TestDbContext(
 
     public DbSet<Review> Reviews => Set<Review>();
 
+    public DbSet<TripReview> TripReviews => Set<TripReview>();
+    public DbSet<TripReviewMedia> TripReviewMedia => Set<TripReviewMedia>();
+
     public DbSet<Message> Messages => Set<Message>();
 
     public DbSet<ServiceProvider> ServiceProviders => Set<ServiceProvider>();
@@ -147,20 +150,33 @@ public class TestDbContext(
         return audits.Count;
     }
 
+    public Action? OnTransactionCompleted { get; set; }
+    public Exception? ThrowOnTransaction { get; set; }
+
     public async Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken)
     {
         TransactionExecutionCount++;
-        T result = await operation(cancellationToken);
-        Exception? completionFailure =
-            TransactionCompletionFailureFactory?.Invoke(TransactionExecutionCount);
-        if (completionFailure is not null)
+        try
         {
-            throw completionFailure;
-        }
+            if (ThrowOnTransaction is not null)
+                throw ThrowOnTransaction;
 
-        return result;
+            T result = await operation(cancellationToken);
+            Exception? completionFailure =
+                TransactionCompletionFailureFactory?.Invoke(TransactionExecutionCount);
+            if (completionFailure is not null)
+            {
+                throw completionFailure;
+            }
+
+            return result;
+        }
+        finally
+        {
+            OnTransactionCompleted?.Invoke();
+        }
     }
 
     public Task FinalizeOperatorDocumentCleanupReservationsAsync(

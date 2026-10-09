@@ -1,6 +1,7 @@
 using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.PointsOfInterest.Explore;
@@ -513,5 +514,8 @@ public class ExplorePoisQueryHandlerTests
     private static ExplorePoisQueryHandler CreateHandler(
         TestDbContext dbContext,
         DateTimeOffset? utcNow = null) =>
-        new(dbContext, new FakeDateTimeProvider { UtcNow = utcNow ?? Now });
+        new(
+            dbContext,
+            new FakeDateTimeProvider { UtcNow = utcNow ?? Now },
+            NullLogger<ExplorePoisQueryHandler>.Instance);
 }
