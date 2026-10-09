@@ -24,11 +24,15 @@ public sealed class MiniRoutingOptions
     /// </summary>
     public double GlsLambdaFactor { get; init; } = 0.1;
 
-    /// <summary>Số vòng phạt cạnh tối đa của Guided Local Search.</summary>
+    /// <summary>
+    /// Số vòng phạt cạnh tối đa của Guided Local Search: điều kiện dừng chính, giúp kết quả tất định.
+    /// </summary>
     public int MaxGlsIterations { get; init; } = 50;
 
-    /// <summary>Tổng thời gian cho cả bộ giải, tính bằng mili giây.</summary>
-    public int TimeLimitMilliseconds { get; init; } = 1500;
+    /// <summary>
+    /// Lưới an toàn về thời gian (mili giây) khi máy quá tải. Chạm mốc này thì kết quả không còn tất định.
+    /// </summary>
+    public int TimeLimitMilliseconds { get; init; } = 5000;
 
     /// <summary>Độ dài đoạn lớn nhất mà toán tử Or-opt được dời (2 hoặc 3 là chuẩn).</summary>
     public int MaxOrOptSegmentLength { get; init; } = 3;

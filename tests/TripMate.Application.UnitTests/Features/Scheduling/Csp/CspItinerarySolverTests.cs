@@ -160,6 +160,90 @@ public class CspItinerarySolverTests
             .Should().BeEquivalentTo(input.MandatoryPoiIds);
     }
 
+    /// <summary>
+    /// Hồi quy: CSP từng trừ sẵn thời gian dự phòng cho điểm nghỉ rồi kết luận vô nghiệm, trong khi lịch thật
+    /// (có điểm nghỉ) vẫn vừa thời gian. Kết luận vô nghiệm giờ chỉ dựa trên mô hình nới lỏng.
+    /// </summary>
+    [Fact]
+    public void Solve_DoesNotClaimInfeasibility_WhenOnlyTheRestReserveIsTight()
+    {
+        var (input, matrix) = RestReserveScenario();
+        var (candidates, indices) = Index(input);
+
+        var result = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options).Solve(input, matrix, candidates, indices);
+
+        result.ProvedInfeasible.Should().BeFalse();
+        result.Statistics.UsedRelaxedRestModel.Should().BeTrue();
+        result.Schedule.Should().NotBeNull();
+        result.Schedule!.Plan.Items.Count(item => item.Kind == ItineraryItemKind.Rest).Should().Be(1);
+        result.Schedule.TotalDurationMinutes.Should().BeLessThanOrEqualTo(input.AvailableMinutes);
+    }
+
+    [Fact]
+    public async Task GenerationService_FindsTheSchedule_WhenOnlyTheRestReserveIsTight()
+    {
+        var (input, matrix) = RestReserveScenario();
+        var options = new SchedulingGenerationOptions { SolverMode = SchedulingSolverMode.Csp };
+
+        var result = await new ItineraryGenerationService(new StaticMatrixProvider(matrix), options)
+            .GenerateAsync(input, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+    }
+
+    /// <summary>
+    /// Dừng theo số nút (không theo đồng hồ) nên cùng một yêu cầu luôn cho cùng một lịch trình.
+    /// </summary>
+    [Theory]
+    [InlineData(20, 2, 61)]
+    [InlineData(40, 4, 62)]
+    public void Solve_IsDeterministic_ForTheSameInput(int candidateCount, int mandatoryCount, int seed)
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(candidateCount, mandatoryCount, seed);
+        var (candidates, indices) = Index(input);
+
+        var first = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options).Solve(input, matrix, candidates, indices);
+        var second = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options).Solve(input, matrix, candidates, indices);
+
+        first.Statistics.TimeLimitReached.Should().BeFalse();
+        first.Schedule.Should().NotBeNull();
+        second.Schedule!.VisitPoiIds.Should().Equal(first.Schedule!.VisitPoiIds);
+        second.Statistics.NodesExpanded.Should().Be(first.Statistics.NodesExpanded);
+    }
+
+    [Fact]
+    public void Solve_StopsPromptly_WhenCancelled()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(40, 4, 63);
+        var (candidates, indices) = Index(input);
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+
+        var solve = () => new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options)
+            .Solve(input, matrix, candidates, indices, cancelled.Token);
+
+        solve.Should().Throw<OperationCanceledException>();
+    }
+
+    private static (GenerationInput Input, RouteDurationMatrix Matrix) RestReserveScenario()
+    {
+        // Một điểm bắt buộc 150 phút, nghỉ thường xuyên, 227 phút: đi 20 + thăm 150 + nghỉ 30 + về 20 = 220 phút.
+        // Mô hình có dự phòng nghỉ (40 phút) chỉ còn 187 phút nên tưởng là vô nghiệm.
+        var candidate = OptionalRouteOptimizationScenarios.CreateCandidate(1, "Bà Nà Hills", 150, 0m, 0.9m);
+        var input = OptionalRouteOptimizationScenarios.CreateInput(
+            availableMinutes: 227,
+            candidates: [candidate],
+            mandatoryPoiIds: [1],
+            restPreference: RestPreference.Frequent);
+        var matrix = RouteDurationMatrix.Create(new int[,]
+        {
+            { 0, 10, 10 },
+            { 10, 0, 5 },
+            { 10, 5, 0 },
+        });
+        return (input, matrix);
+    }
+
     private static long? ExhaustiveBest(RoutingContext ctx)
     {
         long? best = null;

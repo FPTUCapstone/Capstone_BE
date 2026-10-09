@@ -39,6 +39,23 @@ public sealed class CspStatistics
     public long? InitialUpperBound { get; internal set; }
 
     public TimeSpan Elapsed { get; internal set; }
+
+    /// <summary>
+    /// True khi lần tìm đầu (có dự phòng thời gian nghỉ) không ra lời giải và bộ giải đã chạy lại trên mô hình
+    /// nới lỏng; các số liệu khác là tổng của cả hai lần.
+    /// </summary>
+    public bool UsedRelaxedRestModel { get; internal set; }
+
+    internal void AddEarlierRun(CspStatistics earlier)
+    {
+        NodesExpanded += earlier.NodesExpanded;
+        PrunedByConstraints += earlier.PrunedByConstraints;
+        PrunedByForwardChecking += earlier.PrunedByForwardChecking;
+        PrunedByBound += earlier.PrunedByBound;
+        NodeLimitReached |= earlier.NodeLimitReached;
+        TimeLimitReached |= earlier.TimeLimitReached;
+        UsedRelaxedRestModel = true;
+    }
 }
 
 public sealed record CspResult(
@@ -46,7 +63,11 @@ public sealed record CspResult(
     CspStatistics Statistics,
     IReadOnlyList<long> ConflictingMandatoryPoiIds)
 {
-    /// <summary>Đã duyệt hết cây mà không có lời giải: các điểm bắt buộc chắc chắn không xếp được.</summary>
+    /// <summary>
+    /// Đã duyệt hết cây của mô hình nới lỏng (không dự phòng thời gian nghỉ) mà không có lời giải. Bên gọi vẫn nên
+    /// thử thuật toán khác trước khi báo lỗi cho người dùng: mô hình không tính các điểm nghỉ mà
+    /// <see cref="ItineraryScheduleEvaluator"/> chèn vào, và ma trận đường đi thật không luôn thỏa bất đẳng thức tam giác.
+    /// </summary>
     public bool ProvedInfeasible => Schedule is null && Statistics.SearchCompleted && Statistics.SolutionsFound == 0;
 }
 
@@ -94,6 +115,19 @@ public sealed class CspItinerarySolver(
         }
 
         search.Run();
+
+        // Dự phòng thời gian nghỉ làm mô hình chặt hơn thực tế, nên "không có lời giải" ở đây chưa phải là vô nghiệm.
+        // Chạy lại trên mô hình nới lỏng (không dự phòng): chỉ kết quả của mô hình này mới được dùng để kết luận.
+        if (search.Statistics.SolutionsFound == 0 && ctx.Horizon < input.AvailableMinutes)
+        {
+            var relaxedCtx = RoutingContext.Create(
+                input, matrix, matrixCandidates, candidateMatrixIndices, _options, _options.MiniRouting, reserveRestTime: false);
+            var relaxed = new SearchRun(relaxedCtx, _cspOptions, clock, cancellationToken);
+            relaxed.Run();
+            relaxed.Statistics.AddEarlierRun(search.Statistics);
+            ctx = relaxedCtx;
+            search = relaxed;
+        }
 
         if (_cspOptions.PolishWithLocalSearch && search.Elite.Best is { } bestCsp)
         {

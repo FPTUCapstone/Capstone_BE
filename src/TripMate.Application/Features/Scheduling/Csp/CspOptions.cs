@@ -11,11 +11,17 @@ public sealed class CspOptions
     /// <summary>N: số điểm tùy chọn xếp hạng cao nhất được đưa vào miền giá trị.</summary>
     public int MaxOptionalDomainSize { get; init; } = 20;
 
-    /// <summary>Giới hạn số nút của cây tìm kiếm. Chạm giới hạn thì trả về lời giải tốt nhất đã có.</summary>
+    /// <summary>
+    /// Giới hạn số nút của cây tìm kiếm: đây là điều kiện dừng chính. Chạm giới hạn thì trả về lời giải tốt nhất đã có.
+    /// Dừng theo số nút nên cùng một yêu cầu luôn cho cùng một lịch trình, dù máy nhanh hay chậm.
+    /// </summary>
     public int MaxNodes { get; init; } = 200_000;
 
-    /// <summary>Giới hạn thời gian của cả bộ giải, tính bằng mili giây.</summary>
-    public int TimeLimitMilliseconds { get; init; } = 1500;
+    /// <summary>
+    /// Lưới an toàn về thời gian (mili giây), chỉ để chặn trường hợp máy quá tải. Đặt rộng hơn nhiều so với thời gian
+    /// duyệt <see cref="MaxNodes"/> nút; nếu thường xuyên chạm mốc này thì kết quả không còn tất định, nên giảm MaxNodes.
+    /// </summary>
+    public int TimeLimitMilliseconds { get; init; } = 5000;
 
     /// <summary>Số lời giải tốt nhất được đưa qua bước kiểm tra cuối (chèn điểm nghỉ).</summary>
     public int FinalCandidatesToValidate { get; init; } = 5;

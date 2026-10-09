@@ -91,7 +91,8 @@ public sealed class RoutingContext
         IReadOnlyList<GenerationCandidate> matrixCandidates,
         IReadOnlyDictionary<long, int> candidateMatrixIndices,
         SchedulingGenerationOptions options,
-        MiniRoutingOptions routingOptions)
+        MiniRoutingOptions routingOptions,
+        bool reserveRestTime = true)
     {
         ArgumentNullException.ThrowIfNull(input);
         ArgumentNullException.ThrowIfNull(matrix);
@@ -125,7 +126,9 @@ public sealed class RoutingContext
                     : SkipPenalty(candidate.EffectiveDesirabilityScore, maxScore, routingOptions.MaxSkipPenaltyMinutes)))
             .ToArray();
 
-        var horizon = input.AvailableMinutes - RestReserveMinutes(input, options.TransitionBufferMinutes);
+        // reserveRestTime = false cho mô hình nới lỏng: dùng khi cần chứng minh vô nghiệm (xem CspItinerarySolver).
+        var horizon = input.AvailableMinutes
+            - (reserveRestTime ? RestReserveMinutes(input, options.TransitionBufferMinutes) : 0);
         var windows = nodes.Select(node => BuildWindows(input, node.Candidate)).ToArray();
 
         return new RoutingContext(
@@ -214,7 +217,8 @@ public sealed class RoutingContext
 
     /// <summary>
     /// Dành sẵn thời gian cho điểm nghỉ mà <see cref="ItineraryScheduleEvaluator"/> sẽ chèn sau,
-    /// để kiểm tra nhanh không quá lạc quan. Đây là ước lượng; bước kiểm tra cuối vẫn quyết định.
+    /// để kiểm tra nhanh không quá lạc quan. Đây là ước lượng chặt hơn thực tế (điểm nghỉ có thể không cần, hoặc
+    /// ngắn hơn), nên không được dùng để kết luận vô nghiệm; bước kiểm tra cuối vẫn quyết định.
     /// </summary>
     private static int RestReserveMinutes(GenerationInput input, int transitionBuffer) =>
         input.RestPreference switch

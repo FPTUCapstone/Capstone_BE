@@ -17,8 +17,8 @@ public enum SchedulingSolverMode
 
     /// <summary>
     /// Bộ giải CSP (<see cref="CspItinerarySolver"/>): backtracking, forward checking, branch and bound.
-    /// Chứng minh được vô nghiệm thì báo điểm bắt buộc gây xung đột; các trường hợp còn lại không có
-    /// lời giải thì tự quay về <see cref="Heuristic"/>.
+    /// CSP không tìm được lời giải thì dùng <see cref="Heuristic"/>; chỉ khi cả hai đều thất bại mới báo lỗi,
+    /// kèm tên các điểm bắt buộc gây xung đột nhiều nhất mà CSP xác định được.
     /// </summary>
     Csp = 2,
 }

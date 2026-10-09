@@ -69,10 +69,24 @@ public sealed class ItineraryGenerationService(
 
             if (csp.ProvedInfeasible)
             {
-                return Infeasible(DescribeCspInfeasibility(csp, candidatesById));
+                // Lưới an toàn: CSP không mô hình hóa điểm nghỉ, nên trước khi báo lỗi vẫn thử thuật toán cũ.
+                // Như vậy bật CSP không bao giờ làm mất một lịch trình mà hệ thống trước đây tìm được.
+                alternativeResult = _optimizer.Optimize(
+                    input,
+                    mandatoryCandidates,
+                    matrix,
+                    matrixCandidates,
+                    candidateMatrixIndices,
+                    cancellationToken);
+                if (alternativeResult is null)
+                {
+                    return Infeasible(DescribeCspInfeasibility(csp, candidatesById));
+                }
             }
-
-            alternativeResult = ToOptimizationResult(csp);
+            else
+            {
+                alternativeResult = ToOptimizationResult(csp);
+            }
         }
         else if (_options.SolverMode == SchedulingSolverMode.MiniRouting)
         {
