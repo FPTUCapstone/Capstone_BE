@@ -1,5 +1,23 @@
 # TM-70 / UC-24 — Implementation & Verification Plan
 
+> **Thông báo thẩm quyền V2 (09/10/2026).** Kế hoạch này được giữ nguyên như hồ sơ
+> lịch sử của delivery Phase 1 cũ, không phải kế hoạch thực thi hiện hành cho UC-24
+> V2. Baseline được duyệt nằm trong `FPTUCapstone/Capstone_Docs` tại merge commit
+> `2ad6916dc1ff4f314c19e13258c088533a93cd9a`: [V2 addendum](https://github.com/FPTUCapstone/Capstone_Docs/blob/2ad6916dc1ff4f314c19e13258c088533a93cd9a/requirements/tm-70-uc24-search-tours-v2-addendum.md),
+> [V2 implementation plan](https://github.com/FPTUCapstone/Capstone_Docs/blob/2ad6916dc1ff4f314c19e13258c088533a93cd9a/requirements/tm-70-uc24-implementation-plan.md), và
+> [Review lifecycle clarification](https://github.com/FPTUCapstone/Capstone_Docs/blob/2ad6916dc1ff4f314c19e13258c088533a93cd9a/requirements/tm-70-review-lifecycle-minimal-clarification.md).
+> SHA này thuộc repository Docs, không phải Backend. V2 D1–D9 không đánh số cùng
+> nghĩa với D0–D8 lịch sử bên dưới; V2 D6 / Addendum §8 là quyết định TourCategory.
+>
+> **Phân kỳ V2 chính xác:** Phase 1.1 chỉ thêm schema/domain TourCategory với
+> `Tours.category_id` nullable, không seed và không thêm assignment writer/API.
+> Phase 1.2 chờ Product/BA duyệt taxonomy để seed, backfill và siết `NOT NULL`;
+> writer của UC-34/35 cần hợp đồng/phê duyệt riêng vì UC-34 có category input nhưng
+> BR-101 chưa xác định category là bắt buộc. Trong thời gian chuyển tiếp, tìm kiếm
+> không lọc vẫn gồm Tour `NULL`, còn lọc theo active code chỉ khớp Tour đã gán;
+> không được vô hiệu hóa category filter toàn cục. Phase 1.3 là rating feasibility /
+> index review; Phase 2 mới triển khai Search Tours V2.
+
 **Phiên bản:** 1.2 — 19/09/2026. **Trạng thái:** owner đã duyệt D1 nhiều vùng và triển khai Database/Backend ngày 19/09/2026; D0, D2–D8 giữ nguyên. Web/Mobile UI và tích hợp client được hoãn sang Phase 2.
 
 **Owner:** Mai Nguyễn Tiến Đạt / datmnt. **Spec bắt buộc:** [TM-70-spec.md](../specs/TM-70-spec.md).

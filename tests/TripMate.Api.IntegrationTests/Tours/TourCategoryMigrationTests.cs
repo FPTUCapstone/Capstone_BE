@@ -103,6 +103,54 @@ public sealed class TourCategoryMigrationTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
+    public async Task Migration_WhenActiveNameIndexHasCorrectNameButWrongKeys_RejectsIt()
+    {
+        await using var database = await CreatePreCategoryDatabaseAsync();
+        await CreateCanonicalCategoryTableAsync(database);
+        await database.ExecuteNonQueryAsync("""
+            CREATE INDEX IX_TourCategories_ActiveName
+                ON catalog.TourCategories(name, category_id);
+            """);
+
+        Func<Task> action = () => ApplyMigrationAsync(database);
+
+        await action.Should().ThrowAsync<SqlException>()
+            .WithMessage("*active-name index keys mismatch*");
+        (await ReadIntAsync(database, """
+            SELECT COUNT(*)
+            FROM sys.columns
+            WHERE object_id = OBJECT_ID(N'commerce.Tours')
+              AND name = N'category_id';
+            """)).Should().Be(0, "index-shape rejection must roll back later migration work");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Migration_WhenTourCategoryIndexHasCorrectNameButWrongKeys_RejectsIt()
+    {
+        await using var database = await CreatePreCategoryDatabaseAsync();
+        await CreateCanonicalCategoryTableAsync(database);
+        await database.ExecuteNonQueryAsync("""
+            CREATE INDEX IX_TourCategories_ActiveName
+                ON catalog.TourCategories(is_active, name, category_id);
+
+            ALTER TABLE commerce.Tours ADD category_id INT NULL;
+            ALTER TABLE commerce.Tours WITH CHECK
+                ADD CONSTRAINT FK_Tours_TourCategories
+                FOREIGN KEY (category_id)
+                REFERENCES catalog.TourCategories(category_id);
+            CREATE INDEX IX_Tours_Category
+                ON commerce.Tours(status, category_id);
+            """);
+
+        Func<Task> action = () => ApplyMigrationAsync(database);
+
+        await action.Should().ThrowAsync<SqlException>()
+            .WithMessage("*Tours category index keys mismatch*");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
     public async Task Constraints_EnforceStableUniqueCodeRequiredEnglishNameAndForeignKey()
     {
         await using var database = await CreatePreCategoryDatabaseAsync();
@@ -160,6 +208,24 @@ public sealed class TourCategoryMigrationTests
             """);
         return database;
     }
+
+    private static Task CreateCanonicalCategoryTableAsync(SqlServerTestDatabase database) =>
+        database.ExecuteNonQueryAsync("""
+            CREATE TABLE catalog.TourCategories (
+                category_id INT IDENTITY(1,1) NOT NULL
+                    CONSTRAINT PK_TourCategories PRIMARY KEY,
+                code VARCHAR(50) COLLATE Latin1_General_100_CI_AS NOT NULL,
+                name NVARCHAR(100) COLLATE Latin1_General_100_CI_AS NOT NULL,
+                is_active BIT NOT NULL
+                    CONSTRAINT DF_TourCategories_IsActive DEFAULT 1,
+                CONSTRAINT CK_TourCategories_CodeNotBlank
+                    CHECK (LEN(LTRIM(RTRIM(code))) > 0),
+                CONSTRAINT CK_TourCategories_NameNotBlank
+                    CHECK (LEN(LTRIM(RTRIM(name))) > 0)
+            );
+            CREATE UNIQUE INDEX UX_TourCategories_Code
+                ON catalog.TourCategories(code);
+            """);
 
     private static Task ApplyMigrationAsync(SqlServerTestDatabase database)
     {
