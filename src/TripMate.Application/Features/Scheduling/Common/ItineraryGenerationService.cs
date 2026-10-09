@@ -1,4 +1,5 @@
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Scheduling.Routing;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Scheduling.Common;
@@ -55,13 +56,19 @@ public sealed class ItineraryGenerationService(
         var matrixCandidates = input.Candidates.ToArray();
         var candidateMatrixIndices = BuildCandidateMatrixIndices(matrixCandidates);
 
-        var optimizationResult = _optimizer.Optimize(
-            input,
-            mandatoryCandidates,
-            matrix,
-            matrixCandidates,
-            candidateMatrixIndices,
-            cancellationToken);
+        var optimizationResult = TrySolveWithMiniRouting(
+                input,
+                matrix,
+                matrixCandidates,
+                candidateMatrixIndices,
+                cancellationToken)
+            ?? _optimizer.Optimize(
+                input,
+                mandatoryCandidates,
+                matrix,
+                matrixCandidates,
+                candidateMatrixIndices,
+                cancellationToken);
 
         if (optimizationResult is null)
         {
@@ -147,6 +154,50 @@ public sealed class ItineraryGenerationService(
 
         _validator.Validate(input, matrix, matrixCandidates, schedule.Plan);
         return Result.Success(schedule.Plan);
+    }
+
+    /// <summary>
+    /// Chạy <see cref="MiniRoutingSolver"/> khi <see cref="SchedulingGenerationOptions.SolverMode"/>
+    /// là <see cref="SchedulingSolverMode.MiniRouting"/>. Trả về null để bên gọi dùng
+    /// <see cref="OptionalRouteOptimizer"/> khi chế độ tắt hoặc bộ giải không tìm được lời giải.
+    /// </summary>
+    private OptimizationResult? TrySolveWithMiniRouting(
+        GenerationInput input,
+        RouteDurationMatrix matrix,
+        IReadOnlyList<GenerationCandidate> matrixCandidates,
+        IReadOnlyDictionary<long, int> candidateMatrixIndices,
+        CancellationToken cancellationToken)
+    {
+        if (_options.SolverMode != SchedulingSolverMode.MiniRouting)
+        {
+            return null;
+        }
+
+        var result = new MiniRoutingSolver(_evaluator, _options, _options.MiniRouting).Solve(
+            input,
+            matrix,
+            matrixCandidates,
+            candidateMatrixIndices,
+            cancellationToken);
+
+        if (result is null)
+        {
+            return null;
+        }
+
+        var moves = result.Statistics.AcceptedMoves;
+        return new OptimizationResult(
+            result.Schedule,
+            result.InitialSchedule,
+            EvaluationsCount: result.Statistics.MovesEvaluated,
+            SeedCount: 1,
+            ReconsideredAdmissionsCount: moves.GetValueOrDefault(RoutingMoveKind.InsertOptional),
+            TwoOptMovesCount: moves.GetValueOrDefault(RoutingMoveKind.TwoOpt),
+            RelocateMovesCount: moves.GetValueOrDefault(RoutingMoveKind.Relocate)
+                + moves.GetValueOrDefault(RoutingMoveKind.OrOpt)
+                + moves.GetValueOrDefault(RoutingMoveKind.Exchange),
+            BudgetExhausted: result.Statistics.TimeLimitReached,
+            ElapsedOptimization: result.Statistics.Elapsed);
     }
 
     private static bool HasInvalidRequestConstraints(GenerationInput input) =>

@@ -1,4 +1,19 @@
+using TripMate.Application.Features.Scheduling.Routing;
+
 namespace TripMate.Application.Features.Scheduling.Common;
+
+/// <summary>Bộ giải dùng để tìm thứ tự điểm đến.</summary>
+public enum SchedulingSolverMode
+{
+    /// <summary>Thuật toán hiện tại: <see cref="OptionalRouteOptimizer"/>.</summary>
+    Heuristic = 0,
+
+    /// <summary>
+    /// Bộ giải lộ trình thu gọn (<see cref="MiniRoutingSolver"/>); không tìm được lời giải thì
+    /// tự quay về <see cref="Heuristic"/>.
+    /// </summary>
+    MiniRouting = 1,
+}
 
 public sealed class SchedulingGenerationOptions
 {
@@ -25,6 +40,10 @@ public sealed class SchedulingGenerationOptions
     public int MaxRouteOptimizationSeeds { get; init; } = DefaultMaxRouteOptimizationSeeds;
 
     public int MaxRouteEvaluations { get; init; } = DefaultMaxRouteEvaluations;
+
+    public SchedulingSolverMode SolverMode { get; init; } = SchedulingSolverMode.Heuristic;
+
+    public MiniRoutingOptions MiniRouting { get; init; } = new();
 
     public int EffectiveMaxMatrixCandidates => MaxMatrixCandidates >= MinimumMaxMatrixCandidates
         ? MaxMatrixCandidates
