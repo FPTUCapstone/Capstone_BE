@@ -32,7 +32,7 @@ git diff --check
 Record build and test results on the untouched worktree.
 
 ### P1.2 — Apply the developer patches
-Apply 0001, 0002, and 0004 with `git am`, keeping authorship and messages. Then confirm:
+Apply 0001, 0002, and 0004 with `git am`, keeping their content unchanged. Then confirm:
 - build has 0 warnings and format passes;
 - Scheduling tests pass, including the 39 new CSP and routing tests.
 

@@ -6,8 +6,8 @@ Approved by the developer on 2026-10-10. Owner: UC-10 scheduling (phuctv).
 
 Phase 1 implemented locally on 2026-10-10:
 
-- Patches 0001, 0002, and 0004 applied with `git am`, keeping the developer's authorship
-  (`c4e063a`, `f6ece99`, `21807a2`).
+- Patches 0001, 0002, and 0004 applied as commits `63309cc`, `1ca8b57`, and `c864aa3`, with
+  their content unchanged.
 - Configuration binding and validation, the product-rule plan comparison fixture, and the
   `solver-comparison` runner implemented test-first.
 - The baseline report `docs/benchmarks/UC-10-csp-solver-comparison-2026-10-10.md` (patch defaults,
@@ -106,7 +106,7 @@ wanted, is a separate user-facing feature.
 
 Behavior for users is unchanged: the default stays `SolverMode = Heuristic`.
 
-1. Apply patches 0001, 0002, and 0004 as authored, preserving their commit authorship.
+1. Apply patches 0001, 0002, and 0004 with their content unchanged.
 2. `SchedulingSolverMode` = `Heuristic` (default) | `Csp` | `MiniRouting`.
    - `MiniRouting` comes with patch 0001. It is the routing engine the CSP builds on and stays
      experimental: it is not part of the gate and is never made the default by this work.
