@@ -1,6 +1,7 @@
 using FluentAssertions;
 
 using TripMate.Application.Features.Scheduling.Common;
+using TripMate.Application.Features.Scheduling.Csp;
 
 namespace TripMate.Application.UnitTests.Features.Scheduling;
 
@@ -67,6 +68,41 @@ public sealed class SchedulingGenerationOptionsValidatorTests
         result.Failed.Should().BeTrue();
         result.FailureMessage.Should().Contain(nameof(options.TransitionBufferMinutes));
         result.FailureMessage.Should().Contain(nameof(options.FinalReturnBufferMinutes));
+    }
+
+    [Fact]
+    public void Validate_WithUndefinedSolverMode_Fails()
+    {
+        var options = new SchedulingGenerationOptions
+        {
+            SolverMode = (SchedulingSolverMode)99,
+        };
+
+        var result = _validator.Validate(null, options);
+
+        result.Failed.Should().BeTrue();
+        result.FailureMessage.Should().Contain(nameof(options.SolverMode));
+    }
+
+    [Theory]
+    [InlineData(nameof(CspOptions.MaxNodes))]
+    [InlineData(nameof(CspOptions.TimeLimitMilliseconds))]
+    [InlineData(nameof(CspOptions.MaxOptionalDomainSize))]
+    [InlineData(nameof(CspOptions.MaxStops))]
+    public void Validate_WithNonPositiveCspLimit_Fails(string limit)
+    {
+        var csp = limit switch
+        {
+            nameof(CspOptions.MaxNodes) => new CspOptions { MaxNodes = 0 },
+            nameof(CspOptions.TimeLimitMilliseconds) => new CspOptions { TimeLimitMilliseconds = 0 },
+            nameof(CspOptions.MaxOptionalDomainSize) => new CspOptions { MaxOptionalDomainSize = 0 },
+            _ => new CspOptions { MaxStops = 0 },
+        };
+
+        var result = _validator.Validate(null, new SchedulingGenerationOptions { Csp = csp });
+
+        result.Failed.Should().BeTrue();
+        result.FailureMessage.Should().Contain($"{nameof(SchedulingGenerationOptions.Csp)}.{limit}");
     }
 
     [Fact]

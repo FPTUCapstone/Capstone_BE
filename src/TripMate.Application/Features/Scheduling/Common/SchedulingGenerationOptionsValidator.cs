@@ -34,6 +34,24 @@ public sealed class SchedulingGenerationOptionsValidator : IValidateOptions<Sche
             failures.Add($"{nameof(options.MaxRouteEvaluations)} must be between {SchedulingGenerationOptions.MinRouteEvaluations} and {SchedulingGenerationOptions.MaxAllowedRouteEvaluations}.");
         }
 
+        if (!Enum.IsDefined(options.SolverMode))
+        {
+            failures.Add($"{nameof(options.SolverMode)} must be one of {string.Join(", ", Enum.GetNames<SchedulingSolverMode>())}.");
+        }
+
+        AddIfNotPositive(failures, nameof(options.Csp.MaxNodes), options.Csp.MaxNodes);
+        AddIfNotPositive(failures, nameof(options.Csp.TimeLimitMilliseconds), options.Csp.TimeLimitMilliseconds);
+        AddIfNotPositive(failures, nameof(options.Csp.MaxOptionalDomainSize), options.Csp.MaxOptionalDomainSize);
+        AddIfNotPositive(failures, nameof(options.Csp.MaxStops), options.Csp.MaxStops);
+
         return failures.Count > 0 ? ValidateOptionsResult.Fail(failures) : ValidateOptionsResult.Success;
+    }
+
+    private static void AddIfNotPositive(List<string> failures, string cspOption, int value)
+    {
+        if (value <= 0)
+        {
+            failures.Add($"{nameof(SchedulingGenerationOptions.Csp)}.{cspOption} must be greater than zero.");
+        }
     }
 }
