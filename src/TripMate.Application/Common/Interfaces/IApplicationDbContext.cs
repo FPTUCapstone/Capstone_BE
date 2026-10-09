@@ -81,6 +81,12 @@ public interface IApplicationDbContext
 
     DbSet<TripSession> TripSessions { get; }
 
+    DbSet<TripSessionItem> TripSessionItems =>
+        throw new NotSupportedException("Trip session items are unavailable in this context.");
+
+    DbSet<TripStateHistory> TripStateHistory =>
+        throw new NotSupportedException("Trip state history is unavailable in this context.");
+
     DbSet<Incident> Incidents { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
@@ -100,6 +106,14 @@ public interface IApplicationDbContext
     /// the concurrent winner's account).
     /// </summary>
     void ClearTrackedEntities();
+
+    /// <summary>
+    /// Forces the tracked session row to participate in the next optimistic-concurrency save even
+    /// when a non-terminal progress update only changes a child snapshot row.
+    /// </summary>
+    void MarkTripSessionProgressForConcurrencyCheck(TripSession session)
+    {
+    }
 
     Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,

@@ -9,8 +9,11 @@ using TripMate.Api.Controllers.V1.Requests;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Itineraries.Accept;
 using TripMate.Application.Features.Itineraries.AdjustItems;
+using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Itineraries.GetDetail;
 using TripMate.Application.Features.Itineraries.Regenerate;
+using TripMate.Application.Features.Navigation.Common;
+using TripMate.Application.Features.Navigation.Start;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Api.Controllers.V1;
@@ -22,7 +25,7 @@ public sealed class ItinerariesController(
     ICurrentUserService currentUserService) : ApiControllerBase(sender)
 {
     [HttpGet("{itineraryId:long}")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ItineraryDetailResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
@@ -39,6 +42,40 @@ public sealed class ItinerariesController(
             new GetItineraryDetailQuery(itineraryId, currentUserService.UserId.Value),
             cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    [HttpPost("{itineraryId:long}/navigation-sessions")]
+    [ProducesResponseType(typeof(NavigationSessionResponse), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(NavigationStartConflictProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status422UnprocessableEntity)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> StartNavigation(
+        long itineraryId,
+        [BindRequired, FromHeader(Name = "Idempotency-Key")] Guid idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        if (!currentUserService.UserId.HasValue)
+        {
+            return Unauthorized();
+        }
+
+        var result = await Sender.Send(
+            new StartNavigationSessionCommand(
+                itineraryId,
+                currentUserService.UserId.Value,
+                idempotencyKey),
+            cancellationToken);
+        if (result.IsFailure)
+        {
+            return HandleFailure(result);
+        }
+
+        var location = $"/api/v1/navigation-sessions/{result.Value.SessionId}";
+        return Created(location, result.Value);
     }
 
     [HttpPost("{itineraryId:long}/accept")]

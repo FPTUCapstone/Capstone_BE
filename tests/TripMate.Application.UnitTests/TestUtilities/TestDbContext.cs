@@ -89,6 +89,10 @@ public class TestDbContext(
 
     public DbSet<TripSession> TripSessions => Set<TripSession>();
 
+    public DbSet<TripSessionItem> TripSessionItems => Set<TripSessionItem>();
+
+    public DbSet<TripStateHistory> TripStateHistory => Set<TripStateHistory>();
+
     public DbSet<Incident> Incidents => Set<Incident>();
 
     public int TransactionExecutionCount { get; private set; }
@@ -179,6 +183,9 @@ public class TestDbContext(
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<TripSessionItem>()
+            .HasKey(item => new { item.SessionId, item.ItineraryItemId });
+
         modelBuilder.Entity<PoiOpeningHour>()
             .HasKey(hours => new { hours.PointOfInterestId, hours.DayOfWeek });
 
