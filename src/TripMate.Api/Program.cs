@@ -86,6 +86,8 @@ try
             if (context.HttpContext.Request.Path.StartsWithSegments("/api/v1/auth/web"))
                 problem.Extensions["errorCode"] = TripMate.Application.Features.Authentication.Common.AuthErrorCodes.RequestInvalid;
 
+            ExceptionHandlingMiddleware.AddActiveTripsErrorCode(context.HttpContext, problem);
+
             var result = new BadRequestObjectResult(problem);
             result.ContentTypes.Add("application/problem+json");
             return result;
