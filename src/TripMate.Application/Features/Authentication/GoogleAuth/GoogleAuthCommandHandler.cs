@@ -265,7 +265,7 @@ public class GoogleAuthCommandHandler(
         }
 
         // Account restrictions precede the Admin method gate, including on concurrency re-fetch.
-        return user.Role == UserRole.Administrator
+        return user.Role.IsAdministrationRole()
             ? Result.Failure<CurrentAccountContext>(AuthErrorCodes.AdminGoogleSignInDisabled,
                 "Administrator accounts must sign in with email and password.")
             : eligibility;

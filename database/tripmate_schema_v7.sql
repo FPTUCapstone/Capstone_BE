@@ -164,7 +164,7 @@ GO
 CREATE TABLE dbo.Users (
     user_id             BIGINT IDENTITY(1,1) PRIMARY KEY,
     role                VARCHAR(20)   NOT NULL
-        CHECK (role IN ('Traveler','TourOperator','Administrator')),
+        CHECK (role IN ('Traveler','TourOperator','Administrator','Staff')),
     email               NVARCHAR(256) NULL,
     phone_number        NVARCHAR(20)  NULL,
     password_hash       NVARCHAR(256) NULL,

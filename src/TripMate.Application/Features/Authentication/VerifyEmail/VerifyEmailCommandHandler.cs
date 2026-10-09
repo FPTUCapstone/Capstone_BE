@@ -88,7 +88,7 @@ public class VerifyEmailCommandHandler(
         }
 
         // This endpoint also issues sessions: a Google identity must not bypass UC-04 BR-18.
-        if (user.Role == UserRole.Administrator
+        if (user.Role.IsAdministrationRole()
             && string.Equals(tokenResult.SignInProvider, "google.com", StringComparison.Ordinal))
         {
             return Result.Failure<VerifyEmailResponse>(
