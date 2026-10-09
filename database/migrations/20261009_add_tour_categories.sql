@@ -5,6 +5,11 @@ The migration is deliberately transitional and additive:
 - existing Tours keep category_id = NULL;
 - no category taxonomy row is fabricated;
 - final NOT NULL enforcement waits for Product/BA-approved seeds and backfill.
+
+The explicit shape checks below are intentional. This migration is rerunnable
+against long-lived environments, so an object with the expected name but an
+incompatible definition must fail atomically instead of being accepted as if
+the TM-70 contract had already been installed.
 */
 SET XACT_ABORT ON;
 GO
@@ -149,6 +154,41 @@ BEGIN TRY
         CREATE INDEX IX_TourCategories_ActiveName
             ON catalog.TourCategories(is_active, name, category_id);
 
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'catalog.TourCategories')
+          AND name = N'IX_TourCategories_ActiveName'
+          AND type = 2
+          AND is_unique = 0
+          AND has_filter = 0
+          AND is_disabled = 0
+          AND is_hypothetical = 0)
+       OR (
+        SELECT COUNT(*)
+        FROM sys.index_columns AS ic
+        JOIN sys.indexes AS i
+          ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+        WHERE i.object_id = OBJECT_ID(N'catalog.TourCategories')
+          AND i.name = N'IX_TourCategories_ActiveName'
+    ) <> 3
+       OR (
+        SELECT COUNT(*)
+        FROM sys.index_columns AS ic
+        JOIN sys.indexes AS i
+          ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+        JOIN sys.columns AS c
+          ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+        WHERE i.object_id = OBJECT_ID(N'catalog.TourCategories')
+          AND i.name = N'IX_TourCategories_ActiveName'
+          AND ic.is_included_column = 0
+          AND ic.is_descending_key = 0
+          AND ((ic.key_ordinal = 1 AND c.name = N'is_active')
+            OR (ic.key_ordinal = 2 AND c.name = N'name')
+            OR (ic.key_ordinal = 3 AND c.name = N'category_id'))
+    ) <> 3
+        THROW 51000, 'TM-70 TourCategories active-name index keys mismatch.', 1;
+
     IF COL_LENGTH(N'commerce.Tours', N'category_id') IS NULL
         ALTER TABLE commerce.Tours ADD category_id INT NULL;
 
@@ -184,6 +224,39 @@ BEGIN TRY
         WHERE object_id = OBJECT_ID(N'commerce.Tours')
           AND name = N'IX_Tours_Category')
         CREATE INDEX IX_Tours_Category ON commerce.Tours(category_id);
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'commerce.Tours')
+          AND name = N'IX_Tours_Category'
+          AND type = 2
+          AND is_unique = 0
+          AND has_filter = 0
+          AND is_disabled = 0
+          AND is_hypothetical = 0)
+       OR (
+        SELECT COUNT(*)
+        FROM sys.index_columns AS ic
+        JOIN sys.indexes AS i
+          ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+        WHERE i.object_id = OBJECT_ID(N'commerce.Tours')
+          AND i.name = N'IX_Tours_Category'
+    ) <> 1
+       OR NOT EXISTS (
+        SELECT 1
+        FROM sys.index_columns AS ic
+        JOIN sys.indexes AS i
+          ON i.object_id = ic.object_id AND i.index_id = ic.index_id
+        JOIN sys.columns AS c
+          ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+        WHERE i.object_id = OBJECT_ID(N'commerce.Tours')
+          AND i.name = N'IX_Tours_Category'
+          AND ic.is_included_column = 0
+          AND ic.is_descending_key = 0
+          AND ic.key_ordinal = 1
+          AND c.name = N'category_id')
+        THROW 51000, 'TM-70 Tours category index keys mismatch.', 1;
 
     COMMIT TRANSACTION;
 END TRY
