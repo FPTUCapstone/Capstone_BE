@@ -18,8 +18,11 @@ Approved by the developer on 2026-10-10, together with
   | Spec and plan | `4ca96ed`, `d4a4992` |
   | P1.7 (review round 1 remediation) | `96c0eb8` |
   | P1.7 (regenerated baseline report) | `7019457` |
+  | P1.8 (review round 2 remediation) | `8988247`, `637ebbd` |
+  | Merge of `develop` (reviewed in round 3) | `94995d9` |
 
-  P1.7 follows the reviewed head `d4a4992`; P1.8 follows the reviewed head `7019457`.
+  P1.7 follows the reviewed head `d4a4992`; P1.8 follows the reviewed head `7019457`; P1.9 follows
+  the reviewed head `94995d9`.
 - **Phases 2 and 3:** not started. Each gets its own PR.
 
 ## Verification commands
@@ -135,6 +138,39 @@ Final verification commands with SQL Server. Record the evidence in the spec sta
    - The committed corpus passes unchanged, so the report is not regenerated.
 2. **LOW 2.** Add `96c0eb8` and `7019457` to the commit table.
 3. **Re-review gate.** As in P1.7 step 5, on the new head SHA.
+
+### P1.9 — Review round 3 remediation (independent algorithm review of head `94995d9`)
+1. **HIGH, rest reserve (test first).**
+   - Add `CspRestOptimalityTests`: random non-metric instances (4–6 candidates, tight opening hours,
+     optional budget), 80 per rest preference. An evaluator-based brute force gives the optimum,
+     and the test counts CSP schedules that are worse or missing.
+   - Measured on `94995d9`: `Auto` 6/77 worse, `Frequent` 23/69 worse, none missing.
+   - Then, in `CspItinerarySolver`:
+     - always run the relaxed model when rest applies, after the reserved one, with the reserved
+       run's best evaluated objective as its initial bound;
+     - evaluate every elite solution of both runs and keep the lowest evaluated objective.
+   - Result: `Auto` 0/77 worse, `Frequent` 1/69 worse. The test thresholds pin these numbers.
+   - Correct the `SearchCompleted` comment.
+2. **MEDIUM 2.** One `NodeBudget` shared by both runs, with a test that the total stays within
+   `MaxNodes`. Document the time-limit determinism exception (spec invariants, report
+   limitations).
+3. **MEDIUM 1.** Replace the commit provenance with `SolverComparisonReport.ComputeSourceHash`
+   over `SourceInputs`, with tests for line endings, content changes and missing inputs. The latest
+   report must match the current source. Remove the git calls from the runner and the test, and
+   revert `ci.yml` to the `develop` checkout.
+4. **Benchmark corpus.** Add `RestPreference` to `CreateSyntheticCorpusScenario` and the runner
+   (`None`, `Auto`, `Frequent`; `-auto` and `-frequent` segment suffixes), a `rest_preference`
+   column, and a per-preference quality table.
+5. **LOWs.**
+   - A CSP plan no longer records `OptionalRouteOptimization`.
+   - New `SchedulingSolverOutcome` tags: `csp.evaluator_calls` and `csp.chose_relaxed_rest_model`.
+   - Validate `MiniRouting.*` and `Csp:FinalCandidatesToValidate`.
+   - Remove per-node allocations in `LowerBound`, `RouteEliteSet.Offer` and `OrderValues`.
+6. **MEDIUM 3 and R4.** No code change. They stay Phase 2 R1a and R4.
+7. **Regenerate the report** with the source changes. The order of commits no longer matters,
+   because the report is tied to a source hash, not a commit. Commit the source and the four report
+   files together, or the report right after the source.
+8. **Re-review gate.** As in P1.7 step 5, on the new head SHA.
 
 ## Phase 2 — PR 2 (CSP follows the product rule)
 
