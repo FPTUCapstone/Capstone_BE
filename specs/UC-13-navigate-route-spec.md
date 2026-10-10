@@ -141,8 +141,12 @@ departure, and the mandatory flag.
 Reach, skip, and depart accept an optional device-observed time `occurredAtUtc`:
 
 - absent → Backend clock;
-- earlier than `StartedAtUtc`, or later than `now + ClientClockSkewTolerance` → Backend clock;
+- earlier than the session's last recorded transition (at first `StartedAtUtc`), or later than
+  `now + ClientClockSkewTolerance` → Backend clock;
 - otherwise → `min(occurredAtUtc, now)`.
+
+The lower bound keeps the state history in time order when the device clock runs behind the
+server: a device time older than an event already recorded with the Backend clock is not trusted.
 
 Invalid device times never reject the request, so queued offline actions cannot get stuck.
 Start, finish, and expiry always use Backend time (expiry uses `ExpiresAtUtc` itself).
@@ -361,9 +365,14 @@ itinerary access was revoked; that response contains only the owner's session an
       "reachedAtUtc": "2026-10-20T02:15:00Z",
       "skippedAtUtc": null
     }
-  ]
+  ],
+  "transportMode": "Walking"
 }
 ```
+
+`transportMode` is the mode of the itinerary's scheduling request (`Walking`, `Motorbike`, `Car`,
+`PublicTransit`), or `null` for a manual itinerary. Mobile requests turn-by-turn routes for the same
+mode the CSP planned with (walking routes for walking trips).
 
 No GPS position, Mapbox token, route geometry, or other Traveler data is exposed.
 

@@ -90,6 +90,101 @@ public sealed class NavigationSessionEndpointTests
     }
 
     [Fact]
+    public async Task Session_CarriesThePlannedTransportModeForRouting()
+    {
+        await using var factory = new TripMateApiFactory();
+        var manual = await SeedAsync(factory);
+        var walking = await factory.WithDbContextAsync(async db =>
+        {
+            var now = DateTimeOffset.UtcNow;
+            var poi = await db.PointsOfInterest.FirstAsync();
+            var request = SchedulingRequest.Create(
+                7,
+                Guid.NewGuid(),
+                new string('w', SchedulingRequest.RequestHashLength),
+                now.AddMinutes(30),
+                "Asia/Ho_Chi_Minh",
+                16.0544m,
+                108.2022m,
+                poi.Latitude,
+                poi.Longitude,
+                null,
+                true,
+                180,
+                TransportMode.Walking,
+                5m,
+                null,
+                "[]",
+                RestPreference.None,
+                now);
+            var owner = Guid.NewGuid();
+            request.ClaimGeneration(owner, now.AddMinutes(1), now);
+            request.CompleteGeneration(owner, now);
+            db.SchedulingRequests.Add(request);
+            await db.SaveChangesAsync();
+            var itinerary = Itinerary.CreateCspGenerated(request, "Walking plan", now.AddHours(1), now.AddHours(2));
+            itinerary.AddItem(ItineraryItem.CreateVisit(1, poi.Id, now.AddHours(1), now.AddHours(2), false, 0m, null));
+            itinerary.Accept(now);
+            db.Itineraries.Add(itinerary);
+            await db.SaveChangesAsync();
+            return itinerary.Id;
+        });
+        using var client = factory.CreateAuthenticatedClient(7, UserRole.Traveler);
+
+        using var started = await StartAsync(client, walking, FirstKey);
+        started.StatusCode.Should().Be(HttpStatusCode.Created);
+        using var startedJson = await ReadAsync(started);
+        startedJson.RootElement.GetProperty("transportMode").GetString().Should().Be("Walking");
+        var sessionId = startedJson.RootElement.GetProperty("sessionId").GetInt64();
+        using var reloaded = await client.GetAsync($"/api/v1/navigation-sessions/{sessionId}");
+        (await ReadAsync(reloaded)).RootElement.GetProperty("transportMode").GetString().Should().Be("Walking");
+        using var finished = await client.PutAsync($"/api/v1/navigation-sessions/{sessionId}/completion", content: null);
+        (await ReadAsync(finished)).RootElement.GetProperty("transportMode").GetString().Should().Be("Walking");
+
+        using var manualStart = await StartAsync(client, manual.ItineraryId, SecondKey);
+        manualStart.StatusCode.Should().Be(HttpStatusCode.Created);
+        (await ReadAsync(manualStart)).RootElement.GetProperty("transportMode").ValueKind
+            .Should().Be(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task DeviceTimeBehindTheLastRecordedEvent_UsesTheServerClock()
+    {
+        await using var factory = new TripMateApiFactory();
+        var seed = await SeedAsync(factory);
+        using var client = factory.CreateAuthenticatedClient(7, UserRole.Traveler);
+        using var start = await StartAsync(client, seed.ItineraryId, FirstKey);
+        using var startedJson = await ReadAsync(start);
+        var sessionId = startedJson.RootElement.GetProperty("sessionId").GetInt64();
+        var startedAt = startedJson.RootElement.GetProperty("startedAtUtc").GetDateTimeOffset();
+        var basePath = $"/api/v1/navigation-sessions/{sessionId}";
+
+        // The reach is recorded with the server clock; the device clock runs behind it.
+        using var reach = await client.PutAsync($"{basePath}/reached-items/{seed.ItemIds[0]}", content: null);
+        reach.StatusCode.Should().Be(HttpStatusCode.OK);
+        var beforeDepart = DateTimeOffset.UtcNow;
+        using var depart = await client.PutAsJsonAsync(
+            $"{basePath}/state",
+            new { state = TripSession.NavigatingState, occurredAtUtc = startedAt });
+        depart.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        await factory.WithDbContextAsync(async db =>
+        {
+            var history = await db.Set<TripStateHistory>()
+                .OrderBy(entry => entry.Id)
+                .Select(entry => new { entry.Reason, entry.ChangedAtUtc })
+                .ToListAsync();
+            history.Select(entry => entry.Reason).Should().Equal(
+                TripStateHistory.NavigationStartedReason,
+                TripStateHistory.ItemReachedReason,
+                TripStateHistory.TravelerDepartedReason);
+            history[2].ChangedAtUtc.Should().BeOnOrAfter(beforeDepart);
+            history.Select(entry => entry.ChangedAtUtc).Should().BeInAscendingOrder();
+            return true;
+        });
+    }
+
+    [Fact]
     public async Task ActiveSession_ProvidesResumeContractAndCanBeStoppedIdempotently()
     {
         await using var factory = new TripMateApiFactory();

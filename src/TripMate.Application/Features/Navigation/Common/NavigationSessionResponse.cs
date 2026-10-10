@@ -1,4 +1,5 @@
 using TripMate.Domain.Entities;
+using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Navigation.Common;
 
@@ -13,9 +14,21 @@ public sealed record NavigationSessionResponse(
     DateTimeOffset? EndedAtUtc,
     long? ExploringItemId,
     long? NextItemId,
-    IReadOnlyCollection<NavigationSessionItemResponse> Items)
+    IReadOnlyCollection<NavigationSessionItemResponse> Items,
+    TransportMode? TransportMode)
 {
-    public static NavigationSessionResponse From(TripSession session, int itineraryVersion)
+    /// <summary>
+    /// Builds the response; the itinerary's scheduling request (when loaded) supplies the planned
+    /// transport mode so the client routes for the same mode the CSP scheduled. Manual itineraries
+    /// have none.
+    /// </summary>
+    public static NavigationSessionResponse From(TripSession session, Itinerary itinerary) =>
+        From(session, itinerary.Version, itinerary.SchedulingRequest?.TransportMode);
+
+    public static NavigationSessionResponse From(
+        TripSession session,
+        int itineraryVersion,
+        TransportMode? transportMode = null)
     {
         var items = session.Items
             .OrderBy(item => item.SequenceNo)
@@ -44,7 +57,8 @@ public sealed record NavigationSessionResponse(
             session.EndedAtUtc,
             session.ExploringItemId,
             items.FirstOrDefault(item => item.Status == TripSessionItem.PendingStatus)?.ItemId,
-            items);
+            items,
+            transportMode);
     }
 }
 

@@ -86,6 +86,7 @@ public sealed class StartNavigationSessionCommandHandler(
 
         var itinerary = await dbContext.Itineraries
             .AsNoTracking()
+            .Include(candidate => candidate.SchedulingRequest)
             .Include(candidate => candidate.Items)
             .ThenInclude(item => item.PointOfInterest)
             .SingleAsync(candidate => candidate.Id == access.Value.CurrentItinerary.Id, cancellationToken);
@@ -165,7 +166,7 @@ public sealed class StartNavigationSessionCommandHandler(
             snapshot);
         dbContext.TripSessions.Add(session);
         await dbContext.SaveChangesAsync(cancellationToken);
-        return Result.Success(NavigationSessionResponse.From(session, itinerary.Version));
+        return Result.Success(NavigationSessionResponse.From(session, itinerary));
     }
 
     private async Task<Result<NavigationSessionResponse>> ReplayAsync(
@@ -195,7 +196,7 @@ public sealed class StartNavigationSessionCommandHandler(
         // Untracked: shows the effective state without persisting a read-time expiry.
         replay.ExpireIfDue(clock.UtcNow);
         NavigationSessionMetrics.RecordStart(NavigationSessionMetrics.ReplayedOutcome);
-        return Result.Success(NavigationSessionResponse.From(replay, replay.Itinerary.Version));
+        return Result.Success(NavigationSessionResponse.From(replay, replay.Itinerary));
     }
 
     private async Task<TripSession?> LoadByKeyAsync(
@@ -205,6 +206,7 @@ public sealed class StartNavigationSessionCommandHandler(
         await dbContext.TripSessions
             .AsNoTracking()
             .Include(session => session.Itinerary)
+            .ThenInclude(itinerary => itinerary.SchedulingRequest)
             .Include(session => session.Items)
             .SingleOrDefaultAsync(
                 session => session.TravelerUserId == travelerUserId

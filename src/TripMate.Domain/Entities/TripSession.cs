@@ -235,7 +235,9 @@ public sealed class TripSession : BaseEntity
 
     /// <summary>
     /// Resolves the time of a Traveler action: a device-observed time is kept only when it is not
-    /// earlier than the session start and not later than the server clock plus the tolerated skew.
+    /// earlier than the last recorded transition (so a device clock running behind cannot reorder
+    /// the history) and not later than the server clock plus the tolerated skew. The state
+    /// history must be loaded; without it only the session start bounds the device time.
     /// </summary>
     public DateTimeOffset ResolveEventTime(
         DateTimeOffset? occurredAtUtc,
@@ -249,7 +251,10 @@ public sealed class TripSession : BaseEntity
         }
 
         var occurredUtc = occurred.ToUniversalTime();
-        if ((StartedAtUtc is { } startedAtUtc && occurredUtc < startedAtUtc)
+        var earliestAllowed = _stateHistory.Count == 0
+            ? StartedAtUtc
+            : _stateHistory.Max(history => history.ChangedAtUtc);
+        if ((earliestAllowed is { } earliest && occurredUtc < earliest)
             || occurredUtc > nowUtc + clockSkewTolerance)
         {
             return nowUtc;

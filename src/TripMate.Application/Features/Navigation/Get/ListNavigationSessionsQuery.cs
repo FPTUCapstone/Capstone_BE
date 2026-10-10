@@ -37,6 +37,7 @@ public sealed class ListNavigationSessionsQueryHandler(
         var session = await dbContext.TripSessions
             .AsNoTracking()
             .Include(candidate => candidate.Itinerary)
+            .ThenInclude(itinerary => itinerary.SchedulingRequest)
             .Include(candidate => candidate.Items)
             .SingleOrDefaultAsync(
                 candidate => candidate.TravelerUserId == request.TravelerUserId
@@ -59,6 +60,6 @@ public sealed class ListNavigationSessionsQueryHandler(
                 NavigationErrorCodes.AccessDenied,
                 "You do not have access to this navigation session.")
             : Result.Success<IReadOnlyCollection<NavigationSessionResponse>>(
-                [NavigationSessionResponse.From(session, session.Itinerary.Version)]);
+                [NavigationSessionResponse.From(session, session.Itinerary)]);
     }
 }

@@ -6,6 +6,12 @@ using TripMate.Application.Features.Navigation.Common;
 
 namespace TripMate.Application.UnitTests.Features.Navigation;
 
+// The listener sees every measurement of the process-wide meter, so these tests must not run
+// while other navigation tests record metrics in parallel.
+[CollectionDefinition(nameof(NavigationSessionMetricsTests), DisableParallelization = true)]
+public sealed class NavigationMetricsCollection;
+
+[Collection(nameof(NavigationSessionMetricsTests))]
 public sealed class NavigationSessionMetricsTests
 {
     [Fact]

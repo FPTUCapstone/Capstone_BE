@@ -22,6 +22,7 @@ public sealed class GetNavigationSessionQueryHandler(
         var session = await dbContext.TripSessions
             .AsNoTracking()
             .Include(candidate => candidate.Itinerary)
+            .ThenInclude(itinerary => itinerary.SchedulingRequest)
             .Include(candidate => candidate.Items)
             .SingleOrDefaultAsync(candidate => candidate.Id == request.SessionId, cancellationToken);
         if (session is null)
@@ -48,7 +49,7 @@ public sealed class GetNavigationSessionQueryHandler(
 
         // Untracked: shows the effective state without persisting a read-time expiry.
         session.ExpireIfDue(clock.UtcNow);
-        return Result.Success(NavigationSessionResponse.From(session, session.Itinerary.Version));
+        return Result.Success(NavigationSessionResponse.From(session, session.Itinerary));
     }
 
     private static Result<NavigationSessionResponse> AccessDenied() =>

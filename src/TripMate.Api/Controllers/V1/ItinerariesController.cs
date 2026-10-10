@@ -11,6 +11,7 @@ using TripMate.Application.Features.Itineraries.Accept;
 using TripMate.Application.Features.Itineraries.AdjustItems;
 using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Itineraries.GetDetail;
+using TripMate.Application.Features.Itineraries.List;
 using TripMate.Application.Features.Itineraries.Regenerate;
 using TripMate.Application.Features.Navigation.Common;
 using TripMate.Application.Features.Navigation.Start;
@@ -24,6 +25,27 @@ public sealed class ItinerariesController(
     ISender sender,
     ICurrentUserService currentUserService) : ApiControllerBase(sender)
 {
+    [HttpGet]
+    [ProducesResponseType(typeof(ItinerarySummaryPage), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> List(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = ListMyItinerariesQuery.DefaultPageSize,
+        CancellationToken cancellationToken = default)
+    {
+        if (!currentUserService.UserId.HasValue)
+        {
+            return Unauthorized();
+        }
+
+        var result = await Sender.Send(
+            new ListMyItinerariesQuery(currentUserService.UserId.Value, page, pageSize),
+            cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
     [HttpGet("{itineraryId:long}")]
     [ProducesResponseType(typeof(ItineraryDetailResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]

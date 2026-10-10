@@ -280,6 +280,23 @@ public sealed class TripSessionTests
     }
 
     [Fact]
+    public void ResolveEventTime_NeverPlacesAnEventBeforeTheLastRecordedOne()
+    {
+        // A device clock running behind the server must not reorder the history: here the
+        // reach was recorded with the server clock, then a late device time arrives.
+        var session = CreateSession();
+        var reachedAt = StartedAtUtc.AddMinutes(30);
+        session.ReachItem(1001, reachedAt).Should().Be(TripSessionProgressOutcome.Applied);
+        var now = StartedAtUtc.AddHours(2);
+        var tolerance = TimeSpan.FromMinutes(2);
+
+        session.ResolveEventTime(StartedAtUtc.AddMinutes(20), now, tolerance).Should().Be(now);
+        session.ResolveEventTime(reachedAt, now, tolerance).Should().Be(reachedAt);
+        session.ResolveEventTime(reachedAt.AddMinutes(5), now, tolerance)
+            .Should().Be(reachedAt.AddMinutes(5));
+    }
+
+    [Fact]
     public void Constants_MatchTheContractVocabulary()
     {
         TripSession.NavigatingState.Should().Be("Navigating");

@@ -105,15 +105,22 @@ public sealed class NavigationSessionMutationHandlersTests
         var now = StartedAtUtc.AddHours(1);
         await Reach(db, now, seed.SessionId, seed.ItemIds[0], null);
 
-        var skipped = await Skip(db, now, seed.SessionId, seed.ItemIds[2], StartedAtUtc.AddMinutes(50));
-        var replay = await Skip(db, now.AddMinutes(1), seed.SessionId, seed.ItemIds[2], null);
+        // The device time is after the recorded reach, so it is kept (see TripSessionTests for
+        // device times older than the last recorded event).
+        var skipped = await Skip(
+            db,
+            now.AddMinutes(10),
+            seed.SessionId,
+            seed.ItemIds[2],
+            StartedAtUtc.AddMinutes(65));
+        var replay = await Skip(db, now.AddMinutes(11), seed.SessionId, seed.ItemIds[2], null);
         var reached = await Skip(db, now, seed.SessionId, seed.ItemIds[0], null);
 
         skipped.IsSuccess.Should().BeTrue();
         skipped.Value.State.Should().Be(TripSession.ExploringState);
         skipped.Value.Items.Last().Status.Should().Be(TripSessionItem.SkippedStatus);
-        skipped.Value.Items.Last().SkippedAtUtc.Should().Be(StartedAtUtc.AddMinutes(50));
-        replay.Value.Items.Last().SkippedAtUtc.Should().Be(StartedAtUtc.AddMinutes(50));
+        skipped.Value.Items.Last().SkippedAtUtc.Should().Be(StartedAtUtc.AddMinutes(65));
+        replay.Value.Items.Last().SkippedAtUtc.Should().Be(StartedAtUtc.AddMinutes(65));
         reached.ErrorCode.Should().Be(NavigationErrorCodes.ItemAlreadyReached);
     }
 

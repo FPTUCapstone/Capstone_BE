@@ -86,7 +86,9 @@ internal sealed class NavigationSessionMutator(
     {
         var session = await dbContext.TripSessions
             .Include(candidate => candidate.Itinerary)
+            .ThenInclude(itinerary => itinerary.SchedulingRequest)
             .Include(candidate => candidate.Items)
+            .Include(candidate => candidate.StateHistory)
             .SingleOrDefaultAsync(candidate => candidate.Id == sessionId, cancellationToken);
         if (session is null)
         {
@@ -124,7 +126,7 @@ internal sealed class NavigationSessionMutator(
 
     private static MutationOutcome Success(TripSession session, string metricOutcome, bool expired) =>
         new(
-            Result.Success(NavigationSessionResponse.From(session, session.Itinerary.Version)),
+            Result.Success(NavigationSessionResponse.From(session, session.Itinerary)),
             metricOutcome,
             expired);
 
