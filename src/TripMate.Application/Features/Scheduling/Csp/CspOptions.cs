@@ -13,7 +13,8 @@ public sealed class CspOptions
 
     /// <summary>
     /// Giới hạn số nút của cây tìm kiếm: đây là điều kiện dừng chính. Chạm giới hạn thì trả về lời giải tốt nhất đã có.
-    /// Dừng theo số nút nên cùng một yêu cầu luôn cho cùng một lịch trình, dù máy nhanh hay chậm.
+    /// Dừng theo số nút nên cùng một yêu cầu luôn cho cùng một lịch trình, dù máy nhanh hay chậm. Khi có điểm nghỉ,
+    /// lần duyệt mô hình có dự phòng nghỉ và lần duyệt mô hình nới lỏng dùng chung giới hạn này.
     /// </summary>
     public int MaxNodes { get; init; } = 200_000;
 
@@ -23,7 +24,10 @@ public sealed class CspOptions
     /// </summary>
     public int TimeLimitMilliseconds { get; init; } = 5000;
 
-    /// <summary>Số lời giải tốt nhất được đưa qua bước kiểm tra cuối (chèn điểm nghỉ).</summary>
+    /// <summary>
+    /// Số lời giải tốt nhất của mỗi lần duyệt được đưa qua bước kiểm tra cuối (chèn điểm nghỉ). Khi có điểm nghỉ, mọi
+    /// lời giải này đều được kiểm tra và lịch có mục tiêu thật nhỏ nhất được chọn.
+    /// </summary>
     public int FinalCandidatesToValidate { get; init; } = 5;
 
     /// <summary>

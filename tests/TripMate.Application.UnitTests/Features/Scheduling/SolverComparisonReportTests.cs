@@ -19,9 +19,9 @@ public class SolverComparisonReportTests
     public static TheoryData<string> CommittedReports()
     {
         var data = new TheoryData<string>();
-        foreach (var meta in Directory.GetFiles(BenchmarksDirectory(), ReportPrefix + "*.meta.json").Order(StringComparer.Ordinal))
+        foreach (var baseName in CommittedReportNames())
         {
-            data.Add(Path.GetFileName(meta)[..^".meta.json".Length]);
+            data.Add(baseName);
         }
 
         return data;
@@ -58,16 +58,80 @@ public class SolverComparisonReportTests
 
     [Theory]
     [MemberData(nameof(CommittedReports))]
-    public void CommittedReport_IsValidAndCitesACleanAncestorCommit(string baseName)
+    public void CommittedReport_IsValid(string baseName)
     {
         // Read validates the data (see SolverComparisonReport.Validate) and throws on any malformed or surplus row.
         var data = SolverComparisonReport.Read(BenchmarksDirectory(), baseName);
-        var meta = data.Metadata;
 
-        data.Timings.Should().HaveCount(data.Scenarios.Count * 3 * meta.MeasuredIterations);
-        SolverComparisonReport.FindProvenance(RepositoryRoot(), meta.CommitSha)
-            .Should().Be(SolverComparisonCommitProvenance.Ancestor, "the report must be reproducible from a commit in this history");
-        meta.WorkingTreeDirty.Should().BeFalse("a committed report must come from a clean working tree");
+        data.Timings.Should().HaveCount(data.Scenarios.Count * 3 * data.Metadata.MeasuredIterations);
+    }
+
+    /// <summary>
+    /// Báo cáo mới nhất phải đo đúng mã nguồn đang commit. So bằng hash nội dung nên không cần <c>.git</c> và không
+    /// phụ thuộc kiểu merge (squash, rebase hay merge commit). Báo cáo cũ hơn là lịch sử, không bắt buộc khớp.
+    /// </summary>
+    [Fact]
+    public void LatestCommittedReport_MeasuredTheCurrentSource()
+    {
+        // Tên tệp chứa ngày dạng yyyy-MM-dd nên thứ tự ordinal cũng là thứ tự thời gian.
+        var latest = CommittedReportNames().LastOrDefault();
+        latest.Should().NotBeNull();
+        var meta = SolverComparisonReport.Read(BenchmarksDirectory(), latest!).Metadata;
+        var current = SolverComparisonReport.ComputeSourceHash(RepositoryRoot());
+
+        var ensure = () => SolverComparisonReport.EnsureMatchesSource(meta, current.Hash);
+
+        ensure.Should().NotThrow();
+        meta.SourceFileCount.Should().Be(current.FileCount);
+    }
+
+    [Fact]
+    public void EnsureMatchesSource_RejectsAReportOfDifferentSource()
+    {
+        var ensure = () => SolverComparisonReport.EnsureMatchesSource(SampleData().Metadata, new string('b', 64));
+
+        ensure.Should().Throw<InvalidDataException>().WithMessage("*now hash to bbbb*Regenerate it*");
+    }
+
+    [Fact]
+    public void ComputeSourceHash_IgnoresLineEndings_AndTracksContentAndPaths()
+    {
+        var root = TemporaryDirectory();
+        try
+        {
+            string[] inputs = ["src/Solver", "tools/Program.cs"];
+            Directory.CreateDirectory(Path.Combine(root, "src", "Solver", "Nested"));
+            Directory.CreateDirectory(Path.Combine(root, "tools"));
+            File.WriteAllText(Path.Combine(root, "src", "Solver", "A.cs"), "class A\n{\n}\n");
+            File.WriteAllText(Path.Combine(root, "src", "Solver", "Nested", "B.cs"), "class B { }\n");
+            File.WriteAllText(Path.Combine(root, "src", "Solver", "notes.md"), "not source\n");
+            File.WriteAllText(Path.Combine(root, "tools", "Program.cs"), "return 0;\n");
+            var original = SolverComparisonReport.ComputeSourceHash(root, inputs);
+
+            File.WriteAllText(Path.Combine(root, "src", "Solver", "A.cs"), "class A\r\n{\r\n}\r\n");
+            File.WriteAllText(Path.Combine(root, "src", "Solver", "notes.md"), "changed, still not source\n");
+            var crlf = SolverComparisonReport.ComputeSourceHash(root, inputs);
+
+            File.WriteAllText(Path.Combine(root, "src", "Solver", "Nested", "B.cs"), "class B { int x; }\n");
+            var edited = SolverComparisonReport.ComputeSourceHash(root, inputs);
+
+            original.FileCount.Should().Be(3);
+            original.Hash.Should().MatchRegex("^[0-9a-f]{64}$");
+            crlf.Should().Be(original);
+            edited.Hash.Should().NotBe(original.Hash);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ComputeSourceHash_RejectsAMissingInput()
+    {
+        var compute = () => SolverComparisonReport.ComputeSourceHash(RepositoryRoot(), ["src/DoesNotExist"]);
+
+        compute.Should().Throw<FileNotFoundException>().WithMessage("*src/DoesNotExist*");
     }
 
     // Mỗi trường hợp làm hỏng tệp .timings.csv của một bộ dữ liệu hợp lệ theo một cách, và Read phải từ chối.
@@ -112,7 +176,11 @@ public class SolverComparisonReportTests
     [InlineData("csp-plan-above-max-stops", "*CSP plan with 4 visits, above MaxStops 3*")]
     [InlineData("duplicate-scenario", "*scenario c10-m0-s1 appears more than once*")]
     [InlineData("corpus-size-mismatch", "*expected 2 scenarios for the declared corpus, found 1*")]
-    [InlineData("short-commit", "*source commit 'abc123' is not a full 40-character lowercase SHA*")]
+    [InlineData("rest-preferences-in-corpus-size", "*expected 2 scenarios for the declared corpus, found 1*")]
+    [InlineData("short-source-hash", "*source hash 'abc123' is not a full 64-character lowercase SHA-256*")]
+    [InlineData("no-source-files", "*must cover at least one file, found 0*")]
+    [InlineData("unknown-declared-rest-preference", "*rest preference 'Sometimes' is not a RestPreference value*")]
+    [InlineData("unknown-scenario-rest-preference", "*c10-m0-s1 has unknown rest preference 'Sometimes'*")]
     [InlineData("no-measured-iterations", "*measured iterations must be at least 1, found 0*")]
     public void Validate_RejectsMalformedScenariosAndMetadata(string mutation, string expectedMessage)
     {
@@ -125,7 +193,11 @@ public class SolverComparisonReportTests
             "csp-plan-above-max-stops" => data with { Scenarios = [row with { CspVisits = 4 }] },
             "duplicate-scenario" => data with { Scenarios = [row, row] },
             "corpus-size-mismatch" => data with { Metadata = data.Metadata with { Seeds = 2 } },
-            "short-commit" => data with { Metadata = data.Metadata with { CommitSha = "abc123" } },
+            "rest-preferences-in-corpus-size" => data with { Metadata = data.Metadata with { RestPreferences = ["None", "Auto"] } },
+            "short-source-hash" => data with { Metadata = data.Metadata with { SourceHash = "abc123" } },
+            "no-source-files" => data with { Metadata = data.Metadata with { SourceFileCount = 0 } },
+            "unknown-declared-rest-preference" => data with { Metadata = data.Metadata with { RestPreferences = ["Sometimes"] } },
+            "unknown-scenario-rest-preference" => data with { Scenarios = [row with { RestPreference = "Sometimes" }] },
             "no-measured-iterations" => data with { Metadata = data.Metadata with { MeasuredIterations = 0 } },
             _ => throw new ArgumentOutOfRangeException(nameof(mutation), mutation, null),
         };
@@ -160,35 +232,6 @@ public class SolverComparisonReportTests
         }
     }
 
-    [Theory]
-    [InlineData(SolverComparisonCommitProvenance.NotAncestor, "*is not an ancestor of HEAD*")]
-    [InlineData(SolverComparisonCommitProvenance.Unknown, "*is not in this repository*")]
-    public void EnsureProvenance_RejectsACommitOutsideTheHistoryOfHead(
-        SolverComparisonCommitProvenance provenance,
-        string expectedMessage)
-    {
-        var ensure = () => SolverComparisonReport.EnsureProvenance(SampleData().Metadata, _ => provenance);
-
-        ensure.Should().Throw<InvalidDataException>().WithMessage(expectedMessage);
-    }
-
-    [Fact]
-    public void EnsureProvenance_RejectsADirtyWorkingTree()
-    {
-        var metadata = SampleData().Metadata with { WorkingTreeDirty = true };
-
-        var ensure = () => SolverComparisonReport.EnsureProvenance(metadata, _ => SolverComparisonCommitProvenance.Ancestor);
-
-        ensure.Should().Throw<InvalidDataException>().WithMessage("*dirty working tree*");
-    }
-
-    [Fact]
-    public void FindProvenance_ReportsAnUnreachableCommitAsUnknown()
-    {
-        SolverComparisonReport.FindProvenance(RepositoryRoot(), "0123456789abcdef0123456789abcdef01234567")
-            .Should().Be(SolverComparisonCommitProvenance.Unknown);
-    }
-
     [Fact]
     public void Write_ThenRead_RoundTripsTheDataAndTheReport()
     {
@@ -206,6 +249,7 @@ public class SolverComparisonReportTests
             read.Metadata.Should().BeEquivalentTo(data.Metadata);
             markdown.Should().Be(SolverComparisonReport.Markdown(read));
             markdown.Should().Contain("| c10-m0 | 1 | 1 | 0 | 0 |");
+            markdown.Should().Contain("| None | 1 | 1 | 0 | 0 | 0 |");
             markdown.Should().Contain("plans with more than MaxStops (3) visits: 0");
             markdown.Should().Contain("Measured runs whose outcome differs from the warmup run of the same scenario and mode: 1.");
             markdown.Should().Contain("**failed** in c10-m0");
@@ -231,11 +275,11 @@ public class SolverComparisonReportTests
     // Một scenario, hai lần đo mỗi chế độ: đủ để mọi quy tắc kiểm tra đều có dữ liệu hợp lệ để làm hỏng.
     private static SolverComparisonData SampleData() => new(
         new SolverComparisonMetadata(
-            SampleDate, new string('a', 40), false, "2026-01-02T03:04:05Z", "TestOS", "TestCPU", 4, ".NET 10", "Release",
-            1, 2, 1, [10], [0], 0, 40, new CspOptions { MaxStops = 3 }),
+            SampleDate, new string('a', 64), 12, "2026-01-02T03:04:05Z", "TestOS", "TestCPU", 4, ".NET 10", "Release",
+            1, 2, 1, [10], [0], ["None"], 0, 40, new CspOptions { MaxStops = 3 }),
         [
             new SolverComparisonScenarioRow(
-                "c10-m0", "c10-m0-s1", 0, "better", 3, 3, 3, 3, 90, 80, 300, 290,
+                "c10-m0", "c10-m0-s1", "None", 0, "better", 3, 3, 3, 3, 90, 80, 300, 290,
                 SchedulingSolverOutcomes.Heuristic, SchedulingSolverOutcomes.Heuristic, SchedulingSolverOutcomes.Csp,
                 42, 2, true, false, false),
         ],
@@ -301,6 +345,12 @@ public class SolverComparisonReportTests
                 throw new ArgumentOutOfRangeException(nameof(mutation), mutation, null);
         }
     }
+
+    private static string[] CommittedReportNames() =>
+        Directory.GetFiles(BenchmarksDirectory(), ReportPrefix + "*.meta.json")
+            .Select(meta => Path.GetFileName(meta)[..^".meta.json".Length])
+            .Order(StringComparer.Ordinal)
+            .ToArray();
 
     private static string TemporaryDirectory() =>
         Path.Combine(Path.GetTempPath(), "solver-comparison-" + Guid.NewGuid().ToString("N"));

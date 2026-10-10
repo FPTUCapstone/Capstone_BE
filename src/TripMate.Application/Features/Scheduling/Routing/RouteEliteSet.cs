@@ -17,20 +17,22 @@ internal sealed class RouteEliteSet(int capacity)
 
     public void Offer(RouteState state)
     {
+        // Kiểm tra mục tiêu trước khi dựng khóa: phần lớn lời giải bị loại ở đây, khỏi tạo chuỗi.
+        var full = _items.Count >= capacity;
+        if (full && _items.Keys.Last().Objective <= state.Objective)
+        {
+            return;
+        }
+
         var key = state.Key;
         if (_keys.Contains(key))
         {
             return;
         }
 
-        if (_items.Count >= capacity)
+        if (full)
         {
             var worst = _items.Keys.Last();
-            if (worst.Objective <= state.Objective)
-            {
-                return;
-            }
-
             _items.Remove(worst);
             _keys.Remove(worst.Key);
         }

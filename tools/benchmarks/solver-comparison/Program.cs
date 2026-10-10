@@ -7,32 +7,27 @@ using TripMate.Application.UnitTests.Features.Scheduling.Fixtures;
 using TripMate.Domain.Enums;
 
 // UC-10 solver comparison: optimization disabled vs Heuristic vs CSP on identical synthetic inputs.
-// Usage: dotnet run -c Release --project tools/benchmarks/solver-comparison -- [outputDirectory] [iterations] [seeds] [--allow-dirty]
-// Commit the source first: the runner refuses a working tree with uncommitted source changes unless --allow-dirty is
-// given, and the report then states that it cannot be reproduced. Output: <base>.csv, <base>.timings.csv,
-// <base>.meta.json and <base>.md, where the Markdown is recomputed from the three data files.
-var allowDirty = args.Contains("--allow-dirty");
+// Usage (from the repository root): dotnet run -c Release --project tools/benchmarks/solver-comparison -- [outputDirectory] [iterations] [seeds]
+// The report records a SHA-256 of the benchmarked source files (SolverComparisonReport.SourceInputs), and
+// SolverComparisonReportTests fails when the committed source no longer matches it, so commit the regenerated report
+// together with the source it measured. Output: <base>.csv, <base>.timings.csv, <base>.meta.json and <base>.md, where the
+// Markdown is recomputed from the three data files.
 var positional = args.Where(arg => !arg.StartsWith("--", StringComparison.Ordinal)).ToArray();
 var outputDirectory = positional.Length > 0 ? positional[0] : Path.Combine("docs", "benchmarks");
 var iterations = positional.Length > 1 ? int.Parse(positional[1], CultureInfo.InvariantCulture) : 3;
 var seeds = positional.Length > 2 ? int.Parse(positional[2], CultureInfo.InvariantCulture) : 25;
 int[] candidateCounts = [10, 20, 40];
 int[] mandatoryCounts = [0, 1, 3, 6];
+RestPreference[] restPreferences = [RestPreference.None, RestPreference.Auto, RestPreference.Frequent];
 
-var commit = Git("rev-parse HEAD");
-if (commit is null)
+var repositoryRoot = FindRepositoryRoot(Directory.GetCurrentDirectory());
+if (repositoryRoot is null)
 {
-    Console.Error.WriteLine("Cannot read the source commit with git; run from inside the repository.");
+    Console.Error.WriteLine("Cannot find the repository root (TripMate.slnx); run from inside the repository.");
     return 1;
 }
 
-// docs/, specs/ và plans/ không ảnh hưởng kết quả; mọi thay đổi khác (kể cả tệp chưa track) đều làm báo cáo không tái lập được.
-var dirty = !string.IsNullOrEmpty(Git("status --porcelain -- . \":(exclude)docs\" \":(exclude)specs\" \":(exclude)plans\""));
-if (dirty && !allowDirty)
-{
-    Console.Error.WriteLine("The working tree has uncommitted source changes. Commit them first, or pass --allow-dirty for a non-reproducible preview.");
-    return 1;
-}
+var source = SolverComparisonReport.ComputeSourceHash(repositoryRoot);
 
 var scenarios = new List<Scenario>
 {
@@ -45,14 +40,19 @@ var scenarios = new List<Scenario>
     Named("reconsideration", OptionalRouteOptimizationScenarios.CreateReconsiderationScenario()),
 };
 var namedScenarioCount = scenarios.Count;
-foreach (var candidates in candidateCounts)
+foreach (var restPreference in restPreferences)
 {
-    foreach (var mandatory in mandatoryCounts)
+    var suffix = restPreference == RestPreference.None ? string.Empty : "-" + restPreference.ToString().ToLowerInvariant();
+    foreach (var candidates in candidateCounts)
     {
-        for (var seed = 1; seed <= seeds; seed++)
+        foreach (var mandatory in mandatoryCounts)
         {
-            var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(candidates, mandatory, seed);
-            scenarios.Add(new Scenario($"c{candidates}-m{mandatory}", $"c{candidates}-m{mandatory}-s{seed}", input, matrix));
+            var segment = $"c{candidates}-m{mandatory}{suffix}";
+            for (var seed = 1; seed <= seeds; seed++)
+            {
+                var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(candidates, mandatory, seed, restPreference);
+                scenarios.Add(new Scenario(segment, $"{segment}-s{seed}", input, matrix));
+            }
         }
     }
 }
@@ -79,6 +79,7 @@ foreach (var scenario in scenarios)
     scenarioRows.Add(new SolverComparisonScenarioRow(
         scenario.Segment,
         scenario.Name,
+        scenario.Input.RestPreference.ToString(),
         scenario.Input.MandatoryPoiIds.Count,
         Verdict(comparison),
         VisitCount(heuristic.Plan),
@@ -101,8 +102,8 @@ foreach (var scenario in scenarios)
 
 var metadata = new SolverComparisonMetadata(
     Date: DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-    CommitSha: commit,
-    WorkingTreeDirty: dirty,
+    SourceHash: source.Hash,
+    SourceFileCount: source.FileCount,
     GeneratedAtUtc: DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture),
     OperatingSystem: RuntimeInformation.OSDescription,
     Processor: Environment.GetEnvironmentVariable("PROCESSOR_IDENTIFIER") ?? RuntimeInformation.ProcessArchitecture.ToString(),
@@ -118,6 +119,7 @@ var metadata = new SolverComparisonMetadata(
     Seeds: seeds,
     CandidateCounts: candidateCounts,
     MandatoryCounts: mandatoryCounts,
+    RestPreferences: restPreferences.Select(preference => preference.ToString()).ToArray(),
     NamedScenarioCount: namedScenarioCount,
     MaxMatrixCandidates: cspOptions.MaxMatrixCandidates,
     Csp: cspOptions.Csp);
@@ -125,9 +127,10 @@ var metadata = new SolverComparisonMetadata(
 SolverComparisonReport.Write(outputDirectory, new SolverComparisonData(metadata, scenarioRows, timingRows));
 var baseName = SolverComparisonReport.BaseName(metadata.Date);
 Console.WriteLine($"Wrote {Path.Combine(outputDirectory, baseName)}.{{md,csv,timings.csv,meta.json}}");
-if (dirty)
+if (SolverComparisonReport.ComputeSourceHash(repositoryRoot).Hash != source.Hash)
 {
-    Console.WriteLine("WARNING: uncommitted source changes; the report is marked as not reproducible.");
+    Console.Error.WriteLine("The benchmarked source changed while the benchmark was running; run it again.");
+    return 1;
 }
 
 return 0;
@@ -181,28 +184,17 @@ static string Verdict(int? comparison) => comparison switch
     null => "excluded",
 };
 
-static string? Git(string arguments)
+static string? FindRepositoryRoot(string start)
 {
-    try
+    for (var directory = new DirectoryInfo(start); directory is not null; directory = directory.Parent)
     {
-        using var git = Process.Start(new ProcessStartInfo("git", arguments)
+        if (File.Exists(Path.Combine(directory.FullName, "TripMate.slnx")))
         {
-            RedirectStandardOutput = true,
-            UseShellExecute = false,
-        });
-        if (git is null)
-        {
-            return null;
+            return directory.FullName;
         }
+    }
 
-        var output = git.StandardOutput.ReadToEnd().Trim();
-        git.WaitForExit();
-        return git.ExitCode == 0 ? output : null;
-    }
-    catch (System.ComponentModel.Win32Exception)
-    {
-        return null;
-    }
+    return null;
 }
 
 internal sealed record Scenario(string Segment, string Name, GenerationInput Input, RouteDurationMatrix Matrix);

@@ -39,19 +39,34 @@ public sealed class SchedulingGenerationOptionsValidator : IValidateOptions<Sche
             failures.Add($"{nameof(options.SolverMode)} must be one of {string.Join(", ", Enum.GetNames<SchedulingSolverMode>())}.");
         }
 
-        AddIfNotPositive(failures, nameof(options.Csp.MaxNodes), options.Csp.MaxNodes);
-        AddIfNotPositive(failures, nameof(options.Csp.TimeLimitMilliseconds), options.Csp.TimeLimitMilliseconds);
-        AddIfNotPositive(failures, nameof(options.Csp.MaxOptionalDomainSize), options.Csp.MaxOptionalDomainSize);
-        AddIfNotPositive(failures, nameof(options.Csp.MaxStops), options.Csp.MaxStops);
+        const string csp = nameof(SchedulingGenerationOptions.Csp);
+        AddIfNotPositive(failures, csp, nameof(options.Csp.MaxNodes), options.Csp.MaxNodes);
+        AddIfNotPositive(failures, csp, nameof(options.Csp.TimeLimitMilliseconds), options.Csp.TimeLimitMilliseconds);
+        AddIfNotPositive(failures, csp, nameof(options.Csp.MaxOptionalDomainSize), options.Csp.MaxOptionalDomainSize);
+        AddIfNotPositive(failures, csp, nameof(options.Csp.MaxStops), options.Csp.MaxStops);
+        AddIfNotPositive(failures, csp, nameof(options.Csp.FinalCandidatesToValidate), options.Csp.FinalCandidatesToValidate);
+
+        // MiniRouting dùng cho cả SolverMode.MiniRouting lẫn mức phạt bỏ điểm và bước polish của CSP.
+        const string miniRouting = nameof(SchedulingGenerationOptions.MiniRouting);
+        var routing = options.MiniRouting;
+        AddIfNotPositive(failures, miniRouting, nameof(routing.MaxSkipPenaltyMinutes), routing.MaxSkipPenaltyMinutes);
+        AddIfNotPositive(failures, miniRouting, nameof(routing.MaxGlsIterations), routing.MaxGlsIterations);
+        AddIfNotPositive(failures, miniRouting, nameof(routing.TimeLimitMilliseconds), routing.TimeLimitMilliseconds);
+        AddIfNotPositive(failures, miniRouting, nameof(routing.MaxOrOptSegmentLength), routing.MaxOrOptSegmentLength);
+        AddIfNotPositive(failures, miniRouting, nameof(routing.FinalCandidatesToValidate), routing.FinalCandidatesToValidate);
+        if (!double.IsFinite(routing.GlsLambdaFactor) || routing.GlsLambdaFactor < 0)
+        {
+            failures.Add($"{miniRouting}.{nameof(routing.GlsLambdaFactor)} must be a finite, non-negative number.");
+        }
 
         return failures.Count > 0 ? ValidateOptionsResult.Fail(failures) : ValidateOptionsResult.Success;
     }
 
-    private static void AddIfNotPositive(List<string> failures, string cspOption, int value)
+    private static void AddIfNotPositive(List<string> failures, string section, string option, int value)
     {
         if (value <= 0)
         {
-            failures.Add($"{nameof(SchedulingGenerationOptions.Csp)}.{cspOption} must be greater than zero.");
+            failures.Add($"{section}.{option} must be greater than zero.");
         }
     }
 }

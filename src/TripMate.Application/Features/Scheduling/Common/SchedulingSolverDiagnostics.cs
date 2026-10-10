@@ -53,6 +53,8 @@ public static class SchedulingSolverDiagnostics
         activity.SetTag("csp.node_limit_reached", csp.NodeLimitReached);
         activity.SetTag("csp.time_limit_reached", csp.TimeLimitReached);
         activity.SetTag("csp.used_relaxed_rest_model", csp.UsedRelaxedRestModel);
+        activity.SetTag("csp.chose_relaxed_rest_model", csp.ChoseRelaxedRestModel);
+        activity.SetTag("csp.evaluator_calls", csp.EvaluatorCalls);
         activity.SetTag("csp.elapsed_ms", csp.Elapsed.TotalMilliseconds);
     }
 }

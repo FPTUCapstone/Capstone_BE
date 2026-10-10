@@ -1,18 +1,23 @@
-using System.Diagnostics;
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Csp;
+using TripMate.Domain.Enums;
 
 namespace TripMate.Application.UnitTests.Features.Scheduling.Fixtures;
 
 /// <summary>Môi trường, tham số và corpus của một lần chạy <c>tools/benchmarks/solver-comparison</c>.</summary>
+/// <param name="SourceHash">
+/// SHA-256 (hex thường) của các tệp nguồn quyết định kết quả benchmark (<see cref="SolverComparisonReport.SourceInputs"/>),
+/// xem <see cref="SolverComparisonReport.ComputeSourceHash"/>. Không phụ thuộc git, nên không đổi khi squash hay rebase.
+/// </param>
 public sealed record SolverComparisonMetadata(
     string Date,
-    string CommitSha,
-    bool WorkingTreeDirty,
+    string SourceHash,
+    int SourceFileCount,
     string GeneratedAtUtc,
     string OperatingSystem,
     string Processor,
@@ -24,6 +29,7 @@ public sealed record SolverComparisonMetadata(
     int Seeds,
     IReadOnlyList<int> CandidateCounts,
     IReadOnlyList<int> MandatoryCounts,
+    IReadOnlyList<string> RestPreferences,
     int NamedScenarioCount,
     int MaxMatrixCandidates,
     CspOptions Csp);
@@ -35,6 +41,7 @@ public sealed record SolverComparisonMetadata(
 public sealed record SolverComparisonScenarioRow(
     string Segment,
     string Scenario,
+    string RestPreference,
     int MandatoryCount,
     string Verdict,
     int? HeuristicVisits,
@@ -68,19 +75,6 @@ public sealed record SolverComparisonData(
     IReadOnlyList<SolverComparisonScenarioRow> Scenarios,
     IReadOnlyList<SolverComparisonTimingRow> Timings);
 
-/// <summary>Quan hệ giữa commit nguồn của báo cáo và HEAD của repository đang kiểm tra.</summary>
-public enum SolverComparisonCommitProvenance
-{
-    /// <summary>Commit tồn tại và là tổ tiên của HEAD.</summary>
-    Ancestor,
-
-    /// <summary>Commit tồn tại nhưng không nằm trong lịch sử của HEAD.</summary>
-    NotAncestor,
-
-    /// <summary>Commit không có trong repository (không tồn tại, hoặc clone nông thiếu lịch sử).</summary>
-    Unknown,
-}
-
 /// <summary>
 /// Định dạng dữ liệu và báo cáo của benchmark so sánh bộ giải. Báo cáo Markdown là một hàm thuần của ba tệp
 /// dữ liệu (<c>.csv</c>, <c>.timings.csv</c>, <c>.meta.json</c>), nên mọi con số trong báo cáo đều dựng lại được
@@ -94,8 +88,22 @@ public static class SolverComparisonReport
     public const string FallbackOutcomePrefix = "heuristic_fallback";
     public const double AddedP95GateMilliseconds = 300;
 
+    /// <summary>
+    /// Tệp và thư mục (đường dẫn tương đối từ gốc repository) mà kết quả benchmark phụ thuộc: bộ giải và evaluator,
+    /// bộ sinh corpus, quy tắc so sánh và runner. Thư mục được lấy mọi tệp <c>*.cs</c> bên trong.
+    /// </summary>
+    public static readonly IReadOnlyList<string> SourceInputs =
+    [
+        "src/TripMate.Application/Features/Scheduling/Common",
+        "src/TripMate.Application/Features/Scheduling/Csp",
+        "src/TripMate.Application/Features/Scheduling/Routing",
+        "tests/TripMate.Application.UnitTests/Features/Scheduling/Fixtures/OptionalRouteOptimizationScenarios.cs",
+        "tests/TripMate.Application.UnitTests/Features/Scheduling/Fixtures/ProductRulePlanComparison.cs",
+        "tools/benchmarks/solver-comparison/Program.cs",
+    ];
+
     private const string ScenarioHeader =
-        "segment,scenario,mandatory_count,csp_vs_heuristic,heuristic_visits,csp_visits,heuristic_optional,csp_optional,"
+        "segment,scenario,rest_preference,mandatory_count,csp_vs_heuristic,heuristic_visits,csp_visits,heuristic_optional,csp_optional,"
         + "heuristic_travel,csp_travel,heuristic_duration,csp_duration,disabled_outcome,heuristic_outcome,csp_outcome,"
         + "csp_nodes,csp_solutions_found,csp_search_completed,csp_node_limit,csp_time_limit";
 
@@ -162,9 +170,10 @@ public static class SolverComparisonReport
     /// <summary>
     /// Từ chối dữ liệu thiếu hoặc sai, để không mẫu nào bị loại âm thầm khỏi báo cáo. Dữ liệu hợp lệ khi:
     /// <list type="bullet">
-    /// <item>commit nguồn là SHA đủ 40 ký tự hex thường; có ít nhất một lần warmup và một lần đo;</item>
-    /// <item>số scenario đúng bằng corpus khai báo trong metadata, tên không trùng, verdict và outcome thuộc tập
-    /// cho phép của từng chế độ, và kế hoạch do CSP tạo không vượt <c>MaxStops</c>;</item>
+    /// <item>hash nguồn là SHA-256 đủ 64 ký tự hex thường; có ít nhất một lần warmup và một lần đo; mọi kiểu nghỉ
+    /// khai báo là giá trị hợp lệ của <see cref="RestPreference"/>;</item>
+    /// <item>số scenario đúng bằng corpus khai báo trong metadata, tên không trùng, verdict, kiểu nghỉ và outcome thuộc
+    /// tập cho phép, và kế hoạch do CSP tạo không vượt <c>MaxStops</c>;</item>
     /// <item>mỗi dòng timing có mode và outcome cho phép, thời gian hữu hạn và không âm, scenario có thật với đúng
     /// segment của nó, iteration trong [1, MeasuredIterations], và mỗi bộ (scenario, mode, iteration) xuất hiện
     /// đúng một lần — tức số dòng bằng đúng scenario × mode × MeasuredIterations.</item>
@@ -176,12 +185,13 @@ public static class SolverComparisonReport
         var problems = new List<string>();
         var meta = data.Metadata;
         ValidateMetadata(meta, problems);
-        if (meta.CandidateCounts is null || meta.MandatoryCounts is null || meta.Csp is null)
+        if (meta.CandidateCounts is null || meta.MandatoryCounts is null || meta.RestPreferences is null || meta.Csp is null)
         {
             Throw(problems);
         }
 
-        var expectedScenarios = meta.NamedScenarioCount + (meta.CandidateCounts!.Count * meta.MandatoryCounts!.Count * meta.Seeds);
+        var expectedScenarios = meta.NamedScenarioCount
+            + (meta.CandidateCounts!.Count * meta.MandatoryCounts!.Count * meta.RestPreferences!.Count * meta.Seeds);
         if (data.Scenarios.Count != expectedScenarios)
         {
             problems.Add(Invariant($"expected {expectedScenarios} scenarios for the declared corpus, found {data.Scenarios.Count}"));
@@ -232,47 +242,55 @@ public static class SolverComparisonReport
     }
 
     /// <summary>
-    /// Tra quan hệ của <paramref name="commitSha"/> với HEAD trong repository tại <paramref name="repositoryRoot"/>.
-    /// Clone nông (CI không <c>fetch-depth: 0</c>) thiếu lịch sử nên trả về <see cref="SolverComparisonCommitProvenance.Unknown"/>.
+    /// Hash nội dung của <paramref name="inputs"/> (mặc định <see cref="SourceInputs"/>) dưới
+    /// <paramref name="repositoryRoot"/>: SHA-256 trên từng tệp theo thứ tự đường dẫn (dạng <c>/</c>, so sánh ordinal),
+    /// mỗi tệp góp "đường dẫn \n nội dung \0" với xuống dòng chuẩn hóa về LF. Nhờ vậy hash giống nhau trên Windows và
+    /// Linux, trong source archive không có <c>.git</c>, và sau khi squash hay rebase.
     /// </summary>
-    public static SolverComparisonCommitProvenance FindProvenance(string repositoryRoot, string commitSha)
+    public static (string Hash, int FileCount) ComputeSourceHash(string repositoryRoot, IReadOnlyList<string>? inputs = null)
     {
-        if (RunGit(repositoryRoot, "cat-file", "-e", commitSha + "^{commit}") != 0)
+        var files = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        foreach (var input in inputs ?? SourceInputs)
         {
-            return SolverComparisonCommitProvenance.Unknown;
+            var path = Path.Combine(repositoryRoot, input);
+            if (Directory.Exists(path))
+            {
+                foreach (var file in Directory.EnumerateFiles(path, "*.cs", SearchOption.AllDirectories))
+                {
+                    files[Path.GetRelativePath(repositoryRoot, file).Replace('\\', '/')] = file;
+                }
+            }
+            else if (File.Exists(path))
+            {
+                files[input.Replace('\\', '/')] = path;
+            }
+            else
+            {
+                throw new FileNotFoundException($"Benchmark source input '{input}' does not exist under {repositoryRoot}.", path);
+            }
         }
 
-        return RunGit(repositoryRoot, "merge-base", "--is-ancestor", commitSha, "HEAD") switch
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        foreach (var (relativePath, file) in files)
         {
-            0 => SolverComparisonCommitProvenance.Ancestor,
-            1 => SolverComparisonCommitProvenance.NotAncestor,
-            _ => SolverComparisonCommitProvenance.Unknown,
-        };
+            var content = File.ReadAllText(file).Replace("\r\n", "\n", StringComparison.Ordinal);
+            hash.AppendData(Encoding.UTF8.GetBytes(relativePath + "\n" + content + "\0"));
+        }
+
+        return (Convert.ToHexStringLower(hash.GetHashAndReset()), files.Count);
     }
 
     /// <summary>
-    /// Báo cáo đã commit phải dựng lại được từ chính commit nó ghi: commit đó tồn tại, là tổ tiên của HEAD, và
-    /// cây làm việc lúc chạy benchmark sạch. Ném <see cref="InvalidDataException"/> nếu không.
+    /// Báo cáo phải đo đúng mã nguồn hiện tại: hash ghi trong metadata bằng hash tính lại trên repository. Ném
+    /// <see cref="InvalidDataException"/> kèm lệnh chạy lại benchmark nếu không.
     /// </summary>
-    public static void EnsureProvenance(
-        SolverComparisonMetadata metadata,
-        Func<string, SolverComparisonCommitProvenance> findProvenance)
+    public static void EnsureMatchesSource(SolverComparisonMetadata metadata, string currentHash)
     {
-        if (metadata.WorkingTreeDirty)
+        if (!string.Equals(metadata.SourceHash, currentHash, StringComparison.Ordinal))
         {
             throw new InvalidDataException(
-                $"the benchmark ran on a dirty working tree, so commit {metadata.CommitSha} cannot reproduce it");
-        }
-
-        switch (findProvenance(metadata.CommitSha))
-        {
-            case SolverComparisonCommitProvenance.Ancestor:
-                return;
-            case SolverComparisonCommitProvenance.NotAncestor:
-                throw new InvalidDataException($"source commit {metadata.CommitSha} is not an ancestor of HEAD");
-            default:
-                throw new InvalidDataException(
-                    $"source commit {metadata.CommitSha} is not in this repository (a shallow clone needs fetch-depth: 0)");
+                $"the report was measured on source {metadata.SourceHash}, but the benchmarked files now hash to {currentHash}. "
+                + "Regenerate it: dotnet run -c Release --project tools/benchmarks/solver-comparison");
         }
     }
 
@@ -282,7 +300,7 @@ public static class SolverComparisonReport
         foreach (var r in rows)
         {
             csv.AppendJoin(',',
-                r.Segment, r.Scenario, Format(r.MandatoryCount), r.Verdict,
+                r.Segment, r.Scenario, r.RestPreference, Format(r.MandatoryCount), r.Verdict,
                 Format(r.HeuristicVisits), Format(r.CspVisits), Format(r.HeuristicOptional), Format(r.CspOptional),
                 Format(r.HeuristicTravel), Format(r.CspTravel), Format(r.HeuristicDuration), Format(r.CspDuration),
                 r.DisabledOutcome, r.HeuristicOutcome, r.CspOutcome,
@@ -338,15 +356,13 @@ public static class SolverComparisonReport
         md.AppendLine();
         md.AppendLine("## Environment and corpus");
         md.AppendLine();
-        md.AppendLine(Invariant($"- Source commit: `{meta.CommitSha}`") + (meta.WorkingTreeDirty
-            ? " — ⚠ **the working tree had uncommitted source changes; these results cannot be reproduced from this commit.**"
-            : " (clean working tree; `docs/`, `specs/` and `plans/` excluded from the check)."));
+        md.AppendLine(Invariant($"- Source: SHA-256 `{meta.SourceHash}` over {meta.SourceFileCount} benchmarked files (`SolverComparisonReport.SourceInputs`: the scheduling `Common`, `Csp` and `Routing` folders, the corpus fixture, the comparison rule and the runner; line endings normalized to LF). `SolverComparisonReportTests` recomputes it, so this report always matches the committed source, whatever the merge strategy."));
         md.AppendLine(Invariant($"- Generated at (UTC): {meta.GeneratedAtUtc}"));
         md.AppendLine(Invariant($"- Host: {meta.OperatingSystem}; CPU: {meta.Processor}; logical processors: {meta.LogicalProcessors}; runtime: {meta.Runtime}; build: {meta.BuildConfiguration}"));
         md.AppendLine(Invariant($"- Iterations: {meta.WarmupIterations} warmup + {meta.MeasuredIterations} measured per scenario and mode, sequential, in one process. The warmup run produces the compared plan, its outcome and its CSP statistics; only measured runs are timed."));
         md.AppendLine("- Modes: `disabled` = Heuristic with `EnableOptionalRouteOptimization = false` (latency baseline); `heuristic` = `SolverMode = Heuristic` (production default); `csp` = `SolverMode = Csp`.");
         md.AppendLine(Invariant($"- CSP options: MaxStops {csp.MaxStops}, MaxOptionalDomainSize {csp.MaxOptionalDomainSize}, MaxNodes {csp.MaxNodes}, TimeLimitMilliseconds {csp.TimeLimitMilliseconds}, FinalCandidatesToValidate {csp.FinalCandidatesToValidate}, UseInitialIncumbent {csp.UseInitialIncumbent}, PolishWithLocalSearch {csp.PolishWithLocalSearch}. Other scheduling options at their defaults (MaxMatrixCandidates {meta.MaxMatrixCandidates})."));
-        md.AppendLine(Invariant($"- Corpus: **synthetic only**. {meta.NamedScenarioCount} named `OptionalRouteOptimizationScenarios` fixtures plus `CreateSyntheticCorpusScenario` for candidates {{{string.Join(", ", meta.CandidateCounts)}}} × mandatory {{{string.Join(", ", meta.MandatoryCounts)}}} × seeds 1–{meta.Seeds} (the generator is seeded, so the corpus is deterministic); sample size {rows.Count}."));
+        md.AppendLine(Invariant($"- Corpus: **synthetic only**. {meta.NamedScenarioCount} named `OptionalRouteOptimizationScenarios` fixtures (rest preference `None`) plus `CreateSyntheticCorpusScenario` (600 available minutes, 30-minute visits) for candidates {{{string.Join(", ", meta.CandidateCounts)}}} × mandatory {{{string.Join(", ", meta.MandatoryCounts)}}} × rest preference {{{string.Join(", ", meta.RestPreferences)}}} × seeds 1–{meta.Seeds}. The generator is seeded and the rest preference does not change the instance, so each seed is the same trip under every rest preference. Segments without a suffix use `None`; `-auto` and `-frequent` segments use `Auto` (the mobile default) and `Frequent`. Sample size {rows.Count}."));
         md.AppendLine(Invariant($"- Excluded (a solver produced no plan): {rows.Count(r => r.Verdict == "excluded")}"));
         md.AppendLine("- Comparison rule: the product rule of `ScheduleGlobalComparator` (optional inclusion in canonical rank order, then matrix travel, duration, end time, visit IDs).");
         md.AppendLine("- Outcomes are recorded by the service itself (`SchedulingSolverDiagnostics`, activity `SchedulingSolverOutcome`) on the same run, not inferred from solver statistics.");
@@ -366,6 +382,18 @@ public static class SolverComparisonReport
                 + Invariant($"| {Average(included, r => r.HeuristicOptional):F2} / {Average(included, r => r.CspOptional):F2} ")
                 + Invariant($"| {Average(included, r => r.HeuristicTravel):F1} / {Average(included, r => r.CspTravel):F1} ")
                 + Invariant($"| {Average(included, r => r.HeuristicDuration):F1} / {Average(included, r => r.CspDuration):F1} |"));
+        }
+
+        md.AppendLine();
+        md.AppendLine("### By rest preference");
+        md.AppendLine();
+        md.AppendLine("| Rest preference | n | CSP better | Equal | CSP worse | Excluded |");
+        md.AppendLine("|---|---:|---:|---:|---:|---:|");
+        foreach (var preference in rows.Select(r => r.RestPreference).Distinct())
+        {
+            var group = rows.Where(r => r.RestPreference == preference).ToArray();
+            md.AppendLine(Invariant(
+                $"| {preference} | {group.Length} | {group.Count(r => r.Verdict == "better")} | {group.Count(r => r.Verdict == "equal")} | {group.Count(r => r.Verdict == "worse")} | {group.Count(r => r.Verdict == "excluded")} |"));
         }
 
         md.AppendLine();
@@ -442,8 +470,14 @@ public static class SolverComparisonReport
         md.AppendLine("- One developer machine, no CPU pinning or isolation, a single process run sequentially. Sub-millisecond samples are");
         md.AppendLine("  dominated by timer and JIT noise, and with few measured iterations per scenario, p95 and max are sensitive to");
         md.AppendLine("  single outliers. Compare latency only between runs on the same host.");
-        md.AppendLine("- CSP results are deterministic for a given input while no run reaches the wall-clock safety limit, so quality and");
-        md.AppendLine("  outcome columns reproduce exactly on any host; latency columns do not.");
+        md.AppendLine("- CSP results are deterministic for a given input while no run reaches the wall-clock safety limit");
+        md.AppendLine(Invariant($"  ({csp.TimeLimitMilliseconds} ms), so quality and outcome columns reproduce exactly on any host that stays under it;"));
+        md.AppendLine("  latency columns do not. A host slow enough to reach the limit gets a different, host-dependent result (UC-10 CSP");
+        md.AppendLine("  spec, Phase 2 R5).");
+        md.AppendLine("- The CSP model does not contain rest stops. With `Auto` or `Frequent` rest, the solver searches a model that reserves");
+        md.AppendLine("  rest time and the relaxed model without the reserve (one shared node budget), passes the best solutions of both");
+        md.AppendLine("  through `ItineraryScheduleEvaluator` and keeps the schedule with the lowest evaluated objective. The schedule that");
+        md.AppendLine("  is optimal after rest insertion can still lie outside the solutions it evaluates.");
         return md.ToString().Replace("\r\n", "\n", StringComparison.Ordinal);
     }
 
@@ -460,9 +494,22 @@ public static class SolverComparisonReport
 
     private static void ValidateMetadata(SolverComparisonMetadata meta, List<string> problems)
     {
-        if (meta.CommitSha is null || meta.CommitSha.Length != 40 || !meta.CommitSha.All(char.IsAsciiHexDigitLower))
+        if (meta.SourceHash is null || meta.SourceHash.Length != 64 || !meta.SourceHash.All(char.IsAsciiHexDigitLower))
         {
-            problems.Add($"source commit '{meta.CommitSha}' is not a full 40-character lowercase SHA");
+            problems.Add($"source hash '{meta.SourceHash}' is not a full 64-character lowercase SHA-256");
+        }
+
+        if (meta.SourceFileCount < 1)
+        {
+            problems.Add(Invariant($"the source hash must cover at least one file, found {meta.SourceFileCount}"));
+        }
+
+        foreach (var preference in meta.RestPreferences ?? [])
+        {
+            if (!IsRestPreference(preference))
+            {
+                problems.Add($"rest preference '{preference}' is not a RestPreference value");
+            }
         }
 
         if (meta.WarmupIterations < 1)
@@ -475,11 +522,14 @@ public static class SolverComparisonReport
             problems.Add(Invariant($"measured iterations must be at least 1, found {meta.MeasuredIterations}"));
         }
 
-        if (meta.CandidateCounts is null || meta.MandatoryCounts is null || meta.Csp is null)
+        if (meta.CandidateCounts is null || meta.MandatoryCounts is null || meta.RestPreferences is null || meta.Csp is null)
         {
-            problems.Add("metadata must declare candidate_counts, mandatory_counts and csp");
+            problems.Add("metadata must declare candidate_counts, mandatory_counts, rest_preferences and csp");
         }
     }
+
+    private static bool IsRestPreference(string value) =>
+        Enum.GetNames<RestPreference>().Contains(value, StringComparer.Ordinal);
 
     private static void ValidateScenario(SolverComparisonScenarioRow row, CspOptions csp, List<string> problems)
     {
@@ -491,6 +541,11 @@ public static class SolverComparisonReport
         if (!Verdicts.Contains(row.Verdict, StringComparer.Ordinal))
         {
             problems.Add($"scenario {row.Scenario} has unknown verdict '{row.Verdict}'");
+        }
+
+        if (!IsRestPreference(row.RestPreference))
+        {
+            problems.Add($"scenario {row.Scenario} has unknown rest preference '{row.RestPreference}'");
         }
 
         ValidateOutcome(row.Scenario, DisabledMode, row.DisabledOutcome, problems);
@@ -561,33 +616,6 @@ public static class SolverComparisonReport
         throw new InvalidDataException("Invalid solver comparison data:\n- " + string.Join("\n- ", shown) + more);
     }
 
-    private static int RunGit(string workingDirectory, params string[] arguments)
-    {
-        var start = new ProcessStartInfo("git")
-        {
-            WorkingDirectory = workingDirectory,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        };
-        foreach (var argument in arguments)
-        {
-            start.ArgumentList.Add(argument);
-        }
-
-        using var process = Process.Start(start) ?? throw new InvalidOperationException("git could not be started.");
-        var output = process.StandardOutput.ReadToEndAsync();
-        var error = process.StandardError.ReadToEndAsync();
-        if (!process.WaitForExit(TimeSpan.FromSeconds(30)))
-        {
-            process.Kill(entireProcessTree: true);
-            throw new TimeoutException($"git {string.Join(' ', arguments)} did not finish within 30 seconds.");
-        }
-
-        Task.WaitAll(output, error);
-        return process.ExitCode;
-    }
-
     private static double[] Samples(IEnumerable<SolverComparisonTimingRow> timings, string segment, string mode) =>
         timings.Where(t => t.Segment == segment && t.Mode == mode).Select(t => t.ElapsedMs).ToArray();
 
@@ -627,11 +655,11 @@ public static class SolverComparisonReport
     }
 
     private static SolverComparisonScenarioRow ParseScenario(string[] f) => new(
-        f[0], f[1], int.Parse(f[2], CultureInfo.InvariantCulture), f[3],
-        NullableInt(f[4]), NullableInt(f[5]), NullableInt(f[6]), NullableInt(f[7]),
-        NullableInt(f[8]), NullableInt(f[9]), NullableInt(f[10]), NullableInt(f[11]),
-        f[12], f[13], f[14],
-        NullableInt(f[15]), NullableInt(f[16]), NullableBool(f[17]), NullableBool(f[18]), NullableBool(f[19]));
+        f[0], f[1], f[2], int.Parse(f[3], CultureInfo.InvariantCulture), f[4],
+        NullableInt(f[5]), NullableInt(f[6]), NullableInt(f[7]), NullableInt(f[8]),
+        NullableInt(f[9]), NullableInt(f[10]), NullableInt(f[11]), NullableInt(f[12]),
+        f[13], f[14], f[15],
+        NullableInt(f[16]), NullableInt(f[17]), NullableBool(f[18]), NullableBool(f[19]), NullableBool(f[20]));
 
     private static SolverComparisonTimingRow ParseTiming(string[] f) => new(
         f[0], f[1], f[2], int.Parse(f[3], CultureInfo.InvariantCulture),

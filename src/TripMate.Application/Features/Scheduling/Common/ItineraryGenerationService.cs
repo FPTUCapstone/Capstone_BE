@@ -130,6 +130,13 @@ public sealed class ItineraryGenerationService(
         _validator.Validate(input, matrix, matrixCandidates, optimizationResult.Schedule.Plan);
         SchedulingSolverDiagnostics.RecordOutcome(_options.SolverMode, outcome, cspStatistics);
 
+        // CSP không có lịch gốc để so sánh và không có bước "cải thiện": số liệu của nó nằm trong
+        // SchedulingSolverOutcome. Ghi activity OptionalRouteOptimization ở đây chỉ cho ra các bộ đếm luôn bằng 0.
+        if (outcome == SchedulingSolverOutcomes.Csp)
+        {
+            return Result.Success(optimizationResult.Schedule.Plan);
+        }
+
         var baselineOptionalCount = optimizationResult.BaselineSchedule.VisitPoiIds.Count(id => !input.MandatoryPoiIds.Contains(id));
         var finalOptionalCount = optimizationResult.Schedule.VisitPoiIds.Count(id => !input.MandatoryPoiIds.Contains(id));
 
@@ -264,7 +271,7 @@ public sealed class ItineraryGenerationService(
         return new OptimizationResult(
             result.Schedule,
             result.Schedule,
-            EvaluationsCount: stats.NodesExpanded,
+            EvaluationsCount: stats.EvaluatorCalls,
             SeedCount: 1,
             ReconsideredAdmissionsCount: 0,
             TwoOptMovesCount: 0,

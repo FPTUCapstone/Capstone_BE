@@ -6,13 +6,13 @@
 
 ## Environment and corpus
 
-- Source commit: `96c0eb8bc67e3ff8e09cb742123cd20a4a499fe0` (clean working tree; `docs/`, `specs/` and `plans/` excluded from the check).
-- Generated at (UTC): 2026-10-10T08:50:08Z
+- Source: SHA-256 `4356d5ed3f2319f29904e5bf40df765892ba1e5a1340556f4824c663dfaed8a9` over 33 benchmarked files (`SolverComparisonReport.SourceInputs`: the scheduling `Common`, `Csp` and `Routing` folders, the corpus fixture, the comparison rule and the runner; line endings normalized to LF). `SolverComparisonReportTests` recomputes it, so this report always matches the committed source, whatever the merge strategy.
+- Generated at (UTC): 2026-10-10T16:12:19Z
 - Host: Microsoft Windows 10.0.26200; CPU: Intel64 Family 6 Model 141 Stepping 1, GenuineIntel; logical processors: 12; runtime: .NET 10.0.0; build: Release
 - Iterations: 1 warmup + 3 measured per scenario and mode, sequential, in one process. The warmup run produces the compared plan, its outcome and its CSP statistics; only measured runs are timed.
 - Modes: `disabled` = Heuristic with `EnableOptionalRouteOptimization = false` (latency baseline); `heuristic` = `SolverMode = Heuristic` (production default); `csp` = `SolverMode = Csp`.
 - CSP options: MaxStops 10, MaxOptionalDomainSize 20, MaxNodes 200000, TimeLimitMilliseconds 5000, FinalCandidatesToValidate 5, UseInitialIncumbent True, PolishWithLocalSearch False. Other scheduling options at their defaults (MaxMatrixCandidates 40).
-- Corpus: **synthetic only**. 7 named `OptionalRouteOptimizationScenarios` fixtures plus `CreateSyntheticCorpusScenario` for candidates {10, 20, 40} × mandatory {0, 1, 3, 6} × seeds 1–25 (the generator is seeded, so the corpus is deterministic); sample size 307.
+- Corpus: **synthetic only**. 7 named `OptionalRouteOptimizationScenarios` fixtures (rest preference `None`) plus `CreateSyntheticCorpusScenario` (600 available minutes, 30-minute visits) for candidates {10, 20, 40} × mandatory {0, 1, 3, 6} × rest preference {None, Auto, Frequent} × seeds 1–25. The generator is seeded and the rest preference does not change the instance, so each seed is the same trip under every rest preference. Segments without a suffix use `None`; `-auto` and `-frequent` segments use `Auto` (the mobile default) and `Frequent`. Sample size 907.
 - Excluded (a solver produced no plan): 0
 - Comparison rule: the product rule of `ScheduleGlobalComparator` (optional inclusion in canonical rank order, then matrix travel, duration, end time, visit IDs).
 - Outcomes are recorded by the service itself (`SchedulingSolverDiagnostics`, activity `SchedulingSolverOutcome`) on the same run, not inferred from solver statistics.
@@ -35,18 +35,50 @@
 | c40-m1 | 25 | 0 | 0 | 25 | 9.84 / 9.00 | 140.3 / 121.5 | 588.9 / 536.5 |
 | c40-m3 | 25 | 0 | 0 | 25 | 7.92 / 7.00 | 136.4 / 125.8 | 588.2 / 540.8 |
 | c40-m6 | 25 | 0 | 0 | 25 | 4.84 / 4.00 | 137.5 / 124.2 | 586.1 / 539.2 |
+| c10-m0-auto | 25 | 22 | 3 | 0 | 9.68 / 10.00 | 136.8 / 126.8 | 569.0 / 571.8 |
+| c10-m1-auto | 25 | 22 | 3 | 0 | 8.68 / 9.00 | 136.8 / 126.8 | 569.0 / 571.8 |
+| c10-m3-auto | 25 | 18 | 7 | 0 | 6.84 / 7.00 | 132.6 / 126.8 | 571.2 / 571.8 |
+| c10-m6-auto | 25 | 18 | 7 | 0 | 3.96 / 4.00 | 132.5 / 126.8 | 575.9 / 571.8 |
+| c20-m0-auto | 25 | 7 | 3 | 15 | 9.92 / 10.00 | 137.2 / 120.2 | 579.0 / 565.2 |
+| c20-m1-auto | 25 | 7 | 4 | 14 | 8.92 / 9.00 | 137.2 / 122.5 | 579.0 / 567.5 |
+| c20-m3-auto | 25 | 5 | 3 | 17 | 7.08 / 7.00 | 135.6 / 119.8 | 583.8 / 564.8 |
+| c20-m6-auto | 25 | 8 | 0 | 17 | 4.00 / 4.00 | 138.1 / 119.7 | 583.1 / 564.7 |
+| c40-m0-auto | 25 | 8 | 0 | 17 | 10.00 / 10.00 | 139.0 / 119.6 | 584.0 / 564.6 |
+| c40-m1-auto | 25 | 7 | 0 | 18 | 9.00 / 9.00 | 139.0 / 120.8 | 584.0 / 565.8 |
+| c40-m3-auto | 25 | 9 | 1 | 15 | 7.08 / 7.00 | 136.3 / 122.2 | 584.5 / 567.2 |
+| c40-m6-auto | 25 | 6 | 1 | 18 | 4.08 / 4.00 | 135.5 / 122.0 | 583.7 / 567.0 |
+| c10-m0-frequent | 25 | 1 | 0 | 24 | 8.64 / 7.92 | 127.1 / 98.6 | 574.1 / 490.4 |
+| c10-m1-frequent | 25 | 1 | 0 | 24 | 7.64 / 6.80 | 127.1 / 99.3 | 574.1 / 486.3 |
+| c10-m3-frequent | 25 | 0 | 0 | 25 | 5.84 / 4.80 | 119.9 / 99.3 | 574.9 / 486.3 |
+| c10-m6-frequent | 25 | 0 | 0 | 25 | 2.88 / 1.68 | 121.4 / 101.8 | 579.2 / 484.0 |
+| c20-m0-frequent | 25 | 0 | 0 | 25 | 8.72 / 8.08 | 125.5 / 96.9 | 574.5 / 497.5 |
+| c20-m1-frequent | 25 | 0 | 0 | 25 | 7.72 / 7.00 | 125.5 / 96.0 | 574.5 / 492.2 |
+| c20-m3-frequent | 25 | 0 | 0 | 25 | 5.96 / 5.00 | 123.5 / 96.5 | 585.7 / 492.7 |
+| c20-m6-frequent | 25 | 0 | 0 | 25 | 2.92 / 1.80 | 122.6 / 101.8 | 583.2 / 490.0 |
+| c40-m0-frequent | 25 | 0 | 0 | 25 | 8.96 / 8.08 | 126.2 / 98.8 | 588.4 / 498.2 |
+| c40-m1-frequent | 25 | 0 | 0 | 25 | 7.96 / 7.08 | 126.2 / 98.8 | 588.4 / 498.2 |
+| c40-m3-frequent | 25 | 0 | 0 | 25 | 6.00 / 5.00 | 123.7 / 98.2 | 588.7 / 493.2 |
+| c40-m6-frequent | 25 | 0 | 0 | 25 | 2.96 / 1.88 | 127.0 / 100.9 | 589.2 / 492.3 |
+
+### By rest preference
+
+| Rest preference | n | CSP better | Equal | CSP worse | Excluded |
+|---|---:|---:|---:|---:|---:|
+| None | 307 | 88 | 27 | 192 | 0 |
+| Auto | 300 | 137 | 32 | 131 | 0 |
+| Frequent | 300 | 2 | 0 | 298 | 0 |
 
 ## CSP limits
 
-- Plans produced by the CSP: 307; most visits in one plan: 10; plans with more than MaxStops (10) visits: 0.
+- Plans produced by the CSP: 907; most visits in one plan: 10; plans with more than MaxStops (10) visits: 0.
 - Plans the heuristic produced after a CSP fallback are not subject to the CSP limits and are excluded from this check.
 
 ## Solver outcome (warmup run of each scenario)
 
 | Outcome | Disabled | Heuristic | CSP |
 |---|---:|---:|---:|
-| `csp` | 0 | 0 | 307 |
-| `heuristic` | 307 | 307 | 0 |
+| `csp` | 0 | 0 | 907 |
+| `heuristic` | 907 | 907 | 0 |
 
 Measured runs whose outcome differs from the warmup run of the same scenario and mode: 0.
 
@@ -56,25 +88,49 @@ pXX is the sample at index floor(n × XX / 100) of the segment's measured runs s
 
 | Segment | Disabled p50 / p95 / max | Heuristic p50 / p95 / max | CSP p50 / p95 / max | CSP added p95 (gate ≤ 300) | Node limit hit | Time limit hit | CSP fell back to heuristic |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| named | 0.02 / 0.10 / 0.75 | 0.14 / 0.74 / 5.49 | 0.09 / 0.30 / 0.33 | 0.20 ✅ | 0 | 0 | 0 |
-| c10-m0 | 0.04 / 0.08 / 0.11 | 2.96 / 6.23 / 8.62 | 5.84 / 34.66 / 109.98 | 34.58 ✅ | 0 | 0 | 0 |
-| c10-m1 | 0.03 / 0.05 / 0.07 | 1.87 / 4.84 / 7.78 | 6.00 / 11.97 / 16.63 | 11.92 ✅ | 0 | 0 | 0 |
-| c10-m3 | 0.04 / 0.06 / 0.28 | 2.60 / 4.86 / 5.34 | 4.79 / 14.56 / 16.16 | 14.51 ✅ | 0 | 0 | 0 |
-| c10-m6 | 3.44 / 4.68 / 7.25 | 5.95 / 7.84 / 11.15 | 4.11 / 9.99 / 15.32 | 5.32 ✅ | 0 | 0 | 0 |
-| c20-m0 | 0.01 / 0.02 / 0.03 | 1.38 / 2.65 / 3.12 | 157.08 / 271.09 / 303.47 | 271.07 ✅ | 9 | 0 | 0 |
-| c20-m1 | 0.01 / 0.02 / 0.03 | 1.08 / 2.02 / 2.52 | 146.52 / 234.26 / 254.91 | 234.24 ✅ | 10 | 0 | 0 |
-| c20-m3 | 0.04 / 0.08 / 0.13 | 3.17 / 8.04 / 9.12 | 129.49 / 284.51 / 299.53 | 284.43 ✅ | 9 | 0 | 0 |
-| c20-m6 | 7.44 / 11.88 / 15.87 | 10.80 / 15.48 / 27.67 | 200.65 / 426.72 / 443.58 | 414.84 ❌ | 8 | 0 | 0 |
-| c40-m0 | 0.03 / 0.04 / 0.04 | 2.83 / 4.79 / 4.96 | 194.81 / 306.12 / 321.70 | 306.09 ❌ | 8 | 0 | 0 |
-| c40-m1 | 0.03 / 0.04 / 0.06 | 2.66 / 4.67 / 5.10 | 187.36 / 308.03 / 315.56 | 307.99 ❌ | 12 | 0 | 0 |
-| c40-m3 | 0.13 / 0.16 / 0.17 | 9.21 / 11.19 / 11.87 | 269.33 / 300.66 / 306.72 | 300.50 ❌ | 15 | 0 | 0 |
-| c40-m6 | 16.54 / 27.45 / 31.96 | 24.20 / 30.53 / 37.45 | 507.85 / 746.63 / 749.28 | 719.18 ❌ | 16 | 0 | 0 |
+| named | 0.05 / 0.41 / 0.57 | 0.37 / 1.11 / 5.31 | 0.19 / 0.77 / 1.89 | 0.36 ✅ | 0 | 0 | 0 |
+| c10-m0 | 0.04 / 0.09 / 0.16 | 2.67 / 9.23 / 15.59 | 6.33 / 32.45 / 89.24 | 32.36 ✅ | 0 | 0 | 0 |
+| c10-m1 | 0.03 / 0.05 / 0.28 | 1.35 / 2.88 / 18.56 | 5.76 / 13.44 / 19.57 | 13.39 ✅ | 0 | 0 | 0 |
+| c10-m3 | 0.05 / 0.18 / 0.47 | 4.38 / 10.56 / 15.77 | 5.91 / 35.87 / 72.29 | 35.69 ✅ | 0 | 0 | 0 |
+| c10-m6 | 4.68 / 12.67 / 36.89 | 8.05 / 12.08 / 23.32 | 4.46 / 19.09 / 20.14 | 6.42 ✅ | 0 | 0 | 0 |
+| c20-m0 | 0.02 / 0.02 / 0.17 | 1.67 / 2.88 / 4.35 | 128.23 / 249.76 / 389.86 | 249.73 ✅ | 9 | 0 | 0 |
+| c20-m1 | 0.02 / 0.03 / 0.21 | 1.41 / 3.01 / 6.58 | 151.97 / 231.17 / 283.09 | 231.14 ✅ | 10 | 0 | 0 |
+| c20-m3 | 0.05 / 0.14 / 0.21 | 3.83 / 7.32 / 39.24 | 139.39 / 225.76 / 291.24 | 225.62 ✅ | 9 | 0 | 0 |
+| c20-m6 | 7.72 / 14.87 / 23.51 | 12.47 / 24.13 / 31.24 | 212.24 / 361.52 / 416.92 | 346.66 ❌ | 8 | 0 | 0 |
+| c40-m0 | 0.03 / 0.13 / 0.29 | 3.12 / 7.58 / 18.34 | 129.81 / 246.88 / 289.97 | 246.75 ✅ | 8 | 0 | 0 |
+| c40-m1 | 0.03 / 0.04 / 0.04 | 2.92 / 5.59 / 6.56 | 145.48 / 268.14 / 376.94 | 268.10 ✅ | 12 | 0 | 0 |
+| c40-m3 | 0.10 / 0.19 / 0.31 | 7.72 / 10.67 / 11.41 | 186.95 / 227.43 / 274.21 | 227.24 ✅ | 15 | 0 | 0 |
+| c40-m6 | 14.82 / 26.66 / 30.01 | 21.32 / 30.79 / 36.09 | 430.56 / 587.42 / 720.85 | 560.75 ❌ | 16 | 0 | 0 |
+| c10-m0-auto | 0.01 / 0.02 / 0.04 | 0.95 / 2.40 / 2.99 | 4.89 / 19.51 / 28.01 | 19.49 ✅ | 0 | 0 | 0 |
+| c10-m1-auto | 0.01 / 0.02 / 0.02 | 0.90 / 1.92 / 2.11 | 5.26 / 17.39 / 19.20 | 17.37 ✅ | 0 | 0 | 0 |
+| c10-m3-auto | 0.03 / 0.05 / 0.06 | 2.88 / 4.81 / 6.30 | 5.93 / 14.26 / 18.14 | 14.21 ✅ | 0 | 0 | 0 |
+| c10-m6-auto | 4.92 / 12.26 / 18.30 | 7.38 / 17.59 / 27.11 | 5.93 / 16.68 / 18.77 | 4.42 ✅ | 0 | 0 | 0 |
+| c20-m0-auto | 0.01 / 0.02 / 0.23 | 1.28 / 2.93 / 3.99 | 159.81 / 220.16 / 239.87 | 220.14 ✅ | 12 | 0 | 0 |
+| c20-m1-auto | 0.02 / 0.02 / 0.64 | 1.33 / 3.07 / 3.24 | 170.50 / 225.93 / 274.85 | 225.91 ✅ | 13 | 0 | 0 |
+| c20-m3-auto | 0.05 / 0.09 / 0.26 | 3.79 / 5.89 / 6.95 | 166.60 / 219.18 / 265.76 | 219.09 ✅ | 13 | 0 | 0 |
+| c20-m6-auto | 8.19 / 20.83 / 28.25 | 11.87 / 18.46 / 35.94 | 216.65 / 313.77 / 336.76 | 292.93 ✅ | 10 | 0 | 0 |
+| c40-m0-auto | 0.03 / 0.05 / 0.55 | 2.49 / 5.21 / 7.76 | 165.31 / 233.35 / 242.75 | 233.30 ✅ | 12 | 0 | 0 |
+| c40-m1-auto | 0.02 / 0.04 / 0.18 | 2.40 / 3.84 / 5.29 | 174.34 / 244.14 / 305.51 | 244.11 ✅ | 14 | 0 | 0 |
+| c40-m3-auto | 0.11 / 0.22 / 0.24 | 7.64 / 11.91 / 13.99 | 189.40 / 236.96 / 363.52 | 236.74 ✅ | 18 | 0 | 0 |
+| c40-m6-auto | 14.83 / 26.00 / 33.76 | 23.17 / 29.82 / 66.90 | 267.71 / 442.95 / 510.74 | 416.95 ❌ | 19 | 0 | 0 |
+| c10-m0-frequent | 0.01 / 0.02 / 0.04 | 0.72 / 1.99 / 2.17 | 5.80 / 17.52 / 20.80 | 17.50 ✅ | 0 | 0 | 0 |
+| c10-m1-frequent | 0.02 / 0.04 / 0.09 | 0.84 / 1.95 / 3.05 | 7.32 / 19.37 / 20.43 | 19.34 ✅ | 0 | 0 | 0 |
+| c10-m3-frequent | 0.06 / 0.11 / 0.29 | 3.25 / 5.22 / 6.45 | 6.43 / 18.34 / 21.94 | 18.23 ✅ | 0 | 0 | 0 |
+| c10-m6-frequent | 6.73 / 12.57 / 16.73 | 10.30 / 13.86 / 24.35 | 6.38 / 16.58 / 21.40 | 4.01 ✅ | 0 | 0 | 0 |
+| c20-m0-frequent | 0.02 / 0.04 / 0.15 | 1.52 / 2.91 / 4.38 | 180.63 / 287.15 / 419.63 | 287.11 ✅ | 11 | 0 | 0 |
+| c20-m1-frequent | 0.02 / 0.04 / 0.05 | 1.64 / 2.87 / 4.37 | 181.63 / 247.81 / 421.53 | 247.77 ✅ | 12 | 0 | 0 |
+| c20-m3-frequent | 0.07 / 0.12 / 0.15 | 4.53 / 7.67 / 8.58 | 153.82 / 208.57 / 289.57 | 208.46 ✅ | 10 | 0 | 0 |
+| c20-m6-frequent | 9.76 / 26.23 / 31.34 | 13.26 / 24.57 / 37.36 | 207.91 / 403.31 / 417.20 | 377.08 ❌ | 9 | 0 | 0 |
+| c40-m0-frequent | 0.03 / 0.05 / 0.10 | 2.73 / 4.28 / 5.68 | 135.12 / 193.48 / 221.82 | 193.43 ✅ | 9 | 0 | 0 |
+| c40-m1-frequent | 0.03 / 0.06 / 0.11 | 2.59 / 5.19 / 9.99 | 165.85 / 205.59 / 222.48 | 205.53 ✅ | 14 | 0 | 0 |
+| c40-m3-frequent | 0.14 / 0.29 / 0.70 | 9.02 / 15.93 / 29.85 | 195.30 / 240.50 / 298.58 | 240.20 ✅ | 17 | 0 | 0 |
+| c40-m6-frequent | 18.72 / 35.38 / 59.50 | 27.83 / 43.90 / 68.89 | 432.86 / 731.66 / 929.91 | 696.28 ❌ | 16 | 0 | 0 |
 
 ## Gate status (Phase 3 default-switch gate; CSP stays experimental until all pass)
 
-- Quality (100% better or equal): **failed** in 192 of 307 scenarios
-  - CSP worse in: zigzag, c20-m0-s1, c20-m0-s2, c20-m0-s3, c20-m0-s4, c20-m0-s5, c20-m0-s6, c20-m0-s7, c20-m0-s8, c20-m0-s9, c20-m0-s10, c20-m0-s11, c20-m0-s12, c20-m0-s14, c20-m0-s15, c20-m0-s16, c20-m0-s17, c20-m0-s18, c20-m0-s19, c20-m0-s21, c20-m0-s22, c20-m0-s23, c20-m0-s24, c20-m1-s1, c20-m1-s2, c20-m1-s3, c20-m1-s4, c20-m1-s5, c20-m1-s6, c20-m1-s7, c20-m1-s8, c20-m1-s9, c20-m1-s10, c20-m1-s11, c20-m1-s12, c20-m1-s14, c20-m1-s15, c20-m1-s16, c20-m1-s17, c20-m1-s18, c20-m1-s19, c20-m1-s21, c20-m1-s22, c20-m1-s23, c20-m1-s24, c20-m3-s1, c20-m3-s2, c20-m3-s3, c20-m3-s4, c20-m3-s5, c20-m3-s6, c20-m3-s7, c20-m3-s8, c20-m3-s9, c20-m3-s10, c20-m3-s11, c20-m3-s12, c20-m3-s13, c20-m3-s14, c20-m3-s15, c20-m3-s16, c20-m3-s17, c20-m3-s18, c20-m3-s19, c20-m3-s20, c20-m3-s21, c20-m3-s22, c20-m3-s23, c20-m3-s24, c20-m3-s25, c20-m6-s1, c20-m6-s2, c20-m6-s3, c20-m6-s4, c20-m6-s5, c20-m6-s7, c20-m6-s8, c20-m6-s9, c20-m6-s10, c20-m6-s11, c20-m6-s12, c20-m6-s14, c20-m6-s15, c20-m6-s16, c20-m6-s17, c20-m6-s18, c20-m6-s19, c20-m6-s20, c20-m6-s21, c20-m6-s22, c20-m6-s23, c20-m6-s24, c40-m0-s1, c40-m0-s2, c40-m0-s3, c40-m0-s4, c40-m0-s5, c40-m0-s6, c40-m0-s7, c40-m0-s8, c40-m0-s9, c40-m0-s10, c40-m0-s11, c40-m0-s12, c40-m0-s13, c40-m0-s14, c40-m0-s15, c40-m0-s16, c40-m0-s17, c40-m0-s18, c40-m0-s19, c40-m0-s20, c40-m0-s21, c40-m0-s22, c40-m0-s23, c40-m0-s24, c40-m0-s25, c40-m1-s1, c40-m1-s2, c40-m1-s3, c40-m1-s4, c40-m1-s5, c40-m1-s6, c40-m1-s7, c40-m1-s8, c40-m1-s9, c40-m1-s10, c40-m1-s11, c40-m1-s12, c40-m1-s13, c40-m1-s14, c40-m1-s15, c40-m1-s16, c40-m1-s17, c40-m1-s18, c40-m1-s19, c40-m1-s20, c40-m1-s21, c40-m1-s22, c40-m1-s23, c40-m1-s24, c40-m1-s25, c40-m3-s1, c40-m3-s2, c40-m3-s3, c40-m3-s4, c40-m3-s5, c40-m3-s6, c40-m3-s7, c40-m3-s8, c40-m3-s9, c40-m3-s10, c40-m3-s11, c40-m3-s12, c40-m3-s13, c40-m3-s14, c40-m3-s15, c40-m3-s16, c40-m3-s17, c40-m3-s18, c40-m3-s19, c40-m3-s20, c40-m3-s21, c40-m3-s22, c40-m3-s23, c40-m3-s24, c40-m3-s25, c40-m6-s1, c40-m6-s2, c40-m6-s3, c40-m6-s4, c40-m6-s5, c40-m6-s6, c40-m6-s7, c40-m6-s8, c40-m6-s9, c40-m6-s10, c40-m6-s11, c40-m6-s12, c40-m6-s13, c40-m6-s14, c40-m6-s15, c40-m6-s16, c40-m6-s17, c40-m6-s18, c40-m6-s19, c40-m6-s20, c40-m6-s21, c40-m6-s22, c40-m6-s23, c40-m6-s24, c40-m6-s25
-- Latency (added p95 ≤ 300 ms in every segment): **failed** in c20-m6, c40-m0, c40-m1, c40-m3, c40-m6
+- Quality (100% better or equal): **failed** in 621 of 907 scenarios
+  - CSP worse in: zigzag, c20-m0-s1, c20-m0-s2, c20-m0-s3, c20-m0-s4, c20-m0-s5, c20-m0-s6, c20-m0-s7, c20-m0-s8, c20-m0-s9, c20-m0-s10, c20-m0-s11, c20-m0-s12, c20-m0-s14, c20-m0-s15, c20-m0-s16, c20-m0-s17, c20-m0-s18, c20-m0-s19, c20-m0-s21, c20-m0-s22, c20-m0-s23, c20-m0-s24, c20-m1-s1, c20-m1-s2, c20-m1-s3, c20-m1-s4, c20-m1-s5, c20-m1-s6, c20-m1-s7, c20-m1-s8, c20-m1-s9, c20-m1-s10, c20-m1-s11, c20-m1-s12, c20-m1-s14, c20-m1-s15, c20-m1-s16, c20-m1-s17, c20-m1-s18, c20-m1-s19, c20-m1-s21, c20-m1-s22, c20-m1-s23, c20-m1-s24, c20-m3-s1, c20-m3-s2, c20-m3-s3, c20-m3-s4, c20-m3-s5, c20-m3-s6, c20-m3-s7, c20-m3-s8, c20-m3-s9, c20-m3-s10, c20-m3-s11, c20-m3-s12, c20-m3-s13, c20-m3-s14, c20-m3-s15, c20-m3-s16, c20-m3-s17, c20-m3-s18, c20-m3-s19, c20-m3-s20, c20-m3-s21, c20-m3-s22, c20-m3-s23, c20-m3-s24, c20-m3-s25, c20-m6-s1, c20-m6-s2, c20-m6-s3, c20-m6-s4, c20-m6-s5, c20-m6-s7, c20-m6-s8, c20-m6-s9, c20-m6-s10, c20-m6-s11, c20-m6-s12, c20-m6-s14, c20-m6-s15, c20-m6-s16, c20-m6-s17, c20-m6-s18, c20-m6-s19, c20-m6-s20, c20-m6-s21, c20-m6-s22, c20-m6-s23, c20-m6-s24, c40-m0-s1, c40-m0-s2, c40-m0-s3, c40-m0-s4, c40-m0-s5, c40-m0-s6, c40-m0-s7, c40-m0-s8, c40-m0-s9, c40-m0-s10, c40-m0-s11, c40-m0-s12, c40-m0-s13, c40-m0-s14, c40-m0-s15, c40-m0-s16, c40-m0-s17, c40-m0-s18, c40-m0-s19, c40-m0-s20, c40-m0-s21, c40-m0-s22, c40-m0-s23, c40-m0-s24, c40-m0-s25, c40-m1-s1, c40-m1-s2, c40-m1-s3, c40-m1-s4, c40-m1-s5, c40-m1-s6, c40-m1-s7, c40-m1-s8, c40-m1-s9, c40-m1-s10, c40-m1-s11, c40-m1-s12, c40-m1-s13, c40-m1-s14, c40-m1-s15, c40-m1-s16, c40-m1-s17, c40-m1-s18, c40-m1-s19, c40-m1-s20, c40-m1-s21, c40-m1-s22, c40-m1-s23, c40-m1-s24, c40-m1-s25, c40-m3-s1, c40-m3-s2, c40-m3-s3, c40-m3-s4, c40-m3-s5, c40-m3-s6, c40-m3-s7, c40-m3-s8, c40-m3-s9, c40-m3-s10, c40-m3-s11, c40-m3-s12, c40-m3-s13, c40-m3-s14, c40-m3-s15, c40-m3-s16, c40-m3-s17, c40-m3-s18, c40-m3-s19, c40-m3-s20, c40-m3-s21, c40-m3-s22, c40-m3-s23, c40-m3-s24, c40-m3-s25, c40-m6-s1, c40-m6-s2, c40-m6-s3, c40-m6-s4, c40-m6-s5, c40-m6-s6, c40-m6-s7, c40-m6-s8, c40-m6-s9, c40-m6-s10, c40-m6-s11, c40-m6-s12, c40-m6-s13, c40-m6-s14, c40-m6-s15, c40-m6-s16, c40-m6-s17, c40-m6-s18, c40-m6-s19, c40-m6-s20, c40-m6-s21, c40-m6-s22, c40-m6-s23, c40-m6-s24, c40-m6-s25, c20-m0-auto-s2, c20-m0-auto-s3, c20-m0-auto-s4, c20-m0-auto-s6, c20-m0-auto-s7, c20-m0-auto-s9, c20-m0-auto-s10, c20-m0-auto-s11, c20-m0-auto-s12, c20-m0-auto-s14, c20-m0-auto-s15, c20-m0-auto-s16, c20-m0-auto-s17, c20-m0-auto-s18, c20-m0-auto-s22, c20-m1-auto-s2, c20-m1-auto-s3, c20-m1-auto-s4, c20-m1-auto-s6, c20-m1-auto-s7, c20-m1-auto-s9, c20-m1-auto-s10, c20-m1-auto-s11, c20-m1-auto-s12, c20-m1-auto-s14, c20-m1-auto-s15, c20-m1-auto-s16, c20-m1-auto-s17, c20-m1-auto-s22, c20-m3-auto-s2, c20-m3-auto-s3, c20-m3-auto-s4, c20-m3-auto-s6, c20-m3-auto-s7, c20-m3-auto-s9, c20-m3-auto-s10, c20-m3-auto-s11, c20-m3-auto-s12, c20-m3-auto-s14, c20-m3-auto-s15, c20-m3-auto-s16, c20-m3-auto-s17, c20-m3-auto-s18, c20-m3-auto-s21, c20-m3-auto-s22, c20-m3-auto-s24, c20-m6-auto-s2, c20-m6-auto-s3, c20-m6-auto-s4, c20-m6-auto-s6, c20-m6-auto-s7, c20-m6-auto-s9, c20-m6-auto-s10, c20-m6-auto-s11, c20-m6-auto-s12, c20-m6-auto-s14, c20-m6-auto-s15, c20-m6-auto-s16, c20-m6-auto-s17, c20-m6-auto-s18, c20-m6-auto-s21, c20-m6-auto-s22, c20-m6-auto-s24, c40-m0-auto-s2, c40-m0-auto-s3, c40-m0-auto-s4, c40-m0-auto-s5, c40-m0-auto-s6, c40-m0-auto-s7, c40-m0-auto-s8, c40-m0-auto-s10, c40-m0-auto-s11, c40-m0-auto-s15, c40-m0-auto-s16, c40-m0-auto-s17, c40-m0-auto-s18, c40-m0-auto-s19, c40-m0-auto-s21, c40-m0-auto-s22, c40-m0-auto-s23, c40-m1-auto-s1, c40-m1-auto-s2, c40-m1-auto-s3, c40-m1-auto-s4, c40-m1-auto-s5, c40-m1-auto-s6, c40-m1-auto-s7, c40-m1-auto-s8, c40-m1-auto-s10, c40-m1-auto-s11, c40-m1-auto-s15, c40-m1-auto-s16, c40-m1-auto-s17, c40-m1-auto-s18, c40-m1-auto-s19, c40-m1-auto-s21, c40-m1-auto-s22, c40-m1-auto-s23, c40-m3-auto-s2, c40-m3-auto-s3, c40-m3-auto-s4, c40-m3-auto-s5, c40-m3-auto-s6, c40-m3-auto-s7, c40-m3-auto-s10, c40-m3-auto-s11, c40-m3-auto-s12, c40-m3-auto-s15, c40-m3-auto-s17, c40-m3-auto-s18, c40-m3-auto-s19, c40-m3-auto-s21, c40-m3-auto-s23, c40-m6-auto-s2, c40-m6-auto-s3, c40-m6-auto-s4, c40-m6-auto-s5, c40-m6-auto-s6, c40-m6-auto-s7, c40-m6-auto-s8, c40-m6-auto-s9, c40-m6-auto-s10, c40-m6-auto-s11, c40-m6-auto-s12, c40-m6-auto-s15, c40-m6-auto-s17, c40-m6-auto-s18, c40-m6-auto-s19, c40-m6-auto-s21, c40-m6-auto-s23, c40-m6-auto-s24, c10-m0-frequent-s1, c10-m0-frequent-s2, c10-m0-frequent-s3, c10-m0-frequent-s4, c10-m0-frequent-s5, c10-m0-frequent-s7, c10-m0-frequent-s8, c10-m0-frequent-s9, c10-m0-frequent-s10, c10-m0-frequent-s11, c10-m0-frequent-s12, c10-m0-frequent-s13, c10-m0-frequent-s14, c10-m0-frequent-s15, c10-m0-frequent-s16, c10-m0-frequent-s17, c10-m0-frequent-s18, c10-m0-frequent-s19, c10-m0-frequent-s20, c10-m0-frequent-s21, c10-m0-frequent-s22, c10-m0-frequent-s23, c10-m0-frequent-s24, c10-m0-frequent-s25, c10-m1-frequent-s1, c10-m1-frequent-s2, c10-m1-frequent-s3, c10-m1-frequent-s4, c10-m1-frequent-s5, c10-m1-frequent-s7, c10-m1-frequent-s8, c10-m1-frequent-s9, c10-m1-frequent-s10, c10-m1-frequent-s11, c10-m1-frequent-s12, c10-m1-frequent-s13, c10-m1-frequent-s14, c10-m1-frequent-s15, c10-m1-frequent-s16, c10-m1-frequent-s17, c10-m1-frequent-s18, c10-m1-frequent-s19, c10-m1-frequent-s20, c10-m1-frequent-s21, c10-m1-frequent-s22, c10-m1-frequent-s23, c10-m1-frequent-s24, c10-m1-frequent-s25, c10-m3-frequent-s1, c10-m3-frequent-s2, c10-m3-frequent-s3, c10-m3-frequent-s4, c10-m3-frequent-s5, c10-m3-frequent-s6, c10-m3-frequent-s7, c10-m3-frequent-s8, c10-m3-frequent-s9, c10-m3-frequent-s10, c10-m3-frequent-s11, c10-m3-frequent-s12, c10-m3-frequent-s13, c10-m3-frequent-s14, c10-m3-frequent-s15, c10-m3-frequent-s16, c10-m3-frequent-s17, c10-m3-frequent-s18, c10-m3-frequent-s19, c10-m3-frequent-s20, c10-m3-frequent-s21, c10-m3-frequent-s22, c10-m3-frequent-s23, c10-m3-frequent-s24, c10-m3-frequent-s25, c10-m6-frequent-s1, c10-m6-frequent-s2, c10-m6-frequent-s3, c10-m6-frequent-s4, c10-m6-frequent-s5, c10-m6-frequent-s6, c10-m6-frequent-s7, c10-m6-frequent-s8, c10-m6-frequent-s9, c10-m6-frequent-s10, c10-m6-frequent-s11, c10-m6-frequent-s12, c10-m6-frequent-s13, c10-m6-frequent-s14, c10-m6-frequent-s15, c10-m6-frequent-s16, c10-m6-frequent-s17, c10-m6-frequent-s18, c10-m6-frequent-s19, c10-m6-frequent-s20, c10-m6-frequent-s21, c10-m6-frequent-s22, c10-m6-frequent-s23, c10-m6-frequent-s24, c10-m6-frequent-s25, c20-m0-frequent-s1, c20-m0-frequent-s2, c20-m0-frequent-s3, c20-m0-frequent-s4, c20-m0-frequent-s5, c20-m0-frequent-s6, c20-m0-frequent-s7, c20-m0-frequent-s8, c20-m0-frequent-s9, c20-m0-frequent-s10, c20-m0-frequent-s11, c20-m0-frequent-s12, c20-m0-frequent-s13, c20-m0-frequent-s14, c20-m0-frequent-s15, c20-m0-frequent-s16, c20-m0-frequent-s17, c20-m0-frequent-s18, c20-m0-frequent-s19, c20-m0-frequent-s20, c20-m0-frequent-s21, c20-m0-frequent-s22, c20-m0-frequent-s23, c20-m0-frequent-s24, c20-m0-frequent-s25, c20-m1-frequent-s1, c20-m1-frequent-s2, c20-m1-frequent-s3, c20-m1-frequent-s4, c20-m1-frequent-s5, c20-m1-frequent-s6, c20-m1-frequent-s7, c20-m1-frequent-s8, c20-m1-frequent-s9, c20-m1-frequent-s10, c20-m1-frequent-s11, c20-m1-frequent-s12, c20-m1-frequent-s13, c20-m1-frequent-s14, c20-m1-frequent-s15, c20-m1-frequent-s16, c20-m1-frequent-s17, c20-m1-frequent-s18, c20-m1-frequent-s19, c20-m1-frequent-s20, c20-m1-frequent-s21, c20-m1-frequent-s22, c20-m1-frequent-s23, c20-m1-frequent-s24, c20-m1-frequent-s25, c20-m3-frequent-s1, c20-m3-frequent-s2, c20-m3-frequent-s3, c20-m3-frequent-s4, c20-m3-frequent-s5, c20-m3-frequent-s6, c20-m3-frequent-s7, c20-m3-frequent-s8, c20-m3-frequent-s9, c20-m3-frequent-s10, c20-m3-frequent-s11, c20-m3-frequent-s12, c20-m3-frequent-s13, c20-m3-frequent-s14, c20-m3-frequent-s15, c20-m3-frequent-s16, c20-m3-frequent-s17, c20-m3-frequent-s18, c20-m3-frequent-s19, c20-m3-frequent-s20, c20-m3-frequent-s21, c20-m3-frequent-s22, c20-m3-frequent-s23, c20-m3-frequent-s24, c20-m3-frequent-s25, c20-m6-frequent-s1, c20-m6-frequent-s2, c20-m6-frequent-s3, c20-m6-frequent-s4, c20-m6-frequent-s5, c20-m6-frequent-s6, c20-m6-frequent-s7, c20-m6-frequent-s8, c20-m6-frequent-s9, c20-m6-frequent-s10, c20-m6-frequent-s11, c20-m6-frequent-s12, c20-m6-frequent-s13, c20-m6-frequent-s14, c20-m6-frequent-s15, c20-m6-frequent-s16, c20-m6-frequent-s17, c20-m6-frequent-s18, c20-m6-frequent-s19, c20-m6-frequent-s20, c20-m6-frequent-s21, c20-m6-frequent-s22, c20-m6-frequent-s23, c20-m6-frequent-s24, c20-m6-frequent-s25, c40-m0-frequent-s1, c40-m0-frequent-s2, c40-m0-frequent-s3, c40-m0-frequent-s4, c40-m0-frequent-s5, c40-m0-frequent-s6, c40-m0-frequent-s7, c40-m0-frequent-s8, c40-m0-frequent-s9, c40-m0-frequent-s10, c40-m0-frequent-s11, c40-m0-frequent-s12, c40-m0-frequent-s13, c40-m0-frequent-s14, c40-m0-frequent-s15, c40-m0-frequent-s16, c40-m0-frequent-s17, c40-m0-frequent-s18, c40-m0-frequent-s19, c40-m0-frequent-s20, c40-m0-frequent-s21, c40-m0-frequent-s22, c40-m0-frequent-s23, c40-m0-frequent-s24, c40-m0-frequent-s25, c40-m1-frequent-s1, c40-m1-frequent-s2, c40-m1-frequent-s3, c40-m1-frequent-s4, c40-m1-frequent-s5, c40-m1-frequent-s6, c40-m1-frequent-s7, c40-m1-frequent-s8, c40-m1-frequent-s9, c40-m1-frequent-s10, c40-m1-frequent-s11, c40-m1-frequent-s12, c40-m1-frequent-s13, c40-m1-frequent-s14, c40-m1-frequent-s15, c40-m1-frequent-s16, c40-m1-frequent-s17, c40-m1-frequent-s18, c40-m1-frequent-s19, c40-m1-frequent-s20, c40-m1-frequent-s21, c40-m1-frequent-s22, c40-m1-frequent-s23, c40-m1-frequent-s24, c40-m1-frequent-s25, c40-m3-frequent-s1, c40-m3-frequent-s2, c40-m3-frequent-s3, c40-m3-frequent-s4, c40-m3-frequent-s5, c40-m3-frequent-s6, c40-m3-frequent-s7, c40-m3-frequent-s8, c40-m3-frequent-s9, c40-m3-frequent-s10, c40-m3-frequent-s11, c40-m3-frequent-s12, c40-m3-frequent-s13, c40-m3-frequent-s14, c40-m3-frequent-s15, c40-m3-frequent-s16, c40-m3-frequent-s17, c40-m3-frequent-s18, c40-m3-frequent-s19, c40-m3-frequent-s20, c40-m3-frequent-s21, c40-m3-frequent-s22, c40-m3-frequent-s23, c40-m3-frequent-s24, c40-m3-frequent-s25, c40-m6-frequent-s1, c40-m6-frequent-s2, c40-m6-frequent-s3, c40-m6-frequent-s4, c40-m6-frequent-s5, c40-m6-frequent-s6, c40-m6-frequent-s7, c40-m6-frequent-s8, c40-m6-frequent-s9, c40-m6-frequent-s10, c40-m6-frequent-s11, c40-m6-frequent-s12, c40-m6-frequent-s13, c40-m6-frequent-s14, c40-m6-frequent-s15, c40-m6-frequent-s16, c40-m6-frequent-s17, c40-m6-frequent-s18, c40-m6-frequent-s19, c40-m6-frequent-s20, c40-m6-frequent-s21, c40-m6-frequent-s22, c40-m6-frequent-s23, c40-m6-frequent-s24, c40-m6-frequent-s25
+- Latency (added p95 ≤ 300 ms in every segment): **failed** in c20-m6, c40-m6, c40-m6-auto, c20-m6-frequent, c40-m6-frequent
 - Wall-clock safety limit reached in any warmup run: no
 - CSP fell back to the heuristic: 0 scenarios
 
@@ -85,5 +141,11 @@ pXX is the sample at index floor(n × XX / 100) of the segment's measured runs s
 - One developer machine, no CPU pinning or isolation, a single process run sequentially. Sub-millisecond samples are
   dominated by timer and JIT noise, and with few measured iterations per scenario, p95 and max are sensitive to
   single outliers. Compare latency only between runs on the same host.
-- CSP results are deterministic for a given input while no run reaches the wall-clock safety limit, so quality and
-  outcome columns reproduce exactly on any host; latency columns do not.
+- CSP results are deterministic for a given input while no run reaches the wall-clock safety limit
+  (5000 ms), so quality and outcome columns reproduce exactly on any host that stays under it;
+  latency columns do not. A host slow enough to reach the limit gets a different, host-dependent result (UC-10 CSP
+  spec, Phase 2 R5).
+- The CSP model does not contain rest stops. With `Auto` or `Frequent` rest, the solver searches a model that reserves
+  rest time and the relaxed model without the reserve (one shared node budget), passes the best solutions of both
+  through `ItineraryScheduleEvaluator` and keeps the schedule with the lowest evaluated objective. The schedule that
+  is optimal after rest insertion can still lie outside the solutions it evaluates.

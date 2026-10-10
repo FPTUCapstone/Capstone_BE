@@ -2,6 +2,7 @@ using System.Diagnostics;
 
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Routing;
+using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Scheduling.Csp;
 
@@ -24,8 +25,11 @@ public sealed class CspStatistics
     public int? NodesToFirstSolution { get; internal set; }
 
     /// <summary>
-    /// True khi đã duyệt hết cây (không chạm giới hạn): lời giải tìm được là tối ưu theo hàm mục tiêu,
-    /// hoặc nếu không có lời giải thì bài toán chắc chắn vô nghiệm.
+    /// True khi lần duyệt cuối (mô hình nới lỏng nếu có) đã duyệt hết cây, không chạm giới hạn. Khi đó, nếu không có
+    /// lời giải thì bài toán chắc chắn vô nghiệm. Lời giải tìm được chỉ chắc chắn tối ưu theo hàm mục tiêu khi lịch
+    /// không có điểm nghỉ (<see cref="RestPreference.None"/>, hoặc Auto dưới 300 phút): mô hình CSP không tính
+    /// điểm nghỉ mà <see cref="ItineraryScheduleEvaluator"/> chèn vào, nên khi có nghỉ, lịch tối ưu sau khi chèn
+    /// nghỉ có thể nằm ngoài các lời giải được đưa qua evaluator.
     /// </summary>
     public bool SearchCompleted { get; internal set; }
 
@@ -33,18 +37,31 @@ public sealed class CspStatistics
 
     public bool TimeLimitReached { get; internal set; }
 
+    /// <summary>Mục tiêu (theo mô hình CSP, không tính điểm nghỉ) của lời giải được trả về.</summary>
     public long? BestObjective { get; internal set; }
+
+    /// <summary>
+    /// Mục tiêu của lịch được trả về, tính trên kết quả của <see cref="ItineraryScheduleEvaluator"/>: phút di chuyển
+    /// theo ma trận (gồm cả chặng tới điểm nghỉ) + phạt của điểm tùy chọn bị bỏ. Dùng để chọn giữa các lời giải.
+    /// </summary>
+    public long? BestEvaluatedObjective { get; internal set; }
 
     /// <summary>Mục tiêu của lời giải khởi đầu dùng làm cận trên ban đầu (nếu có).</summary>
     public long? InitialUpperBound { get; internal set; }
 
+    /// <summary>Số lời giải đã đưa qua <see cref="ItineraryScheduleEvaluator"/>.</summary>
+    public int EvaluatorCalls { get; internal set; }
+
     public TimeSpan Elapsed { get; internal set; }
 
     /// <summary>
-    /// True khi lần tìm đầu (có dự phòng thời gian nghỉ) không ra lời giải và bộ giải đã chạy lại trên mô hình
-    /// nới lỏng; các số liệu khác là tổng của cả hai lần.
+    /// True khi bộ giải đã chạy thêm mô hình nới lỏng (không dự phòng thời gian nghỉ) sau mô hình có dự phòng. Hai
+    /// lần chạy dùng chung một giới hạn <see cref="CspOptions.MaxNodes"/>; các số liệu đếm là tổng của cả hai lần.
     /// </summary>
     public bool UsedRelaxedRestModel { get; internal set; }
+
+    /// <summary>True khi lịch được trả về đến từ mô hình nới lỏng.</summary>
+    public bool ChoseRelaxedRestModel { get; internal set; }
 
     internal void AddEarlierRun(CspStatistics earlier)
     {
@@ -52,6 +69,8 @@ public sealed class CspStatistics
         PrunedByConstraints += earlier.PrunedByConstraints;
         PrunedByForwardChecking += earlier.PrunedByForwardChecking;
         PrunedByBound += earlier.PrunedByBound;
+        SolutionsFound += earlier.SolutionsFound;
+        NodesToFirstSolution = earlier.NodesToFirstSolution ?? (NodesToFirstSolution + earlier.NodesExpanded);
         NodeLimitReached |= earlier.NodeLimitReached;
         TimeLimitReached |= earlier.TimeLimitReached;
         UsedRelaxedRestModel = true;
@@ -105,8 +124,9 @@ public sealed class CspItinerarySolver(
         ArgumentNullException.ThrowIfNull(candidateMatrixIndices);
 
         var clock = Stopwatch.StartNew();
+        var budget = new NodeBudget(_cspOptions.MaxNodes);
         var ctx = RoutingContext.Create(input, matrix, matrixCandidates, candidateMatrixIndices, _options, _options.MiniRouting);
-        var search = new SearchRun(ctx, _cspOptions, clock, cancellationToken);
+        var search = new SearchRun(ctx, _cspOptions, clock, budget, cancellationToken);
 
         if (ctx.MandatoryNodes.Count != input.MandatoryPoiIds.Count)
         {
@@ -115,55 +135,125 @@ public sealed class CspItinerarySolver(
         }
 
         search.Run();
+        Polish(search, clock, cancellationToken);
 
-        // Dự phòng thời gian nghỉ làm mô hình chặt hơn thực tế, nên "không có lời giải" ở đây chưa phải là vô nghiệm.
-        // Chạy lại trên mô hình nới lỏng (không dự phòng): chỉ kết quả của mô hình này mới được dùng để kết luận.
-        if (search.Statistics.SolutionsFound == 0 && ctx.Horizon < input.AvailableMinutes)
+        // Khi có điểm nghỉ, mô hình CSP không biết evaluator sẽ chèn nghỉ ở đâu: lịch tốt nhất sau khi chèn nghỉ
+        // không nhất thiết là lời giải có mục tiêu CSP nhỏ nhất. Vì vậy đưa cả K lời giải tốt nhất qua evaluator và
+        // chọn theo mục tiêu tính trên lịch thật. Không có nghỉ thì hai mục tiêu bằng nhau, lấy lời giải hợp lệ đầu tiên.
+        var restApplies = input.RestPreference == RestPreference.Frequent
+            || (input.RestPreference == RestPreference.Auto && input.AvailableMinutes >= 300);
+        var best = SelectBest(input, matrix, matrixCandidates, candidateMatrixIndices, search, stopAtFirstValid: !restApplies, cancellationToken);
+
+        // Dự phòng thời gian nghỉ làm mô hình chặt hơn thực tế: nó có thể loại mất lịch tốt hơn, và "không có lời
+        // giải" ở đây chưa phải là vô nghiệm. Luôn chạy thêm mô hình nới lỏng (không dự phòng) với phần node budget
+        // còn lại. Mục tiêu của lịch tốt nhất đã có làm cận trên ban đầu, nên lần chạy này chỉ tìm lời giải tốt hơn.
+        // Chỉ kết quả của mô hình nới lỏng mới được dùng để kết luận vô nghiệm.
+        if (ctx.Horizon < input.AvailableMinutes)
         {
             var relaxedCtx = RoutingContext.Create(
                 input, matrix, matrixCandidates, candidateMatrixIndices, _options, _options.MiniRouting, reserveRestTime: false);
-            var relaxed = new SearchRun(relaxedCtx, _cspOptions, clock, cancellationToken);
+            var relaxed = new SearchRun(relaxedCtx, _cspOptions, clock, budget, cancellationToken, best?.EvaluatedObjective);
             relaxed.Run();
+            Polish(relaxed, clock, cancellationToken);
             relaxed.Statistics.AddEarlierRun(search.Statistics);
-            ctx = relaxedCtx;
+            relaxed.Statistics.EvaluatorCalls = search.Statistics.EvaluatorCalls;
+
+            var relaxedBest = SelectBest(input, matrix, matrixCandidates, candidateMatrixIndices, relaxed, stopAtFirstValid: false, cancellationToken);
+            if (relaxedBest is not null && (best is null || relaxedBest.EvaluatedObjective < best.EvaluatedObjective))
+            {
+                best = relaxedBest;
+                relaxed.Statistics.ChoseRelaxedRestModel = true;
+            }
+
             search = relaxed;
         }
 
-        if (_cspOptions.PolishWithLocalSearch && search.Elite.Best is { } bestCsp)
+        search.Statistics.Elapsed = clock.Elapsed;
+        if (best is null)
         {
-            var polishOptions = new MiniRoutingOptions
-            {
-                MaxSkipPenaltyMinutes = _options.MiniRouting.MaxSkipPenaltyMinutes,
-                MaxGlsIterations = _options.MiniRouting.MaxGlsIterations,
-                TimeLimitMilliseconds = _cspOptions.TimeLimitMilliseconds,
-                FinalCandidatesToValidate = _cspOptions.FinalCandidatesToValidate,
-            };
-            var polished = new GuidedLocalSearch(ctx, polishOptions, new MiniRoutingStatistics(), clock, cancellationToken)
-                .Run(bestCsp);
-            foreach (var state in polished)
-            {
-                // Tìm kiếm cục bộ chèn được mọi điểm tùy chọn: chỉ giữ lời giải nằm trong giới hạn của CSP.
-                if (search.WithinLimits(state))
-                {
-                    search.Elite.Offer(state);
-                }
-            }
+            return new CspResult(null, search.Statistics, search.ConflictingMandatoryPoiIds());
         }
 
+        search.Statistics.BestObjective = best.Objective;
+        search.Statistics.BestEvaluatedObjective = best.EvaluatedObjective;
+        return new CspResult(best.Schedule, search.Statistics, []);
+    }
+
+    private void Polish(SearchRun search, Stopwatch clock, CancellationToken cancellationToken)
+    {
+        if (!_cspOptions.PolishWithLocalSearch || search.Elite.Best is not { } bestCsp)
+        {
+            return;
+        }
+
+        var polishOptions = new MiniRoutingOptions
+        {
+            MaxSkipPenaltyMinutes = _options.MiniRouting.MaxSkipPenaltyMinutes,
+            MaxGlsIterations = _options.MiniRouting.MaxGlsIterations,
+            TimeLimitMilliseconds = _cspOptions.TimeLimitMilliseconds,
+            FinalCandidatesToValidate = _cspOptions.FinalCandidatesToValidate,
+        };
+        var polished = new GuidedLocalSearch(search.Context, polishOptions, new MiniRoutingStatistics(), clock, cancellationToken)
+            .Run(bestCsp);
+        foreach (var state in polished)
+        {
+            // Tìm kiếm cục bộ chèn được mọi điểm tùy chọn: chỉ giữ lời giải nằm trong giới hạn của CSP.
+            if (search.WithinLimits(state))
+            {
+                search.Elite.Offer(state);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Đưa các lời giải tốt nhất của một lần duyệt qua <see cref="ItineraryScheduleEvaluator"/> (theo thứ tự mục tiêu
+    /// CSP) và giữ lịch có mục tiêu thật nhỏ nhất; bằng nhau thì giữ lịch đứng trước. Trả về null nếu không lịch nào hợp lệ.
+    /// </summary>
+    private EvaluatedCandidate? SelectBest(
+        GenerationInput input,
+        RouteDurationMatrix matrix,
+        IReadOnlyList<GenerationCandidate> matrixCandidates,
+        IReadOnlyDictionary<long, int> candidateMatrixIndices,
+        SearchRun search,
+        bool stopAtFirstValid,
+        CancellationToken cancellationToken)
+    {
+        var ctx = search.Context;
+        EvaluatedCandidate? best = null;
         foreach (var state in search.Elite.Ordered)
         {
             var sequence = state.Sequence.Select(node => ctx.Nodes[node].Candidate).ToArray();
+            search.Statistics.EvaluatorCalls++;
             var schedule = _evaluator.Evaluate(input, sequence, matrix, matrixCandidates, candidateMatrixIndices, cancellationToken);
-            if (schedule is not null)
+            if (schedule is null)
             {
-                search.Statistics.BestObjective = state.Objective;
-                search.Statistics.Elapsed = clock.Elapsed;
-                return new CspResult(schedule, search.Statistics, []);
+                continue;
+            }
+
+            var evaluated = schedule.TotalMatrixTravelMinutes
+                + (long)(ctx.TotalOptionalPenalty - state.VisitedOptionalPenalty);
+            if (best is null || evaluated < best.EvaluatedObjective)
+            {
+                best = new EvaluatedCandidate(schedule, state.Objective, evaluated);
+            }
+
+            if (stopAtFirstValid)
+            {
+                break;
             }
         }
 
-        search.Statistics.Elapsed = clock.Elapsed;
-        return new CspResult(null, search.Statistics, search.ConflictingMandatoryPoiIds());
+        return best;
+    }
+
+    private sealed record EvaluatedCandidate(EvaluatedItinerarySchedule Schedule, long Objective, long EvaluatedObjective);
+
+    /// <summary>Giới hạn số nút dùng chung cho mọi lần duyệt của một lần giải.</summary>
+    private sealed class NodeBudget(int maxNodes)
+    {
+        public int MaxNodes { get; } = maxNodes;
+
+        public int Used { get; set; }
     }
 
     /// <summary>Trạng thái của một lần duyệt cây tìm kiếm.</summary>
@@ -174,6 +264,7 @@ public sealed class CspItinerarySolver(
         private readonly RoutingContext _ctx;
         private readonly CspOptions _options;
         private readonly Stopwatch _clock;
+        private readonly NodeBudget _budget;
         private readonly CancellationToken _cancellationToken;
         private readonly int[] _initialDomain;
         private readonly bool[] _inInitialDomain;
@@ -184,15 +275,30 @@ public sealed class CspItinerarySolver(
         private readonly int _minReturnTravel;
         private readonly int _mandatoryWeight;
         private readonly Dictionary<int, int> _wipeouts = new();
-        private long _bestObjective = long.MaxValue;
+
+        // Bộ đệm của LowerBound, dùng lại ở mọi nút (LowerBound không đệ quy nên không bị ghi đè giữa chừng).
+        private readonly List<int> _gains = new();
+        private readonly List<int> _footprints = new();
+        private long _bestObjective;
         private bool _aborted;
 
-        public SearchRun(RoutingContext ctx, CspOptions options, Stopwatch clock, CancellationToken cancellationToken)
+        /// <param name="upperBound">
+        /// Cận trên ban đầu cho branch and bound (mục tiêu của một lịch đã biết là hợp lệ): chỉ tìm lời giải tốt hơn.
+        /// </param>
+        public SearchRun(
+            RoutingContext ctx,
+            CspOptions options,
+            Stopwatch clock,
+            NodeBudget budget,
+            CancellationToken cancellationToken,
+            long? upperBound = null)
         {
             _ctx = ctx;
             _options = options;
             _clock = clock;
+            _budget = budget;
             _cancellationToken = cancellationToken;
+            _bestObjective = upperBound ?? long.MaxValue;
             Elite = new RouteEliteSet(Math.Max(1, options.FinalCandidatesToValidate));
 
             // Miền giá trị ban đầu: mọi điểm bắt buộc + N điểm tùy chọn xếp hạng cao nhất.
@@ -273,6 +379,8 @@ public sealed class CspItinerarySolver(
 
         public CspStatistics Statistics { get; } = new();
 
+        public RoutingContext Context => _ctx;
+
         public RouteEliteSet Elite { get; }
 
         public void Run()
@@ -322,7 +430,7 @@ public sealed class CspItinerarySolver(
                 && WithinLimits(incumbent))
             {
                 Elite.Offer(incumbent);
-                _bestObjective = incumbent.Objective;
+                _bestObjective = Math.Min(_bestObjective, incumbent.Objective);
                 Statistics.InitialUpperBound = incumbent.Objective;
                 Statistics.SolutionsFound++;
             }
@@ -346,6 +454,7 @@ public sealed class CspItinerarySolver(
         private void Search(RouteState state, List<int> domain)
         {
             Statistics.NodesExpanded++;
+            _budget.Used++;
             if (LimitReached())
             {
                 return;
@@ -534,8 +643,10 @@ public sealed class CspItinerarySolver(
             }
 
             var domainPenalty = 0;
-            var gains = new List<int>(domain.Count);
-            var footprints = new List<int>(domain.Count);
+            var gains = _gains;
+            var footprints = _footprints;
+            gains.Clear();
+            footprints.Clear();
             foreach (var v in domain)
             {
                 var node = _ctx.Nodes[v];
@@ -586,7 +697,8 @@ public sealed class CspItinerarySolver(
                 ? 0
                 : state.Earliest[state.Count - 1] + _ctx.Nodes[state.Sequence[^1]].VisitMinutes;
             var current = state.Count == 0 ? _ctx.StartMatrixIndex : _ctx.Nodes[state.Sequence[^1]].MatrixIndex;
-            var ranked = new List<(int Value, bool Urgent, int Slack, int Score, long Id)>(domain.Count);
+            var ranked = new RankedValue[domain.Count];
+            var count = 0;
 
             foreach (var v in domain)
             {
@@ -601,16 +713,42 @@ public sealed class CspItinerarySolver(
                 var slack = _latestPossibleStart[v] - start;
                 var benefit = node.IsMandatory ? _mandatoryWeight : node.SkipPenalty;
                 var score = _ctx.RawTravel(current, node.MatrixIndex) - benefit;
-                ranked.Add((v, node.IsMandatory && slack < UrgentSlackMinutes, slack, score, node.Candidate.Id));
+                ranked[count++] = new RankedValue(v, node.IsMandatory && slack < UrgentSlackMinutes, slack, score, node.Candidate.Id);
             }
 
-            return ranked
-                .OrderByDescending(item => item.Urgent)
-                .ThenBy(item => item.Urgent ? item.Slack : 0)
-                .ThenBy(item => item.Score)
-                .ThenBy(item => item.Id)
-                .Select(item => item.Value)
-                .ToArray();
+            // Id của POI không trùng nên thứ tự là toàn phần: sắp xếp không ổn định vẫn cho kết quả tất định.
+            Array.Sort(ranked, 0, count, RankedValueComparer.Instance);
+            var values = new int[count];
+            for (var i = 0; i < count; i++)
+            {
+                values[i] = ranked[i].Value;
+            }
+
+            return values;
+        }
+
+        private readonly record struct RankedValue(int Value, bool Urgent, int Slack, int Score, long Id);
+
+        /// <summary>Khẩn cấp trước; trong nhóm khẩn cấp theo độ trễ tăng dần; rồi theo điểm, rồi theo Id.</summary>
+        private sealed class RankedValueComparer : IComparer<RankedValue>
+        {
+            public static readonly RankedValueComparer Instance = new();
+
+            public int Compare(RankedValue x, RankedValue y)
+            {
+                var result = y.Urgent.CompareTo(x.Urgent);
+                if (result == 0)
+                {
+                    result = (x.Urgent ? x.Slack : 0).CompareTo(y.Urgent ? y.Slack : 0);
+                }
+
+                if (result == 0)
+                {
+                    result = x.Score.CompareTo(y.Score);
+                }
+
+                return result != 0 ? result : x.Id.CompareTo(y.Id);
+            }
         }
 
         private void RecordWipeout(int mandatoryNode) =>
@@ -623,12 +761,12 @@ public sealed class CspItinerarySolver(
                 return true;
             }
 
-            if (Statistics.NodesExpanded > _options.MaxNodes)
+            if (_budget.Used > _budget.MaxNodes)
             {
                 Statistics.NodeLimitReached = true;
                 _aborted = true;
             }
-            else if ((Statistics.NodesExpanded & 255) == 0)
+            else if ((_budget.Used & 255) == 0)
             {
                 _cancellationToken.ThrowIfCancellationRequested();
                 if (_clock.ElapsedMilliseconds >= _options.TimeLimitMilliseconds)
