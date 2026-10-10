@@ -58,6 +58,27 @@ public sealed class SearchSelectablePoisSqlServerTests
         extremeOffsetPage.Value.Items.Should().BeEmpty();
     }
 
+    [SqlServerTheory]
+    [Trait("Category", "SqlServer")]
+    [InlineData(32)]
+    [InlineData(50)]
+    public async Task Search_WithLargeRadius_ExecutesInSqlServer(int radiusKm)
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await SeedSelectablePoisAsync(database);
+
+        await using var context = database.CreateDbContext();
+        var handler = new SearchSelectablePoisQueryHandler(context);
+        var result = await handler.Handle(
+            new SearchSelectablePoisQuery(null, 16.0000m, 108.0000m, radiusKm, 1, 50),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.TotalCount.Should().Be(3);
+        result.Value.Items.Select(item => item.Name)
+            .Should().Equal("Near Alpha", "Near Bravo", "Outside Radius");
+    }
+
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
     public async Task Search_Endpoint_UsesSharedRadiusBoundaryAndStableIdTieBreakInSqlServer()
