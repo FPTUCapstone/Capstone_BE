@@ -107,12 +107,21 @@ public sealed class ResubmitOperatorApplicationCommandHandler(
 
                 var taxCode = request.TaxCode.Trim();
                 var licence = request.BusinessLicenseNo.Trim();
-                if (await db.OperatorProfiles.AsNoTracking().AnyAsync(profile =>
-                        profile.UserId != userId &&
-                        (profile.TaxCode == taxCode || profile.BusinessLicenseNo == licence),
-                        transactionToken))
+                var conflicts = await db.OperatorProfiles.AsNoTracking()
+                    .Where(profile => profile.UserId != userId &&
+                        (profile.TaxCode == taxCode || profile.BusinessLicenseNo == licence))
+                    .Select(profile => new
+                    {
+                        HasTaxConflict = profile.TaxCode == taxCode,
+                        HasLicenceConflict = profile.BusinessLicenseNo == licence,
+                    })
+                    .ToListAsync(transactionToken);
+
+                if (conflicts.Count > 0)
                 {
-                    throw new DuplicateIdentifierException();
+                    var taxConflict = conflicts.Any(c => c.HasTaxConflict);
+                    var licenceConflict = conflicts.Any(c => c.HasLicenceConflict);
+                    throw new DuplicateIdentifierException(taxConflict, licenceConflict);
                 }
 
                 var now = clock.UtcNow;
@@ -267,17 +276,17 @@ public sealed class ResubmitOperatorApplicationCommandHandler(
                 OperatorApplicationErrorCodes.MissingBusinessLicense,
                 OperatorRegistrationMessages.BusinessLicenseDocumentRequired);
         }
-        catch (DuplicateIdentifierException)
+        catch (DuplicateIdentifierException exception)
         {
             await CompensateAsync(uploaded);
-            return DuplicateIdentifier();
+            return DuplicateIdentifier(exception.TaxCodeConflict, exception.BusinessLicenseConflict);
         }
         catch (DbUpdateException exception)
         {
             db.ClearTrackedEntities();
             await CompensateAsync(uploaded);
             return constraints.Classify(exception) == OperatorRegistrationConstraint.TaxCodeOrBusinessLicense
-                ? DuplicateIdentifier()
+                ? DuplicateIdentifier(true, true)
                 : LogUnavailable(exception);
         }
         catch (OperationCanceledException)
@@ -382,10 +391,25 @@ public sealed class ResubmitOperatorApplicationCommandHandler(
             OperatorApplicationErrorCodes.NotRejected,
             OperatorApplicationMessages.NotRejected);
 
-    private static Result<ResubmitOperatorApplicationResponse> DuplicateIdentifier() =>
-        Result.Failure<ResubmitOperatorApplicationResponse>(
+    private static Result<ResubmitOperatorApplicationResponse> DuplicateIdentifier(
+        bool taxCodeConflict = true,
+        bool businessLicenseConflict = true)
+    {
+        var errors = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        if (taxCodeConflict)
+        {
+            errors["taxCode"] = [OperatorApplicationErrorCodes.DuplicateIdentifier];
+        }
+        if (businessLicenseConflict)
+        {
+            errors["businessLicenseNo"] = [OperatorApplicationErrorCodes.DuplicateIdentifier];
+        }
+
+        return Result.Failure<ResubmitOperatorApplicationResponse>(
             OperatorApplicationErrorCodes.DuplicateIdentifier,
-            OperatorRegistrationMessages.BusinessIdentifierExists);
+            OperatorRegistrationMessages.BusinessIdentifierExists,
+            new Dictionary<string, object?> { ["errors"] = errors });
+    }
 
     private sealed record UploadedDocument(
         string PublicId,
@@ -395,7 +419,11 @@ public sealed class ResubmitOperatorApplicationCommandHandler(
 
     private sealed class ApplicationMissingException : Exception;
     private sealed class ApplicationStateConflictException : Exception;
-    private sealed class DuplicateIdentifierException : Exception;
+    private sealed class DuplicateIdentifierException(bool taxCodeConflict, bool businessLicenseConflict) : Exception
+    {
+        public bool TaxCodeConflict { get; } = taxCodeConflict;
+        public bool BusinessLicenseConflict { get; } = businessLicenseConflict;
+    }
     private sealed class MissingBusinessLicenseException : Exception;
     private sealed class DocumentUploadException : Exception;
 }
