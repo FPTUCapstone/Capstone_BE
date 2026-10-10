@@ -135,10 +135,6 @@ public sealed class TourCategoryMigrationTests
                 ON catalog.TourCategories(is_active, name, category_id);
 
             ALTER TABLE commerce.Tours ADD category_id INT NULL;
-            ALTER TABLE commerce.Tours WITH CHECK
-                ADD CONSTRAINT FK_Tours_TourCategories
-                FOREIGN KEY (category_id)
-                REFERENCES catalog.TourCategories(category_id);
             CREATE INDEX IX_Tours_Category
                 ON commerce.Tours(status, category_id);
             """);
@@ -147,6 +143,185 @@ public sealed class TourCategoryMigrationTests
 
         await action.Should().ThrowAsync<SqlException>()
             .WithMessage("*Tours category index keys mismatch*");
+        (await ReadIntAsync(database, """
+            SELECT COUNT(*) FROM sys.foreign_keys
+            WHERE parent_object_id = OBJECT_ID(N'commerce.Tours')
+              AND name = N'FK_Tours_TourCategories';
+            """)).Should().Be(0, "the foreign key created before index validation must roll back");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Migration_WhenCodeIndexIsDisabled_RejectsItBeforeTourChanges()
+    {
+        await using var database = await CreatePreCategoryDatabaseAsync();
+        await CreateCanonicalCategoryTableAsync(database);
+        await database.ExecuteNonQueryAsync(
+            "ALTER INDEX UX_TourCategories_Code ON catalog.TourCategories DISABLE;");
+
+        Func<Task> action = () => ApplyMigrationAsync(database);
+
+        await action.Should().ThrowAsync<SqlException>()
+            .WithMessage("*code index shape mismatch*");
+        (await ReadIntAsync(database, """
+            SELECT COUNT(*) FROM sys.columns
+            WHERE object_id = OBJECT_ID(N'commerce.Tours') AND name = N'category_id';
+            """)).Should().Be(0, "early rejection must leave the transitional Tour shape untouched");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Migration_WhenCodeIndexIsDescending_RejectsIt()
+    {
+        await using var database = await CreatePreCategoryDatabaseAsync();
+        await CreateCanonicalCategoryTableAsync(database);
+        await database.ExecuteNonQueryAsync("""
+            DROP INDEX UX_TourCategories_Code ON catalog.TourCategories;
+            CREATE UNIQUE INDEX UX_TourCategories_Code
+                ON catalog.TourCategories(code DESC);
+            """);
+
+        Func<Task> action = () => ApplyMigrationAsync(database);
+
+        await action.Should().ThrowAsync<SqlException>()
+            .WithMessage("*code index keys mismatch*");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Migration_WhenCodeIndexIsClustered_RejectsIt()
+    {
+        await using var database = await CreatePreCategoryDatabaseAsync();
+        await CreateCanonicalCategoryTableAsync(database);
+        await database.ExecuteNonQueryAsync("""
+            DROP INDEX UX_TourCategories_Code ON catalog.TourCategories;
+            ALTER TABLE catalog.TourCategories DROP CONSTRAINT PK_TourCategories;
+            ALTER TABLE catalog.TourCategories
+                ADD CONSTRAINT PK_TourCategories PRIMARY KEY NONCLUSTERED (category_id);
+            CREATE UNIQUE CLUSTERED INDEX UX_TourCategories_Code
+                ON catalog.TourCategories(code);
+            """);
+
+        Func<Task> action = () => ApplyMigrationAsync(database);
+
+        await action.Should().ThrowAsync<SqlException>()
+            .WithMessage("*code index shape mismatch*");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Migration_WhenRequiredChecksUseExtraParentheses_AcceptsEquivalentFormatting()
+    {
+        await using var database = await CreatePreCategoryDatabaseAsync();
+        await CreateCanonicalCategoryTableAsync(database);
+        await database.ExecuteNonQueryAsync("""
+            ALTER TABLE catalog.TourCategories DROP CONSTRAINT CK_TourCategories_CodeNotBlank;
+            ALTER TABLE catalog.TourCategories
+                ADD CONSTRAINT CK_TourCategories_CodeNotBlank
+                CHECK (((LEN((LTRIM((RTRIM((code))))))) > ((0))));
+            """);
+
+        await ApplyMigrationAsync(database);
+
+        await AssertTargetShapeAsync(database);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Migration_WhenPrimaryKeyHasCorrectNameButWrongColumn_RejectsIt()
+    {
+        await using var database = await CreatePreCategoryDatabaseAsync();
+        await CreateCanonicalCategoryTableAsync(database);
+        await database.ExecuteNonQueryAsync("""
+            ALTER TABLE catalog.TourCategories DROP CONSTRAINT PK_TourCategories;
+            ALTER TABLE catalog.TourCategories
+                ADD CONSTRAINT PK_TourCategories PRIMARY KEY (code);
+            """);
+
+        Func<Task> action = () => ApplyMigrationAsync(database);
+
+        await action.Should().ThrowAsync<SqlException>()
+            .WithMessage("*primary key shape mismatch*");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Migration_WhenRequiredConstraintsHaveWrongDefinitions_RejectsThem()
+    {
+        await using var database = await CreatePreCategoryDatabaseAsync();
+        await CreateCanonicalCategoryTableAsync(database);
+        await database.ExecuteNonQueryAsync("""
+            ALTER TABLE catalog.TourCategories DROP CONSTRAINT CK_TourCategories_CodeNotBlank;
+            ALTER TABLE catalog.TourCategories
+                ADD CONSTRAINT CK_TourCategories_CodeNotBlank CHECK (LEN(code) >= 0);
+            """);
+
+        Func<Task> action = () => ApplyMigrationAsync(database);
+
+        await action.Should().ThrowAsync<SqlException>()
+            .WithMessage("*required-value constraint shape mismatch*");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Migration_WhenActiveDefaultHasWrongValue_RejectsIt()
+    {
+        await using var database = await CreatePreCategoryDatabaseAsync();
+        await CreateCanonicalCategoryTableAsync(database);
+        await database.ExecuteNonQueryAsync("""
+            ALTER TABLE catalog.TourCategories DROP CONSTRAINT DF_TourCategories_IsActive;
+            ALTER TABLE catalog.TourCategories
+                ADD CONSTRAINT DF_TourCategories_IsActive DEFAULT 0 FOR is_active;
+            """);
+
+        Func<Task> action = () => ApplyMigrationAsync(database);
+
+        await action.Should().ThrowAsync<SqlException>()
+            .WithMessage("*default shape mismatch*");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Migration_WhenForeignKeyHasCorrectNameButWrongParentColumn_RejectsIt()
+    {
+        await using var database = await CreatePreCategoryDatabaseAsync();
+        await CreateCanonicalCategoryTableAsync(database);
+        await database.ExecuteNonQueryAsync("""
+            ALTER TABLE commerce.Tours ADD category_id INT NULL, alternate_category_id INT NULL;
+            ALTER TABLE commerce.Tours WITH CHECK
+                ADD CONSTRAINT FK_Tours_TourCategories
+                FOREIGN KEY (alternate_category_id)
+                REFERENCES catalog.TourCategories(category_id);
+            """);
+
+        Func<Task> action = () => ApplyMigrationAsync(database);
+
+        await action.Should().ThrowAsync<SqlException>()
+            .WithMessage("*foreign key shape mismatch*");
+        (await ReadIntAsync(database, """
+            SELECT COUNT(*) FROM sys.indexes
+            WHERE object_id = OBJECT_ID(N'commerce.Tours') AND name = N'IX_Tours_Category';
+            """)).Should().Be(0, "foreign-key rejection must roll back later index creation");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Migration_WhenForeignKeyIsUntrusted_RejectsIt()
+    {
+        await using var database = await CreatePreCategoryDatabaseAsync();
+        await CreateCanonicalCategoryTableAsync(database);
+        await database.ExecuteNonQueryAsync("""
+            ALTER TABLE commerce.Tours ADD category_id INT NULL;
+            ALTER TABLE commerce.Tours WITH NOCHECK
+                ADD CONSTRAINT FK_Tours_TourCategories
+                FOREIGN KEY (category_id)
+                REFERENCES catalog.TourCategories(category_id);
+            """);
+
+        Func<Task> action = () => ApplyMigrationAsync(database);
+
+        await action.Should().ThrowAsync<SqlException>()
+            .WithMessage("*foreign key shape mismatch*");
     }
 
     [SqlServerFact]
@@ -304,13 +479,25 @@ public sealed class TourCategoryMigrationTests
 
             IF NOT EXISTS (
                 SELECT 1
-                FROM sys.foreign_keys
-                WHERE parent_object_id = OBJECT_ID(N'commerce.Tours')
-                  AND referenced_object_id = OBJECT_ID(N'catalog.TourCategories')
-                  AND name = N'FK_Tours_TourCategories'
-                  AND delete_referential_action = 0
-                  AND is_disabled = 0
-                  AND is_not_trusted = 0)
+                FROM sys.foreign_keys AS fk
+                JOIN sys.foreign_key_columns AS fkc
+                  ON fkc.constraint_object_id = fk.object_id
+                JOIN sys.columns AS parent_column
+                  ON parent_column.object_id = fkc.parent_object_id
+                 AND parent_column.column_id = fkc.parent_column_id
+                JOIN sys.columns AS referenced_column
+                  ON referenced_column.object_id = fkc.referenced_object_id
+                 AND referenced_column.column_id = fkc.referenced_column_id
+                WHERE fk.parent_object_id = OBJECT_ID(N'commerce.Tours')
+                  AND fk.referenced_object_id = OBJECT_ID(N'catalog.TourCategories')
+                  AND fk.name = N'FK_Tours_TourCategories'
+                  AND fk.delete_referential_action = 0
+                  AND fk.update_referential_action = 0
+                  AND fk.is_disabled = 0
+                  AND fk.is_not_trusted = 0
+                  AND fkc.constraint_column_id = 1
+                  AND parent_column.name = N'category_id'
+                  AND referenced_column.name = N'category_id')
                 THROW 51000, 'Tours category foreign key is missing or unsafe.', 1;
 
             IF OBJECT_ID(N'commerce.TourCategories', N'U') IS NOT NULL
@@ -345,8 +532,10 @@ public sealed class TourCategoryMigrationTests
                         N'INDEX',
                         CONCAT(OBJECT_SCHEMA_NAME(i.object_id), N'.', OBJECT_NAME(i.object_id)),
                         i.name,
-                        CONCAT(i.is_unique, N'|', i.has_filter, N'|',
-                            STRING_AGG(CONCAT(ic.key_ordinal, N':', c.name), N',')
+                        CONCAT(i.type, N'|', i.is_unique, N'|', i.has_filter, N'|',
+                            i.is_disabled, N'|', i.is_hypothetical, N'|',
+                            STRING_AGG(CONCAT(ic.key_ordinal, N':', c.name, N':',
+                                ic.is_descending_key), N',')
                                 WITHIN GROUP (ORDER BY ic.key_ordinal))
                     FROM sys.indexes AS i
                     JOIN sys.index_columns AS ic
@@ -360,7 +549,8 @@ public sealed class TourCategoryMigrationTests
                         N'PK_TourCategories', N'UX_TourCategories_Code',
                         N'IX_TourCategories_ActiveName', N'IX_Tours_Category')
                       AND ic.is_included_column = 0
-                    GROUP BY i.object_id, i.name, i.is_unique, i.has_filter
+                    GROUP BY i.object_id, i.name, i.type, i.is_unique, i.has_filter,
+                        i.is_disabled, i.is_hypothetical
 
                     UNION ALL
 
@@ -376,6 +566,31 @@ public sealed class TourCategoryMigrationTests
                       AND o.name IN (
                         N'DF_TourCategories_IsActive', N'CK_TourCategories_CodeNotBlank',
                         N'CK_TourCategories_NameNotBlank', N'FK_Tours_TourCategories')
+
+                    UNION ALL
+
+                    SELECT
+                        N'FOREIGN_KEY',
+                        CONCAT(OBJECT_SCHEMA_NAME(fk.parent_object_id), N'.',
+                            OBJECT_NAME(fk.parent_object_id)),
+                        fk.name,
+                        CONCAT(parent_column.name, N'->',
+                            OBJECT_SCHEMA_NAME(fk.referenced_object_id), N'.',
+                            OBJECT_NAME(fk.referenced_object_id), N'.', referenced_column.name,
+                            N'|', fk.delete_referential_action, N'|',
+                            fk.update_referential_action, N'|', fk.is_disabled, N'|',
+                            fk.is_not_trusted)
+                    FROM sys.foreign_keys AS fk
+                    JOIN sys.foreign_key_columns AS fkc
+                      ON fkc.constraint_object_id = fk.object_id
+                    JOIN sys.columns AS parent_column
+                      ON parent_column.object_id = fkc.parent_object_id
+                     AND parent_column.column_id = fkc.parent_column_id
+                    JOIN sys.columns AS referenced_column
+                      ON referenced_column.object_id = fkc.referenced_object_id
+                     AND referenced_column.column_id = fkc.referenced_column_id
+                    WHERE fk.parent_object_id = OBJECT_ID(N'commerce.Tours')
+                      AND fk.name = N'FK_Tours_TourCategories'
                 ) AS inventory
                 ORDER BY inventory_kind, object_name, item_name
                 FOR JSON PATH

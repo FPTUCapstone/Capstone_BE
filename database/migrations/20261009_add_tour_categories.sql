@@ -90,12 +90,61 @@ BEGIN TRY
           AND is_nullable = 0)
         THROW 51000, 'TM-70 TourCategories.is_active shape mismatch.', 1;
 
-    IF OBJECT_ID(N'catalog.PK_TourCategories', N'PK') IS NULL
-        THROW 51000, 'TM-70 TourCategories primary key is missing.', 1;
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.key_constraints AS kc
+        JOIN sys.indexes AS i
+          ON i.object_id = kc.parent_object_id
+         AND i.index_id = kc.unique_index_id
+        JOIN sys.index_columns AS ic
+          ON ic.object_id = i.object_id
+         AND ic.index_id = i.index_id
+        JOIN sys.columns AS c
+          ON c.object_id = ic.object_id
+         AND c.column_id = ic.column_id
+        WHERE kc.parent_object_id = OBJECT_ID(N'catalog.TourCategories')
+          AND kc.name = N'PK_TourCategories'
+          AND kc.type = N'PK'
+          AND i.is_unique = 1
+          AND i.is_disabled = 0
+          AND ic.is_included_column = 0
+          AND ic.key_ordinal = 1
+          AND ic.is_descending_key = 0
+          AND c.name = N'category_id'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM sys.index_columns AS extra
+              WHERE extra.object_id = i.object_id
+                AND extra.index_id = i.index_id
+                AND extra.is_included_column = 0
+                AND extra.key_ordinal > 1))
+        THROW 51000, 'TM-70 TourCategories primary key shape mismatch.', 1;
 
-    IF OBJECT_ID(N'catalog.CK_TourCategories_CodeNotBlank', N'C') IS NULL
-       OR OBJECT_ID(N'catalog.CK_TourCategories_NameNotBlank', N'C') IS NULL
-        THROW 51000, 'TM-70 TourCategories required-value constraints are missing.', 1;
+    IF (
+        NOT EXISTS (
+            SELECT 1
+            FROM sys.check_constraints AS cc
+            WHERE cc.parent_object_id = OBJECT_ID(N'catalog.TourCategories')
+              AND cc.name = N'CK_TourCategories_CodeNotBlank'
+              AND cc.is_disabled = 0
+              AND cc.is_not_trusted = 0
+              AND LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                  cc.definition, N' ', N''), CHAR(9), N''), CHAR(13), N''), CHAR(10), N''),
+                  N'[', N''), N']', N''), N'(', N''), N')', N'')) =
+                      N'lenltrimrtrimcode>0')
+        OR NOT EXISTS (
+            SELECT 1
+            FROM sys.check_constraints AS cc
+            WHERE cc.parent_object_id = OBJECT_ID(N'catalog.TourCategories')
+              AND cc.name = N'CK_TourCategories_NameNotBlank'
+              AND cc.is_disabled = 0
+              AND cc.is_not_trusted = 0
+              AND LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+                  cc.definition, N' ', N''), CHAR(9), N''), CHAR(13), N''), CHAR(10), N''),
+                  N'[', N''), N']', N''), N'(', N''), N')', N'')) =
+                      N'lenltrimrtrimname>0')
+    )
+        THROW 51000, 'TM-70 TourCategories required-value constraint shape mismatch.', 1;
 
     IF NOT EXISTS (
         SELECT 1
@@ -105,8 +154,11 @@ BEGIN TRY
          AND c.column_id = dc.parent_column_id
         WHERE dc.parent_object_id = OBJECT_ID(N'catalog.TourCategories')
           AND dc.name = N'DF_TourCategories_IsActive'
-          AND c.name = N'is_active')
-        THROW 51000, 'TM-70 TourCategories.is_active default is missing.', 1;
+          AND c.name = N'is_active'
+          AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+              dc.definition, N' ', N''), CHAR(9), N''), CHAR(13), N''), CHAR(10), N''),
+              N'(', N''), N')', N'') = N'1')
+        THROW 51000, 'TM-70 TourCategories.is_active default shape mismatch.', 1;
 
     IF NOT EXISTS (
         SELECT 1 FROM sys.indexes
@@ -120,8 +172,11 @@ BEGIN TRY
         FROM sys.indexes
         WHERE object_id = OBJECT_ID(N'catalog.TourCategories')
           AND name = N'UX_TourCategories_Code'
+          AND type = 2
           AND is_unique = 1
-          AND has_filter = 0)
+          AND has_filter = 0
+          AND is_disabled = 0
+          AND is_hypothetical = 0)
         THROW 51000, 'TM-70 TourCategories code index shape mismatch.', 1;
 
     IF (
@@ -135,6 +190,7 @@ BEGIN TRY
           AND i.name = N'UX_TourCategories_Code'
           AND ic.is_included_column = 0
           AND ic.key_ordinal = 1
+          AND ic.is_descending_key = 0
           AND c.name = N'code'
     ) <> 1 OR (
         SELECT COUNT(*)
@@ -210,13 +266,30 @@ BEGIN TRY
 
     IF NOT EXISTS (
         SELECT 1
-        FROM sys.foreign_keys
-        WHERE parent_object_id = OBJECT_ID(N'commerce.Tours')
-          AND referenced_object_id = OBJECT_ID(N'catalog.TourCategories')
-          AND name = N'FK_Tours_TourCategories'
-          AND delete_referential_action = 0
-          AND is_disabled = 0
-          AND is_not_trusted = 0)
+        FROM sys.foreign_keys AS fk
+        JOIN sys.foreign_key_columns AS fkc
+          ON fkc.constraint_object_id = fk.object_id
+        JOIN sys.columns AS parent_column
+          ON parent_column.object_id = fkc.parent_object_id
+         AND parent_column.column_id = fkc.parent_column_id
+        JOIN sys.columns AS referenced_column
+          ON referenced_column.object_id = fkc.referenced_object_id
+         AND referenced_column.column_id = fkc.referenced_column_id
+        WHERE fk.parent_object_id = OBJECT_ID(N'commerce.Tours')
+          AND fk.referenced_object_id = OBJECT_ID(N'catalog.TourCategories')
+          AND fk.name = N'FK_Tours_TourCategories'
+          AND fk.delete_referential_action = 0
+          AND fk.update_referential_action = 0
+          AND fk.is_disabled = 0
+          AND fk.is_not_trusted = 0
+          AND fkc.constraint_column_id = 1
+          AND parent_column.name = N'category_id'
+          AND referenced_column.name = N'category_id'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM sys.foreign_key_columns AS extra
+              WHERE extra.constraint_object_id = fk.object_id
+                AND extra.constraint_column_id > 1))
         THROW 51000, 'TM-70 Tours category foreign key shape mismatch.', 1;
 
     IF NOT EXISTS (
