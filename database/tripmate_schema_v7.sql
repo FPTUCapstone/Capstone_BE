@@ -479,9 +479,30 @@ GO
 CREATE UNIQUE INDEX UX_Destinations_Name ON catalog.Destinations(name);
 GO
 
+-- TM-70 V2: server-owned, English Tour taxonomy. Production seed values are
+-- intentionally deferred to Product/BA approval.
+CREATE TABLE catalog.TourCategories (
+    category_id INT IDENTITY(1,1) NOT NULL
+        CONSTRAINT PK_TourCategories PRIMARY KEY,
+    code VARCHAR(50) COLLATE Latin1_General_100_CI_AS NOT NULL,
+    name NVARCHAR(100) COLLATE Latin1_General_100_CI_AS NOT NULL,
+    is_active BIT NOT NULL
+        CONSTRAINT DF_TourCategories_IsActive DEFAULT 1,
+    CONSTRAINT CK_TourCategories_CodeNotBlank
+        CHECK (LEN(LTRIM(RTRIM(code))) > 0),
+    CONSTRAINT CK_TourCategories_NameNotBlank
+        CHECK (LEN(LTRIM(RTRIM(name))) > 0)
+);
+GO
+CREATE UNIQUE INDEX UX_TourCategories_Code ON catalog.TourCategories(code);
+CREATE INDEX IX_TourCategories_ActiveName
+    ON catalog.TourCategories(is_active, name, category_id);
+GO
+
 CREATE TABLE commerce.Tours (
     tour_id             BIGINT IDENTITY(1,1) PRIMARY KEY,
     operator_user_id    BIGINT NOT NULL REFERENCES dbo.OperatorProfiles(user_id),
+    category_id           INT NULL,
     title                NVARCHAR(200) NOT NULL,
     description           NVARCHAR(MAX) NULL,
     destination            NVARCHAR(300) COLLATE Vietnamese_100_CI_AS NULL, -- legacy draft data only; TM-70 reads TourDestinations
@@ -495,6 +516,8 @@ CREATE TABLE commerce.Tours (
     published_at                DATETIME2 NULL,
     created_at                  DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
     updated_at                  DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT FK_Tours_TourCategories FOREIGN KEY (category_id)
+        REFERENCES catalog.TourCategories(category_id),
     CONSTRAINT CK_Tours_BasePriceWholeVnd
         CHECK (base_price = FLOOR(base_price))
     -- v2: slot_capacity/slots_booked moved to commerce.TourSchedules —
@@ -503,6 +526,7 @@ CREATE TABLE commerce.Tours (
 GO
 CREATE INDEX IX_Tours_Operator ON commerce.Tours(operator_user_id);
 CREATE INDEX IX_Tours_Status ON commerce.Tours(status);
+CREATE INDEX IX_Tours_Category ON commerce.Tours(category_id);
 GO
 
 -- TM-206: Tour-owned Cloudinary image metadata. Raw image binaries are never

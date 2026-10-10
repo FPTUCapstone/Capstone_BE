@@ -97,6 +97,9 @@
     <None Include="..\..\database\migrations\20261008_add_operator_document_cleanup_outbox.sql"
           Link="Database\migrations\20261008_add_operator_document_cleanup_outbox.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261009_add_tour_categories.sql"
+          Link="Database\migrations\20261009_add_tour_categories.sql"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

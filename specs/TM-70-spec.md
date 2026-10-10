@@ -1,5 +1,30 @@
 # TM-70 / UC-24 — Search Tours: đặc tả chức năng và tích hợp
 
+> **Thông báo thẩm quyền V2 (09/10/2026).** Tệp này được giữ lại như hồ sơ lịch sử
+> của phạm vi Phase 1 ban đầu và các quyết định D0–D8 cũ; nó không còn là hợp đồng
+> hiện hành cho toàn bộ UC-24 V2. Hợp đồng hiện hành nằm trong repository
+> `FPTUCapstone/Capstone_Docs` tại merge commit
+> `2ad6916dc1ff4f314c19e13258c088533a93cd9a`: [V2 addendum](https://github.com/FPTUCapstone/Capstone_Docs/blob/2ad6916dc1ff4f314c19e13258c088533a93cd9a/requirements/tm-70-uc24-search-tours-v2-addendum.md),
+> [V2 implementation plan](https://github.com/FPTUCapstone/Capstone_Docs/blob/2ad6916dc1ff4f314c19e13258c088533a93cd9a/requirements/tm-70-uc24-implementation-plan.md), và
+> [Review lifecycle clarification](https://github.com/FPTUCapstone/Capstone_Docs/blob/2ad6916dc1ff4f314c19e13258c088533a93cd9a/requirements/tm-70-review-lifecycle-minimal-clarification.md).
+> SHA này thuộc repository Docs nên không được kỳ vọng tồn tại trong lịch sử Git
+> của Backend. Bộ quyết định V2 D1–D9 là một bộ khác với D0–D8 lịch sử bên dưới;
+> cụ thể, **TM-70 V2 Addendum §8** quy định taxonomy `TourCategory` do server sở hữu,
+> mỗi Tour có đúng một category ở trạng thái đích.
+> Revision trên là bằng chứng tài liệu có thể kiểm chứng trong repository; không có
+> bằng chứng truy vết riêng rằng Product/BA đã duyệt taxonomy production, quy tắc
+> chuẩn hóa code, backfill hay thời điểm bắt buộc category. Các quyết định đó vẫn là
+> dependency cần Product/BA phê duyệt trước Phase 1.2.
+>
+> **Trạng thái chuyển tiếp Phase 1.1.** `commerce.Tours.category_id` chủ ý nullable:
+> tìm kiếm không lọc category vẫn gồm Tour legacy chưa được gán; lọc bằng một code
+> active chỉ trả Tour đã gán đúng category đó, nên Tour có `category_id = NULL`
+> không khớp. Không được tắt toàn bộ category filter để chờ backfill. Product/BA
+> phải duyệt seed list rồi Phase 1.2 mới seed, backfill và siết `NOT NULL` cho production.
+> UC-34 có category input nhưng BR-101 không tuyên bố category là bắt buộc; Phase 1.1
+> không phát minh quy tắc bắt buộc hoặc writer/API gán category. Writer cho UC-34/35
+> cần được đặc tả và phê duyệt riêng.
+
 **Phiên bản:** 1.2 — 19/09/2026. **Trạng thái:** owner đã duyệt D1 nhiều vùng và triển khai Database/Backend ngày 19/09/2026; D0, D2–D8 giữ nguyên. Web/Mobile UI và tích hợp client được hoãn sang Phase 2.
 
 **Task owner:** Mai Nguyễn Tiến Đạt / datmnt. **Nền tảng:** Backend + responsive Web + Flutter Mobile.

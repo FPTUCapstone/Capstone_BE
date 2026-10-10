@@ -9,6 +9,7 @@ namespace TripMate.Api.IntegrationTests.Tours;
 public sealed class TourSearchMigrationTests
 {
     private const string MigrationFileName = "20260915_add_tour_search_fields.sql";
+    private const string TourCategoryMigrationFileName = "20261009_add_tour_categories.sql";
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
@@ -29,6 +30,7 @@ public sealed class TourSearchMigrationTests
         await using var upgradedDatabase = await CreateOldSchemaDatabaseAsync();
 
         await ApplyMigrationAsync(upgradedDatabase);
+        await ApplyMigrationAsync(upgradedDatabase, TourCategoryMigrationFileName);
 
         var freshInventory = await ReadTm70SchemaInventoryAsync(freshDatabase);
         var upgradedInventory = await ReadTm70SchemaInventoryAsync(upgradedDatabase);
@@ -241,12 +243,17 @@ public sealed class TourSearchMigrationTests
     }
 
     private static Task ApplyMigrationAsync(SqlServerTestDatabase database)
+        => ApplyMigrationAsync(database, MigrationFileName);
+
+    private static Task ApplyMigrationAsync(
+        SqlServerTestDatabase database,
+        string migrationFileName)
     {
         var migrationPath = Path.Combine(
             AppContext.BaseDirectory,
             "Database",
             "migrations",
-            MigrationFileName);
+            migrationFileName);
         return database.ExecuteScriptAsync(migrationPath);
     }
 

@@ -23,6 +23,8 @@ public class TourConfiguration : IEntityTypeConfiguration<Tour>
         builder.Property(tour => tour.OperatorUserId)
             .HasColumnName("operator_user_id")
             .IsRequired();
+        builder.Property(tour => tour.CategoryId)
+            .HasColumnName("category_id");
         builder.Property(tour => tour.Title)
             .HasColumnName("title")
             .HasMaxLength(Tour.TitleMaxLength)
@@ -74,6 +76,10 @@ public class TourConfiguration : IEntityTypeConfiguration<Tour>
             .WithMany()
             .HasForeignKey(tour => tour.ReviewedBy)
             .OnDelete(DeleteBehavior.NoAction);
+        builder.HasOne(tour => tour.Category)
+            .WithMany(category => category.Tours)
+            .HasForeignKey(tour => tour.CategoryId)
+            .OnDelete(DeleteBehavior.NoAction);
         builder.HasMany(tour => tour.Schedules)
             .WithOne(schedule => schedule.Tour)
             .HasForeignKey(schedule => schedule.TourId)
@@ -104,5 +110,7 @@ public class TourConfiguration : IEntityTypeConfiguration<Tour>
             .HasDatabaseName("IX_Tours_Operator");
         builder.HasIndex(tour => tour.Status)
             .HasDatabaseName("IX_Tours_Status");
+        builder.HasIndex(tour => tour.CategoryId)
+            .HasDatabaseName("IX_Tours_Category");
     }
 }
