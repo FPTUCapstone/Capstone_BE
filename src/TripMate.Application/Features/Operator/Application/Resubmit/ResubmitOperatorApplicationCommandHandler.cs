@@ -89,7 +89,7 @@ public sealed class ResubmitOperatorApplicationCommandHandler(
                 }
             }
 
-            var result = await db.ExecuteInSerializableTransactionAsync(async transactionToken =>
+            var result = await db.ExecuteInTransactionAsync(async transactionToken =>
             {
                 var user = await db.Users
                     .FirstOrDefaultAsync(candidate => candidate.Id == userId, transactionToken)
@@ -257,6 +257,12 @@ public sealed class ResubmitOperatorApplicationCommandHandler(
         {
             await CompensateAsync(uploaded);
             return DuplicateIdentifier(exception.TaxCodeConflict, exception.BusinessLicenseConflict);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            db.ClearTrackedEntities();
+            await CompensateAsync(uploaded);
+            return NotRejected();
         }
         catch (DbUpdateException exception)
         {

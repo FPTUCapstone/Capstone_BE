@@ -61,20 +61,33 @@ public sealed class ResubmitOperatorApplicationSqlServerTests
             throw new InvalidOperationException("Injected failure after SQL writes, before commit.");
     }
 
-    private sealed class ConcurrentSaveInterceptor : SaveChangesInterceptor
+    private sealed class ConcurrentSaveInterceptor(int participants) : SaveChangesInterceptor
     {
-        private readonly TaskCompletionSource _bothSaving =
+        private readonly TaskCompletionSource<bool> _release =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private int _arrived;
+        private int _arrivals;
 
         public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
             DbContextEventData eventData,
             InterceptionResult<int> result,
             CancellationToken cancellationToken = default)
         {
-            if (Interlocked.Increment(ref _arrived) == 2)
-                _bothSaving.TrySetResult();
-            await _bothSaving.Task.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
+            var isTargetSave = eventData.Context?.ChangeTracker
+                .Entries<OperatorProfile>()
+                .Any(entry => entry.State == EntityState.Modified &&
+                    entry.Property(profile => profile.ApprovalStatus).IsModified) == true;
+
+            if (!isTargetSave)
+            {
+                return result;
+            }
+
+            if (Interlocked.Increment(ref _arrivals) == participants)
+            {
+                _release.TrySetResult(true);
+            }
+
+            await _release.Task.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
             return result;
         }
     }
@@ -120,6 +133,17 @@ public sealed class ResubmitOperatorApplicationSqlServerTests
         string licenseNo = "79-0123/2026/TCDL-GPLHQT")
     {
         await using var db = database.CreateDbContext();
+        var now = DateTimeOffset.UtcNow;
+        var admin = new User
+        {
+            Email = $"admin-{Guid.NewGuid():N}@example.com",
+            FullName = "Admin Reviewer",
+            PasswordHash = "hashed",
+            Role = UserRole.Administrator,
+            Status = AccountStatus.Active,
+            CreatedAtUtc = now.AddDays(-10),
+            UpdatedAtUtc = now.AddDays(-10),
+        };
         var user = new User
         {
             Email = email,
@@ -127,8 +151,10 @@ public sealed class ResubmitOperatorApplicationSqlServerTests
             PasswordHash = "hashed",
             Role = UserRole.TourOperator,
             Status = AccountStatus.Rejected,
+            CreatedAtUtc = now.AddDays(-5),
+            UpdatedAtUtc = now.AddDays(-2),
         };
-        db.Users.Add(user);
+        db.Users.AddRange(admin, user);
         await db.SaveChangesAsync();
 
         var profile = new OperatorProfile
@@ -141,9 +167,10 @@ public sealed class ResubmitOperatorApplicationSqlServerTests
             ContactPhone = "0901234567",
             ApprovalStatus = OperatorApprovalStatus.Rejected,
             RejectionReason = "Giấy phép không rõ ràng, yêu cầu chụp lại bản gốc.",
-            ReviewedBy = 1,
-            ReviewedAtUtc = DateTimeOffset.UtcNow.AddDays(-2),
-            UpdatedAtUtc = DateTimeOffset.UtcNow.AddDays(-2),
+            ReviewedBy = admin.Id,
+            ReviewedAtUtc = now.AddDays(-2),
+            CreatedAtUtc = now.AddDays(-5),
+            UpdatedAtUtc = now.AddDays(-2),
         };
 
         profile.Documents.Add(new OperatorDocument
@@ -152,7 +179,7 @@ public sealed class ResubmitOperatorApplicationSqlServerTests
             DocumentType = OperatorDocumentType.BusinessLicense,
             FileUrl = "https://cdn.example.test/operators/old-license.pdf",
             Status = DocumentStatus.Rejected,
-            UploadedAtUtc = DateTimeOffset.UtcNow.AddDays(-5),
+            UploadedAtUtc = now.AddDays(-5),
         });
 
         db.OperatorProfiles.Add(profile);
@@ -189,7 +216,7 @@ public sealed class ResubmitOperatorApplicationSqlServerTests
         profile.ApprovalStatus.Should().Be(OperatorApprovalStatus.Rejected);
         profile.CompanyName.Should().Be("Nguyên Bản Company");
         profile.RejectionReason.Should().Be("Giấy phép không rõ ràng, yêu cầu chụp lại bản gốc.");
-        profile.ReviewedBy.Should().Be(1);
+        profile.ReviewedBy.Should().NotBeNull();
 
         // Retained document remains Rejected, no new submitted document created
         profile.Documents.Should().HaveCount(1);
@@ -210,7 +237,7 @@ public sealed class ResubmitOperatorApplicationSqlServerTests
         var storage = new StorageStub();
         var userId = await SeedRejectedOperatorAsync(database);
 
-        using var factory = Factory(database, storage, new ConcurrentSaveInterceptor());
+        using var factory = Factory(database, storage, new ConcurrentSaveInterceptor(2));
         using var firstClient = factory.CreateAuthenticatedClient(userId, UserRole.TourOperator);
         using var secondClient = factory.CreateAuthenticatedClient(userId, UserRole.TourOperator);
 
