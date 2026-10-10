@@ -445,6 +445,28 @@ public class AuthController(
             : HandleFailure(result);
     }
 
+    /// <summary>
+    /// Mobile session refresh: the body-carried counterpart of <c>web/refresh</c>. Same
+    /// non-rotating redemption (hash, revocation, expiry and account eligibility checks); only a
+    /// new short-lived access token is issued and the refresh token is echoed back unchanged.
+    /// </summary>
+    [HttpPost("refresh")]
+    [ProducesResponseType(typeof(ApiResponse<AuthResponseDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> Refresh(
+        [FromBody] RefreshSessionRequest? request,
+        CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(
+            new WebRefreshCommand(request?.RefreshToken),
+            cancellationToken);
+
+        return result.IsSuccess
+            ? Success(result.Value, StatusCodes.Status200OK, "Session restored.")
+            : HandleFailure(result);
+    }
+
     // ========== UC-05 Sign Out ==========
 
     /// <summary>
@@ -510,3 +532,5 @@ public sealed record WebGoogleRequest(
     bool KeepMeSignedIn = false);
 
 public sealed record LogoutRequest(string? RefreshToken);
+
+public sealed record RefreshSessionRequest(string? RefreshToken);
