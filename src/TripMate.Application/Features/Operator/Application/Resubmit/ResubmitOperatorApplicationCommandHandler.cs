@@ -268,6 +268,11 @@ public sealed class ResubmitOperatorApplicationCommandHandler(
         {
             db.ClearTrackedEntities();
             await CompensateAsync(uploaded);
+            if (IsConcurrencyOrDeadlockException(exception))
+            {
+                return NotRejected();
+            }
+
             return constraints.Classify(exception) == OperatorRegistrationConstraint.TaxCodeOrBusinessLicense
                 ? DuplicateIdentifier(true, true)
                 : LogUnavailable(exception);
@@ -282,6 +287,11 @@ public sealed class ResubmitOperatorApplicationCommandHandler(
         {
             db.ClearTrackedEntities();
             await CompensateAsync(uploaded);
+            if (IsConcurrencyOrDeadlockException(exception))
+            {
+                return NotRejected();
+            }
+
             return LogUnavailable(exception);
         }
     }
@@ -367,6 +377,32 @@ public sealed class ResubmitOperatorApplicationCommandHandler(
         return Result.Failure<ResubmitOperatorApplicationResponse>(
             OperatorApplicationErrorCodes.Unavailable,
             OperatorApplicationMessages.Unavailable);
+    }
+
+    private static bool IsConcurrencyOrDeadlockException(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is DbUpdateConcurrencyException)
+            {
+                return true;
+            }
+
+            if (string.Equals(current.GetType().Name, "SqlException", StringComparison.Ordinal))
+            {
+                if (current.GetType().GetProperty("Number")?.GetValue(current) is 1205 or 1222)
+                {
+                    return true;
+                }
+            }
+
+            if (current.Message.Contains("deadlock", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static Result<ResubmitOperatorApplicationResponse> NotRejected() =>
