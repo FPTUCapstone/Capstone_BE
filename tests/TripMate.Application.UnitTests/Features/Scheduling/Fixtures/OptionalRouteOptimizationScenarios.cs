@@ -162,12 +162,14 @@ public static class OptionalRouteOptimizationScenarios
     }
 
     /// <summary>
-    /// Generates a synthetic benchmark scenario with N candidates and M mandatory POIs.
+    /// Generates a synthetic benchmark scenario with N candidates and M mandatory POIs. The rest preference does
+    /// not change the generated candidates or matrix, so the same seed gives the same instance for every preference.
     /// </summary>
     public static (GenerationInput Input, RouteDurationMatrix Matrix) CreateSyntheticCorpusScenario(
         int candidateCount,
         int mandatoryCount,
-        int seed = 42)
+        int seed = 42,
+        RestPreference restPreference = RestPreference.None)
     {
         var random = new Random(seed);
         var candidates = new List<GenerationCandidate>(candidateCount);
@@ -212,7 +214,8 @@ public static class OptionalRouteOptimizationScenarios
         var input = CreateInput(
             availableMinutes: 600,
             candidates,
-            mandatoryPoiIds: mandatoryIds);
+            mandatoryPoiIds: mandatoryIds,
+            restPreference: restPreference);
 
         return (input, matrix);
     }

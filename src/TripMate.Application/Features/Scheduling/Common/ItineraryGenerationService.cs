@@ -1,4 +1,6 @@
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Scheduling.Csp;
+using TripMate.Application.Features.Scheduling.Routing;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Scheduling.Common;
@@ -55,20 +57,85 @@ public sealed class ItineraryGenerationService(
         var matrixCandidates = input.Candidates.ToArray();
         var candidateMatrixIndices = BuildCandidateMatrixIndices(matrixCandidates);
 
-        var optimizationResult = _optimizer.Optimize(
-            input,
-            mandatoryCandidates,
-            matrix,
-            matrixCandidates,
-            candidateMatrixIndices,
-            cancellationToken);
+        OptimizationResult? alternativeResult = null;
+        CspStatistics? cspStatistics = null;
+        var outcome = SchedulingSolverOutcomes.Heuristic;
+        if (_options.SolverMode == SchedulingSolverMode.Csp)
+        {
+            var csp = new CspItinerarySolver(_evaluator, _options).Solve(
+                input,
+                matrix,
+                matrixCandidates,
+                candidateMatrixIndices,
+                cancellationToken);
+            cspStatistics = csp.Statistics;
+
+            if (csp.ProvedInfeasible)
+            {
+                // Lưới an toàn: CSP không mô hình hóa điểm nghỉ, nên trước khi báo lỗi vẫn thử thuật toán cũ.
+                // Như vậy bật CSP không bao giờ làm mất một lịch trình mà hệ thống trước đây tìm được.
+                alternativeResult = _optimizer.Optimize(
+                    input,
+                    mandatoryCandidates,
+                    matrix,
+                    matrixCandidates,
+                    candidateMatrixIndices,
+                    cancellationToken);
+                if (alternativeResult is null)
+                {
+                    SchedulingSolverDiagnostics.RecordOutcome(_options.SolverMode, SchedulingSolverOutcomes.Infeasible, cspStatistics);
+                    return Infeasible(DescribeCspInfeasibility(csp, candidatesById));
+                }
+
+                outcome = SchedulingSolverOutcomes.HeuristicFallbackCspProvedInfeasible;
+            }
+            else
+            {
+                alternativeResult = ToOptimizationResult(csp);
+                outcome = alternativeResult is not null
+                    ? SchedulingSolverOutcomes.Csp
+                    : csp.Statistics.SolutionsFound > 0
+                        ? SchedulingSolverOutcomes.HeuristicFallbackCspNoValidCandidate
+                        : SchedulingSolverOutcomes.HeuristicFallbackCspSearchLimit;
+            }
+        }
+        else if (_options.SolverMode == SchedulingSolverMode.MiniRouting)
+        {
+            alternativeResult = TrySolveWithMiniRouting(
+                input,
+                matrix,
+                matrixCandidates,
+                candidateMatrixIndices,
+                cancellationToken);
+            outcome = alternativeResult is not null
+                ? SchedulingSolverOutcomes.MiniRouting
+                : SchedulingSolverOutcomes.HeuristicFallbackMiniRouting;
+        }
+
+        var optimizationResult = alternativeResult
+            ?? _optimizer.Optimize(
+                input,
+                mandatoryCandidates,
+                matrix,
+                matrixCandidates,
+                candidateMatrixIndices,
+                cancellationToken);
 
         if (optimizationResult is null)
         {
+            SchedulingSolverDiagnostics.RecordOutcome(_options.SolverMode, SchedulingSolverOutcomes.Infeasible, cspStatistics);
             return Infeasible("The mandatory locations cannot fit within the selected time, hours, budget, and end point.");
         }
 
         _validator.Validate(input, matrix, matrixCandidates, optimizationResult.Schedule.Plan);
+        SchedulingSolverDiagnostics.RecordOutcome(_options.SolverMode, outcome, cspStatistics);
+
+        // CSP không có lịch gốc để so sánh và không có bước "cải thiện": số liệu của nó nằm trong
+        // SchedulingSolverOutcome. Ghi activity OptionalRouteOptimization ở đây chỉ cho ra các bộ đếm luôn bằng 0.
+        if (outcome == SchedulingSolverOutcomes.Csp)
+        {
+            return Result.Success(optimizationResult.Schedule.Plan);
+        }
 
         var baselineOptionalCount = optimizationResult.BaselineSchedule.VisitPoiIds.Count(id => !input.MandatoryPoiIds.Contains(id));
         var finalOptionalCount = optimizationResult.Schedule.VisitPoiIds.Count(id => !input.MandatoryPoiIds.Contains(id));
@@ -147,6 +214,89 @@ public sealed class ItineraryGenerationService(
 
         _validator.Validate(input, matrix, matrixCandidates, schedule.Plan);
         return Result.Success(schedule.Plan);
+    }
+
+    /// <summary>
+    /// Chạy <see cref="MiniRoutingSolver"/> khi <see cref="SchedulingGenerationOptions.SolverMode"/>
+    /// là <see cref="SchedulingSolverMode.MiniRouting"/>. Trả về null để bên gọi dùng
+    /// <see cref="OptionalRouteOptimizer"/> khi chế độ tắt hoặc bộ giải không tìm được lời giải.
+    /// </summary>
+    private OptimizationResult? TrySolveWithMiniRouting(
+        GenerationInput input,
+        RouteDurationMatrix matrix,
+        IReadOnlyList<GenerationCandidate> matrixCandidates,
+        IReadOnlyDictionary<long, int> candidateMatrixIndices,
+        CancellationToken cancellationToken)
+    {
+        if (_options.SolverMode != SchedulingSolverMode.MiniRouting)
+        {
+            return null;
+        }
+
+        var result = new MiniRoutingSolver(_evaluator, _options, _options.MiniRouting).Solve(
+            input,
+            matrix,
+            matrixCandidates,
+            candidateMatrixIndices,
+            cancellationToken);
+
+        if (result is null)
+        {
+            return null;
+        }
+
+        var moves = result.Statistics.AcceptedMoves;
+        return new OptimizationResult(
+            result.Schedule,
+            result.InitialSchedule,
+            EvaluationsCount: result.Statistics.MovesEvaluated,
+            SeedCount: 1,
+            ReconsideredAdmissionsCount: moves.GetValueOrDefault(RoutingMoveKind.InsertOptional),
+            TwoOptMovesCount: moves.GetValueOrDefault(RoutingMoveKind.TwoOpt),
+            RelocateMovesCount: moves.GetValueOrDefault(RoutingMoveKind.Relocate)
+                + moves.GetValueOrDefault(RoutingMoveKind.OrOpt)
+                + moves.GetValueOrDefault(RoutingMoveKind.Exchange),
+            BudgetExhausted: result.Statistics.TimeLimitReached,
+            ElapsedOptimization: result.Statistics.Elapsed);
+    }
+
+    private static OptimizationResult? ToOptimizationResult(CspResult result)
+    {
+        if (result.Schedule is null)
+        {
+            return null;
+        }
+
+        var stats = result.Statistics;
+        return new OptimizationResult(
+            result.Schedule,
+            result.Schedule,
+            EvaluationsCount: stats.EvaluatorCalls,
+            SeedCount: 1,
+            ReconsideredAdmissionsCount: 0,
+            TwoOptMovesCount: 0,
+            RelocateMovesCount: 0,
+            BudgetExhausted: !stats.SearchCompleted,
+            ElapsedOptimization: stats.Elapsed);
+    }
+
+    /// <summary>
+    /// CSP đã duyệt hết cây mà không có lời giải: nêu tên các điểm bắt buộc bị forward checking loại
+    /// nhiều nhất, để người dùng biết nên bỏ hoặc đổi điểm nào.
+    /// </summary>
+    private static string DescribeCspInfeasibility(
+        CspResult result,
+        IReadOnlyDictionary<long, GenerationCandidate> candidatesById)
+    {
+        const string baseMessage = "The mandatory locations cannot fit within the selected time, hours, budget, and end point.";
+        var names = result.ConflictingMandatoryPoiIds
+            .Where(candidatesById.ContainsKey)
+            .Select(id => candidatesById[id].Name)
+            .ToArray();
+
+        return names.Length == 0
+            ? baseMessage
+            : $"{baseMessage} Most conflicting: {string.Join(", ", names)}.";
     }
 
     private static bool HasInvalidRequestConstraints(GenerationInput input) =>
