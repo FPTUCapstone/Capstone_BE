@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
@@ -67,6 +68,19 @@ public sealed record SolverComparisonData(
     IReadOnlyList<SolverComparisonScenarioRow> Scenarios,
     IReadOnlyList<SolverComparisonTimingRow> Timings);
 
+/// <summary>Quan hệ giữa commit nguồn của báo cáo và HEAD của repository đang kiểm tra.</summary>
+public enum SolverComparisonCommitProvenance
+{
+    /// <summary>Commit tồn tại và là tổ tiên của HEAD.</summary>
+    Ancestor,
+
+    /// <summary>Commit tồn tại nhưng không nằm trong lịch sử của HEAD.</summary>
+    NotAncestor,
+
+    /// <summary>Commit không có trong repository (không tồn tại, hoặc clone nông thiếu lịch sử).</summary>
+    Unknown,
+}
+
 /// <summary>
 /// Định dạng dữ liệu và báo cáo của benchmark so sánh bộ giải. Báo cáo Markdown là một hàm thuần của ba tệp
 /// dữ liệu (<c>.csv</c>, <c>.timings.csv</c>, <c>.meta.json</c>), nên mọi con số trong báo cáo đều dựng lại được
@@ -87,6 +101,25 @@ public static class SolverComparisonReport
 
     private const string TimingHeader = "segment,scenario,mode,iteration,elapsed_ms,outcome";
 
+    private const int MaxReportedProblems = 20;
+
+    private static readonly string[] Modes = [DisabledMode, HeuristicMode, CspMode];
+
+    private static readonly string[] Verdicts = ["better", "equal", "worse", "excluded"];
+
+    // Outcome mà từng chế độ có thể ghi: chế độ disabled và heuristic không bao giờ chạy CSP.
+    private static readonly string[] HeuristicModeOutcomes =
+        [SchedulingSolverOutcomes.Heuristic, SchedulingSolverOutcomes.Infeasible];
+
+    private static readonly string[] CspModeOutcomes =
+    [
+        SchedulingSolverOutcomes.Csp,
+        SchedulingSolverOutcomes.HeuristicFallbackCspProvedInfeasible,
+        SchedulingSolverOutcomes.HeuristicFallbackCspNoValidCandidate,
+        SchedulingSolverOutcomes.HeuristicFallbackCspSearchLimit,
+        SchedulingSolverOutcomes.Infeasible,
+    ];
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
@@ -97,6 +130,7 @@ public static class SolverComparisonReport
 
     public static void Write(string directory, SolverComparisonData data)
     {
+        Validate(data);
         Directory.CreateDirectory(directory);
         var baseName = BaseName(data.Metadata.Date);
         File.WriteAllText(Path.Combine(directory, baseName + ".meta.json"), JsonSerializer.Serialize(data.Metadata, JsonOptions) + "\n");
@@ -113,9 +147,133 @@ public static class SolverComparisonReport
         var metadata = JsonSerializer.Deserialize<SolverComparisonMetadata>(
             File.ReadAllText(Path.Combine(directory, baseName + ".meta.json")), JsonOptions)
             ?? throw new InvalidDataException($"{baseName}.meta.json is empty.");
+        if (BaseName(metadata.Date) != baseName)
+        {
+            throw new InvalidDataException($"{baseName}.meta.json is dated {metadata.Date}, which does not match its file name.");
+        }
+
         var scenarios = ReadCsv(Path.Combine(directory, baseName + ".csv"), ScenarioHeader, ParseScenario);
         var timings = ReadCsv(Path.Combine(directory, baseName + ".timings.csv"), TimingHeader, ParseTiming);
-        return new SolverComparisonData(metadata, scenarios, timings);
+        var data = new SolverComparisonData(metadata, scenarios, timings);
+        Validate(data);
+        return data;
+    }
+
+    /// <summary>
+    /// Từ chối dữ liệu thiếu hoặc sai, để không mẫu nào bị loại âm thầm khỏi báo cáo. Dữ liệu hợp lệ khi:
+    /// <list type="bullet">
+    /// <item>commit nguồn là SHA đủ 40 ký tự hex thường; có ít nhất một lần warmup và một lần đo;</item>
+    /// <item>số scenario đúng bằng corpus khai báo trong metadata, tên không trùng, verdict và outcome thuộc tập
+    /// cho phép của từng chế độ, và kế hoạch do CSP tạo không vượt <c>MaxStops</c>;</item>
+    /// <item>mỗi dòng timing có mode và outcome cho phép, thời gian hữu hạn và không âm, scenario có thật với đúng
+    /// segment của nó, iteration trong [1, MeasuredIterations], và mỗi bộ (scenario, mode, iteration) xuất hiện
+    /// đúng một lần — tức số dòng bằng đúng scenario × mode × MeasuredIterations.</item>
+    /// </list>
+    /// Ném <see cref="InvalidDataException"/> liệt kê các lỗi tìm thấy.
+    /// </summary>
+    public static void Validate(SolverComparisonData data)
+    {
+        var problems = new List<string>();
+        var meta = data.Metadata;
+        ValidateMetadata(meta, problems);
+        if (meta.CandidateCounts is null || meta.MandatoryCounts is null || meta.Csp is null)
+        {
+            Throw(problems);
+        }
+
+        var expectedScenarios = meta.NamedScenarioCount + (meta.CandidateCounts!.Count * meta.MandatoryCounts!.Count * meta.Seeds);
+        if (data.Scenarios.Count != expectedScenarios)
+        {
+            problems.Add(Invariant($"expected {expectedScenarios} scenarios for the declared corpus, found {data.Scenarios.Count}"));
+        }
+
+        var segmentOf = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var row in data.Scenarios)
+        {
+            if (!segmentOf.TryAdd(row.Scenario, row.Segment))
+            {
+                problems.Add($"scenario {row.Scenario} appears more than once");
+            }
+
+            ValidateScenario(row, meta.Csp!, problems);
+        }
+
+        var keys = new HashSet<(string Scenario, string Mode, int Iteration)>();
+        foreach (var timing in data.Timings)
+        {
+            ValidateTiming(timing, meta.MeasuredIterations, segmentOf, problems);
+            if (!keys.Add((timing.Scenario, timing.Mode, timing.Iteration)))
+            {
+                problems.Add(Invariant($"timing {timing.Scenario} / {timing.Mode} / iteration {timing.Iteration} appears more than once"));
+            }
+        }
+
+        var expectedTimings = segmentOf.Count * Modes.Length * Math.Max(meta.MeasuredIterations, 0);
+        if (data.Timings.Count != expectedTimings)
+        {
+            problems.Add(Invariant($"expected {expectedTimings} timing rows (scenarios × modes × measured iterations), found {data.Timings.Count}"));
+        }
+
+        foreach (var scenario in segmentOf.Keys)
+        {
+            foreach (var mode in Modes)
+            {
+                for (var iteration = 1; iteration <= meta.MeasuredIterations; iteration++)
+                {
+                    if (!keys.Contains((scenario, mode, iteration)))
+                    {
+                        problems.Add(Invariant($"timing {scenario} / {mode} / iteration {iteration} is missing"));
+                    }
+                }
+            }
+        }
+
+        Throw(problems);
+    }
+
+    /// <summary>
+    /// Tra quan hệ của <paramref name="commitSha"/> với HEAD trong repository tại <paramref name="repositoryRoot"/>.
+    /// Clone nông (CI không <c>fetch-depth: 0</c>) thiếu lịch sử nên trả về <see cref="SolverComparisonCommitProvenance.Unknown"/>.
+    /// </summary>
+    public static SolverComparisonCommitProvenance FindProvenance(string repositoryRoot, string commitSha)
+    {
+        if (RunGit(repositoryRoot, "cat-file", "-e", commitSha + "^{commit}") != 0)
+        {
+            return SolverComparisonCommitProvenance.Unknown;
+        }
+
+        return RunGit(repositoryRoot, "merge-base", "--is-ancestor", commitSha, "HEAD") switch
+        {
+            0 => SolverComparisonCommitProvenance.Ancestor,
+            1 => SolverComparisonCommitProvenance.NotAncestor,
+            _ => SolverComparisonCommitProvenance.Unknown,
+        };
+    }
+
+    /// <summary>
+    /// Báo cáo đã commit phải dựng lại được từ chính commit nó ghi: commit đó tồn tại, là tổ tiên của HEAD, và
+    /// cây làm việc lúc chạy benchmark sạch. Ném <see cref="InvalidDataException"/> nếu không.
+    /// </summary>
+    public static void EnsureProvenance(
+        SolverComparisonMetadata metadata,
+        Func<string, SolverComparisonCommitProvenance> findProvenance)
+    {
+        if (metadata.WorkingTreeDirty)
+        {
+            throw new InvalidDataException(
+                $"the benchmark ran on a dirty working tree, so commit {metadata.CommitSha} cannot reproduce it");
+        }
+
+        switch (findProvenance(metadata.CommitSha))
+        {
+            case SolverComparisonCommitProvenance.Ancestor:
+                return;
+            case SolverComparisonCommitProvenance.NotAncestor:
+                throw new InvalidDataException($"source commit {metadata.CommitSha} is not an ancestor of HEAD");
+            default:
+                throw new InvalidDataException(
+                    $"source commit {metadata.CommitSha} is not in this repository (a shallow clone needs fetch-depth: 0)");
+        }
     }
 
     public static string ScenarioCsv(IEnumerable<SolverComparisonScenarioRow> rows)
@@ -164,6 +322,7 @@ public static class SolverComparisonReport
 
     public static string Markdown(SolverComparisonData data)
     {
+        Validate(data);
         var meta = data.Metadata;
         var csp = meta.Csp;
         var rows = data.Scenarios;
@@ -297,6 +456,136 @@ public static class SolverComparisonReport
             HeuristicMode => row.HeuristicOutcome,
             _ => row.CspOutcome,
         };
+    }
+
+    private static void ValidateMetadata(SolverComparisonMetadata meta, List<string> problems)
+    {
+        if (meta.CommitSha is null || meta.CommitSha.Length != 40 || !meta.CommitSha.All(char.IsAsciiHexDigitLower))
+        {
+            problems.Add($"source commit '{meta.CommitSha}' is not a full 40-character lowercase SHA");
+        }
+
+        if (meta.WarmupIterations < 1)
+        {
+            problems.Add(Invariant($"warmup iterations must be at least 1 (the warmup run produces the compared plan), found {meta.WarmupIterations}"));
+        }
+
+        if (meta.MeasuredIterations < 1)
+        {
+            problems.Add(Invariant($"measured iterations must be at least 1, found {meta.MeasuredIterations}"));
+        }
+
+        if (meta.CandidateCounts is null || meta.MandatoryCounts is null || meta.Csp is null)
+        {
+            problems.Add("metadata must declare candidate_counts, mandatory_counts and csp");
+        }
+    }
+
+    private static void ValidateScenario(SolverComparisonScenarioRow row, CspOptions csp, List<string> problems)
+    {
+        if (row.Segment.Length == 0)
+        {
+            problems.Add($"scenario {row.Scenario} has no segment");
+        }
+
+        if (!Verdicts.Contains(row.Verdict, StringComparer.Ordinal))
+        {
+            problems.Add($"scenario {row.Scenario} has unknown verdict '{row.Verdict}'");
+        }
+
+        ValidateOutcome(row.Scenario, DisabledMode, row.DisabledOutcome, problems);
+        ValidateOutcome(row.Scenario, HeuristicMode, row.HeuristicOutcome, problems);
+        ValidateOutcome(row.Scenario, CspMode, row.CspOutcome, problems);
+        if (row.CspOutcome == SchedulingSolverOutcomes.Csp && row.CspVisits > csp.MaxStops)
+        {
+            problems.Add(Invariant($"scenario {row.Scenario} is a CSP plan with {row.CspVisits} visits, above MaxStops {csp.MaxStops}"));
+        }
+    }
+
+    private static void ValidateTiming(
+        SolverComparisonTimingRow timing,
+        int measuredIterations,
+        Dictionary<string, string> segmentOf,
+        List<string> problems)
+    {
+        var key = Invariant($"timing {timing.Scenario} / {timing.Mode} / iteration {timing.Iteration}");
+        if (Modes.Contains(timing.Mode, StringComparer.Ordinal))
+        {
+            ValidateOutcome(key, timing.Mode, timing.Outcome, problems);
+        }
+        else
+        {
+            problems.Add($"{key} has unknown mode '{timing.Mode}'");
+        }
+
+        if (!double.IsFinite(timing.ElapsedMs) || timing.ElapsedMs < 0)
+        {
+            problems.Add(Invariant($"{key} has invalid elapsed time {timing.ElapsedMs}"));
+        }
+
+        if (!segmentOf.TryGetValue(timing.Scenario, out var segment))
+        {
+            problems.Add($"{key} belongs to no scenario");
+        }
+        else if (segment != timing.Segment)
+        {
+            problems.Add($"{key} is in segment '{timing.Segment}', but its scenario is in '{segment}'");
+        }
+
+        if (timing.Iteration < 1 || timing.Iteration > measuredIterations)
+        {
+            problems.Add(Invariant($"{key} is outside iterations 1–{measuredIterations}"));
+        }
+    }
+
+    private static void ValidateOutcome(string subject, string mode, string outcome, List<string> problems)
+    {
+        var allowed = mode == CspMode ? CspModeOutcomes : HeuristicModeOutcomes;
+        if (!allowed.Contains(outcome, StringComparer.Ordinal))
+        {
+            problems.Add($"{subject} has outcome '{outcome}', which the {mode} mode cannot produce");
+        }
+    }
+
+    private static void Throw(List<string> problems)
+    {
+        if (problems.Count == 0)
+        {
+            return;
+        }
+
+        var shown = problems.Take(MaxReportedProblems);
+        var more = problems.Count > MaxReportedProblems
+            ? Invariant($"\n- … and {problems.Count - MaxReportedProblems} more")
+            : string.Empty;
+        throw new InvalidDataException("Invalid solver comparison data:\n- " + string.Join("\n- ", shown) + more);
+    }
+
+    private static int RunGit(string workingDirectory, params string[] arguments)
+    {
+        var start = new ProcessStartInfo("git")
+        {
+            WorkingDirectory = workingDirectory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        foreach (var argument in arguments)
+        {
+            start.ArgumentList.Add(argument);
+        }
+
+        using var process = Process.Start(start) ?? throw new InvalidOperationException("git could not be started.");
+        var output = process.StandardOutput.ReadToEndAsync();
+        var error = process.StandardError.ReadToEndAsync();
+        if (!process.WaitForExit(TimeSpan.FromSeconds(30)))
+        {
+            process.Kill(entireProcessTree: true);
+            throw new TimeoutException($"git {string.Join(' ', arguments)} did not finish within 30 seconds.");
+        }
+
+        Task.WaitAll(output, error);
+        return process.ExitCode;
     }
 
     private static double[] Samples(IEnumerable<SolverComparisonTimingRow> timings, string segment, string mode) =>

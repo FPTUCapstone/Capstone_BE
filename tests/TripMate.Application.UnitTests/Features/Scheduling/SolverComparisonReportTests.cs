@@ -58,59 +58,142 @@ public class SolverComparisonReportTests
 
     [Theory]
     [MemberData(nameof(CommittedReports))]
-    public void CommittedReport_DataIsCompleteAndConsistent(string baseName)
+    public void CommittedReport_IsValidAndCitesACleanAncestorCommit(string baseName)
     {
+        // Read validates the data (see SolverComparisonReport.Validate) and throws on any malformed or surplus row.
         var data = SolverComparisonReport.Read(BenchmarksDirectory(), baseName);
         var meta = data.Metadata;
 
-        meta.CommitSha.Should().MatchRegex("^[0-9a-f]{40}$", "the report must name the full source commit");
-        data.Scenarios.Should().HaveCount(
-            meta.NamedScenarioCount + (meta.CandidateCounts.Count * meta.MandatoryCounts.Count * meta.Seeds));
-        data.Scenarios.Select(r => r.Scenario).Should().OnlyHaveUniqueItems();
+        data.Timings.Should().HaveCount(data.Scenarios.Count * 3 * meta.MeasuredIterations);
+        SolverComparisonReport.FindProvenance(RepositoryRoot(), meta.CommitSha)
+            .Should().Be(SolverComparisonCommitProvenance.Ancestor, "the report must be reproducible from a commit in this history");
+        meta.WorkingTreeDirty.Should().BeFalse("a committed report must come from a clean working tree");
+    }
 
-        foreach (var row in data.Scenarios)
+    // Mỗi trường hợp làm hỏng tệp .timings.csv của một bộ dữ liệu hợp lệ theo một cách, và Read phải từ chối.
+    [Theory]
+    [InlineData("unknown-mode", "*unknown mode 'bogus'*")]
+    [InlineData("unknown-outcome", "*outcome 'bogus'*")]
+    [InlineData("outcome-of-another-mode", "*outcome 'csp', which the disabled mode cannot produce*")]
+    [InlineData("negative-elapsed", "*invalid elapsed time -1*")]
+    [InlineData("nan-elapsed", "*invalid elapsed time NaN*")]
+    [InlineData("infinite-elapsed", "*invalid elapsed time Infinity*")]
+    [InlineData("extra-row-for-unknown-scenario", "*c10-m0-s2 / csp / iteration 1 belongs to no scenario*")]
+    [InlineData("duplicate-key", "*c10-m0-s1 / disabled / iteration 1 appears more than once*")]
+    [InlineData("mismatched-segment", "*is in segment 'c20-m0', but its scenario is in 'c10-m0'*")]
+    [InlineData("missing-iteration", "*c10-m0-s1 / csp / iteration 2 is missing*")]
+    [InlineData("iteration-zero", "*iteration 0 is outside iterations 1–2*")]
+    [InlineData("iteration-above-measured", "*iteration 3 is outside iterations 1–2*")]
+    public void Read_RejectsMalformedTimingData(string mutation, string expectedMessage)
+    {
+        var directory = TemporaryDirectory();
+        try
         {
-            foreach (var mode in new[] { SolverComparisonReport.DisabledMode, SolverComparisonReport.HeuristicMode, SolverComparisonReport.CspMode })
-            {
-                data.Timings
-                    .Where(t => t.Scenario == row.Scenario && t.Mode == mode)
-                    .Select(t => t.Iteration)
-                    .Should().BeEquivalentTo(Enumerable.Range(1, meta.MeasuredIterations), $"{row.Scenario} / {mode}");
-            }
+            SolverComparisonReport.Write(directory, SampleData());
+            var baseName = SolverComparisonReport.BaseName(SampleDate);
+            var path = Path.Combine(directory, baseName + ".timings.csv");
+            var lines = File.ReadAllLines(path).Where(line => line.Length > 0).ToList();
+            MutateTimings(lines, mutation);
+            File.WriteAllLines(path, lines);
 
-            row.Verdict.Should().BeOneOf("better", "equal", "worse", "excluded");
-            if (row.CspOutcome == SchedulingSolverOutcomes.Csp)
-            {
-                row.CspVisits.Should().BeLessThanOrEqualTo(meta.Csp.MaxStops, $"{row.Scenario} is a CSP plan");
-            }
+            var read = () => SolverComparisonReport.Read(directory, baseName);
+
+            read.Should().Throw<InvalidDataException>().WithMessage(expectedMessage);
         }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
 
-        data.Timings.Select(t => t.Segment)
-            .Should().BeSubsetOf(data.Scenarios.Select(r => r.Segment));
+    [Theory]
+    [InlineData("unknown-verdict", "*unknown verdict 'bogus'*")]
+    [InlineData("unknown-scenario-outcome", "*c10-m0-s1 has outcome 'bogus', which the csp mode cannot produce*")]
+    [InlineData("csp-plan-above-max-stops", "*CSP plan with 4 visits, above MaxStops 3*")]
+    [InlineData("duplicate-scenario", "*scenario c10-m0-s1 appears more than once*")]
+    [InlineData("corpus-size-mismatch", "*expected 2 scenarios for the declared corpus, found 1*")]
+    [InlineData("short-commit", "*source commit 'abc123' is not a full 40-character lowercase SHA*")]
+    [InlineData("no-measured-iterations", "*measured iterations must be at least 1, found 0*")]
+    public void Validate_RejectsMalformedScenariosAndMetadata(string mutation, string expectedMessage)
+    {
+        var data = SampleData();
+        var row = data.Scenarios[0];
+        data = mutation switch
+        {
+            "unknown-verdict" => data with { Scenarios = [row with { Verdict = "bogus" }] },
+            "unknown-scenario-outcome" => data with { Scenarios = [row with { CspOutcome = "bogus" }] },
+            "csp-plan-above-max-stops" => data with { Scenarios = [row with { CspVisits = 4 }] },
+            "duplicate-scenario" => data with { Scenarios = [row, row] },
+            "corpus-size-mismatch" => data with { Metadata = data.Metadata with { Seeds = 2 } },
+            "short-commit" => data with { Metadata = data.Metadata with { CommitSha = "abc123" } },
+            "no-measured-iterations" => data with { Metadata = data.Metadata with { MeasuredIterations = 0 } },
+            _ => throw new ArgumentOutOfRangeException(nameof(mutation), mutation, null),
+        };
+
+        var validate = () => SolverComparisonReport.Validate(data);
+
+        validate.Should().Throw<InvalidDataException>().WithMessage(expectedMessage);
+        FluentActions.Invoking(() => SolverComparisonReport.Markdown(data)).Should().Throw<InvalidDataException>();
+    }
+
+    [Fact]
+    public void Read_RejectsAMetadataDateThatDoesNotMatchTheFileName()
+    {
+        var directory = TemporaryDirectory();
+        try
+        {
+            SolverComparisonReport.Write(directory, SampleData());
+            var source = SolverComparisonReport.BaseName(SampleDate);
+            var renamed = SolverComparisonReport.BaseName("2026-01-03");
+            foreach (var suffix in new[] { ".csv", ".timings.csv", ".meta.json" })
+            {
+                File.Move(Path.Combine(directory, source + suffix), Path.Combine(directory, renamed + suffix));
+            }
+
+            var read = () => SolverComparisonReport.Read(directory, renamed);
+
+            read.Should().Throw<InvalidDataException>().WithMessage("*dated 2026-01-02*");
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(SolverComparisonCommitProvenance.NotAncestor, "*is not an ancestor of HEAD*")]
+    [InlineData(SolverComparisonCommitProvenance.Unknown, "*is not in this repository*")]
+    public void EnsureProvenance_RejectsACommitOutsideTheHistoryOfHead(
+        SolverComparisonCommitProvenance provenance,
+        string expectedMessage)
+    {
+        var ensure = () => SolverComparisonReport.EnsureProvenance(SampleData().Metadata, _ => provenance);
+
+        ensure.Should().Throw<InvalidDataException>().WithMessage(expectedMessage);
+    }
+
+    [Fact]
+    public void EnsureProvenance_RejectsADirtyWorkingTree()
+    {
+        var metadata = SampleData().Metadata with { WorkingTreeDirty = true };
+
+        var ensure = () => SolverComparisonReport.EnsureProvenance(metadata, _ => SolverComparisonCommitProvenance.Ancestor);
+
+        ensure.Should().Throw<InvalidDataException>().WithMessage("*dirty working tree*");
+    }
+
+    [Fact]
+    public void FindProvenance_ReportsAnUnreachableCommitAsUnknown()
+    {
+        SolverComparisonReport.FindProvenance(RepositoryRoot(), "0123456789abcdef0123456789abcdef01234567")
+            .Should().Be(SolverComparisonCommitProvenance.Unknown);
     }
 
     [Fact]
     public void Write_ThenRead_RoundTripsTheDataAndTheReport()
     {
-        var directory = Path.Combine(Path.GetTempPath(), "solver-comparison-" + Guid.NewGuid().ToString("N"));
-        var data = new SolverComparisonData(
-            new SolverComparisonMetadata(
-                "2026-01-02", new string('a', 40), false, "2026-01-02T03:04:05Z", "TestOS", "TestCPU", 4, ".NET 10", "Release",
-                1, 2, 1, [10], [0], 0, 40, new CspOptions { MaxStops = 3 }),
-            [
-                new SolverComparisonScenarioRow(
-                    "c10-m0", "c10-m0-s1", 0, "better", 3, 3, 3, 3, 90, 80, 300, 290,
-                    SchedulingSolverOutcomes.Heuristic, SchedulingSolverOutcomes.Heuristic, SchedulingSolverOutcomes.Csp,
-                    42, 2, true, false, false),
-            ],
-            [
-                new SolverComparisonTimingRow("c10-m0", "c10-m0-s1", SolverComparisonReport.DisabledMode, 1, 0.1234, SchedulingSolverOutcomes.Heuristic),
-                new SolverComparisonTimingRow("c10-m0", "c10-m0-s1", SolverComparisonReport.DisabledMode, 2, 0.2, SchedulingSolverOutcomes.Heuristic),
-                new SolverComparisonTimingRow("c10-m0", "c10-m0-s1", SolverComparisonReport.HeuristicMode, 1, 1.5, SchedulingSolverOutcomes.Heuristic),
-                new SolverComparisonTimingRow("c10-m0", "c10-m0-s1", SolverComparisonReport.HeuristicMode, 2, 1.25, SchedulingSolverOutcomes.Heuristic),
-                new SolverComparisonTimingRow("c10-m0", "c10-m0-s1", SolverComparisonReport.CspMode, 1, 12.5, SchedulingSolverOutcomes.Csp),
-                new SolverComparisonTimingRow("c10-m0", "c10-m0-s1", SolverComparisonReport.CspMode, 2, 400.75, SchedulingSolverOutcomes.HeuristicFallbackCspSearchLimit),
-            ]);
+        var directory = TemporaryDirectory();
+        var data = SampleData();
 
         try
         {
@@ -143,7 +226,88 @@ public class SolverComparisonReportTests
         SolverComparisonReport.Percentile(samples, percentile).Should().Be(expected);
     }
 
-    private static string BenchmarksDirectory()
+    private const string SampleDate = "2026-01-02";
+
+    // Một scenario, hai lần đo mỗi chế độ: đủ để mọi quy tắc kiểm tra đều có dữ liệu hợp lệ để làm hỏng.
+    private static SolverComparisonData SampleData() => new(
+        new SolverComparisonMetadata(
+            SampleDate, new string('a', 40), false, "2026-01-02T03:04:05Z", "TestOS", "TestCPU", 4, ".NET 10", "Release",
+            1, 2, 1, [10], [0], 0, 40, new CspOptions { MaxStops = 3 }),
+        [
+            new SolverComparisonScenarioRow(
+                "c10-m0", "c10-m0-s1", 0, "better", 3, 3, 3, 3, 90, 80, 300, 290,
+                SchedulingSolverOutcomes.Heuristic, SchedulingSolverOutcomes.Heuristic, SchedulingSolverOutcomes.Csp,
+                42, 2, true, false, false),
+        ],
+        [
+            new SolverComparisonTimingRow("c10-m0", "c10-m0-s1", SolverComparisonReport.DisabledMode, 1, 0.1234, SchedulingSolverOutcomes.Heuristic),
+            new SolverComparisonTimingRow("c10-m0", "c10-m0-s1", SolverComparisonReport.DisabledMode, 2, 0.2, SchedulingSolverOutcomes.Heuristic),
+            new SolverComparisonTimingRow("c10-m0", "c10-m0-s1", SolverComparisonReport.HeuristicMode, 1, 1.5, SchedulingSolverOutcomes.Heuristic),
+            new SolverComparisonTimingRow("c10-m0", "c10-m0-s1", SolverComparisonReport.HeuristicMode, 2, 1.25, SchedulingSolverOutcomes.Heuristic),
+            new SolverComparisonTimingRow("c10-m0", "c10-m0-s1", SolverComparisonReport.CspMode, 1, 12.5, SchedulingSolverOutcomes.Csp),
+            new SolverComparisonTimingRow("c10-m0", "c10-m0-s1", SolverComparisonReport.CspMode, 2, 400.75, SchedulingSolverOutcomes.HeuristicFallbackCspSearchLimit),
+        ]);
+
+    // lines[0] là header; các dòng dữ liệu theo thứ tự của SampleData (disabled 1, 2, heuristic 1, 2, csp 1, 2).
+    private static void MutateTimings(List<string> lines, string mutation)
+    {
+        static string SetField(string line, int index, string value)
+        {
+            var fields = line.Split(',');
+            fields[index] = value;
+            return string.Join(',', fields);
+        }
+
+        switch (mutation)
+        {
+            case "unknown-mode":
+                // A surplus row with a unique key: before validation it was silently dropped from every statistic.
+                lines.Add("c10-m0,c10-m0-s1,bogus,1,1.0000,heuristic");
+                break;
+            case "unknown-outcome":
+                lines[3] = SetField(lines[3], 5, "bogus");
+                break;
+            case "outcome-of-another-mode":
+                lines[1] = SetField(lines[1], 5, SchedulingSolverOutcomes.Csp);
+                break;
+            case "negative-elapsed":
+                lines[1] = SetField(lines[1], 4, "-1.0000");
+                break;
+            case "nan-elapsed":
+                lines[1] = SetField(lines[1], 4, "NaN");
+                break;
+            case "infinite-elapsed":
+                lines[1] = SetField(lines[1], 4, "Infinity");
+                break;
+            case "extra-row-for-unknown-scenario":
+                lines.Add("c10-m0,c10-m0-s2,csp,1,1.0000,csp");
+                break;
+            case "duplicate-key":
+                lines.Add(lines[1]);
+                break;
+            case "mismatched-segment":
+                lines[1] = SetField(lines[1], 0, "c20-m0");
+                break;
+            case "missing-iteration":
+                lines.RemoveAt(6);
+                break;
+            case "iteration-zero":
+                lines[1] = SetField(lines[1], 3, "0");
+                break;
+            case "iteration-above-measured":
+                lines[1] = SetField(lines[1], 3, "3");
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(mutation), mutation, null);
+        }
+    }
+
+    private static string TemporaryDirectory() =>
+        Path.Combine(Path.GetTempPath(), "solver-comparison-" + Guid.NewGuid().ToString("N"));
+
+    private static string BenchmarksDirectory() => Path.Combine(RepositoryRoot(), "docs", "benchmarks");
+
+    private static string RepositoryRoot()
     {
         var directory = new DirectoryInfo(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!);
         while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "TripMate.slnx")))
@@ -152,6 +316,6 @@ public class SolverComparisonReportTests
         }
 
         directory.Should().NotBeNull("could not locate the repository root (TripMate.slnx) from the test runtime directory");
-        return Path.Combine(directory!.FullName, "docs", "benchmarks");
+        return directory!.FullName;
     }
 }
