@@ -251,7 +251,8 @@ public sealed class ResubmitOperatorApplicationSqlServerTests
         // Exactly one 200 OK and one 409 Conflict
         responses.Should().ContainSingle(r => r.StatusCode == HttpStatusCode.OK);
         var conflict = responses.Single(r => r.StatusCode != HttpStatusCode.OK);
-        conflict.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var conflictBody = await conflict.Content.ReadAsStringAsync();
+        conflict.StatusCode.Should().Be(HttpStatusCode.Conflict, "body: {0}", conflictBody);
 
         var conflictJson = await conflict.Content.ReadFromJsonAsync<JsonElement>();
         conflictJson.GetProperty("errorCode").GetString().Should().Be("MSG161");
