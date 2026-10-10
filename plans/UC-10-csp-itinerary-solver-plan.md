@@ -16,8 +16,10 @@ Approved by the developer on 2026-10-10, together with
   | P1.4 | `5173488` |
   | P1.5 | `928d353` |
   | Spec and plan | `4ca96ed`, `d4a4992` |
+  | P1.7 (review round 1 remediation) | `96c0eb8` |
+  | P1.7 (regenerated baseline report) | `7019457` |
 
-  P1.7 follows the reviewed head `d4a4992`.
+  P1.7 follows the reviewed head `d4a4992`; P1.8 follows the reviewed head `7019457`.
 - **Phases 2 and 3:** not started. Each gets its own PR.
 
 ## Verification commands
@@ -117,6 +119,22 @@ Final verification commands with SQL Server. Record the evidence in the spec sta
    - Format.
    - Exact-head CI.
    - Request re-review on the new head SHA.
+
+### P1.8 — Review round 2 remediation (PR #57, reviewed head `7019457`)
+1. **MEDIUM 2, fail-closed benchmark validation (TDD).**
+   - Write parameterized tests that corrupt a valid data set and require `Read` or `Validate` to
+     fail: unknown mode or outcome, an outcome of another mode, negative, NaN or infinite elapsed
+     time, a surplus row for an unknown scenario, a duplicate key, a mismatched segment, a missing
+     iteration, iterations 0 and above `MeasuredIterations`, an unknown verdict, a CSP plan above
+     `MaxStops`, a duplicate scenario, a corpus-size mismatch, a short commit, no measured
+     iterations, and a metadata date that does not match the file name.
+   - Add `SolverComparisonReport.Validate`, called by `Read`, `Write` and `Markdown`.
+   - Add `FindProvenance` and `EnsureProvenance`: the committed report's commit must be an ancestor
+     of `HEAD` and the run must use a clean tree. Tests cover the not-ancestor, unknown and dirty
+     cases. `ci.yml` checks out with `fetch-depth: 0`.
+   - The committed corpus passes unchanged, so the report is not regenerated.
+2. **LOW 2.** Add `96c0eb8` and `7019457` to the commit table.
+3. **Re-review gate.** As in P1.7 step 5, on the new head SHA.
 
 ## Phase 2 — PR 2 (CSP follows the product rule)
 

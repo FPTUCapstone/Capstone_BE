@@ -12,7 +12,9 @@ Phase 1 is implemented and in review as PR #57 (branch `feature/phuctv-csp-solve
 - Configuration binding and validation (`89d8fad`), the product-rule plan comparison fixture and
   the `solver-comparison` runner (`5173488`), implemented test-first.
 - Review round 1 (reviewed head `d4a4992`, verdict: changes requested) is addressed by the commits
-  that follow it. See [Phase 1 review remediation](#phase-1-review-remediation).
+  that follow it. Review round 2 (reviewed head `7019457`, verdict: changes requested) is
+  addressed by the benchmark-validation commit that follows it. See
+  [Phase 1 review remediation](#phase-1-review-remediation).
 - Baseline report: `docs/benchmarks/UC-10-csp-solver-comparison-2026-10-10.md`. It was regenerated
   after the remediation, with patch defaults, over 307 synthetic scenarios. The report's
   `Source commit` line names the exact commit. Under the product rule:
@@ -126,11 +128,22 @@ Behavior for users is unchanged: the default stays `SolverMode = Heuristic`.
      measured sample), and `<base>.meta.json` (commit, environment, options, corpus, iterations).
      The Markdown report is a pure function of these three files.
    - **Consistency check:** `SolverComparisonReportTests` re-renders every committed report from
-     its data files and fails on any difference. It also checks that the data is complete:
-     - every scenario of the declared corpus is present;
-     - every scenario has all measured iterations in every mode;
-     - every CSP plan respects `MaxStops`;
-     - the commit is a full SHA.
+     its data files and fails on any difference. Reading, writing and rendering all go through
+     `SolverComparisonReport.Validate`, which rejects malformed or surplus data, so no persisted
+     sample can be silently left out of a statistic:
+     - the metadata date matches the file name, the commit is a full lowercase SHA, and there is at
+       least one warmup and one measured iteration;
+     - the scenarios are exactly the declared corpus, with unique names, a known verdict, and an
+       outcome that their mode can produce; every CSP plan respects `MaxStops`;
+     - every timing row has a known mode and an outcome allowed for that mode, a finite non-negative
+       elapsed time, an existing scenario with the same segment, and an iteration in
+       1–`MeasuredIterations`; each (scenario, mode, iteration) appears exactly once, so the row
+       count is exactly scenarios × 3 × `MeasuredIterations`;
+     - the source commit exists, is an ancestor of `HEAD`, and the run used a clean working tree.
+       CI checks out the full history (`fetch-depth: 0`) for this check.
+
+     Parameterized tests corrupt a valid data set in each of these ways and require the read to
+     fail.
    - **Outcome:** recorded by the service itself on the same run, through
      `SchedulingSolverDiagnostics` (activity `SchedulingSolverOutcome`, tag `solver.outcome`), not
      inferred from solver statistics. A CSP run that finds candidates but fails final validation
@@ -172,6 +185,14 @@ Review round 1 of PR #57 (head `d4a4992`) found two blocking issues and two non-
 | MEDIUM 2: the benchmark was not reproducible. It cited an unreachable commit, persisted only per-scenario max timing, and inferred fallbacks from `SolutionsFound == 0`. | Phase 1 item 4: full SHA with a dirty-tree refusal, persisted timing samples, an outcome recorded by the service, a consistency test, and an environment disclosure. The report was regenerated after the MEDIUM 1 fix. |
 | LOW 1: the spec said `SolverMode` applies to Adjust Items. | Corrected in [Affected flows](#affected-flows). |
 | LOW 2: the plan had a stale approval status and branch name. | Updated in the plan and in this status. |
+
+Review round 2 (head `7019457`) confirmed MEDIUM 1 and LOW 1 as fixed and found one remaining
+blocking issue.
+
+| Finding | Resolution |
+| ------- | ---------- |
+| MEDIUM 2 (partially fixed): the benchmark validation accepted unknown modes and outcomes, negative or non-finite elapsed times, surplus, duplicate or missing timing rows, mismatched segments and out-of-range iterations, so an extra row could be silently excluded from the latency statistics. | `SolverComparisonReport.Validate` enforces the rules in Phase 1 item 4 on read, write and render, and `EnsureProvenance` requires an ancestor commit and a clean tree. Parameterized tests cover each malformed case. The committed corpus passes unchanged, so the report was not regenerated. |
+| LOW 2 (partially fixed): the plan's commit table stopped at `d4a4992`. | The table lists the remediation commits `96c0eb8` and `7019457`. |
 
 ### Report 3 V2 compliance — open, must be resolved before any production rollout
 
