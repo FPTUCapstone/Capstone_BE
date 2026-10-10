@@ -91,16 +91,16 @@ public sealed class ResubmitOperatorApplicationCommandHandler(
 
             var result = await db.ExecuteInSerializableTransactionAsync(async transactionToken =>
             {
-                var user = await db.Users.AsNoTracking()
+                var user = await db.Users
                     .FirstOrDefaultAsync(candidate => candidate.Id == userId, transactionToken)
                     ?? throw new ApplicationMissingException();
-                var beforeProfile = await db.OperatorProfiles.AsNoTracking()
-                    .Include(profile => profile.Documents)
-                    .FirstOrDefaultAsync(profile => profile.UserId == userId, transactionToken)
+                var profile = await db.OperatorProfiles
+                    .Include(p => p.Documents)
+                    .FirstOrDefaultAsync(p => p.UserId == userId, transactionToken)
                     ?? throw new ApplicationMissingException();
 
                 if (user.Status != AccountStatus.Rejected ||
-                    beforeProfile.ApprovalStatus != OperatorApprovalStatus.Rejected)
+                    profile.ApprovalStatus != OperatorApprovalStatus.Rejected)
                 {
                     throw new ApplicationStateConflictException();
                 }
@@ -108,12 +108,12 @@ public sealed class ResubmitOperatorApplicationCommandHandler(
                 var taxCode = request.TaxCode.Trim();
                 var licence = request.BusinessLicenseNo.Trim();
                 var conflicts = await db.OperatorProfiles.AsNoTracking()
-                    .Where(profile => profile.UserId != userId &&
-                        (profile.TaxCode == taxCode || profile.BusinessLicenseNo == licence))
-                    .Select(profile => new
+                    .Where(p => p.UserId != userId &&
+                        (p.TaxCode == taxCode || p.BusinessLicenseNo == licence))
+                    .Select(p => new
                     {
-                        HasTaxConflict = profile.TaxCode == taxCode,
-                        HasLicenceConflict = profile.BusinessLicenseNo == licence,
+                        HasTaxConflict = p.TaxCode == taxCode,
+                        HasLicenceConflict = p.BusinessLicenseNo == licence,
                     })
                     .ToListAsync(transactionToken);
 
@@ -128,17 +128,17 @@ public sealed class ResubmitOperatorApplicationCommandHandler(
                 var beforeSnapshot = JsonSerializer.Serialize(new
                 {
                     UserStatus = user.Status.ToString(),
-                    ApprovalStatus = beforeProfile.ApprovalStatus.ToString(),
-                    beforeProfile.RejectionReason,
-                    beforeProfile.ReviewedBy,
-                    beforeProfile.ReviewedAtUtc,
-                    beforeProfile.CompanyName,
-                    beforeProfile.TaxCode,
-                    beforeProfile.BusinessLicenseNo,
-                    beforeProfile.ContactAddress,
-                    beforeProfile.ContactPhone,
+                    ApprovalStatus = profile.ApprovalStatus.ToString(),
+                    profile.RejectionReason,
+                    profile.ReviewedBy,
+                    profile.ReviewedAtUtc,
+                    profile.CompanyName,
+                    profile.TaxCode,
+                    profile.BusinessLicenseNo,
+                    profile.ContactAddress,
+                    profile.ContactPhone,
                     ContactPerson = user.FullName,
-                    Documents = beforeProfile.Documents.Select(document => new
+                    Documents = profile.Documents.Select(document => new
                     {
                         document.Id,
                         DocumentType = document.DocumentType.ToString(),
@@ -146,45 +146,22 @@ public sealed class ResubmitOperatorApplicationCommandHandler(
                     }),
                 });
 
-                var profileAffected = await db.OperatorProfiles
-                    .Where(profile => profile.UserId == userId &&
-                        profile.ApprovalStatus == OperatorApprovalStatus.Rejected)
-                    .ExecuteUpdateAsync(updates => updates
-                        .SetProperty(profile => profile.CompanyName, request.CompanyName.Trim())
-                        .SetProperty(profile => profile.TaxCode, taxCode)
-                        .SetProperty(profile => profile.BusinessLicenseNo, licence)
-                        .SetProperty(profile => profile.ContactAddress,
-                            string.IsNullOrWhiteSpace(request.BusinessAddress)
-                                ? null : request.BusinessAddress.Trim())
-                        .SetProperty(profile => profile.ContactPhone,
-                            string.IsNullOrWhiteSpace(request.ContactPhone)
-                                ? null : request.ContactPhone.Trim())
-                        .SetProperty(profile => profile.ApprovalStatus,
-                            OperatorApprovalStatus.PendingApproval)
-                        .SetProperty(profile => profile.RejectionReason, (string?)null)
-                        .SetProperty(profile => profile.ReviewedBy, (long?)null)
-                        .SetProperty(profile => profile.ReviewedAtUtc, (DateTimeOffset?)null)
-                        .SetProperty(profile => profile.UpdatedAtUtc, now),
-                        transactionToken);
+                user.FullName = request.ContactPerson.Trim();
+                user.Status = AccountStatus.PendingApproval;
+                user.UpdatedAtUtc = now;
 
-                var userAffected = await db.Users
-                    .Where(candidate => candidate.Id == userId &&
-                        candidate.Role == UserRole.TourOperator &&
-                        candidate.Status == AccountStatus.Rejected)
-                    .ExecuteUpdateAsync(updates => updates
-                        .SetProperty(candidate => candidate.FullName, request.ContactPerson.Trim())
-                        .SetProperty(candidate => candidate.Status, AccountStatus.PendingApproval)
-                        .SetProperty(candidate => candidate.UpdatedAtUtc, now),
-                        transactionToken);
-
-                if (profileAffected != 1 || userAffected != 1)
-                {
-                    throw new ApplicationStateConflictException();
-                }
-
-                var profile = await db.OperatorProfiles
-                    .Include(candidate => candidate.Documents)
-                    .FirstAsync(candidate => candidate.UserId == userId, transactionToken);
+                profile.CompanyName = request.CompanyName.Trim();
+                profile.TaxCode = taxCode;
+                profile.BusinessLicenseNo = licence;
+                profile.ContactAddress = string.IsNullOrWhiteSpace(request.BusinessAddress)
+                    ? null : request.BusinessAddress.Trim();
+                profile.ContactPhone = string.IsNullOrWhiteSpace(request.ContactPhone)
+                    ? null : request.ContactPhone.Trim();
+                profile.ApprovalStatus = OperatorApprovalStatus.PendingApproval;
+                profile.RejectionReason = null;
+                profile.ReviewedBy = null;
+                profile.ReviewedAtUtc = null;
+                profile.UpdatedAtUtc = now;
 
                 if (request.BusinessLicenseDocument is null)
                 {
