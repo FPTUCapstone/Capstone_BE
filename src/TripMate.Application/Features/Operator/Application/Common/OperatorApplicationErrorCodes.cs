@@ -17,4 +17,3 @@ public static class OperatorApplicationMessages
     public const string Success = "Application resubmitted successfully. It is now pending administrator review.";
     public const string Unavailable = "TripMate is temporarily unable to process your request. Please check your connection and try again.";
 }
-

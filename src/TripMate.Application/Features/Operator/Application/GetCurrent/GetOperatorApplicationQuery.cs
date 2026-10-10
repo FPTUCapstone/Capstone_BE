@@ -28,4 +28,3 @@ public sealed record OperatorApplicationDto(
     DateTimeOffset? ReviewedAtUtc,
     int ResubmissionCount,
     IReadOnlyList<OperatorApplicationDocumentDto> Documents);
-

@@ -24,4 +24,3 @@ public sealed record ResubmitOperatorApplicationResponse(
     string MessageCode,
     string Message,
     int ResubmissionCount);
-

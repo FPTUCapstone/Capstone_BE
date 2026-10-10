@@ -427,4 +427,3 @@ public sealed class ResubmitOperatorApplicationCommandHandler(
     private sealed class MissingBusinessLicenseException : Exception;
     private sealed class DocumentUploadException : Exception;
 }
-
