@@ -123,4 +123,3 @@ public sealed class OperatorApplicationController(
         CancellationToken cancellationToken) =>
         (await ReadDocumentAsync(file, cancellationToken))!;
 }
-

@@ -28,4 +28,3 @@ public sealed class ResubmitOperatorApplicationRequest
     [FromForm(Name = "supportingDocuments")]
     public List<IFormFile>? SupportingDocuments { get; init; }
 }
-

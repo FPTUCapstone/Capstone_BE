@@ -105,7 +105,10 @@ public class WebSignInIntegrationTests
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var json = await response.Content.ReadFromJsonAsync<JsonElement>();
         json.GetProperty("data").GetProperty("role").GetString().Should().Be("Administrator");
-        response.Headers.GetValues("Set-Cookie").Should().ContainSingle();
+        var cookies = response.Headers.GetValues("Set-Cookie").ToArray();
+        cookies.Should().HaveCount(2);
+        cookies.Should().Contain(c => c.Contains("path=/api/v1/auth") && c.Contains("expires="));
+        cookies.Should().Contain(c => c.Contains("path=/") && !c.Contains("path=/api/v1/auth"));
     }
 
     [Fact]
@@ -210,7 +213,11 @@ public class WebSignInIntegrationTests
             data.GetProperty("applicationStatus").ValueKind.Should().Be(JsonValueKind.Null);
             data.TryGetProperty("refreshToken", out _).Should().BeFalse();
             data.GetProperty("isNewAccount").GetBoolean().Should().BeFalse();
-            response.Headers.GetValues("Set-Cookie").Single().Should().Contain("tripmate_refresh=").And.Contain("expires=");
+            var cookies = response.Headers.GetValues("Set-Cookie").ToArray();
+            cookies.Should().HaveCount(2);
+            cookies.Should().Contain(c => c.Contains("path=/api/v1/auth") && c.Contains("expires="));
+            var cookie = cookies.Single(c => c.Contains("path=/") && !c.Contains("path=/api/v1/auth"));
+            cookie.Should().Contain("tripmate_refresh=").And.Contain("expires=");
         }
     }
     [Theory]
@@ -296,6 +303,9 @@ public class WebSignInIntegrationTests
         await Seed(factory, UserRole.Traveler);
         var response = await client.PostAsJsonAsync("/api/v1/auth/web/login", new { email = "login@example.com", password = "CorrectPass1" });
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        response.Headers.GetValues("Set-Cookie").Single().Contains("secure").Should().Be(secure);
+        var cookies = response.Headers.GetValues("Set-Cookie").ToArray();
+        cookies.Should().HaveCount(2);
+        var activeCookie = cookies.Single(c => c.Contains("path=/") && !c.Contains("path=/api/v1/auth"));
+        activeCookie.Contains("secure").Should().Be(secure);
     }
 }

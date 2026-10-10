@@ -43,15 +43,15 @@ public static class WebRefreshCookie
         IWebHostEnvironment environment,
         string path,
         DateTimeOffset? expires) => new()
-    {
-        HttpOnly = true,
-        Secure = context.Request.IsHttps
+        {
+            HttpOnly = true,
+            Secure = context.Request.IsHttps
             || !environment.IsDevelopment()
             || !context.Request.Host.Host.Equals(
                 "localhost",
                 StringComparison.OrdinalIgnoreCase),
-        SameSite = SameSiteMode.Lax,
-        Path = path,
-        Expires = expires
-    };
+            SameSite = SameSiteMode.Lax,
+            Path = path,
+            Expires = expires
+        };
 }
