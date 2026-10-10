@@ -7,11 +7,15 @@
 > [V2 implementation plan](https://github.com/FPTUCapstone/Capstone_Docs/blob/2ad6916dc1ff4f314c19e13258c088533a93cd9a/requirements/tm-70-uc24-implementation-plan.md), và
 > [Review lifecycle clarification](https://github.com/FPTUCapstone/Capstone_Docs/blob/2ad6916dc1ff4f314c19e13258c088533a93cd9a/requirements/tm-70-review-lifecycle-minimal-clarification.md).
 > SHA này thuộc repository Docs, không phải Backend. V2 D1–D9 không đánh số cùng
-> nghĩa với D0–D8 lịch sử bên dưới; V2 D6 / Addendum §8 là quyết định TourCategory.
+> nghĩa với D0–D8 lịch sử bên dưới; **TM-70 V2 Addendum §8** là thẩm quyền
+> cho TourCategory.
 >
 > **Phân kỳ V2 chính xác:** Phase 1.1 chỉ thêm schema/domain TourCategory với
 > `Tours.category_id` nullable, không seed và không thêm assignment writer/API.
 > Phase 1.2 chờ Product/BA duyệt taxonomy để seed, backfill và siết `NOT NULL`;
+> revision Docs này không phải bằng chứng độc lập rằng Product/BA đã duyệt danh
+> sách seed, chuẩn hóa/casing/whitespace và tính ổn định của code, quy tắc backfill,
+> hoặc thời điểm bắt buộc category. Các mục đó vẫn là dependency của Phase 1.2;
 > writer của UC-34/35 cần hợp đồng/phê duyệt riêng vì UC-34 có category input nhưng
 > BR-101 chưa xác định category là bắt buộc. Trong thời gian chuyển tiếp, tìm kiếm
 > không lọc vẫn gồm Tour `NULL`, còn lọc theo active code chỉ khớp Tour đã gán;

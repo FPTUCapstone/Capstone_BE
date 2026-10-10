@@ -9,8 +9,12 @@
 > [Review lifecycle clarification](https://github.com/FPTUCapstone/Capstone_Docs/blob/2ad6916dc1ff4f314c19e13258c088533a93cd9a/requirements/tm-70-review-lifecycle-minimal-clarification.md).
 > SHA này thuộc repository Docs nên không được kỳ vọng tồn tại trong lịch sử Git
 > của Backend. Bộ quyết định V2 D1–D9 là một bộ khác với D0–D8 lịch sử bên dưới;
-> cụ thể, **V2 D6 / Addendum §8** quy định taxonomy `TourCategory` do server sở hữu,
+> cụ thể, **TM-70 V2 Addendum §8** quy định taxonomy `TourCategory` do server sở hữu,
 > mỗi Tour có đúng một category ở trạng thái đích.
+> Revision trên là bằng chứng tài liệu có thể kiểm chứng trong repository; không có
+> bằng chứng truy vết riêng rằng Product/BA đã duyệt taxonomy production, quy tắc
+> chuẩn hóa code, backfill hay thời điểm bắt buộc category. Các quyết định đó vẫn là
+> dependency cần Product/BA phê duyệt trước Phase 1.2.
 >
 > **Trạng thái chuyển tiếp Phase 1.1.** `commerce.Tours.category_id` chủ ý nullable:
 > tìm kiếm không lọc category vẫn gồm Tour legacy chưa được gán; lọc bằng một code
