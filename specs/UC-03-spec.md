@@ -139,4 +139,3 @@ Errors:
 8. SQL Server concurrency tests with two contexts/requests prove exactly one success, one `409`, one audit event, and one winning document set.
 9. If upload succeeds but persistence fails, durable cleanup eventually removes the unreferenced asset; a committed document can never be deleted by the worker.
 10. UC-03 does not claim an Admin review-list endpoint. Review-queue visibility remains a separate dependency; the resulting `PendingApproval` state is compatible with that future/list feature.
-
