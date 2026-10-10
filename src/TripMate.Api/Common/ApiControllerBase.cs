@@ -109,6 +109,19 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             AuthErrorCodes.Msg127 =>
                 StatusCodes.Status503ServiceUnavailable,
 
+            TripMate.Application.Features.Operator.Application.Common.OperatorApplicationErrorCodes.Forbidden =>
+                StatusCodes.Status403Forbidden,
+
+            TripMate.Application.Features.Operator.Application.Common.OperatorApplicationErrorCodes.NotFound =>
+                StatusCodes.Status404NotFound,
+
+            TripMate.Application.Features.Operator.Application.Common.OperatorApplicationErrorCodes.NotRejected =>
+                StatusCodes.Status409Conflict,
+
+            TripMate.Application.Features.Operator.Application.Common.OperatorApplicationErrorCodes.MissingBusinessLicense or
+                TripMate.Application.Features.Operator.Application.Common.OperatorApplicationErrorCodes.InvalidDocument =>
+                StatusCodes.Status400BadRequest,
+
             TripMate.Application.Features.Admin.AuditLogs.Common.AuditLogErrorCodes.Forbidden =>
                 StatusCodes.Status403Forbidden,
 

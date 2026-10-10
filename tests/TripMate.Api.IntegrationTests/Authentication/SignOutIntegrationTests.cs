@@ -315,16 +315,22 @@ public class SignOutIntegrationTests
 
     private static void AssertDeletionCookie(HttpResponseMessage response)
     {
-        var cookie = response.Headers.GetValues("Set-Cookie")
-            .Single(value => value.StartsWith("tripmate_refresh=", StringComparison.OrdinalIgnoreCase));
-        var normalized = cookie.ToLowerInvariant();
-        normalized.Should().Contain("tripmate_refresh=");
-        normalized.Should().Contain("path=/api/v1/auth");
-        normalized.Should().Contain("samesite=lax");
-        normalized.Should().Contain("httponly");
-        normalized.Should().Contain("secure");
-        normalized.Should().Contain("max-age=0");
-        normalized.Should().Contain("expires=thu, 01 jan 1970 00:00:00 gmt");
+        var cookies = response.Headers.GetValues("Set-Cookie")
+            .Where(value => value.StartsWith("tripmate_refresh=", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        cookies.Should().HaveCount(2);
+        foreach (var cookie in cookies)
+        {
+            var normalized = cookie.ToLowerInvariant();
+            normalized.Should().Contain("tripmate_refresh=");
+            normalized.Should().Contain("samesite=lax");
+            normalized.Should().Contain("httponly");
+            normalized.Should().Contain("secure");
+            normalized.Should().Contain("max-age=0");
+            normalized.Should().Contain("expires=thu, 01 jan 1970 00:00:00 gmt");
+        }
+        cookies.Should().Contain(c => c.ToLowerInvariant().Contains("path=/api/v1/auth"));
+        cookies.Should().Contain(c => c.ToLowerInvariant().Contains("path=/") && !c.ToLowerInvariant().Contains("path=/api/v1/auth"));
     }
 
     private static async Task<SeededSession> SeedSession(
