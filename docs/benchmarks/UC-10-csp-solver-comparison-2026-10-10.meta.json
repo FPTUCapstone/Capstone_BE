@@ -1,0 +1,36 @@
+{
+  "date": "2026-10-10",
+  "commit_sha": "96c0eb8bc67e3ff8e09cb742123cd20a4a499fe0",
+  "working_tree_dirty": false,
+  "generated_at_utc": "2026-10-10T08:50:08Z",
+  "operating_system": "Microsoft Windows 10.0.26200",
+  "processor": "Intel64 Family 6 Model 141 Stepping 1, GenuineIntel",
+  "logical_processors": 12,
+  "runtime": ".NET 10.0.0",
+  "build_configuration": "Release",
+  "warmup_iterations": 1,
+  "measured_iterations": 3,
+  "seeds": 25,
+  "candidate_counts": [
+    10,
+    20,
+    40
+  ],
+  "mandatory_counts": [
+    0,
+    1,
+    3,
+    6
+  ],
+  "named_scenario_count": 7,
+  "max_matrix_candidates": 40,
+  "csp": {
+    "max_stops": 10,
+    "max_optional_domain_size": 20,
+    "max_nodes": 200000,
+    "time_limit_milliseconds": 5000,
+    "final_candidates_to_validate": 5,
+    "use_initial_incumbent": true,
+    "polish_with_local_search": false
+  }
+}
