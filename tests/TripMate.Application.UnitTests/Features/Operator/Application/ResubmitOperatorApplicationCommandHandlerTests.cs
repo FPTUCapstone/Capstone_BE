@@ -324,7 +324,7 @@ public sealed class ResubmitOperatorApplicationCommandHandlerTests
     {
         SeedRejectedApplication();
 
-        db.ThrowOnSaveConcurrency = true;
+        db.ThrowOnTransaction = new InvalidOperationException("DB write failure");
         var licenseDoc = new OperatorRegistrationDocument("license.pdf", "application/pdf", "%PDF-test"u8.ToArray());
 
         var result = await Handler().Handle(Command(license: licenseDoc), CancellationToken.None);
@@ -339,11 +339,26 @@ public sealed class ResubmitOperatorApplicationCommandHandlerTests
     }
 
     [Fact]
-    public async Task Handle_UniqueConstraintViolationDuringSave_ReturnsMsg159AndCompensates()
+    public async Task Handle_ConcurrencyConflictDuringSave_ReturnsMsg161AndCompensates()
     {
         SeedRejectedApplication();
 
         db.ThrowOnSaveConcurrency = true;
+        var licenseDoc = new OperatorRegistrationDocument("license.pdf", "application/pdf", "%PDF-test"u8.ToArray());
+
+        var result = await Handler().Handle(Command(license: licenseDoc), CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be(OperatorApplicationErrorCodes.NotRejected);
+        deleted.Should().ContainSingle(id => id.EndsWith(".pdf"));
+    }
+
+    [Fact]
+    public async Task Handle_UniqueConstraintViolationDuringSave_ReturnsMsg159AndCompensates()
+    {
+        SeedRejectedApplication();
+
+        db.ThrowOnTransaction = new DbUpdateException("Duplicate key violation", (Exception?)null);
         constraints.Setup(x => x.Classify(It.IsAny<DbUpdateException>()))
             .Returns(OperatorRegistrationConstraint.TaxCodeOrBusinessLicense);
 
