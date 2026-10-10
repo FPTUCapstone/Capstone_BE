@@ -48,8 +48,8 @@ BEGIN
         (@itineraryGroup, 2, NULL, DATEADD(HOUR, -3, @now), DATEADD(HOUR, -2, @now), 60, 'Rest', 'Visited'),
         (@itineraryGroup, 3, @poiRiver, DATEADD(HOUR, 1, @now), DATEADD(HOUR, 2, @now), 60, 'Visit', 'Planned');
 
-    INSERT trip.TripSessions(itinerary_id, traveler_user_id, fsm_state, current_latitude, current_longitude, started_at, last_synced_at)
-    VALUES (@itineraryGroup, @host, 'Navigating', 15.879000, 108.335000, DATEADD(HOUR, -5, @now), DATEADD(MINUTE, -2, @now));
+    INSERT trip.TripSessions(itinerary_id, requested_itinerary_id, traveler_user_id, start_idempotency_key, fsm_state, current_latitude, current_longitude, started_at, last_synced_at)
+    VALUES (@itineraryGroup, @itineraryGroup, @host, NEWID(), 'Navigating', 15.879000, 108.335000, DATEADD(HOUR, -5, @now), DATEADD(MINUTE, -2, @now));
     SET @sessionGroup = CONVERT(BIGINT, SCOPE_IDENTITY());
     INSERT social.TravelGroups(itinerary_id, host_user_id, name)
     VALUES (@itineraryGroup, @host, N'UC59 Hoi An Walking Group');
@@ -128,8 +128,8 @@ BEGIN
         (@itineraryTour, 2, NULL, DATEADD(HOUR, -4, @now), DATEADD(HOUR, -3, @now), 60, 'Rest', 'Skipped'),
         (@itineraryTour, 3, @poiMarble, DATEADD(HOUR, 2, @now), DATEADD(HOUR, 4, @now), 120, 'Visit', 'Planned');
 
-    INSERT trip.TripSessions(itinerary_id, traveler_user_id, fsm_state, current_latitude, current_longitude, started_at, last_synced_at)
-    VALUES (@itineraryTour, @traveler, 'Exploring', 16.061200, 108.227700, DATEADD(HOUR, -7, @now), DATEADD(MINUTE, -3, @now));
+    INSERT trip.TripSessions(itinerary_id, requested_itinerary_id, traveler_user_id, start_idempotency_key, fsm_state, current_latitude, current_longitude, started_at, last_synced_at)
+    VALUES (@itineraryTour, @itineraryTour, @traveler, NEWID(), 'Exploring', 16.061200, 108.227700, DATEADD(HOUR, -7, @now), DATEADD(MINUTE, -3, @now));
     SET @sessionTour = CONVERT(BIGINT, SCOPE_IDENTITY());
     INSERT trip.TripStateHistory(session_id, from_state, to_state, reason, triggered_by, changed_at)
     VALUES

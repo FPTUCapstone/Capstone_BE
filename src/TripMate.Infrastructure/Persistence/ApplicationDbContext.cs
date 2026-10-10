@@ -96,6 +96,9 @@ public class ApplicationDbContext(
     public void ClearTrackedEntities()
         => ChangeTracker.Clear();
 
+    public void MarkTripSessionProgressForConcurrencyCheck(TripSession session)
+        => Entry(session).Property(candidate => candidate.FsmState).IsModified = true;
+
     public async Task<T> ExecuteInSerializableTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken)
@@ -177,6 +180,8 @@ public class ApplicationDbContext(
     public DbSet<SystemConfig> SystemConfigs => Set<SystemConfig>();
 
     public DbSet<TripSession> TripSessions => Set<TripSession>();
+
+    public DbSet<TripSessionItem> TripSessionItems => Set<TripSessionItem>();
 
     public DbSet<Incident> Incidents => Set<Incident>();
 

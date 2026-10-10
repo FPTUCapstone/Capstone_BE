@@ -12,6 +12,7 @@ using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Media;
 using TripMate.Application.Features.Authentication.PasswordReset;
 using TripMate.Application.Features.Itineraries.Common;
+using TripMate.Application.Features.Navigation.Common;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Explanation;
 using TripMate.Application.Features.Scheduling.Personalization;
@@ -124,6 +125,12 @@ public static class DependencyInjection
         services.AddSingleton(serviceProvider => serviceProvider
             .GetRequiredService<IOptions<SchedulingReservationOptions>>()
             .Value);
+        services.AddOptions<NavigationSessionOptions>()
+            .Bind(configuration.GetSection(NavigationSessionOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<NavigationSessionOptions>, NavigationSessionOptionsValidator>();
+        services.AddSingleton(serviceProvider =>
+            serviceProvider.GetRequiredService<IOptions<NavigationSessionOptions>>().Value);
         services.AddOptions<SchedulingRateLimitOptions>()
             .Bind(configuration.GetSection(SchedulingRateLimitOptions.SectionName))
             .ValidateOnStart();

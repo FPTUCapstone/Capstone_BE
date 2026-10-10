@@ -16,3 +16,10 @@ public sealed class PossibleDuplicateProblemDetails : ErrorCodeProblemDetails
 {
     public required long ExistingPoiId { get; init; }
 }
+
+public sealed class NavigationStartConflictProblemDetails : ErrorCodeProblemDetails
+{
+    public long? ActiveSessionId { get; init; }
+
+    public string? ActiveSessionLocation { get; init; }
+}

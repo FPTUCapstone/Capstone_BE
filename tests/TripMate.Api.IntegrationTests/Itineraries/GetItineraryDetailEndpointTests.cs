@@ -43,11 +43,17 @@ public sealed class GetItineraryDetailEndpointTests
         items[0].GetProperty("recommendationReason").GetString().Should().Be("Mandatory location");
         items[0].GetProperty("friendlyExplanation").GetString()
             .Should().Be("Giải thích cho điểm bắt buộc.");
+        items[0].GetProperty("latitude").GetDecimal().Should().Be(16.003300m);
+        items[0].GetProperty("longitude").GetDecimal().Should().Be(108.263500m);
         items[1].GetProperty("isMandatory").GetBoolean().Should().BeFalse();
         items[1].GetProperty("friendlyExplanation").GetString()
             .Should().Be("Giải thích cho điểm đề xuất.");
+        items[1].GetProperty("latitude").GetDecimal().Should().Be(0m);
+        items[1].GetProperty("longitude").GetDecimal().Should().Be(0m);
         items[2].GetProperty("kind").GetString().Should().Be(nameof(ItineraryItemKind.Rest));
         items[2].GetProperty("friendlyExplanation").ValueKind.Should().Be(JsonValueKind.Null);
+        items[2].GetProperty("latitude").ValueKind.Should().Be(JsonValueKind.Null);
+        items[2].GetProperty("longitude").ValueKind.Should().Be(JsonValueKind.Null);
         saveInterceptor.SaveCalls.Should().Be(0);
         explanationProvider.CallCount.Should().Be(0);
     }
@@ -110,10 +116,29 @@ public sealed class GetItineraryDetailEndpointTests
                 CreatedAtUtc = now,
                 UpdatedAtUtc = now,
             });
+            var category = PoiCategory.Create("Attraction", null);
+            context.PoiCategories.Add(category);
+            await context.SaveChangesAsync();
+            var mandatoryPoi = PointOfInterest.Create(
+                category,
+                "Marble Mountains",
+                16.003300m,
+                108.263500m,
+                1,
+                now);
+            var zeroCoordinatePoi = PointOfInterest.Create(
+                category,
+                "Zero Island",
+                0m,
+                0m,
+                1,
+                now);
+            context.PointsOfInterest.AddRange(mandatoryPoi, zeroCoordinatePoi);
+            await context.SaveChangesAsync();
             var itinerary = Itinerary.CreateManual(1, "Endpoint Trip", Itinerary.ActiveStatus, now);
             var mandatory = ItineraryItem.CreateVisit(
                 1,
-                101,
+                mandatoryPoi.Id,
                 now,
                 now.AddHours(1),
                 true,
@@ -123,7 +148,7 @@ public sealed class GetItineraryDetailEndpointTests
             itinerary.AddItem(mandatory);
             var optional = ItineraryItem.CreateVisit(
                 2,
-                102,
+                zeroCoordinatePoi.Id,
                 now.AddHours(1),
                 now.AddHours(2),
                 false,

@@ -31,7 +31,9 @@ public sealed record ItineraryDetailItemDto(
     bool IsMandatory,
     string? RecommendationReason,
     string? FriendlyExplanation,
-    bool IsUnavailable);
+    bool IsUnavailable,
+    decimal? Latitude,
+    decimal? Longitude);
 
 public sealed record ItineraryAccess(
     ItineraryDetailAccessKind AccessKind,

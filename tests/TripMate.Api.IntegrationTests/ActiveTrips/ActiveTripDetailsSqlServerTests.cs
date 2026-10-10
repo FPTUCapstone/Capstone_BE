@@ -63,9 +63,10 @@ public sealed class ActiveTripDetailsSqlServerTests
             SET @itinerary = SCOPE_IDENTITY();
 
             DECLARE @session BIGINT;
-            INSERT trip.TripSessions(itinerary_id, traveler_user_id, fsm_state,
+            INSERT trip.TripSessions(itinerary_id, requested_itinerary_id, traveler_user_id,
+                start_idempotency_key, fsm_state,
                 current_latitude, current_longitude, started_at, last_synced_at)
-            VALUES (@itinerary, @traveler, 'Interrupted', 16.061200, 108.227700,
+            VALUES (@itinerary, @itinerary, @traveler, NEWID(), 'Interrupted', 16.061200, 108.227700,
                 '2026-09-25T17:00:00', '2026-09-26T03:12:44');
             SET @session = SCOPE_IDENTITY();
 
@@ -200,8 +201,9 @@ public sealed class ActiveTripDetailsSqlServerTests
             SET @itinerary = SCOPE_IDENTITY();
 
             DECLARE @session BIGINT;
-            INSERT trip.TripSessions(itinerary_id, traveler_user_id, fsm_state, started_at)
-            VALUES (@itinerary, @traveler, 'Completed', '2026-09-25T17:00:00');
+            INSERT trip.TripSessions(
+                itinerary_id, requested_itinerary_id, traveler_user_id, start_idempotency_key, fsm_state, started_at)
+            VALUES (@itinerary, @itinerary, @traveler, NEWID(), 'Completed', '2026-09-25T17:00:00');
             SET @session = SCOPE_IDENTITY();
             """);
         await using var db = database.CreateDbContext();
@@ -231,8 +233,9 @@ public sealed class ActiveTripDetailsSqlServerTests
             VALUES (@traveler, 'Manual', N'Solo plan', 'Active');
             SET @itinerary = SCOPE_IDENTITY();
 
-            INSERT trip.TripSessions(itinerary_id, traveler_user_id, fsm_state, started_at)
-            VALUES (@itinerary, @traveler, 'Exploring', '2026-09-25T17:00:00');
+            INSERT trip.TripSessions(
+                itinerary_id, requested_itinerary_id, traveler_user_id, start_idempotency_key, fsm_state, started_at)
+            VALUES (@itinerary, @itinerary, @traveler, NEWID(), 'Exploring', '2026-09-25T17:00:00');
             """);
         await using var db = database.CreateDbContext();
         var handler = new GetActiveTripDetailsQueryHandler(db, new Administrator(), new Clock());
@@ -266,8 +269,9 @@ public sealed class ActiveTripDetailsSqlServerTests
             VALUES (@traveler, 'Manual', N'Unnamed group plan', 'Active');
             SET @itinerary = SCOPE_IDENTITY();
 
-            INSERT trip.TripSessions(itinerary_id, traveler_user_id, fsm_state, started_at)
-            VALUES (@itinerary, @traveler, 'Navigating', '2026-09-25T17:00:00');
+            INSERT trip.TripSessions(
+                itinerary_id, requested_itinerary_id, traveler_user_id, start_idempotency_key, fsm_state, started_at)
+            VALUES (@itinerary, @itinerary, @traveler, NEWID(), 'Navigating', '2026-09-25T17:00:00');
 
             DECLARE @group BIGINT;
             INSERT social.TravelGroups(itinerary_id, host_user_id, name)

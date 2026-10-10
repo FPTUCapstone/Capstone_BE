@@ -70,6 +70,12 @@
     <None Include="..\..\database\migrations\20261004_add_scheduling_generation_reservation.sql"
           Link="Database\migrations\20261004_add_scheduling_generation_reservation.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261008_add_uc13_navigation_execution.sql"
+          Link="Database\migrations\20261008_add_uc13_navigation_execution.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures\Database\uc13_revision1_navigation_execution.sql"
+          Link="Database\Fixtures\uc13_revision1_navigation_execution.sql"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="Fixtures\Database\tm206_pre_migration_schema.sql"
           Link="Database\Fixtures\tm206_pre_migration_schema.sql"
           CopyToOutputDirectory="PreserveNewest" />

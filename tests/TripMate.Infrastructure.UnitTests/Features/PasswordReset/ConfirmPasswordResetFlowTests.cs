@@ -352,6 +352,9 @@ public class ConfirmPasswordResetFlowTests
             modelBuilder.Ignore<Domain.Entities.GroupJoinOperation>();
             modelBuilder.Ignore<Domain.Entities.ItineraryVersionOperation>();
             modelBuilder.Ignore<Domain.Entities.SystemConfig>();
+            modelBuilder.Ignore<Domain.Entities.TripSession>();
+            modelBuilder.Ignore<Domain.Entities.TripSessionItem>();
+            modelBuilder.Ignore<Domain.Entities.TripStateHistory>();
             base.OnModelCreating(modelBuilder);
         }
 

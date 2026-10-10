@@ -31,9 +31,11 @@ public sealed class GetActiveTripsQueryHandler(
                 "You do not have permission to access this function.");
         }
 
+        var nowUtc = dateTimeProvider.UtcNow;
         var active = dbContext.TripSessions
             .AsNoTracking()
-            .Where(session => ActiveStates.Contains(session.FsmState));
+            .Where(session => ActiveStates.Contains(session.FsmState)
+                && (session.ExpiresAtUtc == null || session.ExpiresAtUtc > nowUtc));
 
         var summary = await BuildSummaryAsync(active, cancellationToken);
         var filtered = ApplyFilters(active, request);
