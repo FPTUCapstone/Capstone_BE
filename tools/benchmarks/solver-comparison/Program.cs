@@ -1,20 +1,38 @@
 using System.Diagnostics;
 using System.Globalization;
-using System.Text;
+using System.Runtime.InteropServices;
 
 using TripMate.Application.Features.Scheduling.Common;
-using TripMate.Application.Features.Scheduling.Csp;
 using TripMate.Application.UnitTests.Features.Scheduling.Fixtures;
 using TripMate.Domain.Enums;
 
 // UC-10 solver comparison: optimization disabled vs Heuristic vs CSP on identical synthetic inputs.
-// Usage: dotnet run -c Release --project tools/benchmarks/solver-comparison -- [outputDirectory] [iterations] [seeds]
-var outputDirectory = args.Length > 0 ? args[0] : Path.Combine("docs", "benchmarks");
-var iterations = args.Length > 1 ? int.Parse(args[1], CultureInfo.InvariantCulture) : 3;
-var seeds = args.Length > 2 ? int.Parse(args[2], CultureInfo.InvariantCulture) : 25;
-var candidateCounts = new[] { 10, 20, 40 };
-var mandatoryCounts = new[] { 0, 1, 3, 6 };
-var date = DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+// Usage: dotnet run -c Release --project tools/benchmarks/solver-comparison -- [outputDirectory] [iterations] [seeds] [--allow-dirty]
+// Commit the source first: the runner refuses a working tree with uncommitted source changes unless --allow-dirty is
+// given, and the report then states that it cannot be reproduced. Output: <base>.csv, <base>.timings.csv,
+// <base>.meta.json and <base>.md, where the Markdown is recomputed from the three data files.
+var allowDirty = args.Contains("--allow-dirty");
+var positional = args.Where(arg => !arg.StartsWith("--", StringComparison.Ordinal)).ToArray();
+var outputDirectory = positional.Length > 0 ? positional[0] : Path.Combine("docs", "benchmarks");
+var iterations = positional.Length > 1 ? int.Parse(positional[1], CultureInfo.InvariantCulture) : 3;
+var seeds = positional.Length > 2 ? int.Parse(positional[2], CultureInfo.InvariantCulture) : 25;
+int[] candidateCounts = [10, 20, 40];
+int[] mandatoryCounts = [0, 1, 3, 6];
+
+var commit = Git("rev-parse HEAD");
+if (commit is null)
+{
+    Console.Error.WriteLine("Cannot read the source commit with git; run from inside the repository.");
+    return 1;
+}
+
+// docs/, specs/ và plans/ không ảnh hưởng kết quả; mọi thay đổi khác (kể cả tệp chưa track) đều làm báo cáo không tái lập được.
+var dirty = !string.IsNullOrEmpty(Git("status --porcelain -- . \":(exclude)docs\" \":(exclude)specs\" \":(exclude)plans\""));
+if (dirty && !allowDirty)
+{
+    Console.Error.WriteLine("The working tree has uncommitted source changes. Commit them first, or pass --allow-dirty for a non-reproducible preview.");
+    return 1;
+}
 
 var scenarios = new List<Scenario>
 {
@@ -26,6 +44,7 @@ var scenarios = new List<Scenario>
     Named("relocate", OptionalRouteOptimizationScenarios.CreateRelocateStrictImprovementScenario()),
     Named("reconsideration", OptionalRouteOptimizationScenarios.CreateReconsiderationScenario()),
 };
+var namedScenarioCount = scenarios.Count;
 foreach (var candidates in candidateCounts)
 {
     foreach (var mandatory in mandatoryCounts)
@@ -42,89 +61,117 @@ var disabledOptions = new SchedulingGenerationOptions { EnableOptionalRouteOptim
 var heuristicOptions = new SchedulingGenerationOptions { SolverMode = SchedulingSolverMode.Heuristic };
 var cspOptions = new SchedulingGenerationOptions { SolverMode = SchedulingSolverMode.Csp };
 
-Console.WriteLine($"Running {scenarios.Count} scenarios × 3 modes × {iterations} iterations...");
-var results = new List<ScenarioResult>(scenarios.Count);
+// Outcome và số liệu CSP do chính service ghi lại trong lần chạy đó, không suy đoán từ một lần giải riêng.
+using var outcomes = new OutcomeRecorder();
+
+Console.WriteLine($"Running {scenarios.Count} scenarios × 3 modes × (1 warmup + {iterations} measured)...");
+var scenarioRows = new List<SolverComparisonScenarioRow>(scenarios.Count);
+var timingRows = new List<SolverComparisonTimingRow>(scenarios.Count * 3 * iterations);
 foreach (var scenario in scenarios)
 {
-    var disabled = await Measure(scenario, disabledOptions, iterations);
-    var heuristic = await Measure(scenario, heuristicOptions, iterations);
-    var csp = await Measure(scenario, cspOptions, iterations);
-    var statistics = CspStatisticsFor(scenario, cspOptions);
+    var disabled = await Measure(scenario, disabledOptions, SolverComparisonReport.DisabledMode, iterations, outcomes, timingRows);
+    var heuristic = await Measure(scenario, heuristicOptions, SolverComparisonReport.HeuristicMode, iterations, outcomes, timingRows);
+    var csp = await Measure(scenario, cspOptions, SolverComparisonReport.CspMode, iterations, outcomes, timingRows);
     var comparison = heuristic.Plan is not null && csp.Plan is not null
         ? Math.Sign(ProductRulePlanComparison.Compare(scenario.Input, scenario.Matrix, csp.Plan, heuristic.Plan))
         : (int?)null;
-    results.Add(new ScenarioResult(scenario, disabled, heuristic, csp, comparison, statistics));
+
+    scenarioRows.Add(new SolverComparisonScenarioRow(
+        scenario.Segment,
+        scenario.Name,
+        scenario.Input.MandatoryPoiIds.Count,
+        Verdict(comparison),
+        VisitCount(heuristic.Plan),
+        VisitCount(csp.Plan),
+        OptionalCount(scenario, heuristic.Plan),
+        OptionalCount(scenario, csp.Plan),
+        Travel(scenario, heuristic.Plan),
+        Travel(scenario, csp.Plan),
+        heuristic.Plan?.TotalDurationMinutes,
+        csp.Plan?.TotalDurationMinutes,
+        disabled.Outcome.Name,
+        heuristic.Outcome.Name,
+        csp.Outcome.Name,
+        csp.Outcome.Tag<int>("csp.nodes_expanded"),
+        csp.Outcome.Tag<int>("csp.solutions_found"),
+        csp.Outcome.Tag<bool>("csp.search_completed"),
+        csp.Outcome.Tag<bool>("csp.node_limit_reached"),
+        csp.Outcome.Tag<bool>("csp.time_limit_reached")));
 }
 
-Directory.CreateDirectory(outputDirectory);
-var baseName = $"UC-10-csp-solver-comparison-{date}";
-var csvPath = Path.Combine(outputDirectory, baseName + ".csv");
-File.WriteAllText(csvPath, Csv(results));
-var markdownPath = Path.Combine(outputDirectory, baseName + ".md");
-File.WriteAllText(markdownPath, Markdown(results, cspOptions.Csp, iterations, seeds, date, baseName + ".csv"));
-Console.WriteLine($"Wrote {markdownPath} and {csvPath}");
+var metadata = new SolverComparisonMetadata(
+    Date: DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+    CommitSha: commit,
+    WorkingTreeDirty: dirty,
+    GeneratedAtUtc: DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture),
+    OperatingSystem: RuntimeInformation.OSDescription,
+    Processor: Environment.GetEnvironmentVariable("PROCESSOR_IDENTIFIER") ?? RuntimeInformation.ProcessArchitecture.ToString(),
+    LogicalProcessors: Environment.ProcessorCount,
+    Runtime: RuntimeInformation.FrameworkDescription,
+#if DEBUG
+    BuildConfiguration: "Debug",
+#else
+    BuildConfiguration: "Release",
+#endif
+    WarmupIterations: 1,
+    MeasuredIterations: iterations,
+    Seeds: seeds,
+    CandidateCounts: candidateCounts,
+    MandatoryCounts: mandatoryCounts,
+    NamedScenarioCount: namedScenarioCount,
+    MaxMatrixCandidates: cspOptions.MaxMatrixCandidates,
+    Csp: cspOptions.Csp);
+
+SolverComparisonReport.Write(outputDirectory, new SolverComparisonData(metadata, scenarioRows, timingRows));
+var baseName = SolverComparisonReport.BaseName(metadata.Date);
+Console.WriteLine($"Wrote {Path.Combine(outputDirectory, baseName)}.{{md,csv,timings.csv,meta.json}}");
+if (dirty)
+{
+    Console.WriteLine("WARNING: uncommitted source changes; the report is marked as not reproducible.");
+}
+
+return 0;
 
 static Scenario Named(string name, (GenerationInput Input, RouteDurationMatrix Matrix) fixture) =>
     new("named", name, fixture.Input, fixture.Matrix);
 
-static async Task<ModeResult> Measure(Scenario scenario, SchedulingGenerationOptions options, int iterations)
+static async Task<ModeResult> Measure(
+    Scenario scenario,
+    SchedulingGenerationOptions options,
+    string mode,
+    int iterations,
+    OutcomeRecorder outcomes,
+    List<SolverComparisonTimingRow> timings)
 {
     var service = new ItineraryGenerationService(new FixedMatrixProvider(scenario.Matrix), options: options);
+
+    outcomes.Reset();
     var warmup = await service.GenerateAsync(scenario.Input, CancellationToken.None);
-    var timings = new List<double>(iterations);
-    for (var i = 0; i < iterations; i++)
+    var warmupOutcome = outcomes.Take();
+
+    for (var i = 1; i <= iterations; i++)
     {
+        outcomes.Reset();
         var watch = Stopwatch.StartNew();
         _ = await service.GenerateAsync(scenario.Input, CancellationToken.None);
         watch.Stop();
-        timings.Add(watch.Elapsed.TotalMilliseconds);
+        timings.Add(new SolverComparisonTimingRow(
+            scenario.Segment, scenario.Name, mode, i, watch.Elapsed.TotalMilliseconds, outcomes.Take().Name));
     }
 
-    return new ModeResult(warmup.IsSuccess ? warmup.Value : null, timings);
+    return new ModeResult(warmup.IsSuccess ? warmup.Value : null, warmupOutcome);
 }
 
-static CspStatistics CspStatisticsFor(Scenario scenario, SchedulingGenerationOptions options)
-{
-    var candidates = scenario.Input.Candidates.ToArray();
-    var indices = candidates.Select((candidate, index) => (candidate.Id, Index: index + 1))
-        .ToDictionary(pair => pair.Id, pair => pair.Index);
-    return new CspItinerarySolver(new ItineraryScheduleEvaluator(options), options)
-        .Solve(scenario.Input, scenario.Matrix, candidates, indices)
-        .Statistics;
-}
+static int? VisitCount(GeneratedItineraryPlan? plan) =>
+    plan?.Items.Count(item => item.Kind == ItineraryItemKind.Visit);
 
-static int OptionalCount(Scenario scenario, GeneratedItineraryPlan? plan) =>
+static int? OptionalCount(Scenario scenario, GeneratedItineraryPlan? plan) =>
     plan?.Items.Count(item => item.Kind == ItineraryItemKind.Visit
         && item.PointOfInterestId is { } id
-        && !scenario.Input.MandatoryPoiIds.Contains(id)) ?? 0;
+        && !scenario.Input.MandatoryPoiIds.Contains(id));
 
 static int? Travel(Scenario scenario, GeneratedItineraryPlan? plan) =>
     plan is null ? null : ProductRulePlanComparison.MatrixTravelMinutes(scenario.Input, scenario.Matrix, plan);
-
-static double Percentile(IEnumerable<double> values, double percentile)
-{
-    var sorted = values.OrderBy(value => value).ToArray();
-    return sorted.Length == 0 ? 0 : sorted[Math.Min(sorted.Length - 1, (int)(sorted.Length * percentile))];
-}
-
-static string Csv(IEnumerable<ScenarioResult> results)
-{
-    var csv = new StringBuilder(
-        "segment,scenario,csp_vs_heuristic,heuristic_optional,csp_optional,heuristic_travel,csp_travel,"
-        + "disabled_ms_max,heuristic_ms_max,csp_ms_max,csp_nodes,csp_node_limit,csp_time_limit,csp_fell_back_to_heuristic\n");
-    foreach (var result in results)
-    {
-        csv.Append(CultureInfo.InvariantCulture,
-            $"{result.Scenario.Segment},{result.Scenario.Name},{Verdict(result.Comparison)},"
-            + $"{OptionalCount(result.Scenario, result.Heuristic.Plan)},{OptionalCount(result.Scenario, result.Csp.Plan)},"
-            + $"{Travel(result.Scenario, result.Heuristic.Plan)},{Travel(result.Scenario, result.Csp.Plan)},"
-            + $"{result.Disabled.Timings.Max():F2},{result.Heuristic.Timings.Max():F2},{result.Csp.Timings.Max():F2},"
-            + $"{result.Statistics.NodesExpanded},{result.Statistics.NodeLimitReached},{result.Statistics.TimeLimitReached},"
-            + $"{result.Csp.Plan is not null && result.Statistics.SolutionsFound == 0}\n");
-    }
-
-    return csv.ToString();
-}
 
 static string Verdict(int? comparison) => comparison switch
 {
@@ -134,107 +181,75 @@ static string Verdict(int? comparison) => comparison switch
     null => "excluded",
 };
 
-static string Markdown(
-    IReadOnlyList<ScenarioResult> results,
-    CspOptions csp,
-    int iterations,
-    int seeds,
-    string date,
-    string csvName)
-{
-    var markdown = new StringBuilder();
-    markdown.AppendLine(CultureInfo.InvariantCulture, $"# UC-10 CSP Solver Comparison — {date}");
-    markdown.AppendLine();
-    markdown.AppendLine("## Environment and corpus");
-    markdown.AppendLine();
-    markdown.AppendLine(CultureInfo.InvariantCulture, $"- Commit: `{GitCommit()}`");
-    markdown.AppendLine(CultureInfo.InvariantCulture, $"- OS: {Environment.OSVersion}; logical processors: {Environment.ProcessorCount}; runtime: .NET {Environment.Version}");
-    markdown.AppendLine(CultureInfo.InvariantCulture, $"- Runner: `tools/benchmarks/solver-comparison`, Release, 1 warmup + {iterations} measured iterations per mode");
-    markdown.AppendLine(CultureInfo.InvariantCulture, $"- CSP options: MaxNodes {csp.MaxNodes}, TimeLimitMilliseconds {csp.TimeLimitMilliseconds}, MaxStops {csp.MaxStops}, MaxOptionalDomainSize {csp.MaxOptionalDomainSize}");
-    markdown.AppendLine(CultureInfo.InvariantCulture, $"- Corpus: **synthetic only**. 7 named `OptionalRouteOptimizationScenarios` fixtures plus `CreateSyntheticCorpusScenario` for candidates {{10, 20, 40}} × mandatory {{0, 1, 3, 6}} × seeds 1–{seeds}; sample size {results.Count}.");
-    markdown.AppendLine(CultureInfo.InvariantCulture, $"- Excluded (a solver produced no plan): {results.Count(result => result.Comparison is null)}");
-    markdown.AppendLine("- Comparison rule: the product rule of `ScheduleGlobalComparator` (optional inclusion in canonical rank order, then matrix travel, duration, end time, visit IDs).");
-    markdown.AppendLine();
-    markdown.AppendLine("## Quality: CSP vs Heuristic under the product rule");
-    markdown.AppendLine();
-    markdown.AppendLine("| Segment | n | CSP better | Equal | CSP worse | Avg optional (H / CSP) | Avg travel min (H / CSP) |");
-    markdown.AppendLine("|---|---:|---:|---:|---:|---:|---:|");
-    foreach (var group in results.GroupBy(result => result.Scenario.Segment))
-    {
-        var included = group.Where(result => result.Comparison is not null).ToArray();
-        markdown.AppendLine(CultureInfo.InvariantCulture,
-            $"| {group.Key} | {group.Count()} | {included.Count(r => r.Comparison < 0)} | {included.Count(r => r.Comparison == 0)} | {included.Count(r => r.Comparison > 0)} "
-            + $"| {included.Average(r => OptionalCount(r.Scenario, r.Heuristic.Plan)):F2} / {included.Average(r => OptionalCount(r.Scenario, r.Csp.Plan)):F2} "
-            + $"| {included.Average(r => Travel(r.Scenario, r.Heuristic.Plan) ?? 0):F1} / {included.Average(r => Travel(r.Scenario, r.Csp.Plan) ?? 0):F1} |");
-    }
-
-    markdown.AppendLine();
-    markdown.AppendLine("## Latency (generator only)");
-    markdown.AppendLine();
-    markdown.AppendLine("| Segment | Disabled p95 | Heuristic p95 | CSP p50 | CSP p95 | CSP max | CSP added p95 (gate ≤ 300 ms) | Node limit hit | Time limit hit | Fell back to heuristic |");
-    markdown.AppendLine("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|");
-    foreach (var group in results.GroupBy(result => result.Scenario.Segment))
-    {
-        var disabledP95 = Percentile(group.SelectMany(r => r.Disabled.Timings), 0.95);
-        var cspTimings = group.SelectMany(r => r.Csp.Timings).ToArray();
-        var cspP95 = Percentile(cspTimings, 0.95);
-        var added = cspP95 - disabledP95;
-        markdown.AppendLine(CultureInfo.InvariantCulture,
-            $"| {group.Key} | {disabledP95:F2} ms | {Percentile(group.SelectMany(r => r.Heuristic.Timings), 0.95):F2} ms "
-            + $"| {Percentile(cspTimings, 0.5):F2} ms | {cspP95:F2} ms | {cspTimings.Max():F2} ms "
-            + $"| {added:F2} ms {(added <= 300 ? "✅" : "❌")} | {group.Count(r => r.Statistics.NodeLimitReached)} | {group.Count(r => r.Statistics.TimeLimitReached)} | {group.Count(r => r.Csp.Plan is not null && r.Statistics.SolutionsFound == 0)} |");
-    }
-
-    var worse = results.Where(result => result.Comparison > 0).Select(result => result.Scenario.Name).ToArray();
-    markdown.AppendLine();
-    markdown.AppendLine("## Gate status");
-    markdown.AppendLine();
-    markdown.AppendLine(CultureInfo.InvariantCulture, $"- Quality (100% better or equal): {(worse.Length == 0 ? "passed" : $"**failed** in {worse.Length} scenarios")}");
-    if (worse.Length > 0)
-    {
-        markdown.AppendLine(CultureInfo.InvariantCulture, $"- Scenarios where the CSP is worse: {string.Join(", ", worse.Take(40))}{(worse.Length > 40 ? ", …" : string.Empty)}");
-    }
-
-    markdown.AppendLine(CultureInfo.InvariantCulture, $"- Time limit reached in any run: {(results.Any(r => r.Statistics.TimeLimitReached) ? "yes" : "no")}");
-    markdown.AppendLine();
-    markdown.AppendLine("## Limitations");
-    markdown.AppendLine();
-    markdown.AppendLine("- Synthetic, generator-only evidence: no OpenRouteService, ranking, or database latency is included,");
-    markdown.AppendLine("  and conclusions generalize only to the tested synthetic distribution.");
-    markdown.AppendLine(CultureInfo.InvariantCulture, $"- Per-scenario raw results: `{csvName}`.");
-    return markdown.ToString();
-}
-
-static string GitCommit()
+static string? Git(string arguments)
 {
     try
     {
-        using var git = Process.Start(new ProcessStartInfo("git", "rev-parse --short HEAD")
+        using var git = Process.Start(new ProcessStartInfo("git", arguments)
         {
             RedirectStandardOutput = true,
             UseShellExecute = false,
         });
-        var commit = git?.StandardOutput.ReadToEnd().Trim();
-        git?.WaitForExit();
-        return string.IsNullOrEmpty(commit) ? "unknown" : commit;
+        if (git is null)
+        {
+            return null;
+        }
+
+        var output = git.StandardOutput.ReadToEnd().Trim();
+        git.WaitForExit();
+        return git.ExitCode == 0 ? output : null;
     }
     catch (System.ComponentModel.Win32Exception)
     {
-        return "unknown";
+        return null;
     }
 }
 
 internal sealed record Scenario(string Segment, string Name, GenerationInput Input, RouteDurationMatrix Matrix);
 
-internal sealed record ModeResult(GeneratedItineraryPlan? Plan, IReadOnlyList<double> Timings);
+internal sealed record ModeResult(GeneratedItineraryPlan? Plan, RecordedOutcome Outcome);
 
-internal sealed record ScenarioResult(
-    Scenario Scenario,
-    ModeResult Disabled,
-    ModeResult Heuristic,
-    ModeResult Csp,
-    int? Comparison,
-    CspStatistics Statistics);
+internal sealed record RecordedOutcome(string Name, IReadOnlyDictionary<string, object?> Tags)
+{
+    /// <summary>Lần sinh trả lỗi trước khi tới bước chọn bộ giải (ví dụ yêu cầu không hợp lệ) không ghi outcome.</summary>
+    public static readonly RecordedOutcome None = new("none", new Dictionary<string, object?>());
+
+    public T? Tag<T>(string name)
+        where T : struct =>
+        Tags.TryGetValue(name, out var value) && value is T typed ? typed : null;
+}
+
+/// <summary>Bắt activity <c>SchedulingSolverOutcome</c> của lần sinh vừa chạy (runner chạy tuần tự).</summary>
+internal sealed class OutcomeRecorder : IDisposable
+{
+    private readonly ActivityListener _listener;
+    private RecordedOutcome? _last;
+
+    public OutcomeRecorder()
+    {
+        _listener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == SchedulingSolverDiagnostics.ActivitySourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = activity =>
+            {
+                if (activity.OperationName == SchedulingSolverDiagnostics.OutcomeActivityName)
+                {
+                    _last = new RecordedOutcome(
+                        activity.GetTagItem("solver.outcome") as string ?? "none",
+                        activity.TagObjects.ToDictionary(tag => tag.Key, tag => tag.Value));
+                }
+            },
+        };
+        ActivitySource.AddActivityListener(_listener);
+    }
+
+    public void Reset() => _last = null;
+
+    public RecordedOutcome Take() => _last ?? RecordedOutcome.None;
+
+    public void Dispose() => _listener.Dispose();
+}
 
 internal sealed class FixedMatrixProvider(RouteDurationMatrix matrix) : IRouteDurationProvider
 {

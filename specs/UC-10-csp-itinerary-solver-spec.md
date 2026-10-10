@@ -4,29 +4,27 @@
 
 Approved by the developer on 2026-10-10. Owner: UC-10 scheduling (phuctv).
 
-Phase 1 implemented locally on 2026-10-10:
+Phase 1 is implemented and in review as PR #57 (branch `feature/phuctv-csp-solver`, from
+`develop` at `af505f4`):
 
 - Patches 0001, 0002, and 0004 applied as commits `63309cc`, `1ca8b57`, and `c864aa3`, with
   their content unchanged.
-- Configuration binding and validation, the product-rule plan comparison fixture, and the
-  `solver-comparison` runner implemented test-first.
-- The baseline report `docs/benchmarks/UC-10-csp-solver-comparison-2026-10-10.md` (patch defaults,
-  307 synthetic scenarios), under the product rule:
-  - 10 candidates: the CSP is better in 81/100 scenarios and never worse.
-  - 20–40 candidates: the CSP is worse in 154/200 scenarios.
-  - Latency: the c40-m6 segment exceeds the 300 ms CSP gate (392 ms added p95).
-  - This is the gap Phase 2 closes.
-- Verification:
-  - Release build: 0 warnings.
-  - Format is clean on every changed file. The pre-existing Windows-only formatting findings in
-    two untouched `develop` files are unrelated.
-  - Full suite with SQL Server: Application 1622/1622, Infrastructure 714 passed (3 provider skips),
-    CandidatePoolReplay 13/13, Api.IntegrationTests 857 passed with 10 skips (Redis-gated and
-    real-provider smoke tests).
-  - One failure in that run: `AuditOutcomeEndpointTests.LegacyAndReasonContract_...`, unrelated to
-    scheduling. It passes 3/3 when run alone, so it is order-dependent under the full suite.
-
-Branch: `feature/phuctv-csp-scheduling` from `develop` at `af505f4`.
+- Configuration binding and validation (`89d8fad`), the product-rule plan comparison fixture and
+  the `solver-comparison` runner (`5173488`), implemented test-first.
+- Review round 1 (reviewed head `d4a4992`, verdict: changes requested) is addressed by the commits
+  that follow it. See [Phase 1 review remediation](#phase-1-review-remediation).
+- Baseline report: `docs/benchmarks/UC-10-csp-solver-comparison-2026-10-10.md`. It was regenerated
+  after the remediation, with patch defaults, over 307 synthetic scenarios. The report's
+  `Source commit` line names the exact commit. Under the product rule:
+  - every CSP plan stays within `MaxStops = 10`. The earlier report had 95 plans with 11 visits,
+    which came from the review's MEDIUM 1 defect;
+  - 10 candidates: the CSP is better in 81/100 scenarios and never worse;
+  - 20–40 candidates: the CSP is worse in 191/200 scenarios, mainly because of the fixed 10-stop cap
+    and the travel-plus-penalty objective;
+  - latency: four segments exceed the 300 ms CSP gate (c20-m0, c20-m6, c40-m1, c40-m6);
+  - this is the gap Phase 2 closes. The CSP stays experimental and is not the default.
+- Verification evidence for the current head is recorded in the PR. The previous evidence was
+  recorded for `d4a4992` and is superseded.
 
 ## Purpose
 
@@ -53,11 +51,17 @@ the current heuristic under that same definition.
 ## Affected flows
 
 `ItineraryGenerationService` is the only plan producer (TM-216). It is called by:
-- itinerary creation (`CreateSchedulingRequestCommandHandler`);
-- Regenerate and Adjust Items (`ItineraryVersionService`, two call sites).
+- itinerary creation (`CreateSchedulingRequestCommandHandler`) through `GenerateAsync`;
+- Regenerate (`ItineraryVersionService.CreateRegeneratedVersionAsync`) through `GenerateAsync`;
+- Adjust Items (`ItineraryVersionService.CreateAdjustedVersionAsync`) through
+  `GenerateFixedOrderAsync`.
 
-All three receive the same `SchedulingGenerationOptions`, so `SolverMode` applies to all of them.
-Every gate in this specification covers the three flows.
+`SolverMode` (Heuristic, CSP, or MiniRouting) applies only to creation and Regenerate, which
+search for a visit order. Adjust Items keeps the user's fixed visit order, so no solver runs. It
+uses the authoritative schedule evaluation (`ItineraryScheduleEvaluator`) and
+`GeneratedItineraryInvariantValidator` in every mode, and it is intentionally independent of
+`SolverMode`. The gates in this specification still run the Adjust Items suites under each mode,
+as a regression check that the mode switch does not affect them.
 
 ## Invariants that must hold in every solver mode
 
@@ -117,7 +121,24 @@ Behavior for users is unchanged: the default stays `SolverMode = Heuristic`.
    - a non-positive `Csp:MaxNodes`, `Csp:TimeLimitMilliseconds`, or `Csp:MaxOptionalDomainSize`;
    - a non-positive `Csp:MaxStops` when it is set.
 4. Add `tools/benchmarks/solver-comparison`, a console runner outside the solution, following
-   `tools/benchmarks/optional-route-optimization`.
+   `tools/benchmarks/optional-route-optimization`. The runner's output is audit evidence:
+   - **Data files:** the per-scenario `<base>.csv`, the per-run `<base>.timings.csv` (every
+     measured sample), and `<base>.meta.json` (commit, environment, options, corpus, iterations).
+     The Markdown report is a pure function of these three files.
+   - **Consistency check:** `SolverComparisonReportTests` re-renders every committed report from
+     its data files and fails on any difference. It also checks that the data is complete:
+     - every scenario of the declared corpus is present;
+     - every scenario has all measured iterations in every mode;
+     - every CSP plan respects `MaxStops`;
+     - the commit is a full SHA.
+   - **Outcome:** recorded by the service itself on the same run, through
+     `SchedulingSolverDiagnostics` (activity `SchedulingSolverOutcome`, tag `solver.outcome`), not
+     inferred from solver statistics. A CSP run that finds candidates but fails final validation
+     is counted as `heuristic_fallback_csp_no_valid_candidate`.
+   - **Reproducibility:** the runner records the full commit SHA and refuses a working tree with
+     uncommitted source changes (`docs/`, `specs/`, `plans/` excluded). Commit the source first,
+     run the runner, then commit the report. Never rewrite history afterwards: the reported SHA
+     must remain reachable from the PR.
    - **Corpus:** every named `OptionalRouteOptimizationScenarios` fixture, plus synthetic
      scenarios using the approved UC-10 segments: candidates {10, 20, 40} × mandatory
      {0, 1, 3, 6} × seeds 1–25.
@@ -127,8 +148,8 @@ Behavior for users is unchanged: the default stays `SolverMode = Heuristic`.
      - optional count, travel minutes, total duration;
      - latency p50/p95/max for three modes: optimization disabled, heuristic, and CSP;
      - how many CSP runs ended on the node budget and how many fell back to the heuristic.
-   - **Output:** a Markdown table plus CSV, saved as
-     `docs/benchmarks/UC-10-csp-solver-comparison-<date>.md`.
+   - **Output:** `docs/benchmarks/UC-10-csp-solver-comparison-<date>.md`, plus the three data
+     files above.
    - **Disclosures** (required by the replay spec):
      - corpus type (synthetic only) and generator seeds;
      - sample size and excluded scenarios;
@@ -136,6 +157,46 @@ Behavior for users is unchanged: the default stays `SolverMode = Heuristic`.
      - the statement that conclusions generalize only to the tested synthetic distribution and
        are generator-only, not end-to-end latency.
 5. Commit the first benchmark report (baseline with patch defaults) as report evidence.
+6. Every plan the CSP returns respects its configured `MaxStops` and `MaxOptionalDomainSize`:
+   - the initial incumbent is built only from the root search domain and within `MaxStops`;
+   - every state is checked against the same limits before it enters the elite set or sets the
+     branch-and-bound upper bound. This includes states from the optional local-search polish.
+
+### Phase 1 review remediation
+
+Review round 1 of PR #57 (head `d4a4992`) found two blocking issues and two non-blocking ones.
+
+| Finding | Resolution |
+| ------- | ---------- |
+| MEDIUM 1: the CSP initial incumbent, built by `MiniRoutingSolver.Construct`, ignored `MaxStops` and `MaxOptionalDomainSize`, entered the elite set, and set the pruning bound. The benchmark had 95 plans with 11 visits under `MaxStops = 10`. | `Construct` takes the allowed optional nodes and a stop limit. MiniRouting still passes all optional nodes and no limit, so its behavior is unchanged. The CSP passes its root domain and `MaxStops`, and `SearchRun.WithinLimits` guards the incumbent and the polish. Regression tests cover restrictive limits (`MaxStops` = mandatory + 2, `MaxOptionalDomainSize = 3`) with the incumbent on and off and with polish. They also check that the incumbent never changes the optimum when the search completes. Phase 1 item 6. |
+| MEDIUM 2: the benchmark was not reproducible. It cited an unreachable commit, persisted only per-scenario max timing, and inferred fallbacks from `SolutionsFound == 0`. | Phase 1 item 4: full SHA with a dirty-tree refusal, persisted timing samples, an outcome recorded by the service, a consistency test, and an environment disclosure. The report was regenerated after the MEDIUM 1 fix. |
+| LOW 1: the spec said `SolverMode` applies to Adjust Items. | Corrected in [Affected flows](#affected-flows). |
+| LOW 2: the plan had a stale approval status and branch name. | Updated in the plan and in this status. |
+
+### Report 3 V2 compliance — open, must be resolved before any production rollout
+
+Report 3 V2 (the canonical SRS) specifies two things for the CSP engine:
+- a hard timeout of 2,500 ms;
+- a nearest-neighbor fallback.
+
+The experimental Phase 1 implementation differs on both:
+- **Timeout.** It uses a 5,000 ms wall-clock safety limit (`Csp:TimeLimitMilliseconds`). The node
+  budget is its primary stop, for determinism.
+- **Fallback.** It falls back to the existing heuristic optimizer (`OptionalRouteOptimizer`),
+  which already produces the production plans.
+
+This specification does not override the SRS. Before the CSP becomes the default (Phase 3),
+there are two options:
+- align the implementation with Report 3 V2;
+- amend Report 3 V2 through the report's own change process, with this rationale: UC-10 rejected
+  wall-clock optimization timeouts for determinism, and the heuristic fallback is at least as good
+  as nearest-neighbor.
+
+Until then this is a tracked gap, not a Phase 1 blocker.
+
+Report 3 V2 also describes one-day itineraries in some sections, while the detailed UC-10
+requirements use a date range. That inconsistency predates this work, is not introduced by it,
+and is tracked separately.
 
 ## Phase 2 — CSP follows the product rule (PR 2)
 
@@ -147,7 +208,7 @@ Behavior for users is unchanged: the default stays `SolverMode = Heuristic`.
 | R3 | The CSP domain contains every optional POI the heuristic may consider (up to `MaxMatrixCandidates`). `Csp:MaxOptionalDomainSize` defaults to that value. |
 | R4 | When `EnableOptionalRouteOptimization = false`, `SolverMode` is ignored and the existing unoptimized path runs. |
 | R5 | The node budget is the only stop that shapes the result. UC-10 rejected wall-clock optimization timeouts, so if the wall-clock safety limit fires, the partial CSP result is discarded and the deterministic heuristic result is returned. The heuristic still runs before infeasibility is reported, and infeasibility reports the conflicting mandatory POIs. |
-| R8 | The existing aggregate optimization diagnostic records which solver produced the plan. Allowed values are `Heuristic`, `Csp`, and `CspFallback`, plus node and prune counts. It never records user or POI identity. |
+| R8 | The existing aggregate optimization diagnostic records which solver produced the plan. Allowed values are `Heuristic`, `Csp`, and `CspFallback`, plus node and prune counts. It never records user or POI identity. Phase 1 already records the detailed outcome in `SchedulingSolverDiagnostics`, for benchmark auditability (see Phase 1 item 4). R8 maps those outcomes to these three values; it does not add a second, divergent classification. |
 | R6 | Existing tests that characterize heuristic-only behavior pin `SolverMode = Heuristic` explicitly. Their expectations are not edited. |
 | R7 | Every CSP result passes `GeneratedItineraryInvariantValidator`, exactly like the heuristic. |
 

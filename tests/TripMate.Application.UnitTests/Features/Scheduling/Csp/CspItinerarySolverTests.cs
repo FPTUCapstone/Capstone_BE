@@ -1,5 +1,8 @@
+using System.Diagnostics;
+
 using FluentAssertions;
 
+using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Csp;
 using TripMate.Application.Features.Scheduling.Routing;
@@ -160,6 +163,70 @@ public class CspItinerarySolverTests
             .Should().BeEquivalentTo(input.MandatoryPoiIds);
     }
 
+    [Fact]
+    public async Task GenerationService_RecordsCspOutcome_WhenCspProducesThePlan()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(20, 2, 54);
+        var service = new ItineraryGenerationService(
+            new StaticMatrixProvider(matrix), new SchedulingGenerationOptions { SolverMode = SchedulingSolverMode.Csp });
+
+        var activity = await RecordSolverOutcome(() => service.GenerateAsync(input, CancellationToken.None));
+
+        activity.GetTagItem("solver.mode").Should().Be(nameof(SchedulingSolverMode.Csp));
+        activity.GetTagItem("solver.outcome").Should().Be(SchedulingSolverOutcomes.Csp);
+        activity.GetTagItem("csp.nodes_expanded").Should().BeOfType<int>().Which.Should().BePositive();
+    }
+
+    [Fact]
+    public async Task GenerationService_RecordsHeuristicOutcome_InTheDefaultMode()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(20, 2, 54);
+        var service = new ItineraryGenerationService(new StaticMatrixProvider(matrix));
+
+        var activity = await RecordSolverOutcome(() => service.GenerateAsync(input, CancellationToken.None));
+
+        activity.GetTagItem("solver.mode").Should().Be(nameof(SchedulingSolverMode.Heuristic));
+        activity.GetTagItem("solver.outcome").Should().Be(SchedulingSolverOutcomes.Heuristic);
+        activity.GetTagItem("csp.nodes_expanded").Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GenerationService_RecordsSearchLimitFallback_WhenCspStopsBeforeAnySolution()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(20, 2, 54);
+        var options = new SchedulingGenerationOptions
+        {
+            SolverMode = SchedulingSolverMode.Csp,
+            Csp = new CspOptions { MaxNodes = 1, UseInitialIncumbent = false },
+        };
+        var service = new ItineraryGenerationService(new StaticMatrixProvider(matrix), options);
+
+        Result<GeneratedItineraryPlan>? result = null;
+        var activity = await RecordSolverOutcome(async () => result = await service.GenerateAsync(input, CancellationToken.None));
+
+        result!.IsSuccess.Should().BeTrue();
+        activity.GetTagItem("solver.outcome").Should().Be(SchedulingSolverOutcomes.HeuristicFallbackCspSearchLimit);
+        activity.GetTagItem("csp.node_limit_reached").Should().Be(true);
+        activity.GetTagItem("csp.solutions_found").Should().Be(0);
+    }
+
+    [Fact]
+    public async Task GenerationService_RecordsInfeasibleOutcome_WhenNoSolverFindsAPlan()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(10, 2, 53);
+        var closed = input.Candidates.First(c => input.MandatoryPoiIds.Contains(c.Id));
+        input = input with
+        {
+            Candidates = input.Candidates.Select(c => c.Id == closed.Id ? c with { OpeningHours = [] } : c).ToArray(),
+        };
+        var service = new ItineraryGenerationService(
+            new StaticMatrixProvider(matrix), new SchedulingGenerationOptions { SolverMode = SchedulingSolverMode.Csp });
+
+        var activity = await RecordSolverOutcome(() => service.GenerateAsync(input, CancellationToken.None));
+
+        activity.GetTagItem("solver.outcome").Should().Be(SchedulingSolverOutcomes.Infeasible);
+    }
+
     /// <summary>
     /// Hồi quy: CSP từng trừ sẵn thời gian dự phòng cho điểm nghỉ rồi kết luận vô nghiệm, trong khi lịch thật
     /// (có điểm nghỉ) vẫn vừa thời gian. Kết luận vô nghiệm giờ chỉ dựa trên mô hình nới lỏng.
@@ -209,6 +276,77 @@ public class CspItinerarySolverTests
         first.Schedule.Should().NotBeNull();
         second.Schedule!.VisitPoiIds.Should().Equal(first.Schedule!.VisitPoiIds);
         second.Statistics.NodesExpanded.Should().Be(first.Statistics.NodesExpanded);
+    }
+
+    /// <summary>
+    /// Hồi quy: lời giải khởi đầu (chèn rẻ nhất) từng dùng mọi điểm tùy chọn và không giới hạn số điểm dừng,
+    /// nên kết quả CSP có thể vượt MaxStops hoặc chứa điểm ngoài top-N, dù bản thân phép duyệt tôn trọng cả hai.
+    /// </summary>
+    [Theory]
+    [InlineData(20, 0, 71, true, false)]
+    [InlineData(20, 1, 72, true, false)]
+    [InlineData(40, 2, 73, true, false)]
+    [InlineData(40, 2, 73, false, false)]
+    [InlineData(20, 1, 72, true, true)]
+    [InlineData(40, 2, 73, true, true)]
+    public void Solve_RespectsMaxStopsAndOptionalDomain_UnderRestrictiveLimits(
+        int candidateCount,
+        int mandatoryCount,
+        int seed,
+        bool useInitialIncumbent,
+        bool polish)
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(candidateCount, mandatoryCount, seed);
+        var (candidates, indices) = Index(input);
+        var limits = new CspOptions
+        {
+            MaxStops = mandatoryCount + 2,
+            MaxOptionalDomainSize = 3,
+            UseInitialIncumbent = useInitialIncumbent,
+            PolishWithLocalSearch = polish,
+        };
+
+        var result = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, limits)
+            .Solve(input, matrix, candidates, indices);
+
+        result.Schedule.Should().NotBeNull();
+        result.Schedule!.VisitPoiIds.Count.Should().BeLessThanOrEqualTo(limits.MaxStops);
+        input.MandatoryPoiIds.Should().BeSubsetOf(result.Schedule.VisitPoiIds);
+        result.Schedule.VisitPoiIds
+            .Where(id => !input.MandatoryPoiIds.Contains(id))
+            .Should().BeSubsetOf(TopRankedOptionalIds(input, matrix, limits.MaxOptionalDomainSize));
+    }
+
+    /// <summary>
+    /// Lời giải khởi đầu chỉ là cận trên để cắt nhánh sớm: khi phép duyệt chạy hết cây, bật hay tắt nó
+    /// phải cho cùng mục tiêu tối ưu trong cùng giới hạn MaxStops và miền giá trị.
+    /// </summary>
+    [Theory]
+    [InlineData(20, 0, 71)]
+    [InlineData(20, 1, 72)]
+    [InlineData(40, 2, 73)]
+    public void Solve_InitialIncumbentDoesNotChangeTheOptimum_UnderRestrictiveLimits(int candidateCount, int mandatoryCount, int seed)
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(candidateCount, mandatoryCount, seed);
+        var (candidates, indices) = Index(input);
+        CspOptions Limits(bool useInitialIncumbent) => new()
+        {
+            MaxStops = mandatoryCount + 2,
+            MaxOptionalDomainSize = 3,
+            MaxNodes = 10_000_000,
+            TimeLimitMilliseconds = 60_000,
+            UseInitialIncumbent = useInitialIncumbent,
+        };
+
+        var withIncumbent = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, Limits(true))
+            .Solve(input, matrix, candidates, indices);
+        var withoutIncumbent = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, Limits(false))
+            .Solve(input, matrix, candidates, indices);
+
+        withIncumbent.Statistics.SearchCompleted.Should().BeTrue();
+        withoutIncumbent.Statistics.SearchCompleted.Should().BeTrue();
+        withIncumbent.Statistics.BestObjective.Should().Be(withoutIncumbent.Statistics.BestObjective);
+        withIncumbent.Statistics.InitialUpperBound.Should().BeGreaterThanOrEqualTo(withIncumbent.Statistics.BestObjective!.Value);
     }
 
     [Fact]
@@ -321,6 +459,44 @@ public class CspItinerarySolverTests
                 })
                 .ToArray(),
         }, matrix);
+    }
+
+    /// <summary>
+    /// Bắt activity kết quả bộ giải của đúng lần sinh này: listener là toàn cục và test chạy song song,
+    /// nên chỉ nhận activity cùng TraceId với activity cha của test.
+    /// </summary>
+    private static async Task<Activity> RecordSolverOutcome(Func<Task> generate)
+    {
+        using var parent = new Activity(nameof(RecordSolverOutcome)).Start();
+        var traceId = parent.TraceId;
+        Activity? recorded = null;
+        using var listener = new ActivityListener
+        {
+            ShouldListenTo = source => source.Name == SchedulingSolverDiagnostics.ActivitySourceName,
+            Sample = (ref ActivityCreationOptions<ActivityContext> options) => options.TraceId == traceId
+                ? ActivitySamplingResult.AllDataAndRecorded
+                : ActivitySamplingResult.None,
+            ActivityStopped = activity =>
+            {
+                if (activity.TraceId == traceId && activity.OperationName == SchedulingSolverDiagnostics.OutcomeActivityName)
+                {
+                    recorded = activity;
+                }
+            },
+        };
+        ActivitySource.AddActivityListener(listener);
+
+        await generate();
+
+        recorded.Should().NotBeNull();
+        return recorded!;
+    }
+
+    private static long[] TopRankedOptionalIds(GenerationInput input, RouteDurationMatrix matrix, int count)
+    {
+        var (candidates, indices) = Index(input);
+        var ctx = RoutingContext.Create(input, matrix, candidates, indices, Options, Options.MiniRouting);
+        return ctx.OptionalNodes.Take(count).Select(node => ctx.Nodes[node].Candidate.Id).ToArray();
     }
 
     private static (GenerationCandidate[] Candidates, Dictionary<long, int> Indices) Index(GenerationInput input)

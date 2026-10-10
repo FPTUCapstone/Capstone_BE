@@ -142,7 +142,11 @@ public sealed class CspItinerarySolver(
                 .Run(bestCsp);
             foreach (var state in polished)
             {
-                search.Elite.Offer(state);
+                // Tìm kiếm cục bộ chèn được mọi điểm tùy chọn: chỉ giữ lời giải nằm trong giới hạn của CSP.
+                if (search.WithinLimits(state))
+                {
+                    search.Elite.Offer(state);
+                }
             }
         }
 
@@ -172,6 +176,7 @@ public sealed class CspItinerarySolver(
         private readonly Stopwatch _clock;
         private readonly CancellationToken _cancellationToken;
         private readonly int[] _initialDomain;
+        private readonly bool[] _inInitialDomain;
         private readonly int[] _minIncomingTravel;
         private readonly int[] _minIncomingRaw;
         private readonly int[] _latestPossibleStart;
@@ -196,6 +201,12 @@ public sealed class CspItinerarySolver(
                 .ToArray();
 
             var nodeCount = ctx.Nodes.Count;
+            _inInitialDomain = new bool[nodeCount];
+            foreach (var v in _initialDomain)
+            {
+                _inInitialDomain[v] = true;
+            }
+
             _minIncomingTravel = new int[nodeCount];
             _minIncomingRaw = new int[nodeCount];
             _latestPossibleStart = new int[nodeCount];
@@ -300,8 +311,15 @@ public sealed class CspItinerarySolver(
 
             // Cận trên ban đầu cho branch and bound: một lời giải chèn rẻ nhất dựng rất nhanh. Có cận sớm
             // thì những nhánh tệ bị cắt ngay từ đầu thay vì phải chờ DFS tự tìm ra lời giải đầu tiên.
+            // Lời giải này chỉ được dựng từ miền giá trị và trong MaxStops: một cận ngoài giới hạn có thể
+            // tốt hơn mọi lời giải hợp lệ, cắt mất chúng và trở thành kết quả trả về.
             if (_options.UseInitialIncumbent
-                && MiniRoutingSolver.Construct(_ctx, _cancellationToken) is { Count: > 0, HasAllMandatory: true } incumbent)
+                && MiniRoutingSolver.Construct(
+                        _ctx,
+                        domain.Where(v => !_ctx.Nodes[v].IsMandatory),
+                        _options.MaxStops,
+                        _cancellationToken) is { Count: > 0, HasAllMandatory: true } incumbent
+                && WithinLimits(incumbent))
             {
                 Elite.Offer(incumbent);
                 _bestObjective = incumbent.Objective;
@@ -312,6 +330,10 @@ public sealed class CspItinerarySolver(
             Search(root, domain);
             Statistics.SearchCompleted = !_aborted;
         }
+
+        /// <summary>Lời giải không vượt MaxStops và chỉ dùng điểm trong miền giá trị ban đầu (top-N tùy chọn).</summary>
+        public bool WithinLimits(RouteState state) =>
+            state.Count <= _options.MaxStops && state.Sequence.All(node => _inInitialDomain[node]);
 
         public IReadOnlyList<long> ConflictingMandatoryPoiIds() =>
             _wipeouts

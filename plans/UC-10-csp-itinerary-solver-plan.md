@@ -2,11 +2,23 @@
 
 ## Status
 
-Draft for developer approval, 2026-10-10, together with
+Approved by the developer on 2026-10-10, together with
 [`specs/UC-10-csp-itinerary-solver-spec.md`](../specs/UC-10-csp-itinerary-solver-spec.md).
 
-Worktree: `D:\FPTUCapstone\Capstone_BE_CSP`, branch `feature/phuctv-csp-scheduling` from
-`develop` at `af505f4`. Do not commit, push, or open a PR without an explicit developer request.
+- **Phase 1:** implemented and in review as PR #57, on branch `feature/phuctv-csp-solver` from
+  `develop` at `af505f4`. Worktree: `D:\FPTUCapstone\Capstone_BE_CSP`.
+- **Phase 1 commits:**
+
+  | Task | Commit |
+  | ---- | ------ |
+  | P1.2 (patches 0001, 0002, 0004) | `63309cc`, `1ca8b57`, `c864aa3` |
+  | P1.3 | `89d8fad` |
+  | P1.4 | `5173488` |
+  | P1.5 | `928d353` |
+  | Spec and plan | `4ca96ed`, `d4a4992` |
+
+  P1.7 follows the reviewed head `d4a4992`.
+- **Phases 2 and 3:** not started. Each gets its own PR.
 
 ## Verification commands
 
@@ -59,7 +71,8 @@ Add `tools/benchmarks/solver-comparison`: a console project outside the solution
   {0, 1, 3, 6} × seeds 1–25.
 - Three timed modes per scenario: optimization disabled, Heuristic, and CSP. Each has a warmup
   and the same iteration count as the existing runner.
-- Output is a Markdown table plus CSV with the disclosures required by the spec.
+- Output: the data files (`.csv`, `.timings.csv`, `.meta.json`) and a Markdown report rendered
+  from them, with the disclosures required by the spec (P1.7 item 2).
 - Add a small unit test for the product-rule plan comparator used by the runner.
   - Option A: the comparator lives in the unit-test fixtures folder so the runner can reference it.
   - Option B: the comparator stays inside the runner.
@@ -72,6 +85,38 @@ synthetic, generator-only evidence.
 
 ### P1.6 — Verification and PR 1 readiness
 Final verification commands with SQL Server. Record the evidence in the spec status.
+
+### P1.7 — Review round 1 remediation (PR #57, reviewed head `d4a4992`)
+1. **MEDIUM 1, CSP limits (TDD).**
+   - Write the tests first, and see them fail on `d4a4992`. With restrictive `MaxStops` and
+     `MaxOptionalDomainSize`, the CSP result:
+     - stays within `MaxStops`;
+     - uses only top-N optional POIs;
+     - is the same with the incumbent on or off once the search completes.
+   - Then:
+     - `MiniRoutingSolver.Construct` takes the allowed optional nodes and a stop limit;
+     - the CSP builds its incumbent from the root domain;
+     - `SearchRun.WithinLimits` guards the incumbent and the polish.
+2. **MEDIUM 2, auditable benchmark.**
+   - The service records the solver outcome through `SchedulingSolverDiagnostics`.
+   - Tests cover the `csp`, `heuristic`, search-limit fallback and infeasible outcomes.
+   - The runner:
+     - persists `.csv`, `.timings.csv` and `.meta.json`, and renders the Markdown from them;
+     - records the full SHA;
+     - refuses a dirty source tree.
+   - `SolverComparisonReportTests` checks the committed report against its data.
+3. **Regenerate the baseline.**
+   - Commit the source changes.
+   - Run `dotnet run -c Release --project tools/benchmarks/solver-comparison` on the clean tree.
+   - Commit the four report files in a separate commit.
+   - Do not rewrite history.
+4. **LOW 1 and LOW 2.** Correct the spec's affected flows (Adjust Items bypasses `SolverMode`), and
+   update this status and the spec's branch and commit references.
+5. **Re-review gate.**
+   - Full suite, plus SQL Server and Redis integration tests with no required-test skips.
+   - Format.
+   - Exact-head CI.
+   - Request re-review on the new head SHA.
 
 ## Phase 2 — PR 2 (CSP follows the product rule)
 

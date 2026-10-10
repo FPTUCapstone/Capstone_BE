@@ -58,6 +58,8 @@ public sealed class ItineraryGenerationService(
         var candidateMatrixIndices = BuildCandidateMatrixIndices(matrixCandidates);
 
         OptimizationResult? alternativeResult = null;
+        CspStatistics? cspStatistics = null;
+        var outcome = SchedulingSolverOutcomes.Heuristic;
         if (_options.SolverMode == SchedulingSolverMode.Csp)
         {
             var csp = new CspItinerarySolver(_evaluator, _options).Solve(
@@ -66,6 +68,7 @@ public sealed class ItineraryGenerationService(
                 matrixCandidates,
                 candidateMatrixIndices,
                 cancellationToken);
+            cspStatistics = csp.Statistics;
 
             if (csp.ProvedInfeasible)
             {
@@ -80,12 +83,20 @@ public sealed class ItineraryGenerationService(
                     cancellationToken);
                 if (alternativeResult is null)
                 {
+                    SchedulingSolverDiagnostics.RecordOutcome(_options.SolverMode, SchedulingSolverOutcomes.Infeasible, cspStatistics);
                     return Infeasible(DescribeCspInfeasibility(csp, candidatesById));
                 }
+
+                outcome = SchedulingSolverOutcomes.HeuristicFallbackCspProvedInfeasible;
             }
             else
             {
                 alternativeResult = ToOptimizationResult(csp);
+                outcome = alternativeResult is not null
+                    ? SchedulingSolverOutcomes.Csp
+                    : csp.Statistics.SolutionsFound > 0
+                        ? SchedulingSolverOutcomes.HeuristicFallbackCspNoValidCandidate
+                        : SchedulingSolverOutcomes.HeuristicFallbackCspSearchLimit;
             }
         }
         else if (_options.SolverMode == SchedulingSolverMode.MiniRouting)
@@ -96,6 +107,9 @@ public sealed class ItineraryGenerationService(
                 matrixCandidates,
                 candidateMatrixIndices,
                 cancellationToken);
+            outcome = alternativeResult is not null
+                ? SchedulingSolverOutcomes.MiniRouting
+                : SchedulingSolverOutcomes.HeuristicFallbackMiniRouting;
         }
 
         var optimizationResult = alternativeResult
@@ -109,10 +123,12 @@ public sealed class ItineraryGenerationService(
 
         if (optimizationResult is null)
         {
+            SchedulingSolverDiagnostics.RecordOutcome(_options.SolverMode, SchedulingSolverOutcomes.Infeasible, cspStatistics);
             return Infeasible("The mandatory locations cannot fit within the selected time, hours, budget, and end point.");
         }
 
         _validator.Validate(input, matrix, matrixCandidates, optimizationResult.Schedule.Plan);
+        SchedulingSolverDiagnostics.RecordOutcome(_options.SolverMode, outcome, cspStatistics);
 
         var baselineOptionalCount = optimizationResult.BaselineSchedule.VisitPoiIds.Count(id => !input.MandatoryPoiIds.Contains(id));
         var finalOptionalCount = optimizationResult.Schedule.VisitPoiIds.Count(id => !input.MandatoryPoiIds.Contains(id));
