@@ -25,6 +25,7 @@ namespace TripMate.Api.IntegrationTests.Reviews;
 public sealed class TripReviewEndpointTests
 {
     private const string Route = "/api/v1/bookings/1/review";
+    private const string ServiceBookingRoute = "/api/v1/service-bookings/1/review";
     private static readonly DateTimeOffset Created = new(2026, 9, 30, 8, 0, 0, TimeSpan.Zero);
 
     [Theory]
@@ -70,6 +71,55 @@ public sealed class TripReviewEndpointTests
         using var response = await client.PostAsync(Route, new StringContent("not-multipart"));
 
         await AssertProblemAsync(response, HttpStatusCode.Forbidden, "trip_review.forbidden");
+    }
+
+    [Fact]
+    public async Task ServiceBookingReview_AnonymousRequest_IsUnauthorized()
+    {
+        await using var factory = TransportFactory();
+        using var client = factory.CreateClient();
+
+        using var response = await client.GetAsync(ServiceBookingRoute);
+
+        await AssertProblemAsync(response, HttpStatusCode.Unauthorized,
+            "trip_review.unauthorized");
+    }
+
+    [Fact]
+    public async Task ServiceBookingReview_WrongRole_IsForbidden()
+    {
+        await using var factory = TransportFactory();
+        using var client = factory.CreateAuthenticatedClient(1, UserRole.TourOperator);
+
+        using var response = await client.GetAsync(ServiceBookingRoute);
+
+        await AssertProblemAsync(response, HttpStatusCode.Forbidden,
+            "trip_review.forbidden");
+    }
+
+    [SqlServerFact]
+    public async Task ServiceBookingReview_InactiveTraveler_IsForbidden()
+    {
+        await using var database = await SeedSqlAsync();
+        await using var factory = SqlFactory(database, Created);
+        using var client = factory.CreateAuthenticatedClient(2, UserRole.Traveler);
+
+        using var response = await client.GetAsync(ServiceBookingRoute);
+
+        await AssertProblemAsync(response, HttpStatusCode.Forbidden,
+            "trip_review.forbidden");
+    }
+
+    [SqlServerFact]
+    public async Task ServiceBookingReview_ActiveTraveler_ReachesTheEndpoint()
+    {
+        await using var database = await SeedSqlAsync();
+        await using var factory = SqlFactory(database, Created);
+        using var client = factory.CreateAuthenticatedClient(1, UserRole.Traveler);
+
+        using var response = await client.GetAsync(ServiceBookingRoute);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [SqlServerFact]
