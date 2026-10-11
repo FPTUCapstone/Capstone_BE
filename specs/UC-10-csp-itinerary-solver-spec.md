@@ -193,7 +193,9 @@ Behavior for users is unchanged: the default stays `SolverMode = Heuristic`.
      normalized to LF. `SolverComparisonReportTests` recomputes the hash and fails, with the
      regeneration command, when the latest report no longer matches the source. The check needs no
      git history, so it holds after a squash or rebase merge and in a source archive. Any change to
-     those files therefore needs a regenerated report in the same PR.
+     those files therefore needs a regenerated report in the same PR. Reports are named by date;
+     `--label=<a-z0-9>` appends a suffix, so a second report of the same day does not overwrite a
+     committed one. The ordinal order of the names is still chronological.
    - **Corpus:** every named `OptionalRouteOptimizationScenarios` fixture (rest preference
      `None`), plus synthetic scenarios using the approved UC-10 segments: candidates
      {10, 20, 40} × mandatory {0, 1, 3, 6} × rest preference {`None`, `Auto`, `Frequent`} ×
@@ -297,32 +299,286 @@ and `29a2989` in none. Two changes followed. The rest are tracked for Phase 2.
 | Low: the Phase 3 latency gate is not met. The committed run misses c40-m6 and c40-m6-frequent; the reviewer's run missed six segments. | Phase 3 gate. |
 | Test suggestion: a fixed, generator-free regression for the shortcut defect. | Added as `Solve_FindsTheRouteThatOnlyReachesTheEndThroughAnOptionalPoi`. It fails on `ebd90a9` with a null schedule and passes on `29a2989`. |
 
-### Report 3 V2 compliance — open, must be resolved before any production rollout
+### Report 3 V2 compliance — timeout aligned; fallback amendment pending
 
 Report 3 V2 (the canonical SRS) specifies two things for the CSP engine:
 - a hard timeout of 2,500 ms;
 - a nearest-neighbor fallback.
 
-The experimental Phase 1 implementation differs on both:
-- **Timeout.** It uses a 5,000 ms wall-clock safety limit (`Csp:TimeLimitMilliseconds`). The node
-  budget is its primary stop, for determinism.
-- **Fallback.** It falls back to the existing heuristic optimizer (`OptionalRouteOptimizer`),
-  which already produces the production plans.
+Developer decision, 2026-10-11 (R5, hybrid option):
 
-This specification does not override the SRS. Before the CSP becomes the default (Phase 3),
-there are two options:
-- align the implementation with Report 3 V2;
-- amend Report 3 V2 through the report's own change process, with this rationale: UC-10 rejected
-  wall-clock optimization timeouts for determinism, and the heuristic fallback is at least as good
-  as nearest-neighbor.
-
-Until then this is a tracked gap, not a Phase 1 blocker.
+- **Timeout — aligned.** `Csp:TimeLimitMilliseconds` defaults to 2,500 ms, the Report 3 V2
+  value. It is the wall-clock safety limit.
+  - The node budget stays the primary stop, so results are deterministic.
+  - After the allocation-free search, a full budget takes a few hundred milliseconds, so the
+    limit fires only on an overloaded host.
+- **Fallback — differs, amendment pending.** When the limit fires, the partial CSP result is
+  discarded. The heuristic result that R1a already computed is returned unchanged, and the
+  outcome is recorded as `heuristic_fallback_csp_time_limit`.
+  - The returned plan therefore does not depend on when the search stopped.
+  - The fallback costs nothing extra.
+  - The heuristic is the production algorithm, and it is at least as good as nearest-neighbor.
+    A nearest-neighbor fallback would give users a worse plan than today's exactly when the host
+    is slow.
+- **Action needed outside the codebase:** amend the fallback sentence of Report 3 V2 through the
+  report's own change process, from "Nearest-Neighbor fallback" to "fallback to the existing
+  heuristic plan", with the rationale above. This specification does not override the SRS.
+  Until the amendment is accepted, the fallback algorithm is a tracked gap that blocks the
+  Phase 3 default switch.
+- **Limitation:** when the limit fires and the heuristic found no schedule, the request is
+  reported infeasible, even if the discarded partial CSP result held a schedule. Determinism is
+  preferred here. On an overloaded host, a partial result is not reproducible.
 
 Report 3 V2 also describes one-day itineraries in some sections, while the detailed UC-10
 requirements use a date range. That inconsistency predates this work, is not introduced by it,
 and is tracked separately.
 
 ## Phase 2 — CSP follows the product rule (PR 2)
+
+Phase 2 is split into two PRs (developer decision, 2026-10-11), both from
+`feature/phuctv-csp-solver` after PR #57 merged as `983a192`:
+- **PR 2a:**
+  - R4, R1, R1a, R2 and R3, so the CSP follows the product rule and is never worse than the
+    heuristic;
+  - the allocation-free search and the `Close()` cost (P2.6);
+  - R5 (hybrid option) and the node-budget decision, which the developer asked to land together
+    with PR 2a;
+- **PR 2b:** R8, R9 sign-off, R6, P2.3c and the full suite under `SolverMode = Csp`.
+
+### PR 2a status — implemented, not yet reviewed
+
+- **R4:** `ItineraryGenerationService` uses an effective solver mode, which is `Heuristic`
+  whenever `EnableOptionalRouteOptimization = false`, for both CSP and MiniRouting. The redundant
+  mode check in `TrySolveWithMiniRouting` is removed.
+- **R1:** `CspProductRule` applies the product rule to the model, with an inclusion bitset of any
+  size (64 ranks per word, highest rank in the top bit, so unsigned word comparison is
+  lexicographic). It ranks the elite set and the incumbent. The final choice evaluates the
+  incumbent and the elite of each run, and picks with `ScheduleGlobalComparator` itself.
+  - **Admissible bound:** the optimistic inclusion vector is the current inclusion plus a greedy,
+    rank-ordered pick of the domain optionals that still fit the remaining time, budget and slots
+    (each optional costs at least its shortest incoming leg plus its visit). Mandatory POIs still
+    missing are reserved first. Under a lexicographic order, that greedy pick is the maximal
+    vector of the relaxation.
+  - **Pruning:** a branch is pruned when its optimistic vector is worse than the incumbent's. When
+    the vectors are equal, it is pruned only when the travel lower bound strictly exceeds the
+    incumbent's travel, because a travel tie can still win on duration or visit IDs. The lower
+    bound is the travel so far, plus the shortest incoming leg of every mandatory POI and optional
+    the tie requires, plus the shortest return.
+  - **Domain order:** the domain is kept in canonical rank order, and forward checking preserves
+    that order.
+- **R1a:** in CSP mode the service runs the heuristic first and passes its schedule to
+  `CspItinerarySolver.Solve`.
+  - The schedule becomes the initial incumbent and a final candidate only when it is within the
+    CSP limits (`MaxStops`, domain), as Phase 1 item 6 requires for any incumbent
+    (`CspStatistics.InitialIncumbentAccepted`, `ReturnedInitialIncumbent`).
+  - When the CSP returns no schedule, the service reuses that heuristic result instead of running
+    the heuristic a second time.
+  - The cheapest-insertion incumbent and `Csp:UseInitialIncumbent` are removed, so
+    `MiniRoutingSolver.Construct` is back to its pre-Phase-1 form.
+- **Incumbent with rest (R9 groundwork):** when rest applies, a solution tightens the incumbent
+  only after it passes the evaluator. This is the review hypothesis for R9. It is capped at 256
+  in-search evaluator calls per solve. Without rest, the model equals the evaluated schedule, and
+  solutions tighten the incumbent directly.
+- **R2, R3:** `Csp:MaxStops` and `Csp:MaxOptionalDomainSize` are nullable and null by default:
+  there is no stop cap, and every optional the heuristic considers is in the domain. When set,
+  each must be positive. Benchmark metadata stores a `SolverComparisonCspSettings` snapshot, so
+  reports written before Phase 2 still read and re-render word for word.
+- **Tests:**
+  - The brute-force oracles now compare schedules with `ScheduleGlobalComparator`
+    (`CspProductRuleOracle`, which never prunes prefixes and evaluates every model-feasible route).
+    The CSP matches them on 600 random non-metric instances without rest, on 400 under restrictive
+    limits with and without the heuristic incumbent, and on the fixed small instances.
+  - New tests cover:
+    - R4 for CSP and MiniRouting;
+    - never worse than the heuristic, on named fixtures and synthetic scenarios, with `MaxNodes`
+      1 and 200,000;
+    - a higher-ranked optional never traded for travel;
+    - the canonical ranking tie-break;
+    - more than 10 stops when the heuristic schedules 11;
+    - the heuristic incumbent not changing the optimum.
+  - Rest optimality against an evaluator brute force (`CspRestOptimalityTests`): `Auto` 77/77 and
+    `Frequent` 69/69 optimal, with thresholds pinned at 0.
+  - The rest-aware brute force (`CspBruteForceTests.Solve_MatchesEvaluatorAwareOptimum_WithAutoAndFrequentRest`,
+    600 instances) now passes and is no longer skipped.
+- **Benchmark:** `docs/benchmarks/UC-10-csp-solver-comparison-2026-10-11-pr2a.md`. The runner's
+  new `--label` keeps it from overwriting the Phase 1 report of the same day. Over 907 scenarios:
+  - **Quality gate passed:** the CSP is better than or equal to the heuristic in all 907, against
+    621 worse before PR 2a:
+
+    | Rest | Better | Equal |
+    | ---- | -----: | ----: |
+    | `None` | 219 | 88 |
+    | `Auto` | 223 | 77 |
+    | `Frequent` | 32 | 268 |
+
+  - **No regressions:** no fallback, and no run reached the wall-clock limit.
+  - **Stops:** the largest CSP plan has 11 visits.
+  - **Latency gate passed:** the largest added p95 in the committed run is 144 ms
+    (c40-m6-auto). An earlier run of the same code peaked at 211 ms, because latency moves with
+    host load. Before the search optimization below, c40-m0 failed at 306.7 ms.
+  - **Node budget:** with the wider domain and no stop cap, 651 of 907 runs still end on the
+    200,000-node budget, so latency is set by that budget and by the cost per node. The budget is
+    unchanged.
+- **R5 (hybrid option):** `Csp:TimeLimitMilliseconds` defaults to 2,500 ms. When the limit fires
+  in either run, `CspItinerarySolver` returns no schedule. The service then returns the heuristic
+  result unchanged, the one R1a already computed, with outcome
+  `heuristic_fallback_csp_time_limit`.
+  - Tests use a 0 ms limit, so the first clock check fires regardless of host speed. They check
+    that the solver discards its result and that the service plan equals the heuristic-mode plan
+    exactly.
+  - See [Report 3 V2 compliance](#report-3-v2-compliance--timeout-aligned-fallback-amendment-pending).
+- **Node budget kept at 200,000 (developer criteria, 2026-10-11):** a 300,000 budget was adopted
+  only if the largest added p95 stayed at or below about 250 ms, and the better count rose
+  clearly. It met neither:
+
+  | Budget | Better | Equal | Worse | Largest added p95 |
+  | -----: | -----: | ----: | ----: | ----------------: |
+  | 200,000 | 474 | 433 | 0 | 146 ms |
+  | 300,000 | 493 | 414 | 0 | 248 ms |
+
+  - The gain was only 19 scenarios moving from equal to better.
+  - At 248 ms, latency sat on the edge of the margin. Repeated runs of the same 200,000-node code
+    measured 146 ms and 211 ms, so host noise alone could push a 300,000 budget past the 300 ms
+    gate.
+- **Search without per-node allocation (P2.6, part of PR 2a):** the search keeps one shared
+  current route and pushes a stop on the way down and pops it on backtrack. The shared state is:
+  - position arrays for the sequence and departure times;
+  - depth arrays for travel and cost;
+  - the visited flags;
+  - an inclusion bitset that is updated incrementally.
+
+  Each depth reuses its own domain and value-order buffers. A solution is built into a
+  `RouteState` only when it can enter the elite set. The completion check is a single addition
+  (departure plus return travel within the horizon), which replaces `RouteState.Close()`. The
+  open-prefix API is no longer needed, so `RouteState` is back to its pre-Phase-1 form.
+  - The exploration order and every check are unchanged. The regenerated report matches the
+    unoptimized PR 2a run in every plan, outcome and node count across all 907 scenarios (0
+    differing rows). Only timings changed.
+  - On the 25 c40-m0 scenarios, a solve took about 128 ms instead of 380 ms (1.56 million instead
+    of 0.52 million nodes per second).
+
+PR 2a is committed locally as `65b09f7`.
+
+### PR 2b status — in progress, on top of `65b09f7`
+
+- **R8 — implemented.** `SchedulingSolverOutcome` carries `solver.kind`, mapped from the detailed
+  `solver.outcome` (`SchedulingSolverKinds.Of`); it is not a second classification.
+  - The mapping:
+
+    | `solver.outcome` | `solver.kind` |
+    | ---------------- | ------------- |
+    | `heuristic`, and `heuristic_fallback_mini_routing` | `Heuristic` |
+    | `csp` | `Csp` |
+    | every `heuristic_fallback_csp_*`, including the time limit | `CspFallback` (acceptance criterion 7) |
+    | `mini_routing` | `MiniRouting`, an extension for the experimental mode so it is never counted as `Csp` or `Heuristic` |
+    | `infeasible` | no tag |
+
+  - It also carries `csp.pruned_by_bound`, `csp.pruned_by_constraints`,
+    `csp.pruned_by_forward_checking` and `csp.in_search_evaluation_limit_reached`.
+  - A test pins the allowed tag keys and checks that no value contains a POI name, so a tag that
+    carries identity fails the build.
+- **R9 — three findings, two fixed, one measured:**
+  1. **Rest stops at real places.** `ItineraryScheduleEvaluator` inserts a rest POI (for example a
+     cafe) between visits, so the real schedule travels a → rest → b. On a non-metric matrix that
+     detour can be shorter and earlier than a → b. The relaxed model was therefore not a true
+     relaxation: it rejected schedules the evaluator accepts.
+     - A new test, with two cafes on shortcuts over 80 random instances per preference, found
+       5/77 `Auto` and 3/69 `Frequent` CSP schedules worse than the evaluator optimum.
+     - Fix: the relaxed run uses `RoutingContext.RestShortcuts`. Each leg after a visit takes the
+       shorter of the direct leg and a detour through a rest POI, in both travel and time (the
+       detour time includes the buffer and the 30-minute rest). Rest-POI opening hours and the
+       allowed number of rests are ignored, which keeps it a relaxation. Every evaluator-accepted
+       schedule is feasible in it, and its travel never exceeds the real travel.
+     - Result: 0/77 and 0/69. On a metric matrix no detour is shorter, so nothing changes; the
+       benchmark corpus has no rest POIs.
+  2. **In-search evaluator cap.** With `Frequent`, rests push later arrivals past opening hours,
+     so many model solutions fail evaluation and use up the cap. Measured on the 300 `Frequent`
+     scenarios of the benchmark corpus:
+
+     | Cap | Scenarios exhausting it | CSP better than heuristic | Mean solve |
+     | --: | ----------------------: | ------------------------: | ---------: |
+     | 256 | 279 | 32 | 74 ms |
+     | 4,096 | 104 | 67 | 80 ms |
+     | 16,384 | 12 | 80 | 86 ms |
+
+     `Auto` exhausted 256 in only 6 of 300 scenarios. The cap is now 16,384. Exhaustion is
+     reported as `CspStatistics.InSearchEvaluationLimitReached`.
+  3. **Large instances — measured, not fixed.** On 8-scenario samples, 200,000-node results were
+     compared with a 20,000,000-node "best known" run:
+
+     | Sample | Same as best known | Worse | Best known proven optimal |
+     | ------ | -----------------: | ----: | ------------------------- |
+     | c20 without rest | 8/8 | 0 | yes |
+     | c40 without rest | 1/8 | 7 | yes |
+     | c40 `Auto` | 4/8 | 4 | 2/8 |
+     | c40 `Frequent` | 8/8 | 0 | unknown |
+
+     - With 20 candidates the CSP is optimal.
+     - With 40 candidates it often stops short. The gap is a few travel minutes, or one optional
+       traded for the next-ranked one. It is never worse than the heuristic (R1a).
+     - **Decision (developer, 2026-10-11): accept the gap and document it (option d).** First,
+       option a was tried: try optionals in canonical rank order before the travel-minus-benefit
+       score.
+
+       | Ordering | Same as best known (c40 without rest / c40 `Auto`) | Better than heuristic, 16 scenarios | Mean solve |
+       | -------- | -------------------------------------------------: | ----------------------------------: | ---------: |
+       | Current | 1/8 and 4/8 | 8 | 128 / 102 ms |
+       | Rank-first | 1/8 and 4/8 | 6 | 138 / 102 ms |
+
+       Rank-first was reverted. Most gaps are the same optional set with a few more travel
+       minutes, so they come from ordering the stops, not from choosing them.
+     - A tighter travel bound (option b) or dominance pruning (option c) remain possible later
+       improvements. The 300,000 budget measurement already showed that a larger budget alone
+       buys little.
+- **Benchmark:** `docs/benchmarks/UC-10-csp-solver-comparison-2026-10-11-pr2b.md`. All gates pass.
+  - **`Frequent`:** 80 better and 220 equal, against 32 and 268 in `pr2a`. That is 48 scenarios
+    moving from equal to better.
+  - **`None` and `Auto`:** unchanged, except 4 `Auto` scenarios. Those keep the same plan and
+    verdict but complete in about 82,000 nodes instead of exhausting 200,000, because evaluated
+    solutions tighten the incumbent sooner.
+  - **No regressions:** 0 worse, 0 fallbacks, no time limit reached.
+  - **Latency:** the largest added p95 is 279 ms (c40-m6). That is host noise: c40-m6 has
+    identical plans and node counts to `pr2a`, where it measured 126 ms. In the same run every
+    mode slowed, including the unchanged heuristic (p95 25 ms to 83 ms). Margins near the gate
+    should be judged across repeated runs.
+- **P2.5, without SQL Server — done.** The default was temporarily switched to
+  `SolverMode = Csp` and the full suite run, then the default was restored:
+  - **Failures:** only 3, against 12 before Phase 2. None was a defect:
+    - the benchmark source-hash test failed because the temporary default edit changed the hashed
+      source;
+    - `GenerateAsync_RecordsActivitySourceDiagnostics` checks the heuristic-only
+      `OptionalRouteOptimization` activity, which a CSP plan intentionally does not record
+      (round 3);
+    - `GenerationService_RecordsHeuristicOutcome_InTheDefaultMode` asserted the default mode.
+  - **After pinning (R6):** with the temporary CSP default, every test except the hash artifact
+    passes. That covers creation, Regenerate, Adjust Items, the TM-216 unit tests and the
+    non-SQL integration tests.
+- **P2.5, with SQL Server and Redis — done.** The integration suite was run against a temporary
+  SQL Server 2022 container and a Redis container, first with the shipped default, then with the
+  temporary CSP default plus `SchedulingGeneration__SolverMode=Csp`:
+
+  | Run | Passed | Failed | Skipped |
+  | --- | ------ | ------ | ------- |
+  | Heuristic (shipped default) | 881 | 0 | 1 |
+  | CSP | 880 | 1 | 1 |
+
+  - The one CSP failure is `ShippedConfiguration_SelectsTheHeuristicSolverExplicitly`, which
+    asserts the shipped configuration and fails by design when the configuration is overridden.
+    Phase 3 updates it together with the default switch.
+  - The skipped test is the opt-in Cloudinary smoke test in both runs.
+  - The default was restored to `Heuristic` afterwards, and the source is unchanged.
+- **R6 — done.**
+  - Pinned to `SolverMode = Heuristic`, with expectations unchanged:
+    - the four `GenerateAsync_Characterize_*` tests;
+    - `GenerateAsync_RecordsActivitySourceDiagnostics`.
+  - The default-mode outcome test now pins `Heuristic` explicitly
+    (`GenerationService_RecordsHeuristicOutcome_InTheHeuristicMode`).
+  - `Generate_OrdersOptionalsByEffectiveBeforeLegacyPreferenceScore` is about the legacy
+    preference score, not the legacy solver, and is not pinned.
+- **P2.3c — done for unit scope.** Added
+  `GenerationService_ExcludesTheTopAiScoredOptional_WhenItIsTimeInfeasible`: under CSP, an
+  optional with the top AI score that opens only after the itinerary must end is excluded, and the
+  plan passes the invariant validator.
 
 | ID | Requirement |
 | -- | ----------- |
