@@ -46,7 +46,7 @@ public class LoginCommandHandlerTests
 
         result.IsFailure.Should().BeTrue();
         result.ErrorCode.Should().Be(AuthErrorCodes.AdminMobileSignInDisabled);
-        result.ErrorMessage.Should().Be("Administrator accounts are supported on Web only.");
+        result.ErrorMessage.Should().Be("Administration accounts are supported on Web only.");
         _jwtTokenService.AccessTokenGenerationCount.Should().Be(0);
         _jwtTokenService.RefreshTokenGenerationCount.Should().Be(0);
         dbContext.RefreshTokens.Should().BeEmpty();

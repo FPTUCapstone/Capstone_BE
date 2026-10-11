@@ -63,9 +63,9 @@ public class StaffRoleFoundationTests
         UserRole.Staff.IsStaff().Should().BeTrue();
         UserRole.Administrator.IsStaff().Should().BeFalse();
 
-        UserRoleExtensions.AdministratorOnly.Should().Be("Administrator");
-        UserRoleExtensions.StaffOnly.Should().Be("Staff");
-        UserRoleExtensions.StaffOrAdministrator.Should().Be("Staff,Administrator");
+        UserRoleExtensions.AdministratorOnly.Should().Be("Policy.AdministratorOnly");
+        UserRoleExtensions.StaffOnly.Should().Be("Policy.StaffOnly");
+        UserRoleExtensions.StaffOrAdministrator.Should().Be("Policy.StaffOrAdministrator");
     }
 
     [Theory]
@@ -102,6 +102,7 @@ public class StaffRoleFoundationTests
 
         result.IsFailure.Should().BeTrue();
         result.ErrorCode.Should().Be(AuthErrorCodes.AdminAccessRequired);
+        result.ErrorMessage.Should().Be("Administrator or Staff access is required.");
         dbContext.RefreshTokens.Should().BeEmpty();
     }
 
@@ -118,6 +119,7 @@ public class StaffRoleFoundationTests
 
         result.IsFailure.Should().BeTrue();
         result.ErrorCode.Should().Be(AuthErrorCodes.AdminMobileSignInDisabled);
+        result.ErrorMessage.Should().Be("Administration accounts are supported on Web only.");
         dbContext.RefreshTokens.Should().BeEmpty();
     }
 

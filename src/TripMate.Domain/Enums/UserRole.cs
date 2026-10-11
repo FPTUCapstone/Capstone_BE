@@ -14,9 +14,9 @@ public enum UserRole
 
 public static class UserRoleExtensions
 {
-    public const string AdministratorOnly = nameof(UserRole.Administrator);
-    public const string StaffOnly = nameof(UserRole.Staff);
-    public const string StaffOrAdministrator = nameof(UserRole.Staff) + "," + nameof(UserRole.Administrator);
+    public const string AdministratorOnly = "Policy.AdministratorOnly";
+    public const string StaffOnly = "Policy.StaffOnly";
+    public const string StaffOrAdministrator = "Policy.StaffOrAdministrator";
 
     public static bool IsAdministrationRole(this UserRole role) =>
         role is UserRole.Administrator or UserRole.Staff;
