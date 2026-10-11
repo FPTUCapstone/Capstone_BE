@@ -38,10 +38,10 @@ public sealed class ActiveTripsEndpointTests
     }
 
     [Fact]
-    public async Task Get_AdministratorWithNoTrips_ReturnsEmptySuccessfulPage()
+    public async Task Get_StaffWithNoTrips_ReturnsEmptySuccessfulPage()
     {
         await using var factory = new TripMateApiFactory();
-        using var client = factory.CreateAuthenticatedClient(1, UserRole.Administrator);
+        using var client = factory.CreateAuthenticatedClient(1, UserRole.Staff);
 
         var response = await client.GetAsync("/api/v1/admin/trips/active");
         var body = await response.Content.ReadFromJsonAsync<ActiveTripsResponseDto>();
@@ -54,10 +54,21 @@ public sealed class ActiveTripsEndpointTests
     }
 
     [Fact]
-    public async Task Get_InvertedDateRange_ReturnsBadRequest()
+    public async Task Get_Administrator_ReturnsForbidden()
     {
         await using var factory = new TripMateApiFactory();
         using var client = factory.CreateAuthenticatedClient(1, UserRole.Administrator);
+
+        var response = await client.GetAsync("/api/v1/admin/trips/active");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task Get_InvertedDateRange_ReturnsBadRequest()
+    {
+        await using var factory = new TripMateApiFactory();
+        using var client = factory.CreateAuthenticatedClient(1, UserRole.Staff);
 
         var response = await client.GetAsync(
             "/api/v1/admin/trips/active?startDateFrom=2026-09-27&startDateTo=2026-09-26");
@@ -72,7 +83,7 @@ public sealed class ActiveTripsEndpointTests
     {
         await using var factory = new TripMateApiFactory(
             dateTimeProviderFactory: _ => new FixedClock());
-        using var client = factory.CreateAuthenticatedClient(1, UserRole.Administrator);
+        using var client = factory.CreateAuthenticatedClient(1, UserRole.Staff);
 
         var response = await client.GetAsync(
             "/api/v1/admin/trips/active?startDateFrom=2026-09-28&startDateTo=2026-09-28");
@@ -86,7 +97,7 @@ public sealed class ActiveTripsEndpointTests
     public async Task Get_InvalidTripType_ReturnsTypedBadRequest()
     {
         await using var factory = new TripMateApiFactory();
-        using var client = factory.CreateAuthenticatedClient(1, UserRole.Administrator);
+        using var client = factory.CreateAuthenticatedClient(1, UserRole.Staff);
 
         var response = await client.GetAsync("/api/v1/admin/trips/active?tripType=Unknown");
 
@@ -137,7 +148,7 @@ public sealed class ActiveTripsEndpointTests
             await db.SaveChangesAsync(CancellationToken.None);
             return 0;
         });
-        using var client = factory.CreateAuthenticatedClient(1, UserRole.Administrator);
+        using var client = factory.CreateAuthenticatedClient(1, UserRole.Staff);
 
         var response = await client.GetAsync("/api/v1/admin/trips/active?keyword=trip-");
         var body = await response.Content.ReadFromJsonAsync<ActiveTripsResponseDto>();
