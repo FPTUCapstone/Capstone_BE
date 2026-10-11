@@ -209,7 +209,8 @@ Phase 2 is split into two PRs, both from `feature/phuctv-csp-solver` after `983a
   - P2.3b (R8) and the R9 fixes (rest shortcuts in the relaxed run, evaluator cap 16,384) are
     done locally on top of `65b09f7`.
   - The large-instance gap is measured and documented.
-  - P2.3c, P2.4 and P2.5 remain.
+  - P2.3c, P2.4 (R6) and P2.5 are done, including the SQL Server and Redis integration suites
+    under CSP; see the spec's PR 2b status.
 - **P2.6:** the benchmark is rerun at the end of each PR.
 
 Each task is TDD. Write a failing CSP test first, using the existing scenario fixtures, then the

@@ -553,7 +553,20 @@ PR 2a is committed locally as `65b09f7`.
   - **After pinning (R6):** with the temporary CSP default, every test except the hash artifact
     passes. That covers creation, Regenerate, Adjust Items, the TM-216 unit tests and the
     non-SQL integration tests.
-  - **Still to run:** the SQL Server and Redis integration suites (334 tests skipped locally).
+- **P2.5, with SQL Server and Redis — done.** The integration suite was run against a temporary
+  SQL Server 2022 container and a Redis container, first with the shipped default, then with the
+  temporary CSP default plus `SchedulingGeneration__SolverMode=Csp`:
+
+  | Run | Passed | Failed | Skipped |
+  | --- | ------ | ------ | ------- |
+  | Heuristic (shipped default) | 881 | 0 | 1 |
+  | CSP | 880 | 1 | 1 |
+
+  - The one CSP failure is `ShippedConfiguration_SelectsTheHeuristicSolverExplicitly`, which
+    asserts the shipped configuration and fails by design when the configuration is overridden.
+    Phase 3 updates it together with the default switch.
+  - The skipped test is the opt-in Cloudinary smoke test in both runs.
+  - The default was restored to `Heuristic` afterwards, and the source is unchanged.
 - **R6 — done.**
   - Pinned to `SolverMode = Heuristic`, with expectations unchanged:
     - the four `GenerateAsync_Characterize_*` tests;
