@@ -183,6 +183,31 @@ public class CspItinerarySolverTests
     }
 
     /// <summary>
+    /// Review PR #62 (Low 2): khi CSP không tìm được lịch tốt hơn và trả lại chính lịch heuristic, diagnostic phải nói rõ,
+    /// để giám sát không tính lịch đó là do CSP tạo ra. c10-m0-s4 là scenario "equal" và c10-m0-s1 là scenario "better"
+    /// của báo cáo benchmark.
+    /// </summary>
+    [Theory]
+    [InlineData(4, true)]
+    [InlineData(1, false)]
+    public async Task GenerationService_TagsWhetherCspReturnedTheHeuristicPlan(int seed, bool returnedHeuristicPlan)
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(10, 0, seed);
+        var heuristic = await new ItineraryGenerationService(
+                new StaticMatrixProvider(matrix), new SchedulingGenerationOptions { SolverMode = SchedulingSolverMode.Heuristic })
+            .GenerateAsync(input, CancellationToken.None);
+        var service = new ItineraryGenerationService(
+            new StaticMatrixProvider(matrix), new SchedulingGenerationOptions { SolverMode = SchedulingSolverMode.Csp });
+
+        Result<GeneratedItineraryPlan>? result = null;
+        var activity = await RecordSolverOutcome(async () => result = await service.GenerateAsync(input, CancellationToken.None));
+
+        activity.GetTagItem("solver.outcome").Should().Be(SchedulingSolverOutcomes.Csp);
+        activity.GetTagItem("csp.returned_heuristic_plan").Should().Be(returnedHeuristicPlan);
+        (ProductRulePlanComparison.Compare(input, matrix, result!.Value, heuristic.Value) == 0).Should().Be(returnedHeuristicPlan);
+    }
+
+    /// <summary>
     /// R4: tắt tối ưu tuyến (<c>EnableOptionalRouteOptimization = false</c>) thì <c>SolverMode</c> bị bỏ qua và
     /// đường không tối ưu chạy như cũ, nên kế hoạch giống hệt chế độ Heuristic khi tắt tối ưu.
     /// </summary>
@@ -303,7 +328,7 @@ public class CspItinerarySolverTests
             "solver.mode", "solver.outcome", "solver.kind",
             "csp.nodes_expanded", "csp.solutions_found", "csp.search_completed", "csp.node_limit_reached",
             "csp.time_limit_reached", "csp.used_relaxed_rest_model", "csp.chose_relaxed_rest_model", "csp.evaluator_calls",
-            "csp.in_search_evaluation_limit_reached",
+            "csp.in_search_evaluation_limit_reached", "csp.tie_evaluation_limit_reached", "csp.returned_heuristic_plan",
             "csp.elapsed_ms", "csp.pruned_by_bound", "csp.pruned_by_constraints", "csp.pruned_by_forward_checking",
         ];
         var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(20, 2, 54, RestPreference.Auto);

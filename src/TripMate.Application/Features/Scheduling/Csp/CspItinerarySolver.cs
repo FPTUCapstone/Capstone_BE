@@ -42,7 +42,10 @@ public sealed class CspStatistics
     /// </summary>
     public bool InitialIncumbentAccepted { get; internal set; }
 
-    /// <summary>True khi không lời giải nào của CSP tốt hơn incumbent ban đầu, nên chính lịch heuristic được trả về.</summary>
+    /// <summary>
+    /// True khi không lời giải nào của CSP tốt hơn incumbent ban đầu, nên chính lịch heuristic được trả về. Lời giải CSP
+    /// trùng hệt lịch heuristic cũng tính, vì bước chọn cuối giữ lịch đứng trước (lịch heuristic) khi hai lịch bằng nhau.
+    /// </summary>
     public bool ReturnedInitialIncumbent { get; internal set; }
 
     /// <summary>Số lời giải đã đưa qua <see cref="ItineraryScheduleEvaluator"/> (trong lúc duyệt và ở bước chọn cuối).</summary>
@@ -53,6 +56,12 @@ public sealed class CspStatistics
     /// tra, nên kết quả vẫn đúng nhưng cắt nhánh kém hơn và lịch tối ưu sau khi chèn nghỉ có thể bị bỏ lỡ.
     /// </summary>
     public bool InSearchEvaluationLimitReached { get; internal set; }
+
+    /// <summary>
+    /// True khi lượt evaluator dành cho lời giải hòa incumbent (khi có điểm nghỉ) đã hết: lịch vẫn tốt nhất ở vector bao gồm
+    /// và phút di chuyển, nhưng có thể chưa tốt nhất ở thời lượng, giờ kết thúc hoặc dãy Id.
+    /// </summary>
+    public bool TieEvaluationLimitReached { get; internal set; }
 
     public TimeSpan Elapsed { get; internal set; }
 
@@ -77,6 +86,7 @@ public sealed class CspStatistics
         TimeLimitReached |= earlier.TimeLimitReached;
         InitialIncumbentAccepted |= earlier.InitialIncumbentAccepted;
         InSearchEvaluationLimitReached |= earlier.InSearchEvaluationLimitReached;
+        TieEvaluationLimitReached |= earlier.TieEvaluationLimitReached;
         UsedRelaxedRestModel = true;
     }
 }
@@ -122,6 +132,14 @@ public sealed class CspItinerarySolver(
     /// 16.384 lượt chỉ hết ở 12 (80), với thêm khoảng 11 ms mỗi lần giải.
     /// </summary>
     private const int MaxInSearchEvaluations = 16_384;
+
+    /// <summary>
+    /// Số lần đưa qua evaluator những lời giải hòa incumbent ở vector bao gồm và phút di chuyển (chỉ khi có điểm nghỉ). Mô
+    /// hình chưa tính nghỉ, nên lịch thật của chúng vẫn có thể thắng ở thời lượng, giờ kết thúc hoặc dãy Id. Lượt này tách
+    /// khỏi <see cref="MaxInSearchEvaluations"/>, để lời giải hòa không lấy lượt của lời giải tốt hơn hẳn
+    /// (<see cref="CspStatistics.TieEvaluationLimitReached"/>).
+    /// </summary>
+    private const int MaxTieEvaluations = 4_096;
 
     private readonly ItineraryScheduleEvaluator _evaluator = evaluator ?? throw new ArgumentNullException(nameof(evaluator));
     private readonly SchedulingGenerationOptions _options = options ?? new SchedulingGenerationOptions();
@@ -241,8 +259,9 @@ public sealed class CspItinerarySolver(
 
     /// <summary>
     /// R5: lưới an toàn thời gian bị chạm thì kết quả CSP dở dang phụ thuộc tốc độ máy, nên bị bỏ hẳn, kể cả lịch heuristic
-    /// đang là incumbent. Bên gọi trả lịch heuristic nguyên vẹn (<see cref="CspStatistics.TimeLimitReached"/>), để cùng
-    /// một đầu vào luôn cho cùng một lịch trình.
+    /// đang là incumbent. Bên gọi trả lịch heuristic nguyên vẹn (<see cref="CspStatistics.TimeLimitReached"/>), nên lịch trả
+    /// về không bao giờ là kết quả dở dang. Mốc có bị chạm hay không vẫn phụ thuộc máy (xem
+    /// <see cref="CspOptions.TimeLimitMilliseconds"/>).
     /// </summary>
     private static CspResult DiscardTimedOutResult(SearchRun search, Stopwatch clock)
     {
@@ -311,6 +330,8 @@ public sealed class CspItinerarySolver(
         public int Used { get; set; }
 
         public int InSearchEvaluations { get; set; }
+
+        public int TieEvaluations { get; set; }
     }
 
     /// <summary>
@@ -783,10 +804,13 @@ public sealed class CspItinerarySolver(
         /// Siết incumbent bằng lộ trình đang xét nếu nó tốt hơn theo product rule. Không có điểm nghỉ thì mô hình trùng lịch
         /// thật, nên dùng thẳng lời giải. Có điểm nghỉ thì lời giải phải qua evaluator trước: một lời giải mô hình chưa kiểm
         /// tra có thể hỏng hoặc tệ hơn sau khi chèn nghỉ, và siết cận bằng nó sẽ cắt mất những nhánh có lịch thật tốt hơn.
+        /// Lời giải hòa incumbent cũng qua evaluator (lượt riêng), vì lịch thật của nó có thể thắng ở các mức sau của product
+        /// rule mà mô hình không thấy; bước chọn cuối so chúng bằng đủ product rule.
         /// </summary>
         private void Tighten(int travel)
         {
-            if (Incumbent is not null && Incumbent.CompareTo(_inclusion, travel) >= 0)
+            var comparison = Incumbent?.CompareTo(_inclusion, travel) ?? -1;
+            if (comparison > 0 || (comparison == 0 && !_restApplies))
             {
                 return;
             }
@@ -797,13 +821,27 @@ public sealed class CspItinerarySolver(
                 return;
             }
 
-            if (_budget.InSearchEvaluations >= MaxInSearchEvaluations)
+            if (comparison == 0)
             {
-                Statistics.InSearchEvaluationLimitReached = true;
-                return;
+                if (_budget.TieEvaluations >= MaxTieEvaluations)
+                {
+                    Statistics.TieEvaluationLimitReached = true;
+                    return;
+                }
+
+                _budget.TieEvaluations++;
+            }
+            else
+            {
+                if (_budget.InSearchEvaluations >= MaxInSearchEvaluations)
+                {
+                    Statistics.InSearchEvaluationLimitReached = true;
+                    return;
+                }
+
+                _budget.InSearchEvaluations++;
             }
 
-            _budget.InSearchEvaluations++;
             if (_evaluate(_ctx, _sequence[.._depth], Statistics) is not { } schedule)
             {
                 return;

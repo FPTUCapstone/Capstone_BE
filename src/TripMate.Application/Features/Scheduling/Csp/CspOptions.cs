@@ -19,15 +19,18 @@ public sealed class CspOptions
 
     /// <summary>
     /// Giới hạn số nút của cây tìm kiếm: đây là điều kiện dừng chính. Chạm giới hạn thì trả về lời giải tốt nhất đã có.
-    /// Dừng theo số nút nên cùng một yêu cầu luôn cho cùng một lịch trình, dù máy nhanh hay chậm. Khi có điểm nghỉ,
-    /// lần duyệt mô hình có dự phòng nghỉ và lần duyệt mô hình nới lỏng dùng chung giới hạn này.
+    /// Dừng theo số nút nên cùng một yêu cầu cho cùng một lịch trình dù máy nhanh hay chậm, miễn là lưới an toàn
+    /// <see cref="TimeLimitMilliseconds"/> không bị chạm. Khi có điểm nghỉ, lần duyệt mô hình có dự phòng nghỉ và lần duyệt
+    /// mô hình nới lỏng dùng chung giới hạn này.
     /// </summary>
     public int MaxNodes { get; init; } = 200_000;
 
     /// <summary>
     /// Lưới an toàn về thời gian (mili giây), chỉ để chặn trường hợp máy quá tải; mặc định 2.500 ms theo Report 3 V2. Duyệt
     /// <see cref="MaxNodes"/> nút chỉ mất vài trăm mili giây, nên bình thường không bao giờ chạm mốc này. Khi chạm, kết quả
-    /// CSP dở dang phụ thuộc tốc độ máy nên bị bỏ, và bên gọi trả lịch heuristic nguyên vẹn (R5), để kết quả vẫn tất định.
+    /// CSP dở dang phụ thuộc tốc độ máy nên bị bỏ, và bên gọi trả lịch heuristic nguyên vẹn (R5): người dùng không bao giờ
+    /// nhận một kết quả dở dang. Việc mốc có bị chạm hay không vẫn phụ thuộc máy, nên trên máy chậm hoặc quá tải, cùng một
+    /// yêu cầu có thể nhận lịch heuristic ở chỗ máy nhanh nhận lịch CSP (không bao giờ tệ hơn lịch heuristic).
     /// </summary>
     public int TimeLimitMilliseconds { get; init; } = 2500;
 
