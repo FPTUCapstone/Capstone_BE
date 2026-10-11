@@ -208,11 +208,13 @@ public class CspItinerarySolverTests
         activity.GetTagItem("csp.nodes_expanded").Should().BeNull();
     }
 
+    /// <summary>R6: ghim chế độ Heuristic tường minh, để test không đổi nghĩa khi mặc định chuyển sang CSP (Phase 3).</summary>
     [Fact]
-    public async Task GenerationService_RecordsHeuristicOutcome_InTheDefaultMode()
+    public async Task GenerationService_RecordsHeuristicOutcome_InTheHeuristicMode()
     {
         var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(20, 2, 54);
-        var service = new ItineraryGenerationService(new StaticMatrixProvider(matrix));
+        var service = new ItineraryGenerationService(
+            new StaticMatrixProvider(matrix), new SchedulingGenerationOptions { SolverMode = SchedulingSolverMode.Heuristic });
 
         var activity = await RecordSolverOutcome(() => service.GenerateAsync(input, CancellationToken.None));
 
@@ -565,6 +567,41 @@ public class CspItinerarySolverTests
         heuristic!.VisitPoiIds.Count.Should().Be(11);
         result.Schedule!.VisitPoiIds.Count.Should().BeGreaterThanOrEqualTo(11);
         CspProductRuleOracle.Comparer(input, matrix).Compare(result.Schedule, heuristic).Should().BeLessThanOrEqualTo(0);
+    }
+
+    /// <summary>
+    /// TM-216 dưới CSP (P2.3c): AI chỉ ảnh hưởng thứ tự ưu tiên, mọi ràng buộc cứng vẫn do bộ lập lịch quyết định. Điểm
+    /// tùy chọn có điểm AI cao nhất nhưng chỉ mở cửa sau khi lịch đã phải kết thúc thì vẫn bị loại, và lịch vẫn hợp lệ.
+    /// </summary>
+    [Fact]
+    public async Task GenerationService_ExcludesTheTopAiScoredOptional_WhenItIsTimeInfeasible()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(10, 1, 41);
+        var top = input.Candidates
+            .Where(candidate => !input.MandatoryPoiIds.Contains(candidate.Id))
+            .MaxBy(candidate => candidate.EffectiveDesirabilityScore)!;
+        input = input with
+        {
+            Candidates = input.Candidates
+                .Select(candidate => candidate.Id == top.Id
+                    ? candidate with
+                    {
+                        EffectiveDesirabilityScore = 1m,
+                        OpeningHours = [new GenerationOpeningHours(2, new TimeOnly(23, 0), new TimeOnly(23, 59))],
+                    }
+                    : candidate)
+                .ToArray(),
+        };
+        var service = new ItineraryGenerationService(
+            new StaticMatrixProvider(matrix), new SchedulingGenerationOptions { SolverMode = SchedulingSolverMode.Csp });
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Items.Should().NotContain(item => item.PointOfInterestId == top.Id);
+        var (candidates, _) = Index(input);
+        var validate = () => new GeneratedItineraryInvariantValidator(Options).Validate(input, matrix, candidates, result.Value);
+        validate.Should().NotThrow();
     }
 
     /// <summary>

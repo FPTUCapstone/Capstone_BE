@@ -516,9 +516,20 @@ PR 2a is committed locally as `65b09f7`.
      - With 20 candidates the CSP is optimal.
      - With 40 candidates it often stops short. The gap is a few travel minutes, or one optional
        traded for the next-ranked one. It is never worse than the heuristic (R1a).
-     - Closing the gap within the latency gate needs stronger pruning or ordering (developer
-       decision; see the PR 2b report). The 300,000 budget measurement already showed that a
-       larger budget alone buys little.
+     - **Decision (developer, 2026-10-11): accept the gap and document it (option d).** First,
+       option a was tried: try optionals in canonical rank order before the travel-minus-benefit
+       score.
+
+       | Ordering | Same as best known (c40 without rest / c40 `Auto`) | Better than heuristic, 16 scenarios | Mean solve |
+       | -------- | -------------------------------------------------: | ----------------------------------: | ---------: |
+       | Current | 1/8 and 4/8 | 8 | 128 / 102 ms |
+       | Rank-first | 1/8 and 4/8 | 6 | 138 / 102 ms |
+
+       Rank-first was reverted. Most gaps are the same optional set with a few more travel
+       minutes, so they come from ordering the stops, not from choosing them.
+     - A tighter travel bound (option b) or dominance pruning (option c) remain possible later
+       improvements. The 300,000 budget measurement already showed that a larger budget alone
+       buys little.
 - **Benchmark:** `docs/benchmarks/UC-10-csp-solver-comparison-2026-10-11-pr2b.md`. All gates pass.
   - **`Frequent`:** 80 better and 220 equal, against 32 and 268 in `pr2a`. That is 48 scenarios
     moving from equal to better.
@@ -530,7 +541,31 @@ PR 2a is committed locally as `65b09f7`.
     identical plans and node counts to `pr2a`, where it measured 126 ms. In the same run every
     mode slowed, including the unchanged heuristic (p95 25 ms to 83 ms). Margins near the gate
     should be judged across repeated runs.
-- **R6, P2.3c, P2.5:** not started; P2.5 needs SQL Server.
+- **P2.5, without SQL Server — done.** The default was temporarily switched to
+  `SolverMode = Csp` and the full suite run, then the default was restored:
+  - **Failures:** only 3, against 12 before Phase 2. None was a defect:
+    - the benchmark source-hash test failed because the temporary default edit changed the hashed
+      source;
+    - `GenerateAsync_RecordsActivitySourceDiagnostics` checks the heuristic-only
+      `OptionalRouteOptimization` activity, which a CSP plan intentionally does not record
+      (round 3);
+    - `GenerationService_RecordsHeuristicOutcome_InTheDefaultMode` asserted the default mode.
+  - **After pinning (R6):** with the temporary CSP default, every test except the hash artifact
+    passes. That covers creation, Regenerate, Adjust Items, the TM-216 unit tests and the
+    non-SQL integration tests.
+  - **Still to run:** the SQL Server and Redis integration suites (334 tests skipped locally).
+- **R6 — done.**
+  - Pinned to `SolverMode = Heuristic`, with expectations unchanged:
+    - the four `GenerateAsync_Characterize_*` tests;
+    - `GenerateAsync_RecordsActivitySourceDiagnostics`.
+  - The default-mode outcome test now pins `Heuristic` explicitly
+    (`GenerationService_RecordsHeuristicOutcome_InTheHeuristicMode`).
+  - `Generate_OrdersOptionalsByEffectiveBeforeLegacyPreferenceScore` is about the legacy
+    preference score, not the legacy solver, and is not pinned.
+- **P2.3c — done for unit scope.** Added
+  `GenerationService_ExcludesTheTopAiScoredOptional_WhenItIsTimeInfeasible`: under CSP, an
+  optional with the top AI score that opens only after the itinerary must end is excluded, and the
+  plan passes the invariant validator.
 
 | ID | Requirement |
 | -- | ----------- |
