@@ -335,7 +335,7 @@ public class SolverComparisonReportTests
     private static SolverComparisonData SampleData() => new(
         new SolverComparisonMetadata(
             SampleDate, new string('a', 64), 12, "2026-01-02T03:04:05Z", "TestOS", "TestCPU", 4, ".NET 10", "Release",
-            1, 2, 1, [10], [0], ["None"], 0, 40, new CspOptions { MaxStops = 3 }),
+            1, 2, 1, [10], [0], ["None"], 0, 40, new SolverComparisonCspSettings(3, 20, 200_000, 5000, 5, null, false)),
         [
             new SolverComparisonScenarioRow(
                 "c10-m0", "c10-m0-s1", "None", 0, "better", 3, 3, 3, 3, 90, 80, 300, 290,

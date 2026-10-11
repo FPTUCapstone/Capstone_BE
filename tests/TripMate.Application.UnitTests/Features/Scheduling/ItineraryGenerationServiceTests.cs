@@ -8,6 +8,12 @@ namespace TripMate.Application.UnitTests.Features.Scheduling;
 
 public class ItineraryGenerationServiceTests
 {
+    /// <summary>
+    /// R6 (UC-10 CSP spec): các test mô tả hành vi của thuật toán heuristic được ghim vào chế độ Heuristic, để chúng vẫn
+    /// kiểm tra đúng heuristic khi mặc định đổi sang CSP (Phase 3). Kỳ vọng của chúng không đổi.
+    /// </summary>
+    private static readonly SchedulingGenerationOptions HeuristicOnly = new() { SolverMode = SchedulingSolverMode.Heuristic };
+
     private static readonly DateTimeOffset StartAtUtc =
         new(2026, 10, 20, 1, 0, 0, TimeSpan.Zero);
 
@@ -1072,7 +1078,7 @@ public class ItineraryGenerationServiceTests
     public async Task GenerateAsync_Characterize_TailOnlyZigzagBehavior()
     {
         var (input, matrix) = OptionalRouteOptimizationScenarios.CreateZigzagScenario();
-        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(matrix));
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(matrix), HeuristicOnly);
 
         var result = await service.GenerateAsync(input, CancellationToken.None);
 
@@ -1089,7 +1095,7 @@ public class ItineraryGenerationServiceTests
         var (input, matrix) = OptionalRouteOptimizationScenarios.CreateTailInfeasibleMiddleFeasibleScenario();
         var service = new ItineraryGenerationService(
             new FixedRouteDurationProvider(matrix),
-            options: new SchedulingGenerationOptions { EnableOptionalRouteOptimization = false });
+            options: new SchedulingGenerationOptions { EnableOptionalRouteOptimization = false, SolverMode = SchedulingSolverMode.Heuristic });
 
         var result = await service.GenerateAsync(input, CancellationToken.None);
 
@@ -1116,7 +1122,7 @@ public class ItineraryGenerationServiceTests
         });
 
         var input = OptionalRouteOptimizationScenarios.CreateInput(240, [cand1, cand2, cand3], []);
-        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(matrix));
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(matrix), HeuristicOnly);
 
         var result = await service.GenerateAsync(input, CancellationToken.None);
 
@@ -1131,7 +1137,7 @@ public class ItineraryGenerationServiceTests
     public async Task GenerateAsync_Characterize_AsymmetricMatrixPreservesDirectionality()
     {
         var (input, matrix) = OptionalRouteOptimizationScenarios.CreateAsymmetricScenario();
-        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(matrix));
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(matrix), HeuristicOnly);
 
         var result = await service.GenerateAsync(input, CancellationToken.None);
 
@@ -1352,7 +1358,7 @@ public class ItineraryGenerationServiceTests
     public async Task GenerateAsync_RecordsActivitySourceDiagnostics()
     {
         var (input, matrix) = OptionalRouteOptimizationScenarios.CreateZigzagScenario();
-        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(matrix));
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(matrix), HeuristicOnly);
 
         System.Diagnostics.Activity? recordedActivity = null;
         using var listener = new System.Diagnostics.ActivityListener

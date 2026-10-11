@@ -87,25 +87,8 @@ public sealed class MiniRoutingSolver(
     /// rồi chèn rẻ nhất từng điểm tùy chọn theo thứ hạng, dùng kiểm tra O(1) cho mỗi vị trí.
     /// Một điểm tùy chọn chỉ được chèn khi phút di chuyển tăng thêm nhỏ hơn mức phạt bỏ qua nó.
     /// </summary>
-    internal static RouteState? Construct(RoutingContext ctx, CancellationToken cancellationToken) =>
-        Construct(ctx, ctx.OptionalNodes, int.MaxValue, cancellationToken);
-
-    /// <summary>
-    /// Như <see cref="Construct(RoutingContext, CancellationToken)"/> nhưng chỉ chèn các điểm trong
-    /// <paramref name="optionalNodes"/> (giữ thứ hạng) và không vượt <paramref name="maxStops"/> điểm dừng.
-    /// Trả về null khi riêng các điểm bắt buộc đã vượt <paramref name="maxStops"/>.
-    /// </summary>
-    internal static RouteState? Construct(
-        RoutingContext ctx,
-        IEnumerable<int> optionalNodes,
-        int maxStops,
-        CancellationToken cancellationToken)
+    internal static RouteState? Construct(RoutingContext ctx, CancellationToken cancellationToken)
     {
-        if (ctx.MandatoryNodes.Count > maxStops)
-        {
-            return null;
-        }
-
         RouteState? best = null;
         foreach (var order in Permutations(ctx.MandatoryNodes))
         {
@@ -122,14 +105,9 @@ public sealed class MiniRoutingSolver(
             return null;
         }
 
-        foreach (var node in optionalNodes)
+        foreach (var node in ctx.OptionalNodes)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (best.Count >= maxStops)
-            {
-                break;
-            }
-
             var bestPosition = -1;
             var bestDelta = int.MaxValue;
             for (var position = 0; position <= best.Count; position++)
