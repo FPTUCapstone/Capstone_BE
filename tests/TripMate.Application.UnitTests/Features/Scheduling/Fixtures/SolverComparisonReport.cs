@@ -32,7 +32,31 @@ public sealed record SolverComparisonMetadata(
     IReadOnlyList<string> RestPreferences,
     int NamedScenarioCount,
     int MaxMatrixCandidates,
-    CspOptions Csp);
+    SolverComparisonCspSettings Csp);
+
+/// <summary>
+/// Ảnh chụp tùy chọn CSP lúc chạy benchmark. Tách khỏi <see cref="CspOptions"/> để báo cáo cũ vẫn đọc và dựng lại đúng
+/// từng chữ khi tùy chọn thay đổi: <see cref="UseInitialIncumbent"/> chỉ có trong báo cáo trước Phase 2 (R1a thay nó
+/// bằng lịch heuristic), và <see cref="MaxStops"/>, <see cref="MaxOptionalDomainSize"/> là null khi không giới hạn (R2, R3).
+/// </summary>
+public sealed record SolverComparisonCspSettings(
+    int? MaxStops,
+    int? MaxOptionalDomainSize,
+    int MaxNodes,
+    int TimeLimitMilliseconds,
+    int FinalCandidatesToValidate,
+    bool? UseInitialIncumbent,
+    bool PolishWithLocalSearch)
+{
+    public static SolverComparisonCspSettings From(CspOptions options) => new(
+        options.MaxStops,
+        options.MaxOptionalDomainSize,
+        options.MaxNodes,
+        options.TimeLimitMilliseconds,
+        options.FinalCandidatesToValidate,
+        UseInitialIncumbent: null,
+        options.PolishWithLocalSearch);
+}
 
 /// <summary>
 /// Một scenario: kết quả so sánh theo product rule và outcome thực của từng chế độ, lấy từ lần chạy warmup
@@ -126,6 +150,7 @@ public static class SolverComparisonReport
         SchedulingSolverOutcomes.HeuristicFallbackCspProvedInfeasible,
         SchedulingSolverOutcomes.HeuristicFallbackCspNoValidCandidate,
         SchedulingSolverOutcomes.HeuristicFallbackCspSearchLimit,
+        SchedulingSolverOutcomes.HeuristicFallbackCspTimeLimit,
         SchedulingSolverOutcomes.Infeasible,
     ];
 
@@ -371,7 +396,11 @@ public static class SolverComparisonReport
         md.AppendLine(Invariant($"- Host: {meta.OperatingSystem}; CPU: {meta.Processor}; logical processors: {meta.LogicalProcessors}; runtime: {meta.Runtime}; build: {meta.BuildConfiguration}"));
         md.AppendLine(Invariant($"- Iterations: {meta.WarmupIterations} warmup + {meta.MeasuredIterations} measured per scenario and mode, sequential, in one process. The warmup run produces the compared plan, its outcome and its CSP statistics; only measured runs are timed."));
         md.AppendLine("- Modes: `disabled` = Heuristic with `EnableOptionalRouteOptimization = false` (latency baseline); `heuristic` = `SolverMode = Heuristic` (production default); `csp` = `SolverMode = Csp`.");
-        md.AppendLine(Invariant($"- CSP options: MaxStops {csp.MaxStops}, MaxOptionalDomainSize {csp.MaxOptionalDomainSize}, MaxNodes {csp.MaxNodes}, TimeLimitMilliseconds {csp.TimeLimitMilliseconds}, FinalCandidatesToValidate {csp.FinalCandidatesToValidate}, UseInitialIncumbent {csp.UseInitialIncumbent}, PolishWithLocalSearch {csp.PolishWithLocalSearch}. Other scheduling options at their defaults (MaxMatrixCandidates {meta.MaxMatrixCandidates})."));
+        // Báo cáo trước Phase 2 có UseInitialIncumbent và giới hạn cố định; giữ nguyên cách viết của chúng.
+        var incumbentOption = csp.UseInitialIncumbent is { } useInitialIncumbent
+            ? Invariant($"UseInitialIncumbent {useInitialIncumbent}")
+            : "initial incumbent = the heuristic plan when it is within the CSP limits";
+        md.AppendLine(Invariant($"- CSP options: MaxStops {Limit(csp.MaxStops, "none")}, MaxOptionalDomainSize {Limit(csp.MaxOptionalDomainSize, "all")}, MaxNodes {csp.MaxNodes}, TimeLimitMilliseconds {csp.TimeLimitMilliseconds}, FinalCandidatesToValidate {csp.FinalCandidatesToValidate}, {incumbentOption}, PolishWithLocalSearch {csp.PolishWithLocalSearch}. Other scheduling options at their defaults (MaxMatrixCandidates {meta.MaxMatrixCandidates})."));
         md.AppendLine(Invariant($"- Corpus: **synthetic only**. {meta.NamedScenarioCount} named `OptionalRouteOptimizationScenarios` fixtures (rest preference `None`) plus `CreateSyntheticCorpusScenario` (600 available minutes, 30-minute visits) for candidates {{{string.Join(", ", meta.CandidateCounts)}}} × mandatory {{{string.Join(", ", meta.MandatoryCounts)}}} × rest preference {{{string.Join(", ", meta.RestPreferences)}}} × seeds 1–{meta.Seeds}. The generator is seeded and the rest preference does not change the instance, so each seed is the same trip under every rest preference. Segments without a suffix use `None`; `-auto` and `-frequent` segments use `Auto` (the mobile default) and `Frequent`. Sample size {rows.Count}."));
         md.AppendLine(Invariant($"- Excluded (a solver produced no plan): {rows.Count(r => r.Verdict == "excluded")}"));
         md.AppendLine("- Comparison rule: the product rule of `ScheduleGlobalComparator` (optional inclusion in canonical rank order, then matrix travel, duration, end time, visit IDs).");
@@ -410,7 +439,10 @@ public static class SolverComparisonReport
         md.AppendLine("## CSP limits");
         md.AppendLine();
         var cspVisits = rows.Where(r => r.CspOutcome == SchedulingSolverOutcomes.Csp && r.CspVisits is not null).ToArray();
-        md.AppendLine(Invariant($"- Plans produced by the CSP: {cspVisits.Length}; most visits in one plan: {(cspVisits.Length == 0 ? 0 : cspVisits.Max(r => r.CspVisits!.Value))}; plans with more than MaxStops ({csp.MaxStops}) visits: {cspVisits.Count(r => r.CspVisits > csp.MaxStops)}."));
+        var mostVisits = cspVisits.Length == 0 ? 0 : cspVisits.Max(r => r.CspVisits!.Value);
+        md.AppendLine(csp.MaxStops is { } maxStops
+            ? Invariant($"- Plans produced by the CSP: {cspVisits.Length}; most visits in one plan: {mostVisits}; plans with more than MaxStops ({maxStops}) visits: {cspVisits.Count(r => r.CspVisits > maxStops)}.")
+            : Invariant($"- Plans produced by the CSP: {cspVisits.Length}; most visits in one plan: {mostVisits}; no MaxStops limit is set (R2)."));
         md.AppendLine("- Plans the heuristic produced after a CSP fallback are not subject to the CSP limits and are excluded from this check.");
         md.AppendLine();
 
@@ -628,7 +660,7 @@ public static class SolverComparisonReport
     private static bool IsRestPreference(string value) =>
         Enum.GetNames<RestPreference>().Contains(value, StringComparer.Ordinal);
 
-    private static void ValidateScenario(SolverComparisonScenarioRow row, CspOptions csp, List<string> problems)
+    private static void ValidateScenario(SolverComparisonScenarioRow row, SolverComparisonCspSettings csp, List<string> problems)
     {
         if (row.Segment.Length == 0)
         {
@@ -775,4 +807,7 @@ public static class SolverComparisonReport
         value switch { true => "true", false => "false", null => string.Empty };
 
     private static string Invariant(FormattableString value) => value.ToString(CultureInfo.InvariantCulture);
+
+    private static string Limit(int? value, string unlimited) =>
+        value?.ToString(CultureInfo.InvariantCulture) ?? unlimited;
 }

@@ -24,8 +24,8 @@ public class CspItinerarySolverTests
     };
 
     /// <summary>
-    /// Forward checking và branch and bound không được bỏ sót lời giải: trên bài nhỏ, CSP phải cho đúng
-    /// mục tiêu tối ưu của phép duyệt vét cạn không cắt tỉa, hoặc cùng kết luận vô nghiệm.
+    /// Forward checking và branch and bound không được bỏ sót lời giải: trên bài nhỏ, CSP phải cho đúng lịch tốt nhất
+    /// theo product rule của phép duyệt vét cạn không cắt tỉa (R1), hoặc cùng kết luận vô nghiệm.
     /// </summary>
     [Theory]
     [InlineData(1)]
@@ -45,7 +45,7 @@ public class CspItinerarySolverTests
         var (input, matrix) = SmallScenario(seed);
         var (candidates, indices) = Index(input);
         var ctx = RoutingContext.Create(input, matrix, candidates, indices, Options, Options.MiniRouting);
-        var exhaustive = ExhaustiveBest(ctx);
+        var exhaustive = CspProductRuleOracle.Best(input, matrix, Options, ctx);
 
         var result = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, Exhaustive)
             .Solve(input, matrix, candidates, indices);
@@ -58,7 +58,7 @@ public class CspItinerarySolverTests
         else
         {
             result.Schedule.Should().NotBeNull();
-            result.Statistics.BestObjective.Should().Be(exhaustive.Value);
+            CspProductRuleOracle.Comparer(input, matrix).Compare(result.Schedule, exhaustive).Should().Be(0);
         }
     }
 
@@ -177,6 +177,34 @@ public class CspItinerarySolverTests
         activity.GetTagItem("csp.nodes_expanded").Should().BeOfType<int>().Which.Should().BePositive();
     }
 
+    /// <summary>
+    /// R4: tắt tối ưu tuyến (<c>EnableOptionalRouteOptimization = false</c>) thì <c>SolverMode</c> bị bỏ qua và
+    /// đường không tối ưu chạy như cũ, nên kế hoạch giống hệt chế độ Heuristic khi tắt tối ưu.
+    /// </summary>
+    [Theory]
+    [InlineData(SchedulingSolverMode.Csp)]
+    [InlineData(SchedulingSolverMode.MiniRouting)]
+    public async Task GenerationService_IgnoresSolverMode_WhenOptimizationIsDisabled(SchedulingSolverMode mode)
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateZigzagScenario();
+        var unoptimized = await new ItineraryGenerationService(
+                new StaticMatrixProvider(matrix),
+                new SchedulingGenerationOptions { EnableOptionalRouteOptimization = false })
+            .GenerateAsync(input, CancellationToken.None);
+        var service = new ItineraryGenerationService(
+            new StaticMatrixProvider(matrix),
+            new SchedulingGenerationOptions { EnableOptionalRouteOptimization = false, SolverMode = mode });
+
+        Result<GeneratedItineraryPlan>? result = null;
+        var activity = await RecordSolverOutcome(async () => result = await service.GenerateAsync(input, CancellationToken.None));
+
+        unoptimized.IsSuccess.Should().BeTrue();
+        result!.IsSuccess.Should().BeTrue();
+        result.Value.Should().BeEquivalentTo(unoptimized.Value);
+        activity.GetTagItem("solver.outcome").Should().Be(SchedulingSolverOutcomes.Heuristic);
+        activity.GetTagItem("csp.nodes_expanded").Should().BeNull();
+    }
+
     [Fact]
     public async Task GenerationService_RecordsHeuristicOutcome_InTheDefaultMode()
     {
@@ -190,6 +218,10 @@ public class CspItinerarySolverTests
         activity.GetTagItem("csp.nodes_expanded").Should().BeNull();
     }
 
+    /// <summary>
+    /// Lịch heuristic vượt MaxStops nên không được làm incumbent, và giới hạn một nút dừng CSP trước mọi lời giải: service
+    /// trả lịch heuristic đã có và ghi đúng lý do chuyển sang nó.
+    /// </summary>
     [Fact]
     public async Task GenerationService_RecordsSearchLimitFallback_WhenCspStopsBeforeAnySolution()
     {
@@ -197,7 +229,7 @@ public class CspItinerarySolverTests
         var options = new SchedulingGenerationOptions
         {
             SolverMode = SchedulingSolverMode.Csp,
-            Csp = new CspOptions { MaxNodes = 1, UseInitialIncumbent = false },
+            Csp = new CspOptions { MaxNodes = 1, MaxStops = 3 },
         };
         var service = new ItineraryGenerationService(new StaticMatrixProvider(matrix), options);
 
@@ -283,8 +315,9 @@ public class CspItinerarySolverTests
     }
 
     /// <summary>
-    /// Hồi quy: lời giải khởi đầu (chèn rẻ nhất) từng dùng mọi điểm tùy chọn và không giới hạn số điểm dừng,
-    /// nên kết quả CSP có thể vượt MaxStops hoặc chứa điểm ngoài top-N, dù bản thân phép duyệt tôn trọng cả hai.
+    /// Hồi quy (review PR #57): một incumbent ngoài giới hạn có thể tốt hơn mọi lời giải hợp lệ, cắt mất chúng và trở thành
+    /// kết quả, nên kết quả CSP từng vượt MaxStops hoặc chứa điểm ngoài top-N. Từ R1a, incumbent là lịch heuristic, và lịch
+    /// đó chỉ được nhận khi nằm trong giới hạn.
     /// </summary>
     [Theory]
     [InlineData(20, 0, 71, true, false)]
@@ -297,60 +330,250 @@ public class CspItinerarySolverTests
         int candidateCount,
         int mandatoryCount,
         int seed,
-        bool useInitialIncumbent,
+        bool withHeuristicIncumbent,
         bool polish)
     {
         var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(candidateCount, mandatoryCount, seed);
         var (candidates, indices) = Index(input);
-        var limits = new CspOptions
-        {
-            MaxStops = mandatoryCount + 2,
-            MaxOptionalDomainSize = 3,
-            UseInitialIncumbent = useInitialIncumbent,
-            PolishWithLocalSearch = polish,
-        };
+        var maxStops = mandatoryCount + 2;
+        var limits = new CspOptions { MaxStops = maxStops, MaxOptionalDomainSize = 3, PolishWithLocalSearch = polish };
+        var heuristic = withHeuristicIncumbent ? HeuristicSchedule(input, matrix) : null;
 
         var result = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, limits)
-            .Solve(input, matrix, candidates, indices);
+            .Solve(input, matrix, candidates, indices, heuristic);
 
         result.Schedule.Should().NotBeNull();
-        result.Schedule!.VisitPoiIds.Count.Should().BeLessThanOrEqualTo(limits.MaxStops);
+        result.Schedule!.VisitPoiIds.Count.Should().BeLessThanOrEqualTo(maxStops);
         input.MandatoryPoiIds.Should().BeSubsetOf(result.Schedule.VisitPoiIds);
         result.Schedule.VisitPoiIds
             .Where(id => !input.MandatoryPoiIds.Contains(id))
-            .Should().BeSubsetOf(TopRankedOptionalIds(input, matrix, limits.MaxOptionalDomainSize));
+            .Should().BeSubsetOf(TopRankedOptionalIds(input, matrix, 3));
+        if (heuristic is not null && heuristic.VisitPoiIds.Count > maxStops)
+        {
+            result.Statistics.InitialIncumbentAccepted.Should().BeFalse();
+        }
     }
 
     /// <summary>
-    /// Lời giải khởi đầu chỉ là cận trên để cắt nhánh sớm: khi phép duyệt chạy hết cây, bật hay tắt nó
-    /// phải cho cùng mục tiêu tối ưu trong cùng giới hạn MaxStops và miền giá trị.
+    /// R1a: incumbent chỉ là cận để cắt nhánh sớm. Khi phép duyệt chạy hết cây, có hay không có lịch heuristic làm
+    /// incumbent đều phải cho đúng lịch tối ưu của phép duyệt vét cạn, trong cùng giới hạn.
     /// </summary>
     [Theory]
-    [InlineData(20, 0, 71)]
-    [InlineData(20, 1, 72)]
-    [InlineData(40, 2, 73)]
-    public void Solve_InitialIncumbentDoesNotChangeTheOptimum_UnderRestrictiveLimits(int candidateCount, int mandatoryCount, int seed)
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    [InlineData(5)]
+    [InlineData(6)]
+    public void Solve_HeuristicIncumbentDoesNotChangeTheOptimum(int seed)
     {
-        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(candidateCount, mandatoryCount, seed);
+        var (input, matrix) = SmallScenario(seed);
         var (candidates, indices) = Index(input);
-        CspOptions Limits(bool useInitialIncumbent) => new()
-        {
-            MaxStops = mandatoryCount + 2,
-            MaxOptionalDomainSize = 3,
-            MaxNodes = 10_000_000,
-            TimeLimitMilliseconds = 60_000,
-            UseInitialIncumbent = useInitialIncumbent,
-        };
+        var ctx = RoutingContext.Create(input, matrix, candidates, indices, Options, Options.MiniRouting);
+        var exhaustive = CspProductRuleOracle.Best(input, matrix, Options, ctx);
+        var heuristic = HeuristicSchedule(input, matrix);
+        var comparer = CspProductRuleOracle.Comparer(input, matrix);
 
-        var withIncumbent = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, Limits(true))
-            .Solve(input, matrix, candidates, indices);
-        var withoutIncumbent = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, Limits(false))
+        var withIncumbent = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, Exhaustive)
+            .Solve(input, matrix, candidates, indices, heuristic);
+        var withoutIncumbent = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, Exhaustive)
             .Solve(input, matrix, candidates, indices);
 
         withIncumbent.Statistics.SearchCompleted.Should().BeTrue();
-        withoutIncumbent.Statistics.SearchCompleted.Should().BeTrue();
-        withIncumbent.Statistics.BestObjective.Should().Be(withoutIncumbent.Statistics.BestObjective);
-        withIncumbent.Statistics.InitialUpperBound.Should().BeGreaterThanOrEqualTo(withIncumbent.Statistics.BestObjective!.Value);
+        withIncumbent.Statistics.InitialIncumbentAccepted.Should().Be(heuristic is not null);
+        if (exhaustive is null)
+        {
+            withIncumbent.Schedule.Should().BeNull();
+            withoutIncumbent.Schedule.Should().BeNull();
+            return;
+        }
+
+        comparer.Compare(withIncumbent.Schedule, exhaustive).Should().Be(0);
+        comparer.Compare(withoutIncumbent.Schedule, exhaustive).Should().Be(0);
+    }
+
+    /// <summary>
+    /// R1a: lịch heuristic là incumbent ban đầu và là một ứng viên ở bước chọn cuối, nên kết quả CSP không bao giờ kém nó
+    /// theo product rule, kể cả khi giới hạn số nút dừng phép duyệt gần như ngay lập tức.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(NeverWorseScenarios))]
+    public void Solve_IsNeverWorseThanTheHeuristic_EvenWithATinyNodeBudget(string scenario, int maxNodes)
+    {
+        var (input, matrix) = NeverWorseScenario(scenario);
+        var (candidates, indices) = Index(input);
+        var heuristic = HeuristicSchedule(input, matrix);
+
+        var result = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, new CspOptions { MaxNodes = maxNodes })
+            .Solve(input, matrix, candidates, indices, heuristic);
+
+        heuristic.Should().NotBeNull();
+        result.Statistics.InitialIncumbentAccepted.Should().BeTrue();
+        result.Schedule.Should().NotBeNull();
+        CspProductRuleOracle.Comparer(input, matrix).Compare(result.Schedule, heuristic).Should().BeLessThanOrEqualTo(0);
+        var validate = () => new GeneratedItineraryInvariantValidator(Options).Validate(input, matrix, candidates, result.Schedule!.Plan);
+        validate.Should().NotThrow();
+    }
+
+    public static TheoryData<string, int> NeverWorseScenarios()
+    {
+        var data = new TheoryData<string, int>();
+        foreach (var scenario in NeverWorseScenarioNames)
+        {
+            data.Add(scenario, 1);
+            data.Add(scenario, 200_000);
+        }
+
+        return data;
+    }
+
+    /// <summary>
+    /// R2, R3: không có giới hạn cứng số điểm dừng, và miền giá trị gồm mọi điểm tùy chọn mà heuristic cũng xét.
+    /// </summary>
+    [Fact]
+    public void CspOptions_HaveNoStopCapAndTheFullDomain_ByDefault()
+    {
+        var options = new CspOptions();
+
+        options.MaxStops.Should().BeNull();
+        options.MaxOptionalDomainSize.Should().BeNull();
+    }
+
+    /// <summary>R5 và Report 3 V2: lưới an toàn thời gian là 2.500 ms; số nút vẫn là điều kiện dừng chính.</summary>
+    [Fact]
+    public void CspOptions_UseTheReport3SafetyLimit_ByDefault()
+    {
+        new CspOptions().TimeLimitMilliseconds.Should().Be(2500);
+    }
+
+    /// <summary>
+    /// R5: khi lưới an toàn thời gian bị chạm, kết quả CSP dở dang phụ thuộc tốc độ máy nên bị bỏ hẳn. Giới hạn 0 ms
+    /// làm lưới chạm ở lần kiểm tra đồng hồ đầu tiên, nên test không phụ thuộc tốc độ máy.
+    /// </summary>
+    [Fact]
+    public void Solve_DiscardsThePartialResult_WhenTheWallClockSafetyLimitFires()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(40, 0, 1);
+        var (candidates, indices) = Index(input);
+
+        var result = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, new CspOptions { TimeLimitMilliseconds = 0 })
+            .Solve(input, matrix, candidates, indices, HeuristicSchedule(input, matrix));
+
+        result.Statistics.TimeLimitReached.Should().BeTrue();
+        result.Statistics.SearchCompleted.Should().BeFalse();
+        result.Schedule.Should().BeNull();
+        result.ProvedInfeasible.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// R5: khi lưới an toàn thời gian bị chạm, service trả đúng lịch heuristic (đã tính sẵn cho R1a), không dùng kết quả
+    /// CSP dở dang, và ghi lại lý do chuyển sang heuristic. Nhờ vậy kết quả không phụ thuộc vào lúc dừng.
+    /// </summary>
+    [Fact]
+    public async Task GenerationService_ReturnsTheHeuristicPlanExactly_WhenTheWallClockSafetyLimitFires()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(40, 0, 1);
+        var heuristic = await new ItineraryGenerationService(new StaticMatrixProvider(matrix))
+            .GenerateAsync(input, CancellationToken.None);
+        var service = new ItineraryGenerationService(
+            new StaticMatrixProvider(matrix),
+            new SchedulingGenerationOptions { SolverMode = SchedulingSolverMode.Csp, Csp = new CspOptions { TimeLimitMilliseconds = 0 } });
+
+        Result<GeneratedItineraryPlan>? result = null;
+        var activity = await RecordSolverOutcome(async () => result = await service.GenerateAsync(input, CancellationToken.None));
+
+        result!.IsSuccess.Should().BeTrue();
+        result.Value.Should().BeEquivalentTo(heuristic.Value);
+        activity.GetTagItem("solver.outcome").Should().Be(SchedulingSolverOutcomes.HeuristicFallbackCspTimeLimit);
+        activity.GetTagItem("csp.time_limit_reached").Should().Be(true);
+    }
+
+    /// <summary>
+    /// R2: ở các scenario này heuristic xếp 11 điểm, còn CSP với giới hạn cũ 10 điểm dừng chỉ xếp được 10 (benchmark
+    /// 2026-10-11). Không còn giới hạn cứng thì CSP xếp được ít nhất bằng heuristic.
+    /// </summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(4)]
+    [InlineData(5)]
+    public void Solve_SchedulesMoreThanTenStops_WhenTheHeuristicDoes(int seed)
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(20, 0, seed);
+        var (candidates, indices) = Index(input);
+        var heuristic = HeuristicSchedule(input, matrix);
+
+        var result = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options)
+            .Solve(input, matrix, candidates, indices, heuristic);
+
+        heuristic!.VisitPoiIds.Count.Should().Be(11);
+        result.Schedule!.VisitPoiIds.Count.Should().BeGreaterThanOrEqualTo(11);
+        CspProductRuleOracle.Comparer(input, matrix).Compare(result.Schedule, heuristic).Should().BeLessThanOrEqualTo(0);
+    }
+
+    /// <summary>
+    /// R1: điểm tùy chọn xếp hạng cao hơn thắng mọi tổ hợp điểm xếp hạng thấp hơn, dù tốn nhiều phút di chuyển hơn.
+    /// Chỉ chọn được hoặc H (xa, xếp hạng cao nhất) hoặc cả L1 và L2 (gần). Mục tiêu cũ "phút di chuyển + phạt bỏ điểm"
+    /// chọn L1 và L2 (15 + 150 = 165 so với 120 + 150 = 270); product rule chọn H.
+    /// </summary>
+    [Fact]
+    public void Solve_NeverTradesAHigherRankedOptionalForTravelTime()
+    {
+        var candidates = new[]
+        {
+            OptionalRouteOptimizationScenarios.CreateCandidate(1, "H", 30, 10_000m, 0.9m),
+            OptionalRouteOptimizationScenarios.CreateCandidate(2, "L1", 30, 10_000m, 0.5m),
+            OptionalRouteOptimizationScenarios.CreateCandidate(3, "L2", 30, 10_000m, 0.4m),
+        };
+        var input = OptionalRouteOptimizationScenarios.CreateInput(180, candidates, []);
+
+        // H một mình: 60+10 → 70, thăm → 100, về 60+15 → 175 ≤ 180. L1, L2: 15, 45, 60, 90, về 20 → 110.
+        // H cùng một điểm L bất kỳ: ít nhất 220 > 180 phút.
+        var matrix = RouteDurationMatrix.Create(new[,]
+        {
+            /* Start */ { 0, 60, 5, 5, 0 },
+            /* H     */ { 60, 0, 60, 60, 60 },
+            /* L1    */ { 5, 60, 0, 5, 5 },
+            /* L2    */ { 5, 60, 5, 0, 5 },
+            /* End   */ { 0, 60, 5, 5, 0 },
+        });
+        var (matrixCandidates, indices) = Index(input);
+
+        var result = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options)
+            .Solve(input, matrix, matrixCandidates, indices);
+
+        result.Schedule.Should().NotBeNull();
+        result.Schedule!.VisitPoiIds.Should().Equal(1L);
+    }
+
+    /// <summary>
+    /// R1: thứ hạng chuẩn đã gồm các quy tắc phá hòa của ranking. Hai điểm cùng điểm AI, chỉ đặt được một; điểm có
+    /// scenic score cao hơn xếp trước nên được chọn, dù điểm kia gần hơn nhiều.
+    /// </summary>
+    [Fact]
+    public void Solve_FollowsTheCanonicalRankingTieBreak()
+    {
+        var candidates = new[]
+        {
+            OptionalRouteOptimizationScenarios.CreateCandidate(1, "Scenic", 30, 10_000m, 0.8m, scenicScoreForRanking: 0.9m),
+            OptionalRouteOptimizationScenarios.CreateCandidate(2, "Near", 30, 10_000m, 0.8m, scenicScoreForRanking: 0.5m),
+        };
+        var input = OptionalRouteOptimizationScenarios.CreateInput(150, candidates, []);
+
+        // Scenic một mình: 40+10 → 50, thăm → 80, về 40+15 → 135 ≤ 150. Near một mình: 65. Cả hai: ít nhất 160 > 150.
+        var matrix = RouteDurationMatrix.Create(new[,]
+        {
+            /* Start  */ { 0, 40, 5, 0 },
+            /* Scenic */ { 40, 0, 40, 40 },
+            /* Near   */ { 5, 40, 0, 5 },
+            /* End    */ { 0, 40, 5, 0 },
+        });
+        var (matrixCandidates, indices) = Index(input);
+
+        var result = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options)
+            .Solve(input, matrix, matrixCandidates, indices);
+
+        result.Schedule.Should().NotBeNull();
+        result.Schedule!.VisitPoiIds.Should().Equal(1L);
     }
 
     /// <summary>
@@ -473,34 +696,33 @@ public class CspItinerarySolverTests
         return (input, matrix);
     }
 
-    private static long? ExhaustiveBest(RoutingContext ctx)
+    private static readonly string[] NeverWorseScenarioNames =
+    [
+        "zigzag", "tail-infeasible", "asymmetric", "two-opt", "relocate", "reconsideration",
+        "c20-m0-s3", "c20-m3-s4", "c40-m1-s2", "c40-m6-s5", "c20-m1-s7-frequent",
+    ];
+
+    private static (GenerationInput Input, RouteDurationMatrix Matrix) NeverWorseScenario(string name)
     {
-        long? best = null;
-        var sequence = new List<int>();
-
-        void Visit()
+        if (SolverComparisonCorpus.NamedFixtures.FirstOrDefault(fixture => fixture.Name == name) is { Create: { } create })
         {
-            // Không cắt nhánh ở tiền tố không hợp lệ: với ma trận không metric, [a, b] có thể không kịp về thẳng
-            // đích nhưng [a, b, c] vẫn kịp, vì b -> c -> đích nhanh hơn b -> đích.
-            var state = RouteState.Build(ctx, sequence);
-            if (state is not null && state.Count > 0 && state.HasAllMandatory && (best is null || state.Objective < best))
-            {
-                best = state.Objective;
-            }
-
-            for (var node = 0; node < ctx.Nodes.Count; node++)
-            {
-                if (!sequence.Contains(node))
-                {
-                    sequence.Add(node);
-                    Visit();
-                    sequence.RemoveAt(sequence.Count - 1);
-                }
-            }
+            return create();
         }
 
-        Visit();
-        return best;
+        // Dạng c{ứng viên}-m{bắt buộc}-s{seed}[-frequent].
+        var parts = name.Split('-');
+        var rest = parts.Length > 3 ? Enum.Parse<RestPreference>(parts[3], ignoreCase: true) : RestPreference.None;
+        return OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(
+            int.Parse(parts[0][1..]), int.Parse(parts[1][1..]), int.Parse(parts[2][1..]), rest);
+    }
+
+    /// <summary>Lịch của heuristic (<see cref="OptionalRouteOptimizer"/>) cho cùng đầu vào, như service truyền cho CSP.</summary>
+    private static EvaluatedItinerarySchedule? HeuristicSchedule(GenerationInput input, RouteDurationMatrix matrix)
+    {
+        var (candidates, indices) = Index(input);
+        var mandatory = input.MandatoryPoiIds.Select(id => candidates.Single(c => c.Id == id)).ToArray();
+        return new OptionalRouteOptimizer(new ItineraryScheduleEvaluator(Options), Options)
+            .Optimize(input, mandatory, matrix, candidates, indices)?.Schedule;
     }
 
     private static (GenerationInput Input, RouteDurationMatrix Matrix) SmallScenario(int seed)
@@ -580,11 +802,14 @@ public class CspItinerarySolverTests
         return recorded!;
     }
 
+    /// <summary>Id của <paramref name="count"/> điểm tùy chọn có thứ hạng chuẩn cao nhất: miền giá trị của CSP.</summary>
     private static long[] TopRankedOptionalIds(GenerationInput input, RouteDurationMatrix matrix, int count)
     {
         var (candidates, indices) = Index(input);
         var ctx = RoutingContext.Create(input, matrix, candidates, indices, Options, Options.MiniRouting);
-        return ctx.OptionalNodes.Take(count).Select(node => ctx.Nodes[node].Candidate.Id).ToArray();
+        return CspProductRuleOracle.TopRankedOptionalNodes(input, matrix, ctx, count)
+            .Select(node => ctx.Nodes[node].Candidate.Id)
+            .ToArray();
     }
 
     private static (GenerationCandidate[] Candidates, Dictionary<long, int> Indices) Index(GenerationInput input)

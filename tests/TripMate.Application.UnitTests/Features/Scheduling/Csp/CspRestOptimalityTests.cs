@@ -19,6 +19,18 @@ public class CspRestOptimalityTests(ITestOutputHelper output)
 {
     private const int InstancesPerPreference = 80;
 
+    private static readonly Dictionary<RestPreference, int> MaxWorse = new()
+    {
+        [RestPreference.Auto] = 0,
+        [RestPreference.Frequent] = 0,
+    };
+
+    private static readonly Dictionary<RestPreference, int> MaxMissed = new()
+    {
+        [RestPreference.Auto] = 0,
+        [RestPreference.Frequent] = 0,
+    };
+
     private static readonly SchedulingGenerationOptions Options = new();
 
     private static readonly CspOptions Exhaustive = new()
@@ -36,23 +48,20 @@ public class CspRestOptimalityTests(ITestOutputHelper output)
     {
         var evaluator = new ItineraryScheduleEvaluator(Options);
         int feasible = 0, optimal = 0, worse = 0, missed = 0;
-        long totalGap = 0;
 
         for (var seed = 1; seed <= InstancesPerPreference; seed++)
         {
             var (input, matrix) = RandomInstance(seed, restPreference);
             var (candidates, indices) = Index(input);
-            var penalties = Penalties(input, matrix, candidates, indices);
-            var optimum = EvaluatorOptimum(evaluator, input, matrix, candidates, indices, penalties);
+            var comparer = CspProductRuleOracle.Comparer(input, matrix);
+            var optimum = EvaluatorOptimum(evaluator, input, matrix, candidates, indices, comparer);
 
             var result = new CspItinerarySolver(evaluator, Options, Exhaustive).Solve(input, matrix, candidates, indices);
 
             if (result.Schedule is not null)
             {
-                var objective = EvaluatedObjective(result.Schedule, input, penalties);
-                result.Statistics.BestEvaluatedObjective.Should().Be(objective, "the solver reports the objective of the schedule it returns");
                 optimum.Should().NotBeNull("the solver returned a valid schedule, so the exhaustive search finds one too");
-                objective.Should().BeGreaterThanOrEqualTo(optimum!.Value, "no schedule beats the exhaustive optimum");
+                comparer.Compare(result.Schedule, optimum).Should().BeGreaterThanOrEqualTo(0, "no schedule beats the exhaustive optimum");
             }
 
             if (optimum is null)
@@ -65,33 +74,28 @@ public class CspRestOptimalityTests(ITestOutputHelper output)
             if (result.Schedule is null)
             {
                 missed++;
-                continue;
             }
-
-            var gap = EvaluatedObjective(result.Schedule, input, penalties) - optimum.Value;
-            if (gap == 0)
+            else if (comparer.Compare(result.Schedule, optimum) == 0)
             {
                 optimal++;
             }
             else
             {
                 worse++;
-                totalGap += gap;
             }
         }
 
-        output.WriteLine($"{restPreference}: {feasible} feasible, {optimal} optimal, {worse} worse (total gap {totalGap}), {missed} without a CSP schedule");
+        output.WriteLine($"{restPreference}: {feasible} feasible, {optimal} optimal, {worse} worse, {missed} without a CSP schedule");
 
-        // Đo trên chính các instance này: khi chỉ chạy mô hình nới lỏng lúc mô hình có dự phòng không ra lời giải
-        // (head 94995d9), CSP trả lịch tệ hơn tối ưu ở 6/77 instance Auto (tổng chênh 243) và 23/69 instance Frequent
-        // (tổng chênh 1746). Chạy cả hai mô hình và chọn qua evaluator còn 0 và 1 (chênh 81). Không được tệ hơn mức này.
+        // Đo trên chính các instance này theo product rule (R1), sau khi chỉ siết incumbent bằng lời giải đã qua evaluator
+        // khi có điểm nghỉ (R9). Không được tệ hơn mức này; ngưỡng chỉ được giảm.
         feasible.Should().BeGreaterThan(InstancesPerPreference / 2, "the generator must produce mostly feasible instances");
-        missed.Should().Be(0);
-        worse.Should().BeLessThanOrEqualTo(restPreference == RestPreference.Auto ? 0 : 1);
+        missed.Should().BeLessThanOrEqualTo(MaxMissed[restPreference]);
+        worse.Should().BeLessThanOrEqualTo(MaxWorse[restPreference]);
     }
 
     /// <summary>
-    /// Khi không có điểm nghỉ thì mục tiêu CSP chính là mục tiêu trên lịch thật: CSP phải tối ưu.
+    /// Khi không có điểm nghỉ thì mô hình CSP trùng lịch thật: CSP phải cho đúng lịch tối ưu theo product rule.
     /// </summary>
     [Fact]
     public void Solve_MatchesTheEvaluatorOptimum_WithoutRest()
@@ -101,8 +105,8 @@ public class CspRestOptimalityTests(ITestOutputHelper output)
         {
             var (input, matrix) = RandomInstance(seed, RestPreference.None);
             var (candidates, indices) = Index(input);
-            var penalties = Penalties(input, matrix, candidates, indices);
-            var optimum = EvaluatorOptimum(evaluator, input, matrix, candidates, indices, penalties);
+            var comparer = CspProductRuleOracle.Comparer(input, matrix);
+            var optimum = EvaluatorOptimum(evaluator, input, matrix, candidates, indices, comparer);
 
             var result = new CspItinerarySolver(evaluator, Options, Exhaustive).Solve(input, matrix, candidates, indices);
 
@@ -114,7 +118,7 @@ public class CspRestOptimalityTests(ITestOutputHelper output)
             else
             {
                 result.Schedule.Should().NotBeNull();
-                EvaluatedObjective(result.Schedule!, input, penalties).Should().Be(optimum.Value);
+                comparer.Compare(result.Schedule, optimum).Should().Be(0, $"seed {seed}");
             }
         }
     }
@@ -179,34 +183,38 @@ public class CspRestOptimalityTests(ITestOutputHelper output)
         return (input, RouteDurationMatrix.Create(data));
     }
 
-    /// <summary>Mục tiêu tốt nhất trên mọi thứ tự điểm đến chứa đủ điểm bắt buộc mà evaluator chấp nhận.</summary>
-    private static long? EvaluatorOptimum(
+    /// <summary>
+    /// Lịch tốt nhất theo product rule trên mọi thứ tự điểm đến chứa đủ điểm bắt buộc mà evaluator chấp nhận. Chỉ xét
+    /// điểm mà bộ giải có thể xếp (nút của <see cref="RoutingContext"/>; điểm nghỉ không phải điểm tham quan).
+    /// </summary>
+    private static EvaluatedItinerarySchedule? EvaluatorOptimum(
         ItineraryScheduleEvaluator evaluator,
         GenerationInput input,
         RouteDurationMatrix matrix,
         GenerationCandidate[] candidates,
         Dictionary<long, int> indices,
-        Dictionary<long, int> penalties)
+        ScheduleGlobalComparator comparer)
     {
-        long? best = null;
+        var schedulable = RoutingContext.Create(input, matrix, candidates, indices, Options, Options.MiniRouting)
+            .Nodes.Select(node => node.Candidate.Id)
+            .ToHashSet();
+        EvaluatedItinerarySchedule? best = null;
         var sequence = new List<GenerationCandidate>();
         var used = new bool[candidates.Length];
 
         void Visit()
         {
-            if (sequence.Count > 0 && input.MandatoryPoiIds.All(id => sequence.Any(c => c.Id == id)))
+            if (sequence.Count > 0
+                && input.MandatoryPoiIds.All(id => sequence.Any(c => c.Id == id))
+                && evaluator.Evaluate(input, sequence.ToArray(), matrix, candidates, indices, CancellationToken.None) is { } schedule
+                && (best is null || comparer.Compare(schedule, best) < 0))
             {
-                var schedule = evaluator.Evaluate(input, sequence.ToArray(), matrix, candidates, indices, CancellationToken.None);
-                if (schedule is not null)
-                {
-                    var objective = EvaluatedObjective(schedule, input, penalties);
-                    best = best is null ? objective : Math.Min(best.Value, objective);
-                }
+                best = schedule;
             }
 
             for (var i = 0; i < candidates.Length; i++)
             {
-                if (!used[i] && penalties.ContainsKey(candidates[i].Id))
+                if (!used[i] && schedulable.Contains(candidates[i].Id))
                 {
                     used[i] = true;
                     sequence.Add(candidates[i]);
@@ -219,25 +227,6 @@ public class CspRestOptimalityTests(ITestOutputHelper output)
 
         Visit();
         return best;
-    }
-
-    private static long EvaluatedObjective(
-        EvaluatedItinerarySchedule schedule,
-        GenerationInput input,
-        Dictionary<long, int> penalties) =>
-        schedule.TotalMatrixTravelMinutes
-        + penalties.Where(pair => !input.MandatoryPoiIds.Contains(pair.Key) && !schedule.VisitPoiIds.Contains(pair.Key))
-            .Sum(pair => (long)pair.Value);
-
-    /// <summary>Mức phạt bỏ điểm của mọi POI mà bộ giải có thể xếp (điểm bắt buộc có phạt 0).</summary>
-    private static Dictionary<long, int> Penalties(
-        GenerationInput input,
-        RouteDurationMatrix matrix,
-        GenerationCandidate[] candidates,
-        Dictionary<long, int> indices)
-    {
-        var ctx = RoutingContext.Create(input, matrix, candidates, indices, Options, Options.MiniRouting);
-        return ctx.Nodes.ToDictionary(node => node.Candidate.Id, node => node.SkipPenalty);
     }
 
     private static (GenerationCandidate[] Candidates, Dictionary<long, int> Indices) Index(GenerationInput input)

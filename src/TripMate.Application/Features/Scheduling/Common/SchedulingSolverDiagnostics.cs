@@ -20,6 +20,12 @@ public static class SchedulingSolverOutcomes
     /// <summary>CSP chạm giới hạn số nút hoặc thời gian trước khi tìm được lời giải nào.</summary>
     public const string HeuristicFallbackCspSearchLimit = "heuristic_fallback_csp_search_limit";
 
+    /// <summary>
+    /// Lưới an toàn thời gian của CSP bị chạm (R5): kết quả CSP dở dang phụ thuộc tốc độ máy nên bị bỏ, lịch heuristic
+    /// được trả về nguyên vẹn.
+    /// </summary>
+    public const string HeuristicFallbackCspTimeLimit = "heuristic_fallback_csp_time_limit";
+
     /// <summary>MiniRouting không trả về lời giải hợp lệ.</summary>
     public const string HeuristicFallbackMiniRouting = "heuristic_fallback_mini_routing";
 
