@@ -62,7 +62,8 @@ public sealed class SchedulingGenerationOptionsValidator : IValidateOptions<Sche
         return failures.Count > 0 ? ValidateOptionsResult.Fail(failures) : ValidateOptionsResult.Success;
     }
 
-    private static void AddIfNotPositive(List<string> failures, string section, string option, int value)
+    /// <summary>Null là hợp lệ (giới hạn không đặt); khi đặt thì phải dương.</summary>
+    private static void AddIfNotPositive(List<string> failures, string section, string option, int? value)
     {
         if (value <= 0)
         {
