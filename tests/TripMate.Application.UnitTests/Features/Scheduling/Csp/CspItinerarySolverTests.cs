@@ -259,7 +259,8 @@ public class CspItinerarySolverTests
     }
 
     /// <summary>
-    /// Dừng theo số nút (không theo đồng hồ) nên cùng một yêu cầu luôn cho cùng một lịch trình.
+    /// Dừng theo số nút (không theo đồng hồ) nên cùng một yêu cầu luôn cho cùng một lịch trình. Lưới an toàn thời gian
+    /// được đặt rất xa: test kiểm tra tính tất định theo số nút, nên không được phụ thuộc tốc độ hay tải của máy chạy CI.
     /// </summary>
     [Theory]
     [InlineData(20, 2, 61)]
@@ -268,9 +269,12 @@ public class CspItinerarySolverTests
     {
         var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(candidateCount, mandatoryCount, seed);
         var (candidates, indices) = Index(input);
+        var nodeLimitedOnly = new CspOptions { TimeLimitMilliseconds = 600_000 };
 
-        var first = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options).Solve(input, matrix, candidates, indices);
-        var second = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options).Solve(input, matrix, candidates, indices);
+        var first = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, nodeLimitedOnly)
+            .Solve(input, matrix, candidates, indices);
+        var second = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, nodeLimitedOnly)
+            .Solve(input, matrix, candidates, indices);
 
         first.Statistics.TimeLimitReached.Should().BeFalse();
         first.Schedule.Should().NotBeNull();
@@ -380,6 +384,40 @@ public class CspItinerarySolverTests
         result.ProvedInfeasible.Should().BeFalse();
         result.Schedule.Should().NotBeNull();
         result.Schedule!.VisitPoiIds.Should().Equal(1L, 2L);
+    }
+
+    /// <summary>
+    /// Hai điểm bắt buộc A và B đều về đích rất chậm (200 phút), còn điểm tùy chọn C gần mọi điểm và cách đích 5 phút.
+    /// [A, B] không về kịp, [A, B, C] thì kịp, nên C nằm trên lộ trình về duy nhất. Phép duyệt loại tiền tố không về thẳng
+    /// đích kịp sẽ kết luận nhầm là vô nghiệm. (Đề xuất trong review PR #57 ở head 29a2989; trên 94995d9 lịch trả về null.)
+    /// </summary>
+    [Fact]
+    public void Solve_FindsTheRouteThatOnlyReachesTheEndThroughAnOptionalPoi()
+    {
+        var candidates = new[]
+        {
+            OptionalRouteOptimizationScenarios.CreateCandidate(1, "A", 30, 10_000m, 0.5m),
+            OptionalRouteOptimizationScenarios.CreateCandidate(2, "B", 30, 10_000m, 0.5m),
+            OptionalRouteOptimizationScenarios.CreateCandidate(3, "C", 30, 10_000m, 0.9m),
+        };
+        var input = OptionalRouteOptimizationScenarios.CreateInput(180, candidates, [1, 2], RestPreference.None);
+        var matrix = RouteDurationMatrix.Create(new[,]
+        {
+            /* Start */ { 0, 5, 5, 5, 60 },
+            /* A     */ { 5, 0, 5, 5, 200 },
+            /* B     */ { 5, 5, 0, 5, 200 },
+            /* C     */ { 5, 5, 5, 0, 5 },
+            /* End   */ { 60, 60, 60, 60, 0 },
+        });
+        var options = new SchedulingGenerationOptions();
+        var indices = new Dictionary<long, int> { [1] = 1, [2] = 2, [3] = 3 };
+
+        var result = new CspItinerarySolver(new ItineraryScheduleEvaluator(options), options, new CspOptions())
+            .Solve(input, matrix, candidates, indices);
+
+        result.Schedule.Should().NotBeNull();
+        result.Schedule!.VisitPoiIds.Last().Should().Be(3);
+        result.ProvedInfeasible.Should().BeFalse();
     }
 
     /// <summary>

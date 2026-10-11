@@ -284,6 +284,19 @@ CSP missed it.
 | ------- | ---------- |
 | The CSP pruned every partial route whose last stop could not return directly to the end in time. On a non-metric matrix, a later stop on a shortcut can still reach the end in time. The CSP missed such routes, returned a worse schedule, or wrongly reported `ProvedInfeasible`. The brute-force oracles pruned at the same point, so they agreed with the CSP. Example: on random seed 10 the CSP returned 391 against an optimum of 242. | The search extends open prefixes (`RouteState.BuildOpen`). A new value is pruned only by constraints that no later stop can repair: C1–C4, plus C5 against the admissible return lower bound `minExit` (direct return, or the shortest hop to another domain stop plus the shortest visit and return). A state counts as a solution only when it returns directly in time (`RouteState.Close`). Open prefixes reject `CanInsert` and `CanRemove`, so other solvers are unaffected. Covered by `Solve_FindsTheRoute_WhenOnlyAShortcutThroughAnotherStopReachesTheEndInTime` and by `CspBruteForceTests`, which compares against a non-pruning brute force on 1,000 random non-metric instances. `ExhaustiveBest` no longer prunes. The rest-aware comparison stays skipped (29/600 instances, Phase 2 R9). |
 
+An independent review of head `29a2989` found no Phase 1 blocker. It confirmed the open-prefix
+fix: with a non-pruning brute force, `94995d9` lost the optimum in 2 of 301 restricted-limit cases,
+and `29a2989` in none. Two changes followed. The rest are tracked for Phase 2.
+
+| Finding | Resolution |
+| ------- | ---------- |
+| Medium: the rest model is still not optimal after rest insertion. | Phase 2 R9, with the review's evidence and bound hypothesis recorded there. |
+| Medium: the wall-clock limit still ends the search and makes the result host-dependent. Under heavy parallel load, `Solve_IsDeterministic_ForTheSameInput(40, 4, 62)` reached it and failed. | The algorithm change stays Phase 2 R5, alongside the Report 3 V2 timeout gap. The determinism test now sets a 600 s safety limit, because it checks node-budget determinism and must not depend on runner speed. |
+| Low: `state.Close()` rebuilds the full state (O(n), one allocation) at every node that already has all mandatory POIs. | Phase 2. It is a cost, not a correctness issue, and changing the solver requires a new benchmark. Candidate fix: test `ReturnsInTime` on the open state first and build the closed state only for accepted solutions. |
+| Low: node-limited results are not compared with the heuristic, and `EnableOptionalRouteOptimization = false` is ignored. | Phase 2 R1a and R4. The CSP stays opt-in until both are done. |
+| Low: the Phase 3 latency gate is not met. The committed run misses c40-m6 and c40-m6-frequent; the reviewer's run missed six segments. | Phase 3 gate. |
+| Test suggestion: a fixed, generator-free regression for the shortcut defect. | Added as `Solve_FindsTheRouteThatOnlyReachesTheEndThroughAnOptionalPoi`. It fails on `ebd90a9` with a null schedule and passes on `29a2989`. |
+
 ### Report 3 V2 compliance — open, must be resolved before any production rollout
 
 Report 3 V2 (the canonical SRS) specifies two things for the CSP engine:
@@ -322,7 +335,7 @@ and is tracked separately.
 | R8 | The existing aggregate optimization diagnostic records which solver produced the plan. Allowed values are `Heuristic`, `Csp`, and `CspFallback`, plus node and prune counts. It never records user or POI identity. Phase 1 already records the detailed outcome in `SchedulingSolverDiagnostics`, for benchmark auditability (see Phase 1 item 4). R8 maps those outcomes to these three values; it does not add a second, divergent classification. |
 | R6 | Existing tests that characterize heuristic-only behavior pin `SolverMode = Heuristic` explicitly. Their expectations are not edited. |
 | R7 | Every CSP result passes `GeneratedItineraryInvariantValidator`, exactly like the heuristic. |
-| R9 | With `Auto` or `Frequent` rest, the CSP result is optimal after rest insertion, or the remaining gap is measured and accepted by the developer. Candidate approaches: model `ItineraryScheduleEvaluator.NeedsRest` inside `RouteState`, or evaluate solutions inside the search with an evaluator-aware bound. `CspRestOptimalityTests` is the regression test; its thresholds may only go down. |
+| R9 | With `Auto` or `Frequent` rest, the CSP result is optimal after rest insertion, or the remaining gap is measured and accepted by the developer. Candidate approaches: model `ItineraryScheduleEvaluator.NeedsRest` inside `RouteState`, or evaluate solutions inside the search with an evaluator-aware bound. `CspRestOptimalityTests` is the regression test; its thresholds may only go down. Evidence from the review of `29a2989`: an evaluator brute force over 381 solvable `Auto`/`Frequent` instances found 24 worse schedules (mean gap ~47) and 4 null results. Raising `FinalCandidatesToValidate` to 50 or 1000 only reached 20 worse, so top-K selection is not the main cause. Hypothesis to test first: `_bestObjective` is tightened by model-objective solutions that have not passed the evaluator, so branches with a better post-rest schedule are pruned. When rest applies, tighten the bound only from evaluated solutions, or search on the evaluated objective. The skipped `CspBruteForceTests.Solve_MatchesEvaluatorAwareOptimum_WithAutoAndFrequentRest` (29/600 worse at `29a2989`) is unskipped when this is met. |
 
 ## Phase 3 — gate for making CSP the default (separate small PR)
 
