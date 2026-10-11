@@ -41,6 +41,44 @@ public sealed class CreatePoiJwtBearerTests
     }
 
     [Fact]
+    public async Task Post_WithoutAuthentication_ReturnsUnauthorized()
+    {
+        await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
+        using var client = factory.CreateClient();
+
+        var response = await client.PostAsJsonAsync(
+            "/api/v1/admin/pois",
+            ValidBody(categoryId: 1));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Theory]
+    [InlineData(UserRole.Staff)]
+    [InlineData(UserRole.Traveler)]
+    [InlineData(UserRole.TourOperator)]
+    public async Task Post_WithNonAdministratorProductionJwt_ReturnsForbidden(UserRole role)
+    {
+        await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
+        var tokenService = factory.Services.GetRequiredService<IJwtTokenService>();
+        var token = tokenService.GenerateAccessToken(new User
+        {
+            Id = 42,
+            Email = $"{role.ToString().ToLowerInvariant()}@example.com",
+            FullName = $"JWT {role}",
+            Role = role,
+            Status = AccountStatus.Active,
+        }).Token;
+        using var client = factory.CreateJwtClient(token);
+
+        var response = await client.PostAsJsonAsync(
+            "/api/v1/admin/pois",
+            ValidBody(categoryId: 1));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
     public async Task Post_WithProductionJwtForActiveAdministrator_ReturnsCreated()
     {
         await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);

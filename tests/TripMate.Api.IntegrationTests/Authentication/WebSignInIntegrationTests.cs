@@ -112,6 +112,66 @@ public class WebSignInIntegrationTests
     }
 
     [Fact]
+    public async Task Post_AdminLogin_ActiveStaffCreatesSession()
+    {
+        using var factory = new TripMateApiFactory();
+        using var client = factory.CreateClient();
+        await Seed(factory, UserRole.Staff);
+
+        var response = await client.PostAsJsonAsync(
+            "/api/v1/auth/web/admin/login",
+            new { email = "login@example.com", password = "CorrectPass1" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        json.GetProperty("data").GetProperty("role").GetString().Should().Be("Staff");
+        response.Headers.GetValues("Set-Cookie").Should().Contain(cookie =>
+            cookie.StartsWith("tripmate_refresh=", StringComparison.OrdinalIgnoreCase)
+            && cookie.Contains("path=/", StringComparison.OrdinalIgnoreCase)
+            && !cookie.Contains("expires=", StringComparison.OrdinalIgnoreCase));
+        await factory.WithDbContextAsync(async db =>
+        {
+            db.RefreshTokens.Should().ContainSingle();
+            (await db.Users.SingleAsync()).LastLoginAtUtc.Should().NotBeNull();
+            return true;
+        });
+    }
+
+    [Theory]
+    [InlineData(AccountStatus.Locked, "auth.account_locked")]
+    [InlineData(AccountStatus.Inactive, "auth.account_inactive")]
+    [InlineData(AccountStatus.PendingEmailVerification, "MSG_UNVERIFIED")]
+    public async Task Post_AdminLogin_RestrictedStaffDoesNotCreateSession(
+        AccountStatus status,
+        string expectedErrorCode)
+    {
+        using var factory = new TripMateApiFactory();
+        using var client = factory.CreateClient();
+        await Seed(factory, UserRole.Staff);
+        await factory.WithDbContextAsync(async db =>
+        {
+            (await db.Users.SingleAsync()).Status = status;
+            await db.SaveChangesAsync();
+            return true;
+        });
+
+        var response = await client.PostAsJsonAsync(
+            "/api/v1/auth/web/admin/login",
+            new { email = "login@example.com", password = "CorrectPass1" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        json.GetProperty("errorCode").GetString().Should().Be(expectedErrorCode);
+        response.Headers.Contains("Set-Cookie").Should().BeFalse();
+        await factory.WithDbContextAsync(async db =>
+        {
+            db.RefreshTokens.Should().BeEmpty();
+            (await db.Users.SingleAsync()).LastLoginAtUtc.Should().BeNull();
+            return true;
+        });
+    }
+
+    [Fact]
     public async Task Post_FailedReplacementPreservesExistingSession()
     {
         using var factory = new TripMateApiFactory();

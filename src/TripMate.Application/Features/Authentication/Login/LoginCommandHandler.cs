@@ -89,10 +89,10 @@ public class LoginCommandHandler(
                 return Result.Failure<AuthResponseDto>(eligibility.ErrorCode!, eligibility.ErrorMessage!);
             }
 
-            if (command.AdministratorOnly && user.Role != UserRole.Administrator)
+            if (command.AdministratorOnly && !user.Role.IsAdministrationRole())
                 return Result.Failure<AuthResponseDto>(AuthErrorCodes.AdminAccessRequired, "Administrator access is required.");
 
-            if (command.IsMobileEndpoint && user.Role == UserRole.Administrator)
+            if (command.IsMobileEndpoint && user.Role.IsAdministrationRole())
                 return Result.Failure<AuthResponseDto>(
                     AuthErrorCodes.AdminMobileSignInDisabled,
                     "Administrator accounts are supported on Web only.");
