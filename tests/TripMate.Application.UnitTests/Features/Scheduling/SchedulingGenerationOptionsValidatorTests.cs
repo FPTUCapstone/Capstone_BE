@@ -1,6 +1,8 @@
 using FluentAssertions;
 
 using TripMate.Application.Features.Scheduling.Common;
+using TripMate.Application.Features.Scheduling.Csp;
+using TripMate.Application.Features.Scheduling.Routing;
 
 namespace TripMate.Application.UnitTests.Features.Scheduling;
 
@@ -67,6 +69,68 @@ public sealed class SchedulingGenerationOptionsValidatorTests
         result.Failed.Should().BeTrue();
         result.FailureMessage.Should().Contain(nameof(options.TransitionBufferMinutes));
         result.FailureMessage.Should().Contain(nameof(options.FinalReturnBufferMinutes));
+    }
+
+    [Fact]
+    public void Validate_WithUndefinedSolverMode_Fails()
+    {
+        var options = new SchedulingGenerationOptions
+        {
+            SolverMode = (SchedulingSolverMode)99,
+        };
+
+        var result = _validator.Validate(null, options);
+
+        result.Failed.Should().BeTrue();
+        result.FailureMessage.Should().Contain(nameof(options.SolverMode));
+    }
+
+    [Theory]
+    [InlineData(nameof(CspOptions.MaxNodes))]
+    [InlineData(nameof(CspOptions.TimeLimitMilliseconds))]
+    [InlineData(nameof(CspOptions.MaxOptionalDomainSize))]
+    [InlineData(nameof(CspOptions.MaxStops))]
+    [InlineData(nameof(CspOptions.FinalCandidatesToValidate))]
+    public void Validate_WithNonPositiveCspLimit_Fails(string limit)
+    {
+        var csp = limit switch
+        {
+            nameof(CspOptions.MaxNodes) => new CspOptions { MaxNodes = 0 },
+            nameof(CspOptions.TimeLimitMilliseconds) => new CspOptions { TimeLimitMilliseconds = 0 },
+            nameof(CspOptions.MaxOptionalDomainSize) => new CspOptions { MaxOptionalDomainSize = 0 },
+            nameof(CspOptions.FinalCandidatesToValidate) => new CspOptions { FinalCandidatesToValidate = 0 },
+            _ => new CspOptions { MaxStops = 0 },
+        };
+
+        var result = _validator.Validate(null, new SchedulingGenerationOptions { Csp = csp });
+
+        result.Failed.Should().BeTrue();
+        result.FailureMessage.Should().Contain($"{nameof(SchedulingGenerationOptions.Csp)}.{limit}");
+    }
+
+    [Theory]
+    [InlineData(nameof(MiniRoutingOptions.MaxSkipPenaltyMinutes))]
+    [InlineData(nameof(MiniRoutingOptions.MaxGlsIterations))]
+    [InlineData(nameof(MiniRoutingOptions.TimeLimitMilliseconds))]
+    [InlineData(nameof(MiniRoutingOptions.MaxOrOptSegmentLength))]
+    [InlineData(nameof(MiniRoutingOptions.FinalCandidatesToValidate))]
+    [InlineData(nameof(MiniRoutingOptions.GlsLambdaFactor))]
+    public void Validate_WithInvalidMiniRoutingOption_Fails(string option)
+    {
+        var routing = option switch
+        {
+            nameof(MiniRoutingOptions.MaxSkipPenaltyMinutes) => new MiniRoutingOptions { MaxSkipPenaltyMinutes = 0 },
+            nameof(MiniRoutingOptions.MaxGlsIterations) => new MiniRoutingOptions { MaxGlsIterations = 0 },
+            nameof(MiniRoutingOptions.TimeLimitMilliseconds) => new MiniRoutingOptions { TimeLimitMilliseconds = -1 },
+            nameof(MiniRoutingOptions.MaxOrOptSegmentLength) => new MiniRoutingOptions { MaxOrOptSegmentLength = 0 },
+            nameof(MiniRoutingOptions.FinalCandidatesToValidate) => new MiniRoutingOptions { FinalCandidatesToValidate = 0 },
+            _ => new MiniRoutingOptions { GlsLambdaFactor = double.NaN },
+        };
+
+        var result = _validator.Validate(null, new SchedulingGenerationOptions { MiniRouting = routing });
+
+        result.Failed.Should().BeTrue();
+        result.FailureMessage.Should().Contain($"{nameof(SchedulingGenerationOptions.MiniRouting)}.{option}");
     }
 
     [Fact]
