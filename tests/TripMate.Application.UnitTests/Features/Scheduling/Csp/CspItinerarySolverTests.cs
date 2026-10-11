@@ -70,7 +70,10 @@ public class CspItinerarySolverTests
         var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(candidateCount, mandatoryCount, seed);
         var (candidates, indices) = Index(input);
 
-        var result = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options).Solve(input, matrix, candidates, indices);
+        var nodeLimitedOnly = new CspOptions { TimeLimitMilliseconds = 600_000 };
+
+        var result = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, nodeLimitedOnly)
+            .Solve(input, matrix, candidates, indices);
 
         result.Schedule.Should().NotBeNull();
         result.Schedule!.VisitPoiIds.Should().Contain(input.MandatoryPoiIds);
@@ -462,7 +465,10 @@ public class CspItinerarySolverTests
         var (candidates, indices) = Index(input);
         var heuristic = HeuristicSchedule(input, matrix);
 
-        var result = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, new CspOptions { MaxNodes = maxNodes })
+        // Chỉ node budget được dừng phép duyệt: giới hạn thời gian mặc định 2,5 giây có thể chạm trên máy CI tải nặng, và
+        // khi đó R5 cố ý bỏ kết quả CSP, đã có test riêng ở Solve_DiscardsThePartialResult_WhenTheWallClockSafetyLimitFires.
+        var nodeLimitedOnly = new CspOptions { MaxNodes = maxNodes, TimeLimitMilliseconds = 600_000 };
+        var result = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, nodeLimitedOnly)
             .Solve(input, matrix, candidates, indices, heuristic);
 
         heuristic.Should().NotBeNull();
@@ -560,8 +566,9 @@ public class CspItinerarySolverTests
         var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(20, 0, seed);
         var (candidates, indices) = Index(input);
         var heuristic = HeuristicSchedule(input, matrix);
+        var nodeLimitedOnly = new CspOptions { TimeLimitMilliseconds = 600_000 };
 
-        var result = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options)
+        var result = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, nodeLimitedOnly)
             .Solve(input, matrix, candidates, indices, heuristic);
 
         heuristic!.VisitPoiIds.Count.Should().Be(11);
