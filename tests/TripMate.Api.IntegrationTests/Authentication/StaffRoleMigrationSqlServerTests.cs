@@ -89,6 +89,138 @@ public sealed class StaffRoleMigrationSqlServerTests
             """)).Should().Be(1);
     }
 
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task MultipleRoleConstraints_AreRejectedWithoutPartialSchemaOrDataChanges()
+    {
+        await using var database = await SqlServerTestDatabase.CreateEmptyAsync();
+        await database.ExecuteNonQueryAsync("""
+            CREATE TABLE dbo.Users (
+                user_id BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                role VARCHAR(20) NOT NULL
+                    CONSTRAINT CK_Users_LegacyRole
+                    CHECK (role IN ('Traveler','TourOperator','Administrator')),
+                email NVARCHAR(256) NULL,
+                CONSTRAINT CK_Users_RoleRequiresEmail
+                    CHECK (role <> 'Administrator' OR email IS NOT NULL));
+
+            INSERT dbo.Users(role, email)
+            VALUES ('Administrator', N'admin@example.com');
+            """);
+
+        var action = () => database.ExecuteScriptAsync(GetMigrationPath());
+
+        await action.Should().ThrowAsync<SqlException>()
+            .WithMessage("*multiple CHECK constraints referencing dbo.Users.role*");
+        (await database.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM dbo.Users;"))
+            .Should().Be(1);
+        (await CountConstraintsAsync(database,
+            "CK_Users_LegacyRole", "CK_Users_RoleRequiresEmail"))
+            .Should().Be(2);
+        (await CountConstraintsAsync(database, "CK_Users_Role")).Should().Be(0);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task CompositeRoleConstraint_IsRejectedWithoutRemovingBusinessRuleOrData()
+    {
+        await using var database = await SqlServerTestDatabase.CreateEmptyAsync();
+        await database.ExecuteNonQueryAsync("""
+            CREATE TABLE dbo.Users (
+                user_id BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                role VARCHAR(20) NOT NULL,
+                email NVARCHAR(256) NULL,
+                CONSTRAINT CK_Users_RoleRequiresEmail
+                    CHECK (role <> 'Administrator' OR email IS NOT NULL));
+
+            INSERT dbo.Users(role, email)
+            VALUES ('Administrator', N'admin@example.com');
+            """);
+
+        var action = () => database.ExecuteScriptAsync(GetMigrationPath());
+
+        await action.Should().ThrowAsync<SqlException>()
+            .WithMessage("*combines dbo.Users.role with other columns*");
+        (await database.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM dbo.Users;"))
+            .Should().Be(1);
+        (await CountConstraintsAsync(database, "CK_Users_RoleRequiresEmail"))
+            .Should().Be(1);
+        (await CountConstraintsAsync(database, "CK_Users_Role")).Should().Be(0);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task UnrelatedUsersConstraint_IsPreservedDuringRoleConstraintUpgrade()
+    {
+        await using var database = await SqlServerTestDatabase.CreateEmptyAsync();
+        await database.ExecuteNonQueryAsync("""
+            CREATE TABLE dbo.Users (
+                user_id BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                role VARCHAR(20) NOT NULL
+                    CONSTRAINT CK_Users_LegacyRole
+                    CHECK (role IN ('Traveler','TourOperator','Administrator')),
+                email NVARCHAR(256) NULL,
+                CONSTRAINT CK_Users_Email_NotBlank
+                    CHECK (email IS NULL OR LEN(LTRIM(RTRIM(email))) > 0));
+
+            INSERT dbo.Users(role, email)
+            VALUES ('Traveler', N'traveler@example.com');
+            """);
+
+        await database.ExecuteScriptAsync(GetMigrationPath());
+
+        (await database.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM dbo.Users;"))
+            .Should().Be(1);
+        (await CountConstraintsAsync(database, "CK_Users_Email_NotBlank"))
+            .Should().Be(1);
+        var constraint = await ReadRoleConstraintAsync(database);
+        constraint.Name.Should().Be("CK_Users_Role");
+        constraint.IsDisabled.Should().BeFalse();
+        constraint.IsNotTrusted.Should().BeFalse();
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task SingleTableLevelRoleConstraint_IsReplacedAndUsersArePreserved()
+    {
+        await using var database = await SqlServerTestDatabase.CreateEmptyAsync();
+        await database.ExecuteNonQueryAsync("""
+            CREATE TABLE dbo.Users (
+                user_id BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                role VARCHAR(20) NOT NULL,
+                email NVARCHAR(256) NULL,
+                CONSTRAINT CK_Users_LegacyRole
+                    CHECK (role IN ('Traveler','TourOperator','Administrator')));
+
+            INSERT dbo.Users(role, email)
+            VALUES ('TourOperator', N'operator@example.com');
+            """);
+
+        await database.ExecuteScriptAsync(GetMigrationPath());
+
+        (await database.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM dbo.Users;"))
+            .Should().Be(1);
+        (await CountConstraintsAsync(database, "CK_Users_LegacyRole"))
+            .Should().Be(0);
+        var constraint = await ReadRoleConstraintAsync(database);
+        constraint.Name.Should().Be("CK_Users_Role");
+        constraint.IsDisabled.Should().BeFalse();
+        constraint.IsNotTrusted.Should().BeFalse();
+    }
+
+    private static Task<int> CountConstraintsAsync(
+        SqlServerTestDatabase database,
+        params string[] names)
+    {
+        var literals = string.Join(",", names.Select(name => $"N'{name.Replace("'", "''")}'"));
+        return database.ExecuteScalarAsync<int>($"""
+            SELECT COUNT(*)
+            FROM sys.check_constraints
+            WHERE parent_object_id = OBJECT_ID(N'dbo.Users')
+              AND name IN ({literals});
+            """);
+    }
+
     private static async Task<RoleConstraint> ReadRoleConstraintAsync(
         SqlServerTestDatabase database)
     {

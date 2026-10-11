@@ -90,12 +90,12 @@ public class LoginCommandHandler(
             }
 
             if (command.AdministratorOnly && !user.Role.IsAdministrationRole())
-                return Result.Failure<AuthResponseDto>(AuthErrorCodes.AdminAccessRequired, "Administrator access is required.");
+                return Result.Failure<AuthResponseDto>(AuthErrorCodes.AdminAccessRequired, "Administrator or Staff access is required.");
 
             if (command.IsMobileEndpoint && user.Role.IsAdministrationRole())
                 return Result.Failure<AuthResponseDto>(
                     AuthErrorCodes.AdminMobileSignInDisabled,
-                    "Administrator accounts are supported on Web only.");
+                    "Administration accounts are supported on Web only.");
 
             var now = dateTimeProvider.UtcNow;
             var refreshExpiresAt = now.AddDays(7);
