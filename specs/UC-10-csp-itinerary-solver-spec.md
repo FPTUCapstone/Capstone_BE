@@ -457,6 +457,81 @@ Phase 2 is split into two PRs (developer decision, 2026-10-11), both from
   - On the 25 c40-m0 scenarios, a solve took about 128 ms instead of 380 ms (1.56 million instead
     of 0.52 million nodes per second).
 
+PR 2a is committed locally as `65b09f7`.
+
+### PR 2b status — in progress, on top of `65b09f7`
+
+- **R8 — implemented.** `SchedulingSolverOutcome` carries `solver.kind`, mapped from the detailed
+  `solver.outcome` (`SchedulingSolverKinds.Of`); it is not a second classification.
+  - The mapping:
+
+    | `solver.outcome` | `solver.kind` |
+    | ---------------- | ------------- |
+    | `heuristic`, and `heuristic_fallback_mini_routing` | `Heuristic` |
+    | `csp` | `Csp` |
+    | every `heuristic_fallback_csp_*`, including the time limit | `CspFallback` (acceptance criterion 7) |
+    | `mini_routing` | `MiniRouting`, an extension for the experimental mode so it is never counted as `Csp` or `Heuristic` |
+    | `infeasible` | no tag |
+
+  - It also carries `csp.pruned_by_bound`, `csp.pruned_by_constraints`,
+    `csp.pruned_by_forward_checking` and `csp.in_search_evaluation_limit_reached`.
+  - A test pins the allowed tag keys and checks that no value contains a POI name, so a tag that
+    carries identity fails the build.
+- **R9 — three findings, two fixed, one measured:**
+  1. **Rest stops at real places.** `ItineraryScheduleEvaluator` inserts a rest POI (for example a
+     cafe) between visits, so the real schedule travels a → rest → b. On a non-metric matrix that
+     detour can be shorter and earlier than a → b. The relaxed model was therefore not a true
+     relaxation: it rejected schedules the evaluator accepts.
+     - A new test, with two cafes on shortcuts over 80 random instances per preference, found
+       5/77 `Auto` and 3/69 `Frequent` CSP schedules worse than the evaluator optimum.
+     - Fix: the relaxed run uses `RoutingContext.RestShortcuts`. Each leg after a visit takes the
+       shorter of the direct leg and a detour through a rest POI, in both travel and time (the
+       detour time includes the buffer and the 30-minute rest). Rest-POI opening hours and the
+       allowed number of rests are ignored, which keeps it a relaxation. Every evaluator-accepted
+       schedule is feasible in it, and its travel never exceeds the real travel.
+     - Result: 0/77 and 0/69. On a metric matrix no detour is shorter, so nothing changes; the
+       benchmark corpus has no rest POIs.
+  2. **In-search evaluator cap.** With `Frequent`, rests push later arrivals past opening hours,
+     so many model solutions fail evaluation and use up the cap. Measured on the 300 `Frequent`
+     scenarios of the benchmark corpus:
+
+     | Cap | Scenarios exhausting it | CSP better than heuristic | Mean solve |
+     | --: | ----------------------: | ------------------------: | ---------: |
+     | 256 | 279 | 32 | 74 ms |
+     | 4,096 | 104 | 67 | 80 ms |
+     | 16,384 | 12 | 80 | 86 ms |
+
+     `Auto` exhausted 256 in only 6 of 300 scenarios. The cap is now 16,384. Exhaustion is
+     reported as `CspStatistics.InSearchEvaluationLimitReached`.
+  3. **Large instances — measured, not fixed.** On 8-scenario samples, 200,000-node results were
+     compared with a 20,000,000-node "best known" run:
+
+     | Sample | Same as best known | Worse | Best known proven optimal |
+     | ------ | -----------------: | ----: | ------------------------- |
+     | c20 without rest | 8/8 | 0 | yes |
+     | c40 without rest | 1/8 | 7 | yes |
+     | c40 `Auto` | 4/8 | 4 | 2/8 |
+     | c40 `Frequent` | 8/8 | 0 | unknown |
+
+     - With 20 candidates the CSP is optimal.
+     - With 40 candidates it often stops short. The gap is a few travel minutes, or one optional
+       traded for the next-ranked one. It is never worse than the heuristic (R1a).
+     - Closing the gap within the latency gate needs stronger pruning or ordering (developer
+       decision; see the PR 2b report). The 300,000 budget measurement already showed that a
+       larger budget alone buys little.
+- **Benchmark:** `docs/benchmarks/UC-10-csp-solver-comparison-2026-10-11-pr2b.md`. All gates pass.
+  - **`Frequent`:** 80 better and 220 equal, against 32 and 268 in `pr2a`. That is 48 scenarios
+    moving from equal to better.
+  - **`None` and `Auto`:** unchanged, except 4 `Auto` scenarios. Those keep the same plan and
+    verdict but complete in about 82,000 nodes instead of exhausting 200,000, because evaluated
+    solutions tighten the incumbent sooner.
+  - **No regressions:** 0 worse, 0 fallbacks, no time limit reached.
+  - **Latency:** the largest added p95 is 279 ms (c40-m6). That is host noise: c40-m6 has
+    identical plans and node counts to `pr2a`, where it measured 126 ms. In the same run every
+    mode slowed, including the unchanged heuristic (p95 25 ms to 83 ms). Margins near the gate
+    should be judged across repeated runs.
+- **R6, P2.3c, P2.5:** not started; P2.5 needs SQL Server.
+
 | ID | Requirement |
 | -- | ----------- |
 | R1 | The CSP incumbent, the B&B pruning, and the final choice all use the product rule. The bound must be admissible: a branch is pruned only when even its optimistic completion — the current inclusion vector plus every optional still in the domain — cannot beat the incumbent on inclusion, or ties it on inclusion and cannot beat it on travel. The inclusion vector supports any `MaxMatrixCandidates` value (it has no upper bound today), so no 64-bit mask limit is allowed. |

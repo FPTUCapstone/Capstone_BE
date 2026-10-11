@@ -174,6 +174,8 @@ public class CspItinerarySolverTests
 
         activity.GetTagItem("solver.mode").Should().Be(nameof(SchedulingSolverMode.Csp));
         activity.GetTagItem("solver.outcome").Should().Be(SchedulingSolverOutcomes.Csp);
+        activity.GetTagItem("solver.kind").Should().Be(SchedulingSolverKinds.Csp);
+        activity.GetTagItem("csp.pruned_by_bound").Should().BeOfType<int>();
         activity.GetTagItem("csp.nodes_expanded").Should().BeOfType<int>().Which.Should().BePositive();
     }
 
@@ -202,6 +204,7 @@ public class CspItinerarySolverTests
         result!.IsSuccess.Should().BeTrue();
         result.Value.Should().BeEquivalentTo(unoptimized.Value);
         activity.GetTagItem("solver.outcome").Should().Be(SchedulingSolverOutcomes.Heuristic);
+        activity.GetTagItem("solver.kind").Should().Be(SchedulingSolverKinds.Heuristic);
         activity.GetTagItem("csp.nodes_expanded").Should().BeNull();
     }
 
@@ -215,6 +218,7 @@ public class CspItinerarySolverTests
 
         activity.GetTagItem("solver.mode").Should().Be(nameof(SchedulingSolverMode.Heuristic));
         activity.GetTagItem("solver.outcome").Should().Be(SchedulingSolverOutcomes.Heuristic);
+        activity.GetTagItem("solver.kind").Should().Be(SchedulingSolverKinds.Heuristic);
         activity.GetTagItem("csp.nodes_expanded").Should().BeNull();
     }
 
@@ -238,6 +242,7 @@ public class CspItinerarySolverTests
 
         result!.IsSuccess.Should().BeTrue();
         activity.GetTagItem("solver.outcome").Should().Be(SchedulingSolverOutcomes.HeuristicFallbackCspSearchLimit);
+        activity.GetTagItem("solver.kind").Should().Be(SchedulingSolverKinds.CspFallback);
         activity.GetTagItem("csp.node_limit_reached").Should().Be(true);
         activity.GetTagItem("csp.solutions_found").Should().Be(0);
     }
@@ -257,6 +262,57 @@ public class CspItinerarySolverTests
         var activity = await RecordSolverOutcome(() => service.GenerateAsync(input, CancellationToken.None));
 
         activity.GetTagItem("solver.outcome").Should().Be(SchedulingSolverOutcomes.Infeasible);
+        activity.GetTagItem("solver.kind").Should().BeNull("no solver produced a plan");
+    }
+
+    /// <summary>
+    /// R8 (mở rộng cho chế độ thử nghiệm): lịch do MiniRouting tạo được ghi là MiniRouting, không bị gộp vào Csp hay
+    /// Heuristic.
+    /// </summary>
+    [Fact]
+    public async Task GenerationService_RecordsTheMiniRoutingKind_WhenMiniRoutingProducesThePlan()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(20, 2, 54);
+        var service = new ItineraryGenerationService(
+            new StaticMatrixProvider(matrix), new SchedulingGenerationOptions { SolverMode = SchedulingSolverMode.MiniRouting });
+
+        var activity = await RecordSolverOutcome(() => service.GenerateAsync(input, CancellationToken.None));
+
+        activity.GetTagItem("solver.outcome").Should().Be(SchedulingSolverOutcomes.MiniRouting);
+        activity.GetTagItem("solver.kind").Should().Be(SchedulingSolverKinds.MiniRouting);
+    }
+
+    /// <summary>
+    /// R8: diagnostic chỉ chứa số liệu tổng hợp, không bao giờ chứa danh tính người dùng hay POI. Mọi tag phải nằm trong
+    /// danh sách cho phép, nên một tag mới mang Id hay tên sẽ làm test này fail; giá trị không được chứa tên POI.
+    /// </summary>
+    [Theory]
+    [InlineData(SchedulingSolverMode.Heuristic, 2500)]
+    [InlineData(SchedulingSolverMode.Csp, 2500)]
+    [InlineData(SchedulingSolverMode.Csp, 0)]
+    [InlineData(SchedulingSolverMode.MiniRouting, 2500)]
+    public async Task GenerationService_RecordsOnlyAggregateSolverTags_WithoutUserOrPoiIdentity(SchedulingSolverMode mode, int timeLimitMilliseconds)
+    {
+        string[] allowed =
+        [
+            "solver.mode", "solver.outcome", "solver.kind",
+            "csp.nodes_expanded", "csp.solutions_found", "csp.search_completed", "csp.node_limit_reached",
+            "csp.time_limit_reached", "csp.used_relaxed_rest_model", "csp.chose_relaxed_rest_model", "csp.evaluator_calls",
+            "csp.in_search_evaluation_limit_reached",
+            "csp.elapsed_ms", "csp.pruned_by_bound", "csp.pruned_by_constraints", "csp.pruned_by_forward_checking",
+        ];
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(20, 2, 54, RestPreference.Auto);
+        var service = new ItineraryGenerationService(
+            new StaticMatrixProvider(matrix),
+            new SchedulingGenerationOptions { SolverMode = mode, Csp = new CspOptions { TimeLimitMilliseconds = timeLimitMilliseconds } });
+
+        var activity = await RecordSolverOutcome(() => service.GenerateAsync(input, CancellationToken.None));
+
+        activity.TagObjects.Select(tag => tag.Key).Should().BeSubsetOf(allowed);
+        var names = input.Candidates.Select(candidate => candidate.Name).ToArray();
+        activity.TagObjects
+            .Select(tag => tag.Value?.ToString() ?? string.Empty)
+            .Should().NotContain(value => names.Any(name => value.Contains(name, StringComparison.Ordinal)));
     }
 
     /// <summary>
@@ -485,6 +541,7 @@ public class CspItinerarySolverTests
         result!.IsSuccess.Should().BeTrue();
         result.Value.Should().BeEquivalentTo(heuristic.Value);
         activity.GetTagItem("solver.outcome").Should().Be(SchedulingSolverOutcomes.HeuristicFallbackCspTimeLimit);
+        activity.GetTagItem("solver.kind").Should().Be(SchedulingSolverKinds.CspFallback, "acceptance criterion 7");
         activity.GetTagItem("csp.time_limit_reached").Should().Be(true);
     }
 

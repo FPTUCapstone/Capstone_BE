@@ -48,6 +48,12 @@ public sealed class CspStatistics
     /// <summary>Số lời giải đã đưa qua <see cref="ItineraryScheduleEvaluator"/> (trong lúc duyệt và ở bước chọn cuối).</summary>
     public int EvaluatorCalls { get; internal set; }
 
+    /// <summary>
+    /// True khi lượt evaluator trong lúc duyệt (khi có điểm nghỉ) đã hết: từ đó incumbent chỉ còn được siết bởi lịch đã kiểm
+    /// tra, nên kết quả vẫn đúng nhưng cắt nhánh kém hơn và lịch tối ưu sau khi chèn nghỉ có thể bị bỏ lỡ.
+    /// </summary>
+    public bool InSearchEvaluationLimitReached { get; internal set; }
+
     public TimeSpan Elapsed { get; internal set; }
 
     /// <summary>
@@ -70,6 +76,7 @@ public sealed class CspStatistics
         NodeLimitReached |= earlier.NodeLimitReached;
         TimeLimitReached |= earlier.TimeLimitReached;
         InitialIncumbentAccepted |= earlier.InitialIncumbentAccepted;
+        InSearchEvaluationLimitReached |= earlier.InSearchEvaluationLimitReached;
         UsedRelaxedRestModel = true;
     }
 }
@@ -109,9 +116,12 @@ public sealed class CspItinerarySolver(
 {
     /// <summary>
     /// Số lần đưa lời giải qua evaluator trong lúc duyệt (chỉ khi có điểm nghỉ) để siết incumbent. Hết lượt thì
-    /// incumbent chỉ còn được siết bởi lịch đã kiểm tra trước đó.
+    /// incumbent chỉ còn được siết bởi lịch đã kiểm tra trước đó (<see cref="CspStatistics.InSearchEvaluationLimitReached"/>).
+    /// Với Frequent, giờ nghỉ đẩy lùi giờ đến nên nhiều lời giải mô hình hỏng sau khi chèn nghỉ: trên 300 scenario
+    /// Frequent của corpus benchmark, 256 lượt hết ở 279 scenario (CSP tốt hơn heuristic ở 32), 4.096 lượt hết ở 104 (67),
+    /// 16.384 lượt chỉ hết ở 12 (80), với thêm khoảng 11 ms mỗi lần giải.
     /// </summary>
-    private const int MaxInSearchEvaluations = 256;
+    private const int MaxInSearchEvaluations = 16_384;
 
     private readonly ItineraryScheduleEvaluator _evaluator = evaluator ?? throw new ArgumentNullException(nameof(evaluator));
     private readonly SchedulingGenerationOptions _options = options ?? new SchedulingGenerationOptions();
@@ -187,8 +197,11 @@ public sealed class CspItinerarySolver(
         // còn lại, tiếp tục từ incumbent hiện có. Chỉ kết quả của mô hình nới lỏng mới được dùng để kết luận vô nghiệm.
         if (ctx.Horizon < input.AvailableMinutes)
         {
+            // Mô hình nới lỏng thật sự: không dự phòng thời gian nghỉ, và mỗi chặng được đi vòng qua một điểm nghỉ nếu đường
+            // đó ngắn hơn (R9), vì lịch thật có thể tới nơi sớm hơn và đi ít hơn mô hình đi thẳng.
             var relaxedCtx = RoutingContext.Create(
-                input, matrix, matrixCandidates, candidateMatrixIndices, _options, _options.MiniRouting, reserveRestTime: false);
+                input, matrix, matrixCandidates, candidateMatrixIndices, _options, _options.MiniRouting,
+                reserveRestTime: false, restShortcuts: true);
             var relaxed = new SearchRun(relaxedCtx, rule, _cspOptions, clock, budget, restApplies, evaluate, cancellationToken);
             relaxed.Statistics.EvaluatorCalls = search.Statistics.EvaluatorCalls;
             relaxed.Run(search.Incumbent);
@@ -786,6 +799,7 @@ public sealed class CspItinerarySolver(
 
             if (_budget.InSearchEvaluations >= MaxInSearchEvaluations)
             {
+                Statistics.InSearchEvaluationLimitReached = true;
                 return;
             }
 

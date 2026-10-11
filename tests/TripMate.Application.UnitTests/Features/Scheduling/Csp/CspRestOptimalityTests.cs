@@ -95,6 +95,47 @@ public class CspRestOptimalityTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// R9: điểm nghỉ là một địa điểm thật (quán cà phê) mà evaluator chèn vào giữa chặng a → b, nên phút di chuyển của
+    /// lịch là a → quán + quán → b. Trên ma trận không metric, đường vòng qua quán có thể ngắn hơn đi thẳng, tức lịch thật
+    /// đi ít hơn mô hình CSP. Cận và việc siết incumbent phải tính khoản tiết kiệm đó, nếu không sẽ cắt mất lịch tốt nhất.
+    /// </summary>
+    [Theory]
+    [InlineData(RestPreference.Auto)]
+    [InlineData(RestPreference.Frequent)]
+    public void Solve_StaysOptimal_WhenRestStopsArePlacesOnShortcuts(RestPreference restPreference)
+    {
+        var evaluator = new ItineraryScheduleEvaluator(Options);
+        var worse = new List<string>();
+        var feasible = 0;
+
+        for (var seed = 1; seed <= InstancesPerPreference; seed++)
+        {
+            var (input, matrix) = RandomInstanceWithRestPlaces(seed, restPreference);
+            var (candidates, indices) = Index(input);
+            var comparer = CspProductRuleOracle.Comparer(input, matrix);
+            var optimum = EvaluatorOptimum(evaluator, input, matrix, candidates, indices, comparer);
+
+            var result = new CspItinerarySolver(evaluator, Options, Exhaustive).Solve(input, matrix, candidates, indices);
+
+            if (optimum is null)
+            {
+                continue;
+            }
+
+            feasible++;
+            if (result.Schedule is null || comparer.Compare(result.Schedule, optimum) != 0)
+            {
+                worse.Add($"seed {seed}: csp [{string.Join(",", result.Schedule?.VisitPoiIds ?? [])}] travel {result.Schedule?.TotalMatrixTravelMinutes}, "
+                    + $"optimum [{string.Join(",", optimum.VisitPoiIds)}] travel {optimum.TotalMatrixTravelMinutes}");
+            }
+        }
+
+        output.WriteLine($"{restPreference}: {feasible} feasible, {worse.Count} worse");
+        feasible.Should().BeGreaterThan(InstancesPerPreference / 2, "the generator must produce mostly feasible instances");
+        worse.Should().BeEmpty();
+    }
+
+    /// <summary>
     /// Khi không có điểm nghỉ thì mô hình CSP trùng lịch thật: CSP phải cho đúng lịch tối ưu theo product rule.
     /// </summary>
     [Fact]
@@ -181,6 +222,36 @@ public class CspRestOptimalityTests(ITestOutputHelper output)
             restPreference: restPreference,
             budgetVnd: random.Next(2) == 0 ? null : random.Next(4, 12) * 10_000m);
         return (input, RouteDurationMatrix.Create(data));
+    }
+
+    /// <summary>
+    /// Như <see cref="RandomInstance"/>, cộng thêm hai quán cà phê (điểm nghỉ thật, luôn mở cửa) mà nhiều cạnh tới và đi rất
+    /// ngắn, nên đường vòng qua quán thường ngắn hơn đi thẳng giữa hai điểm tham quan.
+    /// </summary>
+    private static (GenerationInput Input, RouteDurationMatrix Matrix) RandomInstanceWithRestPlaces(int seed, RestPreference restPreference)
+    {
+        var (baseInput, _) = RandomInstance(seed, restPreference);
+        var random = new Random((seed * 104_729) + (int)restPreference);
+        var cafes = new[] { 901L, 902L }
+            .Select(id => OptionalRouteOptimizationScenarios.CreateCandidate(id, $"Cafe_{id}", 30, 0m, 0.1m) with { CategoryName = "Cafe" })
+            .ToArray();
+        var candidates = baseInput.Candidates.Concat(cafes).ToArray();
+
+        var points = candidates.Length + 2;
+        var data = new int[points, points];
+        var cafeIndices = new[] { points - 3, points - 2 };
+        for (var i = 0; i < points; i++)
+        {
+            for (var j = 0; j < points; j++)
+            {
+                var touchesCafe = cafeIndices.Contains(i) || cafeIndices.Contains(j);
+                data[i, j] = i == j ? 0
+                    : touchesCafe && random.Next(2) == 0 ? random.Next(1, 4)
+                    : random.Next(4) == 0 ? random.Next(1, 5) : random.Next(10, 50);
+            }
+        }
+
+        return (baseInput with { Candidates = candidates }, RouteDurationMatrix.Create(data));
     }
 
     /// <summary>
