@@ -2,12 +2,12 @@
 
 ## Status
 
-Approved by the developer on 2026-09-26.
+Actor and location-disclosure amendment approved for implementation on 2026-10-11.
 
 ## Sources and approved decisions
 
 - SRS section 3.9.6.1, BR-32, BR-51, BR-52, BR-115, BR-124, CR-01, CR-02, CR-07, MSG126, MSG127, and MSG128.
-- UC-58 is an Administrator Web-only, read-only monitoring function.
+- **SRS_INTERNAL_CONFLICT:** the UC catalogue assigns UC-58/59 to `Staff`, while the older detailed sections 3.9.6.1/3.9.6.2 name `Administrator`. The approved implementation decision is **Staff-only**; Administrator has no implicit monitoring access. The SRS must be reconciled to this decision before release.
 - Approved on 2026-09-26: an active trip session has FSM state `Navigating`, `Exploring`, or `Interrupted`. `Planning` and `Completed` are excluded.
 - Approved on 2026-09-26: trip code is derived as `TRIP-{session_id}`; this use case does not add a database column.
 - Approved on 2026-09-26: itinerary source `BookedTour` maps to `Tour`; `CSPGenerated` and `Manual` map to `SelfPlanned`.
@@ -16,7 +16,7 @@ Approved by the developer on 2026-09-26.
 
 ## Scope
 
-The Backend exposes one Administrator-only query that returns summary counters and a deterministic, filtered, paginated collection of active trip sessions. The query does not modify trips, itineraries, memberships, bookings, incidents, or any other record.
+The Backend exposes one Staff-only query that returns summary counters and a deterministic, filtered, paginated collection of active trip sessions. The query does not modify trips, itineraries, memberships, bookings, incidents, or any other record.
 
 This specification also permits the minimum domain/EF read mappings required for `trip.TripSessions`, `trip.Incidents`, and the existing `planning.Itineraries.source_tour_id` relationship. The typed `Itinerary` entity must expose nullable `SourceTourId`/`SourceTour` members and a `BookedTourSourceType` constant; `TripSession` and `Incident` must be present on every application/production/test DbContext surface. It does not change the SQL schema.
 
@@ -28,9 +28,9 @@ This specification also permits the minimum domain/EF read mappings required for
 
 Authentication and authorization:
 
-- A valid authenticated Administrator receives the result.
+- A valid authenticated Staff identity receives the result.
 - Missing or invalid authentication returns `401`.
-- A valid non-Administrator identity returns `403` using the project ProblemDetails contract (`MSG126` at the Web boundary).
+- A valid non-Staff identity returns `403` using the project ProblemDetails contract (`MSG126` at the Web boundary).
 
 ### Query parameters
 
@@ -109,7 +109,7 @@ Results are ordered by `started_at DESC`, with null start timestamps last, then 
 
 ## Acceptance criteria
 
-1. Only Administrators can retrieve the endpoint.
+1. Only Staff can retrieve the endpoint.
 2. The active-state definition, derived trip code, trip type, destination fallback, member count, alert count, and summary counters follow this specification.
 3. Keyword, trip type, destination, local start-date range, and alert-state filters compose correctly.
 4. Invalid inputs return `400`; authorization failures return `401`/`403`; unexpected failures do not expose database details.
@@ -124,4 +124,4 @@ Results are ordered by `started_at DESC`, with null start timestamps last, then 
 - No GPS coordinates are returned by the list endpoint (BR-51).
 - A human-readable persisted Trip Code and a canonical Self-Planned destination require separate schema/business decisions.
 - Runtime trip creation/FSM execution is not implemented by this use case; tests may seed records directly.
-- Administrator login/session correctness is an external dependency and must be integrated before the full Web flow can be accepted.
+- Staff login/session correctness is an external dependency and must be integrated before the full Web flow can be accepted.

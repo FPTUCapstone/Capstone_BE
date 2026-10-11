@@ -31,6 +31,12 @@ public sealed class TripSession : BaseEntity
     public long? ExploringItemId { get; private set; }
     public decimal? CurrentLatitude { get; private set; }
     public decimal? CurrentLongitude { get; private set; }
+    /// <summary>
+    /// Owner of the current coordinate. A null value represents legacy/unknown ownership and
+    /// must be redacted from operational monitoring responses.
+    /// </summary>
+    public long? CurrentLocationSubjectUserId { get; private set; }
+    public User? CurrentLocationSubjectUser { get; private set; }
     public DateTimeOffset? StartedAtUtc { get; private set; }
     public DateTimeOffset? ExpiresAtUtc { get; private set; }
     public DateTimeOffset? EndedAtUtc { get; private set; }

@@ -1,28 +1,36 @@
 # UC-59 View Active Trip Details Backend Implementation Plan
 
-Status: **Approved 2026-09-30** (spec decisions D2–D5 and route error contract approved).
+Status: **Amended 2026-10-11** for Staff-only monitoring and consent-based location disclosure.
 Tasks are atomic and sequenced; each ends green before the next starts (TDD: failing test first).
 
 Branch: `feature/linhnv-view-active-trip-details` (baseline: latest `feature/linhnv-view-active-trips`
 merge of `origin/develop`, `dotnet test` verified green on 2026-09-30).
 
-Approved spec decisions carried into this plan: D1–D6 (`specs/UC-59-spec.md`), approved
-2026-09-30 with the amended D3 wording and D5 metadata contract.
+Approved implementation decisions carried into this plan: Staff-only actor, explicit
+`OperationsStaff` consent per traveler, server-side redaction for legacy/unknown-owner coordinates,
+and fail-closed access audit before any GPS-bearing query. The SRS actor conflict remains recorded
+as `SRS_INTERNAL_CONFLICT` and requires document reconciliation before release.
 
 ## Task 1 — Read-only domain mappings + ItineraryItem schema alignment
 
 New `TripMate.Domain` entities + `TripMate.Infrastructure` `IEntityTypeConfiguration` mapping the
-existing v7 tables (no `SaveChanges` from these mappings; the only write in this UC is the
-BR-130 audit row added in Task 3):
+existing v7 tables and a database-first privacy migration:
 
 - `TripStateHistory` → `trip.TripStateHistory` (`from_state`, `to_state`, `reason`,
   `triggered_by` check values as constants, `changed_at` `AsUtcDateTime2`).
 - `TripLocationLog` → `trip.TripLocationLogs` (`latitude`, `longitude`, `recorded_at`,
-  `synced_at`, `is_offline_captured`).
+  `synced_at`, `is_offline_captured`, nullable legacy-safe `subject_user_id`).
+- `TripLocationDisclosureConsent` → `trip.TripLocationDisclosureConsents`; only an unrevoked
+  `OperationsStaff` consent authorizes precise disclosure to Staff. `GroupMember.LocationSharingEnabled`
+  remains a group-only state and cannot authorize Staff access.
 - `WeatherEvent` → `trip.WeatherEvents` (`region_name`, coordinates, `event_type`, `severity`
   check constants, `description`, `valid_from/to`, `source`, `ingested_at`).
 - `ReroutingEvent` → `trip.ReroutingEvents` (`incident_id`, `session_id`,
   `proposed_itinerary_snapshot`, `status` check constants, `proposed_at`, `decided_at`).
+
+**Privacy migration.** Add `subject_user_id` to `TripLocationLogs`,
+`current_location_subject_user_id` to `TripSessions`, and the consent table/indexes. Legacy rows are
+not backfilled and therefore remain redacted. The migration is idempotent.
 
 **ItineraryItem schema alignment (required by UC-59 progress reporting).** The SQL table
 (`tripmate_schema_v7.sql`, `planning.ItineraryItems`) allows NULL `planned_arrival`/
@@ -71,12 +79,16 @@ Verify: validator unit tests (0, negative, valid) green.
 
 `GetActiveTripDetailsQueryHandler`:
 
-1. Authorization identical to UC-58 (role check → `Forbidden`).
+1. Authorization identical to UC-58: Staff-only role check → `Forbidden`; Administrator has no implicit access under the approved implementation decision.
 2. Load session with change tracking disabled; missing **or** FSM state not in
    `Navigating/Exploring/Interrupted` → `Failure(ActiveTripNotFound)` → 404 (D2).
 3. Assemble: overview reusing UC-58 calculations (extract shared helpers where the list handler
    logic is genuinely identical — group/traveler, destination, currentDay, members, openAlerts —
-   without duplicating divergent rules); `currentLocation` + `lastSyncedAtUtc`; itinerary
+   without duplicating divergent rules); calculate the active `OperationsStaff` consent set before
+   any GPS-bearing query, return `currentLocation` only when its explicit subject owner is in that
+   set, and return only location-trail points owned by consenting subjects; legacy/unknown owners
+   and missing or revoked consent are redacted; include non-coordinate `locationDisclosure`
+   metadata; itinerary
    progress ordered by `sequence_no` with POI names and item status; state history ascending;
    incidents descending with nested weather events; rerouting events with
    `hasProposedItinerarySnapshot` and no snapshot content (D5); location trail selected as the
@@ -114,14 +126,15 @@ from UC-58 to assert the new path and responses.
 
 Extend `tests/TripMate.Api.IntegrationTests/ActiveTrips/`:
 
-- HTTP: `401` (no token), `403` (non-admin), `404` (malformed non-integer segment such as `1abc`
+- HTTP: `401` (no token), `403` (non-Staff), `404` (malformed non-integer segment such as `1abc`
   via route constraint, unknown id), `400` (segment matches `long` but ≤ 0), `404` (`Planning`
   session, `Completed` session), `200` happy path.
 - SQL Server gated (`Category=SqlServer`): seed real-schema rows across
   `TripSessions`/`TripStateHistory`/`TripLocationLogs`/`WeatherEvents`/`Incidents`/
   `ReroutingEvents`/`ItineraryItems`/`GroupMembers`; assert joins, ordering, trail bound, and
   UTC serialization, plus an itinerary item with NULL planned times and a non-default status,
-  `groupPanel` members with `LocationSharingEnabled` states, and the persisted `AuditLogs` row
+  `groupPanel` members with `LocationSharingEnabled` states, effective/missing/revoked/mixed
+  `OperationsStaff` location consent redaction, and the persisted `AuditLogs` row
   (`ViewActiveTripDetails`) written by a successful access.
 
 ## Task 6 — Verification and review

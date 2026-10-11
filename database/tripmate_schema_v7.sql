@@ -853,6 +853,7 @@ CREATE TABLE trip.TripSessions (
         CHECK (fsm_state IN ('Planning','Navigating','Exploring','Interrupted','Completed')),
     current_latitude           DECIMAL(9,6) NULL,
     current_longitude           DECIMAL(9,6) NULL,
+    current_location_subject_user_id BIGINT NULL REFERENCES dbo.Users(user_id),
     started_at                    DATETIME2 NULL,
     ended_at                       DATETIME2 NULL,
     last_synced_at                  DATETIME2 NULL
@@ -880,6 +881,7 @@ GO
 CREATE TABLE trip.TripLocationLogs (
     log_id                  BIGINT IDENTITY(1,1) PRIMARY KEY,
     session_id                BIGINT NOT NULL REFERENCES trip.TripSessions(session_id) ON DELETE CASCADE,
+    subject_user_id           BIGINT NULL REFERENCES dbo.Users(user_id),
     latitude                    DECIMAL(9,6) NOT NULL,
     longitude                    DECIMAL(9,6) NOT NULL,
     recorded_at                    DATETIME2 NOT NULL,
@@ -888,6 +890,30 @@ CREATE TABLE trip.TripLocationLogs (
 );
 GO
 CREATE INDEX IX_TripLocationLogs_Session ON trip.TripLocationLogs(session_id, recorded_at);
+GO
+CREATE INDEX IX_TripLocationLogs_SessionSubjectRecorded
+    ON trip.TripLocationLogs(session_id, subject_user_id, recorded_at);
+GO
+
+-- Explicit Staff-monitoring consent. GroupMembers.location_sharing_enabled remains a
+-- group-only toggle and is never interpreted as consent to disclose data to Staff.
+CREATE TABLE trip.TripLocationDisclosureConsents (
+    consent_id BIGINT IDENTITY(1,1) PRIMARY KEY,
+    session_id BIGINT NOT NULL REFERENCES trip.TripSessions(session_id) ON DELETE CASCADE,
+    user_id BIGINT NOT NULL REFERENCES dbo.Users(user_id),
+    audience VARCHAR(32) NOT NULL CHECK (audience IN ('OperationsStaff')),
+    granted_at DATETIME2 NOT NULL,
+    revoked_at DATETIME2 NULL,
+    CONSTRAINT CK_TripLocationDisclosureConsents_Interval
+        CHECK (revoked_at IS NULL OR revoked_at >= granted_at)
+);
+GO
+CREATE UNIQUE INDEX UX_TripLocationDisclosureConsents_Active
+    ON trip.TripLocationDisclosureConsents(session_id, user_id, audience)
+    WHERE revoked_at IS NULL;
+GO
+CREATE INDEX IX_TripLocationDisclosureConsents_ActiveLookup
+    ON trip.TripLocationDisclosureConsents(session_id, user_id, audience, revoked_at);
 GO
 
 -- Short-retention cache/audit table, NOT a permanent weather archive.

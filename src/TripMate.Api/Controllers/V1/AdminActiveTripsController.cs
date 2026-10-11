@@ -40,6 +40,8 @@ public sealed class AdminActiveTripsController(ISender sender) : ApiControllerBa
         CancellationToken cancellationToken)
     {
         var result = await Sender.Send(new GetActiveTripDetailsQuery(tripId), cancellationToken);
+        // This response can contain consent-gated precise location data.
+        Response.Headers.CacheControl = "no-store";
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 }

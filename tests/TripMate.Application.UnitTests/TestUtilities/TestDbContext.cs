@@ -102,6 +102,9 @@ public class TestDbContext(
 
     public DbSet<TripLocationLog> TripLocationLogs => Set<TripLocationLog>();
 
+    public DbSet<TripLocationDisclosureConsent> TripLocationDisclosureConsents =>
+        Set<TripLocationDisclosureConsent>();
+
     public DbSet<WeatherEvent> WeatherEvents => Set<WeatherEvent>();
 
     public DbSet<ReroutingEvent> ReroutingEvents => Set<ReroutingEvent>();

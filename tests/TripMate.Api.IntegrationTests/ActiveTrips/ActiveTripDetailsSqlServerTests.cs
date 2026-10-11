@@ -67,10 +67,13 @@ public sealed class ActiveTripDetailsSqlServerTests
             DECLARE @session BIGINT;
             INSERT trip.TripSessions(itinerary_id, requested_itinerary_id, traveler_user_id,
                 start_idempotency_key, fsm_state,
-                current_latitude, current_longitude, started_at, last_synced_at)
-            VALUES (@itinerary, @itinerary, @traveler, NEWID(), 'Interrupted', 16.061200, 108.227700,
+                current_latitude, current_longitude, current_location_subject_user_id, started_at, last_synced_at)
+            VALUES (@itinerary, @itinerary, @traveler, NEWID(), 'Interrupted', 16.061200, 108.227700, @traveler,
                 '2026-09-25T17:00:00', '2026-09-26T03:12:44');
             SET @session = SCOPE_IDENTITY();
+
+            INSERT trip.TripLocationDisclosureConsents(session_id, user_id, audience, granted_at)
+            VALUES (@session, @traveler, 'OperationsStaff', '2026-09-25T17:00:00');
 
             DECLARE @visitItem BIGINT;
             INSERT planning.ItineraryItems(itinerary_id, sequence_no, poi_id,
@@ -108,8 +111,8 @@ public sealed class ActiveTripDetailsSqlServerTests
             DECLARE @logIndex INT = 0;
             WHILE @logIndex < 105
             BEGIN
-                INSERT trip.TripLocationLogs(session_id, latitude, longitude, recorded_at)
-                VALUES (@session, 16.0 + @logIndex, 108.0 + @logIndex,
+                INSERT trip.TripLocationLogs(session_id, subject_user_id, latitude, longitude, recorded_at)
+                VALUES (@session, @traveler, 16.0 + @logIndex, 108.0 + @logIndex,
                     DATEADD(MINUTE, @logIndex, '2026-09-26T01:00:00'));
                 SET @logIndex = @logIndex + 1;
             END
@@ -197,6 +200,9 @@ public sealed class ActiveTripDetailsSqlServerTests
 
         detail.LocationTrail.Should().HaveCount(100, "the trail is bounded to the latest 100 points");
         detail.LocationTrail.Select(point => point.RecordedAtUtc).Should().BeInAscendingOrder();
+        detail.LocationDisclosure.State.Should().Be("Partial");
+        detail.LocationDisclosure.SharedMemberCount.Should().Be(1);
+        detail.LocationDisclosure.HiddenMemberCount.Should().Be(1);
 
         var audits = await db.AuditLogs.AsNoTracking()
             .Where(log => log.ActionType == AuditActionTypes.ActiveTripDetailsViewed
@@ -269,6 +275,114 @@ public sealed class ActiveTripDetailsSqlServerTests
 
         result.ErrorCode.Should().Be(ActiveTripErrorCodes.NotFound);
         (await db.AuditLogs.AsNoTracking().ToListAsync()).Should().BeEmpty();
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Handle_LegacyOrUnconsentedLocation_RedactsPreciseCoordinates()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await database.ExecuteNonQueryAsync("""
+            DECLARE @traveler BIGINT;
+            INSERT dbo.Users(role, email, full_name, status)
+            VALUES ('Traveler', N'redacted@example.com', N'Redacted Traveler', 'Active');
+            SET @traveler = SCOPE_IDENTITY();
+
+            DECLARE @itinerary BIGINT;
+            INSERT planning.Itineraries(traveler_user_id, source_type, title, status)
+            VALUES (@traveler, 'Manual', N'Redacted plan', 'Active');
+            SET @itinerary = SCOPE_IDENTITY();
+
+            DECLARE @session BIGINT;
+            INSERT trip.TripSessions(itinerary_id, traveler_user_id, fsm_state,
+                current_latitude, current_longitude, started_at, last_synced_at)
+            VALUES (@itinerary, @traveler, 'Navigating', 10.123456, 106.123456,
+                '2026-09-25T17:00:00', '2026-09-26T03:12:44');
+            SET @session = SCOPE_IDENTITY();
+
+            -- Legacy points have no subject owner and must never be disclosed to Staff.
+            INSERT trip.TripLocationLogs(session_id, latitude, longitude, recorded_at)
+            VALUES (@session, 10.123456, 106.123456, '2026-09-26T03:12:44');
+            """);
+        await using var db = database.CreateDbContext();
+        var handler = new GetActiveTripDetailsQueryHandler(db, new Administrator(), new Clock());
+        var sessionId = await db.TripSessions.AsNoTracking().Select(session => (long)session.Id).SingleAsync();
+
+        var result = await handler.Handle(new GetActiveTripDetailsQuery(sessionId), default);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.CurrentLocation.Should().BeNull();
+        result.Value.LocationTrail.Should().BeEmpty();
+        result.Value.LocationDisclosure.State.Should().Be("Redacted");
+        result.Value.LocationDisclosure.SharedMemberCount.Should().Be(0);
+        result.Value.LocationDisclosure.HiddenMemberCount.Should().Be(1);
+
+        var audit = await db.AuditLogs.AsNoTracking().SingleAsync();
+        audit.AfterData.Should().NotContain("10.123456");
+        audit.AfterData.Should().Contain("Redacted");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Handle_MixedAndRevokedLocationConsent_ReturnsOnlyEffectiveSubjectCoordinates()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await database.ExecuteNonQueryAsync("""
+            DECLARE @sharingTraveler BIGINT;
+            INSERT dbo.Users(role, email, full_name, status)
+            VALUES ('Traveler', N'sharing@example.com', N'Sharing Traveler', 'Active');
+            SET @sharingTraveler = SCOPE_IDENTITY();
+
+            DECLARE @revokedTraveler BIGINT;
+            INSERT dbo.Users(role, email, full_name, status)
+            VALUES ('Traveler', N'revoked@example.com', N'Revoked Traveler', 'Active');
+            SET @revokedTraveler = SCOPE_IDENTITY();
+
+            DECLARE @itinerary BIGINT;
+            INSERT planning.Itineraries(traveler_user_id, source_type, title, status)
+            VALUES (@sharingTraveler, 'Manual', N'Consent plan', 'Active');
+            SET @itinerary = SCOPE_IDENTITY();
+
+            DECLARE @session BIGINT;
+            INSERT trip.TripSessions(itinerary_id, traveler_user_id, fsm_state,
+                current_latitude, current_longitude, current_location_subject_user_id, started_at)
+            VALUES (@itinerary, @sharingTraveler, 'Navigating', 10.100001, 106.100001,
+                @sharingTraveler, '2026-09-25T17:00:00');
+            SET @session = SCOPE_IDENTITY();
+
+            INSERT trip.TripLocationDisclosureConsents(session_id, user_id, audience, granted_at)
+            VALUES (@session, @sharingTraveler, 'OperationsStaff', '2026-09-25T17:00:00'),
+                   (@session, @revokedTraveler, 'OperationsStaff', '2026-09-25T17:00:00');
+            UPDATE trip.TripLocationDisclosureConsents
+            SET revoked_at = '2026-09-25T18:00:00'
+            WHERE session_id = @session AND user_id = @revokedTraveler;
+
+            INSERT trip.TripLocationLogs(session_id, subject_user_id, latitude, longitude, recorded_at)
+            VALUES (@session, @sharingTraveler, 10.100001, 106.100001, '2026-09-26T03:10:00'),
+                   (@session, @revokedTraveler, 20.200002, 107.200002, '2026-09-26T03:11:00');
+
+            DECLARE @group BIGINT;
+            INSERT social.TravelGroups(itinerary_id, host_user_id, name)
+            VALUES (@itinerary, @sharingTraveler, N'Consent group');
+            SET @group = SCOPE_IDENTITY();
+            INSERT social.GroupMembers(group_id, user_id, status)
+            VALUES (@group, @sharingTraveler, 'Active'), (@group, @revokedTraveler, 'Active');
+            """);
+        await using var db = database.CreateDbContext();
+        var handler = new GetActiveTripDetailsQueryHandler(db, new Administrator(), new Clock());
+        var sessionId = await db.TripSessions.AsNoTracking().Select(session => (long)session.Id).SingleAsync();
+
+        var result = await handler.Handle(new GetActiveTripDetailsQuery(sessionId), default);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.CurrentLocation.Should().NotBeNull();
+        result.Value.CurrentLocation!.Latitude.Should().Be(10.100001m);
+        result.Value.LocationTrail.Should().ContainSingle();
+        result.Value.LocationTrail[0].Latitude.Should().Be(10.100001m);
+        result.Value.LocationTrail.Should().NotContain(point => point.Latitude == 20.200002m);
+        result.Value.LocationDisclosure.State.Should().Be("Partial");
+        result.Value.LocationDisclosure.SharedMemberCount.Should().Be(1);
+        result.Value.LocationDisclosure.HiddenMemberCount.Should().Be(1);
     }
 
     [SqlServerFact]
