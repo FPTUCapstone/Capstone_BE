@@ -97,7 +97,8 @@ public sealed record CspResult(
 /// nào cũng là kết thúc lộ trình (giá trị END).</para>
 /// <para><b>Ràng buộc:</b> C1 mỗi POI một lần, C2 giờ mở cửa, C3 thời gian di chuyển, C4 ngân sách,
 /// C5 kịp về đích, C6 đủ điểm bắt buộc.</para>
-/// <para><b>Tìm kiếm:</b> backtracking; kiểm tra ràng buộc khi gán bằng <see cref="RouteState.CanInsert"/>;
+/// <para><b>Tìm kiếm:</b> backtracking trên tiền tố mở (<see cref="RouteState.BuildOpen"/>): C1–C4 kiểm tra khi gán,
+/// C5 chỉ theo cận dưới của đường về (có thể về qua điểm khác) và được kiểm tra đầy đủ khi gán END;
 /// forward checking loại khỏi miền mọi POI không còn khả năng xếp và quay lui ngay khi mất một điểm
 /// bắt buộc; heuristic chọn giá trị ưu tiên điểm bắt buộc sắp đóng cửa (kiểu MRV) rồi điểm có lợi nhất
 /// (kiểu LCV); branch and bound với cận dưới lạc quan của hàm mục tiêu.</para>
@@ -271,6 +272,7 @@ public sealed class CspItinerarySolver(
         private readonly int[] _minIncomingTravel;
         private readonly int[] _minIncomingRaw;
         private readonly int[] _latestPossibleStart;
+        private readonly int[] _minExit;
         private readonly int[] _returnRaw;
         private readonly int _minReturnTravel;
         private readonly int _mandatoryWeight;
@@ -316,6 +318,7 @@ public sealed class CspItinerarySolver(
             _minIncomingTravel = new int[nodeCount];
             _minIncomingRaw = new int[nodeCount];
             _latestPossibleStart = new int[nodeCount];
+            _minExit = new int[nodeCount];
             _returnRaw = new int[nodeCount];
             _minReturnTravel = int.MaxValue;
 
@@ -370,6 +373,7 @@ public sealed class CspItinerarySolver(
                 }
 
                 // Giờ bắt đầu muộn nhất mà vẫn có thể tham quan xong và về đích, bất kể đi từ đâu tới.
+                _minExit[v] = minExit;
                 _latestPossibleStart[v] = ctx.LatestStart(v, ctx.Horizon - minExit - ctx.Nodes[v].VisitMinutes);
             }
 
@@ -385,12 +389,8 @@ public sealed class CspItinerarySolver(
 
         public void Run()
         {
-            var root = RouteState.Build(_ctx, []);
-            if (root is null)
-            {
-                Statistics.SearchCompleted = true;
-                return;
-            }
+            // Gốc là tiền tố mở: về thẳng đích từ điểm xuất phát bị trễ không có nghĩa là vô nghiệm.
+            var root = RouteState.BuildOpen(_ctx, [])!;
 
             // Forward checking tại gốc: điểm nào không bao giờ xếp được thì loại ngay.
             var domain = new List<int>(_initialDomain.Length);
@@ -453,20 +453,19 @@ public sealed class CspItinerarySolver(
 
         private void Search(RouteState state, List<int> domain)
         {
-            Statistics.NodesExpanded++;
-            _budget.Used++;
-            if (LimitReached())
+            if (!TryExpand())
             {
                 return;
             }
 
-            // Mọi trạng thái đã có đủ điểm bắt buộc là một lời giải hợp lệ (gán END tại đây).
-            if (state.Count > 0 && state.HasAllMandatory)
+            // Gán END tại đây là một lời giải khi đã đủ điểm bắt buộc và về thẳng đích kịp giờ. Tiền tố chưa về
+            // kịp vẫn được mở rộng tiếp: điểm kế tiếp có thể nằm trên đường tắt về đích.
+            if (state.Count > 0 && state.HasAllMandatory && state.Close() is { } solution)
             {
                 Statistics.SolutionsFound++;
                 Statistics.NodesToFirstSolution ??= Statistics.NodesExpanded;
-                Elite.Offer(state);
-                _bestObjective = Math.Min(_bestObjective, state.Objective);
+                Elite.Offer(solution);
+                _bestObjective = Math.Min(_bestObjective, solution.Objective);
             }
 
             if (state.Count >= _options.MaxStops || domain.Count == 0)
@@ -488,15 +487,11 @@ public sealed class CspItinerarySolver(
                     return;
                 }
 
-                // Gán S(k+1) = value và kiểm tra ràng buộc C1–C5 trong O(1).
-                if (!state.CanInsert(state.Count, value, out _))
-                {
-                    Statistics.PrunedByConstraints++;
-                    continue;
-                }
-
-                var child = RouteState.Build(_ctx, state.WithInserted(state.Count, value));
-                if (child is null)
+                // Gán S(k+1) = value và kiểm tra ràng buộc C1–C4. C5 (kịp về đích) chỉ kiểm tra theo cận dưới
+                // _minExit: về thẳng đích bị trễ chưa loại được nhánh, vì có thể về qua một điểm khác nhanh hơn.
+                var child = RouteState.BuildOpen(_ctx, state.WithInserted(state.Count, value));
+                if (child is null
+                    || child.Earliest[^1] + _ctx.Nodes[value].VisitMinutes + _minExit[value] > _ctx.Horizon)
                 {
                     Statistics.PrunedByConstraints++;
                     continue;
@@ -754,29 +749,39 @@ public sealed class CspItinerarySolver(
         private void RecordWipeout(int mandatoryNode) =>
             _wipeouts[mandatoryNode] = _wipeouts.GetValueOrDefault(mandatoryNode) + 1;
 
-        private bool LimitReached()
+        /// <summary>
+        /// Xin một nút từ budget chung trước khi duyệt. Budget được kiểm tra trước khi đếm, nên nút bị từ chối không
+        /// được tính và <see cref="CspStatistics.NodesExpanded"/> không bao giờ vượt <c>MaxNodes</c>, kể cả khi hai lần
+        /// chạy (có và không dự phòng nghỉ) dùng chung budget. Trả về false khi phải dừng (hết budget, hết giờ).
+        /// </summary>
+        private bool TryExpand()
         {
             if (_aborted)
             {
-                return true;
+                return false;
             }
 
-            if (_budget.Used > _budget.MaxNodes)
+            if (_budget.Used >= _budget.MaxNodes)
             {
                 Statistics.NodeLimitReached = true;
                 _aborted = true;
+                return false;
             }
-            else if ((_budget.Used & 255) == 0)
+
+            if (((_budget.Used + 1) & 255) == 0)
             {
                 _cancellationToken.ThrowIfCancellationRequested();
                 if (_clock.ElapsedMilliseconds >= _options.TimeLimitMilliseconds)
                 {
                     Statistics.TimeLimitReached = true;
                     _aborted = true;
+                    return false;
                 }
             }
 
-            return _aborted;
+            _budget.Used++;
+            Statistics.NodesExpanded++;
+            return true;
         }
     }
 }

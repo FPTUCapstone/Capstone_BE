@@ -120,8 +120,8 @@ public class CspRestOptimalityTests(ITestOutputHelper output)
     }
 
     /// <summary>
-    /// Hai lần chạy (có và không dự phòng nghỉ) dùng chung một giới hạn số nút: tổng số nút không vượt MaxNodes + 2
-    /// (mỗi lần chạy dừng ở nút đầu tiên vượt giới hạn).
+    /// Hai lần chạy (có và không dự phòng nghỉ) dùng chung một giới hạn số nút: tổng số nút đã duyệt không vượt
+    /// MaxNodes. Budget được kiểm tra trước khi đếm nút, nên nút bị từ chối không được tính vào số liệu.
     /// </summary>
     [Fact]
     public void Solve_SharesOneNodeBudget_AcrossTheReservedAndRelaxedRuns()
@@ -135,7 +135,7 @@ public class CspRestOptimalityTests(ITestOutputHelper output)
 
         result.Statistics.UsedRelaxedRestModel.Should().BeTrue();
         result.Statistics.NodeLimitReached.Should().BeTrue();
-        result.Statistics.NodesExpanded.Should().BeLessThanOrEqualTo(limits.MaxNodes + 2);
+        result.Statistics.NodesExpanded.Should().Be(limits.MaxNodes);
     }
 
     private static (GenerationInput Input, RouteDurationMatrix Matrix) RandomInstance(int seed, RestPreference restPreference)

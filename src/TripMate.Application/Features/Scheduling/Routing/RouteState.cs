@@ -28,8 +28,10 @@ public sealed class RouteState
         decimal cost,
         int finish,
         int visitedOptionalPenalty,
-        int mandatoryCount)
+        int mandatoryCount,
+        bool isOpen)
     {
+        IsOpen = isOpen;
         _ctx = ctx;
         _sequence = sequence;
         _earliest = earliest;
@@ -65,6 +67,15 @@ public sealed class RouteState
     public bool HasAllMandatory => MandatoryCount == _ctx.MandatoryNodes.Count;
 
     /// <summary>
+    /// Tiền tố mở, dựng bằng <see cref="BuildOpen"/>: chưa yêu cầu về thẳng đích kịp giờ, và <see cref="Latest"/>
+    /// không được tính. Không dùng được với <see cref="CanInsert"/> hay <see cref="CanRemove"/>.
+    /// </summary>
+    public bool IsOpen { get; }
+
+    /// <summary>Về thẳng điểm kết thúc từ điểm cuối vẫn kịp <see cref="RoutingContext.Horizon"/>.</summary>
+    public bool ReturnsInTime => Finish <= _ctx.Horizon;
+
+    /// <summary>
     /// Hàm mục tiêu kiểu disjunction (kỹ thuật 2): phút di chuyển + phạt của mọi điểm tùy chọn
     /// bị bỏ qua. Càng nhỏ càng tốt.
     /// </summary>
@@ -78,7 +89,23 @@ public sealed class RouteState
     /// Mô phỏng một thứ tự điểm đến bằng số nguyên phút (O(n)), trả về null nếu vi phạm khung giờ,
     /// ngân sách, thời gian cho phép hoặc lặp điểm.
     /// </summary>
-    public static RouteState? Build(RoutingContext ctx, IReadOnlyList<int> sequence)
+    public static RouteState? Build(RoutingContext ctx, IReadOnlyList<int> sequence) =>
+        Build(ctx, sequence, requireReturn: true);
+
+    /// <summary>
+    /// Như <see cref="Build(RoutingContext, IReadOnlyList{int})"/> nhưng không yêu cầu về thẳng đích kịp giờ:
+    /// chỉ kiểm tra những ràng buộc mà đi thêm điểm không thể gỡ lại (khung giờ, ngân sách, lặp điểm).
+    /// Ma trận đường đi thật không thỏa bất đẳng thức tam giác, nên một tiền tố về thẳng đích bị trễ vẫn có thể
+    /// mở rộng thành lộ trình hợp lệ khi đi tiếp qua một điểm nằm trên đường tắt về đích. Bộ giải duyệt cây
+    /// dùng tiền tố mở để không cắt mất những lộ trình đó, và chỉ chấp nhận lời giải khi <see cref="ReturnsInTime"/>.
+    /// </summary>
+    internal static RouteState? BuildOpen(RoutingContext ctx, IReadOnlyList<int> sequence) =>
+        Build(ctx, sequence, requireReturn: false);
+
+    /// <summary>Trạng thái đầy đủ (có <see cref="Latest"/>) của cùng thứ tự; null nếu không về đích kịp giờ.</summary>
+    public RouteState? Close() => IsOpen ? Build(_ctx, _sequence) : this;
+
+    private static RouteState? Build(RoutingContext ctx, IReadOnlyList<int> sequence, bool requireReturn)
     {
         ArgumentNullException.ThrowIfNull(ctx);
         ArgumentNullException.ThrowIfNull(sequence);
@@ -136,6 +163,11 @@ public sealed class RouteState
 
         travel += ctx.RawTravel(previous, ctx.EndMatrixIndex);
         var finish = time + ctx.ReturnTravel(previous);
+        if (!requireReturn)
+        {
+            return new RouteState(ctx, order, earliest, latest, contains, travel, cost, finish, penalty, mandatoryCount, isOpen: true);
+        }
+
         if (finish > ctx.Horizon)
         {
             return null;
@@ -157,7 +189,7 @@ public sealed class RouteState
             latestDeparture = latestStart - ctx.Travel(previousMatrix, node.MatrixIndex);
         }
 
-        return new RouteState(ctx, order, earliest, latest, contains, travel, cost, finish, penalty, mandatoryCount);
+        return new RouteState(ctx, order, earliest, latest, contains, travel, cost, finish, penalty, mandatoryCount, isOpen: false);
     }
 
     /// <summary>
@@ -166,6 +198,7 @@ public sealed class RouteState
     /// </summary>
     public bool CanInsert(int position, int node, out int deltaTravel)
     {
+        ThrowIfOpen();
         deltaTravel = 0;
         if (position < 0 || position > Count || _contains[node])
         {
@@ -218,6 +251,7 @@ public sealed class RouteState
     /// </summary>
     public bool CanRemove(int position, out int deltaTravel)
     {
+        ThrowIfOpen();
         deltaTravel = 0;
         if (position < 0 || position >= Count || Count <= 1 || _ctx.Nodes[_sequence[position]].IsMandatory)
         {
@@ -282,6 +316,14 @@ public sealed class RouteState
         }
 
         yield return (previous, _ctx.EndMatrixIndex);
+    }
+
+    private void ThrowIfOpen()
+    {
+        if (IsOpen)
+        {
+            throw new InvalidOperationException("An open route prefix has no Latest times; call Close() first.");
+        }
     }
 
     private int MatrixAt(int position) => _ctx.Nodes[_sequence[position]].MatrixIndex;

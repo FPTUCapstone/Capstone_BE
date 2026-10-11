@@ -349,6 +349,59 @@ public class CspItinerarySolverTests
         withIncumbent.Statistics.InitialUpperBound.Should().BeGreaterThanOrEqualTo(withIncumbent.Statistics.BestObjective!.Value);
     }
 
+    /// <summary>
+    /// Hồi quy: ma trận đường đi thật không thỏa bất đẳng thức tam giác. Từ điểm bắt buộc về thẳng đích bị trễ,
+    /// nhưng về qua một điểm tùy chọn nằm trên đường tắt thì kịp. CSP từng cắt nhánh ngay khi tiền tố không về
+    /// thẳng đích kịp, nên bỏ sót lời giải duy nhất và kết luận sai là vô nghiệm.
+    /// </summary>
+    [Fact]
+    public void Solve_FindsTheRoute_WhenOnlyAShortcutThroughAnotherStopReachesTheEndInTime()
+    {
+        // Buffer mặc định: +10 phút mỗi chặng, +15 phút chặng về đích.
+        // Bắt buộc rồi về thẳng: 10+10 → 20, thăm 30 → 50, về 100+15 → 165 > 120 phút.
+        // Bắt buộc → đường tắt: 50 + 5+10 → 65, thăm 15 → 80, về 5+15 → 100 ≤ 120 phút.
+        var mandatory = OptionalRouteOptimizationScenarios.CreateCandidate(1, "Mandatory", 30, 10_000m, 0.5m);
+        var shortcut = OptionalRouteOptimizationScenarios.CreateCandidate(2, "Shortcut", 15, 10_000m, 0.9m);
+        var input = OptionalRouteOptimizationScenarios.CreateInput(
+            availableMinutes: 120,
+            candidates: [mandatory, shortcut],
+            mandatoryPoiIds: [1]);
+        var matrix = RouteDurationMatrix.Create(new int[,]
+        {
+            { 0, 10, 50, 100 },
+            { 10, 0, 5, 100 },
+            { 50, 50, 0, 5 },
+            { 100, 100, 5, 0 },
+        });
+        var (candidates, indices) = Index(input);
+
+        var result = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options).Solve(input, matrix, candidates, indices);
+
+        result.ProvedInfeasible.Should().BeFalse();
+        result.Schedule.Should().NotBeNull();
+        result.Schedule!.VisitPoiIds.Should().Equal(1L, 2L);
+    }
+
+    /// <summary>
+    /// Số liệu khớp đúng giới hạn: budget được kiểm tra trước khi đếm nút, nên nút bị từ chối không được tính
+    /// và <c>NodesExpanded</c> không bao giờ vượt <c>MaxNodes</c>.
+    /// </summary>
+    [Theory]
+    [InlineData(1)]
+    [InlineData(300)]
+    public void Solve_CountsExactlyMaxNodes_WhenTheNodeLimitStopsTheSearch(int maxNodes)
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(40, 4, 62);
+        var (candidates, indices) = Index(input);
+
+        var result = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, new CspOptions { MaxNodes = maxNodes })
+            .Solve(input, matrix, candidates, indices);
+
+        result.Statistics.NodeLimitReached.Should().BeTrue();
+        result.Statistics.SearchCompleted.Should().BeFalse();
+        result.Statistics.NodesExpanded.Should().Be(maxNodes);
+    }
+
     [Fact]
     public void Solve_StopsPromptly_WhenCancelled()
     {
@@ -389,13 +442,10 @@ public class CspItinerarySolverTests
 
         void Visit()
         {
+            // Không cắt nhánh ở tiền tố không hợp lệ: với ma trận không metric, [a, b] có thể không kịp về thẳng
+            // đích nhưng [a, b, c] vẫn kịp, vì b -> c -> đích nhanh hơn b -> đích.
             var state = RouteState.Build(ctx, sequence);
-            if (state is null)
-            {
-                return;
-            }
-
-            if (state.Count > 0 && state.HasAllMandatory && (best is null || state.Objective < best))
+            if (state is not null && state.Count > 0 && state.HasAllMandatory && (best is null || state.Objective < best))
             {
                 best = state.Objective;
             }

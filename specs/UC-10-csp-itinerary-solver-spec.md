@@ -15,10 +15,20 @@ Phase 1 is implemented and in review as PR #57 (branch `feature/phuctv-csp-solve
   that follow it. Review round 2 (reviewed head `7019457`, verdict: changes requested) is
   addressed by the benchmark-validation commit that follows it. Review round 3 (independent
   algorithm review of head `94995d9`, verdict: changes requested) is addressed by the rest-model,
-  source-hash and diagnostics changes that follow it. See
-  [Phase 1 review remediation](#phase-1-review-remediation).
-- Baseline report: `docs/benchmarks/UC-10-csp-solver-comparison-2026-10-10.md`. It was regenerated
-  after review round 3, with patch defaults, over 907 synthetic scenarios: 7 named fixtures plus
+  source-hash and diagnostics changes that follow it. Review round 4 (independent final re-review of
+  head `ebd90a9`, verdict: changes requested) is addressed by the exact-corpus validation and
+  node-count changes that follow it. The open-prefix fix found by the developer's brute-force check
+  ships in the same change. See [Phase 1 review remediation](#phase-1-review-remediation).
+- Baseline report: `docs/benchmarks/UC-10-csp-solver-comparison-2026-10-11.md`. It was regenerated
+  after the review round 4 changes and the open-prefix fix. Against the 2026-10-10 report:
+  - every plan, visit count, travel time and outcome is identical, because the synthetic matrices
+    satisfy the triangle inequality;
+  - only node-limited scenarios changed their node count, and every such scenario now reports
+    exactly 200,000. That is 218 one-run scenarios, which drop by 1, and 78 reserved-plus-relaxed
+    scenarios, which drop by 2 (round 4 LOW);
+  - latency samples differ;
+  - the 2026-10-10 report is kept as the round 3 evidence.
+- It used patch defaults over 907 synthetic scenarios: 7 named fixtures plus
   300 per rest preference. Its `Source` line gives the hash of the benchmarked files. Under the
   product rule (CSP better / equal / worse):
   - every CSP plan stays within `MaxStops = 10`, and no run fell back to the heuristic or reached
@@ -30,8 +40,9 @@ Phase 1 is implemented and in review as PR #57 (branch `feature/phuctv-csp-solve
     example 7.92 against 8.64 on average in c10-m0-frequent). Its travel-plus-penalty objective
     accepts dropping a POI to save travel. With frequent rests, the relaxed model's best solutions
     also often fail rest insertion, so a reserved-model solution with fewer stops is kept;
-  - latency: five segments exceed the 300 ms CSP gate (c20-m6, c40-m6, c40-m6-auto,
-    c20-m6-frequent, c40-m6-frequent);
+  - latency: two segments exceed the 300 ms CSP gate in this run (c40-m6, c40-m6-frequent). The
+    2026-10-10 run had five, and the round 4 reviewer's run had six. Segments near the gate move
+    with host noise;
   - this is the gap Phase 2 closes (R1, R1a, R2, R9). The CSP stays experimental and is not the
     default.
 - Verification evidence for the current head is recorded in the PR. The previous evidence was
@@ -146,11 +157,23 @@ Behavior for users is unchanged: the default stays `SolverMode = Heuristic`.
      its data files and fails on any difference. Reading, writing and rendering all go through
      `SolverComparisonReport.Validate`, which rejects malformed or surplus data, so no persisted
      sample can be silently left out of a statistic:
-     - the metadata date matches the file name, the source hash is a full lowercase SHA-256 over at
-       least one file, every declared rest preference is a `RestPreference` value, and there is at
-       least one warmup and one measured iteration;
-     - the scenarios are exactly the declared corpus, with unique names, a known verdict and rest
-       preference, and an outcome that their mode can produce; every CSP plan respects `MaxStops`;
+     - the metadata date matches the file name;
+     - the source hash is a full lowercase SHA-256 over at least one file;
+     - there is at least one warmup and one measured iteration;
+     - the declared corpus is one the runner can produce:
+       - candidate counts, mandatory counts and rest preferences are non-empty and free of
+         duplicates;
+       - every candidate count is positive, every mandatory count is non-negative, and every rest
+         preference is a `RestPreference` value;
+       - seeds are positive;
+       - the named-fixture count is 0 or all of them;
+     - the scenarios are exactly the declared corpus. `SolverComparisonCorpus` is the one corpus
+       definition: the runner generates from it, and the validator rebuilds the expected descriptors
+       from the metadata through it. Set equality is required: no missing, extra, duplicate or
+       substituted scenario, and each scenario has the segment, rest preference and mandatory count
+       that the corpus assigns it;
+     - every scenario has a known verdict and an outcome that its mode can produce, and every CSP
+       plan respects `MaxStops`;
      - every timing row has a known mode and an outcome allowed for that mode, a finite non-negative
        elapsed time, an existing scenario with the same segment, and an iteration in
        1–`MeasuredIterations`; each (scenario, mode, iteration) appears exactly once, so the row
@@ -244,6 +267,22 @@ are admissible against brute force without rest.
 | LOW: the CSP ignores `EnableOptionalRouteOptimization = false`. | Already tracked as Phase 2 R4. |
 | LOW: the options validator did not check `MiniRouting.*`, `Csp:FinalCandidatesToValidate` or `MaxSkipPenaltyMinutes`. | Validated (Phase 1 item 3), with tests. |
 | LOW: per-node allocations in `LowerBound`, `RouteEliteSet.Offer` and `OrderValues`. | `LowerBound` reuses its buffers, `Offer` checks the objective before it builds the key, and `OrderValues` sorts an array with a comparer that keeps the same order. |
+
+Review round 4, an independent final re-review of head `ebd90a9`, found one blocking issue and one
+non-blocking issue. It confirmed every other Phase 1 finding as fixed or tracked for Phase 2.
+
+| Finding | Resolution |
+| ------- | ---------- |
+| MEDIUM (Phase 1 blocker): validation compared only the scenario count with the metadata. A different corpus with the same cardinality passed. Example: metadata `rest_preferences: ["Auto"]` over a `None` row, or a substituted candidate count, mandatory count or seed. | `SolverComparisonCorpus` is the single corpus definition, used by the runner and by `Validate`. `Validate` rebuilds the expected descriptors from the metadata and requires set equality, including each scenario's segment, rest preference and mandatory count. It also rejects corpus declarations the runner cannot produce. Mutation tests cover same-cardinality substitutions (rest preference, candidate count, mandatory count, seed), per-row mismatches, missing and extra members, duplicate and invalid declared values, and empty lists. With the membership check removed, nine of them fail. The corpus file is part of `SourceInputs`. |
+| LOW: `NodesExpanded` and the shared budget were incremented before the limit check, so diagnostics could report up to `MaxNodes + 2`. | `TryExpand` checks the node budget and the time limit before it counts a node. `NodesExpanded` equals `MaxNodes` exactly when the node limit stops the search, in one run or across the reserved and relaxed runs, and the tests assert equality. |
+
+A developer brute-force check after round 3 (`CspBruteForceTests`) found one more defect. It was
+missed by round 3's own brute-force comparison, and by `ExhaustiveBest`, for the same reason the
+CSP missed it.
+
+| Finding | Resolution |
+| ------- | ---------- |
+| The CSP pruned every partial route whose last stop could not return directly to the end in time. On a non-metric matrix, a later stop on a shortcut can still reach the end in time. The CSP missed such routes, returned a worse schedule, or wrongly reported `ProvedInfeasible`. The brute-force oracles pruned at the same point, so they agreed with the CSP. Example: on random seed 10 the CSP returned 391 against an optimum of 242. | The search extends open prefixes (`RouteState.BuildOpen`). A new value is pruned only by constraints that no later stop can repair: C1–C4, plus C5 against the admissible return lower bound `minExit` (direct return, or the shortest hop to another domain stop plus the shortest visit and return). A state counts as a solution only when it returns directly in time (`RouteState.Close`). Open prefixes reject `CanInsert` and `CanRemove`, so other solvers are unaffected. Covered by `Solve_FindsTheRoute_WhenOnlyAShortcutThroughAnotherStopReachesTheEndInTime` and by `CspBruteForceTests`, which compares against a non-pruning brute force on 1,000 random non-metric instances. `ExhaustiveBest` no longer prunes. The rest-aware comparison stays skipped (29/600 instances, Phase 2 R9). |
 
 ### Report 3 V2 compliance — open, must be resolved before any production rollout
 

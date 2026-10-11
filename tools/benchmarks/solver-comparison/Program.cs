@@ -15,10 +15,10 @@ using TripMate.Domain.Enums;
 var positional = args.Where(arg => !arg.StartsWith("--", StringComparison.Ordinal)).ToArray();
 var outputDirectory = positional.Length > 0 ? positional[0] : Path.Combine("docs", "benchmarks");
 var iterations = positional.Length > 1 ? int.Parse(positional[1], CultureInfo.InvariantCulture) : 3;
-var seeds = positional.Length > 2 ? int.Parse(positional[2], CultureInfo.InvariantCulture) : 25;
-int[] candidateCounts = [10, 20, 40];
-int[] mandatoryCounts = [0, 1, 3, 6];
-RestPreference[] restPreferences = [RestPreference.None, RestPreference.Auto, RestPreference.Frequent];
+var seeds = positional.Length > 2 ? int.Parse(positional[2], CultureInfo.InvariantCulture) : SolverComparisonCorpus.DefaultSeeds;
+var candidateCounts = SolverComparisonCorpus.DefaultCandidateCounts;
+var mandatoryCounts = SolverComparisonCorpus.DefaultMandatoryCounts;
+var restPreferences = SolverComparisonCorpus.DefaultRestPreferences;
 
 var repositoryRoot = FindRepositoryRoot(Directory.GetCurrentDirectory());
 if (repositoryRoot is null)
@@ -29,33 +29,16 @@ if (repositoryRoot is null)
 
 var source = SolverComparisonReport.ComputeSourceHash(repositoryRoot);
 
-var scenarios = new List<Scenario>
-{
-    Named("zigzag", OptionalRouteOptimizationScenarios.CreateZigzagScenario()),
-    Named("zigzag-240", OptionalRouteOptimizationScenarios.CreateZigzagScenario(240)),
-    Named("tail-infeasible", OptionalRouteOptimizationScenarios.CreateTailInfeasibleMiddleFeasibleScenario()),
-    Named("asymmetric", OptionalRouteOptimizationScenarios.CreateAsymmetricScenario()),
-    Named("two-opt", OptionalRouteOptimizationScenarios.CreateTwoOptStrictImprovementScenario()),
-    Named("relocate", OptionalRouteOptimizationScenarios.CreateRelocateStrictImprovementScenario()),
-    Named("reconsideration", OptionalRouteOptimizationScenarios.CreateReconsiderationScenario()),
-};
-var namedScenarioCount = scenarios.Count;
-foreach (var restPreference in restPreferences)
-{
-    var suffix = restPreference == RestPreference.None ? string.Empty : "-" + restPreference.ToString().ToLowerInvariant();
-    foreach (var candidates in candidateCounts)
+// Corpus dùng chung với SolverComparisonReport.Validate, nên metadata luôn mô tả đúng tập scenario đã chạy.
+var scenarios = SolverComparisonCorpus
+    .Describe(candidateCounts, mandatoryCounts, restPreferences, seeds, includeNamedFixtures: true)
+    .Select(descriptor =>
     {
-        foreach (var mandatory in mandatoryCounts)
-        {
-            var segment = $"c{candidates}-m{mandatory}{suffix}";
-            for (var seed = 1; seed <= seeds; seed++)
-            {
-                var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(candidates, mandatory, seed, restPreference);
-                scenarios.Add(new Scenario(segment, $"{segment}-s{seed}", input, matrix));
-            }
-        }
-    }
-}
+        var (input, matrix) = SolverComparisonCorpus.Create(descriptor);
+        return new Scenario(descriptor.Segment, descriptor.Name, input, matrix);
+    })
+    .ToList();
+var namedScenarioCount = SolverComparisonCorpus.NamedFixtures.Count;
 
 var disabledOptions = new SchedulingGenerationOptions { EnableOptionalRouteOptimization = false };
 var heuristicOptions = new SchedulingGenerationOptions { SolverMode = SchedulingSolverMode.Heuristic };
@@ -134,9 +117,6 @@ if (SolverComparisonReport.ComputeSourceHash(repositoryRoot).Hash != source.Hash
 }
 
 return 0;
-
-static Scenario Named(string name, (GenerationInput Input, RouteDurationMatrix Matrix) fixture) =>
-    new("named", name, fixture.Input, fixture.Matrix);
 
 static async Task<ModeResult> Measure(
     Scenario scenario,

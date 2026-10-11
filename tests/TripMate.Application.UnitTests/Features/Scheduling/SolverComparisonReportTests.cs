@@ -5,6 +5,7 @@ using FluentAssertions;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Csp;
 using TripMate.Application.UnitTests.Features.Scheduling.Fixtures;
+using TripMate.Domain.Enums;
 
 namespace TripMate.Application.UnitTests.Features.Scheduling;
 
@@ -179,9 +180,30 @@ public class SolverComparisonReportTests
     [InlineData("rest-preferences-in-corpus-size", "*expected 2 scenarios for the declared corpus, found 1*")]
     [InlineData("short-source-hash", "*source hash 'abc123' is not a full 64-character lowercase SHA-256*")]
     [InlineData("no-source-files", "*must cover at least one file, found 0*")]
-    [InlineData("unknown-declared-rest-preference", "*rest preference 'Sometimes' is not a RestPreference value*")]
+    [InlineData("unknown-declared-rest-preference", "*rest_preferences value Sometimes is not a RestPreference value*")]
     [InlineData("unknown-scenario-rest-preference", "*c10-m0-s1 has unknown rest preference 'Sometimes'*")]
     [InlineData("no-measured-iterations", "*measured iterations must be at least 1, found 0*")]
+
+    // Cùng số dòng nhưng khác corpus: metadata hoặc dữ liệu bị thay thế phải bị phát hiện.
+    [InlineData("declared-rest-preference-substituted", "*scenario c10-m0-auto-s1 of the declared corpus is missing*")]
+    [InlineData("declared-candidate-count-substituted", "*scenario c10-m0-s1 is not in the declared corpus*")]
+    [InlineData("declared-mandatory-count-substituted", "*scenario c10-m1-s1 of the declared corpus is missing*")]
+    [InlineData("scenario-seed-substituted", "*scenario c10-m0-s2 is not in the declared corpus*")]
+    [InlineData("scenario-rest-preference-mismatch", "*c10-m0-s1 has rest preference Auto, but the declared corpus has None*")]
+    [InlineData("scenario-mandatory-count-mismatch", "*c10-m0-s1 has 2 mandatory POIs, but the declared corpus has 0*")]
+    [InlineData("scenario-segment-mismatch", "*c10-m0-s1 is in segment 'c20-m0', but the declared corpus puts it in 'c10-m0'*")]
+    [InlineData("missing-member", "*scenario c10-m1-s1 of the declared corpus is missing*")]
+    [InlineData("extra-member", "*scenario c10-m1-s1 is not in the declared corpus*")]
+
+    // Khai báo corpus mà runner không thể sinh ra.
+    [InlineData("duplicate-candidate-count", "*candidate_counts declares 10 more than once*")]
+    [InlineData("duplicate-mandatory-count", "*mandatory_counts declares 0 more than once*")]
+    [InlineData("duplicate-rest-preference", "*rest_preferences declares None more than once*")]
+    [InlineData("non-positive-candidate-count", "*candidate_counts value 0 must be positive*")]
+    [InlineData("negative-mandatory-count", "*mandatory_counts value -1 must not be negative*")]
+    [InlineData("empty-candidate-counts", "*candidate_counts must not be empty*")]
+    [InlineData("non-positive-seeds", "*seeds must be at least 1, found 0*")]
+    [InlineData("partial-named-fixtures", "*named_scenario_count must be 0 or 7 (every named fixture), found 3*")]
     public void Validate_RejectsMalformedScenariosAndMetadata(string mutation, string expectedMessage)
     {
         var data = SampleData();
@@ -199,6 +221,26 @@ public class SolverComparisonReportTests
             "unknown-declared-rest-preference" => data with { Metadata = data.Metadata with { RestPreferences = ["Sometimes"] } },
             "unknown-scenario-rest-preference" => data with { Scenarios = [row with { RestPreference = "Sometimes" }] },
             "no-measured-iterations" => data with { Metadata = data.Metadata with { MeasuredIterations = 0 } },
+            "declared-rest-preference-substituted" => data with { Metadata = data.Metadata with { RestPreferences = ["Auto"] } },
+            "declared-candidate-count-substituted" => data with { Metadata = data.Metadata with { CandidateCounts = [20] } },
+            "declared-mandatory-count-substituted" => data with { Metadata = data.Metadata with { MandatoryCounts = [1] } },
+            "scenario-seed-substituted" => data with { Scenarios = [row with { Scenario = "c10-m0-s2" }] },
+            "scenario-rest-preference-mismatch" => data with { Scenarios = [row with { RestPreference = "Auto" }] },
+            "scenario-mandatory-count-mismatch" => data with { Scenarios = [row with { MandatoryCount = 2 }] },
+            "scenario-segment-mismatch" => data with { Scenarios = [row with { Segment = "c20-m0" }] },
+            "missing-member" => data with { Metadata = data.Metadata with { MandatoryCounts = [0, 1] } },
+            "extra-member" => data with
+            {
+                Scenarios = [row, row with { Segment = "c10-m1", Scenario = "c10-m1-s1", MandatoryCount = 1 }],
+            },
+            "duplicate-candidate-count" => data with { Metadata = data.Metadata with { CandidateCounts = [10, 10] } },
+            "duplicate-mandatory-count" => data with { Metadata = data.Metadata with { MandatoryCounts = [0, 0] } },
+            "duplicate-rest-preference" => data with { Metadata = data.Metadata with { RestPreferences = ["None", "None"] } },
+            "non-positive-candidate-count" => data with { Metadata = data.Metadata with { CandidateCounts = [0] } },
+            "negative-mandatory-count" => data with { Metadata = data.Metadata with { MandatoryCounts = [-1] } },
+            "empty-candidate-counts" => data with { Metadata = data.Metadata with { CandidateCounts = [] } },
+            "non-positive-seeds" => data with { Metadata = data.Metadata with { Seeds = 0 } },
+            "partial-named-fixtures" => data with { Metadata = data.Metadata with { NamedScenarioCount = 3 } },
             _ => throw new ArgumentOutOfRangeException(nameof(mutation), mutation, null),
         };
 
@@ -268,6 +310,23 @@ public class SolverComparisonReportTests
     public void Percentile_UsesTheDocumentedNearestRankIndex(double[] samples, double percentile, double expected)
     {
         SolverComparisonReport.Percentile(samples, percentile).Should().Be(expected);
+    }
+
+    [Fact]
+    public void Describe_TheDefaultCorpus_ListsEveryDeclaredScenarioOnce()
+    {
+        var corpus = SolverComparisonCorpus.Describe(
+            SolverComparisonCorpus.DefaultCandidateCounts,
+            SolverComparisonCorpus.DefaultMandatoryCounts,
+            SolverComparisonCorpus.DefaultRestPreferences,
+            SolverComparisonCorpus.DefaultSeeds,
+            includeNamedFixtures: true);
+
+        corpus.Should().HaveCount(7 + (3 * 4 * 3 * 25));
+        corpus.Select(descriptor => descriptor.Name).Should().OnlyHaveUniqueItems();
+        corpus.Take(7).Should().OnlyContain(descriptor => descriptor.Segment == SolverComparisonCorpus.NamedSegment);
+        corpus.Should().ContainEquivalentOf(
+            new SolverComparisonScenarioDescriptor("c40-m6-frequent", "c40-m6-frequent-s25", RestPreference.Frequent, 6, 40, 25));
     }
 
     private const string SampleDate = "2026-01-02";

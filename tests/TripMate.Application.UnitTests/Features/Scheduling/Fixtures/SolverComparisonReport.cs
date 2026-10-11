@@ -98,6 +98,7 @@ public static class SolverComparisonReport
         "src/TripMate.Application/Features/Scheduling/Csp",
         "src/TripMate.Application/Features/Scheduling/Routing",
         "tests/TripMate.Application.UnitTests/Features/Scheduling/Fixtures/OptionalRouteOptimizationScenarios.cs",
+        "tests/TripMate.Application.UnitTests/Features/Scheduling/Fixtures/SolverComparisonCorpus.cs",
         "tests/TripMate.Application.UnitTests/Features/Scheduling/Fixtures/ProductRulePlanComparison.cs",
         "tools/benchmarks/solver-comparison/Program.cs",
     ];
@@ -170,10 +171,13 @@ public static class SolverComparisonReport
     /// <summary>
     /// Từ chối dữ liệu thiếu hoặc sai, để không mẫu nào bị loại âm thầm khỏi báo cáo. Dữ liệu hợp lệ khi:
     /// <list type="bullet">
-    /// <item>hash nguồn là SHA-256 đủ 64 ký tự hex thường; có ít nhất một lần warmup và một lần đo; mọi kiểu nghỉ
-    /// khai báo là giá trị hợp lệ của <see cref="RestPreference"/>;</item>
-    /// <item>số scenario đúng bằng corpus khai báo trong metadata, tên không trùng, verdict, kiểu nghỉ và outcome thuộc
-    /// tập cho phép, và kế hoạch do CSP tạo không vượt <c>MaxStops</c>;</item>
+    /// <item>hash nguồn là SHA-256 đủ 64 ký tự hex thường; có ít nhất một lần warmup và một lần đo;</item>
+    /// <item>khai báo corpus là một corpus runner sinh được: danh sách số ứng viên, số điểm bắt buộc và kiểu nghỉ không
+    /// rỗng, không trùng, giá trị hợp lệ (ứng viên dương, bắt buộc không âm, kiểu nghỉ thuộc <see cref="RestPreference"/>),
+    /// seed dương, số fixture có tên là 0 hoặc đủ bộ;</item>
+    /// <item>tập scenario đúng bằng corpus khai báo (<see cref="SolverComparisonCorpus.Describe"/>): không thiếu, không
+    /// thừa, không trùng, và mỗi scenario đúng segment, kiểu nghỉ và số điểm bắt buộc mà corpus quy định;</item>
+    /// <item>verdict và outcome thuộc tập cho phép, và kế hoạch do CSP tạo không vượt <c>MaxStops</c>;</item>
     /// <item>mỗi dòng timing có mode và outcome cho phép, thời gian hữu hạn và không âm, scenario có thật với đúng
     /// segment của nó, iteration trong [1, MeasuredIterations], và mỗi bộ (scenario, mode, iteration) xuất hiện
     /// đúng một lần — tức số dòng bằng đúng scenario × mode × MeasuredIterations.</item>
@@ -206,6 +210,12 @@ public static class SolverComparisonReport
             }
 
             ValidateScenario(row, meta.Csp!, problems);
+        }
+
+        // Số dòng đúng chưa đủ: tập scenario phải đúng bằng corpus mà metadata khai báo.
+        if (ValidateCorpusDeclaration(meta, problems) is { } restPreferences)
+        {
+            ValidateCorpusMembership(meta, restPreferences, data.Scenarios, problems);
         }
 
         var keys = new HashSet<(string Scenario, string Mode, int Iteration)>();
@@ -504,14 +514,6 @@ public static class SolverComparisonReport
             problems.Add(Invariant($"the source hash must cover at least one file, found {meta.SourceFileCount}"));
         }
 
-        foreach (var preference in meta.RestPreferences ?? [])
-        {
-            if (!IsRestPreference(preference))
-            {
-                problems.Add($"rest preference '{preference}' is not a RestPreference value");
-            }
-        }
-
         if (meta.WarmupIterations < 1)
         {
             problems.Add(Invariant($"warmup iterations must be at least 1 (the warmup run produces the compared plan), found {meta.WarmupIterations}"));
@@ -525,6 +527,101 @@ public static class SolverComparisonReport
         if (meta.CandidateCounts is null || meta.MandatoryCounts is null || meta.RestPreferences is null || meta.Csp is null)
         {
             problems.Add("metadata must declare candidate_counts, mandatory_counts, rest_preferences and csp");
+        }
+    }
+
+    /// <summary>
+    /// Khai báo corpus trong metadata phải là một corpus mà runner có thể sinh ra: danh sách không rỗng và không trùng,
+    /// số ứng viên và số seed dương, số điểm bắt buộc không âm, và số fixture có tên là 0 hoặc đủ
+    /// <see cref="SolverComparisonCorpus.NamedFixtures"/>. Trả về các kiểu nghỉ đã parse khi hợp lệ, null khi không.
+    /// </summary>
+    private static IReadOnlyList<RestPreference>? ValidateCorpusDeclaration(SolverComparisonMetadata meta, List<string> problems)
+    {
+        var before = problems.Count;
+        CheckDeclaredList("candidate_counts", meta.CandidateCounts, count => count >= 1, "must be positive", problems);
+        CheckDeclaredList("mandatory_counts", meta.MandatoryCounts, count => count >= 0, "must not be negative", problems);
+        CheckDeclaredList("rest_preferences", meta.RestPreferences, IsRestPreference, "is not a RestPreference value", problems);
+        if (meta.Seeds < 1)
+        {
+            problems.Add(Invariant($"seeds must be at least 1, found {meta.Seeds}"));
+        }
+
+        var namedFixtures = SolverComparisonCorpus.NamedFixtures.Count;
+        if (meta.NamedScenarioCount != 0 && meta.NamedScenarioCount != namedFixtures)
+        {
+            problems.Add(Invariant($"named_scenario_count must be 0 or {namedFixtures} (every named fixture), found {meta.NamedScenarioCount}"));
+        }
+
+        return problems.Count == before
+            ? meta.RestPreferences.Select(Enum.Parse<RestPreference>).ToArray()
+            : null;
+    }
+
+    private static void CheckDeclaredList<T>(
+        string name,
+        IReadOnlyList<T> values,
+        Func<T, bool> isValid,
+        string invalidReason,
+        List<string> problems)
+    {
+        if (values.Count == 0)
+        {
+            problems.Add($"{name} must not be empty");
+        }
+
+        foreach (var value in values.Where(value => !isValid(value)).Distinct())
+        {
+            problems.Add(Invariant($"{name} value {value} {invalidReason}"));
+        }
+
+        foreach (var value in values.GroupBy(value => value).Where(group => group.Count() > 1).Select(group => group.Key))
+        {
+            problems.Add(Invariant($"{name} declares {value} more than once"));
+        }
+    }
+
+    /// <summary>
+    /// Tập scenario phải đúng bằng corpus mà metadata khai báo (<see cref="SolverComparisonCorpus.Describe"/>): mỗi
+    /// scenario mong đợi có mặt, với đúng segment, kiểu nghỉ và số điểm bắt buộc, và không có scenario nào ngoài corpus.
+    /// </summary>
+    private static void ValidateCorpusMembership(
+        SolverComparisonMetadata meta,
+        IReadOnlyList<RestPreference> restPreferences,
+        IReadOnlyList<SolverComparisonScenarioRow> rows,
+        List<string> problems)
+    {
+        var expected = SolverComparisonCorpus
+            .Describe(meta.CandidateCounts, meta.MandatoryCounts, restPreferences, meta.Seeds, includeNamedFixtures: meta.NamedScenarioCount > 0)
+            .ToDictionary(descriptor => descriptor.Name, StringComparer.Ordinal);
+
+        foreach (var row in rows.DistinctBy(row => row.Scenario))
+        {
+            if (!expected.TryGetValue(row.Scenario, out var descriptor))
+            {
+                problems.Add($"scenario {row.Scenario} is not in the declared corpus");
+                continue;
+            }
+
+            if (row.Segment != descriptor.Segment)
+            {
+                problems.Add($"scenario {row.Scenario} is in segment '{row.Segment}', but the declared corpus puts it in '{descriptor.Segment}'");
+            }
+
+            if (row.RestPreference != descriptor.RestPreference.ToString())
+            {
+                problems.Add($"scenario {row.Scenario} has rest preference {row.RestPreference}, but the declared corpus has {descriptor.RestPreference}");
+            }
+
+            if (row.MandatoryCount != descriptor.MandatoryCount)
+            {
+                problems.Add(Invariant($"scenario {row.Scenario} has {row.MandatoryCount} mandatory POIs, but the declared corpus has {descriptor.MandatoryCount}"));
+            }
+        }
+
+        var actual = rows.Select(row => row.Scenario).ToHashSet(StringComparer.Ordinal);
+        foreach (var name in expected.Keys.Where(name => !actual.Contains(name)))
+        {
+            problems.Add($"scenario {name} of the declared corpus is missing");
         }
     }
 

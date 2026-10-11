@@ -20,9 +20,10 @@ Approved by the developer on 2026-10-10, together with
   | P1.7 (regenerated baseline report) | `7019457` |
   | P1.8 (review round 2 remediation) | `8988247`, `637ebbd` |
   | Merge of `develop` (reviewed in round 3) | `94995d9` |
+  | P1.9 (review round 3 remediation, reviewed in round 4) | `68eb255`, `ebd90a9` |
 
   P1.7 follows the reviewed head `d4a4992`; P1.8 follows the reviewed head `7019457`; P1.9 follows
-  the reviewed head `94995d9`.
+  the reviewed head `94995d9`; P1.10 follows the reviewed head `ebd90a9`.
 - **Phases 2 and 3:** not started. Each gets its own PR.
 
 ## Verification commands
@@ -171,6 +172,31 @@ Final verification commands with SQL Server. Record the evidence in the spec sta
    because the report is tied to a source hash, not a commit. Commit the source and the four report
    files together, or the report right after the source.
 8. **Re-review gate.** As in P1.7 step 5, on the new head SHA.
+
+### P1.10 — Review round 4 remediation (independent final re-review of head `ebd90a9`)
+1. **Open-prefix fix (developer brute-force check, test first).**
+   - Add `CspBruteForceTests`: a non-pruning brute force on 600 random non-metric instances
+     without rest, and 400 more under restrictive `MaxStops` and `MaxOptionalDomainSize`. The
+     rest-aware comparison stays skipped (Phase 2 R9).
+   - Add a fixed shortcut regression test.
+   - On `ebd90a9`, seed 10 returns 391 against an optimum of 242, and the shortcut test finds no
+     schedule.
+   - Then:
+     - `RouteState.BuildOpen` and `Close`;
+     - the CSP extends open prefixes and checks C5 against `minExit`;
+     - a solution must return directly in time;
+     - `ExhaustiveBest` stops pruning.
+2. **MEDIUM, exact corpus (test first).**
+   - Add the mutation tests listed in the spec (round 4 table).
+   - Then:
+     - `SolverComparisonCorpus` becomes the single corpus definition, used by the runner;
+     - `Validate` checks the declared corpus and requires set equality with it;
+     - add the corpus file to `SourceInputs`.
+3. **LOW, node count (test first).** Assert `NodesExpanded == MaxNodes` when the node limit stops
+   one run or the reserved and relaxed runs together. Then `TryExpand` checks the budget and the
+   time limit before it counts a node.
+4. **Regenerate the report.** Commit the source and the four report files together.
+5. **Re-review gate.** As in P1.7 step 5, on the new head SHA.
 
 ## Phase 2 — PR 2 (CSP follows the product rule)
 
