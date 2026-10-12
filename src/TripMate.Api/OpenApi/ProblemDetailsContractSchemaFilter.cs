@@ -43,6 +43,15 @@ public sealed class ProblemDetailsContractSchemaFilter : ISchemaFilter
             RequireNonNullableProperty(mutableSchema, "status");
             RequireNonNullableProperty(mutableSchema, "errorCode");
             RequireNonNullableProperty(mutableSchema, "existingPoiId");
+            return;
+        }
+
+        if (context.Type == typeof(NavigationStartConflictProblemDetails))
+        {
+            RequireNonNullableProperty(
+                mutableSchema,
+                System.Text.Json.JsonNamingPolicy.CamelCase.ConvertName(
+                    nameof(NavigationStartConflictProblemDetails.ErrorCode)));
         }
     }
 

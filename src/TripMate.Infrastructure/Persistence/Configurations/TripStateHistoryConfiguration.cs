@@ -19,6 +19,11 @@ public sealed class TripStateHistoryConfiguration : IEntityTypeConfiguration<Tri
         builder.Property(history => history.Reason).HasColumnName("reason").HasMaxLength(500);
         builder.Property(history => history.TriggeredBy).HasColumnName("triggered_by").HasMaxLength(20).IsUnicode(false);
         builder.Property(history => history.ChangedAtUtc).HasColumnName("changed_at").AsUtcDateTime2().IsRequired();
-        builder.HasOne(history => history.Session).WithMany().HasForeignKey(history => history.SessionId).OnDelete(DeleteBehavior.Cascade);
+        builder.HasOne(history => history.Session)
+            .WithMany(session => session.StateHistory)
+            .HasForeignKey(history => history.SessionId)
+            .OnDelete(DeleteBehavior.Cascade);
+        builder.HasIndex(history => new { history.SessionId, history.ChangedAtUtc })
+            .HasDatabaseName("IX_TripStateHistory_Session");
     }
 }

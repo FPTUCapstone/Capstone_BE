@@ -17,9 +17,6 @@ public sealed class GetActiveTripsQueryHandler(
     IDateTimeProvider dateTimeProvider)
     : IRequestHandler<GetActiveTripsQuery, Result<ActiveTripsResponseDto>>
 {
-    private static readonly string[] ActiveStates =
-        [TripSession.NavigatingState, TripSession.ExploringState, TripSession.InterruptedState];
-
     public async Task<Result<ActiveTripsResponseDto>> Handle(
         GetActiveTripsQuery request,
         CancellationToken cancellationToken)
@@ -31,9 +28,10 @@ public sealed class GetActiveTripsQueryHandler(
                 "You do not have permission to access this function.");
         }
 
+        var nowUtc = dateTimeProvider.UtcNow;
         var active = dbContext.TripSessions
             .AsNoTracking()
-            .Where(session => ActiveStates.Contains(session.FsmState));
+            .WhereEffectivelyActive(nowUtc);
 
         var summary = await BuildSummaryAsync(active, cancellationToken);
         var filtered = ApplyFilters(active, request);
