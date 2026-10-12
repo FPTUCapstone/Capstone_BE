@@ -139,7 +139,7 @@ public sealed class PoiRankingOrchestratorTests
             TieOnlyOptions(maxProviderCandidates: 60));
 
         PoiRankingSnapshot snapshot = await orchestrator.BuildRankingAsync(
-            new PoiRankingInput(17L, [], candidates),
+            new PoiRankingInput(17L, ["culture"], candidates),
             CancellationToken.None);
 
         snapshot.ProviderPoolPoiIds.Should().HaveCount(60);
@@ -189,6 +189,44 @@ public sealed class PoiRankingOrchestratorTests
             ["TimedOut"] = false,
         });
         log.Message.Should().NotContain("FAKE_SECRET_SHOULD_NOT_APPEAR");
+    }
+
+    // UC-10 TripMate AI provider spec, A2 / O1: no preference tokens means nothing to rank against.
+    [Fact]
+    public async Task BuildRankingAsync_WithNoPreferenceTokens_SkipsTheProviderAndReturnsBaseScores()
+    {
+        await using var dbContext = CreateDbContext();
+        var provider = new RecordingProvider();
+        var logger = new RecordingLogger<PoiRankingOrchestrator>();
+        var candidates = Enumerable.Range(1, 4)
+            .Select(id => Candidate(id, scenicScore: id))
+            .ToArray();
+        var orchestrator = CreateOrchestrator(
+            dbContext,
+            provider,
+            providerEnabled: true,
+            Options(maxProviderCandidates: 3),
+            logger);
+
+        PoiRankingSnapshot snapshot = await orchestrator.BuildRankingAsync(
+            new PoiRankingInput(17L, [], candidates),
+            CancellationToken.None);
+
+        provider.CallCount.Should().Be(0);
+        snapshot.OutcomeCategory.Should().Be(PoiRankingOutcomeCategory.ProviderSkipped);
+        snapshot.Entries.Should().HaveCount(3);
+        snapshot.Entries.Values.Should().OnlyContain(entry =>
+            entry.EffectiveDesirabilityScore == entry.TripMateBaseScore);
+        LogEntry log = logger.Entries.Should().ContainSingle().Subject;
+        log.Level.Should().Be(LogLevel.Information);
+        log.Properties.Should().Contain(new Dictionary<string, object?>
+        {
+            ["CandidateCount"] = 4,
+            ["PoolCount"] = 3,
+            ["Outcome"] = "provider-skipped",
+            ["FallbackUsed"] = false,
+            ["TimedOut"] = false,
+        });
     }
 
     [Fact]
@@ -256,7 +294,7 @@ public sealed class PoiRankingOrchestratorTests
         var orchestrator = CreateOrchestrator(dbContext, provider, true, options, logger);
 
         PoiRankingSnapshot snapshot = await orchestrator.BuildRankingAsync(
-            new PoiRankingInput(17L, [], [Candidate(1L), Candidate(2L)]),
+            new PoiRankingInput(17L, ["culture"], [Candidate(1L), Candidate(2L)]),
             CancellationToken.None);
 
         snapshot.OutcomeCategory.Should().Be(PoiRankingOutcomeCategory.Success);
@@ -296,7 +334,7 @@ public sealed class PoiRankingOrchestratorTests
             TieOnlyOptions(maxProviderCandidates: 2));
 
         PoiRankingSnapshot snapshot = await orchestrator.BuildRankingAsync(
-            new PoiRankingInput(17L, [], [Candidate(1L), Candidate(2L)]),
+            new PoiRankingInput(17L, ["culture"], [Candidate(1L), Candidate(2L)]),
             CancellationToken.None);
 
         snapshot.Entries[1L].EffectiveDesirabilityScore.Should().Be(0.34m);
@@ -362,7 +400,7 @@ public sealed class PoiRankingOrchestratorTests
             logger);
 
         PoiRankingSnapshot snapshot = await orchestrator.BuildRankingAsync(
-            new PoiRankingInput(17L, [], [Candidate(1L), Candidate(2L)]),
+            new PoiRankingInput(17L, ["culture"], [Candidate(1L), Candidate(2L)]),
             CancellationToken.None);
 
         snapshot.OutcomeCategory.Should().Be(PoiRankingOutcomeCategory.InvalidResponse);
@@ -398,7 +436,7 @@ public sealed class PoiRankingOrchestratorTests
         var orchestrator = CreateOrchestrator(dbContext, provider, true, logger: logger);
 
         PoiRankingSnapshot snapshot = await orchestrator.BuildRankingAsync(
-            new PoiRankingInput(17L, [], [Candidate(1L)]),
+            new PoiRankingInput(17L, ["culture"], [Candidate(1L)]),
             CancellationToken.None);
 
         snapshot.OutcomeCategory.ToString().Should().Be(expectedOutcome);
@@ -434,7 +472,7 @@ public sealed class PoiRankingOrchestratorTests
         using var callerCancellation = new CancellationTokenSource();
 
         PoiRankingSnapshot snapshot = await orchestrator.BuildRankingAsync(
-            new PoiRankingInput(17L, [], [Candidate(1L)]),
+            new PoiRankingInput(17L, ["culture"], [Candidate(1L)]),
             callerCancellation.Token);
 
         snapshot.OutcomeCategory.Should().Be(PoiRankingOutcomeCategory.Timeout);
@@ -483,7 +521,7 @@ public sealed class PoiRankingOrchestratorTests
         using var cancellation = new CancellationTokenSource();
 
         Task<PoiRankingSnapshot> operation = orchestrator.BuildRankingAsync(
-            new PoiRankingInput(17L, [], [Candidate(1L)]),
+            new PoiRankingInput(17L, ["culture"], [Candidate(1L)]),
             cancellation.Token);
         await called.Task;
         cancellation.Cancel();
@@ -508,7 +546,7 @@ public sealed class PoiRankingOrchestratorTests
         var orchestrator = CreateOrchestrator(dbContext, provider, true);
 
         Func<Task> action = () => orchestrator.BuildRankingAsync(
-            new PoiRankingInput(17L, [], [Candidate(1L)]),
+            new PoiRankingInput(17L, ["culture"], [Candidate(1L)]),
             CancellationToken.None);
 
         await action.Should().ThrowAsync<InvalidOperationException>();

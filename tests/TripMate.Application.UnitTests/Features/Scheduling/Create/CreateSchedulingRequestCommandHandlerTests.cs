@@ -773,6 +773,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
     public async Task Handle_Replay_ReturnsPersistedExplanationWithoutSecondProviderCall()
     {
         await using var dbContext = TestDbContext.Create();
+        await AddUnmatchedTravelerInterestAsync(dbContext);
         var mandatoryPoi = await SeedSelectablePoiAsync(dbContext);
         await SeedSelectablePoiAsync(dbContext, "Optional riverside", 16.0472m, 108.2069m);
         var routeProvider = new RecordingRouteDurationProvider();
@@ -1316,6 +1317,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
     public async Task Handle_ReplayPrecheckHit_SkipsRankingAndUsesAuthoritativeReplay()
     {
         await using var dbContext = TestDbContext.Create();
+        await AddUnmatchedTravelerInterestAsync(dbContext);
         await SeedSelectablePoiAsync(dbContext);
         var rankingProvider = new RecordingPoiRankingProvider();
         var handler = CreateHandler(dbContext, rankingProvider: rankingProvider);
@@ -1427,6 +1429,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
     public async Task Handle_PrecheckMiss_MapsRankingTieBreakerScalars(string scenario)
     {
         await using var dbContext = TestDbContext.Create();
+        await AddUnmatchedTravelerInterestAsync(dbContext);
         var preferredPoi = CreateSelectablePoi(
             PoiCategory.Create("Nature", null),
             "Preferred candidate",
@@ -1808,6 +1811,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         using var metrics = new FunnelMetricCapture();
 
         await using var dbContext = TestDbContext.Create();
+        await AddUnmatchedTravelerInterestAsync(dbContext);
         var mandatoryPoi = await SeedSelectablePoiAsync(
             dbContext,
             "Mandatory museum",
@@ -1892,6 +1896,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
     {
         using var metrics = new FunnelMetricCapture();
         await using var dbContext = TestDbContext.Create();
+        await AddUnmatchedTravelerInterestAsync(dbContext);
         var mandatoryPoi = await SeedSelectablePoiAsync(
             dbContext,
             "Mandatory museum",
@@ -1938,6 +1943,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
     public async Task Handle_BehaviorSnapshotChangesOnce_RetriesWithCurrentBehaviorAndFrozenRanking()
     {
         await using var dbContext = TestDbContext.Create();
+        await AddUnmatchedTravelerInterestAsync(dbContext);
         var mandatoryPoi = await SeedSelectablePoiAsync(
             dbContext,
             "Mandatory museum",
@@ -1990,6 +1996,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
     public async Task Handle_DistantPoiMutationOutsideBoundingBox_DoesNotTriggerSnapshotRetry()
     {
         await using var dbContext = TestDbContext.Create();
+        await AddUnmatchedTravelerInterestAsync(dbContext);
         var mandatoryPoi = await SeedSelectablePoiAsync(
             dbContext,
             "Mandatory museum",
@@ -2089,6 +2096,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
     public async Task Handle_GenerationSnapshotChangesTwice_ReleasesReservationAndReturnsRetryableFailure()
     {
         await using var dbContext = TestDbContext.Create();
+        await AddUnmatchedTravelerInterestAsync(dbContext);
         var mandatoryPoi = await SeedSelectablePoiAsync(dbContext);
         var changingPoi = await SeedSelectablePoiAsync(
             dbContext,
@@ -2777,6 +2785,14 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
             CallCount++;
             return Task.CompletedTask;
         }
+    }
+
+    // UC-10 TripMate AI provider spec, A2: the ranking provider is called only when the traveler has a
+    // preference token, so tests that need that call give traveler 42 one interest no seeded POI matches.
+    private async Task AddUnmatchedTravelerInterestAsync(TestDbContext dbContext)
+    {
+        dbContext.TravelerProfiles.Add(TravelerProfile.Create(42, "[\"unmatched-interest\"]", _clock.UtcNow));
+        await dbContext.SaveChangesAsync();
     }
 
     private sealed class RecordingPoiRankingProvider : IPoiRankingProvider

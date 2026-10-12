@@ -502,6 +502,11 @@ public sealed class CreateSchedulingRequestRankingSqlServerTests
         context.Users.Add(user);
         await context.SaveChangesAsync();
 
+        // UC-10 TripMate AI provider spec, A2: the ranking provider is called only when the traveler has a
+        // preference token, so the traveler gets one interest that no seeded POI matches.
+        context.TravelerProfiles.Add(TravelerProfile.Create(user.Id, "[\"unmatched-interest\"]", now));
+        await context.SaveChangesAsync();
+
         var category = PoiCategory.Create($"TM-215-{suffix}", null);
         var optionals = definitions
             .Select((definition, index) => CreatePoi(

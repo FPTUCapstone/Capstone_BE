@@ -571,6 +571,12 @@ public sealed class CreateSchedulingRequestSqlServerTests
         await using var database = await SqlServerTestDatabase.CreateAsync();
         await ApplySchedulingMigrationsAsync(database);
         var seed = await SeedAsync(database);
+        // UC-10 TripMate AI provider spec, A2: the ranking provider is called only when the traveler has a
+        // preference token, so the traveler gets one interest that no seeded POI matches.
+        await database.ExecuteNonQueryAsync($"""
+            INSERT INTO dbo.TravelerProfiles (user_id, interest_tags_json)
+            VALUES ({seed.UserId}, N'["unmatched-interest"]');
+            """);
         var key = Guid.NewGuid();
         var routeProvider = new BlockingCountingRouteDurationProvider();
         var rankingProvider = new CountingPoiRankingProvider();
