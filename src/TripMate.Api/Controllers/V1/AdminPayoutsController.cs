@@ -8,7 +8,7 @@ using TripMate.Application.Features.Admin.Payouts.GetList;
 
 namespace TripMate.Api.Controllers.V1;
 
-[Authorize(Roles = "Administrator")]
+[Authorize(Roles = "Staff")]
 [Route("api/v1/admin/payouts")]
 public sealed class AdminPayoutsController(ISender sender) : ApiControllerBase(sender)
 {

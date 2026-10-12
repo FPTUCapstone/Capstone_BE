@@ -1,7 +1,5 @@
 using FluentValidation;
 
-using TripMate.Domain.Entities;
-
 namespace TripMate.Application.Features.Admin.Payouts.GetList;
 
 public sealed class GetPayoutsQueryValidator : AbstractValidator<GetPayoutsQuery>
@@ -12,7 +10,8 @@ public sealed class GetPayoutsQueryValidator : AbstractValidator<GetPayoutsQuery
             .Must(value => value is null || value.Trim().Length <= GetPayoutsQuery.MaximumKeywordLength)
             .WithMessage($"Keyword must not exceed {GetPayoutsQuery.MaximumKeywordLength} characters.");
         RuleFor(query => query.Status)
-            .Must(value => string.IsNullOrWhiteSpace(value) || Payout.AllStatuses.Contains(value))
+            .Must(value => !string.IsNullOrWhiteSpace(value)
+                && GetPayoutsQuery.StaffVisibleStatuses.Contains(value))
             .WithMessage("Status is invalid.");
         RuleFor(query => query.PeriodFrom)
             .Must(value => !value.HasValue || value.Value < DateOnly.MaxValue)
