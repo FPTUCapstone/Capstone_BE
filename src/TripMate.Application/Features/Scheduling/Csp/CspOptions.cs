@@ -26,7 +26,9 @@ public sealed class CspOptions
     public int MaxNodes { get; init; } = 200_000;
 
     /// <summary>
-    /// Lưới an toàn về thời gian (mili giây), chỉ để chặn trường hợp máy quá tải; mặc định 2.500 ms theo Report 3 V2. Duyệt
+    /// Lưới an toàn về thời gian (mili giây), chỉ để chặn trường hợp máy quá tải; mặc định 2.500 ms theo Report 3 V2. Đây
+    /// là mốc cứng cho cả lần giải: bước duyệt xem đồng hồ ở mọi nút, mỗi lần gọi evaluator được kiểm tra trước và sau và
+    /// nhận token bị hủy đúng mốc, polish và bước chấm cuối cũng dừng ở mốc này. Duyệt
     /// <see cref="MaxNodes"/> nút chỉ mất vài trăm mili giây, nên bình thường không bao giờ chạm mốc này. Khi chạm, kết quả
     /// CSP dở dang phụ thuộc tốc độ máy nên bị bỏ, và bên gọi trả lịch heuristic nguyên vẹn (R5): người dùng không bao giờ
     /// nhận một kết quả dở dang. Việc mốc có bị chạm hay không vẫn phụ thuộc máy, nên trên máy chậm hoặc quá tải, cùng một

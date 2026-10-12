@@ -145,6 +145,12 @@ public sealed class CspItinerarySolver(
     private readonly SchedulingGenerationOptions _options = options ?? new SchedulingGenerationOptions();
     private readonly CspOptions _cspOptions = cspOptions ?? options?.Csp ?? new CspOptions();
 
+    /// <summary>
+    /// Điểm chèn cho test: chạy ngay trước mỗi lần gọi evaluator, nhận đúng token mà evaluator nhận. Dùng để mô phỏng
+    /// evaluator chậm, có hoặc không tôn trọng token. Production không đặt.
+    /// </summary>
+    internal Action<CancellationToken>? BeforeEvaluation { get; init; }
+
     public CspResult Solve(
         GenerationInput input,
         RouteDurationMatrix matrix,
@@ -172,6 +178,10 @@ public sealed class CspItinerarySolver(
         ArgumentNullException.ThrowIfNull(candidateMatrixIndices);
 
         var clock = Stopwatch.StartNew();
+
+        // Một mốc thời gian cứng cho cả lần giải (review Phase 3): bước duyệt, mọi lần gọi evaluator, polish và bước
+        // chấm cuối đều xem cùng một đồng hồ. Chạm mốc ở bất kỳ đâu thì kết quả CSP bị bỏ (R5).
+        using var deadline = new SolveDeadline(clock, _cspOptions.TimeLimitMilliseconds, cancellationToken);
         var budget = new SearchBudget(_cspOptions.MaxNodes);
         var ctx = RoutingContext.Create(input, matrix, matrixCandidates, candidateMatrixIndices, _options, _options.MiniRouting);
         var rule = CspProductRule.Create(ctx, matrixCandidates, candidateMatrixIndices, matrix);
@@ -181,12 +191,26 @@ public sealed class CspItinerarySolver(
             || (input.RestPreference == RestPreference.Auto && input.AvailableMinutes >= 300);
         var evaluate = (RoutingContext context, IReadOnlyList<int> nodes, CspStatistics statistics) =>
         {
+            deadline.ThrowIfExpired();
             statistics.EvaluatorCalls++;
             var sequence = nodes.Select(node => context.Nodes[node].Candidate).ToArray();
-            return _evaluator.Evaluate(input, sequence, matrix, matrixCandidates, candidateMatrixIndices, cancellationToken);
+            EvaluatedItinerarySchedule? schedule;
+            try
+            {
+                BeforeEvaluation?.Invoke(deadline.Token);
+                schedule = _evaluator.Evaluate(input, sequence, matrix, matrixCandidates, candidateMatrixIndices, deadline.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Token của mốc bị hủy giữa một lần chấm: đó là chạm mốc, không phải bên gọi hủy.
+                throw new TimeLimitExceededException();
+            }
+
+            deadline.ThrowIfExpired();
+            return schedule;
         };
 
-        var search = new SearchRun(ctx, rule, _cspOptions, clock, budget, restApplies, evaluate, cancellationToken);
+        var search = new SearchRun(ctx, rule, _cspOptions, deadline, budget, restApplies, evaluate, cancellationToken);
         if (ctx.MandatoryNodes.Count != input.MandatoryPoiIds.Count)
         {
             search.Statistics.Elapsed = clock.Elapsed;
@@ -200,38 +224,60 @@ public sealed class CspItinerarySolver(
             candidates.Add((initialIncumbent!, false));
         }
 
-        search.Run(incumbent);
-        if (search.Statistics.TimeLimitReached)
+        SearchRun? relaxed = null;
+        try
         {
-            return DiscardTimedOutResult(search, clock);
-        }
-
-        Polish(search, clock, cancellationToken);
-        candidates.AddRange(search.EvaluatedSolutions.Select(schedule => (schedule, false)));
-        candidates.AddRange(EvaluateElite(search, stopAtFirstValid: !restApplies, evaluate).Select(schedule => (schedule, false)));
-
-        // Dự phòng thời gian nghỉ làm mô hình chặt hơn thực tế: nó có thể loại mất lịch tốt hơn, và "không có lời
-        // giải" ở đây chưa phải là vô nghiệm. Luôn chạy thêm mô hình nới lỏng (không dự phòng) với phần node budget
-        // còn lại, tiếp tục từ incumbent hiện có. Chỉ kết quả của mô hình nới lỏng mới được dùng để kết luận vô nghiệm.
-        if (ctx.Horizon < input.AvailableMinutes)
-        {
-            // Mô hình nới lỏng thật sự: không dự phòng thời gian nghỉ, và mỗi chặng được đi vòng qua một điểm nghỉ nếu đường
-            // đó ngắn hơn (R9), vì lịch thật có thể tới nơi sớm hơn và đi ít hơn mô hình đi thẳng.
-            var relaxedCtx = RoutingContext.Create(
-                input, matrix, matrixCandidates, candidateMatrixIndices, _options, _options.MiniRouting,
-                reserveRestTime: false, restShortcuts: true);
-            var relaxed = new SearchRun(relaxedCtx, rule, _cspOptions, clock, budget, restApplies, evaluate, cancellationToken);
-            relaxed.Statistics.EvaluatorCalls = search.Statistics.EvaluatorCalls;
-            relaxed.Run(search.Incumbent);
-            if (relaxed.Statistics.TimeLimitReached)
+            search.Run(incumbent);
+            if (search.Statistics.TimeLimitReached)
             {
-                relaxed.Statistics.AddEarlierRun(search.Statistics);
-                return DiscardTimedOutResult(relaxed, clock);
+                return DiscardTimedOutResult(search, clock);
             }
 
-            Polish(relaxed, clock, cancellationToken);
-            candidates.AddRange(relaxed.EvaluatedSolutions.Select(schedule => (schedule, true)));
-            candidates.AddRange(EvaluateElite(relaxed, stopAtFirstValid: false, evaluate).Select(schedule => (schedule, true)));
+            Polish(search, clock, cancellationToken);
+            candidates.AddRange(search.EvaluatedSolutions.Select(schedule => (schedule, false)));
+            candidates.AddRange(EvaluateElite(search, stopAtFirstValid: !restApplies, evaluate).Select(schedule => (schedule, false)));
+
+            // Dự phòng thời gian nghỉ làm mô hình chặt hơn thực tế: nó có thể loại mất lịch tốt hơn, và "không có lời
+            // giải" ở đây chưa phải là vô nghiệm. Luôn chạy thêm mô hình nới lỏng (không dự phòng) với phần node budget
+            // còn lại, tiếp tục từ incumbent hiện có. Chỉ kết quả của mô hình nới lỏng mới được dùng để kết luận vô nghiệm.
+            if (ctx.Horizon < input.AvailableMinutes)
+            {
+                // Mô hình nới lỏng thật sự: không dự phòng thời gian nghỉ, và mỗi chặng được đi vòng qua một điểm nghỉ nếu
+                // đường đó ngắn hơn (R9), vì lịch thật có thể tới nơi sớm hơn và đi ít hơn mô hình đi thẳng.
+                var relaxedCtx = RoutingContext.Create(
+                    input, matrix, matrixCandidates, candidateMatrixIndices, _options, _options.MiniRouting,
+                    reserveRestTime: false, restShortcuts: true);
+                relaxed = new SearchRun(relaxedCtx, rule, _cspOptions, deadline, budget, restApplies, evaluate, cancellationToken);
+                relaxed.Statistics.EvaluatorCalls = search.Statistics.EvaluatorCalls;
+                relaxed.Run(search.Incumbent);
+                if (relaxed.Statistics.TimeLimitReached)
+                {
+                    relaxed.Statistics.AddEarlierRun(search.Statistics);
+                    return DiscardTimedOutResult(relaxed, clock);
+                }
+
+                Polish(relaxed, clock, cancellationToken);
+                candidates.AddRange(relaxed.EvaluatedSolutions.Select(schedule => (schedule, true)));
+                candidates.AddRange(EvaluateElite(relaxed, stopAtFirstValid: false, evaluate).Select(schedule => (schedule, true)));
+            }
+
+            // Kiểm tra cuối: bắt cả phần việc không tự xem đồng hồ (dựng mô hình, giữa các bước).
+            deadline.ThrowIfExpired();
+        }
+        catch (TimeLimitExceededException)
+        {
+            var timedOut = relaxed ?? search;
+            timedOut.Statistics.TimeLimitReached = true;
+            if (relaxed is not null)
+            {
+                relaxed.Statistics.AddEarlierRun(search.Statistics);
+            }
+
+            return DiscardTimedOutResult(timedOut, clock);
+        }
+
+        if (relaxed is not null)
+        {
             relaxed.Statistics.AddEarlierRun(search.Statistics);
             search = relaxed;
         }
@@ -283,8 +329,17 @@ public sealed class CspItinerarySolver(
             TimeLimitMilliseconds = _cspOptions.TimeLimitMilliseconds,
             FinalCandidatesToValidate = _cspOptions.FinalCandidatesToValidate,
         };
-        var polished = new GuidedLocalSearch(search.Context, polishOptions, new MiniRoutingStatistics(), clock, cancellationToken)
+        var polishStatistics = new MiniRoutingStatistics();
+        var polished = new GuidedLocalSearch(search.Context, polishOptions, polishStatistics, clock, cancellationToken)
             .Run(bestCsp);
+
+        // Tìm kiếm cục bộ dừng ở cùng mốc và cùng đồng hồ: dừng vì mốc thì lời giải đã polish dở dang, phụ thuộc tốc độ
+        // máy, nên cũng bị bỏ như ở bước duyệt.
+        if (polishStatistics.TimeLimitReached)
+        {
+            throw new TimeLimitExceededException();
+        }
+
         foreach (var state in polished)
         {
             // Tìm kiếm cục bộ chèn được mọi điểm tùy chọn: chỉ giữ lời giải nằm trong giới hạn của CSP.
@@ -321,6 +376,42 @@ public sealed class CspItinerarySolver(
 
         return schedules;
     }
+
+    /// <summary>
+    /// Mốc thời gian chung của một lần giải (<see cref="CspOptions.TimeLimitMilliseconds"/>), đo bằng đồng hồ bắt đầu cùng
+    /// lần giải. <see cref="Token"/> bị hủy khi tới mốc hoặc khi bên gọi hủy, để một lần chấm đang chạy dừng ngay.
+    /// </summary>
+    private sealed class SolveDeadline : IDisposable
+    {
+        private readonly Stopwatch _clock;
+        private readonly int _limitMilliseconds;
+        private readonly CancellationTokenSource _source;
+
+        public SolveDeadline(Stopwatch clock, int limitMilliseconds, CancellationToken callerToken)
+        {
+            _clock = clock;
+            _limitMilliseconds = limitMilliseconds;
+            _source = CancellationTokenSource.CreateLinkedTokenSource(callerToken);
+            _source.CancelAfter(Math.Max(0, limitMilliseconds));
+        }
+
+        public CancellationToken Token => _source.Token;
+
+        public bool Expired => _clock.ElapsedMilliseconds >= _limitMilliseconds;
+
+        public void ThrowIfExpired()
+        {
+            if (Expired)
+            {
+                throw new TimeLimitExceededException();
+            }
+        }
+
+        public void Dispose() => _source.Dispose();
+    }
+
+    /// <summary>Chạm mốc thời gian ngoài bước duyệt (evaluator, polish, kiểm tra cuối); Solve bắt và bỏ kết quả CSP.</summary>
+    private sealed class TimeLimitExceededException : Exception;
 
     /// <summary>Giới hạn dùng chung cho mọi lần duyệt của một lần giải: số nút và số lần evaluator trong lúc duyệt.</summary>
     private sealed class SearchBudget(int maxNodes)
@@ -431,7 +522,7 @@ public sealed class CspItinerarySolver(
         private readonly RoutingContext _ctx;
         private readonly CspProductRule _rule;
         private readonly CspOptions _options;
-        private readonly Stopwatch _clock;
+        private readonly SolveDeadline _deadline;
         private readonly SearchBudget _budget;
         private readonly bool _restApplies;
         private readonly Func<RoutingContext, IReadOnlyList<int>, CspStatistics, EvaluatedItinerarySchedule?> _evaluate;
@@ -468,7 +559,7 @@ public sealed class CspItinerarySolver(
             RoutingContext ctx,
             CspProductRule rule,
             CspOptions options,
-            Stopwatch clock,
+            SolveDeadline deadline,
             SearchBudget budget,
             bool restApplies,
             Func<RoutingContext, IReadOnlyList<int>, CspStatistics, EvaluatedItinerarySchedule?> evaluate,
@@ -477,7 +568,7 @@ public sealed class CspItinerarySolver(
             _ctx = ctx;
             _rule = rule;
             _options = options;
-            _clock = clock;
+            _deadline = deadline;
             _budget = budget;
             _restApplies = restApplies;
             _evaluate = evaluate;
@@ -1084,15 +1175,14 @@ public sealed class CspItinerarySolver(
                 return false;
             }
 
-            if (((_budget.Used + 1) & 255) == 0)
+            // Xem đồng hồ ở mọi nút (review Phase 3): kiểm tra theo chu kỳ để lọt cây nhỏ hơn một chu kỳ và phần việc giữa
+            // hai lần kiểm tra. Đọc đồng hồ rẻ so với một nút.
+            _cancellationToken.ThrowIfCancellationRequested();
+            if (_deadline.Expired)
             {
-                _cancellationToken.ThrowIfCancellationRequested();
-                if (_clock.ElapsedMilliseconds >= _options.TimeLimitMilliseconds)
-                {
-                    Statistics.TimeLimitReached = true;
-                    _aborted = true;
-                    return false;
-                }
+                Statistics.TimeLimitReached = true;
+                _aborted = true;
+                return false;
             }
 
             _budget.Used++;
