@@ -19,7 +19,7 @@ public sealed class GetPayoutsQueryHandler(
         GetPayoutsQuery request,
         CancellationToken cancellationToken)
     {
-        if (currentUserService.UserId is null || currentUserService.Role != "Administrator")
+        if (currentUserService.UserId is null || currentUserService.Role != "Staff")
         {
             return Result.Failure<PayoutsResponseDto>(
                 PayoutErrorCodes.Forbidden,
@@ -34,6 +34,14 @@ public sealed class GetPayoutsQueryHandler(
                 PayoutErrorCodes.InvalidPeriodRangeMessage);
         }
 
+        if (string.IsNullOrWhiteSpace(request.Status)
+            || !GetPayoutsQuery.StaffVisibleStatuses.Contains(request.Status))
+        {
+            return Result.Failure<PayoutsResponseDto>(
+                PayoutErrorCodes.InvalidStatus,
+                PayoutErrorCodes.InvalidStatusMessage);
+        }
+
         var filtered = dbContext.Payouts
             .AsNoTracking()
             .AsQueryable();
@@ -46,10 +54,7 @@ public sealed class GetPayoutsQueryHandler(
                 EF.Functions.Like(payout.Operator.CompanyName, pattern, "\\"));
         }
 
-        if (!string.IsNullOrWhiteSpace(request.Status))
-        {
-            filtered = filtered.Where(payout => payout.Status == request.Status);
-        }
+        filtered = filtered.Where(payout => payout.Status == request.Status);
 
         if (request.PeriodFrom.HasValue)
         {
@@ -64,17 +69,11 @@ public sealed class GetPayoutsQueryHandler(
         var summary = await filtered
             .GroupBy(_ => 1)
             .Select(group => new SummaryRow(
-                group.Count(payout =>
-                    payout.Status == Payout.StatusPending || payout.Status == Payout.StatusRequested),
-                group
-                    .Where(payout => payout.Status == Payout.StatusPending || payout.Status == Payout.StatusRequested)
-                    .Sum(payout => payout.NetAmount),
-                group
-                    .Where(payout => payout.Status == Payout.StatusConfirmed || payout.Status == Payout.StatusPaid)
-                    .Sum(payout => payout.NetAmount)))
-            .FirstOrDefaultAsync(cancellationToken) ?? new SummaryRow(0, 0m, 0m);
+                group.Count(),
+                group.Sum(payout => payout.NetAmount)))
+            .FirstOrDefaultAsync(cancellationToken) ?? new SummaryRow(0, 0m);
 
-        var totalCount = await filtered.CountAsync(cancellationToken);
+        var totalCount = summary.TotalCount;
 
         var skipLong = ((long)request.PageNumber - 1) * request.PageSize;
         var pageRows = skipLong > int.MaxValue
@@ -103,11 +102,11 @@ public sealed class GetPayoutsQueryHandler(
             : 0;
 
         return Result.Success(new PayoutsResponseDto(
-            new PayoutSummaryDto(summary.PendingRequests, summary.TotalRequestedAmount, summary.TotalConfirmedAmount),
             request.PageNumber,
             request.PageSize,
             totalCount,
             totalPages,
+            summary.TotalAmount,
             pageRows.Select(row => new PayoutListItemDto(
                 row.PayoutId.ToString(CultureInfo.InvariantCulture),
                 Payout.PayoutCodePrefix + row.PayoutId.ToString(CultureInfo.InvariantCulture),
@@ -130,9 +129,8 @@ public sealed class GetPayoutsQueryHandler(
             .Replace("[", "\\[", StringComparison.Ordinal)}%";
 
     private sealed record SummaryRow(
-        int PendingRequests,
-        decimal TotalRequestedAmount,
-        decimal TotalConfirmedAmount);
+        int TotalCount,
+        decimal TotalAmount);
 
     private sealed record PageRow(
         long PayoutId,

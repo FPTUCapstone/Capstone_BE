@@ -38,7 +38,8 @@ public sealed class PayoutsOpenApiTests
             .GetProperty("payoutId").GetProperty("type").GetString().Should().Be("string");
         schemas.GetProperty("PayoutListItemDto").GetProperty("properties")
             .GetProperty("payoutCode").GetProperty("type").GetString().Should().Be("string");
-        schemas.TryGetProperty("PayoutSummaryDto", out _).Should().BeTrue();
+        schemas.GetProperty("PayoutsResponseDto").GetProperty("properties")
+            .GetProperty("totalAmount").GetProperty("type").GetString().Should().Be("number");
         schemas.TryGetProperty("PayoutOperatorDto", out _).Should().BeTrue();
     }
 }

@@ -11,7 +11,6 @@ public enum UserRole
     Administrator = 3,
     Staff = 4,
 }
-
 public static class UserRoleExtensions
 {
     public const string AdministratorOnly = "Policy.AdministratorOnly";

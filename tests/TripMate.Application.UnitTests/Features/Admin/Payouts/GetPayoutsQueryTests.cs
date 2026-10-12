@@ -23,18 +23,29 @@ public sealed class GetPayoutsQueryTests
     }
 
     [Theory]
-    [InlineData("Pending")]
-    [InlineData("Requested")]
-    [InlineData("Confirmed")]
-    [InlineData("Paid")]
+    [InlineData("PendingReview")]
+    [InlineData("ApprovedForSettlement")]
     [InlineData("Rejected")]
-    public void Validator_AcceptsEveryLifecycleStatus(string status)
+    public void Validator_AcceptsStaffVisibleStatus(string status)
     {
         var validator = new GetPayoutsQueryValidator();
 
         var result = validator.TestValidate(new GetPayoutsQuery(Status: status));
 
         result.ShouldNotHaveValidationErrorFor(query => query.Status);
+    }
+
+    [Theory]
+    [InlineData("SettlementProcessing")]
+    [InlineData("Settled")]
+    [InlineData("SettlementFailed")]
+    public void Validator_RejectsSettlementExecutionStatus(string status)
+    {
+        var validator = new GetPayoutsQueryValidator();
+
+        var result = validator.TestValidate(new GetPayoutsQuery(Status: status));
+
+        result.ShouldHaveValidationErrorFor(query => query.Status);
     }
 
     [Fact]
@@ -70,7 +81,7 @@ public sealed class GetPayoutsQueryTests
     }
 
     [Fact]
-    public async Task Handle_NonAdministrator_ReturnsForbidden()
+    public async Task Handle_NonStaff_ReturnsForbidden()
     {
         await using var db = TestDbContext.Create();
         var handler = new GetPayoutsQueryHandler(db, new CurrentUser(4, "Traveler"));
@@ -85,7 +96,7 @@ public sealed class GetPayoutsQueryTests
     public async Task Handle_InvertedPeriodRange_ReturnsInvalidPeriodRangeWithProposedMsg134()
     {
         await using var db = TestDbContext.Create();
-        var handler = new GetPayoutsQueryHandler(db, new CurrentUser(1, "Administrator"));
+        var handler = new GetPayoutsQueryHandler(db, new CurrentUser(1, "Staff"));
 
         var result = await handler.Handle(new GetPayoutsQuery(
             PeriodFrom: new DateOnly(2026, 9, 10),
@@ -97,10 +108,10 @@ public sealed class GetPayoutsQueryTests
     }
 
     [Fact]
-    public async Task Handle_NoPayouts_ReturnsSuccessfulEmptyPageWithZeroedSummary()
+    public async Task Handle_NoPayouts_ReturnsSuccessfulEmptyPageWithZeroedFilteredTotals()
     {
         await using var db = TestDbContext.Create();
-        var handler = new GetPayoutsQueryHandler(db, new CurrentUser(1, "Administrator"));
+        var handler = new GetPayoutsQueryHandler(db, new CurrentUser(1, "Staff"));
 
         var result = await handler.Handle(new GetPayoutsQuery(), CancellationToken.None);
 
@@ -108,7 +119,7 @@ public sealed class GetPayoutsQueryTests
         result.Value.Items.Should().BeEmpty();
         result.Value.TotalCount.Should().Be(0);
         result.Value.TotalPages.Should().Be(0);
-        result.Value.Summary.Should().Be(new PayoutSummaryDto(0, 0m, 0m));
+        result.Value.TotalAmount.Should().Be(0m);
     }
 
     private sealed record CurrentUser(long? UserId, string? Role) : ICurrentUserService;

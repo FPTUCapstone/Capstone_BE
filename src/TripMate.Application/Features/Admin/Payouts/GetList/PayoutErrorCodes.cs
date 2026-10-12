@@ -3,6 +3,8 @@ namespace TripMate.Application.Features.Admin.Payouts.GetList;
 public static class PayoutErrorCodes
 {
     public const string Forbidden = "Payouts.Forbidden";
+    public const string InvalidStatus = "payout.invalid_status";
+    public const string InvalidStatusMessage = "The requested payout status is not available for staff review.";
 
     // Proposed MSG134 wording (D10): the SRS references MSG29 for this case, but the locked
     // MSG29 content describes invalid POI coordinates and must never be displayed here.

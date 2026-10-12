@@ -1,96 +1,51 @@
 # UC-63 View Payout Records Backend Implementation Plan
 
-Status: **Approved 2026-10-01** (spec rewritten against SRS §3.9.9.1; decisions D1–D10 approved
-by the developer). Tasks are atomic and sequenced; each ends green before the next starts
-(TDD: failing test first).
+## Status and baseline
 
-Branch: `feature/linhnv-view-payout-records` (baseline: latest `origin/develop`, `dotnet test`
-verified green).
+**Replanned 2026-10-12** against the latest SRS Use Case catalogue and the approved shared-route decision. UC-63 remains the Staff review scope; it does not become an Administrator settlement feature merely because both roles can enter `/admin/payouts`.
 
-## Task 1 — Payout read-only mapping
+## Task 1 — Payout lifecycle schema and local test reset
 
-`TripMate.Domain/Entities/Payout.cs` + `TripMate.Infrastructure/Persistence/Configurations/PayoutConfiguration.cs`
-mapping `payment.Payouts` (database-first, no migration):
+1. For local/dev/test only, delete `payment.PayoutItems` and then `payment.Payouts`; seed fresh lifecycle fixtures. Do not ship a production data-reset migration.
+2. Add a forward migration replacing legacy payout status constraints with `PendingReview`, `ApprovedForSettlement`, `SettlementProcessing`, `Settled`, `SettlementFailed`, and `Rejected`.
+3. Add fields for Staff review (`reviewed_by`, `reviewed_at`, `rejection_reason`), Administrator authorization (`settlement_authorized_by`, `settlement_authorized_at`), and gateway outcome (`gateway_reference`, `gateway_failure_reason`, attempt metadata).
+4. Add constraints rejecting inconsistent state/field combinations and preserve one active payout per operator and settlement period.
 
-- `payout_id` PK identity; `operator_user_id` FK → `dbo.OperatorProfiles` (navigation
-  `Operator`, `DeleteBehavior.Restrict`); `period_start`/`period_end` (DATE store type);
-  `gross_revenue`/`commission_amount`/`net_amount` `HasPrecision(14,2)`; `status` VARCHAR(12)
-  with the five CHECK values as string constants; `requested_at`, `confirmed_by`,
-  `confirmed_at` mapped (UC-64/65 will need them) but not exposed by the UC-63 DTO except
-  `requested_at` (D9).
-- Wire `DbSet<Payout>` into `IApplicationDbContext`, `ApplicationDbContext`, `TestDbContext`,
-  `TestApiDbContext`, and the password-reset fake context.
-- Persistence model tests (table/schema/columns/precision/converter + FK to OperatorProfile).
+Exit: canonical schema, migration, EF mapping, and persistence tests agree. No legacy-status mapping exists.
 
-DoD: build + persistence tests green; no SQL file touched.
+## Task 2 — Separate server-enforced query scopes
 
-## Task 2 — Query, validator, DTOs, error codes
+- Keep or rename the existing review query as a **Staff-only** handler. Its default and allowed statuses are `PendingReview`, `ApprovedForSettlement`, and `Rejected`.
+- Add a distinct **Administrator-only** settlement query for UC-65. Its default is `ApprovedForSettlement`; exact history/filter fields belong to the UC-65 contract.
+- Do not accept a role/scope selector from URL, body, or client claims. Resolve scope only from the authenticated server principal.
+- Apply controller and handler defense-in-depth authorization for each endpoint.
 
-`src/TripMate.Application/Features/Admin/Payouts/GetList/`:
+Tests first: Staff allowed/Administrator denied for review; Administrator allowed/Staff denied for settlement; Traveler and Tour Operator denied for both.
 
-- `GetPayoutsQuery(Keyword, Status, PeriodFrom, PeriodTo, PageNumber, PageSize)` +
-  FluentValidation: keyword max 200; `status` in the five-value superset (D3a);
-  `PeriodFrom ≤ PeriodTo` (D3b) with error code `PayoutErrorCodes.InvalidPeriodRange`
-  (`payout.invalid_period_range`, proposed MSG134 wording — D10); page bounds (CR-01).
-- DTO records exactly matching the spec response: `PayoutsResponseDto(PayoutSummaryDto,
-  PageNumber, PageSize, TotalCount, TotalPages, Items)`; summary = `PayoutSummaryDto(
-  PendingRequests, TotalRequestedAmount, TotalConfirmedAmount)`; item =
-  `PayoutListItemDto(PayoutId, PayoutCode, Operator{UserId, CompanyName}, PeriodStart,
-  PeriodEnd, GrossRevenue, CommissionAmount, NetAmount, RequestedAtUtc, Status)`.
-  Derived `payoutCode = $"PO-{payoutId}"` (D8, constant documented). IDs as strings; money as
-  decimal (D5); `requestedAtUtc` nullable (D9). **No commission rate, no operator email** (D6).
-- `PayoutErrorCodes { Forbidden, InvalidPeriodRange }` with the standard MSG126 message;
-  invalid-range message uses the proposed MSG134 text.
+## Task 3 — Read-only Staff list
 
-Verify: validator unit tests green (status allow-list, inverted range, keyword length, bounds).
+- Apply keyword, allowed status, overlap period, deterministic ordering, then pagination.
+- Return persisted snapshot amounts only and `totalCount`/`totalAmount` for the filtered page set.
+- Do not expose bank details, gateway data, reviewer identity, authorization, or execution-state fields.
+- Keep `AsNoTracking`; no `SaveChanges` or audit write occurs in the list handler.
 
-## Task 3 — Handler assembly (TDD)
+Tests first: default queue, explicit allowed status, denied execution status, filter composition, empty page, stable ordering, summary semantics, and no mutation.
 
-`GetPayoutsQueryHandler` following the UC-58 list handler structure:
+## Task 4 — HTTP and OpenAPI
 
-1. Administrator role check → `Forbidden` (BR-115).
-2. Read-only query over `Payouts` (`AsNoTracking`): composed AND filters — keyword matches
-   derived code or company name (evaluate code match against `payout_id` converted to the
-   `PO-` form, and company name via the OperatorProfile join); status exact; period window
-   (`period_end ≥ periodFrom AND period_start ≤ periodTo`).
-3. Deterministic ordering `period_start DESC → operator_user_id DESC → payout_id DESC`;
-   count + skip/take pagination after filters (BR-52/CR-01).
-4. Summary over the **filtered** set (D4): pending-or-requested count; `SUM(net_amount)` for
-   {Pending, Requested}; `SUM(net_amount)` for {Confirmed, Paid}. Rejected contributes to
-   neither amount.
-5. No `SaveChanges` anywhere (D7).
+- Document the Staff review endpoint and Administrator settlement endpoint as separate authorization scopes even if both are reached through a shared FE route.
+- Update ProblemDetails/OpenAPI and integration tests for `401`, allowed `200`, wrong-role `403`, invalid request `400`, and safe empty `200`.
 
-Unit tests first: forbidden; empty DB → successful empty page with zeroed summary; each filter
-composes; keyword matches both code and company name; ordering stability with duplicate
-`period_start` rows; summary formulas (Rejected excluded from both amounts, Paid counted in
-confirmed, Pending counted in requested). Data-dependent verification lands in the SQL tests.
+## Task 5 — Payout worker handoff contract
 
-## Task 4 — Controller endpoint + OpenAPI
+- UC-65 changes `ApprovedForSettlement` to `SettlementProcessing` atomically and writes the durable work item/outbox record.
+- The payout-processing worker, not the Administrator request, invokes the gateway and makes the terminal transition to `Settled` or `SettlementFailed`.
+- Bound retries to transient failures; record attempts and final safe failure reason. Manual retry remains outside this scope.
 
-New `AdminPayoutsController` (`[Authorize(Roles = "Administrator")]`,
-`[Route("api/v1/admin/payouts")]`) with `[HttpGet]`, `HandleFailure`, and
-`ProducesResponseType` annotations for `200/400/401/403/500`. Error-code → status mapping for
-`Forbidden` (403) and `InvalidPeriodRange` (400) in `ApiControllerBase`. OpenAPI integration
-test asserting the path, query parameters, response codes, and DTO schemas (string
-`payoutId`, derived `payoutCode`, numeric money, summary counters).
+## Task 6 — Verification
 
-## Task 5 — Integration tests
+Run formatter, build, focused unit/API/SQL tests, then full repository checks. Review the exact branch head before PR creation.
 
-- HTTP (`TripMateApiFactory`): `401` anonymous, `403` traveler, `400` invalid status /
-  inverted period range (assert proposed MSG134 code) / oversized keyword, `200` empty page.
-- SQL Server gated (`Category=SqlServer`): seed operators + payouts across all five statuses
-  and multiple periods (including two rows with identical `period_start` to prove
-  tie-breaking, decimal amounts proving the net CHECK, one `Pending` row with `requested_at`
-  NULL, one `Paid` row); assert joins (company name only — no email/rate in payload), filter
-  composition, keyword on code and company name, ordering, pagination, and the three filtered
-  summary totals.
+## Non-goals
 
-## Task 6 — Verification and review
-
-1. `dotnet format TripMate.slnx --no-restore --verify-no-changes`
-2. `dotnet build TripMate.slnx -c Release` (0 warnings/errors)
-3. `dotnet test TripMate.slnx -c Release` (record SQL-skipped vs SQL-run honestly)
-4. Spec-compliance review, then code-quality review (severity-based; Critical blocks).
-
-Non-goals guard: no detail route, no mutation endpoints, no `PayoutItems` mapping, no amount
-recalculation, no audit write, no commission rate or operator email in the payload.
+UC-64 detail/review, UC-73 approval, UC-74 rejection, payment-gateway integration implementation, and manual-retry UI are separate work.
