@@ -22,7 +22,11 @@ BEGIN TRY
     SELECT @sql += N'ALTER TABLE payment.Payouts DROP CONSTRAINT [' + constraint_info.name + N'];'
     FROM sys.check_constraints AS constraint_info
     WHERE constraint_info.parent_object_id = OBJECT_ID(N'payment.Payouts')
-      AND constraint_info.name IN (N'CK_Payouts_PeriodOrder', N'CK_Payouts_NetAmount', N'CK_Payouts_Status', N'CK_Payouts_LifecycleState');
+      AND (
+          constraint_info.name IN (N'CK_Payouts_PeriodOrder', N'CK_Payouts_NetAmount', N'CK_Payouts_Status', N'CK_Payouts_LifecycleState')
+          -- Covers legacy auto-named status constraints with either quoted or unquoted columns.
+          OR constraint_info.definition LIKE N'%status%'
+      );
     IF @sql <> N'' EXEC sp_executesql @sql;
 
     SET @sql = N'';
