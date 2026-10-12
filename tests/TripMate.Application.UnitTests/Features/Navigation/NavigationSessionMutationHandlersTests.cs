@@ -125,6 +125,89 @@ public sealed class NavigationSessionMutationHandlersTests
     }
 
     [Fact]
+    public async Task Reach_LastOutstandingItemAutomaticallyCompletesTheSession()
+    {
+        await using var db = CreateDbContext();
+        var seed = await SeedAsync(db);
+        var now = StartedAtUtc.AddHours(1);
+        await Skip(db, now, seed.SessionId, seed.ItemIds[1], null);
+        await Reach(db, now.AddMinutes(10), seed.SessionId, seed.ItemIds[2], null);
+        var stillOpen = await Reach(db, now.AddMinutes(20), seed.SessionId, seed.ItemIds[0], null);
+
+        var final = await Reach(db, now.AddMinutes(30), seed.SessionId, seed.ItemIds[1], null);
+
+        stillOpen.Value.State.Should().Be(TripSession.ExploringState);
+        stillOpen.Value.NextItemId.Should().BeNull("only a skipped item remains, and it is not suggested again");
+        final.IsSuccess.Should().BeTrue();
+        final.Value.State.Should().Be(TripSession.CompletedState);
+        final.Value.CompletionReason.Should().Be(TripSession.RouteFinishedReason);
+        final.Value.EndedAtUtc.Should().Be(now.AddMinutes(30));
+        final.Value.NextItemId.Should().BeNull();
+        var stored = await LoadAsync(db, seed.SessionId);
+        stored.StateHistory.Select(history => history.Reason).Should().Equal(
+            TripStateHistory.NavigationStartedReason,
+            TripStateHistory.ItemReachedReason,
+            TripSession.RouteFinishedReason);
+    }
+
+    [Fact]
+    public async Task Mutations_ReauthorizeInsideSerializableReadsOnEveryRetriedAttempt()
+    {
+        await using var db = CreateDbContext();
+        var seed = await SeedAsync(db);
+        db.TransactionCompletionFailureFactory = attempt => attempt switch
+        {
+            1 => new DbUpdateConcurrencyException("Simulated row-version conflict."),
+            2 => new SimulatedDeadlockException(),
+            _ => null,
+        };
+
+        var result = await Reach(db, StartedAtUtc.AddHours(1), seed.SessionId, seed.ItemIds[0], null);
+
+        result.IsSuccess.Should().BeTrue();
+        db.TransactionExecutionCount.Should().Be(3);
+        db.SerializableReadCount.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task Mutations_DoNotRetryUnrelatedFailures()
+    {
+        await using var db = CreateDbContext();
+        var seed = await SeedAsync(db);
+        db.TransactionCompletionFailureFactory = _ => new InvalidOperationException("Unrelated failure.");
+
+        var reach = () => Reach(db, StartedAtUtc.AddHours(1), seed.SessionId, seed.ItemIds[0], null);
+
+        await reach.Should().ThrowAsync<InvalidOperationException>();
+        db.TransactionExecutionCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task OfflineReach_OlderThanANonTransitionSkipUsesTheServerCausalTime()
+    {
+        await using var db = CreateDbContext();
+        var seed = await SeedAsync(db);
+        await Reach(db, StartedAtUtc.AddMinutes(10), seed.SessionId, seed.ItemIds[0], null);
+        await Skip(
+            db,
+            StartedAtUtc.AddMinutes(40),
+            seed.SessionId,
+            seed.ItemIds[1],
+            StartedAtUtc.AddMinutes(40));
+        var serverNow = StartedAtUtc.AddMinutes(60);
+
+        var result = await Reach(
+            db,
+            serverNow,
+            seed.SessionId,
+            seed.ItemIds[2],
+            StartedAtUtc.AddMinutes(30));
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Items.Last().ReachedAtUtc.Should().Be(serverNow);
+    }
+
+    [Fact]
     public async Task Depart_ReturnsToNavigatingOnceAndRejectsCompletedSessions()
     {
         await using var db = CreateDbContext();

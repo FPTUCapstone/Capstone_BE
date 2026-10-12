@@ -108,6 +108,8 @@ public class TestDbContext(
 
     public bool IsExecutingSerializableTransaction { get; private set; }
 
+    public int SerializableReadCount { get; private set; }
+
     public int SaveChangesAsyncCallCount { get; private set; }
 
     public List<string> FinalizedOperatorDocumentCleanupPublicIds { get; } = [];
@@ -222,6 +224,16 @@ public class TestDbContext(
             IsExecutingSerializableTransaction = false;
         }
     }
+
+    public Task<T> ExecuteWithSerializableReadsAsync<T>(
+        Func<CancellationToken, Task<T>> reads,
+        CancellationToken cancellationToken)
+    {
+        SerializableReadCount++;
+        return reads(cancellationToken);
+    }
+
+    public bool IsDeadlock(Exception exception) => exception is SimulatedDeadlockException;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

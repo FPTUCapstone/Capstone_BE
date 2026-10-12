@@ -8,9 +8,12 @@ using TripMate.Domain.Entities;
 namespace TripMate.Application.Features.Navigation.Common;
 
 /// <summary>
-/// Shared pipeline for every navigation-session mutation: ownership and access checks, one
-/// transaction, lazy expiry before the action, the row-version fence, and a bounded retry that
-/// re-applies the action to fresh state after an optimistic-concurrency conflict.
+/// Shared pipeline for every navigation-session mutation. One transaction loads the session,
+/// checks ownership and current itinerary access, applies lazy expiry and the action, and saves
+/// behind the row-version fence. The access reads keep SERIALIZABLE locks until the commit, so a
+/// concurrent membership revocation commits either before the check (the action is denied) or
+/// after the mutation. A row-version conflict or a deadlock re-runs the whole attempt, the
+/// authorization included, against fresh state.
 /// </summary>
 internal sealed class NavigationSessionMutator(
     IApplicationDbContext dbContext,
@@ -26,43 +29,17 @@ internal sealed class NavigationSessionMutator(
         Action<string> recordOutcome,
         CancellationToken cancellationToken)
     {
-        var identity = await dbContext.TripSessions
-            .AsNoTracking()
-            .Where(session => session.Id == sessionId)
-            .Select(session => new { session.TravelerUserId, session.RequestedItineraryId })
-            .SingleOrDefaultAsync(cancellationToken);
-        if (identity is null)
-        {
-            recordOutcome(NavigationSessionMetrics.RejectedOutcome);
-            return NotFound();
-        }
-
-        if (identity.TravelerUserId != travelerUserId)
-        {
-            recordOutcome(NavigationSessionMetrics.RejectedOutcome);
-            return AccessDenied();
-        }
-
-        if (requiredItineraryAccess is not null)
-        {
-            var access = await requiredItineraryAccess.ResolveCurrentAsync(
-                identity.RequestedItineraryId,
-                travelerUserId,
-                trackCurrent: false,
-                cancellationToken);
-            if (access.IsFailure)
-            {
-                recordOutcome(NavigationSessionMetrics.RejectedOutcome);
-                return AccessDenied();
-            }
-        }
-
         for (var attempt = 1; ; attempt++)
         {
             try
             {
                 var outcome = await dbContext.ExecuteInTransactionAsync(
-                    transactionCancellationToken => MutateAsync(sessionId, mutate, transactionCancellationToken),
+                    transactionCancellationToken => MutateAsync(
+                        sessionId,
+                        travelerUserId,
+                        requiredItineraryAccess,
+                        mutate,
+                        transactionCancellationToken),
                     cancellationToken);
                 if (outcome.Expired)
                 {
@@ -72,7 +49,8 @@ internal sealed class NavigationSessionMutator(
                 recordOutcome(outcome.MetricOutcome);
                 return outcome.Result;
             }
-            catch (DbUpdateConcurrencyException) when (attempt < MaxAttempts)
+            catch (Exception exception) when (attempt < MaxAttempts
+                && (exception is DbUpdateConcurrencyException || dbContext.IsDeadlock(exception)))
             {
                 dbContext.ClearTrackedEntities();
             }
@@ -81,6 +59,8 @@ internal sealed class NavigationSessionMutator(
 
     private async Task<MutationOutcome> MutateAsync(
         long sessionId,
+        long travelerUserId,
+        IItineraryAccessService? requiredItineraryAccess,
         Func<TripSession, DateTimeOffset, TripSessionProgressOutcome> mutate,
         CancellationToken cancellationToken)
     {
@@ -93,6 +73,26 @@ internal sealed class NavigationSessionMutator(
         if (session is null)
         {
             return new MutationOutcome(NotFound(), NavigationSessionMetrics.RejectedOutcome, Expired: false);
+        }
+
+        if (session.TravelerUserId != travelerUserId)
+        {
+            return new MutationOutcome(AccessDenied(), NavigationSessionMetrics.RejectedOutcome, Expired: false);
+        }
+
+        if (requiredItineraryAccess is not null)
+        {
+            var access = await dbContext.ExecuteWithSerializableReadsAsync(
+                readCancellationToken => requiredItineraryAccess.ResolveCurrentAsync(
+                    session.RequestedItineraryId,
+                    travelerUserId,
+                    trackCurrent: false,
+                    readCancellationToken),
+                cancellationToken);
+            if (access.IsFailure)
+            {
+                return new MutationOutcome(AccessDenied(), NavigationSessionMetrics.RejectedOutcome, Expired: false);
+            }
         }
 
         var now = clock.UtcNow;

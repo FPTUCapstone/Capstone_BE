@@ -6,6 +6,8 @@ using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Admin.ActiveTrips.GetDetails;
 using TripMate.Application.Features.Admin.ActiveTrips.GetList;
+using TripMate.Application.Features.Itineraries.Common;
+using TripMate.Application.Features.Navigation.Skip;
 using TripMate.Domain.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
@@ -70,12 +72,19 @@ public sealed class ActiveTripDetailsSqlServerTests
                 '2026-09-25T17:00:00', '2026-09-26T03:12:44');
             SET @session = SCOPE_IDENTITY();
 
+            DECLARE @visitItem BIGINT;
             INSERT planning.ItineraryItems(itinerary_id, sequence_no, poi_id,
                 planned_arrival, planned_departure, stay_duration_minutes, item_kind, status)
             VALUES (@itinerary, 1, @poi, '2026-09-26T02:00:00', '2026-09-26T04:00:00', 120, 'Visit', 'Visited');
+            SET @visitItem = SCOPE_IDENTITY();
             INSERT planning.ItineraryItems(itinerary_id, sequence_no, poi_id,
                 planned_arrival, planned_departure, stay_duration_minutes, item_kind, status)
             VALUES (@itinerary, 2, NULL, NULL, NULL, 60, 'Rest', 'Skipped');
+
+            INSERT trip.TripSessionItems(session_id, itinerary_item_id, sequence_no, poi_id,
+                poi_name, latitude, longitude, planned_arrival, planned_departure, is_mandatory)
+            VALUES (@session, @visitItem, 1, @poi, N'My Khe Beach snapshot', 16.061200,
+                108.227700, '2026-09-26T02:00:00', '2026-09-26T04:00:00', 0);
 
             INSERT trip.TripStateHistory(session_id, from_state, to_state, reason, triggered_by)
             VALUES (@session, NULL, 'Navigating', N'Trip started', 'Traveler'),
@@ -114,8 +123,23 @@ public sealed class ActiveTripDetailsSqlServerTests
                    (@group, @memberTwo, '2026-09-21T08:30:00', 0, 'Active');
             """);
         await using var db = database.CreateDbContext();
-        var handler = new GetActiveTripDetailsQueryHandler(db, new Administrator(), new Clock());
         var sessionId = await db.TripSessions.AsNoTracking().Select(session => (long)session.Id).SingleAsync();
+        var travelerId = await db.TripSessions.AsNoTracking()
+            .Where(session => session.Id == sessionId)
+            .Select(session => session.TravelerUserId)
+            .SingleAsync();
+        var itemId = await db.TripSessionItems.AsNoTracking()
+            .Where(item => item.SessionId == sessionId)
+            .Select(item => item.ItineraryItemId)
+            .SingleAsync();
+        var skip = await new SkipNavigationItemCommandHandler(
+                db,
+                new ItineraryAccessService(db),
+                new Clock())
+            .Handle(new SkipNavigationItemCommand(sessionId, itemId, travelerId, null), default);
+        skip.IsSuccess.Should().BeTrue();
+
+        var handler = new GetActiveTripDetailsQueryHandler(db, new Administrator(), new Clock());
 
         var result = await handler.Handle(new GetActiveTripDetailsQuery(sessionId), default);
 
@@ -147,12 +171,11 @@ public sealed class ActiveTripDetailsSqlServerTests
         detail.CurrentLocation!.Latitude.Should().Be(16.061200m);
         detail.CurrentLocation.AsOfUtc.Should().Be(detail.LastSyncedAtUtc);
 
-        detail.ItineraryProgress.Should().HaveCount(2);
-        detail.ItineraryProgress[0].PoiName.Should().Be("My Khe Beach");
-        detail.ItineraryProgress[0].Status.Should().Be("Visited");
-        detail.ItineraryProgress[1].Status.Should().Be("Skipped");
-        detail.ItineraryProgress[1].PlannedArrivalUtc.Should().BeNull();
-        detail.ItineraryProgress[1].PlannedDepartureUtc.Should().BeNull();
+        detail.ItineraryProgress.Should().ContainSingle();
+        detail.ItineraryProgress[0].PoiName.Should().Be("My Khe Beach snapshot");
+        detail.ItineraryProgress[0].Status.Should().Be(TripSessionItem.SkippedStatus);
+        (await db.ItineraryItems.AsNoTracking().SingleAsync(item => item.Id == itemId)).Status
+            .Should().Be("Visited", "session progress must not mutate or read shared planning status");
 
         detail.StateHistory.Should().HaveCount(2);
         detail.StateHistory[0].ToState.Should().Be("Navigating");
@@ -213,6 +236,37 @@ public sealed class ActiveTripDetailsSqlServerTests
         var result = await handler.Handle(new GetActiveTripDetailsQuery(sessionId), default);
 
         result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(ActiveTripErrorCodes.NotFound);
+        (await db.AuditLogs.AsNoTracking().ToListAsync()).Should().BeEmpty();
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Handle_EffectivelyExpiredSession_ReturnsNotFoundLikeTheUc58List()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await database.ExecuteNonQueryAsync("""
+            DECLARE @traveler BIGINT;
+            INSERT dbo.Users(role, email, full_name, status)
+            VALUES ('Traveler', N'expired-detail@example.com', N'Expired Detail', 'Active');
+            SET @traveler = SCOPE_IDENTITY();
+
+            DECLARE @itinerary BIGINT;
+            INSERT planning.Itineraries(traveler_user_id, source_type, title, status)
+            VALUES (@traveler, 'Manual', N'Expired plan', 'Active');
+            SET @itinerary = SCOPE_IDENTITY();
+
+            INSERT trip.TripSessions(itinerary_id, requested_itinerary_id, traveler_user_id,
+                start_idempotency_key, fsm_state, started_at, expires_at)
+            VALUES (@itinerary, @itinerary, @traveler, NEWID(), 'Navigating',
+                '2026-09-25T17:00:00', '2026-09-26T17:00:00');
+            """);
+        await using var db = database.CreateDbContext();
+        var sessionId = await db.TripSessions.AsNoTracking().Select(session => session.Id).SingleAsync();
+        var handler = new GetActiveTripDetailsQueryHandler(db, new Administrator(), new Clock());
+
+        var result = await handler.Handle(new GetActiveTripDetailsQuery(sessionId), default);
+
         result.ErrorCode.Should().Be(ActiveTripErrorCodes.NotFound);
         (await db.AuditLogs.AsNoTracking().ToListAsync()).Should().BeEmpty();
     }

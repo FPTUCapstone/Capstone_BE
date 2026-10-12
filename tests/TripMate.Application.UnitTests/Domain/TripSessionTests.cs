@@ -122,9 +122,12 @@ public sealed class TripSessionTests
         var session = CreateSession();
         var skippedAt = StartedAtUtc.AddMinutes(10);
 
+        session.SkipItem(1001, skippedAt).Should().Be(TripSessionProgressOutcome.Applied);
         session.SkipItem(1002, skippedAt).Should().Be(TripSessionProgressOutcome.Applied);
         session.SkipItem(1002, skippedAt.AddMinutes(5)).Should().Be(TripSessionProgressOutcome.Replayed);
 
+        Item(session, 1001).IsMandatory.Should().BeTrue();
+        Item(session, 1001).Status.Should().Be(TripSessionItem.SkippedStatus);
         Item(session, 1002).Status.Should().Be(TripSessionItem.SkippedStatus);
         Item(session, 1002).SkippedAtUtc.Should().Be(skippedAt);
         session.FsmState.Should().Be(TripSession.NavigatingState);
@@ -205,16 +208,83 @@ public sealed class TripSessionTests
     }
 
     [Fact]
-    public void Finish_WithoutPendingItemsRecordsRouteFinishedEvenWhenSomeWereSkipped()
+    public void ReachItem_LastOutstandingItemAutomaticallyRecordsRouteFinished()
+    {
+        var session = CreateSession();
+        session.ReachItem(1003, StartedAtUtc.AddMinutes(30));
+        session.ReachItem(1001, StartedAtUtc.AddMinutes(45));
+        var finalReachedAt = StartedAtUtc.AddMinutes(60);
+
+        session.ReachItem(1002, finalReachedAt).Should().Be(TripSessionProgressOutcome.Applied);
+
+        session.FsmState.Should().Be(TripSession.CompletedState);
+        session.CompletionReason.Should().Be(TripSession.RouteFinishedReason);
+        session.EndedAtUtc.Should().Be(finalReachedAt);
+        session.ExploringItemId.Should().BeNull();
+        session.Items.Should().OnlyContain(item => item.Status == TripSessionItem.ReachedStatus);
+        session.StateHistory.Should().HaveCount(3);
+        session.StateHistory.Last().Should().BeEquivalentTo(new
+        {
+            FromState = TripSession.ExploringState,
+            ToState = TripSession.CompletedState,
+            Reason = TripSession.RouteFinishedReason,
+            TriggeredBy = TripStateHistory.TriggeredByTraveler,
+            ChangedAtUtc = finalReachedAt,
+        });
+        session.Finish(StartedAtUtc.AddMinutes(90)).Should().BeFalse();
+        session.CompletionReason.Should().Be(TripSession.RouteFinishedReason);
+    }
+
+    [Fact]
+    public void ReachItem_SkippedItemKeepsTheRouteOpenUntilItIsRevisited()
+    {
+        var session = CreateSession();
+        session.SkipItem(1002, StartedAtUtc.AddMinutes(10));
+        session.ReachItem(1001, StartedAtUtc.AddMinutes(30));
+        session.ReachItem(1003, StartedAtUtc.AddMinutes(60));
+        session.Depart(StartedAtUtc.AddMinutes(90));
+
+        session.FsmState.Should().Be(TripSession.NavigatingState);
+
+        var revisitedAt = StartedAtUtc.AddMinutes(120);
+        session.ReachItem(1002, revisitedAt).Should().Be(TripSessionProgressOutcome.Applied);
+
+        session.CompletionReason.Should().Be(TripSession.RouteFinishedReason);
+        session.StateHistory.Last().Should().BeEquivalentTo(new
+        {
+            FromState = TripSession.NavigatingState,
+            ToState = TripSession.CompletedState,
+            Reason = TripSession.RouteFinishedReason,
+            TriggeredBy = TripStateHistory.TriggeredByTraveler,
+            ChangedAtUtc = revisitedAt,
+        });
+    }
+
+    [Fact]
+    public void Finish_WhenOnlySkippedItemsRemainRecordsTravelerStopped()
     {
         var session = CreateSession();
         session.ReachItem(1001, StartedAtUtc.AddMinutes(30));
         session.SkipItem(1002, StartedAtUtc.AddMinutes(31));
         session.ReachItem(1003, StartedAtUtc.AddMinutes(60));
+        session.FsmState.Should().Be(TripSession.ExploringState);
 
         session.Finish(StartedAtUtc.AddMinutes(90)).Should().BeTrue();
 
-        session.CompletionReason.Should().Be(TripSession.RouteFinishedReason);
+        session.CompletionReason.Should().Be(TripSession.TravelerStoppedReason);
+    }
+
+    [Fact]
+    public void Finish_WithZeroReachedRecordsTravelerStopped()
+    {
+        var session = CreateSession();
+        session.SkipItem(1001, StartedAtUtc.AddMinutes(1));
+        session.SkipItem(1002, StartedAtUtc.AddMinutes(2));
+        session.SkipItem(1003, StartedAtUtc.AddMinutes(3));
+
+        session.Finish(StartedAtUtc.AddMinutes(4)).Should().BeTrue();
+
+        session.CompletionReason.Should().Be(TripSession.TravelerStoppedReason);
     }
 
     [Fact]
@@ -240,12 +310,12 @@ public sealed class TripSessionTests
             ChangedAtUtc = ExpiresAtUtc,
         });
 
-        var allResolved = CreateSession();
-        allResolved.SkipItem(1001, StartedAtUtc.AddMinutes(1));
-        allResolved.SkipItem(1002, StartedAtUtc.AddMinutes(2));
-        allResolved.ReachItem(1003, StartedAtUtc.AddMinutes(3));
-        allResolved.ExpireIfDue(ExpiresAtUtc).Should().BeTrue();
-        allResolved.CompletionReason.Should().Be(TripSession.RouteFinishedReason);
+        var zeroReached = CreateSession();
+        zeroReached.SkipItem(1001, StartedAtUtc.AddMinutes(1));
+        zeroReached.SkipItem(1002, StartedAtUtc.AddMinutes(2));
+        zeroReached.SkipItem(1003, StartedAtUtc.AddMinutes(3));
+        zeroReached.ExpireIfDue(ExpiresAtUtc).Should().BeTrue();
+        zeroReached.CompletionReason.Should().Be(TripSession.ExpiredReason);
     }
 
     [Fact]
@@ -294,6 +364,42 @@ public sealed class TripSessionTests
         session.ResolveEventTime(reachedAt, now, tolerance).Should().Be(reachedAt);
         session.ResolveEventTime(reachedAt.AddMinutes(5), now, tolerance)
             .Should().Be(reachedAt.AddMinutes(5));
+    }
+
+    [Fact]
+    public void ResolveEventTime_UsesReachAndSkipTimestampsThatDoNotCreateHistory()
+    {
+        var afterFirstReach = CreateSession();
+        afterFirstReach.ReachItem(1001, StartedAtUtc.AddMinutes(10));
+        var secondReach = StartedAtUtc.AddMinutes(30);
+        afterFirstReach.ReachItem(1002, secondReach);
+
+        var afterSkip = CreateSession();
+        afterSkip.ReachItem(1001, StartedAtUtc.AddMinutes(10));
+        var skippedAt = StartedAtUtc.AddMinutes(40);
+        afterSkip.SkipItem(1002, skippedAt);
+
+        var now = StartedAtUtc.AddHours(2);
+        var tolerance = TimeSpan.FromMinutes(2);
+        afterFirstReach.ResolveEventTime(secondReach.AddMinutes(-1), now, tolerance).Should().Be(now);
+        afterSkip.ResolveEventTime(skippedAt.AddMinutes(-1), now, tolerance).Should().Be(now);
+    }
+
+    [Fact]
+    public void ResolveEventTime_NeverStoresARevisitBeforeItsSkip()
+    {
+        // An offline reach queued before a skip that the Backend already recorded is replayed
+        // late with an older device time; it falls back to the server clock instead.
+        var session = CreateSession();
+        var skippedAt = StartedAtUtc.AddMinutes(40);
+        session.SkipItem(1002, skippedAt);
+        var now = StartedAtUtc.AddHours(2);
+
+        var reachedAt = session.ResolveEventTime(StartedAtUtc.AddMinutes(35), now, TimeSpan.FromMinutes(2));
+        session.ReachItem(1002, reachedAt);
+
+        Item(session, 1002).ReachedAtUtc.Should().Be(now);
+        Item(session, 1002).ReachedAtUtc.Should().BeOnOrAfter(Item(session, 1002).SkippedAtUtc!.Value);
     }
 
     [Fact]

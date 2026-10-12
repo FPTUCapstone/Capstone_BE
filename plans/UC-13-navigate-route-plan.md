@@ -1,9 +1,10 @@
-# UC-13 Navigate Route — Implementation Plan (Revision 2)
+# UC-13 Navigate Route — Implementation Plan (Revision 3)
 
 ## Status and scope
 
-Approved by the developer on 2026-10-09 together with
+Revision 2 was approved by the developer on 2026-10-09 together with
 [`specs/UC-13-navigate-route-spec.md`](../specs/UC-13-navigate-route-spec.md) revision 2.
+Revision 3 (2026-10-12) adds the review remediation below and follows spec revision 3.
 
 Repository: `Capstone_BE` — branch `feature/phuctv-uc13-navigation-backend` (uncommitted
 revision-1 work already on the branch is reworked in place; nothing has been merged or deployed).
@@ -12,6 +13,35 @@ Revision 2 replaces strict sequential progress with flexible order, skip/revisit
 phase, the trip time window, lazy expiry, and device event times. Mobile work stays separate.
 
 Do not commit, push, or open a PR without an explicit developer request.
+
+## Revision 3 — review remediation (2026-10-12)
+
+Review of `078935ddc37514e53f8df23a077e9c3f306a9322`. The developer chose to keep revision 2's
+progress rules with a decision record
+([`docs/analysis/uc13-navigation-progress-rules-decision.md`](../docs/analysis/uc13-navigation-progress-rules-decision.md),
+approval pending) and to auto-complete when every item is reached.
+
+| Review finding | Resolution | Evidence |
+| --- | --- | --- |
+| Authorization TOCTOU | Ownership and access checked inside the mutation transaction on every attempt; the access reads run under `SERIALIZABLE` locks held to the commit (`ExecuteWithSerializableReadsAsync`) while the transaction stays `READ COMMITTED`; retries on row-version conflicts and deadlocks (1205) | `NavigationSessionSqlServerTests.MembershipRevocation_*` (start/reach/skip/depart, both orders); `Mutations_ReauthorizeInsideSerializableReadsOnEveryRetriedAttempt` |
+| UC-59 wrong progress source | Detail projects the session's `TripSessionItems` | `ActiveTripNavigationProgressTests` (HTTP, InMemory and SQL Server); `ActiveTripDetailsSqlServerTests` |
+| Unverified requirement override | Decision record added; deviation and approval status stated in the spec | decision record |
+| Completion semantics | Reach that leaves every item `Reached` → `RouteFinished`; stop → `TravelerStopped`; expiry → `Expired` (zero reached included) | `TripSessionTests`, `NavigationSessionMutationHandlersTests`, endpoint lifecycle, `ConcurrentReachesOfTheLastTwoItems_CloseTheRouteExactlyOnce` |
+| Event ordering | Causal watermark over start, state history, and every item reach/skip time | `TripSessionTests.ResolveEventTime_*`, `OfflineReach_OlderThanANonTransitionSkipUsesTheServerCausalTime` |
+| UC-58/UC-59 expiry rule | One shared `ActiveTripSessions.WhereEffectivelyActive` predicate | `Handle_EffectivelyExpiredSession_ReturnsNotFoundLikeTheUc58List`, `Query_ExcludesNavigationSessionsPastTheirExpiry` |
+| `NextItemId` with only skipped items | Null when `Completed` or only `Skipped` items remain; skipped items stay revisitable | `NavigationSessionContractTests.Response_SuggestsNoNextItem*` |
+
+Verification on 2026-10-12 with `TRIPMATE_SQLSERVER_TEST_CONNECTION` set (local
+`tripmate-sqlserver`): `dotnet format --verify-no-changes` and `git diff --check` clean;
+`dotnet build -c Release` 0 warnings, 0 errors; Application.UnitTests 1840/1840;
+Infrastructure.UnitTests 715 passed (3 real-Cloudinary smoke skips); CandidatePoolReplay 13/13;
+Api.IntegrationTests 916 passed with 10 skips (9 Redis-gated rate limiter, 1 real-Cloudinary
+smoke). No SQL Server test was skipped.
+
+A whole-transaction `SERIALIZABLE` variant was tried first and rejected: it holds shared locks on
+the session row, so concurrent same-session mutations deadlock or block instead of failing the
+row-version check (the stop-vs-reach, duplicate-reach, skip-vs-reach, and concurrent-start SQL
+Server tests timed out or deadlocked).
 
 ## Baseline (2026-10-09)
 
@@ -82,17 +112,19 @@ Tests first:
 - `Start` requires `expiresAtUtc > startedAtUtc`, stores it, enters `Navigating`, one history row.
 - `ReachItem` in any order; `Navigating → Exploring` with `ItemReached` history; reaching another
   item while exploring changes `ExploringItemId` without history; Skipped → Reached allowed;
+  the reach that leaves every item Reached completes with `RouteFinished` (revision 3);
   already-Reached returns `Replayed` even when Completed; Completed rejects new reaches; unknown
   item returns `NotInSnapshot`.
 - `SkipItem`: Pending → Skipped; replay; Reached → `AlreadyReached`; Completed rejects; no state
   change.
 - `Depart`: `Exploring → Navigating` with `TravelerDeparted`; no-op when Navigating; Completed
   rejects.
-- `Finish`: `RouteFinished` without Pending items, else `TravelerStopped`; replay returns false and
+- `Finish`: always `TravelerStopped` for an open session (revision 3); replay returns false and
   keeps the reason; clears `ExploringItemId`.
-- `ExpireIfDue`: no-op before expiry or for legacy null expiry; `Expired` vs `RouteFinished`;
-  `EndedAtUtc == ExpiresAtUtc`; `System` trigger; idempotent.
-- `ResolveEventTime`: absent, before start, beyond skew, and in-range cases.
+- `ExpireIfDue`: no-op before expiry or for legacy null expiry; open sessions become `Expired`
+  (revision 3); `EndedAtUtc == ExpiresAtUtc`; `System` trigger; idempotent.
+- `ResolveEventTime`: absent, before the causal watermark (start, history, item reach/skip times),
+  beyond skew, and in-range cases.
 - All values come from Domain constants; outcome enum replaces `OutOfOrder` with the new cases.
 
 DoD: domain suite green.
@@ -149,7 +181,9 @@ Tests first (Application unit with the in-memory test context, plus SQL Server f
   action;
 - SQL Server: stop-wins vs reach returns `session_completed` with one terminal history row;
   concurrent duplicate reach keeps the first timestamp; concurrent skip vs reach of different
-  items both succeed after retry; start rollback unchanged.
+  items both succeed after retry; concurrent reaches of the last two items close the route once;
+  start/reach/skip/depart are ordered with membership revocation in both directions; start
+  rollback unchanged.
 
 ### T7 — Read handlers and Admin Active Trips
 
@@ -157,14 +191,16 @@ Tests first (Application unit with the in-memory test context, plus SQL Server f
   expired sessions; `Navigating` and `Exploring` are both open; unsupported filter `400`.
 - `GetActiveTripsQueryHandler` excludes sessions whose `ExpiresAtUtc` is past
   (SQL Server test seeds one expired and one live session).
+- Revision 3: `GetActiveTripDetailsQueryHandler` uses the same predicate and projects the session's
+  `TripSessionItems`; end-to-end HTTP test from Traveler reach/skip to the Administrator detail.
 
 ### T8 — API surface and OpenAPI
 
 - `NavigationSessionsController`: skip, state, optional bodies via
   `NavigationProgressRequest` / `DepartNavigationSessionRequest`; error mapping for new codes.
-- Endpoint tests: full lifecycle (start → reach 2 before 1 → depart → skip → revisit skipped →
-  finish), empty-body PUTs, invalid depart state `400`, missing `Idempotency-Key` `400`, list
-  filter.
+- Endpoint tests: full lifecycle (start → reach 3 before 1 → depart → skip → revisit skipped →
+  automatic `RouteFinished`), empty-body PUTs, invalid depart state `400`, missing
+  `Idempotency-Key` `400`, list filter.
 - OpenAPI tests: new routes, request bodies, item status schema, nullable fields.
 
 ### T9 — Exact-head verification and documentation
@@ -174,7 +210,8 @@ Tests first (Application unit with the in-memory test context, plus SQL Server f
 
 ## Required review focus
 
-1. Flexible order and skip/revisit rules match the item transition table exactly.
+1. Flexible order and skip/revisit rules match the item transition table exactly; completion
+   reasons match the revision-3 table.
 2. Exploring transitions and history rows are exact; replays write nothing.
 3. Lazy expiry is deterministic and identical between reads and writes.
 4. Retry-on-concurrency never duplicates history or overwrites first timestamps.

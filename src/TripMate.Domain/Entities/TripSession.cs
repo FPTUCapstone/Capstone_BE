@@ -41,7 +41,8 @@ public sealed class TripSession : BaseEntity
 
     private bool IsCompleted => FsmState == CompletedState;
 
-    private bool HasPendingItems => _items.Any(item => item.Status == TripSessionItem.PendingStatus);
+    private bool HasReachedEveryItem =>
+        _items.All(item => item.Status == TripSessionItem.ReachedStatus);
 
     public static TripSession Start(
         long itineraryId,
@@ -138,6 +139,15 @@ public sealed class TripSession : BaseEntity
         }
 
         target.MarkReached(reachedAtUtc);
+
+        // Report 3 V2 PC-03: the session closes when its last outstanding item is reached. Only
+        // a route whose every item was reached is RouteFinished; skipped items keep it open.
+        if (HasReachedEveryItem)
+        {
+            Complete(RouteFinishedReason, TripStateHistory.TriggeredByTraveler, reachedAtUtc);
+            return TripSessionProgressOutcome.Applied;
+        }
+
         ExploringItemId = itineraryItemId;
         if (FsmState != ExploringState)
         {
@@ -211,10 +221,9 @@ public sealed class TripSession : BaseEntity
             return false;
         }
 
-        Complete(
-            HasPendingItems ? TravelerStoppedReason : RouteFinishedReason,
-            TripStateHistory.TriggeredByTraveler,
-            finishedAtUtc);
+        // A fully reached route has already closed itself, so an explicit finish is always a stop,
+        // even when only skipped items (or nothing at all) remain unreached.
+        Complete(TravelerStoppedReason, TripStateHistory.TriggeredByTraveler, finishedAtUtc);
         return true;
     }
 
@@ -226,18 +235,15 @@ public sealed class TripSession : BaseEntity
             return false;
         }
 
-        Complete(
-            HasPendingItems ? ExpiredReason : RouteFinishedReason,
-            TripStateHistory.TriggeredBySystem,
-            expiresAtUtc);
+        Complete(ExpiredReason, TripStateHistory.TriggeredBySystem, expiresAtUtc);
         return true;
     }
 
     /// <summary>
     /// Resolves the time of a Traveler action: a device-observed time is kept only when it is not
-    /// earlier than the last recorded transition (so a device clock running behind cannot reorder
-    /// the history) and not later than the server clock plus the tolerated skew. The state
-    /// history must be loaded; without it only the session start bounds the device time.
+    /// earlier than the session's causal watermark (so an offline event replayed late cannot be
+    /// stored before an event the Backend already recorded) and not later than the server clock
+    /// plus the tolerated skew. Items and state history must be loaded.
     /// </summary>
     public DateTimeOffset ResolveEventTime(
         DateTimeOffset? occurredAtUtc,
@@ -251,10 +257,7 @@ public sealed class TripSession : BaseEntity
         }
 
         var occurredUtc = occurred.ToUniversalTime();
-        var earliestAllowed = _stateHistory.Count == 0
-            ? StartedAtUtc
-            : _stateHistory.Max(history => history.ChangedAtUtc);
-        if ((earliestAllowed is { } earliest && occurredUtc < earliest)
+        if ((CausalWatermark() is { } watermark && occurredUtc < watermark)
             || occurredUtc > nowUtc + clockSkewTolerance)
         {
             return nowUtc;
@@ -262,6 +265,18 @@ public sealed class TripSession : BaseEntity
 
         return occurredUtc < nowUtc ? occurredUtc : nowUtc;
     }
+
+    /// <summary>
+    /// The latest recorded navigation event: the start, every state transition, and every item
+    /// reach or skip. Item events count separately because a reach while Exploring and every skip
+    /// change no state and therefore write no history row.
+    /// </summary>
+    private DateTimeOffset? CausalWatermark() =>
+        _stateHistory.Select(history => (DateTimeOffset?)history.ChangedAtUtc)
+            .Concat(_items.Select(item => item.ReachedAtUtc))
+            .Concat(_items.Select(item => item.SkippedAtUtc))
+            .Append(StartedAtUtc)
+            .Max();
 
     private TripSessionItem? FindItem(long itineraryItemId) =>
         _items.SingleOrDefault(item => item.ItineraryItemId == itineraryItemId);

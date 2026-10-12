@@ -45,18 +45,7 @@ public sealed class NavigationSessionContractTests
     [Fact]
     public void Response_ExposesItemStatusScheduleExploringItemAndSuggestedNextItem()
     {
-        var session = TripSession.Start(
-            91,
-            80,
-            7,
-            Guid.Parse("11111111-1111-1111-1111-111111111111"),
-            StartedAtUtc,
-            StartedAtUtc.AddHours(12),
-            [
-                Snapshot(1001, 1, isMandatory: true),
-                Snapshot(1002, 2, isMandatory: false),
-                Snapshot(1003, 3, isMandatory: false),
-            ]);
+        var session = CreateSession();
         session.SkipItem(1001, StartedAtUtc.AddMinutes(5));
         session.ReachItem(1003, StartedAtUtc.AddMinutes(30));
 
@@ -91,6 +80,36 @@ public sealed class NavigationSessionContractTests
     }
 
     [Fact]
+    public void Response_SuggestsNoNextItemWhenOnlySkippedItemsRemainButStaysOpen()
+    {
+        var session = CreateSession();
+        session.SkipItem(1001, StartedAtUtc.AddMinutes(5));
+        session.ReachItem(1002, StartedAtUtc.AddMinutes(20));
+        session.ReachItem(1003, StartedAtUtc.AddMinutes(30));
+
+        var response = NavigationSessionResponse.From(session, itineraryVersion: 3);
+
+        response.State.Should().Be(TripSession.ExploringState);
+        response.CompletionReason.Should().BeNull();
+        response.NextItemId.Should().BeNull();
+        response.Items.First().Status.Should().Be(TripSessionItem.SkippedStatus);
+    }
+
+    [Fact]
+    public void Response_SuggestsNoNextItemForACompletedSessionWithPendingItems()
+    {
+        var session = CreateSession();
+        session.ReachItem(1001, StartedAtUtc.AddMinutes(5));
+        session.Finish(StartedAtUtc.AddMinutes(10));
+
+        var response = NavigationSessionResponse.From(session, itineraryVersion: 3);
+
+        response.State.Should().Be(TripSession.CompletedState);
+        response.Items.Should().Contain(item => item.Status == TripSessionItem.PendingStatus);
+        response.NextItemId.Should().BeNull();
+    }
+
+    [Fact]
     public void ErrorCodes_ReplaceOutOfOrderWithTheRevisionTwoVocabulary()
     {
         NavigationErrorCodes.OutsideTripWindow.Should().Be("navigation.outside_trip_window");
@@ -98,6 +117,20 @@ public sealed class NavigationSessionContractTests
         NavigationErrorCodes.ItineraryScheduleIncomplete.Should().Be("navigation.itinerary_schedule_incomplete");
         typeof(NavigationErrorCodes).GetField("ItemOutOfOrder").Should().BeNull();
     }
+
+    private static TripSession CreateSession() =>
+        TripSession.Start(
+            91,
+            80,
+            7,
+            Guid.Parse("11111111-1111-1111-1111-111111111111"),
+            StartedAtUtc,
+            StartedAtUtc.AddHours(12),
+            [
+                Snapshot(1001, 1, isMandatory: true),
+                Snapshot(1002, 2, isMandatory: false),
+                Snapshot(1003, 3, isMandatory: false),
+            ]);
 
     private static TripSessionItem Snapshot(long itemId, int sequenceNo, bool isMandatory) =>
         TripSessionItem.Snapshot(

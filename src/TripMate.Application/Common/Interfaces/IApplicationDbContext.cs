@@ -133,6 +133,23 @@ public interface IApplicationDbContext
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Runs authorization reads inside the caller's open transaction with SERIALIZABLE locking.
+    /// The key-range locks they take are held until that transaction ends, so a concurrent writer
+    /// of the rows read (for example a group-membership revocation) commits either before the
+    /// reads see it or after the caller commits. Statements after the reads return to the
+    /// transaction's own isolation level, so row-version checks elsewhere stay optimistic.
+    /// </summary>
+    Task<T> ExecuteWithSerializableReadsAsync<T>(
+        Func<CancellationToken, Task<T>> reads,
+        CancellationToken cancellationToken) => reads(cancellationToken);
+
+    /// <summary>
+    /// True when the exception, or one of its inner exceptions, reports that the transaction was
+    /// chosen as a deadlock victim. The transaction is rolled back and can be retried.
+    /// </summary>
+    bool IsDeadlock(Exception exception) => false;
+
+    /// <summary>
     /// Removes durable document-cleanup reservations while the caller's database transaction
     /// is still open. SQL Server implementations serialize this operation with the cleanup
     /// worker by public ID, so a committed document can never reference an asset the worker

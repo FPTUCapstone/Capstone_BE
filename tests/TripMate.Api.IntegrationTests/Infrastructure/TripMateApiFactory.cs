@@ -431,6 +431,8 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
 
     public DbSet<TripSession> TripSessions => Set<TripSession>();
 
+    public DbSet<TripSessionItem> TripSessionItems => Set<TripSessionItem>();
+
     public DbSet<Incident> Incidents => Set<Incident>();
 
     public DbSet<TripStateHistory> TripStateHistories => Set<TripStateHistory>();

@@ -17,65 +17,64 @@ public sealed class StartNavigationSessionCommandHandler(
     NavigationSessionOptions? options = null)
     : IRequestHandler<StartNavigationSessionCommand, Result<NavigationSessionResponse>>
 {
+    private const int MaxAttempts = 3;
+
     private readonly NavigationSessionOptions _options = options ?? new NavigationSessionOptions();
 
     public async Task<Result<NavigationSessionResponse>> Handle(
         StartNavigationSessionCommand request,
         CancellationToken cancellationToken)
     {
-        var replay = await LoadByKeyAsync(request.TravelerUserId, request.IdempotencyKey, cancellationToken);
-        if (replay is not null)
+        // A concurrent start that wins the idempotency-key or open-session unique index, or a
+        // deadlock, re-runs the whole attempt: the retry then replays the winner or reports the
+        // open session, with authorization re-evaluated.
+        for (var attempt = 1; ; attempt++)
         {
-            return await ReplayAsync(replay, request, cancellationToken);
-        }
-
-        try
-        {
-            var transactionResult = await dbContext.ExecuteInTransactionAsync(
-                transactionCancellationToken => StartAsync(request, transactionCancellationToken),
-                cancellationToken);
-            NavigationSessionMetrics.RecordStart(
-                transactionResult.IsSuccess
-                    ? NavigationSessionMetrics.AcceptedOutcome
-                    : NavigationSessionMetrics.RejectedOutcome);
-            return transactionResult;
-        }
-        catch (DbUpdateException)
-        {
-            dbContext.ClearTrackedEntities();
-            var winner = await LoadByKeyAsync(
-                request.TravelerUserId,
-                request.IdempotencyKey,
-                cancellationToken);
-            if (winner is not null)
+            try
             {
-                return await ReplayAsync(winner, request, cancellationToken);
+                var attemptResult = await dbContext.ExecuteInTransactionAsync(
+                    transactionCancellationToken => StartAttemptAsync(request, transactionCancellationToken),
+                    cancellationToken);
+                NavigationSessionMetrics.RecordStart(attemptResult.IsReplay
+                    ? NavigationSessionMetrics.ReplayedOutcome
+                    : attemptResult.Result.IsSuccess
+                        ? NavigationSessionMetrics.AcceptedOutcome
+                        : NavigationSessionMetrics.RejectedOutcome);
+                return attemptResult.Result;
             }
-
-            var activeId = await dbContext.TripSessions
-                .AsNoTracking()
-                .Where(session => session.TravelerUserId == request.TravelerUserId
-                    && session.EndedAtUtc == null)
-                .Select(session => (long?)session.Id)
-                .SingleOrDefaultAsync(cancellationToken);
-            if (activeId.HasValue)
+            catch (Exception exception) when (attempt < MaxAttempts
+                && (exception is DbUpdateException || dbContext.IsDeadlock(exception)))
             {
-                NavigationSessionMetrics.RecordStart(NavigationSessionMetrics.RejectedOutcome);
-                return ActiveSessionExists(activeId.Value);
+                dbContext.ClearTrackedEntities();
             }
-
-            throw;
         }
+    }
+
+    private async Task<StartAttemptResult> StartAttemptAsync(
+        StartNavigationSessionCommand request,
+        CancellationToken cancellationToken)
+    {
+        var replay = await LoadByKeyAsync(
+            request.TravelerUserId,
+            request.IdempotencyKey,
+            cancellationToken);
+        return replay is not null
+            ? new StartAttemptResult(await ReplayAsync(replay, request, cancellationToken), IsReplay: true)
+            : new StartAttemptResult(await StartAsync(request, cancellationToken), IsReplay: false);
     }
 
     private async Task<Result<NavigationSessionResponse>> StartAsync(
         StartNavigationSessionCommand request,
         CancellationToken cancellationToken)
     {
-        var access = await itineraryAccessService.ResolveCurrentAsync(
-            request.ItineraryId,
-            request.TravelerUserId,
-            trackCurrent: false,
+        // Held until the commit, so a membership revocation cannot slip between this check and
+        // the new session becoming visible.
+        var access = await dbContext.ExecuteWithSerializableReadsAsync(
+            readCancellationToken => itineraryAccessService.ResolveCurrentAsync(
+                request.ItineraryId,
+                request.TravelerUserId,
+                trackCurrent: false,
+                readCancellationToken),
             cancellationToken);
         if (access.IsFailure)
         {
@@ -176,7 +175,6 @@ public sealed class StartNavigationSessionCommandHandler(
     {
         if (replay.RequestedItineraryId != request.ItineraryId)
         {
-            NavigationSessionMetrics.RecordStart(NavigationSessionMetrics.RejectedOutcome);
             return Result.Failure<NavigationSessionResponse>(
                 NavigationErrorCodes.IdempotencyKeyPayloadMismatch,
                 "The Idempotency-Key was already used for another itinerary.");
@@ -189,13 +187,11 @@ public sealed class StartNavigationSessionCommandHandler(
             cancellationToken);
         if (access.IsFailure)
         {
-            NavigationSessionMetrics.RecordStart(NavigationSessionMetrics.RejectedOutcome);
             return AccessDenied();
         }
 
         // Untracked: shows the effective state without persisting a read-time expiry.
         replay.ExpireIfDue(clock.UtcNow);
-        NavigationSessionMetrics.RecordStart(NavigationSessionMetrics.ReplayedOutcome);
         return Result.Success(NavigationSessionResponse.From(replay, replay.Itinerary));
     }
 
@@ -230,4 +226,8 @@ public sealed class StartNavigationSessionCommandHandler(
                 [NavigationErrorMetadata.ActiveSessionLocation] = location,
             });
     }
+
+    private sealed record StartAttemptResult(
+        Result<NavigationSessionResponse> Result,
+        bool IsReplay);
 }

@@ -19,7 +19,7 @@ public sealed class NavigationSessionEndpointTests
     private const string SecondKey = "22222222-2222-2222-2222-222222222222";
 
     [Fact]
-    public async Task Lifecycle_FlexibleOrderExploringSkipRevisitAndFinish()
+    public async Task Lifecycle_FlexibleOrderExploringSkipRevisitAndAutomaticFinish()
     {
         await using var factory = new TripMateApiFactory();
         var seed = await SeedAsync(factory);
@@ -62,29 +62,44 @@ public sealed class NavigationSessionEndpointTests
 
         using var reachFirst = await client.PutAsync($"{basePath}/reached-items/{seed.ItemIds[0]}", content: null);
         reachFirst.StatusCode.Should().Be(HttpStatusCode.OK);
+        using (var json = await ReadAsync(reachFirst))
+        {
+            // Only a skipped item remains: nothing is suggested, but the route is not finished.
+            json.RootElement.GetProperty("state").GetString().Should().Be(TripSession.ExploringState);
+            json.RootElement.GetProperty("nextItemId").ValueKind.Should().Be(JsonValueKind.Null);
+        }
+
         using var revisitSecond = await client.PutAsync($"{basePath}/reached-items/{seed.ItemIds[1]}", content: null);
         revisitSecond.StatusCode.Should().Be(HttpStatusCode.OK);
         using (var json = await ReadAsync(revisitSecond))
         {
             Item(json, 1).GetProperty("status").GetString().Should().Be(TripSessionItem.ReachedStatus);
+            json.RootElement.GetProperty("state").GetString().Should().Be(TripSession.CompletedState);
+            json.RootElement.GetProperty("completionReason").GetString()
+                .Should().Be(TripSession.RouteFinishedReason);
             json.RootElement.GetProperty("nextItemId").ValueKind.Should().Be(JsonValueKind.Null);
         }
 
         using var finish = await client.PutAsync($"{basePath}/completion", content: null);
-        using var finishReplay = await client.PutAsync($"{basePath}/completion", content: null);
         finish.StatusCode.Should().Be(HttpStatusCode.OK);
-        finishReplay.StatusCode.Should().Be(HttpStatusCode.OK);
-        using (var json = await ReadAsync(finishReplay))
+        using (var json = await ReadAsync(finish))
         {
             json.RootElement.GetProperty("state").GetString().Should().Be(TripSession.CompletedState);
             json.RootElement.GetProperty("completionReason").GetString()
-                .Should().Be(TripSession.RouteFinishedReason);
+                .Should().Be(TripSession.RouteFinishedReason, "a later completion never rewrites the reason");
         }
 
         await factory.WithDbContextAsync(async db =>
         {
-            // Started, reached (Exploring), departed, reached (Exploring), finished.
-            (await db.Set<TripStateHistory>().CountAsync()).Should().Be(5);
+            // Started, reached (Exploring), departed, reached (Exploring), last reach completed.
+            (await db.Set<TripStateHistory>().OrderBy(entry => entry.Id).Select(entry => entry.Reason)
+                    .ToListAsync())
+                .Should().Equal(
+                    TripStateHistory.NavigationStartedReason,
+                    TripStateHistory.ItemReachedReason,
+                    TripStateHistory.TravelerDepartedReason,
+                    TripStateHistory.ItemReachedReason,
+                    TripSession.RouteFinishedReason);
             return true;
         });
     }

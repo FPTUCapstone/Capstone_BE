@@ -1,7 +1,9 @@
 using System.Data;
 using System.Reflection;
 
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Media;
@@ -13,6 +15,8 @@ public class ApplicationDbContext(
     DbContextOptions<ApplicationDbContext> options)
     : DbContext(options), IApplicationDbContext
 {
+    private const int SqlServerDeadlockVictimError = 1205;
+
     public DbSet<User> Users => Set<User>();
 
     public DbSet<TravelerProfile> TravelerProfiles => Set<TravelerProfile>();
@@ -103,6 +107,45 @@ public class ApplicationDbContext(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken)
         => await ExecuteInTransactionAsync(operation, IsolationLevel.Serializable, cancellationToken);
+
+    public async Task<T> ExecuteWithSerializableReadsAsync<T>(
+        Func<CancellationToken, Task<T>> reads,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(reads);
+        var transaction = Database.CurrentTransaction
+            ?? throw new InvalidOperationException("Serializable reads must run inside an open transaction.");
+        var isolationLevel = transaction.GetDbTransaction().IsolationLevel;
+        if (isolationLevel == IsolationLevel.Serializable)
+        {
+            return await reads(cancellationToken);
+        }
+
+        if (isolationLevel != IsolationLevel.ReadCommitted)
+        {
+            throw new NotSupportedException($"Serializable reads cannot be raised from {isolationLevel}.");
+        }
+
+        // SQL Server holds every lock taken under SERIALIZABLE until the transaction ends, even
+        // after the level is lowered again, so only these reads pay for key-range locking.
+        await Database.ExecuteSqlRawAsync("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;", cancellationToken);
+        var result = await reads(cancellationToken);
+        await Database.ExecuteSqlRawAsync("SET TRANSACTION ISOLATION LEVEL READ COMMITTED;", cancellationToken);
+        return result;
+    }
+
+    public bool IsDeadlock(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is SqlException { Number: SqlServerDeadlockVictimError })
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     public async Task FinalizeOperatorDocumentCleanupReservationsAsync(
         IReadOnlyCollection<string> publicIds,

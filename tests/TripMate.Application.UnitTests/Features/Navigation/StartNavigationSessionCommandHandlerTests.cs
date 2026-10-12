@@ -42,6 +42,24 @@ public sealed class StartNavigationSessionCommandHandlerTests
         (await db.TripSessions.CountAsync()).Should().Be(1);
         (await db.TripSessionItems.CountAsync()).Should().Be(1);
         (await db.TripStateHistories.CountAsync()).Should().Be(1);
+        db.SerializableReadCount.Should().Be(1, "the access check holds its locks until the commit");
+    }
+
+    [Fact]
+    public async Task Handle_DeadlockRetriesTheWholeAttemptAndReplaysTheCommittedSession()
+    {
+        await using var db = CreateDbContext();
+        var itinerary = await SeedActiveItineraryAsync(db, Now.AddHours(1));
+        var key = Guid.NewGuid();
+        db.TransactionCompletionFailureFactory = attempt => attempt == 1 ? new SimulatedDeadlockException() : null;
+
+        var result = await CreateHandler(db, Now).Handle(
+            new StartNavigationSessionCommand(itinerary.Id, 7, key),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        db.TransactionExecutionCount.Should().Be(2);
+        (await db.TripSessions.CountAsync()).Should().Be(1);
     }
 
     [Theory]

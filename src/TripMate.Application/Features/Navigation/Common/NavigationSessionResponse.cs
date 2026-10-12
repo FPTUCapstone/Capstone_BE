@@ -56,10 +56,22 @@ public sealed record NavigationSessionResponse(
             session.ExpiresAtUtc,
             session.EndedAtUtc,
             session.ExploringItemId,
-            items.FirstOrDefault(item => item.Status == TripSessionItem.PendingStatus)?.ItemId,
+            SuggestNextItemId(session.FsmState, items),
             items,
             transportMode);
     }
+
+    /// <summary>
+    /// The advisory next stop: the lowest-sequence Pending item of an open session. It is null
+    /// for a Completed session and when only Skipped items remain; a Skipped item can still be
+    /// reached on request but is never suggested again.
+    /// </summary>
+    private static long? SuggestNextItemId(
+        string state,
+        IEnumerable<NavigationSessionItemResponse> orderedItems) =>
+        state == TripSession.CompletedState
+            ? null
+            : orderedItems.FirstOrDefault(item => item.Status == TripSessionItem.PendingStatus)?.ItemId;
 }
 
 public sealed record NavigationSessionItemResponse(

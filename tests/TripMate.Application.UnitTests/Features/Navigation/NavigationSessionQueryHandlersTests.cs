@@ -34,7 +34,7 @@ public sealed class NavigationSessionQueryHandlersTests
 
         result.IsSuccess.Should().BeTrue();
         result.Value.State.Should().Be(TripSession.CompletedState);
-        result.Value.CompletionReason.Should().Be(TripSession.RouteFinishedReason);
+        result.Value.CompletionReason.Should().Be(TripSession.ExpiredReason);
         result.Value.EndedAtUtc.Should().Be(ExpiresAtUtc);
         var stored = await db.TripSessions.AsNoTracking()
             .Include(session => session.StateHistory)
@@ -120,9 +120,17 @@ public sealed class NavigationSessionQueryHandlersTests
             true,
             0m,
             "Planned"));
+        itinerary.AddItem(ItineraryItem.CreateVisit(
+            2,
+            poi.Id,
+            StartedAtUtc.AddHours(2),
+            StartedAtUtc.AddHours(3),
+            false,
+            0m,
+            "Planned"));
         db.Itineraries.Add(itinerary);
         await db.SaveChangesAsync();
-        var item = itinerary.Items.Single();
+        var items = itinerary.Items.OrderBy(item => item.SequenceNo).ToArray();
         var session = TripSession.Start(
             itinerary.Id,
             itinerary.Id,
@@ -130,19 +138,18 @@ public sealed class NavigationSessionQueryHandlersTests
             Guid.NewGuid(),
             StartedAtUtc,
             ExpiresAtUtc,
-            [
+            items.Select(item =>
                 TripSessionItem.Snapshot(
                     item.Id,
-                    1,
+                    item.SequenceNo,
                     poi.Id,
                     poi.Name,
                     poi.Latitude,
                     poi.Longitude,
                     item.PlannedArrivalUtc!.Value,
                     item.PlannedDepartureUtc!.Value,
-                    item.IsMandatory),
-            ]);
-        session.ReachItem(item.Id, StartedAtUtc.AddMinutes(30));
+                    item.IsMandatory)));
+        session.ReachItem(items[0].Id, StartedAtUtc.AddMinutes(30));
         db.TripSessions.Add(session);
         await db.SaveChangesAsync();
         db.ClearTrackedEntities();
