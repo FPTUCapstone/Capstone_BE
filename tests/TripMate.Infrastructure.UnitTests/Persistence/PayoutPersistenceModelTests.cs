@@ -1,6 +1,7 @@
 using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
 
 using TripMate.Domain.Entities;
@@ -15,7 +16,7 @@ public sealed class PayoutPersistenceModelTests
     {
         using var context = CreateContext();
 
-        var payout = context.Model.FindEntityType(typeof(Payout))!;
+        var payout = context.GetService<IDesignTimeModel>().Model.FindEntityType(typeof(Payout))!;
         payout.GetTableName().Should().Be("Payouts");
         payout.GetSchema().Should().Be("payment");
         Column(payout, nameof(Payout.Id)).Should().Be("payout_id");
