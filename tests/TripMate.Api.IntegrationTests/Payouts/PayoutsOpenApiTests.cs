@@ -42,4 +42,20 @@ public sealed class PayoutsOpenApiTests
             .GetProperty("totalAmount").GetProperty("type").GetString().Should().Be("number");
         schemas.TryGetProperty("PayoutOperatorDto", out _).Should().BeTrue();
     }
+
+    [Fact]
+    public async Task GetSettlement_DocumentsSeparateAdministratorScope()
+    {
+        await using var factory = new TripMateApiFactory();
+        var provider = factory.Services.GetRequiredService<ISwaggerProvider>();
+        var json = await provider.GetSwagger("v1").SerializeAsJsonAsync(OpenApiSpecVersion.OpenApi3_0);
+        using var document = JsonDocument.Parse(json);
+        var operation = document.RootElement.GetProperty("paths")
+            .GetProperty("/api/v1/admin/payout-settlements").GetProperty("get");
+
+        var names = operation.GetProperty("parameters").EnumerateArray()
+            .Select(parameter => parameter.GetProperty("name").GetString()).ToArray();
+        names.Should().Contain(["keyword", "periodFrom", "periodTo", "pageNumber", "pageSize"]);
+        names.Should().NotContain("status");
+    }
 }
