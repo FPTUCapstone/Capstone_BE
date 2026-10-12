@@ -604,13 +604,25 @@ public sealed class CreateSchedulingRequestSqlServerTests
         routeProvider.Release();
         var resultIds = await Task.WhenAll(first, second);
 
-        resultIds[0].Should().BeEquivalentTo(resultIds[1], options => options.WithStrictOrdering());
+        // TM-217 §7: explanations are persisted in a best-effort T2 after the scheduling
+        // commit, so a concurrent replay may observe the committed items before T2 lands.
+        resultIds[0].Should().BeEquivalentTo(resultIds[1], options => options
+            .WithStrictOrdering()
+            .For(response => response.Items).Exclude(item => item.FriendlyExplanation));
+        resultIds[1].Items.Zip(resultIds[0].Items).Should().OnlyContain(pair =>
+            pair.First.FriendlyExplanation == null
+            || pair.First.FriendlyExplanation == pair.Second.FriendlyExplanation);
         routeProvider.CallCount.Should().Be(1);
         rankingProvider.CallCount.Should().Be(1);
         await using var verification = database.CreateDbContext();
         (await verification.SchedulingRequests.CountAsync()).Should().Be(1);
         (await verification.Itineraries.CountAsync()).Should().Be(1);
         (await verification.ItineraryItems.CountAsync()).Should().Be(resultIds[0].Items.Count);
+        (await verification.ItineraryItems
+                .OrderBy(item => item.SequenceNo)
+                .Select(item => item.FriendlyExplanation)
+                .ToArrayAsync())
+            .Should().Equal(resultIds[0].Items.Select(item => item.FriendlyExplanation));
         var request = await verification.SchedulingRequests.SingleAsync();
         request.Status.Should().Be(SchedulingRequestStatus.Completed);
     }

@@ -95,8 +95,13 @@ public static class SchedulingSolverDiagnostics
         activity.SetTag("csp.time_limit_reached", csp.TimeLimitReached);
         activity.SetTag("csp.used_relaxed_rest_model", csp.UsedRelaxedRestModel);
         activity.SetTag("csp.chose_relaxed_rest_model", csp.ChoseRelaxedRestModel);
+
+        // Outcome csp với tag này true nghĩa là CSP chỉ xác nhận lịch heuristic, không tạo ra lịch mới: giám sát đếm phần
+        // CSP cải thiện được bằng outcome csp và tag false.
+        activity.SetTag("csp.returned_heuristic_plan", csp.ReturnedInitialIncumbent);
         activity.SetTag("csp.evaluator_calls", csp.EvaluatorCalls);
         activity.SetTag("csp.in_search_evaluation_limit_reached", csp.InSearchEvaluationLimitReached);
+        activity.SetTag("csp.tie_evaluation_limit_reached", csp.TieEvaluationLimitReached);
         activity.SetTag("csp.elapsed_ms", csp.Elapsed.TotalMilliseconds);
     }
 }

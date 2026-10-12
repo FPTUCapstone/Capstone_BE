@@ -34,6 +34,67 @@ public sealed class ActiveTripPersistenceModelTests
         Itinerary.BookedTourSourceType.Should().Be("BookedTour");
     }
 
+    [Fact]
+    public void Model_MapsNavigationExecutionSnapshotHistoryAndConcurrencyToken()
+    {
+        using var context = CreateContext();
+
+        var session = context.Model.FindEntityType(typeof(TripSession))!;
+        Column(session, nameof(TripSession.RequestedItineraryId)).Should().Be("requested_itinerary_id");
+        Column(session, nameof(TripSession.StartIdempotencyKey)).Should().Be("start_idempotency_key");
+        Column(session, nameof(TripSession.CompletionReason)).Should().Be("completion_reason");
+        Column(session, nameof(TripSession.RowVersion)).Should().Be("row_version");
+        session.FindProperty(nameof(TripSession.RowVersion))!.IsConcurrencyToken.Should().BeTrue();
+        session.FindProperty(nameof(TripSession.RowVersion))!.ValueGenerated
+            .Should().Be(ValueGenerated.OnAddOrUpdate);
+        session.FindProperty(nameof(TripSession.StartIdempotencyKey))!.IsNullable.Should().BeFalse();
+        session.FindProperty(nameof(TripSession.CompletionReason))!.GetMaxLength().Should().Be(24);
+        Column(session, nameof(TripSession.ExpiresAtUtc)).Should().Be("expires_at");
+        session.FindProperty(nameof(TripSession.ExpiresAtUtc))!.GetValueConverter().Should().NotBeNull();
+        Column(session, nameof(TripSession.ExploringItemId)).Should().Be("exploring_item_id");
+        session.GetIndexes().Single(index => index.GetDatabaseName() == "UQ_TripSessions_Traveler_StartKey")
+            .IsUnique.Should().BeTrue();
+        var openSessionIndex = session.GetIndexes()
+            .Single(index => index.GetDatabaseName() == "UQ_TripSessions_OpenTraveler");
+        openSessionIndex.IsUnique.Should().BeTrue();
+        openSessionIndex.GetFilter().Should().Be("[ended_at] IS NULL");
+
+        var item = context.Model.FindEntityType(typeof(TripSessionItem))!;
+        item.GetTableName().Should().Be("TripSessionItems");
+        item.GetSchema().Should().Be("trip");
+        item.FindPrimaryKey()!.Properties.Select(property => property.Name)
+            .Should().Equal(nameof(TripSessionItem.SessionId), nameof(TripSessionItem.ItineraryItemId));
+        item.FindProperty(nameof(TripSessionItem.PoiName))!.GetMaxLength()
+            .Should().Be(PointOfInterest.NameMaxLength);
+        item.FindProperty(nameof(TripSessionItem.Latitude))!.GetPrecision().Should().Be(9);
+        item.FindProperty(nameof(TripSessionItem.Latitude))!.GetScale().Should().Be(6);
+        foreach (var (property, column) in new[]
+        {
+            (nameof(TripSessionItem.PlannedArrivalUtc), "planned_arrival"),
+            (nameof(TripSessionItem.PlannedDepartureUtc), "planned_departure"),
+            (nameof(TripSessionItem.ReachedAtUtc), "reached_at"),
+            (nameof(TripSessionItem.SkippedAtUtc), "skipped_at"),
+        })
+        {
+            Column(item, property).Should().Be(column);
+            item.FindProperty(property)!.GetValueConverter().Should().NotBeNull();
+        }
+
+        Column(item, nameof(TripSessionItem.IsMandatory)).Should().Be("is_mandatory");
+        item.FindProperty(nameof(TripSessionItem.Status)).Should().BeNull();
+        item.GetIndexes().Single(index => index.GetDatabaseName() == "UQ_TripSessionItems_Sequence")
+            .IsUnique.Should().BeTrue();
+        item.GetIndexes().Should().ContainSingle(index =>
+            index.GetDatabaseName() == "IX_TripSessionItems_Next");
+
+        var history = context.Model.FindEntityType(typeof(TripStateHistory))!;
+        history.GetTableName().Should().Be("TripStateHistory");
+        history.GetSchema().Should().Be("trip");
+        history.FindProperty(nameof(TripStateHistory.ChangedAtUtc))!.GetValueConverter()
+            .Should().NotBeNull();
+        history.GetForeignKeys().Single().DeleteBehavior.Should().Be(DeleteBehavior.Cascade);
+    }
+
     private static ApplicationDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<ApplicationDbContext>()
