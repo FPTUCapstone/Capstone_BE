@@ -7,7 +7,9 @@ Approved by the developer on 2026-10-10. Owner: UC-10 scheduling (phuctv).
 - **Phase 1:** merged as PR #57 (merge commit `983a192`).
 - **Phase 2:** merged as PR #62 (merge commit `31f9a5a`, final head `7f38cbc`).
 - **Phase 3:** implemented on the same branch. The default switch merges only after the Report 3 V2
-  fallback amendment is accepted. See [Phase 3 status](#phase-3-status).
+  fallback amendment is accepted. See [Phase 3 status](#phase-3-status). The review of head
+  `d390462` requested changes; see
+  [Phase 3 review remediation](#phase-3-review-remediation-review-of-d390462).
 
 Phase 1 history: it was implemented and reviewed as PR #57 (branch `feature/phuctv-csp-solver`,
 from `develop` at `af505f4`):
@@ -328,6 +330,11 @@ Developer decision, 2026-10-11 (R5, hybrid option):
     does not fire. The deterministic-output invariant describes what a slow host returns.
   - After the allocation-free search, a full budget takes a few hundred milliseconds, so the
     limit fires only on an overloaded host.
+  - Since the Phase 3 review it is one hard deadline for the whole solve: the search checks it at
+    every node, every evaluator call is checked before and after and receives a token cancelled
+    at the deadline, and polish and the final evaluation stop at it too. Before, only the search
+    checked the clock, every 256 nodes (see
+    [Phase 3 review remediation](#phase-3-review-remediation-review-of-d390462)).
 - **Fallback — differs, amendment pending.** When the limit fires, the partial CSP result is
   discarded. The heuristic result that R1a already computed is returned unchanged, and the
   outcome is recorded as `heuristic_fallback_csp_time_limit`.
@@ -768,8 +775,13 @@ for the same source. Only the main run is committed.
 
   ```text
   Scheduling solver outcome {SolverOutcome} (kind {SolverKind}, mode {SolverMode}): CSP elapsed {CspElapsedMs} ms,
-  time limit reached {CspTimeLimitReached}, returned heuristic plan {CspReturnedHeuristicPlan}, nodes {CspNodesExpanded}.
+  time limit reached {CspTimeLimitReached}, returned heuristic plan {CspReturnedHeuristicPlan}, nodes {CspNodesExpanded},
+  node limit reached {CspNodeLimitReached}, evaluator calls {CspEvaluatorCalls},
+  in-search evaluation limit reached {CspInSearchEvaluationLimitReached},
+  tie evaluation limit reached {CspTieEvaluationLimitReached}.
   ```
+
+  The last four fields were added after the Phase 3 review.
 
 - **Content:** the fields are the aggregate R8 tags only, with no user or POI identity. The API
   project is outside the benchmarked source, so the benchmark is unchanged.
@@ -789,6 +801,8 @@ production data exists. Every signal comes from the solver outcome log line abov
 | Share of outcome lines with `SolverOutcome = heuristic_fallback_csp_time_limit` | About 0% | Above 1% over a day: set `SchedulingGeneration__Csp__MaxNodes=100000` |
 | p95 of `CspElapsedMs` | Below 300 ms on 2 or more vCPUs | Above 1,000 ms over a day: the same action |
 | Either signal, after `MaxNodes` was lowered | — | Still above its threshold: set `SchedulingGeneration__SolverMode=Heuristic` |
+| Share of `csp` lines with `CspNodeLimitReached = True` | Large instances only (c40 in the benchmark) | Informational: the plan is still never worse than the heuristic. A large share on small inputs means production instances are larger than the corpus; re-run the benchmark before raising `MaxNodes`. |
+| Share of `csp` lines with `CspInSearchEvaluationLimitReached` or `CspTieEvaluationLimitReached = True` | Rare (Frequent rest only) | Informational: rest plans may miss a better tie-break or rest placement. A rising share is a reason to revisit the evaluator caps with the benchmark. |
 
 - **What the CSP adds:** count lines with `SolverOutcome = csp` and
   `CspReturnedHeuristicPlan = False`.
@@ -796,6 +810,88 @@ production data exists. Every signal comes from the solver outcome log line abov
   - 2 or more vCPUs are recommended.
   - On 1 vCPU, expect up to about 2 s of extra solver time when generations run concurrently.
   - On Free or Shared plans, keep `Heuristic`.
+
+### Phase 3 review remediation (review of `d390462`)
+
+The review of head `d390462` requested changes: two blockers for the default switch and three
+further concerns. It also acknowledged that the incumbent/final-comparator design and the
+907-scenario benchmark show the CSP is not worse than the heuristic for the tested configuration.
+
+**Blocker 1 — fallback algorithm: amendment route chosen (developer decision, 2026-10-12).**
+Report 3 V2 requires a nearest-neighbor fallback; the code returns the existing heuristic plan.
+- **Decision:** amend Report 3 V2 rather than implement nearest-neighbor. The rationale is the one
+  in [Report 3 V2 compliance](#report-3-v2-compliance--timeout-aligned-fallback-amendment-pending):
+  the heuristic plan is already computed, costs nothing extra, and is at least as good as
+  nearest-neighbor, so a nearest-neighbor fallback would hand users a worse plan exactly when the
+  host is slow.
+- **Proposed wording for the amendment:** "On timeout, the CSP engine falls back to the existing
+  heuristic plan (the production algorithm before the CSP), which is computed before the CSP
+  search starts."
+- This is a change to the SRS through its own process, outside the codebase. The merge condition
+  of the default switch is unchanged: it merges only after the amendment is accepted.
+
+**Blocker 2 — the 2,500 ms limit was not a hard deadline: fixed.** Only the search checked the
+clock, and only every 256 nodes. So:
+- small trees, or `MaxNodes` below 256, never checked it;
+- evaluator calls during the search, the elite evaluation after it and polish ran unbounded;
+- polish recorded its own time limit in statistics that were then discarded, so the CSP returned
+  a polished result cut short by the clock with `TimeLimitReached = false`.
+
+Fix (`CspItinerarySolver`): one deadline per solve (`SolveDeadline`), on the solve's own stopwatch,
+with a token linked to the caller's token and cancelled at the deadline.
+- The search checks the deadline and the caller's cancellation at every node.
+- Every evaluator call checks the deadline before and after, and receives the deadline token, so
+  a running evaluation stops at the deadline (`ItineraryScheduleEvaluator` checks its token per
+  stop). Cancellation by the caller still throws `OperationCanceledException`; only the deadline
+  token counts as reaching the limit.
+- Polish reads the local search's time-limit flag.
+- A final check covers work that does not read the clock itself (building the models, between
+  stages).
+- Every case goes through the R5 path: the CSP result is discarded, `TimeLimitReached = true`, and
+  the service returns the heuristic plan unchanged.
+- The overrun past the deadline is now bounded by one node or one stop of an evaluation, instead
+  of up to 255 nodes plus any number of evaluations.
+
+Tests, in `CspItinerarySolverTests` (each failed before the fix, except the two cancellation
+guards):
+
+| Test | Scenario |
+| --- | --- |
+| `Solve_HonorsTheTimeLimit_WhenTheSearchStopsBeforeTheOldClockCheckInterval` | `MaxNodes = 100`, and a 3-candidate tree, with a 0 ms limit |
+| `Solve_StopsRightAfterTheEvaluationThatCrossesTheTimeLimit_DuringTheSearch` | Frequent rest, 60 ms per evaluation, 100 ms limit: at most 2 evaluations (48 before the fix) |
+| `Solve_DiscardsTheResult_WhenEvaluationAfterTheSearchCrossesTheTimeLimit` | No rest, one 300 ms elite evaluation, 200 ms limit |
+| `Solve_InterruptsARunningEvaluation_AtTheTimeLimit` | An evaluation that waits on its token for up to 3 s returns at the 200 ms limit |
+| `Solve_DiscardsThePolishedResult_WhenLocalSearchReachesTheTimeLimit` | Polish on, unbounded GLS iterations, 150 ms limit |
+| `Solve_PropagatesCallerCancellation_DuringAnEvaluation` | Caller cancels during an evaluation: `OperationCanceledException`, not a time-limit result |
+| `Solve_Throws_WhenTheCallerIsAlreadyCancelled_EvenForASmallTree` | Pre-cancelled caller, `MaxNodes = 100` |
+
+The slow evaluator is simulated through an internal test hook, `BeforeEvaluation`, which runs
+before each evaluator call with the token the evaluator receives. Production never sets it.
+
+Benchmark after the fix: `docs/benchmarks/UC-10-csp-solver-comparison-2026-10-12-phase3deadline.md`,
+regenerated after `dotnet format` for the new source hash.
+- Every plan, node count and outcome is identical to the `phase3` report (the CSV columns up to
+  `csp_time_limit` match on all 907 scenarios). Quality stays 219/88/0, 223/77/0 and 85/215/0.
+- Checking the clock at every node costs nothing measurable: the largest added p95 is 159 ms
+  (c40-m3), against 189 ms in `phase3` and 149–233 ms across its repeated runs.
+- Every gate passes, and no run reached the wall-clock limit.
+
+**Concern — the benchmark does not establish the SRS API latency or 200-CCU requirements:
+accepted as a stated limitation.** The benchmark is synthetic and measures the generator only.
+The production-like measurement above shows the 300 ms gate failing on 1 CPU, and on 2 CPUs with 4
+concurrent generations, and the production hardware is unknown. The SRS API latency and
+200-concurrent-user requirements need a load test of the API on the target hardware. That is
+outside this PR and stays open; nothing in this specification claims those requirements are met.
+
+**Concern — tie, in-search and node-limit signals were not logged: fixed.** The outcome log line
+now carries `CspNodeLimitReached`, `CspEvaluatorCalls`, `CspInSearchEvaluationLimitReached` and
+`CspTieEvaluationLimitReached` (template above), with matching rows in the monitoring table.
+`SchedulingSolverOutcomeLoggerTests.LogsTheSearchLimitSignals` pins them.
+
+**Concern — keep `Heuristic` as the shipped default until both blockers are resolved.** Blocker 2
+is fixed in this PR. The default switch commit stays in the PR, and re-review is requested once
+the Report 3 V2 amendment is accepted. If the PR must merge before that, the switch commit is
+reverted and the switch ships later as its own change (developer decision, 2026-10-12).
 
 ## Non-goals
 

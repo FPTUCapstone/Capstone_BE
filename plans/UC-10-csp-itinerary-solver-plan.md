@@ -347,6 +347,21 @@ runbook's signals were never recorded.
   register the service.
 - The API project is outside the benchmarked source, so the benchmark report is unchanged.
 
+### P3.7 — Review remediation (review of `d390462`, changes requested)
+**Done locally; the Report 3 V2 amendment is pending outside the codebase.**
+- **Blocker 1 (fallback algorithm):** the developer chose to amend Report 3 V2 to "fallback to the
+  existing heuristic plan". No code change. The spec records the proposed wording.
+- **Blocker 2 (hard deadline):** one `SolveDeadline` per solve, checked at every search node,
+  before and after every evaluator call (which also receives the deadline token), after polish and
+  once more at the end. Test-first: five of the seven new `CspItinerarySolverTests` failed before
+  the fix; the two cancellation guards passed before and after.
+- **Log signals:** `SchedulingSolverOutcomeLogger` adds node-limit, evaluator-call, in-search and
+  tie-limit fields. `LogsTheSearchLimitSignals` failed first.
+- **Benchmark:** the solver changed, so the report was regenerated after `dotnet format` (label
+  `phase3deadline`); see the spec for the numbers.
+- **Default switch:** the switch commit stays; re-review is requested once the amendment is
+  accepted. If the PR must merge first, revert the switch commit.
+
 ## Review focus
 1. The product rule is unchanged and reused from `ScheduleGlobalComparator`, not reimplemented.
 2. The B&B bound is admissible under the lexicographic objective.
