@@ -8,7 +8,7 @@ merge of `origin/develop`, `dotnet test` verified green on 2026-09-30).
 
 Approved implementation decisions carried into this plan: Staff-only actor, explicit
 `OperationsStaff` consent per traveler, server-side redaction for legacy/unknown-owner coordinates,
-and fail-closed access audit before any GPS-bearing query. The SRS actor conflict remains recorded
+and fail-closed access audit after successful response assembly and before the payload is returned. The SRS actor conflict remains recorded
 as `SRS_INTERNAL_CONFLICT` and requires document reconciliation before release.
 
 ## Task 1 — Read-only domain mappings + ItineraryItem schema alignment
@@ -96,7 +96,7 @@ Verify: validator unit tests (0, negative, valid) green.
    from `social.GroupMembers`/`social.TravelGroups` via the shared itinerary — active members
    only, ordered by `joined_at` then `user_id`, sharing-state flag without coordinates (D7);
    `null` when no group is linked.
-4. Write the BR-130 access-audit row (D8): `AuditLog.CreateRecordedOutcome(actorUserId,
+4. After every detail query and DTO mapping succeeds, write the BR-130 access-audit row (D8): `AuditLog.CreateRecordedOutcome(actorUserId,
    AuditActionTypes.ActiveTripDetailsViewed, AuditEntityTypes.TripSession, tripId, nowUtc,
    AuditOutcome.Success)` — new constants on the existing pattern — then `SaveChangesAsync` for
    the audit row only. **Fail-closed (D8):** an audit persist failure must fail the request

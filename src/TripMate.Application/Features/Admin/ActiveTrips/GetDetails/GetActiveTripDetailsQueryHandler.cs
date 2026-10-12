@@ -109,23 +109,6 @@ public sealed class GetActiveTripDetailsQueryHandler(
                 .ToArrayAsync(cancellationToken);
         var locationDisclosure = BuildLocationDisclosure(locationSubjects, disclosedSubjectIds);
 
-        // BR-130: fail closed. No GPS-bearing entity is queried before this audit write commits.
-        // The metadata deliberately records counts and disclosure state only, never coordinates.
-        dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(
-            currentUserService.UserId,
-            AuditActionTypes.ActiveTripDetailsViewed,
-            AuditEntityTypes.TripSession,
-            request.TripId,
-            dateTimeProvider.UtcNow,
-            AuditOutcome.Success,
-            afterData: JsonSerializer.Serialize(new
-            {
-                locationDisclosure.State,
-                locationDisclosure.SharedMemberCount,
-                locationDisclosure.HiddenMemberCount
-            })));
-        await dbContext.SaveChangesAsync(cancellationToken);
-
         var destinationNames = session.SourceTourId.HasValue
             ? await dbContext.TourDestinations
                 .AsNoTracking()
