@@ -8,4 +8,5 @@ public enum UserRole
     Traveler = 1,
     TourOperator = 2,
     Administrator = 3,
+    Staff = 4,
 }

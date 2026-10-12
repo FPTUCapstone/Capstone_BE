@@ -27,16 +27,43 @@ public sealed class PayoutPersistenceModelTests
         Column(payout, nameof(Payout.NetAmount)).Should().Be("net_amount");
         Column(payout, nameof(Payout.Status)).Should().Be("status");
         Column(payout, nameof(Payout.RequestedAtUtc)).Should().Be("requested_at");
-        Column(payout, nameof(Payout.ConfirmedBy)).Should().Be("confirmed_by");
-        Column(payout, nameof(Payout.ConfirmedAtUtc)).Should().Be("confirmed_at");
+        Column(payout, nameof(Payout.ReviewedBy)).Should().Be("reviewed_by");
+        Column(payout, nameof(Payout.ReviewedAtUtc)).Should().Be("reviewed_at");
+        Column(payout, nameof(Payout.RejectionReason)).Should().Be("rejection_reason");
+        Column(payout, nameof(Payout.SettlementAuthorizedBy)).Should().Be("settlement_authorized_by");
+        Column(payout, nameof(Payout.SettlementAuthorizedAtUtc)).Should().Be("settlement_authorized_at");
+        Column(payout, nameof(Payout.GatewayReference)).Should().Be("gateway_reference");
+        Column(payout, nameof(Payout.GatewayFailureReason)).Should().Be("gateway_failure_reason");
+        Column(payout, nameof(Payout.GatewayAttemptCount)).Should().Be("gateway_attempt_count");
+        Column(payout, nameof(Payout.LastGatewayAttemptAtUtc)).Should().Be("last_gateway_attempt_at");
 
         payout.FindProperty(nameof(Payout.RequestedAtUtc))!.GetValueConverter().Should().NotBeNull();
         payout.FindProperty(nameof(Payout.RequestedAtUtc))!.IsNullable.Should().BeTrue();
-        payout.FindProperty(nameof(Payout.ConfirmedAtUtc))!.IsNullable.Should().BeTrue();
+        payout.FindProperty(nameof(Payout.ReviewedAtUtc))!.IsNullable.Should().BeTrue();
+        payout.FindProperty(nameof(Payout.SettlementAuthorizedAtUtc))!.IsNullable.Should().BeTrue();
+        payout.FindProperty(nameof(Payout.LastGatewayAttemptAtUtc))!.IsNullable.Should().BeTrue();
         payout.FindProperty(nameof(Payout.Status))!.IsNullable.Should().BeFalse();
+        payout.FindProperty(nameof(Payout.GatewayAttemptCount))!.GetDefaultValue().Should().Be(0);
         payout.GetProperties().Single(property => property.Name == nameof(Payout.GrossRevenue))
             .GetPrecision().Should().Be(14);
         payout.GetForeignKeys().Should().Contain(key => key.PrincipalEntityType.ClrType == typeof(OperatorProfile));
+        payout.GetCheckConstraints().Select(constraint => constraint.Name).Should().BeEquivalentTo(
+            "CK_Payouts_PeriodOrder",
+            "CK_Payouts_NetAmount",
+            "CK_Payouts_Status",
+            "CK_Payouts_LifecycleState");
+    }
+
+    [Fact]
+    public void LifecycleStatuses_MatchPersistedPayoutContract()
+    {
+        Payout.AllStatuses.Should().BeEquivalentTo(
+            Payout.StatusPendingReview,
+            Payout.StatusApprovedForSettlement,
+            Payout.StatusSettlementProcessing,
+            Payout.StatusSettled,
+            Payout.StatusSettlementFailed,
+            Payout.StatusRejected);
     }
 
     private static ApplicationDbContext CreateContext()

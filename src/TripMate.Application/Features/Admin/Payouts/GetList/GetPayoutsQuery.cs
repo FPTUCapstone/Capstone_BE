@@ -1,12 +1,13 @@
 using MediatR;
 
 using TripMate.Application.Common.Models;
+using TripMate.Domain.Entities;
 
 namespace TripMate.Application.Features.Admin.Payouts.GetList;
 
 public sealed record GetPayoutsQuery(
     string? Keyword = null,
-    string? Status = null,
+    string? Status = Payout.StatusPendingReview,
     DateOnly? PeriodFrom = null,
     DateOnly? PeriodTo = null,
     int PageNumber = 1,
@@ -16,12 +17,14 @@ public sealed record GetPayoutsQuery(
     public const int DefaultPageSize = 20;
     public const int MaximumPageSize = 100;
     public const int MaximumKeywordLength = 200;
-}
 
-public sealed record PayoutSummaryDto(
-    int PendingRequests,
-    decimal TotalRequestedAmount,
-    decimal TotalConfirmedAmount);
+    public static readonly string[] StaffVisibleStatuses =
+    [
+        Payout.StatusPendingReview,
+        Payout.StatusApprovedForSettlement,
+        Payout.StatusRejected,
+    ];
+}
 
 public sealed record PayoutOperatorDto(
     string UserId,
@@ -40,9 +43,9 @@ public sealed record PayoutListItemDto(
     string Status);
 
 public sealed record PayoutsResponseDto(
-    PayoutSummaryDto Summary,
     int PageNumber,
     int PageSize,
     int TotalCount,
     int TotalPages,
+    decimal TotalAmount,
     IReadOnlyList<PayoutListItemDto> Items);
