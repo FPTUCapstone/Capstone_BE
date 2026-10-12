@@ -183,6 +183,31 @@ public class CspItinerarySolverTests
     }
 
     /// <summary>
+    /// Review PR #62 (Low 2): khi CSP không tìm được lịch tốt hơn và trả lại chính lịch heuristic, diagnostic phải nói rõ,
+    /// để giám sát không tính lịch đó là do CSP tạo ra. c10-m0-s4 là scenario "equal" và c10-m0-s1 là scenario "better"
+    /// của báo cáo benchmark.
+    /// </summary>
+    [Theory]
+    [InlineData(4, true)]
+    [InlineData(1, false)]
+    public async Task GenerationService_TagsWhetherCspReturnedTheHeuristicPlan(int seed, bool returnedHeuristicPlan)
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(10, 0, seed);
+        var heuristic = await new ItineraryGenerationService(
+                new StaticMatrixProvider(matrix), new SchedulingGenerationOptions { SolverMode = SchedulingSolverMode.Heuristic })
+            .GenerateAsync(input, CancellationToken.None);
+        var service = new ItineraryGenerationService(
+            new StaticMatrixProvider(matrix), new SchedulingGenerationOptions { SolverMode = SchedulingSolverMode.Csp });
+
+        Result<GeneratedItineraryPlan>? result = null;
+        var activity = await RecordSolverOutcome(async () => result = await service.GenerateAsync(input, CancellationToken.None));
+
+        activity.GetTagItem("solver.outcome").Should().Be(SchedulingSolverOutcomes.Csp);
+        activity.GetTagItem("csp.returned_heuristic_plan").Should().Be(returnedHeuristicPlan);
+        (ProductRulePlanComparison.Compare(input, matrix, result!.Value, heuristic.Value) == 0).Should().Be(returnedHeuristicPlan);
+    }
+
+    /// <summary>
     /// R4: tắt tối ưu tuyến (<c>EnableOptionalRouteOptimization = false</c>) thì <c>SolverMode</c> bị bỏ qua và
     /// đường không tối ưu chạy như cũ, nên kế hoạch giống hệt chế độ Heuristic khi tắt tối ưu.
     /// </summary>
@@ -303,7 +328,7 @@ public class CspItinerarySolverTests
             "solver.mode", "solver.outcome", "solver.kind",
             "csp.nodes_expanded", "csp.solutions_found", "csp.search_completed", "csp.node_limit_reached",
             "csp.time_limit_reached", "csp.used_relaxed_rest_model", "csp.chose_relaxed_rest_model", "csp.evaluator_calls",
-            "csp.in_search_evaluation_limit_reached",
+            "csp.in_search_evaluation_limit_reached", "csp.tie_evaluation_limit_reached", "csp.returned_heuristic_plan",
             "csp.elapsed_ms", "csp.pruned_by_bound", "csp.pruned_by_constraints", "csp.pruned_by_forward_checking",
         ];
         var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(20, 2, 54, RestPreference.Auto);
@@ -527,6 +552,154 @@ public class CspItinerarySolverTests
         result.Statistics.SearchCompleted.Should().BeFalse();
         result.Schedule.Should().BeNull();
         result.ProvedInfeasible.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// Review Phase 3 (blocker 2): mốc thời gian là mốc cứng, kể cả khi cây tìm kiếm dừng trước lần xem đồng hồ đầu tiên
+    /// của cách cũ (mỗi 256 nút): giới hạn số nút nhỏ, hoặc bài toán nhỏ duyệt hết cây sớm.
+    /// </summary>
+    [Theory]
+    [InlineData(40, 100)]
+    [InlineData(3, 200_000)]
+    public void Solve_HonorsTheTimeLimit_WhenTheSearchStopsBeforeTheOldClockCheckInterval(int candidateCount, int maxNodes)
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(candidateCount, 0, 1);
+        var (candidates, indices) = Index(input);
+
+        var result = new CspItinerarySolver(
+                new ItineraryScheduleEvaluator(Options), Options, new CspOptions { MaxNodes = maxNodes, TimeLimitMilliseconds = 0 })
+            .Solve(input, matrix, candidates, indices, HeuristicSchedule(input, matrix));
+
+        result.Statistics.NodesExpanded.Should().BeLessThan(256);
+        result.Statistics.TimeLimitReached.Should().BeTrue();
+        result.Schedule.Should().BeNull();
+    }
+
+    /// <summary>
+    /// Review Phase 3 (blocker 2): thời gian của evaluator trong lúc duyệt (khi có điểm nghỉ) tính vào cùng một mốc. Mỗi
+    /// lần chấm chậm 60 ms với mốc 100 ms: phải dừng ngay sau lần chấm làm vượt mốc, không chạy tiếp tới lần xem đồng hồ
+    /// của bước duyệt.
+    /// </summary>
+    [Fact]
+    public void Solve_StopsRightAfterTheEvaluationThatCrossesTheTimeLimit_DuringTheSearch()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(20, 2, 54, RestPreference.Frequent);
+        var (candidates, indices) = Index(input);
+        var solver = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, new CspOptions { TimeLimitMilliseconds = 100 })
+        {
+            BeforeEvaluation = _ => Thread.Sleep(60),
+        };
+
+        var result = solver.Solve(input, matrix, candidates, indices, HeuristicSchedule(input, matrix));
+
+        result.Statistics.TimeLimitReached.Should().BeTrue();
+        result.Schedule.Should().BeNull();
+        result.Statistics.EvaluatorCalls.Should().BeLessThanOrEqualTo(2);
+    }
+
+    /// <summary>
+    /// Review Phase 3 (blocker 2): bước chấm các lời giải tốt nhất sau khi duyệt xong cũng nằm trong mốc. Không có điểm
+    /// nghỉ thì evaluator chỉ chạy ở bước này; một lần chấm 300 ms với mốc 200 ms phải làm kết quả CSP bị bỏ.
+    /// </summary>
+    [Fact]
+    public void Solve_DiscardsTheResult_WhenEvaluationAfterTheSearchCrossesTheTimeLimit()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(8, 0, 1);
+        var (candidates, indices) = Index(input);
+        var solver = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, new CspOptions { TimeLimitMilliseconds = 200 })
+        {
+            BeforeEvaluation = _ => Thread.Sleep(300),
+        };
+
+        var result = solver.Solve(input, matrix, candidates, indices, HeuristicSchedule(input, matrix));
+
+        result.Statistics.TimeLimitReached.Should().BeTrue();
+        result.Schedule.Should().BeNull();
+    }
+
+    /// <summary>
+    /// Review Phase 3 (blocker 2): evaluator nhận token của mốc thời gian, nên một lần chấm đang chạy dừng ngay khi tới mốc
+    /// thay vì chạy hết (ở đây là chờ tới 3 giây).
+    /// </summary>
+    [Fact]
+    public void Solve_InterruptsARunningEvaluation_AtTheTimeLimit()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(8, 0, 1);
+        var (candidates, indices) = Index(input);
+        var solver = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, new CspOptions { TimeLimitMilliseconds = 200 })
+        {
+            BeforeEvaluation = token =>
+            {
+                token.WaitHandle.WaitOne(TimeSpan.FromSeconds(3));
+                token.ThrowIfCancellationRequested();
+            },
+        };
+
+        var watch = Stopwatch.StartNew();
+        var result = solver.Solve(input, matrix, candidates, indices, HeuristicSchedule(input, matrix));
+        watch.Stop();
+
+        result.Statistics.TimeLimitReached.Should().BeTrue();
+        result.Schedule.Should().BeNull();
+        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(2));
+    }
+
+    /// <summary>
+    /// Review Phase 3 (blocker 2): khi bật polish, tìm kiếm cục bộ chạm mốc thì kết quả cũng bị bỏ như ở bước duyệt, vì
+    /// lời giải đã polish dở dang phụ thuộc tốc độ máy.
+    /// </summary>
+    [Fact]
+    public void Solve_DiscardsThePolishedResult_WhenLocalSearchReachesTheTimeLimit()
+    {
+        var options = new SchedulingGenerationOptions { MiniRouting = new MiniRoutingOptions { MaxGlsIterations = int.MaxValue } };
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(12, 0, 1);
+        var (candidates, indices) = Index(input);
+
+        var result = new CspItinerarySolver(
+                new ItineraryScheduleEvaluator(options),
+                options,
+                new CspOptions { PolishWithLocalSearch = true, TimeLimitMilliseconds = 150 })
+            .Solve(input, matrix, candidates, indices, HeuristicSchedule(input, matrix));
+
+        result.Statistics.TimeLimitReached.Should().BeTrue();
+        result.Schedule.Should().BeNull();
+    }
+
+    /// <summary>
+    /// Review Phase 3 (blocker 2): hủy từ bên gọi (request bị hủy) vẫn ném lỗi hủy, không bị coi là chạm mốc thời gian.
+    /// </summary>
+    [Fact]
+    public void Solve_PropagatesCallerCancellation_DuringAnEvaluation()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(8, 0, 1);
+        var (candidates, indices) = Index(input);
+        using var caller = new CancellationTokenSource();
+        var solver = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, new CspOptions { TimeLimitMilliseconds = 600_000 })
+        {
+            BeforeEvaluation = _ => caller.Cancel(),
+        };
+
+        var act = () => solver.Solve(input, matrix, candidates, indices, HeuristicSchedule(input, matrix), caller.Token);
+
+        act.Should().Throw<OperationCanceledException>();
+    }
+
+    /// <summary>
+    /// Review Phase 3 (blocker 2): request đã bị hủy trước khi giải thì không trả kết quả nào, kể cả với cây nhỏ.
+    /// </summary>
+    [Fact]
+    public void Solve_Throws_WhenTheCallerIsAlreadyCancelled_EvenForASmallTree()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(3, 0, 1);
+        var (candidates, indices) = Index(input);
+        using var caller = new CancellationTokenSource();
+        caller.Cancel();
+
+        var act = () => new CspItinerarySolver(
+                new ItineraryScheduleEvaluator(Options), Options, new CspOptions { MaxNodes = 100, TimeLimitMilliseconds = 600_000 })
+            .Solve(input, matrix, candidates, indices, HeuristicSchedule(input, matrix), caller.Token);
+
+        act.Should().Throw<OperationCanceledException>();
     }
 
     /// <summary>

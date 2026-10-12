@@ -4,8 +4,15 @@
 
 Approved by the developer on 2026-10-10. Owner: UC-10 scheduling (phuctv).
 
-Phase 1 is implemented and in review as PR #57 (branch `feature/phuctv-csp-solver`, from
-`develop` at `af505f4`):
+- **Phase 1:** merged as PR #57 (merge commit `983a192`).
+- **Phase 2:** merged as PR #62 (merge commit `31f9a5a`, final head `7f38cbc`).
+- **Phase 3:** implemented on the same branch. The default switch merges only after the Report 3 V2
+  fallback amendment is accepted. See [Phase 3 status](#phase-3-status). The review of head
+  `d390462` requested changes; see
+  [Phase 3 review remediation](#phase-3-review-remediation-review-of-d390462).
+
+Phase 1 history: it was implemented and reviewed as PR #57 (branch `feature/phuctv-csp-solver`,
+from `develop` at `af505f4`):
 
 - Patches 0001, 0002, and 0004 applied as commits `63309cc`, `1ca8b57`, and `c864aa3`, with
   their content unchanged.
@@ -91,9 +98,19 @@ as a regression check that the mode switch does not affect them.
   ordering. Every hard constraint (opening hours, travel time, budget, available duration,
   mandatory inclusion, rest and buffer) is enforced by the scheduler with current data. An
   impossible mandatory POI yields `planning.constraints_infeasible` and is never dropped.
-- **Deterministic output.** Identical input produces an identical itinerary on any host and under
-  any load. Known Phase 1 exception: when the CSP reaches its wall-clock safety limit, its result
-  depends on the host. Phase 2 R5 removes it.
+- **Deterministic output.** The node budget, not the clock, stops the CSP. Identical input
+  therefore produces an identical itinerary on any host, as long as the search finishes before the
+  wall-clock safety limit. On the development host every benchmark scenario finishes well before
+  it.
+  - If the limit fires (R5), the partial CSP result is discarded. The heuristic itinerary for the
+    same input is returned instead, and it is deterministic too. A partial result is never
+    returned.
+  - Which of the two plans a request gets can still depend on the host. A much slower or
+    overloaded host can return the heuristic plan where a faster host returns the CSP plan.
+  - Both plans pass the invariant validator, and the CSP plan is never worse than the heuristic
+    plan.
+  - Phase 3 measures how often the limit fires on production-like hardware (review of PR #62,
+    Low 3).
 - **Validation.** Every plan passes `GeneratedItineraryInvariantValidator`.
 
 ## Evaluation that motivates this specification
@@ -309,9 +326,15 @@ Developer decision, 2026-10-11 (R5, hybrid option):
 
 - **Timeout — aligned.** `Csp:TimeLimitMilliseconds` defaults to 2,500 ms, the Report 3 V2
   value. It is the wall-clock safety limit.
-  - The node budget stays the primary stop, so results are deterministic.
+  - The node budget stays the primary stop, so results are deterministic as long as the limit
+    does not fire. The deterministic-output invariant describes what a slow host returns.
   - After the allocation-free search, a full budget takes a few hundred milliseconds, so the
     limit fires only on an overloaded host.
+  - Since the Phase 3 review it is one hard deadline for the whole solve: the search checks it at
+    every node, every evaluator call is checked before and after and receives a token cancelled
+    at the deadline, and polish and the final evaluation stop at it too. Before, only the search
+    checked the clock, every 256 nodes (see
+    [Phase 3 review remediation](#phase-3-review-remediation-review-of-d390462)).
 - **Fallback — differs, amendment pending.** When the limit fires, the partial CSP result is
   discarded. The heuristic result that R1a already computed is returned unchanged, and the
   outcome is recorded as `heuristic_fallback_csp_time_limit`.
@@ -345,7 +368,7 @@ Phase 2 is split into two PRs (developer decision, 2026-10-11), both from
     with PR 2a;
 - **PR 2b:** R8, R9 sign-off, R6, P2.3c and the full suite under `SolverMode = Csp`.
 
-### PR 2a status — implemented, not yet reviewed
+### PR 2a status — merged in PR #62
 
 - **R4:** `ItineraryGenerationService` uses an effective solver mode, which is `Heuristic`
   whenever `EnableOptionalRouteOptimization = false`, for both CSP and MiniRouting. The redundant
@@ -459,7 +482,7 @@ Phase 2 is split into two PRs (developer decision, 2026-10-11), both from
 
 PR 2a is committed locally as `65b09f7`.
 
-### PR 2b status — in progress, on top of `65b09f7`
+### PR 2b status — merged in PR #62
 
 - **R8 — implemented.** `SchedulingSolverOutcome` carries `solver.kind`, mapped from the detailed
   `solver.outcome` (`SchedulingSolverKinds.Of`); it is not a second classification.
@@ -475,6 +498,8 @@ PR 2a is committed locally as `65b09f7`.
 
   - It also carries `csp.pruned_by_bound`, `csp.pruned_by_constraints`,
     `csp.pruned_by_forward_checking` and `csp.in_search_evaluation_limit_reached`.
+  - Phase 3 adds `csp.returned_heuristic_plan` and `csp.tie_evaluation_limit_reached` (see
+    [Phase 3 status](#phase-3-status)).
   - A test pins the allowed tag keys and checks that no value contains a POI name, so a tag that
     carries identity fails the build.
 - **R9 — three findings, two fixed, one measured:**
@@ -612,6 +637,262 @@ The CSP becomes the default only when one benchmark run on the current branch sh
 The switch is a configuration change (`SchedulingGeneration:SolverMode = Csp`) with the heuristic
 kept as fallback.
 
+### Phase 3 status
+
+Phase 3 runs on `feature/phuctv-csp-solver`, after PR #62 merged as `31f9a5a`.
+
+The review of PR #62 (head `7f38cbc`) approved it with four Low findings. The developer chose to
+merge, and to resolve them here before the default switch.
+
+**Low 1 — fixed.** With rest, a solution that tied the incumbent on inclusion and model travel was
+never evaluated. The K = 5 elite is ordered by model finish, which ignores rest, so the plan could
+lose a later tie-break.
+- **Fix:**
+  - `Tighten` now also sends ties to the evaluator, under their own cap (`MaxTieEvaluations =
+    4,096`). The cap is separate from the 16,384 evaluations for strict improvements.
+  - The final choice compares these schedules under the full product rule.
+  - `csp.tie_evaluation_limit_reached` records when the cap is reached.
+- **Reproduced first:** `Solve_BreaksTiesByTheFullProductRule_WhenRestApplies` uses
+  reviewer-style instances: 0–2 real rest places, non-metric matrices, opening hours and budgets.
+  Over 2,000 seeds per preference it found 4 mismatches in 3,727 feasible instances:
+  - two differed only in the visit-ID order (Auto 423, Frequent 400);
+  - two were 10 and 24 minutes longer, with the same POIs and travel (Frequent 199, 1691). The
+    gap therefore also reached the duration level, not only the visit-ID level the reviewer
+    observed.
+- **After the fix:** 0 mismatches in 11,148 feasible instances, over 6,000 seeds per preference.
+- **Regression tests:** the four seeds are pinned in
+  `Solve_FindsTheOptimum_OnTheTieBreakRegressions`, which fails when the tie cap is set to 0. The
+  sweep keeps 500 seeds per preference, so CI stays fast.
+
+**Low 2 — fixed.** When the CSP returned the heuristic plan itself, the outcome stayed `csp` and no
+tag said so.
+- **Fix:** `csp.returned_heuristic_plan` carries `ReturnedInitialIncumbent`.
+- **Why it is reliable:** the heuristic plan is the first candidate, and the final choice keeps
+  the earlier candidate on a tie. An identical CSP solution therefore also sets the flag.
+- **Monitoring:** count CSP improvements as outcome `csp` with this tag false.
+
+**Low 3 — wording fixed; measurement pending.** The output can still depend on host speed near the
+2,500 ms limit, which the invariant did not allow for.
+- **Wording:** corrected in the deterministic-output invariant, the R5 decision and acceptance
+  criterion 5. Also corrected in the comments of `CspOptions.MaxNodes`,
+  `CspOptions.TimeLimitMilliseconds` and `DiscardTimedOutResult`.
+- **Measurement:** the fallback rate on production-like hardware is still to be measured; see
+  below.
+
+**Low 4 — pending.** The latency margin is to be checked with repeated benchmark runs; see below.
+Large instances stay a documented limitation.
+
+**Benchmark — all gates pass.** The report is
+`docs/benchmarks/UC-10-csp-solver-comparison-2026-10-12-phase3.md`, for the source above.
+
+| Rest preference | Better | Equal | Worse | In `pr2b` |
+| --------------- | ------ | ----- | ----- | --------- |
+| `None` | 219 | 88 | 0 | unchanged |
+| `Auto` | 223 | 77 | 0 | unchanged |
+| `Frequent` | 85 | 215 | 0 | 80 / 220 / 0 |
+
+- **Changed plans:** only five, all Frequent c10 scenarios (s4 in four segments, and
+  c10-m3-frequent-s24). Each moved from equal to better. They keep the same optional count,
+  travel and duration, and now win on the end time or the visit-ID order. That is the Low 1
+  effect, and no plan got worse.
+- **No fallback,** and the wall-clock limit was never reached.
+- **Latency:** the largest added p95 is 189 ms (c40-m6). The noisy `pr2b` run measured 279 ms. The
+  rest segments, where ties are now evaluated, did not slow down.
+
+**Repeated runs — the margin holds.** The full benchmark ran three times on the development host,
+for the same source. Only the main run is committed.
+
+| Run | Largest added p95 | Wall-clock fallbacks |
+| --- | ----------------- | -------------------- |
+| 1 (`phase3`) | 189 ms (c40-m6) | 0 |
+| 2 | 149 ms (c40-m6-frequent) | 0 |
+| 3 | 233 ms (c40-m6-auto) | 0 |
+
+- Every run passed every gate.
+- The fallback count covers 907 scenarios × 3 measured iterations per run.
+- The worst segment moves between runs, which is host noise. Even the worst run keeps 67 ms below
+  the 300 ms gate.
+
+**Production-like measurement — one fallback, on 1 CPU with 4 concurrent generations.**
+- **Setup:**
+  - The runner ran in a Linux container (`mcr.microsoft.com/dotnet/sdk:10.0`) with a CPU quota
+    of 1, 2 or 3 CPUs.
+  - 1 or 4 runners started at once. Each runner stands in for one concurrent generation.
+  - Each runner covered every segment with 5 seeds and 1 measured iteration: 187 scenarios, or
+    374 CSP runs per runner and 5,610 in all.
+- **Results:** each segment has only 5 samples, so the latency figures are indicative. The
+  fallback count is what this measures.
+
+  | CPUs | Concurrent | Largest CSP time | Largest added p95 | Wall-clock fallbacks |
+  | ---- | ---------- | ---------------- | ----------------- | -------------------- |
+  | 1 | 1 | 471 ms | 471 ms | 0 of 374 |
+  | 1 | 4 | 2,206 ms | 2,206 ms | 1 of 1,496 (c20-m0-s1) |
+  | 2 | 1 | 151 ms | 134 ms | 0 of 374 |
+  | 2 | 4 | 404 ms | 375 ms | 0 of 1,496 |
+  | 3 | 1 | 159 ms | 146 ms | 0 of 374 |
+  | 3 | 4 | 288 ms | 288 ms | 0 of 1,496 |
+
+- **Two or more CPUs:** no generation reached the limit, even with 4 at once.
+- **One CPU with 4 at once:** one generation reached the limit (0.07%) and returned the heuristic
+  plan, as designed.
+- **Latency:**
+  - On 1 CPU the CSP adds up to 2.2 s under concurrency.
+  - The 300 ms development-host gate is not met on 1 CPU, or on 2 CPUs with 4 concurrent
+    generations.
+  - The heuristic also slows under contention, up to 200 ms p95 on 1 CPU with 4 at once.
+- **Caveats:** the quota is enforced per 100 ms period, and each runner measured right after a
+  single warmup. These numbers therefore lean pessimistic for a long-running server.
+
+**Decision (developer, 2026-10-12): switch without waiting for the production hardware.**
+- The production hardware is not known yet.
+- The switch cannot make a plan worse than today's. On any host, the worst case is the heuristic
+  plan after at most 2.5 s.
+- Rolling back is configuration only: `SchedulingGeneration:SolverMode` and
+  `SchedulingGeneration:Csp:MaxNodes` can differ per environment without touching the
+  benchmarked source.
+- The default therefore switches now, under the monitoring and rollback rules below.
+
+**Default switch — implemented; merge after the Report 3 V2 amendment.**
+- `appsettings.json` sets `SchedulingGeneration:SolverMode = Csp`. The code default stays
+  `Heuristic`, so a missing setting falls back to the heuristic.
+- `ShippedConfiguration_SelectsTheCspSolverExplicitly` pins both values.
+- `README.md` documents the setting and how to roll back.
+- **Full suite with the shipped `Csp` default, and no configuration override:**
+  - unit suites: Application 1,788, Infrastructure 714, CandidatePoolReplay 13, all passing;
+  - integration suite against SQL Server 2022 and Redis containers: 885 passed, 0 failed,
+    1 skipped. The total includes the four monitoring tests. The skipped test is the opt-in
+    Cloudinary smoke test, as in every earlier run.
+  - In that run, the scheduling tests went through the real API pipeline and wrote 17 solver
+    outcome log lines, all `csp`. The monitoring signal therefore works end to end.
+- **Merge condition:** the switch merges only after the Report 3 V2 fallback amendment is
+  accepted (see
+  [Report 3 V2 compliance](#report-3-v2-compliance--timeout-aligned-fallback-amendment-pending)).
+
+**Monitoring signal — fixed.** Before this, nothing in the API host listened to the
+`SchedulingSolverOutcome` activity source, so its tags were recorded only in tests.
+- **Fix:** `SchedulingSolverOutcomeLogger`, a hosted service in `TripMate.Api`, now writes one
+  Information line per generation:
+
+  ```text
+  Scheduling solver outcome {SolverOutcome} (kind {SolverKind}, mode {SolverMode}): CSP elapsed {CspElapsedMs} ms,
+  time limit reached {CspTimeLimitReached}, returned heuristic plan {CspReturnedHeuristicPlan}, nodes {CspNodesExpanded},
+  node limit reached {CspNodeLimitReached}, evaluator calls {CspEvaluatorCalls},
+  in-search evaluation limit reached {CspInSearchEvaluationLimitReached},
+  tie evaluation limit reached {CspTieEvaluationLimitReached}.
+  ```
+
+  The last four fields were added after the Phase 3 review.
+
+- **Content:** the fields are the aggregate R8 tags only, with no user or POI identity. The API
+  project is outside the benchmarked source, so the benchmark is unchanged.
+- **Tests:** `SchedulingSolverOutcomeLoggerTests` pins the fields and checks that logging stops
+  with the host. `SchedulingSolverOutcomeLoggerRegistrationTests` checks that the host registers
+  the service.
+- **End-to-end time:** the existing ASP.NET Core `Request finished` line already gives the total
+  time of a generation, for `POST /api/v1/scheduling-requests` and
+  `POST /api/v1/itineraries/{id}/regenerate`. Compare it with `CspElapsedMs` to see the CSP's
+  share.
+
+**Operations — monitoring and rollback.** These are starting thresholds, to be confirmed once
+production data exists. Every signal comes from the solver outcome log line above.
+
+| Signal | Expected | Action |
+| ------ | -------- | ------ |
+| Share of outcome lines with `SolverOutcome = heuristic_fallback_csp_time_limit` | About 0% | Above 1% over a day: set `SchedulingGeneration__Csp__MaxNodes=100000` |
+| p95 of `CspElapsedMs` | Below 300 ms on 2 or more vCPUs | Above 1,000 ms over a day: the same action |
+| Either signal, after `MaxNodes` was lowered | — | Still above its threshold: set `SchedulingGeneration__SolverMode=Heuristic` |
+| Share of `csp` lines with `CspNodeLimitReached = True` | Large instances only (c40 in the benchmark) | Informational: the plan is still never worse than the heuristic. A large share on small inputs means production instances are larger than the corpus; re-run the benchmark before raising `MaxNodes`. |
+| Share of `csp` lines with `CspInSearchEvaluationLimitReached` or `CspTieEvaluationLimitReached = True` | Rare (Frequent rest only) | Informational: rest plans may miss a better tie-break or rest placement. A rising share is a reason to revisit the evaluator caps with the benchmark. |
+
+- **What the CSP adds:** count lines with `SolverOutcome = csp` and
+  `CspReturnedHeuristicPlan = False`.
+- **Hardware guidance:**
+  - 2 or more vCPUs are recommended.
+  - On 1 vCPU, expect up to about 2 s of extra solver time when generations run concurrently.
+  - On Free or Shared plans, keep `Heuristic`.
+
+### Phase 3 review remediation (review of `d390462`)
+
+The review of head `d390462` requested changes: two blockers for the default switch and three
+further concerns. It also acknowledged that the incumbent/final-comparator design and the
+907-scenario benchmark show the CSP is not worse than the heuristic for the tested configuration.
+
+**Blocker 1 — fallback algorithm: amendment route chosen (developer decision, 2026-10-12).**
+Report 3 V2 requires a nearest-neighbor fallback; the code returns the existing heuristic plan.
+- **Decision:** amend Report 3 V2 rather than implement nearest-neighbor. The rationale is the one
+  in [Report 3 V2 compliance](#report-3-v2-compliance--timeout-aligned-fallback-amendment-pending):
+  the heuristic plan is already computed, costs nothing extra, and is at least as good as
+  nearest-neighbor, so a nearest-neighbor fallback would hand users a worse plan exactly when the
+  host is slow.
+- **Proposed wording for the amendment:** "On timeout, the CSP engine falls back to the existing
+  heuristic plan (the production algorithm before the CSP), which is computed before the CSP
+  search starts."
+- This is a change to the SRS through its own process, outside the codebase. The merge condition
+  of the default switch is unchanged: it merges only after the amendment is accepted.
+
+**Blocker 2 — the 2,500 ms limit was not a hard deadline: fixed.** Only the search checked the
+clock, and only every 256 nodes. So:
+- small trees, or `MaxNodes` below 256, never checked it;
+- evaluator calls during the search, the elite evaluation after it and polish ran unbounded;
+- polish recorded its own time limit in statistics that were then discarded, so the CSP returned
+  a polished result cut short by the clock with `TimeLimitReached = false`.
+
+Fix (`CspItinerarySolver`): one deadline per solve (`SolveDeadline`), on the solve's own stopwatch,
+with a token linked to the caller's token and cancelled at the deadline.
+- The search checks the deadline and the caller's cancellation at every node.
+- Every evaluator call checks the deadline before and after, and receives the deadline token, so
+  a running evaluation stops at the deadline (`ItineraryScheduleEvaluator` checks its token per
+  stop). Cancellation by the caller still throws `OperationCanceledException`; only the deadline
+  token counts as reaching the limit.
+- Polish reads the local search's time-limit flag.
+- A final check covers work that does not read the clock itself (building the models, between
+  stages).
+- Every case goes through the R5 path: the CSP result is discarded, `TimeLimitReached = true`, and
+  the service returns the heuristic plan unchanged.
+- The overrun past the deadline is now bounded by one node or one stop of an evaluation, instead
+  of up to 255 nodes plus any number of evaluations.
+
+Tests, in `CspItinerarySolverTests` (each failed before the fix, except the two cancellation
+guards):
+
+| Test | Scenario |
+| --- | --- |
+| `Solve_HonorsTheTimeLimit_WhenTheSearchStopsBeforeTheOldClockCheckInterval` | `MaxNodes = 100`, and a 3-candidate tree, with a 0 ms limit |
+| `Solve_StopsRightAfterTheEvaluationThatCrossesTheTimeLimit_DuringTheSearch` | Frequent rest, 60 ms per evaluation, 100 ms limit: at most 2 evaluations (48 before the fix) |
+| `Solve_DiscardsTheResult_WhenEvaluationAfterTheSearchCrossesTheTimeLimit` | No rest, one 300 ms elite evaluation, 200 ms limit |
+| `Solve_InterruptsARunningEvaluation_AtTheTimeLimit` | An evaluation that waits on its token for up to 3 s returns at the 200 ms limit |
+| `Solve_DiscardsThePolishedResult_WhenLocalSearchReachesTheTimeLimit` | Polish on, unbounded GLS iterations, 150 ms limit |
+| `Solve_PropagatesCallerCancellation_DuringAnEvaluation` | Caller cancels during an evaluation: `OperationCanceledException`, not a time-limit result |
+| `Solve_Throws_WhenTheCallerIsAlreadyCancelled_EvenForASmallTree` | Pre-cancelled caller, `MaxNodes = 100` |
+
+The slow evaluator is simulated through an internal test hook, `BeforeEvaluation`, which runs
+before each evaluator call with the token the evaluator receives. Production never sets it.
+
+Benchmark after the fix: `docs/benchmarks/UC-10-csp-solver-comparison-2026-10-12-phase3deadline.md`,
+regenerated after `dotnet format` for the new source hash.
+- Every plan, node count and outcome is identical to the `phase3` report (the CSV columns up to
+  `csp_time_limit` match on all 907 scenarios). Quality stays 219/88/0, 223/77/0 and 85/215/0.
+- Checking the clock at every node costs nothing measurable: the largest added p95 is 159 ms
+  (c40-m3), against 189 ms in `phase3` and 149–233 ms across its repeated runs.
+- Every gate passes, and no run reached the wall-clock limit.
+
+**Concern — the benchmark does not establish the SRS API latency or 200-CCU requirements:
+accepted as a stated limitation.** The benchmark is synthetic and measures the generator only.
+The production-like measurement above shows the 300 ms gate failing on 1 CPU, and on 2 CPUs with 4
+concurrent generations, and the production hardware is unknown. The SRS API latency and
+200-concurrent-user requirements need a load test of the API on the target hardware. That is
+outside this PR and stays open; nothing in this specification claims those requirements are met.
+
+**Concern — tie, in-search and node-limit signals were not logged: fixed.** The outcome log line
+now carries `CspNodeLimitReached`, `CspEvaluatorCalls`, `CspInSearchEvaluationLimitReached` and
+`CspTieEvaluationLimitReached` (template above), with matching rows in the monitoring table.
+`SchedulingSolverOutcomeLoggerTests.LogsTheSearchLimitSignals` pins them.
+
+**Concern — keep `Heuristic` as the shipped default until both blockers are resolved.** Blocker 2
+is fixed in this PR. The default switch commit stays in the PR, and re-review is requested once
+the Report 3 V2 amendment is accepted. If the PR must merge before that, the switch commit is
+reverted and the switch ships later as its own change (developer decision, 2026-10-12).
+
 ## Non-goals
 
 - Patch 0003 (TripMate AI providers) and the `Capstone_AI` service.
@@ -630,8 +911,9 @@ kept as fallback.
    example `..._Characterize_...InLegacy`). Those are pinned to `Heuristic` (R6).
 4. After Phase 2, the benchmark meets the Phase 3 quality and latency gate, or the report states
    exactly which scenarios fail it.
-5. CSP and heuristic results both pass the existing invariant validator, and CSP results are
-   deterministic for identical input.
+5. CSP and heuristic results both pass the existing invariant validator. CSP results are
+   deterministic for identical input whenever the wall-clock safety limit is not reached (see the
+   deterministic-output invariant).
 6. Under `SolverMode = Csp`, the creation, Regenerate, and Adjust Items suites and the TM-216
    boundary tests pass.
 7. When the wall-clock safety limit fires, the returned itinerary equals the heuristic result

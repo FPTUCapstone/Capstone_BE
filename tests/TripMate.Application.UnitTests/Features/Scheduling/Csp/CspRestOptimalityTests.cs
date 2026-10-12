@@ -19,6 +19,12 @@ public class CspRestOptimalityTests(ITestOutputHelper output)
 {
     private const int InstancesPerPreference = 80;
 
+    /// <summary>
+    /// Đã chạy 6.000 seed mỗi chế độ (11.148 bài có lời giải, không bài nào lệch); test giữ 500 để CI nhanh, còn các seed
+    /// từng lệch được ghim ở <see cref="Solve_FindsTheOptimum_OnTheTieBreakRegressions"/>.
+    /// </summary>
+    private const int TieInstancesPerPreference = 500;
+
     private static readonly Dictionary<RestPreference, int> MaxWorse = new()
     {
         [RestPreference.Auto] = 0,
@@ -133,6 +139,71 @@ public class CspRestOptimalityTests(ITestOutputHelper output)
         output.WriteLine($"{restPreference}: {feasible} feasible, {worse.Count} worse");
         feasible.Should().BeGreaterThan(InstancesPerPreference / 2, "the generator must produce mostly feasible instances");
         worse.Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// Review PR #62 (Low 1): khi có điểm nghỉ, lời giải hòa incumbent ở vector bao gồm và phút di chuyển từng không được đưa
+    /// qua evaluator, còn K lời giải tốt nhất được xếp theo giờ kết thúc của mô hình (chưa tính nghỉ). Lịch chỉ thắng ở thời
+    /// lượng, giờ kết thúc hoặc dãy Id vì thế có thể bị bỏ lỡ. Bài theo kiểu của reviewer: 0–2 điểm nghỉ thật, ma trận
+    /// không metric, giờ mở cửa và ngân sách.
+    /// </summary>
+    [Theory]
+    [InlineData(RestPreference.Auto)]
+    [InlineData(RestPreference.Frequent)]
+    public void Solve_BreaksTiesByTheFullProductRule_WhenRestApplies(RestPreference restPreference)
+    {
+        var evaluator = new ItineraryScheduleEvaluator(Options);
+        var mismatches = new List<string>();
+        var feasible = 0;
+
+        for (var seed = 1; seed <= TieInstancesPerPreference; seed++)
+        {
+            var (input, matrix) = RandomInstanceWithOptionalRestPlaces(seed, restPreference);
+            var (candidates, indices) = Index(input);
+            var comparer = CspProductRuleOracle.Comparer(input, matrix);
+            var optimum = EvaluatorOptimum(evaluator, input, matrix, candidates, indices, comparer);
+            if (optimum is null)
+            {
+                continue;
+            }
+
+            feasible++;
+            var result = new CspItinerarySolver(evaluator, Options, Exhaustive).Solve(input, matrix, candidates, indices);
+            if (result.Schedule is null || comparer.Compare(result.Schedule, optimum) != 0)
+            {
+                mismatches.Add($"seed {seed}: {FirstDifference(result.Schedule, optimum)}; csp [{string.Join(",", result.Schedule?.VisitPoiIds ?? [])}], "
+                    + $"optimum [{string.Join(",", optimum.VisitPoiIds)}]");
+            }
+        }
+
+        output.WriteLine($"{restPreference}: {feasible} feasible, {mismatches.Count} not optimal");
+        mismatches.ForEach(output.WriteLine);
+        feasible.Should().BeGreaterThan(TieInstancesPerPreference / 2, "the generator must produce mostly feasible instances");
+        mismatches.Should().BeEmpty();
+    }
+
+    /// <summary>
+    /// Các bài CSP từng chọn sai khi có điểm nghỉ, tìm bằng <see cref="Solve_BreaksTiesByTheFullProductRule_WhenRestApplies"/>
+    /// trên 2.000 seed mỗi chế độ: Auto 423 và Frequent 400 chỉ lệch ở dãy Id, còn Frequent 199 và 1691 cho lịch dài hơn
+    /// 10 và 24 phút với cùng các điểm và cùng phút di chuyển.
+    /// </summary>
+    [Theory]
+    [InlineData(RestPreference.Auto, 423)]
+    [InlineData(RestPreference.Frequent, 199)]
+    [InlineData(RestPreference.Frequent, 400)]
+    [InlineData(RestPreference.Frequent, 1691)]
+    public void Solve_FindsTheOptimum_OnTheTieBreakRegressions(RestPreference restPreference, int seed)
+    {
+        var evaluator = new ItineraryScheduleEvaluator(Options);
+        var (input, matrix) = RandomInstanceWithOptionalRestPlaces(seed, restPreference);
+        var (candidates, indices) = Index(input);
+        var comparer = CspProductRuleOracle.Comparer(input, matrix);
+        var optimum = EvaluatorOptimum(evaluator, input, matrix, candidates, indices, comparer);
+
+        var result = new CspItinerarySolver(evaluator, Options, Exhaustive).Solve(input, matrix, candidates, indices);
+
+        optimum.Should().NotBeNull();
+        comparer.Compare(result.Schedule, optimum).Should().Be(0, FirstDifference(result.Schedule, optimum!));
     }
 
     /// <summary>
@@ -252,6 +323,62 @@ public class CspRestOptimalityTests(ITestOutputHelper output)
         }
 
         return (baseInput with { Candidates = candidates }, RouteDurationMatrix.Create(data));
+    }
+
+    /// <summary>
+    /// Như <see cref="RandomInstance"/>, cộng 0–2 điểm nghỉ thật (quán cà phê hoặc nhà hàng, luôn mở cửa) có nhiều cạnh rất
+    /// ngắn, và chuyến đi đủ dài để evaluator chèn điểm nghỉ.
+    /// </summary>
+    private static (GenerationInput Input, RouteDurationMatrix Matrix) RandomInstanceWithOptionalRestPlaces(int seed, RestPreference restPreference)
+    {
+        var (baseInput, _) = RandomInstance(seed, restPreference);
+        var random = new Random((seed * 15_485_863) + (int)restPreference);
+        var restPlaces = Enumerable.Range(901, random.Next(0, 3))
+            .Select(id => OptionalRouteOptimizationScenarios.CreateCandidate(id, $"Rest_{id}", 30, 0m, 0.1m)
+                with
+            { CategoryName = random.Next(2) == 0 ? "Cafe" : "Restaurant" })
+            .ToArray();
+        var candidates = baseInput.Candidates.Concat(restPlaces).ToArray();
+
+        var points = candidates.Length + 2;
+        var data = new int[points, points];
+        var firstRestIndex = points - 1 - restPlaces.Length;
+        for (var i = 0; i < points; i++)
+        {
+            for (var j = 0; j < points; j++)
+            {
+                var touchesRest = (i >= firstRestIndex && i < points - 1) || (j >= firstRestIndex && j < points - 1);
+                data[i, j] = i == j ? 0
+                    : touchesRest && random.Next(2) == 0 ? random.Next(1, 4)
+                    : random.Next(4) == 0 ? random.Next(1, 5) : random.Next(10, 50);
+            }
+        }
+
+        var availableMinutes = restPreference == RestPreference.Auto ? random.Next(300, 721) : random.Next(150, 721);
+        return (baseInput with { Candidates = candidates, AvailableMinutes = availableMinutes }, RouteDurationMatrix.Create(data));
+    }
+
+    /// <summary>Mức đầu tiên của product rule mà hai lịch khác nhau, để thông báo lỗi chỉ rõ chỗ lệch.</summary>
+    private static string FirstDifference(EvaluatedItinerarySchedule? actual, EvaluatedItinerarySchedule expected)
+    {
+        if (actual is null)
+        {
+            return "no CSP schedule";
+        }
+
+        if (!actual.VisitPoiIds.ToHashSet().SetEquals(expected.VisitPoiIds))
+        {
+            return "inclusion";
+        }
+
+        if (actual.TotalMatrixTravelMinutes != expected.TotalMatrixTravelMinutes)
+        {
+            return $"travel {actual.TotalMatrixTravelMinutes} vs {expected.TotalMatrixTravelMinutes}";
+        }
+
+        return actual.TotalDurationMinutes != expected.TotalDurationMinutes || actual.EndAtUtc != expected.EndAtUtc
+            ? $"duration {actual.TotalDurationMinutes} vs {expected.TotalDurationMinutes} min"
+            : "visit-ID order only";
     }
 
     /// <summary>
