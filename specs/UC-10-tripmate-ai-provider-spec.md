@@ -6,19 +6,35 @@
 | --- | --- |
 | Spec ID | `UC-10-tripmate-ai-provider`. Provisional: Jira is not accessible, so there is no official task ID yet (Q1). |
 | Use case | UC-10 itinerary generation: TM-215 AI POI ranking and TM-217 itinerary explanation |
-| Status | **Approved by the developer on 2026-10-12** with A1, A2 and the D3 extension confirmed and Q8 answered (§6.1 D9) |
+| Status | **Implemented and verified on 2026-10-12** (plan T1–T8). Approved earlier the same day with A1, A2 and the D3 extension confirmed and Q8 answered (§6.1 D9). |
 | Date | 2026-10-12 |
-| Baseline | `origin/develop` @ `31f9a5aa22a531a63e9e1237cafbeb0049662dc5` (merge of PR #62). The local `develop` ref of this clone is stale (`0075fcb`); always compare with `origin/develop`. |
-| Branch and worktree | `feature/phuctv-tripmate-ai-provider` at `D:\FPTUCapstone\Capstone_BE_AI`, clean, equal to the baseline |
-| Companion repository | `Capstone_AI` at `D:\FPTUCapstone\Capstone_AI`, branch `feature/phuctv-tripmate-ai-service`, committed and not yet pushed: `3283021` (service hardening and dataset), `447836c` (fine-tune, Kaggle and CPU benchmark tooling), `1872508` (diacritics restoration for ranking), on top of the scaffold commit `021f720`; 351 tests pass. It gets its own PR. |
-| Revision | 2026-10-12, afternoon: aligned with the latest AI service (fine-tuned explainer, model warm-up, diacritics restoration), the laptop GPU measurements, the demo hosting answer to Q2, recommendation R11, and the traveler-preferences dependency (§17); then the CSP and personalization interaction (§18), corrected L10, new L11–L13, adaptation A2, S14. |
+| Baseline | `origin/develop` @ `31f9a5aa22a531a63e9e1237cafbeb0049662dc5` (merge of PR #62). The local `develop` ref of this clone is stale (`0075fcb`); always compare with `origin/develop`. On 2026-10-12 the branch merged `origin/develop` @ `b66e22b` (PR #65 CSP Phase 3, PR #56 UC-13) without conflicts. |
+| Branch and worktree | `feature/phuctv-tripmate-ai-provider` at `D:\FPTUCapstone\Capstone_BE_AI`: `4b536bd` (spec and plan), `949058c` (patch 0003), `a5ebafe`, `e20a9de`, `ee0a320` (tests), `8f174a4` (A2), `9be5725` (runbook), the merge of `origin/develop`, then the verification record |
+| Companion repository | `Capstone_AI` at `D:\FPTUCapstone\Capstone_AI`, branch `feature/phuctv-tripmate-ai-service`, committed and not yet pushed: `3283021` (service hardening and dataset), `447836c` (fine-tune, Kaggle and CPU benchmark tooling), `1872508` (diacritics restoration for ranking), `812831a` (backend-size benchmark samples, F5), on top of the scaffold commit `021f720`; 358 tests pass. It gets its own PR. |
+| Revision | 2026-10-12, afternoon: aligned with the latest AI service (fine-tuned explainer, model warm-up, diacritics restoration), the laptop GPU measurements, the demo hosting answer to Q2, recommendation R11, and the traveler-preferences dependency (§17); then the CSP and personalization interaction (§18), corrected L10, new L11–L13, adaptation A2, S14. Evening: implementation and verification results (this section, §6.4 L14–L16, §8.8, §9.3, §13.3). |
 | Implementation source | Developer patch 0003 `tripmate-ai-providers` (§3, source 2) |
 | Plan | `plans/UC-10-tripmate-ai-provider-plan.md` |
 | Predecessors | TM-215, TM-216, TM-217. The UC-10 CSP solver spec excluded patch 0003 and `Capstone_AI` (`specs/UC-10-csp-itinerary-solver-spec.md:62-63`, `:617`). |
 
-Nothing is implemented in the backend. No backend smoke-test evidence exists yet (plan T6). The AI
-service itself was measured on its own (§9.3): on the developer's laptop GPU it meets both service
-deadlines; on a 4-vCPU CPU it does not.
+Verification on 2026-10-12 (details and evidence paths in the plan's progress table):
+- **Gates after merging `origin/develop`:** build with 0 warnings; Infrastructure 808 passed and 3
+  skipped; Application 1,861 passed; integration 474 passed and 349 skipped locally (SQL Server and
+  Redis); the Scheduling SQL Server classes against a disposable SQL Server 2022 container: 61 passed,
+  9 skipped (Redis). Before the merge, the whole integration project against SQL Server: 871 passed
+  after one more A2 test setup. CI must run the SQL Server and Redis suites without skips.
+- **Smoke test S0–S10** (fake Ollama, §13.3): every scenario passed. S7 differs from the table when
+  the embeddings are cached (L16); S7b, with an empty cache, matches it.
+- **Real models on the laptop GPU (S11–S14):** S11 201 in 5.8 s, explanations in Vietnamese and
+  about their own items. S12 is limited by the 12-POI seed to 5 visits (201, explanation 3.8–4.8 s); a
+  direct 8-stop call timed out once in 3. S13: accentless and accented preferences give the same
+  `aiScore` for all 12 POIs. S14 after the merge: `Scheduling solver outcome csp`, CSP 20 ms on the
+  first request and 0.8 ms on the next, both providers `success`, request 8.5 s first and 3.6 s warm.
+- **Backend-size benchmark** (`Capstone_AI` `812831a`, §9.3): 60-candidate ranking and 8-item
+  explanations pass; 12-item explanations time out in about half of the calls (L14, accepted).
+- **Runbook:** `docs/operations/uc10-tripmate-ai-measurement-runbook.md` (plan T7); every command in
+  it was run on the laptop.
+- A 30 km request failed with `planning.routing_provider_unavailable` because OpenRouteService
+  returned an invalid duration. That is existing routing behavior, not part of this task.
 
 Approving this spec approves:
 - the binding decisions as recorded in §6.1;
@@ -394,6 +410,21 @@ Gemini behavior is unchanged in every row. Approving this spec accepts them.
 - **L13 — Host-dependent AI scores.** Embeddings computed on a GPU and on a CPU can differ in the last
   digits. `aiScore` is rounded to 4 decimals, but candidates with near-equal scores can swap places, so
   the solvers can choose differently on two hosts for the same request.
+- **L14 — Long itineraries on a 4 GB laptop GPU** (measured 2026-10-12). With the backend-size
+  samples, 12-item explanations timed out at the service's 9 s deadline in 6 of 11, 2 of 4 and 7 of 11
+  calls; the successful ones took 8.7–9.0 s. The backend does not retry a 504 and uses the fallback
+  text. Up to 8 items no call failed (median about 5.7 s). **Accepted by the developer for the demo**:
+  the settings stay as they are, and current Da Nang plans have 4–5 items. If longer plans matter
+  later: `LLM_TIMEOUT_SECONDS` of about 9.5 (still below the backend's 10 s), or fewer output tokens
+  for long plans in the AI service.
+- **L15 — An Ollama outage costs about 12 s per fresh generation.** Each service call waits about
+  3.85 s before answering 503; ranking once plus two explanation attempts (503 is retried) add about
+  12 s before both fallbacks (S7b). The bound is the same as for a slow Gemini (§9.3). Watching
+  `/ready` on the demo host catches it before users do.
+- **L16 — The embedding cache hides an Ollama outage from ranking.** Candidates and preferences already
+  in the service's in-memory cache (`Capstone_AI/app/ranking.py`, `EmbeddingCache`) are ranked without
+  Ollama, so ranking stays `success` (S7). New POIs or preferences fail with 503. Explanations always
+  need Ollama.
 
 ## 7. Design
 
@@ -703,7 +734,8 @@ These are not part of this backend task. They are listed so that the AI PR can f
 runbook relies on them. Status 2026-10-12: F1, F2, F3, F4 (comment), F6 and F7 are fixed on the
 `Capstone_AI` branch (commits `3283021`–`1872508`), together with 20 more review findings (auth before body read, body and
 field limits, IANA time zones, language check, LLM concurrency slot, pinned versions, CI token
-permissions); F5 remains.
+permissions). F5 was fixed on 2026-10-12 by `812831a`: backend-size samples, their generator
+`scripts/make_backend_samples.py`, and a benchmark that prints the sample name and the maximum.
 
 - **F1.** `README.md:77` says that switching back to Gemini only needs the two `Provider` lines.
   Gemini validation also needs the HTTPS endpoint, the Gemini key and `ModelName` (§7.6).
@@ -804,6 +836,10 @@ call of each itinerary, so the prompt is not cached, as for a real request.
 | Kaggle T4 GPU | — | p50 about 1.4–1.7 s, p95 3.3–4.1 s on the evaluation sets | 130/130 clean |
 | Kaggle CPU, 4 vCPU | — | 13–19 / 22–25 / 36–42 / 48–57 s | — (every itinerary over 9 s) |
 
+- Backend-size samples (`Capstone_AI` `812831a`), `scripts/benchmark.py`, 10 measured calls each, on
+  the laptop: rank-pois with 60 candidates 1.35–2.9 s on the first call and 0.01 s afterwards;
+  explain-itinerary with 8 items median 5.6–5.7 s, p95 at most 5.95 s, no errors; with 12 items 504
+  in 50–65 % of the calls (L14).
 - `scripts/benchmark.py` through the service image, with the key, on the laptop: explain-itinerary
   median 2.1 s and p95 2.2 s, rank-pois without errors; 0 of 22 calls failed.
 - The first call after the model is loaded into memory takes about 18 s. `MODEL_WARMUP=true` and
@@ -1079,7 +1115,7 @@ generations per minute with a 15 s cooldown and 4 AI calls per minute:
 | S4 | S3's exact request again (same key and body) | 201 replay with the stored texts. | No new `POST`. |
 | S5 | Backend keys differ from `TRIPMATE_AI_API_KEY` | 201. Ranking `invalid-response`, explanation `invalid-response`; fallback. | Each endpoint answers 401 once. |
 | S6 | Fake in `not_json` mode | 201. Ranking `success`. Explanation `server-error` after one attempt (`retryScheduled=False`); fallback. | explain-itinerary answers 502 once (the service tried twice internally). |
-| S7 | Fake Ollama stopped | 201. Ranking `server-error`. Explanation attempt 1 `retryScheduled=True`, then `server-error`; fallback. The itinerary equals S1's. | rank-pois 503 once; explain-itinerary 503 twice. |
+| S7 | Fake Ollama stopped, then `ai` restarted so that its embedding cache is empty (with a warm cache, ranking stays `success`: L16) | 201. Ranking `server-error`. Explanation attempt 1 `retryScheduled=True`, then `server-error`; fallback. The itinerary equals S1's. | rank-pois 503 once; explain-itinerary 503 twice. |
 | S8 | AI container paused | 201 after about 5 s plus 10 s of waiting. Ranking `timeout`, `timedOut=True`; explanation `timeout` after one attempt; fallback. The itinerary equals S1's. | No answer until it is unpaused. |
 | S9 | AI container stopped | 201. Ranking `network`, explanation `network`; fallback. The itinerary equals S1's. | — |
 | S10 | Everything restored | As S3. | As S3. |

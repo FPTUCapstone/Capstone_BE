@@ -5,12 +5,12 @@
 | Field | Value |
 | --- | --- |
 | Plan ID | `UC-10-tripmate-ai-provider` (provisional; spec Q1) |
-| Spec | [`specs/UC-10-tripmate-ai-provider-spec.md`](../specs/UC-10-tripmate-ai-provider-spec.md) (Draft) |
-| Status | **Approved by the developer on 2026-10-12** (spec §6.1 D9: A1, A2, D3 extension, Q8 Option A). |
+| Spec | [`specs/UC-10-tripmate-ai-provider-spec.md`](../specs/UC-10-tripmate-ai-provider-spec.md) (implemented and verified) |
+| Status | **Done 2026-10-12**: T1–T8 complete, the runbook approved and committed. Approved the same day (spec §6.1 D9: A1, A2, D3 extension, Q8 Option A). |
 | Date | 2026-10-12 |
-| Baseline | `origin/develop` @ `31f9a5a`. The local `develop` ref of this clone is stale. |
+| Baseline | `origin/develop` @ `31f9a5a`; merged with `origin/develop` @ `b66e22b` (PR #65, PR #56) in T8. The local `develop` ref of this clone is stale. |
 | Branch and worktree | `feature/phuctv-tripmate-ai-provider` at `D:\FPTUCapstone\Capstone_BE_AI` |
-| Companion | `Capstone_AI`, branch `feature/phuctv-tripmate-ai-service` (`1872508`, committed, not pushed), in its own PR (spec Q3, Q4) |
+| Companion | `Capstone_AI`, branch `feature/phuctv-tripmate-ai-service` (`812831a`, committed, not pushed), in its own PR (spec Q3, Q4) |
 | Patch | `C:\Users\han12\Downloads\CSP (2)\CSP\0003-tripmate-ai-providers (1).patch`; `P:<n>` is its line n |
 
 Progress:
@@ -19,8 +19,15 @@ Progress:
 | --- | --- | --- |
 | T0 | Done: spec and plan approved 2026-10-12 | spec §1, §6.1 D9 |
 | T1 | Done 2026-10-12: develop still `31f9a5a`; patch applies except `.env.example`; baseline green | baseline table below |
-| T2–T8 | Not started | — |
-| T5a | Confirmed (A2); not started | — |
+| T2 | Done 2026-10-12: patch applied unchanged except A1; reverse check OK; 0 warnings; format OK; 26/26 patch cases; full suite 0 failed | commit `949058c` |
+| T3 | Done 2026-10-12: RT1–RT7 (16 cases) green; break checks: 422→ServerError failed RT1 (422 case), catch OCE→Network failed RT2 (send cancellation), no `item is null` check failed RT5 (`[null]`), no permit release failed RT7; all reverted, patch fidelity OK | new test file |
+| T3 commit | `a5ebafe` | — |
+| T4 | Done 2026-10-12: E1–E10 (18 cases) green; break checks: budget once per call failed E2; retry after attempt timeout failed E3; no 503 retry failed E4 (also E2 and E7 retry-delay); case-insensitive root failed E9 (`Items`); request body in the log failed E10; all reverted, patch fidelity OK | new test file |
+| T5 | Done 2026-10-12: C1–C8 (33 cases) green; Infrastructure 807 passed / 3 skipped; break checks: explanation reads `AiRanking:Provider` failed C3 (both directions; C5 for `AiExplanation` too); any scheme for TripMateAi failed C7 (`ftp://`); shipped `AiRanking:Provider` = TripMateAi failed C1; no `Enum.IsDefined` failed C6 (enabled); all reverted, patch fidelity OK | new test file |
+| T6 | Done 2026-10-12 (evidence: `$env:TEMP\tripmate-ai-smoke\results-fake.md`, `results-real.md`, `s*.json`): S0–S10 pass with the fake Ollama. Deviations recorded: S7 ranking stays `success` while every embedding is cached in the AI service (`app/ranking.py:47`); S7b (Ollama stopped + AI restarted) reproduces the spec's path; with Ollama down each AI call takes ~3.85 s (request ~12 s). Real models (laptop GPU): S11 201 / 5.8 s, explanation 4.4 s; S12 needs ≥ 8 visits but the 12-POI seed fits at most 5 (201, explanation 3.8–4.8 s); direct 8-stop call 504 at 9.0 s once, then 7.1 s / 6.1 s; 30 km radius hit an OpenRouteService invalid-duration 503 (pre-existing, not AI); S13 accent restoration identical scores for all 12 POIs; S14 CSP + both providers 201 / 5,484 ms, no solver-outcome line until PR #65 | none in the repository |
+| T7 | Draft 2026-10-12, awaiting the developer's approval: F5 resolved in `Capstone_AI` `812831a` (developer chose "add samples to the AI repo"): `scripts/make_backend_samples.py`, `samples/rank_request_60.json`, `explain_request_8.json`, `explain_request_12.json`, benchmark prints sample name and max; AI tests 358 passed; training generator output unchanged (hash check). Laptop GPU benchmark: rank 60 OK; explain 8 items median 5.6 s, 0 errors; 12 items 6/11 and 2/4 calls 504. Every runbook command run on the laptop: preflight in T6; Part A standalone `ai` with host override, benchmark via `--network container:` (also `--network host`), `evaluate_model.py --limit 3` (needs `--user root`); temporary AI `.env` and container removed. Whitespace check OK | `docs/operations/uc10-tripmate-ai-measurement-runbook.md` |
+| T8 | Done 2026-10-12. Before the merge: format of the 18 branch `.cs` files clean, build 0 warnings, CandidatePoolReplay 13, Infrastructure 807 / 3 skipped, Application 1,779, integration 446 / 334 skipped, `git diff --check` clean. The whole-solution `dotnet format --verify-no-changes` reports whitespace errors only in files this branch does not touch (for example `GetActiveTripDetailsQueryHandler.cs`, `CreateSchedulingRequestCommandHandler.cs`); the CI-equivalent command below now diffs against the merge base. Diff against `origin/develop`: the 13 patch files, the 3 new test files, the runbook, spec, plan, the A2 orchestrator and test setups, nothing else. Merge of `origin/develop` @ `b66e22b`: no conflicts; then build 0 warnings, Infrastructure 808 / 3, Application 1,861, integration 474 / 349 skipped, Scheduling SQL Server classes 61 / 9 skipped (Redis) on a disposable SQL Server. S14 repeated on the merged code with real models: `Scheduling solver outcome csp`, CSP 20 ms then 0.8 ms, both providers `success`, 8.5 s then 3.6 s. Developer accepted L14 (12-item explanations time out about half the time on the laptop GPU). Spec §1, §6.4 (L14–L16), §8.8, §9.3 and §13.3 updated | spec, plan |
+| T5a | Done 2026-10-12: O1 failed before the change (provider called once) and passes after; Application 1,779 passed. Integration against a throwaway SQL Server 2022 container: 871 passed / 10 skipped / 1 failed (`ConcurrentSameKey…`, A2 cause, fixed), then both scheduling SQL Server classes 36/36. Updated test setups (review notes): 8 `PoiRankingOrchestratorTests` inputs get token `culture`; 8 `CreateSchedulingRequestCommandHandlerTests` (14 cases) get traveler 42 interest `unmatched-interest`; `CreateSchedulingRequestRankingSqlServerTests.SeedAsync` and `CreateSchedulingRequestSqlServerTests.ConcurrentSameKey…` get the same interest. No POI matches these tokens, so base scores are unchanged | orchestrator + 4 test files |
 
 Baseline numbers, filled in by T1:
 
@@ -76,7 +83,7 @@ git diff --check
 CI-equivalent format check of changed and new C# files (`.github/workflows/backend-tests.yml:58-75`):
 
 ```powershell
-$changed = @(git diff --name-only --diff-filter=ACMR origin/develop -- '*.cs') + @(git ls-files --others --exclude-standard -- '*.cs')
+$changed = @(git diff --name-only --diff-filter=ACMR origin/develop...HEAD -- '*.cs') + @(git ls-files --others --exclude-standard -- '*.cs')
 if ($changed.Count -gt 0) { dotnet format TripMate.slnx --verify-no-changes --no-restore --include $changed }
 ```
 
