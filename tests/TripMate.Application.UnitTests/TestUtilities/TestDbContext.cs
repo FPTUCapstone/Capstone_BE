@@ -92,6 +92,8 @@ public class TestDbContext(
 
     public DbSet<TripSession> TripSessions => Set<TripSession>();
 
+    public DbSet<TripSessionItem> TripSessionItems => Set<TripSessionItem>();
+
     public DbSet<Incident> Incidents => Set<Incident>();
 
     public DbSet<TripStateHistory> TripStateHistories => Set<TripStateHistory>();
@@ -105,6 +107,8 @@ public class TestDbContext(
     public int TransactionExecutionCount { get; private set; }
 
     public bool IsExecutingSerializableTransaction { get; private set; }
+
+    public int SerializableReadCount { get; private set; }
 
     public int SaveChangesAsyncCallCount { get; private set; }
 
@@ -221,8 +225,21 @@ public class TestDbContext(
         }
     }
 
+    public Task<T> ExecuteWithSerializableReadsAsync<T>(
+        Func<CancellationToken, Task<T>> reads,
+        CancellationToken cancellationToken)
+    {
+        SerializableReadCount++;
+        return reads(cancellationToken);
+    }
+
+    public bool IsDeadlock(Exception exception) => exception is SimulatedDeadlockException;
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<TripSessionItem>()
+            .HasKey(item => new { item.SessionId, item.ItineraryItemId });
+
         modelBuilder.Entity<PoiOpeningHour>()
             .HasKey(hours => new { hours.PointOfInterestId, hours.DayOfWeek });
 

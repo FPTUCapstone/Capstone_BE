@@ -287,6 +287,8 @@ public sealed class CommercialServiceDisclosureMigrationSqlServerTests
             ALTER TABLE commercial.Services DROP COLUMN pickup_or_arrival_instructions;
             ALTER TABLE commercial.Services DROP COLUMN cancellation_policy_summary;
             ALTER TABLE commercial.Services DROP COLUMN last_updated_at;
+
+            ALTER DATABASE SCOPED CONFIGURATION CLEAR PROCEDURE_CACHE;
             """);
     }
 

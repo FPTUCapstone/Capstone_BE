@@ -14,17 +14,32 @@ public sealed class TripSessionConfiguration : IEntityTypeConfiguration<TripSess
         builder.HasKey(session => session.Id);
         builder.Property(session => session.Id).HasColumnName("session_id").ValueGeneratedOnAdd();
         builder.Property(session => session.ItineraryId).HasColumnName("itinerary_id").IsRequired();
+        builder.Property(session => session.RequestedItineraryId).HasColumnName("requested_itinerary_id").IsRequired();
         builder.Property(session => session.TravelerUserId).HasColumnName("traveler_user_id").IsRequired();
+        builder.Property(session => session.StartIdempotencyKey).HasColumnName("start_idempotency_key").IsRequired();
         builder.Property(session => session.FsmState).HasColumnName("fsm_state").HasMaxLength(12).IsUnicode(false).IsRequired();
+        builder.Property(session => session.CompletionReason).HasColumnName("completion_reason").HasMaxLength(24).IsUnicode(false);
         builder.Property(session => session.CurrentLatitude).HasColumnName("current_latitude").HasPrecision(9, 6);
         builder.Property(session => session.CurrentLongitude).HasColumnName("current_longitude").HasPrecision(9, 6);
         builder.Property(session => session.StartedAtUtc).HasColumnName("started_at").AsUtcDateTime2();
+        builder.Property(session => session.ExpiresAtUtc).HasColumnName("expires_at").AsUtcDateTime2();
+        builder.Property(session => session.ExploringItemId).HasColumnName("exploring_item_id");
         builder.Property(session => session.EndedAtUtc).HasColumnName("ended_at").AsUtcDateTime2();
         builder.Property(session => session.LastSyncedAtUtc).HasColumnName("last_synced_at").AsUtcDateTime2();
+        builder.Property(session => session.RowVersion).HasColumnName("row_version").IsRowVersion();
 
         builder.HasOne(session => session.Itinerary).WithMany().HasForeignKey(session => session.ItineraryId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(session => session.TravelerUser).WithMany().HasForeignKey(session => session.TravelerUserId).OnDelete(DeleteBehavior.Restrict);
         builder.HasIndex(session => new { session.TravelerUserId, session.FsmState }).HasDatabaseName("IX_TripSessions_Traveler");
         builder.HasIndex(session => session.ItineraryId).HasDatabaseName("IX_TripSessions_Itinerary");
+        builder.HasIndex(session => new { session.TravelerUserId, session.StartIdempotencyKey })
+            .HasDatabaseName("UQ_TripSessions_Traveler_StartKey")
+            .IsUnique();
+        builder.HasIndex(session => session.TravelerUserId)
+            .HasDatabaseName("UQ_TripSessions_OpenTraveler")
+            .HasFilter("[ended_at] IS NULL")
+            .IsUnique();
+        builder.Navigation(session => session.Items).UsePropertyAccessMode(PropertyAccessMode.Field);
+        builder.Navigation(session => session.StateHistory).UsePropertyAccessMode(PropertyAccessMode.Field);
     }
 }
