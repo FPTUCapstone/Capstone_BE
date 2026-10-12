@@ -36,6 +36,39 @@ public sealed class SchedulingSolverOutcomeLoggerTests
         entry.Values["CspReturnedHeuristicPlan"].Should().Be(false);
         entry.Values["CspElapsedMs"].Should().Be(0d);
         entry.Values["CspNodesExpanded"].Should().Be(0);
+        entry.Values["CspNodeLimitReached"].Should().Be(false);
+        entry.Values["CspInSearchEvaluationLimitReached"].Should().Be(false);
+        entry.Values["CspTieEvaluationLimitReached"].Should().Be(false);
+        entry.Values["CspEvaluatorCalls"].Should().Be(0);
+    }
+
+    /// <summary>
+    /// Review Phase 3: the search-limit signals are operationally relevant (a rising share means the node budget or the
+    /// evaluator caps are too small for production inputs), so the log line must carry them, not only the Activity.
+    /// </summary>
+    [Fact]
+    public async Task LogsTheSearchLimitSignals()
+    {
+        var logger = new RecordingLogger<SchedulingSolverOutcomeLogger>();
+        using var service = new SchedulingSolverOutcomeLogger(logger);
+        await service.StartAsync(CancellationToken.None);
+
+        using (var activity = SchedulingSolverDiagnostics.Source.StartActivity(SchedulingSolverDiagnostics.OutcomeActivityName))
+        {
+            activity!.SetTag("solver.outcome", SchedulingSolverOutcomes.Csp);
+            activity.SetTag("csp.node_limit_reached", true);
+            activity.SetTag("csp.in_search_evaluation_limit_reached", true);
+            activity.SetTag("csp.tie_evaluation_limit_reached", true);
+            activity.SetTag("csp.evaluator_calls", 17);
+        }
+
+        await service.StopAsync(CancellationToken.None);
+
+        var entry = logger.Entries.Should().ContainSingle().Subject;
+        entry.Values["CspNodeLimitReached"].Should().Be(true);
+        entry.Values["CspInSearchEvaluationLimitReached"].Should().Be(true);
+        entry.Values["CspTieEvaluationLimitReached"].Should().Be(true);
+        entry.Values["CspEvaluatorCalls"].Should().Be(17);
     }
 
     [Fact]

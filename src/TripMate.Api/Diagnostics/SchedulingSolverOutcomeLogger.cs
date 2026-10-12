@@ -48,13 +48,20 @@ public sealed class SchedulingSolverOutcomeLogger(ILogger<SchedulingSolverOutcom
         var elapsedMs = activity.GetTagItem("csp.elapsed_ms") is double milliseconds ? Math.Round(milliseconds, 1) : (double?)null;
         logger.LogInformation(
             "Scheduling solver outcome {SolverOutcome} (kind {SolverKind}, mode {SolverMode}): CSP elapsed {CspElapsedMs} ms, "
-                + "time limit reached {CspTimeLimitReached}, returned heuristic plan {CspReturnedHeuristicPlan}, nodes {CspNodesExpanded}.",
+                + "time limit reached {CspTimeLimitReached}, returned heuristic plan {CspReturnedHeuristicPlan}, nodes {CspNodesExpanded}, "
+                + "node limit reached {CspNodeLimitReached}, evaluator calls {CspEvaluatorCalls}, "
+                + "in-search evaluation limit reached {CspInSearchEvaluationLimitReached}, "
+                + "tie evaluation limit reached {CspTieEvaluationLimitReached}.",
             activity.GetTagItem("solver.outcome"),
             activity.GetTagItem("solver.kind"),
             activity.GetTagItem("solver.mode"),
             elapsedMs,
             activity.GetTagItem("csp.time_limit_reached"),
             activity.GetTagItem("csp.returned_heuristic_plan"),
-            activity.GetTagItem("csp.nodes_expanded"));
+            activity.GetTagItem("csp.nodes_expanded"),
+            activity.GetTagItem("csp.node_limit_reached"),
+            activity.GetTagItem("csp.evaluator_calls"),
+            activity.GetTagItem("csp.in_search_evaluation_limit_reached"),
+            activity.GetTagItem("csp.tie_evaluation_limit_reached"));
     }
 }
