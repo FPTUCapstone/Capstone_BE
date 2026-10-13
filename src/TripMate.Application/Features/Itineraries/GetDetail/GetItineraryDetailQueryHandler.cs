@@ -66,7 +66,9 @@ public sealed class GetItineraryDetailQueryHandler(
                 item.RecommendationReason,
                 item.FriendlyExplanation,
                 item.PointOfInterest is not null
-                    && item.PointOfInterest.Status != PointOfInterestStatus.Active))
+                    && item.PointOfInterest.Status != PointOfInterestStatus.Active,
+                item.PointOfInterest?.Latitude,
+                item.PointOfInterest?.Longitude))
             .ToArray();
 
         return new ItineraryDetailResponse(

@@ -7,11 +7,19 @@ using TripMate.Application.UnitTests.Features.Scheduling.Fixtures;
 using TripMate.Domain.Enums;
 
 // UC-10 solver comparison: optimization disabled vs Heuristic vs CSP on identical synthetic inputs.
-// Usage (from the repository root): dotnet run -c Release --project tools/benchmarks/solver-comparison -- [outputDirectory] [iterations] [seeds]
+// Usage (from the repository root): dotnet run -c Release --project tools/benchmarks/solver-comparison -- [outputDirectory] [iterations] [seeds] [--label=<a-z0-9>]
 // The report records a SHA-256 of the benchmarked source files (SolverComparisonReport.SourceInputs), and
 // SolverComparisonReportTests fails when the committed source no longer matches it, so commit the regenerated report
 // together with the source it measured. Output: <base>.csv, <base>.timings.csv, <base>.meta.json and <base>.md, where the
-// Markdown is recomputed from the three data files.
+// Markdown is recomputed from the three data files. <base> is UC-10-csp-solver-comparison-<yyyy-MM-dd>[-<label>]; a label
+// keeps a second report of the same day from overwriting an earlier, already committed one.
+var label = args.FirstOrDefault(arg => arg.StartsWith("--label=", StringComparison.Ordinal))?["--label=".Length..];
+if (label is not null && (label.Length == 0 || !label.All(c => char.IsAsciiLetterLower(c) || char.IsAsciiDigit(c))))
+{
+    Console.Error.WriteLine("--label must be lowercase ASCII letters and digits.");
+    return 1;
+}
+
 var positional = args.Where(arg => !arg.StartsWith("--", StringComparison.Ordinal)).ToArray();
 var outputDirectory = positional.Length > 0 ? positional[0] : Path.Combine("docs", "benchmarks");
 var iterations = positional.Length > 1 ? int.Parse(positional[1], CultureInfo.InvariantCulture) : 3;
@@ -84,7 +92,7 @@ foreach (var scenario in scenarios)
 }
 
 var metadata = new SolverComparisonMetadata(
-    Date: DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+    Date: DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + (label is null ? string.Empty : "-" + label),
     SourceHash: source.Hash,
     SourceFileCount: source.FileCount,
     GeneratedAtUtc: DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", CultureInfo.InvariantCulture),
@@ -105,7 +113,7 @@ var metadata = new SolverComparisonMetadata(
     RestPreferences: restPreferences.Select(preference => preference.ToString()).ToArray(),
     NamedScenarioCount: namedScenarioCount,
     MaxMatrixCandidates: cspOptions.MaxMatrixCandidates,
-    Csp: cspOptions.Csp);
+    Csp: SolverComparisonCspSettings.From(cspOptions.Csp));
 
 SolverComparisonReport.Write(outputDirectory, new SolverComparisonData(metadata, scenarioRows, timingRows));
 var baseName = SolverComparisonReport.BaseName(metadata.Date);

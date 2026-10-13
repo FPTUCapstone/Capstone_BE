@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Authentication.Common;
 using TripMate.Application.Features.CommercialServices.Common;
+using TripMate.Application.Features.Navigation.Common;
 using TripMate.Application.Features.PointsOfInterest.Common;
 using TripMate.Application.Features.RecommendationFeedback.Common;
 using TripMate.Application.Features.Scheduling.Common;
@@ -290,6 +291,18 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripMate.Application.Features.Itineraries.Common.ItineraryErrorCodes.ConstraintsInfeasible =>
                 StatusCodes.Status422UnprocessableEntity,
 
+            NavigationErrorCodes.AccessDenied => StatusCodes.Status403Forbidden,
+            NavigationErrorCodes.SessionNotFound => StatusCodes.Status404NotFound,
+            NavigationErrorCodes.ItineraryNotActive
+                or NavigationErrorCodes.OutsideTripWindow
+                or NavigationErrorCodes.ActiveSessionExists
+                or NavigationErrorCodes.IdempotencyKeyPayloadMismatch
+                or NavigationErrorCodes.ItemAlreadyReached
+                or NavigationErrorCodes.SessionCompleted => StatusCodes.Status409Conflict,
+            NavigationErrorCodes.NoNavigableItems
+                or NavigationErrorCodes.ItineraryScheduleIncomplete
+                or NavigationErrorCodes.ItemNotNavigable => StatusCodes.Status422UnprocessableEntity,
+
             _ => StatusCodes.Status400BadRequest,
         };
 
@@ -304,6 +317,15 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             && retryAfter is int retryAfterSeconds)
         {
             Response.Headers.RetryAfter = retryAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        if (result.ErrorCode == NavigationErrorCodes.ActiveSessionExists
+            && result.ErrorMetadata.TryGetValue(
+                NavigationErrorMetadata.ActiveSessionLocation,
+                out var activeLocation)
+            && activeLocation is string location)
+        {
+            Response.Headers.Location = location;
         }
 
         return Problem(

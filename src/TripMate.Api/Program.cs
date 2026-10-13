@@ -15,6 +15,7 @@ using Serilog;
 
 using TripMate.Api.Authorization;
 using TripMate.Api.Common;
+using TripMate.Api.Diagnostics;
 using TripMate.Api.Middleware;
 using TripMate.Api.OpenApi;
 using TripMate.Application;
@@ -36,6 +37,9 @@ try
 
     builder.Services.AddApplication();
     builder.Services.AddInfrastructure(builder.Configuration);
+
+    // UC-10 Phase 3: one log line per scheduling solver outcome, the signal for CSP monitoring.
+    builder.Services.AddHostedService<SchedulingSolverOutcomeLogger>();
 
     // AGENTS.md §5.4: credentials must come from environment variables or User Secrets,
     // never from committed configuration files.

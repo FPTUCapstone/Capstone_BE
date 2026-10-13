@@ -60,46 +60,66 @@ public sealed class ItineraryGenerationService(
         OptimizationResult? alternativeResult = null;
         CspStatistics? cspStatistics = null;
         var outcome = SchedulingSolverOutcomes.Heuristic;
-        if (_options.SolverMode == SchedulingSolverMode.Csp)
+
+        // R4: tắt tối ưu tuyến thì bỏ qua SolverMode, chạy đúng đường không tối ưu của OptionalRouteOptimizer.
+        var solverMode = _options.EnableOptionalRouteOptimization ? _options.SolverMode : SchedulingSolverMode.Heuristic;
+        if (solverMode == SchedulingSolverMode.Csp)
         {
+            // R1a: lịch heuristic là incumbent ban đầu của CSP, nên kết quả CSP không bao giờ kém nó theo product rule.
+            // Nó cũng là lưới an toàn khi CSP không trả về lịch: CSP không mô hình hóa điểm nghỉ, nên bật CSP không bao
+            // giờ làm mất một lịch trình mà hệ thống trước đây tìm được.
+            var heuristic = _optimizer.Optimize(
+                input,
+                mandatoryCandidates,
+                matrix,
+                matrixCandidates,
+                candidateMatrixIndices,
+                cancellationToken);
             var csp = new CspItinerarySolver(_evaluator, _options).Solve(
                 input,
                 matrix,
                 matrixCandidates,
                 candidateMatrixIndices,
+                heuristic?.Schedule,
                 cancellationToken);
             cspStatistics = csp.Statistics;
 
-            if (csp.ProvedInfeasible)
+            if (csp.Statistics.TimeLimitReached)
             {
-                // Lưới an toàn: CSP không mô hình hóa điểm nghỉ, nên trước khi báo lỗi vẫn thử thuật toán cũ.
-                // Như vậy bật CSP không bao giờ làm mất một lịch trình mà hệ thống trước đây tìm được.
-                alternativeResult = _optimizer.Optimize(
-                    input,
-                    mandatoryCandidates,
-                    matrix,
-                    matrixCandidates,
-                    candidateMatrixIndices,
-                    cancellationToken);
-                if (alternativeResult is null)
+                // R5: lưới an toàn thời gian bị chạm thì CSP đã bỏ kết quả dở dang; trả lịch heuristic nguyên vẹn để kết
+                // quả không phụ thuộc vào lúc dừng.
+                if (heuristic is null)
                 {
-                    SchedulingSolverDiagnostics.RecordOutcome(_options.SolverMode, SchedulingSolverOutcomes.Infeasible, cspStatistics);
-                    return Infeasible(DescribeCspInfeasibility(csp, candidatesById));
+                    SchedulingSolverDiagnostics.RecordOutcome(solverMode, SchedulingSolverOutcomes.Infeasible, cspStatistics);
+                    return Infeasible("The mandatory locations cannot fit within the selected time, hours, budget, and end point.");
                 }
 
-                outcome = SchedulingSolverOutcomes.HeuristicFallbackCspProvedInfeasible;
+                alternativeResult = heuristic;
+                outcome = SchedulingSolverOutcomes.HeuristicFallbackCspTimeLimit;
             }
-            else
+            else if (csp.Schedule is not null)
             {
-                alternativeResult = ToOptimizationResult(csp);
-                outcome = alternativeResult is not null
-                    ? SchedulingSolverOutcomes.Csp
+                alternativeResult = ToOptimizationResult(csp, heuristic);
+                outcome = SchedulingSolverOutcomes.Csp;
+            }
+            else if (heuristic is not null)
+            {
+                alternativeResult = heuristic;
+                outcome = csp.ProvedInfeasible
+                    ? SchedulingSolverOutcomes.HeuristicFallbackCspProvedInfeasible
                     : csp.Statistics.SolutionsFound > 0
                         ? SchedulingSolverOutcomes.HeuristicFallbackCspNoValidCandidate
                         : SchedulingSolverOutcomes.HeuristicFallbackCspSearchLimit;
             }
+            else
+            {
+                SchedulingSolverDiagnostics.RecordOutcome(solverMode, SchedulingSolverOutcomes.Infeasible, cspStatistics);
+                return Infeasible(csp.ProvedInfeasible
+                    ? DescribeCspInfeasibility(csp, candidatesById)
+                    : "The mandatory locations cannot fit within the selected time, hours, budget, and end point.");
+            }
         }
-        else if (_options.SolverMode == SchedulingSolverMode.MiniRouting)
+        else if (solverMode == SchedulingSolverMode.MiniRouting)
         {
             alternativeResult = TrySolveWithMiniRouting(
                 input,
@@ -123,12 +143,12 @@ public sealed class ItineraryGenerationService(
 
         if (optimizationResult is null)
         {
-            SchedulingSolverDiagnostics.RecordOutcome(_options.SolverMode, SchedulingSolverOutcomes.Infeasible, cspStatistics);
+            SchedulingSolverDiagnostics.RecordOutcome(solverMode, SchedulingSolverOutcomes.Infeasible, cspStatistics);
             return Infeasible("The mandatory locations cannot fit within the selected time, hours, budget, and end point.");
         }
 
         _validator.Validate(input, matrix, matrixCandidates, optimizationResult.Schedule.Plan);
-        SchedulingSolverDiagnostics.RecordOutcome(_options.SolverMode, outcome, cspStatistics);
+        SchedulingSolverDiagnostics.RecordOutcome(solverMode, outcome, cspStatistics);
 
         // CSP không có lịch gốc để so sánh và không có bước "cải thiện": số liệu của nó nằm trong
         // SchedulingSolverOutcome. Ghi activity OptionalRouteOptimization ở đây chỉ cho ra các bộ đếm luôn bằng 0.
@@ -217,9 +237,9 @@ public sealed class ItineraryGenerationService(
     }
 
     /// <summary>
-    /// Chạy <see cref="MiniRoutingSolver"/> khi <see cref="SchedulingGenerationOptions.SolverMode"/>
-    /// là <see cref="SchedulingSolverMode.MiniRouting"/>. Trả về null để bên gọi dùng
-    /// <see cref="OptionalRouteOptimizer"/> khi chế độ tắt hoặc bộ giải không tìm được lời giải.
+    /// Chạy <see cref="MiniRoutingSolver"/> (bên gọi chỉ gọi khi chế độ hiệu lực là
+    /// <see cref="SchedulingSolverMode.MiniRouting"/>). Trả về null để bên gọi dùng
+    /// <see cref="OptionalRouteOptimizer"/> khi bộ giải không tìm được lời giải.
     /// </summary>
     private OptimizationResult? TrySolveWithMiniRouting(
         GenerationInput input,
@@ -228,11 +248,6 @@ public sealed class ItineraryGenerationService(
         IReadOnlyDictionary<long, int> candidateMatrixIndices,
         CancellationToken cancellationToken)
     {
-        if (_options.SolverMode != SchedulingSolverMode.MiniRouting)
-        {
-            return null;
-        }
-
         var result = new MiniRoutingSolver(_evaluator, _options, _options.MiniRouting).Solve(
             input,
             matrix,
@@ -260,17 +275,12 @@ public sealed class ItineraryGenerationService(
             ElapsedOptimization: result.Statistics.Elapsed);
     }
 
-    private static OptimizationResult? ToOptimizationResult(CspResult result)
+    private static OptimizationResult ToOptimizationResult(CspResult result, OptimizationResult? heuristic)
     {
-        if (result.Schedule is null)
-        {
-            return null;
-        }
-
         var stats = result.Statistics;
         return new OptimizationResult(
-            result.Schedule,
-            result.Schedule,
+            result.Schedule!,
+            heuristic?.Schedule ?? result.Schedule!,
             EvaluationsCount: stats.EvaluatorCalls,
             SeedCount: 1,
             ReconsideredAdmissionsCount: 0,
