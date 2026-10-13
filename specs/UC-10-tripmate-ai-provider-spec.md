@@ -6,8 +6,8 @@
 | --- | --- |
 | Spec ID | `UC-10-tripmate-ai-provider`. Provisional: Jira is not accessible, so there is no official task ID yet (Q1). |
 | Use case | UC-10 itinerary generation: TM-215 AI POI ranking and TM-217 itinerary explanation |
-| Status | **Implemented and verified on 2026-10-12** (plan T1–T8). Approved earlier the same day with A1, A2 and the D3 extension confirmed and Q8 answered (§6.1 D9). |
-| Date | 2026-10-12 |
+| Status | **Implemented and verified on 2026-10-12** (plan T1–T8). Approved earlier the same day with A1, A2 and the D3 extension confirmed and Q8 answered (§6.1 D9). **Cross-review remediation on 2026-10-14: §20.** |
+| Date | 2026-10-12, revised 2026-10-14 |
 | Baseline | `origin/develop` @ `31f9a5aa22a531a63e9e1237cafbeb0049662dc5` (merge of PR #62). The local `develop` ref of this clone is stale (`0075fcb`); always compare with `origin/develop`. On 2026-10-12 the branch merged `origin/develop` @ `b66e22b` (PR #65 CSP Phase 3, PR #56 UC-13) without conflicts. |
 | Branch and worktree | `feature/phuctv-tripmate-ai-provider` at `D:\FPTUCapstone\Capstone_BE_AI`: `4b536bd` (spec and plan), `949058c` (patch 0003), `a5ebafe`, `e20a9de`, `ee0a320` (tests), `8f174a4` (A2), `9be5725` (runbook), the merge of `origin/develop`, then the verification record |
 | Companion repository | `Capstone_AI` at `D:\FPTUCapstone\Capstone_AI`, branch `feature/phuctv-tripmate-ai-service`, committed and not yet pushed: `3283021` (service hardening and dataset), `447836c` (fine-tune, Kaggle and CPU benchmark tooling), `1872508` (diacritics restoration for ranking), `812831a` (backend-size benchmark samples, F5), on top of the scaffold commit `021f720`; 358 tests pass. It gets its own PR. |
@@ -324,12 +324,12 @@ Gemini behavior is unchanged in every row. Approving this spec accepts them.
 
 | # | Topic | Approved rule or current behavior | TripMateAi behavior | Note |
 | --- | --- | --- | --- | --- |
-| V1 | Explanation retry set | TM-217 decision 12: one retry for 429/502/503/504 (`specs/TM-217-itinerary-explanation-spec.md:82-83`). Gemini adapter: `HttpItineraryExplanationProvider.cs:170-173`. | One retry for 429 and 503 only (P:568-573). 502 and 504 fail at once. | Patch rationale (P:445-447): the service already retries invalid model output before it answers 502 (`Capstone_AI/app/explanation.py:45-64`), and 504 means the model was too slow. The service never answers 429 (§8.4). |
+| V1 | Explanation retry set | TM-217 decision 12: one retry for 429/502/503/504 (`specs/TM-217-itinerary-explanation-spec.md:82-83`). Gemini adapter: `HttpItineraryExplanationProvider.cs:170-173`. | **Revised 2026-10-14 (review F-01, §20):** one retry for 429, 502 and 503. 504 still fails at once. | 502 is retried as TM-217 asks: model output is sampled, so a second call can be valid. 504 is the one remaining difference, and §13.3 is the evidence: the service answers 504 when the model exceeds `LLM_TIMEOUT_SECONDS`, which the measurements show to be systematic in the number of items (12 items: 2 of 4 calls), not transient. A retry costs another full model call and ends in the same fallback, so it only doubles the wait. |
 | V2 | 504 on explanation | TM-217 §15 maps every 5xx to `server-error` (`specs/TM-217-itinerary-explanation-spec.md:296`). | 504 → `Timeout` code (P:662-665) and attempt outcome `timeout` (P:683). The handler then logs `outcome=timeout` and `timedOut=True` (`CreateSchedulingRequestCommandHandler.cs:882-885`, `:955`). | Ranking keeps 504 → `ServerError` (P:861-867): there is no ranking timeout code. |
-| V3 | Retry delay | Gemini honors `Retry-After` for 429, otherwise base delay plus 0–49 ms of jitter (`HttpItineraryExplanationProvider.cs:335-355`). | Fixed `RetryBaseDelayMilliseconds`, no jitter, no `Retry-After` (P:570, P:581-584). | No practical effect: the service sends neither 429 nor `Retry-After`. |
+| V3 | Retry delay | Gemini honors `Retry-After` for 429, otherwise base delay plus 0–49 ms of jitter (`HttpItineraryExplanationProvider.cs:335-355`). | **Removed 2026-10-14 (review F-05, F-06, §20):** the same `GetBackoffDelay` as Gemini — `Retry-After` for 429, otherwise base delay plus 0–49 ms of jitter. | No deviation left. The service sends neither 429 nor `Retry-After` today (§8.4), so this only matters behind a proxy, but the two adapters now behave alike. |
 | V4 | Key header | TM-217 describes `x-goog-api-key` for the Gemini transport (`specs/TM-217-itinerary-explanation-spec.md:206`, `:320`). | `X-TripMate-Ai-Key` (P:193, P:509, P:773). | Same handling: read from options, never logged or serialized. |
 | V5 | `ModelName` | Required when enabled (both validators :33-37). | Not required for TripMateAi (P:320-321, P:388-389). | Consistent with TM-215 §23: adapter-specific settings are required only when the selected adapter needs them (`specs/TM-215-ai-poi-ranking-provider-spec.md:187`). |
-| V6 | Endpoint scheme | Absolute HTTPS (both validators :20-25). | Absolute HTTP or HTTPS, for any host (P:302-313, P:370-381). | Plain HTTP is meant for the Docker network only (§10, Q5). |
+| V6 | Endpoint scheme | Absolute HTTPS (both validators :20-25). | **Narrowed 2026-10-14 (review F-04, §20):** absolute HTTPS, or HTTP on an internal host only — a name without a dot (Docker service), `localhost`, `*.localhost`, `*.internal`, or a loopback, private or link-local address. Everything else still needs HTTPS. | This is R6, brought forward from the follow-up list, so the shared key can no longer leave the Docker network in plain text. Shared rule: `AiEndpointPolicy.IsAllowedEndpoint`. |
 | V7 | Attempt log text | `Itinerary explanation provider attempt=…` (`HttpItineraryExplanationProvider.cs:373`). | `TripMate AI explanation attempt=…`, with the same fields (P:699). | Log queries keyed on the message text must match both. |
 
 ### 6.4 Known limitations accepted for this task
@@ -661,7 +661,7 @@ The Gemini column shows how the Gemini adapter maps the same status, for compari
 | 401 | missing or wrong key, checked before the body is read (`_ApiGuard`, `app/main.py`) | `InvalidResponse` | `InvalidResponse`, no retry | `InvalidResponse`, no retry |
 | 413 | body over 1 MiB (`_ApiGuard`) | `InvalidResponse` | `InvalidResponse`, no retry | `InvalidResponse`, no retry |
 | 422 | request fails schema validation, including the limits of §8.6, a naive timestamp or a non-IANA `timeZoneId` | `InvalidResponse` | `InvalidResponse`, no retry | `InvalidResponse`, no retry |
-| 502 | model output still invalid after the service's own attempts, an invalid Ollama payload, or an Ollama 4xx other than 404 | `ServerError` | `ServerError`, no retry (V1) | `ServerError` after one retry |
+| 502 | model output still invalid after the service's own attempts, an invalid Ollama payload, or an Ollama 4xx other than 404 | `ServerError` | `ServerError` after one retry | `ServerError` after one retry |
 | 503 | Ollama unreachable, Ollama 5xx or 404 (model not pulled), or, for explanation only, the LLM slot is busy and the request's budget cannot cover a wait (`LLM_MAX_CONCURRENCY`) | `ServerError` | `ServerError` after one retry | `ServerError` after one retry |
 | 504 | Ollama timeout | `ServerError` | `Timeout`, no retry (V1, V2) | `ServerError` after one retry |
 | 500 | unexpected error | `ServerError` | `ServerError`, no retry | `ServerError`, no retry |
@@ -767,7 +767,7 @@ D2 none is part of this task unless the developer adopts it as an adaptation (§
 | R3 | Give the volume a fixed name: `tripmate-ollama-data: { name: tripmate-ollama-data }`. | L5: one model store shared with the standalone stack. | P:148 |
 | R4 | `mem_limit: ${AI_MEM_LIMIT:-512m}` on `ai`. | Caps the Python service; Ollama keeps its own `OLLAMA_MEM_LIMIT`. | P:124-144 |
 | R5 | In the TripMateAi block of `.env.example`, add `AiExplanation__MaxConcurrency=1`. | L7: the service runs one LLM call at a time; a second concurrent call would mostly fall back after a 503. | P:52-63 |
-| R6 | Accept `http://` for TripMateAi only for internal hosts (Docker service name without a dot, loopback, private or link-local address); everything else needs HTTPS. | V6, §10 item 3; replaces the operational rule of Q5. | Both validators (P:296-313, P:364-381) |
+| R6 | **Done 2026-10-14 (review F-04, §20).** Accept `http://` for TripMateAi only for internal hosts (Docker service name without a dot, `localhost`, loopback, private or link-local address); everything else needs HTTPS. | V6, §10 item 3; replaces the operational rule of Q5. | `AiEndpointPolicy`, used by both validators |
 | R7 | Before sending an explanation, convert a Windows time-zone ID with `TimeZoneInfo.TryConvertWindowsIdToIanaId`. | The service now rejects non-IANA IDs with 422 (§8.3). | `TripMateAiExplanationProvider.ExplainAsync` |
 | R8 | Add an upper bound `MaxProviderCandidates <= 200` to `PersonalizationRankingOptionsValidator`. | Keeps a configuration change from exceeding the service limit (§8.6). | Application options validator |
 | R9 | Give `TripMateAiPoiRankingProvider` an optional `ILogger` and log the HTTP status and outcome on failures, like the explanation provider. | The orchestrator log shows only the outcome, so a 401 (wrong key) looks like any invalid response. | P:716-898 |
@@ -782,7 +782,7 @@ D2 none is part of this task unless the developer adopts it as an adaptation (§
 | Condition | Provider result | Orchestrator outcome | Effect |
 | --- | --- | --- | --- |
 | `Enabled=false`, or no candidates | no call | `provider-skipped` | base scores |
-| No preference tokens (A2, if confirmed) | no call | `provider-skipped` | base scores |
+| No preference tokens (A2, confirmed in D9) | no call | `provider-skipped` | base scores |
 | Budget denied | `Quota`, no request | `quota` | base scores |
 | 200 with a valid result | success | `success` | `0.60 × base + 0.40 × aiScore` |
 | 200 failing orchestrator validation | success | `invalid-response` | base scores for the whole pool |
@@ -805,9 +805,9 @@ Neither adapter retries. Sources: §7.2 and `PoiRankingOrchestrator.cs:100-227`.
 | 200, valid | success | `success` | — |
 | 200, invalid shape or validator failure | `InvalidResponse`, no retry | `invalid-response` | — |
 | 401, 422 or another 4xx | `InvalidResponse`, no retry | `invalid-response` | — |
-| 429 | one retry, then `Quota` | `quota` | Gemini honors `Retry-After` (V3). |
+| 429 | one retry, then `Quota` | `quota` | — |
 | 503 | one retry, then `ServerError` | `server-error` | — |
-| 502 | `ServerError`, no retry | `server-error` | Gemini retries (V1). |
+| 502 | one retry, then `ServerError` | `server-error` | — |
 | 504 | `Timeout`, no retry | `timeout` | Gemini retries, then `server-error` (V1, V2). |
 | 500 | `ServerError`, no retry | `server-error` | — |
 | Attempt timeout (10 s) | `Timeout`, no retry | `timeout` | — |
@@ -878,9 +878,11 @@ The provider type name is the only signal for which provider ran. `aiScore` is n
      only.
    - The backend requires it whenever a feature is enabled; the service refuses to start without it.
      `AI_ALLOW_ANONYMOUS` is for local development only, and the profile does not set it.
-3. **Transport.** Plain HTTP is accepted for TripMateAi endpoints on any host (V6). Operational rule
-   for this task: use `http://` only for the service on the same Docker network (`http://ai:8000`,
-   no published port); any other host must use HTTPS. Enforcing this in code is Q5.
+3. **Transport.** Plain HTTP is accepted for TripMateAi endpoints on internal hosts only (V6, R6,
+   §20): a name without a dot (`http://ai:8000`, no published port), `localhost`, `*.localhost`,
+   `*.internal`, or a loopback, private or link-local address. Any other host is rejected at startup
+   and must use HTTPS, so the shared key cannot leave the Docker network in plain text. This answers
+   Q5 with Option B.
 4. **Data location.** With TripMateAi, preference tokens and POI metadata stay on infrastructure the
    team runs instead of going to Google. TM-215 §44 requires product sign-off on the AI vendor,
    endpoint and key (`specs/TM-215-ai-poi-ranking-provider-spec.md:306-308`). That sign-off is needed
@@ -952,7 +954,7 @@ methods, 26 cases.
     trimmed (P:1011-1036);
   - four validation failures (P:1038-1051);
   - 503 once, then success, with two requests (P:1053-1066);
-  - 502/504/401 not retried, three cases (P:1068-1081);
+  - 504 and 401 not retried, two cases; 502 is retried once (review F-01, §20);
   - network failure (P:1083-1091).
 - **Configuration:**
   - TripMateAi accepts `http://` without a model (P:1095-1100);
@@ -988,6 +990,11 @@ already exists, each one must first be shown to fail against a deliberate local 
 - **E3.** A handler slower than `TimeoutSeconds` → `Timeout` after one request.
 - **E4.** 503 twice → `ServerError` after two requests. 429 then 200 → success after two. 429 twice →
   `Quota` after two.
+- **E4b.** 502 twice → `ServerError` after two requests (review F-01, §20).
+- **E4c.** 504 → `Timeout` after one request: the one status that is still not retried (V1).
+- **E4d.** 429 with `Retry-After: 30s` against a 10 s overall budget → no retry, `Quota` after one
+  request. The header is honored; with a fixed base delay of 0 ms there would be a second request
+  (review F-06, §20).
 - **E5.** 500 → `ServerError`; 422, 400 and 403 → `InvalidResponse`; one request each.
 - **E6.** A retry delay that does not fit the remaining overall budget → no retry.
 - **E7.** Caller cancellation during the send, and during the retry delay, propagates.
@@ -1016,9 +1023,11 @@ already exists, each one must first be shown to fail against a deliberate local 
 - **C5.** An unparseable value (`OpenAI`) makes `AddInfrastructure` throw.
 - **C6.** An undefined numeric value (`7`): enabled → validation fails with the provider message;
   disabled → it passes and registers the Gemini adapter.
-- **C7.** TripMateAi validator matrix: HTTPS accepted; a relative URI and `ftp://` rejected; a blank
-  key rejected; budget and explanation timeout ranges still enforced; no failure message contains the
-  key value.
+- **C7.** TripMateAi validator matrix: HTTPS accepted; `http://` accepted on internal hosts only
+  (`ai:8000`, `tripmate-ai:8000`, `localhost`, `127.0.0.1`, `172.18.0.5`) and rejected on external
+  ones (`ai.example.com`, `203.0.113.10`) — review F-04, §20; a relative URI and `ftp://` rejected; a
+  blank key rejected; budget and explanation timeout ranges still enforced; no failure message
+  contains the key value.
 - **C8.** Lower-case `tripmateai` selects TripMateAi.
 
 ### 12.3 Rules
@@ -1278,7 +1287,7 @@ The go/no-go decision needs the latency rules of §14.2 and an agreed quality ba
 | Q2 | **Where the AI service runs.** *Demo — answered 2026-10-12:* the developer's laptop (RTX 3050 4 GB) with a native Ollama and the §7.6 configuration; it meets both deadlines up to 8 stops (§9.3). *Production — open:* it needs a GPU host, or asynchronous explanations on a CPU host. The answer also decides how tuned service settings reach that environment (L3) and when the TM-215 §44 sign-off is needed (§10). | Enabling TripMateAi on a shared environment; not this task. |
 | Q3 | **Who reviews the `Capstone_AI` PR.** The scaffold commit was pushed by teammate HoangTrinhyeuoi. | The AI PR. |
 | Q4 | **Merge order.** Recommended: merge the `Capstone_AI` PR before this backend PR, because the `ai` profile builds that repository. | Merging the backend PR. |
-| Q5 | **Plain HTTP for TripMateAi on any host** (V6). Option A, recommended for this task: accept it, with the operational rule of §10. Option B: a TDD follow-up that accepts `http://` only for hosts without a dot (Docker service names). Option B changes patch code and needs the developer's decision. | Nothing, if Option A is chosen. |
+| Q5 | **Answered 2026-10-14 (review F-04, §20): Option B.** Plain HTTP for TripMateAi is accepted only on internal hosts (R6, `AiEndpointPolicy`); every other host needs HTTPS. Option A (accept any host, operational rule only) was the earlier recommendation and is superseded. | Done. |
 | Q6 | **Service-side repair** (§8.7) against TM-217 §10. Confirm that the "no repair, no truncation" rule binds the backend only, so the service may repair model output before answering. | Nothing in the backend; the AI PR. |
 | Q7 | **Quality bar for go/no-go:** how many of about 20 reviewed explanations must be acceptable. | The runbook's verdict; not implementation. |
 | Q8 | **Answered 2026-10-12: Option A (D9).** **Recommended patch changes R1–R11** (§8.9; R12 is proposed as A2 instead). Option A: keep D2 and apply the patch unchanged, then do R1–R11 as a separate TDD follow-up. Option B: adopt some of them as adaptations in this task (each one becomes an A-row in §6.2 and a plan task). Recommended: Option A, with R1, R2, R3, R5 and R11 first, because they are configuration only. | Nothing, if Option A is chosen. |
@@ -1406,3 +1415,28 @@ generations). During S11–S14 record the solver outcome `heuristic_fallback_csp
 - **Fresh generation, same request:** can differ by the ranking outcome (L11), by the CSP time limit
   (CSP spec R5), and by host (L13). Each difference falls back to a valid plan that is never worse
   than the heuristic under the product rule.
+
+## 20. Cross-review remediation (PR #67, 2026-10-14)
+
+The cross-review of PR #67 raised ten findings (F-01 to F-10). This section is the decision record
+the Dev and Cross-Review Checklist C02 asks for: what changed, and, where nothing changed, why.
+
+### 20.1 Changed
+
+| # | Finding | Decision and change |
+| --- | --- | --- |
+| F-01 | Retry set misses 502 and 504 | **Partly accepted.** 502 joins the retry set (V1, `TripMateAiExplanationProvider`), so the only remaining difference from TM-217 decision 12 is 504. Evidence for keeping 504 out: §13.3, where the service answers 504 once the model exceeds `LLM_TIMEOUT_SECONDS`; the laptop measurements show this is systematic in the number of items (12 items: 2 of 4 calls timed out, 8 items: none), not transient. A retry spends another full model call, ends in the same fallback text, and doubles the user's wait from about 10 s to about 20 s. There is no proxy between the backend and the service on the Compose network, so the Nginx/Envoy restart case the review describes cannot produce these codes here. Tests E4b, E4c. |
+| F-04 | Plain HTTP allowed on any host | **Accepted.** R6 brought forward from the follow-up list: `AiEndpointPolicy.IsAllowedEndpoint` accepts `http://` only for a host without a dot (Docker service name), `localhost`, `*.localhost`, `*.internal`, or a loopback, private or link-local address. Both validators use it, so a mistyped external endpoint now fails at startup instead of sending `X-TripMate-Ai-Key` in plain text. V6 narrowed, Q5 answered with Option B. Test C7. |
+| F-05 | Fixed retry delay, no jitter | **Accepted.** The delay is the base delay plus 0–49 ms of jitter, the same `GetBackoffDelay` as the Gemini adapter. V3 removed. |
+| F-06 | `Retry-After` ignored on 429 | **Accepted.** Honored for 429, as delta or as a date, exactly as the Gemini adapter does. V3 removed. Test E4d. |
+| F-10 | Runbook uses `docker exec --user root` | **Accepted.** Step A.5 now mounts the repository read-only, writes the results to `/tmp` in the container and copies them out with `docker cp`, which writes as the host user. The container no longer runs as root. |
+
+### 20.2 Not changed, with reasons
+
+| # | Finding | Reason |
+| --- | --- | --- |
+| F-02 | 504 should map to `Timeout` in ranking too | The ranking contract has no timeout code: `PoiRankingProviderErrorCodes` and `PoiRankingOutcomeCategory` carry only `Quota`, `Network`, `ServerError` and `InvalidResponse`, and both are shared with the Gemini adapter and with TM-215. Adding one is an Application-layer contract change, outside D2 and the scope of this PR. The behavioral premise also does not hold: `Timeout` and `ServerError` both fall back to base scores (§9.1), so the generated plan is identical, and the ranking adapters have no logger at all (§7.2), so no alert or SLO signal is lost. §6.3 V2 and §6.4 F3 already record this. A follow-up PR can add the code to both ranking adapters if the team wants the finer label. |
+| F-03 | A2 implemented without approval | A2 was confirmed by the developer on 2026-10-12 and recorded before implementation: §6.1 D9 ("A2 confirmed: no ranking call without preference tokens, implemented test-first") and §6.2, with the reason (L10, §18.2) and the TM-213 rule it restores ("no preference tokens → existing ordering unchanged", `specs/TM-213-traveler-preference-profile-spec.md:181`). The review read an earlier revision of §6.2, where A2 was still marked optional. The PR description now points at D9 so the record is visible from the PR. |
+| F-07 | `${TRIPMATE_AI_API_KEY:-}` should be `:?` | `:?` would break every `docker compose up`, including the default stack without `--profile ai`: Compose interpolates variables for the whole file, profile-excluded services included, before it selects the profile. Everyone who does not use the AI service would then have to define the variable. The fail-fast the review asks for exists one layer down: the service refuses to start without a key (`Settings.validate`, `Capstone_AI/app/config.py`), and only the `ai` container fails, not the whole stack. The reason is already a comment in `docker-compose.yml` and in §7.5 of this spec. |
+| F-08 | SQL Server and Redis suites not run in CI | Not a code change. The suites run in CI on the head commit before the review is requested again. |
+| F-09 | Merge order not tracked per C03 | Not a code change. The PR description carries the C03 dependency line for `Capstone_AI` #1. |

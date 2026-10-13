@@ -25,13 +25,12 @@ public sealed class PoiRankingProviderOptionsValidator
             failures.Add($"{nameof(options.Provider)} must be Gemini or TripMateAi.");
         }
 
-        // Service TripMate AI chạy trong mạng nội bộ (Docker), nên cho phép HTTP; Gemini vẫn bắt buộc HTTPS.
-        if (!Uri.TryCreate(options.Endpoint, UriKind.Absolute, out Uri? endpoint)
-            || (endpoint.Scheme != Uri.UriSchemeHttps
-                && !(isTripMateAi && endpoint.Scheme == Uri.UriSchemeHttp)))
+        // Service TripMate AI chạy trong mạng nội bộ (Docker), nên cho phép HTTP nhưng chỉ với host nội bộ;
+        // Gemini và mọi host bên ngoài vẫn bắt buộc HTTPS, để khóa API không đi ra ngoài dưới dạng văn bản thuần.
+        if (!AiEndpointPolicy.IsAllowedEndpoint(options.Endpoint, options.Provider))
         {
             failures.Add(isTripMateAi
-                ? $"{nameof(options.Endpoint)} must be an absolute HTTP or HTTPS URI when AI ranking uses TripMateAi."
+                ? $"{nameof(options.Endpoint)} must be an absolute HTTPS URI, or an HTTP URI on an internal host (a Docker service name, localhost, or a private or link-local address), when AI ranking uses TripMateAi."
                 : $"{nameof(options.Endpoint)} must be an absolute HTTPS URI when AI ranking is enabled.");
         }
 

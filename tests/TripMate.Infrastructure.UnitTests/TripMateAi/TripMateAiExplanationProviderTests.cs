@@ -115,6 +115,53 @@ public sealed class TripMateAiExplanationProviderTests
         handler.CallCount.Should().Be(2);
     }
 
+    // E4b: 502 nằm trong tập thử lại, giống provider Gemini (TM-217 quyết định 12).
+    [Fact]
+    public async Task ExplainAsync_502Twice_ReturnsServerErrorAfterTwoRequests()
+    {
+        using var handler = new SequenceHttpMessageHandler(_ => Status(HttpStatusCode.BadGateway));
+        var provider = CreateProvider(handler, ExplanationOptions());
+
+        var result = await provider.ExplainAsync(Input(), CancellationToken.None);
+
+        result.ErrorCode.Should().Be(ExplanationProviderErrorCodes.ServerError);
+        handler.CallCount.Should().Be(2);
+    }
+
+    // E4c: 504 vẫn không thử lại. Service trả 504 khi model vượt ngân sách của nó, lần thử thứ hai
+    // cũng 504 và chỉ làm người dùng chờ gấp đôi (deviation V1 của spec).
+    [Fact]
+    public async Task ExplainAsync_504_ReturnsTimeoutWithOneRequest()
+    {
+        using var handler = new SequenceHttpMessageHandler(_ => Status(HttpStatusCode.GatewayTimeout));
+        var provider = CreateProvider(handler, ExplanationOptions());
+
+        var result = await provider.ExplainAsync(Input(), CancellationToken.None);
+
+        result.ErrorCode.Should().Be(ExplanationProviderErrorCodes.Timeout);
+        handler.CallCount.Should().Be(1);
+    }
+
+    // E4d: với 429 thì khoảng chờ lấy từ header Retry-After. 30 s không lọt vào ngân sách 10 s còn lại
+    // nên không thử lại; nếu header bị bỏ qua thì delay là 0 ms và sẽ có lần gọi thứ hai.
+    [Fact]
+    public async Task ExplainAsync_429WithRetryAfterBeyondTheBudget_DoesNotRetry()
+    {
+        using var handler = new SequenceHttpMessageHandler(_ =>
+        {
+            HttpResponseMessage response = Status(HttpStatusCode.TooManyRequests);
+            response.Headers.RetryAfter = new System.Net.Http.Headers.RetryConditionHeaderValue(
+                TimeSpan.FromSeconds(30));
+            return response;
+        });
+        var provider = CreateProvider(handler, ExplanationOptions(retryDelayMilliseconds: 0));
+
+        var result = await provider.ExplainAsync(Input(), CancellationToken.None);
+
+        result.ErrorCode.Should().Be(ExplanationProviderErrorCodes.Quota);
+        handler.CallCount.Should().Be(1);
+    }
+
     // E5
     [Theory]
     [InlineData(HttpStatusCode.InternalServerError, ExplanationProviderErrorCodes.ServerError)]

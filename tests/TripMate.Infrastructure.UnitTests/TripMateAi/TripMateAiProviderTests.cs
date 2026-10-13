@@ -161,8 +161,22 @@ public sealed class TripMateAiProviderTests
         handler.CallCount.Should().Be(2);
     }
 
+    [Fact]
+    public async Task ExplainAsync_BadGatewayOnce_RetriesAndSucceeds()
+    {
+        int calls = 0;
+        var handler = new StubHandler(_ => ++calls == 1
+            ? new HttpResponseMessage(HttpStatusCode.BadGateway)
+            : Json("""{"items":[{"sequenceNo":1,"poiId":12,"friendlyExplanation":"a"},{"sequenceNo":2,"poiId":null,"friendlyExplanation":"b"}]}"""));
+        var provider = ExplanationProvider(handler);
+
+        var result = await provider.ExplainAsync(ExplanationInput(), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        handler.CallCount.Should().Be(2);
+    }
+
     [Theory]
-    [InlineData(HttpStatusCode.BadGateway, ExplanationProviderErrorCodes.ServerError)]
     [InlineData(HttpStatusCode.GatewayTimeout, ExplanationProviderErrorCodes.Timeout)]
     [InlineData(HttpStatusCode.Unauthorized, ExplanationProviderErrorCodes.InvalidResponse)]
     public async Task ExplainAsync_NonRetryableFailure_DoesNotRetry(HttpStatusCode status, string expectedCode)

@@ -22,8 +22,12 @@ namespace TripMate.Infrastructure.TripMateAi;
 /// service AI nhận đúng dữ liệu mà Gemini đang nhận. Kết quả đi qua <see cref="ItineraryExplanationValidator"/>
 /// giống provider Gemini; không hợp lệ thì trả lỗi để tầng Application dùng lời giải thích dự phòng.</para>
 /// <para>Timeout từng lần, timeout tổng, số lần thử và giới hạn tốc độ lấy từ <see cref="ExplanationProviderOptions"/>.
-/// Chỉ thử lại với 429 và 503: service AI đã tự thử lại khi model trả lời sai (502), còn 504 nghĩa là model
-/// quá chậm nên thử lại cũng không kịp.</para>
+/// Thử lại với 429, 502 và 503 như provider Gemini. Riêng 504 không thử lại: service AI trả 504 khi model
+/// vượt <c>LLM_TIMEOUT_SECONDS</c>, đo thực tế cho thấy đây là lỗi có hệ thống theo số item (§13.3 của spec),
+/// nên lần thử thứ hai cũng 504 và chỉ làm người dùng chờ gấp đôi trước khi nhận lời giải thích dự phòng.</para>
+/// <para>Khoảng chờ trước khi thử lại tôn trọng header <c>Retry-After</c> của 429, các trường hợp còn lại dùng
+/// <see cref="ExplanationProviderOptions.RetryBaseDelayMilliseconds"/> cộng 0–49 ms ngẫu nhiên để các request
+/// đồng thời không cùng bắn lại một lúc.</para>
 /// </summary>
 public sealed class TripMateAiExplanationProvider(
     HttpClient httpClient,
@@ -145,8 +149,9 @@ public sealed class TripMateAiExplanationProvider(
                 }
 
                 bool isTransient = response.StatusCode is HttpStatusCode.TooManyRequests
+                    or HttpStatusCode.BadGateway
                     or HttpStatusCode.ServiceUnavailable;
-                TimeSpan delay = TimeSpan.FromMilliseconds(Math.Max(0, _options.RetryBaseDelayMilliseconds));
+                TimeSpan delay = GetBackoffDelay(response, _options.RetryBaseDelayMilliseconds);
                 bool canRetry = isTransient
                     && attempt < maxAttempts
                     && delay < overallBudget - Stopwatch.GetElapsedTime(overallStart);
@@ -254,6 +259,32 @@ public sealed class TripMateAiExplanationProvider(
         return Result.Failure<ItineraryExplanationResult>(
             ExplanationProviderErrorCodes.InvalidResponse,
             "The itinerary explanation provider rejected the request.");
+    }
+
+    /// <summary>
+    /// Khoảng chờ trước lần thử lại: tôn trọng <c>Retry-After</c> khi service trả 429 (dạng giây hoặc mốc thời gian),
+    /// còn lại là delay cơ sở cộng 0–49 ms ngẫu nhiên. Giống <c>HttpItineraryExplanationProvider.GetBackoffDelay</c>.
+    /// </summary>
+    private static TimeSpan GetBackoffDelay(HttpResponseMessage response, int retryBaseDelayMilliseconds)
+    {
+        if (response.StatusCode == HttpStatusCode.TooManyRequests && response.Headers.RetryAfter is not null)
+        {
+            if (response.Headers.RetryAfter.Delta.HasValue)
+            {
+                TimeSpan delta = response.Headers.RetryAfter.Delta.Value;
+                return delta > TimeSpan.Zero ? delta : TimeSpan.Zero;
+            }
+
+            if (response.Headers.RetryAfter.Date.HasValue)
+            {
+                TimeSpan diff = response.Headers.RetryAfter.Date.Value - DateTimeOffset.UtcNow;
+                return diff > TimeSpan.Zero ? diff : TimeSpan.Zero;
+            }
+        }
+
+        int baseMs = Math.Max(0, retryBaseDelayMilliseconds);
+        int jitter = baseMs > 0 ? Random.Shared.Next(0, 50) : 0;
+        return TimeSpan.FromMilliseconds(baseMs + jitter);
     }
 
     private static string MapOutcome(HttpStatusCode statusCode) => statusCode switch

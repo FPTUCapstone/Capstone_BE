@@ -177,12 +177,17 @@ Uses only the `ai` service of the standalone `Capstone_AI` stack, pointed at the
    laptop an overlapping run turned the 8-item sample from 0 errors into 2 of 2 timeouts. In PowerShell
    do not cut the output with `Select-Object -First`; the container keeps running after the pipe stops.
 5. Quality and time together over the evaluation sets, with the production budget of 9 s. The image
-   runs as a non-root user, so writing the results into the mounted folder needs `--user root`:
+   runs as a non-root user, so it writes the results to `/tmp` inside the container and `docker cp`
+   copies them out afterwards with the host user's ownership; the repository itself stays mounted
+   read-only and the container never runs as root:
    ```powershell
-   docker run --rm --user root -v "${PWD}:/w" -w /w tripmate-ai:latest python training/llm/evaluate_model.py `
+   docker run --name tripmate-eval -v "${PWD}:/w:ro" -w /w tripmate-ai:latest python training/llm/evaluate_model.py `
      --dataset training/llm/datasets/eval.jsonl --model tripmate-explainer `
      --ollama http://host.docker.internal:11434 --timeout 9 `
-     --output training/llm/work/eval_tuned.jsonl --summary training/llm/work/eval_tuned_summary.json
+     --output /tmp/eval_tuned.jsonl --summary /tmp/eval_tuned_summary.json
+   docker cp tripmate-eval:/tmp/eval_tuned.jsonl training/llm/work/
+   docker cp tripmate-eval:/tmp/eval_tuned_summary.json training/llm/work/
+   docker rm tripmate-eval
    ```
    Repeat with `eval_unseen.jsonl`. Record the clean count, p95 and the timeouts from the summary.
 6. Optional: two explanation calls at the same time, the backend's default

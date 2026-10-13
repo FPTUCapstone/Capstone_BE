@@ -220,6 +220,12 @@ public sealed class TripMateAiConfigurationTests
     [Theory]
     [InlineData("https://ai.internal/v1/rank-pois", true)]
     [InlineData("http://ai:8000/v1/rank-pois", true)]
+    [InlineData("http://tripmate-ai:8000/v1/rank-pois", true)]
+    [InlineData("http://localhost:8000/v1/rank-pois", true)]
+    [InlineData("http://127.0.0.1:8000/v1/rank-pois", true)]
+    [InlineData("http://172.18.0.5:8000/v1/rank-pois", true)]
+    [InlineData("http://ai.example.com/v1/rank-pois", false)]
+    [InlineData("http://203.0.113.10:8000/v1/rank-pois", false)]
     [InlineData("/v1/rank-pois", false)]
     [InlineData("ftp://ai/v1/rank-pois", false)]
     [InlineData(null, false)]
@@ -239,7 +245,9 @@ public sealed class TripMateAiConfigurationTests
         if (!expectedValid)
         {
             result.Failures.Should().ContainSingle().Which.Should().Be(
-                "Endpoint must be an absolute HTTP or HTTPS URI when AI ranking uses TripMateAi.");
+                "Endpoint must be an absolute HTTPS URI, or an HTTP URI on an internal host "
+                + "(a Docker service name, localhost, or a private or link-local address), "
+                + "when AI ranking uses TripMateAi.");
         }
     }
 
@@ -247,6 +255,12 @@ public sealed class TripMateAiConfigurationTests
     [Theory]
     [InlineData("https://ai.internal/v1/explain-itinerary", true)]
     [InlineData("http://ai:8000/v1/explain-itinerary", true)]
+    [InlineData("http://tripmate-ai:8000/v1/explain-itinerary", true)]
+    [InlineData("http://localhost:8000/v1/explain-itinerary", true)]
+    [InlineData("http://127.0.0.1:8000/v1/explain-itinerary", true)]
+    [InlineData("http://172.18.0.5:8000/v1/explain-itinerary", true)]
+    [InlineData("http://ai.example.com/v1/explain-itinerary", false)]
+    [InlineData("http://203.0.113.10:8000/v1/explain-itinerary", false)]
     [InlineData("/v1/explain-itinerary", false)]
     [InlineData("ftp://ai/v1/explain-itinerary", false)]
     [InlineData(null, false)]
@@ -266,7 +280,9 @@ public sealed class TripMateAiConfigurationTests
         if (!expectedValid)
         {
             result.Failures.Should().ContainSingle().Which.Should().Be(
-                "Endpoint must be an absolute HTTP or HTTPS URI when AI explanation uses TripMateAi.");
+                "Endpoint must be an absolute HTTPS URI, or an HTTP URI on an internal host "
+                + "(a Docker service name, localhost, or a private or link-local address), "
+                + "when AI explanation uses TripMateAi.");
         }
     }
 
