@@ -65,6 +65,8 @@ public class TestDbContext(
 
     public DbSet<CommercialService> CommercialServices => Set<CommercialService>();
 
+    public DbSet<Voucher> Vouchers => Set<Voucher>();
+
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
 
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
@@ -123,12 +125,9 @@ public class TestDbContext(
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         SaveChangesAsyncCallCount++;
-        if (ThrowOnSaveConcurrency)
-        {
-            throw new DbUpdateConcurrencyException("Concurrency conflict simulated in test.");
-        }
-
-        return base.SaveChangesAsync(cancellationToken);
+        return ThrowOnSaveConcurrency
+            ? throw new DbUpdateConcurrencyException("Concurrency conflict simulated in test.")
+            : base.SaveChangesAsync(cancellationToken);
     }
 
     public async Task<int> RevokeRefreshTokenAsync(
@@ -178,12 +177,7 @@ public class TestDbContext(
             T result = await operation(cancellationToken);
             Exception? completionFailure =
                 TransactionCompletionFailureFactory?.Invoke(TransactionExecutionCount);
-            if (completionFailure is not null)
-            {
-                throw completionFailure;
-            }
-
-            return result;
+            return completionFailure is not null ? throw completionFailure : result;
         }
         finally
         {
@@ -212,12 +206,7 @@ public class TestDbContext(
             T result = await operation(cancellationToken);
             Exception? completionFailure =
                 SerializableTransactionCompletionFailureFactory?.Invoke(TransactionExecutionCount);
-            if (completionFailure is not null)
-            {
-                throw completionFailure;
-            }
-
-            return result;
+            return completionFailure is not null ? throw completionFailure : result;
         }
         finally
         {
@@ -239,6 +228,9 @@ public class TestDbContext(
     {
         modelBuilder.Entity<TripSessionItem>()
             .HasKey(item => new { item.SessionId, item.ItineraryItemId });
+
+        modelBuilder.Entity<VoucherApplicableTour>()
+            .HasKey(mapping => new { mapping.VoucherId, mapping.TourId });
 
         modelBuilder.Entity<PoiOpeningHour>()
             .HasKey(hours => new { hours.PointOfInterestId, hours.DayOfWeek });
