@@ -93,7 +93,7 @@ public class VerifyEmailCommandHandler(
         {
             return Result.Failure<VerifyEmailResponse>(
                 AuthErrorCodes.AdminGoogleSignInDisabled,
-                "Administrator accounts must sign in with email and password.");
+                "Administration accounts must sign in with email and password.");
         }
 
         if (user.Status == AccountStatus.PendingEmailVerification)

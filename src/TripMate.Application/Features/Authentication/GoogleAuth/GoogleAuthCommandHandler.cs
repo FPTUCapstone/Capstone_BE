@@ -20,7 +20,7 @@ namespace TripMate.Application.Features.Authentication.GoogleAuth;
 /// is auto-provisioned as Traveler/Active (BR-02); an existing account's status is never
 /// changed by Sign In (BR-14). There is no raw-Google fallback — the Firebase Admin SDK is the
 /// sole verifier (D2-A) and its unavailability fails closed as 503-mapped code (BR-16).
-/// Administrator accounts must use email/password; Google is rejected before mutation (BR-18).
+/// Administration accounts must use email/password; Google is rejected before mutation (BR-18).
 ///
 /// Concurrent first sign-ins with the same email are resolved per spec §4.2-B7: the unique
 /// index <c>UX_Users_Email</c> arbitrates; the losing request re-loads the provisioned
@@ -267,7 +267,7 @@ public class GoogleAuthCommandHandler(
         // Account restrictions precede the Admin method gate, including on concurrency re-fetch.
         return user.Role.IsAdministrationRole()
             ? Result.Failure<CurrentAccountContext>(AuthErrorCodes.AdminGoogleSignInDisabled,
-                "Administrator accounts must sign in with email and password.")
+                "Administration accounts must sign in with email and password.")
             : eligibility;
     }
 }
