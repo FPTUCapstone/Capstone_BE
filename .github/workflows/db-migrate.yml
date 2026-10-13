@@ -1,0 +1,42 @@
+name: DB migrate (Azure SQL)
+
+# Applies database/migrations to the shared Azure SQL database after a change lands on develop.
+# Runs only on push/manual dispatch (never on pull_request), so forks and unreviewed PRs
+# cannot reach the credentials. The `azure-db` environment should require a reviewer.
+on:
+  push:
+    branches: [develop]
+    paths:
+      - 'database/migrations/**'
+      - 'database/tripmate_schema_v7.sql'
+      - 'database/apply-azure.sh'
+  workflow_dispatch:
+
+concurrency:
+  group: db-migrate-azure
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    if: github.repository == 'FPTUCapstone/Capstone_BE'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: azure-db
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Apply schema and migrations
+        env:
+          AZ_SERVER: ${{ secrets.AZ_SERVER }}
+          AZ_USER: ${{ secrets.AZ_USER }}
+          AZ_PASS: ${{ secrets.AZ_PASS }}
+        run: |
+          docker run --rm \
+            -v "$PWD/database:/db:ro" \
+            -e AZ_SERVER -e AZ_USER -e AZ_PASS \
+            mcr.microsoft.com/mssql/server:2022-latest \
+            bash /db/apply-azure.sh
