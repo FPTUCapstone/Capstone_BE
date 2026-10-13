@@ -1,21 +1,31 @@
+using System.Globalization;
+using System.Security.Claims;
+
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authorization.Policy;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+
+using TripMate.Application.Common.Interfaces;
 
 namespace TripMate.Api.Authorization;
 
 public sealed class ProblemDetailsAuthorizationMiddlewareResultHandler(
-    ProblemDetailsFactory problemDetailsFactory)
+    ProblemDetailsFactory problemDetailsFactory,
+    ILogger<ProblemDetailsAuthorizationMiddlewareResultHandler> logger)
     : IAuthorizationMiddlewareResultHandler
 {
     private readonly AuthorizationMiddlewareResultHandler _defaultHandler = new();
 
-    public Task HandleAsync(
+    public async Task HandleAsync(
         RequestDelegate next,
         HttpContext context,
         AuthorizationPolicy policy,
         PolicyAuthorizationResult authorizeResult)
     {
+        await RecordAuthorizationFailureAsync(context, authorizeResult);
+
         var authorizationMetadata = context.GetEndpoint()?.Metadata
             .GetMetadata<AuthorizationProblemDetailsAttribute>();
 
@@ -38,11 +48,12 @@ public sealed class ProblemDetailsAuthorizationMiddlewareResultHandler(
             authorizationProblem.Extensions["errorCode"] = errorCode;
             context.Response.StatusCode = status;
 
-            return context.Response.WriteAsJsonAsync(
+            await context.Response.WriteAsJsonAsync(
                 authorizationProblem,
                 options: null,
                 contentType: "application/problem+json",
                 cancellationToken: context.RequestAborted);
+            return;
         }
 
         var responseMetadata = context.GetEndpoint()?.Metadata
@@ -50,7 +61,8 @@ public sealed class ProblemDetailsAuthorizationMiddlewareResultHandler(
 
         if (!authorizeResult.Forbidden || responseMetadata is null)
         {
-            return _defaultHandler.HandleAsync(next, context, policy, authorizeResult);
+            await _defaultHandler.HandleAsync(next, context, policy, authorizeResult);
+            return;
         }
 
         var problemDetails = problemDetailsFactory.CreateProblemDetails(
@@ -61,10 +73,76 @@ public sealed class ProblemDetailsAuthorizationMiddlewareResultHandler(
 
         context.Response.StatusCode = StatusCodes.Status403Forbidden;
 
-        return context.Response.WriteAsJsonAsync(
+        await context.Response.WriteAsJsonAsync(
             problemDetails,
             options: null,
             contentType: "application/problem+json",
             cancellationToken: context.RequestAborted);
     }
+
+    private async Task RecordAuthorizationFailureAsync(
+        HttpContext context,
+        PolicyAuthorizationResult authorizeResult)
+    {
+        if (!authorizeResult.Forbidden && !authorizeResult.Challenged)
+        {
+            return;
+        }
+
+        var metadata = context.GetEndpoint()?.Metadata
+            .GetMetadata<AuthorizationFailureAuditAttribute>();
+        if (metadata is null)
+        {
+            return;
+        }
+
+        try
+        {
+            long? targetId = TryGetRouteValueAsLong(
+                context,
+                metadata.AffectedEntityIdRouteValueName);
+            long? actorUserId = TryGetActorUserId(context.User);
+            string errorCode = authorizeResult.Challenged
+                ? AuthorizationAuditErrorCodes.Unauthenticated
+                : AuthorizationAuditErrorCodes.Forbidden;
+            var recorder = context.RequestServices.GetService<IAuditFailureRecorder>();
+            if (recorder is not null)
+            {
+                await recorder.RecordAsync(new AuditFailureEvent(
+                    actorUserId,
+                    metadata.ActionType,
+                    metadata.AffectedEntity,
+                    targetId,
+                    errorCode));
+            }
+        }
+        catch (Exception exception)
+        {
+            logger.LogError(
+                exception,
+                "Authorization audit persistence failed for {Path}.",
+                context.Request.Path);
+        }
+    }
+
+    private static long? TryGetRouteValueAsLong(HttpContext context, string routeValueName) =>
+        context.Request.RouteValues.TryGetValue(routeValueName, out object? rawValue)
+        && long.TryParse(
+            Convert.ToString(rawValue, CultureInfo.InvariantCulture),
+            NumberStyles.None,
+            CultureInfo.InvariantCulture,
+            out long value)
+        && value > 0
+            ? value
+            : null;
+
+    private static long? TryGetActorUserId(ClaimsPrincipal user) =>
+        long.TryParse(
+            user.FindFirst(ClaimTypes.NameIdentifier)?.Value,
+            NumberStyles.None,
+            CultureInfo.InvariantCulture,
+            out long value)
+        && value > 0
+            ? value
+            : null;
 }

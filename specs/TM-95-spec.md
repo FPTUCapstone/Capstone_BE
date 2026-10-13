@@ -12,15 +12,29 @@ This change delivers the Backend contract only. UC-47 will later surface the act
 real user-detail screen. No stand-alone screen that asks an administrator to type an
 arbitrary user ID is in scope.
 
-## Authority boundary
+## SRS_INTERNAL_CONFLICT: Actor Authorization (Staff vs Administrator)
 
-- The current persisted role model has only `Administrator`; the proposed System Owner /
-  Platform Administrator split is not yet an approved schema/API contract.
-- Until that split exists, the API requires `Administrator` and **rejects an Administrator
-  target**, including the caller. This prevents a peer administrative account from restoring
-  another privileged account.
-- The later role split may replace the policy name but must preserve the target-protection
-  rule unless the approved access-control model explicitly changes it.
+- **Conflict Identification**: Report 3 V2 / SRS contains an explicit internal contradiction between high-level summary `Table 3` (Use Case Catalogue line 118, which lists `Staff / Administrator` for UC-49) and the normative UC-49 specification (`§3.9.1.3`), business rule `BR-115`, and the Screen Authorization matrix (all of which strictly restrict account unlock to `Administrator` only).
+- **Technical Constraint on Develop**: The base branch `origin/develop` currently has no `UserRole.Staff` enum or Staff authorization identity. The Staff role dependency PR has not been merged into `develop`.
+- **Approved Resolution Decision**: Per project architecture governance (aligned with PR #61 Staff role baseline and Web Scope Matrix conventions), UC-49 formally resolves this conflict by binding to normative `§3.9.1.3`, `BR-115`, and Screen Authorization:
+  - The unlock endpoint requires `Administrator` (`[Authorize(Roles = nameof(UserRole.Administrator))]`).
+  - An Administrator target (`user.unlock_protected_administrator`) cannot be unlocked, preserving administrative integrity.
+  - Staff callers are rejected with `403 Forbidden` and audited to `dbo.AuditLogs`.
+  - When the Staff role dependency is merged into `develop`, multi-tier authorization (Staff unlocks Traveler/TourOperator; Administrator unlocks all non-Admin) will be integrated in a coordinated cross-role work package.
+- Unauthorized access attempts (both unauthenticated `401` and forbidden non-Administrator `403` requests) are rejected by `ProblemDetailsAuthorizationMiddlewareResultHandler` and recorded in `dbo.AuditLogs` with `action_type = 'UnlockUserAccount'`, `entity_type = 'User'`, and `is_success = 0` (Report 3 V2 §3.9.1.3 abnormal case 2.a1).
+
+## Moderation record persistence (Report 3 V2 clarification)
+
+- Report 3 V2 §3.9.1.3 states that the unlock reason, actor, and timestamp are stored with the
+  moderation record.
+- In the canonical database-first schema (`database/tripmate_schema_v7.sql`), `dbo.AuditLogs`
+  (`AuditLog`) is the single approved persistence store for UC-49 moderation history
+  (`action_type = 'UnlockUserAccount'`, `entity_type = 'User'`, `entity_id = targetUserId`,
+  `user_id = administratorUserId`, `created_at = unlockedAtUtc`, with `old_values` and
+  `new_values` JSON capturing `previousStatus`, `restoredStatus`, `previousLockedByUserId`,
+  `previousLockedAtUtc`, `previousLockReason`, and the administrator's `reason`), complemented by
+  the active lock-state columns on `dbo.Users` and the idempotency ledger
+  `admin.UserUnlockOperations`. No duplicate moderation-record table is introduced.
 
 ## Public API
 
@@ -85,6 +99,10 @@ contracts to both the canonical schema and an explicit migration; it does not ma
    status metadata and the administrator-provided reason.
 7. User update, token revocation, audit log, and idempotency result are one transaction. A
    failure rolls back all of them.
+8. The same transaction creates one durable `AccountUnlocked` notification. Accounts with an
+   email address are queued for asynchronous email delivery; email transport failure never rolls
+   back the unlock and transient outcomes are retried. Accounts without email retain a pending
+   in-app notification for a future notification centre and are never reported as email-delivered.
 
 ## Error contract
 
@@ -108,6 +126,8 @@ successful response without changing state or adding another audit record.
 - HTTP integration tests cover authorization, response/error mapping, and replay behavior.
 - SQL Server integration tests prove the schema contracts, atomic rollback when audit/idempotency
   persistence fails, unique idempotency enforcement, and refresh-token revocation.
+- Delivery tests prove success, definite failure, retryable transport outcomes, and that the
+  no-email fallback is never submitted to SMTP.
 - `dotnet format`, Release build, unit/integration tests, and database migration tests pass.
 
 ## Explicit exclusions
@@ -116,4 +136,4 @@ successful response without changing state or adding another audit record.
 - UC-48 lock UI/endpoint, except for domain/persistence support needed to preserve its future
   lock metadata.
 - New roles or permission tables for the proposed System Owner / Platform Administrator model.
-- Email/push notification to the user; no approved notification template or delivery rule exists.
+- Push/SMS transport, device-token registration, and notification-centre API/UI.

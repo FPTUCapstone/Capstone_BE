@@ -26,6 +26,7 @@ public sealed class UnlockUserAccountCommandHandlerTests
     public async Task Handle_WhenCompleteTravelerLock_RestoresSavedStatusRevokesTokensAndWritesOneAudit()
     {
         User target = CreateLockedUser(20, AccountStatus.PendingApproval);
+        target.Email = "locked-traveler@example.com";
         _dbContext.Users.Add(target);
         _dbContext.RefreshTokens.AddRange(
             new RefreshToken
@@ -72,6 +73,13 @@ public sealed class UnlockUserAccountCommandHandlerTests
             operation.AdministratorUserId == _currentUser.UserId
             && operation.TargetUserId == target.Id
             && operation.IdempotencyKey == "unlock-001");
+        Notification notification = _dbContext.Notifications.Should().ContainSingle().Subject;
+        notification.UserId.Should().Be(target.Id);
+        notification.Channel.Should().Be(NotificationChannel.Email);
+        notification.Type.Should().Be("AccountUnlocked");
+        notification.Status.Should().Be(NotificationStatus.Pending);
+        notification.RelatedEntityType.Should().Be(AuditEntityTypes.User);
+        notification.RelatedEntityId.Should().Be(target.Id);
     }
 
     [Fact]
@@ -90,7 +98,26 @@ public sealed class UnlockUserAccountCommandHandlerTests
         first.Should().BeEquivalentTo(replay);
         _dbContext.AuditLogs.Should().ContainSingle();
         _dbContext.UserUnlockOperations.Should().ContainSingle();
+        _dbContext.Notifications.Should().ContainSingle();
         target.Status.Should().Be(AccountStatus.Active);
+    }
+
+    [Fact]
+    public async Task Handle_WhenTargetHasNoEmail_CreatesPendingEmailNotification()
+    {
+        User target = CreateLockedUser(20, AccountStatus.Active);
+        target.Email = null;
+        _dbContext.Users.Add(target);
+        await _dbContext.SaveChangesAsync(CancellationToken.None);
+
+        var result = await CreateHandler().Handle(
+            new UnlockUserAccountCommand(target.Id, "Verified", "unlock-no-email"),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        Notification notification = _dbContext.Notifications.Should().ContainSingle().Subject;
+        notification.Channel.Should().Be(NotificationChannel.Email);
+        notification.Status.Should().Be(NotificationStatus.Pending);
     }
 
     [Fact]

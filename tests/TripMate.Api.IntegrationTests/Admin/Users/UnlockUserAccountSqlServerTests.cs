@@ -19,21 +19,21 @@ public sealed class UnlockUserAccountSqlServerTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
-    public async Task UnlockAndReplay_RevokesTokensAndPersistsExactlyOneAuditAndOperation()
+    public async Task UnlockAndReplay_RevokesTokensAndPersistsExactlyOneAuditOperationAndPendingNotification()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
-        var seed = await SeedAsync(database);
+        var (AdministratorId, TravelerId) = await SeedAsync(database);
 
         UnlockUserAccountResponse first;
         await using (var context = database.CreateDbContext())
         {
             var handler = new UnlockUserAccountCommandHandler(
                 context,
-                new FixedCurrentUser(seed.AdministratorId),
+                new FixedCurrentUser(AdministratorId),
                 new FixedClock(),
                 new SqlServerUserUnlockLock(context));
             var result = await handler.Handle(
-                new UnlockUserAccountCommand(seed.TravelerId, "Verified support case", "sql-unlock-001"),
+                new UnlockUserAccountCommand(TravelerId, "Verified support case", "sql-unlock-001"),
                 CancellationToken.None);
             result.IsSuccess.Should().BeTrue();
             first = result.Value;
@@ -43,24 +43,28 @@ public sealed class UnlockUserAccountSqlServerTests
         {
             var handler = new UnlockUserAccountCommandHandler(
                 replayContext,
-                new FixedCurrentUser(seed.AdministratorId),
+                new FixedCurrentUser(AdministratorId),
                 new FixedClock(),
                 new SqlServerUserUnlockLock(replayContext));
             var replay = await handler.Handle(
-                new UnlockUserAccountCommand(seed.TravelerId, "Verified support case", "sql-unlock-001"),
+                new UnlockUserAccountCommand(TravelerId, "Verified support case", "sql-unlock-001"),
                 CancellationToken.None);
             replay.IsSuccess.Should().BeTrue();
             replay.Value.Should().BeEquivalentTo(first);
         }
 
         await using var verification = database.CreateDbContext();
-        (await verification.Users.SingleAsync(user => user.Id == seed.TravelerId)).Status.Should()
+        (await verification.Users.SingleAsync(user => user.Id == TravelerId)).Status.Should()
             .Be(AccountStatus.Active);
-        (await verification.RefreshTokens.SingleAsync(token => token.UserId == seed.TravelerId)).RevokedAtUtc.Should()
+        (await verification.RefreshTokens.SingleAsync(token => token.UserId == TravelerId)).RevokedAtUtc.Should()
             .Be(Now);
-        (await verification.AuditLogs.CountAsync(log => log.AffectedEntityId == seed.TravelerId)).Should().Be(1);
+        (await verification.AuditLogs.CountAsync(log => log.AffectedEntityId == TravelerId)).Should().Be(1);
         (await verification.UserUnlockOperations.CountAsync(operation =>
-            operation.AdministratorUserId == seed.AdministratorId && operation.TargetUserId == seed.TravelerId)).Should().Be(1);
+            operation.AdministratorUserId == AdministratorId && operation.TargetUserId == TravelerId)).Should().Be(1);
+        var notification = await verification.Notifications.SingleAsync(notification =>
+            notification.UserId == TravelerId);
+        notification.Type.Should().Be(UserAdministrationNotificationTypes.AccountUnlocked);
+        notification.Status.Should().Be(NotificationStatus.Pending);
     }
 
     [SqlServerFact]
@@ -68,7 +72,7 @@ public sealed class UnlockUserAccountSqlServerTests
     public async Task ConcurrentSameKeyRequests_CreateOneAuditAndReplayOneResponse()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
-        var seed = await SeedAsync(database);
+        var (AdministratorId, TravelerId) = await SeedAsync(database);
         var startGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         async Task<UnlockUserAccountResponse> UnlockAsync()
@@ -77,11 +81,11 @@ public sealed class UnlockUserAccountSqlServerTests
             await using var context = database.CreateDbContext();
             var handler = new UnlockUserAccountCommandHandler(
                 context,
-                new FixedCurrentUser(seed.AdministratorId),
+                new FixedCurrentUser(AdministratorId),
                 new FixedClock(),
                 new SqlServerUserUnlockLock(context));
             var result = await handler.Handle(
-                new UnlockUserAccountCommand(seed.TravelerId, "Verified support case", "sql-unlock-concurrent"),
+                new UnlockUserAccountCommand(TravelerId, "Verified support case", "sql-unlock-concurrent"),
                 CancellationToken.None);
             result.IsSuccess.Should().BeTrue();
             return result.Value;
@@ -94,9 +98,10 @@ public sealed class UnlockUserAccountSqlServerTests
 
         responses[0].Should().BeEquivalentTo(responses[1]);
         await using var verification = database.CreateDbContext();
-        (await verification.AuditLogs.CountAsync(log => log.AffectedEntityId == seed.TravelerId)).Should().Be(1);
+        (await verification.AuditLogs.CountAsync(log => log.AffectedEntityId == TravelerId)).Should().Be(1);
         (await verification.UserUnlockOperations.CountAsync(operation =>
-            operation.AdministratorUserId == seed.AdministratorId && operation.TargetUserId == seed.TravelerId)).Should().Be(1);
+            operation.AdministratorUserId == AdministratorId && operation.TargetUserId == TravelerId)).Should().Be(1);
+        (await verification.Notifications.CountAsync(notification => notification.UserId == TravelerId)).Should().Be(1);
     }
 
     [SqlServerFact]
@@ -104,7 +109,7 @@ public sealed class UnlockUserAccountSqlServerTests
     public async Task ConcurrentDifferentKeysForSameTarget_OneSucceedsAndOneReturnsNotLockedWithoutDuplicateAudit()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
-        var seed = await SeedAsync(database);
+        var (AdministratorId, TravelerId) = await SeedAsync(database);
         var startGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         async Task<TripMate.Application.Common.Models.Result<UnlockUserAccountResponse>> UnlockAsync(string idempotencyKey)
@@ -113,11 +118,11 @@ public sealed class UnlockUserAccountSqlServerTests
             await using var context = database.CreateDbContext();
             var handler = new UnlockUserAccountCommandHandler(
                 context,
-                new FixedCurrentUser(seed.AdministratorId),
+                new FixedCurrentUser(AdministratorId),
                 new FixedClock(),
                 new SqlServerUserUnlockLock(context));
             return await handler.Handle(
-                new UnlockUserAccountCommand(seed.TravelerId, "Verified support case", idempotencyKey),
+                new UnlockUserAccountCommand(TravelerId, "Verified support case", idempotencyKey),
                 CancellationToken.None);
         }
 
@@ -131,11 +136,12 @@ public sealed class UnlockUserAccountSqlServerTests
         rejected.ErrorCode.Should().Be(UserAdministrationErrorCodes.NotLocked);
 
         await using var verification = database.CreateDbContext();
-        (await verification.Users.SingleAsync(user => user.Id == seed.TravelerId)).Status.Should()
+        (await verification.Users.SingleAsync(user => user.Id == TravelerId)).Status.Should()
             .Be(AccountStatus.Active);
-        (await verification.AuditLogs.CountAsync(log => log.AffectedEntityId == seed.TravelerId)).Should().Be(1);
+        (await verification.AuditLogs.CountAsync(log => log.AffectedEntityId == TravelerId)).Should().Be(1);
         (await verification.UserUnlockOperations.CountAsync(operation =>
-            operation.AdministratorUserId == seed.AdministratorId && operation.TargetUserId == seed.TravelerId)).Should().Be(1);
+            operation.AdministratorUserId == AdministratorId && operation.TargetUserId == TravelerId)).Should().Be(1);
+        (await verification.Notifications.CountAsync(notification => notification.UserId == TravelerId)).Should().Be(1);
     }
 
     [SqlServerFact]
@@ -143,17 +149,17 @@ public sealed class UnlockUserAccountSqlServerTests
     public async Task ReusedKeyWithDifferentReason_ReturnsConflictWithoutSecondMutation()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
-        var seed = await SeedAsync(database);
+        var (AdministratorId, TravelerId) = await SeedAsync(database);
 
         await using (var firstContext = database.CreateDbContext())
         {
             var handler = new UnlockUserAccountCommandHandler(
                 firstContext,
-                new FixedCurrentUser(seed.AdministratorId),
+                new FixedCurrentUser(AdministratorId),
                 new FixedClock(),
                 new SqlServerUserUnlockLock(firstContext));
             (await handler.Handle(
-                new UnlockUserAccountCommand(seed.TravelerId, "Verified support case", "sql-unlock-mismatch"),
+                new UnlockUserAccountCommand(TravelerId, "Verified support case", "sql-unlock-mismatch"),
                 CancellationToken.None)).IsSuccess.Should().BeTrue();
         }
 
@@ -161,11 +167,11 @@ public sealed class UnlockUserAccountSqlServerTests
         {
             var handler = new UnlockUserAccountCommandHandler(
                 replayContext,
-                new FixedCurrentUser(seed.AdministratorId),
+                new FixedCurrentUser(AdministratorId),
                 new FixedClock(),
                 new SqlServerUserUnlockLock(replayContext));
             var mismatch = await handler.Handle(
-                new UnlockUserAccountCommand(seed.TravelerId, "Different support evidence", "sql-unlock-mismatch"),
+                new UnlockUserAccountCommand(TravelerId, "Different support evidence", "sql-unlock-mismatch"),
                 CancellationToken.None);
 
             mismatch.IsFailure.Should().BeTrue();
@@ -173,9 +179,9 @@ public sealed class UnlockUserAccountSqlServerTests
         }
 
         await using var verification = database.CreateDbContext();
-        (await verification.AuditLogs.CountAsync(log => log.AffectedEntityId == seed.TravelerId)).Should().Be(1);
+        (await verification.AuditLogs.CountAsync(log => log.AffectedEntityId == TravelerId)).Should().Be(1);
         (await verification.UserUnlockOperations.CountAsync(operation =>
-            operation.AdministratorUserId == seed.AdministratorId && operation.TargetUserId == seed.TravelerId)).Should().Be(1);
+            operation.AdministratorUserId == AdministratorId && operation.TargetUserId == TravelerId)).Should().Be(1);
     }
 
     [SqlServerFact]
@@ -183,30 +189,31 @@ public sealed class UnlockUserAccountSqlServerTests
     public async Task PersistenceFailure_RollsBackUserTokenAuditAndOperation()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
-        var seed = await SeedAsync(database);
+        var (AdministratorId, TravelerId) = await SeedAsync(database);
 
         await using (var failingContext = database.CreateDbContext(new FailingSaveChangesInterceptor()))
         {
             var handler = new UnlockUserAccountCommandHandler(
                 failingContext,
-                new FixedCurrentUser(seed.AdministratorId),
+                new FixedCurrentUser(AdministratorId),
                 new FixedClock(),
                 new SqlServerUserUnlockLock(failingContext));
 
             Func<Task> action = () => handler.Handle(
-                new UnlockUserAccountCommand(seed.TravelerId, "Verified support case", "sql-unlock-rollback"),
+                new UnlockUserAccountCommand(TravelerId, "Verified support case", "sql-unlock-rollback"),
                 CancellationToken.None);
 
             await action.Should().ThrowAsync<DbUpdateException>();
         }
 
         await using var verification = database.CreateDbContext();
-        (await verification.Users.SingleAsync(user => user.Id == seed.TravelerId)).Status.Should()
+        (await verification.Users.SingleAsync(user => user.Id == TravelerId)).Status.Should()
             .Be(AccountStatus.Locked);
-        (await verification.RefreshTokens.SingleAsync(token => token.UserId == seed.TravelerId)).RevokedAtUtc.Should()
+        (await verification.RefreshTokens.SingleAsync(token => token.UserId == TravelerId)).RevokedAtUtc.Should()
             .BeNull();
-        (await verification.AuditLogs.CountAsync(log => log.AffectedEntityId == seed.TravelerId)).Should().Be(0);
+        (await verification.AuditLogs.CountAsync(log => log.AffectedEntityId == TravelerId)).Should().Be(0);
         (await verification.UserUnlockOperations.CountAsync()).Should().Be(0);
+        (await verification.Notifications.CountAsync(notification => notification.UserId == TravelerId)).Should().Be(0);
     }
 
     private static async Task<(long AdministratorId, long TravelerId)> SeedAsync(SqlServerTestDatabase database)

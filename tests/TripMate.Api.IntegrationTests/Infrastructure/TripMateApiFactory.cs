@@ -143,7 +143,8 @@ public sealed class TripMateApiFactory(
                         || services[index].ImplementationType?.FullName
                             is "TripMate.Infrastructure.Services.TourMediaCleanupBackgroundService"
                             or "TripMate.Infrastructure.Services.TravelerAvatarCleanupBackgroundService"
-                            or "TripMate.Infrastructure.Services.PendingBookingExpiryBackgroundService"))
+                            or "TripMate.Infrastructure.Services.PendingBookingExpiryBackgroundService"
+                            or "TripMate.Infrastructure.Services.UserAdministrationNotificationDeliveryBackgroundService"))
                 {
                     services.RemoveAt(index);
                 }
@@ -165,6 +166,7 @@ public sealed class TripMateApiFactory(
                 services.RemoveAll<ITourMediaUploadLock>();
                 services.RemoveAll<ITourMediaCleanupOutboxStore>();
                 services.RemoveAll<IAccountCredentialLock>();
+                services.RemoveAll<IUserAdministrationNotificationOutboxStore>();
                 services.RemoveAll<IRouteDurationProvider>();
 
                 services.AddDbContext<TestApiDbContext>(options =>
@@ -205,6 +207,7 @@ public sealed class TripMateApiFactory(
                 services.AddScoped<ITourMediaUploadLock, NoOpTourMediaUploadLock>();
                 services.AddScoped<ITourMediaCleanupOutboxStore, NoOpTourMediaCleanupOutboxStore>();
                 services.AddScoped<IAccountCredentialLock, NoOpAccountCredentialLock>();
+                services.AddScoped<IUserAdministrationNotificationOutboxStore, NoOpUserAdministrationNotificationOutboxStore>();
                 services.AddScoped<IRouteDurationProvider, TestRouteDurationProvider>();
             }
             else if (saveChangesInterceptor is not null || dbInterceptor is not null)
@@ -652,6 +655,25 @@ internal sealed class NoOpAccountCredentialLock : IAccountCredentialLock
 {
     public Task AcquireAsync(long userId, CancellationToken cancellationToken) =>
         Task.CompletedTask;
+}
+
+internal sealed class NoOpUserAdministrationNotificationOutboxStore : IUserAdministrationNotificationOutboxStore
+{
+    public Task<IReadOnlyList<UserAdministrationNotificationClaim>> ClaimDueAsync(
+        DateTimeOffset nowUtc,
+        TimeSpan leaseDuration,
+        int batchSize,
+        CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<UserAdministrationNotificationClaim>>([]);
+
+    public Task CompleteAsync(long notificationId, Guid leaseToken, DateTimeOffset completedAtUtc,
+        CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public Task RetryAsync(long notificationId, Guid leaseToken, DateTimeOffset notBeforeAtUtc,
+        DateTimeOffset updatedAtUtc, CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public Task FailAsync(long notificationId, Guid leaseToken, DateTimeOffset failedAtUtc,
+        CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
 internal sealed class TestRouteDurationProvider : IRouteDurationProvider
