@@ -144,6 +144,18 @@ riêng phần database, đúng với việc bạn chỉ muốn chạy SQL trên 
    cần Redis. Môi trường production/multi-instance phải dùng `SchedulingRateLimit:Provider=Redis`
    và cấp secret `ConnectionStrings__Redis`; không commit endpoint hoặc credential vào appsettings.
 
+   Bộ xếp lịch mặc định là CSP (`SchedulingGeneration:SolverMode=Csp`).
+   - Nếu số liệu theo dõi cho thấy CSP thường chạm giới hạn thời gian, giảm số nút bằng
+     `SchedulingGeneration__Csp__MaxNodes`, ví dụ `100000`.
+   - Để quay về thuật toán cũ, đặt `SchedulingGeneration__SolverMode=Heuristic`.
+
+   Cả hai đều chỉ là cấu hình, không cần sửa code. Ngưỡng theo dõi nằm trong
+   `specs/UC-10-csp-itinerary-solver-spec.md`, mục Phase 3.
+
+   Mỗi lần tạo lịch, log có một dòng `Scheduling solver outcome ...`, ghi kết quả solver, thời gian
+   CSP và việc có chạm giới hạn thời gian hay không. Thời gian của cả request nằm ở dòng
+   `Request finished ... POST .../api/v1/scheduling-requests`.
+
 5. Swagger UI ở `https://localhost:<port>/swagger` (môi trường Development).
 
 ## 6. Chạy test

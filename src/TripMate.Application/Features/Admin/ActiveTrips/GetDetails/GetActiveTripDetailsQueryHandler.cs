@@ -19,9 +19,6 @@ public sealed class GetActiveTripDetailsQueryHandler(
     IDateTimeProvider dateTimeProvider)
     : IRequestHandler<GetActiveTripDetailsQuery, Result<ActiveTripDetailDto>>
 {
-    private static readonly string[] ActiveStates =
-        [TripSession.NavigatingState, TripSession.ExploringState, TripSession.InterruptedState];
-
     private const int LocationTrailLimit = 100;
 
     public async Task<Result<ActiveTripDetailDto>> Handle(
@@ -35,9 +32,11 @@ public sealed class GetActiveTripDetailsQueryHandler(
                 "You do not have permission to access this function.");
         }
 
+        var nowUtc = dateTimeProvider.UtcNow;
         var session = await dbContext.TripSessions
             .AsNoTracking()
-            .Where(candidate => candidate.Id == request.TripId && ActiveStates.Contains(candidate.FsmState))
+            .WhereEffectivelyActive(nowUtc)
+            .Where(candidate => candidate.Id == request.TripId)
             .Select(candidate => new SessionRow(
                 candidate.Id,
                 candidate.ItineraryId,
@@ -68,7 +67,7 @@ public sealed class GetActiveTripDetailsQueryHandler(
             AuditActionTypes.ActiveTripDetailsViewed,
             AuditEntityTypes.TripSession,
             request.TripId,
-            dateTimeProvider.UtcNow,
+            nowUtc,
             AuditOutcome.Success));
         await dbContext.SaveChangesAsync(cancellationToken);
 
@@ -106,20 +105,26 @@ public sealed class GetActiveTripDetailsQueryHandler(
                 .ToListAsync(cancellationToken)
             : [];
 
-        var itineraryProgress = await dbContext.ItineraryItems
+        // Progress is this session's own snapshot (UC-13): a shared group itinerary's planning
+        // status cannot hold per-Traveler progress, and navigation never writes it.
+        var itineraryProgress = await dbContext.TripSessionItems
             .AsNoTracking()
-            .Where(item => item.ItineraryId == itineraryId)
+            .Where(item => item.SessionId == request.TripId)
             .OrderBy(item => item.SequenceNo)
             .Select(item => new ProgressRow(
-                item.Id,
+                item.ItineraryItemId,
                 item.SequenceNo,
-                item.PointOfInterestId,
-                item.PointOfInterest != null ? item.PointOfInterest.Name : null,
-                item.Kind,
-                item.Status,
+                item.PoiId,
+                item.PoiName,
+                item.ItineraryItem.Kind,
+                item.ReachedAtUtc != null
+                    ? TripSessionItem.ReachedStatus
+                    : item.SkippedAtUtc != null
+                        ? TripSessionItem.SkippedStatus
+                        : TripSessionItem.PendingStatus,
                 item.PlannedArrivalUtc,
                 item.PlannedDepartureUtc,
-                item.StayDurationMinutes))
+                item.ItineraryItem.StayDurationMinutes))
             .ToListAsync(cancellationToken);
 
         var stateHistory = await dbContext.TripStateHistories
@@ -193,7 +198,7 @@ public sealed class GetActiveTripDetailsQueryHandler(
             weatherById,
             reroutingEvents,
             locationTrailRows,
-            dateTimeProvider.UtcNow));
+            nowUtc));
     }
 
     private static ActiveTripDetailDto BuildDetail(

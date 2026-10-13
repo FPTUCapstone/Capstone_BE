@@ -37,6 +37,7 @@ public sealed class RoutingContext
     private readonly DayWindow[][] _windows;
     private readonly int _transitionBuffer;
     private readonly int _finalReturnBuffer;
+    private readonly RestShortcuts? _shortcuts;
 
     private RoutingContext(
         GenerationInput input,
@@ -45,9 +46,11 @@ public sealed class RoutingContext
         DayWindow[][] windows,
         int horizon,
         int transitionBuffer,
-        int finalReturnBuffer)
+        int finalReturnBuffer,
+        RestShortcuts? shortcuts)
     {
         Input = input;
+        _shortcuts = shortcuts;
         _matrix = matrix;
         Nodes = nodes;
         _windows = windows;
@@ -92,7 +95,8 @@ public sealed class RoutingContext
         IReadOnlyDictionary<long, int> candidateMatrixIndices,
         SchedulingGenerationOptions options,
         MiniRoutingOptions routingOptions,
-        bool reserveRestTime = true)
+        bool reserveRestTime = true,
+        bool restShortcuts = false)
     {
         ArgumentNullException.ThrowIfNull(input);
         ArgumentNullException.ThrowIfNull(matrix);
@@ -131,6 +135,10 @@ public sealed class RoutingContext
             - (reserveRestTime ? RestReserveMinutes(input, options.TransitionBufferMinutes) : 0);
         var windows = nodes.Select(node => BuildWindows(input, node.Candidate)).ToArray();
 
+        var shortcuts = restShortcuts
+            ? RestShortcuts.Create(input, matrix, matrixCandidates, candidateMatrixIndices, options.TransitionBufferMinutes)
+            : null;
+
         return new RoutingContext(
             input,
             matrix,
@@ -138,20 +146,21 @@ public sealed class RoutingContext
             windows,
             horizon,
             options.TransitionBufferMinutes,
-            options.FinalReturnBufferMinutes);
+            options.FinalReturnBufferMinutes,
+            shortcuts);
     }
 
     /// <summary>Phút di chuyển thô theo ma trận, dùng để tính hàm mục tiêu.</summary>
     public int RawTravel(int fromMatrixIndex, int toMatrixIndex) =>
-        _matrix.GetMinutes(fromMatrixIndex, toMatrixIndex);
+        _shortcuts?.Raw[fromMatrixIndex, toMatrixIndex] ?? _matrix.GetMinutes(fromMatrixIndex, toMatrixIndex);
 
     /// <summary>Phút từ lúc rời một điểm tới lúc đến điểm tham quan kế tiếp (có buffer).</summary>
     public int Travel(int fromMatrixIndex, int toMatrixIndex) =>
-        _matrix.GetMinutes(fromMatrixIndex, toMatrixIndex) + _transitionBuffer;
+        (_shortcuts?.Time[fromMatrixIndex, toMatrixIndex] ?? _matrix.GetMinutes(fromMatrixIndex, toMatrixIndex)) + _transitionBuffer;
 
     /// <summary>Phút từ lúc rời một điểm tới lúc về điểm kết thúc (có buffer về đích).</summary>
     public int ReturnTravel(int fromMatrixIndex) =>
-        _matrix.GetMinutes(fromMatrixIndex, EndMatrixIndex) + _finalReturnBuffer;
+        (_shortcuts?.Time[fromMatrixIndex, EndMatrixIndex] ?? _matrix.GetMinutes(fromMatrixIndex, EndMatrixIndex)) + _finalReturnBuffer;
 
     /// <summary>
     /// Giờ bắt đầu tham quan sớm nhất khi đến <paramref name="node"/> lúc <paramref name="arrival"/>,
@@ -259,5 +268,69 @@ public sealed class RoutingContext
         var utc = TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(localTime, DateTimeKind.Unspecified), input.TimeZone);
         var minutes = (new DateTimeOffset(utc, TimeSpan.Zero) - input.StartAtUtc).TotalMinutes;
         return (int)(ceiling ? Math.Ceiling(minutes) : Math.Floor(minutes));
+    }
+
+    /// <summary>
+    /// Chặng nới lỏng cho điểm nghỉ là địa điểm thật (R9). <see cref="ItineraryScheduleEvaluator"/> chèn điểm nghỉ R vào
+    /// giữa chặng a → b sau một điểm tham quan, nên lịch thật đi a → R → b: phút di chuyển a → R + R → b, và thời gian
+    /// a → R + buffer + 30 phút nghỉ + R → b. Trên ma trận không metric, đường vòng đó có thể ngắn hơn đi thẳng, tức lịch
+    /// thật tới nơi sớm hơn và đi ít hơn mô hình. Lấy chặng ngắn hơn trong hai cách (bỏ qua giờ mở cửa của điểm nghỉ và
+    /// số lần nghỉ cho phép) cho đúng một mô hình nới lỏng: mọi lịch evaluator chấp nhận đều khả thi trên mô hình này, và
+    /// phút di chuyển của mô hình không vượt phút của lịch thật. Không có đường vòng nào ngắn hơn thì chặng giữ nguyên.
+    /// </summary>
+    private sealed class RestShortcuts(int[,] raw, int[,] time)
+    {
+        /// <summary>Phút di chuyển thô ngắn nhất (đi thẳng hoặc vòng qua một điểm nghỉ).</summary>
+        public int[,] Raw { get; } = raw;
+
+        /// <summary>Thời gian chặng ngắn nhất, chưa gồm buffer của điểm đến (đi vòng thì đã gồm buffer và thời gian nghỉ).</summary>
+        public int[,] Time { get; } = time;
+
+        public static RestShortcuts Create(
+            GenerationInput input,
+            RouteDurationMatrix matrix,
+            IReadOnlyList<GenerationCandidate> matrixCandidates,
+            IReadOnlyDictionary<long, int> candidateMatrixIndices,
+            int transitionBuffer)
+        {
+            var points = matrix.PointCount;
+            var rests = matrixCandidates
+                .Where(candidate => !input.MandatoryPoiIds.Contains(candidate.Id)
+                    && ItineraryScheduleEvaluator.IsQualifiedRestCandidate(candidate))
+                .Select(candidate => candidateMatrixIndices[candidate.Id])
+                .ToArray();
+            var raw = new int[points, points];
+            var time = new int[points, points];
+            for (var from = 0; from < points; from++)
+            {
+                for (var to = 0; to < points; to++)
+                {
+                    var direct = matrix.GetMinutes(from, to);
+                    raw[from, to] = direct;
+                    time[from, to] = direct;
+
+                    // Evaluator chỉ nghỉ sau một điểm tham quan, không bao giờ trên chặng đầu tiên từ điểm xuất phát.
+                    if (from == 0 || from == to)
+                    {
+                        continue;
+                    }
+
+                    foreach (var rest in rests)
+                    {
+                        if (rest == from || rest == to)
+                        {
+                            continue;
+                        }
+
+                        var first = matrix.GetMinutes(from, rest);
+                        var second = matrix.GetMinutes(rest, to);
+                        raw[from, to] = Math.Min(raw[from, to], first + second);
+                        time[from, to] = Math.Min(time[from, to], first + transitionBuffer + RestDurationMinutes + second);
+                    }
+                }
+            }
+
+            return new RestShortcuts(raw, time);
+        }
     }
 }
