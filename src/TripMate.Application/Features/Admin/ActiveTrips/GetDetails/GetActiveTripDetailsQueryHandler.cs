@@ -321,7 +321,7 @@ public sealed class GetActiveTripDetailsQueryHandler(
             progressRows.Select(row => new ItineraryProgressItemDto(
                 row.ItemId.ToString(CultureInfo.InvariantCulture),
                 row.SequenceNo,
-                row.PoiId?.ToString(CultureInfo.InvariantCulture),
+                row.PoiId.ToString(CultureInfo.InvariantCulture),
                 row.PoiName,
                 row.ItemKind.ToString(),
                 row.Status,
@@ -406,12 +406,12 @@ public sealed class GetActiveTripDetailsQueryHandler(
     private sealed record ProgressRow(
         long ItemId,
         int SequenceNo,
-        long? PoiId,
-        string? PoiName,
+        long PoiId,
+        string PoiName,
         ItineraryItemKind ItemKind,
         string Status,
-        DateTimeOffset? PlannedArrivalUtc,
-        DateTimeOffset? PlannedDepartureUtc,
+        DateTimeOffset PlannedArrivalUtc,
+        DateTimeOffset PlannedDepartureUtc,
         int StayDurationMinutes);
 
     private sealed record HistoryRow(

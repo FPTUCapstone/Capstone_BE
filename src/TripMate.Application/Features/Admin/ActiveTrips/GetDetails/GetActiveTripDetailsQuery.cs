@@ -53,12 +53,12 @@ public sealed record LocationDisclosureDto(
 public sealed record ItineraryProgressItemDto(
     string ItemId,
     int SequenceNo,
-    string? PoiId,
-    string? PoiName,
+    string PoiId,
+    string PoiName,
     string ItemKind,
     string Status,
-    DateTimeOffset? PlannedArrivalUtc,
-    DateTimeOffset? PlannedDepartureUtc,
+    DateTimeOffset PlannedArrivalUtc,
+    DateTimeOffset PlannedDepartureUtc,
     int StayDurationMinutes);
 
 public sealed record TripStateChangeDto(

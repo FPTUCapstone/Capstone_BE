@@ -3,7 +3,7 @@
 ## Status
 
 **Amended 2026-10-11** for Staff ownership and location disclosure consent.
-Implementation is in progress on `feature/linhnv-view-active-trip-details`; verification is
+Implementation is in progress on `feature/linhnv-staff-active-trip-access`; verification is
 tracked in `plans/UC-59-plan.md`.
 
 ## Sources and SRS analysis
@@ -15,21 +15,21 @@ tracked in `plans/UC-59-plan.md`.
   detected incidents, weather-related disruptions, route deviations, rerouting events, and other
   synchronized trip-monitoring information. **Monitoring only** unless separate intervention
   functions are explicitly defined.
-- **SRS_INTERNAL_CONFLICT:** the UC catalogue assigns UC-58/59 to Staff, while the older detailed sections name Administrator. This implementation follows the approved **Staff-only** decision; the SRS must be reconciled before release.
+- **SRS_INTERNAL_CONFLICT:** the UC catalogue assigns UC-58/59 to Staff, while older detailed sections name Administrator. The approved team baseline and Web scope matrix resolve this as **Staff-only**.
 - Approved UC-58 decisions (committed `specs/UC-58-spec.md`): active session = FSM state
   `Navigating`/`Exploring`/`Interrupted`; trip code = `TRIP-{session_id}`; `BookedTour` → `Tour`,
   else `SelfPlanned`; open alert = incident with `resolved_at IS NULL`; `tripId` serialized as a
-  JSON string (BIGINT safety); CR-07 `Asia/Ho_Chi_Minh` timezone handling; Administrator
+  JSON string (BIGINT safety); CR-07 `Asia/Ho_Chi_Minh` timezone handling; Staff
   authorization; MSG126/MSG127/MSG128.
 - Schema truth `database/tripmate_schema_v7.sql`: `trip.TripSessions`, `trip.TripStateHistory`,
   `trip.TripLocationLogs`, `trip.WeatherEvents`, `trip.Incidents`, `trip.ReroutingEvents`,
-  `planning.ItineraryItems` (status `Planned`/`Visited`/`Skipped`).
+  `trip.TripSessionItems` (the UC-13 per-session progress snapshot).
 
 ### Facts vs decisions
 
 | # | Item | Type | Resolution |
 | --- | --- | --- | --- |
-| D1 | Detail dataset | Fact-derived | Every SRS-listed information class maps to the v7 schema; the privacy amendment adds explicit ownership and Operations Staff consent before a precise coordinate is disclosed. |
+| D1 | Detail dataset | Fact-derived | Every SRS-listed information class maps to the v7 schema. UC-13 `TripSessionItems` is the authoritative per-session progress snapshot; the privacy amendment adds explicit ownership and Operations Staff consent before a precise coordinate is disclosed. |
 | D2 | "Active trip" boundary | **Approved 2026-09-30** | Same definition as UC-58: `fsm_state IN ('Navigating','Exploring','Interrupted')` at read time. A trip outside the active monitoring states is treated as not found for UC-59: a missing **or non-active** session (`Planning`, `Completed`, and any other state) returns `404`. Rationale: the entry surface is the UC-58 active-trips list, so a trip that has since completed is no longer in monitoring scope. |
 | D3 | Not-found message | **Approved 2026-09-30 (proposed MSG133)** | No locked §5.3 message covers a missing active trip; MSG129 is a success toast and MSG128 is a list/filter "no records" message, so neither is reused. Following the UC-69/MSG132 precedent: runtime code `admin.active_trip_not_found`, **proposed** MSG133 wording (not locked SRS content): `"Active trip not found or no longer available for monitoring."` — the phrasing covers a trip that still exists but has left the active monitoring scope. |
 | D4 | Location trail size | **Approved 2026-09-30** | `TripLocationLogs` is unbounded; the backend selects the **latest 100** logs by `recorded_at` descending, then returns them ordered ascending for display. A map/timeline enhancement may add pagination or a time window in a separate approval. |
@@ -89,7 +89,7 @@ which is required behavior, not an intervention.
   "currentLocation": { "latitude": 16.0612, "longitude": 108.2277, "asOfUtc": "2026-09-26T03:12:44Z" },
   "itineraryProgress": [
     { "itemId": "901", "sequenceNo": 1, "poiId": "17", "poiName": "My Khe Beach",
-      "itemKind": "Visit", "status": "Visited",
+      "itemKind": "Visit", "status": "Reached",
       "plannedArrivalUtc": "2026-09-26T02:00:00Z", "plannedDepartureUtc": "2026-09-26T04:00:00Z",
       "stayDurationMinutes": 120 }
   ],
@@ -121,7 +121,7 @@ which is required behavior, not an intervention.
 - `currentLocation`: returned only when both coordinates exist, `current_location_subject_user_id` identifies the traveler, and that traveler has effective `OperationsStaff` consent; otherwise `null`.
 - `groupOrTraveler`, `destination`, `tripType`, `currentDay`, `members`, `openAlerts`: identical calculations to UC-58 (same helper logic, no duplication of divergent rules).
 - `groupPanel` (D7): groups linked through the shared `itinerary_id`. `groupPanel` is `null` when no group is linked (Self-Planned); otherwise it is an **array** with one entry per linked group, ordered by group ID, each exposing `groupId`, `groupName`, `hostName` (`TravelGroups.HostUser.FullName`), and its **active** members (`GroupMemberStatus.Active`) ordered by `joined_at` then `user_id`, each with `userId`, `fullName`, `joinedAtUtc`, and `isLocationSharingEnabled` (BR-50/BR-51 state flag only — no member coordinates).
-- `itineraryProgress`: `planning.ItineraryItems` of the session itinerary ordered by `sequence_no`; `poiName` from `catalog.POIs.name` when linked; timestamps UTC (`AsUtcDateTime2`).
+- `itineraryProgress`: `trip.TripSessionItems` for the selected session, ordered by `sequence_no`. `poiName` and planned timestamps are immutable navigation snapshots; status is `Pending`, `Reached`, or `Skipped`, derived from the snapshot's `reached_at`/`skipped_at`. The shared `planning.ItineraryItems.status` is never read or changed for UC-59 progress.
 - `stateHistory`: `trip.TripStateHistory` ordered by `changed_at` ascending, then `history_id`; `triggeredBy` may be `System`/`Traveler`/`Administrator` or null.
 - `incidents`: all incidents of the session ordered by `detected_at` descending; each embeds its linked `trip.WeatherEvents` row (`weatherEvent: null` when `weather_event_id` is null). Route deviations are incidents with type `RouteDeviation`; no separate section is invented.
 - `reroutingEvents`: `trip.ReroutingEvents` ordered by `proposed_at` descending; snapshot content excluded (D5) — each event exposes only `status`, `proposedAtUtc`, `decidedAtUtc`, and `hasProposedItinerarySnapshot`.
@@ -134,7 +134,7 @@ which is required behavior, not an intervention.
 3. The response contains every section above with schema-faithful field names, UTC timestamps, and nullable behavior per the mapping section, including the `groupPanel` member list (D7) with joined timestamps and location-sharing flags but **no member coordinates**.
 4. Every successful `200` response has exactly one persisted `AuditLogs` row per D8 (`ViewActiveTripDetails`, entity `TripSession`, actor = requesting Staff); a failed audit persist yields `500` and no detail payload (fail-closed).
 5. Trip data is never mutated; the only write is the BR-130 audit row. Unrelated data is not exposed.
-6. Unit tests cover handler assembly, boundaries (null coordinates, null weather link, null planned timestamps, empty trail/history, >100 logs, group panel null/multi-group/inactive-member exclusion, audit row construction), and validation; API integration tests cover `401`, `403`, `400`, `404`, `200`, inactive-session `404`, and audit-row persistence; SQL Server integration tests verify real-schema joins (state history, incidents→weather, rerouting, trail bound), plus enabled, missing, revoked, and mixed-member Staff location-consent redaction, and the persisted audit row.
+6. Unit tests cover handler assembly, boundaries (null coordinates, null weather link, empty trail/history, >100 logs, group panel null/multi-group/inactive-member exclusion, audit row construction), and validation; API integration tests cover `401`, `403`, `400`, `404`, `200`, inactive-session `404`, and audit-row persistence; SQL Server integration tests verify real-schema joins (state history, incidents→weather, rerouting, trail bound), session progress independent from shared itinerary status, enabled/missing/revoked/mixed-member Staff location-consent redaction, and the persisted audit row.
 7. OpenAPI documents the path parameter, response DTO, and error responses.
 
 ## Non-goals and dependencies
