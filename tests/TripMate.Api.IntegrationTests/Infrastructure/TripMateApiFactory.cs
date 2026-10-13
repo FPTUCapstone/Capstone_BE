@@ -141,7 +141,8 @@ public sealed class TripMateApiFactory(
                 if (services[index].ServiceType == typeof(IHostedService)
                     && (services[index].ImplementationType == typeof(TripMate.Infrastructure.Reviews.Media.ReviewMediaRecoveryService)
                         || services[index].ImplementationType?.FullName
-                            == "TripMate.Infrastructure.Services.TourMediaCleanupBackgroundService"))
+                            is "TripMate.Infrastructure.Services.TourMediaCleanupBackgroundService"
+                            or "TripMate.Infrastructure.Services.TravelerAvatarCleanupBackgroundService"))
                 {
                     services.RemoveAt(index);
                 }

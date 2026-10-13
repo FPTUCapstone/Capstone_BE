@@ -24,6 +24,7 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(u => u.PasswordHash).HasColumnName("password_hash").HasMaxLength(256);
         builder.Property(u => u.FullName).HasColumnName("full_name").HasMaxLength(150).IsRequired();
         builder.Property(u => u.AvatarUrl).HasColumnName("avatar_url").HasMaxLength(500);
+        builder.Property(u => u.AvatarPublicId).HasColumnName("avatar_public_id").HasMaxLength(500);
         builder.Property(u => u.Status).HasColumnName("status").HasConversion<string>().HasMaxLength(24).IsConcurrencyToken();
         builder.Property(u => u.EmailVerifiedAtUtc).HasColumnName("email_verified_at").AsUtcDateTime2();
         builder.Property(u => u.PhoneVerifiedAtUtc).HasColumnName("phone_verified_at").AsUtcDateTime2();

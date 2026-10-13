@@ -118,6 +118,10 @@ public class TestDbContext(
 
     public List<string> FinalizedOperatorDocumentCleanupPublicIds { get; } = [];
 
+    public List<string> FinalizedTravelerAvatarPublicIds { get; } = [];
+
+    public List<string> EnqueuedTravelerAvatarPublicIds { get; } = [];
+
     public bool ThrowOnSaveConcurrency { get; set; }
 
     public Func<int, Exception?>? SerializableTransactionCompletionFailureFactory { get; set; }
@@ -192,6 +196,19 @@ public class TestDbContext(
         CancellationToken cancellationToken)
     {
         FinalizedOperatorDocumentCleanupPublicIds.AddRange(publicIds);
+        return Task.CompletedTask;
+    }
+
+    public Task FinalizeTravelerAvatarReservationAsync(string publicId, CancellationToken cancellationToken)
+    {
+        FinalizedTravelerAvatarPublicIds.Add(publicId);
+        return Task.CompletedTask;
+    }
+
+    public Task EnqueueTravelerAvatarCleanupAsync(string publicId, DateTimeOffset nowUtc,
+        CancellationToken cancellationToken)
+    {
+        EnqueuedTravelerAvatarPublicIds.Add(publicId);
         return Task.CompletedTask;
     }
 

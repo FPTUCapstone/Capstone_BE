@@ -102,6 +102,11 @@ public static class DependencyInjection
         services.AddSingleton<ICloudinaryClient, CloudinarySdkClient>();
         services.AddSingleton<ITourMediaImageInspector, SkiaSharpTourMediaImageInspector>();
         services.AddSingleton<ITourMediaStorage, CloudinaryTourMediaStorage>();
+        services.AddSingleton<ITravelerAvatarStorage, CloudinaryTravelerAvatarStorage>();
+        services.AddSingleton<SqlTravelerAvatarCleanupJournal>();
+        services.AddSingleton<ITravelerAvatarCleanupJournal>(sp =>
+            sp.GetRequiredService<SqlTravelerAvatarCleanupJournal>());
+        services.AddHostedService<TravelerAvatarCleanupBackgroundService>();
         services.AddSingleton<IOperatorDocumentStorage, CloudinaryOperatorDocumentStorage>();
 
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
