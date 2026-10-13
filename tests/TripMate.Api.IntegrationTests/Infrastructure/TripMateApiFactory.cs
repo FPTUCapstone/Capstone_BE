@@ -141,7 +141,9 @@ public sealed class TripMateApiFactory(
                 if (services[index].ServiceType == typeof(IHostedService)
                     && (services[index].ImplementationType == typeof(TripMate.Infrastructure.Reviews.Media.ReviewMediaRecoveryService)
                         || services[index].ImplementationType?.FullName
-                            == "TripMate.Infrastructure.Services.TourMediaCleanupBackgroundService"))
+                            == "TripMate.Infrastructure.Services.TourMediaCleanupBackgroundService"
+                        || services[index].ImplementationType?.FullName
+                            == "TripMate.Infrastructure.Services.UserAdministrationNotificationDeliveryBackgroundService"))
                 {
                     services.RemoveAt(index);
                 }
@@ -162,6 +164,7 @@ public sealed class TripMateApiFactory(
                 services.RemoveAll<ISchedulingRequestLock>();
                 services.RemoveAll<ITourMediaUploadLock>();
                 services.RemoveAll<ITourMediaCleanupOutboxStore>();
+                services.RemoveAll<IUserAdministrationNotificationOutboxStore>();
                 services.RemoveAll<IRouteDurationProvider>();
 
                 services.AddDbContext<TestApiDbContext>(options =>
@@ -201,6 +204,7 @@ public sealed class TripMateApiFactory(
                 services.AddScoped<ISchedulingRequestLock, NoOpSchedulingRequestLock>();
                 services.AddScoped<ITourMediaUploadLock, NoOpTourMediaUploadLock>();
                 services.AddScoped<ITourMediaCleanupOutboxStore, NoOpTourMediaCleanupOutboxStore>();
+                services.AddScoped<IUserAdministrationNotificationOutboxStore, NoOpUserAdministrationNotificationOutboxStore>();
                 services.AddScoped<IRouteDurationProvider, TestRouteDurationProvider>();
             }
             else if (saveChangesInterceptor is not null || dbInterceptor is not null)
@@ -617,6 +621,35 @@ internal sealed class NoOpTourMediaCleanupOutboxStore : ITourMediaCleanupOutboxS
         Guid leaseToken,
         string safeErrorCode,
         DateTimeOffset completedAtUtc,
+        CancellationToken cancellationToken) => Task.CompletedTask;
+}
+
+internal sealed class NoOpUserAdministrationNotificationOutboxStore : IUserAdministrationNotificationOutboxStore
+{
+    public Task<IReadOnlyList<UserAdministrationNotificationClaim>> ClaimDueAsync(
+        DateTimeOffset nowUtc,
+        TimeSpan leaseDuration,
+        int batchSize,
+        CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<UserAdministrationNotificationClaim>>([]);
+
+    public Task CompleteAsync(
+        long notificationId,
+        Guid leaseToken,
+        DateTimeOffset completedAtUtc,
+        CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public Task RetryAsync(
+        long notificationId,
+        Guid leaseToken,
+        DateTimeOffset notBeforeAtUtc,
+        DateTimeOffset updatedAtUtc,
+        CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public Task FailAsync(
+        long notificationId,
+        Guid leaseToken,
+        DateTimeOffset failedAtUtc,
         CancellationToken cancellationToken) => Task.CompletedTask;
 }
 

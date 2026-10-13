@@ -70,14 +70,11 @@ public sealed class UnlockUserAccountCommandHandler(
                 cancellationToken);
         if (existingOperation is not null)
         {
-            if (existingOperation.RequestHash != requestHash)
-            {
-                return Result.Failure<UnlockUserAccountResponse>(
+            return existingOperation.RequestHash != requestHash
+                ? Result.Failure<UnlockUserAccountResponse>(
                     UserAdministrationErrorCodes.IdempotencyKeyPayloadMismatch,
-                    "The Idempotency-Key was already used with different request data.");
-            }
-
-            return Result.Success(new UnlockUserAccountResponse(
+                    "The Idempotency-Key was already used with different request data.")
+                : Result.Success(new UnlockUserAccountResponse(
                 existingOperation.TargetUserId,
                 existingOperation.RestoredStatus,
                 existingOperation.UnlockedAtUtc));
@@ -127,6 +124,18 @@ public sealed class UnlockUserAccountCommandHandler(
             reason: reason,
             beforeData: JsonSerializer.Serialize(new { status = AccountStatus.Locked.ToString() }),
             afterData: JsonSerializer.Serialize(new { status = restoredStatus.ToString() })));
+        dbContext.Notifications.Add(new Notification
+        {
+            User = target,
+            Channel = NotificationChannel.Email,
+            Type = UserAdministrationNotificationTypes.AccountUnlocked,
+            Title = UserAdministrationNotificationTypes.AccountUnlockedTitle,
+            Body = UserAdministrationNotificationTypes.AccountUnlockedBody,
+            RelatedEntityType = AuditEntityTypes.User,
+            RelatedEntityId = target.Id,
+            Status = NotificationStatus.Pending,
+            CreatedAtUtc = now,
+        });
         dbContext.UserUnlockOperations.Add(UserUnlockOperation.Create(
             administratorUserId,
             idempotencyKey,

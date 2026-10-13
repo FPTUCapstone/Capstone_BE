@@ -371,10 +371,19 @@ CREATE TABLE dbo.Notifications (
     status               VARCHAR(10) NOT NULL DEFAULT 'Pending'
         CHECK (status IN ('Pending','Sent','Failed','Read')),
     created_at           DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
-    sent_at              DATETIME2 NULL
+    sent_at              DATETIME2 NULL,
+    delivery_attempt_count INT NOT NULL CONSTRAINT DF_Notifications_DeliveryAttemptCount DEFAULT 0,
+    delivery_lease_token UNIQUEIDENTIFIER NULL,
+    delivery_lease_expires_at DATETIME2 NULL,
+    next_delivery_attempt_at DATETIME2 NULL,
+    delivery_last_error_code VARCHAR(100) NULL,
+    CONSTRAINT CK_Notifications_DeliveryAttemptCount CHECK (delivery_attempt_count >= 0)
 );
 GO
 CREATE INDEX IX_Notifications_User_Status ON dbo.Notifications(user_id, status);
+GO
+CREATE INDEX IX_Notifications_Delivery_Due ON dbo.Notifications(
+    status, channel, type, next_delivery_attempt_at, delivery_lease_expires_at, notification_id);
 GO
 
 CREATE TABLE dbo.AuditLogs (

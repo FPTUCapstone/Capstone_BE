@@ -14,7 +14,8 @@
 
 - Database-first only: update `database/tripmate_schema_v7.sql` and add an idempotent SQL migration; never generate EF migrations.
 - Preserve Clean Architecture and `Result` error flow; controller contains no business logic.
-- Use the existing `Administrator` role only; reject an `Administrator` target until the formal role split exists.
+- **SRS_INTERNAL_CONFLICT**: Resolve Report 3 V2 Table 3 (`Staff / Administrator`) vs §3.9.1.3 & `BR-115` & Screen Authorization (`Administrator`) by enforcing `Administrator-only` (`[Authorize(Roles = nameof(UserRole.Administrator))]`), because `origin/develop` currently lacks `UserRole.Staff`. Multi-tier authorization will be introduced in a future Staff-integration PR.
+- Reject an `Administrator` target to preserve administrative safety.
 - Restore only the recorded `StatusBeforeLock`; never infer `Active` for a legacy/incomplete lock.
 - Revoke all active target refresh tokens in the same transaction; do not issue a replacement token.
 - All UTC database timestamps use the project `AsUtcDateTime2()` mapping.

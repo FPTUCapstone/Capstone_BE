@@ -118,6 +118,44 @@ public sealed class UserUnlockMigrationSqlServerTests
         normalizedRowCount.Should().Be(1);
     }
 
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task NotificationDeliveryMigration_WhenAppliedTwice_AddsCanonicalLeaseColumnsAndDueIndex()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await database.ExecuteNonQueryAsync("""
+            DROP INDEX IF EXISTS IX_Notifications_Delivery_Due ON dbo.Notifications;
+            ALTER TABLE dbo.Notifications DROP CONSTRAINT IF EXISTS CK_Notifications_DeliveryAttemptCount;
+            ALTER TABLE dbo.Notifications DROP CONSTRAINT IF EXISTS DF_Notifications_DeliveryAttemptCount;
+            ALTER TABLE dbo.Notifications DROP COLUMN IF EXISTS delivery_attempt_count;
+            ALTER TABLE dbo.Notifications DROP COLUMN IF EXISTS delivery_lease_token;
+            ALTER TABLE dbo.Notifications DROP COLUMN IF EXISTS delivery_lease_expires_at;
+            ALTER TABLE dbo.Notifications DROP COLUMN IF EXISTS next_delivery_attempt_at;
+            ALTER TABLE dbo.Notifications DROP COLUMN IF EXISTS delivery_last_error_code;
+            """);
+
+        await ApplyNotificationDeliveryMigrationAsync(database);
+        await ApplyNotificationDeliveryMigrationAsync(database);
+
+        var columnCount = await database.ExecuteScalarAsync<int>("""
+            SELECT COUNT(*)
+            FROM sys.columns
+            WHERE object_id = OBJECT_ID(N'dbo.Notifications')
+              AND name IN (
+                N'delivery_attempt_count', N'delivery_lease_token', N'delivery_lease_expires_at',
+                N'next_delivery_attempt_at', N'delivery_last_error_code');
+            """);
+        columnCount.Should().Be(5);
+
+        var indexCount = await database.ExecuteScalarAsync<int>("""
+            SELECT COUNT(*)
+            FROM sys.indexes
+            WHERE object_id = OBJECT_ID(N'dbo.Notifications')
+              AND name = N'IX_Notifications_Delivery_Due';
+            """);
+        indexCount.Should().Be(1);
+    }
+
     private static async Task ApplyMigrationAsync(SqlServerTestDatabase database)
     {
         var migrationPath = Path.Combine(
@@ -125,6 +163,18 @@ public sealed class UserUnlockMigrationSqlServerTests
             "Database",
             "migrations",
             "20261007_add_user_unlock_operations.sql");
+        var migration = await File.ReadAllTextAsync(migrationPath);
+        migration = Regex.Replace(migration, @"^\s*GO\s*$", string.Empty, RegexOptions.Multiline);
+        await database.ExecuteNonQueryAsync(migration);
+    }
+
+    private static async Task ApplyNotificationDeliveryMigrationAsync(SqlServerTestDatabase database)
+    {
+        var migrationPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "Database",
+            "migrations",
+            "20261007_add_notification_delivery_outbox.sql");
         var migration = await File.ReadAllTextAsync(migrationPath);
         migration = Regex.Replace(migration, @"^\s*GO\s*$", string.Empty, RegexOptions.Multiline);
         await database.ExecuteNonQueryAsync(migration);

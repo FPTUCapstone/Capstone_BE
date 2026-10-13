@@ -4,8 +4,10 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 
+using TripMate.Api.Authorization;
 using TripMate.Api.Common;
 using TripMate.Application.Features.Admin.Users.Unlock;
+using TripMate.Domain.Common;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Api.Controllers.V1;
@@ -14,7 +16,13 @@ namespace TripMate.Api.Controllers.V1;
 [Route("api/v1/admin/users")]
 public sealed class AdminUsersController(ISender sender) : ApiControllerBase(sender)
 {
+    public const string UserIdRouteValueName = "userId";
+
     [HttpPost("{userId:long}/unlock")]
+    [AuthorizationFailureAudit(
+        AuditActionTypes.UserUnlock,
+        AuditEntityTypes.User,
+        UserIdRouteValueName)]
     [ProducesResponseType(typeof(UnlockUserAccountResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]

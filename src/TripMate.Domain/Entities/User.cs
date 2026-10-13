@@ -39,7 +39,7 @@ public class User : BaseEntity
 
     public DateTimeOffset? LastLoginAtUtc { get; set; }
 
-    public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
+    public ICollection<RefreshToken> RefreshTokens { get; set; } = [];
 
     public void RecordLock(
         AccountStatus statusBeforeLock,

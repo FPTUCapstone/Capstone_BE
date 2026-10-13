@@ -191,17 +191,11 @@ public class ConfirmPasswordResetFlowTests
     /// gate. Production correctness must come from the password-reset account lock, not a test
     /// double that serializes the operation on its behalf.
     /// </summary>
-    private sealed class ConcurrentConfirmDbContext : DbContext, IApplicationDbContext
+    private sealed class ConcurrentConfirmDbContext(
+        DbContextOptions<ConfirmPasswordResetFlowTests.ConcurrentConfirmDbContext> options,
+        bool failAfterOperation = false) : DbContext(options), IApplicationDbContext
     {
-        private readonly bool failAfterOperation;
-
-        public ConcurrentConfirmDbContext(
-            DbContextOptions<ConcurrentConfirmDbContext> options,
-            bool failAfterOperation = false)
-            : base(options)
-        {
-            this.failAfterOperation = failAfterOperation;
-        }
+        private readonly bool failAfterOperation = failAfterOperation;
 
         public DbSet<User> Users => Set<User>();
 
@@ -323,12 +317,7 @@ public class ConfirmPasswordResetFlowTests
             CancellationToken cancellationToken)
         {
             var result = await operation(cancellationToken);
-            if (failAfterOperation)
-            {
-                throw new InvalidOperationException("Simulated commit failure.");
-            }
-
-            return result;
+            return failAfterOperation ? throw new InvalidOperationException("Simulated commit failure.") : result;
         }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)

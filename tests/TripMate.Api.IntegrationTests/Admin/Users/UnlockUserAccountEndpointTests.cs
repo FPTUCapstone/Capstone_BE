@@ -6,7 +6,10 @@ using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
 
+using TripMate.Api.Authorization;
 using TripMate.Api.IntegrationTests.Infrastructure;
+using TripMate.Application.Features.Admin.Users.Common;
+using TripMate.Domain.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -24,6 +27,19 @@ public sealed class UnlockUserAccountEndpointTests
         var response = await SendUnlockAsync(client, 20, "unlock-http-001");
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        await factory.WithDbContextAsync(async db =>
+        {
+            AuditLog audit = await db.AuditLogs.SingleAsync();
+            audit.ActionType.Should().Be(AuditActionTypes.UserUnlock);
+            audit.AffectedEntity.Should().Be(AuditEntityTypes.User);
+            audit.AffectedEntityId.Should().Be(20);
+            audit.ActorUserId.Should().BeNull();
+            audit.Result.Should().Be(AuditOutcome.Failure);
+            using var metadata = JsonDocument.Parse(audit.AfterData!);
+            metadata.RootElement.GetProperty("auditMetadata").GetProperty("errorCode").GetString()
+                .Should().Be(AuthorizationAuditErrorCodes.Unauthenticated);
+            return true;
+        });
     }
 
     [Fact]
@@ -35,6 +51,19 @@ public sealed class UnlockUserAccountEndpointTests
         var response = await SendUnlockAsync(client, 20, "unlock-http-002");
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        await factory.WithDbContextAsync(async db =>
+        {
+            AuditLog audit = await db.AuditLogs.SingleAsync();
+            audit.ActorUserId.Should().Be(10);
+            audit.ActionType.Should().Be(AuditActionTypes.UserUnlock);
+            audit.AffectedEntity.Should().Be(AuditEntityTypes.User);
+            audit.AffectedEntityId.Should().Be(20);
+            audit.Result.Should().Be(AuditOutcome.Failure);
+            using var metadata = JsonDocument.Parse(audit.AfterData!);
+            metadata.RootElement.GetProperty("auditMetadata").GetProperty("errorCode").GetString()
+                .Should().Be(AuthorizationAuditErrorCodes.Forbidden);
+            return true;
+        });
     }
 
     [Fact]
@@ -88,6 +117,10 @@ public sealed class UnlockUserAccountEndpointTests
             (await db.Users.SingleAsync(user => user.Id == 20)).Status.Should().Be(AccountStatus.Active);
             (await db.UserUnlockOperations.CountAsync()).Should().Be(1);
             (await db.AuditLogs.CountAsync()).Should().Be(1);
+            Notification notification = await db.Notifications.SingleAsync();
+            notification.UserId.Should().Be(20);
+            notification.Type.Should().Be(UserAdministrationNotificationTypes.AccountUnlocked);
+            notification.Status.Should().Be(NotificationStatus.Pending);
             return true;
         });
     }
