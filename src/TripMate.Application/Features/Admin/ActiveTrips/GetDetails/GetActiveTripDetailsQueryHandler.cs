@@ -64,12 +64,12 @@ public sealed class GetActiveTripDetailsQueryHandler(
         }
 
         var itineraryId = session.ItineraryId;
+        // The SQL column is nullable even though UC-17 creates named groups. Coalesce in
+        // SQL so EF does not call GetString on a NULL value while materializing the row.
         var groups = await dbContext.TravelGroups
             .AsNoTracking()
             .Where(group => group.ItineraryId == itineraryId)
             .OrderBy(group => group.Id)
-            // The SQL column is nullable even though UC-17 creates named groups. Coalesce in
-            // SQL so EF does not call GetString on a NULL value while materializing the row.
             .Select(group => new GroupRow(group.Id, group.Name ?? string.Empty, group.HostUser.FullName))
             .ToListAsync(cancellationToken);
         var groupIds = groups.Select(group => group.GroupId).ToArray();
@@ -355,8 +355,6 @@ public sealed class GetActiveTripDetailsQueryHandler(
                 row.Status,
                 row.ProposedAtUtc,
                 row.DecidedAtUtc,
-                // proposed_itinerary_snapshot is NOT NULL, so a snapshot always exists; its
-                // content is excluded by the approved contract (spec D5).
                 HasProposedItinerarySnapshot: true)).ToArray(),
             trailRows.Select(row => new TripLocationPointDto(
                 row.Latitude,

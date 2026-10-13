@@ -294,9 +294,9 @@ public sealed class ActiveTripDetailsSqlServerTests
             SET @itinerary = SCOPE_IDENTITY();
 
             DECLARE @session BIGINT;
-            INSERT trip.TripSessions(itinerary_id, traveler_user_id, fsm_state,
+            INSERT trip.TripSessions(itinerary_id, requested_itinerary_id, start_idempotency_key, traveler_user_id, fsm_state,
                 current_latitude, current_longitude, started_at, last_synced_at)
-            VALUES (@itinerary, @traveler, 'Navigating', 10.123456, 106.123456,
+            VALUES (@itinerary, @itinerary, NEWID(), @traveler, 'Navigating', 10.123456, 106.123456,
                 '2026-09-25T17:00:00', '2026-09-26T03:12:44');
             SET @session = SCOPE_IDENTITY();
 
@@ -344,9 +344,9 @@ public sealed class ActiveTripDetailsSqlServerTests
             SET @itinerary = SCOPE_IDENTITY();
 
             DECLARE @session BIGINT;
-            INSERT trip.TripSessions(itinerary_id, traveler_user_id, fsm_state,
+            INSERT trip.TripSessions(itinerary_id, requested_itinerary_id, start_idempotency_key, traveler_user_id, fsm_state,
                 current_latitude, current_longitude, current_location_subject_user_id, started_at)
-            VALUES (@itinerary, @sharingTraveler, 'Navigating', 10.100001, 106.100001,
+            VALUES (@itinerary, @itinerary, NEWID(), @sharingTraveler, 'Navigating', 10.100001, 106.100001,
                 @sharingTraveler, '2026-09-25T17:00:00');
             SET @session = SCOPE_IDENTITY();
 
