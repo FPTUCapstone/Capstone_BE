@@ -69,9 +69,7 @@ try
             options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
         });
 
-    builder.Services.Configure<ApiBehaviorOptions>(options =>
-    {
-        options.InvalidModelStateResponseFactory = context =>
+    builder.Services.Configure<ApiBehaviorOptions>(options => options.InvalidModelStateResponseFactory = context =>
         {
             var services = context.HttpContext.RequestServices;
             var problemDetailsFactory = services.GetRequiredService<ProblemDetailsFactory>();
@@ -92,11 +90,15 @@ try
 
             ExceptionHandlingMiddleware.AddActiveTripsErrorCode(context.HttpContext, problem);
 
+            var requestPath = context.HttpContext.Request.Path.Value;
+            if (requestPath?.StartsWith("/api/v1/admin/users/", StringComparison.OrdinalIgnoreCase) == true
+                && requestPath.EndsWith("/unlock", StringComparison.OrdinalIgnoreCase))
+                problem.Extensions["errorCode"] = TripMate.Application.Features.Admin.Users.Common.UserAdministrationErrorCodes.RequestInvalid;
+
             var result = new BadRequestObjectResult(problem);
             result.ContentTypes.Add("application/problem+json");
             return result;
-        };
-    });
+        });
 
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen(options =>
@@ -142,48 +144,39 @@ try
 
     builder.Services
         .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-        .AddJwtBearer(options =>
+        .AddJwtBearer(options => options.TokenValidationParameters = new TokenValidationParameters
         {
-            options.TokenValidationParameters = new TokenValidationParameters
-            {
-                ValidateIssuer = true,
-                ValidateAudience = true,
-                ValidateLifetime = true,
-                ValidateIssuerSigningKey = true,
-                ValidIssuer = issuer,
-                ValidAudience = audience,
-                IssuerSigningKey = new SymmetricSecurityKey(
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = issuer,
+            ValidAudience = audience,
+            IssuerSigningKey = new SymmetricSecurityKey(
                     Convert.FromBase64String(signingKey)),
-                ClockSkew = TimeSpan.FromMinutes(1),
-            };
+            ClockSkew = TimeSpan.FromMinutes(1),
         });
 
-    builder.Services.AddAuthorization(options =>
-    {
-        options.AddPolicy(TripReviewAuthorizationPolicies.ActiveTraveler, policy =>
+    builder.Services.AddAuthorization(options => options.AddPolicy(TripReviewAuthorizationPolicies.ActiveTraveler, policy =>
         {
             policy.RequireAuthenticatedUser();
             policy.RequireRole(nameof(TripMate.Domain.Enums.UserRole.Traveler));
             policy.AddRequirements(new ActiveTravelerRequirement());
-        });
-    });
+        }));
     builder.Services.AddScoped<IAuthorizationHandler, ActiveTravelerAuthorizationHandler>();
     builder.Services.AddSingleton<
         IAuthorizationMiddlewareResultHandler,
         ProblemDetailsAuthorizationMiddlewareResultHandler>();
 
     const string corsPolicyName = "TripMateClients";
-    builder.Services.AddCors(options =>
-    {
-        options.AddPolicy(corsPolicyName, policy =>
+    builder.Services.AddCors(options => options.AddPolicy(corsPolicyName, policy =>
         {
             var allowedOrigins = builder.Configuration
                 .GetSection("Cors:AllowedOrigins")
                 .Get<string[]>() ?? [];
 
             policy.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials();
-        });
-    });
+        }));
 
     // UC-06 password reset: account-independent per-IP abuse limiting. The account-level
     // 60-second resend cooldown stays inside the request flow (generic 200) and never

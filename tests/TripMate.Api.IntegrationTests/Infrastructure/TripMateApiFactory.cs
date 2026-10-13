@@ -141,7 +141,9 @@ public sealed class TripMateApiFactory(
                 if (services[index].ServiceType == typeof(IHostedService)
                     && (services[index].ImplementationType == typeof(TripMate.Infrastructure.Reviews.Media.ReviewMediaRecoveryService)
                         || services[index].ImplementationType?.FullName
-                            == "TripMate.Infrastructure.Services.TourMediaCleanupBackgroundService"))
+                            == "TripMate.Infrastructure.Services.TourMediaCleanupBackgroundService"
+                        || services[index].ImplementationType?.FullName
+                            == "TripMate.Infrastructure.Services.UserAdministrationNotificationDeliveryBackgroundService"))
                 {
                     services.RemoveAt(index);
                 }
@@ -158,9 +160,11 @@ public sealed class TripMateApiFactory(
                 services.RemoveAll<IItineraryMutationLock>();
                 services.RemoveAll<IGroupInvitationLock>();
                 services.RemoveAll<IGroupJoinLock>();
+                services.RemoveAll<IUserUnlockLock>();
                 services.RemoveAll<ISchedulingRequestLock>();
                 services.RemoveAll<ITourMediaUploadLock>();
                 services.RemoveAll<ITourMediaCleanupOutboxStore>();
+                services.RemoveAll<IUserAdministrationNotificationOutboxStore>();
                 services.RemoveAll<IRouteDurationProvider>();
 
                 services.AddDbContext<TestApiDbContext>(options =>
@@ -196,9 +200,11 @@ public sealed class TripMateApiFactory(
                 services.AddScoped<IItineraryMutationLock, NoOpItineraryMutationLock>();
                 services.AddScoped<IGroupInvitationLock, NoOpGroupInvitationLock>();
                 services.AddScoped<IGroupJoinLock, NoOpGroupJoinLock>();
+                services.AddScoped<IUserUnlockLock, NoOpUserUnlockLock>();
                 services.AddScoped<ISchedulingRequestLock, NoOpSchedulingRequestLock>();
                 services.AddScoped<ITourMediaUploadLock, NoOpTourMediaUploadLock>();
                 services.AddScoped<ITourMediaCleanupOutboxStore, NoOpTourMediaCleanupOutboxStore>();
+                services.AddScoped<IUserAdministrationNotificationOutboxStore, NoOpUserAdministrationNotificationOutboxStore>();
                 services.AddScoped<IRouteDurationProvider, TestRouteDurationProvider>();
             }
             else if (saveChangesInterceptor is not null || dbInterceptor is not null)
@@ -385,6 +391,7 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<User> Users => Set<User>();
     public DbSet<TravelerProfile> TravelerProfiles => Set<TravelerProfile>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<UserUnlockOperation> UserUnlockOperations => Set<UserUnlockOperation>();
     public DbSet<PoiCategory> PoiCategories => Set<PoiCategory>();
     public DbSet<PointOfInterest> PointsOfInterest => Set<PointOfInterest>();
     public DbSet<PoiOpeningHour> PoiOpeningHours => Set<PoiOpeningHour>();
@@ -459,6 +466,22 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
 
         token.RevokedAtUtc = revokedAtUtc;
         return 1;
+    }
+
+    public async Task<int> RevokeActiveRefreshTokensForUserAsync(
+        long userId,
+        DateTimeOffset revokedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var activeTokens = await RefreshTokens
+            .Where(token => token.UserId == userId && token.RevokedAtUtc == null)
+            .ToListAsync(cancellationToken);
+        foreach (var token in activeTokens)
+        {
+            token.RevokedAtUtc = revokedAtUtc;
+        }
+
+        return activeTokens.Count;
     }
 
     public async Task<int> DeleteSignOutAuditEventsBeforeAsync(
@@ -544,6 +567,15 @@ internal sealed class NoOpGroupJoinLock : IGroupJoinLock
         Task.CompletedTask;
 }
 
+internal sealed class NoOpUserUnlockLock : IUserUnlockLock
+{
+    public Task AcquireAsync(long administratorUserId, string idempotencyKey, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+
+    public Task AcquireTargetUserAsync(long targetUserId, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+}
+
 internal sealed class NoOpSchedulingRequestLock : ISchedulingRequestLock
 {
     public Task AcquireAsync(
@@ -590,6 +622,35 @@ internal sealed class NoOpTourMediaCleanupOutboxStore : ITourMediaCleanupOutboxS
         Guid leaseToken,
         string safeErrorCode,
         DateTimeOffset completedAtUtc,
+        CancellationToken cancellationToken) => Task.CompletedTask;
+}
+
+internal sealed class NoOpUserAdministrationNotificationOutboxStore : IUserAdministrationNotificationOutboxStore
+{
+    public Task<IReadOnlyList<UserAdministrationNotificationClaim>> ClaimDueAsync(
+        DateTimeOffset nowUtc,
+        TimeSpan leaseDuration,
+        int batchSize,
+        CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<UserAdministrationNotificationClaim>>([]);
+
+    public Task CompleteAsync(
+        long notificationId,
+        Guid leaseToken,
+        DateTimeOffset completedAtUtc,
+        CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public Task RetryAsync(
+        long notificationId,
+        Guid leaseToken,
+        DateTimeOffset notBeforeAtUtc,
+        DateTimeOffset updatedAtUtc,
+        CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public Task FailAsync(
+        long notificationId,
+        Guid leaseToken,
+        DateTimeOffset failedAtUtc,
         CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
