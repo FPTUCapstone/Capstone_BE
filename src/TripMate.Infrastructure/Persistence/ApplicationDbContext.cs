@@ -71,6 +71,8 @@ public class ApplicationDbContext(
 
     public DbSet<CommercialService> CommercialServices => Set<CommercialService>();
 
+    public DbSet<Voucher> Vouchers => Set<Voucher>();
+
     public Task<int> RevokeRefreshTokenAsync(
         string tokenHash,
         DateTimeOffset revokedAtUtc,
