@@ -13,14 +13,14 @@
 
 Exit: canonical schema, migration, EF mapping, and persistence tests agree. No legacy-status mapping exists.
 
-## Task 2 — Separate server-enforced query scopes
+## Task 2 — Server-enforced Staff review scope
 
 - Keep or rename the existing review query as a **Staff-only** handler. Its default and allowed statuses are `PendingReview`, `ApprovedForSettlement`, and `Rejected`.
-- Add a distinct **Administrator-only** settlement query for UC-65. Its default is `ApprovedForSettlement`; exact history/filter fields belong to the UC-65 contract.
 - Do not accept a role/scope selector from URL, body, or client claims. Resolve scope only from the authenticated server principal.
-- Apply controller and handler defense-in-depth authorization for each endpoint.
+- Apply controller and handler defense-in-depth authorization for the endpoint.
+- The Administrator settlement query (UC-65) is **not** built in this task. See Non-goals — it gets its own endpoint, handler, and plan when UC-65 is started.
 
-Tests first: Staff allowed/Administrator denied for review; Administrator allowed/Staff denied for settlement; Traveler and Tour Operator denied for both.
+Tests first: Staff allowed, Administrator denied, Traveler and Tour Operator denied.
 
 ## Task 3 — Read-only Staff list
 
@@ -33,19 +33,15 @@ Tests first: default queue, explicit allowed status, denied execution status, fi
 
 ## Task 4 — HTTP and OpenAPI
 
-- Document the Staff review endpoint and Administrator settlement endpoint as separate authorization scopes even if both are reached through a shared FE route.
+- Document the Staff review endpoint's own authorization scope. The shared FE route (`/admin/payouts`) also reaching an Administrator settlement scope is a UC-65 concern, not documented here as if built.
 - Update ProblemDetails/OpenAPI and integration tests for `401`, allowed `200`, wrong-role `403`, invalid request `400`, and safe empty `200`.
 
-## Task 5 — Payout worker handoff contract
-
-- UC-65 changes `ApprovedForSettlement` to `SettlementProcessing` atomically and writes the durable work item/outbox record.
-- The payout-processing worker, not the Administrator request, invokes the gateway and makes the terminal transition to `Settled` or `SettlementFailed`.
-- Bound retries to transient failures; record attempts and final safe failure reason. Manual retry remains outside this scope.
-
-## Task 6 — Verification
+## Task 5 — Verification
 
 Run formatter, build, focused unit/API/SQL tests, then full repository checks. Review the exact branch head before PR creation.
 
 ## Non-goals
 
 UC-64 detail/review, UC-73 approval, UC-74 rejection, payment-gateway integration implementation, and manual-retry UI are separate work.
+
+**UC-65 (Administrator settlement endpoint, its authorization scope, the `ApprovedForSettlement` → `SettlementProcessing` transition, the payout worker/outbox handoff, and the bidirectional Staff/Administrator settlement tests) is also a non-goal of this plan.** An earlier draft of this plan described that work — an Administrator-only settlement query, a documented settlement authorization scope, and a dedicated "Payout worker handoff contract" task — as if it were part of UC-63's delivery; none of it is implemented in this codebase. UC-65's own plan will be written when that use case is actually started.
