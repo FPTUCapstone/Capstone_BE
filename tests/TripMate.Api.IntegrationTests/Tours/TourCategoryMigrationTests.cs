@@ -14,6 +14,28 @@ public sealed class TourCategoryMigrationTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
+    public async Task Migration_OnSqlServer2022_AcceptsCanonicalMetadataAcrossCompatibilityLevels()
+    {
+        await using var database = await CreatePreCategoryDatabaseAsync();
+        (await ReadIntAsync(database,
+            "SELECT CONVERT(INT, SERVERPROPERTY('ProductMajorVersion'));"))
+            .Should().Be(16, "the deployment target is SQL Server 2022");
+
+        foreach (var compatibilityLevel in new[] { 140, 150, 160 })
+        {
+            await database.ExecuteNonQueryAsync(
+                $"ALTER DATABASE [{database.DatabaseName}] SET COMPATIBILITY_LEVEL = {compatibilityLevel};");
+            await ApplyMigrationAsync(database);
+            await ApplyMigrationAsync(database);
+            await AssertTargetShapeAsync(database);
+            (await ReadIntAsync(database,
+                "SELECT COUNT(*) FROM catalog.TourCategories;"))
+                .Should().Be(0, "schema verification must not fabricate taxonomy rows");
+        }
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
     public async Task FreshSchema_HasTransitionalTourCategoryInventory()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
