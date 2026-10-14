@@ -7,6 +7,12 @@
 #   current -> v7 already present, apply only the (idempotent) migrations
 #   stale   -> an older schema is present; stop without touching anything
 #
+# Migration ledger: dbo.SchemaMigrations records every applied migration file with its SHA-256.
+# A file is applied only when it is missing from the ledger or its content changed since it was
+# recorded (migrations are idempotent, so re-applying a corrected file is safe, and a warning is
+# printed). The first run against a database without a ledger therefore applies every file once
+# (as before) and records them; later runs apply only new or changed files.
+#
 # Required environment: AZ_SERVER, AZ_USER, AZ_PASS. Optional: DB_NAME (default TripMateDb).
 # Run inside an image that ships sqlcmd, e.g. mcr.microsoft.com/mssql/server:2022-latest.
 set -euo pipefail
@@ -39,12 +45,45 @@ for attempt in 1 2 3 4 5; do
   sleep 15
 done
 
+ensure_ledger() {
+  sql_query "SET NOCOUNT ON;
+    IF OBJECT_ID(N'dbo.SchemaMigrations', N'U') IS NULL
+      CREATE TABLE dbo.SchemaMigrations (
+        file_name  NVARCHAR(260) NOT NULL CONSTRAINT PK_SchemaMigrations PRIMARY KEY,
+        checksum   CHAR(64)      NOT NULL,
+        applied_at DATETIME2     NOT NULL CONSTRAINT DF_SchemaMigrations_applied_at DEFAULT SYSUTCDATETIME()
+      );" >/dev/null
+}
+
 apply_migrations() {
-  local migration
+  local migration name sum recorded
+  ensure_ledger
   shopt -s nullglob
   for migration in "$SCRIPT_DIR"/migrations/*.sql; do
-    echo "Applying $(basename "$migration")..."
+    name="$(basename "$migration")"
+    # The name is interpolated into SQL below; only plain file names are accepted.
+    if [[ ! "$name" =~ ^[A-Za-z0-9_.-]+\.sql$ ]]; then
+      echo "ERROR: unsafe migration file name: $name" >&2
+      exit 1
+    fi
+    sum="$(sha256sum "$migration" | cut -d' ' -f1)"
+    recorded="$(sql_query "SET NOCOUNT ON; SELECT checksum FROM dbo.SchemaMigrations WHERE file_name = N'$name';" | tr -d '[:space:]')"
+
+    if [ "$recorded" = "$sum" ]; then
+      echo "Skipping $name (already applied)"
+      continue
+    fi
+    if [ -n "$recorded" ]; then
+      echo "WARNING: $name changed since it was applied; re-applying (migrations must be idempotent)."
+    fi
+
+    echo "Applying $name..."
     sql_file "$migration"
+    sql_query "SET NOCOUNT ON;
+      MERGE dbo.SchemaMigrations AS t
+      USING (SELECT N'$name' AS file_name, '$sum' AS checksum) AS s ON t.file_name = s.file_name
+      WHEN MATCHED THEN UPDATE SET checksum = s.checksum, applied_at = SYSUTCDATETIME()
+      WHEN NOT MATCHED THEN INSERT (file_name, checksum) VALUES (s.file_name, s.checksum);" >/dev/null
   done
 }
 

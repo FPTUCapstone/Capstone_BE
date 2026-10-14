@@ -2,7 +2,8 @@ name: DB migrate (Azure SQL)
 
 # Applies database/migrations to the shared Azure SQL database after a change lands on develop.
 # Runs only on push/manual dispatch (never on pull_request), so forks and unreviewed PRs
-# cannot reach the credentials. The `azure-db` environment should require a reviewer.
+# cannot reach the credentials. The `azure-db` environment should require a reviewer and be
+# limited to the develop branch (the job also checks github.ref itself).
 on:
   push:
     branches: [develop]
@@ -21,7 +22,9 @@ permissions:
 
 jobs:
   migrate:
-    if: github.repository == 'FPTUCapstone/Capstone_BE'
+    # Only the reviewed develop branch may run this job. A manual dispatch on any other branch
+    # is skipped, so a branch cannot run its own modified script against the production secrets.
+    if: github.repository == 'FPTUCapstone/Capstone_BE' && github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: azure-db
