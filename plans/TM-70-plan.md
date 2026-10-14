@@ -589,3 +589,33 @@ User-authorized scope: audit canonical CHECK/DEFAULT/index validation; merge dev
 3. Add target-version/compatibility verification to TourCategoryMigrationTests; retain fail-closed migration unless a concrete mismatch is reproduced.
 4. Verify Release build, repository formatter, category/domain/mapping tests, all SQL/Redis suites without skips and full CI on final HEAD. Local unavailable-service skips are not target evidence.
 5. Independent spec/code review, normal commit/push to existing branch, update PR evidence and READY_FOR_RE_REVIEW. No Phase 1.2/1.3, taxonomy seeds, backfill, mandatory rule or writer API.
+
+## TourCategory code encoding gate before Phase 1.2 (2026-10-14)
+
+`TOUR_CATEGORY_CODE_ENCODING_DECISION_PENDING` is a P2 risk with disposition
+`NON_BLOCKING_PHASE_1_1` and blocking scope `PHASE_1_2_SEEDS_AND_WRITERS`.
+The current contract is `VARCHAR(50) COLLATE Latin1_General_100_CI_AS` with a
+case-insensitive unique index, while the domain factory accepts any nonblank
+Unicode string of at most 50 .NET characters after trimming. SQL Server may
+perform a lossy conversion for characters outside the column code page; this is
+a potential identity/collision risk, not evidence that a collision occurred.
+
+Before production taxonomy seeds or a category writer are implemented, Product/BA
+must provide an authoritative decision record for every item below. All answers
+are currently **PENDING**:
+
+1. Is `TourCategory.Code` an ASCII-style machine identifier or a Unicode identifier?
+2. Which character classes are allowed?
+3. What normalization and casing rules apply?
+4. What maximum length and uniqueness semantics apply?
+5. Is the existing case-insensitive collation acceptable?
+6. Does storage remain `VARCHAR`, or migrate to `NVARCHAR`?
+7. How are invalid identifiers rejected across Domain, API and SQL boundaries?
+8. What migration and backward-compatibility requirements apply?
+9. Are the proposed production taxonomy codes and names approved?
+
+After approval, implement and test exactly one reviewed direction: restrict the
+accepted code format with matching Domain/SQL validation, or migrate storage to
+`NVARCHAR` with corresponding contract changes. Until then, do not add a regex,
+whitelist, speculative validation, collation/index change, seed, writer, backfill
+or mandatory-category rule. Future tests must derive from the approved decision.

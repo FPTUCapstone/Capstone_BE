@@ -493,3 +493,26 @@ Sau duyệt, thay đổi field/filter/visibility/capacity/date/price là contrac
 ## PR #54 final review traceability (2026-10-14)
 
 [Phase 1.1 review handoff](../docs/PR54-tour-category-review.md) records the SQL Server 2022 metadata audit, compatibility test, develop synchronization and deferred Phase 1.2/1.3/2 scope. It introduces no new business rule or approval.
+
+## TourCategory code encoding decision gate
+
+`TOUR_CATEGORY_CODE_ENCODING_DECISION_PENDING` records a P2 technical risk.
+Phase 1.1 currently stores `TourCategory.Code` as
+`VARCHAR(50) COLLATE Latin1_General_100_CI_AS` with a case-insensitive unique
+index. The domain factory trims input, requires a nonblank value and limits it to
+50 .NET characters, but does not restrict character classes, normalize casing or
+verify that every character is representable in the SQL column code page.
+
+Consequently, a category code outside that code page may be converted lossily on
+persistence and could lose stable identity or collide with another converted
+value. This is a potential future persistence risk; no specific collision is
+claimed or evidenced. Product/BA has not approved either possible direction:
+
+1. restrict the accepted code format and implement matching Domain/SQL validation; or
+2. migrate the persisted value to `NVARCHAR` with reviewed migration and contract changes.
+
+Disposition: `NON_BLOCKING_PHASE_1_1`. Blocking scope:
+`PHASE_1_2_SEEDS_AND_WRITERS`. Phase 1.1 adds no production taxonomy seeds or
+category writer, and existing Tours retain nullable category IDs. No option above
+is an approved requirement; implementation waits for the Product/BA decision
+register in the review handoff.
