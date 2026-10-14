@@ -17,13 +17,28 @@ The independently safe implementation change is one additive filtered index on
 ```sql
 CREATE INDEX IX_TripReviews_TourPublicationRating
     ON social.TripReviews(tour_id, publication_status)
-    INCLUDE (overall_rating, booking_id)
+    INCLUDE (overall_rating)
     WHERE tour_id IS NOT NULL;
 ```
 
 No Review state, row, writer, endpoint, or public API behavior changes. The
 migration is transactional, idempotent, rejects a same-name wrong-shape index,
 and is mirrored in the full schema and EF metadata.
+
+The index is consumed only by the SQL feasibility query in this phase. No
+production Search query uses it yet, and Phase 1.3 does not add a runtime
+consumer merely to justify the index. `booking_id` is deliberately not an
+included column: neither the approved feasibility query nor its execution plan
+reads it, while canonical/legacy overlap checks already have the separate
+filtered unique booking index. Omitting it keeps this index narrower and avoids
+unjustified storage and write amplification.
+
+`publication_status` remains part of the key because the approved public-rating
+eligibility predicate explicitly requires confirmed `Published` reviews. The
+current `CK_TripReviews_Publication` constraint permits only `Published`, so the
+column provides no additional selectivity today. This is semantic alignment,
+not a claim that more lifecycle states are approved. Any future lifecycle or
+index redesign requires a separate decision and compatibility review.
 
 ## Approved eligibility exercised by the feasibility tests
 
@@ -66,7 +81,7 @@ Measured actual-plan result for the same set-based rating page query:
 
 | Shape | `social.TripReviews` logical reads | Result rows |
 |---|---:|---:|
-| Covering filtered index present | 210 | 20 |
+| Covering filtered index present | 178 | 20 |
 | Index removed in the disposable test database | 5,202 | 20 |
 
 The actual execution plan references
@@ -125,12 +140,13 @@ taxonomy and mapping approval.
 
 Executed against the isolated local SQL Server identified above:
 
-- RED contract: the focused fresh-schema test failed because the expected
-  four-column index inventory was absent (`0 passed / 1 failed / 0 skipped`);
+- remediation RED contract: the focused fresh-schema test rejected the prior
+  four-column index because the narrowed three-column shape was not present
+  (`0 passed / 1 failed / 0 skipped`);
 - focused TM-70 feasibility tests: `6 passed / 0 failed / 0 skipped`;
-- TM-70 plus existing aggregate regression: `31 passed / 0 failed / 0 skipped`;
-- affected fresh/upgrade parity tests after wiring the additive migration:
-  `3 passed / 0 failed / 0 skipped`;
+- combined TM-70 feasibility, existing Tour/POI aggregate regression, and
+  affected fresh/upgrade parity tests:
+  `34 passed / 0 failed / 0 skipped`;
 - full SQL-enabled solution regression: `3,631 passed / 0 failed / 13 skipped`.
   The skips are existing explicit opt-in Redis/Cloudinary integration tests and
   were not counted as passes;

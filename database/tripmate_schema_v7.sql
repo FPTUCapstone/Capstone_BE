@@ -1564,7 +1564,7 @@ CREATE UNIQUE INDEX UX_TripReviews_ServiceBooking
     ON social.TripReviews(service_booking_id) WHERE service_booking_id IS NOT NULL;
 CREATE INDEX IX_TripReviews_TourPublicationRating
     ON social.TripReviews(tour_id, publication_status)
-    INCLUDE (overall_rating, booking_id)
+    INCLUDE (overall_rating)
     WHERE tour_id IS NOT NULL;
 GO
 

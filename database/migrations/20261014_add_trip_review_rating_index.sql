@@ -15,7 +15,6 @@ BEGIN TRY
     IF COL_LENGTH(N'social.TripReviews', N'tour_id') IS NULL
        OR COL_LENGTH(N'social.TripReviews', N'publication_status') IS NULL
        OR COL_LENGTH(N'social.TripReviews', N'overall_rating') IS NULL
-       OR COL_LENGTH(N'social.TripReviews', N'booking_id') IS NULL
         THROW 51000, 'TM-70 rating index requires the canonical TripReview columns.', 1;
 
     IF NOT EXISTS (
@@ -26,7 +25,7 @@ BEGIN TRY
     BEGIN
         CREATE INDEX IX_TripReviews_TourPublicationRating
             ON social.TripReviews(tour_id, publication_status)
-            INCLUDE (overall_rating, booking_id)
+            INCLUDE (overall_rating)
             WHERE tour_id IS NOT NULL;
     END;
 
@@ -43,7 +42,7 @@ BEGIN TRY
               SELECT COUNT(*)
               FROM sys.index_columns AS ic
               WHERE ic.object_id = i.object_id
-                AND ic.index_id = i.index_id) = 4
+                AND ic.index_id = i.index_id) = 3
           AND EXISTS (
               SELECT 1
               FROM sys.index_columns AS ic
@@ -67,15 +66,7 @@ BEGIN TRY
                   ON c.object_id = ic.object_id AND c.column_id = ic.column_id
               WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id
                 AND ic.key_ordinal = 0 AND ic.is_included_column = 1
-                AND c.name = N'overall_rating')
-          AND EXISTS (
-              SELECT 1
-              FROM sys.index_columns AS ic
-              INNER JOIN sys.columns AS c
-                  ON c.object_id = ic.object_id AND c.column_id = ic.column_id
-              WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id
-                AND ic.key_ordinal = 0 AND ic.is_included_column = 1
-                AND c.name = N'booking_id'))
+                AND c.name = N'overall_rating'))
         THROW 51000, 'TM-70 rating index exists with an incompatible shape.', 1;
 
     COMMIT TRANSACTION;
