@@ -10,18 +10,10 @@ namespace TripMate.Application.UnitTests.Features.Admin.Payouts;
 
 public sealed class GetPayoutsQueryTests
 {
-    [Theory]
-    [InlineData("RequestedX")]
-    [InlineData("pending")]
-    public void Validator_RejectsInvalidStatus(string? status)
-    {
-        var validator = new GetPayoutsQueryValidator();
-
-        var result = validator.TestValidate(new GetPayoutsQuery(Status: status));
-
-        result.ShouldHaveValidationErrorFor(query => query.Status);
-    }
-
+    // Status is deliberately NOT a FluentValidation rule (see GetPayoutsQueryValidator's class
+    // comment): the validator must accept any Status value and let GetPayoutsQueryHandler reject
+    // it with a stable errorCode. These three cases are therefore handler tests, not validator
+    // tests — see Handle_InvalidStatus_ReturnsInvalidStatusWithErrorCode below.
     [Theory]
     [InlineData("PendingReview")]
     [InlineData("ApprovedForSettlement")]
@@ -35,39 +27,39 @@ public sealed class GetPayoutsQueryTests
         result.ShouldNotHaveValidationErrorFor(query => query.Status);
     }
 
-    [Theory]
-    [InlineData("SettlementProcessing")]
-    [InlineData("Settled")]
-    [InlineData("SettlementFailed")]
-    public void Validator_RejectsSettlementExecutionStatus(string status)
-    {
-        var validator = new GetPayoutsQueryValidator();
-
-        var result = validator.TestValidate(new GetPayoutsQuery(Status: status));
-
-        result.ShouldHaveValidationErrorFor(query => query.Status);
-    }
-
     [Fact]
-    public void Validator_RejectsOversizedKeyword()
+    public void Validator_RejectsOversizedKeywordWithInvalidFilterErrorCode()
     {
         var validator = new GetPayoutsQueryValidator();
 
         var result = validator.TestValidate(new GetPayoutsQuery(Keyword: new string('a', 201)));
 
-        result.ShouldHaveValidationErrorFor(query => query.Keyword);
+        result.ShouldHaveValidationErrorFor(query => query.Keyword)
+            .WithErrorCode(PayoutErrorCodes.InvalidFilter);
     }
 
     [Theory]
     [InlineData(0, 20)]
     [InlineData(1, 101)]
-    public void Validator_RejectsOutOfRangePaging(int pageNumber, int pageSize)
+    public void Validator_RejectsOutOfRangePagingWithInvalidFilterErrorCode(int pageNumber, int pageSize)
     {
         var validator = new GetPayoutsQueryValidator();
 
         var result = validator.TestValidate(new GetPayoutsQuery(PageNumber: pageNumber, PageSize: pageSize));
 
         result.IsValid.Should().BeFalse();
+        result.Errors.Should().OnlyContain(error => error.ErrorCode == PayoutErrorCodes.InvalidFilter);
+    }
+
+    [Fact]
+    public void Validator_RejectsPeriodFromOutsideSupportedRangeWithInvalidFilterErrorCode()
+    {
+        var validator = new GetPayoutsQueryValidator();
+
+        var result = validator.TestValidate(new GetPayoutsQuery(PeriodFrom: DateOnly.MaxValue));
+
+        result.ShouldHaveValidationErrorFor(query => query.PeriodFrom)
+            .WithErrorCode(PayoutErrorCodes.InvalidFilter);
     }
 
     [Fact]
@@ -90,6 +82,24 @@ public sealed class GetPayoutsQueryTests
 
         result.IsFailure.Should().BeTrue();
         result.ErrorCode.Should().Be(PayoutErrorCodes.Forbidden);
+    }
+
+    [Theory]
+    [InlineData("RequestedX")]
+    [InlineData("pending")]
+    [InlineData("SettlementProcessing")]
+    [InlineData("Settled")]
+    [InlineData("SettlementFailed")]
+    public async Task Handle_InvalidStatus_ReturnsInvalidStatusWithErrorCode(string status)
+    {
+        await using var db = TestDbContext.Create();
+        var handler = new GetPayoutsQueryHandler(db, new CurrentUser(1, "Staff"));
+
+        var result = await handler.Handle(new GetPayoutsQuery(Status: status), CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(PayoutErrorCodes.InvalidStatus);
+        result.ErrorMessage.Should().Be(PayoutErrorCodes.InvalidStatusMessage);
     }
 
     [Fact]

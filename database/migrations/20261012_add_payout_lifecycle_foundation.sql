@@ -1,7 +1,12 @@
 /*
     TM-208: Payout lifecycle foundation for UC-63/64/65/73/74.
-    This migration is intentionally non-destructive: it requires payment.Payouts
-    to be empty. Local/dev/test fixtures must be reset before applying it.
+    This migration is intentionally non-destructive: the FIRST time it runs, it requires
+    payment.Payouts to be empty (no automatic mapping from legacy Pending/Requested/Confirmed/Paid
+    values is attempted or permitted). Every later run — including against a database that already
+    has new-lifecycle rows created after the first run — is a safe no-op, detected by the presence
+    of CK_Payouts_LifecycleState. Before applying this migration to any shared dev/staging/
+    production environment for the first time, confirm the current row count in payment.Payouts
+    and get that checked off in the deploy runbook; this script does not decide that for you.
 */
 SET XACT_ABORT ON;
 GO
@@ -13,6 +18,15 @@ BEGIN TRY
         THROW 51000, 'TM-208 requires payment.Payouts.', 1;
     IF OBJECT_ID(N'dbo.Users', N'U') IS NULL
         THROW 51000, 'TM-208 requires dbo.Users.', 1;
+
+    DECLARE @alreadyApplied BIT = CASE WHEN EXISTS (
+        SELECT 1 FROM sys.check_constraints
+        WHERE parent_object_id = OBJECT_ID(N'payment.Payouts')
+          AND name = N'CK_Payouts_LifecycleState'
+    ) THEN 1 ELSE 0 END;
+
+    IF @alreadyApplied = 0
+    BEGIN
 
     IF EXISTS (SELECT 1 FROM payment.Payouts)
         THROW 51000, 'TM-208 requires payment.Payouts to be reset before migration; no payout data is transformed automatically.', 1;
@@ -115,6 +129,8 @@ BEGIN TRY
 
     IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'payment.Payouts') AND name = N'UX_Payouts_ActiveOperatorPeriod')
         EXEC(N'CREATE UNIQUE INDEX UX_Payouts_ActiveOperatorPeriod ON payment.Payouts(operator_user_id, period_start, period_end) WHERE status IN (''PendingReview'', ''ApprovedForSettlement'', ''SettlementProcessing'');');
+
+    END -- IF @alreadyApplied = 0
 
     COMMIT TRANSACTION;
 END TRY
