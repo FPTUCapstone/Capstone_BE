@@ -1243,6 +1243,14 @@ CREATE TABLE payment.Payouts (
     gateway_failure_reason                   NVARCHAR(500) NULL,
     gateway_attempt_count                    INT NOT NULL CONSTRAINT DF_Payouts_GatewayAttemptCount DEFAULT 0,
     last_gateway_attempt_at                  DATETIME2 NULL,
+    beneficiary_bank_name                    NVARCHAR(100) NULL,
+    beneficiary_account_holder               NVARCHAR(200) NULL,
+    beneficiary_account_last4                CHAR(4) NULL,
+    CONSTRAINT CK_Payouts_BeneficiarySnapshot CHECK (
+        (beneficiary_bank_name IS NULL AND beneficiary_account_holder IS NULL AND beneficiary_account_last4 IS NULL)
+        OR (beneficiary_bank_name IS NOT NULL AND beneficiary_account_holder IS NOT NULL
+            AND beneficiary_account_last4 IS NOT NULL
+            AND beneficiary_account_last4 NOT LIKE '%[^0-9]%')),
     CONSTRAINT CK_Payouts_PeriodOrder CHECK (period_end >= period_start),
     CONSTRAINT CK_Payouts_NetAmount CHECK (net_amount = gross_revenue - commission_amount),
     CONSTRAINT CK_Payouts_LifecycleState CHECK (
@@ -1837,5 +1845,6 @@ INSERT INTO dbo.Messages (message_code, message_type, content_template) VALUES
     ('MSG127', 'Alert', 'TripMate is temporarily unable to process your request. Please check your connection and try again.'),
     ('MSG128', 'InLine', 'No records found matching your criteria.'),
     ('MSG129', 'ToastMessage', 'Operation completed successfully.'),
-    ('MSG130', 'Modal', 'Are you sure you want to continue? This action may not be reversible.');
+    ('MSG130', 'Modal', 'Are you sure you want to continue? This action may not be reversible.'),
+    ('MSG157', 'RedUnderTextbox', 'Rejection reason must be between {min_length} and {max_length} characters.');
 GO

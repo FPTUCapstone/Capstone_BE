@@ -24,6 +24,11 @@ public sealed class PayoutConfiguration : IEntityTypeConfiguration<Payout>
             table.HasCheckConstraint(
                 "CK_Payouts_LifecycleState",
                 "gateway_attempt_count >= 0");
+            table.HasCheckConstraint(
+                "CK_Payouts_BeneficiarySnapshot",
+                "(beneficiary_bank_name IS NULL AND beneficiary_account_holder IS NULL AND beneficiary_account_last4 IS NULL) "
+                + "OR (beneficiary_bank_name IS NOT NULL AND beneficiary_account_holder IS NOT NULL "
+                + "AND beneficiary_account_last4 IS NOT NULL AND beneficiary_account_last4 NOT LIKE '%[^0-9]%')");
         });
         builder.HasKey(payout => payout.Id);
         builder.Property(payout => payout.Id).HasColumnName("payout_id").ValueGeneratedOnAdd();
@@ -37,7 +42,13 @@ public sealed class PayoutConfiguration : IEntityTypeConfiguration<Payout>
             .HasColumnName("status")
             .HasMaxLength(Payout.StatusMaxLength)
             .IsUnicode(false)
-            .IsRequired();
+            .IsRequired()
+            // I02/UC-73/UC-74: optimistic concurrency on the lifecycle status. Approve and Reject
+            // both load a PendingReview row and update it; the second writer's SaveChangesAsync
+            // throws DbUpdateConcurrencyException instead of silently overwriting the first
+            // writer's transition (same pattern as UserConfiguration.Status and
+            // OperatorProfileConfiguration.ApprovalStatus).
+            .IsConcurrencyToken();
         builder.Property(payout => payout.RequestedAtUtc).HasColumnName("requested_at").AsUtcDateTime2();
         builder.Property(payout => payout.ReviewedBy).HasColumnName("reviewed_by");
         builder.Property(payout => payout.ReviewedAtUtc).HasColumnName("reviewed_at").AsUtcDateTime2();
@@ -61,6 +72,17 @@ public sealed class PayoutConfiguration : IEntityTypeConfiguration<Payout>
         builder.Property(payout => payout.LastGatewayAttemptAtUtc)
             .HasColumnName("last_gateway_attempt_at")
             .AsUtcDateTime2();
+        builder.Property(payout => payout.BeneficiaryBankName)
+            .HasColumnName("beneficiary_bank_name")
+            .HasMaxLength(Payout.BeneficiaryBankNameMaxLength);
+        builder.Property(payout => payout.BeneficiaryAccountHolder)
+            .HasColumnName("beneficiary_account_holder")
+            .HasMaxLength(Payout.BeneficiaryAccountHolderMaxLength);
+        builder.Property(payout => payout.BeneficiaryAccountLast4)
+            .HasColumnName("beneficiary_account_last4")
+            .HasColumnType("char(4)")
+            .IsFixedLength()
+            .HasMaxLength(Payout.BeneficiaryAccountLast4Length);
         builder.HasOne(payout => payout.Operator).WithMany()
             .HasForeignKey(payout => payout.OperatorUserId).OnDelete(DeleteBehavior.Restrict);
         builder.HasIndex(payout => new { payout.OperatorUserId, payout.Status })

@@ -37,6 +37,13 @@ public sealed class PayoutPersistenceModelTests
         Column(payout, nameof(Payout.GatewayFailureReason)).Should().Be("gateway_failure_reason");
         Column(payout, nameof(Payout.GatewayAttemptCount)).Should().Be("gateway_attempt_count");
         Column(payout, nameof(Payout.LastGatewayAttemptAtUtc)).Should().Be("last_gateway_attempt_at");
+        Column(payout, nameof(Payout.BeneficiaryBankName)).Should().Be("beneficiary_bank_name");
+        Column(payout, nameof(Payout.BeneficiaryAccountHolder)).Should().Be("beneficiary_account_holder");
+        Column(payout, nameof(Payout.BeneficiaryAccountLast4)).Should().Be("beneficiary_account_last4");
+        payout.FindProperty(nameof(Payout.Status))!.IsConcurrencyToken.Should().BeTrue();
+        payout.FindProperty(nameof(Payout.BeneficiaryBankName))!.IsNullable.Should().BeTrue();
+        payout.FindProperty(nameof(Payout.BeneficiaryAccountHolder))!.IsNullable.Should().BeTrue();
+        payout.FindProperty(nameof(Payout.BeneficiaryAccountLast4))!.IsNullable.Should().BeTrue();
 
         payout.FindProperty(nameof(Payout.RequestedAtUtc))!.GetValueConverter().Should().NotBeNull();
         payout.FindProperty(nameof(Payout.RequestedAtUtc))!.IsNullable.Should().BeTrue();
@@ -52,7 +59,8 @@ public sealed class PayoutPersistenceModelTests
             "CK_Payouts_PeriodOrder",
             "CK_Payouts_NetAmount",
             "CK_Payouts_Status",
-            "CK_Payouts_LifecycleState");
+            "CK_Payouts_LifecycleState",
+            "CK_Payouts_BeneficiarySnapshot");
     }
 
     [Fact]
