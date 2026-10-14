@@ -111,6 +111,7 @@
   <ItemGroup>
     <Using Include="Xunit" />
     <None Include="..\..\database\migrations\20260930_add_trip_review_media_recovery.sql" Condition="Exists('..\..\database\migrations\20260930_add_trip_review_media_recovery.sql')" Link="Database\migrations\20260930_add_trip_review_media_recovery.sql" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261011_add_trip_location_disclosure_consent.sql" Condition="Exists('..\..\database\migrations\20261011_add_trip_location_disclosure_consent.sql')" Link="Database\migrations\20261011_add_trip_location_disclosure_consent.sql" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
