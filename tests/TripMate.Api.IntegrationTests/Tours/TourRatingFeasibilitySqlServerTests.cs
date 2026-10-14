@@ -324,14 +324,20 @@ public sealed class TourRatingFeasibilitySqlServerTests(ITestOutputHelper output
               AND i.has_filter = 1
               AND REPLACE(REPLACE(i.filter_definition, N'[', N''), N']', N'') = N'(tour_id IS NOT NULL)'
               AND (
+                    SELECT COUNT(*)
+                    FROM sys.index_columns AS all_columns
+                    WHERE all_columns.object_id = i.object_id
+                      AND all_columns.index_id = i.index_id
+                  ) = 3
+              AND (
                     (ic.key_ordinal = 1 AND ic.is_descending_key = 0 AND c.name = N'tour_id')
                  OR (ic.key_ordinal = 2 AND ic.is_descending_key = 0 AND c.name = N'publication_status')
                  OR (ic.key_ordinal = 0 AND ic.is_included_column = 1
-                     AND c.name IN (N'overall_rating', N'booking_id'))
+                     AND c.name = N'overall_rating')
               );
             """);
 
-        matchingColumns.Should().Be(4);
+        matchingColumns.Should().Be(3);
     }
 
     private const string PageQuery = """
