@@ -1,5 +1,27 @@
 # TM-70 / UC-24 — Implementation & Verification Plan
 
+> **Thông báo thẩm quyền V2 (09/10/2026).** Kế hoạch này được giữ nguyên như hồ sơ
+> lịch sử của delivery Phase 1 cũ, không phải kế hoạch thực thi hiện hành cho UC-24
+> V2. Baseline được duyệt nằm trong `FPTUCapstone/Capstone_Docs` tại merge commit
+> `2ad6916dc1ff4f314c19e13258c088533a93cd9a`: [V2 addendum](https://github.com/FPTUCapstone/Capstone_Docs/blob/2ad6916dc1ff4f314c19e13258c088533a93cd9a/requirements/tm-70-uc24-search-tours-v2-addendum.md),
+> [V2 implementation plan](https://github.com/FPTUCapstone/Capstone_Docs/blob/2ad6916dc1ff4f314c19e13258c088533a93cd9a/requirements/tm-70-uc24-implementation-plan.md), và
+> [Review lifecycle clarification](https://github.com/FPTUCapstone/Capstone_Docs/blob/2ad6916dc1ff4f314c19e13258c088533a93cd9a/requirements/tm-70-review-lifecycle-minimal-clarification.md).
+> SHA này thuộc repository Docs, không phải Backend. V2 D1–D9 không đánh số cùng
+> nghĩa với D0–D8 lịch sử bên dưới; **TM-70 V2 Addendum §8** là thẩm quyền
+> cho TourCategory.
+>
+> **Phân kỳ V2 chính xác:** Phase 1.1 chỉ thêm schema/domain TourCategory với
+> `Tours.category_id` nullable, không seed và không thêm assignment writer/API.
+> Phase 1.2 chờ Product/BA duyệt taxonomy để seed, backfill và siết `NOT NULL`;
+> revision Docs này không phải bằng chứng độc lập rằng Product/BA đã duyệt danh
+> sách seed, chuẩn hóa/casing/whitespace và tính ổn định của code, quy tắc backfill,
+> hoặc thời điểm bắt buộc category. Các mục đó vẫn là dependency của Phase 1.2;
+> writer của UC-34/35 cần hợp đồng/phê duyệt riêng vì UC-34 có category input nhưng
+> BR-101 chưa xác định category là bắt buộc. Trong thời gian chuyển tiếp, tìm kiếm
+> không lọc vẫn gồm Tour `NULL`, còn lọc theo active code chỉ khớp Tour đã gán;
+> không được vô hiệu hóa category filter toàn cục. Phase 1.3 là rating feasibility /
+> index review; Phase 2 mới triển khai Search Tours V2.
+
 **Phiên bản:** 1.2 — 19/09/2026. **Trạng thái:** owner đã duyệt D1 nhiều vùng và triển khai Database/Backend ngày 19/09/2026; D0, D2–D8 giữ nguyên. Web/Mobile UI và tích hợp client được hoãn sang Phase 2.
 
 **Owner:** Mai Nguyễn Tiến Đạt / datmnt. **Spec bắt buộc:** [TM-70-spec.md](../specs/TM-70-spec.md).
@@ -556,3 +578,44 @@ Không dừng chỉ vì một tool lỗi nếu còn kiểm tra read-only an toà
 6. Chỉ sau khi Phase 1 đạt các gate release tương ứng mới bắt đầu G1 và Web/Mobile Phase 2; nếu muốn review code sớm, mô tả rõ các gate data/performance còn pending.
 
 **Trạng thái:** code Database + Backend cho D1 nhiều vùng đã commit và qua local full SQL-enabled suite sau merge develop; chưa áp migration lên DB cloud hoặc backfill dữ liệu vùng thật. Tình trạng push/PR/CI phải đối chiếu GitHub ở head cuối; không merge PR hoặc cập nhật Jira tự động. Web/Mobile để Phase 2.
+
+
+## PR #54 remaining-review remediation (2026-10-14)
+
+User-authorized scope: audit canonical CHECK/DEFAULT/index validation; merge develop normally; verify target SQL Server 2022, fresh/upgrade/rerun/rollback and full regression; update traceability. [Review handoff](../docs/PR54-tour-category-review.md).
+
+1. Confirm clean baseline regression and inspect migration/tests/V2 decision.
+2. Normally merge develop, inspect category diff and newer migration compatibility.
+3. Add target-version/compatibility verification to TourCategoryMigrationTests; retain fail-closed migration unless a concrete mismatch is reproduced.
+4. Verify Release build, repository formatter, category/domain/mapping tests, all SQL/Redis suites without skips and full CI on final HEAD. Local unavailable-service skips are not target evidence.
+5. Independent spec/code review, normal commit/push to existing branch, update PR evidence and READY_FOR_RE_REVIEW. No Phase 1.2/1.3, taxonomy seeds, backfill, mandatory rule or writer API.
+
+## TourCategory code encoding gate before Phase 1.2 (2026-10-14)
+
+`TOUR_CATEGORY_CODE_ENCODING_DECISION_PENDING` is a P2 risk with disposition
+`NON_BLOCKING_PHASE_1_1` and blocking scope `PHASE_1_2_SEEDS_AND_WRITERS`.
+The current contract is `VARCHAR(50) COLLATE Latin1_General_100_CI_AS` with a
+case-insensitive unique index, while the domain factory accepts any nonblank
+Unicode string of at most 50 .NET characters after trimming. SQL Server may
+perform a lossy conversion for characters outside the column code page; this is
+a potential identity/collision risk, not evidence that a collision occurred.
+
+Before production taxonomy seeds or a category writer are implemented, Product/BA
+must provide an authoritative decision record for every item below. All answers
+are currently **PENDING**:
+
+1. Is `TourCategory.Code` an ASCII-style machine identifier or a Unicode identifier?
+2. Which character classes are allowed?
+3. What normalization and casing rules apply?
+4. What maximum length and uniqueness semantics apply?
+5. Is the existing case-insensitive collation acceptable?
+6. Does storage remain `VARCHAR`, or migrate to `NVARCHAR`?
+7. How are invalid identifiers rejected across Domain, API and SQL boundaries?
+8. What migration and backward-compatibility requirements apply?
+9. Are the proposed production taxonomy codes and names approved?
+
+After approval, implement and test exactly one reviewed direction: restrict the
+accepted code format with matching Domain/SQL validation, or migrate storage to
+`NVARCHAR` with corresponding contract changes. Until then, do not add a regex,
+whitelist, speculative validation, collation/index change, seed, writer, backfill
+or mandatory-category rule. Future tests must derive from the approved decision.
