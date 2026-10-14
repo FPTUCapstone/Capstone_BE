@@ -1562,6 +1562,10 @@ CREATE UNIQUE INDEX UX_TripReviews_CommerceBooking
     ON social.TripReviews(booking_id) WHERE booking_id IS NOT NULL;
 CREATE UNIQUE INDEX UX_TripReviews_ServiceBooking
     ON social.TripReviews(service_booking_id) WHERE service_booking_id IS NOT NULL;
+CREATE INDEX IX_TripReviews_TourPublicationRating
+    ON social.TripReviews(tour_id, publication_status)
+    INCLUDE (overall_rating, booking_id)
+    WHERE tour_id IS NOT NULL;
 GO
 
 CREATE TABLE social.TripReviewMediaOperations (
