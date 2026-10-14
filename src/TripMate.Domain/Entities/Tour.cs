@@ -26,6 +26,10 @@ public class Tour : BaseEntity
 
     public OperatorProfile OperatorProfile { get; private set; } = null!;
 
+    public int? CategoryId { get; private set; }
+
+    public TourCategory? Category { get; private set; }
+
     public string Title { get; private set; } = string.Empty;
 
     public string? Description { get; private set; }

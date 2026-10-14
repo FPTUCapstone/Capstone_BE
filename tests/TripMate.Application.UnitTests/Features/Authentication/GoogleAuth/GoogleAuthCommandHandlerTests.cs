@@ -141,17 +141,23 @@ public class GoogleAuthCommandHandlerTests
     }
 
     [Theory]
-    [InlineData(AccountStatus.Active, "auth.admin_google_sign_in_disabled")]
-    [InlineData(AccountStatus.Rejected, AuthErrorCodes.AccountStateUnresolved)]
-    [InlineData(AccountStatus.PendingEmailVerification, AuthErrorCodes.AccountPendingVerification)]
-    [InlineData(AccountStatus.PendingApproval, AuthErrorCodes.AccountStateUnresolved)]
-    [InlineData(AccountStatus.Locked, AuthErrorCodes.AccountLocked)]
-    [InlineData(AccountStatus.Inactive, AuthErrorCodes.AccountInactive)]
-    public async Task Handle_WhenExistingAdministrator_RejectsGoogleWithoutMutationOrSession(
-        AccountStatus status, string expectedCode)
+    [InlineData(UserRole.Administrator, AccountStatus.Active, "auth.admin_google_sign_in_disabled")]
+    [InlineData(UserRole.Staff, AccountStatus.Active, "auth.admin_google_sign_in_disabled")]
+    [InlineData(UserRole.Administrator, AccountStatus.Rejected, AuthErrorCodes.AccountStateUnresolved)]
+    [InlineData(UserRole.Staff, AccountStatus.Rejected, AuthErrorCodes.AccountStateUnresolved)]
+    [InlineData(UserRole.Administrator, AccountStatus.PendingEmailVerification, AuthErrorCodes.AccountPendingVerification)]
+    [InlineData(UserRole.Staff, AccountStatus.PendingEmailVerification, AuthErrorCodes.AccountPendingVerification)]
+    [InlineData(UserRole.Administrator, AccountStatus.PendingApproval, AuthErrorCodes.AccountStateUnresolved)]
+    [InlineData(UserRole.Staff, AccountStatus.PendingApproval, AuthErrorCodes.AccountStateUnresolved)]
+    [InlineData(UserRole.Administrator, AccountStatus.Locked, AuthErrorCodes.AccountLocked)]
+    [InlineData(UserRole.Staff, AccountStatus.Locked, AuthErrorCodes.AccountLocked)]
+    [InlineData(UserRole.Administrator, AccountStatus.Inactive, AuthErrorCodes.AccountInactive)]
+    [InlineData(UserRole.Staff, AccountStatus.Inactive, AuthErrorCodes.AccountInactive)]
+    public async Task Handle_WhenExistingAdministrationAccount_RejectsGoogleWithoutMutationOrSession(
+        UserRole role, AccountStatus status, string expectedCode)
     {
         // BR-18 revision 2.1: status failures retain precedence over the admin method gate.
-        var user = await SeedUser("admin@example.com", status, UserRole.Administrator);
+        var user = await SeedUser("admin@example.com", status, role);
         var updatedAt = user.UpdatedAtUtc;
         FirebaseReturns(new FirebaseTokenValidationResult(
             "fb-admin", " ADMIN@example.com ", true, "Google Name", "https://photo/admin.png", "google.com"));
@@ -162,6 +168,8 @@ public class GoogleAuthCommandHandlerTests
 
         result.IsFailure.Should().BeTrue();
         result.ErrorCode.Should().Be(expectedCode);
+        if (expectedCode == AuthErrorCodes.AdminGoogleSignInDisabled)
+            result.ErrorMessage.Should().Be("Administration accounts must sign in with email and password.");
         _jwtTokenService.Verify(j => j.GenerateAccessToken(It.IsAny<User>()), Times.Never);
         _jwtTokenService.Verify(j => j.GenerateRefreshToken(), Times.Never);
         _dbContext.RefreshTokens.Should().BeEmpty();
@@ -170,7 +178,7 @@ public class GoogleAuthCommandHandlerTests
         user.UpdatedAtUtc.Should().Be(updatedAt);
 
         var persistedUser = await _dbContext.Users.FindAsync(user.Id);
-        persistedUser!.Role.Should().Be(UserRole.Administrator);
+        persistedUser!.Role.Should().Be(role);
         persistedUser.Status.Should().Be(status);
     }
 

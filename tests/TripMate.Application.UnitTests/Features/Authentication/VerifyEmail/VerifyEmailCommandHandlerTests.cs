@@ -18,20 +18,26 @@ namespace TripMate.Application.UnitTests.Features.Authentication.VerifyEmail;
 public class VerifyEmailCommandHandlerTests
 {
     [Theory]
-    [InlineData(AccountStatus.Active, "auth.admin_google_sign_in_disabled")]
-    [InlineData(AccountStatus.PendingEmailVerification, "auth.admin_google_sign_in_disabled")]
-    [InlineData(AccountStatus.PendingApproval, "auth.admin_google_sign_in_disabled")]
-    [InlineData(AccountStatus.Rejected, "auth.admin_google_sign_in_disabled")]
-    [InlineData(AccountStatus.Locked, AuthErrorCodes.AccountLocked)]
-    [InlineData(AccountStatus.Inactive, AuthErrorCodes.AccountInactive)]
-    public async Task Handle_WhenAdministratorUsesGoogle_RejectsWithoutActivationOrSession(
-        AccountStatus status, string expectedCode)
+    [InlineData(UserRole.Administrator, AccountStatus.Active, "auth.admin_google_sign_in_disabled")]
+    [InlineData(UserRole.Staff, AccountStatus.Active, "auth.admin_google_sign_in_disabled")]
+    [InlineData(UserRole.Administrator, AccountStatus.PendingEmailVerification, "auth.admin_google_sign_in_disabled")]
+    [InlineData(UserRole.Staff, AccountStatus.PendingEmailVerification, "auth.admin_google_sign_in_disabled")]
+    [InlineData(UserRole.Administrator, AccountStatus.PendingApproval, "auth.admin_google_sign_in_disabled")]
+    [InlineData(UserRole.Staff, AccountStatus.PendingApproval, "auth.admin_google_sign_in_disabled")]
+    [InlineData(UserRole.Administrator, AccountStatus.Rejected, "auth.admin_google_sign_in_disabled")]
+    [InlineData(UserRole.Staff, AccountStatus.Rejected, "auth.admin_google_sign_in_disabled")]
+    [InlineData(UserRole.Administrator, AccountStatus.Locked, AuthErrorCodes.AccountLocked)]
+    [InlineData(UserRole.Staff, AccountStatus.Locked, AuthErrorCodes.AccountLocked)]
+    [InlineData(UserRole.Administrator, AccountStatus.Inactive, AuthErrorCodes.AccountInactive)]
+    [InlineData(UserRole.Staff, AccountStatus.Inactive, AuthErrorCodes.AccountInactive)]
+    public async Task Handle_WhenAdministrationAccountUsesGoogle_RejectsWithoutActivationOrSession(
+        UserRole role, AccountStatus status, string expectedCode)
     {
         var user = new User
         {
             Email = "admin@example.com",
             FullName = "Admin",
-            Role = UserRole.Administrator,
+            Role = role,
             Status = status,
             UpdatedAtUtc = DateTimeOffset.UtcNow.AddDays(-1),
         };
@@ -45,6 +51,8 @@ public class VerifyEmailCommandHandlerTests
 
         result.IsFailure.Should().BeTrue();
         result.ErrorCode.Should().Be(expectedCode);
+        if (expectedCode == AuthErrorCodes.AdminGoogleSignInDisabled)
+            result.ErrorMessage.Should().Be("Administration accounts must sign in with email and password.");
         user.Status.Should().Be(status);
         user.EmailVerifiedAtUtc.Should().BeNull();
         user.UpdatedAtUtc.Should().Be(updatedAt);

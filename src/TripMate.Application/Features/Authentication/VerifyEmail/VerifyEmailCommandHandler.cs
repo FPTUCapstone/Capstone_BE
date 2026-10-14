@@ -88,12 +88,12 @@ public class VerifyEmailCommandHandler(
         }
 
         // This endpoint also issues sessions: a Google identity must not bypass UC-04 BR-18.
-        if (user.Role == UserRole.Administrator
+        if (user.Role.IsAdministrationRole()
             && string.Equals(tokenResult.SignInProvider, "google.com", StringComparison.Ordinal))
         {
             return Result.Failure<VerifyEmailResponse>(
                 AuthErrorCodes.AdminGoogleSignInDisabled,
-                "Administrator accounts must sign in with email and password.");
+                "Administration accounts must sign in with email and password.");
         }
 
         if (user.Status == AccountStatus.PendingEmailVerification)
