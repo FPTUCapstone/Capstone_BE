@@ -23,9 +23,9 @@ UC-65 authorizes and initiates payout processing. The asynchronous transition fr
 | Scope | Actor | Default status | Purpose |
 | --- | --- | --- | --- |
 | Review | Staff | `PendingReview` | UC-63 read-only review queue; UC-64/73/74 follow from this scope. |
-| Settlement | Administrator | `ApprovedForSettlement` | UC-65 settlement queue; it never exposes Staff review actions. |
+| Settlement | Administrator | `ApprovedForSettlement` | UC-65 settlement queue — not implemented by this PR. See Non-goals. |
 
-The backend exposes separate authorization boundaries for these scopes. The existing `GET /api/v1/admin/payouts` may remain the Staff-only review query; the Administrator settlement query must use a separately authorized handler/endpoint. A client-supplied role or status must never expand the server-selected scope.
+**UC-63 delivers the Review scope only.** `GET /api/v1/admin/payouts` is Staff-only (`[Authorize(Roles = "Staff")]`); an Administrator request to it is `403`. The Settlement scope's endpoint, its own authorization boundary, and its tests are UC-65 work and do not exist in this codebase yet — they must not be implied as already built by this spec. A client-supplied role or status must never expand the server-selected scope.
 
 ## UC-63 review-query contract
 
@@ -47,7 +47,7 @@ No operator bank account, gateway reference, reviewer identity, or final-settlem
 
 - Missing/invalid session: `401`.
 - Review query: any non-Staff role, including Administrator: `403`.
-- Settlement query: any non-Administrator role, including Staff: `403`.
+- Settlement query: UC-65 scope, not implemented by this PR (see Non-goals).
 - Invalid filter: `400` with a stable safe error code.
 - Empty result: successful empty page; the Web presents its locked no-data message.
 - Unexpected failure: `500` without infrastructure detail.
@@ -62,13 +62,14 @@ The database model must contain Staff review fields, Administrator authorization
 
 ## Acceptance criteria
 
-1. A valid Staff session receives the default `PendingReview` review queue; a valid Administrator session never receives Staff scope or review actions.
-2. A valid Administrator session resolves only to the independently authorized settlement scope, whose default is `ApprovedForSettlement`.
-3. Status filtering cannot expose settlement execution states through UC-63.
-4. Filters compose, ordering is deterministic, pagination is applied after filtering, and the response is read-only.
-5. Monetary values remain persisted snapshots and are never recalculated by the endpoint.
-6. Tests cover Staff allowed, Administrator denied from the review endpoint, Administrator settlement-scope allowed, Staff denied from settlement scope, invalid filters, pagination, empty data, and no mutation.
+1. A valid Staff session receives the default `PendingReview` review queue; a valid Administrator session is denied (`403`) from this endpoint.
+2. Status filtering cannot expose settlement execution states through UC-63.
+3. Filters compose, ordering is deterministic, pagination is applied after filtering, and the response is read-only.
+4. Monetary values remain persisted snapshots and are never recalculated by the endpoint.
+5. Tests cover Staff allowed, Administrator denied, invalid filters, pagination, empty data, and no mutation — all against this one Staff-only review endpoint.
 
 ## Non-goals
 
-UC-64 detail/review, UC-73 approval, UC-74 rejection, UC-65 authorization, payout worker/outbox implementation, and payout generation are separate work.
+UC-64 detail/review, UC-73 approval, UC-74 rejection, payout worker/outbox implementation, and payout generation are separate work.
+
+**UC-65 (Administrator settlement) is also a non-goal of this PR**, despite earlier drafts of this spec describing its endpoint, authorization boundary, and tests as deliverables. Nothing beyond the workflow diagram's description of UC-65's role (above) is implemented here. The Administrator-settlement endpoint, its authorization scope, and its bidirectional Staff/Administrator tests will be designed and planned when UC-65 itself is started — not drafted in advance inside this document.
