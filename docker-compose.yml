@@ -160,7 +160,7 @@ services:
       timeout: 5s
       retries: 10
 
-  # One-shot: tải model về volume (lần đầu khoảng 2,5 GB); các lần sau xong ngay vì model đã có.
+  # One-shot: tải model public hoặc tạo LLM local từ Modelfile/GGUF được mount; model đã có thì bỏ qua.
   ollama-init:
     profiles: ["ai"]
     image: ollama/ollama:latest
@@ -170,7 +170,13 @@ services:
         condition: service_healthy
     environment:
       OLLAMA_HOST: ollama:11434
-    entrypoint: ["/bin/sh", "-c", "ollama pull ${EMBEDDING_MODEL:-bge-m3} && ollama pull ${LLM_MODEL:-qwen3:1.7b}"]
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3}
+      LLM_MODEL: ${LLM_MODEL:-qwen3:1.7b}
+      LLM_MODELFILE: ${LLM_MODELFILE:-}
+    volumes:
+      - ${TRIPMATE_MODEL_DIR:-../Capstone_AI/models}:/models:ro
+      - ${AI_REPO_PATH:-../Capstone_AI}/scripts/ollama-init.sh:/usr/local/bin/ollama-init.sh:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/ollama-init.sh"]
     restart: "no"
 
   ai:

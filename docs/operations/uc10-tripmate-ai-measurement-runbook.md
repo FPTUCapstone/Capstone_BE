@@ -48,6 +48,7 @@ runbook; the developer decides from the results (§9).
 - Docker Desktop. The AI service needs 512 MB (`AI_MEM_LIMIT`); Part D adds the backend stack
   (SQL Server alone takes about 1.4 GB).
 - About 4 GB of disk: the models are about 2.5 GB, the images the rest.
+
 - `Capstone_BE` and `Capstone_AI` cloned side by side (the backend profile builds `../Capstone_AI`).
 - **One stack at a time.** The backend Compose file uses fixed container names (`tripmate-sqlserver`,
   `tripmate-api`, `tripmate-ai`, …). List them first:
@@ -56,6 +57,27 @@ runbook; the developer decides from the results (§9).
   ```
   Remove another project's containers with that project's `docker compose down` (it keeps volumes).
 - Keep a laptop on mains power: on battery the GPU is throttled.
+
+### 2.1 Functional smoke with the BE `ai` profile and Compose Ollama
+
+The Compose Ollama is CPU-only, so use this path to verify wiring and model provisioning, not to accept latency. Put
+`tripmate-explainer-q4_k_m.gguf` and its `Modelfile` in `../Capstone_AI/models`, then set in the BE `.env`:
+
+```dotenv
+LLM_MODEL=tripmate-explainer
+TRIPMATE_MODEL_DIR=../Capstone_AI/models
+LLM_MODELFILE=/models/Modelfile
+```
+
+Start the profile and verify readiness from inside the unexposed `ai` container:
+
+```powershell
+docker compose --profile ai up -d --build
+docker compose --profile ai exec ai python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/ready').read().decode())"
+```
+
+The response must report both `"bge-m3":true` and `"tripmate-explainer":true`. `ollama-init` creates the local model
+only when it is absent from the shared volume. For the real latency run, use native GPU Ollama as described above.
 
 Reference numbers, laptop RTX 3050 Laptop 4 GB, driver 531.61, Ollama 0.40.3 (Vulkan), 2026-10-12:
 
