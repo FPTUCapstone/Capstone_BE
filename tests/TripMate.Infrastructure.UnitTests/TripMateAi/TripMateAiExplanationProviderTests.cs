@@ -165,7 +165,6 @@ public sealed class TripMateAiExplanationProviderTests
     // E5
     [Theory]
     [InlineData(HttpStatusCode.InternalServerError, ExplanationProviderErrorCodes.ServerError)]
-    [InlineData(HttpStatusCode.UnprocessableEntity, ExplanationProviderErrorCodes.InvalidResponse)]
     [InlineData(HttpStatusCode.BadRequest, ExplanationProviderErrorCodes.InvalidResponse)]
     [InlineData(HttpStatusCode.Forbidden, ExplanationProviderErrorCodes.InvalidResponse)]
     public async Task ExplainAsync_NonRetryableStatus_MapsWithOneRequest(HttpStatusCode status, string expectedCode)
@@ -176,6 +175,20 @@ public sealed class TripMateAiExplanationProviderTests
         var result = await provider.ExplainAsync(Input(), CancellationToken.None);
 
         result.ErrorCode.Should().Be(expectedCode);
+        handler.CallCount.Should().Be(1);
+    }
+
+    // Service AI đã dùng hết retry nội bộ trước khi trả 422; provider phải fallback ngay thay vì lặp thêm toàn bộ ngân sách.
+    [Fact]
+    public async Task ExplainAsync_422InvalidModelOutput_UsesFallbackWithoutRetrying()
+    {
+        using var handler = new SequenceHttpMessageHandler(_ => Status(HttpStatusCode.UnprocessableEntity));
+        var provider = CreateProvider(handler, ExplanationOptions());
+
+        var result = await provider.ExplainAsync(Input(), CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(ExplanationProviderErrorCodes.InvalidResponse);
         handler.CallCount.Should().Be(1);
     }
 

@@ -22,7 +22,9 @@ namespace TripMate.Infrastructure.TripMateAi;
 /// service AI nhận đúng dữ liệu mà Gemini đang nhận. Kết quả đi qua <see cref="ItineraryExplanationValidator"/>
 /// giống provider Gemini; không hợp lệ thì trả lỗi để tầng Application dùng lời giải thích dự phòng.</para>
 /// <para>Timeout từng lần, timeout tổng, số lần thử và giới hạn tốc độ lấy từ <see cref="ExplanationProviderOptions"/>.
-/// Thử lại với 429, 502 và 503 như provider Gemini. Riêng 504 không thử lại: service AI trả 504 khi model
+/// Thử lại với 429, 502 và 503 như provider Gemini. Mã 422 cho biết service AI đã tự thử lại nhưng output model
+/// vẫn không hợp lệ, nên không gọi lại và để tầng Application dùng lời giải thích dự phòng. Riêng 504 cũng không
+/// thử lại: service AI trả 504 khi model
 /// vượt <c>LLM_TIMEOUT_SECONDS</c>, đo thực tế cho thấy đây là lỗi có hệ thống theo số item (§13.3 của spec),
 /// nên lần thử thứ hai cũng 504 và chỉ làm người dùng chờ gấp đôi trước khi nhận lời giải thích dự phòng.</para>
 /// <para>Khoảng chờ trước khi thử lại tôn trọng header <c>Retry-After</c> của 429, các trường hợp còn lại dùng
