@@ -266,6 +266,85 @@ public sealed class CommercialServiceDisclosureMigrationSqlServerTests
         mismatchedSeededServiceCount.Should().Be(0);
     }
 
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task MigrationFailure_RollsBackEntirelyWithoutLeavingPartialColumns()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await RevertToPreUc30SchemaAsync(database);
+
+        await database.ExecuteNonQueryAsync("""
+            INSERT commercial.ServiceProviders(name, service_category, status)
+            VALUES (N'Legacy provider for rollback test', 'Hotel', 'Active');
+
+            DECLARE @providerId BIGINT = SCOPE_IDENTITY();
+            INSERT commercial.Services(
+                provider_id,
+                service_category,
+                name,
+                price_amount,
+                price_unit)
+            VALUES (
+                @providerId,
+                'Hotel',
+                N'Legacy hotel room with non-https image',
+                500000.00,
+                'PerNight');
+
+            -- Simulate an existing column with non-HTTPS URL that violates TM-76 validation
+            ALTER TABLE commercial.Services ADD cover_image_url NVARCHAR(500) NULL;
+            """);
+
+        await database.ExecuteNonQueryAsync("""
+            UPDATE commercial.Services
+            SET cover_image_url = 'http://insecure-http.example.com/cover.png';
+            """);
+
+        Func<Task> failingMigration = async () => await database.ExecuteScriptAsync(GetMigrationPath());
+        await failingMigration.Should().ThrowAsync<Exception>();
+
+        // Verify that the transaction rolled back completely: columns added by the migration do not exist
+        var addedColumnCount = await database.ExecuteScalarAsync<int>("""
+            SELECT COUNT(*)
+            FROM sys.columns
+            WHERE object_id = OBJECT_ID(N'commercial.Services')
+              AND name IN (
+                  N'currency_code',
+                  N'price_includes_tax',
+                  N'refundable_deposit_amount',
+                  N'fulfilment_location_label',
+                  N'pickup_or_arrival_instructions',
+                  N'cancellation_policy_summary',
+                  N'last_updated_at');
+            """);
+        addedColumnCount.Should().Be(0);
+
+        // Correct the invalid data to be compliant with TM-76
+        await database.ExecuteNonQueryAsync("""
+            UPDATE commercial.Services
+            SET cover_image_url = 'https://secure-https.example.com/cover.png';
+            """);
+
+        // Running migration again must succeed completely
+        await database.ExecuteScriptAsync(GetMigrationPath());
+
+        var finalColumnCount = await database.ExecuteScalarAsync<int>("""
+            SELECT COUNT(*)
+            FROM sys.columns
+            WHERE object_id = OBJECT_ID(N'commercial.Services')
+              AND name IN (
+                  N'currency_code',
+                  N'price_includes_tax',
+                  N'refundable_deposit_amount',
+                  N'cover_image_url',
+                  N'fulfilment_location_label',
+                  N'pickup_or_arrival_instructions',
+                  N'cancellation_policy_summary',
+                  N'last_updated_at');
+            """);
+        finalColumnCount.Should().Be(8);
+    }
+
     private static async Task RevertToPreUc30SchemaAsync(SqlServerTestDatabase database)
     {
         await database.ExecuteNonQueryAsync("""
@@ -287,6 +366,8 @@ public sealed class CommercialServiceDisclosureMigrationSqlServerTests
             ALTER TABLE commercial.Services DROP COLUMN pickup_or_arrival_instructions;
             ALTER TABLE commercial.Services DROP COLUMN cancellation_policy_summary;
             ALTER TABLE commercial.Services DROP COLUMN last_updated_at;
+
+            ALTER DATABASE SCOPED CONFIGURATION CLEAR PROCEDURE_CACHE;
             """);
     }
 

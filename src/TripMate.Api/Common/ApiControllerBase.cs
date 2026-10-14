@@ -5,10 +5,13 @@ using Microsoft.AspNetCore.Mvc;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Authentication.Common;
 using TripMate.Application.Features.CommercialServices.Common;
+using TripMate.Application.Features.Coupons.Common;
+using TripMate.Application.Features.Navigation.Common;
 using TripMate.Application.Features.PointsOfInterest.Common;
 using TripMate.Application.Features.RecommendationFeedback.Common;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.TourMedia.Common;
+using TripMate.Application.Features.TripReviews.Common;
 
 namespace TripMate.Api.Common;
 
@@ -107,6 +110,19 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             AuthErrorCodes.Msg127 =>
                 StatusCodes.Status503ServiceUnavailable,
 
+            TripMate.Application.Features.Operator.Application.Common.OperatorApplicationErrorCodes.Forbidden =>
+                StatusCodes.Status403Forbidden,
+
+            TripMate.Application.Features.Operator.Application.Common.OperatorApplicationErrorCodes.NotFound =>
+                StatusCodes.Status404NotFound,
+
+            TripMate.Application.Features.Operator.Application.Common.OperatorApplicationErrorCodes.NotRejected =>
+                StatusCodes.Status409Conflict,
+
+            TripMate.Application.Features.Operator.Application.Common.OperatorApplicationErrorCodes.MissingBusinessLicense or
+                TripMate.Application.Features.Operator.Application.Common.OperatorApplicationErrorCodes.InvalidDocument =>
+                StatusCodes.Status400BadRequest,
+
             TripMate.Application.Features.Admin.AuditLogs.Common.AuditLogErrorCodes.Forbidden =>
                 StatusCodes.Status403Forbidden,
 
@@ -127,6 +143,9 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
 
             TripMate.Application.Features.Admin.ActiveTrips.GetList.ActiveTripErrorCodes.Forbidden =>
                 StatusCodes.Status403Forbidden,
+
+            TripMate.Application.Features.Admin.ActiveTrips.GetList.ActiveTripErrorCodes.NotFound =>
+                StatusCodes.Status404NotFound,
 
             TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.Forbidden =>
                 StatusCodes.Status403Forbidden,
@@ -167,6 +186,13 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             CommercialServiceErrorCodes.NotFound =>
                 StatusCodes.Status404NotFound,
 
+            CouponErrorCodes.OperatorAccessRequired => StatusCodes.Status403Forbidden,
+            CouponErrorCodes.InvalidScope => StatusCodes.Status400BadRequest,
+            CouponErrorCodes.TourNotFound => StatusCodes.Status404NotFound,
+            CouponErrorCodes.TourNotOwned => StatusCodes.Status403Forbidden,
+            CouponErrorCodes.TourNotEligible => StatusCodes.Status422UnprocessableEntity,
+            CouponErrorCodes.CodeConflict => StatusCodes.Status409Conflict,
+
             TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.ItineraryNotFound =>
                 StatusCodes.Status404NotFound,
 
@@ -193,6 +219,41 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
 
             SchedulingErrorCodes.ConstraintsInfeasible =>
                 StatusCodes.Status422UnprocessableEntity,
+
+            TripReviewErrorCodes.Unauthorized =>
+                StatusCodes.Status401Unauthorized,
+
+            TripReviewErrorCodes.Forbidden =>
+                StatusCodes.Status403Forbidden,
+
+            TripReviewErrorCodes.BookingNotFound =>
+                StatusCodes.Status404NotFound,
+
+            TripReviewErrorCodes.Duplicate or
+            TripReviewErrorCodes.StaleVersion or
+            TripReviewErrorCodes.EditExpired or
+            TripReviewErrorCodes.BookingNotCompleted or
+            TripReviewErrorCodes.InconsistentContext or
+            TripReviewErrorCodes.LegacyConflict =>
+                StatusCodes.Status409Conflict,
+
+            TripReviewErrorCodes.UnsupportedSubject =>
+                StatusCodes.Status409Conflict,
+
+            TripReviewErrorCodes.PolicyRejected =>
+                StatusCodes.Status400BadRequest,
+
+            TripReviewErrorCodes.PolicyUnavailable =>
+                StatusCodes.Status503ServiceUnavailable,
+
+            TripReviewErrorCodes.BodyTooLarge =>
+                StatusCodes.Status413PayloadTooLarge,
+
+            TripReviewErrorCodes.UnsupportedMediaType =>
+                StatusCodes.Status415UnsupportedMediaType,
+
+            TripReviewErrorCodes.StorageUnavailable =>
+                StatusCodes.Status503ServiceUnavailable,
 
             SchedulingErrorCodes.GenerationCooldown or SchedulingErrorCodes.GenerationRateLimited =>
                 StatusCodes.Status429TooManyRequests,
@@ -238,6 +299,18 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripMate.Application.Features.Itineraries.Common.ItineraryErrorCodes.ConstraintsInfeasible =>
                 StatusCodes.Status422UnprocessableEntity,
 
+            NavigationErrorCodes.AccessDenied => StatusCodes.Status403Forbidden,
+            NavigationErrorCodes.SessionNotFound => StatusCodes.Status404NotFound,
+            NavigationErrorCodes.ItineraryNotActive
+                or NavigationErrorCodes.OutsideTripWindow
+                or NavigationErrorCodes.ActiveSessionExists
+                or NavigationErrorCodes.IdempotencyKeyPayloadMismatch
+                or NavigationErrorCodes.ItemAlreadyReached
+                or NavigationErrorCodes.SessionCompleted => StatusCodes.Status409Conflict,
+            NavigationErrorCodes.NoNavigableItems
+                or NavigationErrorCodes.ItineraryScheduleIncomplete
+                or NavigationErrorCodes.ItemNotNavigable => StatusCodes.Status422UnprocessableEntity,
+
             _ => StatusCodes.Status400BadRequest,
         };
 
@@ -252,6 +325,15 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             && retryAfter is int retryAfterSeconds)
         {
             Response.Headers.RetryAfter = retryAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        if (result.ErrorCode == NavigationErrorCodes.ActiveSessionExists
+            && result.ErrorMetadata.TryGetValue(
+                NavigationErrorMetadata.ActiveSessionLocation,
+                out var activeLocation)
+            && activeLocation is string location)
+        {
+            Response.Headers.Location = location;
         }
 
         return Problem(

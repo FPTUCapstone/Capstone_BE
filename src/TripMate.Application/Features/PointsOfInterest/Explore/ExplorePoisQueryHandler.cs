@@ -1,10 +1,12 @@
 using MediatR;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.PointsOfInterest.Common;
+using TripMate.Application.Features.TripReviews.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -12,7 +14,8 @@ namespace TripMate.Application.Features.PointsOfInterest.Explore;
 
 public sealed class ExplorePoisQueryHandler(
     IApplicationDbContext dbContext,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    ILogger<ExplorePoisQueryHandler> logger)
     : IRequestHandler<ExplorePoisQuery, Result<PagedPoiResponseDto>>
 {
     private const double EarthRadiusKm = 6371.0088;
@@ -82,12 +85,14 @@ public sealed class ExplorePoisQueryHandler(
                         ? 1.0
                         : (x.HaversineA.Value < 0.0 ? 0.0 : x.HaversineA.Value))))
                 : null,
-            AverageRating = dbContext.Reviews
-                .Where(r => r.TargetType == Review.TargetTypePoi && r.TargetId == x.Poi.Id)
+            AverageRating = TripReviewAggregateReader.QueryPoiReviews(dbContext)
+                .Where(r => r.TargetId == x.Poi.Id)
                 .Average(r => (decimal?)r.Rating),
-            ReviewCount = dbContext.Reviews
-                .Where(r => r.TargetType == Review.TargetTypePoi && r.TargetId == x.Poi.Id)
-                .Count(),
+            ReviewCount = TripReviewAggregateReader.QueryPoiReviews(dbContext)
+                .Count(r => r.TargetId == x.Poi.Id),
+            HasLegacyConflict = TripReviewAggregateReader
+                .QueryConflictingLegacyPoiTargetIds(dbContext)
+                .Any(targetId => targetId == x.Poi.Id),
             ThumbnailUrl = dbContext.PoiPhotos
                 .Where(ph => ph.PointOfInterestId == x.Poi.Id)
                 .OrderBy(ph => ph.SortOrder)
@@ -170,11 +175,18 @@ public sealed class ExplorePoisQueryHandler(
                 x.Poi.HasShelter,
                 x.AverageRating,
                 x.ReviewCount,
+                x.HasLegacyConflict,
                 x.ThumbnailUrl,
                 x.Distance,
                 x.IsOpenNow,
             })
             .ToListAsync(cancellationToken);
+
+        if (pageRecords.Any(item => item.HasLegacyConflict))
+        {
+            logger.LogWarning(
+            "TM-79 aggregate integrity overlap: canonical reviews won over legacy POI reviews in the Explore result page.");
+        }
 
         var items = pageRecords.Select(x => new PoiListItemDto(
             x.Id,
@@ -187,9 +199,7 @@ public sealed class ExplorePoisQueryHandler(
             x.IndoorOutdoor,
             x.AverageVisitDurationMinutes,
             x.HasShelter,
-            x.AverageRating.HasValue
-                ? Math.Round(x.AverageRating.Value, 1, MidpointRounding.AwayFromZero)
-                : null,
+            TripReviewAggregateDto.Round(x.AverageRating),
             x.ReviewCount,
             x.ThumbnailUrl,
             x.Distance.HasValue

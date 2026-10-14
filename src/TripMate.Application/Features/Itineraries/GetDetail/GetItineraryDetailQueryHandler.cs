@@ -55,8 +55,8 @@ public sealed class GetItineraryDetailQueryHandler(
                 item.PointOfInterest?.Name,
                 item.PointOfInterest?.Category?.Name,
                 item.Kind,
-                item.PlannedArrivalUtc,
-                item.PlannedDepartureUtc,
+                item.PlannedArrivalUtc.GetValueOrDefault(),
+                item.PlannedDepartureUtc.GetValueOrDefault(),
                 index == 0
                     ? null
                     : orderedItems[index - 1].TravelDurationToNextMinutes,
@@ -66,7 +66,9 @@ public sealed class GetItineraryDetailQueryHandler(
                 item.RecommendationReason,
                 item.FriendlyExplanation,
                 item.PointOfInterest is not null
-                    && item.PointOfInterest.Status != PointOfInterestStatus.Active))
+                    && item.PointOfInterest.Status != PointOfInterestStatus.Active,
+                item.PointOfInterest?.Latitude,
+                item.PointOfInterest?.Longitude))
             .ToArray();
 
         return new ItineraryDetailResponse(

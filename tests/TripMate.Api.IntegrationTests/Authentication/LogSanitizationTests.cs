@@ -26,23 +26,9 @@ namespace TripMate.Api.IntegrationTests.Authentication;
 [Collection(nameof(TripMateApiFactory))]
 public class LogSanitizationTests
 {
-    private const string LogRelativePath = "logs/uc04-s11.log";
     private const string Password = "S3cretPass1!x";
     private const string WrongPassword = "WrongPass9!";
     private const string FakeGoogleIdToken = "fake-google-id-token-do-not-log-abc123";
-
-    private static string LogFullPath =>
-        Path.Combine(Directory.GetCurrentDirectory(), LogRelativePath);
-
-    private static void ResetLogFile()
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(LogFullPath)!);
-
-        if (File.Exists(LogFullPath))
-        {
-            File.Delete(LogFullPath);
-        }
-    }
 
     private static async Task<(string AccessToken, long UserId)> SeedAndLoginAsync(
         TripMateApiFactory factory,
@@ -95,10 +81,9 @@ public class LogSanitizationTests
     [Fact]
     public async Task AuthTraffic_NeverLogsPasswordsOrTokens()
     {
-        ResetLogFile();
-
         await using var factory = new TripMateApiFactory();
         using var client = factory.CreateClient();
+        string logPath = factory.LogFilePath;
 
         // 1. Failed login → 401 (request body carries the marked password).
         var failed = await client.PostAsJsonAsync("/api/v1/auth/login", new
@@ -135,7 +120,7 @@ public class LogSanitizationTests
         {
             await Task.Delay(300);
 
-            if (!File.Exists(LogFullPath))
+            if (!File.Exists(logPath))
             {
                 continue;
             }
@@ -143,7 +128,7 @@ public class LogSanitizationTests
             try
             {
                 using var stream = new FileStream(
-                    LogFullPath,
+                    logPath,
                     FileMode.Open,
                     FileAccess.Read,
                     FileShare.ReadWrite);
@@ -166,7 +151,7 @@ public class LogSanitizationTests
 
         logged.Should().Contain(
             "/api/v1/auth/login",
-            $"log file: {LogFullPath}; length: {logged.Length}; head: {logged[..Math.Min(400, logged.Length)]}");
+            $"log file: {logPath}; length: {logged.Length}; head: {logged[..Math.Min(400, logged.Length)]}");
 
         // S11: none of the marked secrets may appear anywhere in the log output.
         logged.Should().NotContain(Password);
@@ -181,8 +166,6 @@ public class LogSanitizationTests
     [Fact]
     public async Task SuccessfulSignOut_NeverLogsAuthenticationSecrets()
     {
-        ResetLogFile();
-
         const string rawRefreshToken = "tc09/raw+refresh=secret";
         const string accessToken = "tc09.access.jwt.secret";
         const string markedPassword = "tc09-password-secret";
@@ -254,6 +237,7 @@ public class LogSanitizationTests
         response.StatusCode.Should().Be(HttpStatusCode.OK);
 
         var logged = await ReadLogUntil(
+            factory.LogFilePath,
             text =>
                 text.Contains(
                     "/api/v1/auth/web/logout",
@@ -275,6 +259,7 @@ public class LogSanitizationTests
     }
 
     private static async Task<string> ReadLogUntil(
+        string logPath,
         Func<string, bool> completed)
     {
         var logged = string.Empty;
@@ -283,7 +268,7 @@ public class LogSanitizationTests
         {
             await Task.Delay(300);
 
-            if (!File.Exists(LogFullPath))
+            if (!File.Exists(logPath))
             {
                 continue;
             }
@@ -291,7 +276,7 @@ public class LogSanitizationTests
             try
             {
                 using var stream = new FileStream(
-                    LogFullPath,
+                    logPath,
                     FileMode.Open,
                     FileAccess.Read,
                     FileShare.ReadWrite);

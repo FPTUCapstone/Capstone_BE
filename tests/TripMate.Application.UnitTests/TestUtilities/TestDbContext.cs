@@ -56,11 +56,16 @@ public class TestDbContext(
 
     public DbSet<Review> Reviews => Set<Review>();
 
+    public DbSet<TripReview> TripReviews => Set<TripReview>();
+    public DbSet<TripReviewMedia> TripReviewMedia => Set<TripReviewMedia>();
+
     public DbSet<Message> Messages => Set<Message>();
 
     public DbSet<ServiceProvider> ServiceProviders => Set<ServiceProvider>();
 
     public DbSet<CommercialService> CommercialServices => Set<CommercialService>();
+
+    public DbSet<Voucher> Vouchers => Set<Voucher>();
 
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
 
@@ -89,11 +94,23 @@ public class TestDbContext(
 
     public DbSet<TripSession> TripSessions => Set<TripSession>();
 
+    public DbSet<TripSessionItem> TripSessionItems => Set<TripSessionItem>();
+
     public DbSet<Incident> Incidents => Set<Incident>();
+
+    public DbSet<TripStateHistory> TripStateHistories => Set<TripStateHistory>();
+
+    public DbSet<TripLocationLog> TripLocationLogs => Set<TripLocationLog>();
+
+    public DbSet<WeatherEvent> WeatherEvents => Set<WeatherEvent>();
+
+    public DbSet<ReroutingEvent> ReroutingEvents => Set<ReroutingEvent>();
 
     public int TransactionExecutionCount { get; private set; }
 
     public bool IsExecutingSerializableTransaction { get; private set; }
+
+    public int SerializableReadCount { get; private set; }
 
     public int SaveChangesAsyncCallCount { get; private set; }
 
@@ -108,12 +125,9 @@ public class TestDbContext(
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         SaveChangesAsyncCallCount++;
-        if (ThrowOnSaveConcurrency)
-        {
-            throw new DbUpdateConcurrencyException("Concurrency conflict simulated in test.");
-        }
-
-        return base.SaveChangesAsync(cancellationToken);
+        return ThrowOnSaveConcurrency
+            ? throw new DbUpdateConcurrencyException("Concurrency conflict simulated in test.")
+            : base.SaveChangesAsync(cancellationToken);
     }
 
     public async Task<int> RevokeRefreshTokenAsync(
@@ -147,20 +161,28 @@ public class TestDbContext(
         return audits.Count;
     }
 
+    public Action? OnTransactionCompleted { get; set; }
+    public Exception? ThrowOnTransaction { get; set; }
+
     public async Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken)
     {
         TransactionExecutionCount++;
-        T result = await operation(cancellationToken);
-        Exception? completionFailure =
-            TransactionCompletionFailureFactory?.Invoke(TransactionExecutionCount);
-        if (completionFailure is not null)
+        try
         {
-            throw completionFailure;
-        }
+            if (ThrowOnTransaction is not null)
+                throw ThrowOnTransaction;
 
-        return result;
+            T result = await operation(cancellationToken);
+            Exception? completionFailure =
+                TransactionCompletionFailureFactory?.Invoke(TransactionExecutionCount);
+            return completionFailure is not null ? throw completionFailure : result;
+        }
+        finally
+        {
+            OnTransactionCompleted?.Invoke();
+        }
     }
 
     public Task FinalizeOperatorDocumentCleanupReservationsAsync(
@@ -184,12 +206,7 @@ public class TestDbContext(
             T result = await operation(cancellationToken);
             Exception? completionFailure =
                 SerializableTransactionCompletionFailureFactory?.Invoke(TransactionExecutionCount);
-            if (completionFailure is not null)
-            {
-                throw completionFailure;
-            }
-
-            return result;
+            return completionFailure is not null ? throw completionFailure : result;
         }
         finally
         {
@@ -197,8 +214,24 @@ public class TestDbContext(
         }
     }
 
+    public Task<T> ExecuteWithSerializableReadsAsync<T>(
+        Func<CancellationToken, Task<T>> reads,
+        CancellationToken cancellationToken)
+    {
+        SerializableReadCount++;
+        return reads(cancellationToken);
+    }
+
+    public bool IsDeadlock(Exception exception) => exception is SimulatedDeadlockException;
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<TripSessionItem>()
+            .HasKey(item => new { item.SessionId, item.ItineraryItemId });
+
+        modelBuilder.Entity<VoucherApplicableTour>()
+            .HasKey(mapping => new { mapping.VoucherId, mapping.TourId });
+
         modelBuilder.Entity<PoiOpeningHour>()
             .HasKey(hours => new { hours.PointOfInterestId, hours.DayOfWeek });
 

@@ -18,20 +18,40 @@ public sealed class ProblemDetailsContractSchemaFilter : ISchemaFilter
 
         if (context.Type == typeof(ValidationProblemDetails))
         {
+            RequireNonNullableProperty(mutableSchema, "status");
+            RequireNonNullableProperty(mutableSchema, "errors");
+            return;
+        }
+
+        if (context.Type == typeof(ErrorCodeValidationProblemDetails))
+        {
+            RequireNonNullableProperty(mutableSchema, "status");
+            RequireNonNullableProperty(mutableSchema, "errorCode");
             RequireNonNullableProperty(mutableSchema, "errors");
             return;
         }
 
         if (context.Type == typeof(ErrorCodeProblemDetails))
         {
+            RequireNonNullableProperty(mutableSchema, "status");
             RequireNonNullableProperty(mutableSchema, "errorCode");
             return;
         }
 
         if (context.Type == typeof(PossibleDuplicateProblemDetails))
         {
+            RequireNonNullableProperty(mutableSchema, "status");
             RequireNonNullableProperty(mutableSchema, "errorCode");
             RequireNonNullableProperty(mutableSchema, "existingPoiId");
+            return;
+        }
+
+        if (context.Type == typeof(NavigationStartConflictProblemDetails))
+        {
+            RequireNonNullableProperty(
+                mutableSchema,
+                System.Text.Json.JsonNamingPolicy.CamelCase.ConvertName(
+                    nameof(NavigationStartConflictProblemDetails.ErrorCode)));
         }
     }
 

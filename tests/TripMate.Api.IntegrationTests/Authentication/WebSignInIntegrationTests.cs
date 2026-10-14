@@ -51,8 +51,11 @@ public class WebSignInIntegrationTests
         data.GetProperty("status").GetString().Should().Be("Active");
         (data.GetProperty("accessTokenExpiresAtUtc").GetDateTimeOffset() - DateTimeOffset.UtcNow)
             .Should().BeCloseTo(TimeSpan.FromMinutes(15), TimeSpan.FromSeconds(5));
-        var cookie = response.Headers.GetValues("Set-Cookie").Single();
-        cookie.Should().StartWith("tripmate_refresh=").And.Contain("httponly").And.Contain("secure").And.Contain("samesite=lax").And.Contain("path=/api/v1/auth");
+        var cookies = response.Headers.GetValues("Set-Cookie").ToArray();
+        cookies.Should().HaveCount(2);
+        cookies.Should().Contain(cookie => cookie.Contains("path=/api/v1/auth") && cookie.Contains("expires="));
+        var cookie = cookies.Single(cookie => cookie.Contains("path=/") && !cookie.Contains("path=/api/v1/auth"));
+        cookie.Should().StartWith("tripmate_refresh=").And.Contain("httponly").And.Contain("secure").And.Contain("samesite=lax").And.Contain("path=/");
         cookie.Should().NotContain("domain=");
         cookie.Contains("expires=").Should().Be(keep);
         await factory.WithDbContextAsync(async db =>
@@ -102,7 +105,10 @@ public class WebSignInIntegrationTests
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var json = await response.Content.ReadFromJsonAsync<JsonElement>();
         json.GetProperty("data").GetProperty("role").GetString().Should().Be("Administrator");
-        response.Headers.GetValues("Set-Cookie").Should().ContainSingle();
+        var cookies = response.Headers.GetValues("Set-Cookie").ToArray();
+        cookies.Should().HaveCount(2);
+        cookies.Should().Contain(c => c.Contains("path=/api/v1/auth") && c.Contains("expires="));
+        cookies.Should().Contain(c => c.Contains("path=/") && !c.Contains("path=/api/v1/auth"));
     }
 
     [Fact]
@@ -207,7 +213,11 @@ public class WebSignInIntegrationTests
             data.GetProperty("applicationStatus").ValueKind.Should().Be(JsonValueKind.Null);
             data.TryGetProperty("refreshToken", out _).Should().BeFalse();
             data.GetProperty("isNewAccount").GetBoolean().Should().BeFalse();
-            response.Headers.GetValues("Set-Cookie").Single().Should().Contain("tripmate_refresh=").And.Contain("expires=");
+            var cookies = response.Headers.GetValues("Set-Cookie").ToArray();
+            cookies.Should().HaveCount(2);
+            cookies.Should().Contain(c => c.Contains("path=/api/v1/auth") && c.Contains("expires="));
+            var cookie = cookies.Single(c => c.Contains("path=/") && !c.Contains("path=/api/v1/auth"));
+            cookie.Should().Contain("tripmate_refresh=").And.Contain("expires=");
         }
     }
     [Theory]
@@ -293,6 +303,9 @@ public class WebSignInIntegrationTests
         await Seed(factory, UserRole.Traveler);
         var response = await client.PostAsJsonAsync("/api/v1/auth/web/login", new { email = "login@example.com", password = "CorrectPass1" });
         response.StatusCode.Should().Be(HttpStatusCode.OK);
-        response.Headers.GetValues("Set-Cookie").Single().Contains("secure").Should().Be(secure);
+        var cookies = response.Headers.GetValues("Set-Cookie").ToArray();
+        cookies.Should().HaveCount(2);
+        var activeCookie = cookies.Single(c => c.Contains("path=/") && !c.Contains("path=/api/v1/auth"));
+        activeCookie.Contains("secure").Should().Be(secure);
     }
 }

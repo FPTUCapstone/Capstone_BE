@@ -48,11 +48,17 @@ public interface IApplicationDbContext
 
     DbSet<Review> Reviews { get; }
 
+    DbSet<TripReview> TripReviews { get; }
+
+    DbSet<TripReviewMedia> TripReviewMedia { get; }
+
     DbSet<Message> Messages { get; }
 
     DbSet<ServiceProvider> ServiceProviders { get; }
 
     DbSet<CommercialService> CommercialServices { get; }
+
+    DbSet<Voucher> Vouchers { get; }
 
     DbSet<TravelGroup> TravelGroups { get; }
 
@@ -81,7 +87,18 @@ public interface IApplicationDbContext
 
     DbSet<TripSession> TripSessions { get; }
 
+    DbSet<TripSessionItem> TripSessionItems =>
+        throw new NotSupportedException("Trip session items are unavailable in this context.");
+
     DbSet<Incident> Incidents { get; }
+
+    DbSet<TripStateHistory> TripStateHistories { get; }
+
+    DbSet<TripLocationLog> TripLocationLogs { get; }
+
+    DbSet<WeatherEvent> WeatherEvents { get; }
+
+    DbSet<ReroutingEvent> ReroutingEvents { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 
@@ -101,6 +118,14 @@ public interface IApplicationDbContext
     /// </summary>
     void ClearTrackedEntities();
 
+    /// <summary>
+    /// Forces the tracked session row to participate in the next optimistic-concurrency save even
+    /// when a non-terminal progress update only changes a child snapshot row.
+    /// </summary>
+    void MarkTripSessionProgressForConcurrencyCheck(TripSession session)
+    {
+    }
+
     Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken);
@@ -108,6 +133,23 @@ public interface IApplicationDbContext
     Task<T> ExecuteInSerializableTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Runs authorization reads inside the caller's open transaction with SERIALIZABLE locking.
+    /// The key-range locks they take are held until that transaction ends, so a concurrent writer
+    /// of the rows read (for example a group-membership revocation) commits either before the
+    /// reads see it or after the caller commits. Statements after the reads return to the
+    /// transaction's own isolation level, so row-version checks elsewhere stay optimistic.
+    /// </summary>
+    Task<T> ExecuteWithSerializableReadsAsync<T>(
+        Func<CancellationToken, Task<T>> reads,
+        CancellationToken cancellationToken) => reads(cancellationToken);
+
+    /// <summary>
+    /// True when the exception, or one of its inner exceptions, reports that the transaction was
+    /// chosen as a deadlock victim. The transaction is rolled back and can be retried.
+    /// </summary>
+    bool IsDeadlock(Exception exception) => false;
 
     /// <summary>
     /// Removes durable document-cleanup reservations while the caller's database transaction

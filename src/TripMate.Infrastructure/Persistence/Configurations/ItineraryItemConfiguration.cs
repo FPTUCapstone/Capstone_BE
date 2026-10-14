@@ -25,11 +25,14 @@ public sealed class ItineraryItemConfiguration : IEntityTypeConfiguration<Itiner
             .IsRequired();
         builder.Property(item => item.PlannedArrivalUtc)
             .HasColumnName("planned_arrival")
-            .AsUtcDateTime2()
-            .IsRequired();
+            .AsUtcDateTime2();
         builder.Property(item => item.PlannedDepartureUtc)
             .HasColumnName("planned_departure")
-            .AsUtcDateTime2()
+            .AsUtcDateTime2();
+        builder.Property(item => item.Status)
+            .HasColumnName("status")
+            .HasMaxLength(10)
+            .IsUnicode(false)
             .IsRequired();
         builder.Property(item => item.StayDurationMinutes)
             .HasColumnName("stay_duration_minutes")

@@ -34,7 +34,8 @@ public class WebRefreshIntegrationTests
 
     private static async Task<string> ReadCookie(HttpResponseMessage response)
     {
-        var cookie = response.Headers.GetValues("Set-Cookie").Single();
+        var cookie = response.Headers.GetValues("Set-Cookie")
+            .Single(c => c.Contains("path=/") && !c.Contains("path=/api/v1/auth"));
         return Uri.UnescapeDataString(cookie.Split(';')[0].Split('=', 2)[1]);
     }
 

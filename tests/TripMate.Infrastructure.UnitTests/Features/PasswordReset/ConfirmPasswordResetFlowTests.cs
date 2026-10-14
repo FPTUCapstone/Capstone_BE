@@ -191,17 +191,11 @@ public class ConfirmPasswordResetFlowTests
     /// gate. Production correctness must come from the password-reset account lock, not a test
     /// double that serializes the operation on its behalf.
     /// </summary>
-    private sealed class ConcurrentConfirmDbContext : DbContext, IApplicationDbContext
+    private sealed class ConcurrentConfirmDbContext(
+        DbContextOptions<ConfirmPasswordResetFlowTests.ConcurrentConfirmDbContext> options,
+        bool failAfterOperation = false) : DbContext(options), IApplicationDbContext
     {
-        private readonly bool failAfterOperation;
-
-        public ConcurrentConfirmDbContext(
-            DbContextOptions<ConcurrentConfirmDbContext> options,
-            bool failAfterOperation = false)
-            : base(options)
-        {
-            this.failAfterOperation = failAfterOperation;
-        }
+        private readonly bool failAfterOperation = failAfterOperation;
 
         public DbSet<User> Users => Set<User>();
 
@@ -249,12 +243,18 @@ public class ConfirmPasswordResetFlowTests
 
         DbSet<Domain.Entities.Review> IApplicationDbContext.Reviews => throw new NotSupportedException();
 
+        DbSet<Domain.Entities.TripReview> IApplicationDbContext.TripReviews => throw new NotSupportedException();
+        DbSet<Domain.Entities.TripReviewMedia> IApplicationDbContext.TripReviewMedia => throw new NotSupportedException();
+
         DbSet<Domain.Entities.Message> IApplicationDbContext.Messages => throw new NotSupportedException();
 
         DbSet<Domain.Entities.ServiceProvider> IApplicationDbContext.ServiceProviders =>
             throw new NotSupportedException();
 
         DbSet<Domain.Entities.CommercialService> IApplicationDbContext.CommercialServices =>
+            throw new NotSupportedException();
+
+        DbSet<Domain.Entities.Voucher> IApplicationDbContext.Vouchers =>
             throw new NotSupportedException();
 
         DbSet<Domain.Entities.TravelGroup> IApplicationDbContext.TravelGroups => throw new NotSupportedException();
@@ -287,6 +287,14 @@ public class ConfirmPasswordResetFlowTests
 
         DbSet<Domain.Entities.Incident> IApplicationDbContext.Incidents => throw new NotSupportedException();
 
+        DbSet<Domain.Entities.TripStateHistory> IApplicationDbContext.TripStateHistories => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.TripLocationLog> IApplicationDbContext.TripLocationLogs => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.WeatherEvent> IApplicationDbContext.WeatherEvents => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.ReroutingEvent> IApplicationDbContext.ReroutingEvents => throw new NotSupportedException();
+
         public Task<int> RevokeRefreshTokenAsync(
             string tokenHash,
             DateTimeOffset revokedAtUtc,
@@ -303,12 +311,7 @@ public class ConfirmPasswordResetFlowTests
             CancellationToken cancellationToken)
         {
             var result = await operation(cancellationToken);
-            if (failAfterOperation)
-            {
-                throw new InvalidOperationException("Simulated commit failure.");
-            }
-
-            return result;
+            return failAfterOperation ? throw new InvalidOperationException("Simulated commit failure.") : result;
         }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -332,6 +335,8 @@ public class ConfirmPasswordResetFlowTests
             modelBuilder.Ignore<Domain.Entities.PoiPhoto>();
             modelBuilder.Ignore<Domain.Entities.Review>();
             modelBuilder.Ignore<Domain.Entities.Message>();
+            modelBuilder.Ignore<Domain.Entities.Voucher>();
+            modelBuilder.Ignore<Domain.Entities.VoucherApplicableTour>();
             modelBuilder.Ignore<Domain.Entities.TravelGroup>();
             modelBuilder.Ignore<Domain.Entities.GroupMember>();
             modelBuilder.Ignore<Domain.Entities.Itinerary>();
@@ -341,6 +346,9 @@ public class ConfirmPasswordResetFlowTests
             modelBuilder.Ignore<Domain.Entities.GroupJoinOperation>();
             modelBuilder.Ignore<Domain.Entities.ItineraryVersionOperation>();
             modelBuilder.Ignore<Domain.Entities.SystemConfig>();
+            modelBuilder.Ignore<Domain.Entities.TripSession>();
+            modelBuilder.Ignore<Domain.Entities.TripSessionItem>();
+            modelBuilder.Ignore<Domain.Entities.TripStateHistory>();
             base.OnModelCreating(modelBuilder);
         }
 

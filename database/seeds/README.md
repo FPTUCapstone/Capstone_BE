@@ -27,3 +27,14 @@ repeating registration or resetting a record between successful decisions.
 It deliberately creates no usable passwords and is not included in the normal
 schema application path. Use an existing development Administrator session to
 review the seeded records.
+
+## UC-59 active-trip detail fixtures
+
+`20261001_seed_uc59_active_trip_details.sql` is a manual, idempotent development seed.
+It adds two active sessions with itinerary progress, FSM history, weather-linked
+incidents, rerouting proposals, and location trails. One is a group journey with
+members and location-sharing flags; the other is a booked tour with an open
+weather alert. Fixture users have `example.invalid` email addresses and no
+passwords. The script does not reset existing trips or run during normal schema
+initialization. Run it only against a local development database after v7 schema
+setup; rerunning it reports the same two session IDs.

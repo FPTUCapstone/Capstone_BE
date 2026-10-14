@@ -1,10 +1,12 @@
 using MediatR;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.PointsOfInterest.Common;
+using TripMate.Application.Features.TripReviews.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -12,7 +14,8 @@ namespace TripMate.Application.Features.PointsOfInterest.Detail;
 
 public sealed class GetPoiDetailQueryHandler(
     IApplicationDbContext dbContext,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    ILogger<GetPoiDetailQueryHandler> logger)
     : IRequestHandler<GetPoiDetailQuery, Result<PoiDetailDto>>
 {
     public async Task<Result<PoiDetailDto>> Handle(
@@ -77,21 +80,30 @@ public sealed class GetPoiDetailQueryHandler(
             .Select(pt => new PoiTagDto(pt.TagId, pt.Tag.Name))
             .ToListAsync(cancellationToken);
 
-        var reviewStats = await dbContext.Reviews
-            .AsNoTracking()
-            .Where(r => r.TargetType == Review.TargetTypePoi && r.TargetId == request.Id)
-            .GroupBy(_ => 1)
-            .Select(g => new
+        var reviewStats = await dbContext.PointsOfInterest
+            .Where(point => point.Id == request.Id)
+            .Select(_ => new
             {
-                Average = g.Average(r => (decimal?)r.Rating),
-                Count = g.Count(),
+                AverageRating = TripReviewAggregateReader.QueryPoiReviews(dbContext)
+                    .Where(item => item.TargetId == request.Id)
+                    .Average(item => (decimal?)item.Rating),
+                ReviewCount = TripReviewAggregateReader.QueryPoiReviews(dbContext)
+                    .Count(item => item.TargetId == request.Id),
+                HasLegacyConflict = TripReviewAggregateReader
+                    .QueryConflictingLegacyPoiTargetIds(dbContext)
+                    .Any(targetId => targetId == request.Id),
             })
-            .FirstOrDefaultAsync(cancellationToken);
+            .SingleAsync(cancellationToken);
 
-        var averageRating = reviewStats?.Average.HasValue == true
-            ? Math.Round(reviewStats.Average.Value, 1, MidpointRounding.AwayFromZero)
-            : (decimal?)null;
-        var reviewCount = reviewStats?.Count ?? 0;
+        if (reviewStats.HasLegacyConflict)
+        {
+            logger.LogWarning(
+                "TM-79 aggregate integrity overlap: canonical review won over legacy POI review for POI {PoiId}.",
+                request.Id);
+        }
+
+        var averageRating = TripReviewAggregateDto.Round(reviewStats.AverageRating);
+        var reviewCount = reviewStats.ReviewCount;
 
         var isOpenNow = PoiOpeningState.IsOpenNow(openingHours, dateTimeProvider.UtcNow);
 
