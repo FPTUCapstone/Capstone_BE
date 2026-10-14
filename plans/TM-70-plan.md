@@ -578,3 +578,14 @@ Không dừng chỉ vì một tool lỗi nếu còn kiểm tra read-only an toà
 6. Chỉ sau khi Phase 1 đạt các gate release tương ứng mới bắt đầu G1 và Web/Mobile Phase 2; nếu muốn review code sớm, mô tả rõ các gate data/performance còn pending.
 
 **Trạng thái:** code Database + Backend cho D1 nhiều vùng đã commit và qua local full SQL-enabled suite sau merge develop; chưa áp migration lên DB cloud hoặc backfill dữ liệu vùng thật. Tình trạng push/PR/CI phải đối chiếu GitHub ở head cuối; không merge PR hoặc cập nhật Jira tự động. Web/Mobile để Phase 2.
+
+
+## PR #54 remaining-review remediation (2026-10-14)
+
+User-authorized scope: audit canonical CHECK/DEFAULT/index validation; merge develop normally; verify target SQL Server 2022, fresh/upgrade/rerun/rollback and full regression; update traceability. [Review handoff](../docs/PR54-tour-category-review.md).
+
+1. Confirm clean baseline regression and inspect migration/tests/V2 decision.
+2. Normally merge develop, inspect category diff and newer migration compatibility.
+3. Add target-version/compatibility verification to TourCategoryMigrationTests; retain fail-closed migration unless a concrete mismatch is reproduced.
+4. Verify Release build, repository formatter, category/domain/mapping tests, all SQL/Redis suites without skips and full CI on final HEAD. Local unavailable-service skips are not target evidence.
+5. Independent spec/code review, normal commit/push to existing branch, update PR evidence and READY_FOR_RE_REVIEW. No Phase 1.2/1.3, taxonomy seeds, backfill, mandatory rule or writer API.
