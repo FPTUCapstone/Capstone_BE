@@ -64,14 +64,29 @@ public sealed class PayoutsEndpointTests
     }
 
     [Fact]
-    public async Task Get_InvalidStatus_ReturnsBadRequest()
+    public async Task Get_InvalidStatus_ReturnsBadRequestWithStableErrorCode()
     {
         await using var factory = new TripMateApiFactory();
         using var client = factory.CreateAuthenticatedClient(1, UserRole.Staff);
 
         var response = await client.GetAsync("/api/v1/admin/payouts?status=SettlementProcessing");
+        var body = await response.Content.ReadAsStringAsync();
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        body.Should().Contain("payout.invalid_status");
+    }
+
+    [Fact]
+    public async Task Get_OversizedKeyword_ReturnsBadRequestWithInvalidFilterErrorCode()
+    {
+        await using var factory = new TripMateApiFactory();
+        using var client = factory.CreateAuthenticatedClient(1, UserRole.Staff);
+
+        var response = await client.GetAsync($"/api/v1/admin/payouts?keyword={new string('a', 201)}");
+        var body = await response.Content.ReadAsStringAsync();
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        body.Should().Contain("payout.invalid_filter");
     }
 
     private sealed record PayoutsResponseContract(
