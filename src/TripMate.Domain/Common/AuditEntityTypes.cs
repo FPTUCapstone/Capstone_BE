@@ -15,4 +15,7 @@ public static class AuditEntityTypes
 
     // UC-59 BR-130
     public const string TripSession = "TripSession";
+
+    // UC-64/73/74
+    public const string Payout = "Payout";
 }

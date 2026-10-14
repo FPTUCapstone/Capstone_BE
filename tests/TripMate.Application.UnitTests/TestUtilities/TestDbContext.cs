@@ -106,6 +106,8 @@ public class TestDbContext(
 
     public DbSet<ReroutingEvent> ReroutingEvents => Set<ReroutingEvent>();
 
+    public DbSet<Payout> Payouts => Set<Payout>();
+
     public int TransactionExecutionCount { get; private set; }
 
     public bool IsExecutingSerializableTransaction { get; private set; }
