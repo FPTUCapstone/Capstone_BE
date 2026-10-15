@@ -209,6 +209,58 @@ public sealed class LocalReviewContentModeratorTests
     }
 
     [Theory]
+    [InlineData("sang xịn mịn", "quá đẹp và xịn xò")]
+    [InlineData("Rất tốt", "Chuyến đi rất tốt, phục vụ chu đáo.")]
+    [InlineData("Đẹp quá", "Cảnh đẹp quá, đồ ăn ngon.")]
+    [InlineData("Tuyệt vời", "Tour này rất vui, trải nghiệm tuyệt vời.")]
+    [InlineData("Phòng sạch", "Phòng sạch và thoáng mát.")]
+    [InlineData("Nhân viên thân thiện", "Nhân viên nhiệt tình, hướng dẫn viên thân thiện.")]
+    [InlineData("Cảnh đẹp, đáng tiền", "Cảnh đẹp, tour rất đáng tiền.")]
+    [InlineData("Tour này rất vui", "Tour này rất vui, bác tài lái xe an toàn.")]
+    [InlineData("Dịch vụ tốt", "Dịch vụ tốt, mình rất hài lòng.")]
+    [InlineData("Dịch vụ tệ", "Dịch vụ tệ, hướng dẫn viên đến muộn.")]
+    [InlineData("Không tốt", "Dịch vụ không tốt, xe đón muộn.")]
+    [InlineData("Thất vọng", "Phòng chưa sạch, làm tôi rất thất vọng.")]
+    [InlineData("Chưa đáng tiền", "Giá đắt, tour chưa đáng tiền.")]
+    [InlineData("Lịch trình quá gấp", "Lịch trình quá gấp, tôi không kịp nghỉ ngơi.")]
+    [InlineData("Tôi muốn hoàn tiền", "Tour không đúng mô tả, tôi muốn hoàn tiền.")]
+    [InlineData("Không như quảng cáo", "Trải nghiệm không như quảng cáo, dịch vụ kém.")]
+    [InlineData("Đồ ăn dở", "Đồ ăn dở, phục vụ chậm.")]
+    public async Task ScreenAsync_NaturalVietnameseFeedback_IsAccepted(
+        string title,
+        string content)
+    {
+        IReviewContentModerator moderator = CreateModerator();
+
+        ReviewContentModerationResult result = await moderator.ScreenAsync(
+            ReviewText.Normalize(title, content),
+            CancellationToken.None);
+
+        result.Decision.Should().Be(ReviewModerationDecision.Accepted);
+        result.PolicyVersion.Should().Be(ReviewContentPolicy.ActiveVersion);
+        result.Categories.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData("da", "ád")]
+    [InlineData("a", "b")]
+    [InlineData("xyz", "qwe")]
+    public async Task ScreenAsync_UnclassifiableInput_FailsClosedAsUnavailable(
+        string title,
+        string content)
+    {
+        IReviewContentModerator moderator = CreateModerator();
+
+        ReviewContentModerationResult result = await moderator.ScreenAsync(
+            ReviewText.Normalize(title, content),
+            CancellationToken.None);
+
+        result.Decision.Should().Be(ReviewModerationDecision.Unavailable);
+        result.PolicyVersion.Should().BeNull();
+        result.Categories.Should().BeEmpty();
+    }
+
+    [Theory]
     [MemberData(nameof(TranslatedCategoryCases))]
     public async Task ScreenAsync_RecognizesApprovedCategoriesAcrossLanguages(
         string title,
