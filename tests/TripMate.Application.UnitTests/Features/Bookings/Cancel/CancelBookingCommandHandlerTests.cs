@@ -101,6 +101,56 @@ public sealed class CancelBookingCommandHandlerTests
         (await db.Refunds.CountAsync()).Should().Be(0);
     }
 
+    [Fact]
+    public async Task Handle_TourOperatorWithoutReason_ReturnsReasonRequired()
+    {
+        await using var db = TestDbContext.Create();
+        var departure = new DateTimeOffset(2026, 11, 15, 8, 0, 0, TimeSpan.Zero);
+        var tour = CreateTour(21, 8);
+        var schedule = CreateSchedule(31, tour, departure, reservedCapacity: 1);
+        var booking = Booking.Restore(41, 7, schedule.Id, 1, 500_000m, BookingStatus.Confirmed,
+            PaymentStatus.Paid, TravelerCancellationPolicy.DefaultSnapshot);
+        db.Tours.Add(tour); db.TourSchedules.Add(schedule); db.Bookings.Add(booking);
+        await db.SaveChangesAsync();
+        var handler = new CancelBookingCommandHandler(db,
+            new FakeCurrentUserService { UserId = 8, Role = nameof(UserRole.TourOperator) },
+            new FakeDateTimeProvider { UtcNow = departure.AddDays(-7) }, new NoIdempotencyConflict());
+
+        var result = await handler.Handle(new CancelBookingCommand(booking.Id, Guid.NewGuid(), null, null),
+            CancellationToken.None);
+
+        result.ErrorCode.Should().Be(BookingCancellationErrorCodes.ReasonRequired);
+        (await db.Bookings.SingleAsync()).Status.Should().Be(BookingStatus.Confirmed);
+    }
+
+    [Fact]
+    public async Task Handle_DeadlockVictim_RetriesBoundedlyAndReturnsTheDurableReplay()
+    {
+        await using var db = TestDbContext.Create();
+        var departure = new DateTimeOffset(2026, 11, 15, 8, 0, 0, TimeSpan.Zero);
+        var tour = CreateTour(21, 8);
+        var schedule = CreateSchedule(31, tour, departure, reservedCapacity: 1);
+        var booking = Booking.Restore(41, 7, schedule.Id, 1, 500_000m, BookingStatus.Confirmed,
+            PaymentStatus.Paid, TravelerCancellationPolicy.DefaultSnapshot);
+        db.Tours.Add(tour); db.TourSchedules.Add(schedule); db.Bookings.Add(booking);
+        db.Users.Add(new User { Id = 7, Email = "traveler@test.local", FullName = "Traveler", Role = UserRole.Traveler });
+        db.PaymentTransactions.Add(CreateSuccessfulPayment(51, booking.Id, booking.TotalAmount, departure.AddDays(-10)));
+        await db.SaveChangesAsync();
+        db.SerializableTransactionCompletionFailureFactory = attempt =>
+            attempt == 1 ? new SimulatedDeadlockException() : null;
+        var handler = new CancelBookingCommandHandler(db,
+            new FakeCurrentUserService { UserId = 7, Role = nameof(UserRole.Traveler) },
+            new FakeDateTimeProvider { UtcNow = departure.AddDays(-7) }, new NoIdempotencyConflict());
+
+        var result = await handler.Handle(new CancelBookingCommand(booking.Id, Guid.NewGuid(), null, null),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        db.TransactionExecutionCount.Should().Be(2);
+        (await db.BookingCancellationOperations.CountAsync()).Should().Be(1);
+        (await db.Refunds.CountAsync()).Should().Be(1);
+    }
+
     private static Tour CreateTour(long id, long operatorUserId)
     {
         var tour = (Tour)Activator.CreateInstance(typeof(Tour), nonPublic: true)!;

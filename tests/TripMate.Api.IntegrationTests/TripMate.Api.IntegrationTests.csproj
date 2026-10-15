@@ -127,6 +127,9 @@
     <None Include="..\..\database\migrations\20261013_remove_traveler_profile_default_budget.sql"
           Link="Database\migrations\20261013_remove_traveler_profile_default_budget.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261015_add_booking_cancellation.sql"
+          Link="Database\migrations\20261015_add_booking_cancellation.sql"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
