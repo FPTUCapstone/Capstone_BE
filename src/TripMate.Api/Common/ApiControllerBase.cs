@@ -86,6 +86,9 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             AuthErrorCodes.AdminMobileSignInDisabled =>
                 StatusCodes.Status403Forbidden,
 
+            AuthErrorCodes.LocalPasswordUnavailable =>
+                StatusCodes.Status403Forbidden,
+
             AuthErrorCodes.VerificationUnavailable =>
                 StatusCodes.Status503ServiceUnavailable,
 

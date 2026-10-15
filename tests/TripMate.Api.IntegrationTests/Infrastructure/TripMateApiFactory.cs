@@ -162,6 +162,7 @@ public sealed class TripMateApiFactory(
                 services.RemoveAll<ISchedulingRequestLock>();
                 services.RemoveAll<ITourMediaUploadLock>();
                 services.RemoveAll<ITourMediaCleanupOutboxStore>();
+                services.RemoveAll<IAccountCredentialLock>();
                 services.RemoveAll<IRouteDurationProvider>();
 
                 services.AddDbContext<TestApiDbContext>(options =>
@@ -200,6 +201,7 @@ public sealed class TripMateApiFactory(
                 services.AddScoped<ISchedulingRequestLock, NoOpSchedulingRequestLock>();
                 services.AddScoped<ITourMediaUploadLock, NoOpTourMediaUploadLock>();
                 services.AddScoped<ITourMediaCleanupOutboxStore, NoOpTourMediaCleanupOutboxStore>();
+                services.AddScoped<IAccountCredentialLock, NoOpAccountCredentialLock>();
                 services.AddScoped<IRouteDurationProvider, TestRouteDurationProvider>();
             }
             else if (saveChangesInterceptor is not null || dbInterceptor is not null)
@@ -600,6 +602,12 @@ internal sealed class NoOpTourMediaCleanupOutboxStore : ITourMediaCleanupOutboxS
 internal sealed class NoOpItineraryMutationLock : IItineraryMutationLock
 {
     public Task AcquireAsync(long itineraryId, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+}
+
+internal sealed class NoOpAccountCredentialLock : IAccountCredentialLock
+{
+    public Task AcquireAsync(long userId, CancellationToken cancellationToken) =>
         Task.CompletedTask;
 }
 

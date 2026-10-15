@@ -21,13 +21,13 @@ public class CreatePoiEndpointTests
         new(2026, 9, 8, 0, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public async Task Post_WithActiveAdministrator_ReturnsCreatedDtoWithoutPrematureLocation()
+    public async Task Post_WithActiveStaff_ReturnsCreatedDtoWithoutPrematureLocation()
     {
         await using var factory = new TripMateApiFactory();
         var seed = await SeedAsync(factory);
         using var client = factory.CreateAuthenticatedClient(
             seed.UserId,
-            UserRole.Administrator);
+            UserRole.Staff);
 
         var response = await client.PostAsJsonAsync("/api/v1/admin/pois", new
         {
@@ -55,7 +55,7 @@ public class CreatePoiEndpointTests
         var seed = await SeedAsync(factory);
         using var client = factory.CreateAuthenticatedClient(
             seed.UserId,
-            UserRole.Administrator);
+            UserRole.Staff);
 
         var response = await client.PostAsJsonAsync("/api/v1/admin/pois", new
         {
@@ -79,7 +79,7 @@ public class CreatePoiEndpointTests
         var seed = await SeedAsync(factory);
         using var client = factory.CreateAuthenticatedClient(
             seed.UserId,
-            UserRole.Administrator);
+            UserRole.Staff);
 
         var response = await client.PostAsJsonAsync("/api/v1/admin/pois", new
         {
@@ -108,7 +108,7 @@ public class CreatePoiEndpointTests
         var seed = await SeedAsync(factory);
         using var client = factory.CreateAuthenticatedClient(
             seed.UserId,
-            UserRole.Administrator);
+            UserRole.Staff);
         var requestJson = $$"""
             {
               "name": "Invalid Enum POI",
@@ -135,7 +135,7 @@ public class CreatePoiEndpointTests
         var seed = await SeedAsync(factory);
         using var client = factory.CreateAuthenticatedClient(
             seed.UserId,
-            UserRole.Administrator);
+            UserRole.Staff);
         var expectedName = new string('n', PointOfInterest.NameMaxLength);
         var expectedAddress = new string('a', PointOfInterest.AddressMaxLength);
         var expectedDescription = new string('d', PointOfInterest.DescriptionMaxLength);
@@ -176,7 +176,7 @@ public class CreatePoiEndpointTests
         var seed = await SeedAsync(factory);
         using var client = factory.CreateAuthenticatedClient(
             seed.UserId,
-            UserRole.Administrator);
+            UserRole.Staff);
 
         var response = await client.PostAsJsonAsync("/api/v1/admin/pois", new
         {
@@ -233,12 +233,15 @@ public class CreatePoiEndpointTests
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
-    [Fact]
-    public async Task Post_WithNonAdministratorRole_ReturnsForbiddenProblemDetails()
+    [Theory]
+    [InlineData(UserRole.Traveler)]
+    [InlineData(UserRole.TourOperator)]
+    [InlineData(UserRole.Administrator)]
+    public async Task Post_WithNonStaffRole_ReturnsForbiddenProblemDetails(UserRole role)
     {
         await using var factory = new TripMateApiFactory();
-        var seed = await SeedAsync(factory, UserRole.Traveler);
-        using var client = factory.CreateAuthenticatedClient(seed.UserId, UserRole.Traveler);
+        var seed = await SeedAsync(factory, role);
+        using var client = factory.CreateAuthenticatedClient(seed.UserId, role);
 
         var response = await client.PostAsJsonAsync(
             "/api/v1/admin/pois",
@@ -248,16 +251,16 @@ public class CreatePoiEndpointTests
     }
 
     [Fact]
-    public async Task Post_WithInactiveAdministrator_ReturnsForbiddenProblemDetails()
+    public async Task Post_WithInactiveStaff_ReturnsForbiddenProblemDetails()
     {
         await using var factory = new TripMateApiFactory();
         var seed = await SeedAsync(
             factory,
-            UserRole.Administrator,
+            UserRole.Staff,
             AccountStatus.Inactive);
         using var client = factory.CreateAuthenticatedClient(
             seed.UserId,
-            UserRole.Administrator);
+            UserRole.Staff);
 
         var response = await client.PostAsJsonAsync(
             "/api/v1/admin/pois",
@@ -273,7 +276,7 @@ public class CreatePoiEndpointTests
         var seed = await SeedAsync(factory);
         using var client = factory.CreateAuthenticatedClient(
             seed.UserId,
-            UserRole.Administrator);
+            UserRole.Staff);
 
         var response = await client.PostAsJsonAsync("/api/v1/admin/pois", ValidBody(999));
 
@@ -290,7 +293,7 @@ public class CreatePoiEndpointTests
         var seed = await SeedAsync(factory, includeExistingPoi: true);
         using var client = factory.CreateAuthenticatedClient(
             seed.UserId,
-            UserRole.Administrator);
+            UserRole.Staff);
 
         var response = await client.PostAsJsonAsync(
             "/api/v1/admin/pois",
@@ -311,7 +314,7 @@ public class CreatePoiEndpointTests
         var seed = await SeedAsync(factory);
         using var client = factory.CreateAuthenticatedClient(
             seed.UserId,
-            UserRole.Administrator);
+            UserRole.Staff);
 
         var response = await client.PostAsJsonAsync("/api/v1/admin/pois", new
         {
@@ -337,7 +340,7 @@ public class CreatePoiEndpointTests
         var seed = await SeedAsync(factory);
         using var client = factory.CreateAuthenticatedClient(
             seed.UserId,
-            UserRole.Administrator);
+            UserRole.Staff);
 
         var response = await client.PostAsJsonAsync("/api/v1/admin/pois", new
         {
@@ -364,7 +367,7 @@ public class CreatePoiEndpointTests
         var seed = await SeedAsync(factory);
         using var client = factory.CreateAuthenticatedClient(
             seed.UserId,
-            UserRole.Administrator);
+            UserRole.Staff);
 
         var response = await client.PostAsJsonAsync("/api/v1/admin/pois", new
         {
@@ -387,7 +390,7 @@ public class CreatePoiEndpointTests
         var seed = await SeedAsync(factory);
         using var client = factory.CreateAuthenticatedClient(
             seed.UserId,
-            UserRole.Administrator);
+            UserRole.Staff);
 
         var response = await client.PostAsJsonAsync("/api/v1/admin/pois", new
         {
@@ -442,7 +445,7 @@ public class CreatePoiEndpointTests
 
     private static Task<SeedResult> SeedAsync(
         TripMateApiFactory factory,
-        UserRole role = UserRole.Administrator,
+        UserRole role = UserRole.Staff,
         AccountStatus status = AccountStatus.Active,
         bool includeExistingPoi = false) =>
         factory.WithDbContextAsync(async context =>
