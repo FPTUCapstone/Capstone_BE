@@ -30,16 +30,16 @@ public sealed class CreatePoiCommandHandler(
             return AdminAccessRequired();
         }
 
-        var administrator = await dbContext.Users
+        var staff = await dbContext.Users
             .AsNoTracking()
             .FirstOrDefaultAsync(
                 user =>
                     user.Id == currentUserService.UserId.Value
-                    && user.Role == UserRole.Administrator
+                    && user.Role == UserRole.Staff
                     && user.Status == AccountStatus.Active,
                 cancellationToken);
 
-        if (administrator is null)
+        if (staff is null)
         {
             return AdminAccessRequired();
         }
@@ -101,7 +101,7 @@ public sealed class CreatePoiCommandHandler(
             normalizedName,
             normalizedLatitude,
             normalizedLongitude,
-            administrator.Id,
+            staff.Id,
             now,
             request.Address,
             request.Description,
@@ -132,7 +132,7 @@ public sealed class CreatePoiCommandHandler(
 
                 var persistedDto = ToResponse(pointOfInterest);
                 var audit = AuditLog.CreatePoiCreated(
-                    administrator.Id,
+                    staff.Id,
                     pointOfInterest.Id,
                     JsonSerializer.Serialize(persistedDto, AuditJsonOptions),
                     now);

@@ -10,7 +10,10 @@ using TripMate.Application.Features.Admin.AuditLogs.Common;
 using TripMate.Application.Features.Admin.TourOperatorApplications.Approve;
 using TripMate.Application.Features.Admin.TourOperatorApplications.Common;
 using TripMate.Application.Features.Admin.TourOperatorApplications.Reject;
+using TripMate.Application.Features.PointsOfInterest.Common;
+using TripMate.Application.Features.PointsOfInterest.Create;
 using TripMate.Application.UnitTests.TestUtilities;
+using TripMate.Domain.Common;
 
 namespace TripMate.Application.UnitTests.Features.Admin.AuditLogs;
 
@@ -87,6 +90,54 @@ public class AuditFailureBehaviourTests
         await act.Should().ThrowAsync<Exception>();
         _recorder.Verify(x => x.RecordAsync(It.IsAny<AuditFailureEvent>()), Times.Never);
     }
+
+    [Fact]
+    public async Task PoiCreateStateFailure_ByStaff_IsRecordedWithPoiCreateAction()
+    {
+        _user.Role = "Staff";
+        var expected = Result.Failure<PoiResponseDto>(PoiErrorCodes.ReferenceNotFound, "Missing category");
+
+        var actual = await PoiBehaviour().Handle(
+            new CreatePoiCommand("Museum", 1, null, null),
+            _ => Task.FromResult(expected),
+            CancellationToken.None);
+
+        actual.Should().BeSameAs(expected);
+        _recorder.Verify(x => x.RecordAsync(It.Is<AuditFailureEvent>(e =>
+            e.ActorUserId == 1 &&
+            e.ActionType == AuditActionTypes.PoiCreate &&
+            e.ErrorCode == PoiErrorCodes.ReferenceNotFound)), Times.Once);
+    }
+
+    [Fact]
+    public async Task PoiCreateStateFailure_ByAdministrator_IsNotRecorded()
+    {
+        // Creating a POI is a Staff action; an Administrator is rejected before any audited work.
+        _user.Role = "Administrator";
+        var failure = Result.Failure<PoiResponseDto>(PoiErrorCodes.ReferenceNotFound, "Missing category");
+
+        await PoiBehaviour().Handle(
+            new CreatePoiCommand("Museum", 1, null, null),
+            _ => Task.FromResult(failure),
+            CancellationToken.None);
+
+        _recorder.Verify(x => x.RecordAsync(It.IsAny<AuditFailureEvent>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task OperatorApplicationStateFailure_ByStaff_IsNotRecorded()
+    {
+        // Reviewing operator applications stays an Administrator action.
+        _user.Role = "Staff";
+        var failure = Result.Failure<ApproveOperatorApplicationResponseDto>(TourOperatorApplicationErrorCodes.NotPending, "Already reviewed");
+
+        await Behaviour().Handle(new(42), _ => Task.FromResult(failure), CancellationToken.None);
+
+        _recorder.Verify(x => x.RecordAsync(It.IsAny<AuditFailureEvent>()), Times.Never);
+    }
+
+    private AuditFailureBehaviour<CreatePoiCommand, Result<PoiResponseDto>> PoiBehaviour() =>
+        new(_recorder.Object, _user);
 
     private AuditFailureBehaviour<ApproveOperatorApplicationCommand, Result<ApproveOperatorApplicationResponseDto>> Behaviour() =>
         new(_recorder.Object, _user);
