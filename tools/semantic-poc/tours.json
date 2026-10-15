@@ -1,0 +1,14 @@
+[
+ {"id":91001,"title":"Khám phá Đà Nẵng và Hội An","destinations":["Đà Nẵng","Hội An"],"operator":"Du lịch Miền Trung"},
+ {"id":91002,"title":"Nghỉ dưỡng biển Phú Quốc","destinations":["Phú Quốc"],"operator":"Biển Xanh Travel"},
+ {"id":91003,"title":"Trekking núi rừng Sa Pa","destinations":["Sa Pa","Lào Cai"],"operator":"Khám Phá Việt"},
+ {"id":91004,"title":"Di sản văn hóa cố đô Huế","destinations":["Huế"],"operator":"Du lịch Miền Trung"},
+ {"id":91005,"title":"Ẩm thực phố cổ Hà Nội","destinations":["Hà Nội"],"operator":"Việt Hương"},
+ {"id":91006,"title":"Du thuyền vịnh Hạ Long","destinations":["Hạ Long","Quảng Ninh"],"operator":"Biển Xanh Travel"},
+ {"id":91007,"title":"Gia đình vui chơi Đà Lạt","destinations":["Đà Lạt"],"operator":"Khám Phá Việt"},
+ {"id":91008,"title":"Miền Tây chợ nổi Cần Thơ","destinations":["Cần Thơ"],"operator":"Sông Nước Việt"},
+ {"id":91009,"title":"Lặn biển ngắm san hô Nha Trang","destinations":["Nha Trang"],"operator":"Biển Xanh Travel"},
+ {"id":91010,"title":"Hành hương tâm linh Ninh Bình","destinations":["Ninh Bình"],"operator":"Việt Hương"},
+ {"id":91011,"title":"Phiêu lưu hang động Phong Nha","destinations":["Phong Nha","Quảng Bình"],"operator":"Khám Phá Việt"},
+ {"id":91012,"title":"Thành phố Hồ Chí Minh về đêm","destinations":["Thành phố Hồ Chí Minh"],"operator":"Sông Nước Việt"}
+]

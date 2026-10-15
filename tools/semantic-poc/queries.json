@@ -1,0 +1,14 @@
+[
+ {"type":"exact-name","query":"Nghỉ dưỡng biển Phú Quốc","relevance":{"91002":3}},
+ {"type":"accent","query":"Đà Nẵng Hội An","relevance":{"91001":3}},
+ {"type":"no-accent","query":"da nang hoi an","relevance":{"91001":3}},
+ {"type":"natural-language","query":"Tôi muốn đi leo núi ngắm rừng ở miền Bắc","relevance":{"91003":3}},
+ {"type":"synonym","query":"khám phá ẩm thực thủ đô","relevance":{"91005":3}},
+ {"type":"destination","query":"đi chơi tại Huế","relevance":{"91004":3}},
+ {"type":"travel-style","query":"nghỉ ngơi bên bãi biển","relevance":{"91002":3,"91009":1}},
+ {"type":"multi-condition","query":"gia đình vui chơi ở Đà Lạt","relevance":{"91007":3}},
+ {"type":"irrelevant","query":"sửa máy tính xách tay","relevance":{}},
+ {"type":"ambiguous","query":"khám phá Việt Nam","relevance":{"91001":1,"91003":1,"91004":1,"91008":1,"91011":1}},
+ {"type":"operator","query":"Biển Xanh Travel","relevance":{"91002":2,"91006":2,"91009":2}},
+ {"type":"natural-language","query":"ngồi thuyền tham quan chợ trên sông","relevance":{"91008":3,"91006":1}}
+]

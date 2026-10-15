@@ -1,0 +1,5 @@
+# TM-70 semantic search PoC specification
+
+Autonomous implementation authorized by 2026-10-15 mission, approval waits waived for isolated PoC. Production UC-24 unchanged: no API registrations, migrations or production data writes.
+
+CPU pinned multilingual E5 small, 384 normalized dimensions with query/passage prefixes, singleton process model. Deterministic public Title/Destination/Operator text and SHA256 freshness. Synthetic dedicated collection <=256 points; exact cosine request 257 sentinel candidates rejects oversize rather than truncates. SQL batch enforces approved/published/active operator at one snapshot; model/content freshness and stable score/id sorting before paging. Exact total describes only eligible indexed corpus, never all SQL Tours. Missing embeddings explicitly limit coverage. Input/dependency/invalid vector failures fail closed. Controlled idempotent synthetic indexing and deletion, loopback isolated Compose, labelled Vietnamese evaluation with lexical comparator, measured versus unavailable evidence, no invented thresholds.
