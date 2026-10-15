@@ -12,9 +12,11 @@ using TripMate.Application.Features.TripReviews.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
+using Xunit.Abstractions;
+
 namespace TripMate.Api.IntegrationTests.Reviews;
 
-public sealed class TripReviewAggregateSqlServerTests
+public sealed class TripReviewAggregateSqlServerTests(ITestOutputHelper output)
 {
     private static readonly DateTimeOffset Now = new(2026, 9, 30, 0, 0, 0, TimeSpan.Zero);
 
@@ -431,6 +433,130 @@ public sealed class TripReviewAggregateSqlServerTests
         var item = explore.Value.Items.Should().ContainSingle().Subject;
         item.AverageRating.Should().Be(4m);
         item.ReviewCount.Should().Be(2);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task TourProjection_R03_PreservesSqlRawMeanAndExistingDisplay()
+    {
+        await using var database = await SeedAsync();
+        await AddCanonicalAsync(database, 1, 5);
+        await database.ExecuteNonQueryAsync("""
+            INSERT social.Reviews(traveler_user_id,target_type,target_id,booking_id,rating)
+            VALUES(1,'Tour',1,1,1),(1,'Tour',1,2,4),(1,'Tour',1,NULL,5);
+            """);
+        var counter = new TestCommandCounterInterceptor();
+        await using var context = database.CreateDbContext(counter);
+        var query = TripReviewAggregateReader.QueryTourRatings(context, context.Tours.Where(t => t.Id == 1));
+        counter.CommandCount.Should().Be(0, "query construction must not perform I/O");
+
+        var row = await query.SingleAsync();
+
+        row.RawAverage.Should().Be(4.666666m);
+        row.DisplayAverage.Should().Be(4.7m);
+        row.ReviewCount.Should().Be(3, "the overlapping legacy row must not be counted");
+        counter.CommandCount.Should().Be(1);
+        counter.CommandTexts.Single().Should().Contain("UNION ALL").And.Contain("AVG(");
+        counter.CommandTexts.Single().Should().NotContain("ROUND(");
+        var existing = await TripReviewAggregateReader.ReadTourAsync(context, 1, NullLogger.Instance);
+        existing.Value.Should().Be(new TripReviewAggregateDto(4.7m, 3));
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task TourProjection_R11_UsesInclusiveRawThresholdAndNullSemantics()
+    {
+        await using var database = await SeedProjectionAsync();
+        await using var context = database.CreateDbContext();
+        var query = TripReviewAggregateReader.QueryTourRatings(context, context.Tours.Where(t => t.Id <= 5));
+
+        (await query.Where(r => r.RawAverage >= 4.6m).Select(r => r.TourId).OrderBy(id => id).ToListAsync())
+            .Should().Equal(1, 3, 4);
+        (await query.Where(r => r.RawAverage >= 4.7m).Select(r => r.TourId).OrderBy(id => id).ToListAsync())
+            .Should().Equal(3, 4);
+        (await query.Where(r => r.TourId == 2 && r.RawAverage >= 4.5m).CountAsync()).Should().Be(1);
+        var empty = await query.SingleAsync(r => r.TourId == 5);
+        empty.RawAverage.Should().BeNull();
+        empty.DisplayAverage.Should().BeNull();
+        empty.ReviewCount.Should().Be(0);
+        (await query.Where(r => r.RawAverage >= 1m).CountAsync()).Should().Be(4);
+        (await TripReviewAggregateReader.QueryTourRatings(context, context.Tours.Where(t => t.Id < 0))
+            .ToListAsync()).Should().BeEmpty();
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task TourProjection_R12_FiltersAndOrdersGloballyBeforeCountAndPagesInFixedQueries()
+    {
+        await using var database = await SeedProjectionAsync();
+        var counter = new TestCommandCounterInterceptor();
+        await using var context = database.CreateDbContext(counter);
+        var ratings = TripReviewAggregateReader.QueryTourRatings(context, context.Tours.Where(t => t.Id <= 5 || t.Id == 7));
+        var candidates = from rating in ratings
+                         join tour in context.Tours on rating.TourId equals tour.Id
+                         where rating.RawAverage >= 4.6m
+                         select new { rating.TourId, rating.RawAverage, tour.Title };
+        var ordered = candidates.OrderByDescending(r => r.RawAverage).ThenBy(r => r.Title).ThenBy(r => r.TourId);
+
+        (await candidates.LongCountAsync()).Should().Be(4);
+        (await ordered.Take(2).Select(r => r.TourId).ToListAsync()).Should().Equal(4, 7);
+        (await ordered.Skip(2).Take(2).Select(r => r.TourId).ToListAsync()).Should().Equal(3, 1);
+        (await ordered.Skip(4).Take(2).ToListAsync()).Should().BeEmpty();
+        counter.CommandCount.Should().Be(4, "count and each page are set-based, not per-Tour reads");
+        counter.CommandTexts.Should().OnlyContain(sql => !sql.Contains("ROUND("));
+        counter.CommandTexts.Last().Should().Contain("OFFSET").And.Contain("FETCH");
+        output.WriteLine("R12 SQL count:\n{0}", counter.CommandTexts.First());
+        output.WriteLine("R12 SQL page:\n{0}", counter.CommandTexts.Last());
+        counter.Reset();
+        var all = await ratings.OrderBy(r => r.RawAverage == null).ThenByDescending(r => r.RawAverage)
+            .ThenBy(r => r.TourId).Select(r => r.TourId).ToListAsync();
+        all.Should().Equal(3, 4, 7, 1, 2, 5);
+        counter.CommandCount.Should().Be(1);
+        counter.Reset();
+        (await TripReviewAggregateReader.QueryTourRatings(context, context.Tours)
+            .ToListAsync()).Should().HaveCount(7);
+        counter.CommandCount.Should().Be(1, "growing the Tour scope must not grow query count");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task TourProjection_PreservesCommerceServiceNamespacesAndCallerCancellation()
+    {
+        await using var database = await SeedAsync();
+        await AddCanonicalPoiAsync(database, 1, 5);
+        await database.ExecuteNonQueryAsync("""
+            INSERT social.Reviews(traveler_user_id,target_type,target_id,booking_id,rating)
+            VALUES(1,'Tour',1,1,3),(1,'Tour',1,NULL,3);
+            """);
+        await using var context = database.CreateDbContext();
+        var query = TripReviewAggregateReader.QueryTourRatings(context, context.Tours);
+        var row = await query.SingleAsync();
+        row.RawAverage.Should().Be(3m);
+        row.ReviewCount.Should().Be(2, "equal legitimate legacy contributions remain distinct");
+        (await context.TripReviews.CountAsync()).Should().Be(1);
+        (await context.Reviews.CountAsync()).Should().Be(2);
+        using var cancelled = new CancellationTokenSource();
+        cancelled.Cancel();
+        var act = async () => await query.ToListAsync(cancelled.Token);
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
+    private static async Task<SqlServerTestDatabase> SeedProjectionAsync()
+    {
+        var database = await SeedAsync();
+        await AddCanonicalAsync(database, 1, 5);
+        await database.ExecuteNonQueryAsync("""
+            INSERT commerce.Tours(operator_user_id,title,base_price,duration_days,status)
+            VALUES(2,N'Lower',0,1,'Approved'),(2,N'Zulu',0,1,'Approved'),
+                  (2,N'Alpha',0,1,'Approved'),(2,N'Unrated',0,1,'Approved'),
+                  (2,N'Out of scope',0,1,'Approved'),(2,N'Alpha',0,1,'Approved');
+            INSERT social.Reviews(traveler_user_id,target_type,target_id,booking_id,rating)
+            VALUES(1,'Tour',1,1,1),(1,'Tour',1,2,4),(1,'Tour',1,NULL,5),
+                  (1,'Tour',2,NULL,4),(1,'Tour',2,NULL,5),
+                  (1,'Tour',3,NULL,5),(1,'Tour',4,NULL,5),(1,'Tour',6,NULL,1),(1,'Tour',7,NULL,5),
+                  (1,'POI',1,NULL,1);
+            """);
+        return database;
     }
 
     private static async Task<SqlServerTestDatabase> SeedAsync()
