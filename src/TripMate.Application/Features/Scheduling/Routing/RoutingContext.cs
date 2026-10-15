@@ -165,24 +165,23 @@ public sealed class RoutingContext
     /// <summary>
     /// Giờ bắt đầu tham quan sớm nhất khi đến <paramref name="node"/> lúc <paramref name="arrival"/>,
     /// theo đúng quy tắc của <see cref="ItineraryScheduleEvaluator"/>: đến sớm thì chờ tới giờ mở cửa,
-    /// không chờ sang ngày hôm sau, và phải rời đi trước giờ đóng cửa của cùng ngày.
+    /// phải rời đi trước giờ đóng cửa của cùng ngày; nếu ngày đó không còn kịp (đã đóng cửa hoặc không đủ thời gian
+    /// tham quan) thì chờ tới giờ mở cửa của ngày kế tiếp còn kịp trong khung chuyến đi.
     /// </summary>
     public int StartAt(int node, int arrival)
     {
         foreach (var window in _windows[node])
         {
-            if (arrival < window.DayStart || arrival >= window.DayEnd)
+            if (arrival >= window.DayEnd || !window.HasOpening)
             {
                 continue;
             }
 
-            if (!window.HasOpening)
-            {
-                return Infeasible;
-            }
-
             var start = Math.Max(arrival, window.Open);
-            return start + Nodes[node].VisitMinutes <= window.Close ? start : Infeasible;
+            if (start + Nodes[node].VisitMinutes <= window.Close)
+            {
+                return start;
+            }
         }
 
         return Infeasible;

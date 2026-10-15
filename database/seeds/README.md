@@ -38,3 +38,15 @@ weather alert. Fixture users have `example.invalid` email addresses and no
 passwords. The script does not reset existing trips or run during normal schema
 initialization. Run it only against a local development database after v7 schema
 setup; rerunning it reports the same two session IDs.
+
+## City-centre and Hoi An planning POIs
+
+`20261015_seed_danang_city_real_pois.sql` is an idempotent manual seed that adds
+eleven real Da Nang / Hoi An places (bridges, APEC Park, My Khe Beach, Con Market,
+Linh Ung Pagoda, Non Nuoc stone village, Kim Bong, My Son, VinWonders Nam Hoi An)
+with seven daily opening-hour rows and tags. Coordinates come from Mapbox Search
+Box; each row stores its own source URL. Public spaces and Non Nuoc have no
+published hours, so their windows are TripMate planning estimates, as noted in
+the script header. The seed also sets the hand-made `TM-213 Manual …` test POIs
+to `Inactive` so they no longer enter generated itineraries. Apply it after the
+2026-09-14 planning seed; rerunning it updates the same rows.
