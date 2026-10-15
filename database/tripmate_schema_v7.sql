@@ -1117,15 +1117,24 @@ CREATE INDEX IX_Bookings_ExpiryScan ON commerce.Bookings(status, payment_expires
 GO
 
 CREATE TABLE commerce.BookingCancellationOperations (
-    operation_id       BIGINT IDENTITY(1,1) PRIMARY KEY,
-    booking_id           BIGINT NOT NULL REFERENCES commerce.Bookings(booking_id),
-    actor_user_id          BIGINT NOT NULL REFERENCES dbo.Users(user_id),
-    actor                    VARCHAR(12) NOT NULL CHECK (actor IN ('Traveler','TourOperator')),
+    operation_id       BIGINT IDENTITY(1,1) NOT NULL
+        CONSTRAINT PK_BookingCancellationOperations PRIMARY KEY,
+    booking_id           BIGINT NOT NULL,
+    actor_user_id          BIGINT NOT NULL,
+    actor                    VARCHAR(12) NOT NULL,
     idempotency_key           UNIQUEIDENTIFIER NOT NULL,
     request_hash                 CHAR(64) NOT NULL,
-    refund_amount                 DECIMAL(12,2) NOT NULL CHECK (refund_amount >= 0),
+    refund_amount                 DECIMAL(12,2) NOT NULL,
     cancelled_at                    DATETIME2 NOT NULL,
-    CONSTRAINT UX_BookingCancellationOperations_ActorKey UNIQUE (actor_user_id, idempotency_key)
+    CONSTRAINT UX_BookingCancellationOperations_ActorKey UNIQUE (actor_user_id, idempotency_key),
+    CONSTRAINT FK_BookingCancellationOperations_Booking FOREIGN KEY (booking_id)
+        REFERENCES commerce.Bookings(booking_id),
+    CONSTRAINT FK_BookingCancellationOperations_ActorUser FOREIGN KEY (actor_user_id)
+        REFERENCES dbo.Users(user_id),
+    CONSTRAINT CK_BookingCancellationOperations_Actor
+        CHECK (actor IN ('Traveler','TourOperator')),
+    CONSTRAINT CK_BookingCancellationOperations_RefundAmount
+        CHECK (refund_amount >= 0)
 );
 GO
 CREATE INDEX IX_BookingCancellationOperations_Booking
@@ -1251,7 +1260,7 @@ CREATE TABLE payment.Refunds (
     refund_id            BIGINT IDENTITY(1,1) PRIMARY KEY,
     booking_id              BIGINT NOT NULL REFERENCES commerce.Bookings(booking_id),
     transaction_id             BIGINT NULL REFERENCES payment.PaymentTransactions(transaction_id),
-    cancellation_operation_id    BIGINT NULL REFERENCES commerce.BookingCancellationOperations(operation_id),
+    cancellation_operation_id    BIGINT NULL,
     reason                        NVARCHAR(500) NULL,
     amount                          DECIMAL(12,2) NOT NULL CHECK (amount > 0),
     initiated_by                      VARCHAR(14) NOT NULL
@@ -1259,7 +1268,9 @@ CREATE TABLE payment.Refunds (
     status                              VARCHAR(10) NOT NULL DEFAULT 'Pending'
         CHECK (status IN ('Pending','Processed','Failed')),
     requested_at                          DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
-    processed_at                            DATETIME2 NULL
+    processed_at                            DATETIME2 NULL,
+    CONSTRAINT FK_Refunds_CancellationOperation FOREIGN KEY (cancellation_operation_id)
+        REFERENCES commerce.BookingCancellationOperations(operation_id)
 );
 GO
 CREATE INDEX IX_Refunds_Booking ON payment.Refunds(booking_id);
