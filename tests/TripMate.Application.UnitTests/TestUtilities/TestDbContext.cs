@@ -67,6 +67,26 @@ public class TestDbContext(
 
     public DbSet<Voucher> Vouchers => Set<Voucher>();
 
+    public DbSet<Booking> Bookings => Set<Booking>();
+
+    public DbSet<Ticket> Tickets => Set<Ticket>();
+
+    public DbSet<Refund> Refunds => Set<Refund>();
+
+    public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
+
+    public DbSet<BookingCancellationOperation> BookingCancellationOperations =>
+        Set<BookingCancellationOperation>();
+
+    public List<long> RevokedTicketQrBookingIds { get; } = [];
+
+    public Task<int> RevokeActiveTicketQrCodesAsync(long bookingId, DateTimeOffset revokedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        RevokedTicketQrBookingIds.Add(bookingId);
+        return Task.FromResult(0);
+    }
+
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
 
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
