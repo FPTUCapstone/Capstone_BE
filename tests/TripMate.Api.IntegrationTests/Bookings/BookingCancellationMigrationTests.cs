@@ -52,6 +52,27 @@ public sealed class BookingCancellationMigrationTests
             """)).Should().Be(0, "the transaction must not partially upgrade the booking table");
     }
 
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Migration_WhenSnapshotColumnHasWrongShape_RollsBackWithoutPartialUpgrade()
+    {
+        await using var database = await CreateLegacyDatabaseAsync();
+        await database.ExecuteNonQueryAsync("""
+            ALTER TABLE commerce.Bookings
+            ADD cancellation_policy_snapshot VARCHAR(500) NULL;
+            """);
+
+        Func<Task> action = () => ApplyMigrationAsync(database);
+
+        var exception = await action.Should().ThrowAsync<SqlException>();
+        exception.Which.Message.Should().Contain("booking cancellation policy snapshot column has an incompatible shape");
+        (await database.ExecuteScalarAsync<int>("""
+            SELECT COUNT(*)
+            FROM sys.tables
+            WHERE object_id = OBJECT_ID(N'commerce.BookingCancellationOperations');
+            """)).Should().Be(0, "a rejected legacy shape must leave the upgrade atomic");
+    }
+
     private static async Task<SqlServerTestDatabase> CreateLegacyDatabaseAsync()
     {
         var database = await SqlServerTestDatabase.CreateEmptyAsync();
@@ -96,6 +117,19 @@ public sealed class BookingCancellationMigrationTests
               AND column_info.max_length = 1000
               AND column_info.is_nullable = 0;
             """)).Should().Be(1);
+
+        (await database.ExecuteScalarAsync<int>("""
+            SELECT COUNT(*)
+            FROM sys.default_constraints AS default_constraint
+            INNER JOIN sys.columns AS column_info
+                ON column_info.object_id = default_constraint.parent_object_id
+               AND column_info.column_id = default_constraint.parent_column_id
+            WHERE default_constraint.parent_object_id = OBJECT_ID(N'commerce.Bookings')
+              AND column_info.name = N'cancellation_policy_snapshot'
+              AND default_constraint.name = N'DF_Bookings_CancellationPolicySnapshot'
+              AND REPLACE(REPLACE(REPLACE(default_constraint.definition, N'(', N''), N')', N''), N' ', N'') =
+                  N'N''{"atLeastSevenDaysPercent":100,"threeToSevenDaysPercent":70,"oneToThreeDaysPercent":30}''';
+            """)).Should().Be(1, "the canonical default is part of the persisted-policy contract");
 
         (await database.ExecuteScalarAsync<int>("""
             SELECT COUNT(*)

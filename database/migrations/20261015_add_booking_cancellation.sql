@@ -11,6 +11,18 @@ BEGIN TRY
     IF COL_LENGTH(N'commerce.Bookings', N'cancellation_policy_snapshot') IS NULL
         EXEC sys.sp_executesql N'ALTER TABLE commerce.Bookings ADD cancellation_policy_snapshot NVARCHAR(500) NULL;';
 
+    /* A same-name legacy column is not enough: this UC owns NVARCHAR(500). Nullability is
+       repaired below after existing rows are backfilled. */
+    IF NOT EXISTS (
+        SELECT 1
+        FROM sys.columns AS column_info
+        INNER JOIN sys.types AS type_info ON type_info.user_type_id = column_info.user_type_id
+        WHERE column_info.object_id = OBJECT_ID(N'commerce.Bookings')
+          AND column_info.name = N'cancellation_policy_snapshot'
+          AND type_info.name = N'nvarchar'
+          AND column_info.max_length = 1000)
+        THROW 51000, 'UC-41 booking cancellation policy snapshot column has an incompatible shape.', 1;
+
     EXEC sys.sp_executesql N'
         UPDATE commerce.Bookings
         SET cancellation_policy_snapshot =

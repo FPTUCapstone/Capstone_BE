@@ -2,7 +2,22 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 using TripMate.Domain.Entities;
-using TripMate.Infrastructure.Persistence.Common;
 namespace TripMate.Infrastructure.Persistence.Configurations;
 
-public sealed class RefundConfiguration : IEntityTypeConfiguration<Refund> { public void Configure(EntityTypeBuilder<Refund> b) { b.ToTable("Refunds", "payment"); b.HasKey(x => x.Id); b.Property(x => x.Id).HasColumnName("refund_id"); b.Property(x => x.BookingId).HasColumnName("booking_id"); b.Property(x => x.TransactionId).HasColumnName("transaction_id"); b.Property(x => x.Amount).HasColumnName("amount").HasPrecision(12, 2); b.Property(x => x.Status).HasColumnName("status").HasMaxLength(20); b.Property(x => x.ProcessedAtUtc).HasColumnName("processed_at").AsUtcDateTime2(); } }
+public sealed class RefundConfiguration : IEntityTypeConfiguration<Refund>
+{
+    public void Configure(EntityTypeBuilder<Refund> builder)
+    {
+        builder.ToTable("Refunds", "payment");
+        builder.HasKey(refund => refund.Id);
+        builder.Property(refund => refund.Id).HasColumnName("refund_id").ValueGeneratedOnAdd();
+        builder.Property(refund => refund.BookingId).HasColumnName("booking_id").IsRequired();
+        builder.Property(refund => refund.TransactionId).HasColumnName("transaction_id");
+        builder.Property(refund => refund.CancellationOperationId).HasColumnName("cancellation_operation_id");
+        builder.Property(refund => refund.Amount).HasColumnName("amount").HasPrecision(12, 2).IsRequired();
+        builder.Property(refund => refund.Reason).HasColumnName("reason").HasMaxLength(Refund.ReasonMaxLength);
+        builder.Property(refund => refund.InitiatedBy).HasColumnName("initiated_by").HasConversion<string>().HasMaxLength(20).IsRequired();
+        builder.Property(refund => refund.Status).HasColumnName("status").HasConversion<string>().HasMaxLength(20).IsRequired();
+        builder.Property(refund => refund.RequestedAtUtc).HasColumnName("requested_at").IsRequired();
+    }
+}

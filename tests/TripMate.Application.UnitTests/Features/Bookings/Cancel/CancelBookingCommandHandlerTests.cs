@@ -14,6 +14,41 @@ namespace TripMate.Application.UnitTests.Features.Bookings.Cancel;
 
 public sealed class CancelBookingCommandHandlerTests
 {
+    [Theory]
+    [InlineData(7, 100)]
+    [InlineData(3, 70)]
+    [InlineData(1, 30)]
+    public async Task Handle_NewBookingPersistsPolicySnapshotAndAppliesItsTier(int daysBeforeDeparture,
+        decimal expectedPercent)
+    {
+        await using var db = TestDbContext.Create();
+        var departure = new DateTimeOffset(2026, 11, 15, 8, 0, 0, TimeSpan.Zero);
+        var tour = CreateTour(21, 8);
+        var schedule = CreateSchedule(31, tour, departure, reservedCapacity: 1);
+        var booking = Booking.Create(7, schedule.Id, 1, 1_000m, BookingStatus.Confirmed,
+            PaymentStatus.Paid);
+        db.Tours.Add(tour);
+        db.TourSchedules.Add(schedule);
+        db.Bookings.Add(booking);
+        db.Users.Add(new User { Id = 7, Email = "traveler@test.local", FullName = "Traveler", Role = UserRole.Traveler });
+        await db.SaveChangesAsync();
+        db.PaymentTransactions.Add(CreateSuccessfulPayment(51, booking.Id, booking.TotalAmount, departure.AddDays(-10)));
+        await db.SaveChangesAsync();
+        db.ClearTrackedEntities();
+
+        var handler = new CancelBookingCommandHandler(db,
+            new FakeCurrentUserService { UserId = 7, Role = nameof(UserRole.Traveler) },
+            new FakeDateTimeProvider { UtcNow = departure.AddDays(-daysBeforeDeparture) }, new NoIdempotencyConflict());
+
+        var result = await handler.Handle(new CancelBookingCommand(booking.Id, Guid.NewGuid(), null, null),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.RefundAmount.Should().Be(1_000m * expectedPercent / 100m);
+        (await db.Bookings.SingleAsync()).CancellationPolicySnapshot
+            .Should().Be(Booking.DefaultCancellationPolicySnapshot);
+    }
+
     [Fact]
     public async Task Handle_TravelerCancellationSevenDaysBeforeDeparture_CancelsAndCreatesPendingRefund()
     {

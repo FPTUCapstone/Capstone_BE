@@ -76,6 +76,11 @@ public sealed class BookingConfiguration : IEntityTypeConfiguration<Booking>
         builder.Property(booking => booking.CancelReason)
             .HasColumnName("cancel_reason")
             .HasMaxLength(Booking.CancelReasonMaxLength);
+        builder.Property(booking => booking.CancellationPolicySnapshot)
+            .HasColumnName("cancellation_policy_snapshot")
+            .HasMaxLength(Booking.PolicySnapshotMaxLength)
+            .HasDefaultValue(Booking.DefaultCancellationPolicySnapshot)
+            .IsRequired();
 
         builder.Ignore(booking => booking.SubtotalAmount);
 
@@ -89,6 +94,10 @@ public sealed class BookingConfiguration : IEntityTypeConfiguration<Booking>
         builder.HasMany(booking => booking.Participants)
             .WithOne(participant => participant.Booking)
             .HasForeignKey(participant => participant.BookingId)
+            .OnDelete(DeleteBehavior.Cascade);
+        builder.HasMany(booking => booking.Tickets)
+            .WithOne()
+            .HasForeignKey(ticket => ticket.BookingId)
             .OnDelete(DeleteBehavior.Cascade);
 
         builder.HasIndex(booking => booking.BookingCode).IsUnique().HasDatabaseName("UX_Bookings_BookingCode");
