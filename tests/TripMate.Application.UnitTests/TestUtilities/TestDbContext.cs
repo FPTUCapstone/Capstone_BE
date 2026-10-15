@@ -106,6 +106,8 @@ public class TestDbContext(
 
     public DbSet<ReroutingEvent> ReroutingEvents => Set<ReroutingEvent>();
 
+    public DbSet<Payout> Payouts => Set<Payout>();
+
     public int TransactionExecutionCount { get; private set; }
 
     public bool IsExecutingSerializableTransaction { get; private set; }
@@ -115,6 +117,10 @@ public class TestDbContext(
     public int SaveChangesAsyncCallCount { get; private set; }
 
     public List<string> FinalizedOperatorDocumentCleanupPublicIds { get; } = [];
+
+    public List<string> FinalizedTravelerAvatarPublicIds { get; } = [];
+
+    public List<string> EnqueuedTravelerAvatarPublicIds { get; } = [];
 
     public bool ThrowOnSaveConcurrency { get; set; }
 
@@ -190,6 +196,19 @@ public class TestDbContext(
         CancellationToken cancellationToken)
     {
         FinalizedOperatorDocumentCleanupPublicIds.AddRange(publicIds);
+        return Task.CompletedTask;
+    }
+
+    public Task FinalizeTravelerAvatarReservationAsync(string publicId, CancellationToken cancellationToken)
+    {
+        FinalizedTravelerAvatarPublicIds.Add(publicId);
+        return Task.CompletedTask;
+    }
+
+    public Task EnqueueTravelerAvatarCleanupAsync(string publicId, DateTimeOffset nowUtc,
+        CancellationToken cancellationToken)
+    {
+        EnqueuedTravelerAvatarPublicIds.Add(publicId);
         return Task.CompletedTask;
     }
 

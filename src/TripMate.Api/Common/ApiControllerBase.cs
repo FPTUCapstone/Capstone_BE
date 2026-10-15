@@ -104,6 +104,9 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             AuthErrorCodes.EmailAlreadyRegistered =>
                 StatusCodes.Status409Conflict,
 
+            AuthErrorCodes.MsgPhoneDup =>
+                StatusCodes.Status409Conflict,
+
             AuthErrorCodes.Msg159 or AuthErrorCodes.Msg160 =>
                 StatusCodes.Status409Conflict,
 
@@ -122,6 +125,13 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripMate.Application.Features.Operator.Application.Common.OperatorApplicationErrorCodes.MissingBusinessLicense or
                 TripMate.Application.Features.Operator.Application.Common.OperatorApplicationErrorCodes.InvalidDocument =>
                 StatusCodes.Status400BadRequest,
+
+            TripMate.Application.Features.Traveler.Profile.Common.TravelerProfileErrorCodes.Forbidden =>
+                StatusCodes.Status403Forbidden,
+
+            TripMate.Application.Features.Traveler.Profile.Common.TravelerProfileErrorCodes.NotFound =>
+                StatusCodes.Status404NotFound,
+
 
             TripMate.Application.Features.Admin.AuditLogs.Common.AuditLogErrorCodes.Forbidden =>
                 StatusCodes.Status403Forbidden,
@@ -146,6 +156,12 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
 
             TripMate.Application.Features.Admin.ActiveTrips.GetList.ActiveTripErrorCodes.NotFound =>
                 StatusCodes.Status404NotFound,
+
+            TripMate.Application.Features.Admin.Payouts.GetList.PayoutErrorCodes.Forbidden =>
+                StatusCodes.Status403Forbidden,
+
+            TripMate.Application.Features.Admin.Payouts.GetList.PayoutErrorCodes.InvalidPeriodRange =>
+                StatusCodes.Status400BadRequest,
 
             TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.Forbidden =>
                 StatusCodes.Status403Forbidden,

@@ -141,7 +141,8 @@ public sealed class TripMateApiFactory(
                 if (services[index].ServiceType == typeof(IHostedService)
                     && (services[index].ImplementationType == typeof(TripMate.Infrastructure.Reviews.Media.ReviewMediaRecoveryService)
                         || services[index].ImplementationType?.FullName
-                            == "TripMate.Infrastructure.Services.TourMediaCleanupBackgroundService"))
+                            is "TripMate.Infrastructure.Services.TourMediaCleanupBackgroundService"
+                            or "TripMate.Infrastructure.Services.TravelerAvatarCleanupBackgroundService"))
                 {
                     services.RemoveAt(index);
                 }
@@ -393,6 +394,7 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<OperatorProfile> OperatorProfiles => Set<OperatorProfile>();
     public DbSet<OperatorDocument> OperatorDocuments => Set<OperatorDocument>();
     public DbSet<Tour> Tours => Set<Tour>();
+    public DbSet<TourCategory> TourCategories => Set<TourCategory>();
     public DbSet<TourSchedule> TourSchedules => Set<TourSchedule>();
     public DbSet<Destination> Destinations => Set<Destination>();
     public DbSet<TourDestination> TourDestinations => Set<TourDestination>();
@@ -443,6 +445,8 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<WeatherEvent> WeatherEvents => Set<WeatherEvent>();
 
     public DbSet<ReroutingEvent> ReroutingEvents => Set<ReroutingEvent>();
+
+    public DbSet<Payout> Payouts => Set<Payout>();
 
     public async Task<int> RevokeRefreshTokenAsync(
         string tokenHash,
