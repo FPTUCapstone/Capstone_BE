@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Authentication.Common;
+using TripMate.Application.Features.Bookings.Common;
 using TripMate.Application.Features.CommercialServices.Common;
 using TripMate.Application.Features.Coupons.Common;
 using TripMate.Application.Features.Navigation.Common;
@@ -252,6 +253,15 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
                 StatusCodes.Status422UnprocessableEntity,
             TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.IdempotencyKeyRequired =>
                 StatusCodes.Status400BadRequest,
+
+            BookingCancellationErrorCodes.Unauthorized => StatusCodes.Status401Unauthorized,
+            BookingCancellationErrorCodes.NotFound => StatusCodes.Status404NotFound,
+            BookingCancellationErrorCodes.Forbidden => StatusCodes.Status403Forbidden,
+            BookingCancellationErrorCodes.InvalidState or
+                BookingCancellationErrorCodes.PaymentNotRefundable or
+                BookingCancellationErrorCodes.IdempotencyPayloadMismatch => StatusCodes.Status409Conflict,
+            BookingCancellationErrorCodes.WindowClosed => StatusCodes.Status422UnprocessableEntity,
+            BookingCancellationErrorCodes.PolicyUnavailable => StatusCodes.Status503ServiceUnavailable,
 
             TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.ItineraryNotFound =>
                 StatusCodes.Status404NotFound,
