@@ -112,21 +112,21 @@ public sealed class AuditMigrationSqlServerTests
     public async Task Http_WhenSuccessAuditFails_RollsBackBusinessAndPersistsIndependentFailure()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
-        User admin;
+        User staff;
         int categoryId;
         await using (var db = database.CreateDbContext())
         {
-            admin = new User
+            staff = new User
             {
                 Email = "rollback@example.com",
-                FullName = "Administrator",
-                Role = UserRole.Administrator,
+                FullName = "Staff",
+                Role = UserRole.Staff,
                 Status = AccountStatus.Active,
                 CreatedAtUtc = Boundary,
                 UpdatedAtUtc = Boundary
             };
             var category = PoiCategory.Create("Rollback test", null);
-            db.Users.Add(admin);
+            db.Users.Add(staff);
             db.PoiCategories.Add(category);
             await db.SaveChangesAsync();
             categoryId = category.Id;
@@ -136,7 +136,7 @@ public sealed class AuditMigrationSqlServerTests
             CHECK (action_type <> 'POI_CREATE' OR result <> 'Success');
             """);
         await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer, database.ConnectionString);
-        var token = factory.Services.GetRequiredService<IJwtTokenService>().GenerateAccessToken(admin).Token;
+        var token = factory.Services.GetRequiredService<IJwtTokenService>().GenerateAccessToken(staff).Token;
         using var client = factory.CreateJwtClient(token);
         var response = await client.PostAsJsonAsync("/api/v1/admin/pois",
             new CreatePoiCommand("Rollback POI", categoryId, 11.94m, 108.43m, "Da Lat", "Rollback test",
@@ -149,7 +149,7 @@ public sealed class AuditMigrationSqlServerTests
         (await verification.PoiTags.CountAsync()).Should().Be(0);
         var failure = await verification.AuditLogs.AsNoTracking().SingleAsync();
         failure.Result.Should().Be(AuditOutcome.Failure);
-        failure.ActorUserId.Should().Be(admin.Id);
+        failure.ActorUserId.Should().Be(staff.Id);
         failure.ActionType.Should().Be("POI_CREATE");
         failure.BeforeData.Should().BeNull();
         using var metadata = JsonDocument.Parse(failure.AfterData!);

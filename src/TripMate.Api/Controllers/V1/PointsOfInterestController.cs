@@ -11,7 +11,7 @@ using TripMate.Domain.Enums;
 
 namespace TripMate.Api.Controllers.V1;
 
-[Authorize(Roles = nameof(UserRole.Administrator))]
+[Authorize(Roles = nameof(UserRole.Staff))]
 [ForbiddenProblemDetails(
     PoiErrorCodes.AdminAccessRequired,
     PoiErrorMessages.AdminAccessRequired)]
