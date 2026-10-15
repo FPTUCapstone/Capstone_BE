@@ -6,6 +6,12 @@ on:
     branches:
       - develop
 
+# A newer push to the same pull request supersedes the older run, so cancel it. Runs on develop
+# are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -124,4 +130,7 @@ jobs:
               raise SystemExit('Redis integration suite did not fully execute')
           PY
 
-      - run: dotnet test TripMate.slnx -c Release --no-restore
+      # The SQL Server and Redis suites already ran above (and are asserted to run without skips),
+      # so exclude them here instead of executing them a second time.
+      - name: Run remaining tests
+        run: dotnet test TripMate.slnx -c Release --no-restore --filter "Category!=SqlServer&Category!=Redis"
