@@ -247,6 +247,10 @@ public static class DependencyInjection
         // UC-06 password reset: zero DB schema; reset state lives in process-local memory only.
         services.AddSingleton<IPasswordResetStateStore, InMemoryPasswordResetStateStore>();
         services.AddSingleton<IPasswordResetAccountLock, InMemoryPasswordResetAccountLock>();
+
+        // UC-07 change password: serializes concurrent attempts for one account so a second
+        // request cannot revoke a session the first just issued.
+        services.AddSingleton<IAccountCredentialLock, InMemoryAccountCredentialLock>();
         services.AddSingleton<IOtpCodeGenerator, CryptographicOtpCodeGenerator>();
         services.AddSingleton<IOtpProtectionService, HmacOtpProtectionService>();
         services.AddSingleton<IRequestTimingNormalizer, ResponseTimingNormalizer>();
