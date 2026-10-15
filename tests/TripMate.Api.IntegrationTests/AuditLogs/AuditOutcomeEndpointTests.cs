@@ -104,7 +104,9 @@ public class AuditOutcomeEndpointTests
         var adminId = await SeedAdmin(factory);
         using var admin = factory.CreateAuthenticatedClient(adminId, UserRole.Administrator);
         using var traveler = factory.CreateAuthenticatedClient(adminId, UserRole.Traveler);
-        (await admin.PostAsJsonAsync("/api/v1/admin/pois", new { name = "", categoryId = 1 })).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        using var staff = factory.CreateAuthenticatedClient(adminId, UserRole.Staff);
+        (await staff.PostAsJsonAsync("/api/v1/admin/pois", new { name = "", categoryId = 1 })).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await admin.PostAsJsonAsync("/api/v1/admin/pois", new { name = "", categoryId = 1 })).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await traveler.PostAsync("/api/v1/admin/tour-operator-applications/999/approve", null)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await admin.GetAsync("/api/v1/admin/audit-logs/999")).StatusCode.Should().Be(HttpStatusCode.NotFound);
         (await factory.WithDbContextAsync(db => db.AuditLogs.CountAsync())).Should().Be(0);

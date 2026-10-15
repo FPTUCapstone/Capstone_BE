@@ -18,6 +18,9 @@ public static class AuditActionTypes
     // UC-05 Sign Out
     public const string AuthSignOut = "AUTH_SIGN_OUT";
 
+    // UC-07 Change Password
+    public const string AuthChangePassword = "AUTH_CHANGE_PASSWORD";
+
     public const string AlgorithmParametersUpdate = "UpdateAlgorithmParameters";
     // UC-59 BR-130: Administrator access to active trip details
     public const string ActiveTripDetailsViewed = "ViewActiveTripDetails";

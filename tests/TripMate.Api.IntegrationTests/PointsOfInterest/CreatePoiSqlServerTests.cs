@@ -227,16 +227,16 @@ public sealed class CreatePoiSqlServerTests
         await using var factory = new TripMateApiFactory(
             ApiTestAuthenticationMode.JwtBearer,
             database.ConnectionString);
-        User administrator;
+        User staff;
         await using (var context = database.CreateDbContext())
         {
-            administrator = await context.Users
+            staff = await context.Users
                 .AsNoTracking()
                 .SingleAsync(user => user.Id == seed.UserId);
         }
 
         var tokenService = factory.Services.GetRequiredService<IJwtTokenService>();
-        var token = tokenService.GenerateAccessToken(administrator).Token;
+        var token = tokenService.GenerateAccessToken(staff).Token;
         using var client = factory.CreateJwtClient(token);
 
         var response = await client.PostAsJsonAsync(
@@ -327,8 +327,8 @@ public sealed class CreatePoiSqlServerTests
         var user = new User
         {
             Email = "sql-integration-test@example.com",
-            FullName = "SQL Integration Test Administrator",
-            Role = UserRole.Administrator,
+            FullName = "SQL Integration Test Staff",
+            Role = UserRole.Staff,
             Status = AccountStatus.Active,
             CreatedAtUtc = TestTime,
             UpdatedAtUtc = TestTime,
@@ -380,7 +380,7 @@ public sealed class CreatePoiSqlServerTests
     {
         public long? UserId { get; } = userId;
 
-        public string? Role { get; } = nameof(UserRole.Administrator);
+        public string? Role { get; } = nameof(UserRole.Staff);
     }
 
     private sealed class TestDateTimeProvider(DateTimeOffset utcNow) : IDateTimeProvider

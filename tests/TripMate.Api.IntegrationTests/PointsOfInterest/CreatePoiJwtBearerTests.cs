@@ -54,10 +54,10 @@ public sealed class CreatePoiJwtBearerTests
     }
 
     [Theory]
-    [InlineData(UserRole.Staff)]
+    [InlineData(UserRole.Administrator)]
     [InlineData(UserRole.Traveler)]
     [InlineData(UserRole.TourOperator)]
-    public async Task Post_WithNonAdministratorProductionJwt_ReturnsForbidden(UserRole role)
+    public async Task Post_WithNonStaffProductionJwt_ReturnsForbidden(UserRole role)
     {
         await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
         var tokenService = factory.Services.GetRequiredService<IJwtTokenService>();
@@ -79,12 +79,12 @@ public sealed class CreatePoiJwtBearerTests
     }
 
     [Fact]
-    public async Task Post_WithProductionJwtForActiveAdministrator_ReturnsCreated()
+    public async Task Post_WithProductionJwtForActiveStaff_ReturnsCreated()
     {
         await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
         var seed = await SeedAsync(factory);
         var tokenService = factory.Services.GetRequiredService<IJwtTokenService>();
-        var token = tokenService.GenerateAccessToken(seed.Administrator).Token;
+        var token = tokenService.GenerateAccessToken(seed.Staff).Token;
         using var client = factory.CreateJwtClient(token);
 
         var response = await client.PostAsJsonAsync(
@@ -105,23 +105,23 @@ public sealed class CreatePoiJwtBearerTests
     private static Task<SeedResult> SeedAsync(TripMateApiFactory factory) =>
         factory.WithDbContextAsync(async context =>
         {
-            var administrator = new User
+            var staff = new User
             {
                 Email = $"{Guid.NewGuid():N}@example.com",
-                FullName = "JWT Pipeline Administrator",
-                Role = UserRole.Administrator,
+                FullName = "JWT Pipeline Staff",
+                Role = UserRole.Staff,
                 Status = AccountStatus.Active,
                 CreatedAtUtc = SeedTime,
                 UpdatedAtUtc = SeedTime,
             };
             var category = PoiCategory.Create("JWT Test Category", null);
 
-            context.Users.Add(administrator);
+            context.Users.Add(staff);
             context.PoiCategories.Add(category);
             await context.SaveChangesAsync();
 
-            return new SeedResult(administrator, category.Id);
+            return new SeedResult(staff, category.Id);
         });
 
-    private sealed record SeedResult(User Administrator, int CategoryId);
+    private sealed record SeedResult(User Staff, int CategoryId);
 }

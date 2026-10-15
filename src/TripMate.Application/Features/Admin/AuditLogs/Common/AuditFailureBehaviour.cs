@@ -23,20 +23,22 @@ public sealed class AuditFailureBehaviour<TRequest, TResponse>(
     public async Task<TResponse> Handle(TRequest request, RequestHandlerDelegate<TResponse> next,
         CancellationToken cancellationToken)
     {
+        // The last element is the role allowed to perform the audited command. Creating a POI is a
+        // Staff action; the other audited commands remain Administrator actions.
         var target = request switch
         {
-            CreatePoiCommand => (AuditActionTypes.PoiCreate, AuditEntityTypes.PointOfInterest, (long?)null),
+            CreatePoiCommand => (AuditActionTypes.PoiCreate, AuditEntityTypes.PointOfInterest, (long?)null, "Staff"),
             ApproveOperatorApplicationCommand command =>
                 (AuditActionTypes.OperatorApplicationApprove, AuditEntityTypes.OperatorProfile,
-                    command.UserId > 0 ? (long?)command.UserId : null),
+                    command.UserId > 0 ? (long?)command.UserId : null, "Administrator"),
             RejectOperatorApplicationCommand command =>
                 (AuditActionTypes.OperatorApplicationReject, AuditEntityTypes.OperatorProfile,
-                    command.UserId > 0 ? (long?)command.UserId : null),
+                    command.UserId > 0 ? (long?)command.UserId : null, "Administrator"),
             UpdateAlgorithmParametersCommand =>
-                (AuditActionTypes.AlgorithmParametersUpdate, AuditEntityTypes.SystemConfig, (long?)null),
+                (AuditActionTypes.AlgorithmParametersUpdate, AuditEntityTypes.SystemConfig, (long?)null, "Administrator"),
             _ => default,
         };
-        if (target.Item1 is null || currentUser.UserId is not > 0 || currentUser.Role != "Administrator")
+        if (target.Item1 is null || currentUser.UserId is not > 0 || currentUser.Role != target.Item4)
         {
             return await next(cancellationToken);
         }
