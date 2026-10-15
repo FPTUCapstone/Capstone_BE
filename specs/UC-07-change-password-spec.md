@@ -82,7 +82,9 @@ Both routes delegate to the same command/handler. The exact existing authenticat
 | Confirmation mismatch | prevented client-side; Backend does not receive confirmation | `MSG04` on client |
 | Unauthenticated, expired, or invalid access token | 401 | Sign in again |
 | Authenticated account cannot use a local password | 403 problem code to be named during implementation | Safe local-password-unavailable feedback; no password is created |
-| Database/session issuance failure | 5xx, `MSG127` | Generic retry feedback |
+| Unexpected infrastructure failure (transaction/DB failure, refresh-token revoke failure, token-service/signing unavailable) | 5xx, `MSG127` | Generic retry feedback |
+
+**MSG127 usage:** Only for unexpected runtime infrastructure failures — never for business-logic failures. Do not return `MSG127` for: incorrect current password (use `MSG17`), weak new password (use `MSG03`), duplicate password (use `MSG03`), missing field (use `MSG01`), expired/invalid access token (use 401), or ineligible account (use 403).
 
 Because this is a self-service authenticated operation, `MSG17` for the caller's own current credential is permitted by SRS.
 
@@ -91,14 +93,15 @@ Because this is a self-service authenticated operation, `MSG17` for the caller's
 Within one existing database transaction:
 
 1. Load the authenticated user with tracking.
-2. Verify current password and validate the new password before mutation.
-3. Hash and set the new password; set `UpdatedAtUtc` from `IDateTimeProvider`.
-4. Revoke every active refresh token for the subject.
-5. Generate, hash, and persist one replacement refresh token associated with the authenticated caller/device context.
-6. Persist password and session changes atomically.
-7. Commit, then return replacement access and refresh tokens.
+2. Verify current password and validate the new password before mutation. **Stop and return failure if either check fails** — do not proceed to mutation step.
+3. Hash the new password; set `password_hash` and `UpdatedAtUtc` from `IDateTimeProvider`.
+4. **Revoke every active refresh token** for the subject in the same transaction (all rows matching `dbo.RefreshTokens.user_id` and active status).
+5. Generate, hash, and persist **exactly one** replacement refresh token associated with the authenticated caller/device context using existing token-generation and secure-storage semantics.
+6. Commit the transaction. **Only after commit succeeds**, return the replacement access token and refresh token to the caller.
 
-If the transaction fails, no replacement session is returned. Audit persistence must use the existing project convention without exposing secrets.
+**Failure semantics:** If any step fails — password validation fails, hash update fails, refresh-token revoke fails, refresh-token insert fails, or transaction commit fails — the entire transaction rolls back. The old password hash and all prior refresh tokens remain unchanged. The caller receives a failure response without a replacement session.
+
+Audit persistence must use the existing project convention without exposing secrets.
 
 ## 7. Acceptance criteria
 
