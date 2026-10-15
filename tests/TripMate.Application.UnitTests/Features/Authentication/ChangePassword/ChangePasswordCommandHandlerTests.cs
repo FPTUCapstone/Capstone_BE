@@ -1,0 +1,248 @@
+using FluentAssertions;
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
+
+using TripMate.Application.Features.Authentication.ChangePassword;
+using TripMate.Application.Features.Authentication.Common;
+using TripMate.Application.UnitTests.TestUtilities;
+using TripMate.Domain.Entities;
+using TripMate.Domain.Enums;
+
+using Xunit;
+
+namespace TripMate.Application.UnitTests.Features.Authentication.ChangePassword;
+
+public class ChangePasswordCommandHandlerTests
+{
+    private readonly FakePasswordHasher _passwordHasher = new();
+    private readonly FakeJwtTokenService _jwtTokenService = new();
+    private readonly FakeDateTimeProvider _dateTimeProvider = new();
+
+    [Fact]
+    public async Task Handle_WithCorrectCurrentAndValidDistinctNewPassword_ReplacesHashAndIssuesOneReplacementSession()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var user = await SeedUser(dbContext, "CurrentPass1!");
+        var oldHash = user.PasswordHash;
+        await SeedRefreshToken(dbContext, user.Id, revoked: false);
+        await SeedRefreshToken(dbContext, user.Id, revoked: false);
+
+        var result = await CreateHandler(dbContext).Handle(
+            new ChangePasswordCommand("CurrentPass1!", "NewPass2@", user.Id),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        user.PasswordHash.Should().NotBe(oldHash);
+        user.PasswordHash.Should().Be(_passwordHasher.Hash("NewPass2@"));
+        user.UpdatedAtUtc.Should().Be(_dateTimeProvider.UtcNow);
+
+        var tokens = await dbContext.RefreshTokens.Where(t => t.UserId == user.Id).ToListAsync();
+        tokens.Should().HaveCount(3);
+        tokens.Where(t => t.RevokedAtUtc == null).Should().ContainSingle();
+        tokens.Count(t => t.RevokedAtUtc is not null).Should().Be(2);
+
+        result.Value.AccessToken.Should().Be($"access-token-for-{user.Id}");
+        result.Value.RefreshToken.Should().NotBeNullOrEmpty();
+        _jwtTokenService.AccessTokenGenerationCount.Should().Be(1);
+        _jwtTokenService.RefreshTokenGenerationCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Handle_OnSuccess_RecordsAuditEventWithNoSecretData()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var user = await SeedUser(dbContext, "CurrentPass1!");
+
+        var result = await CreateHandler(dbContext).Handle(
+            new ChangePasswordCommand("CurrentPass1!", "NewPass2@", user.Id),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var audit = await dbContext.AuditLogs.SingleAsync(a => a.ActorUserId == user.Id);
+        audit.ActionType.Should().Be(TripMate.Domain.Common.AuditActionTypes.AuthChangePassword);
+        audit.AffectedEntityId.Should().Be(user.Id);
+        audit.BeforeData.Should().BeNull();
+        (audit.AfterData ?? string.Empty).Should().NotContain("CurrentPass1!")
+            .And.NotContain("NewPass2@")
+            .And.NotContain(user.PasswordHash!)
+            .And.NotContain(result.Value.AccessToken)
+            .And.NotContain(result.Value.RefreshToken);
+    }
+
+    [Fact]
+    public async Task Handle_WithWrongCurrentPassword_ReturnsMsg17AndMakesNoMutation()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var user = await SeedUser(dbContext, "CurrentPass1!");
+        var oldHash = user.PasswordHash;
+        await SeedRefreshToken(dbContext, user.Id, revoked: false);
+
+        var result = await CreateHandler(dbContext).Handle(
+            new ChangePasswordCommand("WrongPass1!", "NewPass2@", user.Id),
+            CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(AuthErrorCodes.Msg17);
+        user.PasswordHash.Should().Be(oldHash);
+        (await dbContext.RefreshTokens.Where(t => t.UserId == user.Id).ToListAsync())
+            .Should().ContainSingle(t => t.RevokedAtUtc == null);
+        _jwtTokenService.AccessTokenGenerationCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Handle_WithNewPasswordEqualToCurrent_ReturnsMsg05AndMakesNoMutation()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var user = await SeedUser(dbContext, "CurrentPass1!");
+        var oldHash = user.PasswordHash;
+
+        var result = await CreateHandler(dbContext).Handle(
+            new ChangePasswordCommand("CurrentPass1!", "CurrentPass1!", user.Id),
+            CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(AuthErrorCodes.Msg05);
+        user.PasswordHash.Should().Be(oldHash);
+        _jwtTokenService.AccessTokenGenerationCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Handle_WithNoLocalPassword_ReturnsLocalPasswordUnavailableAndMakesNoMutation()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var user = new User
+        {
+            Email = "google-only@example.com",
+            FullName = "Google Only",
+            PasswordHash = null,
+            Role = UserRole.Traveler,
+            Status = AccountStatus.Active,
+            CreatedAtUtc = _dateTimeProvider.UtcNow,
+            UpdatedAtUtc = _dateTimeProvider.UtcNow,
+        };
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync(CancellationToken.None);
+
+        var result = await CreateHandler(dbContext).Handle(
+            new ChangePasswordCommand("Anything1!", "NewPass2@", user.Id),
+            CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(AuthErrorCodes.LocalPasswordUnavailable);
+        user.PasswordHash.Should().BeNull();
+        _jwtTokenService.AccessTokenGenerationCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Handle_WithUnknownSubjectUserId_ReturnsLocalPasswordUnavailable()
+    {
+        await using var dbContext = TestDbContext.Create();
+
+        var result = await CreateHandler(dbContext).Handle(
+            new ChangePasswordCommand("Anything1!", "NewPass2@", 999),
+            CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(AuthErrorCodes.LocalPasswordUnavailable);
+    }
+
+    [Fact]
+    public async Task Handle_WhenTransactionThrows_RollsBackAndReturnsMsg127WithNoMutation()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var user = await SeedUser(dbContext, "CurrentPass1!");
+        var oldHash = user.PasswordHash;
+        await SeedRefreshToken(dbContext, user.Id, revoked: false);
+        dbContext.ThrowOnTransaction = new InvalidOperationException("Simulated revoke/insert failure.");
+
+        var result = await CreateHandler(dbContext).Handle(
+            new ChangePasswordCommand("CurrentPass1!", "NewPass2@", user.Id),
+            CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(AuthErrorCodes.Msg127);
+        user.PasswordHash.Should().Be(oldHash);
+        (await dbContext.RefreshTokens.Where(t => t.UserId == user.Id).ToListAsync())
+            .Should().ContainSingle(t => t.RevokedAtUtc == null);
+        _jwtTokenService.AccessTokenGenerationCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Handle_WhenCommitFails_ReturnsMsg127AndDoesNotReturnCredentials()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var user = await SeedUser(dbContext, "CurrentPass1!");
+        dbContext.TransactionCompletionFailureFactory =
+            _ => new InvalidOperationException("Simulated commit failure.");
+
+        var result = await CreateHandler(dbContext).Handle(
+            new ChangePasswordCommand("CurrentPass1!", "NewPass2@", user.Id),
+            CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(AuthErrorCodes.Msg127);
+        _jwtTokenService.AccessTokenGenerationCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Handle_RevokesOnlyTheSubjectsTokens_LeavingOtherUsersUntouched()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var user = await SeedUser(dbContext, "CurrentPass1!");
+        var otherUser = await SeedUser(dbContext, "OtherPass1!", email: "other@example.com");
+        await SeedRefreshToken(dbContext, user.Id, revoked: false);
+        var otherToken = await SeedRefreshToken(dbContext, otherUser.Id, revoked: false);
+
+        var result = await CreateHandler(dbContext).Handle(
+            new ChangePasswordCommand("CurrentPass1!", "NewPass2@", user.Id),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        (await dbContext.RefreshTokens.FindAsync(otherToken.Id))!.RevokedAtUtc.Should().BeNull();
+    }
+
+    private ChangePasswordCommandHandler CreateHandler(TestDbContext dbContext) =>
+        new(dbContext, _passwordHasher, _jwtTokenService, _dateTimeProvider,
+            NullLogger<ChangePasswordCommandHandler>.Instance);
+
+    private async Task<User> SeedUser(
+        TestDbContext dbContext,
+        string password,
+        string email = "user@example.com",
+        UserRole role = UserRole.Traveler)
+    {
+        var user = new User
+        {
+            Email = email,
+            FullName = "Test User",
+            PasswordHash = _passwordHasher.Hash(password),
+            Role = role,
+            Status = AccountStatus.Active,
+            CreatedAtUtc = _dateTimeProvider.UtcNow,
+            UpdatedAtUtc = _dateTimeProvider.UtcNow,
+        };
+
+        dbContext.Users.Add(user);
+        await dbContext.SaveChangesAsync(CancellationToken.None);
+
+        return user;
+    }
+
+    private async Task<RefreshToken> SeedRefreshToken(TestDbContext dbContext, long userId, bool revoked)
+    {
+        var token = new RefreshToken
+        {
+            UserId = userId,
+            TokenHash = $"hashed:seed-{Guid.NewGuid()}",
+            CreatedAtUtc = _dateTimeProvider.UtcNow,
+            ExpiresAtUtc = _dateTimeProvider.UtcNow.AddDays(7),
+            RevokedAtUtc = revoked ? _dateTimeProvider.UtcNow : null,
+        };
+
+        dbContext.RefreshTokens.Add(token);
+        await dbContext.SaveChangesAsync(CancellationToken.None);
+
+        return token;
+    }
+}

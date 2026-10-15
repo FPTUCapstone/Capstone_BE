@@ -11,6 +11,9 @@ public static class AuditEntityTypes
     // UC-05 Sign Out
     public const string RefreshToken = "RefreshToken";
 
+    // UC-07 Change Password
+    public const string User = "User";
+
     public const string SystemConfig = "SystemConfig";
 
     // UC-59 BR-130
