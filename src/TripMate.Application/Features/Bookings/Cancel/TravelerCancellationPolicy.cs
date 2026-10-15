@@ -1,11 +1,13 @@
 using System.Text.Json;
 
+using TripMate.Domain.Entities;
+
 namespace TripMate.Application.Features.Bookings.Cancel;
 
 public sealed record TravelerCancellationPolicy(decimal AtLeastSevenDaysPercent,
     decimal ThreeToSevenDaysPercent, decimal OneToThreeDaysPercent)
 {
-    public const string DefaultSnapshot = "{\"atLeastSevenDaysPercent\":100,\"threeToSevenDaysPercent\":70,\"oneToThreeDaysPercent\":30}";
+    public const string DefaultSnapshot = Booking.DefaultCancellationPolicySnapshot;
 
     public static bool TryParse(string snapshot, out TravelerCancellationPolicy? policy)
     {

@@ -415,6 +415,12 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
         Set<TripMate.Domain.Entities.ServiceProvider>();
     public DbSet<CommercialService> CommercialServices => Set<CommercialService>();
     public DbSet<Voucher> Vouchers => Set<Voucher>();
+    public DbSet<Booking> Bookings => Set<Booking>();
+    public DbSet<Ticket> Tickets => Set<Ticket>();
+    public DbSet<Refund> Refunds => Set<Refund>();
+    public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
+    public DbSet<BookingCancellationOperation> BookingCancellationOperations =>
+        Set<BookingCancellationOperation>();
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
     public DbSet<Itinerary> Itineraries => Set<Itinerary>();
@@ -492,6 +498,11 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
         operation(cancellationToken);
 
     public void ClearTrackedEntities() => ChangeTracker.Clear();
+
+    public Task<int> RevokeActiveTicketQrCodesAsync(
+        long bookingId,
+        DateTimeOffset revokedAtUtc,
+        CancellationToken cancellationToken) => Task.FromResult(0);
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
