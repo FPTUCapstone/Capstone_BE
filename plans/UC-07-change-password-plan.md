@@ -1,6 +1,6 @@
 # UC-07 Change Password — Backend Implementation Plan
 
-**Status:** DRAFT — execute only after UC-07 specification approval.  
+**Status:** DRAFT — execute only after UC-07 specification approval.
 **Authoritative specification:** `specs/UC-07-change-password-spec.md`
 
 ## Preconditions
@@ -12,31 +12,31 @@
 
 ## Task 1 — Establish auth and token-revocation baseline
 
-**Read:** login, web-login, refresh, sign-out, UC-06 confirm-reset handlers; `IApplicationDbContext`; JWT/password services; audit infrastructure.  
-**Add RED tests:** the existing session issuance/revocation behavior needed by UC-07, including the one-replacement-session invariant.  
+**Read:** login, web-login, refresh, sign-out, UC-06 confirm-reset handlers; `IApplicationDbContext`; JWT/password services; audit infrastructure.
+**Add RED tests:** the existing session issuance/revocation behavior needed by UC-07, including the one-replacement-session invariant.
 **Done when:** the exact reusable token/cookie path is documented before implementation starts.
 
 **Verify:** targeted existing Authentication unit and integration tests.
 
 ## Task 2 — Define application contracts and validation
 
-**Files:** new vertical slice under `src/TripMate.Application/Features/Authentication/ChangePassword/`; existing error-code constants only if a missing stable code is approved.  
-**RED tests:** required current/new password, canonical policy failures, and same-as-current password.  
+**Files:** new vertical slice under `src/TripMate.Application/Features/Authentication/ChangePassword/`; existing error-code constants only if a missing stable code is approved.
+**RED tests:** required current/new password, canonical policy failures, and same-as-current password.
 **Implement:** request/result models, command, FluentValidation, and a validator that reuses the existing password-policy logic rather than duplicating rules.
 
 **Verify:** filtered Application unit tests.
 
 ## Task 3 — Implement secure command handler
 
-**Files:** ChangePassword handler and existing interfaces/services needed for token issuance.  
-**RED tests:** success, wrong current password, no local password, restricted account, and no mutation on each failure.  
+**Files:** ChangePassword handler and existing interfaces/services needed for token issuance.
+**RED tests:** success, wrong current password, no local password, restricted account, and no mutation on each failure.
 **Implement:** authenticated-subject lookup with tracking, hasher verification, distinct-password check, hash replacement, `UpdatedAtUtc`, and `Result` failures.
 
 **Verify:** handler tests and `dotnet build TripMate.slnx`.
 
 ## Task 4 — Make password and session mutation atomic
 
-**Files:** handler plus existing token/JWT abstractions; no schema file.  
+**Files:** handler plus existing token/JWT abstractions; no schema file.
 **RED tests:**
 - Success: password hash updated → all old refresh tokens revoked → exactly one new token persisted → new credentials returned.
 - Revoke failure: refresh-token revoke throws → entire transaction rolls back → old hash and tokens unchanged → 5xx/`MSG127` returned.
@@ -50,7 +50,7 @@
 
 ## Task 5 — Add authenticated API adapters
 
-**Files:** `AuthController` plus request/response DTO files following current controller conventions.  
+**Files:** `AuthController` plus request/response DTO files following current controller conventions.
 **RED tests:**
 - 401: missing/invalid/expired access token.
 - 403: authenticated but no local password available.
@@ -66,7 +66,7 @@
 
 ## Task 6 — Audit and secret-safety verification
 
-**RED tests:** audit data contains subject/action/timestamp only; logs and error responses contain no submitted secrets.  
+**RED tests:** audit data contains subject/action/timestamp only; logs and error responses contain no submitted secrets.
 **Implement:** minimal compliant audit event, or document why existing global audit middleware already covers this action.
 
 **Verify:** audit/integration tests and source inspection.
@@ -99,4 +99,3 @@ Review checklist before merge:
 - ✓ Full suite passes green.
 
 Do not commit, push, or create a PR until every task passes focused review and full validation is green. Record unavailable SQL Server integration explicitly; it does not waive required CI.
-

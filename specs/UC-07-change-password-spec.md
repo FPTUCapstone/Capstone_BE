@@ -1,6 +1,6 @@
 # UC-07 Change Password — Backend Specification
 
-**Status:** DRAFT — awaiting developer approval  
+**Status:** DRAFT — awaiting developer approval
 **Authoritative product reference:** SRS §3.2.7 Change Password and the current UC-07 catalogue entry supplied by the product team.
 
 ## 1. Purpose
@@ -131,4 +131,3 @@ Audit persistence must use the existing project convention without exposing secr
 - Approved route contracts are documented in OpenAPI.
 - All acceptance and security tests pass.
 - `dotnet build TripMate.slnx`, required tests, `dotnet format TripMate.slnx --verify-no-changes`, and `git diff --check` pass.
-
