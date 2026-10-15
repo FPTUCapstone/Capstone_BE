@@ -13,6 +13,8 @@ public static class AuthErrorCodes
     public const string Msg07 = "MSG07"; // Registration success
     public const string Msg08 = "MSG08"; // Tour Operator submission success
     public const string Msg14 = "MSG14"; // OTP incorrect or expired
+    public const string Msg17 = "MSG17"; // Current password incorrect during change password
+    public const string Msg18 = "MSG18"; // Change password success
     public const string MsgCooldown = "MSG_COOLDOWN"; // Resend cooldown active
     public const string MsgUnverified = "MSG_UNVERIFIED"; // Email registered but unverified login attempt
     public const string MsgEmailSendFailed = "MSG_EMAIL_SEND_FAILED"; // Account created but email delivery failed
@@ -68,4 +70,5 @@ public static class AuthErrorCodes
     public const string AdminGoogleSignInDisabled = "auth.admin_google_sign_in_disabled";
     public const string AdminMobileSignInDisabled = "auth.admin_mobile_sign_in_disabled";
     public const string EmailAlreadyRegistered = Msg03;
+    public const string LocalPasswordUnavailable = "auth.local_password_unavailable";
 }
