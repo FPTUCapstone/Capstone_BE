@@ -15,9 +15,16 @@ public class FakeJwtTokenService : IJwtTokenService
     public int AccessTokenGenerationCount { get; private set; }
     public int RefreshTokenGenerationCount { get; private set; }
 
+    public Exception? ThrowOnGenerateAccessToken { get; set; }
+
     public (string Token, DateTimeOffset ExpiresAtUtc) GenerateAccessToken(User user)
     {
         AccessTokenGenerationCount++;
+        if (ThrowOnGenerateAccessToken is not null)
+        {
+            throw ThrowOnGenerateAccessToken;
+        }
+
         return ($"access-token-for-{user.Id}", DateTimeOffset.UtcNow.AddMinutes(15));
     }
 

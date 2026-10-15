@@ -134,6 +134,55 @@ public class ChangePasswordCommandHandlerTests
         _jwtTokenService.AccessTokenGenerationCount.Should().Be(0);
     }
 
+    [Theory]
+    [InlineData(AccountStatus.Locked, AuthErrorCodes.AccountLocked)]
+    [InlineData(AccountStatus.Inactive, AuthErrorCodes.AccountInactive)]
+    [InlineData(AccountStatus.PendingEmailVerification, AuthErrorCodes.AccountPendingVerification)]
+    public async Task Handle_WithIneligibleAccountStatus_ReturnsEligibilityFailureAndMakesNoMutation(
+        AccountStatus status, string expectedErrorCode)
+    {
+        await using var dbContext = TestDbContext.Create();
+        var user = await SeedUser(dbContext, "CurrentPass1!", status: status);
+        var oldHash = user.PasswordHash;
+        await SeedRefreshToken(dbContext, user.Id, revoked: false);
+
+        var result = await CreateHandler(dbContext).Handle(
+            new ChangePasswordCommand("CurrentPass1!", "NewPass2@", user.Id),
+            CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(expectedErrorCode);
+        user.PasswordHash.Should().Be(oldHash);
+        (await dbContext.RefreshTokens.Where(t => t.UserId == user.Id).ToListAsync())
+            .Should().ContainSingle(t => t.RevokedAtUtc == null);
+        _jwtTokenService.AccessTokenGenerationCount.Should().Be(0);
+        dbContext.TransactionExecutionCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Handle_WhenAccessTokenGenerationFails_RollsBackBeforeAnyMutationAndReturnsMsg127()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var user = await SeedUser(dbContext, "CurrentPass1!");
+        var oldHash = user.PasswordHash;
+        await SeedRefreshToken(dbContext, user.Id, revoked: false);
+        _jwtTokenService.ThrowOnGenerateAccessToken =
+            new InvalidOperationException("Simulated signing-key failure.");
+
+        var result = await CreateHandler(dbContext).Handle(
+            new ChangePasswordCommand("CurrentPass1!", "NewPass2@", user.Id),
+            CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(AuthErrorCodes.Msg127);
+        user.PasswordHash.Should().Be(oldHash);
+        (await dbContext.RefreshTokens.Where(t => t.UserId == user.Id).ToListAsync())
+            .Should().ContainSingle(t => t.RevokedAtUtc == null);
+        // The signing failure happens before the transaction is ever opened: no partial
+        // commit of the new hash/revoked-token state with no session to show for it.
+        dbContext.TransactionExecutionCount.Should().Be(0);
+    }
+
     [Fact]
     public async Task Handle_WithUnknownSubjectUserId_ReturnsLocalPasswordUnavailable()
     {
@@ -165,7 +214,10 @@ public class ChangePasswordCommandHandlerTests
         user.PasswordHash.Should().Be(oldHash);
         (await dbContext.RefreshTokens.Where(t => t.UserId == user.Id).ToListAsync())
             .Should().ContainSingle(t => t.RevokedAtUtc == null);
-        _jwtTokenService.AccessTokenGenerationCount.Should().Be(0);
+        // Signing is deliberately attempted before opening the transaction. A later
+        // transaction failure must still roll back every persisted mutation and return
+        // no credentials, even though a short-lived token value was generated in memory.
+        _jwtTokenService.AccessTokenGenerationCount.Should().Be(1);
     }
 
     [Fact]
@@ -182,7 +234,9 @@ public class ChangePasswordCommandHandlerTests
 
         result.IsFailure.Should().BeTrue();
         result.ErrorCode.Should().Be(AuthErrorCodes.Msg127);
-        _jwtTokenService.AccessTokenGenerationCount.Should().Be(0);
+        // The access token is prepared before the transaction so signing cannot fail
+        // after commit. Commit failure returns no credentials and persists no mutation.
+        _jwtTokenService.AccessTokenGenerationCount.Should().Be(1);
     }
 
     [Fact]
@@ -210,7 +264,8 @@ public class ChangePasswordCommandHandlerTests
         TestDbContext dbContext,
         string password,
         string email = "user@example.com",
-        UserRole role = UserRole.Traveler)
+        UserRole role = UserRole.Traveler,
+        AccountStatus status = AccountStatus.Active)
     {
         var user = new User
         {
@@ -218,7 +273,7 @@ public class ChangePasswordCommandHandlerTests
             FullName = "Test User",
             PasswordHash = _passwordHasher.Hash(password),
             Role = role,
-            Status = AccountStatus.Active,
+            Status = status,
             CreatedAtUtc = _dateTimeProvider.UtcNow,
             UpdatedAtUtc = _dateTimeProvider.UtcNow,
         };

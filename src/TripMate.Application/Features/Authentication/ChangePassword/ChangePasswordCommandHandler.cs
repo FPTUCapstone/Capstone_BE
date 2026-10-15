@@ -41,6 +41,16 @@ public sealed class ChangePasswordCommandHandler(
                     "A local password is not available for this account.");
             }
 
+            // spec §3.2: "Only an active account ... can change a password." A valid access
+            // token alone does not prove current eligibility — the account may have been
+            // locked/deactivated after that token was issued.
+            var eligibility = await AccountEligibilityResolver.ResolveAsync(
+                dbContext, user, dateTimeProvider.UtcNow, cancellationToken);
+            if (eligibility.IsFailure)
+            {
+                return Result.Failure<AuthResponseDto>(eligibility.ErrorCode!, eligibility.ErrorMessage!);
+            }
+
             if (!passwordHasher.Verify(request.CurrentPassword, user.PasswordHash))
             {
                 return Result.Failure<AuthResponseDto>(
@@ -60,6 +70,12 @@ public sealed class ChangePasswordCommandHandler(
             var now = dateTimeProvider.UtcNow;
             var refreshExpiresAt = now.AddDays(7);
             var refreshTokenValue = jwtTokenService.GenerateRefreshToken();
+
+            // Generated before the transaction starts: a signing failure here must leave the
+            // password and refresh tokens completely untouched, not committed with no session
+            // returned to the caller. GenerateAccessToken only reads the user's existing
+            // Id/Role/etc. — it has no dependency on the mutation below.
+            var (accessToken, accessTokenExpiresAtUtc) = jwtTokenService.GenerateAccessToken(user);
 
             await dbContext.ExecuteInTransactionAsync(
                 async transactionCancellationToken =>
@@ -95,10 +111,8 @@ public sealed class ChangePasswordCommandHandler(
                 },
                 cancellationToken);
 
-            // ExecuteInTransactionAsync returns only after CommitAsync succeeds — credentials are
-            // generated and returned only now (spec §6 step 6).
-            var (accessToken, accessTokenExpiresAtUtc) = jwtTokenService.GenerateAccessToken(user);
-
+            // ExecuteInTransactionAsync returns only after CommitAsync succeeds — the already-
+            // generated credentials are returned only now (spec §6 step 6).
             return Result.Success(new AuthResponseDto(
                 user.Id,
                 user.Email,
