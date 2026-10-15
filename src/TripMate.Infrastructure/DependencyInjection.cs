@@ -248,9 +248,11 @@ public static class DependencyInjection
         services.AddSingleton<IPasswordResetStateStore, InMemoryPasswordResetStateStore>();
         services.AddSingleton<IPasswordResetAccountLock, InMemoryPasswordResetAccountLock>();
 
-        // UC-07 change password: serializes concurrent attempts for one account so a second
-        // request cannot revoke a session the first just issued.
-        services.AddSingleton<IAccountCredentialLock, InMemoryAccountCredentialLock>();
+        // UC-07 change password: sp_getapplock (scoped, like ApplicationDbContext) serializes
+        // concurrent attempts for one account across every process/container — not only within
+        // one in-memory singleton — so a second request cannot revoke a session the first just
+        // issued.
+        services.AddScoped<IAccountCredentialLock, SqlServerAccountCredentialLock>();
         services.AddSingleton<IOtpCodeGenerator, CryptographicOtpCodeGenerator>();
         services.AddSingleton<IOtpProtectionService, HmacOtpProtectionService>();
         services.AddSingleton<IRequestTimingNormalizer, ResponseTimingNormalizer>();

@@ -18,9 +18,11 @@ namespace TripMate.Api.IntegrationTests.Authentication;
 /// <summary>
 /// UC-07 concurrency: two requests submitting the same current password for one account must
 /// not both succeed, and the losing request must never report success with a session the
-/// winning request's transaction has already revoked. The account-level lock
-/// (IAccountCredentialLock) is what serializes this; requires a real SQL Server so both HTTP
-/// clients share the same running app/DI container and its singleton lock instance.
+/// winning request's transaction has already revoked. The lock (sp_getapplock, scoped to the
+/// transaction) is enforced by SQL Server itself, so this test uses two entirely separate
+/// TripMateApiFactory instances — two independent DI containers/processes, each with its own
+/// IAccountCredentialLock instance — against the same real SQL Server database. A lock that only
+/// serialized within one process (e.g. an in-memory semaphore) would not serialize these two.
 /// </summary>
 public sealed class ChangePasswordConcurrencySqlServerTests
 {
@@ -28,14 +30,15 @@ public sealed class ChangePasswordConcurrencySqlServerTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
-    public async Task ConcurrentChangePasswordRequests_ExactlyOneSucceedsAndNeverRevokesTheWinnersSession()
+    public async Task ConcurrentChangePasswordRequests_AcrossTwoSeparateApiProcesses_ExactlyOneSucceedsAndNeverRevokesTheWinnersSession()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
         var userId = await SeedUserAsync(database);
 
-        using var factory = new TripMateApiFactory(sqlServerConnectionString: database.ConnectionString);
-        using var firstClient = factory.CreateAuthenticatedClient(userId, UserRole.Traveler);
-        using var secondClient = factory.CreateAuthenticatedClient(userId, UserRole.Traveler);
+        using var firstProcessFactory = new TripMateApiFactory(sqlServerConnectionString: database.ConnectionString);
+        using var secondProcessFactory = new TripMateApiFactory(sqlServerConnectionString: database.ConnectionString);
+        using var firstClient = firstProcessFactory.CreateAuthenticatedClient(userId, UserRole.Traveler);
+        using var secondClient = secondProcessFactory.CreateAuthenticatedClient(userId, UserRole.Traveler);
 
         var responses = await Task.WhenAll(
             firstClient.PostAsJsonAsync(

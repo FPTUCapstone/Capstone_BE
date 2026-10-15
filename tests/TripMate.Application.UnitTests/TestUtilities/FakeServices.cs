@@ -47,3 +47,26 @@ public class FakeCurrentUserService : ICurrentUserService
 
     public string? Role { get; set; }
 }
+
+/// <summary>
+/// No-op stand-in for IAccountCredentialLock. The real implementation issues sp_getapplock,
+/// which the EF InMemory provider cannot execute; the true cross-process serialization
+/// guarantee is proven only by the SQL Server integration test.
+/// </summary>
+public class FakeAccountCredentialLock : IAccountCredentialLock
+{
+    public int AcquireCallCount { get; private set; }
+
+    public Exception? ThrowOnAcquire { get; set; }
+
+    public Task AcquireAsync(long userId, CancellationToken cancellationToken)
+    {
+        AcquireCallCount++;
+        if (ThrowOnAcquire is not null)
+        {
+            throw ThrowOnAcquire;
+        }
+
+        return Task.CompletedTask;
+    }
+}

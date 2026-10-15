@@ -3,13 +3,11 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 
-using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Authentication.ChangePassword;
 using TripMate.Application.Features.Authentication.Common;
 using TripMate.Application.UnitTests.TestUtilities;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
-using TripMate.Infrastructure.Services;
 
 using Xunit;
 
@@ -48,6 +46,8 @@ public class ChangePasswordCommandHandlerTests
         result.Value.RefreshToken.Should().NotBeNullOrEmpty();
         _jwtTokenService.AccessTokenGenerationCount.Should().Be(1);
         _jwtTokenService.RefreshTokenGenerationCount.Should().Be(1);
+        _accountLock.AcquireCallCount.Should().Be(1,
+            "the account lock must be acquired for every attempt — see the SQL Server concurrency test for the real cross-process guarantee");
     }
 
     [Fact]
@@ -158,7 +158,10 @@ public class ChangePasswordCommandHandlerTests
         (await dbContext.RefreshTokens.Where(t => t.UserId == user.Id).ToListAsync())
             .Should().ContainSingle(t => t.RevokedAtUtc == null);
         _jwtTokenService.AccessTokenGenerationCount.Should().Be(0);
-        dbContext.TransactionExecutionCount.Should().Be(0);
+        // The eligibility check now runs inside the single serializable transaction (lock +
+        // read + verify + mutate all share it), so the transaction is attempted once — it just
+        // commits as a no-op since the failure is returned before any entity is mutated.
+        dbContext.TransactionExecutionCount.Should().Be(1);
     }
 
     [Fact]
@@ -180,9 +183,10 @@ public class ChangePasswordCommandHandlerTests
         user.PasswordHash.Should().Be(oldHash);
         (await dbContext.RefreshTokens.Where(t => t.UserId == user.Id).ToListAsync())
             .Should().ContainSingle(t => t.RevokedAtUtc == null);
-        // The signing failure happens before the transaction is ever opened: no partial
-        // commit of the new hash/revoked-token state with no session to show for it.
-        dbContext.TransactionExecutionCount.Should().Be(0);
+        // Signing is attempted before any entity is mutated (still inside the one serializable
+        // transaction): the transaction itself runs once, but nothing is ever written — not even
+        // to the in-memory change tracker — so there is nothing to roll back.
+        dbContext.TransactionExecutionCount.Should().Be(1);
     }
 
     [Fact]
@@ -199,13 +203,13 @@ public class ChangePasswordCommandHandlerTests
     }
 
     [Fact]
-    public async Task Handle_WhenTransactionThrows_RollsBackAndReturnsMsg127WithNoMutation()
+    public async Task Handle_WhenLockAcquisitionThrows_RollsBackAndReturnsMsg127WithNoMutation()
     {
         await using var dbContext = TestDbContext.Create();
         var user = await SeedUser(dbContext, "CurrentPass1!");
         var oldHash = user.PasswordHash;
         await SeedRefreshToken(dbContext, user.Id, revoked: false);
-        dbContext.ThrowOnTransaction = new InvalidOperationException("Simulated revoke/insert failure.");
+        _accountLock.ThrowOnAcquire = new InvalidOperationException("Simulated applock failure.");
 
         var result = await CreateHandler(dbContext).Handle(
             new ChangePasswordCommand("CurrentPass1!", "NewPass2@", user.Id),
@@ -216,10 +220,35 @@ public class ChangePasswordCommandHandlerTests
         user.PasswordHash.Should().Be(oldHash);
         (await dbContext.RefreshTokens.Where(t => t.UserId == user.Id).ToListAsync())
             .Should().ContainSingle(t => t.RevokedAtUtc == null);
-        // Signing is deliberately attempted before opening the transaction. A later
-        // transaction failure must still roll back every persisted mutation and return
-        // no credentials, even though a short-lived token value was generated in memory.
-        _jwtTokenService.AccessTokenGenerationCount.Should().Be(1);
+        // Lock acquisition is the very first step inside the transaction: nothing downstream
+        // (user lookup, verification, signing) ever runs.
+        _jwtTokenService.AccessTokenGenerationCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Handle_WhenSaveChangesFails_RetriesThenReturnsMsg127WithNoPersistedMutation()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var user = await SeedUser(dbContext, "CurrentPass1!");
+        var oldHash = user.PasswordHash;
+        await SeedRefreshToken(dbContext, user.Id, revoked: false);
+        dbContext.ThrowOnSaveConcurrency = true;
+
+        var result = await CreateHandler(dbContext).Handle(
+            new ChangePasswordCommand("CurrentPass1!", "NewPass2@", user.Id),
+            CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(AuthErrorCodes.Msg127);
+
+        // A DbUpdateConcurrencyException is retried (up to MaxAttempts) and mutates the tracked
+        // C# entity on every attempt even though nothing is ever actually persisted; verify the
+        // real database state with fresh, untracked reads rather than the stale local reference.
+        dbContext.ClearTrackedEntities();
+        var persisted = await dbContext.Users.AsNoTracking().SingleAsync(u => u.Id == user.Id);
+        persisted.PasswordHash.Should().Be(oldHash);
+        (await dbContext.RefreshTokens.AsNoTracking().Where(t => t.UserId == user.Id).ToListAsync())
+            .Should().ContainSingle(t => t.RevokedAtUtc == null);
     }
 
     [Fact]
@@ -227,7 +256,7 @@ public class ChangePasswordCommandHandlerTests
     {
         await using var dbContext = TestDbContext.Create();
         var user = await SeedUser(dbContext, "CurrentPass1!");
-        dbContext.TransactionCompletionFailureFactory =
+        dbContext.SerializableTransactionCompletionFailureFactory =
             _ => new InvalidOperationException("Simulated commit failure.");
 
         var result = await CreateHandler(dbContext).Handle(
@@ -236,8 +265,9 @@ public class ChangePasswordCommandHandlerTests
 
         result.IsFailure.Should().BeTrue();
         result.ErrorCode.Should().Be(AuthErrorCodes.Msg127);
-        // The access token is prepared before the transaction so signing cannot fail
-        // after commit. Commit failure returns no credentials and persists no mutation.
+        // The access token is generated before any mutation, inside the one transaction, so
+        // signing itself cannot fail after commit. A commit failure here is a plain
+        // InvalidOperationException (not DbUpdateException/deadlock), so it is never retried.
         _jwtTokenService.AccessTokenGenerationCount.Should().Be(1);
     }
 
@@ -295,45 +325,10 @@ public class ChangePasswordCommandHandlerTests
         result.Value.ApplicationStatus.Should().Be("PendingApproval");
     }
 
-    [Fact]
-    public async Task Handle_WithConcurrentRequestsForSameAccount_SerializesAndLoserFailsWithMsg17()
-    {
-        var databaseName = Guid.NewGuid().ToString();
-        DbContextOptions<TestDbContext> Options() => new DbContextOptionsBuilder<TestDbContext>()
-            .UseInMemoryDatabase(databaseName)
-            .Options;
-
-        long userId;
-        await using (var seedContext = new TestDbContext(Options()))
-        {
-            var seededUser = await SeedUser(seedContext, "CurrentPass1!");
-            await SeedRefreshToken(seedContext, seededUser.Id, revoked: false);
-            userId = seededUser.Id;
-        }
-
-        var sharedLock = new InMemoryAccountCredentialLock();
-        await using var dbContext1 = new TestDbContext(Options());
-        await using var dbContext2 = new TestDbContext(Options());
-        var handler1 = CreateHandler(dbContext1, sharedLock);
-        var handler2 = CreateHandler(dbContext2, sharedLock);
-
-        var task1 = handler1.Handle(
-            new ChangePasswordCommand("CurrentPass1!", "NewPassA1!", userId), CancellationToken.None);
-        var task2 = handler2.Handle(
-            new ChangePasswordCommand("CurrentPass1!", "NewPassB1!", userId), CancellationToken.None);
-        var results = await Task.WhenAll(task1, task2);
-
-        results.Count(r => r.IsSuccess).Should().Be(1,
-            "two concurrent attempts with the same current password must not both succeed");
-        var loser = results.Single(r => r.IsFailure);
-        loser.ErrorCode.Should().Be(AuthErrorCodes.Msg17,
-            "the loser re-reads the already-changed hash inside the account lock and correctly fails as wrong-current-password");
-
-        await using var verification = new TestDbContext(Options());
-        var tokens = await verification.RefreshTokens.Where(t => t.UserId == userId).ToListAsync();
-        tokens.Count(t => t.RevokedAtUtc == null).Should().Be(1,
-            "exactly one active session remains — the winner's; the loser never revoked it");
-    }
+    // True concurrent-request serialization requires a real sp_getapplock, which the EF
+    // InMemory provider used by these handler-level tests cannot execute. That guarantee is
+    // proven by ChangePasswordConcurrencySqlServerTests (two separate API processes against one
+    // real SQL Server), not here.
 
     [Fact]
     public async Task Handle_RevokesOnlyTheSubjectsTokens_LeavingOtherUsersUntouched()
@@ -352,13 +347,10 @@ public class ChangePasswordCommandHandlerTests
         (await dbContext.RefreshTokens.FindAsync(otherToken.Id))!.RevokedAtUtc.Should().BeNull();
     }
 
-    private readonly InMemoryAccountCredentialLock _accountLock = new();
+    private readonly FakeAccountCredentialLock _accountLock = new();
 
     private ChangePasswordCommandHandler CreateHandler(TestDbContext dbContext) =>
-        CreateHandler(dbContext, _accountLock);
-
-    private ChangePasswordCommandHandler CreateHandler(TestDbContext dbContext, IAccountCredentialLock accountLock) =>
-        new(dbContext, _passwordHasher, _jwtTokenService, _dateTimeProvider, accountLock,
+        new(dbContext, _passwordHasher, _jwtTokenService, _dateTimeProvider, _accountLock,
             NullLogger<ChangePasswordCommandHandler>.Instance);
 
     private async Task<User> SeedUser(
