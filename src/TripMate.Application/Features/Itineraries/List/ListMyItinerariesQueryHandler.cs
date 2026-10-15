@@ -48,10 +48,28 @@ public sealed class ListMyItinerariesQueryHandler(
 
         var totalCount = await accessible.CountAsync(cancellationToken);
         var offset = (long)(request.Page - 1) * request.PageSize;
+        var openSession = await FindOpenSessionAsync(travelerUserId, cancellationToken);
+        var openItineraryId = openSession?.ItineraryId;
+        var openRequestId = openSession?.SchedulingRequestId;
+        var nowUtc = clock.UtcNow;
+
+        // The trip in progress comes first, then Active trips that have not ended yet (soonest
+        // first), then everything else from the newest start. Pages stay stable because the
+        // order ends on the unique id.
         var summaries = offset >= totalCount
             ? []
             : await accessible
-                .OrderBy(itinerary => itinerary.ValidFromUtc == null)
+                .OrderByDescending(itinerary => itinerary.Id == openItineraryId
+                    || (openRequestId != null && itinerary.SchedulingRequestId == openRequestId))
+                .ThenByDescending(itinerary => itinerary.Status == Itinerary.ActiveStatus
+                    && itinerary.ValidToUtc != null
+                    && itinerary.ValidToUtc >= nowUtc)
+                .ThenBy(itinerary => itinerary.Status == Itinerary.ActiveStatus
+                    && itinerary.ValidToUtc != null
+                    && itinerary.ValidToUtc >= nowUtc
+                        ? itinerary.ValidFromUtc
+                        : null)
+                .ThenBy(itinerary => itinerary.ValidFromUtc == null)
                 .ThenByDescending(itinerary => itinerary.ValidFromUtc)
                 .ThenByDescending(itinerary => itinerary.Id)
                 .Skip((int)offset)
@@ -69,7 +87,6 @@ public sealed class ListMyItinerariesQueryHandler(
                     null))
                 .ToListAsync(cancellationToken);
 
-        var openSession = await FindOpenSessionAsync(travelerUserId, cancellationToken);
         var items = openSession is null
             ? summaries
             : summaries

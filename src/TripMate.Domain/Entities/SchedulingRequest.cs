@@ -8,6 +8,12 @@ public class SchedulingRequest : BaseEntity
     public const int RequestHashLength = 64;
     public const int TimeZoneIdMaxLength = 100;
 
+    /// <summary>Shortest trip a Traveler can request: one hour.</summary>
+    public const int MinAvailableMinutes = 60;
+
+    /// <summary>Longest trip a Traveler can request: one continuous window of 72 hours, which may cross midnight.</summary>
+    public const int MaxAvailableMinutes = 72 * 60;
+
     private SchedulingRequest()
     {
     }
@@ -113,7 +119,7 @@ public class SchedulingRequest : BaseEntity
                 nameof(endPointOfInterestId));
         }
 
-        if (availableMinutes is < 60 or > 720)
+        if (availableMinutes is < MinAvailableMinutes or > MaxAvailableMinutes)
         {
             throw new ArgumentOutOfRangeException(nameof(availableMinutes));
         }
