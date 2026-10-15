@@ -14,7 +14,8 @@ public sealed record ItineraryDetailResponse(
     bool CanManage,
     decimal TotalEstimatedCost,
     int TotalDurationMinutes,
-    IReadOnlyCollection<ItineraryDetailItemDto> Items);
+    IReadOnlyCollection<ItineraryDetailItemDto> Items,
+    bool IsNavigationInProgress = false);
 
 public sealed record ItineraryDetailItemDto(
     long ItemId,
