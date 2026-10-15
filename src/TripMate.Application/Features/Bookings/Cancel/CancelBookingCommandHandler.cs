@@ -22,6 +22,8 @@ public sealed class CancelBookingCommandHandler(
     IBookingCancellationPersistenceErrorClassifier persistenceErrors)
     : IRequestHandler<CancelBookingCommand, Result<CancelBookingResponse>>
 {
+    private const int MaxDeadlockAttempts = 3;
+
     public async Task<Result<CancelBookingResponse>> Handle(
         CancelBookingCommand request,
         CancellationToken cancellationToken)
@@ -34,90 +36,97 @@ public sealed class CancelBookingCommandHandler(
         }
 
         string requestHash = ComputeRequestHash(request.BookingId, actor, request.ReasonCategory, request.ReasonDetail);
-        try
+        for (var attempt = 1; ; attempt++)
         {
-            return await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
+            try
             {
-                var existingOperation = await FindOperationAsync(actorUserId, request.IdempotencyKey,
-                    transactionCancellationToken);
-                if (existingOperation is not null) return ReplayOrMismatch(existingOperation, request.BookingId, requestHash);
-
-                var booking = await dbContext.Bookings
-                    .Include(candidate => candidate.TourSchedule!)
-                    .ThenInclude(schedule => schedule.Tour)
-                    .Include(candidate => candidate.Tickets)
-                    .SingleOrDefaultAsync(candidate => candidate.Id == request.BookingId, transactionCancellationToken);
-                if (booking is null || booking.TourSchedule is null)
+                return await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
                 {
-                    return Result.Failure<CancelBookingResponse>(BookingCancellationErrorCodes.NotFound,
-                        "The booking could not be found.");
-                }
+                    var existingOperation = await FindOperationAsync(actorUserId, request.IdempotencyKey,
+                        transactionCancellationToken);
+                    if (existingOperation is not null) return ReplayOrMismatch(existingOperation, request.BookingId, requestHash);
 
-                if (!IsAuthorized(booking, actorUserId, actor))
-                {
-                    return Result.Failure<CancelBookingResponse>(BookingCancellationErrorCodes.Forbidden,
-                        "You are not permitted to cancel this booking.");
-                }
+                    var booking = await dbContext.Bookings
+                        .Include(candidate => candidate.TourSchedule!)
+                        .ThenInclude(schedule => schedule.Tour)
+                        .Include(candidate => candidate.Tickets)
+                        .SingleOrDefaultAsync(candidate => candidate.Id == request.BookingId, transactionCancellationToken);
+                    if (booking is null || booking.TourSchedule is null)
+                    {
+                        return Result.Failure<CancelBookingResponse>(BookingCancellationErrorCodes.NotFound,
+                            "The booking could not be found.");
+                    }
 
-                if (booking.Status is not (BookingStatus.PendingPayment or BookingStatus.Confirmed)
-                    || booking.Tickets.Any(ticket => ticket.Status == TicketStatus.Used))
-                {
-                    return Result.Failure<CancelBookingResponse>(BookingCancellationErrorCodes.InvalidState,
-                        "This booking can no longer be cancelled.");
-                }
+                    if (!IsAuthorized(booking, actorUserId, actor))
+                    {
+                        return Result.Failure<CancelBookingResponse>(BookingCancellationErrorCodes.Forbidden,
+                            "You are not permitted to cancel this booking.");
+                    }
 
-                if (actor == BookingCancellationActor.TourOperator
-                    && (string.IsNullOrWhiteSpace(request.ReasonCategory)
-                        || string.IsNullOrWhiteSpace(request.ReasonDetail)))
-                {
-                    return Result.Failure<CancelBookingResponse>(BookingCancellationErrorCodes.InvalidState,
-                        "Tour Operator cancellations require a reason category and detail.");
-                }
+                    if (booking.Status is not (BookingStatus.PendingPayment or BookingStatus.Confirmed)
+                        || booking.Tickets.Any(ticket => ticket.Status == TicketStatus.Used))
+                    {
+                        return Result.Failure<CancelBookingResponse>(BookingCancellationErrorCodes.InvalidState,
+                            "This booking can no longer be cancelled.");
+                    }
 
-                var nowUtc = clock.UtcNow;
-                decimal refundAmount = DetermineRefundAmount(booking, actor, nowUtc, out var failure);
-                if (failure is not null) return failure;
-                PaymentTransaction? successfulPayment = await FindSuccessfulPaymentAsync(booking,
-                    transactionCancellationToken);
-                if (refundAmount > 0m && successfulPayment is null)
-                {
-                    return Result.Failure<CancelBookingResponse>(BookingCancellationErrorCodes.PaymentNotRefundable,
-                        "This booking has no verified payment eligible for a refund.");
-                }
+                    if (actor == BookingCancellationActor.TourOperator
+                        && (string.IsNullOrWhiteSpace(request.ReasonCategory)
+                            || string.IsNullOrWhiteSpace(request.ReasonDetail)))
+                    {
+                        return Result.Failure<CancelBookingResponse>(BookingCancellationErrorCodes.ReasonRequired,
+                            "Tour Operator cancellations require a reason category and detail.");
+                    }
 
-                var operation = BookingCancellationOperation.Create(booking.Id, actorUserId, actor,
-                    request.IdempotencyKey, requestHash, refundAmount, nowUtc);
-                dbContext.BookingCancellationOperations.Add(operation);
-                await dbContext.SaveChangesAsync(transactionCancellationToken);
+                    var nowUtc = clock.UtcNow;
+                    decimal refundAmount = DetermineRefundAmount(booking, actor, nowUtc, out var failure);
+                    if (failure is not null) return failure;
+                    PaymentTransaction? successfulPayment = await FindSuccessfulPaymentAsync(booking,
+                        transactionCancellationToken);
+                    if (refundAmount > 0m && successfulPayment is null)
+                    {
+                        return Result.Failure<CancelBookingResponse>(BookingCancellationErrorCodes.PaymentNotRefundable,
+                            "This booking has no verified payment eligible for a refund.");
+                    }
 
-                var beforeState = new { status = booking.Status.ToString(), paymentStatus = booking.PaymentStatus.ToString() };
-                string? reason = ComposeReason(request.ReasonCategory, request.ReasonDetail);
-                booking.Cancel(nowUtc, reason);
-                booking.TourSchedule.ReleaseReservedCapacity(booking.Quantity);
-                foreach (var ticket in booking.Tickets) ticket.Cancel();
-                await dbContext.RevokeActiveTicketQrCodesAsync(booking.Id, nowUtc, transactionCancellationToken);
+                    var operation = BookingCancellationOperation.Create(booking.Id, actorUserId, actor,
+                        request.IdempotencyKey, requestHash, refundAmount, nowUtc);
+                    dbContext.BookingCancellationOperations.Add(operation);
+                    await dbContext.SaveChangesAsync(transactionCancellationToken);
 
-                if (refundAmount > 0m)
-                {
-                    dbContext.Refunds.Add(Refund.CreatePending(booking.Id, successfulPayment!.Id, operation.Id,
-                        refundAmount, reason, actor == BookingCancellationActor.TourOperator
-                            ? RefundInitiator.TourOperator : RefundInitiator.System, nowUtc));
-                }
+                    var beforeState = new { status = booking.Status.ToString(), paymentStatus = booking.PaymentStatus.ToString() };
+                    string? reason = ComposeReason(request.ReasonCategory, request.ReasonDetail);
+                    booking.Cancel(nowUtc, reason);
+                    booking.TourSchedule.ReleaseReservedCapacity(booking.Quantity);
+                    foreach (var ticket in booking.Tickets) ticket.Cancel();
+                    await dbContext.RevokeActiveTicketQrCodesAsync(booking.Id, nowUtc, transactionCancellationToken);
 
-                dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(actorUserId, AuditActionTypes.BookingCancel,
-                    AuditEntityTypes.Booking, booking.Id, nowUtc, AuditOutcome.Success, reason,
-                    beforeData: JsonSerializer.Serialize(beforeState),
-                    afterData: JsonSerializer.Serialize(new { status = BookingStatus.Cancelled.ToString(), refundAmount, actor })));
-                await dbContext.SaveChangesAsync(transactionCancellationToken);
-                return Result.Success(ToResponse(operation));
-            }, cancellationToken);
-        }
-        catch (DbUpdateException exception) when (persistenceErrors.IsIdempotencyKeyConflict(exception))
-        {
-            dbContext.ClearTrackedEntities();
-            var operation = await FindOperationAsync(actorUserId, request.IdempotencyKey, cancellationToken);
-            if (operation is not null) return ReplayOrMismatch(operation, request.BookingId, requestHash);
-            throw;
+                    if (refundAmount > 0m)
+                    {
+                        dbContext.Refunds.Add(Refund.CreatePending(booking.Id, successfulPayment!.Id, operation.Id,
+                            refundAmount, reason, actor == BookingCancellationActor.TourOperator
+                                ? RefundInitiator.TourOperator : RefundInitiator.System, nowUtc));
+                    }
+
+                    dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(actorUserId, AuditActionTypes.BookingCancel,
+                        AuditEntityTypes.Booking, booking.Id, nowUtc, AuditOutcome.Success, reason,
+                        beforeData: JsonSerializer.Serialize(beforeState),
+                        afterData: JsonSerializer.Serialize(new { status = BookingStatus.Cancelled.ToString(), refundAmount, actor })));
+                    await dbContext.SaveChangesAsync(transactionCancellationToken);
+                    return Result.Success(ToResponse(operation));
+                }, cancellationToken);
+            }
+            catch (DbUpdateException exception) when (persistenceErrors.IsIdempotencyKeyConflict(exception))
+            {
+                dbContext.ClearTrackedEntities();
+                var operation = await FindOperationAsync(actorUserId, request.IdempotencyKey, cancellationToken);
+                if (operation is not null) return ReplayOrMismatch(operation, request.BookingId, requestHash);
+                throw;
+            }
+            catch (Exception exception) when (attempt < MaxDeadlockAttempts && dbContext.IsDeadlock(exception))
+            {
+                dbContext.ClearTrackedEntities();
+            }
         }
     }
 

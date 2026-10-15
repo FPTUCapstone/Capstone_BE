@@ -217,6 +217,7 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
                 BookingCancellationErrorCodes.PaymentNotRefundable or
                 BookingCancellationErrorCodes.IdempotencyPayloadMismatch => StatusCodes.Status409Conflict,
             BookingCancellationErrorCodes.WindowClosed => StatusCodes.Status422UnprocessableEntity,
+            BookingCancellationErrorCodes.ReasonRequired => StatusCodes.Status422UnprocessableEntity,
             BookingCancellationErrorCodes.PolicyUnavailable => StatusCodes.Status503ServiceUnavailable,
 
             TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.ItineraryNotFound =>

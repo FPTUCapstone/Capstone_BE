@@ -112,6 +112,9 @@
     <None Include="..\..\database\migrations\20261014_add_trip_review_rating_index.sql"
           Link="Database\migrations\20261014_add_trip_review_rating_index.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261015_add_booking_cancellation.sql"
+          Link="Database\migrations\20261015_add_booking_cancellation.sql"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
