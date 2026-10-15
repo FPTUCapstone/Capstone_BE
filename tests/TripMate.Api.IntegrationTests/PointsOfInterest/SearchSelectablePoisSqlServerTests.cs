@@ -60,6 +60,47 @@ public sealed class SearchSelectablePoisSqlServerTests
 
     [SqlServerTheory]
     [Trait("Category", "SqlServer")]
+    [InlineData("hoi an")]
+    [InlineData("HOI AN")]
+    [InlineData("Hội An")]
+    [InlineData("chua cau")]
+    [InlineData("da nang")]
+    public async Task Search_ByNameWithoutDiacritics_MatchesVietnameseNamesInSqlServer(string query)
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await using (var seedContext = database.CreateDbContext())
+        {
+            var traveler = new User
+            {
+                Email = "poi-search-accents@example.com",
+                FullName = "POI Search Accent Traveler",
+                Role = UserRole.Traveler,
+                Status = AccountStatus.Active,
+                CreatedAtUtc = SeedTime,
+                UpdatedAtUtc = SeedTime,
+            };
+            var category = PoiCategory.Create("Culture", null);
+            seedContext.Users.Add(traveler);
+            seedContext.PoiCategories.Add(category);
+            await seedContext.SaveChangesAsync();
+
+            seedContext.PointsOfInterest.AddRange(
+                CreateSelectablePoi(category, traveler.Id, "Chùa Cầu Hội An Đà Nẵng", 15.8771m, 108.3261m),
+                CreateSelectablePoi(category, traveler.Id, "Marble Mountains", 16.0038m, 108.2639m));
+            await seedContext.SaveChangesAsync();
+        }
+
+        await using var context = database.CreateDbContext();
+        var result = await new SearchSelectablePoisQueryHandler(context).Handle(
+            new SearchSelectablePoisQuery(query, null, null, null, 1, 20),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Items.Select(item => item.Name).Should().Equal("Chùa Cầu Hội An Đà Nẵng");
+    }
+
+    [SqlServerTheory]
+    [Trait("Category", "SqlServer")]
     [InlineData(32)]
     [InlineData(50)]
     public async Task Search_WithLargeRadius_ExecutesInSqlServer(int radiusKm)

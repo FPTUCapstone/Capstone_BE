@@ -20,6 +20,41 @@ public sealed class CreateSchedulingRequestCommandValidatorTests
         result.IsValid.Should().BeTrue();
     }
 
+    [Theory]
+    [InlineData(60)]
+    [InlineData(135)]
+    [InlineData(4320)]
+    public void Validate_WhenAvailableMinutesWithinOneHourToThreeDays_HasNoErrors(int availableMinutes)
+    {
+        var command = CreateValidCommand() with { AvailableMinutes = availableMinutes };
+
+        _validator.Validate(command).IsValid.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(59)]
+    [InlineData(4321)]
+    public void Validate_WhenAvailableMinutesOutsideOneHourToThreeDays_HasAnError(int availableMinutes)
+    {
+        var command = CreateValidCommand() with { AvailableMinutes = availableMinutes };
+
+        var result = _validator.Validate(command);
+
+        result.Errors.Should().Contain(error => error.PropertyName == nameof(command.AvailableMinutes));
+    }
+
+    [Fact]
+    public void Validate_WhenTripCrossesMidnight_HasNoErrors()
+    {
+        var command = CreateValidCommand() with
+        {
+            StartAt = new DateTimeOffset(2026, 10, 20, 20, 0, 0, TimeSpan.FromHours(7)),
+            AvailableMinutes = 10 * 60,
+        };
+
+        _validator.Validate(command).IsValid.Should().BeTrue();
+    }
+
     [Fact]
     public void Validate_WhenEndChoiceIsAmbiguous_HasAnError()
     {

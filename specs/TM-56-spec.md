@@ -53,8 +53,10 @@ must return an explicit infeasible outcome instead of a partial itinerary.
   Candidate POIs must be within the submitted search radius of this centre.
 - The ending point is independent of the exploration centre. The Traveler may
   select an ending POI or request `returnToStart`; exactly one is required.
-- `availableMinutes` is required and must be from 60 to 720 minutes. The
-  scheduled trip must start and end on the same local calendar day.
+- `availableMinutes` is required and must be from 60 to 4,320 minutes (one hour
+  to three days). The trip is one continuous window that may cross midnight; a
+  stop that no longer fits today's opening hours waits for the next day it fits.
+  (Changed 2026-10-15: previously 60–720 minutes ending on the same local day.)
 - `transportMode` is required for this request. Mobile defaults it from the
   saved preference when present but the Traveler can override it.
 - `searchRadiusKm` is required and must be from 1 to 50 km.
