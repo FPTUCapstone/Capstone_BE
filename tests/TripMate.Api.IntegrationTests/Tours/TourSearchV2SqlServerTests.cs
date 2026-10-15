@@ -1,13 +1,21 @@
+using System.Data.Common;
+
 using FluentAssertions;
+
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Tours.GetCategories;
 using TripMate.Application.Features.Tours.Search.V2;
+using TripMate.Domain.Entities;
+
+using Xunit.Abstractions;
 
 namespace TripMate.Api.IntegrationTests.Tours;
 
-public sealed class TourSearchV2SqlServerTests
+public sealed class TourSearchV2SqlServerTests(ITestOutputHelper output)
 {
     private static readonly DateTimeOffset Now = new(2026, 10, 15, 0, 0, 0, TimeSpan.Zero);
 
@@ -146,6 +154,192 @@ public sealed class TourSearchV2SqlServerTests
             """);
         categories = await new GetTourCategoriesQueryHandler(context).Handle(new GetTourCategoriesQuery(), CancellationToken.None);
         categories.Value.Select(category => category.Code).Should().Equal("active", "a-fixture", "other", "z-fixture");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task RawOnly_R001_R002_R003_TransportsSharedSqlMeanAndUnratedNull()
+    {
+        await using var database = await SeedAsync();
+        await SeedRawReviewsAsync(database);
+        await using var context = database.CreateDbContext();
+        var page = await new TourSearchV2IndependentReader(context, new CountingClock())
+            .ReadAsync(new TourSearchV2Request(), CancellationToken.None);
+
+        page.Items.Single(row => row.TourId == "1").RawAverage.Should().Be(4.666666m);
+        page.Items.Single(row => row.TourId == "2").RawAverage.Should().Be(3m);
+        page.Items.Single(row => row.TourId == "3").RawAverage.Should().BeNull();
+        page.TotalCount.Should().Be(4);
+        (await context.TripReviews.CountAsync()).Should().Be(1);
+        (await context.Reviews.CountAsync()).Should().Be(7, "the reader must not mutate legacy rows");
+    }
+
+    [SqlServerTheory]
+    [Trait("Category", "SqlServer")]
+    [InlineData(TourSearchV2Request.SortDepartureDate)]
+    [InlineData(TourSearchV2Request.SortPriceAscending)]
+    [InlineData(TourSearchV2Request.SortPriceDescending)]
+    public async Task RawOnly_R004_ReviewValuesCannotChangeExistingMembershipOrderOrPages(string sort)
+    {
+        await using var database = await SeedAsync();
+        await using var context = database.CreateDbContext();
+        Task<IndependentTourSearchPage> Read(TourSearchV2Request criteria) =>
+            new TourSearchV2IndependentReader(context, new CountingClock()).ReadAsync(criteria, CancellationToken.None);
+        var request = new TourSearchV2Request(Sort: sort, PageSize: 2);
+        var before = await Read(request);
+        var beforeSecond = await Read(request with { Page = 2 });
+        await SeedRawReviewsAsync(database);
+        var after = await Read(request);
+        var afterSecond = await Read(request with { Page = 2 });
+
+        after.Items.Select(row => row.TourId).Should().Equal(before.Items.Select(row => row.TourId));
+        afterSecond.Items.Select(row => row.TourId).Should().Equal(beforeSecond.Items.Select(row => row.TourId));
+        after.TotalCount.Should().Be(before.TotalCount).And.Be(4);
+        after.TotalPages.Should().Be(before.TotalPages).And.Be(2);
+        afterSecond.TotalCount.Should().Be(4);
+        afterSecond.TotalPages.Should().Be(2);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task RawOnly_R005_R009_MapsOnlyVisiblePagesAndPreservesPrimaryThumbnail()
+    {
+        await using var database = await SeedAsync();
+        await SeedRawReviewsAsync(database);
+        await database.ExecuteNonQueryAsync("""
+            INSERT commerce.TourMedia(tour_id,cloudinary_public_id,delivery_url,sort_order,is_primary,lifecycle_status,alt_text)
+            VALUES(1,N'raw/primary',N'https://example.test/raw-primary.jpg',1,1,'Active',N'Raw fixture');
+            """);
+        await using var context = database.CreateDbContext();
+        var reader = new TourSearchV2IndependentReader(context, new CountingClock());
+        var first = await reader.ReadAsync(new TourSearchV2Request(PageSize: 2), CancellationToken.None);
+        var second = await reader.ReadAsync(new TourSearchV2Request(Page: 2, PageSize: 2), CancellationToken.None);
+        var beyond = await reader.ReadAsync(new TourSearchV2Request(Page: 3, PageSize: 2), CancellationToken.None);
+
+        first.Items.Select(row => row.TourId).Should().Equal("1", "3");
+        second.Items.Select(row => row.TourId).Should().Equal("2", "4");
+        first.Items[0].RawAverage.Should().Be(4.666666m);
+        first.Items[1].RawAverage.Should().BeNull();
+        second.Items[0].RawAverage.Should().Be(3m);
+        second.Items[1].RawAverage.Should().BeNull();
+        first.Items[0].ThumbnailUrl.Should().Be("https://example.test/raw-primary.jpg");
+        first.Items[0].RepresentativeScheduleId.Should().Be("9");
+        beyond.Items.Should().BeEmpty();
+        beyond.TotalCount.Should().Be(4);
+        beyond.TotalPages.Should().Be(2);
+        first.Items.Concat(second.Items).Select(row => row.TourId).Should().OnlyHaveUniqueItems();
+        (await reader.ReadAsync(new TourSearchV2Request(StartDate: new DateOnly(2026, 10, 14),
+            EndDate: new DateOnly(2026, 10, 14)), CancellationToken.None)).Items
+            .Select(row => row.TourId).Should().Equal("2", "1");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task RawOnly_R008_UsesFixedBatchedCommandsAndProviderAggregateSql()
+    {
+        await using var database = await SeedAsync();
+        await SeedRawReviewsAsync(database);
+        var counter = new TestCommandCounterInterceptor();
+        await using var context = database.CreateDbContext(counter);
+        var reader = new TourSearchV2IndependentReader(context, new CountingClock());
+        var small = await reader.ReadAsync(new TourSearchV2Request(PageSize: 1), CancellationToken.None);
+        small.Items.Should().ContainSingle();
+        counter.CommandCount.Should().Be(4);
+        var pageSql = counter.CommandTexts.Single(sql => sql.Contains("AVG("));
+        pageSql.Should().Contain("UNION ALL").And.Contain("LEFT JOIN").And.Contain("OFFSET").And.Contain("FETCH");
+        pageSql.Should().NotContain("ROUND(");
+        output.WriteLine("Raw-only SQL count:\n{0}", counter.CommandTexts.First());
+        output.WriteLine("Raw-only SQL page:\n{0}", pageSql);
+        await database.ExecuteNonQueryAsync("""
+            SET IDENTITY_INSERT commerce.Tours ON;
+            INSERT commerce.Tours(tour_id,operator_user_id,title,base_price,duration_days,status,published_at)
+            VALUES(8,901,N'Added one',300,2,'Approved','2026-10-01'),
+                  (9,901,N'Added two',400,2,'Approved','2026-10-01');
+            SET IDENTITY_INSERT commerce.Tours OFF;
+            INSERT social.Reviews(traveler_user_id,target_type,target_id,rating)
+            VALUES(902,'Tour',8,2),(902,'Tour',9,4);
+            """);
+        counter.Reset();
+        var larger = await reader.ReadAsync(new TourSearchV2Request(PageSize: 100), CancellationToken.None);
+        larger.TotalCount.Should().Be(6);
+        larger.Items.Should().HaveCount(6);
+        larger.Items.Single(row => row.TourId == "8").RawAverage.Should().Be(2m);
+        larger.Items.Single(row => row.TourId == "9").RawAverage.Should().Be(4m);
+        counter.CommandCount.Should().Be(4, "raw aggregation must not add a per-Tour read");
+        context.ChangeTracker.Entries().Should().BeEmpty();
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task RawOnly_R006_R010_KeepsPolicyGuardsClockAndCancellation()
+    {
+        await using var database = await SeedAsync();
+        await SeedRawReviewsAsync(database);
+        await using var context = database.CreateDbContext();
+        var clock = new CountingClock();
+        var reader = new TourSearchV2IndependentReader(context, clock);
+        foreach (var request in new[] { new TourSearchV2Request(MinimumRating: 4.6m),
+            new TourSearchV2Request(Sort: TourSearchV2Request.SortRating), new TourSearchV2Request(Keyword: "First"),
+            new TourSearchV2Request(Sort: TourSearchV2Request.SortRelevance) })
+        {
+            var guarded = async () => await reader.ReadAsync(request, CancellationToken.None);
+            await guarded.Should().ThrowAsync<NotSupportedException>();
+        }
+        clock.Calls.Should().Be(0);
+        var page = await reader.ReadAsync(new TourSearchV2Request(), CancellationToken.None);
+        clock.Calls.Should().Be(1);
+        page.AsOfUtc.Should().Be(Now.UtcDateTime);
+        using var preCancelled = new CancellationTokenSource();
+        preCancelled.Cancel();
+        var cancelled = async () => await reader.ReadAsync(new TourSearchV2Request(), preCancelled.Token);
+        await cancelled.Should().ThrowAsync<OperationCanceledException>();
+
+        using var duringPage = new CancellationTokenSource();
+        var interceptor = new CancelRawPageInterceptor(duringPage);
+        await using var cancellingContext = database.CreateDbContext(interceptor);
+        var during = async () => await new TourSearchV2IndependentReader(cancellingContext, new CountingClock())
+            .ReadAsync(new TourSearchV2Request(), duringPage.Token);
+        await during.Should().ThrowAsync<OperationCanceledException>();
+        interceptor.PageCancellationObserved.Should().BeTrue();
+    }
+
+    private sealed class CancelRawPageInterceptor(CancellationTokenSource source) : DbCommandInterceptor
+    {
+        public bool PageCancellationObserved { get; private set; }
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("AVG(", StringComparison.Ordinal))
+            {
+                source.Cancel();
+                PageCancellationObserved = cancellationToken.IsCancellationRequested;
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+            return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
+        }
+    }
+
+    private static async Task SeedRawReviewsAsync(SqlServerTestDatabase database)
+    {
+        await database.ExecuteNonQueryAsync("""
+            SET IDENTITY_INSERT dbo.Users ON;
+            INSERT dbo.Users(user_id,role,status,email,full_name)
+            VALUES(902,'Traveler','Active',N'raw-only@example.test',N'Raw owner');
+            SET IDENTITY_INSERT dbo.Users OFF;
+            INSERT planning.Itineraries(traveler_user_id,source_type,title)
+            VALUES(902,'Manual',N'Raw one'),(902,'Manual',N'Raw two');
+            INSERT commerce.Bookings(booking_code,traveler_user_id,itinerary_id,unit_price,total_amount,status)
+            VALUES('RAW-1',902,1,0,0,'Completed'),('RAW-2',902,2,0,0,'Completed');
+            INSERT social.Reviews(traveler_user_id,target_type,target_id,booking_id,rating)
+            VALUES(902,'Tour',1,1,1),(902,'Tour',1,2,4),(902,'Tour',1,NULL,5),
+                  (902,'Tour',2,NULL,3),(902,'Tour',2,NULL,3),
+                  (902,'Tour',5,NULL,1),(902,'POI',1,NULL,1);
+            """);
+        await using var context = database.CreateDbContext();
+        context.TripReviews.Add(TripReview.CreatePublished(1, 902, 1, null, 5,
+            "Raw title", "Raw content", null, null, false, "Raw owner", null, Now));
+        await context.SaveChangesAsync();
     }
 
     private static async Task<SqlServerTestDatabase> SeedAsync()
