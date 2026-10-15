@@ -109,6 +109,9 @@
     <None Include="..\..\database\migrations\20261009_add_tour_categories.sql"
           Link="Database\migrations\20261009_add_tour_categories.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261014_add_trip_review_rating_index.sql"
+          Link="Database\migrations\20261014_add_trip_review_rating_index.sql"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
