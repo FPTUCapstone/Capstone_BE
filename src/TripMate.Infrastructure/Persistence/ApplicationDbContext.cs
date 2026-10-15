@@ -75,6 +75,26 @@ public class ApplicationDbContext(
 
     public DbSet<Voucher> Vouchers => Set<Voucher>();
 
+    public DbSet<Booking> Bookings => Set<Booking>();
+
+    public DbSet<Ticket> Tickets => Set<Ticket>();
+
+    public DbSet<Refund> Refunds => Set<Refund>();
+
+    public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
+
+    public DbSet<BookingCancellationOperation> BookingCancellationOperations =>
+        Set<BookingCancellationOperation>();
+
+    public Task<int> RevokeActiveTicketQrCodesAsync(long bookingId, DateTimeOffset revokedAtUtc,
+        CancellationToken cancellationToken) => Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE qr
+            SET status = {"Revoked"}
+            FROM commerce.TicketQrCodes AS qr
+            INNER JOIN commerce.Tickets AS ticket ON ticket.ticket_id = qr.ticket_id
+            WHERE ticket.booking_id = {bookingId} AND qr.status = {"Active"};
+            """, cancellationToken);
+
     public Task<int> RevokeRefreshTokenAsync(
         string tokenHash,
         DateTimeOffset revokedAtUtc,

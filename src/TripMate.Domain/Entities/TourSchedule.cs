@@ -31,4 +31,15 @@ public class TourSchedule : BaseEntity
     public TourScheduleStatus Status { get; private set; }
 
     public DateTimeOffset CreatedAtUtc { get; private set; }
+
+    public void ReleaseReservedCapacity(int quantity)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(quantity);
+        if (ReservedCapacity < quantity)
+        {
+            throw new InvalidOperationException("Reserved capacity cannot become negative.");
+        }
+
+        ReservedCapacity -= quantity;
+    }
 }

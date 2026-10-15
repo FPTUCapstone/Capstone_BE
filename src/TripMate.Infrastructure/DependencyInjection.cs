@@ -11,6 +11,7 @@ using StackExchange.Redis;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Media;
 using TripMate.Application.Features.Authentication.PasswordReset;
+using TripMate.Application.Features.Bookings.Common;
 using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Navigation.Common;
 using TripMate.Application.Features.Scheduling.Common;
@@ -62,6 +63,8 @@ public static class DependencyInjection
         services.AddScoped<ITripReviewContextReader, SqlServerTripReviewContextReader>();
         services.AddScoped<ITripReviewWriteLock, SqlServerTripReviewWriteLock>();
         services.AddSingleton<ITripReviewPersistenceErrorClassifier, SqlServerTripReviewPersistenceErrorClassifier>();
+        services.AddSingleton<IBookingCancellationPersistenceErrorClassifier,
+            SqlServerBookingCancellationPersistenceErrorClassifier>();
         services.AddSingleton<IReviewContentModerator, LocalReviewContentModerator>();
         services.AddSingleton<IReviewImageInspector, ReviewImageInspector>();
         services.AddScoped<SqlServerReviewMediaJournal>();
