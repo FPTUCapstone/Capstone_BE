@@ -1,17 +1,33 @@
 name: DB migrate (Azure SQL)
 
-# Applies database/migrations to the shared Azure SQL database after a change lands on develop.
-# Runs only on push/manual dispatch (never on pull_request), so forks and unreviewed PRs
-# cannot reach the credentials. The `azure-db` environment should require a reviewer and be
-# limited to the develop branch (the job also checks github.ref itself).
+# Applies database/migrations to the shared Azure SQL database. Manual only: `develop` and `main`
+# share one database, so a schema change must never go out just because a merge happened.
+# Never runs on pull_request or push, so forks and unreviewed PRs cannot reach the credentials.
+# The `azure-db` environment must require a reviewer and be limited to the develop branch (the
+# job also checks github.ref itself).
+#
+# Dry run is the default: it only prints the plan. Before the first real run on an existing
+# database: take a backup (Azure SQL point-in-time restore or a BACPAC), run a dry run, then
+# baseline the migrations that are already applied with `stamp_only`, and use a low-traffic window.
 on:
-  push:
-    branches: [develop]
-    paths:
-      - 'database/migrations/**'
-      - 'database/tripmate_schema_v7.sql'
-      - 'database/apply-azure.sh'
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Only print the plan, change nothing'
+        type: boolean
+        default: true
+      stamp_only:
+        description: 'Baseline: comma-separated migration files already applied (recorded, NOT executed)'
+        type: string
+        default: ''
+      reapply_changed:
+        description: 'Comma-separated recorded migration files whose edited content may be re-applied'
+        type: string
+        default: ''
+      allow_reapply_all:
+        description: 'Run every migration on an existing database that has no ledger (use only if verified safe)'
+        type: boolean
+        default: false
 
 concurrency:
   group: db-migrate-azure
@@ -37,9 +53,16 @@ jobs:
           AZ_SERVER: ${{ secrets.AZ_SERVER }}
           AZ_USER: ${{ secrets.AZ_USER }}
           AZ_PASS: ${{ secrets.AZ_PASS }}
+          # Passed through the environment (never interpolated into the shell command); the script
+          # validates every file name. Azure SQL certificates are validated: no TRUST_SERVER_CERTIFICATE.
+          DRY_RUN: ${{ inputs.dry_run }}
+          STAMP_ONLY: ${{ inputs.stamp_only }}
+          REAPPLY_CHANGED: ${{ inputs.reapply_changed }}
+          ALLOW_REAPPLY_ALL: ${{ inputs.allow_reapply_all }}
         run: |
           docker run --rm \
             -v "$PWD/database:/db:ro" \
             -e AZ_SERVER -e AZ_USER -e AZ_PASS \
+            -e DRY_RUN -e STAMP_ONLY -e REAPPLY_CHANGED -e ALLOW_REAPPLY_ALL \
             mcr.microsoft.com/mssql/server:2022-latest \
             bash /db/apply-azure.sh
