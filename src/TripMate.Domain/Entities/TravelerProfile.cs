@@ -5,6 +5,9 @@ namespace TripMate.Domain.Entities;
 /// <summary>Read model for dbo.TravelerProfiles preferences used by itinerary planning.</summary>
 public sealed class TravelerProfile
 {
+    /// <summary>Column length of interest_tags_json and food_preferences_json.</summary>
+    public const int PreferenceJsonMaxLength = 1000;
+
     private TravelerProfile()
     {
     }
@@ -34,12 +37,6 @@ public sealed class TravelerProfile
     /// <summary>Persisted for schema parity; no scheduling behavior in TM-213.</summary>
     public string? FoodPreferencesJson { get; private set; }
 
-    /// <summary>
-    /// Persisted profile value for future Traveler Preference UC/mobile request prefill;
-    /// TM-213 does not use it as a server-side scheduling fallback.
-    /// </summary>
-    public decimal? DefaultBudget { get; private set; }
-
     public DateTimeOffset UpdatedAtUtc { get; private set; }
 
     public static TravelerProfile Create(
@@ -47,10 +44,7 @@ public sealed class TravelerProfile
         string? interestTagsJson,
         DateTimeOffset updatedAtUtc)
     {
-        if (userId <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(userId));
-        }
+        EnsureUserId(userId);
 
         return new TravelerProfile
         {
@@ -64,5 +58,57 @@ public sealed class TravelerProfile
     {
         DateOfBirth = dateOfBirth;
         UpdatedAtUtc = updatedAtUtc.ToUniversalTime();
+    }
+
+    /// <summary>Creates a profile row whose preferences are all unspecified.</summary>
+    public static TravelerProfile CreateEmpty(long userId, DateTimeOffset nowUtc)
+    {
+        EnsureUserId(userId);
+
+        return new TravelerProfile
+        {
+            UserId = userId,
+            UpdatedAtUtc = nowUtc.ToUniversalTime(),
+        };
+    }
+
+    /// <summary>Replaces all five UC-09 preference dimensions at once.</summary>
+    public void ReplacePreferences(
+        string? interestTagsJson,
+        TransportMode? preferredTransportMode,
+        TravelerPace? travelPace,
+        RiskToleranceLevel? riskTolerance,
+        string? foodPreferencesJson,
+        DateTimeOffset nowUtc)
+    {
+        InterestTagsJson = NormalizeJson(interestTagsJson, nameof(interestTagsJson));
+        PreferredTransportMode = preferredTransportMode;
+        TravelPace = travelPace;
+        RiskTolerance = riskTolerance;
+        FoodPreferencesJson = NormalizeJson(foodPreferencesJson, nameof(foodPreferencesJson));
+        UpdatedAtUtc = nowUtc.ToUniversalTime();
+    }
+
+    private static string? NormalizeJson(string? value, string parameterName)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        if (value.Length > PreferenceJsonMaxLength)
+        {
+            throw new ArgumentException($"Value cannot exceed {PreferenceJsonMaxLength} characters.", parameterName);
+        }
+
+        return value;
+    }
+
+    private static void EnsureUserId(long userId)
+    {
+        if (userId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(userId));
+        }
     }
 }

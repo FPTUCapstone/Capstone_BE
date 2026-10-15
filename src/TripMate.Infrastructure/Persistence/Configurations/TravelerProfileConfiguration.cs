@@ -37,9 +37,6 @@ public sealed class TravelerProfileConfiguration : IEntityTypeConfiguration<Trav
         builder.Property(profile => profile.FoodPreferencesJson)
             .HasColumnName("food_preferences_json")
             .HasMaxLength(1000);
-        builder.Property(profile => profile.DefaultBudget)
-            .HasColumnName("default_budget")
-            .HasPrecision(12, 2);
         builder.Property(profile => profile.UpdatedAtUtc)
             .HasColumnName("updated_at")
             .AsUtcDateTime2();

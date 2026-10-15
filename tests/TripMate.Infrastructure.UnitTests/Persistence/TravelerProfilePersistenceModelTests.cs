@@ -57,11 +57,6 @@ public class TravelerProfilePersistenceModelTests
             isNullable: true);
         foodPreferences.GetMaxLength().Should().Be(1000);
 
-        var defaultBudget = Property(profile, nameof(TravelerProfile.DefaultBudget));
-        AssertProperty(defaultBudget, profile, "default_budget", typeof(decimal?), isNullable: true);
-        defaultBudget.GetPrecision().Should().Be(12);
-        defaultBudget.GetScale().Should().Be(2);
-
         var updatedAt = Property(profile, nameof(TravelerProfile.UpdatedAtUtc));
         AssertProperty(updatedAt, profile, "updated_at", typeof(DateTimeOffset), isNullable: false);
         updatedAt.GetTypeMapping().Converter!.ProviderClrType.Should().Be(typeof(DateTime));
