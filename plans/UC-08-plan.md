@@ -118,6 +118,11 @@
       - If persistence cannot commit after upload, creates durable cleanup work for the newly uploaded asset; it must not leave an untracked Cloudinary asset.
     - Updates `User.FullName`, `User.PhoneNumber`, `User.UpdatedAtUtc = now`.
     - Upserts `TravelerProfile`: sets `DateOfBirth` and `UpdatedAtUtc = now`.
+    - When a concurrent first update creates the same `TravelerProfiles.user_id` row after this
+      request reads no profile, catches only the SQL Server duplicate-key failure for
+      `dbo.TravelerProfiles`, clears failed tracking, reloads the row, and retries the update
+      exactly once. Other duplicate constraints and all other persistence failures remain normal
+      failures; retry must retain the existing avatar cleanup-reservation lifecycle.
     - Saves profile values and cleanup/outbox records atomically.
     - **CRITICAL INVARIANT:** `User.Role`, `User.Status`, and `User.Email` are never touched (BR-17, BR-23).
     - Returns `UpdateTravelerProfileResponse` with `MSG20` and updated DTO.
@@ -155,6 +160,6 @@
 - **Implementation Details:**
   - Test validator against all validation boundary conditions (empty full name MSG01, invalid phone MSG04, age < 16 BR-18 MSG02, file > 5MB MSG19).
   - Test command handler ensuring `User.Role` remains `Traveler`, `User.Email` is unaltered, and locked/inactive users are forbidden before storage is called.
-  - Test avatar replacement/removal ordering, database-failure cleanup reservation, retryable Cloudinary deletion failure, and a concurrent phone-ownership race against SQL Server's unique index.
+  - Test avatar replacement/removal ordering, database-failure cleanup reservation, retryable Cloudinary deletion failure, concurrent phone-ownership race against SQL Server's unique index, and two concurrent first profile updates. The latter must create one profile row and return no `MSG127` solely due to the expected primary-key race.
   - Test integration endpoints with an active authenticated Traveler token, a non-Traveler token, and a valid token for a locked/inactive account.
   - Execute `dotnet test` and `dotnet build` ensuring 0 warnings, 0 errors.

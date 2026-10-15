@@ -57,9 +57,9 @@ public sealed class UpdateTravelerProfileCommandHandler(
             newUrl = upload.DeliveryUrl;
         }
 
-        try
+        async Task<Result<UpdateTravelerProfileResponse>> PersistAsync()
         {
-            var result = await db.ExecuteInTransactionAsync(async transactionToken =>
+            return await db.ExecuteInTransactionAsync(async transactionToken =>
             {
                 var trackedUser = await db.Users.SingleAsync(candidate => candidate.Id == userId, transactionToken);
                 if (trackedUser.Role != UserRole.Traveler || trackedUser.Status != AccountStatus.Active)
@@ -100,6 +100,23 @@ public sealed class UpdateTravelerProfileCommandHandler(
                 return Result.Success(new UpdateTravelerProfileResponse(TravelerProfileErrorCodes.Success,
                     "Profile updated successfully.", dto));
             }, cancellationToken);
+        }
+
+        try
+        {
+            Result<UpdateTravelerProfileResponse> result;
+            try
+            {
+                result = await PersistAsync();
+            }
+            catch (DbUpdateException exception) when (IsTravelerProfileCreateDuplicate(exception))
+            {
+                // Another request created the first profile after our read. Discard the failed
+                // insert and retry once so this request updates the now-persisted profile.
+                db.ClearTrackedEntities();
+                result = await PersistAsync();
+            }
+
             if (result.IsFailure && newPublicId is not null)
                 await journal.RetryNowAsync(newPublicId, CancellationToken.None);
             return result;
@@ -133,5 +150,21 @@ public sealed class UpdateTravelerProfileCommandHandler(
             return Result.Failure<UpdateTravelerProfileResponse>(TravelerProfileErrorCodes.Unavailable,
                 "TripMate is temporarily unable to process your request.");
         }
+    }
+
+    private static bool IsTravelerProfileCreateDuplicate(Exception exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (!string.Equals(current.GetType().Name, "SqlException", StringComparison.Ordinal)
+                || current.GetType().GetProperty("Number")?.GetValue(current) is not int number
+                || number is not 2601 and not 2627
+                || !current.Message.Contains("TravelerProfiles", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            return true;
+        }
+
+        return false;
     }
 }
