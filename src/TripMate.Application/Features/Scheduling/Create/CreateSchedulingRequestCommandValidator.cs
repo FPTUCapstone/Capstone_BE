@@ -30,7 +30,8 @@ public sealed class CreateSchedulingRequestCommandValidator
         RuleFor(command => command.ExplorationLongitude).InclusiveBetween(-180m, 180m);
         RuleFor(command => command.AvailableMinutes)
             .InclusiveBetween(SchedulingRequest.MinAvailableMinutes, SchedulingRequest.MaxAvailableMinutes);
-        RuleFor(command => command.SearchRadiusKm).InclusiveBetween(1m, 50m);
+        RuleFor(command => command.SearchRadiusKm)
+            .InclusiveBetween(SchedulingRequest.MinSearchRadiusKm, SchedulingRequest.MaxSearchRadiusKm);
         RuleFor(command => command.BudgetVnd)
             .GreaterThan(0m)
             .When(command => command.BudgetVnd.HasValue);

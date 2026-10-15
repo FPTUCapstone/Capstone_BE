@@ -65,6 +65,80 @@ public sealed class ItineraryVersionServiceTests
     }
 
     [Fact]
+    public async Task CreateRegeneratedVersion_SuggestsAnotherPlaceInsteadOfTheCurrentStop()
+    {
+        // Only one five-hour visit fits the eight-hour trip, and the current one is the best ranked.
+        await using var dbContext = TestDbContext.Create();
+        const long travelerUserId = 42;
+        var request = await AddRequestAsync(dbContext, travelerUserId);
+        var current = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Current museum", visitMinutes: 300);
+        var other = await AddPlanningReadyPoiAsync(dbContext, "Nature", "Other park", visitMinutes: 300);
+        dbContext.TravelerProfiles.Add(TravelerProfile.Create(travelerUserId, "[\"culture\"]", Now));
+        var original = await AddItineraryAsync(dbContext, request, current.Id);
+
+        var result = await new ItineraryVersionService(dbContext, new FixedRouteDurationProvider())
+            .CreateRegeneratedVersionAsync(original, request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        VisitIds(result.Value).Should().Equal(other.Id);
+    }
+
+    [Fact]
+    public async Task CreateRegeneratedVersion_PrefersAPlaceNeverSuggestedOverOneFromAnEarlierVersion()
+    {
+        // v1 showed the museum, v2 (current) the park: v3 must not bounce back to the museum
+        // while the garden has not been suggested yet.
+        await using var dbContext = TestDbContext.Create();
+        const long travelerUserId = 42;
+        var request = await AddRequestAsync(dbContext, travelerUserId);
+        var museum = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Museum v1", visitMinutes: 300);
+        var park = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Park v2", visitMinutes: 300);
+        var garden = await AddPlanningReadyPoiAsync(dbContext, "Nature", "Garden never shown", visitMinutes: 300);
+        dbContext.TravelerProfiles.Add(TravelerProfile.Create(travelerUserId, "[\"culture\"]", Now));
+        _ = await AddItineraryAsync(dbContext, request, version: 1, museum.Id);
+        var current = await AddItineraryAsync(dbContext, request, version: 2, park.Id);
+
+        var result = await new ItineraryVersionService(dbContext, new FixedRouteDurationProvider())
+            .CreateRegeneratedVersionAsync(current, request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        VisitIds(result.Value).Should().Equal(garden.Id);
+    }
+
+    [Fact]
+    public async Task CreateRegeneratedVersion_ReusesCurrentStopsToFillTimeLeft()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var request = await AddRequestAsync(dbContext, travelerUserId: 42);
+        var current = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Current museum");
+        var other = await AddPlanningReadyPoiAsync(dbContext, "Nature", "Other park");
+        var original = await AddItineraryAsync(dbContext, request, current.Id);
+
+        var result = await new ItineraryVersionService(dbContext, new FixedRouteDurationProvider())
+            .CreateRegeneratedVersionAsync(original, request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        VisitIds(result.Value).Should().BeEquivalentTo([other.Id, current.Id]);
+    }
+
+    [Fact]
+    public async Task CreateRegeneratedVersion_WhenNoOtherPlaceFits_KeepsTheCurrentVersion()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var request = await AddRequestAsync(dbContext, travelerUserId: 42);
+        var only = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Only museum");
+        var original = await AddItineraryAsync(dbContext, request, only.Id);
+
+        var result = await new ItineraryVersionService(dbContext, new FixedRouteDurationProvider())
+            .CreateRegeneratedVersionAsync(original, request, CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(ItineraryErrorCodes.NoAlternative);
+        dbContext.ChangeTracker.Entries<Itinerary>()
+            .Should().NotContain(entry => entry.State == EntityState.Added);
+    }
+
+    [Fact]
     public async Task CreateRegeneratedVersion_PersistsRoadDurationForTheNextItineraryItem()
     {
         await using var dbContext = TestDbContext.Create();
@@ -275,15 +349,42 @@ public sealed class ItineraryVersionServiceTests
             RestPreference.None,
             Now);
 
+    private static long[] VisitIds(Itinerary itinerary) => itinerary.Items
+        .Where(item => item.Kind == ItineraryItemKind.Visit)
+        .OrderBy(item => item.SequenceNo)
+        .Select(item => item.PointOfInterestId!.Value)
+        .ToArray();
+
+    private static Task<Itinerary> AddItineraryAsync(
+        TestDbContext dbContext,
+        SchedulingRequest request,
+        params long[] visitPoiIds) =>
+        AddItineraryAsync(dbContext, request, version: 1, visitPoiIds);
+
     private static async Task<Itinerary> AddItineraryAsync(
         TestDbContext dbContext,
-        SchedulingRequest request)
+        SchedulingRequest request,
+        int version,
+        params long[] visitPoiIds)
     {
         var itinerary = Itinerary.CreateCspGenerated(
             request,
             "Generated trip",
             Now.AddHours(1),
-            Now.AddHours(5));
+            Now.AddHours(5),
+            version);
+        for (var index = 0; index < visitPoiIds.Length; index++)
+        {
+            itinerary.AddItem(ItineraryItem.CreateVisit(
+                index + 1,
+                visitPoiIds[index],
+                Now.AddHours(1 + index),
+                Now.AddHours(2 + index),
+                false,
+                60_000m,
+                "Suggested nearby location"));
+        }
+
         dbContext.Itineraries.Add(itinerary);
         await dbContext.SaveChangesAsync();
         return itinerary;
@@ -294,7 +395,8 @@ public sealed class ItineraryVersionServiceTests
         string categoryName,
         string poiName,
         decimal latitude = 16.0471m,
-        decimal longitude = 108.2068m)
+        decimal longitude = 108.2068m,
+        int visitMinutes = 60)
     {
         var poi = PointOfInterest.Create(
             PoiCategory.Create(categoryName, null),
@@ -303,7 +405,7 @@ public sealed class ItineraryVersionServiceTests
             longitude,
             1,
             Now,
-            averageVisitDurationMinutes: 60);
+            averageVisitDurationMinutes: visitMinutes);
         poi.ConfigurePlanningMetadata(60_000m, "https://example.com/poi", Now);
         poi.AddOpeningHour(PoiOpeningHour.Create(
             2,

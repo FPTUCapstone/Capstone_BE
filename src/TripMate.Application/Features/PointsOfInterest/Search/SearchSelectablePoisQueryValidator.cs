@@ -1,5 +1,7 @@
 using FluentValidation;
 
+using TripMate.Domain.Entities;
+
 namespace TripMate.Application.Features.PointsOfInterest.Search;
 
 public sealed class SearchSelectablePoisQueryValidator
@@ -18,7 +20,9 @@ public sealed class SearchSelectablePoisQueryValidator
         {
             RuleFor(query => query.Latitude!.Value).InclusiveBetween(-90m, 90m);
             RuleFor(query => query.Longitude!.Value).InclusiveBetween(-180m, 180m);
-            RuleFor(query => query.RadiusKm!.Value).InclusiveBetween(1, 50);
+            // Same bound as the planner, which narrows its POI pickers to this radius.
+            RuleFor(query => query.RadiusKm!.Value)
+                .InclusiveBetween(SchedulingRequest.MinSearchRadiusKm, SchedulingRequest.MaxSearchRadiusKm);
         });
         RuleFor(query => query.Page).GreaterThan(0);
         RuleFor(query => query.PageSize).InclusiveBetween(1, 50);

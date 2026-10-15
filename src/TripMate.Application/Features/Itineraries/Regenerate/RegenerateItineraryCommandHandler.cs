@@ -62,6 +62,17 @@ public sealed class RegenerateItineraryCommandHandler(
                         "Only the itinerary owner can regenerate it.");
                 }
 
+                if (await ItineraryNavigationLock.IsInProgressAsync(
+                        dbContext,
+                        access.SchedulingRequestId,
+                        dateTimeProvider.UtcNow,
+                        transactionCancellationToken))
+                {
+                    return Result.Failure<ItineraryDetailResponse>(
+                        ItineraryErrorCodes.NavigationInProgress,
+                        ItineraryNavigationLock.Message);
+                }
+
                 var requestHash = ComputeHash(command.ItineraryId);
                 var operation = await dbContext.ItineraryVersionOperations
                     .SingleOrDefaultAsync(item =>

@@ -53,12 +53,21 @@ public sealed class OpenRouteServiceRouteDurationProvider(
             }
 
             var minutes = new int[points.Count, points.Count];
+            var unreachable = new bool[points.Count, points.Count];
             for (var row = 0; row < points.Count; row++)
             {
                 for (var column = 0; column < points.Count; column++)
                 {
                     var seconds = payload.Durations[row][column];
-                    if (seconds is null || seconds < 0)
+                    if (seconds is null)
+                    {
+                        // ORS returns null when it finds no route, e.g. a point with no road nearby.
+                        // Generation drops such places instead of failing the whole itinerary.
+                        unreachable[row, column] = row != column;
+                        continue;
+                    }
+
+                    if (seconds < 0)
                     {
                         throw InvalidProviderResponse("OpenRouteService returned an invalid route duration.");
                     }
@@ -67,7 +76,7 @@ public sealed class OpenRouteServiceRouteDurationProvider(
                 }
             }
 
-            return RouteDurationMatrix.Create(minutes);
+            return RouteDurationMatrix.Create(minutes, unreachable);
         }
         catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {

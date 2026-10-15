@@ -32,7 +32,8 @@ public sealed class ItineraryMutationSqlServerTests
 
         var result = await new GetItineraryDetailQueryHandler(
                 context,
-                new ItineraryAccessService(context))
+                new ItineraryAccessService(context),
+                new FixedDateTimeProvider())
             .Handle(
                 new GetItineraryDetailQuery(seed.PredecessorItineraryId, seed.UserId),
                 CancellationToken.None);
@@ -347,6 +348,10 @@ public sealed class ItineraryMutationSqlServerTests
         var firstPoi = CreatePoi(category, user.Id, "UC11 SQL Museum", now);
         var secondPoi = CreatePoi(category, user.Id, "UC11 SQL Gallery", now);
         context.PointsOfInterest.AddRange(firstPoi, secondPoi);
+        // Regenerating prefers places outside the current version and refuses an identical copy,
+        // so the area needs more places than one trip can hold for repeated regenerations.
+        context.PointsOfInterest.AddRange(Enumerable.Range(1, 10)
+            .Select(index => CreatePoi(category, user.Id, $"UC11 SQL Extra {index}", now)));
         await context.SaveChangesAsync();
 
         var request = SchedulingRequest.Create(

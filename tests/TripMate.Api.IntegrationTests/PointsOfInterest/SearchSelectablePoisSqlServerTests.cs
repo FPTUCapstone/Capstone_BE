@@ -103,6 +103,7 @@ public sealed class SearchSelectablePoisSqlServerTests
     [Trait("Category", "SqlServer")]
     [InlineData(32)]
     [InlineData(50)]
+    [InlineData(100)]
     public async Task Search_WithLargeRadius_ExecutesInSqlServer(int radiusKm)
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();

@@ -54,7 +54,8 @@ public sealed class ListMyItinerariesQueryHandler(
         var nowUtc = clock.UtcNow;
 
         // The trip in progress comes first, then Active trips that have not ended yet (soonest
-        // first), then everything else from the newest start. Pages stay stable because the
+        // first), then drafts with the one just planned or regenerated on top (a new version gets
+        // a new id), then everything else from the newest start. Pages stay stable because the
         // order ends on the unique id.
         var summaries = offset >= totalCount
             ? []
@@ -69,6 +70,10 @@ public sealed class ListMyItinerariesQueryHandler(
                     && itinerary.ValidToUtc >= nowUtc
                         ? itinerary.ValidFromUtc
                         : null)
+                .ThenByDescending(itinerary => itinerary.Status == Itinerary.DraftStatus)
+                .ThenByDescending(itinerary => itinerary.Status == Itinerary.DraftStatus
+                    ? itinerary.Id
+                    : (long?)null)
                 .ThenBy(itinerary => itinerary.ValidFromUtc == null)
                 .ThenByDescending(itinerary => itinerary.ValidFromUtc)
                 .ThenByDescending(itinerary => itinerary.Id)
