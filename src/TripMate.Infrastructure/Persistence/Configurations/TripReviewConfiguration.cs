@@ -49,6 +49,10 @@ public sealed class TripReviewConfiguration : IEntityTypeConfiguration<TripRevie
             .HasDatabaseName("UX_TripReviews_CommerceBooking");
         builder.HasIndex(review => review.ServiceBookingId).IsUnique().HasFilter("[service_booking_id] IS NOT NULL")
             .HasDatabaseName("UX_TripReviews_ServiceBooking");
+        builder.HasIndex(review => new { review.TourId, review.PublicationStatus })
+            .HasFilter("[tour_id] IS NOT NULL")
+            .IncludeProperties(review => review.OverallRating)
+            .HasDatabaseName("IX_TripReviews_TourPublicationRating");
     }
 
     private static string? EncodePacing(RoutePacingFeedback? value) => value switch
