@@ -19,6 +19,9 @@ public class User : BaseEntity
 
     public string? AvatarUrl { get; set; }
 
+    /// <summary>Provider identifier used for safe avatar replacement and durable cleanup.</summary>
+    public string? AvatarPublicId { get; set; }
+
     public AccountStatus Status { get; set; } = AccountStatus.PendingEmailVerification;
 
     public DateTimeOffset? EmailVerifiedAtUtc { get; set; }

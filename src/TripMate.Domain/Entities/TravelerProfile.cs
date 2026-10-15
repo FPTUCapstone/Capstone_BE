@@ -13,6 +13,9 @@ public sealed class TravelerProfile
 
     public string? InterestTagsJson { get; private set; }
 
+    /// <summary>Optional personal date of birth used by UC-08 profile maintenance.</summary>
+    public DateOnly? DateOfBirth { get; private set; }
+
     /// <summary>
     /// Persisted profile value for future Traveler Preference UC/mobile request prefill;
     /// TM-213 does not use it as a server-side scheduling fallback.
@@ -55,5 +58,11 @@ public sealed class TravelerProfile
             InterestTagsJson = interestTagsJson,
             UpdatedAtUtc = updatedAtUtc.ToUniversalTime(),
         };
+    }
+
+    public void UpdateDateOfBirth(DateOnly? dateOfBirth, DateTimeOffset updatedAtUtc)
+    {
+        DateOfBirth = dateOfBirth;
+        UpdatedAtUtc = updatedAtUtc.ToUniversalTime();
     }
 }

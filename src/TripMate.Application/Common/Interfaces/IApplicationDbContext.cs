@@ -162,4 +162,11 @@ public interface IApplicationDbContext
     Task FinalizeOperatorDocumentCleanupReservationsAsync(
         IReadOnlyCollection<string> publicIds,
         CancellationToken cancellationToken) => Task.CompletedTask;
+
+    Task FinalizeTravelerAvatarReservationAsync(string publicId, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Avatar reservation finalization is unavailable.");
+
+    Task EnqueueTravelerAvatarCleanupAsync(string publicId, DateTimeOffset nowUtc,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Avatar cleanup enqueue is unavailable.");
 }

@@ -16,6 +16,9 @@ public sealed class TravelerProfileConfiguration : IEntityTypeConfiguration<Trav
         builder.Property(profile => profile.InterestTagsJson)
             .HasColumnName("interest_tags_json")
             .HasMaxLength(1000);
+        builder.Property(profile => profile.DateOfBirth)
+            .HasColumnName("date_of_birth")
+            .HasColumnType("date");
         builder.Property(profile => profile.PreferredTransportMode)
             .HasColumnName("preferred_transport_mode")
             .HasConversion<string>()
