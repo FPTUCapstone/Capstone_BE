@@ -224,7 +224,6 @@ CREATE TABLE dbo.TravelerProfiles (
     risk_tolerance              VARCHAR(20) NULL CHECK (risk_tolerance IN ('Low','Medium','High')),
     food_preferences_json       NVARCHAR(1000) NULL,   -- JSON array, e.g. ["vegetarian","seafood"]
     interest_tags_json          NVARCHAR(1000) NULL,   -- JSON array of catalog.Tags.name
-    default_budget              DECIMAL(12,2) NULL,
     updated_at                  DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
 );
 GO

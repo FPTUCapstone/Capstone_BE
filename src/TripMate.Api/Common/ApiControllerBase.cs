@@ -324,6 +324,9 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripMate.Application.Features.Itineraries.Common.ItineraryErrorCodes.NoAlternative =>
                 StatusCodes.Status422UnprocessableEntity,
 
+            TripMate.Application.Features.Traveler.Preferences.Common.TravelerPreferenceErrors.Forbidden =>
+                StatusCodes.Status403Forbidden,
+
             NavigationErrorCodes.AccessDenied => StatusCodes.Status403Forbidden,
             NavigationErrorCodes.SessionNotFound => StatusCodes.Status404NotFound,
             NavigationErrorCodes.ItineraryNotActive
