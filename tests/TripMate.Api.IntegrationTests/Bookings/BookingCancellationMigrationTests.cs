@@ -55,10 +55,9 @@ public sealed class BookingCancellationMigrationTests
     private static async Task<SqlServerTestDatabase> CreateLegacyDatabaseAsync()
     {
         var database = await SqlServerTestDatabase.CreateEmptyAsync();
+        await database.ExecuteNonQueryAsync("CREATE SCHEMA commerce;");
+        await database.ExecuteNonQueryAsync("CREATE SCHEMA payment;");
         await database.ExecuteNonQueryAsync("""
-            CREATE SCHEMA commerce;
-            CREATE SCHEMA payment;
-
             CREATE TABLE dbo.Users (
                 user_id BIGINT NOT NULL PRIMARY KEY
             );

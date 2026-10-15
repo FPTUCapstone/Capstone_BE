@@ -9,12 +9,13 @@ BEGIN TRY
         THROW 51000, 'UC-41 requires commerce.Bookings.', 1;
 
     IF COL_LENGTH(N'commerce.Bookings', N'cancellation_policy_snapshot') IS NULL
-        ALTER TABLE commerce.Bookings ADD cancellation_policy_snapshot NVARCHAR(500) NULL;
+        EXEC sys.sp_executesql N'ALTER TABLE commerce.Bookings ADD cancellation_policy_snapshot NVARCHAR(500) NULL;';
 
-    UPDATE commerce.Bookings
-    SET cancellation_policy_snapshot =
-        N'{"atLeastSevenDaysPercent":100,"threeToSevenDaysPercent":70,"oneToThreeDaysPercent":30}'
-    WHERE cancellation_policy_snapshot IS NULL;
+    EXEC sys.sp_executesql N'
+        UPDATE commerce.Bookings
+        SET cancellation_policy_snapshot =
+            N''{"atLeastSevenDaysPercent":100,"threeToSevenDaysPercent":70,"oneToThreeDaysPercent":30}''
+        WHERE cancellation_policy_snapshot IS NULL;';
 
     DECLARE @defaultName SYSNAME;
     SELECT @defaultName = dc.name
@@ -22,35 +23,41 @@ BEGIN TRY
     INNER JOIN sys.columns c ON c.object_id = dc.parent_object_id AND c.column_id = dc.parent_column_id
     WHERE dc.parent_object_id = OBJECT_ID(N'commerce.Bookings')
         AND c.name = N'cancellation_policy_snapshot';
-    IF @defaultName IS NOT NULL EXEC(N'ALTER TABLE commerce.Bookings DROP CONSTRAINT ' + QUOTENAME(@defaultName));
+    IF @defaultName IS NOT NULL
+    BEGIN
+        DECLARE @dropDefaultSql NVARCHAR(MAX) = N'ALTER TABLE commerce.Bookings DROP CONSTRAINT ' + QUOTENAME(@defaultName) + N';';
+        EXEC sys.sp_executesql @dropDefaultSql;
+    END;
 
-    ALTER TABLE commerce.Bookings ALTER COLUMN cancellation_policy_snapshot NVARCHAR(500) NOT NULL;
-    ALTER TABLE commerce.Bookings ADD CONSTRAINT DF_Bookings_CancellationPolicySnapshot DEFAULT
-        (N'{"atLeastSevenDaysPercent":100,"threeToSevenDaysPercent":70,"oneToThreeDaysPercent":30}')
-        FOR cancellation_policy_snapshot;
+    EXEC sys.sp_executesql N'
+        ALTER TABLE commerce.Bookings ALTER COLUMN cancellation_policy_snapshot NVARCHAR(500) NOT NULL;
+        ALTER TABLE commerce.Bookings ADD CONSTRAINT DF_Bookings_CancellationPolicySnapshot DEFAULT
+            (N''{"atLeastSevenDaysPercent":100,"threeToSevenDaysPercent":70,"oneToThreeDaysPercent":30}'')
+            FOR cancellation_policy_snapshot;';
 
     IF OBJECT_ID(N'commerce.BookingCancellationOperations', N'U') IS NULL
     BEGIN
-        CREATE TABLE commerce.BookingCancellationOperations (
-            operation_id BIGINT IDENTITY(1,1) NOT NULL
-                CONSTRAINT PK_BookingCancellationOperations PRIMARY KEY,
-            booking_id BIGINT NOT NULL,
-            actor_user_id BIGINT NOT NULL,
-            actor VARCHAR(12) NOT NULL,
-            idempotency_key UNIQUEIDENTIFIER NOT NULL,
-            request_hash CHAR(64) NOT NULL,
-            refund_amount DECIMAL(12,2) NOT NULL,
-            cancelled_at DATETIME2 NOT NULL,
-            CONSTRAINT UX_BookingCancellationOperations_ActorKey UNIQUE (actor_user_id, idempotency_key),
-            CONSTRAINT FK_BookingCancellationOperations_Booking FOREIGN KEY (booking_id)
-                REFERENCES commerce.Bookings(booking_id),
-            CONSTRAINT FK_BookingCancellationOperations_ActorUser FOREIGN KEY (actor_user_id)
-                REFERENCES dbo.Users(user_id),
-            CONSTRAINT CK_BookingCancellationOperations_Actor
-                CHECK (actor IN ('Traveler','TourOperator')),
-            CONSTRAINT CK_BookingCancellationOperations_RefundAmount
-                CHECK (refund_amount >= 0)
-        );
+        EXEC sys.sp_executesql N'
+            CREATE TABLE commerce.BookingCancellationOperations (
+                operation_id BIGINT IDENTITY(1,1) NOT NULL
+                    CONSTRAINT PK_BookingCancellationOperations PRIMARY KEY,
+                booking_id BIGINT NOT NULL,
+                actor_user_id BIGINT NOT NULL,
+                actor VARCHAR(12) NOT NULL,
+                idempotency_key UNIQUEIDENTIFIER NOT NULL,
+                request_hash CHAR(64) NOT NULL,
+                refund_amount DECIMAL(12,2) NOT NULL,
+                cancelled_at DATETIME2 NOT NULL,
+                CONSTRAINT UX_BookingCancellationOperations_ActorKey UNIQUE (actor_user_id, idempotency_key),
+                CONSTRAINT FK_BookingCancellationOperations_Booking FOREIGN KEY (booking_id)
+                    REFERENCES commerce.Bookings(booking_id),
+                CONSTRAINT FK_BookingCancellationOperations_ActorUser FOREIGN KEY (actor_user_id)
+                    REFERENCES dbo.Users(user_id),
+                CONSTRAINT CK_BookingCancellationOperations_Actor
+                    CHECK (actor IN (''Traveler'',''TourOperator'')),
+                CONSTRAINT CK_BookingCancellationOperations_RefundAmount
+                    CHECK (refund_amount >= 0)
+            );';
     END;
 
     IF EXISTS (
@@ -113,20 +120,21 @@ BEGIN TRY
     ) AS constraint_info;
     IF @dropOperationConstraints <> N'' EXEC sys.sp_executesql @dropOperationConstraints;
 
-    ALTER TABLE commerce.BookingCancellationOperations
-        ADD CONSTRAINT FK_BookingCancellationOperations_Booking FOREIGN KEY (booking_id)
-            REFERENCES commerce.Bookings(booking_id),
-            CONSTRAINT FK_BookingCancellationOperations_ActorUser FOREIGN KEY (actor_user_id)
-            REFERENCES dbo.Users(user_id),
-            CONSTRAINT CK_BookingCancellationOperations_Actor
-            CHECK (actor IN ('Traveler','TourOperator')),
-            CONSTRAINT CK_BookingCancellationOperations_RefundAmount
-            CHECK (refund_amount >= 0);
+    EXEC sys.sp_executesql N'
+        ALTER TABLE commerce.BookingCancellationOperations
+            ADD CONSTRAINT FK_BookingCancellationOperations_Booking FOREIGN KEY (booking_id)
+                REFERENCES commerce.Bookings(booking_id),
+                CONSTRAINT FK_BookingCancellationOperations_ActorUser FOREIGN KEY (actor_user_id)
+                REFERENCES dbo.Users(user_id),
+                CONSTRAINT CK_BookingCancellationOperations_Actor
+                CHECK (actor IN (''Traveler'',''TourOperator'')),
+                CONSTRAINT CK_BookingCancellationOperations_RefundAmount
+                CHECK (refund_amount >= 0);';
 
     IF EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'commerce.BookingCancellationOperations')
         AND name = N'IX_BookingCancellationOperations_Booking')
         DROP INDEX IX_BookingCancellationOperations_Booking ON commerce.BookingCancellationOperations;
-    CREATE INDEX IX_BookingCancellationOperations_Booking ON commerce.BookingCancellationOperations(booking_id);
+    EXEC sys.sp_executesql N'CREATE INDEX IX_BookingCancellationOperations_Booking ON commerce.BookingCancellationOperations(booking_id);';
 
     IF EXISTS (SELECT 1 FROM sys.key_constraints WHERE parent_object_id = OBJECT_ID(N'commerce.BookingCancellationOperations')
         AND name = N'UX_BookingCancellationOperations_ActorKey')
@@ -135,11 +143,11 @@ BEGIN TRY
     ELSE IF EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'commerce.BookingCancellationOperations')
         AND name = N'UX_BookingCancellationOperations_ActorKey')
         DROP INDEX UX_BookingCancellationOperations_ActorKey ON commerce.BookingCancellationOperations;
-    ALTER TABLE commerce.BookingCancellationOperations
-        ADD CONSTRAINT UX_BookingCancellationOperations_ActorKey UNIQUE (actor_user_id, idempotency_key);
+    EXEC sys.sp_executesql N'ALTER TABLE commerce.BookingCancellationOperations
+        ADD CONSTRAINT UX_BookingCancellationOperations_ActorKey UNIQUE (actor_user_id, idempotency_key);';
 
     IF COL_LENGTH(N'payment.Refunds', N'cancellation_operation_id') IS NULL
-        ALTER TABLE payment.Refunds ADD cancellation_operation_id BIGINT NULL;
+        EXEC sys.sp_executesql N'ALTER TABLE payment.Refunds ADD cancellation_operation_id BIGINT NULL;';
 
     DECLARE @dropRefundForeignKeys NVARCHAR(MAX) = N'';
     SELECT @dropRefundForeignKeys += N'ALTER TABLE payment.Refunds DROP CONSTRAINT '
@@ -151,15 +159,16 @@ BEGIN TRY
       AND column_map.parent_column_id = COLUMNPROPERTY(
           OBJECT_ID(N'payment.Refunds'), N'cancellation_operation_id', N'ColumnId');
     IF @dropRefundForeignKeys <> N'' EXEC sys.sp_executesql @dropRefundForeignKeys;
-    ALTER TABLE payment.Refunds ADD CONSTRAINT FK_Refunds_CancellationOperation
+
+    EXEC sys.sp_executesql N'ALTER TABLE payment.Refunds ADD CONSTRAINT FK_Refunds_CancellationOperation
         FOREIGN KEY (cancellation_operation_id)
-        REFERENCES commerce.BookingCancellationOperations(operation_id);
+        REFERENCES commerce.BookingCancellationOperations(operation_id);';
 
     IF EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'payment.Refunds')
         AND name = N'UX_Refunds_CancellationOperation')
         DROP INDEX UX_Refunds_CancellationOperation ON payment.Refunds;
-    CREATE UNIQUE INDEX UX_Refunds_CancellationOperation ON payment.Refunds(cancellation_operation_id)
-        WHERE cancellation_operation_id IS NOT NULL;
+    EXEC sys.sp_executesql N'CREATE UNIQUE INDEX UX_Refunds_CancellationOperation ON payment.Refunds(cancellation_operation_id)
+        WHERE cancellation_operation_id IS NOT NULL;';
 
     COMMIT TRANSACTION;
 END TRY
