@@ -1,6 +1,7 @@
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Scheduling.Csp;
 using TripMate.Application.Features.Scheduling.Routing;
+using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Scheduling.Common;
@@ -310,7 +311,7 @@ public sealed class ItineraryGenerationService(
     }
 
     private static bool HasInvalidRequestConstraints(GenerationInput input) =>
-        input.AvailableMinutes is < 60 or > 720
+        input.AvailableMinutes is < SchedulingRequest.MinAvailableMinutes or > SchedulingRequest.MaxAvailableMinutes
         || input.BudgetVnd is <= 0
         || input.MandatoryPoiIds.Count > 6
         || input.MandatoryPoiIds.Distinct().Count() != input.MandatoryPoiIds.Count;
