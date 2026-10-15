@@ -28,6 +28,9 @@ public interface IApplicationDbContext
 
     DbSet<Tour> Tours { get; }
 
+    DbSet<TourCategory> TourCategories =>
+        throw new NotSupportedException("Tour taxonomy is unavailable in this context.");
+
     DbSet<TourSchedule> TourSchedules { get; }
 
     DbSet<Destination> Destinations { get; }
