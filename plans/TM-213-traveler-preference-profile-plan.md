@@ -6,6 +6,13 @@ Binding design baseline: `specs/TM-213-traveler-preference-profile-spec.md`
 Branch: `feature/phuctv-tm213-traveler-preference-profile` (already checked out; clean at plan creation)
 Workflow: AGENTS.md §1 — spec-first, TDD (red → green → refactor), atomic tasks, zero regression. Test-first is mandatory: implementation code written before its test is deleted and redone (AGENTS.md §1.2.4).
 
+**Amendment (UC-09 P2):** This plan supersedes the earlier DefaultBudget design.
+UC-09 removed `dbo.TravelerProfiles.default_budget` through
+`20261013_remove_traveler_profile_default_budget.sql`; it is not part of the current
+canonical schema or EF model. References have been updated in the production files
+table (P1, P2), the constraint register (item 8), task T1, and task T4. See the spec
+amendment note for full details.
+
 ---
 
 ## 1. Preconditions
@@ -32,8 +39,8 @@ Workflow: AGENTS.md §1 — spec-first, TDD (red → green → refactor), atomic
 
 | #  | File                                                                                             | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Workstream | Constraints                                             |
 | -- | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | ------------------------------------------------------- |
-| P1 | `src/TripMate.Domain/Entities/TravelerProfile.cs`                                              | Add five nullable EF-materializable properties with private setters: `TransportMode? PreferredTransportMode`, `TravelerPace? TravelPace`, `RiskToleranceLevel? RiskTolerance`, `string? FoodPreferencesJson`, `decimal? DefaultBudget`. Factory `Create(...)` stays UNCHANGED (tests only need InterestTags, which it already supports; an unchanged factory also physically prevents constructing Tier C/D values in code). XML docs on Tier C/D members: "persisted for schema parity; no scheduling behavior in TM-213". | B          | parity only (C-5); no behavior for pace/risk/food (C-7) |
-| P2 | `src/TripMate.Infrastructure/Persistence/Configurations/TravelerProfileConfiguration.cs`       | Add mappings: `preferred_transport_mode`, `travel_pace`, and `risk_tolerance` each use `HasConversion<string>()`, `HasMaxLength(20)`, and `IsUnicode(false)` to preserve the schema's `varchar(20)` contract; `food_preferences_json` uses `HasMaxLength(1000)`; `default_budget` uses `HasPrecision(12,2)` (follow the existing precision-mapping pattern used for POI `estimated_visit_cost`). Existing `user_id` / `interest_tags_json` / `updated_at` mappings and `AsUtcDateTime2()` unchanged.                                                                                                               | A          | no schema change (C-3/4)                                |
+| P1 | `src/TripMate.Domain/Entities/TravelerProfile.cs`                                              | Add four nullable EF-materializable properties with private setters: `TransportMode? PreferredTransportMode`, `TravelerPace? TravelPace`, `RiskToleranceLevel? RiskTolerance`, `string? FoodPreferencesJson`. Factory `Create(...)` stays UNCHANGED (tests only need InterestTags, which it already supports; an unchanged factory also physically prevents constructing Tier C/D values in code). XML docs on Tier C/D members: "persisted for schema parity; no scheduling behavior in TM-213". | B          | parity only (C-5); no behavior for pace/risk/food (C-7) |
+| P2 | `src/TripMate.Infrastructure/Persistence/Configurations/TravelerProfileConfiguration.cs`       | Add mappings: `preferred_transport_mode`, `travel_pace`, and `risk_tolerance` each use `HasConversion<string>()`, `HasMaxLength(20)`, and `IsUnicode(false)` to preserve the schema's `varchar(20)` contract; `food_preferences_json` uses `HasMaxLength(1000)`. Existing `user_id` / `interest_tags_json` / `updated_at` mappings and `AsUtcDateTime2()` unchanged. Note: UC-09 removed `default_budget` from the current schema, so it is not mapped. | A          | no schema change (C-3/4)                                |
 | E1 | `src/TripMate.Domain/Enums/TravelerPace.cs`                                                    | NEW enum {Relaxed, Moderate, Fast} — member names exactly match the DB CHECK values.                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | B          | no magic strings (C-9/AGENTS.md §4.1)                  |
 | E2 | `src/TripMate.Domain/Enums/RiskToleranceLevel.cs`                                              | NEW enum {Low, Medium, High} — member names exactly match the DB CHECK values.                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | B          | no magic strings                                        |
 | P3 | `src/TripMate.Application/Features/Scheduling/Common/TravelerPreferenceScoring.cs`             | NEW internal static class:`ParsePreferenceTokens(string?)`, `CalculatePreferenceScore(PointOfInterest, IReadOnlySet<string>)`, private `NormalizePreferenceToken`. Moved verbatim from the handler (behavior-identical extraction). XML docs pin the §10/§11 degradation and §6 ranking semantics of the spec.                                                                                                                                                                                                                                  | C          | consume only InterestTags (C-6)                         |
@@ -62,7 +69,7 @@ Workflow: AGENTS.md §1 — spec-first, TDD (red → green → refactor), atomic
 5. Six DB fields mapped for persistence/schema parity only.
 6. InterestTags is the only active scheduling preference.
 7. No behavior added for TravelPace, RiskTolerance, FoodPreferences.
-8. No server fallback for PreferredTransportMode or DefaultBudget.
+8. No server fallback for PreferredTransportMode.
 9. No system defaults for null TravelPace/RiskTolerance (unspecified stays unspecified).
 10. InterestTags remains soft ranking; PreferenceScore remains derived.
 11. No `request_hash` change; live read; replay returns the original itinerary.
@@ -79,7 +86,7 @@ Workflow: AGENTS.md §1 — spec-first, TDD (red → green → refactor), atomic
 
 ### T1 — Schema parity (workstreams A + B, test-first)
 
-1. RED: write `TravelerProfilePersistenceModelTests` (T1) asserting EF metadata only — all six field mappings + PK/FK/cascade per spec §4 (column names, CLR types, nullability, max length/precision, enum conversions). No raw-SQL round trip at this layer. Run → fails (fields missing).
+1. RED: write `TravelerProfilePersistenceModelTests` (T1) asserting EF metadata only — five field mappings + PK/FK/cascade per spec §4 (column names, CLR types, nullability, max length, enum conversions). No raw-SQL round trip at this layer. Run → fails (fields missing).
 2. GREEN: implement P1, P2, E1, E2. Checkpoint before wiring enum conversions: confirm `TransportMode` member names exactly match the DB CHECK values ('Walking','Motorbike','Car','PublicTransit'); if any member name differs, map that enum with explicit named conversion constants — never string literals at usage sites (AGENTS.md §4.1).
 3. Verify: `dotnet test` green — zero production behavior change (suite green unmodified).
 
@@ -97,7 +104,7 @@ Workflow: AGENTS.md §1 — spec-first, TDD (red → green → refactor), atomic
 
 ### T4 — SQL integration coverage (workstream D)
 
-1. RED: extend SQL-server tests (T4) on the file's existing `SqlServerTestDatabase` / `CreateDbContext()` / `SeedAsync` pattern: (a) six-field round trip — raw-SQL INSERT into `dbo.TravelerProfiles` with all six preference columns populated → load via `ApplicationDbContext` → assert all six materialize; (b) fixture seeds one profile row; tagged POI outranks a higher-scenic untagged POI in the persisted itinerary order; (c) row-absent case keeps current ordering.
+1. RED: extend SQL-server tests (T4) on the file's existing `SqlServerTestDatabase` / `CreateDbContext()` / `SeedAsync` pattern: (a) five-field round trip — raw-SQL INSERT into `dbo.TravelerProfiles` with all five preference columns populated → load via `ApplicationDbContext` → assert all five materialize; (b) fixture seeds one profile row; tagged POI outranks a higher-scenic untagged POI in the persisted itinerary order; (c) row-absent case keeps current ordering.
 2. GREEN: no production change expected; fixture-only.
 3. Verify: `dotnet test` green.
 
@@ -120,7 +127,8 @@ Workflow: AGENTS.md §1 — spec-first, TDD (red → green → refactor), atomic
 - OpenAPI/endpoint surface: byte-identical (unmodified test files prove it).
 - `request_hash`: no profile fields (proven by the T3 replay test).
 - No new error codes; no new validation rules; no DI/Program changes.
-- No server-side application of PreferredTransportMode/DefaultBudget; no default substitution for null TravelPace/RiskTolerance anywhere.
+- No server-side application of PreferredTransportMode; no default substitution for null TravelPace/RiskTolerance anywhere.
+- DefaultBudget is not persisted: UC-09 removed it from the current schema and EF model.
 
 ## 8. Dependencies & Unresolved Issues (identified before implementation)
 
