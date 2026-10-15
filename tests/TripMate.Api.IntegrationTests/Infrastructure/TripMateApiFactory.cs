@@ -394,6 +394,7 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<OperatorProfile> OperatorProfiles => Set<OperatorProfile>();
     public DbSet<OperatorDocument> OperatorDocuments => Set<OperatorDocument>();
     public DbSet<Tour> Tours => Set<Tour>();
+    public DbSet<TourCategory> TourCategories => Set<TourCategory>();
     public DbSet<TourSchedule> TourSchedules => Set<TourSchedule>();
     public DbSet<Destination> Destinations => Set<Destination>();
     public DbSet<TourDestination> TourDestinations => Set<TourDestination>();
