@@ -64,6 +64,11 @@ internal static partial class DeterministicLocalReviewPolicyEvaluator
         "trai", "trinh", "tuyet", "va", "vi", "vien", "voi", "vu", "xe", "xu",
         "yeu", "hai", "long", "chat", "luong", "xuat", "sac", "ai", "giet",
         "moi", "nen", "nhan", "ban", "can", "y", "dinh", "chet", "he", "vao", "thang",
+        "tot", "vui", "sang", "xin", "min", "xo", "dang", "chua", "that", "vong",
+        "quang", "cao", "phuc", "nhanh", "thoai", "mai", "chu", "dao", "nhiet",
+        "tinh", "khach", "san", "uong", "ung", "cam", "on", "du", "ghe", "tham",
+        "re", "hop", "ly", "toan", "ngon", "ve", "bien", "nui", "bac", "ngoi",
+        "rong", "rai", "thoang", "mat", "lanh", "nong", "nhu", "kem", "bai", "tam",
     };
 
     private static readonly HashSet<string> VietnameseLanguageSignals = new(StringComparer.Ordinal)
@@ -74,6 +79,10 @@ internal static partial class DeterministicLocalReviewPolicyEvaluator
         "tho", "tien", "toi", "trai", "trinh", "tuyet", "vien", "voi", "vu", "xe",
         "yeu", "hai", "long", "chat", "luong", "xuat", "sac", "giet", "moi",
         "nen", "nhan", "ban", "can", "y", "dinh", "chet", "he", "vao", "thang",
+        "dep", "qua", "rat", "va", "tot", "vui", "xin", "xo", "dang", "chua",
+        "vong", "quang", "phuc", "ngon", "nhanh", "khach", "san", "thoai", "mai",
+        "chu", "dao", "nhiet", "tinh", "ghe", "tham", "ung", "ngoi", "rong",
+        "thoang", "hop", "toan", "re", "bien", "nui", "dat", "gap", "do",
     };
 
     private static readonly HashSet<string>[] UnsupportedLatinLanguageMarkers =
@@ -755,9 +764,16 @@ internal static partial class DeterministicLocalReviewPolicyEvaluator
         bool conciseRecognizedEnglish = distinctTokens.Length <= 6
             && englishVocabulary >= 2
             && englishVocabulary * 4 >= distinctTokens.Length * 3;
+        bool highCoverageVietnamese = vietnameseSignals >= 1
+            && vietnameseVocabulary * 4 >= distinctTokens.Length * 3;
+        bool conciseRecognizedVietnamese = distinctTokens.Length <= 6
+            && vietnameseVocabulary >= 2
+            && vietnameseVocabulary * 4 >= distinctTokens.Length * 3;
 
         return hasSupportedCoverage
             && (vietnameseSignals >= 2
+                || highCoverageVietnamese
+                || conciseRecognizedVietnamese
                 || highCoverageEnglish
                 || balancedEnglish
                 || functionRichEnglish
