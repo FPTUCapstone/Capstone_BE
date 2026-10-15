@@ -1,0 +1,68 @@
+name: DB migrate (Azure SQL)
+
+# Applies database/migrations to the shared Azure SQL database. Manual only: `develop` and `main`
+# share one database, so a schema change must never go out just because a merge happened.
+# Never runs on pull_request or push, so forks and unreviewed PRs cannot reach the credentials.
+# The `azure-db` environment must require a reviewer and be limited to the develop branch (the
+# job also checks github.ref itself).
+#
+# Dry run is the default: it only prints the plan. Before the first real run on an existing
+# database: take a backup (Azure SQL point-in-time restore or a BACPAC), run a dry run, then
+# baseline the migrations that are already applied with `stamp_only`, and use a low-traffic window.
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Only print the plan, change nothing'
+        type: boolean
+        default: true
+      stamp_only:
+        description: 'Baseline: comma-separated migration files already applied (recorded, NOT executed)'
+        type: string
+        default: ''
+      reapply_changed:
+        description: 'Comma-separated recorded migration files whose edited content may be re-applied'
+        type: string
+        default: ''
+      allow_reapply_all:
+        description: 'Run every migration on an existing database that has no ledger (use only if verified safe)'
+        type: boolean
+        default: false
+
+concurrency:
+  group: db-migrate-azure
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    # Only the reviewed develop branch may run this job. A manual dispatch on any other branch
+    # is skipped, so a branch cannot run its own modified script against the production secrets.
+    if: github.repository == 'FPTUCapstone/Capstone_BE' && github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: azure-db
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Apply schema and migrations
+        env:
+          AZ_SERVER: ${{ secrets.AZ_SERVER }}
+          AZ_USER: ${{ secrets.AZ_USER }}
+          AZ_PASS: ${{ secrets.AZ_PASS }}
+          # Passed through the environment (never interpolated into the shell command); the script
+          # validates every file name. Azure SQL certificates are validated: no TRUST_SERVER_CERTIFICATE.
+          DRY_RUN: ${{ inputs.dry_run }}
+          STAMP_ONLY: ${{ inputs.stamp_only }}
+          REAPPLY_CHANGED: ${{ inputs.reapply_changed }}
+          ALLOW_REAPPLY_ALL: ${{ inputs.allow_reapply_all }}
+        run: |
+          docker run --rm \
+            -v "$PWD/database:/db:ro" \
+            -e AZ_SERVER -e AZ_USER -e AZ_PASS \
+            -e DRY_RUN -e STAMP_ONLY -e REAPPLY_CHANGED -e ALLOW_REAPPLY_ALL \
+            mcr.microsoft.com/mssql/server:2022-latest \
+            bash /db/apply-azure.sh
