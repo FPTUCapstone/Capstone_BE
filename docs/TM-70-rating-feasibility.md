@@ -4,6 +4,7 @@
 **Docs authority:** `Capstone_Docs@2ad6916dc1ff4f314c19e13258c088533a93cd9a`
 **Backend baseline:** `c8cc7f4f88da0441c3607560ce58b9ea022544e0`
 **Measured:** 2026-10-14
+**Historical measurement SHA:** `d67615cf61304e821fe6ce7d340ce6e042c66f7e` (before the develop synchronization; not remeasured on the synchronized HEAD)
 
 ## Scope and verdict
 
@@ -39,6 +40,24 @@ current `CK_TripReviews_Publication` constraint permits only `Published`, so the
 column provides no additional selectivity today. This is semantic alignment,
 not a claim that more lifecycle states are approved. Any future lifecycle or
 index redesign requires a separate decision and compatibility review.
+
+## Compatibility with the earlier local index
+
+The original PR index used `INCLUDE (overall_rating, booking_id)`; the approved
+narrowed index uses `INCLUDE (overall_rating)`. The original four-column index
+was never merged into `develop`. A developer who manually applied that variant
+to a personal database may receive an "incompatible shape" error when applying
+the current migration. This fail-closed behavior is intentional: the migration
+does not silently replace an index whose definition differs from the contract.
+
+On a developer-owned disposable database only, inspect the database identity
+and exact definition of `IX_TripReviews_TourPublicationRating` before considering
+manual removal/rebuild of the obsolete named index. Reapply the current reviewed
+migration and verify the exact final shape shown above (keys, included column,
+and filter). Never automatically drop indexes in shared, staging, or production
+databases. If database provenance or permissions are uncertain, stop and request
+database-owner review. No automatic destructive migration or compatibility
+change to the approved three-column index is provided for personal test artifacts.
 
 ## Approved eligibility exercised by the feasibility tests
 
