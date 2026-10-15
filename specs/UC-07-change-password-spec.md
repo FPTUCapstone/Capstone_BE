@@ -74,17 +74,19 @@ Both routes delegate to the same command/handler. The exact existing authenticat
 
 ## 5. Validation and error mapping
 
+**SRS_INTERNAL_CONFLICT — message codes:** SRS §3.2.7 narrative text says `MSG03`/`MSG04` for password-policy-violation/confirm-mismatch, but the authoritative SRS message catalog defines `MSG03` = "Email already registered during sign-up" and `MSG04` = "Invalid phone number format" — unrelated to password change. The catalog instead defines `MSG05` = "Password does not meet security complexity requirements" and `MSG06` = "Confirm password does not match". The existing codebase (`AuthErrorCodes.cs`, used by UC-06 Register) already follows the catalog numbering (`Msg05`, `Msg06`), not the §3.2.7 narrative text. This specification follows the catalog and the existing codebase: **`MSG05`** for password-policy/same-as-current, **`MSG06`** for confirm-mismatch (client-side only). The SRS narrative text at §3.2.7 must be corrected to match the catalog before merge.
+
 | Condition | HTTP/result | User-safe outcome |
 | --- | --- | --- |
 | Missing field | 400 validation problem, `MSG01` | Required-field feedback |
-| New password violates canonical policy or equals current password | 400 validation problem, `MSG03` | Password policy feedback |
+| New password violates canonical policy or equals current password | 400 validation problem, `MSG05` | Password policy feedback |
 | Current password is incorrect | 400 validation problem, `MSG17` | `Current password does not match our records.` |
-| Confirmation mismatch | prevented client-side; Backend does not receive confirmation | `MSG04` on client |
+| Confirmation mismatch | prevented client-side; Backend does not receive confirmation | `MSG06` on client |
 | Unauthenticated, expired, or invalid access token | 401 | Sign in again |
 | Authenticated account cannot use a local password | 403 problem code to be named during implementation | Safe local-password-unavailable feedback; no password is created |
 | Unexpected infrastructure failure (transaction/DB failure, refresh-token revoke failure, token-service/signing unavailable) | 5xx, `MSG127` | Generic retry feedback |
 
-**MSG127 usage:** Only for unexpected runtime infrastructure failures — never for business-logic failures. Do not return `MSG127` for: incorrect current password (use `MSG17`), weak new password (use `MSG03`), duplicate password (use `MSG03`), missing field (use `MSG01`), expired/invalid access token (use 401), or ineligible account (use 403).
+**MSG127 usage:** Only for unexpected runtime infrastructure failures — never for business-logic failures. Do not return `MSG127` for: incorrect current password (use `MSG17`), weak new password (use `MSG05`), duplicate password (use `MSG05`), missing field (use `MSG01`), expired/invalid access token (use 401), or ineligible account (use 403).
 
 Because this is a self-service authenticated operation, `MSG17` for the caller's own current credential is permitted by SRS.
 
@@ -108,7 +110,7 @@ Audit persistence must use the existing project convention without exposing secr
 1. Traveler, Tour Operator, Staff, and Administrator can change only their own local password after actor ownership is formally reconciled in SRS.
 2. Correct current password and valid distinct new password update the hash and return a renewed current session.
 3. Incorrect current password returns `MSG17` and makes no password or token mutation.
-4. Invalid or same-as-current new password returns `MSG03` and makes no mutation.
+4. Invalid or same-as-current new password returns `MSG05` and makes no mutation.
 5. All pre-existing refresh sessions are revoked; exactly one replacement session is issued for the successful caller.
 6. Invalid/missing authentication is rejected before password processing.
 7. Google-only/no-local-password accounts cannot create a password through this endpoint.
@@ -120,7 +122,7 @@ Audit persistence must use the existing project convention without exposing secr
 - Validator tests for required values and canonical policy.
 - Handler tests for success, incorrect current password, same password, no local password, restricted account, transaction failure, and no-secret result/error behavior.
 - Persistence/integration tests confirming password replacement, revocation of prior sessions, creation of exactly one replacement session, and rollback on failure.
-- API tests for 200, 400/`MSG01`, 400/`MSG03`, 400/`MSG17`, 401, 403, and no refresh token in the Web JSON response.
+- API tests for 200, 400/`MSG01`, 400/`MSG05`, 400/`MSG17`, 401, 403, and no refresh token in the Web JSON response.
 - Web adapter tests confirming the replacement cookie follows the existing `WebRefreshCookie` convention.
 
 ## 9. Definition of done

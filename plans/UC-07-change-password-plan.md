@@ -41,7 +41,7 @@
 - Success: password hash updated → all old refresh tokens revoked → exactly one new token persisted → new credentials returned.
 - Revoke failure: refresh-token revoke throws → entire transaction rolls back → old hash and tokens unchanged → 5xx/`MSG127` returned.
 - Insert failure: new refresh-token insert throws → entire transaction rolls back → old hash and tokens unchanged → 5xx/`MSG127` returned.
-- Validation failure (wrong current password, weak new password): **no transaction starts** → old hash and tokens untouched → 400/`MSG17` or 400/`MSG03` returned.
+- Validation failure (wrong current password, weak new password): **no transaction starts** → old hash and tokens untouched → 400/`MSG17` or 400/`MSG05` returned.
 - Commit failure: transaction commits fail → rollback → old hash and tokens unchanged → 5xx/`MSG127` returned.
 
 **Implement:** one existing database transaction with spec §6 semantics: (1) verify current + validate new before mutation; (2) update hash; (3) revoke all old tokens; (4) insert exactly one replacement; (5) commit before returning. Return credentials only after successful commit.
@@ -55,12 +55,12 @@
 - 401: missing/invalid/expired access token.
 - 403: authenticated but no local password available.
 - 400/`MSG01`: missing `currentPassword` or `newPassword`.
-- 400/`MSG03`: new password violates canonical policy or equals current input.
+- 400/`MSG05`: new password violates canonical policy or equals current input.
 - 400/`MSG17`: current password is incorrect (hash mismatch).
 - 200: success with new access + refresh tokens; Web variant sets existing HttpOnly refresh cookie and does not serialize refresh token.
 - 5xx/`MSG127`: transaction/DB/token-service failure (only this cause maps to `MSG127`; not business-logic failures).
 
-**Implement:** thin shared/mobile and Web endpoints that construct the same command from authenticated subject. The Web endpoint must use the current `WebRefreshCookie` helper. Route the error response through the existing `HandleFailure` pattern mapping `MSG01`, `MSG03`, `MSG17`, `MSG127` correctly per spec §5.
+**Implement:** thin shared/mobile and Web endpoints that construct the same command from authenticated subject. The Web endpoint must use the current `WebRefreshCookie` helper. Route the error response through the existing `HandleFailure` pattern mapping `MSG01`, `MSG05`, `MSG17`, `MSG127` correctly per spec §5.
 
 **Verify:** API integration and OpenAPI tests covering all error paths and success path.
 
@@ -93,7 +93,7 @@ git diff --check
 
 Review checklist before merge:
 - ✓ All 7 tasks pass focused review.
-- ✓ Error mapping matches spec §5: `MSG01`, `MSG03`, `MSG17` for business logic; `MSG127` only for infrastructure failure.
+- ✓ Error mapping matches spec §5: `MSG01`, `MSG05`, `MSG17` for business logic; `MSG127` only for infrastructure failure. Confirm mismatch is `MSG06`, client-side only.
 - ✓ Transaction atomicity confirmed: credentials returned only after successful commit; rollback on any failure.
 - ✓ No secrets in logs, errors, or audit.
 - ✓ Full suite passes green.
