@@ -70,21 +70,41 @@ public class ExceptionHandlingMiddleware(
         }
     }
 
+    /// <summary>
+    /// Attaches a stable <c>errorCode</c> extension to a 400 ValidationProblemDetails body.
+    /// Active Trips keeps its own historical heuristic (not every one of its rules carries
+    /// <c>WithErrorCode</c>, so a path-specific fallback fills the gap). Every other feature gets
+    /// a generic rule instead: if any failed FluentValidation rule set an explicit
+    /// <c>WithErrorCode</c>, the first one found is used. A validator with no
+    /// <c>WithErrorCode</c> anywhere still gets a plain ValidationProblemDetails with no
+    /// errorCode, same as before this method existed for it.
+    /// </summary>
     internal static void AddActiveTripsErrorCode(
         HttpContext context,
         ProblemDetails problem,
         IEnumerable<string>? validationErrorCodes = null)
     {
-        if (!context.Request.Path.StartsWithSegments("/api/v1/admin/trips/active")) return;
+        var codes = (validationErrorCodes ?? [])
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .ToArray();
 
-        var validation = problem as ValidationProblemDetails;
-        var hasDateError = validationErrorCodes?.Contains(ActiveTripErrorCodes.InvalidDateRange, StringComparer.Ordinal) == true ||
-            validation?.Errors.Keys.Any(key =>
-                string.Equals(key, "startDateFrom", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(key, "startDateTo", StringComparison.OrdinalIgnoreCase)) == true;
+        if (context.Request.Path.StartsWithSegments("/api/v1/admin/trips/active"))
+        {
+            var validation = problem as ValidationProblemDetails;
+            var hasDateError = codes.Contains(ActiveTripErrorCodes.InvalidDateRange, StringComparer.Ordinal) ||
+                validation?.Errors.Keys.Any(key =>
+                    string.Equals(key, "startDateFrom", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(key, "startDateTo", StringComparison.OrdinalIgnoreCase)) == true;
 
-        problem.Extensions["errorCode"] = hasDateError
-            ? ActiveTripErrorCodes.InvalidDateRange
-            : ActiveTripErrorCodes.InvalidFilter;
+            problem.Extensions["errorCode"] = hasDateError
+                ? ActiveTripErrorCodes.InvalidDateRange
+                : ActiveTripErrorCodes.InvalidFilter;
+            return;
+        }
+
+        if (codes.Length > 0)
+        {
+            problem.Extensions["errorCode"] = codes[0];
+        }
     }
 }

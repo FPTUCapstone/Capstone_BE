@@ -100,6 +100,8 @@ public interface IApplicationDbContext
 
     DbSet<ReroutingEvent> ReroutingEvents { get; }
 
+    DbSet<Payout> Payouts { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 
     Task<int> RevokeRefreshTokenAsync(
