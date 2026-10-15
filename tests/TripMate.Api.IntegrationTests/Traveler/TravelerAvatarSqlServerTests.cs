@@ -207,6 +207,37 @@ public sealed class TravelerAvatarSqlServerTests
             .PhoneNumber.Should().Be(phone);
     }
 
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task ConcurrentFirstProfileUpdates_CreateOneProfileAndBothSucceed()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        long userId = await SeedTravelerAsync(database);
+        var barrier = new FirstProfileInsertBarrier(participants: 2);
+        var configuration = Configuration(database.ConnectionString);
+
+        await using var firstContext = database.CreateDbContext(barrier);
+        await using var secondContext = database.CreateDbContext(barrier);
+        var firstHandler = new UpdateTravelerProfileCommandHandler(firstContext,
+            new Caller(userId), new Clock(), new AvatarStorageStub("unused-first"),
+            new SqlTravelerAvatarCleanupJournal(configuration));
+        var secondHandler = new UpdateTravelerProfileCommandHandler(secondContext,
+            new Caller(userId), new Clock(), new AvatarStorageStub("unused-second"),
+            new SqlTravelerAvatarCleanupJournal(configuration));
+
+        var first = firstHandler.Handle(new UpdateTravelerProfileCommand(
+            "Concurrent Traveler A", null, new DateOnly(1999, 1, 1)), CancellationToken.None);
+        var second = secondHandler.Handle(new UpdateTravelerProfileCommand(
+            "Concurrent Traveler B", null, new DateOnly(2000, 1, 1)), CancellationToken.None);
+
+        var results = await Task.WhenAll(first, second);
+
+        results.Should().OnlyContain(result => result.IsSuccess);
+        await using var verification = database.CreateDbContext();
+        (await verification.TravelerProfiles.Where(profile => profile.UserId == userId).ToListAsync())
+            .Should().ContainSingle();
+    }
+
     private static IConfiguration Configuration(string connectionString) =>
         new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
@@ -265,6 +296,30 @@ public sealed class TravelerAvatarSqlServerTests
             command.Parameters.AddWithValue("@phone", phone);
             command.Parameters.AddWithValue("@id", otherId);
             await command.ExecuteNonQueryAsync(cancellationToken);
+            return result;
+        }
+    }
+
+    private sealed class FirstProfileInsertBarrier(int participants) : SaveChangesInterceptor
+    {
+        private readonly TaskCompletionSource<bool> release =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int arrivals;
+
+        public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData, InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            bool createsProfile = eventData.Context?.ChangeTracker
+                .Entries<TravelerProfile>()
+                .Any(entry => entry.State == EntityState.Added) == true;
+            if (!createsProfile)
+                return result;
+
+            if (Interlocked.Increment(ref arrivals) == participants)
+                release.TrySetResult(true);
+
+            await release.Task.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
             return result;
         }
     }

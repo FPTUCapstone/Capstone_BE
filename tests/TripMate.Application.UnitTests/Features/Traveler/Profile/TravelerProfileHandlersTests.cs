@@ -1,5 +1,7 @@
 using FluentAssertions;
 
+using Microsoft.EntityFrameworkCore;
+
 using Moq;
 
 using TripMate.Application.Common.Media;
@@ -45,6 +47,55 @@ public sealed class TravelerProfileHandlersTests
         user.Role.Should().Be(UserRole.Traveler);
         var profile = db.TravelerProfiles.Single(candidate => candidate.UserId == TravelerId);
         profile.DateOfBirth.Should().Be(new DateOnly(2000, 1, 1));
+    }
+
+    [Fact]
+    public async Task Update_ConcurrentFirstProfileCreate_RetriesAsUpdate()
+    {
+        db.Users.Add(ActiveTraveler());
+        await db.SaveChangesAsync();
+
+        var duplicate = new DbUpdateException("Duplicate TravelerProfile.",
+            new SqlException(2627,
+                "Violation of PRIMARY KEY constraint 'PK_TravelerProfiles'. Cannot insert duplicate key in object 'dbo.TravelerProfiles'."));
+        db.ThrowOnTransaction = duplicate;
+        db.OnTransactionCompleted = () =>
+        {
+            if (!ReferenceEquals(db.ThrowOnTransaction, duplicate)) return;
+
+            db.ThrowOnTransaction = null;
+            db.TravelerProfiles.Add(TravelerProfile.Create(TravelerId, null, clock.UtcNow));
+            db.SaveChanges();
+        };
+
+        var result = await new UpdateTravelerProfileCommandHandler(db, currentUser, clock,
+            new Mock<ITravelerAvatarStorage>().Object, new Mock<ITravelerAvatarCleanupJournal>().Object)
+            .Handle(new UpdateTravelerProfileCommand("Updated Traveler", "0912345678", new DateOnly(2000, 1, 1)),
+                CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        db.TransactionExecutionCount.Should().Be(2);
+        db.TravelerProfiles.Should().ContainSingle(candidate => candidate.UserId == TravelerId)
+            .Which.DateOfBirth.Should().Be(new DateOnly(2000, 1, 1));
+        db.Users.Single(candidate => candidate.Id == TravelerId).FullName.Should().Be("Updated Traveler");
+    }
+
+    [Fact]
+    public async Task Update_DuplicateOutsideTravelerProfile_DoesNotRetry()
+    {
+        db.Users.Add(ActiveTraveler());
+        await db.SaveChangesAsync();
+        db.ThrowOnTransaction = new DbUpdateException("Duplicate user.",
+            new SqlException(2627,
+                "Violation of UNIQUE KEY constraint 'UX_Users_email'. Cannot insert duplicate key in object 'dbo.Users'."));
+
+        var result = await new UpdateTravelerProfileCommandHandler(db, currentUser, clock,
+            new Mock<ITravelerAvatarStorage>().Object, new Mock<ITravelerAvatarCleanupJournal>().Object)
+            .Handle(new UpdateTravelerProfileCommand("Updated Traveler", null, null), CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(TravelerProfileErrorCodes.Unavailable);
+        db.TransactionExecutionCount.Should().Be(1);
     }
 
     [Fact]
@@ -176,4 +227,9 @@ public sealed class TravelerProfileHandlersTests
         Role = UserRole.Traveler,
         Status = AccountStatus.Active,
     };
+
+    private sealed class SqlException(int number, string message) : Exception(message)
+    {
+        public int Number { get; } = number;
+    }
 }

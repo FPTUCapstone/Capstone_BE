@@ -83,6 +83,24 @@ Path: `database/migrations/20261012_add_traveler_profile_date_of_birth.sql`
 - `TravelerProfileConfiguration.cs`:
   - Property mapping for `date_of_birth`.
 
+### 4. First-Profile Concurrency / Upsert Rule
+
+`dbo.TravelerProfiles.user_id` is the primary key. Two simultaneous first profile updates can
+both read no row before either transaction inserts one. This is an expected upsert race, not an
+infrastructure outage.
+
+- The initial request may insert a `TravelerProfile` row.
+- If that insert loses the race only because SQL Server reports a duplicate-key violation for
+  `dbo.TravelerProfiles`, the handler clears its failed EF tracking state, reloads the winner row,
+  and retries the profile update exactly once.
+- The retry preserves the request's validated profile values. The final persisted values follow
+  normal last-committed-write behavior; exactly one profile row exists.
+- A duplicate for any other table/index, a second persistence failure, timeout, cancellation, or
+  Cloudinary failure is **not** retried by this rule and keeps its existing error behavior.
+- If an avatar was uploaded before the duplicate, its existing cleanup reservation is retained
+  across the one retry and finalized only by the successful retry transaction; it must not be
+  orphaned or deleted as a false failure.
+
 ---
 
 ## API Contract
