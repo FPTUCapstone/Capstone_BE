@@ -1,0 +1,35 @@
+# Separate project: never overlays ordinary docker-compose.yml or its SQL volumes.
+name: tripmate-semantic-poc
+services:
+  embedding:
+    build: ./services/embedding-service
+    ports:
+      - "127.0.0.1:8017:8000"
+    volumes:
+      - semantic-model-cache:/model-cache
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 40
+      start_period: 120s
+  qdrant:
+    image: qdrant/qdrant:v1.13.4
+    ports:
+      - "127.0.0.1:6337:6333"
+    volumes:
+      - semantic-qdrant-data:/qdrant/storage
+  # Qdrant image has no curl; separate Python probe checks its actual readiness endpoint.
+  qdrant-health:
+    image: python:3.11.9-slim
+    depends_on:
+      - qdrant
+    command: ["python", "-c", "import time; time.sleep(2147483647)"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://qdrant:6333/readyz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+volumes:
+  semantic-model-cache:
+  semantic-qdrant-data:

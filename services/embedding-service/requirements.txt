@@ -1,0 +1,9 @@
+# Python 3.11; direct inference/runtime dependencies pinned. Transitive resolution remains pip-managed.
+torch==2.10.0
+transformers==5.3.0
+fastapi==0.115.6
+uvicorn==0.32.1
+pydantic==2.10.6
+numpy==2.2.6
+safetensors==0.6.2
+psutil==7.0.0

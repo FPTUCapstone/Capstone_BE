@@ -28,6 +28,9 @@ public interface IApplicationDbContext
 
     DbSet<Tour> Tours { get; }
 
+    DbSet<TourCategory> TourCategories =>
+        throw new NotSupportedException("Tour taxonomy is unavailable in this context.");
+
     DbSet<TourSchedule> TourSchedules { get; }
 
     DbSet<Destination> Destinations { get; }
@@ -162,4 +165,11 @@ public interface IApplicationDbContext
     Task FinalizeOperatorDocumentCleanupReservationsAsync(
         IReadOnlyCollection<string> publicIds,
         CancellationToken cancellationToken) => Task.CompletedTask;
+
+    Task FinalizeTravelerAvatarReservationAsync(string publicId, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Avatar reservation finalization is unavailable.");
+
+    Task EnqueueTravelerAvatarCleanupAsync(string publicId, DateTimeOffset nowUtc,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Avatar cleanup enqueue is unavailable.");
 }
