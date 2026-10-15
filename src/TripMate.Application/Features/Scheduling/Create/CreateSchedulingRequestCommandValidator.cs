@@ -1,6 +1,7 @@
 using FluentValidation;
 
 using TripMate.Application.Common.Interfaces;
+using TripMate.Domain.Entities;
 
 namespace TripMate.Application.Features.Scheduling.Create;
 
@@ -27,7 +28,8 @@ public sealed class CreateSchedulingRequestCommandValidator
         RuleFor(command => command.StartLongitude).InclusiveBetween(-180m, 180m);
         RuleFor(command => command.ExplorationLatitude).InclusiveBetween(-90m, 90m);
         RuleFor(command => command.ExplorationLongitude).InclusiveBetween(-180m, 180m);
-        RuleFor(command => command.AvailableMinutes).InclusiveBetween(60, 720);
+        RuleFor(command => command.AvailableMinutes)
+            .InclusiveBetween(SchedulingRequest.MinAvailableMinutes, SchedulingRequest.MaxAvailableMinutes);
         RuleFor(command => command.SearchRadiusKm).InclusiveBetween(1m, 50m);
         RuleFor(command => command.BudgetVnd)
             .GreaterThan(0m)
@@ -47,9 +49,6 @@ public sealed class CreateSchedulingRequestCommandValidator
             .When(command => command.EndPoiId.HasValue);
         RuleFor(command => command.TransportMode).IsInEnum();
         RuleFor(command => command.RestPreference).IsInEnum();
-        RuleFor(command => command)
-            .Must(EndOnSameLocalDay)
-            .WithMessage("The itinerary must end on the same local calendar day.");
     }
 
     private bool NotInPast(string? timeZoneId, DateTimeOffset startAt)
@@ -85,18 +84,5 @@ public sealed class CreateSchedulingRequestCommandValidator
         {
             return false;
         }
-    }
-
-    private static bool EndOnSameLocalDay(CreateSchedulingRequestCommand command)
-    {
-        if (!BeKnownTimeZone(command.TimeZoneId))
-        {
-            return true;
-        }
-
-        var timeZone = TimeZoneInfo.FindSystemTimeZoneById(command.TimeZoneId.Trim());
-        var localStart = TimeZoneInfo.ConvertTime(command.StartAt, timeZone);
-        var localEnd = TimeZoneInfo.ConvertTime(command.StartAt.AddMinutes(command.AvailableMinutes), timeZone);
-        return localStart.Date == localEnd.Date;
     }
 }

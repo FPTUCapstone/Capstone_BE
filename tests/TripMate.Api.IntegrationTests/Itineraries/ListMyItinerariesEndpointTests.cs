@@ -150,6 +150,84 @@ public sealed class ListMyItinerariesEndpointTests
         member.Value.Items.Single().CanManage.Should().BeFalse();
     }
 
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task List_PutsTheTripInProgressThenUpcomingActiveTripsFirstInSqlServer()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var now = new DateTimeOffset(2026, 10, 20, 1, 0, 0, TimeSpan.Zero);
+        SeedResult seed;
+        long futureDraftId;
+        long laterActiveId;
+        long soonerActiveId;
+        long pastActiveId;
+        await using (var seedContext = database.CreateDbContext())
+        {
+            seed = await SeedAsync(seedContext, now, sessionExpiresIn: TimeSpan.FromHours(6));
+            futureDraftId = await AddPlanAsync(seedContext, seed.OwnerId, now, now.AddDays(5), accept: false);
+            laterActiveId = await AddPlanAsync(seedContext, seed.OwnerId, now, now.AddDays(2), accept: true);
+            soonerActiveId = await AddPlanAsync(seedContext, seed.OwnerId, now, now.AddDays(1), accept: true);
+            pastActiveId = await AddPlanAsync(seedContext, seed.OwnerId, now, now.AddDays(-5), accept: true);
+        }
+
+        await using var context = database.CreateDbContext();
+        var result = await new ListMyItinerariesQueryHandler(context, new FixedClock(now)).Handle(
+            new ListMyItinerariesQuery(seed.OwnerId, 1, 20),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Items.Select(item => item.ItineraryId).Should().Equal(
+            seed.CurrentId,
+            soonerActiveId,
+            laterActiveId,
+            futureDraftId,
+            pastActiveId,
+            seed.ManualId);
+    }
+
+    private static async Task<long> AddPlanAsync(
+        IApplicationDbContext context,
+        long ownerId,
+        DateTimeOffset now,
+        DateTimeOffset validFrom,
+        bool accept)
+    {
+        var request = SchedulingRequest.Create(
+            ownerId,
+            Guid.NewGuid(),
+            new string('b', SchedulingRequest.RequestHashLength),
+            now.AddHours(1),
+            "Asia/Ho_Chi_Minh",
+            16.0544m,
+            108.2022m,
+            16.0471m,
+            108.2068m,
+            null,
+            true,
+            180,
+            TransportMode.Motorbike,
+            10m,
+            null,
+            "[]",
+            RestPreference.None,
+            now);
+        var generationOwnerId = Guid.NewGuid();
+        request.ClaimGeneration(generationOwnerId, now.AddMinutes(1), now);
+        request.CompleteGeneration(generationOwnerId, now);
+        context.SchedulingRequests.Add(request);
+        await context.SaveChangesAsync(CancellationToken.None);
+
+        var itinerary = Itinerary.CreateCspGenerated(request, "Plan", validFrom, validFrom.AddHours(3));
+        if (accept)
+        {
+            itinerary.Accept(now);
+        }
+
+        context.Itineraries.Add(itinerary);
+        await context.SaveChangesAsync(CancellationToken.None);
+        return itinerary.Id;
+    }
+
     // Owner has a regenerated trip (v1 superseded by v2, shared with a group and started on v1)
     // and a manual itinerary without planned times.
     private static async Task<SeedResult> SeedAsync(
