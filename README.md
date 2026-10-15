@@ -308,3 +308,9 @@ không bao giờ commit. Thứ tự ưu tiên credential: JSON inline → `GOOGL
 Xem [`CONTRIBUTING.md`](CONTRIBUTING.md) (branch, commit convention, Pull Request) và
 [`AGENTS.md`](AGENTS.md) (quy tắc kiến trúc bắt buộc, đặc biệt là phần database-first) trước khi
 đóng góp code.
+
+## TM-70 semantic search PoC (opt-in)
+
+See [isolated semantic PoC instructions](tools/semantic-poc/README.md) for the CPU embedding service,
+Qdrant fixture evaluation and SQL-authoritative tests. Ordinary startup and production tour search
+are unchanged; semantic contract approval is pending.
