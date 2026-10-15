@@ -37,6 +37,7 @@ public sealed class TripReviewMigrationTests
         var before = await LegacyStateAsync(upgrade);
         await MigrateAsync(upgrade);
         await MigrateTypedAsync(upgrade);
+        await MigrateRatingIndexAsync(upgrade);
         await AssertShapeAsync(upgrade);
         (await TripReviewSchemaInventory.ReadAsync(upgrade)).Should().Equal(await TripReviewSchemaInventory.ReadAsync(fresh));
         (await LegacyStateAsync(upgrade)).Should().Be(before);
@@ -102,6 +103,7 @@ public sealed class TripReviewMigrationTests
         var legacy = await LegacyStateAsync(database);
         await MigrateAsync(database);
         await MigrateTypedAsync(database);
+        await MigrateRatingIndexAsync(database);
         await AssertShapeAsync(database);
         (await TripReviewSchemaInventory.ReadAsync(database)).Should().Equal(await TripReviewSchemaInventory.ReadAsync(fresh));
         (await ParentLegacyStateAsync(database)).Should().Be(parent);
@@ -295,6 +297,14 @@ public sealed class TripReviewMigrationTests
         string path = Path.Combine(AppContext.BaseDirectory, "Database", "migrations",
             "20261007_extend_trip_review_typed_parents.sql");
         File.Exists(path).Should().BeTrue("the R3 typed-parent migration must be packaged");
+        return database.ExecuteScriptAsync(path);
+    }
+
+    private static Task MigrateRatingIndexAsync(SqlServerTestDatabase database)
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "Database", "migrations",
+            "20261014_add_trip_review_rating_index.sql");
+        File.Exists(path).Should().BeTrue("the TM-70 rating index migration must be packaged");
         return database.ExecuteScriptAsync(path);
     }
 
