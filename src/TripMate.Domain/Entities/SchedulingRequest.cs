@@ -14,6 +14,12 @@ public class SchedulingRequest : BaseEntity
     /// <summary>Longest trip a Traveler can request: one continuous window of 72 hours, which may cross midnight.</summary>
     public const int MaxAvailableMinutes = 72 * 60;
 
+    /// <summary>Smallest "explore around" radius, in kilometres.</summary>
+    public const int MinSearchRadiusKm = 1;
+
+    /// <summary>Largest "explore around" radius, in kilometres (e.g. Da Nang to Hue is about 85 km).</summary>
+    public const int MaxSearchRadiusKm = 100;
+
     private SchedulingRequest()
     {
     }
@@ -129,7 +135,7 @@ public class SchedulingRequest : BaseEntity
             throw new ArgumentOutOfRangeException(nameof(transportMode));
         }
 
-        if (searchRadiusKm is < 1m or > 50m)
+        if (searchRadiusKm is < MinSearchRadiusKm or > MaxSearchRadiusKm)
         {
             throw new ArgumentOutOfRangeException(nameof(searchRadiusKm));
         }

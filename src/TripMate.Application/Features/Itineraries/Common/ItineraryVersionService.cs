@@ -36,6 +36,29 @@ public sealed class ItineraryVersionService(
         var preferenceTokens = TravelerPreferenceScoring.ParsePreferenceTokens(travelerInterestTags);
         var mandatoryIds = JsonSerializer.Deserialize<long[]>(request.MandatoryPoiIdsJson) ?? [];
         var pois = await LoadRelevantActivePoisAsync(request, mandatoryIds, cancellationToken);
+        var currentStops = await dbContext.Itineraries
+            .AsNoTracking()
+            .Where(itinerary => itinerary.Id == source.Id)
+            .SelectMany(itinerary => itinerary.Items)
+            .OrderBy(item => item.SequenceNo)
+            .Select(item => new { item.Kind, item.PointOfInterestId })
+            .ToListAsync(cancellationToken);
+        // Optional places already suggested in this series, with the latest version that had them.
+        var lastSuggestedVersions = await dbContext.Itineraries
+            .AsNoTracking()
+            .Where(itinerary => itinerary.SchedulingRequestId == request.Id
+                && itinerary.Version <= source.Version)
+            .SelectMany(
+                itinerary => itinerary.Items.Where(item => item.Kind == ItineraryItemKind.Visit
+                    && item.PointOfInterestId != null),
+                (itinerary, item) => new { PoiId = item.PointOfInterestId!.Value, itinerary.Version })
+            .GroupBy(entry => entry.PoiId)
+            .Select(group => new { PoiId = group.Key, Version = group.Max(entry => entry.Version) })
+            .ToDictionaryAsync(entry => entry.PoiId, entry => entry.Version, cancellationToken);
+        foreach (var mandatoryId in mandatoryIds)
+        {
+            lastSuggestedVersions.Remove(mandatoryId);
+        }
 
         var endPoi = request.EndPointOfInterestId.HasValue
             ? pois.SingleOrDefault(poi => poi.Id == request.EndPointOfInterestId.Value)
@@ -47,7 +70,7 @@ public sealed class ItineraryVersionService(
                 "The saved ending location is no longer available.");
         }
 
-        var candidates = LimitMatrixCandidates(pois
+        var candidates = LimitMatrixCandidates(PreferOtherPlaces(pois
             .Where(PlanningPoiEligibility.IsPlanningReady)
             .Where(poi => GeoDistance.EquirectangularKilometers(
                 request.ExplorationLatitude,
@@ -79,7 +102,7 @@ public sealed class ItineraryVersionService(
                 ScenicScore: poi.ScenicScore,
                 PhotoRating: poi.PhotoRating,
                 CategoryName: poi.Category.Name,
-                HasShelter: poi.HasShelter)), mandatoryIds);
+                HasShelter: poi.HasShelter)).ToArray(), lastSuggestedVersions), mandatoryIds);
         var end = endPoi is null
             ? new RoutePoint(request.StartLatitude, request.StartLongitude)
             : new RoutePoint(endPoi.Latitude, endPoi.Longitude);
@@ -101,6 +124,17 @@ public sealed class ItineraryVersionService(
             return Result.Failure<Itinerary>(
                 ItineraryErrorCodes.ConstraintsInfeasible,
                 plan.ErrorMessage ?? "The saved constraints cannot produce an itinerary.");
+        }
+
+        // Nothing else fits: keep the current version instead of saving an identical copy.
+        if (plan.Value.Items
+            .OrderBy(item => item.SequenceNo)
+            .Select(item => (item.Kind, item.PointOfInterestId))
+            .SequenceEqual(currentStops.Select(stop => (stop.Kind, stop.PointOfInterestId))))
+        {
+            return Result.Failure<Itinerary>(
+                ItineraryErrorCodes.NoAlternative,
+                "No other places fit this trip's time, area and budget. The current itinerary is already the best option.");
         }
 
         var title = source.Title ?? $"Generated itinerary - {request.StartAtUtc:dd MMM yyyy}";
@@ -260,6 +294,30 @@ public sealed class ItineraryVersionService(
 
         dbContext.Itineraries.Add(successor);
         return Result.Success(successor);
+    }
+
+    /// <summary>
+    /// Regenerating asks for another option. Places never suggested in this series rank first,
+    /// then places suggested longest ago, and the current version's places last; within a tier the
+    /// usual ranking holds. The solver always prefers higher-ranked places, so each regeneration
+    /// explores places not shown yet and reuses earlier ones only to fill time that is left.
+    /// </summary>
+    private static IEnumerable<GenerationCandidate> PreferOtherPlaces(
+        IReadOnlyList<GenerationCandidate> candidates,
+        IReadOnlyDictionary<long, int> lastSuggestedVersions)
+    {
+        if (candidates.Count == 0 || lastSuggestedVersions.Count == 0)
+        {
+            return candidates;
+        }
+
+        // Larger than the whole score spread, so a tier never overtakes a better one.
+        var tierStep = candidates.Max(candidate => candidate.EffectiveDesirabilityScore)
+            - candidates.Min(candidate => candidate.EffectiveDesirabilityScore)
+            + 1m;
+        return candidates.Select(candidate => lastSuggestedVersions.TryGetValue(candidate.Id, out var version)
+            ? candidate with { EffectiveDesirabilityScore = candidate.EffectiveDesirabilityScore - (tierStep * version) }
+            : candidate);
     }
 
     private IReadOnlyList<GenerationCandidate> LimitMatrixCandidates(

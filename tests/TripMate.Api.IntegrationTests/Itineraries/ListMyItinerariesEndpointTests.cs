@@ -161,6 +161,7 @@ public sealed class ListMyItinerariesEndpointTests
         long laterActiveId;
         long soonerActiveId;
         long pastActiveId;
+        long newestDraftId;
         await using (var seedContext = database.CreateDbContext())
         {
             seed = await SeedAsync(seedContext, now, sessionExpiresIn: TimeSpan.FromHours(6));
@@ -168,6 +169,9 @@ public sealed class ListMyItinerariesEndpointTests
             laterActiveId = await AddPlanAsync(seedContext, seed.OwnerId, now, now.AddDays(2), accept: true);
             soonerActiveId = await AddPlanAsync(seedContext, seed.OwnerId, now, now.AddDays(1), accept: true);
             pastActiveId = await AddPlanAsync(seedContext, seed.OwnerId, now, now.AddDays(-5), accept: true);
+            // Planned last but for an earlier day: still the first draft, so it is not buried behind
+            // older drafts for later dates.
+            newestDraftId = await AddPlanAsync(seedContext, seed.OwnerId, now, now.AddDays(3), accept: false);
         }
 
         await using var context = database.CreateDbContext();
@@ -180,9 +184,10 @@ public sealed class ListMyItinerariesEndpointTests
             seed.CurrentId,
             soonerActiveId,
             laterActiveId,
+            newestDraftId,
             futureDraftId,
-            pastActiveId,
-            seed.ManualId);
+            seed.ManualId,
+            pastActiveId);
     }
 
     private static async Task<long> AddPlanAsync(
