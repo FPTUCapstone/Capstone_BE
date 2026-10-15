@@ -62,6 +62,17 @@ public sealed class AdjustItineraryItemsCommandHandler(
                         "Only the itinerary owner can adjust it.");
                 }
 
+                if (await ItineraryNavigationLock.IsInProgressAsync(
+                        dbContext,
+                        access.SchedulingRequestId,
+                        dateTimeProvider.UtcNow,
+                        transactionCancellationToken))
+                {
+                    return Result.Failure<ItineraryDetailResponse>(
+                        ItineraryErrorCodes.NavigationInProgress,
+                        ItineraryNavigationLock.Message);
+                }
+
                 var requestHash = ComputeHash(command.ItineraryId, command.OrderedVisitPoiIds);
                 var operation = await dbContext.ItineraryVersionOperations
                     .SingleOrDefaultAsync(item =>

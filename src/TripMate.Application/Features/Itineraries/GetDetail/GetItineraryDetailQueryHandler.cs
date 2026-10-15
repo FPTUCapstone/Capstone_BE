@@ -11,7 +11,8 @@ namespace TripMate.Application.Features.Itineraries.GetDetail;
 
 public sealed class GetItineraryDetailQueryHandler(
     IApplicationDbContext dbContext,
-    IItineraryAccessService accessService)
+    IItineraryAccessService accessService,
+    IDateTimeProvider dateTimeProvider)
     : IRequestHandler<GetItineraryDetailQuery, Result<ItineraryDetailResponse>>
 {
     public async Task<Result<ItineraryDetailResponse>> Handle(
@@ -38,13 +39,24 @@ public sealed class GetItineraryDetailQueryHandler(
             .ThenInclude(poi => poi!.Category)
             .SingleAsync(item => item.Id == access.CurrentItinerary.Id, cancellationToken);
 
-        return Result.Success(ToResponse(itinerary, access.CanManage, access.SchedulingRequestId));
+        var isNavigationInProgress = await ItineraryNavigationLock.IsInProgressAsync(
+            dbContext,
+            access.SchedulingRequestId,
+            dateTimeProvider.UtcNow,
+            cancellationToken);
+
+        return Result.Success(ToResponse(
+            itinerary,
+            access.CanManage,
+            access.SchedulingRequestId,
+            isNavigationInProgress));
     }
 
     internal static ItineraryDetailResponse ToResponse(
         Domain.Entities.Itinerary itinerary,
         bool canManage,
-        long schedulingRequestId)
+        long schedulingRequestId,
+        bool isNavigationInProgress = false)
     {
         var orderedItems = itinerary.Items.OrderBy(item => item.SequenceNo).ToArray();
         var items = orderedItems
@@ -84,6 +96,7 @@ public sealed class GetItineraryDetailQueryHandler(
             itinerary.ValidFromUtc.HasValue && itinerary.ValidToUtc.HasValue
                 ? (int)Math.Ceiling((itinerary.ValidToUtc.Value - itinerary.ValidFromUtc.Value).TotalMinutes)
                 : orderedItems.Sum(item => item.StayDurationMinutes),
-            items);
+            items,
+            isNavigationInProgress);
     }
 }

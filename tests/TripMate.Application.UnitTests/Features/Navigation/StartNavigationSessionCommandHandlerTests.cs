@@ -173,6 +173,31 @@ public sealed class StartNavigationSessionCommandHandlerTests
         (await db.TripSessions.CountAsync()).Should().Be(1);
     }
 
+    [Theory]
+    [InlineData(-180, true)]
+    [InlineData(-181, false)]
+    public async Task Handle_OpensTheWindowBeforeThePlannedDepartureNotTheFirstStop(
+        int minutesFromDeparture,
+        bool expectedToStart)
+    {
+        // Leaves at 01:46 for a place that opens at 07:00: the first stop is hours after departure.
+        await using var db = CreateDbContext();
+        var departure = Now.AddMinutes(-minutesFromDeparture);
+        var itinerary = await SeedActiveItineraryAsync(db, departure.AddHours(5).AddMinutes(14));
+        db.Entry(itinerary).Property(candidate => candidate.ValidFromUtc).CurrentValue = departure;
+        await db.SaveChangesAsync();
+
+        var result = await CreateHandler(db, Now).Handle(
+            new StartNavigationSessionCommand(itinerary.Id, 7, Guid.NewGuid()),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().Be(expectedToStart);
+        if (!expectedToStart)
+        {
+            result.ErrorCode.Should().Be(NavigationErrorCodes.OutsideTripWindow);
+        }
+    }
+
     [Fact]
     public async Task Handle_UsesConfiguredWindows()
     {

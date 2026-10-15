@@ -134,6 +134,28 @@ public class OpenRouteServiceRouteDurationProviderTests
     }
 
     [Fact]
+    public async Task GetMatrixAsync_WhenProviderFindsNoRoute_MarksThePairUnreachable()
+    {
+        // ORS answers null for a point it cannot snap to a road (e.g. Ba Na Hills' mountain top).
+        using var handler = new StubHttpMessageHandler("""
+            { "durations": [[0, 600, null], [600, 0, null], [null, null, null]] }
+            """);
+        using var client = CreateClient(handler);
+        var provider = CreateProvider(client);
+
+        var matrix = await provider.GetMatrixAsync(
+            [new RoutePoint(16.04m, 108.22m), new RoutePoint(16.05m, 108.23m), new RoutePoint(15.99m, 107.98m)],
+            TransportMode.Car,
+            CancellationToken.None);
+
+        matrix.HasUnreachablePairs.Should().BeTrue();
+        matrix.GetMinutes(0, 1).Should().Be(10);
+        matrix.IsReachable(0, 2).Should().BeFalse();
+        matrix.IsReachable(2, 1).Should().BeFalse();
+        matrix.IsReachable(2, 2).Should().BeTrue();
+    }
+
+    [Fact]
     public async Task GetMatrixAsync_WhenResponseHasInvalidMatrixShape_ThrowsControlledProviderFailure()
     {
         using var handler = new StubHttpMessageHandler("""{ "durations": [[0]] }""");
