@@ -8,6 +8,13 @@ public static class TravelerPreferenceKeys
 {
     public const int MaxInterests = 10;
 
+    /// <summary>Stable, persisted interest keys shared by Traveler preferences and POI tagging.</summary>
+    public static readonly string[] InterestKeys =
+    [
+        "adventure", "architecture", "beach", "culinary", "culture", "heritage",
+        "history", "museum", "nature", "photography", "relaxation", "shopping",
+    ];
+
     public const string FoodNoRestriction = "NoRestriction";
     public const string FoodVegetarian = "Vegetarian";
     public const string FoodVegan = "Vegan";

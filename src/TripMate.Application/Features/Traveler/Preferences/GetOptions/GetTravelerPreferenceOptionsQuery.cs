@@ -27,10 +27,8 @@ public sealed class GetTravelerPreferenceOptionsQueryHandler(IApplicationDbConte
                 "Only an active Traveler can access travel preferences.");
         }
 
-        var catalog = await InterestOptionCatalog.LoadAsync(dbContext, cancellationToken);
-
         return Result.Success(new TravelerPreferenceOptionsDto(
-            catalog.Options,
+            InterestOptionCatalog.Fixed.Options,
             TravelerPreferenceKeys.TransportModes,
             TravelerPreferenceKeys.TravelPaces,
             TravelerPreferenceKeys.FoodPreferences,

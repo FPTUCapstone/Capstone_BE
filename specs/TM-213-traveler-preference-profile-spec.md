@@ -236,10 +236,25 @@ The implementing UC receives, as binding input:
 2. The precedence table (§7) and null/unspecified semantics (§8).
 3. RiskTolerance willingness semantics and the actual-risk separation rule (§9).
 4. The TravelerProfile write surface, write validation, and Mobile/profile form
-   behavior are owned by that UC, including these policy decisions:
-   - whether tags must reference existing `catalog.Tags` names at write time;
+   behavior are owned by that UC. UC-09 has now made the following decision
+   binding for that write surface:
+   - `interest_tags_json` and the Traveler preferences API use only these
+     canonical, persisted English keys: `adventure`, `architecture`, `beach`,
+     `culinary`, `culture`, `heritage`, `history`, `museum`, `nature`,
+     `photography`, `relaxation`, and `shopping`;
+   - Web and Mobile may localize these keys for display, but must send and
+     receive the canonical keys. `catalog.Tags` and `catalog.POICategories`
+     must not create, extend, or validate the Traveler interest-option list;
+   - mapping existing POI category/tag metadata to the canonical keys is a
+     separate UC-10/AI responsibility. UC-09 does not mutate POI catalog data
+     or claim that every legacy POI has a canonical interest mapping;
    - enforcement of the 1000-character limit on JSON fields (read path makes
      no length decision — §11).
+
+   The direct category/tag comparison in §6 is the existing TM-213 ranking
+   behavior. It remains unchanged by this catalog decision; a semantic POI
+   mapping layer must be introduced by UC-10 before canonical preference keys
+   are expected to match arbitrary legacy POI labels.
 5. Production-data rule: the current application code has no discovered
    production path to create/update TravelerProfile rows; test/dev fixtures may
    create rows; production code contains no mock/seed path; no claim is made
