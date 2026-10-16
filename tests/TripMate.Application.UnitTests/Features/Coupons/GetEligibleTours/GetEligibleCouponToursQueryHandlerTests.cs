@@ -26,7 +26,8 @@ public sealed class GetEligibleCouponToursQueryHandlerTests
         await db.SaveChangesAsync();
         var handler = new GetEligibleCouponToursQueryHandler(
             db,
-            new FakeCurrentUserService { UserId = user.Id });
+            new FakeCurrentUserService { UserId = user.Id },
+            new FakeDateTimeProvider());
 
         var result = await handler.Handle(new GetEligibleCouponToursQuery(), CancellationToken.None);
 
@@ -66,7 +67,7 @@ public sealed class GetEligibleCouponToursQueryHandlerTests
         Set(tour, nameof(Tour.Title), "Coastal itinerary");
         Set(tour, nameof(Tour.BasePrice), 500_000m);
         Set(tour, nameof(Tour.DurationDays), 2);
-        Set(tour, nameof(Tour.Status), TourStatus.Approved);
+        Set(tour, nameof(Tour.Status), TourStatus.Published);
         return tour;
     }
 

@@ -15,11 +15,11 @@ namespace TripMate.Application.UnitTests.Features.Coupons.Create;
 public sealed class CreateCouponCommandHandlerTests
 {
     [Fact]
-    public async Task Handle_ForApprovedOwner_CreatesVoucherAndTourLinks()
+    public async Task Handle_ForPublishedOwner_CreatesVoucherAndTourLinks()
     {
         await using var db = TestDbContext.Create();
         var actor = await SeedOperatorAsync(db, 7);
-        var tour = SeedTour(actor.Id, TourStatus.Approved);
+        var tour = SeedTour(actor.Id, TourStatus.Published);
         db.Tours.Add(tour); await db.SaveChangesAsync();
         var handler = new CreateCouponCommandHandler(db, new FakeCurrentUserService { UserId = actor.Id }, new FakeDateTimeProvider());
 
@@ -31,11 +31,26 @@ public sealed class CreateCouponCommandHandlerTests
     }
 
     [Fact]
+    public async Task Handle_ForLegacyApprovedPublishedTour_CreatesVoucher()
+    {
+        await using var db = TestDbContext.Create();
+        var actor = await SeedOperatorAsync(db, 7);
+        var tour = SeedTour(actor.Id, TourStatus.Approved);
+        Set(tour, nameof(Tour.PublishedAtUtc), new DateTimeOffset(2025, 12, 31, 0, 0, 0, TimeSpan.Zero));
+        db.Tours.Add(tour); await db.SaveChangesAsync();
+        var handler = new CreateCouponCommandHandler(db, new FakeCurrentUserService { UserId = actor.Id }, new FakeDateTimeProvider());
+
+        var result = await handler.Handle(Command(tour.Id), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task Handle_ForForeignTour_ReturnsForbiddenWithoutVoucher()
     {
         await using var db = TestDbContext.Create();
         var actor = await SeedOperatorAsync(db, 7); var other = await SeedOperatorAsync(db, 8);
-        var tour = SeedTour(other.Id, TourStatus.Approved); db.Tours.Add(tour); await db.SaveChangesAsync();
+        var tour = SeedTour(other.Id, TourStatus.Published); db.Tours.Add(tour); await db.SaveChangesAsync();
         var handler = new CreateCouponCommandHandler(db, new FakeCurrentUserService { UserId = actor.Id }, new FakeDateTimeProvider());
 
         var result = await handler.Handle(Command(tour.Id), CancellationToken.None);
