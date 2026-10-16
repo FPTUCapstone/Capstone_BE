@@ -1,12 +1,15 @@
-using MediatR;
-using Microsoft.EntityFrameworkCore;
 using System.Text.Json;
+
+using MediatR;
+
+using Microsoft.EntityFrameworkCore;
+
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Operator.Tours.Common;
-using TripMate.Domain.Enums;
 using TripMate.Domain.Common;
 using TripMate.Domain.Entities;
+using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Operator.Tours.Delete;
 
