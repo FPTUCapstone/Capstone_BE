@@ -6,9 +6,10 @@
 ## Phase 0 — contract decisions
 
 1. Confirm the UC-26 departure-selection response and the shared string-ID convention.
-2. Approve required participant fields; do not introduce DOB until SRS and schema change approve it.
-3. Approve payment expiry, unpaid-booking limit, capacity-release owner and public error mappings.
-4. Review whether an existing idempotency facility can be reused. If not, design a SQL Server table scoped by traveler/key with request hash, response payload/status, timestamps and a unique constraint.
+2. Approve required participant fields and require `participantType` (`Adult`, `Child`, `Infant`); do not introduce DOB until SRS and schema change approve it.
+3. Approve the effective-price policy: Adult schedule price then BasePrice; Child/Infant override then effective Adult price.
+4. Approve payment expiry, unpaid-booking limit, capacity-release owner and public error mappings.
+5. Review whether an existing idempotency facility can be reused. If not, design a SQL Server table scoped by traveler/key with request hash, response payload/status, timestamps and a unique constraint.
 
 **Exit:** OpenAPI examples in the BE spec are agreed by Web and Mobile.
 
@@ -24,15 +25,15 @@
 
 1. Implement `POST /api/v1/traveler/tour-bookings/quote` in the existing API/controller and application-handler conventions.
 2. Read approved tour, viable scheduled departure and voucher data from the same database context.
-3. Calculate all monetary fields server-side. Return a snapshot only; do not mutate capacity, voucher usage or bookings.
+3. Derive type counts from the request and calculate all monetary fields server-side: Adult uses schedule price then BasePrice; Child/Infant use their override then effective Adult price. Return a snapshot only; do not mutate capacity, voucher usage or bookings.
 4. Map errors through existing `ApiResponse`/`ProblemDetails` conventions.
 
-**Tests:** valid quote, expired/cancelled departure, no capacity, invalid/inapplicable voucher, non-Traveler caller.
+**Tests:** valid quote; Adult BasePrice fallback; Child/Infant effective-Adult fallback; per-type overrides; expired/cancelled/deadline-passed departure; no capacity; invalid/inapplicable voucher; non-Traveler caller.
 
 ## Phase 3 — atomic create
 
 1. Require a UUID `Idempotency-Key`; normalize and hash the request.
-2. In one SQL Server transaction, lock the schedule row, revalidate capacity/voucher, write the booking and participants, increase `reserved_capacity`, record voucher use and commit the idempotent response.
+2. In one SQL Server transaction, lock the schedule row, revalidate deadline/capacity/voucher, resolve per-type prices from the submitted participants, write the booking and participants, increase `reserved_capacity`, record voucher use and commit the idempotent response.
 3. Return `201` on first success; return the stored `200` result for an identical retry; return `409` for payload mismatch.
 4. Use a unique database constraint plus conflict handling so simultaneous same-key requests cannot create two bookings.
 
