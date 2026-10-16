@@ -77,6 +77,17 @@ amendment note for full details.
 13. Mock/seed data only in test/dev.
 14. No AI, no CSP, no multi-day work.
 
+### Post-implementation catalog decision (UC-09)
+
+UC-09 supersedes the earlier open choice of deriving Traveler interests from
+`catalog.Tags` or `catalog.POICategories`. The persisted/API contract is the
+fixed canonical English key set: `adventure`, `architecture`, `beach`,
+`culinary`, `culture`, `heritage`, `history`, `museum`, `nature`,
+`photography`, `relaxation`, and `shopping`. Presentation clients localize
+labels only and must not persist localized text. Mapping legacy POI metadata to
+these keys, including any POI catalog writer or backfill, is deferred to
+UC-10/AI and is outside this plan's completed TM-213 scope.
+
 ## 6. Tasks (atomic, sequential, TDD — each ends with the full suite green)
 
 ### T0 — Baseline gate
