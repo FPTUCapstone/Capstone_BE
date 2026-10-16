@@ -38,7 +38,7 @@ Content-Type: application/json
 ```json
 {
   "tourScheduleId": "123",
-  "participants": 2,
+  "participantCounts": { "adult": 1, "child": 1, "infant": 0 },
   "voucherCode": "SUMMER2026"
 }
 ```
@@ -50,17 +50,32 @@ The server verifies the scheduled departure, the approved tour, availability and
   "tourId": "45",
   "tourScheduleId": "123",
   "currency": "VND",
-  "participants": 2,
-  "unitPrice": 1000000,
-  "subtotalAmount": 2000000,
+  "participantCounts": { "adult": 1, "child": 1, "infant": 0 },
+  "priceBreakdown": [
+    { "participantType": "Adult", "quantity": 1, "unitPrice": 1000000, "lineAmount": 1000000 },
+    { "participantType": "Child", "quantity": 1, "unitPrice": 700000, "lineAmount": 700000 },
+    { "participantType": "Infant", "quantity": 0, "unitPrice": 1000000, "lineAmount": 0 }
+  ],
+  "subtotalAmount": 1700000,
   "discountAmount": 200000,
-  "totalAmount": 1800000,
+  "totalAmount": 1500000,
   "remainingSlots": 5,
   "appliedVoucher": { "code": "SUMMER2026" }
 }
 ```
 
 The quote is informational only: it creates no booking and reserves no capacity. Price and availability are re-evaluated on creation.
+
+### 3.1.1 Effective price policy
+
+For each participant type, the Backend applies this deterministic policy:
+
+1. `Adult`: `TourSchedule.AdultPrice ?? Tour.BasePrice`.
+2. `Child`: `TourSchedule.ChildPrice ?? effectiveAdultPrice`.
+3. `Infant`: `TourSchedule.InfantPrice ?? effectiveAdultPrice`.
+
+
+ull` for Child/Infant means “no price override”, never “not permitted”. A future age or allowed-participant-type rule must be modelled explicitly; it must not overload a nullable price. The total before vouchers is the sum of all `quantity × unitPrice` lines.
 
 ### 3.2 Create booking
 
@@ -76,6 +91,7 @@ Content-Type: application/json
   "participants": [
     {
       "fullName": "Nguyen Van A",
+      "participantType": "Adult",
       "phoneNumber": "+84912345678",
       "email": "a@example.com",
       "idDocumentType": "CCCD",
@@ -87,7 +103,7 @@ Content-Type: application/json
 }
 ```
 
-`participants.length` is authoritative; a separate client-supplied count is not accepted. The first participant is the booking contact. Document numbers are PII and must use the project encryption policy before persistence.
+`participants.length` is authoritative; a separate client-supplied count is not accepted. Every participant must provide `participantType` (`Adult`, `Child`, or `Infant`). The first participant is the booking contact. Document numbers are PII and must use the project encryption policy before persistence.
 
 Success returns `201 Created` and a booking snapshot:
 
@@ -118,7 +134,7 @@ The endpoint must use the existing `ApiResponse` / `ProblemDetails` conventions.
 | Caller is not an active Traveler | 403 |
 | Request/header/participant shape invalid | 400 |
 | Schedule or approved tour does not exist | 404 |
-| Schedule cancelled, completed, departed, capacity unavailable, voucher ineligible, or unpaid-booking policy rejected | 409 or 422, finalized with the common error contract |
+| Schedule cancelled, completed, past its `registration_deadline_at`, capacity unavailable, voucher ineligible, or unpaid-booking policy rejected | 409 or 422, finalized with the common error contract |
 | Same idempotency key, different payload | 409 |
 | Persistence or transaction failure | 500 / standard `MSG127` |
 
@@ -130,7 +146,7 @@ Creation runs in one SQL Server transaction:
 
 1. Validate and acquire/insert the idempotency record scoped to `(traveler_user_id, idempotency_key)`.
 2. Lock the `commerce.TourSchedules` row using the chosen SQL Server concurrency mechanism.
-3. Re-read schedule/tour/voucher state and check `total_capacity - reserved_capacity >= participant count`.
+3. Re-read schedule/tour/voucher state, verify `registration_deadline_at` has not passed, derive counts from participant types, resolve each effective price, and check `total_capacity - reserved_capacity >= participant count`.
 4. Create `commerce.Bookings` with `PendingPayment`, server-calculated amounts and `payment_expires_at`.
 5. Create `commerce.BookingParticipants`, update `reserved_capacity`, persist voucher redemption if applicable, and persist the idempotent response.
 6. Commit once. Any failure rolls back every change.
@@ -144,6 +160,7 @@ UC-27 requires a public Traveler-safe tour-detail/departure contract to choose a
 ## 7. Approval gates
 
 - [ ] Product confirms required participant fields and contact model.
+- [ ] Product approves the effective-price policy: Adult schedule price then BasePrice; Child/Infant override then effective Adult price.
 - [ ] Product confirms unpaid-booking limit and payment expiry.
 - [ ] Team approves the public tour-detail/departure contract from UC-26.
 - [ ] Team approves SQL Server migration for an idempotency table only if no reusable project mechanism exists.
