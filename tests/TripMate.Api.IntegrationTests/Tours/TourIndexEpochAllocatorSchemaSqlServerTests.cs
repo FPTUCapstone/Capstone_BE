@@ -498,7 +498,9 @@ public sealed class TourIndexEpochAllocatorSchemaSqlServerTests(ITestOutputHelpe
         if (networks.Length != 1 || !Regex.IsMatch(networks[0].Name, "^github_network_[a-f0-9]{32}$"))
             throw new InvalidOperationException("Job-local container network not verified.");
         var networkJson = await DockerReadAsync("network", "inspect", "--format", "{\"Labels\":{{json .Labels}}}", networks[0].Name);
-        return ValidateCiContainer(containerJson, networkJson, label, jobStarted);
+        var hostname = ValidateCiContainer(containerJson, networkJson, label, jobStarted);
+        VerifiedForensicContainer = ids[0]; // Evidence only; never an isolation-policy exception.
+        return hostname;
     }
 
     private static async Task<string> DockerReadAsync(params string[] arguments)
@@ -695,7 +697,223 @@ public sealed class TourIndexEpochAllocatorSchemaSqlServerTests(ITestOutputHelpe
         after.Should().NotContain(created);
         after.Should().BeEquivalentTo(baseline, "only the current-run database may be removed");
     }
-    private sealed record IsolationSession(short SessionId, Guid ConnectionId, string Status, string Database, bool HasRequest, int OpenTransactions, int ClientProcessId, string? ClientAddress, int? ClientPort, string Program, string Host, string Login, DateTime ConnectedAt);
+    [Theory]
+    [InlineData("0100007F:A2AB", "0100007F:0599", 41643, true)]
+    [InlineData("0100007F:A2AC", "0100007F:0599", 41643, false)]
+    [InlineData("0200007F:A2AB", "0100007F:0599", 41643, false)]
+    [InlineData("0100007F:0599", "0100007F:A2AB", 41643, false)]
+    [InlineData("0000000000000000FFFF00000100007F:A2AB", "0000000000000000FFFF00000100007F:0599", 41643, true)]
+    [InlineData("malformed", "0100007F:0599", 41643, false)]
+    public void EA17_ForensicSocketCorrelation_RequiresExactClientDirection(string local, string remote, int port, bool expected)
+        => ForensicSocketMatches(local, remote, "127.0.0.1", port).Should().Be(expected);
+
+    [Fact]
+    public void EA17_ForensicOutput_RejectsRawSecretBearingOrMalformedLines()
+    {
+        var act = () => SanitizeForensicProbe("PROCESS|1|2|3|SqlServerEngine|" + new string('a', 64) + "|4|5|" + new string('b', 64) + "\nRAW|Password=sentinel-not-a-secret");
+        act.Should().Throw<InvalidOperationException>().Which.Message.Should().NotContain("sentinel");
+    }
+
+    [Fact]
+    public void EA17_ForensicOutput_AcceptsOnlyBoundedTypedRecords()
+    {
+        const string line = "SOCKET|tcp|0100007F:A2AB|0100007F:0599|01|12345";
+        SanitizeForensicProbe(line).Should().BeEquivalentTo([line]);
+        var act = () => SanitizeForensicProbe(new string('x', 65537));
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    private static bool ForensicSocketMatches(string local, string remote, string? clientAddress, int? clientPort)
+    {
+        static (System.Net.IPAddress Address, int Port) Decode(string value)
+        {
+            var parts = value.Split(':');
+            if (parts.Length != 2 || parts[0].Length is not (8 or 32) || parts[1].Length != 4) throw new FormatException();
+            var bytes = Convert.FromHexString(parts[0]);
+            for (var i = 0; i < bytes.Length; i += 4) Array.Reverse(bytes, i, 4);
+            var ip = new System.Net.IPAddress(bytes);
+            return (ip.IsIPv4MappedToIPv6 ? ip.MapToIPv4() : ip, Convert.ToInt32(parts[1], 16));
+        }
+        try
+        {
+            if (clientPort is not (> 0 and <= 65535) || !System.Net.IPAddress.TryParse(clientAddress, out var client)) return false;
+            if (client.IsIPv4MappedToIPv6) client = client.MapToIPv4();
+            var a = Decode(local); var b = Decode(remote);
+            return a.Port == clientPort && a.Address.Equals(client) && b.Port == 1433 && System.Net.IPAddress.IsLoopback(b.Address);
+        }
+        catch (FormatException) { return false; }
+        catch (OverflowException) { return false; }
+    }
+    private static string[] SanitizeForensicProbe(string raw)
+    {
+        if (raw.Length > 65536) throw new InvalidOperationException("Forensic output exceeded its bound; raw output withheld.");
+        var rows = raw.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        const string endpoint = "(?:[0-9A-Fa-f]{8}|[0-9A-Fa-f]{32}):[0-9A-Fa-f]{4}";
+        const string hash = "(?:[a-f0-9]{64}|NA)";
+        const string number = "(?:[0-9]+|NA)";
+        var pattern = "^(?:SOCKET\\|tcp6?\\|" + endpoint + "\\|" + endpoint + "\\|[0-9A-Fa-f]{2}\\|[0-9]+"
+            + "|PROCESS\\|[0-9]+\\|[0-9]+\\|[0-9]+\\|(?:SqlServerEngine|SqlTelemetry|SqlAgent|SqlCmd|Shell|Other|Unavailable)\\|" + hash + "\\|" + number + "\\|" + number + "\\|" + hash
+            + "|LINK\\|[0-9]+\\|[0-9]+\\|[0-9]+\\|[01]\\|[0-9]+\\|[0-9]+"
+            + "|PROBE\\|[0-9]+\\|[01]|BOOT\\|[0-9]+\\|[0-9]+|NSROOT\\|" + number + "\\|" + number + "\\|" + hash
+            + "|LIMIT\\|(?:ToolsUnavailable|ProcUnavailable|SocketNotFound|FdReadUnavailable|ScanBoundReached|ProcChanged|InvalidPort)\\|[0-9]+)$";
+        if (rows.Length > 256 || rows.Any(row => !Regex.IsMatch(row, pattern, RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100))))
+            throw new InvalidOperationException("Forensic output schema rejected; raw output withheld.");
+        return rows;
+    }
+
+    private static string? VerifiedForensicContainer;
+    private static int ForensicCaptured;
+    // No cmdline, environ, process comm, healthcheck arguments/output, privilege escalation or writes.
+    private const string ForensicProcScript = """
+        port=$1; candidate=$2
+        for tool in awk readlink sha256sum getconf; do
+          command -v "$tool" >/dev/null 2>&1 || { printf 'LIMIT|ToolsUnavailable|0\n'; exit 0; }
+        done
+        case "$port:$candidate" in *[!0-9:]*|:*) printf 'LIMIT|InvalidPort|0\n'; exit 0;; esac
+        hex=$(printf '%04X' "$port")
+        printf 'BOOT|%s|%s\n' "$(awk '$1=="btime" {print $2}' /proc/stat)" "$(getconf CLK_TCK)"
+        nsnum() { readlink "$1" 2>/dev/null | awk -F'[][]' 'NF>1 {print $2; found=1} END {if (!found) print "NA"}'; }
+        filehash() { value=$(sha256sum "$1" 2>/dev/null | awk '{print $1}'); if [ ${#value} -eq 64 ]; then printf '%s' "$value"; else printf NA; fi; }
+        printf 'NSROOT|%s|%s|%s\n' "$(nsnum /proc/1/ns/pid)" "$(nsnum /proc/1/ns/net)" "$(filehash /proc/1/cgroup)"
+        seen=' '
+        emit_proc() {
+          proc_pid=$1
+          case "$seen" in *" $proc_pid "*) return;; esac
+          seen="$seen$proc_pid "
+          if [ ! -r "/proc/$proc_pid/stat" ]; then printf 'LIMIT|ProcUnavailable|%s\n' "$proc_pid"; return; fi
+          data=$(awk '{sub(/^.*\) /, ""); print $2, $20}' "/proc/$proc_pid/stat" 2>/dev/null)
+          set -- $data; parent=${1:-0}; ticks=${2:-0}
+          path=$(readlink "/proc/$proc_pid/exe" 2>/dev/null); tag=Other
+          case "$path" in /opt/mssql/bin/sqlservr) tag=SqlServerEngine;; /opt/mssql/bin/sqltelemetry) tag=SqlTelemetry;; /opt/mssql/bin/sqlagent) tag=SqlAgent;; /opt/mssql-tools*/bin/sqlcmd) tag=SqlCmd;; /bin/sh|/bin/bash|/bin/dash|/usr/bin/sh|/usr/bin/bash|/usr/bin/dash) tag=Shell;; '') tag=Unavailable;; esac
+          printf 'PROCESS|%s|%s|%s|%s|%s|%s|%s|%s\n' "$proc_pid" "$parent" "$ticks" "$tag" "$(filehash /proc/$proc_pid/exe)" "$(nsnum /proc/$proc_pid/ns/pid)" "$(nsnum /proc/$proc_pid/ns/net)" "$(filehash /proc/$proc_pid/cgroup)"
+          again=$(awk '{sub(/^.*\) /, ""); print $20}' "/proc/$proc_pid/stat" 2>/dev/null)
+          [ "$again" = "$ticks" ] || printf 'LIMIT|ProcChanged|%s\n' "$proc_pid"
+        }
+        for q in "$candidate" 364; do
+          if [ -d "/proc/$q" ]; then printf 'PROBE|%s|1\n' "$q"; emit_proc "$q"; else printf 'PROBE|%s|0\n' "$q"; fi
+        done
+        inodes=''
+        for table in tcp tcp6; do
+          if [ ! -r "/proc/net/$table" ]; then printf 'LIMIT|ProcUnavailable|0\n'; continue; fi
+          awk -v h="$hex" -v t="$table" '($2 ~ ":"h"$" && $3 ~ ":0599$") || ($2 ~ ":0599$" && $3 ~ ":"h"$") {if (++n<=16) print "SOCKET|"t"|"$2"|"$3"|"$4"|"$10}' "/proc/net/$table"
+          found=$(awk -v h="$hex" '$2 ~ ":"h"$" && $3 ~ ":0599$" {if (++n<=16) print $10}' "/proc/net/$table")
+          inodes="$inodes $found"
+        done
+        if [ -z "$(printf '%s' "$inodes" | awk '{$1=$1;print}')" ]; then printf 'LIMIT|SocketNotFound|%s\n' "$candidate"; exit 0; fi
+        nproc=0; nfd=0; denied=0; links=0
+        for dir in "/proc/$candidate" /proc/[0-9]*; do
+          [ -d "$dir" ] || continue
+          [ "$dir" != "/proc/$candidate" ] || [ "$nproc" -eq 0 ] || continue
+          nproc=$((nproc+1)); [ "$nproc" -le 256 ] || { printf 'LIMIT|ScanBoundReached|%s\n' "$nproc"; break; }
+          q=${dir#/proc/}
+          for fd in "$dir"/fd/*; do
+            nfd=$((nfd+1)); [ "$nfd" -le 4096 ] || { printf 'LIMIT|ScanBoundReached|%s\n' "$nfd"; break 2; }
+            target=$(readlink "$fd" 2>/dev/null) || { denied=$((denied+1)); continue; }
+            for inode in $inodes; do
+              if [ "$target" = "socket:[$inode]" ]; then
+                before=$(awk '{sub(/^.*\) /, ""); print $20}' "$dir/stat" 2>/dev/null)
+                emit_proc "$q"
+                a=$q; depth=0
+                while [ "$a" -gt 1 ] && [ "$depth" -lt 8 ]; do
+                  a=$(awk '{sub(/^.*\) /, ""); print $2}' "/proc/$a/stat" 2>/dev/null)
+                  case "$a" in ''|*[!0-9]*) break;; esac
+                  emit_proc "$a"; depth=$((depth+1))
+                done
+                after=$(awk '{sub(/^.*\) /, ""); print $20}' "$dir/stat" 2>/dev/null)
+                stable=0; [ "$(readlink "$fd" 2>/dev/null)" = "$target" ] && [ "$before" = "$after" ] && stable=1
+                printf 'LINK|%s|%s|%s|%s|%s|%s\n' "$q" "${fd##*/}" "$inode" "$stable" "${before:-0}" "${after:-0}"
+                links=$((links+1)); [ "$links" -lt 16 ] || break 3
+              fi
+            done
+          done
+        done
+        [ "$denied" -eq 0 ] || printf 'LIMIT|FdReadUnavailable|%s\n' "$denied"
+        """;
+
+    private static async Task<string> ForensicDockerAsync(params string[] arguments)
+    {
+        var start = new ProcessStartInfo("docker") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+        start.ArgumentList.Add("--host"); start.ArgumentList.Add("unix:///var/run/docker.sock");
+        foreach (var argument in arguments) start.ArgumentList.Add(argument);
+        using var process = Process.Start(start) ?? throw new InvalidOperationException("Forensic Docker CLI unavailable.");
+        var stdout = process.StandardOutput.ReadToEndAsync(); var stderr = process.StandardError.ReadToEndAsync();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(12));
+        try { await process.WaitForExitAsync(deadline.Token); }
+        catch { if (!process.HasExited) process.Kill(); throw new InvalidOperationException("Forensic CLI timed out; no container process was terminated."); }
+        await stderr; // Never expose stderr or exception diagnostics containing command arguments.
+        var text = await stdout;
+        if (process.ExitCode != 0 || text.Length > 65536) throw new InvalidOperationException("Forensic probe unavailable or oversized; raw output withheld.");
+        return text;
+    }
+
+    private static async Task<string> CaptureForensicOnceAsync(SqlConnection observer, IReadOnlyList<IsolationSession> sessions, IReadOnlyList<string> databases)
+    {
+        if (Interlocked.Exchange(ref ForensicCaptured, 1) != 0) return "AlreadyCapturedOnce";
+        if (!OperatingSystem.IsLinux()) return "UnavailableOutsideLinuxCI";
+        var report = new Dictionary<string, object?>
+        {
+            ["CapturedAtUtc"] = DateTime.UtcNow,
+            ["SqlBefore"] = JsonDocument.Parse(RedactedSessions(sessions)).RootElement.Clone(),
+            ["SqlDatabaseIds"] = sessions.Select(x => new { x.SessionId, x.DatabaseId }).ToArray(),
+            ["UserDatabaseCount"] = databases.Count,
+            ["UnknownDatabaseCount"] = databases.Count(x => x != Volatile.Read(ref CurrentOwnedDatabase)),
+            ["Stage"] = "BeforeTargetReverification"
+        };
+        try
+        {
+            await VerifyGitHubServiceAsync(new SqlConnectionStringBuilder(observer.ConnectionString));
+            var container = VerifiedForensicContainer ?? throw new InvalidOperationException();
+            const string healthFormat = "{\"Id\":{{json .Id}},\"ImageId\":{{json .Image}},\"HostPid\":{{json .State.Pid}},\"StartedAt\":{{json .State.StartedAt}},\"HealthStatus\":{{json .State.Health.Status}},\"FailingStreak\":{{json .State.Health.FailingStreak}},\"History\":[{{range $i,$v := .State.Health.Log}}{{if $i}},{{end}}{\"Start\":{{json $v.Start}},\"End\":{{json $v.End}},\"ExitCode\":{{json $v.ExitCode}}}{{end}}]}";
+            using var health = JsonDocument.Parse(await ForensicDockerAsync("inspect", "--format", healthFormat, container));
+            report["Container"] = health.RootElement.Clone();
+            report["Stage"] = "ContainerReverifiedBeforeProcessProbe";
+            var proofs = LiveOwnedConnectionIds();
+            var current = Volatile.Read(ref CurrentOwnedDatabase);
+            var first = sessions.FirstOrDefault(x => current is null || !proofs.Contains(x.ConnectionId) || x.Database != current
+                || x.Status != "sleeping" || x.HasRequest || x.OpenTransactions != 0);
+            string[] rows = [];
+            if (first is not null && first.ClientPort is > 0 and <= 65535 && first.ClientProcessId > 0)
+                rows = SanitizeForensicProbe(await ForensicDockerAsync("exec", container, "sh", "-c", ForensicProcScript, "tm70-read-only-probe", first.ClientPort.Value.ToString(System.Globalization.CultureInfo.InvariantCulture), first.ClientProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+            report["ProbeRows"] = rows;
+            report["Stage"] = "ProcessProbeCapturedBeforeSqlRecheck";
+            var after = await ReadSessionsAsync(observer);
+            var stable = first is not null && after.Any(x => x.SessionId == first.SessionId && x.ConnectionId == first.ConnectionId && x.ConnectedAt == first.ConnectedAt && x.ClientPort == first.ClientPort && x.ClientAddress == first.ClientAddress
+                && x.ClientProcessId == first.ClientProcessId && x.DatabaseId == first.DatabaseId && x.Database == first.Database
+                && x.Status == first.Status && x.OpenTransactions == first.OpenTransactions && x.HasRequest == first.HasRequest);
+            var socketMatches = rows.Where(row => row.StartsWith("SOCKET|", StringComparison.Ordinal)).Where(row =>
+            { var parts = row.Split('|'); return first is not null && ForensicSocketMatches(parts[2], parts[3], first.ClientAddress, first.ClientPort); }).ToArray();
+            report["Evidence"] = new
+            {
+                CapturedAtUtc = DateTime.UtcNow,
+                Container = health.RootElement.Clone(),
+                SqlBefore = JsonDocument.Parse(RedactedSessions(sessions)).RootElement.Clone(),
+                SqlAfter = JsonDocument.Parse(RedactedSessions(after)).RootElement.Clone(),
+                SqlConnectionStableAcrossProbe = stable,
+                SqlDatabaseIds = sessions.Select(x => new { x.SessionId, x.DatabaseId }),
+                IdentityClassification = first is null ? null : new
+                {
+                    Login = first.Login == "sa" ? "Sa" : first.Login is "NT AUTHORITY\\SYSTEM" or "NT AUTHORITY\\NETWORK SERVICE" ? "BuiltinServiceNameUnverified" : first.Login.StartsWith("##MS_", StringComparison.Ordinal) ? "MicrosoftPatternUnverified" : "Other",
+                    Program = first.Program is "SQLServerCEIP" or "SQLTelemetry" ? "TelemetryNameUnverified" : "OtherUnverified",
+                    LoginNameSha256 = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(first.Login))),
+                    ProgramNameSha256 = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(first.Program)))
+                },
+                UserDatabaseCount = databases.Count,
+                UnknownDatabaseCount = databases.Count(x => x != Volatile.Read(ref CurrentOwnedDatabase)),
+                ProbeRows = rows,
+                ExactClientSocketRows = socketMatches,
+                Limitation = "Snapshot evidence only; claimed PID/name/login never authorize a session. Missing/inaccessible proc or unstable SQL/socket/process identity remains incomplete. No policy change."
+            };
+            report["Stage"] = "CaptureCompletedPolicyUnchanged";
+        }
+        catch (Exception error)
+        {
+            report["Limitation"] = "Forensic capture incomplete; earlier sanitized stages retained; fail-closed unchanged";
+            report["ErrorType"] = error.GetType().Name;
+        }
+        return JsonSerializer.Serialize(report);
+    }
+
+    private sealed record IsolationSession(short SessionId, Guid ConnectionId, string Status, string Database, bool HasRequest, int OpenTransactions, int ClientProcessId, string? ClientAddress, int? ClientPort, string Program, string Host, string Login, DateTime ConnectedAt, int? DatabaseId = null);
     private static void ValidateCiIsolation(IReadOnlyList<IsolationSession> sessions, IReadOnlyCollection<Guid> verifiedConnections, string? ownedDatabase, IReadOnlyCollection<string> userDatabases)
     {
         if (userDatabases.Any(name => ownedDatabase is null || !string.Equals(name, ownedDatabase, StringComparison.Ordinal)))
@@ -730,12 +948,12 @@ public sealed class TourIndexEpochAllocatorSchemaSqlServerTests(ITestOutputHelpe
 
     private static async Task<List<IsolationSession>> ReadSessionsAsync(SqlConnection observer, CancellationToken cancellationToken = default)
     {
-        const string sql = "SELECT s.session_id,c.connection_id,s.status,COALESCE(DB_NAME(s.database_id),''),CONVERT(bit,CASE WHEN EXISTS(SELECT 1 FROM sys.dm_exec_requests r WHERE r.session_id=s.session_id) THEN 1 ELSE 0 END),s.open_transaction_count,s.host_process_id,c.client_net_address,c.client_tcp_port,s.program_name,s.host_name,s.login_name,c.connect_time FROM sys.dm_exec_sessions s LEFT JOIN sys.dm_exec_connections c ON c.session_id=s.session_id WHERE s.is_user_process=1 AND s.session_id<>@@SPID;";
+        const string sql = "SELECT s.session_id,c.connection_id,s.status,COALESCE(DB_NAME(s.database_id),''),CONVERT(bit,CASE WHEN EXISTS(SELECT 1 FROM sys.dm_exec_requests r WHERE r.session_id=s.session_id) THEN 1 ELSE 0 END),s.open_transaction_count,s.host_process_id,c.client_net_address,c.client_tcp_port,s.program_name,s.host_name,s.login_name,c.connect_time,s.database_id FROM sys.dm_exec_sessions s LEFT JOIN sys.dm_exec_connections c ON c.session_id=s.session_id WHERE s.is_user_process=1 AND s.session_id<>@@SPID;";
         await using var command = new SqlCommand(sql, observer);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         var sessions = new List<IsolationSession>();
         while (await reader.ReadAsync(cancellationToken))
-            sessions.Add(new(reader.GetInt16(0), reader.IsDBNull(1) ? Guid.Empty : reader.GetGuid(1), reader.GetString(2), reader.GetString(3), reader.GetBoolean(4), reader.GetInt32(5), reader.GetInt32(6), reader.IsDBNull(7) ? null : reader.GetString(7), reader.IsDBNull(8) ? null : reader.GetInt32(8), reader.IsDBNull(9) ? "" : reader.GetString(9), reader.IsDBNull(10) ? "" : reader.GetString(10), reader.GetString(11), reader.IsDBNull(12) ? DateTime.MinValue : reader.GetDateTime(12)));
+            sessions.Add(new(reader.GetInt16(0), reader.IsDBNull(1) ? Guid.Empty : reader.GetGuid(1), reader.GetString(2), reader.GetString(3), reader.GetBoolean(4), reader.GetInt32(5), reader.GetInt32(6), reader.IsDBNull(7) ? null : reader.GetString(7), reader.IsDBNull(8) ? null : reader.GetInt32(8), reader.IsDBNull(9) ? "" : reader.GetString(9), reader.IsDBNull(10) ? "" : reader.GetString(10), reader.GetString(11), reader.IsDBNull(12) ? DateTime.MinValue : reader.GetDateTime(12), reader.IsDBNull(13) ? null : reader.GetInt16(13)));
         return sessions;
     }
 
@@ -777,7 +995,12 @@ public sealed class TourIndexEpochAllocatorSchemaSqlServerTests(ITestOutputHelpe
         await using (var command = new SqlCommand("SELECT name FROM sys.databases WHERE database_id>4;", observer))
         await using (var reader = await command.ExecuteReaderAsync())
             while (await reader.ReadAsync()) databases.Add(reader.GetString(0));
-        ValidateCiIsolation(after, verified, Volatile.Read(ref CurrentOwnedDatabase), databases);
+        try { ValidateCiIsolation(after, verified, Volatile.Read(ref CurrentOwnedDatabase), databases); }
+        catch (InvalidOperationException error)
+        {
+            var evidence = await CaptureForensicOnceAsync(observer, after, databases);
+            throw new InvalidOperationException(error.Message + "\nTM70_A41A_FORENSIC " + evidence, error);
+        }
     }
 
     private sealed class OwnedConnection(SqlConnection connection, Guid serverId) : IAsyncDisposable
