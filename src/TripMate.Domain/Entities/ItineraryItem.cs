@@ -42,6 +42,10 @@ public class ItineraryItem : BaseEntity
 
     public int? TravelDurationToNextMinutes { get; private set; }
 
+    public int? TravelDistanceToNextMeters { get; private set; }
+
+    public TransportMode? TransportModeToNext { get; private set; }
+
     public bool IsMandatory { get; private set; }
 
     public decimal? EstimatedCost { get; private set; }
@@ -58,7 +62,9 @@ public class ItineraryItem : BaseEntity
         bool isMandatory,
         decimal? estimatedCost,
         string? recommendationReason,
-        int? travelDurationToNextMinutes = null)
+        int? travelDurationToNextMinutes = null,
+        int? travelDistanceToNextMeters = null,
+        TransportMode? transportModeToNext = null)
     {
         if (pointOfInterestId <= 0)
         {
@@ -79,7 +85,9 @@ public class ItineraryItem : BaseEntity
             isMandatory,
             estimatedCost,
             recommendationReason,
-            travelDurationToNextMinutes);
+            travelDurationToNextMinutes,
+            travelDistanceToNextMeters,
+            transportModeToNext);
     }
 
     public static ItineraryItem CreateRest(
@@ -87,14 +95,18 @@ public class ItineraryItem : BaseEntity
         DateTimeOffset plannedArrivalUtc,
         DateTimeOffset plannedDepartureUtc,
         string recommendationReason,
-        int? travelDurationToNextMinutes = null) =>
+        int? travelDurationToNextMinutes = null,
+        int? travelDistanceToNextMeters = null,
+        TransportMode? transportModeToNext = null) =>
         CreateRest(
             sequenceNo,
             null,
             plannedArrivalUtc,
             plannedDepartureUtc,
             recommendationReason,
-            travelDurationToNextMinutes);
+            travelDurationToNextMinutes,
+            travelDistanceToNextMeters,
+            transportModeToNext);
 
     public static ItineraryItem CreateRest(
         int sequenceNo,
@@ -102,7 +114,9 @@ public class ItineraryItem : BaseEntity
         DateTimeOffset plannedArrivalUtc,
         DateTimeOffset plannedDepartureUtc,
         string recommendationReason,
-        int? travelDurationToNextMinutes = null)
+        int? travelDurationToNextMinutes = null,
+        int? travelDistanceToNextMeters = null,
+        TransportMode? transportModeToNext = null)
     {
         if (pointOfInterestId <= 0)
         {
@@ -118,7 +132,9 @@ public class ItineraryItem : BaseEntity
             false,
             null,
             recommendationReason,
-            travelDurationToNextMinutes);
+            travelDurationToNextMinutes,
+            travelDistanceToNextMeters,
+            transportModeToNext);
     }
 
     internal void AttachTo(Itinerary itinerary)
@@ -148,7 +164,9 @@ public class ItineraryItem : BaseEntity
         bool isMandatory,
         decimal? estimatedCost,
         string? recommendationReason,
-        int? travelDurationToNextMinutes)
+        int? travelDurationToNextMinutes,
+        int? travelDistanceToNextMeters,
+        TransportMode? transportModeToNext)
     {
         if (sequenceNo <= 0)
         {
@@ -182,6 +200,16 @@ public class ItineraryItem : BaseEntity
             throw new ArgumentOutOfRangeException(nameof(travelDurationToNextMinutes));
         }
 
+        if (travelDistanceToNextMeters < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(travelDistanceToNextMeters));
+        }
+
+        if (transportModeToNext.HasValue && !Enum.IsDefined(transportModeToNext.Value))
+        {
+            throw new ArgumentOutOfRangeException(nameof(transportModeToNext));
+        }
+
         var normalizedReason = NormalizeOptional(recommendationReason);
         var duration = checked((int)(plannedDepartureUtc - plannedArrivalUtc).TotalMinutes);
 
@@ -197,6 +225,8 @@ public class ItineraryItem : BaseEntity
             EstimatedCost = estimatedCost,
             RecommendationReason = normalizedReason,
             TravelDurationToNextMinutes = travelDurationToNextMinutes,
+            TravelDistanceToNextMeters = travelDistanceToNextMeters,
+            TransportModeToNext = transportModeToNext,
         };
     }
 

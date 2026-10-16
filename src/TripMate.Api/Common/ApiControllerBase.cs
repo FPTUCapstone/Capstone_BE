@@ -252,6 +252,16 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             SchedulingErrorCodes.ConstraintsInfeasible =>
                 StatusCodes.Status422UnprocessableEntity,
 
+            SchedulingErrorCodes.MandatoryFoodNotAllowed =>
+                StatusCodes.Status422UnprocessableEntity,
+
+            TripMate.Application.Features.PointsOfInterest.ExternalReviews.ExternalReviewErrorCodes.PoiNotFound
+                or TripMate.Application.Features.PointsOfInterest.ExternalReviews.ExternalReviewErrorCodes.ReviewNotFound =>
+                StatusCodes.Status404NotFound,
+
+            TripMate.Application.Features.PointsOfInterest.ExternalReviews.ExternalReviewErrorCodes.TranslationUnavailable =>
+                StatusCodes.Status503ServiceUnavailable,
+
             TripReviewErrorCodes.Unauthorized =>
                 StatusCodes.Status401Unauthorized,
 
@@ -329,6 +339,9 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
                 StatusCodes.Status422UnprocessableEntity,
 
             TripMate.Application.Features.Itineraries.Common.ItineraryErrorCodes.ConstraintsInfeasible =>
+                StatusCodes.Status422UnprocessableEntity,
+
+            TripMate.Application.Features.Itineraries.Common.ItineraryErrorCodes.StopInfeasible =>
                 StatusCodes.Status422UnprocessableEntity,
 
             TripMate.Application.Features.Itineraries.Common.ItineraryErrorCodes.NavigationInProgress =>

@@ -81,6 +81,47 @@ public class ItineraryGenerationServiceTests
     }
 
     [Fact]
+    public async Task Generate_RecordsRoadDistanceAndTransportModeOfEachLeg()
+    {
+        var minutes = new int[,]
+        {
+            { 0, 20, 35, 15 },
+            { 20, 0, 15, 25 },
+            { 35, 15, 0, 20 },
+            { 15, 25, 20, 0 },
+        };
+        var meters = new int[4, 4];
+        for (var row = 0; row < 4; row++)
+        {
+            for (var column = 0; column < 4; column++)
+            {
+                meters[row, column] = minutes[row, column] * 400;
+            }
+        }
+
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(
+            RouteDurationMatrix.Create(minutes, unreachable: null, meters: meters)));
+        var input = CreateInput(
+            availableMinutes: 240,
+            restPreference: RestPreference.None,
+            candidates:
+            [
+                Candidate(12, "Cham Museum", 60, 60_000m, 0m, 0m, null, null, null),
+                Candidate(28, "Fine Arts Museum", 60, 20_000m, 0m, 0m, null, null, null),
+            ],
+            mandatoryPoiIds: [12, 28]);
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var items = result.Value.Items.ToArray();
+        items[0].TravelDistanceToNextMeters.Should().Be(items[0].TravelDurationToNextMinutes * 400);
+        items[0].TransportModeToNext.Should().Be(input.TransportMode);
+        items[^1].TravelDistanceToNextMeters.Should().BeNull();
+        items[^1].TransportModeToNext.Should().BeNull();
+    }
+
+    [Fact]
     public async Task Generate_AutoRest_InsertsRestAfterLongContinuousSchedule()
     {
         var service = new ItineraryGenerationService(new FixedRouteDurationProvider(

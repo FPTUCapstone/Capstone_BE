@@ -387,6 +387,8 @@ CREATE TABLE catalog.POIs (
     has_shelter                  BIT NOT NULL DEFAULT 0,
     estimated_visit_cost         DECIMAL(12,2) NULL,
     source_url                   NVARCHAR(500) NULL,
+    tripadvisor_location_id      BIGINT NULL
+        CONSTRAINT CK_POIs_TripadvisorLocationId CHECK (tripadvisor_location_id > 0),
     verified_at                  DATETIME2 NULL,
     status                       VARCHAR(10) NOT NULL DEFAULT 'Active' CHECK (status IN ('Active','Inactive')),
     created_by                   BIGINT NULL REFERENCES dbo.Users(user_id),
@@ -398,6 +400,9 @@ CREATE TABLE catalog.POIs (
 GO
 CREATE INDEX IX_POIs_Category ON catalog.POIs(category_id);
 CREATE INDEX IX_POIs_LatLng ON catalog.POIs(latitude, longitude);
+CREATE UNIQUE INDEX UX_POIs_TripadvisorLocationId
+    ON catalog.POIs(tripadvisor_location_id)
+    WHERE tripadvisor_location_id IS NOT NULL;
 GO
 
 CREATE TABLE catalog.POIOpeningHours (
@@ -856,6 +861,8 @@ CREATE TABLE planning.ItineraryItems (
     transport_mode_to_next                 VARCHAR(20) NULL
         CHECK (transport_mode_to_next IN ('Walking','Motorbike','Car','PublicTransit')),
     travel_duration_to_next_minutes         INT NULL,
+    travel_distance_to_next_meters          INT NULL
+        CONSTRAINT CK_ItineraryItems_TravelDistance CHECK (travel_distance_to_next_meters >= 0),
     status                                   VARCHAR(10) NOT NULL DEFAULT 'Planned'
         CHECK (status IN ('Planned','Visited','Skipped')),
     CONSTRAINT UQ_ItineraryItems UNIQUE (itinerary_id, sequence_no),

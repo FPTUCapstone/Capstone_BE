@@ -64,9 +64,13 @@ internal sealed class NavigationSessionMutator(
         Func<TripSession, DateTimeOffset, TripSessionProgressOutcome> mutate,
         CancellationToken cancellationToken)
     {
+        // Split: three collections in one query would multiply into a cartesian product.
         var session = await dbContext.TripSessions
+            .AsSplitQuery()
             .Include(candidate => candidate.Itinerary)
             .ThenInclude(itinerary => itinerary.SchedulingRequest)
+            .Include(candidate => candidate.Itinerary)
+            .ThenInclude(itinerary => itinerary.Items)
             .Include(candidate => candidate.Items)
             .Include(candidate => candidate.StateHistory)
             .SingleOrDefaultAsync(candidate => candidate.Id == sessionId, cancellationToken);

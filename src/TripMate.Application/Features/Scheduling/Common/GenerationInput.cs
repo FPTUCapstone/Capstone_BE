@@ -44,7 +44,9 @@ public sealed record GeneratedItineraryItem(
     bool IsMandatory,
     decimal? EstimatedCost,
     string RecommendationReason,
-    int? TravelDurationToNextMinutes = null);
+    int? TravelDurationToNextMinutes = null,
+    int? TravelDistanceToNextMeters = null,
+    TransportMode? TransportModeToNext = null);
 
 public sealed record GeneratedItineraryPlan(
     IReadOnlyCollection<GeneratedItineraryItem> Items,

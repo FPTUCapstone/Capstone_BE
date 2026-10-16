@@ -81,7 +81,7 @@ public sealed class PoiRecommendationsEndpointTests
     [InlineData(16.0471, -180.1, 10, 10, "explorationLongitude")]
     [InlineData(16.0471, 180.1, 10, 10, "explorationLongitude")]
     [InlineData(16.0471, 108.2068, 0, 10, "searchRadiusKm")]
-    [InlineData(16.0471, 108.2068, 51, 10, "searchRadiusKm")]
+    [InlineData(16.0471, 108.2068, 101, 10, "searchRadiusKm")]
     [InlineData(16.0471, 108.2068, 10, 0, "limit")]
     [InlineData(16.0471, 108.2068, 10, 21, "limit")]
     public async Task Post_WithOutOfRangeValue_ReturnsValidationProblemDetails(

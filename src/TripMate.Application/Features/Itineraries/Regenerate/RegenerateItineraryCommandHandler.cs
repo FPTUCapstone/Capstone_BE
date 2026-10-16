@@ -143,10 +143,12 @@ public sealed class RegenerateItineraryCommandHandler(
             .ThenInclude(item => item.PointOfInterest)
             .ThenInclude(poi => poi!.Category)
             .SingleAsync(item => item.Id == itineraryId, cancellationToken);
+        var context = await ItineraryDetailContext.LoadAsync(dbContext, itinerary.SchedulingRequestId, cancellationToken);
         return Result.Success(GetDetail.GetItineraryDetailQueryHandler.ToResponse(
             itinerary,
             true,
-            itinerary.SchedulingRequestId ?? 0));
+            context.Request,
+            context.EndPoi));
     }
 
     private static Result<ItineraryDetailResponse> Failure(Result<ItineraryAccess> result) =>

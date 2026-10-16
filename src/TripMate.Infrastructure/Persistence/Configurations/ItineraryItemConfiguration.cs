@@ -39,6 +39,13 @@ public sealed class ItineraryItemConfiguration : IEntityTypeConfiguration<Itiner
             .IsRequired();
         builder.Property(item => item.TravelDurationToNextMinutes)
             .HasColumnName("travel_duration_to_next_minutes");
+        builder.Property(item => item.TravelDistanceToNextMeters)
+            .HasColumnName("travel_distance_to_next_meters");
+        builder.Property(item => item.TransportModeToNext)
+            .HasColumnName("transport_mode_to_next")
+            .HasConversion<string>()
+            .HasMaxLength(20)
+            .IsUnicode(false);
         builder.Property(item => item.IsMandatory).HasColumnName("is_mandatory").IsRequired();
         builder.Property(item => item.EstimatedCost)
             .HasColumnName("estimated_cost")

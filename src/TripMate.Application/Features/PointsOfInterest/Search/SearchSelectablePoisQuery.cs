@@ -10,5 +10,6 @@ public sealed record SearchSelectablePoisQuery(
     decimal? Longitude,
     int? RadiusKm,
     int Page,
-    int PageSize)
+    int PageSize,
+    bool ExcludeFoodAndDrink = false)
     : IRequest<Result<SelectablePoiSearchResult>>;

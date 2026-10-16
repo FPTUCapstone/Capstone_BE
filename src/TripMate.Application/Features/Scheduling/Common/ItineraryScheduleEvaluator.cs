@@ -165,7 +165,7 @@ public sealed class ItineraryScheduleEvaluator(SchedulingGenerationOptions? opti
             return null;
         }
 
-        var itemsWithTravelDurations = AddTravelDurations(items, matrix, candidateMatrixIndices);
+        var itemsWithTravelDurations = AddTravelDurations(items, matrix, candidateMatrixIndices, input.TransportMode);
         var totalDurationMinutes = (int)Math.Ceiling((finalArrivalTime - input.StartAtUtc).TotalMinutes);
 
         var plan = new GeneratedItineraryPlan(
@@ -188,7 +188,8 @@ public sealed class ItineraryScheduleEvaluator(SchedulingGenerationOptions? opti
     private static IReadOnlyCollection<GeneratedItineraryItem> AddTravelDurations(
         IReadOnlyList<GeneratedItineraryItem> items,
         RouteDurationMatrix matrix,
-        IReadOnlyDictionary<long, int> candidateMatrixIndices)
+        IReadOnlyDictionary<long, int> candidateMatrixIndices,
+        TransportMode transportMode)
     {
         var locationIndices = new int[items.Count];
         var previousIndex = 0;
@@ -208,6 +209,12 @@ public sealed class ItineraryScheduleEvaluator(SchedulingGenerationOptions? opti
                 TravelDurationToNextMinutes = index == items.Count - 1
                     ? null
                     : matrix.GetMinutes(locationIndices[index], locationIndices[index + 1]),
+                TravelDistanceToNextMeters = index == items.Count - 1
+                    ? null
+                    : matrix.GetMeters(locationIndices[index], locationIndices[index + 1]),
+                TransportModeToNext = index == items.Count - 1
+                    ? null
+                    : transportMode,
             })
             .ToArray();
     }

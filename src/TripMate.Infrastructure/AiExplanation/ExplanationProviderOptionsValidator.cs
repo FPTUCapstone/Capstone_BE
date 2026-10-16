@@ -18,7 +18,7 @@ public sealed class ExplanationProviderOptionsValidator
         }
 
         if (!Uri.TryCreate(options.Endpoint, UriKind.Absolute, out Uri? endpoint)
-            || endpoint.Scheme != Uri.UriSchemeHttps)
+            || (endpoint.Scheme != Uri.UriSchemeHttps && endpoint.Host != "ai" && !endpoint.IsLoopback))
         {
             failures.Add(
                 $"{nameof(options.Endpoint)} must be an absolute HTTPS URI when AI explanation is enabled.");

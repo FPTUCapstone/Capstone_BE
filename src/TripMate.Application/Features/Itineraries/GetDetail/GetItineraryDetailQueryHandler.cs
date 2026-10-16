@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Itineraries.Common;
+using TripMate.Domain.Common;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Itineraries.GetDetail;
@@ -44,12 +45,44 @@ public sealed class GetItineraryDetailQueryHandler(
             access.SchedulingRequestId,
             dateTimeProvider.UtcNow,
             cancellationToken);
+        var context = await ItineraryDetailContext.LoadAsync(dbContext, access.SchedulingRequestId, cancellationToken);
 
         return Result.Success(ToResponse(
             itinerary,
             access.CanManage,
-            access.SchedulingRequestId,
+            context.Request,
+            context.EndPoi,
             isNavigationInProgress));
+    }
+
+    internal static ItineraryDetailResponse ToResponse(
+        Domain.Entities.Itinerary itinerary,
+        bool canManage,
+        Domain.Entities.SchedulingRequest? request,
+        Domain.Entities.PointOfInterest? endPoi,
+        bool isNavigationInProgress = false)
+    {
+        var response = ToResponse(
+            itinerary,
+            canManage,
+            request?.Id ?? itinerary.SchedulingRequestId ?? 0,
+            isNavigationInProgress);
+        if (request is null)
+        {
+            return response;
+        }
+
+        var start = new ItineraryLocationDto(request.StartLatitude, request.StartLongitude, null);
+        var end = endPoi is not null
+            ? new ItineraryLocationDto(endPoi.Latitude, endPoi.Longitude, endPoi.Address)
+            : start;
+        return response with
+        {
+            TransportMode = request.TransportMode,
+            StartLocation = start,
+            EndLocation = end,
+            BudgetVnd = request.BudgetVnd,
+        };
     }
 
     internal static ItineraryDetailResponse ToResponse(
@@ -80,7 +113,13 @@ public sealed class GetItineraryDetailQueryHandler(
                 item.PointOfInterest is not null
                     && item.PointOfInterest.Status != PointOfInterestStatus.Active,
                 item.PointOfInterest?.Latitude,
-                item.PointOfInterest?.Longitude))
+                item.PointOfInterest?.Longitude,
+                CostKindPolicy.FromCategory(item.PointOfInterest?.Category?.Name),
+                index == 0 ? null : orderedItems[index - 1].TravelDistanceToNextMeters,
+                index == 0 ? null : orderedItems[index - 1].TransportModeToNext,
+                item.PointOfInterest?.Address,
+                item.PointOfInterest is not null
+                    && item.StayDurationMinutes < item.PointOfInterest.AverageVisitDurationMinutes))
             .ToArray();
 
         return new ItineraryDetailResponse(
