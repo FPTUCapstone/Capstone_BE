@@ -1,274 +1,55 @@
 # UC-27 Backend Implementation Plan — Book Tour
 
-**Feature:** UC-27 Book Tour  
-**Platform:** Spring Boot  
-**Status:** Draft  
-**Specification:** `specs/UC-27-book-tour-be-spec.md`  
+**Platform:** ASP.NET Core .NET 10, EF Core, SQL Server
+**Status:** Blocked pending approval of the accompanying contract
 
----
+## Phase 0 — contract decisions
 
-## 1. Delivery Boundary
+1. Confirm the UC-26 departure-selection response and the shared string-ID convention.
+2. Approve required participant fields; do not introduce DOB until SRS and schema change approve it.
+3. Approve payment expiry, unpaid-booking limit, capacity-release owner and public error mappings.
+4. Review whether an existing idempotency facility can be reused. If not, design a SQL Server table scoped by traveler/key with request hash, response payload/status, timestamps and a unique constraint.
 
-This plan delivers:
-- `POST /api/v1/traveler/tour-bookings/quote` endpoint (price preview)
-- `POST /api/v1/traveler/tour-bookings` endpoint (booking creation)
-- Database schema for bookings, participants, contact info, idempotency keys
-- Validation logic, BR-63 pricing, idempotency handling
+**Exit:** OpenAPI examples in the BE spec are agreed by Web and Mobile.
 
-Does NOT include:
-- Payment processing (UC-28 → separate feature)
-- E-ticket generation (UC-29 → separate feature)
-- Booking refund logic (UC-41/42 → separate features)
-- Async notification service (separate service)
+## Phase 1 — domain and persistence
 
----
+1. Add UC-27 vertical-slice commands/queries under the existing .NET project structure; do not introduce Java/Spring folders.
+2. Map existing `commerce.Bookings`, `commerce.BookingParticipants`, `commerce.TourSchedules` and voucher tables. Add only a reviewed SQL Server migration for idempotency data or missing approved fields.
+3. Add entity/configuration tests that verify the migration on both fresh and upgrade databases.
 
-## 2. Critical Blockers — MUST RESOLVE FIRST
+**Exit:** Schema diff is clean; existing UC-28/29 tables and data remain usable.
 
-### ⚠️ P0: External Dependencies
+## Phase 2 — quote
 
-1. **Tour Schedule Service**
-   - API: GET `/schedules/{id}` → returns remaining slots, pricing, status
-   - Must provide: `pricePerParticipant`, `remainingSlots`, `status`, `departureDate`
-   - **Confirm API contract, error codes**
+1. Implement `POST /api/v1/traveler/tour-bookings/quote` in the existing API/controller and application-handler conventions.
+2. Read approved tour, viable scheduled departure and voucher data from the same database context.
+3. Calculate all monetary fields server-side. Return a snapshot only; do not mutate capacity, voucher usage or bookings.
+4. Map errors through existing `ApiResponse`/`ProblemDetails` conventions.
 
-2. **Coupon/Voucher Service**
-   - API: POST `/vouchers/validate` → validates coupon eligibility
-   - Must return: `discountPercentage`, `discountAmount`, `minimumSpend`, `status`
-   - **Confirm API contract before implementation**
+**Tests:** valid quote, expired/cancelled departure, no capacity, invalid/inapplicable voucher, non-Traveler caller.
 
-3. **Database Migrations**
-   - Team must review & approve schema before running
-   - New tables: `tour_bookings`, `tour_booking_participants`, `tour_booking_contact_info`, `idempotency_keys`
+## Phase 3 — atomic create
 
-### ⚠️ P1: Architecture Decisions
+1. Require a UUID `Idempotency-Key`; normalize and hash the request.
+2. In one SQL Server transaction, lock the schedule row, revalidate capacity/voucher, write the booking and participants, increase `reserved_capacity`, record voucher use and commit the idempotent response.
+3. Return `201` on first success; return the stored `200` result for an identical retry; return `409` for payload mismatch.
+4. Use a unique database constraint plus conflict handling so simultaneous same-key requests cannot create two bookings.
 
-1. **Idempotency Key Storage**
-   - Option A: Separate table `idempotency_keys` (recommended for audit trail)
-   - Option B: Column on `tour_bookings` (simpler but less flexible)
-   - **Decision needed** before Task 1
+**Tests:** same-key retry, same-key mismatch, simultaneous requests for final seats, rollback after participant/voucher failure, no over-capacity booking.
 
-2. **Payment Expiry Processing**
-   - Option A: Async scheduled job (every 5 min, mark expired bookings)
-   - Option B: Lazy check (at payment time, return 410 Gone if expired)
-   - **Decision needed** for Task 5
+## Phase 4 — expiry, release and integration
 
-3. **Concurrency & Slot Management**
-   - Soft vs. hard slot reservation timing?
-   - When are slots locked: at booking creation or payment confirmation?
-   - **Clarify with product team**
+1. Agree with UC-28 on the payment-confirmation handoff and the transactional release path for cancelled/expired `PendingPayment` bookings.
+2. Implement expiry processing only after an owner and scheduling mechanism are approved. It must lock the booking/schedule and be idempotent.
+3. Publish notifications through a transactional outbox or existing reliable project mechanism; do not publish an event that can survive a rolled-back booking.
 
----
+**Tests:** expiry releases exactly once; payment and expiry race yields one final state; notification does not emit on rollback.
 
-## 3. Task Breakdown
+## Definition of done
 
-### Task 1: Domain Models & Entities
-
-**Files to create:**
-- `src/main/java/domain/entities/TourBooking.java`
-- `src/main/java/domain/entities/TourBookingParticipant.java`
-- `src/main/java/domain/entities/ContactInfo.java`
-- `src/main/java/domain/entities/BookingStatus.java` (enum)
-- `src/main/java/domain/dto/CreateBookingRequest.java`
-- `src/main/java/domain/dto/BookingResponse.java`
-- `src/main/java/domain/dto/QuoteResponse.java`
-
-**Key Points:**
-- TourBooking: read-only computed fields (subtotal, discount, total, paymentExpiryTime)
-- BookingCode generation logic
-- Validation annotations (non-null, email format, phone format)
-
-**Timeline:** 1 day  
-**Verify:** Compile, no errors
-
----
-
-### Task 2: Database Migration & Schema
-
-**Files:**
-- `src/main/resources/db/migration/V20261017001__create_booking_tables.sql`
-- Indices on `(traveler_id, status)`, `(tour_schedule_id)`, `(idempotency_key)`
-- Foreign keys to `traveler`, `tour_schedule`, `coupon`
-
-**Timeline:** 1 day  
-**Verify:** Migration runs successfully, schema matches spec
-
----
-
-### Task 3: Repository & Data Access
-
-**Files:**
-- `src/main/java/repositories/TourBookingRepository.java` (Spring Data JPA)
-- `src/main/java/repositories/IdempotencyKeyRepository.java`
-- Custom queries:
-  - `countUnpaidBookingsByTraveler(traveler_id)` → for MAX_UNPAID_BOOKINGS validation
-  - `findByIdempotencyKey(key)` → for deduplication
-  - `findByTravelerAndStatus(...)` → for list operations
-
-**Timeline:** 1 day  
-**Verify:** Unit tests for repository methods (no DB integration yet)
-
----
-
-### Task 4: Validation & Business Logic Service
-
-**Files:**
-- `src/main/java/services/BookingValidationService.java`
-  - `validateScheduleAvailability(scheduleId)`
-  - `validateParticipantData(participants)` (format only, not business rules)
-  - `validateTravelerEligibility(travelerId)`
-  - `validateVoucherEligibility(voucherCode, subtotal)`
-  - `validateConcurrency(travelerId)` → count unpaid bookings
-
-- `src/main/java/services/PricingService.java`
-  - `calculateQuote(scheduleId, numberOfParticipants, voucherCode)` → calls Coupon Service + Schedule Service
-  - Returns: subtotal, discount, total (never trusts client input)
-
-**Timeline:** 2 days  
-**Verify:** Unit tests with mocked external services
-
----
-
-### Task 5: IdempotencyKey Handling & Deduplication
-
-**Files:**
-- `src/main/java/services/IdempotencyService.java`
-  - `processIdempotencyKey(key, requestBody, responseBody)` → store/retrieve/validate
-  - `detectCollision(key, currentRequestHash)` → return 409 if mismatch
-
-- `src/main/java/interceptors/IdempotencyInterceptor.java`
-  - Extract header, generate request hash (MD5/SHA256 of body)
-  - Check for cached response, return early if found
-  - Store response after endpoint execution
-
-**Timeline:** 1.5 days  
-**Verify:** Unit tests for deduplication logic
-
----
-
-### Task 6: REST Endpoints (Quote & Create Booking)
-
-**Files:**
-- `src/main/java/controllers/TourBookingController.java`
-  - `POST /api/v1/traveler/tour-bookings/quote` → calls PricingService
-  - `POST /api/v1/traveler/tour-bookings` → orchestrates validation, creates booking, returns response
-  - Error handling: translate service exceptions → HTTP status + error codes (MSG65, MSG77, etc.)
-
-**Timeline:** 2 days  
-**Verify:** Integration tests, postman collection
-
----
-
-### Task 7: Event Publishing & Integration
-
-**Files:**
-- `src/main/java/events/BookingCreatedEvent.java`
-- `src/main/java/publishers/BookingEventPublisher.java`
-- Integration with external services (Notification, Analytics)
-
-**Timeline:** 1 day  
-**Verify:** Event is emitted on booking creation
-
----
-
-### Task 8: Integration Tests & Documentation
-
-**Files:**
-- `src/test/java/integration/TourBookingIntegrationTest.java`
-  - End-to-end quote → booking flow
-  - Error scenarios (insufficient slots, invalid voucher, etc.)
-  - Idempotency key duplicate detection
-  - Concurrent booking attempts
-
-- OpenAPI/Swagger documentation update
-
-**Timeline:** 2 days  
-**Verify:** All integration tests pass, API docs accurate
-
----
-
-## 4. Dependencies & Assumptions
-
-| Dependency | Status | Owner |
-|-----------|--------|-------|
-| Tour Schedule Service API | TBD | Backend Team |
-| Coupon/Voucher Service API | TBD | Backend Team |
-| Database permissions | TBD | DevOps |
-| Message broker (for events) | Existing | — |
-
----
-
-## 5. Risks & Mitigation
-
-| Risk | Severity | Mitigation |
-|------|----------|-----------|
-| Slot race condition (concurrent bookings exceed capacity) | High | Pessimistic locking or database-level check constraint |
-| Payment expiry job delays (bookings not marked expired) | Medium | Monitor job execution, alert if skipped > 10 min |
-| Idempotency key collision (different requests, same UUID) | Low | Request hash comparison, return 409 Conflict |
-| External service downtime (Schedule/Coupon APIs unavailable) | Medium | Circuit breaker pattern, fallback to cached prices |
-
----
-
-## 6. Testing Strategy
-
-```
-Task 1: Unit tests for DTOs, entity validation
-Task 2: Migration verification
-Task 3: Repository unit tests (mocked DB)
-Task 4: Service unit tests (mocked external services)
-Task 5: Idempotency logic unit tests
-Task 6: Integration tests (real DB, mock external services)
-Task 7: Event publishing unit tests
-Task 8: End-to-end integration tests + API contract tests
-```
-
----
-
-## 7. Effort Estimate
-
-| Task | Days | Notes |
-|------|------|-------|
-| Task 1 (Models) | 1 | Straightforward |
-| Task 2 (DB Migration) | 1 | Requires schema review |
-| Task 3 (Repository) | 1 | Spring Data JPA standard |
-| Task 4 (Validation & Pricing) | 2 | Depends on external service contracts |
-| Task 5 (Idempotency) | 1.5 | Key complexity is deduplication logic |
-| Task 6 (Endpoints) | 2 | Error handling, status code mapping |
-| Task 7 (Events) | 1 | Standard Spring event publishing |
-| Task 8 (Tests & Docs) | 2 | Integration test coverage critical |
-| **TOTAL** | **11.5 days** | ~2 weeks (with code review, fixes) |
-
----
-
-## 8. Execution Order
-
-1. **Approve Spec + Blockers** (Day 0)
-2. **Task 1** → Task 2 → Task 3 (parallel) (Days 1-2)
-3. **Task 4** → Task 5 (Days 3-4)
-4. **Task 6** (Day 5-6)
-5. **Task 7** (Day 7)
-6. **Task 8** (Days 8-9)
-7. **Code review + fixes** (Days 10-11)
-
----
-
-## 9. Definition of Done
-
-- [ ] Spec approved by team
-- [ ] All 8 tasks implemented
-- [ ] Integration tests pass (90%+ coverage)
-- [ ] Error codes map to SRS messages (MSG65, MSG77, etc.)
-- [ ] OpenAPI docs generated & accurate
-- [ ] Manual testing with Postman collection
-- [ ] No P1/P2 code review findings
-- [ ] Ready for FE/Mobile integration testing
-
----
-
-## Approval Gates
-
-- [ ] Specification approved
-- [ ] External service API contracts confirmed (Tour Schedule, Coupon)
-- [ ] Idempotency & concurrency strategy approved
-- [ ] Database schema approved
-- [ ] Team capacity confirmed for 11.5-day effort
+- OpenAPI exposes quote and create with the approved examples.
+- Existing `commerce.*` booking schema is reused; no parallel booking model exists.
+- Quote never reserves capacity; create is atomic and idempotent.
+- Fresh and upgrade migration tests, handler tests and SQL Server concurrency tests pass.
+- Web/Mobile integration verifies pending-payment handoff without initiating payment in UC-27.
