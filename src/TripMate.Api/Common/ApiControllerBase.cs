@@ -12,6 +12,7 @@ using TripMate.Application.Features.PointsOfInterest.Common;
 using TripMate.Application.Features.RecommendationFeedback.Common;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.TourMedia.Common;
+using TripMate.Application.Features.Tours.Shared;
 using TripMate.Application.Features.TripReviews.Common;
 
 namespace TripMate.Api.Common;
@@ -201,6 +202,9 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
                 StatusCodes.Status409Conflict,
 
             PoiErrorCodes.NotFound =>
+                StatusCodes.Status404NotFound,
+
+            TourErrorCodes.NotFound =>
                 StatusCodes.Status404NotFound,
 
             CommercialServiceErrorCodes.NotFound =>
