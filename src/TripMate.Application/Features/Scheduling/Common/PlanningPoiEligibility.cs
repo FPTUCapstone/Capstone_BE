@@ -1,3 +1,4 @@
+using TripMate.Domain.Constants;
 using TripMate.Domain.Entities;
 
 namespace TripMate.Application.Features.Scheduling.Common;
@@ -9,4 +10,7 @@ public static class PlanningPoiEligibility
         && poi.VerifiedAtUtc.HasValue
         && poi.OpeningHours.Any(hours =>
             !hours.IsClosed && hours.OpenTime.HasValue && hours.CloseTime.HasValue);
+
+    public static bool IsAutoSchedulable(PointOfInterest poi) =>
+        !PoiCategoryNames.IsFoodAndDrink(poi.Category?.Name);
 }

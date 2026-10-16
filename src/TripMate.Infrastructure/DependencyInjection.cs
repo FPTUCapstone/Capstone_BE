@@ -13,9 +13,11 @@ using TripMate.Application.Common.Media;
 using TripMate.Application.Features.Authentication.PasswordReset;
 using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Navigation.Common;
+using TripMate.Application.Features.PointsOfInterest.ExternalReviews;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Explanation;
 using TripMate.Application.Features.Scheduling.Personalization;
+using TripMate.Application.Features.Scheduling.TimeOfDay;
 using TripMate.Application.Features.TravelGroups.ManageInvitation;
 using TripMate.Application.Features.TripReviews.Common;
 using TripMate.Application.Features.TripReviews.Media;
@@ -24,6 +26,7 @@ using TripMate.Infrastructure.AiExplanation;
 using TripMate.Infrastructure.AiRanking;
 using TripMate.Infrastructure.Authentication;
 using TripMate.Infrastructure.Email;
+using TripMate.Infrastructure.ExternalReviews;
 using TripMate.Infrastructure.Media;
 using TripMate.Infrastructure.Media.Cloudinary;
 using TripMate.Infrastructure.Persistence;
@@ -110,8 +113,10 @@ public static class DependencyInjection
         services.AddSingleton<IOperatorDocumentStorage, CloudinaryOperatorDocumentStorage>();
 
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
-        services.Configure<OpenRouteServiceOptions>(
-            configuration.GetSection(OpenRouteServiceOptions.SectionName));
+        services.AddOptions<OpenRouteServiceOptions>()
+            .Bind(configuration.GetSection(OpenRouteServiceOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<OpenRouteServiceOptions>, OpenRouteServiceOptionsValidator>();
         services.AddOptions<SchedulingGenerationOptions>()
             .Bind(configuration.GetSection(SchedulingGenerationOptions.SectionName))
             .ValidateOnStart();
@@ -120,6 +125,13 @@ public static class DependencyInjection
             SchedulingGenerationOptionsValidator>();
         services.AddSingleton(serviceProvider => serviceProvider
             .GetRequiredService<IOptions<SchedulingGenerationOptions>>()
+            .Value);
+        services.AddOptions<TimeOfDayOptions>()
+            .Bind(configuration.GetSection(TimeOfDayOptions.SectionName))
+            .Validate(options => options.MaxExtraMinutes is >= 0 and <= 120, "TimeOfDay:MaxExtraMinutes must be between 0 and 120.")
+            .ValidateOnStart();
+        services.AddSingleton(serviceProvider => serviceProvider
+            .GetRequiredService<IOptions<TimeOfDayOptions>>()
             .Value);
         services.AddOptions<SchedulingReservationOptions>()
             .Bind(configuration.GetSection(SchedulingReservationOptions.SectionName))
@@ -241,6 +253,19 @@ public static class DependencyInjection
             });
         services.AddScoped<IRouteDurationProvider>(serviceProvider =>
             serviceProvider.GetRequiredService<OpenRouteServiceRouteDurationProvider>());
+
+        // REVIEW2: Tripadvisor (Terra) ratings/reviews and on-demand review translation (Gemini).
+        services.Configure<TripadvisorOptions>(configuration.GetSection(TripadvisorOptions.SectionName));
+        services.AddSingleton<TripadvisorCallBudget>();
+        services.AddHttpClient<ITripadvisorClient, TerraTripadvisorClient>((serviceProvider, client) =>
+        {
+            var tripadvisorOptions = serviceProvider
+                .GetRequiredService<Microsoft.Extensions.Options.IOptions<TripadvisorOptions>>()
+                .Value;
+            client.BaseAddress = new Uri(tripadvisorOptions.BaseUrl, UriKind.Absolute);
+        });
+        services.Configure<ReviewTranslationOptions>(configuration.GetSection(ReviewTranslationOptions.SectionName));
+        services.AddHttpClient<IReviewTranslator, GeminiReviewTranslator>();
         services.Configure<EmailOptions>(configuration.GetSection(EmailOptions.SectionName));
         services.Configure<PasswordResetSecurityOptions>(configuration.GetSection(PasswordResetSecurityOptions.SectionName));
 

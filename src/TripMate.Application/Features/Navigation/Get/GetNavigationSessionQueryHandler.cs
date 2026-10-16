@@ -23,6 +23,8 @@ public sealed class GetNavigationSessionQueryHandler(
             .AsNoTracking()
             .Include(candidate => candidate.Itinerary)
             .ThenInclude(itinerary => itinerary.SchedulingRequest)
+            .Include(candidate => candidate.Itinerary)
+            .ThenInclude(itinerary => itinerary.Items)
             .Include(candidate => candidate.Items)
             .SingleOrDefaultAsync(candidate => candidate.Id == request.SessionId, cancellationToken);
         if (session is null)

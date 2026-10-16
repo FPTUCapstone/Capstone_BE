@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using TripMate.Application.Common.Geo;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Domain.Constants;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -27,6 +28,12 @@ public sealed class SearchSelectablePoisQueryHandler(IApplicationDbContext dbCon
                 && poi.OpeningHours.Any()
                 && poi.SourceUrl != null
                 && poi.VerifiedAtUtc != null);
+
+        if (request.ExcludeFoodAndDrink)
+        {
+            // The mandatory-stop picker hides restaurants: generation cannot place them at a meal time.
+            eligiblePois = eligiblePois.Where(poi => poi.Category.Name != PoiCategoryNames.FoodAndDrink);
+        }
 
         if (!string.IsNullOrEmpty(normalizedQuery))
         {

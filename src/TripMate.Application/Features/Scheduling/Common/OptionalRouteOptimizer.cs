@@ -737,7 +737,7 @@ public sealed class OptionalRouteOptimizer(
 
         if (currentTime > input.StartAtUtc.AddMinutes(input.AvailableMinutes)) return null;
 
-        var itemsWithTravelDurations = AddTravelDurations(items, matrix, candidateMatrixIndices);
+        var itemsWithTravelDurations = AddTravelDurations(items, matrix, candidateMatrixIndices, input.TransportMode);
         var totalDuration = (int)Math.Ceiling((currentTime - input.StartAtUtc).TotalMinutes);
 
         var plan = new GeneratedItineraryPlan(
@@ -763,7 +763,8 @@ public sealed class OptionalRouteOptimizer(
     private static IReadOnlyCollection<GeneratedItineraryItem> AddTravelDurations(
         IReadOnlyList<GeneratedItineraryItem> items,
         RouteDurationMatrix matrix,
-        IReadOnlyDictionary<long, int> candidateMatrixIndices)
+        IReadOnlyDictionary<long, int> candidateMatrixIndices,
+        TransportMode transportMode)
     {
         var locationIndices = new int[items.Count];
         var previousIndex = 0;
@@ -783,6 +784,12 @@ public sealed class OptionalRouteOptimizer(
                 TravelDurationToNextMinutes = index == items.Count - 1
                     ? null
                     : matrix.GetMinutes(locationIndices[index], locationIndices[index + 1]),
+                TravelDistanceToNextMeters = index == items.Count - 1
+                    ? null
+                    : matrix.GetMeters(locationIndices[index], locationIndices[index + 1]),
+                TransportModeToNext = index == items.Count - 1
+                    ? null
+                    : transportMode,
             })
             .ToArray();
     }

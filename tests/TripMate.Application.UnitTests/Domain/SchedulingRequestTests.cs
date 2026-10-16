@@ -285,7 +285,27 @@ public class SchedulingRequestTests
         action.Should().Throw<ArgumentException>();
     }
 
-    private static SchedulingRequest CreateRequest() => SchedulingRequest.Create(
+    [Fact]
+    public void KeepOnlyMandatoryPois_DropsMandatoryPlacesThatWereRemoved()
+    {
+        var request = CreateRequest("[11,12,13]");
+
+        request.KeepOnlyMandatoryPois([12, 99]);
+
+        request.MandatoryPoiIdsJson.Should().Be("[12]");
+    }
+
+    [Fact]
+    public void KeepOnlyMandatoryPois_WhenAllAreKept_LeavesTheListUnchanged()
+    {
+        var request = CreateRequest("[11,12]");
+
+        request.KeepOnlyMandatoryPois([12, 11, 40]);
+
+        request.MandatoryPoiIdsJson.Should().Be("[11,12]");
+    }
+
+    private static SchedulingRequest CreateRequest(string mandatoryPoiIdsJson = "[]") => SchedulingRequest.Create(
         travelerUserId: 42,
         operationKey: Guid.NewGuid(),
         requestHash: new string('a', SchedulingRequest.RequestHashLength),
@@ -301,7 +321,7 @@ public class SchedulingRequestTests
         transportMode: TransportMode.Motorbike,
         searchRadiusKm: 10m,
         budgetVnd: 800_000m,
-        mandatoryPoiIdsJson: "[]",
+        mandatoryPoiIdsJson: mandatoryPoiIdsJson,
         restPreference: RestPreference.Auto,
         requestedAtUtc: Now);
 }

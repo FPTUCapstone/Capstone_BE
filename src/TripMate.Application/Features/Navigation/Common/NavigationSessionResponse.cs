@@ -20,15 +20,27 @@ public sealed record NavigationSessionResponse(
     /// <summary>
     /// Builds the response; the itinerary's scheduling request (when loaded) supplies the planned
     /// transport mode so the client routes for the same mode the CSP scheduled. Manual itineraries
-    /// have none.
+    /// have none. The itinerary's items (when loaded) supply each stop's own leg mode, which the
+    /// traveler may have changed per leg; the client falls back to the trip mode when it is null.
     /// </summary>
     public static NavigationSessionResponse From(TripSession session, Itinerary itinerary) =>
-        From(session, itinerary.Version, itinerary.SchedulingRequest?.TransportMode);
+        Build(
+            session,
+            itinerary.Version,
+            itinerary.SchedulingRequest?.TransportMode,
+            TransportModesFromPrevious(itinerary));
 
     public static NavigationSessionResponse From(
         TripSession session,
         int itineraryVersion,
-        TransportMode? transportMode = null)
+        TransportMode? transportMode = null) =>
+        Build(session, itineraryVersion, transportMode, transportModesFromPrevious: null);
+
+    private static NavigationSessionResponse Build(
+        TripSession session,
+        int itineraryVersion,
+        TransportMode? transportMode,
+        IReadOnlyDictionary<long, TransportMode?>? transportModesFromPrevious)
     {
         var items = session.Items
             .OrderBy(item => item.SequenceNo)
@@ -44,7 +56,8 @@ public sealed record NavigationSessionResponse(
                 item.IsMandatory,
                 item.Status,
                 item.ReachedAtUtc,
-                item.SkippedAtUtc))
+                item.SkippedAtUtc,
+                transportModesFromPrevious?.GetValueOrDefault(item.ItineraryItemId)))
             .ToArray();
         return new NavigationSessionResponse(
             session.Id,
@@ -59,6 +72,23 @@ public sealed record NavigationSessionResponse(
             SuggestNextItemId(session.FsmState, items),
             items,
             transportMode);
+    }
+
+    /// <summary>
+    /// The mode of the leg that reaches each itinerary item: the <c>TransportModeToNext</c> of the
+    /// item just before it. That item may be a rest, whose mode is the second half of a leg split
+    /// by the rest. The first item has no incoming leg.
+    /// </summary>
+    private static Dictionary<long, TransportMode?> TransportModesFromPrevious(Itinerary itinerary)
+    {
+        var ordered = itinerary.Items.OrderBy(item => item.SequenceNo).ToArray();
+        var modes = new Dictionary<long, TransportMode?>();
+        for (var index = 1; index < ordered.Length; index++)
+        {
+            modes[ordered[index].Id] = ordered[index - 1].TransportModeToNext;
+        }
+
+        return modes;
     }
 
     /// <summary>
@@ -86,4 +116,5 @@ public sealed record NavigationSessionItemResponse(
     bool IsMandatory,
     string Status,
     DateTimeOffset? ReachedAtUtc,
-    DateTimeOffset? SkippedAtUtc);
+    DateTimeOffset? SkippedAtUtc,
+    TransportMode? TransportModeFromPrevious);

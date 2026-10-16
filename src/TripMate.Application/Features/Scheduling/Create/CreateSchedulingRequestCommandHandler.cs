@@ -13,10 +13,14 @@ using Microsoft.Extensions.Logging;
 using TripMate.Application.Common.Geo;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Diagnostics;
 using TripMate.Application.Features.Scheduling.Explanation;
 using TripMate.Application.Features.Scheduling.Personalization;
+using TripMate.Application.Features.Scheduling.TimeOfDay;
+using TripMate.Domain.Common;
+using TripMate.Domain.Constants;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -33,7 +37,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
     ItineraryExplanationExecutionOptions? explanationOptions = null,
     ILogger<CreateSchedulingRequestCommandHandler>? logger = null,
     IGenerateRateLimiter? generateRateLimiter = null,
-    SchedulingReservationOptions? reservationOptions = null)
+    SchedulingReservationOptions? reservationOptions = null,
+    TimeOfDayOptions? timeOfDayOptions = null)
     : IRequestHandler<CreateSchedulingRequestCommand, Result<SchedulingResponseDto>>
 {
     private readonly SchedulingGenerationOptions _generationOptions =
@@ -401,8 +406,20 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 "The selected ending location is unavailable.");
         }
 
+        if (canonical.MandatoryPoiIds.Any(id => activePois.Any(poi =>
+                poi.Id == id && PoiCategoryNames.IsFoodAndDrink(poi.Category?.Name))))
+        {
+            return PreparedGeneration.Infeasible(
+                snapshot.Hash,
+                preferenceTokens,
+                explanationMetadata,
+                "Restaurants cannot be mandatory stops. Add them after the itinerary is created.",
+                failureCode: SchedulingErrorCodes.MandatoryFoodNotAllowed);
+        }
+
         var selectablePois = activePois
             .Where(PlanningPoiEligibility.IsPlanningReady)
+            .Where(PlanningPoiEligibility.IsAutoSchedulable)
             .Where(poi => GeoDistance.EquirectangularKilometers(
                 canonical.ExplorationLatitude,
                 canonical.ExplorationLongitude,
@@ -503,11 +520,21 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 mandatoryIds.Contains(poi.Id) ? null : optionalRankingEntries[poi.Id])).ToArray(),
             canonical.MandatoryPoiIds);
         long generationStartedAt = Stopwatch.GetTimestamp();
-        var measuredRouteProvider = new FunnelMeasuringRouteDurationProvider(
+        var measuredRouteProvider = new MemoizingRouteDurationProvider(new FunnelMeasuringRouteDurationProvider(
             routeDurationProvider,
-            funnel);
+            funnel));
         var plan = await new ItineraryGenerationService(measuredRouteProvider, _generationOptions)
             .GenerateAsync(input, cancellationToken);
+        if (plan.IsSuccess)
+        {
+            // REVIEW2 D10 option A: reorder for the time of day when the trip stays at most a few minutes longer.
+            plan = Result.Success(await new TimeOfDayRefiner(
+                    measuredRouteProvider,
+                    _generationOptions,
+                    timeOfDayOptions ?? new TimeOfDayOptions())
+                .RefineAsync(input, plan.Value, TimeOfDayTraitsFactory.From(matrixCandidates), cancellationToken));
+        }
+
         funnel.RecordStageDuration(
             CandidatePoolFunnelDimensions.StageGeneration,
             Stopwatch.GetElapsedTime(generationStartedAt));
@@ -636,12 +663,14 @@ public sealed class CreateSchedulingRequestCommandHandler(
             {
                 request.FailGeneration(
                     ownerId,
-                    SchedulingErrorCodes.ConstraintsInfeasible,
+                    prepared.FailureCode ?? SchedulingErrorCodes.ConstraintsInfeasible,
                     prepared.FailureMessage!,
                     now);
                 await dbContext.SaveChangesAsync(transactionCancellationToken);
                 return FinalizeDecision.Completed(
-                    Infeasible(prepared.FailureMessage!),
+                    Result.Failure<SchedulingResponseDto>(
+                        prepared.FailureCode ?? SchedulingErrorCodes.ConstraintsInfeasible,
+                        prepared.FailureMessage!),
                     CandidatePoolFunnelDimensions.OutcomeInfeasible);
             }
 
@@ -652,23 +681,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 prepared.Plan.EndAtUtc);
             foreach (var item in prepared.Plan.Items)
             {
-                itinerary.AddItem(item.Kind == ItineraryItemKind.Rest
-                    ? ItineraryItem.CreateRest(
-                        item.SequenceNo,
-                        item.PointOfInterestId,
-                        item.PlannedArrivalUtc,
-                        item.PlannedDepartureUtc,
-                        item.RecommendationReason,
-                        item.TravelDurationToNextMinutes)
-                    : ItineraryItem.CreateVisit(
-                        item.SequenceNo,
-                        item.PointOfInterestId!.Value,
-                        item.PlannedArrivalUtc,
-                        item.PlannedDepartureUtc,
-                        item.IsMandatory,
-                        item.EstimatedCost,
-                        item.RecommendationReason,
-                        item.TravelDurationToNextMinutes));
+                itinerary.AddItem(GeneratedItineraryItemMapper.ToEntity(item, item.IsMandatory));
             }
 
             request.CompleteGeneration(ownerId, now);
@@ -678,9 +691,10 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 request,
                 itinerary,
                 prepared.Plan,
-                prepared.PreferenceTokens);
+                prepared.PreferenceTokens,
+                prepared.ExplanationMetadata);
             return FinalizeDecision.Completed(
-                Result.Success(ToResponse(request, itinerary, prepared.Plan)),
+                Result.Success(ToResponse(request, itinerary, prepared.Plan, prepared.ExplanationMetadata)),
                 CandidatePoolFunnelDimensions.OutcomeSuccess,
                 fresh);
         }, cancellationToken);
@@ -938,6 +952,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
             generation.SchedulingRequest,
             generation.Itinerary,
             generation.Plan,
+            generation.PoiMetadata,
             explanations));
     }
 
@@ -1023,6 +1038,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
             .AsNoTracking()
             .Include(item => item.Items)
             .ThenInclude(item => item.PointOfInterest)
+            .ThenInclude(poi => poi!.Category)
             .SingleAsync(item => item.SchedulingRequestId == previousRequest.Id, cancellationToken);
         return Result.Success(ToResponse(previousRequest, itinerary));
     }
@@ -1099,6 +1115,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
         SchedulingRequest schedulingRequest,
         Itinerary itinerary,
         GeneratedItineraryPlan plan,
+        IReadOnlyDictionary<long, ExplanationPoiMetadata> poiMetadata,
         IReadOnlyDictionary<int, string>? explanations = null) =>
         new(
             schedulingRequest.Id,
@@ -1121,7 +1138,13 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 item.RecommendationReason,
                 explanations is not null
                     ? explanations[item.SequenceNo]
-                    : null)).ToArray());
+                    : null,
+                CostKindPolicy.FromCategory(
+                    item.PointOfInterestId is { } poiId && poiMetadata.TryGetValue(poiId, out var metadata)
+                        ? metadata.CategoryName
+                        : null),
+                item.TravelDistanceToNextMeters,
+                item.TransportModeToNext)).ToArray());
 
     private static SchedulingResponseDto ToResponse(SchedulingRequest schedulingRequest, Itinerary itinerary)
     {
@@ -1148,7 +1171,10 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 item.EstimatedCost,
                 item.IsMandatory,
                 item.RecommendationReason,
-                item.FriendlyExplanation)).ToArray());
+                item.FriendlyExplanation,
+                CostKindPolicy.FromCategory(item.PointOfInterest?.Category?.Name),
+                item.TravelDistanceToNextMeters,
+                item.TransportModeToNext)).ToArray());
     }
 
     private static string ComputeRequestHash(CanonicalSchedulingRequest command)
@@ -1218,7 +1244,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
         SchedulingRequest SchedulingRequest,
         Itinerary Itinerary,
         GeneratedItineraryPlan Plan,
-        IReadOnlyCollection<string> PreferenceTokens);
+        IReadOnlyCollection<string> PreferenceTokens,
+        IReadOnlyDictionary<long, ExplanationPoiMetadata> PoiMetadata);
 
     private enum ReservationDecisionKind
     {
@@ -1263,7 +1290,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
         IReadOnlyDictionary<long, ExplanationPoiMetadata> ExplanationMetadata,
         GeneratedItineraryPlan? Plan,
         string? FailureMessage,
-        PoiRankingSnapshot? RankingSnapshot)
+        PoiRankingSnapshot? RankingSnapshot,
+        string? FailureCode = null)
     {
         public bool BehaviorWasUsed => RankingSnapshot is not null;
 
@@ -1272,14 +1300,16 @@ public sealed class CreateSchedulingRequestCommandHandler(
             IReadOnlyCollection<string> preferenceTokens,
             IReadOnlyDictionary<long, ExplanationPoiMetadata> explanationMetadata,
             string failureMessage,
-            PoiRankingSnapshot? rankingSnapshot = null) =>
+            PoiRankingSnapshot? rankingSnapshot = null,
+            string failureCode = SchedulingErrorCodes.ConstraintsInfeasible) =>
             new(
                 snapshotHash,
                 preferenceTokens.ToArray(),
                 explanationMetadata,
                 null,
                 failureMessage,
-                rankingSnapshot);
+                rankingSnapshot,
+                failureCode);
 
         public static PreparedGeneration Successful(
             string snapshotHash,

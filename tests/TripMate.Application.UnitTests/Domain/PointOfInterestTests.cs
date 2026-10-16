@@ -218,4 +218,37 @@ public class PointOfInterestTests
 
         poi.PoiTags.Should().ContainSingle();
     }
+
+    [Fact]
+    public void LinkTripadvisorLocation_StoresTheLocationId()
+    {
+        var poi = PointOfInterest.Create(PoiCategory.Create("Food & Drink", null), "Mi Quang Ba Mua", 16.06597m, 108.21912m, 1, Now);
+
+        poi.LinkTripadvisorLocation(8_064_453);
+
+        poi.TripadvisorLocationId.Should().Be(8_064_453);
+    }
+
+    [Fact]
+    public void LinkTripadvisorLocation_WithNull_RemovesTheLink()
+    {
+        var poi = PointOfInterest.Create(PoiCategory.Create("Museum", null), "Cham Museum", 16.04m, 108.22m, 1, Now);
+        poi.LinkTripadvisorLocation(454_980);
+
+        poi.LinkTripadvisorLocation(null);
+
+        poi.TripadvisorLocationId.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-5)]
+    public void LinkTripadvisorLocation_WithNonPositiveId_Throws(long locationId)
+    {
+        var poi = PointOfInterest.Create(PoiCategory.Create("Museum", null), "Cham Museum", 16.04m, 108.22m, 1, Now);
+
+        var action = () => poi.LinkTripadvisorLocation(locationId);
+
+        action.Should().Throw<ArgumentOutOfRangeException>();
+    }
 }

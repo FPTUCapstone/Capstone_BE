@@ -38,6 +38,8 @@ public sealed class ListNavigationSessionsQueryHandler(
             .AsNoTracking()
             .Include(candidate => candidate.Itinerary)
             .ThenInclude(itinerary => itinerary.SchedulingRequest)
+            .Include(candidate => candidate.Itinerary)
+            .ThenInclude(itinerary => itinerary.Items)
             .Include(candidate => candidate.Items)
             .SingleOrDefaultAsync(
                 candidate => candidate.TravelerUserId == request.TravelerUserId

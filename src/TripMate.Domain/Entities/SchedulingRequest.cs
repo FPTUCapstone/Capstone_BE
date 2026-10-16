@@ -252,6 +252,22 @@ public class SchedulingRequest : BaseEntity
         GenerationLeaseExpiresAtUtc = leaseExpiresAt;
     }
 
+    /// <summary>
+    /// Drops mandatory places that are not in <paramref name="keptPoiIds"/> any more (the traveler removed or
+    /// replaced them). The mandatory list never grows here.
+    /// </summary>
+    public void KeepOnlyMandatoryPois(IEnumerable<long> keptPoiIds)
+    {
+        ArgumentNullException.ThrowIfNull(keptPoiIds);
+        var kept = keptPoiIds.ToHashSet();
+        var current = System.Text.Json.JsonSerializer.Deserialize<long[]>(MandatoryPoiIdsJson) ?? [];
+        var remaining = current.Where(kept.Contains).ToArray();
+        if (remaining.Length != current.Length)
+        {
+            MandatoryPoiIdsJson = System.Text.Json.JsonSerializer.Serialize(remaining);
+        }
+    }
+
     public void CompleteGeneration(Guid ownerId, DateTimeOffset completedAtUtc)
     {
         var completedAt = completedAtUtc.ToUniversalTime();

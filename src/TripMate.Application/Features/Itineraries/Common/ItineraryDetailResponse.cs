@@ -15,7 +15,14 @@ public sealed record ItineraryDetailResponse(
     decimal TotalEstimatedCost,
     int TotalDurationMinutes,
     IReadOnlyCollection<ItineraryDetailItemDto> Items,
-    bool IsNavigationInProgress = false);
+    bool IsNavigationInProgress = false,
+    TransportMode? TransportMode = null,
+    ItineraryLocationDto? StartLocation = null,
+    ItineraryLocationDto? EndLocation = null,
+    decimal? BudgetVnd = null);
+
+/// <summary>A start or end point of the trip. <c>Address</c> is null for a raw coordinate start.</summary>
+public sealed record ItineraryLocationDto(decimal Latitude, decimal Longitude, string? Address);
 
 public sealed record ItineraryDetailItemDto(
     long ItemId,
@@ -34,7 +41,12 @@ public sealed record ItineraryDetailItemDto(
     string? FriendlyExplanation,
     bool IsUnavailable,
     decimal? Latitude,
-    decimal? Longitude);
+    decimal? Longitude,
+    CostKind CostKind,
+    int? TravelDistanceFromPreviousMeters,
+    TransportMode? TransportModeFromPrevious,
+    string? Address,
+    bool IsDurationCompressed = false);
 
 public sealed record ItineraryAccess(
     ItineraryDetailAccessKind AccessKind,

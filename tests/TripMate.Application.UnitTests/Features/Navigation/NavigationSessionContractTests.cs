@@ -2,6 +2,7 @@ using FluentAssertions;
 
 using TripMate.Application.Features.Navigation.Common;
 using TripMate.Domain.Entities;
+using TripMate.Domain.Enums;
 
 namespace TripMate.Application.UnitTests.Features.Navigation;
 
@@ -110,6 +111,46 @@ public sealed class NavigationSessionContractTests
     }
 
     [Fact]
+    public void Response_TakesEachStopsLegModeFromThePreviousItineraryItemIncludingARest()
+    {
+        var itinerary = Itinerary.CreateManual(7, "Da Nang", Itinerary.ActiveStatus, StartedAtUtc);
+        itinerary.AddItem(Visit(1001, 1, TransportMode.Walking));
+        itinerary.AddItem(Visit(1002, 2, TransportMode.Car));
+        var rest = ItineraryItem.CreateRest(
+            3,
+            StartedAtUtc.AddHours(3),
+            StartedAtUtc.AddHours(3.5),
+            "Rest",
+            transportModeToNext: TransportMode.Motorbike);
+        rest.Id = 500;
+        itinerary.AddItem(rest);
+        itinerary.AddItem(Visit(1003, 4, transportModeToNext: null));
+        var session = CreateSession(
+            Snapshot(1001, 1, isMandatory: true),
+            Snapshot(1002, 2, isMandatory: false),
+            Snapshot(1003, 4, isMandatory: false));
+
+        var response = NavigationSessionResponse.From(session, itinerary);
+
+        response.Items.Select(item => item.TransportModeFromPrevious).Should().Equal(
+            null,
+            TransportMode.Walking,
+            TransportMode.Motorbike);
+    }
+
+    [Fact]
+    public void Response_LeavesLegModesUnknownWithoutItineraryItems()
+    {
+        var itinerary = Itinerary.CreateManual(7, "Da Nang", Itinerary.ActiveStatus, StartedAtUtc);
+
+        var fromItinerary = NavigationSessionResponse.From(CreateSession(), itinerary);
+        var fromVersion = NavigationSessionResponse.From(CreateSession(), itineraryVersion: 3);
+
+        fromItinerary.Items.Should().OnlyContain(item => item.TransportModeFromPrevious == null);
+        fromVersion.Items.Should().OnlyContain(item => item.TransportModeFromPrevious == null);
+    }
+
+    [Fact]
     public void ErrorCodes_ReplaceOutOfOrderWithTheRevisionTwoVocabulary()
     {
         NavigationErrorCodes.OutsideTripWindow.Should().Be("navigation.outside_trip_window");
@@ -119,6 +160,12 @@ public sealed class NavigationSessionContractTests
     }
 
     private static TripSession CreateSession() =>
+        CreateSession(
+            Snapshot(1001, 1, isMandatory: true),
+            Snapshot(1002, 2, isMandatory: false),
+            Snapshot(1003, 3, isMandatory: false));
+
+    private static TripSession CreateSession(params TripSessionItem[] items) =>
         TripSession.Start(
             91,
             80,
@@ -126,11 +173,22 @@ public sealed class NavigationSessionContractTests
             Guid.Parse("11111111-1111-1111-1111-111111111111"),
             StartedAtUtc,
             StartedAtUtc.AddHours(12),
-            [
-                Snapshot(1001, 1, isMandatory: true),
-                Snapshot(1002, 2, isMandatory: false),
-                Snapshot(1003, 3, isMandatory: false),
-            ]);
+            items);
+
+    private static ItineraryItem Visit(long itemId, int sequenceNo, TransportMode? transportModeToNext)
+    {
+        var item = ItineraryItem.CreateVisit(
+            sequenceNo,
+            itemId,
+            StartedAtUtc.AddHours(sequenceNo),
+            StartedAtUtc.AddHours(sequenceNo + 0.5),
+            isMandatory: false,
+            estimatedCost: null,
+            recommendationReason: null,
+            transportModeToNext: transportModeToNext);
+        item.Id = itemId;
+        return item;
+    }
 
     private static TripSessionItem Snapshot(long itemId, int sequenceNo, bool isMandatory) =>
         TripSessionItem.Snapshot(
