@@ -502,7 +502,7 @@ GO
 CREATE TABLE commerce.Tours (
     tour_id             BIGINT IDENTITY(1,1) PRIMARY KEY,
     operator_user_id    BIGINT NOT NULL REFERENCES dbo.OperatorProfiles(user_id),
-    version_root_tour_id BIGINT NULL REFERENCES commerce.Tours(tour_id),
+    version_root_tour_id BIGINT NULL CONSTRAINT FK_Tours_VersionRoot REFERENCES commerce.Tours(tour_id),
     version_no           INT NOT NULL DEFAULT 1 CHECK (version_no > 0),
     category_id           INT NULL,
     title                NVARCHAR(200) NOT NULL,
