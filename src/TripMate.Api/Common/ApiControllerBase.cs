@@ -7,6 +7,7 @@ using TripMate.Application.Features.Authentication.Common;
 using TripMate.Application.Features.CommercialServices.Common;
 using TripMate.Application.Features.Coupons.Common;
 using TripMate.Application.Features.Navigation.Common;
+using TripMate.Application.Features.Operator.Tours.Common;
 using TripMate.Application.Features.PointsOfInterest.Common;
 using TripMate.Application.Features.RecommendationFeedback.Common;
 using TripMate.Application.Features.Scheduling.Common;
@@ -211,6 +212,18 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             CouponErrorCodes.TourNotOwned => StatusCodes.Status403Forbidden,
             CouponErrorCodes.TourNotEligible => StatusCodes.Status422UnprocessableEntity,
             CouponErrorCodes.CodeConflict => StatusCodes.Status409Conflict,
+
+            OperatorTourErrorCodes.AccessRequired => StatusCodes.Status403Forbidden,
+            OperatorTourErrorCodes.AdminAccessRequired => StatusCodes.Status403Forbidden,
+            OperatorTourErrorCodes.PoiNotFound or OperatorTourErrorCodes.CategoryNotFound or
+                OperatorTourErrorCodes.DestinationNotFound or
+                OperatorTourErrorCodes.TourNotFound or OperatorTourErrorCodes.CancellationPolicyUnavailable =>
+                StatusCodes.Status404NotFound,
+            OperatorTourErrorCodes.IdempotencyKeyPayloadMismatch => StatusCodes.Status409Conflict,
+            OperatorTourErrorCodes.InvalidState => StatusCodes.Status409Conflict,
+            OperatorTourErrorCodes.EditLocked => StatusCodes.Status409Conflict,
+            OperatorTourErrorCodes.ReviewPrerequisitesMissing => StatusCodes.Status422UnprocessableEntity,
+            OperatorTourErrorCodes.RejectionReasonInvalid => StatusCodes.Status422UnprocessableEntity,
 
             TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.ItineraryNotFound =>
                 StatusCodes.Status404NotFound,

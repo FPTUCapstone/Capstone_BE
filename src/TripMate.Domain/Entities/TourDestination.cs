@@ -16,4 +16,12 @@ public class TourDestination
     public Destination Destination { get; private set; } = null!;
 
     public int SequenceNo { get; private set; }
+
+    internal static TourDestination Create(Tour tour, long destinationId, int sequenceNo)
+    {
+        ArgumentNullException.ThrowIfNull(tour);
+        if (destinationId <= 0) throw new ArgumentOutOfRangeException(nameof(destinationId));
+        if (sequenceNo <= 0) throw new ArgumentOutOfRangeException(nameof(sequenceNo));
+        return new TourDestination { Tour = tour, DestinationId = destinationId, SequenceNo = sequenceNo };
+    }
 }

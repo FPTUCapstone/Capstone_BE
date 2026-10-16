@@ -29,6 +29,10 @@ public class TourConfiguration : IEntityTypeConfiguration<Tour>
             .HasColumnName("title")
             .HasMaxLength(Tour.TitleMaxLength)
             .IsRequired();
+        builder.Property(tour => tour.DestinationSummary)
+            .HasColumnName("destination_summary")
+            .HasMaxLength(Tour.DestinationSummaryMaxLength)
+            .IsRequired();
         builder.Property(tour => tour.Description)
             .HasColumnName("description");
         builder.Property(tour => tour.BasePrice)
@@ -39,6 +43,19 @@ public class TourConfiguration : IEntityTypeConfiguration<Tour>
             .HasColumnName("duration_days")
             .HasDefaultValue(1)
             .IsRequired();
+        builder.Property(tour => tour.TimeZoneId)
+            .HasColumnName("time_zone_id")
+            .HasMaxLength(Tour.TimeZoneIdMaxLength);
+        builder.Property(tour => tour.Highlights)
+            .HasColumnName("highlights");
+        builder.Property(tour => tour.Inclusions)
+            .HasColumnName("inclusions");
+        builder.Property(tour => tour.Exclusions)
+            .HasColumnName("exclusions");
+        builder.Property(tour => tour.TravellerRequirements)
+            .HasColumnName("traveller_requirements");
+        builder.Property(tour => tour.CancellationPolicyTemplateId)
+            .HasColumnName("cancellation_policy_template_id");
         builder.Property(tour => tour.Status)
             .HasColumnName("status")
             .HasConversion<string>()
@@ -88,6 +105,14 @@ public class TourConfiguration : IEntityTypeConfiguration<Tour>
             .WithOne(link => link.Tour)
             .HasForeignKey(link => link.TourId)
             .OnDelete(DeleteBehavior.Cascade);
+        builder.HasMany(tour => tour.ItineraryItems)
+            .WithOne(item => item.Tour)
+            .HasForeignKey(item => item.TourId)
+            .OnDelete(DeleteBehavior.Cascade);
+        builder.HasMany(tour => tour.CancellationPolicyRules)
+            .WithOne(rule => rule.Tour)
+            .HasForeignKey(rule => rule.TourId)
+            .OnDelete(DeleteBehavior.Cascade);
         builder.HasMany(tour => tour.Media)
             .WithOne(media => media.Tour)
             .HasForeignKey(media => media.TourId)
@@ -100,6 +125,10 @@ public class TourConfiguration : IEntityTypeConfiguration<Tour>
         builder.Navigation(tour => tour.Schedules)
             .UsePropertyAccessMode(PropertyAccessMode.Field);
         builder.Navigation(tour => tour.Destinations)
+            .UsePropertyAccessMode(PropertyAccessMode.Field);
+        builder.Navigation(tour => tour.ItineraryItems)
+            .UsePropertyAccessMode(PropertyAccessMode.Field);
+        builder.Navigation(tour => tour.CancellationPolicyRules)
             .UsePropertyAccessMode(PropertyAccessMode.Field);
         builder.Navigation(tour => tour.Media)
             .UsePropertyAccessMode(PropertyAccessMode.Field);

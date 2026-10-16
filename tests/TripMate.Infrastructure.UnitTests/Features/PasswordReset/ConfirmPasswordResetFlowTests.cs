@@ -223,6 +223,9 @@ public class ConfirmPasswordResetFlowTests
 
         DbSet<Domain.Entities.TourSchedule> IApplicationDbContext.TourSchedules => throw new NotSupportedException();
 
+        DbSet<Domain.Entities.TourItineraryItem> IApplicationDbContext.TourItineraryItems =>
+            throw new NotSupportedException();
+
         DbSet<Domain.Entities.Destination> IApplicationDbContext.Destinations => throw new NotSupportedException();
 
         DbSet<Domain.Entities.TourDestination> IApplicationDbContext.TourDestinations => throw new NotSupportedException();
