@@ -398,6 +398,13 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<Tour> Tours => Set<Tour>();
     public DbSet<TourCategory> TourCategories => Set<TourCategory>();
     public DbSet<TourSchedule> TourSchedules => Set<TourSchedule>();
+    public DbSet<TourItineraryItem> TourItineraryItems => Set<TourItineraryItem>();
+    public DbSet<TourPackageCreateOperation> TourPackageCreateOperations =>
+        Set<TourPackageCreateOperation>();
+    public DbSet<CancellationPolicyTemplate> CancellationPolicyTemplates =>
+        Set<CancellationPolicyTemplate>();
+    public DbSet<TourCancellationPolicyRule> TourCancellationPolicyRules =>
+        Set<TourCancellationPolicyRule>();
     public DbSet<Destination> Destinations => Set<Destination>();
     public DbSet<TourDestination> TourDestinations => Set<TourDestination>();
     public DbSet<TourMedia> TourMedia => Set<TourMedia>();

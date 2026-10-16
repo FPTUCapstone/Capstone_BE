@@ -43,6 +43,17 @@ public class ApplicationDbContext(
 
     public DbSet<TourSchedule> TourSchedules => Set<TourSchedule>();
 
+    public DbSet<TourPackageCreateOperation> TourPackageCreateOperations =>
+        Set<TourPackageCreateOperation>();
+
+    public DbSet<CancellationPolicyTemplate> CancellationPolicyTemplates =>
+        Set<CancellationPolicyTemplate>();
+
+    public DbSet<TourCancellationPolicyRule> TourCancellationPolicyRules =>
+        Set<TourCancellationPolicyRule>();
+
+    public DbSet<TourItineraryItem> TourItineraryItems => Set<TourItineraryItem>();
+
     public DbSet<Destination> Destinations => Set<Destination>();
 
     public DbSet<TourDestination> TourDestinations => Set<TourDestination>();

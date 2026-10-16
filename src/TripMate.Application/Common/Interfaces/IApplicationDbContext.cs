@@ -33,6 +33,17 @@ public interface IApplicationDbContext
 
     DbSet<TourSchedule> TourSchedules { get; }
 
+    DbSet<TourItineraryItem> TourItineraryItems { get; }
+
+    DbSet<TourPackageCreateOperation> TourPackageCreateOperations =>
+        throw new NotSupportedException("Tour package idempotency is unavailable in this context.");
+
+    DbSet<CancellationPolicyTemplate> CancellationPolicyTemplates =>
+        throw new NotSupportedException("Cancellation policies are unavailable in this context.");
+
+    DbSet<TourCancellationPolicyRule> TourCancellationPolicyRules =>
+        throw new NotSupportedException("Tour cancellation rules are unavailable in this context.");
+
     DbSet<Destination> Destinations { get; }
 
     DbSet<TourDestination> TourDestinations { get; }
