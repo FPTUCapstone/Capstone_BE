@@ -55,6 +55,7 @@ public sealed class ListOperatorToursQueryHandler(
                 tour.Status.ToString(),
                 tour.BasePrice,
                 tour.DurationDays,
+                tour.VersionNo,
                 tour.UpdatedAtUtc,
                 tour.Schedules
                     .Where(schedule => schedule.Status == TourScheduleStatus.Scheduled)

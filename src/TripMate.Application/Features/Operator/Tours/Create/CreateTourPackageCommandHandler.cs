@@ -93,6 +93,26 @@ public sealed class CreateTourPackageCommandHandler(
                 return Result.Failure<CreateTourPackageResponse>(OperatorTourErrorCodes.CategoryNotFound,
                     "The selected tour category is unavailable.");
 
+            long? versionRootTourId = null;
+            int versionNo = 1;
+            if (request.SourceTourId.HasValue)
+            {
+                var source = await dbContext.Tours.AsNoTracking().SingleOrDefaultAsync(tour =>
+                    tour.Id == request.SourceTourId.Value && tour.OperatorUserId == operatorId,
+                    transactionCancellationToken);
+                if (source is null)
+                    return Result.Failure<CreateTourPackageResponse>(OperatorTourErrorCodes.TourNotFound,
+                        "The source tour is unavailable.");
+                if (source.Status is not (TourStatus.Approved or TourStatus.Published))
+                    return Result.Failure<CreateTourPackageResponse>(OperatorTourErrorCodes.InvalidState,
+                        "Only an approved or published tour can create a new draft version.");
+
+                versionRootTourId = source.VersionRootTourId ?? source.Id;
+                versionNo = await dbContext.Tours.AsNoTracking()
+                    .Where(tour => (tour.VersionRootTourId ?? tour.Id) == versionRootTourId.Value)
+                    .MaxAsync(tour => (int?)tour.VersionNo, transactionCancellationToken) + 1 ?? 2;
+            }
+
             long[] destinationIds = request.DestinationIds.ToArray();
             var destinationNames = await dbContext.Destinations.AsNoTracking()
                 .Where(destination => destinationIds.Contains(destination.Id))
@@ -137,7 +157,9 @@ public sealed class CreateTourPackageCommandHandler(
             dbContext.TourPackageCreateOperations.Add(TourPackageCreateOperation.Create(
                 operatorId, request.IdempotencyKey, fingerprint, tour, now));
             await dbContext.SaveChangesAsync(transactionCancellationToken);
-            return Result.Success(new CreateTourPackageResponse(tour.Id, nameof(TourStatus.Draft)));
+            tour.SetVersionLineage(versionRootTourId ?? tour.Id, versionNo);
+            await dbContext.SaveChangesAsync(transactionCancellationToken);
+            return Result.Success(new CreateTourPackageResponse(tour.Id, nameof(TourStatus.Draft), versionNo));
         }, cancellationToken);
     }
 
@@ -159,6 +181,7 @@ public sealed class CreateTourPackageCommandHandler(
             Highlights = OperatorTourValidation.NormalizeText(request.Highlights),
             TravellerRequirements = OperatorTourValidation.NormalizeText(request.TravellerRequirements),
             TimeZoneId = OperatorTourValidation.NormalizeText(request.TimeZoneId),
+            request.SourceTourId,
             request.ItineraryItems,
             request.Schedules,
         });

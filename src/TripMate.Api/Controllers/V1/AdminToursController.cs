@@ -33,6 +33,13 @@ public sealed class AdminToursController(ISender sender) : ApiControllerBase(sen
         var result = await Sender.Send(new PublishTourCommand(tourId), cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
+
+    [HttpPost("{tourId:long}/unpublish")]
+    public async Task<IActionResult> Unpublish(long tourId, CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(new UnpublishTourCommand(tourId), cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
 }
 
 public sealed record RejectTourRequest(string? Reason);

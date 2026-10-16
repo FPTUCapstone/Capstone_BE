@@ -30,6 +30,11 @@ public class Tour : BaseEntity
 
     public long OperatorUserId { get; private set; }
 
+    /// <summary>Stable root for all revisions of the same logical tour.</summary>
+    public long? VersionRootTourId { get; private set; }
+
+    public int VersionNo { get; private set; } = 1;
+
     public OperatorProfile OperatorProfile { get; private set; } = null!;
 
     public int? CategoryId { get; private set; }
@@ -138,6 +143,16 @@ public class Tour : BaseEntity
         foreach (var item in items) { item.AttachTo(tour); tour._itineraryItems.Add(item); }
         foreach (var schedule in departures) { schedule.AttachTo(tour); tour._schedules.Add(schedule); }
         return tour;
+    }
+
+    /// <summary>Sets immutable revision lineage immediately after the database has allocated the tour id.</summary>
+    public void SetVersionLineage(long versionRootTourId, int versionNo)
+    {
+        if (versionRootTourId <= 0) throw new ArgumentOutOfRangeException(nameof(versionRootTourId));
+        if (versionNo <= 0) throw new ArgumentOutOfRangeException(nameof(versionNo));
+        if (VersionRootTourId.HasValue) throw new InvalidOperationException("Tour version lineage is immutable.");
+        VersionRootTourId = versionRootTourId;
+        VersionNo = versionNo;
     }
 
     public void SubmitForReview(DateTimeOffset submittedAtUtc)
@@ -316,6 +331,13 @@ public class Tour : BaseEntity
         Status = TourStatus.Published;
         PublishedAtUtc = publishedAtUtc.ToUniversalTime();
         UpdatedAtUtc = PublishedAtUtc.Value;
+    }
+
+    public void Unpublish(DateTimeOffset unpublishedAtUtc)
+    {
+        if (Status != TourStatus.Published) throw new InvalidOperationException("Only Published tours can be unpublished.");
+        Status = TourStatus.Inactive;
+        UpdatedAtUtc = unpublishedAtUtc.ToUniversalTime();
     }
 
     private static void EnsureWholeVnd(decimal price, string parameterName)

@@ -215,6 +215,21 @@ public sealed class TourTests
     }
 
     [Fact]
+    public void Unpublish_MakesPublishedTourInactiveAndKeepsPublicationAuditTimestamp()
+    {
+        var tour = NewDraft();
+        tour.SubmitForReview(DateTimeOffset.UtcNow);
+        tour.Approve(2, DateTimeOffset.UtcNow);
+        tour.Publish(2, Now);
+        var publishedAt = tour.PublishedAtUtc;
+
+        tour.Unpublish(Now.AddHours(1));
+
+        tour.Status.Should().Be(TourStatus.Inactive);
+        tour.PublishedAtUtc.Should().Be(publishedAt);
+    }
+
+    [Fact]
     public void Reject_RequiresPendingAndReason()
     {
         var tour = NewDraft();

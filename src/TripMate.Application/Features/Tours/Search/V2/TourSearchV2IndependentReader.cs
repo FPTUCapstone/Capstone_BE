@@ -33,8 +33,8 @@ public sealed class TourSearchV2IndependentReader(IApplicationDbContext context,
 
         return await context.ExecuteInSerializableTransactionAsync(async token =>
         {
-            var tours = context.Tours.AsNoTracking().Where(tour => tour.Status == TourStatus.Approved
-                && tour.PublishedAtUtc.HasValue && tour.PublishedAtUtc <= asOfUtc
+            var tours = context.Tours.AsNoTracking().Where(tour => (tour.Status == TourStatus.Published
+                || (tour.Status == TourStatus.Approved && tour.PublishedAtUtc.HasValue && tour.PublishedAtUtc <= asOfUtc))
                 && tour.OperatorProfile.ApprovalStatus == OperatorApprovalStatus.Approved
                 && tour.OperatorProfile.User.Status == AccountStatus.Active);
             if (request.DurationDays.HasValue) tours = tours.Where(tour => tour.DurationDays == request.DurationDays);

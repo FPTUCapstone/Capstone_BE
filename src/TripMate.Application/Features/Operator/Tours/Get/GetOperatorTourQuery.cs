@@ -15,6 +15,7 @@ public sealed record OperatorTourDetailDto(
     int? CategoryId,
     decimal BasePrice,
     int DurationDays,
+    int VersionNo,
     string Status,
     string? RejectionReason,
     string? Inclusions,

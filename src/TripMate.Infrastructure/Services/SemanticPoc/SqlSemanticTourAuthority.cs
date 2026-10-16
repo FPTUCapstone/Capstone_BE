@@ -21,7 +21,7 @@ public sealed class SqlSemanticTourAuthority(IApplicationDbContext context, IDat
         }
         var now = clock.UtcNow.ToUniversalTime();
         var rows = await context.Tours.AsNoTracking().Where(t => ids.Contains(t.Id)
-            && t.Status == TourStatus.Approved && t.PublishedAtUtc.HasValue && t.PublishedAtUtc.Value <= now
+            && (t.Status == TourStatus.Published || (t.Status == TourStatus.Approved && t.PublishedAtUtc.HasValue && t.PublishedAtUtc.Value <= now))
             && t.OperatorProfile.ApprovalStatus == OperatorApprovalStatus.Approved
             && t.OperatorProfile.User.Status == AccountStatus.Active)
             .Select(t => new { t.Id, t.Title, Operator = t.OperatorProfile.CompanyName, Destinations = t.Destinations.Select(d => d.Destination.Name).ToArray() })
