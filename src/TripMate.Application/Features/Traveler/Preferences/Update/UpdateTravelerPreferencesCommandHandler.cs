@@ -36,7 +36,7 @@ public sealed class UpdateTravelerPreferencesCommandHandler(
                 "Only an active Traveler can update travel preferences.");
         }
 
-        var catalog = await InterestOptionCatalog.LoadAsync(dbContext, cancellationToken);
+        var catalog = InterestOptionCatalog.Fixed;
 
         var interests = new List<string>();
         var unknownInterests = new List<string>();

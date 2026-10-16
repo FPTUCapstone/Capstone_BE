@@ -11,9 +11,9 @@ using TripMate.Domain.Enums;
 namespace TripMate.Application.Features.Traveler.Preferences.Common;
 
 /// <summary>
-/// Interest option catalogue of UC-09 (spec §3.1, D-01, D-07). Interest keys are the canonical
-/// names of POI categories and tags, de-duplicated with the same normalization that
-/// <see cref="TravelerPreferenceScoring"/> uses, so every offered key can match during ranking.
+/// Authoritative UC-09 interest catalogue. Keys are an intentionally small, stable English
+/// contract shared by persistence, Web, Mobile, and personalization. They must never be derived
+/// from mutable POI categories or tags.
 /// </summary>
 internal sealed class InterestOptionCatalog
 {
@@ -29,47 +29,10 @@ internal sealed class InterestOptionCatalog
 
     public IReadOnlyList<InterestOptionDto> Options { get; }
 
-    public static async Task<InterestOptionCatalog> LoadAsync(
-        IApplicationDbContext dbContext,
-        CancellationToken cancellationToken)
-    {
-        var categoryNames = await dbContext.PoiCategories
-            .AsNoTracking()
-            .Select(category => category.Name)
-            .ToListAsync(cancellationToken);
-        var tagNames = await dbContext.Tags
-            .AsNoTracking()
-            .Select(tag => tag.Name)
-            .ToListAsync(cancellationToken);
-
-        return Build(categoryNames, tagNames);
-    }
-
-    internal static InterestOptionCatalog Build(
-        IEnumerable<string> categoryNames,
-        IEnumerable<string> tagNames)
-    {
-        var excluded = TravelerPreferenceKeys.ExcludedInterestCategories
-            .Select(TravelerPreferenceScoring.NormalizePreferenceToken)
-            .ToHashSet(StringComparer.Ordinal);
-        var byToken = new Dictionary<string, InterestOptionDto>(StringComparer.Ordinal);
-
-        // Categories first so that a category spelling wins over a tag with the same token.
-        foreach (var name in categoryNames)
-        {
-            Add(byToken, excluded, name, TravelerPreferenceKeys.InterestSourceCategory);
-        }
-
-        foreach (var name in tagNames)
-        {
-            Add(byToken, excluded, name, TravelerPreferenceKeys.InterestSourceTag);
-        }
-
-        var ordered = byToken.Values
-            .OrderBy(option => option.Key, StringComparer.Ordinal)
-            .ToArray();
-        return new InterestOptionCatalog(ordered);
-    }
+    public static InterestOptionCatalog Fixed { get; } = new(
+        TravelerPreferenceKeys.InterestKeys
+            .Select(key => new InterestOptionDto(key, TravelerPreferenceKeys.InterestSourceTag))
+            .ToArray());
 
     /// <summary>Returns the canonical key for a submitted or stored value, or null when unknown.</summary>
     public string? Canonicalize(string? value)
@@ -86,26 +49,6 @@ internal sealed class InterestOptionCatalog
             : null;
     }
 
-    private static void Add(
-        Dictionary<string, InterestOptionDto> byToken,
-        HashSet<string> excluded,
-        string name,
-        string source)
-    {
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            return;
-        }
-
-        var key = name.Trim();
-        var token = TravelerPreferenceScoring.NormalizePreferenceToken(key);
-        if (token.Length == 0 || excluded.Contains(token) || byToken.ContainsKey(token))
-        {
-            return;
-        }
-
-        byToken[token] = new InterestOptionDto(key, source);
-    }
 }
 
 /// <summary>Serialization and mapping helpers shared by the UC-09 handlers.</summary>
