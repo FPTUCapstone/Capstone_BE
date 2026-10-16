@@ -25,8 +25,11 @@ public sealed class TravelerPreferencesSqlServerTests
     public async Task DefaultBudgetRemovalMigration_RemovesLegacyColumnAndIsIdempotent()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
-        await database.ExecuteNonQueryAsync(
-            "ALTER TABLE dbo.TravelerProfiles ADD default_budget DECIMAL(12,2) NULL;");
+        await database.ExecuteNonQueryAsync("""
+            ALTER TABLE dbo.TravelerProfiles
+                ADD default_budget DECIMAL(12,2) NULL
+                    CONSTRAINT DF_TravelerProfiles_DefaultBudget_ForMigrationTest DEFAULT (0);
+            """);
 
         var migrationPath = Path.Combine(
             AppContext.BaseDirectory,
@@ -44,6 +47,17 @@ public sealed class TravelerPreferencesSqlServerTests
               AND name = N'default_budget';
             """);
         columnCount.Should().Be(0);
+
+        var defaultConstraintCount = await database.ExecuteScalarAsync<int>("""
+            SELECT COUNT(*)
+            FROM sys.default_constraints AS dc
+            INNER JOIN sys.columns AS c
+                ON c.object_id = dc.parent_object_id
+                AND c.column_id = dc.parent_column_id
+            WHERE dc.parent_object_id = OBJECT_ID(N'dbo.TravelerProfiles')
+              AND c.name = N'default_budget';
+            """);
+        defaultConstraintCount.Should().Be(0);
     }
 
     [SqlServerFact]

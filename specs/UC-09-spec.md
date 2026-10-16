@@ -43,7 +43,7 @@ The options response returns `interests`, `preferredTransportModes`, `travelPace
 - Interest and food JSON each fit the existing 1,000-character storage limit.
 - `dbo.TravelerProfiles` persists only `interest_tags_json`, `preferred_transport_mode`, `travel_pace`, `risk_tolerance`, `food_preferences_json`, and `updated_at` for this use case.
 
-Migration `20261013_remove_traveler_profile_default_budget.sql` drops the obsolete `default_budget` column idempotently. It does not modify scheduling-request budgets.
+Migration `20261013_remove_traveler_profile_default_budget.sql` drops the obsolete `default_budget` column idempotently. If a legacy database has a SQL Server default constraint bound to that column, the migration discovers and removes the constraint first. It does not modify scheduling-request budgets.
 
 ## Security and compatibility
 
