@@ -303,6 +303,12 @@ public class TestDbContext(
             .WithOne()
             .HasForeignKey<OperatorProfile>(profile => profile.UserId);
 
+        // Mirrors TourConfiguration so public-visibility predicates can be exercised without SQL Server.
+        modelBuilder.Entity<Tour>()
+            .HasOne(tour => tour.OperatorProfile)
+            .WithMany()
+            .HasForeignKey(tour => tour.OperatorUserId);
+
         modelBuilder.Entity<OperatorProfile>()
             .HasOne(profile => profile.Reviewer)
             .WithMany()
