@@ -9,5 +9,6 @@ public enum TourStatus
     Pending = 2,
     Approved = 3,
     Rejected = 4,
-    Inactive = 5,
+    Published = 5,
+    Inactive = 6,
 }

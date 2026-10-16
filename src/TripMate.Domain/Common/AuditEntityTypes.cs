@@ -7,6 +7,7 @@ public static class AuditEntityTypes
     public const string OperatorProfile = "OperatorProfile";
 
     public const string TourMedia = "TourMedia";
+    public const string Tour = "Tour";
 
     // UC-05 Sign Out
     public const string RefreshToken = "RefreshToken";

@@ -34,7 +34,20 @@ public class TestDbContext(
 
     public DbSet<Tour> Tours => Set<Tour>();
 
+    public DbSet<TourCategory> TourCategories => Set<TourCategory>();
+
     public DbSet<TourSchedule> TourSchedules => Set<TourSchedule>();
+
+    public DbSet<TourItineraryItem> TourItineraryItems => Set<TourItineraryItem>();
+
+    public DbSet<TourPackageCreateOperation> TourPackageCreateOperations =>
+        Set<TourPackageCreateOperation>();
+
+    public DbSet<CancellationPolicyTemplate> CancellationPolicyTemplates =>
+        Set<CancellationPolicyTemplate>();
+
+    public DbSet<TourCancellationPolicyRule> TourCancellationPolicyRules =>
+        Set<TourCancellationPolicyRule>();
 
     public DbSet<Destination> Destinations => Set<Destination>();
 

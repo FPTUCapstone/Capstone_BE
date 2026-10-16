@@ -112,6 +112,12 @@
     <None Include="..\..\database\migrations\20261014_add_trip_review_rating_index.sql"
           Link="Database\migrations\20261014_add_trip_review_rating_index.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261015_add_tour_package_authoring.sql"
+          Link="Database\migrations\20261015_add_tour_package_authoring.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261016_add_tour_destination_summary.sql"
+          Link="Database\migrations\20261016_add_tour_destination_summary.sql"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\database\migrations\20261013_remove_traveler_profile_default_budget.sql"
           Link="Database\migrations\20261013_remove_traveler_profile_default_budget.sql"
           CopyToOutputDirectory="PreserveNewest" />
