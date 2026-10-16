@@ -79,7 +79,7 @@ public sealed class TravelerPreferencesSqlServerTests
         {
             var stored = await verify.TravelerProfiles.AsNoTracking().SingleAsync();
             stored.UserId.Should().Be(travelerId);
-            stored.InterestTagsJson.Should().Be("[\"Beach\"]");
+            stored.InterestTagsJson.Should().Be("[\"beach\"]");
             stored.PreferredTransportMode.Should().Be(TransportMode.PublicTransit);
             stored.TravelPace.Should().Be(TravelerPace.Fast);
             stored.RiskTolerance.Should().Be(RiskToleranceLevel.High);

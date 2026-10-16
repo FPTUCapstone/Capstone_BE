@@ -89,7 +89,7 @@ public sealed class TravelerPreferencesEndpointTests
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         response.Headers.CacheControl!.NoStore.Should().BeTrue();
         var body = await response.Content.ReadFromJsonAsync<TravelerPreferenceOptionsDto>();
-        body!.Interests.Should().ContainSingle().Which.Key.Should().Be("Beach");
+        body!.Interests.Select(i => i.Key).Should().Equal(TravelerPreferenceKeys.InterestKeys);
         body.PreferredTransportModes.Should().Contain("PublicTransit");
     }
 
@@ -114,7 +114,7 @@ public sealed class TravelerPreferencesEndpointTests
         get.StatusCode.Should().Be(HttpStatusCode.OK);
         get.Headers.CacheControl!.NoStore.Should().BeTrue();
         var body = await get.Content.ReadFromJsonAsync<TravelerPreferencesDto>();
-        body!.Interests.Should().Equal("Beach");
+        body!.Interests.Should().Equal("beach");
         body.PreferredTransportMode.Should().Be("Motorbike");
         body.TravelPace.Should().Be("Relaxed");
         body.RiskTolerance.Should().BeNull();
