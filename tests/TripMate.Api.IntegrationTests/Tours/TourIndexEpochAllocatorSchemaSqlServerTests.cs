@@ -572,6 +572,223 @@ public sealed class TourIndexEpochAllocatorSchemaSqlServerTests(ITestOutputHelpe
         if (process.ExitCode != 0) throw new InvalidOperationException("BLOCKED: pinned Git object unavailable; no working-tree fallback.");
         return bytes.ToArray();
     }
+    [Fact]
+    public void EA16_CiSessionRule_AllowsOnlyProvenLiveOwnedIdleConnection()
+    {
+        var session = new IsolationSession(61, Guid.Parse("11111111-1111-1111-1111-111111111111"), "sleeping", "TripMate_Test_0123456789abcdef0123456789abcdef", false, 0, 123, "127.0.0.1", 50000, "Microsoft Data SqlClient", "host", "sa", DateTime.UtcNow);
+        ValidateCiIsolation([session], [session.ConnectionId], session.Database, [session.Database]);
+    }
+
+    [Theory]
+    [InlineData("unknown")]
+    [InlineData("active")]
+    [InlineData("transaction")]
+    [InlineData("database")]
+    [InlineData("unowned-database")]
+    public void EA16_CiSessionRule_BlocksUnverifiedWorkloads(string kind)
+    {
+        const string owned = "TripMate_Test_0123456789abcdef0123456789abcdef";
+        var session = new IsolationSession(61, Guid.Parse("11111111-1111-1111-1111-111111111111"), "sleeping", owned, false, 0, 123, "127.0.0.1", 50000, "sqlcmd", "host", "sa", DateTime.UtcNow);
+        if (kind == "active") session = session with { HasRequest = true };
+        if (kind == "transaction") session = session with { OpenTransactions = 1 };
+        if (kind == "database") session = session with { Database = "master" };
+        var proof = kind == "unknown" ? Array.Empty<Guid>() : new[] { session.ConnectionId };
+        var databases = kind == "unowned-database" ? new[] { owned, "TripMate_Test_ffffffffffffffffffffffffffffffff" } : new[] { owned };
+        var act = () => ValidateCiIsolation([session], proof, owned, databases);
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void EA16_CiSessionRule_EmptyOwnedContainerNeedsNoSessionWhitelist()
+        => ValidateCiIsolation([], [], null, []);
+
+    [Fact]
+    public void EA16_CiOwnershipProof_DifferentRunnerAndNetworkLabelsRemainBlocked()
+    {
+        var wrongRunner = () => ValidateCiContainer(CiContainerFixture(), "{\"Labels\":{\"abc123\":\"\"}}", "ffffff", DateTimeOffset.Parse("2026-10-16T00:00:00Z"));
+        var wrongNetwork = () => ValidateCiContainer(CiContainerFixture(), "{\"Labels\":{\"ffffff\":\"\"}}", "abc123", DateTimeOffset.Parse("2026-10-16T00:00:00Z"));
+        wrongRunner.Should().Throw<InvalidOperationException>();
+        wrongNetwork.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void EA16_WindowsPolicy_StillBlocksAnyOtherSession()
+    {
+        ValidateWindowsSessions(0, false);
+        var act = () => ValidateWindowsSessions(1, false);
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void EA16_InstanceIdentity_StillRequiresExactApprovedInstance()
+    {
+        ValidateServerIdentity(true, "DAT", "MSSQLSERVER01", "DAT");
+        ValidateServerIdentity(false, "owned-sql", null, "owned-sql");
+        var wrongWindows = () => ValidateServerIdentity(true, "DAT", "OTHER", "DAT");
+        var wrongContainer = () => ValidateServerIdentity(false, "other-sql", null, "owned-sql");
+        wrongWindows.Should().Throw<InvalidOperationException>();
+        wrongContainer.Should().Throw<InvalidOperationException>();
+    }
+
+    [SqlServerFact]
+    public async Task EA16_RealOwnedConnections_UnknownStaleAndConcurrentCreationRemainBlocked()
+    {
+        var configured = Environment.GetEnvironmentVariable(ConnectionEnvironment)!;
+        var baseline = await DatabaseNamesAsync(configured);
+        string created;
+        await using (var owned = await CreateAsync())
+        {
+            created = owned.Database.DatabaseName;
+            Func<Task> second = async () => { await using var extra = await CreateAsync(); };
+            await second.Should().ThrowAsync<InvalidOperationException>().WithMessage("*fixture lease*");
+            await using var registered = await owned.OpenVerifiedConnectionAsync();
+            var master = new SqlConnectionStringBuilder(configured) { InitialCatalog = "master", Pooling = false };
+            await using var observer = new SqlConnection(master.ConnectionString);
+            await observer.OpenAsync();
+            var sessions = await ReadSessionsAsync(observer);
+            ValidateCiIsolation(sessions, LiveOwnedConnectionIds(), created, [created]);
+            var windows = () => ValidateWindowsSessions(sessions.Count, false);
+            windows.Should().Throw<InvalidOperationException>();
+            SqlConnection.ClearAllPools();
+            ValidateCiIsolation(await ReadSessionsAsync(observer), LiveOwnedConnectionIds(), created, [created]);
+            var poolBuilder = new SqlConnectionStringBuilder(owned.Database.ConnectionString) { Pooling = true, MinPoolSize = 0 };
+            Guid pooledId;
+            await using (var pooled = new SqlConnection(poolBuilder.ConnectionString))
+            {
+                await pooled.OpenAsync();
+                await using var identify = new SqlCommand("SELECT connection_id FROM sys.dm_exec_connections WHERE session_id=@@SPID;", pooled);
+                pooledId = (Guid)(await identify.ExecuteScalarAsync())!;
+            }
+            (await ReadSessionsAsync(observer)).Should().Contain(x => x.ConnectionId == pooledId, "a closed client can leave its own idle pooled server session");
+            SqlConnection.ClearAllPools();
+            await WaitForVerifiedPoolRetirementAsync(observer, pooledId);
+            (await ReadSessionsAsync(observer)).Should().NotContain(x => x.ConnectionId == pooledId, "current-process pool drain closes its own idle physical connection");
+            await using (var unknown = new SqlConnection(owned.Database.ConnectionString))
+            {
+                await unknown.OpenAsync();
+                var snapshot = await ReadSessionsAsync(observer);
+                snapshot.Should().HaveCount(sessions.Count + 1);
+                var act = () => ValidateCiIsolation(snapshot, LiveOwnedConnectionIds(), created, [created]);
+                act.Should().Throw<InvalidOperationException>(); // Same process/login/program still has no live-handle proof.
+            }
+            await using (var tx = await registered.Connection.BeginTransactionAsync())
+            {
+                var snapshot = await ReadSessionsAsync(observer);
+                var act = () => ValidateCiIsolation(snapshot, LiveOwnedConnectionIds(), created, [created]);
+                act.Should().Throw<InvalidOperationException>();
+                await tx.RollbackAsync();
+            }
+            await registered.Connection.ChangeDatabaseAsync("master");
+            var wrongDatabase = await ReadSessionsAsync(observer);
+            var changed = () => ValidateCiIsolation(wrongDatabase, LiveOwnedConnectionIds(), created, [created]);
+            changed.Should().Throw<InvalidOperationException>();
+            await registered.Connection.CloseAsync();
+            LiveOwnedConnectionIds().Should().BeEmpty();
+            await registered.Connection.OpenAsync();
+            LiveOwnedConnectionIds().Should().BeEmpty("reopening invalidates the captured client connection identity");
+            var reopened = await ReadSessionsAsync(observer);
+            var stale = () => ValidateCiIsolation(reopened, LiveOwnedConnectionIds(), created, [created]);
+            stale.Should().Throw<InvalidOperationException>();
+            output.WriteLine("CONTROLLED_SQL_EVIDENCE: live DMV connection binding accepted; unregistered/same-process, transaction, wrong DB, stale handle and second creation blocked; Windows policy preserved. This is not a Linux guard bypass.");
+        }
+        var after = await DatabaseNamesAsync(configured);
+        after.Should().NotContain(created);
+        after.Should().BeEquivalentTo(baseline, "only the current-run database may be removed");
+    }
+    private sealed record IsolationSession(short SessionId, Guid ConnectionId, string Status, string Database, bool HasRequest, int OpenTransactions, int ClientProcessId, string? ClientAddress, int? ClientPort, string Program, string Host, string Login, DateTime ConnectedAt);
+    private static void ValidateCiIsolation(IReadOnlyList<IsolationSession> sessions, IReadOnlyCollection<Guid> verifiedConnections, string? ownedDatabase, IReadOnlyCollection<string> userDatabases)
+    {
+        if (userDatabases.Any(name => ownedDatabase is null || !string.Equals(name, ownedDatabase, StringComparison.Ordinal)))
+            throw new InvalidOperationException("BLOCKED: CI contains a database not owned by this A4.1a fixture.");
+        foreach (var session in sessions)
+            if (ownedDatabase is null || !verifiedConnections.Contains(session.ConnectionId)
+                || !string.Equals(session.Database, ownedDatabase, StringComparison.Ordinal)
+                || session.Status != "sleeping" || session.HasRequest || session.OpenTransactions != 0)
+                throw new InvalidOperationException("BLOCKED: unverified or active CI SQL workload. " + RedactedSessions([session]));
+    }
+    private static void ValidateWindowsSessions(int otherSessions, bool allowOwnSessions)
+    {
+        if (!allowOwnSessions && otherSessions != 0)
+            throw new InvalidOperationException("BLOCKED: Windows local policy requires zero other SQL user sessions.");
+    }
+    private static void ValidateServerIdentity(bool windows, string machine, string? instance, string expectedMachine)
+    {
+        if (!string.Equals(machine, expectedMachine, StringComparison.OrdinalIgnoreCase)
+            || (windows ? !string.Equals(instance, "MSSQLSERVER01", StringComparison.OrdinalIgnoreCase) : instance is not null))
+            throw new InvalidOperationException("BLOCKED: SQL instance does not match the independently verified target.");
+    }
+
+    private static readonly SemaphoreSlim DatabaseSlot = new(1, 1);
+    private static string? CurrentOwnedDatabase;
+    private sealed record ConnectionProof(WeakReference<SqlConnection> Handle, Guid ClientId, string Database);
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, ConnectionProof> OwnedConnections = new();
+
+    private static Guid[] LiveOwnedConnectionIds()
+        => OwnedConnections.Where(pair => pair.Value.Database == Volatile.Read(ref CurrentOwnedDatabase)
+            && pair.Value.Handle.TryGetTarget(out var handle) && handle.State == ConnectionState.Open
+            && handle.ClientConnectionId == pair.Value.ClientId).Select(pair => pair.Key).ToArray();
+
+    private static async Task<List<IsolationSession>> ReadSessionsAsync(SqlConnection observer, CancellationToken cancellationToken = default)
+    {
+        const string sql = "SELECT s.session_id,c.connection_id,s.status,COALESCE(DB_NAME(s.database_id),''),CONVERT(bit,CASE WHEN EXISTS(SELECT 1 FROM sys.dm_exec_requests r WHERE r.session_id=s.session_id) THEN 1 ELSE 0 END),s.open_transaction_count,s.host_process_id,c.client_net_address,c.client_tcp_port,s.program_name,s.host_name,s.login_name,c.connect_time FROM sys.dm_exec_sessions s LEFT JOIN sys.dm_exec_connections c ON c.session_id=s.session_id WHERE s.is_user_process=1 AND s.session_id<>@@SPID;";
+        await using var command = new SqlCommand(sql, observer);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        var sessions = new List<IsolationSession>();
+        while (await reader.ReadAsync(cancellationToken))
+            sessions.Add(new(reader.GetInt16(0), reader.IsDBNull(1) ? Guid.Empty : reader.GetGuid(1), reader.GetString(2), reader.GetString(3), reader.GetBoolean(4), reader.GetInt32(5), reader.GetInt32(6), reader.IsDBNull(7) ? null : reader.GetString(7), reader.IsDBNull(8) ? null : reader.GetInt32(8), reader.IsDBNull(9) ? "" : reader.GetString(9), reader.IsDBNull(10) ? "" : reader.GetString(10), reader.GetString(11), reader.IsDBNull(12) ? DateTime.MinValue : reader.GetDateTime(12)));
+        return sessions;
+    }
+
+    private static async Task WaitForVerifiedPoolRetirementAsync(SqlConnection observer, Guid knownOwnedConnection)
+    {
+        // Only a connection identified on our own handle before its deliberate close; never poll away unknown workloads.
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        while ((await ReadSessionsAsync(observer, deadline.Token)).Any(x => x.ConnectionId == knownOwnedConnection))
+        { await Task.Yield(); deadline.Token.ThrowIfCancellationRequested(); }
+    }
+    private static string RedactedSessions(IReadOnlyList<IsolationSession> sessions)
+        => JsonSerializer.Serialize(sessions.Select(s => new
+        {
+            s.SessionId,
+            s.ConnectionId,
+            s.Status,
+            Database = s.Database == Volatile.Read(ref CurrentOwnedDatabase) ? "CurrentOwned" : s.Database == "master" ? "master" : "Unowned",
+            s.HasRequest,
+            s.OpenTransactions,
+            s.ClientProcessId,
+            ProcessMatchesTestHost = s.ClientProcessId == Environment.ProcessId,
+            s.ClientAddress,
+            s.ClientPort,
+            s.ConnectedAt,
+            ProgramKind = s.Program is "Core Microsoft SqlClient Data Provider" or "Microsoft SQL Server Data Provider" or "Microsoft.Data.SqlClient" ? "SqlClient" : s.Program.Equals("SQLCMD", StringComparison.OrdinalIgnoreCase) ? "sqlcmd" : "Other",
+            HostMatchesTestHost = s.Host.Equals(Environment.MachineName, StringComparison.OrdinalIgnoreCase),
+            LoginIsSa = s.Login == "sa"
+        }));
+
+    private static async Task AssertCiSessionsAsync(SqlConnection observer)
+    {
+        var before = await ReadSessionsAsync(observer);
+        // Current-process client pool operation only; never SQL KILL or a server-wide pool reset.
+        SqlConnection.ClearAllPools();
+        var after = await ReadSessionsAsync(observer);
+        var verified = LiveOwnedConnectionIds();
+        Console.WriteLine("TM70_A41A_CI_ISOLATION before=" + RedactedSessions(before) + " after=" + RedactedSessions(after) + " verifiedLiveHandles=" + verified.Length);
+        var databases = new List<string>();
+        await using (var command = new SqlCommand("SELECT name FROM sys.databases WHERE database_id>4;", observer))
+        await using (var reader = await command.ExecuteReaderAsync())
+            while (await reader.ReadAsync()) databases.Add(reader.GetString(0));
+        ValidateCiIsolation(after, verified, Volatile.Read(ref CurrentOwnedDatabase), databases);
+    }
+
+    private sealed class OwnedConnection(SqlConnection connection, Guid serverId) : IAsyncDisposable
+    {
+        public SqlConnection Connection { get; } = connection;
+        public async ValueTask DisposeAsync()
+        {
+            OwnedConnections.TryRemove(serverId, out _);
+            await Connection.DisposeAsync();
+        }
+    }
     private static string Insert(Guid epoch, Guid build, string collection, string state = "Provisioned") =>
         $"INSERT {Epochs}(index_epoch,build_id,collection_name,model_version,document_format_version,policy_version,epoch_state,created_at_utc) VALUES('{epoch:D}','{build:D}',N'{collection}',N'model',N'tm70-public-fields-v1',N'tm70-a41a-synthetic-v1','{state}','2026-10-16T00:00:00.1234567');";
     private static Task<long> NextAsync(SqlServerTestDatabase db) => db.ExecuteScalarAsync<long>($"SELECT NEXT VALUE FOR {Sequence};");
@@ -595,28 +812,36 @@ public sealed class TourIndexEpochAllocatorSchemaSqlServerTests(ITestOutputHelpe
     {
         var scripts = await PinnedScripts.Value; // Verify all Git objects/hashes BEFORE SQL writes.
         var configured = Environment.GetEnvironmentVariable(ConnectionEnvironment) ?? throw new InvalidOperationException("SQL opt-in required.");
-        await AssertStorageAsync(configured);
-        var existing = await DatabaseNamesAsync(configured);
-        var db = await SqlServerTestDatabase.CreateEmptyAsync();
-        var owned = new OwnedDatabase(db, configured, output);
+        if (!await DatabaseSlot.WaitAsync(0)) throw new InvalidOperationException("BLOCKED: another Track A owned database still holds the fixture lease.");
+        var creationAttempted = false;
         try
         {
-            existing.Should().NotContain(db.DatabaseName);
-            db.DatabaseName.Should().MatchRegex("^TripMate_Test_[0-9a-f]{32}$");
-            output.WriteLine("OWNED_CREATED " + db.DatabaseName);
-            owned.Record("CREATED");
-            foreach (var script in scripts)
+            await AssertStorageAsync(configured);
+            var existing = await DatabaseNamesAsync(configured);
+            creationAttempted = true;
+            var db = await SqlServerTestDatabase.CreateEmptyAsync();
+            var owned = new OwnedDatabase(db, configured, output);
+            Volatile.Write(ref CurrentOwnedDatabase, db.DatabaseName);
+            try
             {
-                await using var bootstrap = new SqlConnection(db.ConnectionString);
-                await bootstrap.OpenAsync();
-                await ExecuteScriptOnConnectionAsync(bootstrap, script);
+                existing.Should().NotContain(db.DatabaseName);
+                db.DatabaseName.Should().MatchRegex("^TripMate_Test_[0-9a-f]{32}$");
+                output.WriteLine("OWNED_CREATED " + db.DatabaseName);
+                owned.Record("CREATED");
+                foreach (var script in scripts)
+                {
+                    await using var bootstrap = new SqlConnection(db.ConnectionString);
+                    await bootstrap.OpenAsync();
+                    await ExecuteScriptOnConnectionAsync(bootstrap, script);
+                }
+                (await db.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM sys.columns WHERE object_id=OBJECT_ID(N'commerce.Tours') AND name='destination_summary' AND max_length=600 AND is_nullable=0;")).Should().Be(1);
+                (await db.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM sys.check_constraints WHERE parent_object_id=OBJECT_ID(N'commerce.Tours') AND name='CK_Tours_Status' AND definition LIKE '%Published%';")).Should().Be(1);
+                if (migrate) await ApplyAsync(db);
+                return owned;
             }
-            (await db.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM sys.columns WHERE object_id=OBJECT_ID(N'commerce.Tours') AND name='destination_summary' AND max_length=600 AND is_nullable=0;")).Should().Be(1);
-            (await db.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM sys.check_constraints WHERE parent_object_id=OBJECT_ID(N'commerce.Tours') AND name='CK_Tours_Status' AND definition LIKE '%Published%';")).Should().Be(1);
-            if (migrate) await ApplyAsync(db);
-            return owned;
+            catch { await owned.DisposeAsync(); throw; }
         }
-        catch { await owned.DisposeAsync(); throw; }
+        catch { if (!creationAttempted && Volatile.Read(ref CurrentOwnedDatabase) is null && DatabaseSlot.CurrentCount == 0) DatabaseSlot.Release(); throw; }
     }
     private static async Task AssertStorageAsync(string connectionString, bool allowOwnSessions = false)
     {
@@ -638,13 +863,14 @@ public sealed class TourIndexEpochAllocatorSchemaSqlServerTests(ITestOutputHelpe
         await using var command = new SqlCommand(sql, c);
         command.Parameters.AddWithValue("@prefix", prefix);
         await using var reader = await command.ExecuteReaderAsync(); await reader.ReadAsync();
-        reader.GetString(0).Should().BeEquivalentTo(machine);
-        if (localWindows) reader.GetString(1).Should().BeEquivalentTo("MSSQLSERVER01"); else reader.IsDBNull(1).Should().BeTrue();
+        ValidateServerIdentity(localWindows, reader.GetString(0), reader.IsDBNull(1) ? null : reader.GetString(1), machine);
         reader.GetString(2).Should().Be(principal);
         reader.GetInt32(3).Should().Be(0);
         reader.GetInt64(4).Should().BeGreaterThan(reader.GetInt64(5), "the model allocation must fit before creation; no fabricated reserve threshold");
-        if (!allowOwnSessions) reader.GetInt32(6).Should().Be(0, "do not overlap another SQL test workload");
+        var otherSessions = reader.GetInt32(6);
         await reader.DisposeAsync();
+        if (localWindows) ValidateWindowsSessions(otherSessions, allowOwnSessions);
+        else await AssertCiSessionsAsync(c);
         var defaults = Convert.ToString(await new SqlCommand("SELECT CONCAT(CONVERT(nvarchar(4000),SERVERPROPERTY('InstanceDefaultDataPath')),'|',CONVERT(nvarchar(4000),SERVERPROPERTY('InstanceDefaultLogPath')));", c).ExecuteScalarAsync()) ?? "";
         defaults.Split('|').Should().HaveCount(2).And.OnlyContain(x => x.StartsWith(prefix, localWindows ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal));
     }
@@ -673,6 +899,24 @@ public sealed class TourIndexEpochAllocatorSchemaSqlServerTests(ITestOutputHelpe
     private sealed class OwnedDatabase(SqlServerTestDatabase database, string masterConfiguration, ITestOutputHelper output) : IAsyncDisposable
     {
         public SqlServerTestDatabase Database { get; } = database;
+        public async Task<OwnedConnection> OpenVerifiedConnectionAsync()
+        {
+            if (Volatile.Read(ref CurrentOwnedDatabase) != Database.DatabaseName)
+                throw new InvalidOperationException("BLOCKED: database is not the current owned fixture.");
+            var connection = new SqlConnection(Database.ConnectionString);
+            try
+            {
+                await connection.OpenAsync();
+                await using var command = new SqlCommand("SELECT c.connection_id,DB_NAME() FROM sys.dm_exec_connections c WHERE c.session_id=@@SPID;", connection);
+                await using var reader = await command.ExecuteReaderAsync();
+                if (!await reader.ReadAsync() || reader.GetString(1) != Database.DatabaseName)
+                    throw new InvalidOperationException("BLOCKED: live connection database binding differs from its owned fixture.");
+                var serverId = reader.GetGuid(0);
+                OwnedConnections[serverId] = new(new(connection), connection.ClientConnectionId, Database.DatabaseName);
+                return new OwnedConnection(connection, serverId);
+            }
+            catch { await connection.DisposeAsync(); throw; }
+        }
         public void Record(string state)
         {
             var line = $"{DateTimeOffset.UtcNow:O}|{Database.DatabaseName}|{state}";
@@ -684,6 +928,9 @@ public sealed class TourIndexEpochAllocatorSchemaSqlServerTests(ITestOutputHelpe
             await Database.DisposeAsync();
             (await DatabaseNamesAsync(masterConfiguration)).Should().NotContain(Database.DatabaseName);
             Record("REMOVED_AND_ABSENCE_VERIFIED"); output.WriteLine("OWNED_REMOVED " + Database.DatabaseName);
+            foreach (var entry in OwnedConnections.Where(x => x.Value.Database == Database.DatabaseName)) OwnedConnections.TryRemove(entry.Key, out _);
+            Volatile.Write(ref CurrentOwnedDatabase, null);
+            DatabaseSlot.Release();
         }
     }
 }
