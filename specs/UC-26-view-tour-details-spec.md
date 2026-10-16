@@ -1,6 +1,6 @@
 # UC-26 View Tour Details — Backend spec
 
-Status: **PROPOSED — awaiting developer approval.** Items marked *(open)* need an explicit yes/no.
+Status: **APPROVED (2026-10-17)** — spec and plan, including the three open questions (all answered yes).
 
 SRS: Report 3 §3.5.3 (UC-26 "View Tour Details"), BR-54, BR-56, BR-59, BR-60, BR-96, messages MSG65, MSG127, MSG128.
 Actors: Guest and Traveler. Viewing needs no credentials; authentication is only required to book (UC-27).
@@ -82,12 +82,11 @@ Identity values are **strings** (large signed Int64 safe), prices are whole VND 
    itinerary items or images (no per-row queries).
 6. The unknown-capacity case is logged as a warning without leaking schedule details (as in search).
 
-## Open questions *(open)*
+## Decisions on the open questions (approved 2026-10-17)
 
-1. **POI no longer active:** show itinerary POIs even if the catalogue POI was later deactivated
-   (proposed: yes — the tour was approved with it, and hiding a stop would misstate the itinerary).
-2. **Schedule window:** list all future `Scheduled` departures, or cap (proposed: no cap; a tour has few).
-3. **`address` of a POI:** include (public catalogue data) — proposed yes.
+1. Itinerary POIs stay visible even if the catalogue POI was deactivated after approval.
+2. No cap on the schedule window: every future `Scheduled` departure is listed.
+3. The POI `address` is included.
 
 ## Acceptance tests
 

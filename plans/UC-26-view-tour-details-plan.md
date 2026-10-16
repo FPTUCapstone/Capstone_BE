@@ -1,12 +1,12 @@
 # UC-26 plan (Backend)
 
-Pending approval of `specs/UC-26-view-tour-details-spec.md`. Every task is test first (red → green → refactor)
+Approved 2026-10-17 together with `specs/UC-26-view-tour-details-spec.md`. Every task is test first (red → green → refactor)
 and ends with the listed verification. Baseline before starting: `dotnet build`, `dotnet test` unit projects and
 `dotnet format --verify-no-changes` on a clean checkout of `develop`.
 
 ## Task 1 — Shared visibility and availability rules
 Add `TourVisibility.PublicTour(now)` (expression) and `TourAvailability.Classify(total, reserved)` under
-`Features/Tours/Common`. Unit tests for every status/operator/date combination and the capacity table
+`Features/Tours/Shared` (a `Common` namespace under Tours shadows `Application.Common` in existing UC-24 code). Unit tests for every status/operator/date combination and the capacity table
 (available, soldOut, unknown). Do not refactor UC-24 in this task; parity is proven by Task 5 instead.
 Verify: new unit tests.
 
