@@ -21,7 +21,8 @@ public sealed record CreateTourPackageCommand(string Title, string Description, 
     Guid IdempotencyKey = default,
     string? TimeZoneId = null,
     string? Highlights = null,
-    string? TravellerRequirements = null)
+    string? TravellerRequirements = null,
+    long? SourceTourId = null)
     : IRequest<Result<CreateTourPackageResponse>>;
 
-public sealed record CreateTourPackageResponse(long TourId, string Status);
+public sealed record CreateTourPackageResponse(long TourId, string Status, int VersionNo = 1);

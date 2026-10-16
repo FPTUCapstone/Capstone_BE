@@ -23,6 +23,12 @@ public class TourConfiguration : IEntityTypeConfiguration<Tour>
         builder.Property(tour => tour.OperatorUserId)
             .HasColumnName("operator_user_id")
             .IsRequired();
+        builder.Property(tour => tour.VersionRootTourId)
+            .HasColumnName("version_root_tour_id");
+        builder.Property(tour => tour.VersionNo)
+            .HasColumnName("version_no")
+            .HasDefaultValue(1)
+            .IsRequired();
         builder.Property(tour => tour.CategoryId)
             .HasColumnName("category_id");
         builder.Property(tour => tour.Title)
@@ -137,6 +143,9 @@ public class TourConfiguration : IEntityTypeConfiguration<Tour>
 
         builder.HasIndex(tour => tour.OperatorUserId)
             .HasDatabaseName("IX_Tours_Operator");
+        builder.HasIndex(tour => new { tour.VersionRootTourId, tour.VersionNo })
+            .IsUnique()
+            .HasDatabaseName("UX_Tours_VersionLineage");
         builder.HasIndex(tour => tour.Status)
             .HasDatabaseName("IX_Tours_Status");
         builder.HasIndex(tour => tour.CategoryId)

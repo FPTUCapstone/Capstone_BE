@@ -502,6 +502,8 @@ GO
 CREATE TABLE commerce.Tours (
     tour_id             BIGINT IDENTITY(1,1) PRIMARY KEY,
     operator_user_id    BIGINT NOT NULL REFERENCES dbo.OperatorProfiles(user_id),
+    version_root_tour_id BIGINT NULL REFERENCES commerce.Tours(tour_id),
+    version_no           INT NOT NULL DEFAULT 1 CHECK (version_no > 0),
     category_id           INT NULL,
     title                NVARCHAR(200) NOT NULL,
     description           NVARCHAR(MAX) NULL,
@@ -525,6 +527,8 @@ CREATE TABLE commerce.Tours (
 );
 GO
 CREATE INDEX IX_Tours_Operator ON commerce.Tours(operator_user_id);
+CREATE UNIQUE INDEX UX_Tours_VersionLineage ON commerce.Tours(version_root_tour_id, version_no)
+    WHERE version_root_tour_id IS NOT NULL;
 CREATE INDEX IX_Tours_Status ON commerce.Tours(status);
 CREATE INDEX IX_Tours_Category ON commerce.Tours(category_id);
 GO

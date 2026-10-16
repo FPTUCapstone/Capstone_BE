@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 
 using TripMate.Api.Common;
 using TripMate.Application.Features.Operator.Tours.Create;
+using TripMate.Application.Features.Operator.Tours.Delete;
 using TripMate.Application.Features.Operator.Tours.Get;
 using TripMate.Application.Features.Operator.Tours.List;
 using TripMate.Application.Features.Operator.Tours.Policies;
@@ -40,6 +41,17 @@ public sealed class OperatorToursController(ISender sender) : ApiControllerBase(
     {
         var result = await Sender.Send(new GetOperatorTourQuery(tourId), cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    [HttpDelete("{tourId:long}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Delete(long tourId, CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(new DeleteOperatorTourCommand(tourId), cancellationToken);
+        return result.IsSuccess ? NoContent() : HandleFailure(result);
     }
 
     [HttpPut("{tourId:long}")]

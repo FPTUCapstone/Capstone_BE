@@ -86,3 +86,24 @@ public sealed class PublishTourCommandHandler(IApplicationDbContext dbContext, I
         return Result.Success(new TourReviewResponse(tour.Id, tour.Status.ToString(), now));
     }
 }
+
+public sealed class UnpublishTourCommandHandler(IApplicationDbContext dbContext, ICurrentUserService currentUser, IDateTimeProvider clock)
+    : IRequestHandler<UnpublishTourCommand, Result<TourReviewResponse>>
+{
+    public async Task<Result<TourReviewResponse>> Handle(UnpublishTourCommand request, CancellationToken cancellationToken)
+    {
+        if (currentUser.UserId is null || currentUser.Role != nameof(UserRole.Administrator))
+            return Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.AdminAccessRequired, "Administrator access is required.");
+        var tour = await dbContext.Tours.SingleOrDefaultAsync(x => x.Id == request.TourId, cancellationToken);
+        if (tour is null) return Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.TourNotFound, "The tour is unavailable.");
+        if (tour.Status != TourStatus.Published)
+            return Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.InvalidState, "Only Published tours can be unpublished.");
+        var now = clock.UtcNow;
+        tour.Unpublish(now);
+        dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(currentUser.UserId.Value, AuditActionTypes.TourUnpublished, AuditEntityTypes.Tour, tour.Id, now, AuditOutcome.Success,
+            beforeData: JsonSerializer.Serialize(new { Status = TourStatus.Published.ToString() }),
+            afterData: JsonSerializer.Serialize(new { Status = tour.Status.ToString(), tour.PublishedAtUtc })));
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return Result.Success(new TourReviewResponse(tour.Id, tour.Status.ToString(), now));
+    }
+}

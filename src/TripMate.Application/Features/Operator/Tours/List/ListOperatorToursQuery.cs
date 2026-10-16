@@ -17,6 +17,7 @@ public sealed record OperatorTourListItemDto(
     string Status,
     decimal BasePrice,
     int DurationDays,
+    int VersionNo,
     DateTimeOffset UpdatedAtUtc,
     DateTimeOffset? NextDepartureAtUtc,
     string Destination);

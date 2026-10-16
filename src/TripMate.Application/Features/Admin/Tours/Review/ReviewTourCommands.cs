@@ -10,4 +10,6 @@ public sealed record RejectTourCommand(long TourId, string Reason) : IRequest<Re
 
 public sealed record PublishTourCommand(long TourId) : IRequest<Result<TourReviewResponse>>;
 
+public sealed record UnpublishTourCommand(long TourId) : IRequest<Result<TourReviewResponse>>;
+
 public sealed record TourReviewResponse(long TourId, string Status, DateTimeOffset ChangedAtUtc);

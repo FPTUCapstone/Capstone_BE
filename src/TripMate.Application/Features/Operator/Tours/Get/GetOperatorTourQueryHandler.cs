@@ -47,6 +47,7 @@ public sealed class GetOperatorTourQueryHandler(
                 candidate.CategoryId,
                 candidate.BasePrice,
                 candidate.DurationDays,
+                candidate.VersionNo,
                 candidate.Status.ToString(),
                 candidate.RejectionReason,
                 candidate.Inclusions,
