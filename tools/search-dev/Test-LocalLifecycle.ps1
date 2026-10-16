@@ -25,7 +25,8 @@ function Search([string]$scenario,[int]$expected,[string]$code='',[int]$count=-1
     $content=if($r.Content-is[byte[]]){[Text.Encoding]::UTF8.GetString($r.Content)}else{$r.Content}
     $body=$content|ConvertFrom-Json
     $pass=[int]$r.StatusCode-eq$expected -and (!$code-or$body.errorCode-eq$code) -and ($count-lt0-or$body.totalCount-eq$count)
-    $script:evidence+=@{scenario=$scenario;status=$(if($pass){'PASS'}else{'FAIL'});http=[int]$r.StatusCode;errorCode=$body.errorCode;traceId=$body.traceId;totalCount=$body.totalCount;ids=@($body.items|ForEach-Object tourId)}
+    $trace=if($body.traceId){$body.traceId}else{$r.Headers.'X-TM70-Trace-Id'|Select-Object -First 1}
+    $script:evidence+=@{scenario=$scenario;status=$(if($pass){'PASS'}else{'FAIL'});http=[int]$r.StatusCode;query='keyword=travel&mode=semantic';errorCode=$body.errorCode;traceId=$trace;totalCount=$body.totalCount;ids=@($body.items|ForEach-Object tourId)}
     if(!$pass){throw "Failed $scenario"}
 }
 try {
