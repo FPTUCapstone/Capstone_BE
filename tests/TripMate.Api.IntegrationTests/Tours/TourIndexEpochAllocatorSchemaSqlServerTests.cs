@@ -723,6 +723,245 @@ public sealed class TourIndexEpochAllocatorSchemaSqlServerTests(ITestOutputHelpe
         act.Should().Throw<InvalidOperationException>();
     }
 
+    [Theory]
+    [InlineData("FdMissing")]
+    [InlineData("GlobUnexpanded")]
+    [InlineData("ReadlinkPermissionMessage")]
+    [InlineData("ProcessGone")]
+    [InlineData("StartTicksInvalid")]
+    [InlineData("ProcessChanged")]
+    [InlineData("NamespaceMismatch")]
+    [InlineData("SocketInodeMismatch")]
+    [InlineData("ReadlinkUnclassified")]
+    public void EA18_FinalDiagnosticSchema_AcceptsExplicitLimitations(string category)
+        => SanitizeForensicProbe($"DIAG|{category}|1").Should().ContainSingle();
+
+    [Theory]
+    [InlineData("Valid", "LINK|2|7|123|1|10|10")]
+    [InlineData("FdMissing", "DIAG|FdMissing|1")]
+    [InlineData("GlobUnexpanded", "DIAG|GlobUnexpanded|1")]
+    [InlineData("ReadlinkPermissionMessage", "DIAG|ReadlinkPermissionMessage|1")]
+    [InlineData("ProcessGone", "DIAG|ProcessGone|1")]
+    [InlineData("StartTicksInvalid", "DIAG|StartTicksInvalid|1")]
+    [InlineData("ProcessChanged", "DIAG|ProcessChanged|1")]
+    [InlineData("NamespaceMismatch", "DIAG|NamespaceMismatch|1")]
+    [InlineData("SocketInodeMismatch", "DIAG|SocketInodeMismatch|1")]
+    [InlineData("ReadlinkUnclassified", "DIAG|ReadlinkUnclassified|1")]
+    [InlineData("StaleSocket", "DIAG|SocketInodeMismatch|1")]
+    [InlineData("ReuseBeforeScan", "DIAG|ProcessChanged|1")]
+    public async Task EA18_ActualProcCollector_DistinguishesSyntheticFailures(string scenario, string expected)
+    {
+        // Execute the actual shipped shell against a synthetic proc tree, never real SQL/Docker.
+        var root = Path.Combine(Path.GetTempPath(), "tm70-forensic-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        static string Stat(int ticks) => "2 (synthetic) S 1 " + string.Join(' ', Enumerable.Repeat("0", 17)) + " " + ticks + "\n";
+        void Put(string relative, string text)
+        {
+            var path = Path.Combine(root, relative); Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, text, new UTF8Encoding(false));
+        }
+        try
+        {
+            Put("stat", "btime 100\n");
+            foreach (var pid in new[] { "1", "2", "self" })
+            {
+                Put(pid + "/stat", Stat(10));
+                Put(pid + "/status", "Uid:\t10001\t10001\t10001\t10001\nNSpid:\t" + (pid == "self" ? "3" : pid) + "\n");
+                Put(pid + "/ns/pid", scenario == "NamespaceMismatch" && pid == "2" ? "pid:[200]\n" : "pid:[100]\n");
+                Put(pid + "/ns/net", "net:[101]\n");
+                Put(pid + "/exe", scenario == "ReuseBeforeScan" && pid == "2" ? "REUSEMETA" : "/opt/mssql/bin/sqlservr\n");
+                Put(pid + "/cgroup", "0::/synthetic\n");
+                Directory.CreateDirectory(Path.Combine(root, pid, "fd"));
+            }
+            Put("net/tcp", "0: 0100007F:8287 0100007F:0599 01 0 0 0 0 0 123\n");
+            Put("net/tcp6", "");
+            Put("1/fd/0", "pipe:[9]");
+            if (scenario != "GlobUnexpanded") Put("2/fd/7", scenario switch
+            {
+                "ReadlinkPermissionMessage" => "DENY",
+                "ProcessGone" => "EXIT",
+                "ProcessChanged" => "REUSE",
+                "SocketInodeMismatch" => "socket:[456]",
+                "StaleSocket" => "STALE",
+                "ReadlinkUnclassified" => "UNKNOWN",
+                _ => "socket:[123]"
+            });
+            if (scenario == "FdMissing") Directory.Delete(Path.Combine(root, "2", "fd"), true);
+            if (scenario == "StartTicksInvalid") Put("2/stat", "2 (synthetic) S 1\n");
+            Put("bin/readlink", """
+                #!/bin/sh
+                [ "$1" != -v ] || shift
+                [ "$1" != -- ] || shift
+                f=$1
+                if [ ! -f "$f" ]; then printf 'readlink: unavailable\n' >&2; exit 1; fi
+                v=$(cat "$f")
+                case "$v" in
+                  DENY) printf 'readlink: Permission denied\n' >&2; exit 1;;
+                  EXIT) rm -f "${f%/fd/*}/stat"; printf 'readlink: No such file or directory\n' >&2; exit 1;;
+                  REUSE) sed 's/ 10$/ 42/' "${f%/fd/*}/stat" > "${f%/fd/*}/changed"; mv "${f%/fd/*}/changed" "${f%/fd/*}/stat"; printf 'socket:[123]\n';;
+                  REUSEMETA) sed 's/ 10$/ 42/' "${f%/exe}/stat" > "${f%/exe}/changed"; mv "${f%/exe}/changed" "${f%/exe}/stat"; printf '/opt/mssql/bin/sqlservr\n';;
+                  STALE) sed 's/ 123$/ 456/' "$TM70_FAKE_PROC/net/tcp" > "$TM70_FAKE_PROC/net/changed"; mv "$TM70_FAKE_PROC/net/changed" "$TM70_FAKE_PROC/net/tcp"; printf 'socket:[123]\n';;
+                  UNKNOWN) printf 'Password=sentinel-diagnostic-private\n' >&2; exit 1;;
+                  *) printf '%s\n' "$v";;
+                esac
+                """);
+            if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(Path.Combine(root, "bin/readlink"), UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            var shell = OperatingSystem.IsWindows() ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Git", "usr", "bin", "sh.exe") : "/bin/sh";
+            var start = new ProcessStartInfo(shell) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+            start.Environment["TM70_FAKE_PROC"] = root.Replace('\\', '/');
+            var separator = OperatingSystem.IsWindows() ? ";" : ":";
+            start.Environment["PATH"] = Path.Combine(root, "bin").Replace('\\', '/') + separator + Path.GetDirectoryName(shell)!.Replace('\\', '/') + separator + start.Environment["PATH"];
+            Put("collector.sh", ForensicProcScript.Replace("/proc", "${TM70_FAKE_PROC}", StringComparison.Ordinal));
+            foreach (var arg in new[] { Path.Combine(root, "collector.sh").Replace('\\', '/'), "33415", "2", "0100007F:8287", "0000000000000000FFFF00000100007F:8287" }) start.ArgumentList.Add(arg);
+            using var process = Process.Start(start)!;
+            var stdout = process.StandardOutput.ReadToEndAsync(); var stderr = process.StandardError.ReadToEndAsync();
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            try { await process.WaitForExitAsync(deadline.Token); }
+            catch { if (!process.HasExited) process.Kill(entireProcessTree: true); throw; }
+            var result = await stdout; var syntheticError = await stderr;
+            var errorKinds = Regex.Matches(syntheticError, @"(?:line [0-9]+|unexpected [a-z]+|not found|bad substitution|syntax error|Illegal number|unbound variable)", RegexOptions.CultureInvariant).Select(x => x.Value).Take(8);
+            process.ExitCode.Should().Be(0, "synthetic shell failure categories: {0}", string.Join(',', errorKinds));
+            result.Should().NotContain("sentinel");
+            SanitizeForensicProbe(result).Should().Contain(expected);
+            if (scenario != "Valid") result.Should().NotContain("LINK|2|7|123|1|");
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Fact]
+    public void EA18_DockerInventory_ParsesOnlyFixedNumericFieldsAndUnzonedStartTime()
+    {
+        var rows = ParseForensicTop("PID PPID UID STARTED\n2341 2330 10001 Fri Oct 16 17:23:57 2026\n");
+        rows.Should().ContainSingle().Which.Should().Be(new ForensicHostProcess(2341, 2330, 10001, "2026-10-16T17:23:57"));
+    }
+
+    [Theory]
+    [InlineData("PID COMMAND\n1 Password=sentinel-private\n")]
+    [InlineData("PID PPID UID STARTED\n1 0 1 bad-date\n")]
+    [InlineData("PID PPID UID STARTED\n0 0 1 Fri Oct 16 17:23:57 2026\n")]
+    public void EA18_DockerInventory_RejectsUnexpectedOrSecretBearingFields(string raw)
+    {
+        var act = () => ParseForensicTop(raw);
+        act.Should().Throw<InvalidOperationException>().Which.Message.Should().NotContain("sentinel");
+    }
+
+    private sealed record ForensicHostProcess(int HostPid, int ParentPid, int Uid, string StartWithoutTimezone);
+    private static ForensicHostProcess[] ParseForensicTop(string raw)
+    {
+        static InvalidOperationException Rejected() => new("Diagnostic inventory schema rejected; raw output withheld.");
+        if (raw.Length > 65536) throw Rejected();
+        var lines = raw.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (lines.Length is < 2 or > 65 || !Regex.IsMatch(lines[0], @"^PID\s+PPID\s+UID\s+STARTED$", RegexOptions.CultureInvariant)) throw Rejected();
+        var result = new List<ForensicHostProcess>();
+        foreach (var line in lines.Skip(1))
+        {
+            var fields = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            if (fields.Length != 8 || !int.TryParse(fields[0], out var pid) || pid <= 0 || !int.TryParse(fields[1], out var parent) || parent < 0
+                || !int.TryParse(fields[2], out var uid) || uid < 0
+                || !DateTime.TryParseExact(string.Join(' ', fields.Skip(3)), "ddd MMM d HH:mm:ss yyyy", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var time)) throw Rejected();
+            result.Add(new(pid, parent, uid, time.ToString("yyyy-MM-ddTHH:mm:ss", System.Globalization.CultureInfo.InvariantCulture)));
+        }
+        if (result.Select(x => x.HostPid).Distinct().Count() != result.Count) throw Rejected();
+        return result.ToArray();
+    }
+
+    [System.Runtime.InteropServices.DllImport("libc", EntryPoint = "readlink", SetLastError = true)]
+    private static extern nint ForensicReadLink(string path, byte[] buffer, nuint size);
+    [System.Runtime.InteropServices.DllImport("libc", EntryPoint = "opendir", SetLastError = true)]
+    private static extern nint ForensicOpenDirectory(string path);
+    [System.Runtime.InteropServices.DllImport("libc", EntryPoint = "closedir")]
+    private static extern int ForensicCloseDirectory(nint directory);
+
+    private static (string? Target, int Errno) ReadForensicLink(string path)
+    {
+        var bytes = new byte[4096];
+        var size = ForensicReadLink(path, bytes, (nuint)bytes.Length);
+        var errno = size < 0 ? System.Runtime.InteropServices.Marshal.GetLastPInvokeError() : 0;
+        return (size is >= 0 and < 4096 ? Encoding.UTF8.GetString(bytes, 0, (int)size) : null, errno);
+    }
+
+    private static async Task<object[]> CaptureForensicHostProcessesAsync(ForensicHostProcess[] inventory, string[] rows, CancellationToken cancellationToken)
+    {
+        // Only daemon-attested PIDs of the already verified container, with the runner's existing UID.
+        var result = new List<object>();
+        var inodeSet = rows.Where(x => x.StartsWith("SOCKET|", StringComparison.Ordinal)).Select(x => x.Split('|')[5]).ToHashSet(StringComparer.Ordinal);
+        var totalFds = 0;
+        foreach (var process in inventory.Take(16))
+        {
+            if (cancellationToken.IsCancellationRequested) break;
+            var root = "/proc/" + process.HostPid.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var fields = new Dictionary<string, object?> { ["HostPid"] = process.HostPid };
+            result.Add(fields); // Preserve sanitized partial-stage evidence on access/race/deadline failure.
+            try
+            {
+                static string Ticks(string stat)
+                {
+                    var close = stat.LastIndexOf(')');
+                    var parts = close < 0 ? [] : stat[(close + 1)..].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    return parts.Length > 19 && ulong.TryParse(parts[19], out var ticks) && ticks > 0 ? ticks.ToString(System.Globalization.CultureInfo.InvariantCulture) : "NA";
+                }
+                async Task<string> Read(string path)
+                {
+                    await using var stream = File.OpenRead(path);
+                    var bytes = new byte[16385]; var size = await stream.ReadAtLeastAsync(bytes, bytes.Length, false, cancellationToken);
+                    if (size == bytes.Length) throw new InvalidOperationException("Bound");
+                    return Encoding.UTF8.GetString(bytes, 0, size);
+                }
+                var before = Ticks(await Read(root + "/stat")); fields["StartTicks"] = before;
+                var status = await Read(root + "/status");
+                fields["CgroupSha256"] = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(await Read(root + "/cgroup")))).ToLowerInvariant();
+                var nspid = status.Split('\n').FirstOrDefault(x => x.StartsWith("NSpid:", StringComparison.Ordinal))?[6..].Trim() ?? "";
+                fields["NSpid"] = Regex.IsMatch(nspid, @"^[0-9]+(?:\s+[0-9]+){0,15}$", RegexOptions.CultureInvariant) ? Regex.Split(nspid, @"\s+").Select(x => int.TryParse(x, out var value) ? value : 0).ToArray() : [];
+                foreach (var ns in new[] { "pid", "net" })
+                {
+                    var link = ReadForensicLink(root + "/ns/" + ns);
+                    fields[ns + "NamespaceErrno"] = link.Errno;
+                    var match = Regex.Match(link.Target ?? "", @"^[a-z]+:\[([0-9]+)\]$", RegexOptions.CultureInvariant);
+                    fields[ns + "Namespace"] = match.Success ? match.Groups[1].Value : "NA";
+                }
+                var exe = ReadForensicLink(root + "/exe"); fields["ExecutableReadErrno"] = exe.Errno;
+                fields["ExecutableKind"] = exe.Target switch { "/opt/mssql/bin/sqlservr" => "SqlServerEngine", "/opt/mssql/bin/sqltelemetry" => "SqlTelemetry", "/opt/mssql/bin/sqlagent" => "SqlAgent", null => "Unavailable", _ => "Other" };
+                fields["ExecutableSha256"] = "NA";
+                try
+                {
+                    await using var executable = File.OpenRead(root + "/exe");
+                    if (executable.Length <= 67108864) fields["ExecutableSha256"] = Convert.ToHexString(await SHA256.HashDataAsync(executable, cancellationToken)).ToLowerInvariant();
+                }
+                catch (Exception) { fields["ExecutableHashUnavailable"] = true; }
+                var directory = ForensicOpenDirectory(root + "/fd");
+                var directoryErrno = directory == 0 ? System.Runtime.InteropServices.Marshal.GetLastPInvokeError() : 0;
+                fields["FdDirectoryErrno"] = directoryErrno;
+                var links = new List<object>(); fields["ExactInodeFdCandidates"] = links;
+                var failures = new Dictionary<int, int>(); fields["FdReadErrnoCounts"] = failures;
+                if (directory != 0)
+                {
+                    ForensicCloseDirectory(directory);
+                    foreach (var path in Directory.EnumerateFileSystemEntries(root + "/fd"))
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (++totalFds > 4096) { fields["FdScanBoundReached"] = true; break; }
+                        if (!int.TryParse(Path.GetFileName(path), out var fd) || fd < 0) continue;
+                        var link = ReadForensicLink(path);
+                        if (link.Errno != 0) { failures[link.Errno] = failures.GetValueOrDefault(link.Errno) + 1; continue; }
+                        var match = Regex.Match(link.Target ?? "", @"^socket:\[([0-9]+)\]$", RegexOptions.CultureInvariant);
+                        if (!match.Success || !inodeSet.Contains(match.Groups[1].Value)) continue;
+                        if (links.Count >= 16) { fields["LinkBoundReached"] = true; break; }
+                        links.Add(new { Fd = fd, Inode = match.Groups[1].Value, FdStable = ReadForensicLink(path).Target == link.Target });
+                    }
+                }
+                var after = Ticks(await Read(root + "/stat"));
+                fields["StartTicksAfter"] = after; fields["ProcessIncarnationStable"] = before != "NA" && before == after;
+                fields["Limitation"] = "Host FD candidates only; correlate namespace, exact socket and fresh executable evidence separately. No authorization.";
+            }
+            catch (Exception)
+            {
+                fields["Incomplete"] = true;
+                fields["FailureKind"] = cancellationToken.IsCancellationRequested ? "Deadline" : "ProcAccessRaceOrUnavailable";
+            }
+        }
+        return result.ToArray();
+    }
+
     private static bool ForensicSocketMatches(string local, string remote, string? clientAddress, int? clientPort)
     {
         static (System.Net.IPAddress Address, int Port) Decode(string value)
@@ -754,6 +993,10 @@ public sealed class TourIndexEpochAllocatorSchemaSqlServerTests(ITestOutputHelpe
         var pattern = "^(?:SOCKET\\|tcp6?\\|" + endpoint + "\\|" + endpoint + "\\|[0-9A-Fa-f]{2}\\|[0-9]+"
             + "|PROCESS\\|[0-9]+\\|[0-9]+\\|[0-9]+\\|(?:SqlServerEngine|SqlTelemetry|SqlAgent|SqlCmd|Shell|Other|Unavailable)\\|" + hash + "\\|" + number + "\\|" + number + "\\|" + hash
             + "|LINK\\|[0-9]+\\|[0-9]+\\|[0-9]+\\|[01]\\|[0-9]+\\|[0-9]+"
+            + "|IDENTITY\\|[0-9]+\\|" + number + "\\|(?:[0-9]+(?:,[0-9]+)*|NA)\\|" + number + "\\|" + number
+            + "|DIAG\\|(?:FdMissing|FdNotEnumerable|GlobUnexpanded|ReadlinkPermissionMessage|ProcessGone|StartTicksInvalid|ProcessChanged|NamespaceMismatch|SocketInodeMismatch|ReadlinkUnclassified)\\|[0-9]+"
+            + "|SCAN\\|[0-9]+\\|[0-9]+\\|[0-9]+"
+            + "|OWNER\\|[0-9]+\\|[0-9]+\\|[0-9]+\\|[0-9]+\\|[a-f0-9]{64}\\|[0-9]+\\|[0-9]+\\|[a-f0-9]{64}"
             + "|PROBE\\|[0-9]+\\|[01]|BOOT\\|[0-9]+\\|[0-9]+|NSROOT\\|" + number + "\\|" + number + "\\|" + hash
             + "|LIMIT\\|(?:ToolsUnavailable|ProcUnavailable|SocketNotFound|FdReadUnavailable|ScanBoundReached|ProcChanged|InvalidPort)\\|[0-9]+)$";
         if (rows.Length > 256 || rows.Any(row => !Regex.IsMatch(row, pattern, RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100))))
@@ -765,69 +1008,119 @@ public sealed class TourIndexEpochAllocatorSchemaSqlServerTests(ITestOutputHelpe
     private static int ForensicCaptured;
     // No cmdline, environ, process comm, healthcheck arguments/output, privilege escalation or writes.
     private const string ForensicProcScript = """
-        port=$1; candidate=$2
+        port=$1; candidate=$2; client4=$3; client6=$4
         for tool in awk readlink sha256sum getconf; do
           command -v "$tool" >/dev/null 2>&1 || { printf 'LIMIT|ToolsUnavailable|0\n'; exit 0; }
         done
         case "$port:$candidate" in *[!0-9:]*|:*) printf 'LIMIT|InvalidPort|0\n'; exit 0;; esac
-        hex=$(printf '%04X' "$port")
+        case "$client4:$client6" in *[!0-9A-F:]*) printf 'LIMIT|InvalidPort|0\n'; exit 0;; esac
         printf 'BOOT|%s|%s\n' "$(awk '$1=="btime" {print $2}' /proc/stat)" "$(getconf CLK_TCK)"
         nsnum() { readlink "$1" 2>/dev/null | awk -F'[][]' 'NF>1 {print $2; found=1} END {if (!found) print "NA"}'; }
         filehash() { value=$(sha256sum "$1" 2>/dev/null | awk '{print $1}'); if [ ${#value} -eq 64 ]; then printf '%s' "$value"; else printf NA; fi; }
         printf 'NSROOT|%s|%s|%s\n' "$(nsnum /proc/1/ns/pid)" "$(nsnum /proc/1/ns/net)" "$(filehash /proc/1/cgroup)"
-        seen=' '
+        rootns=$(nsnum /proc/self/ns/pid)
+        rootnet=$(nsnum /proc/self/ns/net)
+        ticks_of() { awk '{sub(/^.*\) /, ""); print $20}' "$1" 2>/dev/null; }
+        positive() { case "$1" in ''|*[!0-9]*|0) return 1;; *) return 0;; esac; }
+        metadata_count=0; metadata_bound=0
         emit_proc() {
           proc_pid=$1
-          case "$seen" in *" $proc_pid "*) return;; esac
-          seen="$seen$proc_pid "
+          if [ "$metadata_count" -ge 96 ]; then
+            if [ "$metadata_bound" -eq 0 ]; then printf 'LIMIT|ScanBoundReached|96\n'; metadata_bound=1; fi
+            return 1
+          fi
+          metadata_count=$((metadata_count+1))
           if [ ! -r "/proc/$proc_pid/stat" ]; then printf 'LIMIT|ProcUnavailable|%s\n' "$proc_pid"; return; fi
           data=$(awk '{sub(/^.*\) /, ""); print $2, $20}' "/proc/$proc_pid/stat" 2>/dev/null)
           set -- $data; parent=${1:-0}; ticks=${2:-0}
+          uid=$(awk '$1=="Uid:" && $2 ~ /^[0-9]+$/ {print $2;exit}' "/proc/$proc_pid/status" 2>/dev/null)
+          nspid=$(awk '$1=="NSpid:" {for(i=2;i<=NF;i++){if($i !~ /^[0-9]+$/) exit; printf "%s%s",(i==2?"":","),$i}}' "/proc/$proc_pid/status" 2>/dev/null)
+          printf 'IDENTITY|%s|%s|%s|%s|%s\n' "$proc_pid" "${uid:-NA}" "${nspid:-NA}" "$(nsnum /proc/$proc_pid/ns/pid)" "$(nsnum /proc/$proc_pid/ns/net)"
           path=$(readlink "/proc/$proc_pid/exe" 2>/dev/null); tag=Other
           case "$path" in /opt/mssql/bin/sqlservr) tag=SqlServerEngine;; /opt/mssql/bin/sqltelemetry) tag=SqlTelemetry;; /opt/mssql/bin/sqlagent) tag=SqlAgent;; /opt/mssql-tools*/bin/sqlcmd) tag=SqlCmd;; /bin/sh|/bin/bash|/bin/dash|/usr/bin/sh|/usr/bin/bash|/usr/bin/dash) tag=Shell;; '') tag=Unavailable;; esac
           printf 'PROCESS|%s|%s|%s|%s|%s|%s|%s|%s\n' "$proc_pid" "$parent" "$ticks" "$tag" "$(filehash /proc/$proc_pid/exe)" "$(nsnum /proc/$proc_pid/ns/pid)" "$(nsnum /proc/$proc_pid/ns/net)" "$(filehash /proc/$proc_pid/cgroup)"
           again=$(awk '{sub(/^.*\) /, ""); print $20}' "/proc/$proc_pid/stat" 2>/dev/null)
           [ "$again" = "$ticks" ] || printf 'LIMIT|ProcChanged|%s\n' "$proc_pid"
         }
-        for q in "$candidate" 364; do
-          if [ -d "/proc/$q" ]; then printf 'PROBE|%s|1\n' "$q"; emit_proc "$q"; else printf 'PROBE|%s|0\n' "$q"; fi
+        for q in "$candidate"; do
+          if [ -d "/proc/$q" ]; then printf 'PROBE|%s|1\n' "$q"; else printf 'PROBE|%s|0\n' "$q"; fi
         done
         inodes=''
         for table in tcp tcp6; do
           if [ ! -r "/proc/net/$table" ]; then printf 'LIMIT|ProcUnavailable|0\n'; continue; fi
-          awk -v h="$hex" -v t="$table" '($2 ~ ":"h"$" && $3 ~ ":0599$") || ($2 ~ ":0599$" && $3 ~ ":"h"$") {if (++n<=16) print "SOCKET|"t"|"$2"|"$3"|"$4"|"$10}' "/proc/net/$table"
-          found=$(awk -v h="$hex" '$2 ~ ":"h"$" && $3 ~ ":0599$" {if (++n<=16) print $10}' "/proc/net/$table")
+          snapshot=$(awk -v a="$client4" -v b="$client6" -v t="$table" '($2==a || $2==b) && ($3=="0100007F:0599" || $3=="0000000000000000FFFF00000100007F:0599" || $3=="00000000000000000000000001000000:0599") && $4=="01" && $10 ~ /^[0-9]+$/ {if (++n<=16) print "SOCKET|"t"|"$2"|"$3"|"$4"|"$10}' "/proc/net/$table")
+          [ -z "$snapshot" ] || printf '%s\n' "$snapshot"
+          found=$(printf '%s\n' "$snapshot" | awk -F'|' 'NF==6 {print $6}')
           inodes="$inodes $found"
         done
         if [ -z "$(printf '%s' "$inodes" | awk '{$1=$1;print}')" ]; then printf 'LIMIT|SocketNotFound|%s\n' "$candidate"; exit 0; fi
-        nproc=0; nfd=0; denied=0; links=0
+        nproc=0; nfd=0; links=0; readok=0
+        missing=0; notenum=0; glob=0; permissionmessage=0; gone=0; invalidticks=0; changed=0; nsbad=0; inodebad=0; unclassified=0
         for dir in "/proc/$candidate" /proc/[0-9]*; do
           [ -d "$dir" ] || continue
           [ "$dir" != "/proc/$candidate" ] || [ "$nproc" -eq 0 ] || continue
-          nproc=$((nproc+1)); [ "$nproc" -le 256 ] || { printf 'LIMIT|ScanBoundReached|%s\n' "$nproc"; break; }
+          nproc=$((nproc+1)); [ "$nproc" -le 64 ] || { printf 'LIMIT|ScanBoundReached|%s\n' "$nproc"; break; }
           q=${dir#/proc/}
+          if [ ! -r "$dir/stat" ]; then unclassified=$((unclassified+1)); continue; fi
+          scan_ticks=$(ticks_of "$dir/stat")
+          if ! positive "$scan_ticks"; then invalidticks=$((invalidticks+1)); continue; fi
+          emit_proc "$q" || continue
+          if [ "$scan_ticks" != "$(ticks_of "$dir/stat")" ]; then changed=$((changed+1)); continue; fi
+          pns=$(nsnum "$dir/ns/pid"); nns=$(nsnum "$dir/ns/net")
+          if [ "$pns" = NA ] || [ "$nns" = NA ] || [ "$rootns" = NA ] || [ "$rootnet" = NA ] || [ "$pns" != "$rootns" ] || [ "$nns" != "$rootnet" ]; then nsbad=$((nsbad+1)); continue; fi
+          if [ ! -d "$dir/fd" ]; then
+            if [ ! -d "$dir" ]; then gone=$((gone+1)); elif [ "$scan_ticks" != "$(ticks_of "$dir/stat")" ]; then changed=$((changed+1)); elif [ -r "$dir" ] && [ -x "$dir" ]; then missing=$((missing+1)); else unclassified=$((unclassified+1)); fi
+            continue
+          fi
+          if [ ! -r "$dir/fd" ] || [ ! -x "$dir/fd" ]; then notenum=$((notenum+1)); continue; fi
           for fd in "$dir"/fd/*; do
+            case "${fd##*/}" in '*') glob=$((glob+1)); continue;; ''|*[!0-9]*) unclassified=$((unclassified+1)); continue;; esac
             nfd=$((nfd+1)); [ "$nfd" -le 4096 ] || { printf 'LIMIT|ScanBoundReached|%s\n' "$nfd"; break 2; }
-            target=$(readlink "$fd" 2>/dev/null) || { denied=$((denied+1)); continue; }
+            target=$(LC_ALL=C readlink -v -- "$fd" 2>&1); linkrc=$?
+            if [ "$linkrc" -ne 0 ]; then
+              if [ ! -e "$dir/stat" ] && [ -r "$dir" ] && [ -x "$dir" ]; then gone=$((gone+1)); else
+                case "$target" in *'Permission denied'*|*'Operation not permitted'*) permissionmessage=$((permissionmessage+1));; *) unclassified=$((unclassified+1));; esac
+              fi
+              continue
+            fi
+            readok=$((readok+1)); matched=0
             for inode in $inodes; do
               if [ "$target" = "socket:[$inode]" ]; then
-                before=$(awk '{sub(/^.*\) /, ""); print $20}' "$dir/stat" 2>/dev/null)
-                emit_proc "$q"
+                matched=1; before=$scan_ticks
+                if [ ! -r "$dir/stat" ]; then unclassified=$((unclassified+1)); continue; fi
+                ownerexe=$(filehash "$dir/exe"); ownergroup=$(filehash "$dir/cgroup")
+                emit_proc "$q" || continue
                 a=$q; depth=0
                 while [ "$a" -gt 1 ] && [ "$depth" -lt 8 ]; do
                   a=$(awk '{sub(/^.*\) /, ""); print $2}' "/proc/$a/stat" 2>/dev/null)
                   case "$a" in ''|*[!0-9]*) break;; esac
                   emit_proc "$a"; depth=$((depth+1))
                 done
-                after=$(awk '{sub(/^.*\) /, ""); print $20}' "$dir/stat" 2>/dev/null)
-                stable=0; [ "$(readlink "$fd" 2>/dev/null)" = "$target" ] && [ "$before" = "$after" ] && stable=1
-                printf 'LINK|%s|%s|%s|%s|%s|%s\n' "$q" "${fd##*/}" "$inode" "$stable" "${before:-0}" "${after:-0}"
+                after=$(ticks_of "$dir/stat")
+                if ! positive "$after"; then invalidticks=$((invalidticks+1)); continue; fi
+                if [ "$before" != "$after" ]; then changed=$((changed+1)); continue; fi
+                current=0
+                for table in tcp tcp6; do
+                  hit=$(awk -v a="$client4" -v b="$client6" -v ino="$inode" '($2==a || $2==b) && ($3=="0100007F:0599" || $3=="0000000000000000FFFF00000100007F:0599" || $3=="00000000000000000000000001000000:0599") && $4=="01" && $10==ino {print 1;exit}' "/proc/net/$table" 2>/dev/null)
+                  [ "$hit" != 1 ] || current=1
+                done
+                if [ "$current" -ne 1 ]; then inodebad=$((inodebad+1)); continue; fi
+                stable=0
+                if [ "$ownerexe" != NA ] && [ "$ownergroup" != NA ] && [ "$(filehash "$dir/exe")" = "$ownerexe" ] && [ "$(filehash "$dir/cgroup")" = "$ownergroup" ] && [ "$(ticks_of "$dir/stat")" = "$before" ] && [ "$(readlink "$fd" 2>/dev/null)" = "$target" ] && [ "$(nsnum "$dir/ns/pid")" = "$rootns" ] && [ "$(nsnum "$dir/ns/net")" = "$rootnet" ]; then
+                  stable=1
+                  printf 'OWNER|%s|%s|%s|%s|%s|%s|%s|%s\n' "$q" "${fd##*/}" "$inode" "$before" "$ownerexe" "$rootns" "$rootnet" "$ownergroup"
+                fi
+                printf 'LINK|%s|%s|%s|%s|%s|%s\n' "$q" "${fd##*/}" "$inode" "$stable" "$before" "$after"
                 links=$((links+1)); [ "$links" -lt 16 ] || break 3
               fi
             done
+            case "$target" in 'socket:['*']') [ "$matched" -ne 0 ] || inodebad=$((inodebad+1));; esac
           done
         done
-        [ "$denied" -eq 0 ] || printf 'LIMIT|FdReadUnavailable|%s\n' "$denied"
+        printf 'SCAN|%s|%s|%s\n' "$nproc" "$nfd" "$readok"
+        for entry in FdMissing:$missing FdNotEnumerable:$notenum GlobUnexpanded:$glob ReadlinkPermissionMessage:$permissionmessage ProcessGone:$gone StartTicksInvalid:$invalidticks ProcessChanged:$changed NamespaceMismatch:$nsbad SocketInodeMismatch:$inodebad ReadlinkUnclassified:$unclassified; do
+          [ "${entry#*:}" -eq 0 ] || printf 'DIAG|%s|%s\n' "${entry%:*}" "${entry#*:}"
+        done
         """;
 
     private static async Task<string> ForensicDockerAsync(params string[] arguments)
@@ -867,15 +1160,48 @@ public sealed class TourIndexEpochAllocatorSchemaSqlServerTests(ITestOutputHelpe
             using var health = JsonDocument.Parse(await ForensicDockerAsync("inspect", "--format", healthFormat, container));
             report["Container"] = health.RootElement.Clone();
             report["Stage"] = "ContainerReverifiedBeforeProcessProbe";
+            var osProbeClock = Stopwatch.StartNew();
+            ForensicHostProcess[] hostInventory = [];
+            try
+            {
+                hostInventory = ParseForensicTop(await ForensicDockerAsync("top", container, "-eo", "pid,ppid,uid,lstart"));
+                report["HostInventory"] = hostInventory;
+                report["HostInitPidPresent"] = hostInventory.Any(x => x.HostPid == health.RootElement.GetProperty("HostPid").GetInt32());
+            }
+            catch (Exception) { report["HostInventoryLimitation"] = "InventoryUnavailableOrSchemaRejected"; }
             var proofs = LiveOwnedConnectionIds();
             var current = Volatile.Read(ref CurrentOwnedDatabase);
             var first = sessions.FirstOrDefault(x => current is null || !proofs.Contains(x.ConnectionId) || x.Database != current
                 || x.Status != "sleeping" || x.HasRequest || x.OpenTransactions != 0);
             string[] rows = [];
             if (first is not null && first.ClientPort is > 0 and <= 65535 && first.ClientProcessId > 0)
-                rows = SanitizeForensicProbe(await ForensicDockerAsync("exec", container, "sh", "-c", ForensicProcScript, "tm70-read-only-probe", first.ClientPort.Value.ToString(System.Globalization.CultureInfo.InvariantCulture), first.ClientProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+            {
+                var ip = System.Net.IPAddress.Parse(first.ClientAddress ?? "");
+                if (ip.IsIPv4MappedToIPv6) ip = ip.MapToIPv4();
+                string Encode(System.Net.IPAddress address)
+                {
+                    var bytes = address.GetAddressBytes();
+                    for (var i = 0; i < bytes.Length; i += 4) Array.Reverse(bytes, i, 4);
+                    return Convert.ToHexString(bytes) + ":" + first.ClientPort.Value.ToString("X4", System.Globalization.CultureInfo.InvariantCulture);
+                }
+                var ipv4 = ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork ? Encode(ip) : "0:0000";
+                var ipv6 = Encode(ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork ? ip.MapToIPv6() : ip);
+                try
+                {
+                    rows = SanitizeForensicProbe(await ForensicDockerAsync("exec", container, "sh", "-c", ForensicProcScript, "tm70-read-only-probe", first.ClientPort.Value.ToString(System.Globalization.CultureInfo.InvariantCulture), first.ClientProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture), ipv4, ipv6));
+                }
+                catch (Exception) { report["ContainerProcLimitation"] = "ProbeUnavailableTimeoutOrSchemaRejected"; }
+            }
             report["ProbeRows"] = rows;
             report["Stage"] = "ProcessProbeCapturedBeforeSqlRecheck";
+            var remaining = TimeSpan.FromSeconds(30) - osProbeClock.Elapsed;
+            if (remaining > TimeSpan.Zero && hostInventory.Length != 0)
+            {
+                using var hostDeadline = new CancellationTokenSource(remaining < TimeSpan.FromSeconds(5) ? remaining : TimeSpan.FromSeconds(5));
+                report["HostProcProbe"] = await CaptureForensicHostProcessesAsync(hostInventory, rows, hostDeadline.Token);
+                report["HostProbeTruncated"] = hostInventory.Length > 16 || hostDeadline.IsCancellationRequested;
+            }
+            else report["HostProbeLimitation"] = "InventoryOrTimeBudgetUnavailable";
             var after = await ReadSessionsAsync(observer);
             var stable = first is not null && after.Any(x => x.SessionId == first.SessionId && x.ConnectionId == first.ConnectionId && x.ConnectedAt == first.ConnectedAt && x.ClientPort == first.ClientPort && x.ClientAddress == first.ClientAddress
                 && x.ClientProcessId == first.ClientProcessId && x.DatabaseId == first.DatabaseId && x.Database == first.Database
@@ -910,7 +1236,14 @@ public sealed class TourIndexEpochAllocatorSchemaSqlServerTests(ITestOutputHelpe
             report["Limitation"] = "Forensic capture incomplete; earlier sanitized stages retained; fail-closed unchanged";
             report["ErrorType"] = error.GetType().Name;
         }
-        return JsonSerializer.Serialize(report);
+        var serialized = JsonSerializer.Serialize(report);
+        if (serialized.Length > 65536)
+        {
+            report.Remove("Evidence"); report.Remove("HostProcProbe");
+            report["Limitation"] = "Aggregate output bound reached; earlier sanitized stages retained. Policy unchanged.";
+            serialized = JsonSerializer.Serialize(report);
+        }
+        return serialized;
     }
 
     private sealed record IsolationSession(short SessionId, Guid ConnectionId, string Status, string Database, bool HasRequest, int OpenTransactions, int ClientProcessId, string? ClientAddress, int? ClientPort, string Program, string Host, string Login, DateTime ConnectedAt, int? DatabaseId = null);
