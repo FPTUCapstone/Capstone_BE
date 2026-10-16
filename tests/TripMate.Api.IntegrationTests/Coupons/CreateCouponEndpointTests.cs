@@ -138,7 +138,7 @@ public sealed class CreateCouponEndpointTests
         [tourId]);
 
     private static async Task<long> SeedApprovedOperatorAndTourAsync(TripMateApiFactory factory, long operatorId) =>
-        await SeedTourAsync(factory, operatorId, TourStatus.Approved, seedOperator: true);
+        await SeedTourAsync(factory, operatorId, TourStatus.Published, seedOperator: true);
 
     private static async Task<long> SeedTourAsync(
         TripMateApiFactory factory,
