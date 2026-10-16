@@ -19,7 +19,7 @@ public sealed class TravelerPreferencesHandlerTests
     private static readonly DateTimeOffset Now = new(2026, 10, 13, 6, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public async Task GetOptions_ReturnsCategoriesAndTagsOrderedWithoutCommercialCategories()
+    public async Task GetOptions_ReturnsTheFixedInterestContractRegardlessOfPoiData()
     {
         await using var db = CreateDbContext();
         var travelerId = await SeedTravelerAsync(db);
@@ -36,10 +36,9 @@ public sealed class TravelerPreferencesHandlerTests
             .Handle(new GetTravelerPreferenceOptionsQuery(travelerId), CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
-        result.Value.Interests.Should().Equal(
-            new InterestOptionDto("Beach", TravelerPreferenceKeys.InterestSourceCategory),
-            new InterestOptionDto("Museum", TravelerPreferenceKeys.InterestSourceCategory),
-            new InterestOptionDto("street food", TravelerPreferenceKeys.InterestSourceTag));
+        result.Value.Interests.Select(option => option.Key).Should().Equal(
+            "adventure", "architecture", "beach", "culinary", "culture", "heritage",
+            "history", "museum", "nature", "photography", "relaxation", "shopping");
         result.Value.PreferredTransportModes.Should().Equal("Walking", "Motorbike", "Car", "PublicTransit");
         result.Value.TravelPaces.Should().Equal("Relaxed", "Moderate", "Fast");
         result.Value.RiskTolerances.Should().Equal("Low", "Medium", "High");
@@ -47,7 +46,7 @@ public sealed class TravelerPreferencesHandlerTests
     }
 
     [Fact]
-    public async Task GetOptions_WithEmptyCatalogue_ReturnsEmptyInterestList()
+    public async Task GetOptions_WithNoPoiData_StillReturnsTheFixedInterestContract()
     {
         await using var db = CreateDbContext();
         var travelerId = await SeedTravelerAsync(db);
@@ -56,7 +55,9 @@ public sealed class TravelerPreferencesHandlerTests
             .Handle(new GetTravelerPreferenceOptionsQuery(travelerId), CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
-        result.Value.Interests.Should().BeEmpty();
+        result.Value.Interests.Select(option => option.Key).Should().Equal(
+            "adventure", "architecture", "beach", "culinary", "culture", "heritage",
+            "history", "museum", "nature", "photography", "relaxation", "shopping");
     }
 
     [Fact]
@@ -84,7 +85,7 @@ public sealed class TravelerPreferencesHandlerTests
         var result = await new GetTravelerPreferencesQueryHandler(db)
             .Handle(new GetTravelerPreferencesQuery(travelerId), CancellationToken.None);
 
-        result.Value.Interests.Should().Equal("Beach");
+        result.Value.Interests.Should().Equal("beach");
         result.Value.UpdatedAtUtc.Should().Be(Now);
     }
 
@@ -122,7 +123,7 @@ public sealed class TravelerPreferencesHandlerTests
         var result = await CreateUpdateHandler(db).Handle(
             Update(
                 travelerId,
-                interests: ["beach", "STREET FOOD", "Beach"],
+                interests: ["beach", "CULINARY", "Beach"],
                 transport: "motorbike",
                 pace: "moderate",
                 risk: "medium",
@@ -131,14 +132,14 @@ public sealed class TravelerPreferencesHandlerTests
 
         result.IsSuccess.Should().BeTrue();
         result.Value.Should().BeEquivalentTo(new TravelerPreferencesDto(
-            ["Beach", "Street food"],
+            ["beach", "culinary"],
             "Motorbike",
             "Moderate",
             "Medium",
             ["Vegan", "Halal"],
             Now));
         var stored = await db.TravelerProfiles.AsNoTracking().SingleAsync();
-        stored.InterestTagsJson.Should().Be("[\"Beach\",\"Street food\"]");
+        stored.InterestTagsJson.Should().Be("[\"beach\",\"culinary\"]");
         stored.FoodPreferencesJson.Should().Be("[\"Vegan\",\"Halal\"]");
         stored.PreferredTransportMode.Should().Be(TransportMode.Motorbike);
         stored.UpdatedAtUtc.Should().Be(Now);
@@ -230,25 +231,6 @@ public sealed class TravelerPreferencesHandlerTests
     }
 
     [Fact]
-    public async Task Update_WhenSerializedInterestsExceedColumn_FailsWithValueTooLong()
-    {
-        await using var db = CreateDbContext();
-        var travelerId = await SeedTravelerAsync(db);
-        var longNames = Enumerable.Range(0, 10)
-            .Select(index => $"{(char)('a' + index)}{new string('x', 99)}")
-            .ToArray();
-        db.PoiCategories.AddRange(longNames.Select(name => PoiCategory.Create(name, null)));
-        await db.SaveChangesAsync();
-
-        var result = await CreateUpdateHandler(db).Handle(
-            Update(travelerId, interests: longNames),
-            CancellationToken.None);
-
-        result.ErrorCode.Should().Be(TravelerPreferenceErrors.ValueTooLong);
-        (await db.TravelerProfiles.CountAsync()).Should().Be(0);
-    }
-
-    [Fact]
     public async Task Update_DoesNotTouchUserColumns()
     {
         await using var db = CreateDbContext();
@@ -266,12 +248,12 @@ public sealed class TravelerPreferencesHandlerTests
     {
         await using var db = CreateDbContext();
         var travelerId = await SeedTravelerAsync(db);
-        var category = PoiCategory.Create("Natural attraction", null);
+        var category = PoiCategory.Create("nature", null);
         db.PoiCategories.Add(category);
         await db.SaveChangesAsync();
 
         (await CreateUpdateHandler(db).Handle(
-            Update(travelerId, interests: ["natural ATTRACTION"]),
+            Update(travelerId, interests: ["NATURE"]),
             CancellationToken.None)).IsSuccess.Should().BeTrue();
 
         var json = await db.TravelerProfiles.AsNoTracking()

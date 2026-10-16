@@ -34,8 +34,6 @@ public sealed class GetTravelerPreferencesQueryHandler(IApplicationDbContext dbC
             .SingleOrDefaultAsync(
                 candidate => candidate.UserId == request.TravelerUserId,
                 cancellationToken);
-        var catalog = await InterestOptionCatalog.LoadAsync(dbContext, cancellationToken);
-
-        return Result.Success(TravelerPreferenceMapping.ToDto(profile, catalog));
+        return Result.Success(TravelerPreferenceMapping.ToDto(profile, InterestOptionCatalog.Fixed));
     }
 }
