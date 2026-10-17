@@ -51,11 +51,13 @@ public class FakeCurrentUserService : ICurrentUserService
 /// <summary>Reversible only within the test process; never a stand-in for real key management.</summary>
 public class FakePiiProtector : IPiiProtector
 {
-    public string Protect(string plaintext) => $"protected:{plaintext}";
+    // Data Protection ciphertext is materially longer than its plaintext input. Keep this fake
+    // long enough to catch a regression to the old NVARCHAR(50) persistence limit.
+    public string Protect(string plaintext) => $"protected:{plaintext}:{new string('x', 256)}";
 
     public string Unprotect(string protectedValue) =>
         protectedValue.StartsWith("protected:", StringComparison.Ordinal)
-            ? protectedValue["protected:".Length..]
+            ? protectedValue["protected:".Length..].Split(':')[0]
             : throw new FormatException("Value was not protected by FakePiiProtector.");
 }
 
