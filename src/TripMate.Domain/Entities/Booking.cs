@@ -99,6 +99,24 @@ public class Booking : BaseEntity
         return booking;
     }
 
+    /// <summary>
+    /// Moves an unpaid booking out of its soft-reservation state once its server-owned payment
+    /// deadline has passed. The caller releases the same number of seats from its schedule in
+    /// the same transaction. Repeating the operation is intentionally a no-op.
+    /// </summary>
+    public bool ExpirePendingPayment(DateTimeOffset nowUtc)
+    {
+        DateTimeOffset now = nowUtc.ToUniversalTime();
+        if (Status != BookingStatus.PendingPayment || !PaymentExpiresAtUtc.HasValue ||
+            PaymentExpiresAtUtc.Value > now)
+        {
+            return false;
+        }
+
+        Status = BookingStatus.Expired;
+        return true;
+    }
+
     /// <summary>BK-yyyyMMdd-NNNNN, e.g. BK-20261017-00001. Sequence is per-day, assigned by the caller.</summary>
     public static string GenerateCode(DateTimeOffset nowUtc, int dailySequence)
     {

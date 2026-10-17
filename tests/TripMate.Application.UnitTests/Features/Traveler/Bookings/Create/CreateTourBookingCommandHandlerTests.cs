@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Features.Traveler.Bookings.Common;
 using TripMate.Application.Features.Traveler.Bookings.Create;
+using TripMate.Application.Features.Traveler.Bookings.Expiry;
 using TripMate.Application.UnitTests.TestUtilities;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
@@ -130,6 +131,111 @@ public sealed class CreateTourBookingCommandHandlerTests
     }
 
     [Fact]
+    public async Task ExpireDueBookings_ExpiresOnlyDuePendingBookingsAndReleasesCapacityExactlyOnce()
+    {
+        await using var db = TestDbContext.Create();
+        var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
+        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        db.Tours.Add(tour);
+        await db.SaveChangesAsync();
+        var schedule = TourBookingTestData.SeedSchedule(tour, Now.AddDays(5), totalCapacity: 10, reservedCapacity: 0);
+        db.TourSchedules.Add(schedule);
+        await db.SaveChangesAsync();
+
+        var dueBooking = Booking.Create("BK-20261016-00001", traveler.Id, schedule.Id, null, 1_000_000m,
+            0m, 1_000_000m, [BookingParticipant.Create("Due", ParticipantType.Adult, null, null, null, null, null)],
+            Now.AddMinutes(-20), Now.AddMinutes(-5));
+        var stillPendingBooking = Booking.Create("BK-20261017-00001", traveler.Id, schedule.Id, null, 1_000_000m,
+            0m, 1_000_000m, [BookingParticipant.Create("Current", ParticipantType.Adult, null, null, null, null, null)],
+            Now.AddMinutes(-5), Now.AddMinutes(10));
+        schedule.ReserveCapacity(2);
+        db.Bookings.AddRange(dueBooking, stillPendingBooking);
+        await db.SaveChangesAsync();
+
+        var processor = new PendingBookingExpiryProcessor(
+            db, new FakeDateTimeProvider { UtcNow = Now }, Options);
+
+        (await processor.ExpireDueBookingsAsync(CancellationToken.None)).ExpiredCount.Should().Be(1);
+        (await processor.ExpireDueBookingsAsync(CancellationToken.None)).ExpiredCount.Should().Be(0);
+
+        (await db.Bookings.SingleAsync(booking => booking.Id == dueBooking.Id)).Status.Should().Be(BookingStatus.Expired);
+        (await db.Bookings.SingleAsync(booking => booking.Id == stillPendingBooking.Id)).Status.Should().Be(BookingStatus.PendingPayment);
+        (await db.TourSchedules.SingleAsync(item => item.Id == schedule.Id)).ReservedCapacity.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ExpireDueBookings_WhenOneHistoricBookingHasInvalidReservedCapacity_ContinuesOtherBookings()
+    {
+        await using var db = TestDbContext.Create();
+        var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
+        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        db.Tours.Add(tour);
+        await db.SaveChangesAsync();
+        var invalidSchedule = TourBookingTestData.SeedSchedule(
+            tour, Now.AddDays(5), totalCapacity: 10, reservedCapacity: 0);
+        var validSchedule = TourBookingTestData.SeedSchedule(
+            tour, Now.AddDays(6), totalCapacity: 10, reservedCapacity: 0);
+        db.TourSchedules.AddRange(invalidSchedule, validSchedule);
+        await db.SaveChangesAsync();
+
+        var invalidBooking = Booking.Create("BK-20261016-00001", traveler.Id, invalidSchedule.Id, null,
+            1_000_000m, 0m, 1_000_000m,
+            [BookingParticipant.Create("Invalid capacity", ParticipantType.Adult, null, null, null, null, null)],
+            Now.AddMinutes(-20), Now.AddMinutes(-5));
+        var validBooking = Booking.Create("BK-20261016-00002", traveler.Id, validSchedule.Id, null,
+            1_000_000m, 0m, 1_000_000m,
+            [BookingParticipant.Create("Valid capacity", ParticipantType.Adult, null, null, null, null, null)],
+            Now.AddMinutes(-20), Now.AddMinutes(-5));
+        validSchedule.ReserveCapacity(1);
+        db.Bookings.AddRange(invalidBooking, validBooking);
+        await db.SaveChangesAsync();
+
+        var processor = new PendingBookingExpiryProcessor(
+            db, new FakeDateTimeProvider { UtcNow = Now }, Options);
+        PendingBookingExpirySweepResult result = await processor.ExpireDueBookingsAsync(CancellationToken.None);
+
+        result.ExpiredCount.Should().Be(1);
+        result.Failures.Should().ContainSingle(failure =>
+            failure.BookingId == invalidBooking.Id && failure.ExceptionType == nameof(InvalidOperationException));
+        (await db.Bookings.SingleAsync(booking => booking.Id == invalidBooking.Id)).Status
+            .Should().Be(BookingStatus.PendingPayment);
+        (await db.Bookings.SingleAsync(booking => booking.Id == validBooking.Id)).Status
+            .Should().Be(BookingStatus.Expired);
+        (await db.TourSchedules.SingleAsync(schedule => schedule.Id == validSchedule.Id)).ReservedCapacity.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Handle_WhenMaxPendingBookingsHaveExpired_ExpiresThemBeforeApplyingTheUnpaidLimit()
+    {
+        await using var db = TestDbContext.Create();
+        var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
+        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        db.Tours.Add(tour);
+        await db.SaveChangesAsync();
+        var schedule = TourBookingTestData.SeedSchedule(tour, Now.AddDays(5), totalCapacity: 10, reservedCapacity: 0);
+        db.TourSchedules.Add(schedule);
+        await db.SaveChangesAsync();
+
+        for (var index = 0; index < Options.MaxUnpaidBookingsPerTraveler; index++)
+        {
+            var expiredBooking = Booking.Create($"BK-20261016-0000{index + 1}", traveler.Id, schedule.Id, null,
+                1_000_000m, 0m, 1_000_000m,
+                [BookingParticipant.Create($"Expired {index}", ParticipantType.Adult, null, null, null, null, null)],
+                Now.AddMinutes(-20), Now.AddMinutes(-1));
+            schedule.ReserveCapacity(1);
+            db.Bookings.Add(expiredBooking);
+        }
+        await db.SaveChangesAsync();
+
+        var result = await NewHandler(db, traveler.Id).Handle(
+            Command(schedule.Id, [Participant("New booking")]), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        (await db.Bookings.CountAsync(booking => booking.Status == BookingStatus.Expired)).Should().Be(Options.MaxUnpaidBookingsPerTraveler);
+        (await db.TourSchedules.SingleAsync(item => item.Id == schedule.Id)).ReservedCapacity.Should().Be(1);
+    }
+
+    [Fact]
     public async Task Handle_WithValidVoucher_IncrementsUsageAndRecordsRedemption()
     {
         await using var db = TestDbContext.Create();
@@ -183,7 +289,9 @@ public sealed class CreateTourBookingCommandHandlerTests
 
     private static CreateTourBookingCommandHandler NewHandler(TestDbContext db, long travelerId) =>
         new(db, new FakeCurrentUserService { UserId = travelerId, Role = nameof(UserRole.Traveler) },
-            new FakeDateTimeProvider { UtcNow = Now }, Options, new FakePiiProtector());
+            new FakeDateTimeProvider { UtcNow = Now },
+            new PendingBookingExpiryProcessor(db, new FakeDateTimeProvider { UtcNow = Now }, Options),
+            Options, new FakePiiProtector());
 
     private static CreateTourBookingCommand Command(
         long scheduleId, IReadOnlyList<CreateTourBookingParticipantRequest> participants, string? voucherCode = null) =>

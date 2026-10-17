@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Traveler.Bookings.Common;
+using TripMate.Application.Features.Traveler.Bookings.Expiry;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -17,6 +18,7 @@ public sealed class CreateTourBookingCommandHandler(
     IApplicationDbContext dbContext,
     ICurrentUserService currentUser,
     IDateTimeProvider clock,
+    PendingBookingExpiryProcessor expiryProcessor,
     TourBookingOptions options,
     IPiiProtector piiProtector)
     : IRequestHandler<CreateTourBookingCommand, Result<CreateTourBookingResponse>>
@@ -67,6 +69,8 @@ public sealed class CreateTourBookingCommandHandler(
             if (!isActiveTraveler) return AccessDenied();
 
             var now = clock.UtcNow;
+            await expiryProcessor.ExpireDueBookingsForTravelerInCurrentTransactionAsync(
+                travelerId, transactionCancellationToken);
             var fingerprint = ComputeFingerprint(request);
             var existingOperation = await dbContext.TourBookingCreateOperations
                 .Include(operation => operation.Booking)

@@ -142,7 +142,8 @@ public sealed class TripMateApiFactory(
                     && (services[index].ImplementationType == typeof(TripMate.Infrastructure.Reviews.Media.ReviewMediaRecoveryService)
                         || services[index].ImplementationType?.FullName
                             is "TripMate.Infrastructure.Services.TourMediaCleanupBackgroundService"
-                            or "TripMate.Infrastructure.Services.TravelerAvatarCleanupBackgroundService"))
+                            or "TripMate.Infrastructure.Services.TravelerAvatarCleanupBackgroundService"
+                            or "TripMate.Infrastructure.Services.PendingBookingExpiryBackgroundService"))
                 {
                     services.RemoveAt(index);
                 }
@@ -424,6 +425,11 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
         Set<TripMate.Domain.Entities.ServiceProvider>();
     public DbSet<CommercialService> CommercialServices => Set<CommercialService>();
     public DbSet<Voucher> Vouchers => Set<Voucher>();
+    public DbSet<Booking> Bookings => Set<Booking>();
+    public DbSet<BookingParticipant> BookingParticipants => Set<BookingParticipant>();
+    public DbSet<VoucherRedemption> VoucherRedemptions => Set<VoucherRedemption>();
+    public DbSet<TourBookingCreateOperation> TourBookingCreateOperations =>
+        Set<TourBookingCreateOperation>();
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
     public DbSet<Itinerary> Itineraries => Set<Itinerary>();
