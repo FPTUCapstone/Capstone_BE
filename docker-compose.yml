@@ -89,6 +89,7 @@ services:
       # provider configuration must be supplied through the local, git-ignored .env file.
 
       AiRanking__Enabled: ${AiRanking__Enabled:-true}
+      AiRanking__Provider: ${AiRanking__Provider:-Gemini}
       AiRanking__Endpoint: ${AiRanking__Endpoint:-https://generativelanguage.googleapis.com/v1/interactions}
       AiRanking__ApiKey: ${AiRanking__ApiKey:?AiRanking__ApiKey must be set in .env}
       AiRanking__ModelName: ${AiRanking__ModelName:-gemini-3.5-flash-lite}
@@ -96,6 +97,7 @@ services:
       AiRanking__MaxConcurrency: ${AiRanking__MaxConcurrency:-2}
 
       AiExplanation__Enabled: ${AiExplanation__Enabled:-true}
+      AiExplanation__Provider: ${AiExplanation__Provider:-Gemini}
       AiExplanation__Endpoint: ${AiExplanation__Endpoint:-https://generativelanguage.googleapis.com/v1/interactions}
       AiExplanation__ApiKey: ${AiExplanation__ApiKey:?AiExplanation__ApiKey must be set in .env}
       AiExplanation__ModelName: ${AiExplanation__ModelName:-gemini-3.5-flash-lite}
@@ -139,10 +141,70 @@ services:
     ports:
       - "5000:8080"
 
+  # ---------------------------------------------------------------------------------------
+  # Service AI riêng của nhóm (repo Capstone_AI), thay cho Gemini. Chỉ chạy khi bật profile:
+  #   docker compose --profile ai up -d --build
+  # rồi đặt AiRanking__Provider=TripMateAi, AiExplanation__Provider=TripMateAi trong .env.
+  # Mặc định (không có --profile ai) ba service dưới đây không chạy, hệ thống dùng Gemini như cũ.
+  # ---------------------------------------------------------------------------------------
+  ollama:
+    profiles: ["ai"]
+    image: ollama/ollama:latest
+    container_name: tripmate-ollama
+    volumes:
+      - tripmate-ollama-data:/root/.ollama
+    mem_limit: ${OLLAMA_MEM_LIMIT:-6g}
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # One-shot: tải model public hoặc tạo LLM local từ Modelfile/GGUF được mount; model đã có thì bỏ qua.
+  ollama-init:
+    profiles: ["ai"]
+    image: ollama/ollama:latest
+    container_name: tripmate-ollama-init
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: ollama:11434
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3}
+      LLM_MODEL: ${LLM_MODEL:-qwen3:1.7b}
+      LLM_MODELFILE: ${LLM_MODELFILE:-}
+    volumes:
+      - ${TRIPMATE_MODEL_DIR:-../Capstone_AI/models}:/models:ro
+      - ${AI_REPO_PATH:-../Capstone_AI}/scripts/ollama-init.sh:/usr/local/bin/ollama-init.sh:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/ollama-init.sh"]
+    restart: "no"
+
+  ai:
+    profiles: ["ai"]
+    # Build từ repo Capstone_AI clone cạnh repo này (đổi AI_REPO_PATH nếu để chỗ khác),
+    # hoặc nạp sẵn image tripmate-ai:latest bằng docker load.
+    image: tripmate-ai:latest
+    build:
+      context: ${AI_REPO_PATH:-../Capstone_AI}
+    container_name: tripmate-ai
+    environment:
+      # Không dùng ":?" ở đây: Compose nội suy biến cho cả service ngoài profile đang chạy.
+      # Thiếu khóa thì service AI tự từ chối khởi động và báo lỗi trong log.
+      AI_API_KEY: ${TRIPMATE_AI_API_KEY:-}
+      OLLAMA_BASE_URL: http://ollama:11434
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3}
+      LLM_MODEL: ${LLM_MODEL:-qwen3:1.7b}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-9}
+    depends_on:
+      ollama:
+        condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
+
 volumes:
   tripmate-sqlserver-data:
+  tripmate-ollama-data:
 
 networks:
   default:
     name: capstone_be_default
-
