@@ -82,5 +82,40 @@ public class TourSchedule : BaseEntity
         Tour = tour ?? throw new ArgumentNullException(nameof(tour));
     }
 
+    /// <summary>
+    /// BR-63 effective-price policy (UC-27): Adult uses this schedule's override or the tour's
+    /// BasePrice; Child/Infant use their own override or fall back to the resolved Adult price.
+    /// Null on Child/Infant means "no override", never "not permitted" — an age or
+    /// allowed-participant-type rule must be modelled separately, not inferred from this method.
+    /// </summary>
+    public decimal GetEffectivePrice(ParticipantType participantType, decimal tourBasePrice)
+    {
+        var effectiveAdultPrice = AdultPrice ?? tourBasePrice;
+        return participantType switch
+        {
+            ParticipantType.Adult => effectiveAdultPrice,
+            ParticipantType.Child => ChildPrice ?? effectiveAdultPrice,
+            ParticipantType.Infant => InfantPrice ?? effectiveAdultPrice,
+            _ => throw new ArgumentOutOfRangeException(nameof(participantType)),
+        };
+    }
+
+    public int RemainingCapacity => TotalCapacity - ReservedCapacity;
+
+    /// <summary>Soft-reserves seats for a PendingPayment booking (UC-27). Caller must hold a
+    /// row lock/serializable read first; this only re-asserts the invariant, it does not lock.</summary>
+    public void ReserveCapacity(int participantCount)
+    {
+        if (participantCount <= 0) throw new ArgumentOutOfRangeException(nameof(participantCount));
+        if (participantCount > RemainingCapacity)
+            throw new InvalidOperationException("Not enough remaining capacity for this schedule.");
+        ReservedCapacity += participantCount;
+    }
+
+    public bool IsOpenForBooking(DateTimeOffset nowUtc) =>
+        Status == TourScheduleStatus.Scheduled &&
+        (!RegistrationDeadlineAtUtc.HasValue || nowUtc < RegistrationDeadlineAtUtc.Value) &&
+        nowUtc < StartAtUtc;
+
     private static bool HasFraction(decimal? price) => price.HasValue && price.Value != decimal.Truncate(price.Value);
 }

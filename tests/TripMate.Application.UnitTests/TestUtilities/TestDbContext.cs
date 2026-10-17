@@ -80,6 +80,14 @@ public class TestDbContext(
 
     public DbSet<Voucher> Vouchers => Set<Voucher>();
 
+    public DbSet<Booking> Bookings => Set<Booking>();
+
+    public DbSet<BookingParticipant> BookingParticipants => Set<BookingParticipant>();
+
+    public DbSet<VoucherRedemption> VoucherRedemptions => Set<VoucherRedemption>();
+
+    public DbSet<TourBookingCreateOperation> TourBookingCreateOperations => Set<TourBookingCreateOperation>();
+
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
 
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();

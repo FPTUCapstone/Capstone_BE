@@ -225,6 +225,25 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             OperatorTourErrorCodes.ReviewPrerequisitesMissing => StatusCodes.Status422UnprocessableEntity,
             OperatorTourErrorCodes.RejectionReasonInvalid => StatusCodes.Status422UnprocessableEntity,
 
+            TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.AccessRequired =>
+                StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.ScheduleNotFound =>
+                StatusCodes.Status404NotFound,
+            TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.VoucherNotFound =>
+                StatusCodes.Status404NotFound,
+            TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.ScheduleNotOpen or
+                TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.InsufficientCapacity or
+                TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.VoucherUsageLimitReached or
+                TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.TooManyUnpaidBookings or
+                TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.IdempotencyKeyPayloadMismatch =>
+                StatusCodes.Status409Conflict,
+            TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.VoucherNotEligible or
+                TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.VoucherMinimumNotMet or
+                TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.ParticipantsRequired =>
+                StatusCodes.Status422UnprocessableEntity,
+            TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.IdempotencyKeyRequired =>
+                StatusCodes.Status400BadRequest,
+
             TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.ItineraryNotFound =>
                 StatusCodes.Status404NotFound,
 

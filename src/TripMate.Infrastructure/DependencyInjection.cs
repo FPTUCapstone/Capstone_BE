@@ -13,6 +13,7 @@ using TripMate.Application.Common.Media;
 using TripMate.Application.Features.Authentication.PasswordReset;
 using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Navigation.Common;
+using TripMate.Application.Features.Traveler.Bookings.Common;
 using TripMate.Application.Features.PointsOfInterest.ExternalReviews;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Explanation;
@@ -142,6 +143,12 @@ public static class DependencyInjection
         services.AddSingleton(serviceProvider => serviceProvider
             .GetRequiredService<IOptions<SchedulingReservationOptions>>()
             .Value);
+        services.AddOptions<TourBookingOptions>()
+            .Bind(configuration.GetSection(TourBookingOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<TourBookingOptions>, TourBookingOptionsValidator>();
+        services.AddSingleton(serviceProvider =>
+            serviceProvider.GetRequiredService<IOptions<TourBookingOptions>>().Value);
         services.AddOptions<NavigationSessionOptions>()
             .Bind(configuration.GetSection(NavigationSessionOptions.SectionName))
             .ValidateOnStart();
