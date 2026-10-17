@@ -108,6 +108,9 @@ public sealed class TravelerTourBookingExpirySqlServerTests
         context.Users.AddRange(traveler, operatorUser);
         await context.SaveChangesAsync();
 
+        context.OperatorProfiles.Add(CreateApprovedOperatorProfile(operatorUser));
+        await context.SaveChangesAsync();
+
         var tour = (Tour)Activator.CreateInstance(typeof(Tour), nonPublic: true)!;
         Set(tour, nameof(Tour.OperatorUserId), operatorUser.Id);
         Set(tour, nameof(Tour.Title), "SQL booking tour");
@@ -152,6 +155,9 @@ public sealed class TravelerTourBookingExpirySqlServerTests
         context.Users.AddRange(traveler, operatorUser);
         await context.SaveChangesAsync();
 
+        context.OperatorProfiles.Add(CreateApprovedOperatorProfile(operatorUser));
+        await context.SaveChangesAsync();
+
         var tour = (Tour)Activator.CreateInstance(typeof(Tour), nonPublic: true)!;
         Set(tour, nameof(Tour.OperatorUserId), operatorUser.Id);
         Set(tour, nameof(Tour.Title), "Expiry integration tour");
@@ -183,6 +189,16 @@ public sealed class TravelerTourBookingExpirySqlServerTests
     private static void Set<T>(object instance, string property, T value) =>
         instance.GetType().GetProperty(property, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!
             .SetValue(instance, value);
+
+    private static OperatorProfile CreateApprovedOperatorProfile(User operatorUser) => new()
+    {
+        UserId = operatorUser.Id,
+        User = operatorUser,
+        CompanyName = "SQL Booking Test Operator",
+        TaxCode = $"SQL-BOOKING-TAX-{operatorUser.Id}",
+        BusinessLicenseNo = $"SQL-BOOKING-LICENSE-{operatorUser.Id}",
+        ApprovalStatus = OperatorApprovalStatus.Approved,
+    };
 
     private sealed class FixedClock : IDateTimeProvider
     {
