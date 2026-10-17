@@ -13,8 +13,11 @@ internal static class TourBookingTestData
     {
         var user = new User
         {
-            Id = id, Email = $"traveler{id}@test.local", FullName = "Traveler",
-            Role = UserRole.Traveler, Status = AccountStatus.Active,
+            Id = id,
+            Email = $"traveler{id}@test.local",
+            FullName = "Traveler",
+            Role = UserRole.Traveler,
+            Status = AccountStatus.Active,
         };
         db.Users.Add(user);
         await db.SaveChangesAsync();

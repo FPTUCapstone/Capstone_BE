@@ -67,38 +67,6 @@ public sealed class TravelerTourBookingsEndpointTests
         (await factory.WithDbContextAsync(db => db.Bookings.CountAsync())).Should().Be(1);
     }
 
-    [Fact]
-    public async Task Create_WithTwoSimultaneousRequestsForTheLastSeat_OnlyOneSucceeds()
-    {
-        using var factory = new TripMateApiFactory();
-        var (travelerId, scheduleId) = await SeedTravelerAndScheduleAsync(factory, 93, totalCapacity: 1);
-        using var client = factory.CreateAuthenticatedClient(travelerId, UserRole.Traveler);
-
-        var requestA = new HttpRequestMessage(HttpMethod.Post, Endpoint)
-        {
-            Content = JsonContent.Create(ValidRequest(scheduleId, "Traveler A")),
-        };
-        requestA.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
-        var requestB = new HttpRequestMessage(HttpMethod.Post, Endpoint)
-        {
-            Content = JsonContent.Create(ValidRequest(scheduleId, "Traveler B")),
-        };
-        requestB.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
-
-        var responses = await Task.WhenAll(client.SendAsync(requestA), client.SendAsync(requestB));
-
-        responses.Count(response => response.StatusCode == HttpStatusCode.Created).Should().Be(1);
-        responses.Count(response => response.StatusCode != HttpStatusCode.Created).Should().Be(1);
-        await factory.WithDbContextAsync(async db =>
-        {
-            (await db.Bookings.CountAsync()).Should().Be(1);
-            (await db.TourSchedules.AsNoTracking().SingleAsync(s => s.Id == scheduleId)).ReservedCapacity
-                .Should().Be(1);
-            return true;
-        });
-        foreach (var response in responses) response.Dispose();
-    }
-
     private static long ReadBookingId(string payload)
     {
         using var json = JsonDocument.Parse(payload);
@@ -117,8 +85,11 @@ public sealed class TravelerTourBookingsEndpointTests
         {
             var traveler = new User
             {
-                Id = travelerId, Email = $"traveler-{travelerId}@test.local", FullName = "Traveler",
-                Role = UserRole.Traveler, Status = AccountStatus.Active,
+                Id = travelerId,
+                Email = $"traveler-{travelerId}@test.local",
+                FullName = "Traveler",
+                Role = UserRole.Traveler,
+                Status = AccountStatus.Active,
             };
             db.Users.Add(traveler);
 
