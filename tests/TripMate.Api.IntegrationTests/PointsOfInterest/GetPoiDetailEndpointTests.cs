@@ -150,7 +150,7 @@ public class GetPoiDetailEndpointTests
         var responseBody = await response.Content.ReadAsStringAsync();
         using var problem = JsonDocument.Parse(responseBody);
         problem.RootElement.GetProperty("status").GetInt32().Should().Be(500);
-        problem.RootElement.GetProperty("title").GetString().Should().Be("An unexpected error occurred.");
+        problem.RootElement.GetProperty("title").GetString().Should().Be("Hệ thống chưa thể hoàn tất yêu cầu. Vui lòng thử lại.");
         responseBody.Should().NotContain("Simulated database failure");
         responseBody.Should().NotContain("InvalidOperationException");
     }
