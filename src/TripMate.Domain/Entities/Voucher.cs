@@ -129,6 +129,15 @@ public sealed class Voucher : BaseEntity
         UpdatedAtUtc = updatedAtUtc;
     }
 
+    /// <summary>Records one redemption against the global usage_limit (UC-27). Caller is
+    /// responsible for the per-user limit, which this entity cannot see on its own.</summary>
+    public void IncrementUsage()
+    {
+        if (UsageLimit.HasValue && UsedCount >= UsageLimit.Value)
+            throw new InvalidOperationException("This voucher has reached its usage limit.");
+        UsedCount++;
+    }
+
     private static bool IsSupportedMoneyAmount(decimal value) =>
         value >= 0m && value <= MaximumMoneyAmount && value == decimal.Round(value, 2);
 }
