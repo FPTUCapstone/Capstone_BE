@@ -138,55 +138,6 @@ public sealed class Voucher : BaseEntity
         UsedCount++;
     }
 
-    public void Update(string name, VoucherDiscountType discountType, decimal discountValue,
-        decimal? maxDiscountAmount, decimal minOrderAmount, int? usageLimit, int? usageLimitPerUser,
-        DateTimeOffset validFromUtc, DateTimeOffset validToUtc, IReadOnlyCollection<Tour> applicableTours,
-        DateTimeOffset updatedAtUtc)
-    {
-        var replacement = Create(OwnerOperatorUserId ?? throw new InvalidOperationException("Voucher owner is required."),
-            Code, name, discountType, discountValue, maxDiscountAmount, minOrderAmount, usageLimit,
-            usageLimitPerUser, validFromUtc, validToUtc, applicableTours, updatedAtUtc);
-        if (usageLimit.HasValue && usageLimit.Value < UsedCount)
-            throw new ArgumentOutOfRangeException(nameof(usageLimit));
-
-        Name = replacement.Name;
-        DiscountType = replacement.DiscountType;
-        DiscountValue = replacement.DiscountValue;
-        MaxDiscountAmount = replacement.MaxDiscountAmount;
-        MinOrderAmount = replacement.MinOrderAmount;
-        UsageLimit = replacement.UsageLimit;
-        UsageLimitPerUser = replacement.UsageLimitPerUser;
-        ValidFromUtc = replacement.ValidFromUtc;
-        ValidToUtc = replacement.ValidToUtc;
-        _applicableTours.Clear();
-        foreach (var tour in applicableTours)
-            _applicableTours.Add(new VoucherApplicableTour(this, tour));
-        UpdatedAtUtc = updatedAtUtc;
-    }
-
-    public void Deactivate(DateTimeOffset updatedAtUtc)
-    {
-        Status = VoucherStatus.Disabled;
-        UpdatedAtUtc = updatedAtUtc;
-    }
-
-    public void Activate(DateTimeOffset updatedAtUtc)
-    {
-        if (ValidToUtc <= updatedAtUtc)
-            throw new InvalidOperationException("Expired vouchers cannot be activated.");
-        Status = VoucherStatus.Active;
-        UpdatedAtUtc = updatedAtUtc;
-    }
-
-    /// <summary>Records one redemption against the global usage_limit (UC-27). Caller is
-    /// responsible for the per-user limit, which this entity cannot see on its own.</summary>
-    public void IncrementUsage()
-    {
-        if (UsageLimit.HasValue && UsedCount >= UsageLimit.Value)
-            throw new InvalidOperationException("This voucher has reached its usage limit.");
-        UsedCount++;
-    }
-
     private static bool IsSupportedMoneyAmount(decimal value) =>
         value >= 0m && value <= MaximumMoneyAmount && value == decimal.Round(value, 2);
 }
