@@ -95,7 +95,7 @@ public sealed class CreateCouponCommandHandlerTests
         (await db.Vouchers.CountAsync()).Should().Be(0);
     }
 
-    private static CreateCouponCommand Command(long tourId) => new("summer10", VoucherDiscountType.Percentage, 10m, 200_000m, 0m, 5, 1,
+    private static CreateCouponCommand Command(long tourId) => new("summer10", "Summer coupon", VoucherDiscountType.Percentage, 10m, 200_000m, 0m, 5, 1,
         DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(1), [tourId]);
     private static async Task<User> SeedOperatorAsync(TestDbContext db, long id)
     {
