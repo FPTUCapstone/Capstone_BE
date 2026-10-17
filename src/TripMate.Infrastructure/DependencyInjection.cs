@@ -150,6 +150,7 @@ public static class DependencyInjection
         services.AddSingleton<IValidateOptions<TourBookingOptions>, TourBookingOptionsValidator>();
         services.AddSingleton(serviceProvider =>
             serviceProvider.GetRequiredService<IOptions<TourBookingOptions>>().Value);
+        services.AddHostedService<PendingBookingExpiryBackgroundService>();
         services.AddDataProtection();
         services.AddSingleton<IPiiProtector, DataProtectionPiiProtector>();
         services.AddOptions<NavigationSessionOptions>()

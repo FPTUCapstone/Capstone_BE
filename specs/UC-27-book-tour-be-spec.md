@@ -153,6 +153,10 @@ Creation runs in one SQL Server transaction:
 
 Pending-payment capacity is a **soft reservation**. UC-28 confirms payment; cancellation/expiry processing releases the same number of seats in its own transaction. Availability cache may be used for display only and never for a create decision.
 
+### 5.1 Pending-payment expiry
+
+The configured payment deadline is 15 minutes and the configured maximum is three `PendingPayment` bookings per Traveler. A server background worker sweeps up to 100 due bookings every 30 seconds. Each booking is processed in its own serializable transaction: only a row whose status is still `PendingPayment` and whose `payment_expires_at <= now` changes to `Expired`, then exactly `quantity` seats are released from the linked schedule. Repeated sweeps are no-ops. If a historic row violates the reserved-capacity invariant, its transaction rolls back, the failure is logged by booking ID and the worker continues with other due rows; it retries that row on its next sweep. Booking creation performs the same Traveler-scoped expiry sweep before counting unpaid bookings, so a due hold never blocks the allowance while the worker is between polls.
+
 ## 6. Required dependency from UC-26
 
 UC-27 requires a public Traveler-safe tour-detail/departure contract to choose a `tourId` and `tourScheduleId`. Its exact endpoint is owned by UC-26. Until it exists, clients may use a labelled development fixture only; they cannot create a real booking from that fixture.
@@ -161,7 +165,7 @@ UC-27 requires a public Traveler-safe tour-detail/departure contract to choose a
 
 - [ ] Product confirms required participant fields and contact model.
 - [ ] Product approves the effective-price policy: Adult schedule price then BasePrice; Child/Infant override then effective Adult price.
-- [ ] Product confirms unpaid-booking limit and payment expiry.
+- [x] Product confirms a maximum of three unpaid bookings and a 15-minute payment expiry.
 - [ ] Team approves the public tour-detail/departure contract from UC-26.
 - [ ] Team approves SQL Server migration for an idempotency table only if no reusable project mechanism exists.
 - [ ] Backend, Web and Mobile approve the same OpenAPI contract and error mapping.

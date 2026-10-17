@@ -112,6 +112,15 @@ public class TourSchedule : BaseEntity
         ReservedCapacity += participantCount;
     }
 
+    /// <summary>Releases seats previously soft-reserved by a cancelled or expired booking.</summary>
+    public void ReleaseCapacity(int participantCount)
+    {
+        if (participantCount <= 0) throw new ArgumentOutOfRangeException(nameof(participantCount));
+        if (participantCount > ReservedCapacity)
+            throw new InvalidOperationException("Cannot release more capacity than is reserved for this schedule.");
+        ReservedCapacity -= participantCount;
+    }
+
     public bool IsOpenForBooking(DateTimeOffset nowUtc) =>
         Status == TourScheduleStatus.Scheduled &&
         (!RegistrationDeadlineAtUtc.HasValue || nowUtc < RegistrationDeadlineAtUtc.Value) &&

@@ -41,11 +41,11 @@
 
 ## Phase 4 — expiry, release and integration
 
-1. Agree with UC-28 on the payment-confirmation handoff and the transactional release path for cancelled/expired `PendingPayment` bookings.
-2. Implement expiry processing only after an owner and scheduling mechanism are approved. It must lock the booking/schedule and be idempotent.
-3. Publish notifications through a transactional outbox or existing reliable project mechanism; do not publish an event that can survive a rolled-back booking.
+1. Run a server background worker every 30 seconds. It processes a bounded batch of due `PendingPayment` bookings; each booking and its schedule are updated in a separate serializable transaction. The worker marks the booking `Expired` and releases `Booking.Quantity`. A corrupt historic row rolls back and is logged without blocking other rows.
+2. Run the Traveler-scoped expiry path inside booking creation before enforcing the configured limit of three unpaid bookings. The domain transition must be idempotent so a later worker sweep cannot release capacity twice.
+3. No expiry notification is part of UC-27. A future notification use case must use an approved transactional-outbox contract; it is not introduced by this capacity-release slice.
 
-**Tests:** expiry releases exactly once; payment and expiry race yields one final state; notification does not emit on rollback.
+**Tests:** a SQL Server test proves a due booking becomes `Expired` and releases capacity once; an Application test proves due holds are removed before the three-booking limit is applied. UC-28 owns the payment-callback versus expiry race once payment confirmation exists.
 
 ## Definition of done
 
