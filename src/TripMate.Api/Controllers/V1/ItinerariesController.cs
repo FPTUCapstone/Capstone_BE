@@ -13,6 +13,7 @@ using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Itineraries.GetDetail;
 using TripMate.Application.Features.Itineraries.List;
 using TripMate.Application.Features.Itineraries.Regenerate;
+using TripMate.Application.Features.Itineraries.Suggestions;
 using TripMate.Application.Features.Navigation.Common;
 using TripMate.Application.Features.Navigation.Start;
 using TripMate.Domain.Enums;
@@ -148,6 +149,40 @@ public sealed class ItinerariesController(
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 
+    /// <summary>
+    /// Restaurants to add (<c>kind=Food&amp;afterItemId=</c>) or same-category places to swap in
+    /// (<c>kind=Replace&amp;replaceItemId=</c>), each checked against the itinerary before it is shown.
+    /// </summary>
+    [HttpGet("{itineraryId:long}/suggestions")]
+    [ProducesResponseType(typeof(ItinerarySuggestionsDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> GetSuggestions(
+        long itineraryId,
+        [FromQuery] string kind,
+        [FromQuery] long? afterItemId,
+        [FromQuery] long? replaceItemId,
+        CancellationToken cancellationToken)
+    {
+        if (!currentUserService.UserId.HasValue)
+        {
+            return Unauthorized();
+        }
+
+        var result = await Sender.Send(
+            new GetItinerarySuggestionsQuery(
+                itineraryId,
+                currentUserService.UserId.Value,
+                kind,
+                afterItemId,
+                replaceItemId),
+            cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
     [HttpPut("{itineraryId:long}/items")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ValidationProblemDetails), StatusCodes.Status400BadRequest)]
@@ -167,12 +202,19 @@ public sealed class ItinerariesController(
             return Unauthorized();
         }
 
+        if (request.Stops is not null && request.OrderedVisitPoiIds is not null)
+        {
+            ModelState.AddModelError(nameof(request.Stops), "Send either stops or orderedVisitPoiIds, not both.");
+            return ValidationProblem(ModelState);
+        }
+
         var result = await Sender.Send(
             new AdjustItineraryItemsCommand(
                 itineraryId,
                 currentUserService.UserId.Value,
                 idempotencyKey,
-                request.OrderedVisitPoiIds),
+                request.Stops?.Select(stop => stop.PoiId).ToArray() ?? request.OrderedVisitPoiIds ?? [],
+                request.Stops?.Select(stop => new ItineraryStop(stop.PoiId, stop.TransportModeToNext)).ToArray()),
             cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }

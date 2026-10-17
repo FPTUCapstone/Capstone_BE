@@ -36,7 +36,8 @@ BEGIN TRY
 
     DECLARE @PoiSeed TABLE
     (
-        name NVARCHAR(200) NOT NULL,
+        -- Same collation as catalog.POIs.name (20261015_poi_name_accent_insensitive.sql).
+        name NVARCHAR(200) COLLATE Latin1_General_100_CI_AI NOT NULL,
         category_name NVARCHAR(100) NOT NULL,
         latitude DECIMAL(9, 6) NOT NULL,
         longitude DECIMAL(9, 6) NOT NULL,

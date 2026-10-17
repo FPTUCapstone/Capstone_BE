@@ -44,6 +44,25 @@ public sealed class NavigationSessionMutationHandlersTests
     }
 
     [Fact]
+    public async Task Mutations_ReturnEachStopsLegModeFromTheItinerary()
+    {
+        await using var db = CreateDbContext();
+        var seed = await SeedAsync(db);
+
+        var reached = await Reach(db, StartedAtUtc.AddHours(1), seed.SessionId, seed.ItemIds[0], null);
+        var finished = await Finish(db, StartedAtUtc.AddHours(2), seed.SessionId);
+
+        foreach (var result in new[] { reached, finished })
+        {
+            result.IsSuccess.Should().BeTrue();
+            result.Value.Items.Select(item => item.TransportModeFromPrevious).Should().Equal(
+                null,
+                TransportMode.Walking,
+                TransportMode.Car);
+        }
+    }
+
+    [Fact]
     public async Task Reach_OutOfRangeDeviceTimeUsesTheServerClockAndReplayKeepsIt()
     {
         await using var db = CreateDbContext();
@@ -369,7 +388,8 @@ public sealed class NavigationSessionMutationHandlersTests
                 StartedAtUtc.AddHours(index + 2),
                 index == 0,
                 0m,
-                "Planned"));
+                "Planned",
+                transportModeToNext: index == 0 ? TransportMode.Walking : TransportMode.Car));
         }
 
         db.Itineraries.Add(itinerary);

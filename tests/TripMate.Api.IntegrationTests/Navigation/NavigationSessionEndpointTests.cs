@@ -138,7 +138,16 @@ public sealed class NavigationSessionEndpointTests
             db.SchedulingRequests.Add(request);
             await db.SaveChangesAsync();
             var itinerary = Itinerary.CreateCspGenerated(request, "Walking plan", now.AddHours(1), now.AddHours(2));
-            itinerary.AddItem(ItineraryItem.CreateVisit(1, poi.Id, now.AddHours(1), now.AddHours(2), false, 0m, null));
+            itinerary.AddItem(ItineraryItem.CreateVisit(
+                1,
+                poi.Id,
+                now.AddHours(1),
+                now.AddHours(2),
+                false,
+                0m,
+                null,
+                transportModeToNext: TransportMode.Car));
+            itinerary.AddItem(ItineraryItem.CreateVisit(2, poi.Id, now.AddHours(2), now.AddHours(3), false, 0m, null));
             itinerary.Accept(now);
             db.Itineraries.Add(itinerary);
             await db.SaveChangesAsync();
@@ -150,6 +159,10 @@ public sealed class NavigationSessionEndpointTests
         started.StatusCode.Should().Be(HttpStatusCode.Created);
         using var startedJson = await ReadAsync(started);
         startedJson.RootElement.GetProperty("transportMode").GetString().Should().Be("Walking");
+        // The traveler changed the first leg to Car; each stop carries the mode of the leg reaching it.
+        startedJson.RootElement.GetProperty("items").EnumerateArray()
+            .Select(item => item.GetProperty("transportModeFromPrevious").GetString())
+            .Should().Equal(null, "Car");
         var sessionId = startedJson.RootElement.GetProperty("sessionId").GetInt64();
         using var reloaded = await client.GetAsync($"/api/v1/navigation-sessions/{sessionId}");
         (await ReadAsync(reloaded)).RootElement.GetProperty("transportMode").GetString().Should().Be("Walking");

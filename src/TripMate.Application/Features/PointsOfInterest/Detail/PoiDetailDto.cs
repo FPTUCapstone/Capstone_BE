@@ -23,6 +23,9 @@ public sealed record PoiDetailDto(
     bool HasShelter,
     decimal? ScenicScore,
     decimal? PhotoRating,
+    decimal? EstimatedVisitCost,
+    [property: JsonConverter(typeof(StrictStringEnumJsonConverterFactory))]
+    CostKind CostKind,
     decimal? AverageRating,
     int ReviewCount,
     bool IsOpenNow,

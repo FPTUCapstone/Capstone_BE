@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Features.PointsOfInterest.Search;
 using TripMate.Application.UnitTests.TestUtilities;
+using TripMate.Domain.Constants;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -91,6 +92,39 @@ public class SearchSelectablePoisQueryHandlerTests
         result.IsSuccess.Should().BeTrue();
         result.Value.TotalCount.Should().Be(1);
         result.Value.Items.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(true, 1)]
+    [InlineData(false, 2)]
+    public async Task Handle_ExcludeFoodAndDrink_HidesRestaurantsOnlyWhenAsked(bool excludeFoodAndDrink, int expectedCount)
+    {
+        await using var dbContext = TestDbContext.Create();
+        var museums = PoiCategory.Create("Museum", null);
+        var food = PoiCategory.Create(PoiCategoryNames.FoodAndDrink, null);
+        dbContext.PoiCategories.AddRange(museums, food);
+        await dbContext.SaveChangesAsync();
+
+        var museum = CreatePoi(museums, "Cham Museum", 16.043m, 108.222m);
+        var restaurant = CreatePoi(food, "Mi Quang Ba Mua", 16.044m, 108.223m);
+        foreach (var poi in new[] { museum, restaurant })
+        {
+            poi.ConfigurePlanningMetadata(50_000m, "https://example.com/" + poi.Name.Length, SeedTime);
+            poi.AddOpeningHour(PoiOpeningHour.Create(1, new TimeOnly(7, 0), new TimeOnly(21, 0), false));
+        }
+
+        dbContext.PointsOfInterest.AddRange(museum, restaurant);
+        await dbContext.SaveChangesAsync();
+
+        var result = await new SearchSelectablePoisQueryHandler(dbContext).Handle(
+            new SearchSelectablePoisQuery(null, null, null, null, 1, 20, ExcludeFoodAndDrink: excludeFoodAndDrink),
+            CancellationToken.None);
+
+        result.Value.Items.Should().HaveCount(expectedCount);
+        if (excludeFoodAndDrink)
+        {
+            result.Value.Items.Single().Name.Should().Be("Cham Museum");
+        }
     }
 
     private static PointOfInterest CreatePoi(

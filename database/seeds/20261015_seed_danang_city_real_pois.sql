@@ -29,7 +29,8 @@ BEGIN TRY
 
     DECLARE @PoiSeed TABLE
     (
-        name NVARCHAR(200) NOT NULL,
+        -- Same collation as catalog.POIs.name (20261015_poi_name_accent_insensitive.sql).
+        name NVARCHAR(200) COLLATE Latin1_General_100_CI_AI NOT NULL,
         category_name NVARCHAR(100) NOT NULL,
         latitude DECIMAL(9, 6) NOT NULL,
         longitude DECIMAL(9, 6) NOT NULL,
@@ -78,6 +79,13 @@ BEGIN TRY
         (N'VinWonders Nam Hội An', N'Theme park', 15.786494, 108.408451,
             N'Võ Chí Công, Bình Minh, Thăng Bình, Đà Nẵng', 'Mixed', 300, 1, 650000, '09:00', '19:00',
             @Official, N'relaxation');
+
+    -- A fresh database only has the categories of the 20260914 seed; without these rows the MERGE below
+    -- would silently skip every POI of a missing category.
+    INSERT catalog.POICategories (name)
+    SELECT DISTINCT seed.category_name
+    FROM @PoiSeed AS seed
+    WHERE NOT EXISTS (SELECT 1 FROM catalog.POICategories AS category WHERE category.name = seed.category_name);
 
     MERGE catalog.POIs AS target
     USING

@@ -48,6 +48,9 @@ public class PointOfInterest : BaseEntity
 
     public DateTimeOffset? VerifiedAtUtc { get; private set; }
 
+    /// <summary>Tripadvisor (Terra) location id used to show its rating and reviews; null when not linked.</summary>
+    public long? TripadvisorLocationId { get; private set; }
+
     public PointOfInterestStatus Status { get; private set; }
 
     public long? CreatedById { get; private set; }
@@ -136,6 +139,16 @@ public class PointOfInterest : BaseEntity
 
         openingHour.AttachTo(this);
         _openingHours.Add(openingHour);
+    }
+
+    public void LinkTripadvisorLocation(long? locationId)
+    {
+        if (locationId is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(locationId));
+        }
+
+        TripadvisorLocationId = locationId;
     }
 
     public void ConfigurePlanningMetadata(

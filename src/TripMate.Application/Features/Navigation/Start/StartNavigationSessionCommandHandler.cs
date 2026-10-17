@@ -210,6 +210,8 @@ public sealed class StartNavigationSessionCommandHandler(
             .AsNoTracking()
             .Include(session => session.Itinerary)
             .ThenInclude(itinerary => itinerary.SchedulingRequest)
+            .Include(session => session.Itinerary)
+            .ThenInclude(itinerary => itinerary.Items)
             .Include(session => session.Items)
             .SingleOrDefaultAsync(
                 session => session.TravelerUserId == travelerUserId

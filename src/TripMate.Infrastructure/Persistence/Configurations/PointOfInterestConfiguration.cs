@@ -48,6 +48,8 @@ public class PointOfInterestConfiguration : IEntityTypeConfiguration<PointOfInte
         builder.Property(poi => poi.SourceUrl)
             .HasColumnName("source_url")
             .HasMaxLength(PointOfInterest.SourceUrlMaxLength);
+        builder.Property(poi => poi.TripadvisorLocationId)
+            .HasColumnName("tripadvisor_location_id");
         builder.Property(poi => poi.VerifiedAtUtc)
             .HasColumnName("verified_at")
             .AsUtcDateTime2();

@@ -104,6 +104,59 @@ public class ItineraryItemTests
         item.RecommendationReason.Should().Be("Popular cultural stop");
     }
 
+    [Fact]
+    public void CreateVisit_WithLegToNext_StoresDistanceAndTransportMode()
+    {
+        var item = ItineraryItem.CreateVisit(
+            1, 42, Arrival, Departure, false, 40_000m, "Popular cultural stop",
+            travelDurationToNextMinutes: 22,
+            travelDistanceToNextMeters: 9_400,
+            transportModeToNext: TransportMode.Motorbike);
+
+        item.TravelDistanceToNextMeters.Should().Be(9_400);
+        item.TransportModeToNext.Should().Be(TransportMode.Motorbike);
+    }
+
+    [Fact]
+    public void CreateRest_WithLegToNext_StoresDistanceAndTransportMode()
+    {
+        var item = ItineraryItem.CreateRest(
+            2, Arrival, Departure, "Free/rest time",
+            travelDurationToNextMinutes: 3,
+            travelDistanceToNextMeters: 700,
+            transportModeToNext: TransportMode.Walking);
+
+        item.TravelDistanceToNextMeters.Should().Be(700);
+        item.TransportModeToNext.Should().Be(TransportMode.Walking);
+    }
+
+    [Fact]
+    public void CreateVisit_WithoutLegToNext_LeavesDistanceAndModeEmpty()
+    {
+        var item = CreateVisit();
+
+        item.TravelDistanceToNextMeters.Should().BeNull();
+        item.TransportModeToNext.Should().BeNull();
+    }
+
+    [Fact]
+    public void CreateVisit_WithNegativeDistance_Throws()
+    {
+        var action = () => ItineraryItem.CreateVisit(
+            1, 42, Arrival, Departure, false, null, null, travelDistanceToNextMeters: -1);
+
+        action.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void CreateVisit_WithUndefinedTransportMode_Throws()
+    {
+        var action = () => ItineraryItem.CreateVisit(
+            1, 42, Arrival, Departure, false, null, null, transportModeToNext: (TransportMode)99);
+
+        action.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
     private static ItineraryItem CreateVisit() =>
         ItineraryItem.CreateVisit(
             1,

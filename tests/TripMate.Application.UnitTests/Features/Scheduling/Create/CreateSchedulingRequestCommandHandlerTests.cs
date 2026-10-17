@@ -14,6 +14,7 @@ using TripMate.Application.Features.Scheduling.Diagnostics;
 using TripMate.Application.Features.Scheduling.Explanation;
 using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Application.UnitTests.TestUtilities;
+using TripMate.Domain.Constants;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 using TripMate.Infrastructure.Persistence;
@@ -937,6 +938,116 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
             .Should().Equal(first.Value.Items.Select(item => item.TravelDurationToNextMinutes));
         (await dbContext.Itineraries.CountAsync()).Should().Be(1);
         (await dbContext.SchedulingRequests.CountAsync()).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Handle_AttractionStops_ReturnAdmissionTicketCostKindOnFreshAndReplay()
+    {
+        await using var dbContext = TestDbContext.Create();
+        await SeedSelectablePoiAsync(dbContext);
+        var handler = CreateHandler(dbContext);
+        var command = CreateCommand(Guid.NewGuid());
+
+        var first = await handler.Handle(command, CancellationToken.None);
+        var replay = await handler.Handle(command, CancellationToken.None);
+
+        first.Value.Items.Where(item => item.ItemKind == ItineraryItemKind.Visit)
+            .Should().NotBeEmpty()
+            .And.OnlyContain(item => item.CostKind == CostKind.AdmissionTicket);
+        replay.Value.Items.Select(item => item.CostKind)
+            .Should().Equal(first.Value.Items.Select(item => item.CostKind));
+    }
+
+    [Fact]
+    public async Task Handle_PersistsAndReturnsRoadDistanceAndTransportModeOfEachLeg()
+    {
+        await using var dbContext = TestDbContext.Create();
+        await SeedSelectablePoiAsync(dbContext);
+        await SeedSelectablePoiAsync(dbContext, "Dragon Bridge", 16.0615m, 108.2277m);
+        var command = CreateCommand(Guid.NewGuid());
+
+        var result = await CreateHandler(dbContext).Handle(command, CancellationToken.None);
+
+        var returned = result.Value.Items.OrderBy(item => item.SequenceNo).ToArray();
+        returned[0].TravelDistanceToNextMeters.Should().Be(6000);
+        returned[0].TransportModeToNext.Should().Be(command.TransportMode);
+        returned[^1].TravelDistanceToNextMeters.Should().BeNull();
+        var persisted = (await dbContext.Itineraries.Include(item => item.Items).SingleAsync())
+            .Items.OrderBy(item => item.SequenceNo).ToArray();
+        persisted[0].TravelDistanceToNextMeters.Should().Be(6000);
+        persisted[0].TransportModeToNext.Should().Be(command.TransportMode);
+        persisted[^1].TransportModeToNext.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Handle_NeverAutoSchedulesFoodAndDrink()
+    {
+        await using var dbContext = TestDbContext.Create();
+        await SeedSelectablePoiAsync(dbContext);
+        var restaurant = CreateSelectablePoi(
+            PoiCategory.Create(PoiCategoryNames.FoodAndDrink, null),
+            "Mi Quang Ba Mua",
+            16.0472m,
+            108.2069m,
+            "https://example.com/mi-quang");
+        dbContext.PointsOfInterest.Add(restaurant);
+        await dbContext.SaveChangesAsync();
+
+        var result = await CreateHandler(dbContext).Handle(CreateCommand(Guid.NewGuid()), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Items.Select(item => item.PoiId).Should().NotContain(restaurant.Id);
+    }
+
+    [Fact]
+    public async Task Handle_FoodAndDrinkAsMandatory_FailsWithItsOwnCodeAndReplaysIt()
+    {
+        await using var dbContext = TestDbContext.Create();
+        await SeedSelectablePoiAsync(dbContext);
+        var restaurant = CreateSelectablePoi(
+            PoiCategory.Create(PoiCategoryNames.FoodAndDrink, null),
+            "Mi Quang Ba Mua",
+            16.0472m,
+            108.2069m,
+            "https://example.com/mi-quang");
+        dbContext.PointsOfInterest.Add(restaurant);
+        await dbContext.SaveChangesAsync();
+        var handler = CreateHandler(dbContext);
+        var command = CreateCommand(Guid.NewGuid()) with { MandatoryPoiIds = [restaurant.Id] };
+
+        var first = await handler.Handle(command, CancellationToken.None);
+        var replay = await handler.Handle(command, CancellationToken.None);
+
+        first.ErrorCode.Should().Be(SchedulingErrorCodes.MandatoryFoodNotAllowed);
+        replay.ErrorCode.Should().Be(SchedulingErrorCodes.MandatoryFoodNotAllowed);
+        (await dbContext.Itineraries.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Handle_PutsTheOutdoorPlaceInTheCoolMorning()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var museum = PointOfInterest.Create(
+            PoiCategory.Create("Museum", null), "Cham Museum", 16.0471m, 108.2068m, 1, _clock.UtcNow,
+            indoorOutdoor: IndoorOutdoorType.Indoor, averageVisitDurationMinutes: 180, hasShelter: true);
+        var mountain = PointOfInterest.Create(
+            PoiCategory.Create("Natural attraction", null), "Marble Mountains", 16.0472m, 108.2069m, 1, _clock.UtcNow,
+            averageVisitDurationMinutes: 10);
+        foreach (var poi in new[] { museum, mountain })
+        {
+            poi.ConfigurePlanningMetadata(0m, "https://example.com/" + poi.Name.Length, _clock.UtcNow);
+            poi.AddOpeningHour(PoiOpeningHour.Create(2, new TimeOnly(7, 0), new TimeOnly(20, 0), false));
+        }
+
+        dbContext.PointsOfInterest.AddRange(museum, mountain);
+        await dbContext.SaveChangesAsync();
+
+        var result = await CreateHandler(dbContext).Handle(CreateCommand(Guid.NewGuid()), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        VisitPoiIds(result.Value).Should().Equal(mountain.Id, museum.Id);
+        result.Value.Items.Single(item => item.PoiId == mountain.Id).RecommendationReason
+            .Should().Be("Xếp vào buổi sáng khi trời mát, ít đông");
     }
 
     [Fact]
@@ -2478,15 +2589,17 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
             CancellationToken cancellationToken)
         {
             var durations = new int[points.Count, points.Count];
+            var meters = new int[points.Count, points.Count];
             for (var row = 0; row < points.Count; row++)
             {
                 for (var column = 0; column < points.Count; column++)
                 {
                     durations[row, column] = row == column ? 0 : 15;
+                    meters[row, column] = row == column ? 0 : 6000;
                 }
             }
 
-            return Task.FromResult(RouteDurationMatrix.Create(durations));
+            return Task.FromResult(RouteDurationMatrix.Create(durations, unreachable: null, meters: meters));
         }
     }
 
