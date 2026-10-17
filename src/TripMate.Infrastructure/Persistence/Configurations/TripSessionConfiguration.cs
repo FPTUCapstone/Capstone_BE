@@ -21,6 +21,7 @@ public sealed class TripSessionConfiguration : IEntityTypeConfiguration<TripSess
         builder.Property(session => session.CompletionReason).HasColumnName("completion_reason").HasMaxLength(24).IsUnicode(false);
         builder.Property(session => session.CurrentLatitude).HasColumnName("current_latitude").HasPrecision(9, 6);
         builder.Property(session => session.CurrentLongitude).HasColumnName("current_longitude").HasPrecision(9, 6);
+        builder.Property(session => session.CurrentLocationSubjectUserId).HasColumnName("current_location_subject_user_id");
         builder.Property(session => session.StartedAtUtc).HasColumnName("started_at").AsUtcDateTime2();
         builder.Property(session => session.ExpiresAtUtc).HasColumnName("expires_at").AsUtcDateTime2();
         builder.Property(session => session.ExploringItemId).HasColumnName("exploring_item_id");
@@ -30,6 +31,8 @@ public sealed class TripSessionConfiguration : IEntityTypeConfiguration<TripSess
 
         builder.HasOne(session => session.Itinerary).WithMany().HasForeignKey(session => session.ItineraryId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne(session => session.TravelerUser).WithMany().HasForeignKey(session => session.TravelerUserId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(session => session.CurrentLocationSubjectUser).WithMany()
+            .HasForeignKey(session => session.CurrentLocationSubjectUserId).OnDelete(DeleteBehavior.NoAction);
         builder.HasIndex(session => new { session.TravelerUserId, session.FsmState }).HasDatabaseName("IX_TripSessions_Traveler");
         builder.HasIndex(session => session.ItineraryId).HasDatabaseName("IX_TripSessions_Itinerary");
         builder.HasIndex(session => new { session.TravelerUserId, session.StartIdempotencyKey })

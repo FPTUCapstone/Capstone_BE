@@ -110,6 +110,8 @@ public interface IApplicationDbContext
 
     DbSet<TripLocationLog> TripLocationLogs { get; }
 
+    DbSet<TripLocationDisclosureConsent> TripLocationDisclosureConsents { get; }
+
     DbSet<WeatherEvent> WeatherEvents { get; }
 
     DbSet<ReroutingEvent> ReroutingEvents { get; }

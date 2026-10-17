@@ -294,6 +294,8 @@ public class ConfirmPasswordResetFlowTests
 
         DbSet<Domain.Entities.TripLocationLog> IApplicationDbContext.TripLocationLogs => throw new NotSupportedException();
 
+        DbSet<Domain.Entities.TripLocationDisclosureConsent> IApplicationDbContext.TripLocationDisclosureConsents => throw new NotSupportedException();
+
         DbSet<Domain.Entities.WeatherEvent> IApplicationDbContext.WeatherEvents => throw new NotSupportedException();
 
         DbSet<Domain.Entities.ReroutingEvent> IApplicationDbContext.ReroutingEvents => throw new NotSupportedException();

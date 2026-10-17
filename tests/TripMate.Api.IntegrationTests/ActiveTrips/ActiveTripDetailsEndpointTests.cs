@@ -33,10 +33,10 @@ public sealed class ActiveTripDetailsEndpointTests
     }
 
     [Fact]
-    public async Task GetDetails_AdministratorWithUnknownSession_ReturnsNotFound()
+    public async Task GetDetails_StaffWithUnknownSession_ReturnsNotFound()
     {
         await using var factory = new TripMateApiFactory();
-        using var client = factory.CreateAuthenticatedClient(1, UserRole.Administrator);
+        using var client = factory.CreateAuthenticatedClient(1, UserRole.Staff);
 
         var response = await client.GetAsync("/api/v1/admin/trips/active/999");
 
@@ -44,10 +44,21 @@ public sealed class ActiveTripDetailsEndpointTests
     }
 
     [Fact]
-    public async Task GetDetails_NonPositiveSessionId_ReturnsBadRequest()
+    public async Task GetDetails_Administrator_ReturnsForbidden()
     {
         await using var factory = new TripMateApiFactory();
         using var client = factory.CreateAuthenticatedClient(1, UserRole.Administrator);
+
+        var response = await client.GetAsync("/api/v1/admin/trips/active/1");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task GetDetails_NonPositiveSessionId_ReturnsBadRequest()
+    {
+        await using var factory = new TripMateApiFactory();
+        using var client = factory.CreateAuthenticatedClient(1, UserRole.Staff);
 
         // Segments matching {tripId:long} but ≤ 0 reach the validator and fail with 400.
         var zero = await client.GetAsync("/api/v1/admin/trips/active/0");
@@ -61,7 +72,7 @@ public sealed class ActiveTripDetailsEndpointTests
     public async Task GetDetails_MalformedSegment_BypassesRouteAndReturnsNotFound()
     {
         await using var factory = new TripMateApiFactory();
-        using var client = factory.CreateAuthenticatedClient(1, UserRole.Administrator);
+        using var client = factory.CreateAuthenticatedClient(1, UserRole.Staff);
 
         // Non-integer segments never match the {tripId:long} constraint; the framework
         // answers 404 before the application sees the request.

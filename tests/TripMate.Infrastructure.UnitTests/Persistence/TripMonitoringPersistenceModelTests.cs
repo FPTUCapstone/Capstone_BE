@@ -28,9 +28,21 @@ public sealed class TripMonitoringPersistenceModelTests
         log.GetTableName().Should().Be("TripLocationLogs");
         log.GetSchema().Should().Be("trip");
         Column(log, nameof(TripLocationLog.Id)).Should().Be("log_id");
+        Column(log, nameof(TripLocationLog.SubjectUserId)).Should().Be("subject_user_id");
+        log.FindProperty(nameof(TripLocationLog.SubjectUserId))!.IsNullable.Should().BeTrue();
         Column(log, nameof(TripLocationLog.IsOfflineCaptured)).Should().Be("is_offline_captured");
         log.FindProperty(nameof(TripLocationLog.RecordedAtUtc))!.GetValueConverter().Should().NotBeNull();
         log.FindProperty(nameof(TripLocationLog.SyncedAtUtc))!.IsNullable.Should().BeTrue();
+
+        var consent = context.Model.FindEntityType(typeof(TripLocationDisclosureConsent))!;
+        consent.GetTableName().Should().Be("TripLocationDisclosureConsents");
+        consent.GetSchema().Should().Be("trip");
+        Column(consent, nameof(TripLocationDisclosureConsent.Id)).Should().Be("consent_id");
+        Column(consent, nameof(TripLocationDisclosureConsent.Audience)).Should().Be("audience");
+        consent.FindProperty(nameof(TripLocationDisclosureConsent.GrantedAtUtc))!.GetValueConverter()
+            .Should().NotBeNull();
+        consent.FindProperty(nameof(TripLocationDisclosureConsent.RevokedAtUtc))!.IsNullable.Should().BeTrue();
+        consent.FindProperty(nameof(TripLocationDisclosureConsent.Audience))!.GetMaxLength().Should().Be(32);
 
         var weather = context.Model.FindEntityType(typeof(WeatherEvent))!;
         weather.GetTableName().Should().Be("WeatherEvents");

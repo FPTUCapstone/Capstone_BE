@@ -20,6 +20,7 @@ public sealed record ActiveTripDetailDto(
     int Members,
     int OpenAlerts,
     GroupPanelDto[]? GroupPanel,
+    LocationDisclosureDto LocationDisclosure,
     CurrentLocationDto? CurrentLocation,
     ItineraryProgressItemDto[] ItineraryProgress,
     TripStateChangeDto[] StateHistory,
@@ -44,15 +45,20 @@ public sealed record CurrentLocationDto(
     decimal Longitude,
     DateTimeOffset? AsOfUtc);
 
+public sealed record LocationDisclosureDto(
+    string State,
+    int SharedMemberCount,
+    int HiddenMemberCount);
+
 public sealed record ItineraryProgressItemDto(
     string ItemId,
     int SequenceNo,
-    string? PoiId,
-    string? PoiName,
+    string PoiId,
+    string PoiName,
     string ItemKind,
     string Status,
-    DateTimeOffset? PlannedArrivalUtc,
-    DateTimeOffset? PlannedDepartureUtc,
+    DateTimeOffset PlannedArrivalUtc,
+    DateTimeOffset PlannedDepartureUtc,
     int StayDurationMinutes);
 
 public sealed record TripStateChangeDto(

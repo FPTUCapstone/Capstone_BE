@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-Implemented in the local working tree on 2026-09-26; pending commit, push, remote CI, and final browser review.
+Implemented in the local working tree on 2026-09-26. **Amended 2026-10-11:** the approved implementation actor is Staff-only; the conflicting older SRS detail naming Administrator is recorded as `SRS_INTERNAL_CONFLICT` in the UC specifications and must be reconciled before release.
 
 This plan implements only the read-only UC-58 list endpoint defined in [`specs/UC-58-spec.md`](../specs/UC-58-spec.md). UC-59 details, GPS disclosure, trip/group/incident mutation, and operational intervention are excluded.
 
@@ -30,7 +30,7 @@ UC-58 cannot be declared complete while its own SQL Server tests are skipped.
 
 ## Architectural decisions
 
-- Reuse Clean Architecture, MediatR, `Result<T>`, `PaginatedList<T>`, `[Authorize(Roles = "Administrator")]`, `AsNoTracking()`, and the project ProblemDetails pipeline.
+- Reuse Clean Architecture, MediatR, `Result<T>`, `PaginatedList<T>`, `[Authorize(Roles = "Staff")]`, `AsNoTracking()`, and the project ProblemDetails pipeline.
 - Add read mappings for existing SQL objects. Do not add EF migrations or change `tripmate_schema_v7.sql`.
 - Add only the entity/navigation fields needed to query existing columns. No new mutation methods are introduced.
 - Use the project's injected `IDateTimeProvider.UtcNow` for current-day calculation so tests do not depend on wall-clock time. Do not introduce a parallel `.NET TimeProvider` abstraction for this feature.
@@ -111,7 +111,7 @@ Exit: handler matches the spec for InMemory-verifiable behavior and remains read
 
 Tests first:
 
-- Add `tests/TripMate.Api.IntegrationTests/ActiveTrips/ActiveTripsEndpointTests.cs` covering anonymous `401`, non-Admin `403`, Admin `200`, empty `200`, `ActiveTrips.InvalidDateRange` for invalid date criteria, and `ActiveTrips.InvalidFilter` for other invalid filters.
+- Add `tests/TripMate.Api.IntegrationTests/ActiveTrips/ActiveTripsEndpointTests.cs` covering anonymous `401`, non-Staff `403`, Staff `200`, empty `200`, `ActiveTrips.InvalidDateRange` for invalid date criteria, and `ActiveTrips.InvalidFilter` for other invalid filters.
 - Add `ActiveTripsOpenApiTests.cs` for parameter names/defaults/allowed values, string-shaped `tripId`, and documented `200/400/401/403/500` responses.
 
 Production changes:
