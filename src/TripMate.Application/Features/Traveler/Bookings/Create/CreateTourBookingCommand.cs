@@ -31,8 +31,8 @@ public sealed record CreateTourBookingResponse(
     decimal SubtotalAmount,
     decimal DiscountAmount,
     decimal TotalAmount,
-    DateTimeOffset PaymentExpiresAtUtc,
-    DateTimeOffset CreatedAtUtc)
+    [property: JsonPropertyName("paymentExpiresAt")] DateTimeOffset PaymentExpiresAtUtc,
+    [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAtUtc)
 {
     /// <summary>Not serialized; tells the controller whether to answer 201 or 200.</summary>
     [JsonIgnore]

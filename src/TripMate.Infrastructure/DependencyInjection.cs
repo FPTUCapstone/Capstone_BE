@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -149,6 +150,8 @@ public static class DependencyInjection
         services.AddSingleton<IValidateOptions<TourBookingOptions>, TourBookingOptionsValidator>();
         services.AddSingleton(serviceProvider =>
             serviceProvider.GetRequiredService<IOptions<TourBookingOptions>>().Value);
+        services.AddDataProtection();
+        services.AddSingleton<IPiiProtector, DataProtectionPiiProtector>();
         services.AddOptions<NavigationSessionOptions>()
             .Bind(configuration.GetSection(NavigationSessionOptions.SectionName))
             .ValidateOnStart();
