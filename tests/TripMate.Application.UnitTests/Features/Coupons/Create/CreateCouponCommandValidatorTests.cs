@@ -101,7 +101,7 @@ public sealed class CreateCouponCommandValidatorTests
         IReadOnlyCollection<long>? tourIds = null, VoucherDiscountType discountType = VoucherDiscountType.Percentage,
         decimal discountValue = 10m, decimal minOrderAmount = 1_000_000m,
         DateTimeOffset? validFromUtc = null, DateTimeOffset? validToUtc = null) => new(
-        code, discountType, discountValue, maxDiscountAmount, minOrderAmount, 100, 1,
+        code, "Summer coupon", discountType, discountValue, maxDiscountAmount, minOrderAmount, 100, 1,
         validFromUtc ?? Now,
         validToUtc ?? Now.AddDays(7),
         tourIds ?? [1, 2]);
