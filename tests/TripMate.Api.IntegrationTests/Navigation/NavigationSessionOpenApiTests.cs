@@ -63,6 +63,7 @@ public sealed class NavigationSessionOpenApiTests
         item.GetProperty("plannedDepartureUtc").GetProperty("format").GetString().Should().Be("date-time");
         item.GetProperty("isMandatory").GetProperty("type").GetString().Should().Be("boolean");
         item.GetProperty("skippedAtUtc").GetProperty("nullable").GetBoolean().Should().BeTrue();
+        item.TryGetProperty("transportModeFromPrevious", out _).Should().BeTrue();
 
         var progress = schemas.GetProperty("NavigationProgressRequest").GetProperty("properties");
         progress.GetProperty("occurredAtUtc").GetProperty("format").GetString().Should().Be("date-time");

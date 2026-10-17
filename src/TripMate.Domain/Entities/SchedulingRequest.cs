@@ -8,6 +8,18 @@ public class SchedulingRequest : BaseEntity
     public const int RequestHashLength = 64;
     public const int TimeZoneIdMaxLength = 100;
 
+    /// <summary>Shortest trip a Traveler can request: one hour.</summary>
+    public const int MinAvailableMinutes = 60;
+
+    /// <summary>Longest trip a Traveler can request: one continuous window of 72 hours, which may cross midnight.</summary>
+    public const int MaxAvailableMinutes = 72 * 60;
+
+    /// <summary>Smallest "explore around" radius, in kilometres.</summary>
+    public const int MinSearchRadiusKm = 1;
+
+    /// <summary>Largest "explore around" radius, in kilometres (e.g. Da Nang to Hue is about 85 km).</summary>
+    public const int MaxSearchRadiusKm = 100;
+
     private SchedulingRequest()
     {
     }
@@ -113,7 +125,7 @@ public class SchedulingRequest : BaseEntity
                 nameof(endPointOfInterestId));
         }
 
-        if (availableMinutes is < 60 or > 720)
+        if (availableMinutes is < MinAvailableMinutes or > MaxAvailableMinutes)
         {
             throw new ArgumentOutOfRangeException(nameof(availableMinutes));
         }
@@ -123,7 +135,7 @@ public class SchedulingRequest : BaseEntity
             throw new ArgumentOutOfRangeException(nameof(transportMode));
         }
 
-        if (searchRadiusKm is < 1m or > 50m)
+        if (searchRadiusKm is < MinSearchRadiusKm or > MaxSearchRadiusKm)
         {
             throw new ArgumentOutOfRangeException(nameof(searchRadiusKm));
         }
@@ -238,6 +250,22 @@ public class SchedulingRequest : BaseEntity
         }
 
         GenerationLeaseExpiresAtUtc = leaseExpiresAt;
+    }
+
+    /// <summary>
+    /// Drops mandatory places that are not in <paramref name="keptPoiIds"/> any more (the traveler removed or
+    /// replaced them). The mandatory list never grows here.
+    /// </summary>
+    public void KeepOnlyMandatoryPois(IEnumerable<long> keptPoiIds)
+    {
+        ArgumentNullException.ThrowIfNull(keptPoiIds);
+        var kept = keptPoiIds.ToHashSet();
+        var current = System.Text.Json.JsonSerializer.Deserialize<long[]>(MandatoryPoiIdsJson) ?? [];
+        var remaining = current.Where(kept.Contains).ToArray();
+        if (remaining.Length != current.Length)
+        {
+            MandatoryPoiIdsJson = System.Text.Json.JsonSerializer.Serialize(remaining);
+        }
     }
 
     public void CompleteGeneration(Guid ownerId, DateTimeOffset completedAtUtc)

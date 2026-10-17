@@ -223,6 +223,9 @@ public class ConfirmPasswordResetFlowTests
 
         DbSet<Domain.Entities.TourSchedule> IApplicationDbContext.TourSchedules => throw new NotSupportedException();
 
+        DbSet<Domain.Entities.TourItineraryItem> IApplicationDbContext.TourItineraryItems =>
+            throw new NotSupportedException();
+
         DbSet<Domain.Entities.Destination> IApplicationDbContext.Destinations => throw new NotSupportedException();
 
         DbSet<Domain.Entities.TourDestination> IApplicationDbContext.TourDestinations => throw new NotSupportedException();
@@ -294,6 +297,8 @@ public class ConfirmPasswordResetFlowTests
         DbSet<Domain.Entities.WeatherEvent> IApplicationDbContext.WeatherEvents => throw new NotSupportedException();
 
         DbSet<Domain.Entities.ReroutingEvent> IApplicationDbContext.ReroutingEvents => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.Payout> IApplicationDbContext.Payouts => throw new NotSupportedException();
 
         public Task<int> RevokeRefreshTokenAsync(
             string tokenHash,

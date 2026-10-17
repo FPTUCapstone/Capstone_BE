@@ -224,7 +224,6 @@ CREATE TABLE dbo.TravelerProfiles (
     risk_tolerance              VARCHAR(20) NULL CHECK (risk_tolerance IN ('Low','Medium','High')),
     food_preferences_json       NVARCHAR(1000) NULL,   -- JSON array, e.g. ["vegetarian","seafood"]
     interest_tags_json          NVARCHAR(1000) NULL,   -- JSON array of catalog.Tags.name
-    default_budget              DECIMAL(12,2) NULL,
     updated_at                  DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
 );
 GO
@@ -388,6 +387,8 @@ CREATE TABLE catalog.POIs (
     has_shelter                  BIT NOT NULL DEFAULT 0,
     estimated_visit_cost         DECIMAL(12,2) NULL,
     source_url                   NVARCHAR(500) NULL,
+    tripadvisor_location_id      BIGINT NULL
+        CONSTRAINT CK_POIs_TripadvisorLocationId CHECK (tripadvisor_location_id > 0),
     verified_at                  DATETIME2 NULL,
     status                       VARCHAR(10) NOT NULL DEFAULT 'Active' CHECK (status IN ('Active','Inactive')),
     created_by                   BIGINT NULL REFERENCES dbo.Users(user_id),
@@ -399,6 +400,9 @@ CREATE TABLE catalog.POIs (
 GO
 CREATE INDEX IX_POIs_Category ON catalog.POIs(category_id);
 CREATE INDEX IX_POIs_LatLng ON catalog.POIs(latitude, longitude);
+CREATE UNIQUE INDEX UX_POIs_TripadvisorLocationId
+    ON catalog.POIs(tripadvisor_location_id)
+    WHERE tripadvisor_location_id IS NOT NULL;
 GO
 
 CREATE TABLE catalog.POIOpeningHours (
@@ -503,6 +507,8 @@ GO
 CREATE TABLE commerce.Tours (
     tour_id             BIGINT IDENTITY(1,1) PRIMARY KEY,
     operator_user_id    BIGINT NOT NULL REFERENCES dbo.OperatorProfiles(user_id),
+    version_root_tour_id BIGINT NULL CONSTRAINT FK_Tours_VersionRoot REFERENCES commerce.Tours(tour_id),
+    version_no           INT NOT NULL DEFAULT 1 CHECK (version_no > 0),
     category_id           INT NULL,
     title                NVARCHAR(200) NOT NULL,
     description           NVARCHAR(MAX) NULL,
@@ -526,6 +532,8 @@ CREATE TABLE commerce.Tours (
 );
 GO
 CREATE INDEX IX_Tours_Operator ON commerce.Tours(operator_user_id);
+CREATE UNIQUE INDEX UX_Tours_VersionLineage ON commerce.Tours(version_root_tour_id, version_no)
+    WHERE version_root_tour_id IS NOT NULL;
 CREATE INDEX IX_Tours_Status ON commerce.Tours(status);
 CREATE INDEX IX_Tours_Category ON commerce.Tours(category_id);
 GO
@@ -853,6 +861,8 @@ CREATE TABLE planning.ItineraryItems (
     transport_mode_to_next                 VARCHAR(20) NULL
         CHECK (transport_mode_to_next IN ('Walking','Motorbike','Car','PublicTransit')),
     travel_duration_to_next_minutes         INT NULL,
+    travel_distance_to_next_meters          INT NULL
+        CONSTRAINT CK_ItineraryItems_TravelDistance CHECK (travel_distance_to_next_meters >= 0),
     status                                   VARCHAR(10) NOT NULL DEFAULT 'Planned'
         CHECK (status IN ('Planned','Visited','Skipped')),
     CONSTRAINT UQ_ItineraryItems UNIQUE (itinerary_id, sequence_no),
@@ -1047,6 +1057,7 @@ CREATE TABLE commerce.Vouchers (
     voucher_id                BIGINT IDENTITY(1,1) PRIMARY KEY,
     owner_operator_user_id      BIGINT NULL REFERENCES dbo.OperatorProfiles(user_id),
     code                          VARCHAR(30) NOT NULL UNIQUE,
+    name                          NVARCHAR(120) NOT NULL,
     discount_type                   VARCHAR(10) NOT NULL CHECK (discount_type IN ('Percentage','Flat')),
     discount_value                    DECIMAL(12,2) NOT NULL CHECK (discount_value > 0),
     max_discount_amount                 DECIMAL(12,2) NULL,   -- NEW in v2: caps a Percentage discount's absolute value
@@ -1059,6 +1070,7 @@ CREATE TABLE commerce.Vouchers (
     status                                            VARCHAR(10) NOT NULL DEFAULT 'Active'
         CHECK (status IN ('Active','Expired','Disabled')),
     created_at                                          DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    updated_at                                          DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
     CONSTRAINT CK_Vouchers_ValidWindow CHECK (valid_to > valid_from),
     CONSTRAINT CK_Vouchers_UsageWithinLimit CHECK (usage_limit IS NULL OR used_count <= usage_limit)
 );
@@ -1231,16 +1243,47 @@ CREATE TABLE payment.Payouts (
     gross_revenue                   DECIMAL(14,2) NOT NULL CHECK (gross_revenue >= 0),
     commission_amount                 DECIMAL(14,2) NOT NULL CHECK (commission_amount >= 0),
     net_amount                          DECIMAL(14,2) NOT NULL CHECK (net_amount >= 0),
-    status                                 VARCHAR(12) NOT NULL DEFAULT 'Pending'
-        CHECK (status IN ('Pending','Requested','Confirmed','Paid','Rejected')),
+    status                                 VARCHAR(24) NOT NULL CONSTRAINT DF_Payouts_Status DEFAULT 'PendingReview'
+        CONSTRAINT CK_Payouts_Status CHECK (status IN ('PendingReview','ApprovedForSettlement','SettlementProcessing','Settled','SettlementFailed','Rejected')),
     requested_at                             DATETIME2 NULL,
-    confirmed_by                               BIGINT NULL REFERENCES dbo.Users(user_id),
-    confirmed_at                                 DATETIME2 NULL,
+    reviewed_by                              BIGINT NULL REFERENCES dbo.Users(user_id),
+    reviewed_at                              DATETIME2 NULL,
+    rejection_reason                         NVARCHAR(500) NULL,
+    settlement_authorized_by                 BIGINT NULL REFERENCES dbo.Users(user_id),
+    settlement_authorized_at                 DATETIME2 NULL,
+    gateway_reference                        NVARCHAR(200) NULL,
+    gateway_failure_reason                   NVARCHAR(500) NULL,
+    gateway_attempt_count                    INT NOT NULL CONSTRAINT DF_Payouts_GatewayAttemptCount DEFAULT 0,
+    last_gateway_attempt_at                  DATETIME2 NULL,
     CONSTRAINT CK_Payouts_PeriodOrder CHECK (period_end >= period_start),
-    CONSTRAINT CK_Payouts_NetAmount CHECK (net_amount = gross_revenue - commission_amount)
+    CONSTRAINT CK_Payouts_NetAmount CHECK (net_amount = gross_revenue - commission_amount),
+    CONSTRAINT CK_Payouts_LifecycleState CHECK (
+        gateway_attempt_count >= 0
+        AND ((status = 'PendingReview' AND reviewed_by IS NULL AND reviewed_at IS NULL AND rejection_reason IS NULL
+              AND settlement_authorized_by IS NULL AND settlement_authorized_at IS NULL AND gateway_reference IS NULL
+              AND gateway_failure_reason IS NULL AND gateway_attempt_count = 0 AND last_gateway_attempt_at IS NULL)
+          OR (status = 'ApprovedForSettlement' AND reviewed_by IS NOT NULL AND reviewed_at IS NOT NULL AND rejection_reason IS NULL
+              AND settlement_authorized_by IS NULL AND settlement_authorized_at IS NULL AND gateway_reference IS NULL
+              AND gateway_failure_reason IS NULL AND gateway_attempt_count = 0 AND last_gateway_attempt_at IS NULL)
+          OR (status = 'Rejected' AND reviewed_by IS NOT NULL AND reviewed_at IS NOT NULL AND rejection_reason IS NOT NULL
+              AND settlement_authorized_by IS NULL AND settlement_authorized_at IS NULL AND gateway_reference IS NULL
+              AND gateway_failure_reason IS NULL AND gateway_attempt_count = 0 AND last_gateway_attempt_at IS NULL)
+          OR (status = 'SettlementProcessing' AND reviewed_by IS NOT NULL AND reviewed_at IS NOT NULL AND rejection_reason IS NULL
+              AND settlement_authorized_by IS NOT NULL AND settlement_authorized_at IS NOT NULL AND gateway_failure_reason IS NULL)
+          OR (status = 'Settled' AND reviewed_by IS NOT NULL AND reviewed_at IS NOT NULL AND rejection_reason IS NULL
+              AND settlement_authorized_by IS NOT NULL AND settlement_authorized_at IS NOT NULL AND gateway_reference IS NOT NULL
+              AND gateway_failure_reason IS NULL AND gateway_attempt_count >= 1 AND last_gateway_attempt_at IS NOT NULL)
+          OR (status = 'SettlementFailed' AND reviewed_by IS NOT NULL AND reviewed_at IS NOT NULL AND rejection_reason IS NULL
+              AND settlement_authorized_by IS NOT NULL AND settlement_authorized_at IS NOT NULL AND gateway_failure_reason IS NOT NULL
+              AND gateway_attempt_count >= 1 AND last_gateway_attempt_at IS NOT NULL))
+    )
 );
 GO
 CREATE INDEX IX_Payouts_Operator ON payment.Payouts(operator_user_id, status);
+GO
+CREATE UNIQUE INDEX UX_Payouts_ActiveOperatorPeriod
+    ON payment.Payouts(operator_user_id, period_start, period_end)
+    WHERE status IN ('PendingReview','ApprovedForSettlement','SettlementProcessing');
 GO
 
 CREATE TABLE payment.PayoutItems (
@@ -1531,6 +1574,10 @@ CREATE UNIQUE INDEX UX_TripReviews_CommerceBooking
     ON social.TripReviews(booking_id) WHERE booking_id IS NOT NULL;
 CREATE UNIQUE INDEX UX_TripReviews_ServiceBooking
     ON social.TripReviews(service_booking_id) WHERE service_booking_id IS NOT NULL;
+CREATE INDEX IX_TripReviews_TourPublicationRating
+    ON social.TripReviews(tour_id, publication_status)
+    INCLUDE (overall_rating)
+    WHERE tour_id IS NOT NULL;
 GO
 
 CREATE TABLE social.TripReviewMediaOperations (

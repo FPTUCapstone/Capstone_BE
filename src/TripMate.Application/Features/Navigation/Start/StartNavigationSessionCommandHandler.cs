@@ -129,7 +129,14 @@ public sealed class StartNavigationSessionCommandHandler(
             .ToArray();
 
         var now = clock.UtcNow;
-        var windowStartUtc = snapshot.Min(item => item.PlannedArrivalUtc) - _options.EarlyStartWindow;
+        // The window opens before the planned departure, not before the first stop: a trip that
+        // leaves at 01:46 to reach a place opening at 07:00 must be navigable from 01:46.
+        // Manual itineraries have no departure time and fall back to the first stop.
+        var firstArrivalUtc = snapshot.Min(item => item.PlannedArrivalUtc);
+        var departureUtc = itinerary.ValidFromUtc is { } validFrom && validFrom < firstArrivalUtc
+            ? validFrom
+            : firstArrivalUtc;
+        var windowStartUtc = departureUtc - _options.EarlyStartWindow;
         var expiresAtUtc = snapshot.Max(item => item.PlannedDepartureUtc) + _options.ExpiryGracePeriod;
         if (now < windowStartUtc || now >= expiresAtUtc)
         {
@@ -203,6 +210,8 @@ public sealed class StartNavigationSessionCommandHandler(
             .AsNoTracking()
             .Include(session => session.Itinerary)
             .ThenInclude(itinerary => itinerary.SchedulingRequest)
+            .Include(session => session.Itinerary)
+            .ThenInclude(itinerary => itinerary.Items)
             .Include(session => session.Items)
             .SingleOrDefaultAsync(
                 session => session.TravelerUserId == travelerUserId

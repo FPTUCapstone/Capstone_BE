@@ -14,7 +14,7 @@ namespace TripMate.Infrastructure.UnitTests.Routing;
 public class OpenRouteServiceRouteDurationProviderTests
 {
     [Fact]
-    public async Task GetMatrixAsync_ForMotorbike_UsesDrivingCarAndConvertsSecondsToMinutes()
+    public async Task GetMatrixAsync_ForMotorbike_UsesDrivingCarAndTheDefaultMotorbikeFactor()
     {
         using var handler = new StubHttpMessageHandler("""
             { "durations": [[0, 600], [600, 0]] }
@@ -39,7 +39,7 @@ public class OpenRouteServiceRouteDurationProviderTests
         handler.Request!.RequestUri!.AbsolutePath.Should().Be("/v2/matrix/driving-car");
         handler.Request.Headers.Authorization!.Scheme.Should().Be("Bearer");
         handler.Request.Headers.Authorization.Parameter.Should().Be("test-key");
-        matrix.GetMinutes(0, 1).Should().Be(10);
+        matrix.GetMinutes(0, 1).Should().Be(9); // 600 s x 0.9 = 540 s
     }
 
     [Fact]
@@ -134,6 +134,28 @@ public class OpenRouteServiceRouteDurationProviderTests
     }
 
     [Fact]
+    public async Task GetMatrixAsync_WhenProviderFindsNoRoute_MarksThePairUnreachable()
+    {
+        // ORS answers null for a point it cannot snap to a road (e.g. Ba Na Hills' mountain top).
+        using var handler = new StubHttpMessageHandler("""
+            { "durations": [[0, 600, null], [600, 0, null], [null, null, null]] }
+            """);
+        using var client = CreateClient(handler);
+        var provider = CreateProvider(client);
+
+        var matrix = await provider.GetMatrixAsync(
+            [new RoutePoint(16.04m, 108.22m), new RoutePoint(16.05m, 108.23m), new RoutePoint(15.99m, 107.98m)],
+            TransportMode.Car,
+            CancellationToken.None);
+
+        matrix.HasUnreachablePairs.Should().BeTrue();
+        matrix.GetMinutes(0, 1).Should().Be(10);
+        matrix.IsReachable(0, 2).Should().BeFalse();
+        matrix.IsReachable(2, 1).Should().BeFalse();
+        matrix.IsReachable(2, 2).Should().BeTrue();
+    }
+
+    [Fact]
     public async Task GetMatrixAsync_WhenResponseHasInvalidMatrixShape_ThrowsControlledProviderFailure()
     {
         using var handler = new StubHttpMessageHandler("""{ "durations": [[0]] }""");
@@ -172,6 +194,80 @@ public class OpenRouteServiceRouteDurationProviderTests
         await act.Should().ThrowAsync<NotSupportedException>().WithMessage("unexpected");
     }
 
+    [Fact]
+    public async Task GetMatrixAsync_RequestsDurationAndDistance_AndReturnsRoundedMeters()
+    {
+        using var handler = new StubHttpMessageHandler("""
+            { "durations": [[0, 1320], [1320, 0]], "distances": [[0, 9400.6], [9399.4, 0]] }
+            """);
+        using var client = CreateClient(handler);
+
+        var matrix = await CreateProvider(client).GetMatrixAsync(ValidPoints(), TransportMode.Car, CancellationToken.None);
+
+        handler.RequestBody.Should().Contain("\"metrics\":[\"duration\",\"distance\"]");
+        matrix.GetMinutes(0, 1).Should().Be(22);
+        matrix.GetMeters(0, 1).Should().Be(9401);
+        matrix.GetMeters(1, 0).Should().Be(9399);
+    }
+
+    [Fact]
+    public async Task GetMatrixAsync_WhenProviderOmitsDistances_ReturnsDurationsWithoutMeters()
+    {
+        using var handler = new StubHttpMessageHandler("""{ "durations": [[0, 600], [600, 0]] }""");
+        using var client = CreateClient(handler);
+
+        var matrix = await CreateProvider(client).GetMatrixAsync(ValidPoints(), TransportMode.Car, CancellationToken.None);
+
+        matrix.GetMinutes(0, 1).Should().Be(10);
+        matrix.GetMeters(0, 1).Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetMatrixAsync_WhenProviderFindsNoRoute_ReturnsNoMetersForThatPair()
+    {
+        using var handler = new StubHttpMessageHandler("""
+            { "durations": [[0, 600, null], [600, 0, null], [null, null, null]],
+              "distances": [[0, 5000, null], [5000, 0, null], [null, null, null]] }
+            """);
+        using var client = CreateClient(handler);
+
+        var matrix = await CreateProvider(client).GetMatrixAsync(
+            [new RoutePoint(16.04m, 108.22m), new RoutePoint(16.05m, 108.23m), new RoutePoint(16.06m, 108.24m)],
+            TransportMode.Car,
+            CancellationToken.None);
+
+        matrix.GetMeters(0, 1).Should().Be(5000);
+        matrix.GetMeters(0, 2).Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData(TransportMode.Motorbike, 0.9, 20)]
+    [InlineData(TransportMode.Car, 0.9, 22)]
+    [InlineData(TransportMode.Motorbike, 1.0, 22)]
+    public async Task GetMatrixAsync_AppliesTheMotorbikeDurationFactorOnlyToMotorbike(
+        TransportMode mode,
+        double factor,
+        int expectedMinutes)
+    {
+        using var handler = new StubHttpMessageHandler("""
+            { "durations": [[0, 1320], [1320, 0]], "distances": [[0, 9400], [9400, 0]] }
+            """);
+        using var client = CreateClient(handler);
+        var provider = new OpenRouteServiceRouteDurationProvider(
+            client,
+            Options.Create(new OpenRouteServiceOptions
+            {
+                BaseUrl = "https://ors.example/",
+                ApiKey = "test-key",
+                MotorbikeDurationFactor = factor,
+            }));
+
+        var matrix = await provider.GetMatrixAsync(ValidPoints(), mode, CancellationToken.None);
+
+        matrix.GetMinutes(0, 1).Should().Be(expectedMinutes);
+        matrix.GetMeters(0, 1).Should().Be(9400);
+    }
+
     private static HttpClient CreateClient(HttpMessageHandler handler) => new(handler)
     {
         BaseAddress = new Uri("https://ors.example/"),
@@ -192,15 +288,20 @@ public class OpenRouteServiceRouteDurationProviderTests
     {
         public HttpRequestMessage? Request { get; private set; }
 
-        protected override Task<HttpResponseMessage> SendAsync(
+        public string? RequestBody { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
             Request = request;
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            RequestBody = request.Content is null
+                ? null
+                : await request.Content.ReadAsStringAsync(cancellationToken);
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(responseBody, Encoding.UTF8, "application/json"),
-            });
+            };
         }
     }
 

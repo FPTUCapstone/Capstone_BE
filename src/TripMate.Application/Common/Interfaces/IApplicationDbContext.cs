@@ -28,7 +28,21 @@ public interface IApplicationDbContext
 
     DbSet<Tour> Tours { get; }
 
+    DbSet<TourCategory> TourCategories =>
+        throw new NotSupportedException("Tour taxonomy is unavailable in this context.");
+
     DbSet<TourSchedule> TourSchedules { get; }
+
+    DbSet<TourItineraryItem> TourItineraryItems { get; }
+
+    DbSet<TourPackageCreateOperation> TourPackageCreateOperations =>
+        throw new NotSupportedException("Tour package idempotency is unavailable in this context.");
+
+    DbSet<CancellationPolicyTemplate> CancellationPolicyTemplates =>
+        throw new NotSupportedException("Cancellation policies are unavailable in this context.");
+
+    DbSet<TourCancellationPolicyRule> TourCancellationPolicyRules =>
+        throw new NotSupportedException("Tour cancellation rules are unavailable in this context.");
 
     DbSet<Destination> Destinations { get; }
 
@@ -100,6 +114,8 @@ public interface IApplicationDbContext
 
     DbSet<ReroutingEvent> ReroutingEvents { get; }
 
+    DbSet<Payout> Payouts { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 
     Task<int> RevokeRefreshTokenAsync(
@@ -160,4 +176,11 @@ public interface IApplicationDbContext
     Task FinalizeOperatorDocumentCleanupReservationsAsync(
         IReadOnlyCollection<string> publicIds,
         CancellationToken cancellationToken) => Task.CompletedTask;
+
+    Task FinalizeTravelerAvatarReservationAsync(string publicId, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Avatar reservation finalization is unavailable.");
+
+    Task EnqueueTravelerAvatarCleanupAsync(string publicId, DateTimeOffset nowUtc,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Avatar cleanup enqueue is unavailable.");
 }

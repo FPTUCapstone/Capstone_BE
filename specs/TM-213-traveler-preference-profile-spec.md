@@ -5,6 +5,13 @@ Binding design baseline: TM-213 STEP 2 — FINAL CORRECTED CONTRACT & DESIGN REP
 Branch: `feature/phuctv-tm213-traveler-preference-profile`
 Head at spec creation: `4afd56cabcda7dbbd83062086121d32e77848885`
 
+**Amendment (UC-09 P2):** This specification supersedes the earlier DefaultBudget
+design. UC-09 removed `dbo.TravelerProfiles.default_budget` through
+`20261013_remove_traveler_profile_default_budget.sql`; it is not part of the current
+canonical schema or EF model. All references to DefaultBudget have been removed from
+§4 (Persisted Fields), §5 (Field Tiers), and §7 (Precedence) to match the implemented
+contract.
+
 ---
 
 ## 1. Purpose
@@ -38,9 +45,9 @@ created here.
 - No SchedulingRequest HTTP/OAS contract change (no new fields, no optionalized
   fields, no schema filter changes).
 - No database schema change and no EF migration (AGENTS.md §3.1: DB-first; the
-  schema already exists in `database/tripmate_schema_v7.sql:217–232`).
+  schema already exists in `database/tripmate_schema_v7.sql`).
 - No scheduling behavior for TravelPace, RiskTolerance, or FoodPreferences.
-- No server-side fallback for PreferredTransportMode or DefaultBudget.
+- No server-side fallback for PreferredTransportMode.
 - No system default substitution for null TravelPace or null RiskTolerance.
 - No change to `request_hash` inputs or replay semantics.
 - No AI/LLM work (TM-215+), no CSP work (TM-216), no multi-day work (TM-220),
@@ -49,7 +56,7 @@ created here.
 
 ## 4. Persisted Fields (Tier A — schema facts)
 
-Source of truth: `database/tripmate_schema_v7.sql:217–232`
+Source of truth: `database/tripmate_schema_v7.sql`
 (`CREATE TABLE dbo.TravelerProfiles`).
 
 | Field | DB column | SQL type / constraints |
@@ -60,7 +67,6 @@ Source of truth: `database/tripmate_schema_v7.sql:217–232`
 | TravelPace | `travel_pace` | VARCHAR(20) NULL, CHECK {Relaxed, Moderate, Fast} |
 | RiskTolerance | `risk_tolerance` | VARCHAR(20) NULL, CHECK {Low, Medium, High} |
 | FoodPreferences | `food_preferences_json` | NVARCHAR(1000) NULL — JSON array |
-| DefaultBudget | `default_budget` | DECIMAL(12,2) NULL |
 | UpdatedAtUtc (metadata) | `updated_at` | DATETIME2 NOT NULL, DEFAULT SYSUTCDATETIME() |
 
 **Persisted does not mean active.** Tier membership is defined in §5.
@@ -79,7 +85,6 @@ Traveler Preference UC / Mobile form prefill, not by the server)
 | Field | Behavior |
 |---|---|
 | PreferredTransportMode | Prefills the required `transportMode` request field. Explicit request always wins. No server-side fallback in TM-213. |
-| DefaultBudget | Prefills the optional `budgetVnd` request field (Advanced options). Explicit request always wins. No server-side fallback in TM-213. |
 
 ### Tier D — Deferred fields (contract-defined; no consumer in TM-213)
 
@@ -129,7 +134,6 @@ defines one.
 | Field | Explicit request | Profile | System default (evidence) | Applied where |
 |---|---|---|---|---|
 | TransportMode | `transportMode` (required) | PreferredTransportMode | Walking — `DF_SchedulingRequests_TransportMode` | Mobile prefill (future UC) |
-| BudgetVnd | `budgetVnd` (optional) | DefaultBudget | none — absent means no budget constraint | Mobile prefill (future UC) |
 | RestPreference | `restPreference` (required) | — | Auto — `DF_SchedulingRequests_RestPreference`; TM-56-spec.md:67–68 | Mobile, current |
 | TravelPace | — | optional {Relaxed, Moderate, Fast} | **none / unspecified** | Future scheduling task |
 | RiskTolerance | — | optional {Low, Medium, High} | **none / unspecified** | Deferred |
@@ -232,10 +236,25 @@ The implementing UC receives, as binding input:
 2. The precedence table (§7) and null/unspecified semantics (§8).
 3. RiskTolerance willingness semantics and the actual-risk separation rule (§9).
 4. The TravelerProfile write surface, write validation, and Mobile/profile form
-   behavior are owned by that UC, including these policy decisions:
-   - whether tags must reference existing `catalog.Tags` names at write time;
+   behavior are owned by that UC. UC-09 has now made the following decision
+   binding for that write surface:
+   - `interest_tags_json` and the Traveler preferences API use only these
+     canonical, persisted English keys: `adventure`, `architecture`, `beach`,
+     `culinary`, `culture`, `heritage`, `history`, `museum`, `nature`,
+     `photography`, `relaxation`, and `shopping`;
+   - Web and Mobile may localize these keys for display, but must send and
+     receive the canonical keys. `catalog.Tags` and `catalog.POICategories`
+     must not create, extend, or validate the Traveler interest-option list;
+   - mapping existing POI category/tag metadata to the canonical keys is a
+     separate UC-10/AI responsibility. UC-09 does not mutate POI catalog data
+     or claim that every legacy POI has a canonical interest mapping;
    - enforcement of the 1000-character limit on JSON fields (read path makes
      no length decision — §11).
+
+   The direct category/tag comparison in §6 is the existing TM-213 ranking
+   behavior. It remains unchanged by this catalog decision; a semantic POI
+   mapping layer must be introduced by UC-10 before canonical preference keys
+   are expected to match arbitrary legacy POI labels.
 5. Production-data rule: the current application code has no discovered
    production path to create/update TravelerProfile rows; test/dev fixtures may
    create rows; production code contains no mock/seed path; no claim is made

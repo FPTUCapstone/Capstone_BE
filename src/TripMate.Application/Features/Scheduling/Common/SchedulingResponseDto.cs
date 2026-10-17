@@ -23,4 +23,7 @@ public sealed record SchedulingItemDto(
     decimal? EstimatedCost,
     bool IsMandatory,
     string? RecommendationReason,
-    string? FriendlyExplanation);
+    string? FriendlyExplanation,
+    CostKind CostKind = CostKind.AdmissionTicket,
+    int? TravelDistanceToNextMeters = null,
+    TransportMode? TransportModeToNext = null);

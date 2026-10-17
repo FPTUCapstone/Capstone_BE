@@ -10,7 +10,7 @@ public class GetPoiRecommendationsQueryValidatorTests
 
     [Theory]
     [InlineData(-90, -180, 1, 1)]
-    [InlineData(90, 180, 50, 20)]
+    [InlineData(90, 180, 100, 20)]
     public void Validate_WithBoundaryValues_HasNoErrors(
         int latitude,
         int longitude,
@@ -56,7 +56,7 @@ public class GetPoiRecommendationsQueryValidatorTests
 
     [Theory]
     [InlineData(0)]
-    [InlineData(51)]
+    [InlineData(101)]
     public void Validate_WithSearchRadiusOutOfRange_HasErrors(int searchRadiusKm)
     {
         var result = _validator.Validate(CreateQuery(searchRadiusKm: searchRadiusKm));

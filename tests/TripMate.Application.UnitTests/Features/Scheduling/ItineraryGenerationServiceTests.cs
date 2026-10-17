@@ -81,6 +81,47 @@ public class ItineraryGenerationServiceTests
     }
 
     [Fact]
+    public async Task Generate_RecordsRoadDistanceAndTransportModeOfEachLeg()
+    {
+        var minutes = new int[,]
+        {
+            { 0, 20, 35, 15 },
+            { 20, 0, 15, 25 },
+            { 35, 15, 0, 20 },
+            { 15, 25, 20, 0 },
+        };
+        var meters = new int[4, 4];
+        for (var row = 0; row < 4; row++)
+        {
+            for (var column = 0; column < 4; column++)
+            {
+                meters[row, column] = minutes[row, column] * 400;
+            }
+        }
+
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(
+            RouteDurationMatrix.Create(minutes, unreachable: null, meters: meters)));
+        var input = CreateInput(
+            availableMinutes: 240,
+            restPreference: RestPreference.None,
+            candidates:
+            [
+                Candidate(12, "Cham Museum", 60, 60_000m, 0m, 0m, null, null, null),
+                Candidate(28, "Fine Arts Museum", 60, 20_000m, 0m, 0m, null, null, null),
+            ],
+            mandatoryPoiIds: [12, 28]);
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var items = result.Value.Items.ToArray();
+        items[0].TravelDistanceToNextMeters.Should().Be(items[0].TravelDurationToNextMinutes * 400);
+        items[0].TransportModeToNext.Should().Be(input.TransportMode);
+        items[^1].TravelDistanceToNextMeters.Should().BeNull();
+        items[^1].TransportModeToNext.Should().BeNull();
+    }
+
+    [Fact]
     public async Task Generate_AutoRest_InsertsRestAfterLongContinuousSchedule()
     {
         var service = new ItineraryGenerationService(new FixedRouteDurationProvider(
@@ -1517,6 +1558,144 @@ public class ItineraryGenerationServiceTests
         comparator.Compare(idOrdered, rankOrdered).Should().BeNegative();
     }
 
+
+    [Fact]
+    public void RouteDurationMatrix_Select_KeepsUnreachablePairsAndRefusesTheirMinutes()
+    {
+        var matrix = RouteDurationMatrix.Create(
+            new int[,] { { 0, 5, 0 }, { 5, 0, 0 }, { 0, 0, 0 } },
+            new bool[,] { { false, false, true }, { false, false, true }, { true, true, false } });
+
+        var reachable = matrix.Select([0, 1]);
+        var withUnreachable = matrix.Select([2, 0]);
+
+        reachable.HasUnreachablePairs.Should().BeFalse();
+        reachable.GetMinutes(1, 0).Should().Be(5);
+        withUnreachable.IsReachable(0, 1).Should().BeFalse();
+        FluentActions.Invoking(() => withUnreachable.GetMinutes(0, 1))
+            .Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public async Task Generate_WhenAnOptionalPlaceHasNoRoad_DropsItAndStillPlans()
+    {
+        // Points: 0 start, 1 Cham Museum, 2 Ba Na Hills (no road), 3 Fine Arts Museum, 4 end.
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(
+            WithUnreachablePoint(
+                new int[,]
+                {
+                    { 0, 20, 0, 25, 15 },
+                    { 20, 0, 0, 15, 25 },
+                    { 0, 0, 0, 0, 0 },
+                    { 25, 15, 0, 0, 20 },
+                    { 15, 25, 0, 20, 0 },
+                },
+                unreachablePoint: 2)),
+            HeuristicOnly);
+        var input = CreateInput(
+            availableMinutes: 300,
+            restPreference: RestPreference.None,
+            candidates:
+            [
+                Candidate(12, "Cham Museum", 60, 60_000m, 0.5m, 0.5m),
+                Candidate(40, "Ba Na Hills", 60, 50_000m, 0.9m, 0.9m),
+                Candidate(28, "Fine Arts Museum", 60, 20_000m, 0.4m, 0.4m),
+            ],
+            mandatoryPoiIds: [12]);
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var visits = result.Value.Items
+            .Where(item => item.Kind == ItineraryItemKind.Visit)
+            .Select(item => item.PointOfInterestId)
+            .ToArray();
+        visits.Should().Contain(12L).And.NotContain(40L);
+    }
+
+    [Fact]
+    public async Task Generate_WhenAMandatoryPlaceHasNoRoad_ReturnsInfeasibleNamingIt()
+    {
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(
+            WithUnreachablePoint(
+                new int[,] { { 0, 0, 15 }, { 0, 0, 0 }, { 15, 0, 0 } },
+                unreachablePoint: 1)));
+        var input = CreateInput(
+            availableMinutes: 240,
+            restPreference: RestPreference.None,
+            candidates: [Candidate(40, "Ba Na Hills", 60, 50_000m)],
+            mandatoryPoiIds: [40]);
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(SchedulingErrorCodes.ConstraintsInfeasible);
+        result.ErrorMessage.Should().Be("No road route reaches Ba Na Hills. Choose another place.");
+    }
+
+    [Fact]
+    public async Task Generate_WhenTheEndCannotBeReachedFromTheStart_ReturnsInfeasible()
+    {
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(
+            RouteDurationMatrix.Create(
+                new int[,] { { 0, 10, 0 }, { 10, 0, 10 }, { 0, 10, 0 } },
+                new bool[,] { { false, false, true }, { false, false, false }, { true, false, false } })));
+        var input = CreateInput(
+            availableMinutes: 240,
+            restPreference: RestPreference.None,
+            candidates: [Candidate(12, "Cham Museum", 60, 60_000m)],
+            mandatoryPoiIds: []);
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorMessage.Should().Be("The end point cannot be reached by road from the starting point.");
+    }
+
+    [Fact]
+    public async Task GenerateFixedOrder_WhenASelectedPlaceHasNoRoad_ReturnsInfeasibleNamingIt()
+    {
+        var service = new ItineraryGenerationService(new FixedRouteDurationProvider(
+            WithUnreachablePoint(
+                new int[,]
+                {
+                    { 0, 20, 0, 15 },
+                    { 20, 0, 0, 25 },
+                    { 0, 0, 0, 0 },
+                    { 15, 25, 0, 0 },
+                },
+                unreachablePoint: 2)));
+        var input = CreateInput(
+            availableMinutes: 240,
+            restPreference: RestPreference.None,
+            candidates:
+            [
+                Candidate(12, "Cham Museum", 60, 60_000m),
+                Candidate(40, "Ba Na Hills", 60, 50_000m),
+            ],
+            mandatoryPoiIds: []);
+
+        var result = await service.GenerateFixedOrderAsync(input, [12, 40], CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorMessage.Should().Be("No road route reaches Ba Na Hills. Choose another place.");
+    }
+
+    private static RouteDurationMatrix WithUnreachablePoint(int[,] minutes, int unreachablePoint)
+    {
+        var size = minutes.GetLength(0);
+        var unreachable = new bool[size, size];
+        for (var other = 0; other < size; other++)
+        {
+            if (other != unreachablePoint)
+            {
+                unreachable[unreachablePoint, other] = true;
+                unreachable[other, unreachablePoint] = true;
+            }
+        }
+
+        return RouteDurationMatrix.Create(minutes, unreachable);
+    }
 
     private static GenerationInput CreateInput(
         int availableMinutes,

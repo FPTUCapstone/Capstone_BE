@@ -5,13 +5,15 @@ using Microsoft.EntityFrameworkCore;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Itineraries.Common;
+using TripMate.Domain.Common;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Itineraries.GetDetail;
 
 public sealed class GetItineraryDetailQueryHandler(
     IApplicationDbContext dbContext,
-    IItineraryAccessService accessService)
+    IItineraryAccessService accessService,
+    IDateTimeProvider dateTimeProvider)
     : IRequestHandler<GetItineraryDetailQuery, Result<ItineraryDetailResponse>>
 {
     public async Task<Result<ItineraryDetailResponse>> Handle(
@@ -38,13 +40,56 @@ public sealed class GetItineraryDetailQueryHandler(
             .ThenInclude(poi => poi!.Category)
             .SingleAsync(item => item.Id == access.CurrentItinerary.Id, cancellationToken);
 
-        return Result.Success(ToResponse(itinerary, access.CanManage, access.SchedulingRequestId));
+        var isNavigationInProgress = await ItineraryNavigationLock.IsInProgressAsync(
+            dbContext,
+            access.SchedulingRequestId,
+            dateTimeProvider.UtcNow,
+            cancellationToken);
+        var context = await ItineraryDetailContext.LoadAsync(dbContext, access.SchedulingRequestId, cancellationToken);
+
+        return Result.Success(ToResponse(
+            itinerary,
+            access.CanManage,
+            context.Request,
+            context.EndPoi,
+            isNavigationInProgress));
     }
 
     internal static ItineraryDetailResponse ToResponse(
         Domain.Entities.Itinerary itinerary,
         bool canManage,
-        long schedulingRequestId)
+        Domain.Entities.SchedulingRequest? request,
+        Domain.Entities.PointOfInterest? endPoi,
+        bool isNavigationInProgress = false)
+    {
+        var response = ToResponse(
+            itinerary,
+            canManage,
+            request?.Id ?? itinerary.SchedulingRequestId ?? 0,
+            isNavigationInProgress);
+        if (request is null)
+        {
+            return response;
+        }
+
+        var start = new ItineraryLocationDto(request.StartLatitude, request.StartLongitude, null);
+        var end = endPoi is not null
+            ? new ItineraryLocationDto(endPoi.Latitude, endPoi.Longitude, endPoi.Address)
+            : start;
+        return response with
+        {
+            TransportMode = request.TransportMode,
+            StartLocation = start,
+            EndLocation = end,
+            BudgetVnd = request.BudgetVnd,
+        };
+    }
+
+    internal static ItineraryDetailResponse ToResponse(
+        Domain.Entities.Itinerary itinerary,
+        bool canManage,
+        long schedulingRequestId,
+        bool isNavigationInProgress = false)
     {
         var orderedItems = itinerary.Items.OrderBy(item => item.SequenceNo).ToArray();
         var items = orderedItems
@@ -68,7 +113,13 @@ public sealed class GetItineraryDetailQueryHandler(
                 item.PointOfInterest is not null
                     && item.PointOfInterest.Status != PointOfInterestStatus.Active,
                 item.PointOfInterest?.Latitude,
-                item.PointOfInterest?.Longitude))
+                item.PointOfInterest?.Longitude,
+                CostKindPolicy.FromCategory(item.PointOfInterest?.Category?.Name),
+                index == 0 ? null : orderedItems[index - 1].TravelDistanceToNextMeters,
+                index == 0 ? null : orderedItems[index - 1].TransportModeToNext,
+                item.PointOfInterest?.Address,
+                item.PointOfInterest is not null
+                    && item.StayDurationMinutes < item.PointOfInterest.AverageVisitDurationMinutes))
             .ToArray();
 
         return new ItineraryDetailResponse(
@@ -84,6 +135,7 @@ public sealed class GetItineraryDetailQueryHandler(
             itinerary.ValidFromUtc.HasValue && itinerary.ValidToUtc.HasValue
                 ? (int)Math.Ceiling((itinerary.ValidToUtc.Value - itinerary.ValidFromUtc.Value).TotalMinutes)
                 : orderedItems.Sum(item => item.StayDurationMinutes),
-            items);
+            items,
+            isNavigationInProgress);
     }
 }

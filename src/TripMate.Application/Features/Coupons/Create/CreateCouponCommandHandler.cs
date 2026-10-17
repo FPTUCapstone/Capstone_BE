@@ -17,6 +17,7 @@ public sealed class CreateCouponCommandHandler(IApplicationDbContext dbContext, 
     {
         if (!currentUserService.UserId.HasValue) return Denied();
         var operatorId = currentUserService.UserId.Value;
+        var now = dateTimeProvider.UtcNow;
         var operatorProfile = await dbContext.OperatorProfiles.AsNoTracking().FirstOrDefaultAsync(profile =>
             profile.UserId == operatorId && profile.ApprovalStatus == OperatorApprovalStatus.Approved
             && profile.User.Status == AccountStatus.Active && profile.User.Role == UserRole.TourOperator, cancellationToken);
@@ -44,16 +45,17 @@ public sealed class CreateCouponCommandHandler(IApplicationDbContext dbContext, 
                 "A selected tour is not owned by this operator.");
         }
 
-        if (tours.Any(tour => tour.Status != TourStatus.Approved))
+        // A coupon must only target a public tour. Keep legacy published records readable
+        // while UC-35 transitions all new publication actions to TourStatus.Published.
+        if (tours.Any(tour => !IsPublicCouponTour(tour, now)))
         {
             return Result.Failure<CreateCouponResponse>(
                 CouponErrorCodes.TourNotEligible,
-                "Coupons can only apply to approved tours.");
+                "Coupons can only apply to published tours.");
         }
 
         var code = request.Code.Trim().ToUpperInvariant();
-        var now = dateTimeProvider.UtcNow;
-        var voucher = Voucher.Create(operatorId, code, request.DiscountType, request.DiscountValue, request.MaxDiscountAmount,
+        var voucher = Voucher.Create(operatorId, code, request.Name, request.DiscountType, request.DiscountValue, request.MaxDiscountAmount,
             request.MinOrderAmount, request.UsageLimit, request.UsageLimitPerUser, request.ValidFromUtc, request.ValidToUtc, tours, now);
 
         try
@@ -93,5 +95,9 @@ public sealed class CreateCouponCommandHandler(IApplicationDbContext dbContext, 
             throw;
         }
     }
+    private static bool IsPublicCouponTour(Tour tour, DateTimeOffset now) =>
+        tour.Status == TourStatus.Published ||
+        (tour.Status == TourStatus.Approved && tour.PublishedAtUtc.HasValue && tour.PublishedAtUtc <= now);
+
     private static Result<CreateCouponResponse> Denied() => Result.Failure<CreateCouponResponse>(CouponErrorCodes.OperatorAccessRequired, "An active approved Tour Operator account is required.");
 }

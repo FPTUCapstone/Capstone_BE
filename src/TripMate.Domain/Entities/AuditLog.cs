@@ -273,4 +273,31 @@ public class AuditLog : BaseEntity
         };
     }
 
+    // ========== UC-07 Change Password Factory Method ==========
+
+    /// <summary>
+    /// Subject/action/timestamp only (spec §3.3/§6) — no password, hash, or token value is ever
+    /// placed in BeforeData/AfterData for this action type.
+    /// </summary>
+    public static AuditLog CreateChangePassword(
+        long actorUserId,
+        DateTimeOffset occurredAtUtc,
+        string? ipAddress = null)
+    {
+        if (actorUserId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(actorUserId));
+        }
+
+        return new AuditLog
+        {
+            ActorUserId = actorUserId,
+            ActionType = AuditActionTypes.AuthChangePassword,
+            AffectedEntity = AuditEntityTypes.User,
+            AffectedEntityId = actorUserId,
+            Result = AuditOutcome.Success,
+            IpAddress = ipAddress,
+            CreatedAtUtc = occurredAtUtc,
+        };
+    }
 }

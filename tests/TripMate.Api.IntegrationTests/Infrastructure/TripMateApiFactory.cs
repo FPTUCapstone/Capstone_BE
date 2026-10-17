@@ -141,7 +141,8 @@ public sealed class TripMateApiFactory(
                 if (services[index].ServiceType == typeof(IHostedService)
                     && (services[index].ImplementationType == typeof(TripMate.Infrastructure.Reviews.Media.ReviewMediaRecoveryService)
                         || services[index].ImplementationType?.FullName
-                            == "TripMate.Infrastructure.Services.TourMediaCleanupBackgroundService"))
+                            is "TripMate.Infrastructure.Services.TourMediaCleanupBackgroundService"
+                            or "TripMate.Infrastructure.Services.TravelerAvatarCleanupBackgroundService"))
                 {
                     services.RemoveAt(index);
                 }
@@ -161,6 +162,7 @@ public sealed class TripMateApiFactory(
                 services.RemoveAll<ISchedulingRequestLock>();
                 services.RemoveAll<ITourMediaUploadLock>();
                 services.RemoveAll<ITourMediaCleanupOutboxStore>();
+                services.RemoveAll<IAccountCredentialLock>();
                 services.RemoveAll<IRouteDurationProvider>();
 
                 services.AddDbContext<TestApiDbContext>(options =>
@@ -199,6 +201,7 @@ public sealed class TripMateApiFactory(
                 services.AddScoped<ISchedulingRequestLock, NoOpSchedulingRequestLock>();
                 services.AddScoped<ITourMediaUploadLock, NoOpTourMediaUploadLock>();
                 services.AddScoped<ITourMediaCleanupOutboxStore, NoOpTourMediaCleanupOutboxStore>();
+                services.AddScoped<IAccountCredentialLock, NoOpAccountCredentialLock>();
                 services.AddScoped<IRouteDurationProvider, TestRouteDurationProvider>();
             }
             else if (saveChangesInterceptor is not null || dbInterceptor is not null)
@@ -393,7 +396,15 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<OperatorProfile> OperatorProfiles => Set<OperatorProfile>();
     public DbSet<OperatorDocument> OperatorDocuments => Set<OperatorDocument>();
     public DbSet<Tour> Tours => Set<Tour>();
+    public DbSet<TourCategory> TourCategories => Set<TourCategory>();
     public DbSet<TourSchedule> TourSchedules => Set<TourSchedule>();
+    public DbSet<TourItineraryItem> TourItineraryItems => Set<TourItineraryItem>();
+    public DbSet<TourPackageCreateOperation> TourPackageCreateOperations =>
+        Set<TourPackageCreateOperation>();
+    public DbSet<CancellationPolicyTemplate> CancellationPolicyTemplates =>
+        Set<CancellationPolicyTemplate>();
+    public DbSet<TourCancellationPolicyRule> TourCancellationPolicyRules =>
+        Set<TourCancellationPolicyRule>();
     public DbSet<Destination> Destinations => Set<Destination>();
     public DbSet<TourDestination> TourDestinations => Set<TourDestination>();
     public DbSet<TourMedia> TourMedia => Set<TourMedia>();
@@ -443,6 +454,8 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<WeatherEvent> WeatherEvents => Set<WeatherEvent>();
 
     public DbSet<ReroutingEvent> ReroutingEvents => Set<ReroutingEvent>();
+
+    public DbSet<Payout> Payouts => Set<Payout>();
 
     public async Task<int> RevokeRefreshTokenAsync(
         string tokenHash,
@@ -596,6 +609,12 @@ internal sealed class NoOpTourMediaCleanupOutboxStore : ITourMediaCleanupOutboxS
 internal sealed class NoOpItineraryMutationLock : IItineraryMutationLock
 {
     public Task AcquireAsync(long itineraryId, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+}
+
+internal sealed class NoOpAccountCredentialLock : IAccountCredentialLock
+{
+    public Task AcquireAsync(long userId, CancellationToken cancellationToken) =>
         Task.CompletedTask;
 }
 

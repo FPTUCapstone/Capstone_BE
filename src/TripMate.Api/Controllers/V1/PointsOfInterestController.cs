@@ -5,13 +5,14 @@ using Microsoft.AspNetCore.Mvc;
 
 using TripMate.Api.Authorization;
 using TripMate.Api.Common;
+using TripMate.Application.Features.PointsOfInterest.Catalogue;
 using TripMate.Application.Features.PointsOfInterest.Common;
 using TripMate.Application.Features.PointsOfInterest.Create;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Api.Controllers.V1;
 
-[Authorize(Roles = nameof(UserRole.Administrator))]
+[Authorize(Roles = nameof(UserRole.Staff))]
 [ForbiddenProblemDetails(
     PoiErrorCodes.AdminAccessRequired,
     PoiErrorMessages.AdminAccessRequired)]
@@ -35,6 +36,21 @@ public sealed class PointsOfInterestController(ISender sender) : ApiControllerBa
 
         return result.IsSuccess
             ? StatusCode(StatusCodes.Status201Created, result.Value)
+            : HandleFailure(result);
+    }
+
+    [HttpGet("catalogue")]
+    [ProducesErrorResponseType(typeof(void))]
+    [ProducesResponseType(typeof(PoiCatalogueDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorCodeProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetCatalogue(CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(new GetPoiCatalogueQuery(), cancellationToken);
+
+        return result.IsSuccess
+            ? Ok(result.Value)
             : HandleFailure(result);
     }
 }

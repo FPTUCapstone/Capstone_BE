@@ -46,6 +46,25 @@ public sealed class StartNavigationSessionCommandHandlerTests
     }
 
     [Fact]
+    public async Task Handle_StartAndReplayReturnEachStopsLegMode()
+    {
+        await using var db = CreateDbContext();
+        var itinerary = await SeedActiveItineraryAsync(db, Now.AddHours(1), walkingLegToASecondStop: true);
+        var command = new StartNavigationSessionCommand(itinerary.Id, 7, Guid.NewGuid());
+
+        var started = await CreateHandler(db, Now).Handle(command, CancellationToken.None);
+        db.ClearTrackedEntities();
+        var replayed = await CreateHandler(db, Now).Handle(command, CancellationToken.None);
+
+        foreach (var result in new[] { started, replayed })
+        {
+            result.IsSuccess.Should().BeTrue();
+            result.Value.Items.Select(item => item.TransportModeFromPrevious)
+                .Should().Equal(null, TransportMode.Walking);
+        }
+    }
+
+    [Fact]
     public async Task Handle_DeadlockRetriesTheWholeAttemptAndReplaysTheCommittedSession()
     {
         await using var db = CreateDbContext();
@@ -173,6 +192,31 @@ public sealed class StartNavigationSessionCommandHandlerTests
         (await db.TripSessions.CountAsync()).Should().Be(1);
     }
 
+    [Theory]
+    [InlineData(-180, true)]
+    [InlineData(-181, false)]
+    public async Task Handle_OpensTheWindowBeforeThePlannedDepartureNotTheFirstStop(
+        int minutesFromDeparture,
+        bool expectedToStart)
+    {
+        // Leaves at 01:46 for a place that opens at 07:00: the first stop is hours after departure.
+        await using var db = CreateDbContext();
+        var departure = Now.AddMinutes(-minutesFromDeparture);
+        var itinerary = await SeedActiveItineraryAsync(db, departure.AddHours(5).AddMinutes(14));
+        db.Entry(itinerary).Property(candidate => candidate.ValidFromUtc).CurrentValue = departure;
+        await db.SaveChangesAsync();
+
+        var result = await CreateHandler(db, Now).Handle(
+            new StartNavigationSessionCommand(itinerary.Id, 7, Guid.NewGuid()),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().Be(expectedToStart);
+        if (!expectedToStart)
+        {
+            result.ErrorCode.Should().Be(NavigationErrorCodes.OutsideTripWindow);
+        }
+    }
+
     [Fact]
     public async Task Handle_UsesConfiguredWindows()
     {
@@ -246,7 +290,8 @@ public sealed class StartNavigationSessionCommandHandlerTests
 
     private static async Task<Itinerary> SeedActiveItineraryAsync(
         TestDbContext db,
-        DateTimeOffset firstArrivalUtc)
+        DateTimeOffset firstArrivalUtc,
+        bool walkingLegToASecondStop = false)
     {
         db.Users.Add(new User
         {
@@ -259,10 +304,13 @@ public sealed class StartNavigationSessionCommandHandlerTests
             UpdatedAtUtc = Now,
         });
         await db.SaveChangesAsync();
-        return await SeedItineraryAsync(db, firstArrivalUtc);
+        return await SeedItineraryAsync(db, firstArrivalUtc, walkingLegToASecondStop);
     }
 
-    private static async Task<Itinerary> SeedItineraryAsync(TestDbContext db, DateTimeOffset firstArrivalUtc)
+    private static async Task<Itinerary> SeedItineraryAsync(
+        TestDbContext db,
+        DateTimeOffset firstArrivalUtc,
+        bool walkingLegToASecondStop = false)
     {
         var category = PoiCategory.Create($"Attraction {Guid.NewGuid():N}", null);
         db.PoiCategories.Add(category);
@@ -284,7 +332,20 @@ public sealed class StartNavigationSessionCommandHandlerTests
             firstArrivalUtc.AddHours(1),
             true,
             0m,
-            "Required"));
+            "Required",
+            transportModeToNext: walkingLegToASecondStop ? TransportMode.Walking : null));
+        if (walkingLegToASecondStop)
+        {
+            itinerary.AddItem(ItineraryItem.CreateVisit(
+                2,
+                poi.Id,
+                firstArrivalUtc.AddHours(2),
+                firstArrivalUtc.AddHours(3),
+                false,
+                0m,
+                "Optional"));
+        }
+
         db.Itineraries.Add(itinerary);
         await db.SaveChangesAsync();
         return itinerary;

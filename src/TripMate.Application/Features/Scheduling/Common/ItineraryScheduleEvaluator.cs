@@ -17,6 +17,7 @@ public sealed class ItineraryScheduleEvaluator(SchedulingGenerationOptions? opti
 {
     private const int AutoRestThresholdMinutes = 150;
     private const int RestDurationMinutes = 30;
+    private const int OpeningLookaheadDays = 7;
     private readonly SchedulingGenerationOptions _options = options ?? new SchedulingGenerationOptions();
 
     public EvaluatedItinerarySchedule? Evaluate(
@@ -164,7 +165,7 @@ public sealed class ItineraryScheduleEvaluator(SchedulingGenerationOptions? opti
             return null;
         }
 
-        var itemsWithTravelDurations = AddTravelDurations(items, matrix, candidateMatrixIndices);
+        var itemsWithTravelDurations = AddTravelDurations(items, matrix, candidateMatrixIndices, input.TransportMode);
         var totalDurationMinutes = (int)Math.Ceiling((finalArrivalTime - input.StartAtUtc).TotalMinutes);
 
         var plan = new GeneratedItineraryPlan(
@@ -187,7 +188,8 @@ public sealed class ItineraryScheduleEvaluator(SchedulingGenerationOptions? opti
     private static IReadOnlyCollection<GeneratedItineraryItem> AddTravelDurations(
         IReadOnlyList<GeneratedItineraryItem> items,
         RouteDurationMatrix matrix,
-        IReadOnlyDictionary<long, int> candidateMatrixIndices)
+        IReadOnlyDictionary<long, int> candidateMatrixIndices,
+        TransportMode transportMode)
     {
         var locationIndices = new int[items.Count];
         var previousIndex = 0;
@@ -207,6 +209,12 @@ public sealed class ItineraryScheduleEvaluator(SchedulingGenerationOptions? opti
                 TravelDurationToNextMinutes = index == items.Count - 1
                     ? null
                     : matrix.GetMinutes(locationIndices[index], locationIndices[index + 1]),
+                TravelDistanceToNextMeters = index == items.Count - 1
+                    ? null
+                    : matrix.GetMeters(locationIndices[index], locationIndices[index + 1]),
+                TransportModeToNext = index == items.Count - 1
+                    ? null
+                    : transportMode,
             })
             .ToArray();
     }
@@ -291,19 +299,30 @@ public sealed class ItineraryScheduleEvaluator(SchedulingGenerationOptions? opti
         GenerationCandidate candidate,
         TimeZoneInfo timeZone)
     {
+        // A trip is one continuous window that may span several days: when the visit no longer fits
+        // today (closed, or not enough time before closing), wait for the next day it does fit.
+        // The caller rejects the schedule if that pushes the trip past its time budget.
         var localArrival = TimeZoneInfo.ConvertTime(arrivalUtc, timeZone);
-        var opening = candidate.OpeningHours.SingleOrDefault(hours =>
-            hours.DayOfWeek == (byte)localArrival.DayOfWeek);
-        if (opening is null || localArrival.TimeOfDay > opening.CloseTime.ToTimeSpan())
+        for (var day = 0; day <= OpeningLookaheadDays; day++)
         {
-            return DateTimeOffset.MinValue;
+            var date = localArrival.Date.AddDays(day);
+            var opening = candidate.OpeningHours.SingleOrDefault(hours =>
+                hours.DayOfWeek == (byte)date.DayOfWeek);
+            if (opening is null)
+            {
+                continue;
+            }
+
+            DateTimeOffset openUtc = TimeZoneInfo.ConvertTimeToUtc(date.Add(opening.OpenTime.ToTimeSpan()), timeZone);
+            DateTimeOffset closeUtc = TimeZoneInfo.ConvertTimeToUtc(date.Add(opening.CloseTime.ToTimeSpan()), timeZone);
+            var start = arrivalUtc > openUtc ? arrivalUtc : openUtc;
+            if (start.AddMinutes(candidate.VisitDurationMinutes) <= closeUtc)
+            {
+                return start;
+            }
         }
 
-        return localArrival.TimeOfDay < opening.OpenTime.ToTimeSpan()
-            ? TimeZoneInfo.ConvertTimeToUtc(
-                localArrival.Date.Add(opening.OpenTime.ToTimeSpan()),
-                timeZone)
-            : arrivalUtc;
+        return DateTimeOffset.MinValue;
     }
 
     public static bool FitsOpeningHours(

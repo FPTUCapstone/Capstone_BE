@@ -11,7 +11,8 @@ namespace TripMate.Application.Features.Coupons.GetEligibleTours;
 
 public sealed class GetEligibleCouponToursQueryHandler(
     IApplicationDbContext dbContext,
-    ICurrentUserService currentUserService)
+    ICurrentUserService currentUserService,
+    IDateTimeProvider clock)
     : IRequestHandler<GetEligibleCouponToursQuery, Result<IReadOnlyList<EligibleCouponTourResponse>>>
 {
     public async Task<Result<IReadOnlyList<EligibleCouponTourResponse>>> Handle(
@@ -35,8 +36,13 @@ public sealed class GetEligibleCouponToursQueryHandler(
             return Denied();
         }
 
+        // UC-35: Published is the public, bookable lifecycle state. Older records that were
+        // published before the explicit status transition remain valid for compatibility.
+        var now = clock.UtcNow;
         var tours = await dbContext.Tours.AsNoTracking()
-            .Where(tour => tour.OperatorUserId == operatorId && tour.Status == TourStatus.Approved)
+            .Where(tour => tour.OperatorUserId == operatorId &&
+                (tour.Status == TourStatus.Published ||
+                 (tour.Status == TourStatus.Approved && tour.PublishedAtUtc.HasValue && tour.PublishedAtUtc <= now)))
             .OrderBy(tour => tour.Title)
             .ThenBy(tour => tour.Id)
             .Select(tour => new EligibleCouponTourResponse(

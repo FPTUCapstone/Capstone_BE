@@ -204,3 +204,7 @@ services:
 volumes:
   tripmate-sqlserver-data:
   tripmate-ollama-data:
+
+networks:
+  default:
+    name: capstone_be_default

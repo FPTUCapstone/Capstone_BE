@@ -36,6 +36,8 @@ public sealed class NavigationSessionQueryHandlersTests
         result.Value.State.Should().Be(TripSession.CompletedState);
         result.Value.CompletionReason.Should().Be(TripSession.ExpiredReason);
         result.Value.EndedAtUtc.Should().Be(ExpiresAtUtc);
+        result.Value.Items.Select(item => item.TransportModeFromPrevious)
+            .Should().Equal(null, TransportMode.Walking);
         var stored = await db.TripSessions.AsNoTracking()
             .Include(session => session.StateHistory)
             .SingleAsync(session => session.Id == sessionId);
@@ -56,6 +58,8 @@ public sealed class NavigationSessionQueryHandlersTests
         open.IsSuccess.Should().BeTrue();
         open.Value.Should().ContainSingle().Which.SessionId.Should().Be(sessionId);
         open.Value.Single().State.Should().Be(TripSession.ExploringState);
+        open.Value.Single().Items.Select(item => item.TransportModeFromPrevious)
+            .Should().Equal(null, TransportMode.Walking);
         expired.IsSuccess.Should().BeTrue();
         expired.Value.Should().BeEmpty();
         (await db.TripSessions.AsNoTracking().SingleAsync()).EndedAtUtc.Should().BeNull();
@@ -119,7 +123,8 @@ public sealed class NavigationSessionQueryHandlersTests
             StartedAtUtc.AddHours(2),
             true,
             0m,
-            "Planned"));
+            "Planned",
+            transportModeToNext: TransportMode.Walking));
         itinerary.AddItem(ItineraryItem.CreateVisit(
             2,
             poi.Id,

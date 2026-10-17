@@ -28,6 +28,7 @@ public sealed class TripReviewTypedParentMigrationTests
             """);
 
         await MigrateAsync(upgrade);
+        await MigrateRatingIndexAsync(upgrade);
 
         await AssertShapeAsync(fresh);
         await AssertShapeAsync(upgrade);
@@ -332,6 +333,14 @@ public sealed class TripReviewTypedParentMigrationTests
     {
         var path = Path.Combine(AppContext.BaseDirectory, "Database", "migrations", Migration);
         File.Exists(path).Should().BeTrue("the R3 typed-parent migration must be packaged");
+        return database.ExecuteScriptAsync(path);
+    }
+
+    private static Task MigrateRatingIndexAsync(SqlServerTestDatabase database)
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "Database", "migrations",
+            "20261014_add_trip_review_rating_index.sql");
+        File.Exists(path).Should().BeTrue("the TM-70 rating index migration must be packaged");
         return database.ExecuteScriptAsync(path);
     }
 

@@ -34,7 +34,20 @@ public class TestDbContext(
 
     public DbSet<Tour> Tours => Set<Tour>();
 
+    public DbSet<TourCategory> TourCategories => Set<TourCategory>();
+
     public DbSet<TourSchedule> TourSchedules => Set<TourSchedule>();
+
+    public DbSet<TourItineraryItem> TourItineraryItems => Set<TourItineraryItem>();
+
+    public DbSet<TourPackageCreateOperation> TourPackageCreateOperations =>
+        Set<TourPackageCreateOperation>();
+
+    public DbSet<CancellationPolicyTemplate> CancellationPolicyTemplates =>
+        Set<CancellationPolicyTemplate>();
+
+    public DbSet<TourCancellationPolicyRule> TourCancellationPolicyRules =>
+        Set<TourCancellationPolicyRule>();
 
     public DbSet<Destination> Destinations => Set<Destination>();
 
@@ -106,6 +119,8 @@ public class TestDbContext(
 
     public DbSet<ReroutingEvent> ReroutingEvents => Set<ReroutingEvent>();
 
+    public DbSet<Payout> Payouts => Set<Payout>();
+
     public int TransactionExecutionCount { get; private set; }
 
     public bool IsExecutingSerializableTransaction { get; private set; }
@@ -115,6 +130,10 @@ public class TestDbContext(
     public int SaveChangesAsyncCallCount { get; private set; }
 
     public List<string> FinalizedOperatorDocumentCleanupPublicIds { get; } = [];
+
+    public List<string> FinalizedTravelerAvatarPublicIds { get; } = [];
+
+    public List<string> EnqueuedTravelerAvatarPublicIds { get; } = [];
 
     public bool ThrowOnSaveConcurrency { get; set; }
 
@@ -190,6 +209,19 @@ public class TestDbContext(
         CancellationToken cancellationToken)
     {
         FinalizedOperatorDocumentCleanupPublicIds.AddRange(publicIds);
+        return Task.CompletedTask;
+    }
+
+    public Task FinalizeTravelerAvatarReservationAsync(string publicId, CancellationToken cancellationToken)
+    {
+        FinalizedTravelerAvatarPublicIds.Add(publicId);
+        return Task.CompletedTask;
+    }
+
+    public Task EnqueueTravelerAvatarCleanupAsync(string publicId, DateTimeOffset nowUtc,
+        CancellationToken cancellationToken)
+    {
+        EnqueuedTravelerAvatarPublicIds.Add(publicId);
         return Task.CompletedTask;
     }
 

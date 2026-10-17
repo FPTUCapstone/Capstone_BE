@@ -48,9 +48,8 @@ public sealed class SearchToursQueryHandler(
                 var tours = dbContext.Tours
                     .AsNoTracking()
                     .Where(tour =>
-                        tour.Status == TourStatus.Approved
-                        && tour.PublishedAtUtc.HasValue
-                        && tour.PublishedAtUtc.Value <= now
+                        (tour.Status == TourStatus.Published
+                         || (tour.Status == TourStatus.Approved && tour.PublishedAtUtc.HasValue && tour.PublishedAtUtc.Value <= now))
                         && tour.OperatorProfile.ApprovalStatus == OperatorApprovalStatus.Approved
                         && tour.OperatorProfile.User.Status == AccountStatus.Active);
 

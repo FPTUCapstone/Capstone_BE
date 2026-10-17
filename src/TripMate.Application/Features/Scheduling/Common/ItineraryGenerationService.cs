@@ -1,6 +1,7 @@
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Scheduling.Csp;
 using TripMate.Application.Features.Scheduling.Routing;
+using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Scheduling.Common;
@@ -52,6 +53,11 @@ public sealed class ItineraryGenerationService(
         if (matrix.PointCount != routePoints.Count)
         {
             throw new InvalidOperationException("Route provider returned a matrix with an unexpected size.");
+        }
+
+        if (!TryKeepRoutableCandidates(input, matrix, input.MandatoryPoiIds, out input, out matrix, out var unroutable))
+        {
+            return Infeasible(unroutable!);
         }
 
         var matrixCandidates = input.Candidates.ToArray();
@@ -217,6 +223,12 @@ public sealed class ItineraryGenerationService(
             throw new InvalidOperationException("Route provider returned a matrix with an unexpected size.");
         }
 
+        if (!TryKeepRoutableCandidates(input, matrix, orderedVisitPoiIds, out input, out matrix, out var unroutable))
+        {
+            return Infeasible(unroutable!);
+        }
+
+        matrixCandidates = input.Candidates.ToArray();
         var candidateMatrixIndices = BuildCandidateMatrixIndices(matrixCandidates);
         var orderedCandidates = orderedVisitPoiIds.Select(id => candidates[id]).ToArray();
         var schedule = _evaluator.Evaluate(
@@ -309,8 +321,82 @@ public sealed class ItineraryGenerationService(
             : $"{baseMessage} Most conflicting: {string.Join(", ", names)}.";
     }
 
+    /// <summary>
+    /// Drops candidates the route provider could not reach (e.g. a mountain-top POI with no road), so one
+    /// such place does not fail the whole itinerary. Places in <paramref name="requiredPoiIds"/> cannot be
+    /// dropped: if one is unreachable the request is infeasible and the message names it.
+    /// Matrix layout: 0 = start, 1..n = candidates, n + 1 = end.
+    /// </summary>
+    private static bool TryKeepRoutableCandidates(
+        GenerationInput input,
+        RouteDurationMatrix matrix,
+        IReadOnlyCollection<long> requiredPoiIds,
+        out GenerationInput routableInput,
+        out RouteDurationMatrix routableMatrix,
+        out string? failure)
+    {
+        routableInput = input;
+        routableMatrix = matrix;
+        failure = null;
+        if (!matrix.HasUnreachablePairs)
+        {
+            return true;
+        }
+
+        var candidates = input.Candidates.ToArray();
+        var endIndex = candidates.Length + 1;
+        if (!matrix.IsReachable(0, endIndex))
+        {
+            failure = "The end point cannot be reached by road from the starting point.";
+            return false;
+        }
+
+        var kept = Enumerable.Range(1, candidates.Length)
+            .Where(index => matrix.IsReachable(0, index) && matrix.IsReachable(index, endIndex))
+            .ToList();
+
+        // Places cut off from each other (e.g. an island and the mainland): drop the one with the most
+        // missing routes, never a required place while an optional one can go instead.
+        while (true)
+        {
+            var worst = kept
+                .Select(index => new
+                {
+                    Index = index,
+                    Missing = kept.Count(other => !matrix.IsReachable(index, other) || !matrix.IsReachable(other, index)),
+                    Required = requiredPoiIds.Contains(candidates[index - 1].Id),
+                })
+                .Where(entry => entry.Missing > 0)
+                .OrderBy(entry => entry.Required)
+                .ThenByDescending(entry => entry.Missing)
+                .ThenByDescending(entry => entry.Index)
+                .FirstOrDefault();
+            if (worst is null)
+            {
+                break;
+            }
+
+            kept.Remove(worst.Index);
+        }
+
+        var keptIds = kept.Select(index => candidates[index - 1].Id).ToHashSet();
+        var unreachableRequired = candidates
+            .Where(candidate => requiredPoiIds.Contains(candidate.Id) && !keptIds.Contains(candidate.Id))
+            .Select(candidate => candidate.Name)
+            .ToArray();
+        if (unreachableRequired.Length > 0)
+        {
+            failure = $"No road route reaches {string.Join(", ", unreachableRequired)}. Choose another place.";
+            return false;
+        }
+
+        routableInput = input with { Candidates = kept.Select(index => candidates[index - 1]).ToArray() };
+        routableMatrix = matrix.Select([0, .. kept, endIndex]);
+        return true;
+    }
+
     private static bool HasInvalidRequestConstraints(GenerationInput input) =>
-        input.AvailableMinutes is < 60 or > 720
+        input.AvailableMinutes is < SchedulingRequest.MinAvailableMinutes or > SchedulingRequest.MaxAvailableMinutes
         || input.BudgetVnd is <= 0
         || input.MandatoryPoiIds.Count > 6
         || input.MandatoryPoiIds.Distinct().Count() != input.MandatoryPoiIds.Count;

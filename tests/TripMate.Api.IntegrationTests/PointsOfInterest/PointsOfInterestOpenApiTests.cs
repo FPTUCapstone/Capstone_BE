@@ -35,7 +35,7 @@ public sealed class PointsOfInterestOpenApiTests
             .ToArray();
 
         parameterNames.Should().BeEquivalentTo(
-            ["query", "latitude", "longitude", "radiusKm", "page", "pageSize"]);
+            ["query", "latitude", "longitude", "radiusKm", "page", "pageSize", "excludeFoodAndDrink"]);
         operation.GetProperty("responses").TryGetProperty("200", out _).Should().BeTrue();
         operation.GetProperty("responses").TryGetProperty("401", out _).Should().BeTrue();
         operation.GetProperty("responses").TryGetProperty("403", out _).Should().BeTrue();

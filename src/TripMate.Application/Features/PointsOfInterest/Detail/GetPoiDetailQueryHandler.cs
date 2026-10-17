@@ -7,6 +7,7 @@ using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.PointsOfInterest.Common;
 using TripMate.Application.Features.TripReviews.Common;
+using TripMate.Domain.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -41,6 +42,7 @@ public sealed class GetPoiDetailQueryHandler(
                 p.HasShelter,
                 p.ScenicScore,
                 p.PhotoRating,
+                p.EstimatedVisitCost,
                 p.CreatedAtUtc,
                 p.UpdatedAtUtc,
             })
@@ -122,6 +124,8 @@ public sealed class GetPoiDetailQueryHandler(
             poi.HasShelter,
             poi.ScenicScore,
             poi.PhotoRating,
+            poi.EstimatedVisitCost,
+            CostKindPolicy.FromCategory(poi.CategoryName),
             averageRating,
             reviewCount,
             isOpenNow,

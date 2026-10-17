@@ -426,16 +426,14 @@ public sealed class CreateSchedulingRequestSqlServerTests
                 preferred_transport_mode,
                 travel_pace,
                 risk_tolerance,
-                food_preferences_json,
-                default_budget)
+                food_preferences_json)
             VALUES (
                 {seed.UserId},
                 N'["beach","cafe"]',
                 'Motorbike',
                 'Moderate',
                 'Medium',
-                N'["vegetarian"]',
-                1000000.00);
+                N'["vegetarian"]');
             """);
 
         await using var context = database.CreateDbContext();
@@ -448,7 +446,6 @@ public sealed class CreateSchedulingRequestSqlServerTests
         profile.TravelPace.Should().Be(TravelerPace.Moderate);
         profile.RiskTolerance.Should().Be(RiskToleranceLevel.Medium);
         profile.FoodPreferencesJson.Should().Be("[\"vegetarian\"]");
-        profile.DefaultBudget.Should().Be(1_000_000.00m);
     }
 
     [SqlServerFact]

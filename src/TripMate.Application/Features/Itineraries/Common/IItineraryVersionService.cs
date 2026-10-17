@@ -15,4 +15,16 @@ public interface IItineraryVersionService
         SchedulingRequest request,
         IReadOnlyList<long> orderedVisitPoiIds,
         CancellationToken cancellationToken);
+
+    Task<Result<Itinerary>> CreateAdjustedVersionAsync(
+        Itinerary source,
+        SchedulingRequest request,
+        IReadOnlyList<ItineraryStop> stops,
+        CancellationToken cancellationToken);
+
+    Task<Result<IReadOnlyList<StopsEvaluation>>> EvaluateStopVariantsAsync(
+        SchedulingRequest request,
+        IReadOnlyList<IReadOnlyList<ItineraryStop>> variants,
+        CancellationToken cancellationToken,
+        int? availableMinutesOverride = null);
 }

@@ -7,6 +7,7 @@ using TripMate.Application.Features.Authentication.Common;
 using TripMate.Application.Features.CommercialServices.Common;
 using TripMate.Application.Features.Coupons.Common;
 using TripMate.Application.Features.Navigation.Common;
+using TripMate.Application.Features.Operator.Tours.Common;
 using TripMate.Application.Features.PointsOfInterest.Common;
 using TripMate.Application.Features.RecommendationFeedback.Common;
 using TripMate.Application.Features.Scheduling.Common;
@@ -86,6 +87,9 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             AuthErrorCodes.AdminMobileSignInDisabled =>
                 StatusCodes.Status403Forbidden,
 
+            AuthErrorCodes.LocalPasswordUnavailable =>
+                StatusCodes.Status403Forbidden,
+
             AuthErrorCodes.VerificationUnavailable =>
                 StatusCodes.Status503ServiceUnavailable,
 
@@ -102,6 +106,9 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
                 StatusCodes.Status409Conflict,
 
             AuthErrorCodes.EmailAlreadyRegistered =>
+                StatusCodes.Status409Conflict,
+
+            AuthErrorCodes.MsgPhoneDup =>
                 StatusCodes.Status409Conflict,
 
             AuthErrorCodes.Msg159 or AuthErrorCodes.Msg160 =>
@@ -122,6 +129,13 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripMate.Application.Features.Operator.Application.Common.OperatorApplicationErrorCodes.MissingBusinessLicense or
                 TripMate.Application.Features.Operator.Application.Common.OperatorApplicationErrorCodes.InvalidDocument =>
                 StatusCodes.Status400BadRequest,
+
+            TripMate.Application.Features.Traveler.Profile.Common.TravelerProfileErrorCodes.Forbidden =>
+                StatusCodes.Status403Forbidden,
+
+            TripMate.Application.Features.Traveler.Profile.Common.TravelerProfileErrorCodes.NotFound =>
+                StatusCodes.Status404NotFound,
+
 
             TripMate.Application.Features.Admin.AuditLogs.Common.AuditLogErrorCodes.Forbidden =>
                 StatusCodes.Status403Forbidden,
@@ -146,6 +160,12 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
 
             TripMate.Application.Features.Admin.ActiveTrips.GetList.ActiveTripErrorCodes.NotFound =>
                 StatusCodes.Status404NotFound,
+
+            TripMate.Application.Features.Admin.Payouts.GetList.PayoutErrorCodes.Forbidden =>
+                StatusCodes.Status403Forbidden,
+
+            TripMate.Application.Features.Admin.Payouts.GetList.PayoutErrorCodes.InvalidPeriodRange =>
+                StatusCodes.Status400BadRequest,
 
             TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.Forbidden =>
                 StatusCodes.Status403Forbidden,
@@ -192,6 +212,20 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             CouponErrorCodes.TourNotOwned => StatusCodes.Status403Forbidden,
             CouponErrorCodes.TourNotEligible => StatusCodes.Status422UnprocessableEntity,
             CouponErrorCodes.CodeConflict => StatusCodes.Status409Conflict,
+            CouponErrorCodes.NotFound => StatusCodes.Status404NotFound,
+            CouponErrorCodes.InvalidState => StatusCodes.Status409Conflict,
+
+            OperatorTourErrorCodes.AccessRequired => StatusCodes.Status403Forbidden,
+            OperatorTourErrorCodes.AdminAccessRequired => StatusCodes.Status403Forbidden,
+            OperatorTourErrorCodes.PoiNotFound or OperatorTourErrorCodes.CategoryNotFound or
+                OperatorTourErrorCodes.DestinationNotFound or
+                OperatorTourErrorCodes.TourNotFound or OperatorTourErrorCodes.CancellationPolicyUnavailable =>
+                StatusCodes.Status404NotFound,
+            OperatorTourErrorCodes.IdempotencyKeyPayloadMismatch => StatusCodes.Status409Conflict,
+            OperatorTourErrorCodes.InvalidState => StatusCodes.Status409Conflict,
+            OperatorTourErrorCodes.EditLocked => StatusCodes.Status409Conflict,
+            OperatorTourErrorCodes.ReviewPrerequisitesMissing => StatusCodes.Status422UnprocessableEntity,
+            OperatorTourErrorCodes.RejectionReasonInvalid => StatusCodes.Status422UnprocessableEntity,
 
             TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.ItineraryNotFound =>
                 StatusCodes.Status404NotFound,
@@ -219,6 +253,16 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
 
             SchedulingErrorCodes.ConstraintsInfeasible =>
                 StatusCodes.Status422UnprocessableEntity,
+
+            SchedulingErrorCodes.MandatoryFoodNotAllowed =>
+                StatusCodes.Status422UnprocessableEntity,
+
+            TripMate.Application.Features.PointsOfInterest.ExternalReviews.ExternalReviewErrorCodes.PoiNotFound
+                or TripMate.Application.Features.PointsOfInterest.ExternalReviews.ExternalReviewErrorCodes.ReviewNotFound =>
+                StatusCodes.Status404NotFound,
+
+            TripMate.Application.Features.PointsOfInterest.ExternalReviews.ExternalReviewErrorCodes.TranslationUnavailable =>
+                StatusCodes.Status503ServiceUnavailable,
 
             TripReviewErrorCodes.Unauthorized =>
                 StatusCodes.Status401Unauthorized,
@@ -298,6 +342,18 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
 
             TripMate.Application.Features.Itineraries.Common.ItineraryErrorCodes.ConstraintsInfeasible =>
                 StatusCodes.Status422UnprocessableEntity,
+
+            TripMate.Application.Features.Itineraries.Common.ItineraryErrorCodes.StopInfeasible =>
+                StatusCodes.Status422UnprocessableEntity,
+
+            TripMate.Application.Features.Itineraries.Common.ItineraryErrorCodes.NavigationInProgress =>
+                StatusCodes.Status409Conflict,
+
+            TripMate.Application.Features.Itineraries.Common.ItineraryErrorCodes.NoAlternative =>
+                StatusCodes.Status422UnprocessableEntity,
+
+            TripMate.Application.Features.Traveler.Preferences.Common.TravelerPreferenceErrors.Forbidden =>
+                StatusCodes.Status403Forbidden,
 
             NavigationErrorCodes.AccessDenied => StatusCodes.Status403Forbidden,
             NavigationErrorCodes.SessionNotFound => StatusCodes.Status404NotFound,

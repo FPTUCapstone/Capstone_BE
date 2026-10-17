@@ -43,6 +43,17 @@ public class ApplicationDbContext(
 
     public DbSet<TourSchedule> TourSchedules => Set<TourSchedule>();
 
+    public DbSet<TourPackageCreateOperation> TourPackageCreateOperations =>
+        Set<TourPackageCreateOperation>();
+
+    public DbSet<CancellationPolicyTemplate> CancellationPolicyTemplates =>
+        Set<CancellationPolicyTemplate>();
+
+    public DbSet<TourCancellationPolicyRule> TourCancellationPolicyRules =>
+        Set<TourCancellationPolicyRule>();
+
+    public DbSet<TourItineraryItem> TourItineraryItems => Set<TourItineraryItem>();
+
     public DbSet<Destination> Destinations => Set<Destination>();
 
     public DbSet<TourDestination> TourDestinations => Set<TourDestination>();
@@ -181,6 +192,28 @@ public class ApplicationDbContext(
         }
     }
 
+    public async Task FinalizeTravelerAvatarReservationAsync(string publicId, CancellationToken cancellationToken)
+    {
+        string resource = TravelerAvatarCleanupLock.ForPublicId(publicId);
+        int affected = await Database.ExecuteSqlInterpolatedAsync($"""
+            DECLARE @result INT;
+            EXEC @result = sp_getapplock @Resource = {resource}, @LockMode = 'Exclusive',
+                @LockOwner = 'Transaction', @LockTimeout = 10000;
+            IF @result < 0 THROW 51001, 'Avatar cleanup lock unavailable.', 1;
+            DELETE FROM dbo.TravelerAvatarCleanupOutbox WHERE public_id = {publicId};
+            """, cancellationToken);
+        if (affected != 1) throw new InvalidOperationException("Avatar reservation was consumed before commit.");
+    }
+
+    public async Task EnqueueTravelerAvatarCleanupAsync(string publicId, DateTimeOffset nowUtc,
+        CancellationToken cancellationToken)
+    {
+        await Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO dbo.TravelerAvatarCleanupOutbox (public_id, not_before_at)
+            VALUES ({publicId}, {nowUtc.UtcDateTime});
+            """, cancellationToken);
+    }
+
     private async Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
         IsolationLevel isolationLevel,
@@ -239,6 +272,8 @@ public class ApplicationDbContext(
     public DbSet<WeatherEvent> WeatherEvents => Set<WeatherEvent>();
 
     public DbSet<ReroutingEvent> ReroutingEvents => Set<ReroutingEvent>();
+
+    public DbSet<Payout> Payouts => Set<Payout>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
