@@ -121,6 +121,9 @@
     <None Include="..\..\database\migrations\20261016_add_tour_version_lineage.sql"
           Link="Database\migrations\20261016_add_tour_version_lineage.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261017_add_operator_coupon_lifecycle.sql"
+          Link="Database\migrations\20261017_add_operator_coupon_lifecycle.sql"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\database\migrations\20261013_remove_traveler_profile_default_budget.sql"
           Link="Database\migrations\20261013_remove_traveler_profile_default_budget.sql"
           CopyToOutputDirectory="PreserveNewest" />
