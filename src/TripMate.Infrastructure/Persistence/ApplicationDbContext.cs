@@ -86,6 +86,14 @@ public class ApplicationDbContext(
 
     public DbSet<Voucher> Vouchers => Set<Voucher>();
 
+    public DbSet<Booking> Bookings => Set<Booking>();
+
+    public DbSet<BookingParticipant> BookingParticipants => Set<BookingParticipant>();
+
+    public DbSet<VoucherRedemption> VoucherRedemptions => Set<VoucherRedemption>();
+
+    public DbSet<TourBookingCreateOperation> TourBookingCreateOperations => Set<TourBookingCreateOperation>();
+
     public Task<int> RevokeRefreshTokenAsync(
         string tokenHash,
         DateTimeOffset revokedAtUtc,

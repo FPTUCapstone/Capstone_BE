@@ -54,7 +54,8 @@ public class TourScheduleConfiguration : IEntityTypeConfiguration<TourSchedule>
         builder.Property(schedule => schedule.ReservedCapacity)
             .HasColumnName("reserved_capacity")
             .HasDefaultValue(0)
-            .IsRequired();
+            .IsRequired()
+            .IsConcurrencyToken();
         builder.Property(schedule => schedule.Status)
             .HasColumnName("status")
             .HasConversion<string>()
