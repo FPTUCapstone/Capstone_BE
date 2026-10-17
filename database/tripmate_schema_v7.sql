@@ -1203,19 +1203,28 @@ GO
 
 CREATE TABLE payment.PaymentTransactions (
     transaction_id               BIGINT IDENTITY(1,1) PRIMARY KEY,
-    booking_id                     BIGINT NOT NULL REFERENCES commerce.Bookings(booking_id),
-    gateway                          VARCHAR(20) NOT NULL CHECK (gateway IN ('VNPAY','MoMo','PayOS','Stripe')),
-    gateway_transaction_ref            NVARCHAR(150) NULL,
-    amount                                DECIMAL(12,2) NOT NULL CHECK (amount > 0),
-    currency                                CHAR(3) NOT NULL DEFAULT 'VND',
-    transaction_type                          VARCHAR(10) NOT NULL CHECK (transaction_type IN ('Payment','Refund')),
-    status                                       VARCHAR(10) NOT NULL DEFAULT 'Pending'
-        CHECK (status IN ('Pending','Success','Failed')),
-    raw_response                                   NVARCHAR(MAX) NULL,
-    created_at                                       DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+    booking_id                   BIGINT NOT NULL REFERENCES commerce.Bookings(booking_id),
+    gateway                      VARCHAR(20) NOT NULL CHECK (gateway IN ('VNPAY','MoMo','PayOS','Stripe','Mock')),
+    gateway_transaction_ref      NVARCHAR(150) NULL,
+    amount                       DECIMAL(12,2) NOT NULL CHECK (amount > 0),
+    currency                     CHAR(3) NOT NULL DEFAULT 'VND',
+    transaction_type             VARCHAR(10) NOT NULL CHECK (transaction_type IN ('Payment','Refund')),
+    status                       VARCHAR(10) NOT NULL DEFAULT 'Pending'
+        CHECK (status IN ('Pending','Success','Cancelled','Expired','Failed')),
+    order_code                   BIGINT NOT NULL DEFAULT (0),
+    payment_link_id              NVARCHAR(100) NULL,
+    checkout_url                 NVARCHAR(1000) NULL,
+    expires_at                   DATETIME2 NULL,
+    updated_at                   DATETIME2 NULL,
+    raw_response                 NVARCHAR(MAX) NULL,
+    created_at                   DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
 );
 GO
 CREATE INDEX IX_PaymentTransactions_Booking ON payment.PaymentTransactions(booking_id);
+GO
+CREATE UNIQUE INDEX UX_PaymentTransactions_OrderCode ON payment.PaymentTransactions(order_code) WHERE order_code > 0;
+GO
+CREATE UNIQUE INDEX UX_PaymentTransactions_Booking_Pending ON payment.PaymentTransactions(booking_id) WHERE status = 'Pending';
 GO
 
 CREATE TABLE payment.Refunds (

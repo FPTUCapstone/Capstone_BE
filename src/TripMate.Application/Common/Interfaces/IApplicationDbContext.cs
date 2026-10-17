@@ -82,6 +82,8 @@ public interface IApplicationDbContext
 
     DbSet<TourBookingCreateOperation> TourBookingCreateOperations { get; }
 
+    DbSet<PaymentTransaction> PaymentTransactions { get; }
+
     DbSet<TravelGroup> TravelGroups { get; }
 
     DbSet<GroupMember> GroupMembers { get; }

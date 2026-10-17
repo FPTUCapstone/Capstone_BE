@@ -13,6 +13,7 @@ using TripMate.Application.Features.RecommendationFeedback.Common;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.TourMedia.Common;
 using TripMate.Application.Features.Tours.Shared;
+using TripMate.Application.Features.Traveler.Payments.Common;
 using TripMate.Application.Features.TripReviews.Common;
 
 namespace TripMate.Api.Common;
@@ -389,6 +390,14 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             NavigationErrorCodes.NoNavigableItems
                 or NavigationErrorCodes.ItineraryScheduleIncomplete
                 or NavigationErrorCodes.ItemNotNavigable => StatusCodes.Status422UnprocessableEntity,
+
+            PaymentErrorCodes.AccessDenied => StatusCodes.Status403Forbidden,
+            PaymentErrorCodes.PaymentNotFound => StatusCodes.Status404NotFound,
+            PaymentErrorCodes.PaymentMockDisabled => StatusCodes.Status404NotFound,
+            PaymentErrorCodes.PaymentBookingNotEligible
+                or PaymentErrorCodes.PaymentBookingExpired => StatusCodes.Status409Conflict,
+            PaymentErrorCodes.PaymentGatewayUnavailable => StatusCodes.Status503ServiceUnavailable,
+            PaymentErrorCodes.PaymentCallbackInvalid => StatusCodes.Status400BadRequest,
 
             _ => StatusCodes.Status400BadRequest,
         };

@@ -93,6 +93,7 @@ public class ApplicationDbContext(
     public DbSet<VoucherRedemption> VoucherRedemptions => Set<VoucherRedemption>();
 
     public DbSet<TourBookingCreateOperation> TourBookingCreateOperations => Set<TourBookingCreateOperation>();
+    public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
 
     public Task<int> RevokeRefreshTokenAsync(
         string tokenHash,
