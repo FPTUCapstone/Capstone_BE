@@ -48,6 +48,17 @@ public class FakeCurrentUserService : ICurrentUserService
     public string? Role { get; set; }
 }
 
+/// <summary>Reversible only within the test process; never a stand-in for real key management.</summary>
+public class FakePiiProtector : IPiiProtector
+{
+    public string Protect(string plaintext) => $"protected:{plaintext}";
+
+    public string Unprotect(string protectedValue) =>
+        protectedValue.StartsWith("protected:", StringComparison.Ordinal)
+            ? protectedValue["protected:".Length..]
+            : throw new FormatException("Value was not protected by FakePiiProtector.");
+}
+
 /// <summary>
 /// No-op stand-in for IAccountCredentialLock. The real implementation issues sp_getapplock,
 /// which the EF InMemory provider cannot execute; the true cross-process serialization

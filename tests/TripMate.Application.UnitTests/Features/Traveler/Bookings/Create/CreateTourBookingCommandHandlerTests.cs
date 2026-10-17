@@ -154,9 +154,34 @@ public sealed class CreateTourBookingCommandHandlerTests
         (await db.VoucherRedemptions.CountAsync()).Should().Be(1);
     }
 
+    [Fact]
+    public async Task Handle_WithIdDocumentNumber_PersistsItProtectedNeverAsPlaintext()
+    {
+        await using var db = TestDbContext.Create();
+        var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
+        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        db.Tours.Add(tour);
+        await db.SaveChangesAsync();
+        var schedule = TourBookingTestData.SeedSchedule(tour, Now.AddDays(5), 10, 0);
+        db.TourSchedules.Add(schedule);
+        await db.SaveChangesAsync();
+        const string plaintextDocumentNumber = "012345678901";
+        var participant = new CreateTourBookingParticipantRequest(
+            "Nguyen Van A", ParticipantType.Adult, null, null, BookingIdDocumentType.CCCD,
+            plaintextDocumentNumber, "VNM");
+
+        var result = await NewHandler(db, traveler.Id).Handle(
+            Command(schedule.Id, [participant]), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var persisted = await db.BookingParticipants.AsNoTracking().SingleAsync();
+        persisted.IdDocumentNumber.Should().NotBe(plaintextDocumentNumber);
+        persisted.IdDocumentNumber.Should().Be($"protected:{plaintextDocumentNumber}");
+    }
+
     private static CreateTourBookingCommandHandler NewHandler(TestDbContext db, long travelerId) =>
         new(db, new FakeCurrentUserService { UserId = travelerId, Role = nameof(UserRole.Traveler) },
-            new FakeDateTimeProvider { UtcNow = Now }, Options);
+            new FakeDateTimeProvider { UtcNow = Now }, Options, new FakePiiProtector());
 
     private static CreateTourBookingCommand Command(
         long scheduleId, IReadOnlyList<CreateTourBookingParticipantRequest> participants, string? voucherCode = null) =>
