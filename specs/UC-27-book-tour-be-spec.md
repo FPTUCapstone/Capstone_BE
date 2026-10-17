@@ -22,7 +22,7 @@ UC-27 **reuses existing tables**. It must not create MySQL-style duplicate booki
 | Named travelers | `commerce.BookingParticipants` | Create one row per participant |
 | Voucher | `commerce.Vouchers`, `commerce.VoucherApplicableTours`, `commerce.VoucherRedemptions` | Validate and record redemption using existing rules |
 
-The existing participant model supports `fullName`, optional `phoneNumber`, `email`, `participantType`, document type/number and nationality. **Date of birth is not accepted by this contract** until SRS and a separate SQL Server migration explicitly add it. Contact information is represented by the lead participant for this release; no separate contact table is introduced.
+The existing participant model supports `fullName`, optional `phoneNumber`, `email`, `participantType`, document type/number and nationality. **Date of birth is not accepted by this contract** until SRS and a separate SQL Server migration explicitly add it. Contact information is represented by the lead participant for this release; no separate contact table is introduced. `id_document_number` is encrypted before persistence; its SQL Server column must hold ciphertext (`NVARCHAR(512)`), while the request validator retains the 50-character clear-text limit.
 
 ## 3. Public contract
 

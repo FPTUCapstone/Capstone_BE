@@ -13,7 +13,15 @@ public class BookingParticipant : BaseEntity
     public const int FullNameMaxLength = 150;
     public const int PhoneNumberMaxLength = 20;
     public const int EmailMaxLength = 256;
+    /// <summary>Maximum clear-text document number accepted from the API.</summary>
     public const int IdDocumentNumberMaxLength = 50;
+
+    /// <summary>
+    /// Maximum persisted Data Protection ciphertext length. This is deliberately distinct from
+    /// <see cref="IdDocumentNumberMaxLength"/> because protected values are substantially longer
+    /// than their clear-text input.
+    /// </summary>
+    public const int IdDocumentNumberCiphertextMaxLength = 512;
     public const int NationalityLength = 3;
 
     private BookingParticipant()
@@ -58,7 +66,7 @@ public class BookingParticipant : BaseEntity
             throw new ArgumentOutOfRangeException(nameof(email));
 
         var normalizedDocumentNumber = string.IsNullOrWhiteSpace(idDocumentNumber) ? null : idDocumentNumber.Trim();
-        if (normalizedDocumentNumber?.Length > IdDocumentNumberMaxLength)
+        if (normalizedDocumentNumber?.Length > IdDocumentNumberCiphertextMaxLength)
             throw new ArgumentOutOfRangeException(nameof(idDocumentNumber));
 
         var normalizedNationality = string.IsNullOrWhiteSpace(nationality) ? null : nationality.Trim().ToUpperInvariant();

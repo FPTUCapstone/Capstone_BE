@@ -1124,7 +1124,7 @@ CREATE TABLE commerce.BookingParticipants (
     email                          NVARCHAR(256) NULL,
     participant_type                  VARCHAR(10) NULL CHECK (participant_type IN ('Adult','Child','Infant')),
     id_document_type                     VARCHAR(20) NULL CHECK (id_document_type IN ('CCCD','Passport','Other')),
-    id_document_number                      NVARCHAR(50) NULL,   -- PII — see note above
+    id_document_number                      NVARCHAR(512) NULL,  -- encrypted PII — see note above
     nationality                                CHAR(3) NULL   -- ISO 3166-1 alpha-3 country code
 );
 GO
