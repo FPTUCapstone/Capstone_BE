@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -18,6 +19,7 @@ using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Explanation;
 using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Application.Features.Scheduling.TimeOfDay;
+using TripMate.Application.Features.Traveler.Bookings.Common;
 using TripMate.Application.Features.TravelGroups.ManageInvitation;
 using TripMate.Application.Features.TripReviews.Common;
 using TripMate.Application.Features.TripReviews.Media;
@@ -142,6 +144,15 @@ public static class DependencyInjection
         services.AddSingleton(serviceProvider => serviceProvider
             .GetRequiredService<IOptions<SchedulingReservationOptions>>()
             .Value);
+        services.AddOptions<TourBookingOptions>()
+            .Bind(configuration.GetSection(TourBookingOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<TourBookingOptions>, TourBookingOptionsValidator>();
+        services.AddSingleton(serviceProvider =>
+            serviceProvider.GetRequiredService<IOptions<TourBookingOptions>>().Value);
+        services.AddHostedService<PendingBookingExpiryBackgroundService>();
+        services.AddDataProtection();
+        services.AddSingleton<IPiiProtector, DataProtectionPiiProtector>();
         services.AddOptions<NavigationSessionOptions>()
             .Bind(configuration.GetSection(NavigationSessionOptions.SectionName))
             .ValidateOnStart();
