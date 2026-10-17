@@ -17,7 +17,8 @@ public sealed class CreateTourBookingCommandHandler(
     IApplicationDbContext dbContext,
     ICurrentUserService currentUser,
     IDateTimeProvider clock,
-    TourBookingOptions options)
+    TourBookingOptions options,
+    IPiiProtector piiProtector)
     : IRequestHandler<CreateTourBookingCommand, Result<CreateTourBookingResponse>>
 {
     // Mirrors CreateTourPackageCommandHandler: concurrent duplicates all read "no operation yet"
@@ -126,9 +127,15 @@ public sealed class CreateTourBookingCommandHandler(
                 booking.BookedAtUtc >= todayStartUtc, transactionCancellationToken) + 1;
             var bookingCode = Booking.GenerateCode(now, dailySequence);
 
+            // BR-33: the document number is PII and must be encrypted before it reaches the entity;
+            // nothing downstream of this point ever sees or persists the plaintext.
             var participants = request.Participants.Select(participant => BookingParticipant.Create(
                 participant.FullName, participant.ParticipantType, participant.PhoneNumber, participant.Email,
-                participant.IdDocumentType, participant.IdDocumentNumber, participant.Nationality)).ToList();
+                participant.IdDocumentType,
+                string.IsNullOrWhiteSpace(participant.IdDocumentNumber)
+                    ? null
+                    : piiProtector.Protect(participant.IdDocumentNumber),
+                participant.Nationality)).ToList();
 
             var effectiveAdultPrice = schedule.GetEffectivePrice(ParticipantType.Adult, schedule.Tour.BasePrice);
             var booking = Booking.Create(bookingCode, travelerId, scheduleId, voucher?.Id, effectiveAdultPrice,
