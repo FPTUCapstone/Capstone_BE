@@ -31,14 +31,23 @@ issuance, and payment-provider selection.
    provide an amount, gateway reference, or success status.
 5. A verified gateway callback is authoritative. Return/deep-link parameters
    are only navigation hints and are never used to mark a payment successful.
-6. A successful payment atomically changes the transaction to `Success`,
+6. A successful payment received while the booking is still eligible atomically changes the transaction to `Success`,
    `Bookings.payment_status` to `Paid`, and `Bookings.status` to `Confirmed`.
 7. Mock completion is enabled only when `Payment:Provider=Mock`; it is not
    registered or accepted in PayOS environments.
+8. A verified success received after the booking has expired is persisted as a
+   successful transaction, but never reinstates the booking or issues tickets.
+   The booking remains `Expired` for reconciliation/refund handling in its
+   dedicated use case.
 
 ## API contract
 
 All Traveler endpoints require the authenticated booking owner.
+
+Until the UC-27 entry point is available, a development-only Web test entry
+may call the standard create/reuse endpoint with an explicit booking ID. It
+does not receive an alternate Backend route, seed data or authorization bypass:
+the target must be a real, owner-controlled `PendingPayment` booking.
 
 ### Create or reuse payment link
 
@@ -55,7 +64,8 @@ Response `200`:
   "status": "Pending",
   "amount": 2500000,
   "currency": "VND",
-  "expiresAtUtc": "2026-10-17T06:15:00Z"
+  "paymentLinkExpiresAtUtc": "2026-10-17T06:15:00Z",
+  "bookingPaymentExpiresAtUtc": "2026-10-17T06:20:00Z"
 }
 ```
 
@@ -98,11 +108,23 @@ already persisted result.
 | --- | --- |
 | Booking belongs to another user or does not exist | `404` |
 | Booking is not `PendingPayment` or has `Paid` payment status | business conflict |
-| `payment_expires_at <= now` | mark booking and active transaction `Expired`; no link |
+| `payment_expires_at <= now` before gateway success | mark booking and active transaction `Expired`; no link |
 | Active pending payment link | return that same link |
 | Cancelled/expired link while booking remains eligible | create one replacement link |
 | Gateway amount/currency does not match transaction | reject callback and retain pending state |
 | Duplicate verified callback | idempotent `200`, no duplicate state mutation |
+| Verified gateway success after booking expiry | persist transaction success; keep booking `Expired`; no ticket or automatic reinstatement |
+
+## Error contract
+
+| Code | Meaning |
+| --- | --- |
+| `PAYMENT_BOOKING_NOT_ELIGIBLE` | The booking is not `PendingPayment` or is already paid. |
+| `PAYMENT_BOOKING_EXPIRED` | The booking payment hold has expired. |
+| `PAYMENT_NOT_FOUND` | The payment does not exist or is not owned by the caller. |
+| `PAYMENT_GATEWAY_UNAVAILABLE` | The selected provider cannot create/retrieve the payment link. |
+| `PAYMENT_MOCK_DISABLED` | A Mock-only action was requested while Mock provider is disabled. |
+| `PAYMENT_CALLBACK_INVALID` | A webhook signature, amount, currency or reference is invalid. |
 
 ## Persistence
 
@@ -111,7 +133,9 @@ The database migration adds a merchant order code, provider payment-link id,
 expiry and update timestamps, and expands the transaction status constraint to
 `Pending`, `Success`, `Cancelled`, `Expired`, `Failed`. It allows `Mock` as a
 local gateway and creates unique indexes that prevent duplicate order codes and
-active gateway references.
+active gateway references. It also creates a unique filtered index on
+`booking_id` where status is `Pending`; the handler catches its duplicate-key
+outcome, re-reads the existing pending transaction, and returns that link.
 
 `raw_response` stores a redacted gateway payload for reconciliation; it must
 not store API keys or checksum keys.

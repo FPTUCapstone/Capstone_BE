@@ -10,16 +10,18 @@
 
 Add an idempotent SQL migration and update the fresh schema, EF entity and
 configuration for payment order code, payment-link reference, expiry, update
-timestamp and transaction statuses. Add SQL Server tests for fresh and upgrade
-schema parity.
+timestamp and transaction statuses. Add a unique filtered index on
+`booking_id WHERE status = 'Pending'`. Add SQL Server tests for fresh and
+upgrade schema parity.
 
 **Done when:** transaction persistence can distinguish a pending, cancelled,
 expired and successful payment attempt without secrets.
 
 ## Task 2 — Application payment contract and tests
 
-Write failing unit tests for create/reuse eligibility, amount authority,
-replacement links and idempotent completion. Add payment DTOs, commands,
+Write failing unit tests for create/reuse eligibility, concurrent create/reuse,
+amount authority, replacement links and idempotent completion. A duplicate-key
+write must re-read and return the current pending transaction. Add payment DTOs, commands,
 queries, validators, persistence port and `IPaymentGateway` abstraction.
 
 **Done when:** the tests specify every decision in the approved spec.
@@ -30,8 +32,9 @@ Implement `MockPaymentGateway`; it returns a configured local checkout URL and
 deterministic references. Implement a single transactional completion handler
 used by mock and PayOS paths.
 
-**Done when:** success confirms a booking, cancellation preserves pending
-booking state, expiry obeys `payment_expires_at`, and duplicates are idempotent.
+**Done when:** success confirms an eligible booking, cancellation preserves
+pending booking state, expiry obeys `payment_expires_at`, late success is
+recorded without reinstating an expired booking, and duplicates are idempotent.
 
 ## Task 4 — HTTP endpoints and authorization
 
