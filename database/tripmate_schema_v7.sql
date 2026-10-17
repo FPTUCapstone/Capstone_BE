@@ -1057,6 +1057,7 @@ CREATE TABLE commerce.Vouchers (
     voucher_id                BIGINT IDENTITY(1,1) PRIMARY KEY,
     owner_operator_user_id      BIGINT NULL REFERENCES dbo.OperatorProfiles(user_id),
     code                          VARCHAR(30) NOT NULL UNIQUE,
+    name                          NVARCHAR(120) NOT NULL,
     discount_type                   VARCHAR(10) NOT NULL CHECK (discount_type IN ('Percentage','Flat')),
     discount_value                    DECIMAL(12,2) NOT NULL CHECK (discount_value > 0),
     max_discount_amount                 DECIMAL(12,2) NULL,   -- NEW in v2: caps a Percentage discount's absolute value
@@ -1069,6 +1070,7 @@ CREATE TABLE commerce.Vouchers (
     status                                            VARCHAR(10) NOT NULL DEFAULT 'Active'
         CHECK (status IN ('Active','Expired','Disabled')),
     created_at                                          DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    updated_at                                          DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
     CONSTRAINT CK_Vouchers_ValidWindow CHECK (valid_to > valid_from),
     CONSTRAINT CK_Vouchers_UsageWithinLimit CHECK (usage_limit IS NULL OR used_count <= usage_limit)
 );

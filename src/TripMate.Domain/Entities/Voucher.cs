@@ -6,6 +6,7 @@ namespace TripMate.Domain.Entities;
 public sealed class Voucher : BaseEntity
 {
     public const int CodeMaxLength = 30;
+    public const int NameMaxLength = 120;
     public const decimal MaximumMoneyAmount = 9_999_999_999.99m;
     private readonly List<VoucherApplicableTour> _applicableTours = [];
 
@@ -15,6 +16,7 @@ public sealed class Voucher : BaseEntity
     // UC-38 always supplies an active Tour Operator owner.
     public long? OwnerOperatorUserId { get; private set; }
     public string Code { get; private set; } = string.Empty;
+    public string Name { get; private set; } = string.Empty;
     public VoucherDiscountType DiscountType { get; private set; }
     public decimal DiscountValue { get; private set; }
     public decimal? MaxDiscountAmount { get; private set; }
@@ -26,9 +28,17 @@ public sealed class Voucher : BaseEntity
     public DateTimeOffset ValidToUtc { get; private set; }
     public VoucherStatus Status { get; private set; }
     public DateTimeOffset CreatedAtUtc { get; private set; }
+    public DateTimeOffset UpdatedAtUtc { get; private set; }
     public IReadOnlyCollection<VoucherApplicableTour> ApplicableTours => _applicableTours.AsReadOnly();
 
     public static Voucher Create(long ownerOperatorUserId, string code, VoucherDiscountType discountType,
+        decimal discountValue, decimal? maxDiscountAmount, decimal minOrderAmount, int? usageLimit,
+        int? usageLimitPerUser, DateTimeOffset validFromUtc, DateTimeOffset validToUtc,
+        IReadOnlyCollection<Tour> applicableTours, DateTimeOffset createdAtUtc)
+        => Create(ownerOperatorUserId, code, code, discountType, discountValue, maxDiscountAmount,
+            minOrderAmount, usageLimit, usageLimitPerUser, validFromUtc, validToUtc, applicableTours, createdAtUtc);
+
+    public static Voucher Create(long ownerOperatorUserId, string code, string name, VoucherDiscountType discountType,
         decimal discountValue, decimal? maxDiscountAmount, decimal minOrderAmount, int? usageLimit,
         int? usageLimitPerUser, DateTimeOffset validFromUtc, DateTimeOffset validToUtc,
         IReadOnlyCollection<Tour> applicableTours, DateTimeOffset createdAtUtc)
@@ -37,9 +47,12 @@ public sealed class Voucher : BaseEntity
         ArgumentException.ThrowIfNullOrWhiteSpace(code);
         ArgumentNullException.ThrowIfNull(applicableTours);
         var normalizedCode = code.Trim().ToUpperInvariant();
+        var normalizedName = name.Trim();
         if (normalizedCode.Length is < 3 or > CodeMaxLength || !normalizedCode.All(character =>
                 char.IsAsciiLetterOrDigit(character) || character == '-'))
             throw new ArgumentException("Voucher code format is invalid.", nameof(code));
+        if (normalizedName.Length is < 1 or > NameMaxLength)
+            throw new ArgumentException("Voucher name is invalid.", nameof(name));
         if (!Enum.IsDefined(discountType))
             throw new ArgumentOutOfRangeException(nameof(discountType));
         if (applicableTours.Select(tour => tour.Id).Distinct().Count() != applicableTours.Count)
@@ -59,6 +72,7 @@ public sealed class Voucher : BaseEntity
         {
             OwnerOperatorUserId = ownerOperatorUserId,
             Code = normalizedCode,
+            Name = normalizedName,
             DiscountType = discountType,
             DiscountValue = discountValue,
             MaxDiscountAmount = maxDiscountAmount,
@@ -69,9 +83,50 @@ public sealed class Voucher : BaseEntity
             ValidToUtc = validToUtc,
             Status = VoucherStatus.Active,
             CreatedAtUtc = createdAtUtc,
+            UpdatedAtUtc = createdAtUtc,
         };
         foreach (var tour in applicableTours) voucher._applicableTours.Add(new VoucherApplicableTour(voucher, tour));
         return voucher;
+    }
+
+    public void Update(string name, VoucherDiscountType discountType, decimal discountValue,
+        decimal? maxDiscountAmount, decimal minOrderAmount, int? usageLimit, int? usageLimitPerUser,
+        DateTimeOffset validFromUtc, DateTimeOffset validToUtc, IReadOnlyCollection<Tour> applicableTours,
+        DateTimeOffset updatedAtUtc)
+    {
+        var replacement = Create(OwnerOperatorUserId ?? throw new InvalidOperationException("Voucher owner is required."),
+            Code, name, discountType, discountValue, maxDiscountAmount, minOrderAmount, usageLimit,
+            usageLimitPerUser, validFromUtc, validToUtc, applicableTours, updatedAtUtc);
+        if (usageLimit.HasValue && usageLimit.Value < UsedCount)
+            throw new ArgumentOutOfRangeException(nameof(usageLimit));
+
+        Name = replacement.Name;
+        DiscountType = replacement.DiscountType;
+        DiscountValue = replacement.DiscountValue;
+        MaxDiscountAmount = replacement.MaxDiscountAmount;
+        MinOrderAmount = replacement.MinOrderAmount;
+        UsageLimit = replacement.UsageLimit;
+        UsageLimitPerUser = replacement.UsageLimitPerUser;
+        ValidFromUtc = replacement.ValidFromUtc;
+        ValidToUtc = replacement.ValidToUtc;
+        _applicableTours.Clear();
+        foreach (var tour in applicableTours)
+            _applicableTours.Add(new VoucherApplicableTour(this, tour));
+        UpdatedAtUtc = updatedAtUtc;
+    }
+
+    public void Deactivate(DateTimeOffset updatedAtUtc)
+    {
+        Status = VoucherStatus.Disabled;
+        UpdatedAtUtc = updatedAtUtc;
+    }
+
+    public void Activate(DateTimeOffset updatedAtUtc)
+    {
+        if (ValidToUtc <= updatedAtUtc)
+            throw new InvalidOperationException("Expired vouchers cannot be activated.");
+        Status = VoucherStatus.Active;
+        UpdatedAtUtc = updatedAtUtc;
     }
 
     private static bool IsSupportedMoneyAmount(decimal value) =>

@@ -10,6 +10,7 @@ public sealed class CreateCouponCommandValidator : AbstractValidator<CreateCoupo
 {
     public CreateCouponCommandValidator(IDateTimeProvider dateTimeProvider)
     {
+        RuleFor(command => command.Name).NotEmpty().Must(name => name.Trim().Length <= Voucher.NameMaxLength);
         RuleFor(command => command.Code).NotEmpty().Must(code => code.Trim().Length is >= 3 and <= Voucher.CodeMaxLength)
             .Must(code => code.Trim().All(character => char.IsAsciiLetterOrDigit(character) || character == '-'));
         RuleFor(command => command.DiscountType).IsInEnum();
