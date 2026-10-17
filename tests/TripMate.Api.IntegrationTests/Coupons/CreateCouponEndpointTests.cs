@@ -109,6 +109,69 @@ public sealed class CreateCouponEndpointTests
     }
 
     [Fact]
+    public async Task OperatorCouponLifecycle_ListsReadsAndChangesOnlyOwnedCoupon()
+    {
+        using var factory = new TripMateApiFactory();
+        var tourId = await SeedApprovedOperatorAndTourAsync(factory, 7);
+        var replacementTourId = await SeedTourAsync(factory, 7, TourStatus.Published);
+        var couponId = await factory.WithDbContextAsync(async db =>
+        {
+            var tour = await db.Tours.SingleAsync(item => item.Id == tourId);
+            var voucher = Voucher.Create(7, "LIFECYCLE10", "Lifecycle coupon",
+                VoucherDiscountType.Percentage, 10m, 100_000m, 0m, 10, 1,
+                DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddDays(7), [tour], DateTimeOffset.UtcNow);
+            db.Vouchers.Add(voucher);
+            await db.SaveChangesAsync();
+            return voucher.Id;
+        });
+        using var client = factory.CreateAuthenticatedClient(7, UserRole.TourOperator);
+
+        using var listResponse = await client.GetAsync(Endpoint);
+        listResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var list = JsonDocument.Parse(await listResponse.Content.ReadAsStringAsync());
+        list.RootElement[0].GetProperty("name").GetString().Should().Be("Lifecycle coupon");
+
+        using var readResponse = await client.GetAsync($"{Endpoint}/{couponId}");
+        readResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var read = JsonDocument.Parse(await readResponse.Content.ReadAsStringAsync());
+        read.RootElement.GetProperty("ownerOperatorUserId").GetInt64().Should().Be(7);
+
+        using var updateResponse = await client.PutAsJsonAsync($"{Endpoint}/{couponId}", new
+        {
+            Name = "Updated lifecycle coupon",
+            DiscountType = VoucherDiscountType.Percentage,
+            DiscountValue = 15m,
+            MaxDiscountAmount = 150_000m,
+            MinOrderAmount = 0m,
+            UsageLimit = 10,
+            UsageLimitPerUser = 1,
+            ValidFromUtc = DateTimeOffset.UtcNow,
+            ValidToUtc = DateTimeOffset.UtcNow.AddDays(14),
+            ApplicableTourIds = new[] { replacementTourId },
+        });
+        updateResponse.StatusCode.Should().Be(HttpStatusCode.OK, await updateResponse.Content.ReadAsStringAsync());
+        using var update = JsonDocument.Parse(await updateResponse.Content.ReadAsStringAsync());
+        update.RootElement.GetProperty("name").GetString().Should().Be("Updated lifecycle coupon");
+        update.RootElement.GetProperty("discountValue").GetDecimal().Should().Be(15m);
+        await factory.WithDbContextAsync(async db =>
+        {
+            var voucher = await db.Vouchers.Include(item => item.ApplicableTours).SingleAsync(item => item.Id == couponId);
+            voucher.ApplicableTours.Select(item => item.TourId).Should().Equal(replacementTourId);
+            return true;
+        });
+
+        using var deactivateResponse = await client.PostAsync($"{Endpoint}/{couponId}/deactivate", null);
+        deactivateResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var deactivate = JsonDocument.Parse(await deactivateResponse.Content.ReadAsStringAsync());
+        deactivate.RootElement.GetProperty("status").GetString().Should().Be("Disabled");
+
+        using var activateResponse = await client.PostAsync($"{Endpoint}/{couponId}/activate", null);
+        activateResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var activate = JsonDocument.Parse(await activateResponse.Content.ReadAsStringAsync());
+        activate.RootElement.GetProperty("status").GetString().Should().Be("Active");
+    }
+
+    [Fact]
     public async Task Swagger_DescribesCreateCouponContract()
     {
         using var factory = new TripMateApiFactory(environmentName: "Development");
@@ -127,6 +190,7 @@ public sealed class CreateCouponEndpointTests
 
     private static CouponRequest ValidRequest(long tourId) => new(
         "summer10",
+        "Summer ten percent",
         VoucherDiscountType.Percentage,
         10m,
         200_000m,
@@ -187,6 +251,7 @@ public sealed class CreateCouponEndpointTests
 
     private sealed record CouponRequest(
         string Code,
+        string Name,
         VoucherDiscountType DiscountType,
         decimal DiscountValue,
         decimal? MaxDiscountAmount,

@@ -8,4 +8,6 @@ public static class CouponErrorCodes
     public const string TourNotOwned = "coupon.tour_not_owned";
     public const string TourNotEligible = "coupon.tour_not_eligible";
     public const string CodeConflict = "coupon.code_conflict";
+    public const string NotFound = "coupon.not_found";
+    public const string InvalidState = "coupon.invalid_state";
 }

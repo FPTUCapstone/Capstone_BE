@@ -55,7 +55,7 @@ public sealed class CreateCouponCommandHandler(IApplicationDbContext dbContext, 
         }
 
         var code = request.Code.Trim().ToUpperInvariant();
-        var voucher = Voucher.Create(operatorId, code, request.DiscountType, request.DiscountValue, request.MaxDiscountAmount,
+        var voucher = Voucher.Create(operatorId, code, request.Name, request.DiscountType, request.DiscountValue, request.MaxDiscountAmount,
             request.MinOrderAmount, request.UsageLimit, request.UsageLimitPerUser, request.ValidFromUtc, request.ValidToUtc, tours, now);
 
         try

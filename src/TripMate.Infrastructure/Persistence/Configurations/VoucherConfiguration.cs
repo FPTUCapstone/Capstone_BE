@@ -15,6 +15,7 @@ public sealed class VoucherConfiguration : IEntityTypeConfiguration<Voucher>
         builder.Property(voucher => voucher.Id).HasColumnName("voucher_id").ValueGeneratedOnAdd();
         builder.Property(voucher => voucher.OwnerOperatorUserId).HasColumnName("owner_operator_user_id");
         builder.Property(voucher => voucher.Code).HasColumnName("code").HasMaxLength(Voucher.CodeMaxLength).IsUnicode(false).IsRequired();
+        builder.Property(voucher => voucher.Name).HasColumnName("name").HasMaxLength(Voucher.NameMaxLength).IsRequired();
         builder.Property(voucher => voucher.DiscountType).HasColumnName("discount_type").HasConversion<string>().HasMaxLength(10).IsUnicode(false).IsRequired();
         builder.Property(voucher => voucher.DiscountValue).HasColumnName("discount_value").HasPrecision(12, 2).IsRequired();
         builder.Property(voucher => voucher.MaxDiscountAmount).HasColumnName("max_discount_amount").HasPrecision(12, 2);
@@ -26,6 +27,7 @@ public sealed class VoucherConfiguration : IEntityTypeConfiguration<Voucher>
         builder.Property(voucher => voucher.ValidToUtc).HasColumnName("valid_to").AsUtcDateTime2().IsRequired();
         builder.Property(voucher => voucher.Status).HasColumnName("status").HasConversion<string>().HasMaxLength(10).IsUnicode(false).IsRequired();
         builder.Property(voucher => voucher.CreatedAtUtc).HasColumnName("created_at").AsUtcDateTime2().IsRequired();
+        builder.Property(voucher => voucher.UpdatedAtUtc).HasColumnName("updated_at").AsUtcDateTime2().IsRequired();
         builder.HasIndex(voucher => voucher.Code).IsUnique();
         builder.HasOne<OperatorProfile>().WithMany().HasForeignKey(voucher => voucher.OwnerOperatorUserId).OnDelete(DeleteBehavior.NoAction);
         builder.Navigation(voucher => voucher.ApplicableTours).UsePropertyAccessMode(PropertyAccessMode.Field);

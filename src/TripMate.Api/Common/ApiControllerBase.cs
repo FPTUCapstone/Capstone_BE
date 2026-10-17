@@ -212,6 +212,8 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             CouponErrorCodes.TourNotOwned => StatusCodes.Status403Forbidden,
             CouponErrorCodes.TourNotEligible => StatusCodes.Status422UnprocessableEntity,
             CouponErrorCodes.CodeConflict => StatusCodes.Status409Conflict,
+            CouponErrorCodes.NotFound => StatusCodes.Status404NotFound,
+            CouponErrorCodes.InvalidState => StatusCodes.Status409Conflict,
 
             OperatorTourErrorCodes.AccessRequired => StatusCodes.Status403Forbidden,
             OperatorTourErrorCodes.AdminAccessRequired => StatusCodes.Status403Forbidden,
