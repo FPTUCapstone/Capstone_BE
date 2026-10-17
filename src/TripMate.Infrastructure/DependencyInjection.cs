@@ -208,16 +208,14 @@ public static class DependencyInjection
                 serviceProvider.GetRequiredService<IOptions<ExplanationProviderOptions>>().Value.RateLimitPerMinute,
                 serviceProvider.GetRequiredService<IOptions<ExplanationProviderOptions>>().Value.MaxConcurrency)));
         services.AddSingleton<IAiProviderBudget>(sp => sp.GetRequiredService<InMemoryAiProviderBudget>());
-        services.AddHttpClient<IPoiRankingProvider, HttpPoiRankingProvider>();
+        services.AddPoiRankingHttpProvider(configuration);
         services.AddOptions<ExplanationProviderOptions>()
             .Bind(configuration.GetSection(ExplanationProviderOptions.SectionName))
             .ValidateOnStart();
         services.AddSingleton<
             IValidateOptions<ExplanationProviderOptions>,
             ExplanationProviderOptionsValidator>();
-        services.AddHttpClient<
-            IItineraryExplanationProvider,
-            HttpItineraryExplanationProvider>();
+        services.AddItineraryExplanationHttpProvider(configuration);
         services.AddOptions<ItineraryExplanationExecutionOptions>()
             .Configure<IOptions<ExplanationProviderOptions>>((executionOptions, providerOptions) =>
             {
