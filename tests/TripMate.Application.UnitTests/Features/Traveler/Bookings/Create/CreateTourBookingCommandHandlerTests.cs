@@ -176,7 +176,9 @@ public sealed class CreateTourBookingCommandHandlerTests
         result.IsSuccess.Should().BeTrue();
         var persisted = await db.BookingParticipants.AsNoTracking().SingleAsync();
         persisted.IdDocumentNumber.Should().NotBe(plaintextDocumentNumber);
-        persisted.IdDocumentNumber.Should().Be($"protected:{plaintextDocumentNumber}");
+        persisted.IdDocumentNumber.Should().StartWith($"protected:{plaintextDocumentNumber}:");
+        persisted.IdDocumentNumber.Length.Should().BeGreaterThan(BookingParticipant.IdDocumentNumberMaxLength);
+        persisted.IdDocumentNumber.Length.Should().BeLessThanOrEqualTo(BookingParticipant.IdDocumentNumberCiphertextMaxLength);
     }
 
     private static CreateTourBookingCommandHandler NewHandler(TestDbContext db, long travelerId) =>

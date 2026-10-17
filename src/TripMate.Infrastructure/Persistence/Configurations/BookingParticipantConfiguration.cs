@@ -42,7 +42,7 @@ public sealed class BookingParticipantConfiguration : IEntityTypeConfiguration<B
             .IsUnicode(false);
         builder.Property(participant => participant.IdDocumentNumber)
             .HasColumnName("id_document_number")
-            .HasMaxLength(BookingParticipant.IdDocumentNumberMaxLength);
+            .HasMaxLength(BookingParticipant.IdDocumentNumberCiphertextMaxLength);
         builder.Property(participant => participant.Nationality)
             .HasColumnName("nationality")
             .HasMaxLength(BookingParticipant.NationalityLength)
