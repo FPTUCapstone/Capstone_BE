@@ -1,8 +1,8 @@
+using System.Text.Json;
+
 using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
-
-using System.Text.Json;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Traveler.Payments.Common;

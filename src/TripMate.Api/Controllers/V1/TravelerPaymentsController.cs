@@ -4,8 +4,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 using TripMate.Api.Common;
-using TripMate.Application.Features.Traveler.Payments.Create;
 using TripMate.Application.Features.Traveler.Payments.Cancel;
+using TripMate.Application.Features.Traveler.Payments.Create;
 using TripMate.Application.Features.Traveler.Payments.Mock;
 using TripMate.Application.Features.Traveler.Payments.Status;
 using TripMate.Domain.Enums;
