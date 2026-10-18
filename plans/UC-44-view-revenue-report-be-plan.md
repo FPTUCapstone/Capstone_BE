@@ -9,10 +9,10 @@
 
 Define query DTOs and EF Core repository methods to aggregate booking revenue:
 - Query `commerce.Bookings` joined with `commerce.TourSchedules` and `catalog.Tours` where `Tour.OperatorUserId == currentOperatorId` and `Booking.Status IN ('Confirmed', 'Completed')` and `Booking.PaymentStatus == 'Paid'`.
-- Calculate sum of total amount, discount amount, commission amount (via `OperatorProfiles.CommissionRate`), bookings count, and participant count.
-- Implement time-series grouping helper supporting Daily, Weekly, and Monthly bucketing aligned with Vietnam timezone (`Asia/Ho_Chi_Minh`).
+- Calculate `PaymentsReceived`, `DiscountsGiven`, `GrossRevenue`, `RefundedAmount`, `CommissionAmount`, `NetAmount`, booking count, and participant count using BR-112. Refunds are selected by completed refund timestamp in the requested Vietnam-time range.
+- Implement time-series grouping helper supporting daily, ISO weekly (Monday–Sunday), and monthly buckets aligned with Vietnam timezone (`Asia/Ho_Chi_Minh`); clip edge buckets to the requested date range.
 
-**Done when:** Unit tests verify correct aggregation figures and boundary handling across mock booking sets.
+**Done when:** Unit tests verify BR-112 calculations, completed-refund date selection, and Vietnam-time daily/monthly and ISO-week boundaries across mock booking sets.
 
 ## Task 2 — Application Query & Handler
 
@@ -21,8 +21,9 @@ Implement MediatR query `GetOperatorRevenueReportQuery` and `GetOperatorRevenueT
 - Query handler validates that the caller holds an approved Tour Operator profile (`MSG126`).
 - If `tourId` is provided, verify that the tour is owned by the current operator (`MSG126`).
 - Retrieve summary KPIs, time-series data points, and tour detail items. Return zero-valued summary when no matching records exist.
+- Return owned historical tour options as well as active options so a report filtered to an older tour can be recreated.
 
-**Done when:** Handler tests assert strict actor isolation (BR-105), validation failures (MSG29), empty results (MSG128 representation), and correct revenue formulas (BR-112).
+**Done when:** Handler tests assert strict actor isolation (BR-105), validation failures including invalid granularity (MSG29), empty results (MSG128 representation), historical-tour filters, and correct revenue formulas (BR-112).
 
 ## Task 3 — Controller & Authorization Endpoints
 
