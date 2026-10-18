@@ -19,7 +19,8 @@ public record CancelPaymentLinkCommand(long BookingId) : IRequest<Result<bool>>;
 public sealed class CancelPaymentLinkCommandHandler(
     IApplicationDbContext dbContext,
     ICurrentUserService currentUser,
-    IPaymentCompletionProcessor completionProcessor)
+    IPaymentCompletionProcessor completionProcessor,
+    IPaymentGateway paymentGateway)
     : IRequestHandler<CancelPaymentLinkCommand, Result<bool>>
 {
     public async Task<Result<bool>> Handle(
@@ -50,12 +51,35 @@ public sealed class CancelPaymentLinkCommandHandler(
             return Result.Success(false);
         }
 
+        // A local cancellation alone leaves the VietQR/payment link payable.
+        // Invalidate the gateway link first so the traveler cannot send money
+        // through an order TripMate has already treated as cancelled.
+        if (pendingTransaction.Gateway == PaymentGateway.PayOS &&
+            paymentGateway.Gateway == PaymentGateway.PayOS)
+        {
+            try
+            {
+                await paymentGateway.CancelPaymentLinkAsync(
+                    new PaymentLinkCancellationRequest(
+                        pendingTransaction.OrderCode,
+                        pendingTransaction.PaymentLinkId,
+                        "Traveler cancelled payment"),
+                    cancellationToken);
+            }
+            catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException)
+            {
+                return Result.Failure<bool>(
+                    PaymentErrorCodes.PaymentGatewayUnavailable,
+                    "The payment link could not be cancelled. Please try again.");
+            }
+        }
+
         var completed = await completionProcessor.CompleteAsync(
             transactionId: pendingTransaction.Id,
             orderCode: null,
             outcome: PaymentTransactionStatus.Cancelled,
             gatewayRef: null,
-            rawResponse: "Traveler returned from the PayOS cancellation URL.",
+            rawResponse: "Traveler cancelled the PayOS payment link.",
             verifiedAmount: null,
             verifiedCurrency: null,
             cancellationToken: cancellationToken);

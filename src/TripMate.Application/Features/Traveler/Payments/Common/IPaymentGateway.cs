@@ -18,6 +18,11 @@ public record PaymentLinkResult(
     DateTimeOffset? ExpiresAtUtc,
     string? QrCode = null);
 
+public record PaymentLinkCancellationRequest(
+    long OrderCode,
+    string? PaymentLinkId,
+    string Reason);
+
 public interface IPaymentGateway
 {
     PaymentGateway Gateway { get; }
@@ -25,4 +30,12 @@ public interface IPaymentGateway
     Task<PaymentLinkResult> CreatePaymentLinkAsync(
         PaymentLinkRequest request,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Invalidates a gateway payment link. Gateways without a remote link (for
+    /// example Mock) may intentionally complete this operation without work.
+    /// </summary>
+    Task CancelPaymentLinkAsync(
+        PaymentLinkCancellationRequest request,
+        CancellationToken cancellationToken) => Task.CompletedTask;
 }

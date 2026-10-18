@@ -92,6 +92,47 @@ public sealed class PayOsPaymentGateway(
             QrCode: json.Data.QrCode);
     }
 
+    public async Task CancelPaymentLinkAsync(
+        PaymentLinkCancellationRequest request,
+        CancellationToken cancellationToken)
+    {
+        var payOs = options.PayOs;
+        if (string.IsNullOrWhiteSpace(payOs.ClientId) ||
+            string.IsNullOrWhiteSpace(payOs.ApiKey))
+        {
+            throw new InvalidOperationException("PayOS credentials are not configured.");
+        }
+
+        var paymentLinkIdentifier = string.IsNullOrWhiteSpace(request.PaymentLinkId)
+            ? request.OrderCode.ToString()
+            : request.PaymentLinkId;
+        var url = $"{PayOsApiBaseUrl}/{Uri.EscapeDataString(paymentLinkIdentifier)}/cancel";
+
+        using var requestMessage = new HttpRequestMessage(HttpMethod.Post, url);
+        requestMessage.Headers.Add("x-client-id", payOs.ClientId);
+        requestMessage.Headers.Add("x-api-key", payOs.ApiKey);
+        requestMessage.Content = JsonContent.Create(new
+        {
+            cancellationReason = string.IsNullOrWhiteSpace(request.Reason)
+                ? "Traveler cancelled payment"
+                : request.Reason,
+        });
+
+        using var response = await httpClient.SendAsync(requestMessage, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new HttpRequestException($"PayOS cancel payment link failed with status {response.StatusCode}: {errorBody}");
+        }
+
+        var json = await response.Content.ReadFromJsonAsync<PayOsCancelResponse>(cancellationToken: cancellationToken);
+        if (json is null || !string.Equals(json.Code, "00", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"PayOS rejected payment link cancellation (code {json?.Code ?? "unknown"}): {json?.Desc ?? "No description returned."}");
+        }
+    }
+
     private sealed record PayOsCreateResponse(
         [property: JsonPropertyName("code")] string? Code,
         [property: JsonPropertyName("desc")] string? Desc,
@@ -102,4 +143,8 @@ public sealed class PayOsPaymentGateway(
         [property: JsonPropertyName("checkoutUrl")] string? CheckoutUrl,
         [property: JsonPropertyName("qrCode")] string? QrCode,
         [property: JsonPropertyName("expiredAt")] long? ExpiredAt);
+
+    private sealed record PayOsCancelResponse(
+        [property: JsonPropertyName("code")] string? Code,
+        [property: JsonPropertyName("desc")] string? Desc);
 }

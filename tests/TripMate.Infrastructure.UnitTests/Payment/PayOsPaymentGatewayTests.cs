@@ -41,6 +41,32 @@ public sealed class PayOsPaymentGatewayTests
             .WithMessage("*code 20*The order code already exists*");
     }
 
+    [Fact]
+    public async Task CancelPaymentLinkAsync_CallsPayOsCancellationEndpoint()
+    {
+        HttpRequestMessage? capturedRequest = null;
+        var requestBody = string.Empty;
+        using var handler = new StubHandler(request =>
+        {
+            capturedRequest = request;
+            requestBody = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+            return JsonResponse("""
+                {"code":"00","desc":"success","data":{"status":"CANCELLED"}}
+                """);
+        });
+        using var client = new HttpClient(handler);
+        var gateway = new PayOsPaymentGateway(client, CreateOptions());
+
+        await gateway.CancelPaymentLinkAsync(
+            new PaymentLinkCancellationRequest(1792314000, "link-1", "Traveler cancelled payment"),
+            CancellationToken.None);
+
+        capturedRequest!.Method.Should().Be(HttpMethod.Post);
+        capturedRequest.RequestUri!.ToString().Should().Be(
+            "https://api-merchant.payos.vn/v2/payment-requests/link-1/cancel");
+        requestBody.Should().Contain("Traveler cancelled payment");
+    }
+
     private static PaymentOptions CreateOptions() => new()
     {
         PayOs = new PayOsOptions
