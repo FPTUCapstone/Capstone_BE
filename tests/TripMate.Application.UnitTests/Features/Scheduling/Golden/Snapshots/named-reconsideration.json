@@ -1,0 +1,67 @@
+{
+  "ScenarioId": "named-reconsideration",
+  "Source": "GroupB_Named",
+  "ExpectedFeasible": true,
+  "Feasible": true,
+  "BestVisitPoiIds": [
+    101,
+    103,
+    102,
+    104,
+    205
+  ],
+  "EliteVisitIds": [
+    [
+      101,
+      103,
+      102,
+      104,
+      205
+    ],
+    [
+      101,
+      103,
+      102,
+      104
+    ],
+    [
+      101,
+      102,
+      103,
+      104
+    ],
+    [
+      101,
+      102,
+      104,
+      103
+    ],
+    [
+      101,
+      103,
+      102,
+      205
+    ]
+  ],
+  "BestTravelMinutes": 35,
+  "BestFinish": 240,
+  "NodesExpanded": 23,
+  "PrunedByConstraints": 1,
+  "PrunedByForwardChecking": 0,
+  "PrunedByBound": 9,
+  "SolutionsFound": 22,
+  "NodesToFirstSolution": 2,
+  "SearchCompleted": true,
+  "NodeLimitReached": false,
+  "TimeLimitReached": false,
+  "InitialIncumbentAccepted": false,
+  "ReturnedInitialIncumbent": false,
+  "EvaluatorCalls": 1,
+  "InSearchEvaluationLimitReached": false,
+  "TieEvaluationLimitReached": false,
+  "UsedRelaxedRestModel": false,
+  "ChoseRelaxedRestModel": false,
+  "DriftMeasured": true,
+  "MaxModelVsEvaluatorDriftMinutes": 0,
+  "TravelMinutesModelVsEvaluatorDiff": 0
+}

@@ -47,4 +47,26 @@ public sealed class CspOptions
     /// Tắt mặc định để kết quả là CSP thuần; bật khi ưu tiên chất lượng lộ trình.
     /// </summary>
     public bool PolishWithLocalSearch { get; init; }
+
+    /// <summary>
+    /// Chế độ hàm mục tiêu: Lexicographic (mặc định) hoặc WeightedUtility (cá nhân hóa).
+    /// </summary>
+    public ObjectiveMode Mode { get; init; } = ObjectiveMode.Lexicographic;
+
+    /// <summary>
+    /// Chỉ dùng trong benchmark/test đối chứng: tắt cận trên để chạy duyệt vét cạn (brute force).
+    /// </summary>
+    public bool DisableBound { get; init; }
+
+    /// <summary>
+    /// Chỉ dùng trong test bẫy lỗi cận trên (E4).
+    /// </summary>
+    public Objectives.BoundVariant BoundVariant { get; init; } = Objectives.BoundVariant.Correct;
+}
+
+
+public enum ObjectiveMode
+{
+    Lexicographic = 0,
+    WeightedUtility = 1
 }

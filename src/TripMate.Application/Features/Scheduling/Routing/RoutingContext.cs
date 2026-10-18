@@ -82,6 +82,14 @@ public sealed class RoutingContext
     /// <summary>Mốc phút phải về tới điểm kết thúc, đã trừ thời gian dự phòng cho điểm nghỉ.</summary>
     public int Horizon { get; }
 
+    public int TransitionBuffer => _transitionBuffer;
+
+    /// <summary>
+    /// Quy đổi thời điểm DateTimeOffset sang số phút theo gốc mô hình (Input.StartAtUtc).
+    /// </summary>
+    public int ToModelMinute(DateTimeOffset t) =>
+        (int)Math.Ceiling((t - Input.StartAtUtc).TotalMinutes - 1e-9);
+
     public decimal? Budget => Input.BudgetVnd;
 
     public int StartMatrixIndex => 0;
@@ -210,6 +218,20 @@ public sealed class RoutingContext
         }
 
         return NoLatestStart;
+    }
+
+    /// <summary>
+    /// Trả về các khung giờ mở cửa [Open, Close] có mở cửa của node (dùng cho tests/chẩn đoán).
+    /// </summary>
+    public IEnumerable<(int Open, int Close)> OpenWindows(int node)
+    {
+        foreach (var window in _windows[node])
+        {
+            if (window.HasOpening)
+            {
+                yield return (window.Open, window.Close);
+            }
+        }
     }
 
     private static int SkipPenalty(decimal score, decimal maxScore, int maxPenalty)

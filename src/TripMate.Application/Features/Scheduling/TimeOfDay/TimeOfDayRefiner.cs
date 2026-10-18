@@ -47,9 +47,18 @@ public sealed class TimeOfDayRefiner(
         var bestScore = ScorePlan(plan, input.TimeZone, traits);
         if (visits.Length >= 2)
         {
-            var latestEnd = plan.EndAtUtc.AddMinutes(Math.Max(0, options.MaxExtraMinutes));
+            var localStart = TimeOnly.FromDateTime(TimeZoneInfo.ConvertTime(input.StartAtUtc, input.TimeZone).DateTime);
+            var isEarlyTrip = localStart <= new TimeOnly(7, 0);
+            var hasEarlySunriseSpot = isEarlyTrip && visits.Any(id =>
+                traits.TryGetValue(id, out var t) && TimeOfDayScorer.IsSunriseSpot(t));
+
+            var effectiveMaxExtraMinutes = hasEarlySunriseSpot
+                ? Math.Max(options.MaxExtraMinutes, 60)
+                : Math.Max(0, options.MaxExtraMinutes);
+
+            var latestEnd = plan.EndAtUtc.AddMinutes(effectiveMaxExtraMinutes);
             var service = new ItineraryGenerationService(routeDurationProvider, generationOptions);
-            foreach (var order in CandidateOrders(visits))
+            foreach (var order in CandidateOrders(visits, traits))
             {
                 var candidate = await service.GenerateFixedOrderAsync(input, order, cancellationToken);
                 if (candidate.IsFailure || candidate.Value.EndAtUtc > latestEnd)
@@ -101,25 +110,64 @@ public sealed class TimeOfDayRefiner(
         return TimeOnly.FromDateTime(TimeZoneInfo.ConvertTime(middle, timeZone).DateTime);
     }
 
-    private static IEnumerable<long[]> CandidateOrders(long[] visits)
+    private static IEnumerable<long[]> CandidateOrders(
+        long[] visits,
+        IReadOnlyDictionary<long, TimeOfDayTraits> traits)
     {
         if (visits.Length <= ExhaustiveVisitLimit)
         {
             return Permutations(visits).Where(order => !order.SequenceEqual(visits));
         }
 
-        var swaps = new List<long[]>();
+        var orders = new List<long[]>();
+        var seen = new HashSet<string>();
+
+        void TryAdd(long[] order)
+        {
+            if (order.SequenceEqual(visits))
+            {
+                return;
+            }
+
+            var key = string.Join(",", order);
+            if (seen.Add(key))
+            {
+                orders.Add(order);
+            }
+        }
+
+        // 1. Prioritize placing any sunrise spot at the first visit position (slot 0)
+        for (var i = 1; i < visits.Length; i++)
+        {
+            if (traits.TryGetValue(visits[i], out var t) && TimeOfDayScorer.IsSunriseSpot(t))
+            {
+                var order = new long[visits.Length];
+                order[0] = visits[i];
+                var targetIdx = 1;
+                for (var j = 0; j < visits.Length; j++)
+                {
+                    if (j != i)
+                    {
+                        order[targetIdx++] = visits[j];
+                    }
+                }
+
+                TryAdd(order);
+            }
+        }
+
+        // 2. Pairwise swaps for all pairs
         for (var first = 0; first < visits.Length - 1; first++)
         {
             for (var second = first + 1; second < visits.Length; second++)
             {
                 var order = (long[])visits.Clone();
                 (order[first], order[second]) = (order[second], order[first]);
-                swaps.Add(order);
+                TryAdd(order);
             }
         }
 
-        return swaps;
+        return orders;
     }
 
     private static IEnumerable<long[]> Permutations(long[] items)

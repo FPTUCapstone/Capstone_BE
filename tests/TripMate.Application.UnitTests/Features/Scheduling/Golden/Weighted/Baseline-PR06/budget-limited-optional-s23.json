@@ -1,0 +1,61 @@
+{
+  "ScenarioId": "budget-limited-optional-s23",
+  "Source": "GroupD_Budget",
+  "Feasible": true,
+  "BestModelObjective": 10880,
+  "BestEvaluatedObjective": 10880,
+  "BestVisitPoiIds": [
+    16,
+    30,
+    21
+  ],
+  "EliteModelObjectives": [
+    10880,
+    9886,
+    9882,
+    9845,
+    9711
+  ],
+  "EliteVisitIds": [
+    [
+      16,
+      30,
+      21
+    ],
+    [
+      9,
+      30,
+      21
+    ],
+    [
+      16,
+      30,
+      2
+    ],
+    [
+      9,
+      16,
+      30
+    ],
+    [
+      16,
+      30
+    ]
+  ],
+  "BestTravelMinutes": 42,
+  "BestDurationMinutes": 177,
+  "BestEstimatedCost": 45000,
+  "EndAtUtc": "2026-10-20T03:57:00+00:00",
+  "NodesExpanded": 121762,
+  "PrunedByConstraints": 0,
+  "PrunedByForwardChecking": 0,
+  "PrunedByBound": 0,
+  "SolutionsFound": 121760,
+  "NodesToFirstSolution": 2,
+  "SearchCompleted": true,
+  "NodeLimitReached": false,
+  "TimeLimitReached": false,
+  "EvaluatorCalls": 18,
+  "UsedRelaxedRestModel": true,
+  "ChoseRelaxedRestModel": false
+}

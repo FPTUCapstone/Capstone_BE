@@ -1,0 +1,64 @@
+{
+  "ScenarioId": "boundary-urgent-slack-mrv-s42",
+  "Source": "GroupF_Boundary",
+  "Feasible": true,
+  "BestModelObjective": -2478,
+  "BestEvaluatedObjective": -2478,
+  "BestVisitPoiIds": [
+    1,
+    2,
+    15
+  ],
+  "EliteModelObjectives": [
+    -2478,
+    -3361,
+    -9005,
+    -10160,
+    -10192
+  ],
+  "EliteVisitIds": [
+    [
+      1,
+      2,
+      15
+    ],
+    [
+      1,
+      2
+    ],
+    [
+      1,
+      2,
+      15,
+      10
+    ],
+    [
+      1,
+      2,
+      15,
+      11
+    ],
+    [
+      1,
+      2,
+      15,
+      12
+    ]
+  ],
+  "BestTravelMinutes": 57,
+  "BestDurationMinutes": 192,
+  "BestEstimatedCost": 45000,
+  "EndAtUtc": "2026-10-20T04:12:00+00:00",
+  "NodesExpanded": 200000,
+  "PrunedByConstraints": 109542,
+  "PrunedByForwardChecking": 0,
+  "PrunedByBound": 0,
+  "SolutionsFound": 199998,
+  "NodesToFirstSolution": 3,
+  "SearchCompleted": false,
+  "NodeLimitReached": true,
+  "TimeLimitReached": false,
+  "EvaluatorCalls": 1,
+  "UsedRelaxedRestModel": false,
+  "ChoseRelaxedRestModel": false
+}

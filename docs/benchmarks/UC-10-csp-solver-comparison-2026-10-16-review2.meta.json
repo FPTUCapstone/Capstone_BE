@@ -1,7 +1,11 @@
 {
   "date": "2026-10-16-review2",
-  "source_hash": "8c09f4697868e2fbc69dc4a6813c020e55b8e026e1968dc7d73a4ec10541abc4",
-  "source_file_count": 35,
+  "source_hash": "de3d5f9c5e7fda2ad264e5fbfc5a18473f4b290f8c646992cfedf924578bcf22",
+  "measured_source_hash": "16d70025d5be317d18578a3001a413a49c632e3082cfb0662402589625bea2ba",
+  "equivalence_basis": "PR-07 – branch-and-bound upper bound pruning, 55/55 lexicographic golden bit-for-bit unchanged",
+  "source_file_count": 57,
+
+
   "generated_at_utc": "2026-10-15T22:58:31Z",
   "operating_system": "Microsoft Windows 10.0.26200",
   "processor": "Intel64 Family 6 Model 141 Stepping 1, GenuineIntel",

@@ -20,6 +20,15 @@ public sealed class TimeOfDayScorerTests
     }
 
     [Fact]
+    public void Sunrise_CoversWindowUpTo0700()
+    {
+        TimeOfDayScorer.Score(new TimeOnly(6, 45), Beach).Should().BeGreaterThan(0);
+        TimeOfDayScorer.Reason(new TimeOnly(6, 45), Beach).Should().StartWith("Xếp lúc bình minh");
+
+        TimeOfDayScorer.Reason(new TimeOnly(7, 45), Beach).Should().NotStartWith("Xếp lúc bình minh");
+    }
+
+    [Fact]
     public void Morning_FavoursOutdoorAndNature()
     {
         TimeOfDayScorer.Score(new TimeOnly(8, 0), Mountain).Should().BePositive();

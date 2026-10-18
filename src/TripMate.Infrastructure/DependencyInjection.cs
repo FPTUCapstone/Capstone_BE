@@ -128,6 +128,13 @@ public static class DependencyInjection
         services.AddSingleton(serviceProvider => serviceProvider
             .GetRequiredService<IOptions<SchedulingGenerationOptions>>()
             .Value);
+        services.AddOptions<PersonalizationOptions>()
+            .Bind(configuration.GetSection(PersonalizationOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<
+            IValidateOptions<PersonalizationOptions>,
+            PersonalizationOptionsValidator>();
+        services.AddSingleton<PersonalParamsFactory>();
         services.AddOptions<TimeOfDayOptions>()
             .Bind(configuration.GetSection(TimeOfDayOptions.SectionName))
             .Validate(options => options.MaxExtraMinutes is >= 0 and <= 120, "TimeOfDay:MaxExtraMinutes must be between 0 and 120.")
