@@ -89,6 +89,17 @@ public sealed class ProcessPayOsWebhookCommandHandler(
 
         if (!completionResult.IsSuccess)
         {
+            // confirm-webhook verifies the URL by posting a signed sample
+            // transaction. It is intentionally not a TripMate transaction, so
+            // acknowledge that verified probe without creating or changing data.
+            if (string.Equals(
+                    completionResult.ErrorCode,
+                    PaymentErrorCodes.PaymentNotFound,
+                    StringComparison.Ordinal))
+            {
+                return Result.Success(true);
+            }
+
             return Result.Failure<bool>(
                 completionResult.ErrorCode ?? PaymentErrorCodes.PaymentCallbackInvalid,
                 completionResult.ErrorMessage ?? "Payment completion failed.");
