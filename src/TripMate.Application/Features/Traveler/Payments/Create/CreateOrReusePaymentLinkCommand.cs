@@ -12,6 +12,7 @@ public record CreatePaymentLinkResponse(
     string Status,
     decimal Amount,
     string Currency,
+    string? QrCode,
     DateTimeOffset? PaymentLinkExpiresAtUtc,
     DateTimeOffset? BookingPaymentExpiresAtUtc);
 

@@ -88,7 +88,8 @@ public sealed class PayOsPaymentGateway(
         return new PaymentLinkResult(
             PaymentLinkId: json.Data.PaymentLinkId ?? request.OrderCode.ToString(),
             CheckoutUrl: json.Data.CheckoutUrl,
-            ExpiresAtUtc: expiresAt ?? request.ExpiresAtUtc);
+            ExpiresAtUtc: expiresAt ?? request.ExpiresAtUtc,
+            QrCode: json.Data.QrCode);
     }
 
     private sealed record PayOsCreateResponse(
@@ -99,5 +100,6 @@ public sealed class PayOsPaymentGateway(
     private sealed record PayOsCreateData(
         [property: JsonPropertyName("paymentLinkId")] string? PaymentLinkId,
         [property: JsonPropertyName("checkoutUrl")] string? CheckoutUrl,
+        [property: JsonPropertyName("qrCode")] string? QrCode,
         [property: JsonPropertyName("expiredAt")] long? ExpiredAt);
 }

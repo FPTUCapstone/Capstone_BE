@@ -146,6 +146,7 @@ public sealed class CreateOrReusePaymentLinkCommandHandler(
             expiresAtUtc: linkResult.ExpiresAtUtc ?? linkExpiry,
             checkoutUrl: linkResult.CheckoutUrl,
             paymentLinkId: linkResult.PaymentLinkId,
+            qrCode: linkResult.QrCode,
             currency: PaymentTransaction.DefaultCurrency);
 
         dbContext.PaymentTransactions.Add(transaction);
@@ -163,6 +164,7 @@ public sealed class CreateOrReusePaymentLinkCommandHandler(
             Status: transaction.Status.ToString(),
             Amount: transaction.Amount,
             Currency: transaction.Currency,
+            QrCode: transaction.QrCode,
             PaymentLinkExpiresAtUtc: transaction.ExpiresAtUtc,
             BookingPaymentExpiresAtUtc: booking.PaymentExpiresAtUtc);
 

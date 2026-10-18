@@ -38,6 +38,8 @@ public class PaymentTransaction : BaseEntity
 
     public string? CheckoutUrl { get; private set; }
 
+    public string? QrCode { get; private set; }
+
     public DateTimeOffset? ExpiresAtUtc { get; private set; }
 
     public DateTimeOffset? UpdatedAtUtc { get; private set; }
@@ -55,6 +57,7 @@ public class PaymentTransaction : BaseEntity
         DateTimeOffset? expiresAtUtc = null,
         string? checkoutUrl = null,
         string? paymentLinkId = null,
+        string? qrCode = null,
         string currency = DefaultCurrency)
     {
         if (bookingId <= 0) throw new ArgumentOutOfRangeException(nameof(bookingId));
@@ -72,6 +75,7 @@ public class PaymentTransaction : BaseEntity
             OrderCode = orderCode,
             PaymentLinkId = paymentLinkId?.Trim(),
             CheckoutUrl = checkoutUrl?.Trim(),
+            QrCode = qrCode?.Trim(),
             ExpiresAtUtc = expiresAtUtc?.ToUniversalTime(),
             CreatedAtUtc = createdAtUtc.ToUniversalTime(),
         };

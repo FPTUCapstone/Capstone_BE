@@ -1214,6 +1214,7 @@ CREATE TABLE payment.PaymentTransactions (
     order_code                   BIGINT NOT NULL DEFAULT (0),
     payment_link_id              NVARCHAR(100) NULL,
     checkout_url                 NVARCHAR(1000) NULL,
+    qr_code                      NVARCHAR(MAX) NULL,
     expires_at                   DATETIME2 NULL,
     updated_at                   DATETIME2 NULL,
     raw_response                 NVARCHAR(MAX) NULL,

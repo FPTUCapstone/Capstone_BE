@@ -15,7 +15,8 @@ public record PaymentLinkRequest(
 public record PaymentLinkResult(
     string PaymentLinkId,
     string CheckoutUrl,
-    DateTimeOffset? ExpiresAtUtc);
+    DateTimeOffset? ExpiresAtUtc,
+    string? QrCode = null);
 
 public interface IPaymentGateway
 {

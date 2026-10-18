@@ -68,6 +68,9 @@ public sealed class PaymentTransactionConfiguration : IEntityTypeConfiguration<P
             .HasColumnName("checkout_url")
             .HasMaxLength(1000);
 
+        builder.Property(t => t.QrCode)
+            .HasColumnName("qr_code");
+
         builder.Property(t => t.ExpiresAtUtc)
             .HasColumnName("expires_at")
             .AsUtcDateTime2();
