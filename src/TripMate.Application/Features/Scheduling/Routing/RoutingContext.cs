@@ -284,7 +284,7 @@ public sealed class RoutingContext
         return windows;
     }
 
-    private static int ToMinutes(GenerationInput input, DateTime localTime, bool ceiling)
+    internal static int ToMinutes(GenerationInput input, DateTime localTime, bool ceiling)
     {
         var utc = TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(localTime, DateTimeKind.Unspecified), input.TimeZone);
         var minutes = (new DateTimeOffset(utc, TimeSpan.Zero) - input.StartAtUtc).TotalMinutes;

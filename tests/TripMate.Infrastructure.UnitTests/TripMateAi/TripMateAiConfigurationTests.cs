@@ -517,6 +517,7 @@ public sealed class TripMateAiConfigurationTests
         yield return new("SchedulingGeneration:Personalization:Pace:Fast:MaxStopsPerDay", "8");
         yield return new("SchedulingGeneration:Personalization:Pace:Fast:MaxDailyEffort", "450");
         yield return new("SchedulingGeneration:Personalization:Pace:Fast:RestAfterMin", "180");
+        yield return new("SchedulingGeneration:TimeFit:Version", "2026.1");
     }
 
     private static string FindRepositoryFile(params string[] relativeSegments)

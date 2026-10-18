@@ -83,5 +83,6 @@ public sealed class ReviewMediaRegistrationTests
         ["SchedulingGeneration:Personalization:Pace:Fast:MaxStopsPerDay"] = "8",
         ["SchedulingGeneration:Personalization:Pace:Fast:MaxDailyEffort"] = "450",
         ["SchedulingGeneration:Personalization:Pace:Fast:RestAfterMin"] = "180",
+        ["SchedulingGeneration:TimeFit:Version"] = "2026.1",
     };
 }

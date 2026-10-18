@@ -135,6 +135,15 @@ public static class DependencyInjection
             IValidateOptions<PersonalizationOptions>,
             PersonalizationOptionsValidator>();
         services.AddSingleton<PersonalParamsFactory>();
+        services.AddOptions<TimeFitOptions>()
+            .Bind(configuration.GetSection(TimeFitOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<
+            IValidateOptions<TimeFitOptions>,
+            TimeFitOptionsValidator>();
+        services.AddSingleton(serviceProvider => serviceProvider
+            .GetRequiredService<IOptions<TimeFitOptions>>()
+            .Value);
         services.AddOptions<TimeOfDayOptions>()
             .Bind(configuration.GetSection(TimeOfDayOptions.SectionName))
             .Validate(options => options.MaxExtraMinutes is >= 0 and <= 120, "TimeOfDay:MaxExtraMinutes must be between 0 and 120.")

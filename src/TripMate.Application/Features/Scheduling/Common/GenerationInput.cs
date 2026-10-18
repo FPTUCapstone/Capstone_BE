@@ -20,7 +20,9 @@ public sealed record GenerationCandidate(
     decimal? ScenicScore = null,
     decimal? PhotoRating = null,
     string? CategoryName = null,
-    bool HasShelter = false);
+    bool HasShelter = false,
+    IndoorOutdoorType IndoorOutdoor = IndoorOutdoorType.Outdoor,
+    IReadOnlyCollection<string>? Tags = null);
 
 public sealed record GenerationInput(
     DateTimeOffset StartAtUtc,
