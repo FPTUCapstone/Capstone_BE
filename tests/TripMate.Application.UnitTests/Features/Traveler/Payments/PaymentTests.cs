@@ -2,6 +2,8 @@ using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
 
+using System.Text.Json;
+
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Traveler.Payments.Common;
 using TripMate.Application.Features.Traveler.Payments.Create;
@@ -17,6 +19,39 @@ namespace TripMate.Application.UnitTests.Features.Traveler.Payments;
 public sealed class PaymentTests
 {
     private static readonly DateTimeOffset Now = new(2026, 10, 18, 10, 0, 0, TimeSpan.Zero);
+
+    [Fact]
+    public void VerifyPayOsSignature_AcceptsOfficialWebhookPayload()
+    {
+        const string checksumKey = "1a54716c8f0efb2744fb28b6e38b25da7f67a925d98bc1c18bd8faaecadd7675";
+        const string signature = "412e915d2871504ed31be63c8f62a149a4410d34c4c42affc9006ef9917eaa03";
+        const string payload = """
+            {
+              "orderCode": 123,
+              "amount": 3000,
+              "description": "VQRIO123",
+              "accountNumber": "12345678",
+              "reference": "TF230204212323",
+              "transactionDateTime": "2023-02-04 18:25:00",
+              "currency": "VND",
+              "paymentLinkId": "124c33293c43417ab7879e14c8d9eb18",
+              "code": "00",
+              "desc": "Thành công",
+              "counterAccountBankId": "",
+              "counterAccountBankName": "",
+              "counterAccountName": "",
+              "counterAccountNumber": "",
+              "virtualAccountName": "",
+              "virtualAccountNumber": ""
+            }
+            """;
+
+        var data = JsonSerializer.Deserialize<PayOsWebhookData>(payload);
+
+        data.Should().NotBeNull();
+        ProcessPayOsWebhookCommandHandler.VerifyPayOsSignature(data!, signature, checksumKey)
+            .Should().BeTrue();
+    }
 
     [Fact]
     public async Task CreateOrReuse_WithEligibleBooking_CreatesPendingTransaction()
@@ -38,6 +73,11 @@ public sealed class PaymentTests
         result.Value.Status.Should().Be("Pending");
         result.Value.Amount.Should().Be(booking.TotalAmount);
         result.Value.CheckoutUrl.Should().Contain("checkout/mock");
+        gateway.LastRequest.Should().NotBeNull();
+        gateway.LastRequest!.Description.Should().Be($"TM {booking.BookingCode}");
+        gateway.LastRequest.Description.Length.Should().BeLessThanOrEqualTo(25);
+        gateway.LastRequest.ReturnUrl.Should().Be($"http://localhost:3001/checkout/result?bookingId={booking.Id}");
+        gateway.LastRequest.CancelUrl.Should().Be($"http://localhost:3001/checkout/result?bookingId={booking.Id}");
 
         var transaction = await db.PaymentTransactions.SingleAsync();
         transaction.BookingId.Should().Be(booking.Id);
@@ -397,13 +437,18 @@ public sealed class PaymentTests
     {
         public PaymentGateway Gateway => PaymentGateway.Mock;
 
+        public PaymentLinkRequest? LastRequest { get; private set; }
+
         public Task<PaymentLinkResult> CreatePaymentLinkAsync(
             PaymentLinkRequest request,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(new PaymentLinkResult(
+            CancellationToken cancellationToken)
+        {
+            LastRequest = request;
+            return Task.FromResult(new PaymentLinkResult(
                 PaymentLinkId: $"MOCK-LINK-{request.OrderCode}",
                 CheckoutUrl: $"http://localhost:3001/checkout/mock?paymentId={request.OrderCode}&bookingId={request.BookingId}",
                 ExpiresAtUtc: request.ExpiresAtUtc));
+        }
     }
 
     private sealed class FixedClock(DateTimeOffset initial) : IDateTimeProvider

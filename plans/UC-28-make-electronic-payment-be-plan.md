@@ -54,6 +54,18 @@ return URL parameter changes state.
 **Done when:** provider tests validate signature/amount handling without live
 credentials, and webhook duplicate delivery is safe.
 
+## Task 5a — One-time PayOS webhook registration CLI
+
+Write failing infrastructure tests for the PayOS `confirm-webhook` request:
+the URL must be HTTPS, the request must use `x-client-id` and `x-api-key`, the
+body contains only `webhookUrl`, and upstream errors do not reveal credentials.
+Implement a small console tool under `tools/` which reads the existing API
+User Secrets/environment settings and calls the tested registrar. It must not
+add an administrative HTTP endpoint or store secrets/URLs.
+
+**Done when:** an operator can run the tool once with a public HTTPS tunnel
+URL and PayOS can verify the existing webhook receiver.
+
 ## Task 6 — Verification
 
 Run focused unit tests, SQL Server integration tests, the Backend build and

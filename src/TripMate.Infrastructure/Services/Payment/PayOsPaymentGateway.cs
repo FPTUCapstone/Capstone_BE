@@ -63,9 +63,20 @@ public sealed class PayOsPaymentGateway(
         }
 
         var json = await response.Content.ReadFromJsonAsync<PayOsCreateResponse>(cancellationToken: cancellationToken);
-        if (json?.Data is null || string.IsNullOrWhiteSpace(json.Data.CheckoutUrl))
+        if (json is null)
         {
-            throw new InvalidOperationException("PayOS returned an invalid response without checkoutUrl.");
+            throw new InvalidOperationException("PayOS returned an empty response when creating a payment link.");
+        }
+
+        if (!string.Equals(json.Code, "00", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"PayOS rejected payment link creation (code {json.Code ?? "unknown"}): {json.Desc ?? "No description returned."}");
+        }
+
+        if (json.Data is null || string.IsNullOrWhiteSpace(json.Data.CheckoutUrl))
+        {
+            throw new InvalidOperationException("PayOS returned a successful response without checkoutUrl.");
         }
 
         DateTimeOffset? expiresAt = null;

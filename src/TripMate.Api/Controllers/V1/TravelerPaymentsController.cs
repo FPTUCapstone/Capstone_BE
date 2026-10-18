@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 
 using TripMate.Api.Common;
 using TripMate.Application.Features.Traveler.Payments.Create;
+using TripMate.Application.Features.Traveler.Payments.Cancel;
 using TripMate.Application.Features.Traveler.Payments.Mock;
 using TripMate.Application.Features.Traveler.Payments.Status;
 using TripMate.Domain.Enums;
@@ -32,6 +33,18 @@ public sealed class TravelerPaymentsController(ISender sender) : ApiControllerBa
     {
         var result = await Sender.Send(new CreateOrReusePaymentLinkCommand(bookingId), cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    [HttpPost("bookings/{bookingId:long}/payment/cancel")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> CancelPayment(
+        long bookingId,
+        CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(new CancelPaymentLinkCommand(bookingId), cancellationToken);
+        return result.IsSuccess ? Ok(new { cancelled = result.Value }) : HandleFailure(result);
     }
 
     [HttpGet("bookings/{bookingId:long}/payment")]

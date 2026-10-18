@@ -156,11 +156,15 @@ public static class DependencyInjection
 
         services.AddOptions<PaymentOptions>()
             .Bind(configuration.GetSection(PaymentOptions.SectionName));
+        var legacyPayOs = configuration.GetSection(PaymentOptionsConfiguration.LegacyPayOsSectionName)
+            .Get<PayOsOptions>();
+        services.PostConfigure<PaymentOptions>(options =>
+            PaymentOptionsConfiguration.ApplyLegacyPayOs(options, legacyPayOs));
         services.AddSingleton(serviceProvider =>
             serviceProvider.GetRequiredService<IOptions<PaymentOptions>>().Value);
         services.AddScoped<IPaymentCompletionProcessor, PaymentCompletionProcessor>();
 
-        var paymentConfig = configuration.GetSection(PaymentOptions.SectionName).Get<PaymentOptions>() ?? new PaymentOptions();
+        var paymentConfig = PaymentOptionsConfiguration.Read(configuration);
         if (string.Equals(paymentConfig.Provider, "PayOS", StringComparison.OrdinalIgnoreCase))
         {
             services.AddHttpClient<PayOsPaymentGateway>();

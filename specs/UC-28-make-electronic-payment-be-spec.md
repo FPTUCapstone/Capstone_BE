@@ -150,6 +150,25 @@ The PayOS provider creates a signed payment request with the server amount and
 returns its `checkoutUrl`. The configured PayOS return/cancel URLs are not
 trusted state transitions. The webhook is the only production completion path.
 
+For existing developer machines, `PayOS:ClientId`, `PayOS:ApiKey`, and
+`PayOS:ChecksumKey` remain a compatibility fallback when the corresponding
+`Payment:PayOs:*` value is not configured. The nested `Payment:PayOs:*`
+configuration takes precedence and is the canonical form for new setup.
+
+### One-time webhook registration
+
+PayOS requires the merchant to register a public HTTPS webhook URL through
+`POST https://api-merchant.payos.vn/confirm-webhook`. TripMate provides a
+local-only CLI for this operational step. It accepts exactly one HTTPS URL,
+loads the existing API User Secrets/environment configuration, and sends only
+`x-client-id`, `x-api-key`, and `{ "webhookUrl": "..." }` to PayOS.
+
+The CLI never exposes an HTTP endpoint, persists no URL or credentials, and
+never logs credential values. It reports only success or the upstream status
+code. A successful registration causes PayOS to deliver its verification
+webhook to the supplied URL; the existing signature-verifying webhook handler
+must return `200` for registration to succeed.
+
 ## Acceptance criteria
 
 1. A valid Traveler receives one reusable mock checkout URL for an eligible
@@ -162,3 +181,6 @@ trusted state transitions. The webhook is the only production completion path.
 6. Invalid PayOS signatures, amount mismatches and unauthorized callers never
    change payment or booking state.
 7. The same API and response DTO work with Mock and PayOS.
+8. The webhook registration CLI rejects non-HTTPS URLs, sends the required
+   PayOS authentication headers without logging their values, and reports a
+   non-success PayOS response without persisting configuration.

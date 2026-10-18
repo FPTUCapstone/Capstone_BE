@@ -132,10 +132,10 @@ public sealed class CreateOrReusePaymentLinkCommandHandler(
             OrderCode: orderCode,
             Amount: booking.TotalAmount,
             Currency: PaymentTransaction.DefaultCurrency,
-            Description: $"Payment for {booking.BookingCode}",
+            Description: $"TM {booking.BookingCode}",
             ExpiresAtUtc: linkExpiry,
-            ReturnUrl: paymentOptions.PayOs.ReturnUrl,
-            CancelUrl: paymentOptions.PayOs.CancelUrl), cancellationToken);
+            ReturnUrl: AppendBookingId(paymentOptions.PayOs.ReturnUrl, booking.Id),
+            CancelUrl: AppendBookingId(paymentOptions.PayOs.CancelUrl, booking.Id)), cancellationToken);
 
         var transaction = PaymentTransaction.Create(
             bookingId: booking.Id,
@@ -171,5 +171,11 @@ public sealed class CreateOrReusePaymentLinkCommandHandler(
         // Fits well within 15-digit safe integer range
         var timestamp = now.ToUnixTimeMilliseconds();
         return timestamp > 0 ? timestamp : Math.Abs(timestamp) + 1;
+    }
+
+    private static string AppendBookingId(string callbackUrl, long bookingId)
+    {
+        var separator = callbackUrl.Contains('?', StringComparison.Ordinal) ? '&' : '?';
+        return $"{callbackUrl}{separator}bookingId={bookingId}";
     }
 }

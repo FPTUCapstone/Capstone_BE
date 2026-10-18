@@ -22,7 +22,13 @@ public record PayOsWebhookData(
     [property: JsonPropertyName("currency")] string? Currency,
     [property: JsonPropertyName("paymentLinkId")] string? PaymentLinkId,
     [property: JsonPropertyName("code")] string? Code,
-    [property: JsonPropertyName("desc")] string? Desc);
+    [property: JsonPropertyName("desc")] string? Desc)
+{
+    // PayOS can add fields to its callback payload. Keep them so signature
+    // verification always covers the complete `data` object PayOS signed.
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? AdditionalProperties { get; init; }
+}
 
 public record PayOsWebhookPayload(
     [property: JsonPropertyName("code")] string Code,
@@ -96,24 +102,26 @@ public sealed class ProcessPayOsWebhookCommandHandler(
         var dataDict = new SortedDictionary<string, string>(StringComparer.Ordinal)
         {
             ["amount"] = ((long)data.Amount).ToString(),
-            ["cancel"] = "false",
             ["description"] = data.Description ?? string.Empty,
             ["orderCode"] = data.OrderCode.ToString(),
             ["currency"] = data.Currency ?? PaymentTransaction.DefaultCurrency,
+            ["accountNumber"] = data.AccountNumber ?? string.Empty,
+            ["reference"] = data.Reference ?? string.Empty,
+            ["transactionDateTime"] = data.TransactionDateTime ?? string.Empty,
+            ["paymentLinkId"] = data.PaymentLinkId ?? string.Empty,
+            ["code"] = data.Code ?? string.Empty,
+            ["desc"] = data.Desc ?? string.Empty,
         };
 
-        if (!string.IsNullOrWhiteSpace(data.AccountNumber))
-            dataDict["accountNumber"] = data.AccountNumber;
-        if (!string.IsNullOrWhiteSpace(data.Reference))
-            dataDict["reference"] = data.Reference;
-        if (!string.IsNullOrWhiteSpace(data.TransactionDateTime))
-            dataDict["transactionDateTime"] = data.TransactionDateTime;
-        if (!string.IsNullOrWhiteSpace(data.PaymentLinkId))
-            dataDict["paymentLinkId"] = data.PaymentLinkId;
-        if (!string.IsNullOrWhiteSpace(data.Code))
-            dataDict["code"] = data.Code;
-        if (!string.IsNullOrWhiteSpace(data.Desc))
-            dataDict["desc"] = data.Desc;
+        foreach (var (key, value) in data.AdditionalProperties ?? [])
+        {
+            dataDict[key] = value.ValueKind switch
+            {
+                JsonValueKind.Null or JsonValueKind.Undefined => string.Empty,
+                JsonValueKind.String => value.GetString() ?? string.Empty,
+                _ => value.GetRawText(),
+            };
+        }
 
         var sortedQuery = new StringBuilder();
         foreach (var (k, v) in dataDict)
