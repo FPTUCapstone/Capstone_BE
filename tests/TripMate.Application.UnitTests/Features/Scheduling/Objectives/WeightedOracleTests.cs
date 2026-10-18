@@ -5,6 +5,7 @@ using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Application.UnitTests.Features.Scheduling.Fixtures;
 using TripMate.Domain.Constants;
 using TripMate.Domain.Enums;
+using TripMate.Application.Features.Scheduling.TimeOfDay;
 using Xunit;
 
 namespace TripMate.Application.UnitTests.Features.Scheduling.Objectives;
@@ -160,7 +161,7 @@ public class WeightedOracleTests
         var requestInputs = new WeightedRequestInputs(
             baseByPoiId,
             personalParams,
-            new ConstantTimeFitFactory());
+            new RealTimeFitProviderFactory(personalParams));
 
         var evaluator = new ItineraryScheduleEvaluator(Options);
 

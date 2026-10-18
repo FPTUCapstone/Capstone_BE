@@ -7,6 +7,7 @@ using TripMate.Application.Features.Scheduling.Routing;
 using TripMate.Application.UnitTests.Features.Scheduling.Golden;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
+using TripMate.Application.Features.Scheduling.TimeOfDay;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -107,6 +108,75 @@ public class ObjectiveCalculatorTests
         return (inputs, nodeOf);
     }
 
+    private static (WeightedObjectiveInputs Inputs, IReadOnlyDictionary<long, int> NodeOf) CreateRealTimeFitInputs(
+        RoutingContext ctx)
+    {
+        var n = ctx.Nodes.Count;
+        var nodeOf = new Dictionary<long, int>(n);
+        var baseScores = new double[n];
+        var categoryIndex = new int[n];
+        var isExposedOutdoor = new bool[n];
+        var isFood = new bool[n];
+        var isRestStop = new bool[n];
+        var effort = new int[n];
+
+        for (var v = 0; v < n; v++)
+        {
+            var poiId = ctx.Nodes[v].Candidate.Id;
+            nodeOf[poiId] = v;
+            baseScores[v] = 0.2 + 0.8 * ((poiId * 2654435761L & 0x7FFFFFFF) % 1000) / 1000.0;
+            categoryIndex[v] = v % 3;
+
+            isExposedOutdoor[v] = (v % 2) == 0;
+            isFood[v] = (v % 4) == 0;
+            isRestStop[v] = false;
+            effort[v] = 20 + (v % 4) * 15;
+        }
+
+        var gammaScaled = new long[3][];
+        for (var c = 0; c < 3; c++)
+        {
+            gammaScaled[c] = new long[20];
+            for (var k = 0; k < 20; k++)
+            {
+                gammaScaled[c][k] = (long)Math.Round(Math.Pow(0.85, k) * WeightedObjectiveInputs.Scale);
+            }
+        }
+
+        var personalParams = new PersonalParams(
+            LambdaPerMin: 0.015,
+            Mu: 0.005,
+            MaxStopsPerDay: 2,
+            MaxDailyEffort: 60,
+            RestAfterMin: 60,
+            MaxConsecutiveOutdoor: 1,
+            SunriseFactor: 0.6,
+            GammaDefault: 0.6,
+            GammaLoved: 0.85,
+            LovedCategories: new HashSet<string>(),
+            RhoOutdoor: 0.15,
+            RhoRest: 0.20,
+            RhoStops: 0.25,
+            RhoEffortPerHour: 0.05,
+            ConfigVersion: "test-real-timefit");
+
+        var inputs = new WeightedObjectiveInputs
+        {
+            Base = baseScores,
+            CategoryIndex = categoryIndex,
+            CategoryCount = 3,
+            GammaScaled = gammaScaled,
+            IsExposedOutdoor = isExposedOutdoor,
+            IsFood = isFood,
+            IsRestStop = isRestStop,
+            Effort = effort,
+            TimeFit = new RealTimeFitProvider(ctx, personalParams),
+            P = personalParams
+        };
+
+        return (inputs, nodeOf);
+    }
+
     [Fact]
     public void I2_Evaluate_equals_Replay_on_all_24_non_rest_golden_scenarios()
     {
@@ -169,6 +239,71 @@ public class ObjectiveCalculatorTests
 
             // Khẳng định bằng nhau tuyệt đối từng giá trị (bit-for-bit)
             evaluated.Should().Be(replay, $"Scenario {scenario.Id} must have Evaluate == Replay exactly");
+        }
+    }
+
+    [Fact]
+    public void I2_Evaluate_equals_Replay_on_all_24_non_rest_golden_scenarios_with_real_TimeFit()
+    {
+        string[] measuredScenarioIds =
+        [
+            "grid-c10-m0-none-s1", "grid-c10-m1-none-s1", "grid-c10-m3-none-s1", "grid-c10-m6-none-s1",
+            "grid-c20-m0-none-s1", "grid-c20-m1-none-s1", "grid-c20-m3-none-s1", "grid-c20-m6-none-s1",
+            "grid-c40-m0-none-s1", "grid-c40-m1-none-s1", "grid-c40-m3-none-s1", "grid-c40-m6-none-s1",
+            "named-zigzag", "named-zigzag-240", "named-tail-infeasible", "named-asymmetric",
+            "named-two-opt", "named-relocate", "named-reconsideration",
+            "incumbent-valid-c20-m2-none-s10", "incumbent-invalid-rejected-s13",
+            "budget-tight-exact-mandatory-s21",
+            "boundary-fractional-seconds-s41", "boundary-urgent-slack-mrv-s42"
+        ];
+
+        var allScenarios = GoldenScenarioFactory.CreateAllScenarios();
+        var nonRestScenarios = measuredScenarioIds
+            .Select(id => allScenarios.First(s => s.Id == id))
+            .ToList();
+
+        nonRestScenarios.Count.Should().Be(24, "Must have exactly 24 measured non-rest golden scenarios");
+
+        var evaluator = new ItineraryScheduleEvaluator(Options);
+        var catScratch = new int[3];
+        var itemScratch = new List<GeneratedItineraryItem>(32);
+
+        foreach (var scenario in nonRestScenarios)
+        {
+            var cspOpts = scenario.CspOptions ?? GoldenCspOptions;
+            var solver = new CspItinerarySolver(evaluator, Options, cspOpts);
+            var result = solver.Solve(
+                scenario.Input, scenario.Matrix, scenario.Candidates, scenario.Indices,
+                scenario.InitialIncumbent, CancellationToken.None);
+
+            result.Schedule.Should().NotBeNull($"Scenario {scenario.Id} must yield a valid schedule");
+            var schedule = result.Schedule!;
+
+            var primaryCtx = CspItinerarySolver.CreatePrimaryContext(
+                scenario.Input, scenario.Matrix, scenario.Candidates, scenario.Indices, Options);
+
+            var (inputs, nodeOf) = CreateRealTimeFitInputs(primaryCtx);
+
+            var visitItems = schedule.Plan.Items
+                .Where(i => i.Kind == ItineraryItemKind.Visit && i.PointOfInterestId.HasValue)
+                .OrderBy(i => i.SequenceNo)
+                .ToList();
+
+            var seq = visitItems.Select(i => nodeOf[i.PointOfInterestId!.Value]).ToArray();
+            var routeState = RouteState.Build(primaryCtx, seq);
+            routeState.Should().NotBeNull($"RouteState.Build must succeed for scenario {scenario.Id}");
+
+            // 1. Replay trên mô hình tìm kiếm
+            var replay = ObjectiveCalculator.Replay(inputs, primaryCtx, routeState!.Sequence, routeState.Earliest, catScratch);
+
+            // 2. Evaluate trên lịch đã qua Evaluator
+            var evaluated = ObjectiveCalculator.Evaluate(
+                inputs, primaryCtx, schedule, nodeOf, scenario.Indices, catScratch, itemScratch);
+
+            _output.WriteLine($"[I2 Real TimeFit PASS] {scenario.Id} | Stops: {visitItems.Count} | Replay: {replay} | Evaluate: {evaluated}");
+
+            // Khẳng định bằng nhau tuyệt đối từng giá trị (bit-for-bit)
+            evaluated.Should().Be(replay, $"Scenario {scenario.Id} must have Evaluate == Replay exactly with real TimeFit");
         }
     }
 

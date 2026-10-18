@@ -1,4 +1,8 @@
+using TripMate.Application.Features.Scheduling.Common;
+using TripMate.Application.Features.Scheduling.Csp;
 using TripMate.Application.Features.Scheduling.Csp.Objectives;
+using TripMate.Application.Features.Scheduling.Personalization;
+using TripMate.Application.Features.Scheduling.TimeOfDay;
 using TripMate.Application.UnitTests.Features.Scheduling.Golden.Weighted;
 using Xunit;
 
@@ -23,6 +27,58 @@ public class WeightedUpperBoundTests
                 {
                     var gain = scale * inputs.Base[v] * inputs.TimeFit.Factor(v, start, start + ctx.Nodes[v].VisitMinutes);
                     Assert.True(gain <= kernel.UMaxForTest[v], $"{id} node {v} start {start}: {gain} > {kernel.UMaxForTest[v]}");
+                }
+            }
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(WeightedScenarios))]
+    public void UMax_dominates_every_feasible_gain_with_real_TimeFit(string id)
+    {
+        var scenario = WeightedScenarioFactory.CreateAllScenarios().First(s => s.Id == id);
+        var cspOptions = scenario.CspOptions ?? new CspOptions { Mode = ObjectiveMode.WeightedUtility };
+        var ctx = CspItinerarySolver.CreatePrimaryContext(scenario.Input, scenario.Matrix, scenario.Candidates, scenario.Indices, new SchedulingGenerationOptions());
+        var personalParams = new PersonalParams(
+            LambdaPerMin: 0.015,
+            Mu: 0.005,
+            MaxStopsPerDay: 5,
+            MaxDailyEffort: 300,
+            RestAfterMin: 120,
+            MaxConsecutiveOutdoor: 3,
+            SunriseFactor: 0.6,
+            GammaDefault: 0.6,
+            GammaLoved: 0.85,
+            LovedCategories: new HashSet<string>(),
+            RhoOutdoor: 0.25,
+            RhoRest: 0.20,
+            RhoStops: 0.30,
+            RhoEffortPerHour: 0.05,
+            ConfigVersion: "test-real-timefit");
+
+        var baseByPoiId = scenario.Candidates.ToDictionary(c => c.Id, c => WeightedGoldenInputsFactory.CalculateBaseScore(c.Id));
+        var reqInputs = new WeightedRequestInputs(baseByPoiId, personalParams, new RealTimeFitProviderFactory(personalParams));
+        var weightedInputs = ObjectiveKernelFactory.BuildWeightedInputs(ctx, reqInputs);
+        var rule = CspProductRule.BuildRankRuleFromBase(ctx, weightedInputs.Base);
+
+        using var deadline = new CspItinerarySolver.SolveDeadline(System.Diagnostics.Stopwatch.StartNew(), 10_000, CancellationToken.None);
+        var budget = new CspItinerarySolver.SearchBudget(10_000);
+        var kernel = new WeightedUtilityKernel(weightedInputs, cspOptions, disableBound: false, BoundVariant.Correct);
+
+        _ = new CspItinerarySolver.SearchRun(
+            ctx, rule, cspOptions, deadline, budget, false,
+            (c, s, st) => null, CancellationToken.None, weightedInputs, kernel);
+
+        const double scale = WeightedObjectiveInputs.Scale;
+
+        for (var v = 0; v < ctx.Nodes.Count; v++)
+        {
+            foreach (var (open, close) in ctx.OpenWindows(v))
+            {
+                for (var start = open; start + ctx.Nodes[v].VisitMinutes <= close; start += 5)
+                {
+                    var gain = scale * weightedInputs.Base[v] * weightedInputs.TimeFit.Factor(v, start, start + ctx.Nodes[v].VisitMinutes);
+                    Assert.True(gain <= kernel.UMaxForTest[v], $"{id} node {v} start {start}: gain {gain} > UMax {kernel.UMaxForTest[v]}");
                 }
             }
         }
