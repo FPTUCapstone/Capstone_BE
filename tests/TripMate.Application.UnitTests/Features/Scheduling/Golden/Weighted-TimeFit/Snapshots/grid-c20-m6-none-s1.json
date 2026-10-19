@@ -17,7 +17,7 @@
     -16318,
     -18901,
     -18901,
-    -23021
+    -18918
   ],
   "EliteVisitIds": [
     [
@@ -56,10 +56,9 @@
       5,
       6,
       1,
+      4,
       3,
-      9,
-      2,
-      4
+      2
     ]
   ],
   "BestTravelMinutes": 92,
@@ -67,10 +66,10 @@
   "BestEstimatedCost": 90000,
   "EndAtUtc": "2026-10-20T06:47:00+00:00",
   "NodesExpanded": 200000,
-  "PrunedByConstraints": 9,
-  "PrunedByForwardChecking": 41098,
-  "PrunedByBound": 174760,
-  "SolutionsFound": 45066,
+  "PrunedByConstraints": 0,
+  "PrunedByForwardChecking": 17430,
+  "PrunedByBound": 182399,
+  "SolutionsFound": 33814,
   "NodesToFirstSolution": 7,
   "SearchCompleted": false,
   "NodeLimitReached": true,

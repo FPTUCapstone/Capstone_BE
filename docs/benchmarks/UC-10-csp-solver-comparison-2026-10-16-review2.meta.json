@@ -1,8 +1,8 @@
 {
   "date": "2026-10-16-review2",
-  "source_hash": "a5d21ab2d64e4e8ecbcb653d139f3b4442335749d093cfcf72a53907e3d24410",
+  "source_hash": "f8cfde8b569e355af5739d504ee5e92d0b54432e5be5657ed807ae04ca8cdb58",
   "measured_source_hash": "16d70025d5be317d18578a3001a413a49c632e3082cfb0662402589625bea2ba",
-  "equivalence_basis": "PR-08 – real TimeFit in model minutes, 55/55 lexicographic golden bit-for-bit unchanged",
+  "equivalence_basis": "PR-07b – tightened bound, 55/55 lexicographic golden bit-for-bit unchanged",
   "source_file_count": 57,
 
 

@@ -11,9 +11,9 @@
   "EliteModelObjectives": [
     -3061,
     -3767,
+    -6353,
     -6943,
-    -8389,
-    -9630
+    -8125
   ],
   "EliteVisitIds": [
     [
@@ -28,19 +28,18 @@
     [
       1,
       2,
+      16
+    ],
+    [
+      1,
+      2,
       19
     ],
     [
       1,
       2,
-      20,
+      16,
       9
-    ],
-    [
-      1,
-      2,
-      19,
-      4
     ]
   ],
   "BestTravelMinutes": 55,
@@ -50,7 +49,7 @@
   "NodesExpanded": 200000,
   "PrunedByConstraints": 0,
   "PrunedByForwardChecking": 0,
-  "PrunedByBound": 184983,
+  "PrunedByBound": 185403,
   "SolutionsFound": 199998,
   "NodesToFirstSolution": 3,
   "SearchCompleted": false,

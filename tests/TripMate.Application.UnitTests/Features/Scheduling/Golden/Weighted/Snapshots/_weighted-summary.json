@@ -1,13 +1,16 @@
 {
   "TotalScenarios": 67,
   "FeasibleScenarios": 66,
-  "CompletedSearchScenarios": 29,
+  "CompletedSearchScenarios": 32,
   "CompletedScenarioIds": [
     "grid-c10-m0-none-s1",
     "grid-c10-m1-none-s1",
+    "grid-c10-m3-none-s1",
     "grid-c10-m0-auto-s1",
+    "grid-c10-m1-auto-s1",
     "grid-c10-m0-frequent-s1",
     "grid-c10-m1-frequent-s1",
+    "grid-c10-m3-frequent-s1",
     "named-zigzag",
     "named-zigzag-240",
     "named-tail-infeasible",
@@ -39,7 +42,7 @@
       "Source": "GroupA_Grid",
       "Feasible": true,
       "SearchCompleted": true,
-      "NodesExpanded": 88377,
+      "NodesExpanded": 27000,
       "BestModelObjective": 7282,
       "BestEvaluatedObjective": 7282
     },
@@ -48,7 +51,7 @@
       "Source": "GroupA_Grid",
       "Feasible": true,
       "SearchCompleted": true,
-      "NodesExpanded": 143502,
+      "NodesExpanded": 68203,
       "BestModelObjective": 1319,
       "BestEvaluatedObjective": 1319
     },
@@ -56,8 +59,8 @@
       "ScenarioId": "grid-c10-m3-none-s1",
       "Source": "GroupA_Grid",
       "Feasible": true,
-      "SearchCompleted": false,
-      "NodesExpanded": 200000,
+      "SearchCompleted": true,
+      "NodesExpanded": 150248,
       "BestModelObjective": -6004,
       "BestEvaluatedObjective": -6004
     },
@@ -147,7 +150,7 @@
       "Source": "GroupA_Grid",
       "Feasible": true,
       "SearchCompleted": true,
-      "NodesExpanded": 156526,
+      "NodesExpanded": 51448,
       "BestModelObjective": 7282,
       "BestEvaluatedObjective": 7282
     },
@@ -155,8 +158,8 @@
       "ScenarioId": "grid-c10-m1-auto-s1",
       "Source": "GroupA_Grid",
       "Feasible": true,
-      "SearchCompleted": false,
-      "NodesExpanded": 200000,
+      "SearchCompleted": true,
+      "NodesExpanded": 126960,
       "BestModelObjective": 1319,
       "BestEvaluatedObjective": 1319
     },
@@ -255,7 +258,7 @@
       "Source": "GroupA_Grid",
       "Feasible": true,
       "SearchCompleted": true,
-      "NodesExpanded": 111285,
+      "NodesExpanded": 41210,
       "BestModelObjective": 7282,
       "BestEvaluatedObjective": 7282
     },
@@ -264,7 +267,7 @@
       "Source": "GroupA_Grid",
       "Feasible": true,
       "SearchCompleted": true,
-      "NodesExpanded": 176977,
+      "NodesExpanded": 92410,
       "BestModelObjective": 1319,
       "BestEvaluatedObjective": 3319
     },
@@ -272,8 +275,8 @@
       "ScenarioId": "grid-c10-m3-frequent-s1",
       "Source": "GroupA_Grid",
       "Feasible": true,
-      "SearchCompleted": false,
-      "NodesExpanded": 200000,
+      "SearchCompleted": true,
+      "NodesExpanded": 177619,
       "BestModelObjective": -8274,
       "BestEvaluatedObjective": -4274
     },
@@ -337,8 +340,8 @@
       "Feasible": true,
       "SearchCompleted": false,
       "NodesExpanded": 200000,
-      "BestModelObjective": 1991,
-      "BestEvaluatedObjective": 1991
+      "BestModelObjective": 2355,
+      "BestEvaluatedObjective": 2355
     },
     {
       "ScenarioId": "grid-c40-m3-frequent-s1",
@@ -363,7 +366,7 @@
       "Source": "GroupB_Named",
       "Feasible": true,
       "SearchCompleted": true,
-      "NodesExpanded": 42,
+      "NodesExpanded": 40,
       "BestModelObjective": 1447,
       "BestEvaluatedObjective": 1447
     },
@@ -390,7 +393,7 @@
       "Source": "GroupB_Named",
       "Feasible": true,
       "SearchCompleted": true,
-      "NodesExpanded": 13,
+      "NodesExpanded": 12,
       "BestModelObjective": 3542,
       "BestEvaluatedObjective": 3542
     },
@@ -399,7 +402,7 @@
       "Source": "GroupB_Named",
       "Feasible": true,
       "SearchCompleted": true,
-      "NodesExpanded": 32,
+      "NodesExpanded": 30,
       "BestModelObjective": 7993,
       "BestEvaluatedObjective": 7993
     },
@@ -453,7 +456,7 @@
       "Source": "GroupC_Incumbent",
       "Feasible": true,
       "SearchCompleted": true,
-      "NodesExpanded": 130794,
+      "NodesExpanded": 57087,
       "BestModelObjective": 3292,
       "BestEvaluatedObjective": 3292
     },
@@ -534,7 +537,7 @@
       "Source": "GroupG_SmallExhaustive",
       "Feasible": true,
       "SearchCompleted": true,
-      "NodesExpanded": 39,
+      "NodesExpanded": 35,
       "BestModelObjective": 3282,
       "BestEvaluatedObjective": 3282
     },
@@ -543,7 +546,7 @@
       "Source": "GroupG_SmallExhaustive",
       "Feasible": true,
       "SearchCompleted": true,
-      "NodesExpanded": 45,
+      "NodesExpanded": 32,
       "BestModelObjective": -2426,
       "BestEvaluatedObjective": -2426
     },
@@ -552,7 +555,7 @@
       "Source": "GroupG_SmallExhaustive",
       "Feasible": true,
       "SearchCompleted": true,
-      "NodesExpanded": 140,
+      "NodesExpanded": 94,
       "BestModelObjective": 6366,
       "BestEvaluatedObjective": 6366
     },
@@ -561,7 +564,7 @@
       "Source": "GroupG_SmallExhaustive",
       "Feasible": true,
       "SearchCompleted": true,
-      "NodesExpanded": 200,
+      "NodesExpanded": 190,
       "BestModelObjective": 2078,
       "BestEvaluatedObjective": 2078
     },
@@ -570,7 +573,7 @@
       "Source": "GroupG_SmallExhaustive",
       "Feasible": true,
       "SearchCompleted": true,
-      "NodesExpanded": 203,
+      "NodesExpanded": 180,
       "BestModelObjective": 1066,
       "BestEvaluatedObjective": 1066
     },
@@ -579,7 +582,7 @@
       "Source": "GroupG_SmallExhaustive",
       "Feasible": true,
       "SearchCompleted": true,
-      "NodesExpanded": 496,
+      "NodesExpanded": 304,
       "BestModelObjective": 2563,
       "BestEvaluatedObjective": 2563
     },
@@ -588,7 +591,7 @@
       "Source": "GroupG_SmallExhaustive",
       "Feasible": true,
       "SearchCompleted": true,
-      "NodesExpanded": 578,
+      "NodesExpanded": 459,
       "BestModelObjective": 1756,
       "BestEvaluatedObjective": 1756
     },
@@ -597,7 +600,7 @@
       "Source": "GroupG_SmallExhaustive",
       "Feasible": true,
       "SearchCompleted": true,
-      "NodesExpanded": 722,
+      "NodesExpanded": 579,
       "BestModelObjective": -1934,
       "BestEvaluatedObjective": -1934
     },
@@ -606,7 +609,7 @@
       "Source": "GroupG_SmallExhaustive",
       "Feasible": true,
       "SearchCompleted": true,
-      "NodesExpanded": 817,
+      "NodesExpanded": 736,
       "BestModelObjective": -6020,
       "BestEvaluatedObjective": -6020
     },
@@ -615,7 +618,7 @@
       "Source": "GroupG_SmallExhaustive",
       "Feasible": true,
       "SearchCompleted": true,
-      "NodesExpanded": 2305,
+      "NodesExpanded": 1447,
       "BestModelObjective": -50,
       "BestEvaluatedObjective": -50
     },
@@ -633,7 +636,7 @@
       "Source": "GroupG_SmallExhaustive",
       "Feasible": true,
       "SearchCompleted": true,
-      "NodesExpanded": 311,
+      "NodesExpanded": 257,
       "BestModelObjective": 5171,
       "BestEvaluatedObjective": 5171
     }

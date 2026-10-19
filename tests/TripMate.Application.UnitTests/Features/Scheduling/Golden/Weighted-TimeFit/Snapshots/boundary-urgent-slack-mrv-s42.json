@@ -13,8 +13,8 @@
     -2188,
     -2953,
     -3071,
-    -5010,
-    -6242
+    -4734,
+    -5010
   ],
   "EliteVisitIds": [
     [
@@ -33,14 +33,13 @@
     ],
     [
       1,
-      2,
-      5
+      5,
+      2
     ],
     [
       1,
-      11,
       2,
-      15
+      5
     ]
   ],
   "BestTravelMinutes": 57,
@@ -50,8 +49,8 @@
   "NodesExpanded": 200000,
   "PrunedByConstraints": 0,
   "PrunedByForwardChecking": 0,
-  "PrunedByBound": 177472,
-  "SolutionsFound": 199997,
+  "PrunedByBound": 178426,
+  "SolutionsFound": 146266,
   "NodesToFirstSolution": 3,
   "SearchCompleted": false,
   "NodeLimitReached": true,

@@ -12,9 +12,9 @@
   "EliteModelObjectives": [
     -3538,
     -8178,
-    -10723,
-    -13691,
-    -18577
+    -9530,
+    -9612,
+    -10723
   ],
   "EliteVisitIds": [
     [
@@ -33,22 +33,21 @@
       3,
       1,
       11,
+      21
+    ],
+    [
+      2,
+      3,
+      1,
+      11,
+      20
+    ],
+    [
+      2,
+      3,
+      1,
+      11,
       37
-    ],
-    [
-      2,
-      3,
-      1,
-      11,
-      10
-    ],
-    [
-      2,
-      3,
-      1,
-      11,
-      10,
-      25
     ]
   ],
   "BestTravelMinutes": 65,
@@ -58,7 +57,7 @@
   "NodesExpanded": 200000,
   "PrunedByConstraints": 0,
   "PrunedByForwardChecking": 0,
-  "PrunedByBound": 193802,
+  "PrunedByBound": 193928,
   "SolutionsFound": 199997,
   "NodesToFirstSolution": 4,
   "SearchCompleted": false,

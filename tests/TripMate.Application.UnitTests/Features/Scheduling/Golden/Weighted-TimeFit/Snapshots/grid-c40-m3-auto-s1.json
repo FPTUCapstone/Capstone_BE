@@ -18,7 +18,7 @@
   "NodesExpanded": 200000,
   "PrunedByConstraints": 0,
   "PrunedByForwardChecking": 0,
-  "PrunedByBound": 193933,
+  "PrunedByBound": 193943,
   "SolutionsFound": 199997,
   "NodesToFirstSolution": 4,
   "SearchCompleted": false,
