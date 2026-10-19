@@ -33,7 +33,8 @@ public enum BoundVariant
     OmitMandatoryGain,
     GreedySlotsOnly,
     ApplyGamma,
-    NoRoundingSlack
+    NoRoundingSlack,
+    IgnoreOptionalIncomingTravel
 }
 
 /// <summary>
@@ -67,6 +68,7 @@ internal sealed class WeightedUtilityKernel : IObjectiveKernel
     private List<GeneratedItineraryItem> _itemScratch = null!;
 
     private long[] _uMax = null!;
+    private long[] _vEff = null!;
     private int[] _weight = null!;
     private int[] _byDensity = null!;
     private int[] _byValue = null!;
@@ -111,6 +113,7 @@ internal sealed class WeightedUtilityKernel : IObjectiveKernel
     internal long? IncumbentObjectiveForTest => _incumbent?.Objective;
     internal WeightedIncumbent? IncumbentForTest => _incumbent;
     internal long[] UMaxForTest => _uMax;
+    internal long[] VEffForTest => _vEff;
     internal int[] WeightForTest => _weight;
     internal int[] ByDensityForTest => _byDensity;
     internal int[] ByValueForTest => _byValue;
@@ -159,6 +162,7 @@ internal sealed class WeightedUtilityKernel : IObjectiveKernel
         var n = _ctx.Nodes.Count;
 
         _uMax = new long[n];
+        _vEff = new long[n];
         _weight = new int[n];
         for (var v = 0; v < n; v++)
         {
@@ -171,15 +175,25 @@ internal sealed class WeightedUtilityKernel : IObjectiveKernel
 
             _uMax[v] = (long)Math.Ceiling(WeightedObjectiveInputs.Scale * _inputs.Base[v] * maxFactor);
             _weight[v] = _ctx.Nodes[v].VisitMinutes + _pre.MinIncomingTravel[v];
+
+            if (_variant == BoundVariant.IgnoreOptionalIncomingTravel)
+            {
+                _vEff[v] = _uMax[v];
+            }
+            else
+            {
+                var minIncomingCost = (long)Math.Floor(WeightedObjectiveInputs.Scale * _inputs.P.LambdaPerMin * _pre.MinIncomingRaw[v]);
+                _vEff[v] = _uMax[v] - minIncomingCost;
+            }
         }
 
         _byDensity = Enumerable.Range(0, n)
-            .OrderByDescending(v => (double)_uMax[v] / Math.Max(1, _weight[v]))
+            .OrderByDescending(v => (double)_vEff[v] / Math.Max(1, _weight[v]))
             .ThenBy(v => _ctx.Nodes[v].Candidate.Id)
             .ToArray();
 
         _byValue = Enumerable.Range(0, n)
-            .OrderByDescending(v => _uMax[v])
+            .OrderByDescending(v => _vEff[v])
             .ThenBy(v => _ctx.Nodes[v].Candidate.Id)
             .ToArray();
 
@@ -292,6 +306,7 @@ internal sealed class WeightedUtilityKernel : IObjectiveKernel
             var node = _ctx.Nodes[v];
             if (node.IsMandatory) continue;
             if (budgetLeft is { } left && node.Cost > left) continue; // một mình đã vượt ngân sách
+            if (_variant != BoundVariant.IgnoreOptionalIncomingTravel && _vEff[v] <= 0) continue;
             _mark[v] = _stamp;
         }
 
@@ -300,8 +315,8 @@ internal sealed class WeightedUtilityKernel : IObjectiveKernel
         {
             if (_mark[v] != _stamp) continue;
             if (t <= 0) break;
-            if (_weight[v] <= t) { ubTime += _uMax[v]; t -= _weight[v]; }
-            else { ubTime += _uMax[v] * t / _weight[v] + 1; break; } // +1: bù làm tròn xuống của phép chia
+            if (_weight[v] <= t) { ubTime += _vEff[v]; t -= _weight[v]; }
+            else { ubTime += _vEff[v] * t / _weight[v] + 1; break; } // +1: bù làm tròn xuống của phép chia
         }
 
         var maxVisits = Math.Min(_maxStops, _ctx.Nodes.Count);
@@ -313,7 +328,7 @@ internal sealed class WeightedUtilityKernel : IObjectiveKernel
             {
                 if (s <= 0) break;
                 if (_mark[v] != _stamp) continue;
-                ubSlots += _uMax[v]; s--;
+                ubSlots += _vEff[v]; s--;
             }
         }
         else
@@ -322,7 +337,7 @@ internal sealed class WeightedUtilityKernel : IObjectiveKernel
             {
                 if (s <= 0) break;
                 if (_mark[v] != _stamp) continue;
-                ubSlots += _uMax[v]; s--;
+                ubSlots += _vEff[v]; s--;
             }
         }
 
