@@ -35,7 +35,8 @@ public enum BoundVariant
     ApplyGamma,
     NoRoundingSlack,
     IgnoreOptionalIncomingTravel,
-    StaticMaxFactor
+    StaticMaxFactor,
+    PerCallSuffix
 }
 
 /// <summary>
@@ -82,6 +83,13 @@ internal sealed class WeightedUtilityKernel : IObjectiveKernel
     private double[] _candDensity = null!;
     private int[] _slotsOrder = null!;
     private int[] _timeOrder = null!;
+
+    private const int BucketMinutes = 15;
+    private int _bucketCount;
+    private long[] _uMaxMandatoryB = null!;
+    private long[] _vEffB = null!;
+    private int[] _byDensityB = null!;
+    private int[] _byValueB = null!;
 
     private WeightedIncumbent? _incumbent;
     private long _pendingObjective;
@@ -212,6 +220,64 @@ internal sealed class WeightedUtilityKernel : IObjectiveKernel
 
         _mark = new int[n];
         _stamp = 0;
+
+        _bucketCount = (_ctx.Horizon / BucketMinutes) + 1;
+        var totalSlots = _bucketCount * n;
+
+        _uMaxMandatoryB = new long[totalSlots];
+        _vEffB = new long[totalSlots];
+        _byDensityB = new int[totalSlots];
+        _byValueB = new int[totalSlots];
+
+        var tempIndices = new int[n];
+
+        for (var b = 0; b < _bucketCount; b++)
+        {
+            var tB = Math.Min(b * BucketMinutes, _ctx.Horizon);
+            var offset = b * n;
+
+            for (var v = 0; v < n; v++)
+            {
+                var factor = _inputs.TimeFit.MaxFactorFrom(v, tB);
+                if (_variant == BoundVariant.ApplyGamma)
+                {
+                    factor *= _inputs.P.GammaLoved;
+                }
+
+                var uMax = (long)Math.Ceiling(WeightedObjectiveInputs.Scale * _inputs.Base[v] * factor);
+                _uMaxMandatoryB[offset + v] = uMax;
+
+                if (_variant == BoundVariant.IgnoreOptionalIncomingTravel)
+                {
+                    _vEffB[offset + v] = uMax;
+                }
+                else
+                {
+                    var minIncomingCost = (long)Math.Floor(WeightedObjectiveInputs.Scale * _inputs.P.LambdaPerMin * _pre.MinIncomingRaw[v]);
+                    _vEffB[offset + v] = uMax - minIncomingCost;
+                }
+            }
+
+            for (var v = 0; v < n; v++) tempIndices[v] = v;
+            Array.Sort(tempIndices, (a, bNode) =>
+            {
+                var da = (double)_vEffB[offset + a] / Math.Max(1, _weight[a]);
+                var db = (double)_vEffB[offset + bNode] / Math.Max(1, _weight[bNode]);
+                var cmp = db.CompareTo(da);
+                return cmp != 0 ? cmp : _ctx.Nodes[a].Candidate.Id.CompareTo(_ctx.Nodes[bNode].Candidate.Id);
+            });
+            Array.Copy(tempIndices, 0, _byDensityB, offset, n);
+
+            for (var v = 0; v < n; v++) tempIndices[v] = v;
+            Array.Sort(tempIndices, (a, bNode) =>
+            {
+                var va = _vEffB[offset + a];
+                var vb = _vEffB[offset + bNode];
+                var cmp = vb.CompareTo(va);
+                return cmp != 0 ? cmp : _ctx.Nodes[a].Candidate.Id.CompareTo(_ctx.Nodes[bNode].Candidate.Id);
+            });
+            Array.Copy(tempIndices, 0, _byValueB, offset, n);
+        }
     }
 
     public IncumbentToken? AcceptInitial(EvaluatedItinerarySchedule? schedule)
@@ -297,6 +363,9 @@ internal sealed class WeightedUtilityKernel : IObjectiveKernel
         long mandatoryGain = 0, forcedTravel = 0;
         var remainingMandatory = 0;
 
+        var bIdx = Math.Min(departure / BucketMinutes, _bucketCount - 1);
+        var bOffset = bIdx * _ctx.Nodes.Count;
+
         foreach (var m in _ctx.MandatoryNodes)
         {
             if (_buffers.Contains[m]) continue;
@@ -307,7 +376,7 @@ internal sealed class WeightedUtilityKernel : IObjectiveKernel
                 {
                     mandatoryGain += _uMax[m];
                 }
-                else
+                else if (_variant == BoundVariant.PerCallSuffix)
                 {
                     var factor = _inputs.TimeFit.MaxFactorFrom(m, departure);
                     if (_variant == BoundVariant.ApplyGamma)
@@ -315,6 +384,10 @@ internal sealed class WeightedUtilityKernel : IObjectiveKernel
                         factor *= _inputs.P.GammaLoved;
                     }
                     mandatoryGain += (long)Math.Ceiling(WeightedObjectiveInputs.Scale * _inputs.Base[m] * factor);
+                }
+                else
+                {
+                    mandatoryGain += _uMaxMandatoryB[bOffset + m];
                 }
             }
             forcedTravel += _pre.MinIncomingRaw[m];
@@ -372,7 +445,7 @@ internal sealed class WeightedUtilityKernel : IObjectiveKernel
                 }
             }
         }
-        else
+        else if (_variant == BoundVariant.PerCallSuffix)
         {
             var candCount = 0;
             for (var i = 0; i < domainCount; i++)
@@ -471,18 +544,77 @@ internal sealed class WeightedUtilityKernel : IObjectiveKernel
                         var idx = _timeOrder[i];
                         var nodeIdx = _candNodes[idx];
                         var w = _weight[nodeIdx];
-                        var v = _candVal[idx];
+                        var val = _candVal[idx];
                         if (w <= t)
                         {
-                            ubTime += v;
+                            ubTime += val;
                             t -= w;
                         }
                         else
                         {
-                            ubTime += v * t / w + 1;
+                            ubTime += val * t / w + 1;
                             break;
                         }
                     }
+                }
+            }
+        }
+        else
+        {
+            var n = _ctx.Nodes.Count;
+            _stamp++;
+            for (var i = 0; i < domainCount; i++)
+            {
+                var v = domain[i];
+                finalReturn = Math.Min(finalReturn, _pre.ReturnRaw[v]);
+                var node = _ctx.Nodes[v];
+                if (node.IsMandatory) continue;
+                if (budgetLeft is { } left && node.Cost > left) continue;
+                if (_vEffB[bOffset + v] <= 0) continue;
+                _mark[v] = _stamp;
+            }
+
+            var t = timeLeft;
+            for (var i = 0; i < n; i++)
+            {
+                var v = _byDensityB[bOffset + i];
+                if (_mark[v] != _stamp) continue;
+                if (t <= 0) break;
+                var w = _weight[v];
+                var val = _vEffB[bOffset + v];
+                if (w <= t)
+                {
+                    ubTime += val;
+                    t -= w;
+                }
+                else
+                {
+                    ubTime += val * t / w + 1;
+                    break;
+                }
+            }
+
+            var s = slots;
+            if (_variant == BoundVariant.GreedySlotsOnly)
+            {
+                for (var i = 0; i < n; i++)
+                {
+                    if (s <= 0) break;
+                    var v = _byDensityB[bOffset + i];
+                    if (_mark[v] != _stamp) continue;
+                    ubSlots += _vEffB[bOffset + v];
+                    s--;
+                }
+            }
+            else
+            {
+                for (var i = 0; i < n; i++)
+                {
+                    if (s <= 0) break;
+                    var v = _byValueB[bOffset + i];
+                    if (_mark[v] != _stamp) continue;
+                    ubSlots += _vEffB[bOffset + v];
+                    s--;
                 }
             }
         }

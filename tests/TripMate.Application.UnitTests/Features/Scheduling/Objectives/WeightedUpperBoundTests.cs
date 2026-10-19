@@ -127,6 +127,43 @@ public class WeightedUpperBoundTests
         }
     }
 
+    [Theory]
+    [MemberData(nameof(WeightedScenarios))]
+    public void MaxFactorFrom_is_monotonically_non_increasing_with_time(string id)
+    {
+        var scenario = WeightedScenarioFactory.CreateAllScenarios().First(s => s.Id == id);
+        var ctx = CspItinerarySolver.CreatePrimaryContext(scenario.Input, scenario.Matrix, scenario.Candidates, scenario.Indices, new SchedulingGenerationOptions());
+        var personalParams = new PersonalParams(
+            LambdaPerMin: 0.015,
+            Mu: 0.005,
+            MaxStopsPerDay: 5,
+            MaxDailyEffort: 300,
+            RestAfterMin: 120,
+            MaxConsecutiveOutdoor: 3,
+            SunriseFactor: 0.6,
+            GammaDefault: 0.6,
+            GammaLoved: 0.85,
+            LovedCategories: new HashSet<string>(),
+            RhoOutdoor: 0.25,
+            RhoRest: 0.20,
+            RhoStops: 0.30,
+            RhoEffortPerHour: 0.05,
+            ConfigVersion: "test-real-timefit");
+
+        var provider = new RealTimeFitProvider(ctx, personalParams);
+
+        for (var v = 0; v < ctx.Nodes.Count; v++)
+        {
+            var prev = provider.MaxFactorFrom(v, 0);
+            for (var t = 5; t <= ctx.Horizon; t += 5)
+            {
+                var curr = provider.MaxFactorFrom(v, t);
+                Assert.True(curr <= prev + 1e-9, $"{id} node {v} at t={t}: curr {curr} > prev {prev} at t={t - 5}");
+                prev = curr;
+            }
+        }
+    }
+
     [Fact]
     public void RoundingSlack_Guarantees_Upper_Bound_Dominates_True_Sum_When_Half_Integers()
     {
