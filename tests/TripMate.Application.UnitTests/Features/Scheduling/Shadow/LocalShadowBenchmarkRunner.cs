@@ -248,7 +248,7 @@ public class LocalShadowBenchmarkRunner(ITestOutputHelper output)
 
                 var shadowPlan = shadowResult.Value;
                 var (shadowNodes, shadowNodeLimit) = ExtractCspStats(scenario, input, shadowOptions, weightedInputs);
-                var modelObj = ShadowSchedulingRunner.ComputeModelObjective(shadowPlan, weightedInputs, input.StartAtUtc);
+                var modelObj = shadowPlan.ModelObjective;
 
                 allRuns.Add(BuildModeRunMetrics(
                     scenario.Id,

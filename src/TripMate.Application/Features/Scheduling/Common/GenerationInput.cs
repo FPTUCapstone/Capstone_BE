@@ -54,4 +54,5 @@ public sealed record GeneratedItineraryPlan(
     IReadOnlyCollection<GeneratedItineraryItem> Items,
     DateTimeOffset EndAtUtc,
     int TotalDurationMinutes,
-    decimal TotalEstimatedCost);
+    decimal TotalEstimatedCost,
+    long? ModelObjective = null);

@@ -42,6 +42,7 @@ public sealed class RoutingContext
     private RoutingContext(
         GenerationInput input,
         RouteDurationMatrix matrix,
+        IReadOnlyDictionary<long, int> candidateMatrixIndices,
         RoutingNode[] nodes,
         DayWindow[][] windows,
         int horizon,
@@ -50,6 +51,7 @@ public sealed class RoutingContext
         RestShortcuts? shortcuts)
     {
         Input = input;
+        CandidateMatrixIndices = candidateMatrixIndices;
         _shortcuts = shortcuts;
         _matrix = matrix;
         Nodes = nodes;
@@ -69,6 +71,8 @@ public sealed class RoutingContext
     }
 
     public GenerationInput Input { get; }
+
+    public IReadOnlyDictionary<long, int> CandidateMatrixIndices { get; }
 
     public IReadOnlyList<RoutingNode> Nodes { get; }
 
@@ -150,6 +154,7 @@ public sealed class RoutingContext
         return new RoutingContext(
             input,
             matrix,
+            candidateMatrixIndices,
             nodes,
             windows,
             horizon,

@@ -10,8 +10,8 @@ public static class ObjectiveCalculator
         (int)Math.Ceiling((t - startAtUtc).TotalMinutes - 1e-9);
 
     /// <summary>
-    /// ΔJ (scaled) khi thêm lượt ghé node tại [start, end], đến từ chặng dài travelRaw, chờ wait phút.
-    /// categoryCountBefore: số lượt cùng danh mục đã có TRƯỚC lượt này. Cập nhật soft state tại chỗ.
+    /// Scaled delta-J when visiting a node during [start, end], arriving via travelRaw leg duration and waiting for wait minutes.
+    /// categoryCountBefore: number of visits in the same category prior to this visit. Updates soft state in place.
     /// </summary>
     public static long VisitTerm(
         WeightedObjectiveInputs x,
@@ -62,11 +62,11 @@ public static class ObjectiveCalculator
         return (long)Math.Round(WeightedObjectiveInputs.Scale * (gain - cost), MidpointRounding.ToEven);
     }
 
-    /// <summary>Phạt chặng về đích.</summary>
+    /// <summary>Penalty for returning to end location.</summary>
     public static long ReturnTerm(WeightedObjectiveInputs x, int returnRaw)
         => -(long)Math.Round(WeightedObjectiveInputs.Scale * x.P.LambdaPerMin * returnRaw, MidpointRounding.ToEven);
 
-    /// <summary>Phát lại một lộ trình trên mô hình (dùng cho KeyOf và test nhất quán).</summary>
+    /// <summary>Replays a route on the model (used for KeyOf and consistency tests).</summary>
     public static long Replay(
         WeightedObjectiveInputs x,
         RoutingContext ctx,
@@ -100,7 +100,32 @@ public static class ObjectiveCalculator
     }
 
     /// <summary>
-    /// Tính J thật trên lịch đã qua Evaluator (đã chèn rest stop, giờ bắt đầu/kết thúc là thời gian thực tế).
+    /// Evaluates the true J objective on a schedule evaluated by the Evaluator, directly using RoutingContext and CandidateMatrixIndices.
+    /// Automatically builds nodeOf and scratch buffers if the caller does not reuse them.
+    /// </summary>
+    public static long Evaluate(
+        WeightedObjectiveInputs x,
+        RoutingContext ctx,
+        EvaluatedItinerarySchedule s)
+    {
+        var nodeOf = new Dictionary<long, int>(ctx.Nodes.Count);
+        for (var i = 0; i < ctx.Nodes.Count; i++)
+        {
+            nodeOf[ctx.Nodes[i].Candidate.Id] = i;
+        }
+
+        return Evaluate(
+            x,
+            ctx,
+            s,
+            nodeOf,
+            ctx.CandidateMatrixIndices,
+            new int[x.CategoryCount],
+            new List<GeneratedItineraryItem>(s.Plan.Items.Count));
+    }
+
+    /// <summary>
+    /// Computes the true J objective on an evaluated schedule (with rest stops inserted and actual start/end timestamps).
     /// </summary>
     public static long Evaluate(
         WeightedObjectiveInputs x,
@@ -129,13 +154,13 @@ public static class ObjectiveCalculator
             int curMatrix = item.PointOfInterestId is { } poiId
                 ? (matrixIndexOf.TryGetValue(poiId, out var m)
                     ? m
-                    : throw new InvalidOperationException($"POI {poiId} không có trong ma trận."))
+                    : throw new InvalidOperationException($"POI {poiId} is not in the routing matrix."))
                 : prevMatrix;
 
             int travelRaw = ctx.RawTravel(prevMatrix, curMatrix);
             Invariant.Check(
                 i == 0 || itemScratch[i - 1].TravelDurationToNextMinutes is not { } rec || rec == travelRaw,
-                "Evaluator ghi chặng khác ma trận thô");
+                "Evaluator recorded leg duration different from raw travel matrix");
             legSum += travelRaw;
 
             int start = ToModelMinute(item.PlannedArrivalUtc, ctx.Input.StartAtUtc);
@@ -151,14 +176,14 @@ public static class ObjectiveCalculator
             {
                 if (item.PointOfInterestId is not { } visitId || !nodeOf.TryGetValue(visitId, out var node))
                 {
-                    throw new InvalidOperationException($"Visit {item.PointOfInterestId} không thuộc tập ứng viên.");
+                    throw new InvalidOperationException($"Visit {item.PointOfInterestId} is not in candidate nodes.");
                 }
 
-                Invariant.Check(end - start == ctx.Nodes[node].VisitMinutes, "Evaluator đổi thời lượng tham quan?");
+                Invariant.Check(end - start == ctx.Nodes[node].VisitMinutes, "Evaluator changed visit duration");
 
                 int arrivedAt = prevEnd + travelRaw + ctx.TransitionBuffer;
                 int wait = start - arrivedAt;
-                Invariant.Check(wait >= 0, "Lịch thật bắt đầu trước khi đến nơi?");
+                Invariant.Check(wait >= 0, "Actual schedule started before arrival");
 
                 int cat = x.CategoryIndex[node];
                 j += VisitTerm(x, node, start, end, travelRaw, wait, catScratch[cat], ref soft);
@@ -172,7 +197,7 @@ public static class ObjectiveCalculator
         int returnRaw = ctx.RawTravel(prevMatrix, ctx.EndMatrixIndex);
         Invariant.Check(
             legSum + returnRaw == s.TotalMatrixTravelMinutes,
-            "Tổng chặng lệch TotalMatrixTravelMinutes");
+            "Total leg travel duration mismatch with TotalMatrixTravelMinutes");
 
         return j + ReturnTerm(x, returnRaw);
     }

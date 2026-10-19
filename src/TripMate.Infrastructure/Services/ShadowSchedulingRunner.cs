@@ -213,15 +213,7 @@ public class ShadowSchedulingRunner : BackgroundService, IShadowSchedulingRunner
         int durationDiff = shadowPlanResult.Value.TotalDurationMinutes - item.PrimaryPlan.TotalDurationMinutes;
         decimal costDiff = shadowPlanResult.Value.TotalEstimatedCost - item.PrimaryPlan.TotalEstimatedCost;
 
-        long? modelObjective = null;
-        try
-        {
-            modelObjective = ComputeModelObjective(shadowPlanResult.Value, weightedInputs, item.Input.StartAtUtc);
-        }
-        catch (Exception ex)
-        {
-            _logger?.LogDebug(ex, "Could not compute ModelObjective for shadow result on Request {RequestId}.", item.RequestId);
-        }
+        long? modelObjective = shadowPlanResult.Value.ModelObjective;
 
         _logger?.LogInformation(
             "Shadow run finished for Request {RequestId} in {ElapsedMs:F1}ms. Success: True, J_model: {J_model}, Identical: {IsIdentical}, Jaccard: {Jaccard:F2}, PrimaryStops: {PrimaryStops}, ShadowStops: {ShadowStops}, DurationDiff: {DurationDiff}min, CostDiff: {CostDiff:N0}VND.",
@@ -248,74 +240,5 @@ public class ShadowSchedulingRunner : BackgroundService, IShadowSchedulingRunner
             DurationDiffMinutes: durationDiff,
             CostDiffVnd: costDiff,
             Error: null);
-    }
-
-    public static long ComputeModelObjective(
-        GeneratedItineraryPlan plan,
-        WeightedRequestInputs inputs,
-        DateTimeOffset startAtUtc)
-    {
-        var p = inputs.Params;
-        double gainSum = 0;
-        double travelMinutes = 0;
-        double waitMinutes = 0;
-
-        int activeSinceRest = 0;
-        int stops = 0;
-        double penalty = 0;
-
-        DateTimeOffset? prevDeparture = startAtUtc;
-
-        foreach (var item in plan.Items.OrderBy(i => i.SequenceNo))
-        {
-            if (item.Kind == ItineraryItemKind.Rest)
-            {
-                activeSinceRest = 0;
-                prevDeparture = item.PlannedDepartureUtc;
-                continue;
-            }
-
-            if (item.PointOfInterestId is not { } poiId)
-            {
-                continue;
-            }
-
-            stops++;
-            if (stops > p.MaxStopsPerDay)
-            {
-                penalty += p.RhoStops;
-            }
-
-            if (prevDeparture.HasValue)
-            {
-                var travel = item.PlannedArrivalUtc - prevDeparture.Value;
-                if (travel.TotalMinutes > 0)
-                {
-                    travelMinutes += travel.TotalMinutes;
-                    activeSinceRest += (int)travel.TotalMinutes;
-                }
-            }
-
-            var startMin = (int)(item.PlannedArrivalUtc - startAtUtc).TotalMinutes;
-            var endMin = (int)(item.PlannedDepartureUtc - startAtUtc).TotalMinutes;
-            var visitMin = endMin - startMin;
-            activeSinceRest += visitMin;
-
-            if (activeSinceRest > p.RestAfterMin)
-            {
-                penalty += p.RhoRest;
-            }
-
-            double baseScore = inputs.BaseByPoiId.TryGetValue(poiId, out var b) ? b : 0.5;
-            double factor = 1.0;
-            double gamma = p.GammaDefault;
-            gainSum += baseScore * factor * gamma;
-
-            prevDeparture = item.PlannedDepartureUtc;
-        }
-
-        double totalCost = p.LambdaPerMin * travelMinutes + p.Mu * waitMinutes + penalty;
-        double netUtility = gainSum - totalCost;
-        return (long)Math.Round(netUtility * 1_000_000);
     }
 }

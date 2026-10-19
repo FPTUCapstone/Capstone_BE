@@ -20,6 +20,8 @@ public sealed class ItineraryGenerationService(
     private readonly OptionalRouteOptimizer _optimizer = optimizer ?? new OptionalRouteOptimizer(evaluator ?? new ItineraryScheduleEvaluator(options), options);
     private readonly GeneratedItineraryInvariantValidator _validator = validator ?? new GeneratedItineraryInvariantValidator(options);
 
+    internal Action<OptimizationResult>? OnOptimizationCompleted { get; init; }
+
     public Task<Result<GeneratedItineraryPlan>> GenerateAsync(
         GenerationInput input,
         CancellationToken cancellationToken = default) =>
@@ -161,14 +163,25 @@ public sealed class ItineraryGenerationService(
             return Infeasible("The mandatory locations cannot fit within the selected time, hours, budget, and end point.");
         }
 
+        OnOptimizationCompleted?.Invoke(optimizationResult);
+
         _validator.Validate(input, matrix, matrixCandidates, optimizationResult.Schedule.Plan);
         SchedulingSolverDiagnostics.RecordOutcome(solverMode, outcome, cspStatistics);
+
+        var finalPlan = optimizationResult.Schedule.Plan;
+        if (_options.Csp.Mode == ObjectiveMode.WeightedUtility && weighted is not null && !finalPlan.ModelObjective.HasValue)
+        {
+            var ctx = RoutingContext.Create(input, matrix, matrixCandidates, candidateMatrixIndices, _options, _options.MiniRouting);
+            var objInputs = ObjectiveKernelFactory.BuildWeightedInputs(ctx, weighted);
+            var modelObjective = ObjectiveCalculator.Evaluate(objInputs, ctx, optimizationResult.Schedule);
+            finalPlan = finalPlan with { ModelObjective = modelObjective };
+        }
 
         // CSP không có lịch gốc để so sánh và không có bước "cải thiện": số liệu của nó nằm trong
         // SchedulingSolverOutcome. Ghi activity OptionalRouteOptimization ở đây chỉ cho ra các bộ đếm luôn bằng 0.
         if (outcome == SchedulingSolverOutcomes.Csp)
         {
-            return Result.Success(optimizationResult.Schedule.Plan);
+            return Result.Success(finalPlan);
         }
 
         var baselineOptionalCount = optimizationResult.BaselineSchedule.VisitPoiIds.Count(id => !input.MandatoryPoiIds.Contains(id));
@@ -188,7 +201,7 @@ public sealed class ItineraryGenerationService(
             budgetExhausted: optimizationResult.BudgetExhausted,
             elapsedOptimization: optimizationResult.ElapsedOptimization);
 
-        return Result.Success(optimizationResult.Schedule.Plan);
+        return Result.Success(finalPlan);
     }
 
     public async Task<Result<GeneratedItineraryPlan>> GenerateFixedOrderAsync(

@@ -363,9 +363,18 @@ public sealed class CspItinerarySolver(
             }
         }
 
+        long? modelObjective = null;
+        if (scheduleComparer is WeightedScheduleComparer weightedComparer)
+        {
+            modelObjective = weightedComparer.GetObjective(best.Schedule);
+        }
+
         search.Statistics.ChoseRelaxedRestModel = best.Relaxed;
         search.Statistics.ReturnedInitialIncumbent = ReferenceEquals(best.Schedule, initialIncumbent);
-        return new CspResult(best.Schedule, search.Statistics, [])
+        var finalSchedule = modelObjective.HasValue
+            ? best.Schedule with { Plan = best.Schedule.Plan with { ModelObjective = modelObjective } }
+            : best.Schedule;
+        return new CspResult(finalSchedule, search.Statistics, [])
         {
             EliteVisitIds = eliteVisitIds,
         };

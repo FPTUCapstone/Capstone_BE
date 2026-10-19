@@ -60,7 +60,6 @@ internal sealed class WeightedUtilityKernel : IObjectiveKernel
     private CspStatistics _stats = null!;
 
     private Dictionary<long, int> _nodeOf = null!;
-    private Dictionary<long, int> _matrixIndexOf = null!;
 
     private long[] _obj = null!;
     private SoftState[] _soft = null!;
@@ -162,16 +161,14 @@ internal sealed class WeightedUtilityKernel : IObjectiveKernel
         _itemScratch = new List<GeneratedItineraryItem>(maxDepth + 4);
 
         _nodeOf = new Dictionary<long, int>(_ctx.Nodes.Count);
-        _matrixIndexOf = new Dictionary<long, int>(_ctx.Nodes.Count);
         for (var node = 0; node < _ctx.Nodes.Count; node++)
         {
             var id = _ctx.Nodes[node].Candidate.Id;
             _nodeOf[id] = node;
-            _matrixIndexOf[id] = _ctx.Nodes[node].MatrixIndex;
         }
 
         _eliteOrdering = new WeightedEliteOrdering(_inputs, _ctx, _catScratch);
-        _scheduleComparer = new WeightedScheduleComparer(_inputs, _ctx, _nodeOf, _matrixIndexOf, _catScratch, _itemScratch);
+        _scheduleComparer = new WeightedScheduleComparer(_inputs, _ctx, _nodeOf, _ctx.CandidateMatrixIndices, _catScratch, _itemScratch);
 
         _maxStops = _options.MaxStops ?? int.MaxValue;
         var n = _ctx.Nodes.Count;

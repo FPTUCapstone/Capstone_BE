@@ -5,9 +5,9 @@ using TripMate.Application.Features.Scheduling.Routing;
 namespace TripMate.Application.Features.Scheduling.Csp.Objectives;
 
 /// <summary>
-/// Bộ so sánh các lịch trình đã qua đánh giá (EvaluatedItinerarySchedule) theo hàm mục tiêu cá nhân hóa.
-/// Sử dụng ConditionalWeakTable để lưu điểm mục tiêu J đã tính, tránh tính lại nhiều lần
-/// trong các thuật toán sắp xếp mà không gây rò rỉ bộ nhớ hay cấp phát lặp lại.
+/// Compares evaluated itinerary schedules (EvaluatedItinerarySchedule) according to the personalized objective function.
+/// Uses ConditionalWeakTable to cache computed J objective scores, avoiding recomputations
+/// during sorting algorithms without causing memory leaks or repeated allocations.
 /// </summary>
 internal sealed class WeightedScheduleComparer(
     WeightedObjectiveInputs inputs,
@@ -36,31 +36,31 @@ internal sealed class WeightedScheduleComparer(
             return -1;
         }
 
-        var jX = GetOrComputeJ(x);
-        var jY = GetOrComputeJ(y);
+        var jX = GetObjective(x);
+        var jY = GetObjective(y);
 
-        // Cấp 1: Điểm hàm mục tiêu cá nhân hóa (Utility) cao hơn xếp trước (trả về số âm)
+        // Tier 1: Higher personalized utility objective ranks first (returns negative)
         var cmp = jY.CompareTo(jX);
         if (cmp != 0)
         {
             return cmp;
         }
 
-        // Cấp 2: Tổng phút di chuyển ít hơn xếp trước
+        // Tier 2: Shorter total travel minutes ranks first
         cmp = x.TotalMatrixTravelMinutes.CompareTo(y.TotalMatrixTravelMinutes);
         if (cmp != 0)
         {
             return cmp;
         }
 
-        // Cấp 3: Thời điểm kết thúc sớm hơn xếp trước
+        // Tier 3: Earlier end time ranks first
         cmp = x.Plan.EndAtUtc.CompareTo(y.Plan.EndAtUtc);
         if (cmp != 0)
         {
             return cmp;
         }
 
-        // Cấp 4: So sánh dãy Id POI để đảm bảo thứ tự toàn phần tất định
+        // Tier 4: Compare POI ID sequence for deterministic total ordering
         var minCount = Math.Min(x.VisitPoiIds.Count, y.VisitPoiIds.Count);
         for (var i = 0; i < minCount; i++)
         {
@@ -74,7 +74,7 @@ internal sealed class WeightedScheduleComparer(
         return x.VisitPoiIds.Count.CompareTo(y.VisitPoiIds.Count);
     }
 
-    private long GetOrComputeJ(EvaluatedItinerarySchedule s)
+    public long GetObjective(EvaluatedItinerarySchedule s)
     {
         if (_cache.TryGetValue(s, out var boxed))
         {

@@ -116,7 +116,7 @@ public class ShadowSchedulingRunnerTests
         metrics.Success.Should().BeTrue();
         metrics.TimedOut.Should().BeFalse();
         metrics.ElapsedMs.Should().BeGreaterThan(0);
-        metrics.ModelObjective.Should().NotBeNull();
+        metrics.ModelObjective.Should().Be(9900L);
         metrics.JaccardSimilarity.Should().BeInRange(0.0, 1.0);
     }
 
