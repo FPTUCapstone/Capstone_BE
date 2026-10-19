@@ -52,4 +52,37 @@ public static class PoiCategoryNames
         return FoodAndDrinkAliases.Any(alias =>
             string.Equals(trimmed, alias, StringComparison.OrdinalIgnoreCase));
     }
+
+    /// <summary>
+    /// Ánh xạ tên danh mục về khóa chuẩn hóa trong PoiCategoryNames.AllCanonical.
+    /// Nếu danh mục là null hoặc rỗng, trả về "General".
+    /// </summary>
+    public static string NormalizeToCanonical(string? categoryName)
+    {
+        if (string.IsNullOrWhiteSpace(categoryName))
+        {
+            return "General";
+        }
+
+        var trimmed = categoryName.Trim();
+        foreach (var canonical in AllCanonical)
+        {
+            if (string.Equals(trimmed, canonical, StringComparison.OrdinalIgnoreCase))
+            {
+                return canonical;
+            }
+        }
+
+        if (IsFoodAndDrink(trimmed))
+        {
+            return FoodAndDrink;
+        }
+
+        if (string.Equals(trimmed, "NaturalAttraction", StringComparison.OrdinalIgnoreCase))
+        {
+            return NaturalAttraction;
+        }
+
+        return trimmed;
+    }
 }

@@ -205,6 +205,10 @@ public class LocalShadowBenchmarkRunner(ITestOutputHelper output)
                 var lexPlan = lexResult.Value;
                 var (lexNodes, lexNodeLimit) = ExtractCspStats(scenario, input, lexOptions, null);
 
+                var candidateCategoryMap = personalizedCandidates.ToDictionary(
+                    c => c.Id,
+                    c => PoiCategoryNames.NormalizeToCanonical(c.CategoryName));
+
                 allRuns.Add(BuildModeRunMetrics(
                     scenario.Id,
                     persona,
@@ -213,7 +217,8 @@ public class LocalShadowBenchmarkRunner(ITestOutputHelper output)
                     lexSw.Elapsed.TotalMilliseconds,
                     lexNodes,
                     lexNodeLimit,
-                    null));
+                    null,
+                    candidateCategoryMap));
 
                 // 2. Run Weighted Mode
                 var weightedInputs = weightedInputsFactory.Create(
@@ -249,7 +254,8 @@ public class LocalShadowBenchmarkRunner(ITestOutputHelper output)
                     shadowSw.Elapsed.TotalMilliseconds,
                     shadowNodes,
                     shadowNodeLimit,
-                    modelObj));
+                    modelObj,
+                    candidateCategoryMap));
             }
         }
 
@@ -303,7 +309,8 @@ public class LocalShadowBenchmarkRunner(ITestOutputHelper output)
         double elapsedMs,
         int nodes,
         bool nodeLimitReached,
-        long? modelObjective)
+        long? modelObjective,
+        IReadOnlyDictionary<long, string> candidateCategoryMap)
     {
         var visitItems = plan.Items
             .Where(i => i.Kind == ItineraryItemKind.Visit && i.PointOfInterestId.HasValue)
@@ -311,14 +318,17 @@ public class LocalShadowBenchmarkRunner(ITestOutputHelper output)
             .ToList();
 
         var stopsCount = visitItems.Count;
-        var distinctCategories = visitItems.Select(i => i.RecommendationReason).Distinct().Count();
+        var distinctCategories = visitItems
+            .Select(i => candidateCategoryMap.TryGetValue(i.PointOfInterestId!.Value, out var c) ? c : "General")
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
         if (distinctCategories == 0) distinctCategories = 1;
 
         var lovedCount = 0;
         foreach (var item in visitItems)
         {
-            // If item has known category matching persona loved
-            if (persona.LovedCategories.Any(loved => string.Equals(item.RecommendationReason, loved, StringComparison.OrdinalIgnoreCase)))
+            var cat = candidateCategoryMap.TryGetValue(item.PointOfInterestId!.Value, out var c) ? c : "General";
+            if (persona.LovedCategories.Any(loved => string.Equals(cat, PoiCategoryNames.NormalizeToCanonical(loved), StringComparison.OrdinalIgnoreCase)))
             {
                 lovedCount++;
             }
@@ -852,15 +862,21 @@ public class LocalShadowBenchmarkRunner(ITestOutputHelper output)
                 ["heritage"] = PoiCategoryNames.Culture,
                 ["museum"] = PoiCategoryNames.Museum,
                 ["nature"] = PoiCategoryNames.Nature,
-                ["natural attraction"] = "Natural attraction",
+                ["natural attraction"] = PoiCategoryNames.NaturalAttraction,
+                ["theme park"] = PoiCategoryNames.ThemePark,
+                ["water park"] = PoiCategoryNames.WaterPark,
                 ["food"] = PoiCategoryNames.FoodAndDrink,
                 ["coffee"] = PoiCategoryNames.FoodAndDrink,
                 ["cuisine"] = PoiCategoryNames.FoodAndDrink,
+                ["culinary"] = PoiCategoryNames.FoodAndDrink,
                 ["culture"] = PoiCategoryNames.Culture,
                 ["history"] = PoiCategoryNames.Culture,
-                ["adventure"] = PoiCategoryNames.Nature,
-                ["hiking"] = PoiCategoryNames.Nature,
+                ["art"] = PoiCategoryNames.Culture,
+                ["adventure"] = PoiCategoryNames.NaturalAttraction,
+                ["hiking"] = PoiCategoryNames.NaturalAttraction,
+                ["outdoor"] = PoiCategoryNames.Nature,
                 ["sightseeing"] = PoiCategoryNames.Culture,
+                ["relaxation"] = PoiCategoryNames.Beach,
             }
         };
     }

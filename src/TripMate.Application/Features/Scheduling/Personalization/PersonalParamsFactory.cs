@@ -79,7 +79,7 @@ public sealed class PersonalParamsFactory(
                 var tag = rawTag.Trim();
                 if (tagToCategory.TryGetValue(tag, out var category) && !string.IsNullOrWhiteSpace(category))
                 {
-                    loved.Add(category.Trim());
+                    loved.Add(TripMate.Domain.Constants.PoiCategoryNames.NormalizeToCanonical(category));
                 }
             }
 

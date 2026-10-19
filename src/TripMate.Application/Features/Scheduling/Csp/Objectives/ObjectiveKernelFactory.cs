@@ -91,7 +91,7 @@ internal static class ObjectiveKernelFactory
         var categoryIndex = new int[n];
         for (var i = 0; i < n; i++)
         {
-            var catName = ctx.Nodes[i].Candidate.CategoryName ?? "General";
+            var catName = PoiCategoryNames.NormalizeToCanonical(ctx.Nodes[i].Candidate.CategoryName);
             if (!categoryMap.TryGetValue(catName, out var idx))
             {
                 idx = categoryMap.Count;

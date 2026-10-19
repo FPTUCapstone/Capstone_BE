@@ -282,4 +282,85 @@ public class ObjectiveKernelFactoryTests
         result.Schedule.Should().NotBeNull();
         result.EliteVisitIds.Should().NotBeEmpty();
     }
+
+    [Fact]
+    public void BuildWeightedInputs_WithCulturePersona_AppliesGammaLovedToCultureAndMuseumCategories()
+    {
+        var openingHours = new[] { new GenerationOpeningHours(2, new TimeOnly(7, 0), new TimeOnly(21, 0)) };
+        var c1 = new GenerationCandidate(
+            1L, "Museum POI", new RoutePoint(16.04m, 108.22m), 90, 50_000m, openingHours,
+            CategoryName: "Museum");
+        var c2 = new GenerationCandidate(
+            2L, "Culture POI", new RoutePoint(16.05m, 108.23m), 45, 0m, openingHours,
+            CategoryName: "Culture");
+        var c3 = new GenerationCandidate(
+            3L, "Theme Park POI", new RoutePoint(16.06m, 108.24m), 120, 100_000m, openingHours,
+            CategoryName: "Theme park");
+
+        var candidates = new[] { c1, c2, c3 };
+        var indices = new Dictionary<long, int> { [1L] = 1, [2L] = 2, [3L] = 3 };
+        var input = new GenerationInput(
+            DateTimeOffset.UtcNow,
+            TimeZoneInfo.Utc,
+            new RoutePoint(16.0m, 108.2m),
+            new RoutePoint(16.1m, 108.3m),
+            480,
+            TransportMode.Motorbike,
+            RestPreference.None,
+            null,
+            candidates,
+            []);
+
+        var matrix = RouteDurationMatrix.Create(new int[,]
+        {
+            { 0, 10, 15, 20, 25 },
+            { 10, 0, 10, 15, 20 },
+            { 15, 10, 0, 10, 15 },
+            { 20, 15, 10, 0, 10 },
+            { 25, 20, 15, 10, 0 }
+        });
+
+        var ctx = CspItinerarySolver.CreatePrimaryContext(input, matrix, candidates, indices, Options);
+
+        var personalParams = new PersonalParams(
+            LambdaPerMin: 0.015,
+            Mu: 0.005,
+            MaxStopsPerDay: 5,
+            MaxDailyEffort: 300,
+            RestAfterMin: 120,
+            MaxConsecutiveOutdoor: 3,
+            SunriseFactor: 0.6,
+            GammaDefault: 0.6,
+            GammaLoved: 0.85,
+            LovedCategories: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Culture", "Museum" },
+            RhoOutdoor: 0.25,
+            RhoRest: 0.20,
+            RhoStops: 0.30,
+            RhoEffortPerHour: 0.05,
+            ConfigVersion: "test-culture-gamma");
+
+        var baseScores = new Dictionary<long, double> { [1L] = 0.8, [2L] = 0.7, [3L] = 0.5 };
+        var weightedRequest = new WeightedRequestInputs(baseScores, personalParams, new ConstantTimeFitFactory());
+
+        var weightedInputs = ObjectiveKernelFactory.BuildWeightedInputs(ctx, weightedRequest);
+
+        // Find category indices for nodes
+        var museumNode = 0; // c1
+        var cultureNode = 1; // c2
+        var themeParkNode = 2; // c3
+
+        var museumCatIdx = weightedInputs.CategoryIndex[museumNode];
+        var cultureCatIdx = weightedInputs.CategoryIndex[cultureNode];
+        var themeParkCatIdx = weightedInputs.CategoryIndex[themeParkNode];
+
+        // Culture and Museum must receive GammaLoved = 0.85
+        var expectedLovedK1 = (long)Math.Round(0.85 * WeightedObjectiveInputs.Scale);
+        var expectedDefaultK1 = (long)Math.Round(0.60 * WeightedObjectiveInputs.Scale);
+
+        weightedInputs.GammaScaled[museumCatIdx][1].Should().Be(expectedLovedK1, "Museum POI must receive GammaLoved");
+        weightedInputs.GammaScaled[cultureCatIdx][1].Should().Be(expectedLovedK1, "Culture POI must receive GammaLoved");
+
+        // Theme Park is not in LovedCategories -> receives GammaDefault = 0.60
+        weightedInputs.GammaScaled[themeParkCatIdx][1].Should().Be(expectedDefaultK1, "Theme park POI must receive GammaDefault");
+    }
 }
