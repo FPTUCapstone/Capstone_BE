@@ -12,15 +12,22 @@ public class SunServiceTests
     {
         var data = new TheoryData<string, double, double, DateOnly, TimeOnly, TimeOnly>();
 
+        // Dữ liệu tham chiếu chuẩn lấy từ NOAA Solar Calculator (https://gml.noaa.gov/grad/solcalc/)
+        // dựa trên thuật toán Jean Meeus "Astronomical Algorithms", góc khúc xạ khí quyển 0.833°:
         // 21/06/2026 (Hạ chí - Summer Solstice)
-        data.Add("Hà Nội", 21.03, 105.85, new DateOnly(2026, 6, 21), new TimeOnly(5, 16), new TimeOnly(18, 41));
-        data.Add("Đà Nẵng", 16.05, 108.20, new DateOnly(2026, 6, 21), new TimeOnly(5, 16), new TimeOnly(18, 21));
-        data.Add("TP.HCM", 10.78, 106.70, new DateOnly(2026, 6, 21), new TimeOnly(5, 32), new TimeOnly(18, 18));
+        data.Add("Hà Nội (NOAA)", 21.03, 105.85, new DateOnly(2026, 6, 21), new TimeOnly(5, 16), new TimeOnly(18, 41));
+        data.Add("Đà Nẵng (NOAA)", 16.05, 108.20, new DateOnly(2026, 6, 21), new TimeOnly(5, 16), new TimeOnly(18, 21));
+        data.Add("TP.HCM (NOAA)", 10.78, 106.70, new DateOnly(2026, 6, 21), new TimeOnly(5, 32), new TimeOnly(18, 18));
 
         // 21/12/2026 (Đông chí - Winter Solstice)
-        data.Add("Hà Nội", 21.03, 105.85, new DateOnly(2026, 12, 21), new TimeOnly(6, 29), new TimeOnly(17, 20));
-        data.Add("Đà Nẵng", 16.05, 108.20, new DateOnly(2026, 12, 21), new TimeOnly(6, 10), new TimeOnly(17, 20));
-        data.Add("TP.HCM", 10.78, 106.70, new DateOnly(2026, 12, 21), new TimeOnly(6, 6), new TimeOnly(17, 36));
+        data.Add("Hà Nội (NOAA)", 21.03, 105.85, new DateOnly(2026, 12, 21), new TimeOnly(6, 29), new TimeOnly(17, 20));
+        data.Add("Đà Nẵng (NOAA)", 16.05, 108.20, new DateOnly(2026, 12, 21), new TimeOnly(6, 10), new TimeOnly(17, 20));
+        data.Add("TP.HCM (NOAA)", 10.78, 106.70, new DateOnly(2026, 12, 21), new TimeOnly(6, 6), new TimeOnly(17, 36));
+
+        // Dữ liệu đối chiếu độc lập từ timeanddate.com (khác biệt làm tròn/khúc xạ khí quyển địa phương, chấp nhận sai số <= 2 phút):
+        data.Add("Hà Nội (timeanddate)", 21.03, 105.85, new DateOnly(2026, 12, 21), new TimeOnly(6, 28), new TimeOnly(17, 20));
+        data.Add("TP.HCM (timeanddate)", 10.78, 106.70, new DateOnly(2026, 12, 21), new TimeOnly(6, 7), new TimeOnly(17, 36));
+        data.Add("Hà Nội (timeanddate)", 21.03, 105.85, new DateOnly(2026, 6, 21), new TimeOnly(5, 15), new TimeOnly(18, 41));
 
         return data;
     }
