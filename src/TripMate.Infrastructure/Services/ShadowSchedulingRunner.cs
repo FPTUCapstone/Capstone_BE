@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Threading.Channels;
 
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -25,16 +26,19 @@ public class ShadowSchedulingRunner : BackgroundService, IShadowSchedulingRunner
     private readonly Channel<ShadowWorkItem> _channel;
     private readonly IOptions<ShadowOptions> _options;
     private readonly WeightedRequestInputsFactory _weightedInputsFactory;
+    private readonly IServiceScopeFactory? _scopeFactory;
     private readonly ILogger<ShadowSchedulingRunner>? _logger;
 
     public ShadowSchedulingRunner(
         IOptions<ShadowOptions> options,
         WeightedRequestInputsFactory? weightedInputsFactory = null,
-        ILogger<ShadowSchedulingRunner>? logger = null)
+        ILogger<ShadowSchedulingRunner>? logger = null,
+        IServiceScopeFactory? scopeFactory = null)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _weightedInputsFactory = weightedInputsFactory ?? new WeightedRequestInputsFactory(new PersonalParamsFactory());
         _logger = logger;
+        _scopeFactory = scopeFactory;
         _channel = Channel.CreateBounded<ShadowWorkItem>(new BoundedChannelOptions(DefaultChannelCapacity)
         {
             FullMode = BoundedChannelFullMode.DropOldest,
@@ -66,6 +70,7 @@ public class ShadowSchedulingRunner : BackgroundService, IShadowSchedulingRunner
             {
                 try
                 {
+                    using var scope = _scopeFactory?.CreateScope();
                     await ProcessItemAsync(item, stoppingToken);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -245,7 +250,7 @@ public class ShadowSchedulingRunner : BackgroundService, IShadowSchedulingRunner
             Error: null);
     }
 
-    internal static long ComputeModelObjective(
+    public static long ComputeModelObjective(
         GeneratedItineraryPlan plan,
         WeightedRequestInputs inputs,
         DateTimeOffset startAtUtc)

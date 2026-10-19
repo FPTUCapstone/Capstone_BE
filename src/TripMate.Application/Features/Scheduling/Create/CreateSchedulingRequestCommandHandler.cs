@@ -560,7 +560,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 _shadowRunner.Enqueue(new ShadowWorkItem(
                     requestId,
                     input,
-                    routeDurationProvider,
+                    measuredRouteProvider,
                     _generationOptions,
                     travelerProfile,
                     ranking?.OutcomeCategory,
