@@ -11,19 +11,19 @@ namespace TripMate.Application.Features.Scheduling.Personalization;
 /// Factory thuần dựng WeightedRequestInputs từ điểm ranking đã chuẩn hóa và cấu hình cá nhân hóa.
 /// </summary>
 public sealed class WeightedRequestInputsFactory(
-    PersonalParamsFactory paramsFactory,
+    PersonalParamsFactory? paramsFactory = null,
     ITimeFitProviderFactory? timeFitFactory = null,
     IOptions<TimeFitOptions>? timeFitOptions = null,
     ILogger<WeightedRequestInputsFactory>? logger = null)
 {
     private readonly PersonalParamsFactory _paramsFactory = paramsFactory
-        ?? throw new ArgumentNullException(nameof(paramsFactory));
+        ?? new PersonalParamsFactory();
     private readonly ITimeFitProviderFactory? _timeFitFactory = timeFitFactory;
     private readonly IOptions<TimeFitOptions>? _timeFitOptions = timeFitOptions;
     private readonly ILogger<WeightedRequestInputsFactory>? _logger = logger;
 
     public WeightedRequestInputs Create(
-        IReadOnlyList<GenerationCandidate> candidates,
+        IReadOnlyCollection<GenerationCandidate> candidates,
         TravelerProfile? profile,
         GenerationInput input,
         PoiRankingOutcomeCategory? rankingOutcome = null,
@@ -88,7 +88,7 @@ public sealed class WeightedRequestInputsFactory(
     }
 
     public static string ResolveBaseSource(
-        IReadOnlyList<GenerationCandidate> candidates,
+        IReadOnlyCollection<GenerationCandidate> candidates,
         PoiRankingOutcomeCategory? rankingOutcome)
     {
         if (rankingOutcome.HasValue)

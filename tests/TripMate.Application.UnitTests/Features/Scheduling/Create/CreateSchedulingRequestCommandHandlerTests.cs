@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Scheduling.Common;
+using TripMate.Application.Features.Scheduling.Csp;
 using TripMate.Application.Features.Scheduling.Create;
 using TripMate.Application.Features.Scheduling.Diagnostics;
 using TripMate.Application.Features.Scheduling.Explanation;
@@ -2353,6 +2354,35 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         (await dbContext.Itineraries.CountAsync()).Should().Be(0);
     }
 
+    [Fact]
+    public async Task Handle_WhenCspModeIsWeightedUtility_GeneratesValidItineraryWithWeightedInputs()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await SeedSelectablePoiAsync(dbContext);
+        var options = new SchedulingGenerationOptions
+        {
+            SolverMode = SchedulingSolverMode.Csp,
+            Csp = new CspOptions
+            {
+                Mode = ObjectiveMode.WeightedUtility,
+            },
+        };
+        var command = CreateCommand(Guid.NewGuid()) with
+        {
+            MandatoryPoiIds = [mandatoryPoi.Id],
+        };
+
+        var result = await CreateHandler(
+                dbContext,
+                generationOptions: options)
+            .Handle(command, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Should().NotBeNull();
+        result.Value!.ItineraryId.Should().BeGreaterThan(0);
+        (await dbContext.Itineraries.CountAsync()).Should().Be(1);
+    }
+
     private CreateSchedulingRequestCommandHandler CreateHandler(
         TestDbContext dbContext,
         IRouteDurationProvider? routeDurationProvider = null,
@@ -2365,7 +2395,8 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         ItineraryExplanationExecutionOptions? explanationOptions = null,
         ILogger<CreateSchedulingRequestCommandHandler>? explanationLogger = null,
         IGenerateRateLimiter? generateRateLimiter = null,
-        SchedulingReservationOptions? reservationOptions = null)
+        SchedulingReservationOptions? reservationOptions = null,
+        WeightedRequestInputsFactory? weightedInputsFactory = null)
     {
         return new(
             dbContext,
@@ -2382,7 +2413,8 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
             explanationOptions,
             explanationLogger,
             generateRateLimiter,
-            reservationOptions);
+            reservationOptions,
+            weightedInputsFactory: weightedInputsFactory);
     }
 
     private static ItineraryExplanationExecutionOptions EnabledExplanationOptions() =>

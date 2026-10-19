@@ -1,5 +1,6 @@
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Scheduling.Csp;
+using TripMate.Application.Features.Scheduling.Csp.Objectives;
 using TripMate.Application.Features.Scheduling.Routing;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
@@ -19,9 +20,15 @@ public sealed class ItineraryGenerationService(
     private readonly OptionalRouteOptimizer _optimizer = optimizer ?? new OptionalRouteOptimizer(evaluator ?? new ItineraryScheduleEvaluator(options), options);
     private readonly GeneratedItineraryInvariantValidator _validator = validator ?? new GeneratedItineraryInvariantValidator(options);
 
+    public Task<Result<GeneratedItineraryPlan>> GenerateAsync(
+        GenerationInput input,
+        CancellationToken cancellationToken = default) =>
+        GenerateAsync(input, weighted: null, cancellationToken);
+
     public async Task<Result<GeneratedItineraryPlan>> GenerateAsync(
         GenerationInput input,
-        CancellationToken cancellationToken)
+        WeightedRequestInputs? weighted,
+        CancellationToken cancellationToken = default)
     {
         if (HasInvalidRequestConstraints(input))
         {
@@ -87,6 +94,7 @@ public sealed class ItineraryGenerationService(
                 matrixCandidates,
                 candidateMatrixIndices,
                 heuristic?.Schedule,
+                weighted,
                 cancellationToken);
             cspStatistics = csp.Statistics;
 

@@ -10,12 +10,14 @@ namespace TripMate.Application.Features.Scheduling.Personalization;
 /// Factory sinh các tham số cá nhân hóa (PersonalParams) từ TravelerProfile và cấu hình PersonalizationOptions.
 /// </summary>
 public sealed class PersonalParamsFactory(
-    IOptions<PersonalizationOptions> options,
+    IOptions<PersonalizationOptions>? options = null,
     ILogger<PersonalParamsFactory>? logger = null)
 {
+    private readonly PersonalizationOptions _options = options?.Value ?? new PersonalizationOptions();
+
     public PersonalParams Create(TravelerProfile? profile)
     {
-        var o = options.Value;
+        var o = _options;
         var pace = profile?.TravelPace ?? TravelerPace.Moderate;
         if (!o.Pace.TryGetValue(pace, out var p))
         {

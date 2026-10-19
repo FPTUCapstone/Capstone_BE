@@ -15,6 +15,8 @@ using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Scheduling.Common;
+using TripMate.Application.Features.Scheduling.Csp;
+using TripMate.Application.Features.Scheduling.Csp.Objectives;
 using TripMate.Application.Features.Scheduling.Diagnostics;
 using TripMate.Application.Features.Scheduling.Explanation;
 using TripMate.Application.Features.Scheduling.Personalization;
@@ -38,7 +40,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
     ILogger<CreateSchedulingRequestCommandHandler>? logger = null,
     IGenerateRateLimiter? generateRateLimiter = null,
     SchedulingReservationOptions? reservationOptions = null,
-    TimeOfDayOptions? timeOfDayOptions = null)
+    TimeOfDayOptions? timeOfDayOptions = null,
+    WeightedRequestInputsFactory? weightedInputsFactory = null)
     : IRequestHandler<CreateSchedulingRequestCommand, Result<SchedulingResponseDto>>
 {
     private readonly SchedulingGenerationOptions _generationOptions =
@@ -379,11 +382,10 @@ public sealed class CreateSchedulingRequestCommandHandler(
         CandidatePoolFunnelDiagnostics funnel,
         CancellationToken cancellationToken)
     {
-        var travelerInterestTags = await dbContext.TravelerProfiles
+        var travelerProfile = await dbContext.TravelerProfiles
             .AsNoTracking()
-            .Where(profile => profile.UserId == canonical.TravelerUserId)
-            .Select(profile => profile.InterestTagsJson)
-            .SingleOrDefaultAsync(cancellationToken);
+            .SingleOrDefaultAsync(p => p.UserId == canonical.TravelerUserId, cancellationToken);
+        var travelerInterestTags = travelerProfile?.InterestTagsJson;
         var preferenceTokens = TravelerPreferenceScoring.ParsePreferenceTokens(travelerInterestTags);
         var activePois = await LoadRelevantActivePoisAsync(canonical, cancellationToken);
         var snapshotData = SchedulingGenerationSnapshot.CaptureData(travelerInterestTags, activePois);
@@ -523,8 +525,16 @@ public sealed class CreateSchedulingRequestCommandHandler(
         var measuredRouteProvider = new MemoizingRouteDurationProvider(new FunnelMeasuringRouteDurationProvider(
             routeDurationProvider,
             funnel));
+
+        WeightedRequestInputs? weightedInputs = null;
+        if (_generationOptions.Csp.Mode == ObjectiveMode.WeightedUtility)
+        {
+            var factory = weightedInputsFactory ?? new WeightedRequestInputsFactory(new PersonalParamsFactory());
+            weightedInputs = factory.Create(input.Candidates, travelerProfile, input, ranking?.OutcomeCategory);
+        }
+
         var plan = await new ItineraryGenerationService(measuredRouteProvider, _generationOptions)
-            .GenerateAsync(input, cancellationToken);
+            .GenerateAsync(input, weightedInputs, cancellationToken);
         if (plan.IsSuccess)
         {
             // REVIEW2 D10 option A: reorder for the time of day when the trip stays at most a few minutes longer.

@@ -12,6 +12,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Scheduling.Common;
+using TripMate.Application.Features.Scheduling.Csp;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -256,6 +257,35 @@ public sealed class CreateSchedulingRequestEndpointTests
         rowCounts.SchedulingRequests.Should().Be(0);
         rowCounts.Itineraries.Should().Be(0);
         rowCounts.ItineraryItems.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Post_WhenCspModeIsWeightedUtility_CreatesItinerarySuccessfully()
+    {
+        using var factory = new TripMateApiFactory(configureTestServices: services =>
+        {
+            services.RemoveAll<SchedulingGenerationOptions>();
+            services.AddSingleton(new SchedulingGenerationOptions
+            {
+                SolverMode = SchedulingSolverMode.Csp,
+                Csp = new CspOptions
+                {
+                    Mode = ObjectiveMode.WeightedUtility,
+                },
+            });
+        });
+        await SeedSelectablePoiAsync(factory);
+        using var client = factory.CreateAuthenticatedClient(42, UserRole.Traveler);
+
+        using var response = await SendValidRequestAsync(client, Guid.NewGuid());
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var serializerOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        serializerOptions.Converters.Add(new JsonStringEnumConverter());
+        var payload = await response.Content.ReadFromJsonAsync<SchedulingResponseDto>(serializerOptions);
+        payload.Should().NotBeNull();
+        payload!.ItineraryId.Should().BeGreaterThan(0);
+        payload.SchedulingRequestId.Should().BeGreaterThan(0);
     }
 
     private static async Task<HttpResponseMessage> SendValidRequestAsync(
