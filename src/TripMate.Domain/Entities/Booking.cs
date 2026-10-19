@@ -117,6 +117,30 @@ public class Booking : BaseEntity
         return true;
     }
 
+    /// <summary>
+    /// Atomically marks an eligible booking as Confirmed and Paid upon verified payment success.
+    /// Returns true if the status changed; returns false if already Paid or if ineligible (e.g. Expired/Cancelled).
+    /// </summary>
+    public bool MarkPaid(DateTimeOffset nowUtc)
+    {
+        if (Status == BookingStatus.Confirmed && PaymentStatus == PaymentStatus.Paid)
+            return false;
+
+        if (Status != BookingStatus.PendingPayment)
+            return false;
+
+        DateTimeOffset now = nowUtc.ToUniversalTime();
+        if (PaymentExpiresAtUtc.HasValue && PaymentExpiresAtUtc.Value < now)
+        {
+            Status = BookingStatus.Expired;
+            return false;
+        }
+
+        Status = BookingStatus.Confirmed;
+        PaymentStatus = PaymentStatus.Paid;
+        return true;
+    }
+
     /// <summary>BK-yyyyMMdd-NNNNN, e.g. BK-20261017-00001. Sequence is per-day, assigned by the caller.</summary>
     public static string GenerateCode(DateTimeOffset nowUtc, int dailySequence)
     {

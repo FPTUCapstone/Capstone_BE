@@ -20,6 +20,7 @@ using TripMate.Application.Features.Scheduling.Explanation;
 using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Application.Features.Scheduling.TimeOfDay;
 using TripMate.Application.Features.Traveler.Bookings.Common;
+using TripMate.Application.Features.Traveler.Payments.Common;
 using TripMate.Application.Features.TravelGroups.ManageInvitation;
 using TripMate.Application.Features.TripReviews.Common;
 using TripMate.Application.Features.TripReviews.Media;
@@ -37,6 +38,7 @@ using TripMate.Infrastructure.Reviews.Moderation;
 using TripMate.Infrastructure.Routing;
 using TripMate.Infrastructure.Security;
 using TripMate.Infrastructure.Services;
+using TripMate.Infrastructure.Services.Payment;
 using TripMate.Infrastructure.Services.Redis;
 
 namespace TripMate.Infrastructure;
@@ -151,6 +153,27 @@ public static class DependencyInjection
         services.AddSingleton(serviceProvider =>
             serviceProvider.GetRequiredService<IOptions<TourBookingOptions>>().Value);
         services.AddHostedService<PendingBookingExpiryBackgroundService>();
+
+        services.AddOptions<PaymentOptions>()
+            .Bind(configuration.GetSection(PaymentOptions.SectionName));
+        var legacyPayOs = configuration.GetSection(PaymentOptionsConfiguration.LegacyPayOsSectionName)
+            .Get<PayOsOptions>();
+        services.PostConfigure<PaymentOptions>(options =>
+            PaymentOptionsConfiguration.ApplyLegacyPayOs(options, legacyPayOs));
+        services.AddSingleton(serviceProvider =>
+            serviceProvider.GetRequiredService<IOptions<PaymentOptions>>().Value);
+        services.AddScoped<IPaymentCompletionProcessor, PaymentCompletionProcessor>();
+
+        var paymentConfig = PaymentOptionsConfiguration.Read(configuration);
+        if (string.Equals(paymentConfig.Provider, "PayOS", StringComparison.OrdinalIgnoreCase))
+        {
+            services.AddHttpClient<PayOsPaymentGateway>();
+            services.AddScoped<IPaymentGateway, PayOsPaymentGateway>();
+        }
+        else
+        {
+            services.AddScoped<IPaymentGateway, MockPaymentGateway>();
+        }
         services.AddDataProtection();
         services.AddSingleton<IPiiProtector, DataProtectionPiiProtector>();
         services.AddOptions<NavigationSessionOptions>()
