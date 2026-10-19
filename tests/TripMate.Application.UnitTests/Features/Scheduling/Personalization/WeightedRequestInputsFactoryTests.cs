@@ -47,8 +47,8 @@ public class WeightedRequestInputsFactoryTests
     private static GenerationCandidate CreateCandidate(
         long id,
         string name = "Test POI",
-        decimal tripMateBase = 0m,
-        decimal effectiveDesirability = 0m,
+        decimal? tripMateBase = null,
+        decimal? effectiveDesirability = null,
         string category = "Culture",
         bool isRest = false)
     {
@@ -88,8 +88,8 @@ public class WeightedRequestInputsFactoryTests
     public void Create_CandidateWithOnlyTripMateBaseScore_UsesTripMateBaseScore()
     {
         var factory = new WeightedRequestInputsFactory(CreateParamsFactory());
-        // EffectiveDesirabilityScore = 0m, TripMateBaseScore = 0.72m
-        var c1 = CreateCandidate(1L, effectiveDesirability: 0m, tripMateBase: 0.72m);
+        // EffectiveDesirabilityScore = null, TripMateBaseScore = 0.72m
+        var c1 = CreateCandidate(1L, effectiveDesirability: null, tripMateBase: 0.72m);
         var input = CreateDaNangGenerationInput([c1]);
 
         var result = factory.Create([c1], profile: null, input);
@@ -102,8 +102,8 @@ public class WeightedRequestInputsFactoryTests
     public void Create_CandidateWithNeitherScore_DefaultsToHalf()
     {
         var factory = new WeightedRequestInputsFactory(CreateParamsFactory());
-        // Both are 0m
-        var c1 = CreateCandidate(1L, effectiveDesirability: 0m, tripMateBase: 0m);
+        // Both are null
+        var c1 = CreateCandidate(1L, effectiveDesirability: null, tripMateBase: null);
         var input = CreateDaNangGenerationInput([c1]);
 
         var result = factory.Create([c1], profile: null, input);
@@ -113,10 +113,24 @@ public class WeightedRequestInputsFactoryTests
     }
 
     [Fact]
+    public void Create_CandidateWithZeroEffectiveDesirability_PreservesZeroScore()
+    {
+        var factory = new WeightedRequestInputsFactory(CreateParamsFactory());
+        // EffectiveDesirability is 0m (explicitly scored 0.0), should NOT default to 0.5
+        var c1 = CreateCandidate(1L, effectiveDesirability: 0m, tripMateBase: 0.72m);
+        var input = CreateDaNangGenerationInput([c1]);
+
+        var result = factory.Create([c1], profile: null, input);
+
+        result.BaseByPoiId.Should().ContainKey(1L);
+        result.BaseByPoiId[1L].Should().Be(0.0);
+    }
+
+    [Fact]
     public void Create_MandatoryCandidate_UsesTripMateBaseScore_WhenPresent()
     {
         var factory = new WeightedRequestInputsFactory(CreateParamsFactory());
-        var c1 = CreateCandidate(101L, effectiveDesirability: 0m, tripMateBase: 0.65m);
+        var c1 = CreateCandidate(101L, effectiveDesirability: null, tripMateBase: 0.65m);
         var input = CreateDaNangGenerationInput([c1]) with { MandatoryPoiIds = [101L] };
 
         var result = factory.Create([c1], profile: null, input);
@@ -128,7 +142,7 @@ public class WeightedRequestInputsFactoryTests
     public void Create_MandatoryCandidate_DefaultsToHalf_WhenNoScoresPresent()
     {
         var factory = new WeightedRequestInputsFactory(CreateParamsFactory());
-        var c1 = CreateCandidate(102L, effectiveDesirability: 0m, tripMateBase: 0m);
+        var c1 = CreateCandidate(102L, effectiveDesirability: null, tripMateBase: null);
         var input = CreateDaNangGenerationInput([c1]) with { MandatoryPoiIds = [102L] };
 
         var result = factory.Create([c1], profile: null, input);
@@ -143,8 +157,8 @@ public class WeightedRequestInputsFactoryTests
         var candidates = new List<GenerationCandidate>
         {
             CreateCandidate(1L, effectiveDesirability: 0.9m, tripMateBase: 0.8m),
-            CreateCandidate(2L, effectiveDesirability: 0m, tripMateBase: 0.4m),
-            CreateCandidate(3L, effectiveDesirability: 0m, tripMateBase: 0m),
+            CreateCandidate(2L, effectiveDesirability: null, tripMateBase: 0.4m),
+            CreateCandidate(3L, effectiveDesirability: null, tripMateBase: null),
             CreateCandidate(4L, effectiveDesirability: 0.3m, tripMateBase: 0.3m, isRest: true),
         };
         var input = CreateDaNangGenerationInput(candidates);

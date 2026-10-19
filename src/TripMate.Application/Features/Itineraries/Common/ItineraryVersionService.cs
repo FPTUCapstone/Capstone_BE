@@ -451,11 +451,11 @@ public sealed class ItineraryVersionService(
         }
 
         // Larger than the whole score spread, so a tier never overtakes a better one.
-        var tierStep = candidates.Max(candidate => candidate.EffectiveDesirabilityScore)
-            - candidates.Min(candidate => candidate.EffectiveDesirabilityScore)
+        var tierStep = candidates.Max(candidate => candidate.EffectiveDesirabilityScore ?? 0m)
+            - candidates.Min(candidate => candidate.EffectiveDesirabilityScore ?? 0m)
             + 1m;
         return candidates.Select(candidate => lastSuggestedVersions.TryGetValue(candidate.Id, out var version)
-            ? candidate with { EffectiveDesirabilityScore = candidate.EffectiveDesirabilityScore - (tierStep * version) }
+            ? candidate with { EffectiveDesirabilityScore = (candidate.EffectiveDesirabilityScore ?? 0m) - (tierStep * version) }
             : candidate);
     }
 
@@ -470,7 +470,7 @@ public sealed class ItineraryVersionService(
             .OrderBy(candidate => candidate.Id);
         var optional = materialized
             .Where(candidate => !mandatoryIds.Contains(candidate.Id))
-            .OrderByDescending(candidate => candidate.EffectiveDesirabilityScore)
+            .OrderByDescending(candidate => candidate.EffectiveDesirabilityScore ?? decimal.MinValue)
             .ThenByDescending(candidate => candidate.ScenicScoreForRanking ?? decimal.MinValue)
             .ThenByDescending(candidate => candidate.PhotoRatingForRanking ?? decimal.MinValue)
             .ThenBy(candidate => candidate.EstimatedVisitCostForRanking ?? decimal.MaxValue)

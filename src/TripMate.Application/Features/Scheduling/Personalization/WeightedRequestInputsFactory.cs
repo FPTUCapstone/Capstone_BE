@@ -37,13 +37,13 @@ public sealed class WeightedRequestInputsFactory(
         foreach (var c in candidates)
         {
             double baseScore;
-            if (c.EffectiveDesirabilityScore > 0m)
+            if (c.EffectiveDesirabilityScore.HasValue)
             {
-                baseScore = (double)c.EffectiveDesirabilityScore;
+                baseScore = (double)c.EffectiveDesirabilityScore.Value;
             }
-            else if (c.TripMateBaseScore > 0m)
+            else if (c.TripMateBaseScore.HasValue)
             {
-                baseScore = (double)c.TripMateBaseScore;
+                baseScore = (double)c.TripMateBaseScore.Value;
             }
             else
             {
@@ -107,9 +107,9 @@ public sealed class WeightedRequestInputsFactory(
         }
 
         var hasAiBlendedCandidate = candidates.Any(c =>
-            c.EffectiveDesirabilityScore > 0m
-            && c.TripMateBaseScore > 0m
-            && Math.Abs(c.EffectiveDesirabilityScore - c.TripMateBaseScore) > 0.0001m);
+            c.EffectiveDesirabilityScore.HasValue
+            && c.TripMateBaseScore.HasValue
+            && Math.Abs(c.EffectiveDesirabilityScore.Value - c.TripMateBaseScore.Value) > 0.0001m);
 
         return hasAiBlendedCandidate ? "ai-blend" : "base-only";
     }

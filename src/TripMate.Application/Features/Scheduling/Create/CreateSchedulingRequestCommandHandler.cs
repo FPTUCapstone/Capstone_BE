@@ -1092,8 +1092,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
                     hours.OpenTime!.Value,
                     hours.CloseTime!.Value))
                 .ToArray(),
-            TripMateBaseScore: rankingEntry?.TripMateBaseScore ?? 0m,
-            EffectiveDesirabilityScore: rankingEntry?.EffectiveDesirabilityScore ?? 0m,
+            TripMateBaseScore: rankingEntry?.TripMateBaseScore,
+            EffectiveDesirabilityScore: rankingEntry?.EffectiveDesirabilityScore,
             ScenicScoreForRanking: rankingEntry?.ScenicScoreForRanking,
             PhotoRatingForRanking: rankingEntry?.PhotoRatingForRanking,
             EstimatedVisitCostForRanking: rankingEntry?.EstimatedVisitCostForRanking,

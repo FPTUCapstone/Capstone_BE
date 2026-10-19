@@ -207,4 +207,56 @@ public class WeightedUpperBoundTests
         // Khẳng định rằng nếu không có slack, cận trên thực sự bị thấp hơn tổng thật ở một số trường hợp!
         Assert.True(naiveUnderestimateCount > 0, "Naive UB without slack must underestimate at least once on odd half-integers.");
     }
+
+    [Theory]
+    [MemberData(nameof(WeightedScenarios))]
+    public void Bucket_MaxFactorFrom_lookup_dominates_exact_MaxFactorFrom_at_1minute_step(string id)
+    {
+        var scenario = WeightedScenarioFactory.CreateAllScenarios().First(s => s.Id == id);
+        var ctx = CspItinerarySolver.CreatePrimaryContext(scenario.Input, scenario.Matrix, scenario.Candidates, scenario.Indices, new SchedulingGenerationOptions());
+        var personalParams = new PersonalParams(
+            LambdaPerMin: 0.015,
+            Mu: 0.005,
+            MaxStopsPerDay: 5,
+            MaxDailyEffort: 300,
+            RestAfterMin: 120,
+            MaxConsecutiveOutdoor: 3,
+            SunriseFactor: 0.6,
+            GammaDefault: 0.6,
+            GammaLoved: 0.85,
+            LovedCategories: new HashSet<string>(),
+            RhoOutdoor: 0.25,
+            RhoRest: 0.20,
+            RhoStops: 0.30,
+            RhoEffortPerHour: 0.05,
+            ConfigVersion: "test-bucket-step1min");
+
+        var provider = new RealTimeFitProvider(ctx, personalParams);
+        const int bucketMinutes = 15;
+        var bucketCount = (ctx.Horizon / bucketMinutes) + 1;
+
+        var bucketFactors = new double[bucketCount, ctx.Nodes.Count];
+        for (var b = 0; b < bucketCount; b++)
+        {
+            var tB = Math.Min(b * bucketMinutes, ctx.Horizon);
+            for (var v = 0; v < ctx.Nodes.Count; v++)
+            {
+                bucketFactors[b, v] = provider.MaxFactorFrom(v, tB);
+            }
+        }
+
+        for (var v = 0; v < ctx.Nodes.Count; v++)
+        {
+            for (var t = 0; t <= ctx.Horizon; t++)
+            {
+                var b = Math.Min(t / bucketMinutes, bucketCount - 1);
+                var bucketFactor = bucketFactors[b, v];
+                var exactFactor = provider.MaxFactorFrom(v, t);
+
+                Assert.True(
+                    bucketFactor >= exactFactor - 1e-9,
+                    $"{id} node {v} at t={t}: bucket factor {bucketFactor} (bucket {b}) must dominate exact MaxFactorFrom {exactFactor}");
+            }
+        }
+    }
 }

@@ -122,7 +122,7 @@ public sealed class RoutingContext
 
         var maxScore = eligible
             .Where(candidate => !mandatory.Contains(candidate.Id))
-            .Select(candidate => candidate.EffectiveDesirabilityScore)
+            .Select(candidate => candidate.EffectiveDesirabilityScore ?? 0m)
             .DefaultIfEmpty(0m)
             .Max();
 
@@ -135,7 +135,7 @@ public sealed class RoutingContext
                 mandatory.Contains(candidate.Id),
                 mandatory.Contains(candidate.Id)
                     ? 0
-                    : SkipPenalty(candidate.EffectiveDesirabilityScore, maxScore, routingOptions.MaxSkipPenaltyMinutes)))
+                    : SkipPenalty(candidate.EffectiveDesirabilityScore ?? 0m, maxScore, routingOptions.MaxSkipPenaltyMinutes)))
             .ToArray();
 
         // reserveRestTime = false cho mô hình nới lỏng: dùng khi cần chứng minh vô nghiệm (xem CspItinerarySolver).

@@ -126,34 +126,17 @@ public static class GreedyWeightedIncumbent
         RoutingContext ctx,
         WeightedObjectiveInputs inputs,
         CspOptions options,
-        Func<RoutingContext, IReadOnlyList<int>, CspStatistics, EvaluatedItinerarySchedule?>? evaluate = null,
+        Func<RoutingContext, IReadOnlyList<int>, CspStatistics, EvaluatedItinerarySchedule?> evaluate,
         CspStatistics? statistics = null,
         IReadOnlyCollection<int>? initialDomain = null)
     {
+        ArgumentNullException.ThrowIfNull(evaluate);
         var seq = BuildSequence(ctx, inputs, options, initialDomain);
         if (seq.Count == 0)
         {
             return null;
         }
 
-        if (evaluate is not null)
-        {
-            return evaluate(ctx, seq, statistics ?? new CspStatistics());
-        }
-
-        var route = RouteState.Build(ctx, seq);
-        if (route is null)
-        {
-            return null;
-        }
-
-        var poiIds = seq.Select(v => ctx.Nodes[v].Candidate.Id).ToArray();
-        return new EvaluatedItinerarySchedule(
-            new GeneratedItineraryPlan([], DateTimeOffset.UtcNow, route.Finish, 0m),
-            route.TravelMinutes,
-            route.Finish,
-            DateTimeOffset.UtcNow,
-            0m,
-            poiIds);
+        return evaluate(ctx, seq, statistics ?? new CspStatistics());
     }
 }

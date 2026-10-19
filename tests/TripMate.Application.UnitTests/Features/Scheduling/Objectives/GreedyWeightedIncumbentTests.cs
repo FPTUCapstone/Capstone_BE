@@ -17,7 +17,7 @@ public class GreedyWeightedIncumbentTests
     private static (RoutingContext Context, WeightedObjectiveInputs Inputs) Setup(GoldenScenario scenario)
     {
         var ctx = CspItinerarySolver.CreatePrimaryContext(scenario.Input, scenario.Matrix, scenario.Candidates, scenario.Indices, Options);
-        var baseByPoiId = scenario.Candidates.ToDictionary(c => c.Id, c => (double)c.EffectiveDesirabilityScore);
+        var baseByPoiId = scenario.Candidates.ToDictionary(c => c.Id, c => (double)(c.EffectiveDesirabilityScore ?? 0m));
         var personalParams = new PersonalParams(
             LambdaPerMin: 0.015,
             Mu: 0.005,
@@ -91,5 +91,64 @@ public class GreedyWeightedIncumbentTests
 
         Assert.NotEmpty(seq);
         Assert.True(sw.ElapsedMilliseconds < 50, $"Greedy build took {sw.ElapsedMilliseconds} ms, expected < 50 ms");
+    }
+
+    [Fact]
+    public void Greedy_WhenEvaluatorRejectsRestSchedule_SolverFallsBackToSearchNormally()
+    {
+        var c1 = Fixtures.OptionalRouteOptimizationScenarios.CreateCandidate(101, "P1", visitDurationMinutes: 80, cost: 0, effectiveDesirabilityScore: 0.9m);
+        var c2 = Fixtures.OptionalRouteOptimizationScenarios.CreateCandidate(102, "P2", visitDurationMinutes: 80, cost: 0, effectiveDesirabilityScore: 0.8m);
+        var c3 = Fixtures.OptionalRouteOptimizationScenarios.CreateCandidate(103, "P3", visitDurationMinutes: 80, cost: 0, effectiveDesirabilityScore: 0.7m);
+
+        var candidates = new[] { c1, c2, c3 };
+        var indices = new Dictionary<long, int> { [101] = 1, [102] = 2, [103] = 3 };
+        var input = Fixtures.OptionalRouteOptimizationScenarios.CreateInput(
+            availableMinutes: 270,
+            candidates,
+            mandatoryPoiIds: [],
+            restPreference: TripMate.Domain.Enums.RestPreference.Frequent);
+
+        var matrix = RouteDurationMatrix.Create(new int[,]
+        {
+            { 0, 5, 5, 5, 5 },
+            { 5, 0, 5, 5, 5 },
+            { 5, 5, 0, 5, 5 },
+            { 5, 5, 5, 0, 5 },
+            { 5, 5, 5, 5, 0 },
+        });
+
+        var baseByPoiId = new Dictionary<long, double>
+        {
+            [101] = 0.90,
+            [102] = 0.80,
+            [103] = 0.70,
+        };
+
+        var personalParams = new PersonalParams(
+            LambdaPerMin: 0.015,
+            Mu: 0.005,
+            MaxStopsPerDay: 5,
+            MaxDailyEffort: 300,
+            RestAfterMin: 120,
+            MaxConsecutiveOutdoor: 3,
+            SunriseFactor: 0.6,
+            GammaDefault: 0.6,
+            GammaLoved: 0.85,
+            LovedCategories: new HashSet<string>(),
+            RhoOutdoor: 0.25,
+            RhoRest: 0.20,
+            RhoStops: 0.30,
+            RhoEffortPerHour: 0.05,
+            ConfigVersion: "test-greedy-rest");
+
+        var requestInputs = new WeightedRequestInputs(baseByPoiId, personalParams, new ConstantTimeFitFactory());
+        var cspOptions = new CspOptions { Mode = ObjectiveMode.WeightedUtility };
+        var solver = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, cspOptions);
+
+        var result = solver.Solve(input, matrix, candidates, indices, initialIncumbent: null, weighted: requestInputs, cancellationToken: CancellationToken.None);
+
+        Assert.NotNull(result.Schedule);
+        Assert.True(result.Schedule.VisitPoiIds.Count >= 1);
+        Assert.True(result.Schedule.TotalDurationMinutes <= input.AvailableMinutes);
     }
 }
