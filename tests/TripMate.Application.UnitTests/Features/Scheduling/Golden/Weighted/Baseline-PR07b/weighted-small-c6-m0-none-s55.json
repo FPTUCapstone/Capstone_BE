@@ -1,0 +1,56 @@
+{
+  "ScenarioId": "weighted-small-c6-m0-none-s55",
+  "Source": "GroupG_SmallExhaustive",
+  "Feasible": true,
+  "BestModelObjective": 2563,
+  "BestEvaluatedObjective": 2563,
+  "BestVisitPoiIds": [
+    5,
+    3
+  ],
+  "EliteModelObjectives": [
+    2563,
+    2471,
+    2136,
+    1634,
+    1606
+  ],
+  "EliteVisitIds": [
+    [
+      5,
+      3
+    ],
+    [
+      5,
+      2
+    ],
+    [
+      5
+    ],
+    [
+      5,
+      3,
+      2
+    ],
+    [
+      5,
+      4
+    ]
+  ],
+  "BestTravelMinutes": 64,
+  "BestDurationMinutes": 159,
+  "BestEstimatedCost": 30000,
+  "EndAtUtc": "2026-10-20T03:39:00+00:00",
+  "NodesExpanded": 304,
+  "PrunedByConstraints": 0,
+  "PrunedByForwardChecking": 0,
+  "PrunedByBound": 218,
+  "SolutionsFound": 303,
+  "NodesToFirstSolution": 2,
+  "SearchCompleted": true,
+  "NodeLimitReached": false,
+  "TimeLimitReached": false,
+  "EvaluatorCalls": 1,
+  "UsedRelaxedRestModel": false,
+  "ChoseRelaxedRestModel": false
+}

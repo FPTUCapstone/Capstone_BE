@@ -1,0 +1,30 @@
+{
+  "ScenarioId": "grid-c20-m3-auto-s1",
+  "Source": "GroupA_Grid",
+  "Feasible": true,
+  "BestModelObjective": -6558,
+  "BestEvaluatedObjective": -6558,
+  "BestVisitPoiIds": [
+    3,
+    2,
+    1
+  ],
+  "EliteModelObjectives": [],
+  "EliteVisitIds": [],
+  "BestTravelMinutes": 84,
+  "BestDurationMinutes": 249,
+  "BestEstimatedCost": 45000,
+  "EndAtUtc": "2026-10-20T05:09:00+00:00",
+  "NodesExpanded": 200000,
+  "PrunedByConstraints": 0,
+  "PrunedByForwardChecking": 0,
+  "PrunedByBound": 185783,
+  "SolutionsFound": 95656,
+  "NodesToFirstSolution": 4,
+  "SearchCompleted": false,
+  "NodeLimitReached": true,
+  "TimeLimitReached": false,
+  "EvaluatorCalls": 6,
+  "UsedRelaxedRestModel": true,
+  "ChoseRelaxedRestModel": false
+}

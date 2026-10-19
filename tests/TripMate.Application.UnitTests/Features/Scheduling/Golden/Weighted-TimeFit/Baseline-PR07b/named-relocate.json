@@ -1,0 +1,61 @@
+{
+  "ScenarioId": "named-relocate",
+  "Source": "GroupB_Named",
+  "Feasible": true,
+  "BestModelObjective": 6754,
+  "BestEvaluatedObjective": 6754,
+  "BestVisitPoiIds": [
+    101,
+    103,
+    104
+  ],
+  "EliteModelObjectives": [
+    6754,
+    6652,
+    6208,
+    3619,
+    2623
+  ],
+  "EliteVisitIds": [
+    [
+      101,
+      103,
+      104
+    ],
+    [
+      101,
+      102
+    ],
+    [
+      101,
+      103
+    ],
+    [
+      101,
+      103,
+      104,
+      102
+    ],
+    [
+      101,
+      102,
+      103
+    ]
+  ],
+  "BestTravelMinutes": 20,
+  "BestDurationMinutes": 155,
+  "BestEstimatedCost": 30000,
+  "EndAtUtc": "2026-10-20T03:35:00+00:00",
+  "NodesExpanded": 29,
+  "PrunedByConstraints": 1,
+  "PrunedByForwardChecking": 0,
+  "PrunedByBound": 14,
+  "SolutionsFound": 28,
+  "NodesToFirstSolution": 2,
+  "SearchCompleted": true,
+  "NodeLimitReached": false,
+  "TimeLimitReached": false,
+  "EvaluatorCalls": 1,
+  "UsedRelaxedRestModel": false,
+  "ChoseRelaxedRestModel": false
+}

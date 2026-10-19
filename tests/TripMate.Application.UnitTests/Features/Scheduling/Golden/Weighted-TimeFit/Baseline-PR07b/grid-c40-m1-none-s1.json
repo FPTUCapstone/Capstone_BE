@@ -1,0 +1,62 @@
+{
+  "ScenarioId": "grid-c40-m1-none-s1",
+  "Source": "GroupA_Grid",
+  "Feasible": true,
+  "BestModelObjective": 2415,
+  "BestEvaluatedObjective": 2415,
+  "BestVisitPoiIds": [
+    1,
+    11,
+    37
+  ],
+  "EliteModelObjectives": [
+    2415,
+    -226,
+    -4456,
+    -4580,
+    -7424
+  ],
+  "EliteVisitIds": [
+    [
+      1,
+      11,
+      37
+    ],
+    [
+      1,
+      11
+    ],
+    [
+      1
+    ],
+    [
+      1,
+      11,
+      37,
+      14
+    ],
+    [
+      1,
+      11,
+      37,
+      14,
+      25
+    ]
+  ],
+  "BestTravelMinutes": 55,
+  "BestDurationMinutes": 190,
+  "BestEstimatedCost": 45000,
+  "EndAtUtc": "2026-10-20T04:10:00+00:00",
+  "NodesExpanded": 200000,
+  "PrunedByConstraints": 0,
+  "PrunedByForwardChecking": 0,
+  "PrunedByBound": 193941,
+  "SolutionsFound": 199999,
+  "NodesToFirstSolution": 2,
+  "SearchCompleted": false,
+  "NodeLimitReached": true,
+  "TimeLimitReached": false,
+  "EvaluatorCalls": 1,
+  "UsedRelaxedRestModel": false,
+  "ChoseRelaxedRestModel": false
+}
