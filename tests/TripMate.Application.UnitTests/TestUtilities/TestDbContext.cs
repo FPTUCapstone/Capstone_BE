@@ -88,6 +88,7 @@ public class TestDbContext(
 
     public DbSet<TourBookingCreateOperation> TourBookingCreateOperations => Set<TourBookingCreateOperation>();
     public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
+    public DbSet<Refund> Refunds => Set<Refund>();
 
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
 

@@ -275,6 +275,9 @@ public class ConfirmPasswordResetFlowTests
         DbSet<Domain.Entities.PaymentTransaction> IApplicationDbContext.PaymentTransactions =>
             throw new NotSupportedException();
 
+        DbSet<Domain.Entities.Refund> IApplicationDbContext.Refunds =>
+            throw new NotSupportedException();
+
         DbSet<Domain.Entities.TravelGroup> IApplicationDbContext.TravelGroups => throw new NotSupportedException();
 
         DbSet<Domain.Entities.GroupMember> IApplicationDbContext.GroupMembers => throw new NotSupportedException();

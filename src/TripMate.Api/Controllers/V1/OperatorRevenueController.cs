@@ -1,11 +1,14 @@
 using MediatR;
+
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+
 using TripMate.Api.Common;
 using TripMate.Application.Features.Operator.Revenue.GetReport;
 using TripMate.Application.Features.Operator.Revenue.GetTours;
 using TripMate.Domain.Enums;
 namespace TripMate.Api.Controllers.V1;
+
 [Authorize(Roles = nameof(UserRole.TourOperator))]
 [Route("api/v1/operator/revenue")]
 public sealed class OperatorRevenueController(ISender sender) : ApiControllerBase(sender)
