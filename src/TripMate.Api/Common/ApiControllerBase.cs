@@ -222,6 +222,8 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
 
             OperatorTourErrorCodes.AccessRequired => StatusCodes.Status403Forbidden,
             OperatorTourErrorCodes.AdminAccessRequired => StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.Operator.Revenue.Common.OperatorRevenueErrorCodes.InvalidGranularity =>
+                StatusCodes.Status400BadRequest,
             OperatorTourErrorCodes.PoiNotFound or OperatorTourErrorCodes.CategoryNotFound or
                 OperatorTourErrorCodes.DestinationNotFound or
                 OperatorTourErrorCodes.TourNotFound or OperatorTourErrorCodes.CancellationPolicyUnavailable =>
