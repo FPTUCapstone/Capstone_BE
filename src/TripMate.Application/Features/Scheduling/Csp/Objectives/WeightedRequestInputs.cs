@@ -9,4 +9,5 @@ namespace TripMate.Application.Features.Scheduling.Csp.Objectives;
 public sealed record WeightedRequestInputs(
     IReadOnlyDictionary<long, double> BaseByPoiId,
     PersonalParams Params,
-    ITimeFitProviderFactory TimeFit);
+    ITimeFitProviderFactory TimeFit,
+    string BaseSource = "base-only");

@@ -135,6 +135,7 @@ public static class DependencyInjection
             IValidateOptions<PersonalizationOptions>,
             PersonalizationOptionsValidator>();
         services.AddSingleton<PersonalParamsFactory>();
+        services.AddSingleton<WeightedRequestInputsFactory>();
         services.AddOptions<TimeFitOptions>()
             .Bind(configuration.GetSection(TimeFitOptions.SectionName))
             .ValidateOnStart();
