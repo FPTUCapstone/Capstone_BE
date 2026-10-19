@@ -852,7 +852,7 @@ public class LocalShadowBenchmarkRunner(ITestOutputHelper output)
             GammaDefault = 0.6,
             GammaLoved = 0.85,
             RhoOutdoor = 0.25,
-            RhoRest = 0.20,
+            RhoRest = 0.0,
             RhoStops = 0.30,
             RhoEffortPerHour = 0.05,
             TagToCategory = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)

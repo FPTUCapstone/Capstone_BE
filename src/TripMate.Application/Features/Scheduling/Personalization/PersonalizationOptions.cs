@@ -33,8 +33,8 @@ public sealed class PersonalizationOptions
     /// <summary>Trọng số phạt chuỗi hoạt động ngoài trời liên tiếp vượt ngưỡng.</summary>
     public double RhoOutdoor { get; init; } = 0.25;
 
-    /// <summary>Trọng số phạt vi phạm quãng nghỉ trưa / nghỉ ngơi.</summary>
-    public double RhoRest { get; init; } = 0.20;
+    /// <summary>Trọng số phạt vi phạm quãng nghỉ trưa / nghỉ ngơi (tạm thời đặt 0.0 do solver chưa mô hình hóa rest stop tự động; bật lại ở PR-17).</summary>
+    public double RhoRest { get; init; } = 0.0;
 
     /// <summary>Trọng số phạt vượt quá số điểm dừng tối đa trong ngày.</summary>
     public double RhoStops { get; init; } = 0.30;
