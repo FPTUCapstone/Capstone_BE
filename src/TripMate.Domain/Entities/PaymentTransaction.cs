@@ -44,6 +44,11 @@ public class PaymentTransaction : BaseEntity
 
     public DateTimeOffset? UpdatedAtUtc { get; private set; }
 
+    /// <summary>Immutable accounting timestamp and rate captured when the gateway payment succeeds.</summary>
+    public DateTimeOffset? SucceededAtUtc { get; private set; }
+
+    public decimal? CommissionRateApplied { get; private set; }
+
     public string? RawResponse { get; private set; }
 
     public DateTimeOffset CreatedAtUtc { get; private set; }
@@ -93,12 +98,14 @@ public class PaymentTransaction : BaseEntity
         ExpiresAtUtc = expiresAtUtc?.ToUniversalTime();
     }
 
-    public bool MarkSuccess(string? gatewayRef, string? rawResponse, DateTimeOffset nowUtc)
+    public bool MarkSuccess(string? gatewayRef, string? rawResponse, DateTimeOffset nowUtc, decimal commissionRateApplied)
     {
         if (Status != PaymentTransactionStatus.Pending)
             return false;
 
         Status = PaymentTransactionStatus.Success;
+        SucceededAtUtc = nowUtc.ToUniversalTime();
+        CommissionRateApplied = commissionRateApplied;
         if (!string.IsNullOrWhiteSpace(gatewayRef))
             GatewayTransactionRef = gatewayRef.Trim();
         if (!string.IsNullOrWhiteSpace(rawResponse))

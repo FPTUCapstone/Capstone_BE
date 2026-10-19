@@ -79,6 +79,14 @@ public sealed class PaymentTransactionConfiguration : IEntityTypeConfiguration<P
             .HasColumnName("updated_at")
             .AsUtcDateTime2();
 
+        builder.Property(t => t.SucceededAtUtc)
+            .HasColumnName("succeeded_at")
+            .AsUtcDateTime2();
+
+        builder.Property(t => t.CommissionRateApplied)
+            .HasColumnName("commission_rate_applied")
+            .HasPrecision(5, 2);
+
         builder.Property(t => t.RawResponse)
             .HasColumnName("raw_response");
 
