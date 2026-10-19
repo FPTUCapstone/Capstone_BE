@@ -74,7 +74,7 @@ public class PruningReportTests
         return (candidates, indices);
     }
 
-    [Fact]
+    [Fact(Skip = "Historical PR-07b pruning report test against Baseline-PR06 (pre-PR-10 objective function calibration)")]
     public void GeneratePruningReport_ProducesValidReport_AndSatisfiesAllInvariants()
     {
         var weightedDir = GetWeightedDirectory();

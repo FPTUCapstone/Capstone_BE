@@ -2,30 +2,30 @@
   "ScenarioId": "budget-tight-exact-mandatory-s21",
   "Source": "GroupD_Budget",
   "Feasible": true,
-  "BestModelObjective": -3219,
-  "BestEvaluatedObjective": -3219,
+  "BestModelObjective": -1698,
+  "BestEvaluatedObjective": -1698,
   "BestVisitPoiIds": [
-    2,
-    1
+    1,
+    2
   ],
   "EliteModelObjectives": [
-    -3219,
-    -3221
+    -1698,
+    -2057
   ],
   "EliteVisitIds": [
     [
-      2,
-      1
-    ],
-    [
       1,
       2
+    ],
+    [
+      2,
+      1
     ]
   ],
-  "BestTravelMinutes": 61,
-  "BestDurationMinutes": 156,
+  "BestTravelMinutes": 58,
+  "BestDurationMinutes": 153,
   "BestEstimatedCost": 30000,
-  "EndAtUtc": "2026-10-20T03:36:00+00:00",
+  "EndAtUtc": "2026-10-20T03:33:00+00:00",
   "NodesExpanded": 5,
   "PrunedByConstraints": 0,
   "PrunedByForwardChecking": 54,

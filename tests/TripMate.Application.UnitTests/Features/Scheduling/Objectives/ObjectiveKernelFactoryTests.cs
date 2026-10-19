@@ -363,4 +363,154 @@ public class ObjectiveKernelFactoryTests
         // Theme Park is not in LovedCategories -> receives GammaDefault = 0.60
         weightedInputs.GammaScaled[themeParkCatIdx][1].Should().Be(expectedDefaultK1, "Theme park POI must receive GammaDefault");
     }
+
+    [Fact]
+    public void BuildWeightedInputs_WithGeneralCategory_ExemptsFromGammaDiscount()
+    {
+        var openingHours = new[] { new GenerationOpeningHours(2, new TimeOnly(7, 0), new TimeOnly(21, 0)) };
+        var candidates = new List<GenerationCandidate>();
+        var indices = new Dictionary<long, int>();
+        var baseScores = new Dictionary<long, double>();
+
+        for (var i = 1; i <= 4; i++)
+        {
+            candidates.Add(new GenerationCandidate(
+                (long)i, $"General POI {i}", new RoutePoint(16.0m + i * 0.01m, 108.2m), 30, 0m, openingHours,
+                CategoryName: null)); // null -> "General"
+            indices[(long)i] = i;
+            baseScores[(long)i] = 0.5;
+        }
+
+        var input = new GenerationInput(
+            DateTimeOffset.UtcNow,
+            TimeZoneInfo.Utc,
+            new RoutePoint(16.0m, 108.2m),
+            new RoutePoint(16.1m, 108.3m),
+            480,
+            TransportMode.Motorbike,
+            RestPreference.None,
+            null,
+            candidates,
+            []);
+
+        var matrix = RouteDurationMatrix.Create(new int[,]
+        {
+            { 0, 5, 10, 15, 20, 25 },
+            { 5, 0, 5, 10, 15, 20 },
+            { 10, 5, 0, 5, 10, 15 },
+            { 15, 10, 5, 0, 5, 10 },
+            { 20, 15, 10, 5, 0, 5 },
+            { 25, 20, 15, 10, 5, 0 }
+        });
+
+        var ctx = CspItinerarySolver.CreatePrimaryContext(input, matrix, candidates, indices, Options);
+        var personalParams = new PersonalParams(
+            LambdaPerMin: 0.015,
+            Mu: 0.005,
+            MaxStopsPerDay: 5,
+            MaxDailyEffort: 300,
+            RestAfterMin: 120,
+            MaxConsecutiveOutdoor: 3,
+            SunriseFactor: 0.6,
+            GammaDefault: 0.6,
+            GammaLoved: 0.85,
+            LovedCategories: new HashSet<string>(),
+            RhoOutdoor: 0.25,
+            RhoRest: 0.20,
+            RhoStops: 0.30,
+            RhoEffortPerHour: 0.05,
+            ConfigVersion: "test-general-gamma");
+
+        var weightedRequest = new WeightedRequestInputs(baseScores, personalParams, new ConstantTimeFitFactory());
+        var weightedInputs = ObjectiveKernelFactory.BuildWeightedInputs(ctx, weightedRequest);
+
+        for (var i = 0; i < 4; i++)
+        {
+            var catIdx = weightedInputs.CategoryIndex[i];
+            for (var k = 0; k < 10; k++)
+            {
+                weightedInputs.GammaScaled[catIdx][k].Should().Be(
+                    WeightedObjectiveInputs.Scale,
+                    $"General category at k={k} must have scale factor 1.0 (no discount)");
+            }
+        }
+
+        // Test with ObjectiveCalculator.Replay: 4 General POIs in sequence
+        var catScratch = new int[weightedInputs.CategoryCount];
+        var seq = new[] { 0, 1, 2, 3 };
+        var earliest = new[] { 10, 50, 90, 130 };
+        var totalJ = ObjectiveCalculator.Replay(weightedInputs, ctx, seq, earliest, catScratch);
+
+        // Every node contributes base (0.5 * 1,000,000 = 500,000) with gamma=1.0 minus travel cost
+        // Total gain should be 4 * 500,000 = 2,000,000
+        var totalGain = 4 * (long)(0.5 * WeightedObjectiveInputs.Scale);
+        totalJ.Should().BeLessThan(totalGain); // travel and rest penalties subtracted, but gross gain is 2,000,000
+    }
+
+    [Fact]
+    public void BuildWeightedInputs_WithRealCategory_AppliesGammaDiscountAsUsual()
+    {
+        var openingHours = new[] { new GenerationOpeningHours(2, new TimeOnly(7, 0), new TimeOnly(21, 0)) };
+        var candidates = new List<GenerationCandidate>();
+        var indices = new Dictionary<long, int>();
+        var baseScores = new Dictionary<long, double>();
+
+        for (var i = 1; i <= 4; i++)
+        {
+            candidates.Add(new GenerationCandidate(
+                (long)i, $"Museum POI {i}", new RoutePoint(16.0m + i * 0.01m, 108.2m), 30, 0m, openingHours,
+                CategoryName: "Museum"));
+            indices[(long)i] = i;
+            baseScores[(long)i] = 0.5;
+        }
+
+        var input = new GenerationInput(
+            DateTimeOffset.UtcNow,
+            TimeZoneInfo.Utc,
+            new RoutePoint(16.0m, 108.2m),
+            new RoutePoint(16.1m, 108.3m),
+            480,
+            TransportMode.Motorbike,
+            RestPreference.None,
+            null,
+            candidates,
+            []);
+
+        var matrix = RouteDurationMatrix.Create(new int[,]
+        {
+            { 0, 5, 10, 15, 20, 25 },
+            { 5, 0, 5, 10, 15, 20 },
+            { 10, 5, 0, 5, 10, 15 },
+            { 15, 10, 5, 0, 5, 10 },
+            { 20, 15, 10, 5, 0, 5 },
+            { 25, 20, 15, 10, 5, 0 }
+        });
+
+        var ctx = CspItinerarySolver.CreatePrimaryContext(input, matrix, candidates, indices, Options);
+        var personalParams = new PersonalParams(
+            LambdaPerMin: 0.015,
+            Mu: 0.005,
+            MaxStopsPerDay: 5,
+            MaxDailyEffort: 300,
+            RestAfterMin: 120,
+            MaxConsecutiveOutdoor: 3,
+            SunriseFactor: 0.6,
+            GammaDefault: 0.6,
+            GammaLoved: 0.85,
+            LovedCategories: new HashSet<string>(), // Not loved -> GammaDefault = 0.6
+            RhoOutdoor: 0.25,
+            RhoRest: 0.20,
+            RhoStops: 0.30,
+            RhoEffortPerHour: 0.05,
+            ConfigVersion: "test-real-gamma");
+
+        var weightedRequest = new WeightedRequestInputs(baseScores, personalParams, new ConstantTimeFitFactory());
+        var weightedInputs = ObjectiveKernelFactory.BuildWeightedInputs(ctx, weightedRequest);
+
+        var catIdx = weightedInputs.CategoryIndex[0];
+        weightedInputs.GammaScaled[catIdx][0].Should().Be((long)(1.0 * WeightedObjectiveInputs.Scale));
+        weightedInputs.GammaScaled[catIdx][1].Should().Be((long)Math.Round(0.6 * WeightedObjectiveInputs.Scale));
+        weightedInputs.GammaScaled[catIdx][2].Should().Be((long)Math.Round(0.36 * WeightedObjectiveInputs.Scale));
+        weightedInputs.GammaScaled[catIdx][3].Should().Be((long)Math.Round(0.216 * WeightedObjectiveInputs.Scale));
+    }
 }

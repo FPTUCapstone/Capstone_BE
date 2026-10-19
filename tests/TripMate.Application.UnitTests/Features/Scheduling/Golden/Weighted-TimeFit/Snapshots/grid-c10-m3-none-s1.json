@@ -2,23 +2,34 @@
   "ScenarioId": "grid-c10-m3-none-s1",
   "Source": "GroupA_Grid",
   "Feasible": true,
-  "BestModelObjective": -5723,
-  "BestEvaluatedObjective": -5723,
+  "BestModelObjective": 6061,
+  "BestEvaluatedObjective": 6061,
   "BestVisitPoiIds": [
     2,
-    1,
-    3
+    5,
+    10,
+    3,
+    1
   ],
   "EliteModelObjectives": [
-    -5723,
-    -6493,
-    -7198,
-    -7927,
-    -8071
+    6061,
+    4719,
+    1805,
+    1627,
+    1218
   ],
   "EliteVisitIds": [
     [
       2,
+      5,
+      10,
+      3,
+      1
+    ],
+    [
+      2,
+      5,
+      10,
       1,
       3
     ],
@@ -30,6 +41,7 @@
     ],
     [
       2,
+      10,
       5,
       1,
       3
@@ -37,26 +49,19 @@
     [
       2,
       5,
-      10,
-      3,
-      1
-    ],
-    [
-      2,
-      10,
       1,
       3
     ]
   ],
-  "BestTravelMinutes": 75,
-  "BestDurationMinutes": 210,
-  "BestEstimatedCost": 45000,
-  "EndAtUtc": "2026-10-20T04:30:00+00:00",
-  "NodesExpanded": 141389,
+  "BestTravelMinutes": 88,
+  "BestDurationMinutes": 303,
+  "BestEstimatedCost": 75000,
+  "EndAtUtc": "2026-10-20T06:03:00+00:00",
+  "NodesExpanded": 136705,
   "PrunedByConstraints": 0,
-  "PrunedByForwardChecking": 25,
-  "PrunedByBound": 114144,
-  "SolutionsFound": 24264,
+  "PrunedByForwardChecking": 5,
+  "PrunedByBound": 110184,
+  "SolutionsFound": 22450,
   "NodesToFirstSolution": 4,
   "SearchCompleted": true,
   "NodeLimitReached": false,

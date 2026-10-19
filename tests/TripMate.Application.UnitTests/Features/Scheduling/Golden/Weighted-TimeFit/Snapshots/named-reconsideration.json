@@ -2,19 +2,19 @@
   "ScenarioId": "named-reconsideration",
   "Source": "GroupB_Named",
   "Feasible": true,
-  "BestModelObjective": 8894,
-  "BestEvaluatedObjective": 8894,
+  "BestModelObjective": 15311,
+  "BestEvaluatedObjective": 15311,
   "BestVisitPoiIds": [
     101,
     102,
     104
   ],
   "EliteModelObjectives": [
-    8894,
-    8569,
-    5431,
-    5348,
-    5206
+    15311,
+    14407,
+    13812,
+    12642,
+    12362
   ],
   "EliteVisitIds": [
     [
@@ -29,27 +29,31 @@
     ],
     [
       101,
-      103
-    ],
-    [
-      101,
-      102
+      103,
+      102,
+      104
     ],
     [
       101,
       103,
       102
+    ],
+    [
+      101,
+      102,
+      104,
+      205
     ]
   ],
   "BestTravelMinutes": 35,
   "BestDurationMinutes": 170,
   "BestEstimatedCost": 30000,
   "EndAtUtc": "2026-10-20T03:50:00+00:00",
-  "NodesExpanded": 52,
-  "PrunedByConstraints": 6,
+  "NodesExpanded": 27,
+  "PrunedByConstraints": 0,
   "PrunedByForwardChecking": 0,
-  "PrunedByBound": 19,
-  "SolutionsFound": 51,
+  "PrunedByBound": 13,
+  "SolutionsFound": 26,
   "NodesToFirstSolution": 2,
   "SearchCompleted": true,
   "NodeLimitReached": false,

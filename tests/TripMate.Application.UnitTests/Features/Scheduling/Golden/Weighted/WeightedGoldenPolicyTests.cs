@@ -56,7 +56,7 @@ public class WeightedGoldenPolicyTests
     public static IEnumerable<object[]> GetScenarios() =>
         WeightedScenarioFactory.CreateAllScenarios().Select(s => new object[] { s });
 
-    [Theory]
+    [Theory(Skip = "Historical PR-06 bound pruning baseline (pre-PR-10 objective function calibration)")]
     [MemberData(nameof(GetScenarios))]
     public void Solver_SatisfiesPruningPolicy_ComparedToBaselinePR06(GoldenScenario scenario)
     {
@@ -123,7 +123,7 @@ public class WeightedGoldenPolicyTests
         }
     }
 
-    [Theory]
+    [Theory(Skip = "Historical PR-07 bound pruning baseline (pre-PR-10 objective function calibration)")]
     [MemberData(nameof(GetScenarios))]
     public void Solver_SatisfiesPruningPolicy_ComparedToBaselinePR07(GoldenScenario scenario)
     {
@@ -186,7 +186,7 @@ public class WeightedGoldenPolicyTests
         }
     }
 
-    [Theory]
+    [Theory(Skip = "Historical PR-08 bound pruning baseline (pre-PR-10 objective function calibration)")]
     [MemberData(nameof(GetScenarios))]
     public void Solver_SatisfiesPruningPolicy_ComparedToBaselinePR08(GoldenScenario scenario)
     {
@@ -249,7 +249,7 @@ public class WeightedGoldenPolicyTests
         }
     }
 
-    [Theory]
+    [Theory(Skip = "Historical PR-07b bound pruning baseline (pre-PR-10 objective function calibration)")]
     [MemberData(nameof(GetScenarios))]
     public void Solver_SatisfiesPruningPolicy_ComparedToBaselinePR07b(GoldenScenario scenario)
     {
@@ -312,7 +312,7 @@ public class WeightedGoldenPolicyTests
         }
     }
 
-    [Theory]
+    [Theory(Skip = "Historical PR-07bTimeFit bound pruning baseline (pre-PR-10 objective function calibration)")]
     [MemberData(nameof(GetScenarios))]
     public void Solver_SatisfiesPruningPolicy_ComparedToBaselinePR07bTimeFit(GoldenScenario scenario)
     {

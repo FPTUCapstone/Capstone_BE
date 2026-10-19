@@ -105,10 +105,21 @@ internal static class ObjectiveKernelFactory
         foreach (var (catName, c) in categoryMap)
         {
             gammaScaled[c] = new long[32];
-            var factor = p.LovedCategories.Contains(catName) ? p.GammaLoved : p.GammaDefault;
-            for (var k = 0; k < 32; k++)
+            if (string.Equals(catName, "General", StringComparison.OrdinalIgnoreCase))
             {
-                gammaScaled[c][k] = (long)Math.Round(Math.Pow(factor, k) * WeightedObjectiveInputs.Scale);
+                // POI có danh mục không xác định ("General") dùng γ = 1 cho mọi k (không bị phạt trùng danh mục)
+                for (var k = 0; k < 32; k++)
+                {
+                    gammaScaled[c][k] = WeightedObjectiveInputs.Scale;
+                }
+            }
+            else
+            {
+                var factor = p.LovedCategories.Contains(catName) ? p.GammaLoved : p.GammaDefault;
+                for (var k = 0; k < 32; k++)
+                {
+                    gammaScaled[c][k] = (long)Math.Round(Math.Pow(factor, k) * WeightedObjectiveInputs.Scale);
+                }
             }
         }
 
@@ -117,7 +128,7 @@ internal static class ObjectiveKernelFactory
             gammaScaled[0] = new long[32];
             for (var k = 0; k < 32; k++)
             {
-                gammaScaled[0][k] = (long)Math.Round(Math.Pow(p.GammaDefault, k) * WeightedObjectiveInputs.Scale);
+                gammaScaled[0][k] = WeightedObjectiveInputs.Scale;
             }
         }
 

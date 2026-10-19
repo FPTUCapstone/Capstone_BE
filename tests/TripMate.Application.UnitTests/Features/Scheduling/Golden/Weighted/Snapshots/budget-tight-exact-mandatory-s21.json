@@ -2,15 +2,15 @@
   "ScenarioId": "budget-tight-exact-mandatory-s21",
   "Source": "GroupD_Budget",
   "Feasible": true,
-  "BestModelObjective": -3511,
-  "BestEvaluatedObjective": -3511,
+  "BestModelObjective": -1988,
+  "BestEvaluatedObjective": -1988,
   "BestVisitPoiIds": [
     1,
     2
   ],
   "EliteModelObjectives": [
-    -3511,
-    -3600
+    -1988,
+    -2438
   ],
   "EliteVisitIds": [
     [

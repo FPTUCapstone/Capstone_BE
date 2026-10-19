@@ -2,55 +2,69 @@
   "ScenarioId": "boundary-urgent-slack-mrv-s42",
   "Source": "GroupF_Boundary",
   "Feasible": true,
-  "BestModelObjective": -2478,
-  "BestEvaluatedObjective": -2478,
+  "BestModelObjective": 8532,
+  "BestEvaluatedObjective": 8532,
   "BestVisitPoiIds": [
     1,
+    11,
     2,
+    5,
     15
   ],
   "EliteModelObjectives": [
-    -2478,
-    -3229,
-    -3361,
-    -4873,
-    -5300
+    7474,
+    7000,
+    6810,
+    6432,
+    6428
   ],
   "EliteVisitIds": [
     [
       1,
       2,
+      5,
+      9,
       15
     ],
     [
       1,
+      2,
+      15,
       11,
-      2
-    ],
-    [
-      1,
-      2
-    ],
-    [
-      1,
       5,
-      2
+      9
     ],
     [
       1,
       2,
+      15,
+      10,
+      9
+    ],
+    [
+      1,
+      2,
+      15,
+      11,
       5
+    ],
+    [
+      1,
+      2,
+      5,
+      15,
+      10
     ]
   ],
-  "BestTravelMinutes": 57,
-  "BestDurationMinutes": 192,
-  "BestEstimatedCost": 45000,
-  "EndAtUtc": "2026-10-20T04:12:00+00:00",
+  "BestTravelMinutes": 94,
+  "BestDurationMinutes": 309,
+  "BestEstimatedCost": 75000,
+  "EndAtUtc": "2026-10-20T06:09:00+00:00",
   "NodesExpanded": 200000,
-  "PrunedByConstraints": 0,
+  "PrunedByConstraints": 154,
   "PrunedByForwardChecking": 0,
-  "PrunedByBound": 178298,
-  "SolutionsFound": 153878,
+  "PrunedByBound": 148096,
+  "SolutionsFound": 199998,
   "NodesToFirstSolution": 3,
   "SearchCompleted": false,
   "NodeLimitReached": true,

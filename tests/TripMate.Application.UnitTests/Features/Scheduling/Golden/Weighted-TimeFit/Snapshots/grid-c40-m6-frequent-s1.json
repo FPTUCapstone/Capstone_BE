@@ -2,79 +2,92 @@
   "ScenarioId": "grid-c40-m6-frequent-s1",
   "Source": "GroupA_Grid",
   "Feasible": true,
-  "BestModelObjective": -24915,
-  "BestEvaluatedObjective": -17245,
+  "BestModelObjective": null,
+  "BestEvaluatedObjective": 2127,
   "BestVisitPoiIds": [
     5,
     4,
     2,
-    6,
     3,
-    1
+    1,
+    9,
+    6,
+    11,
+    31
   ],
-  "EliteModelObjectives": [
-    -28651
-  ],
+  "EliteModelObjectives": [],
   "EliteVisitIds": [
     [
       5,
+      4,
+      2,
       3,
       1,
-      2,
-      4,
-      6
-    ],
-    [
-      5,
-      3,
-      1,
-      2,
-      4,
+      9,
       6,
-      25
+      11,
+      37,
+      31
     ],
     [
       5,
+      4,
+      2,
       3,
       1,
-      2,
-      4,
+      9,
       6,
-      20
+      11,
+      31
     ],
     [
       5,
+      4,
+      2,
       3,
       1,
-      2,
-      4,
-      16,
-      6
-    ],
-    [
-      5,
-      3,
-      1,
-      2,
-      4,
+      9,
       6,
+      11,
+      37
+    ],
+    [
+      5,
+      4,
+      2,
+      3,
+      1,
+      9,
+      6,
+      11,
       21
+    ],
+    [
+      5,
+      4,
+      2,
+      3,
+      1,
+      6,
+      11,
+      37,
+      31
     ]
   ],
-  "BestTravelMinutes": 149,
-  "BestDurationMinutes": 464,
-  "BestEstimatedCost": 90000,
-  "EndAtUtc": "2026-10-20T08:44:00+00:00",
+  "BestTravelMinutes": 135,
+  "BestDurationMinutes": 600,
+  "BestEstimatedCost": 135000,
+  "EndAtUtc": "2026-10-20T11:00:00+00:00",
   "NodesExpanded": 200000,
-  "PrunedByConstraints": 266148,
-  "PrunedByForwardChecking": 5069933,
-  "PrunedByBound": 27857,
-  "SolutionsFound": 28091,
+  "PrunedByConstraints": 346058,
+  "PrunedByForwardChecking": 5081632,
+  "PrunedByBound": 3579,
+  "SolutionsFound": 41586,
   "NodesToFirstSolution": 7,
   "SearchCompleted": false,
   "NodeLimitReached": true,
   "TimeLimitReached": false,
-  "EvaluatorCalls": 12,
+  "EvaluatorCalls": 25,
   "UsedRelaxedRestModel": true,
-  "ChoseRelaxedRestModel": false
+  "ChoseRelaxedRestModel": true
 }

@@ -2,19 +2,19 @@
   "ScenarioId": "boundary-urgent-slack-mrv-s42",
   "Source": "GroupF_Boundary",
   "Feasible": true,
-  "BestModelObjective": -2188,
-  "BestEvaluatedObjective": -2188,
+  "BestModelObjective": 4460,
+  "BestEvaluatedObjective": 4460,
   "BestVisitPoiIds": [
     1,
     2,
     15
   ],
   "EliteModelObjectives": [
-    -2188,
-    -2953,
-    -3071,
-    -4734,
-    -5010
+    4460,
+    4044,
+    3726,
+    3032,
+    2488
   ],
   "EliteVisitIds": [
     [
@@ -24,17 +24,22 @@
     ],
     [
       1,
-      11,
-      2
-    ],
-    [
-      1,
-      2
-    ],
-    [
-      1,
+      2,
       5,
-      2
+      15
+    ],
+    [
+      1,
+      2,
+      5,
+      9
+    ],
+    [
+      1,
+      2,
+      5,
+      9,
+      15
     ],
     [
       1,
@@ -49,8 +54,8 @@
   "NodesExpanded": 200000,
   "PrunedByConstraints": 0,
   "PrunedByForwardChecking": 0,
-  "PrunedByBound": 178426,
-  "SolutionsFound": 146266,
+  "PrunedByBound": 170444,
+  "SolutionsFound": 199998,
   "NodesToFirstSolution": 3,
   "SearchCompleted": false,
   "NodeLimitReached": true,

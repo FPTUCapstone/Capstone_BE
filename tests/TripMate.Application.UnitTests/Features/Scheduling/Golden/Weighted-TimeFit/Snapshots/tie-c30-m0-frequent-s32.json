@@ -2,61 +2,72 @@
   "ScenarioId": "tie-c30-m0-frequent-s32",
   "Source": "GroupE_Tie",
   "Feasible": true,
-  "BestModelObjective": 16818,
-  "BestEvaluatedObjective": 16818,
+  "BestModelObjective": 31143,
+  "BestEvaluatedObjective": 31785,
   "BestVisitPoiIds": [
-    11,
     5,
-    10
+    11,
+    10,
+    9,
+    14
   ],
   "EliteModelObjectives": [
-    16818,
-    16619,
-    16492,
-    16253,
-    16054
+    31143,
+    31143,
+    31076,
+    31076,
+    30994
   ],
   "EliteVisitIds": [
     [
       11,
       5,
-      10
-    ],
-    [
-      11,
+      9,
       10,
-      5
+      14
     ],
     [
       11,
       5,
-      9
-    ],
-    [
-      11,
-      5,
+      10,
+      9,
       14
     ],
     [
       11,
       10,
-      9
+      5,
+      9,
+      14
+    ],
+    [
+      11,
+      10,
+      9,
+      5,
+      14
+    ],
+    [
+      11,
+      5,
+      9,
+      10
     ]
   ],
-  "BestTravelMinutes": 20,
-  "BestDurationMinutes": 170,
-  "BestEstimatedCost": 30000,
-  "EndAtUtc": "2026-10-20T03:50:00+00:00",
+  "BestTravelMinutes": 30,
+  "BestDurationMinutes": 250,
+  "BestEstimatedCost": 50000,
+  "EndAtUtc": "2026-10-20T05:10:00+00:00",
   "NodesExpanded": 130000,
   "PrunedByConstraints": 0,
   "PrunedByForwardChecking": 0,
-  "PrunedByBound": 35807,
+  "PrunedByBound": 80707,
   "SolutionsFound": 129998,
   "NodesToFirstSolution": 2,
   "SearchCompleted": false,
   "NodeLimitReached": true,
   "TimeLimitReached": false,
-  "EvaluatorCalls": 13,
+  "EvaluatorCalls": 12,
   "UsedRelaxedRestModel": true,
   "ChoseRelaxedRestModel": false
 }

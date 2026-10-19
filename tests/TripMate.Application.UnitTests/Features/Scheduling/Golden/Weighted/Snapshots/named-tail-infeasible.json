@@ -2,14 +2,14 @@
   "ScenarioId": "named-tail-infeasible",
   "Source": "GroupB_Named",
   "Feasible": true,
-  "BestModelObjective": -1051,
-  "BestEvaluatedObjective": -1051,
+  "BestModelObjective": 1378,
+  "BestEvaluatedObjective": 1378,
   "BestVisitPoiIds": [
     201,
     101
   ],
   "EliteModelObjectives": [
-    -1051,
+    1378,
     -2928
   ],
   "EliteVisitIds": [

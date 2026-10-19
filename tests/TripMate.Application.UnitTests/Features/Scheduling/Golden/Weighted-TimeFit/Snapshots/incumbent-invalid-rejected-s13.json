@@ -2,28 +2,27 @@
   "ScenarioId": "incumbent-invalid-rejected-s13",
   "Source": "GroupC_Incumbent",
   "Feasible": true,
-  "BestModelObjective": 4552,
-  "BestEvaluatedObjective": 4552,
+  "BestModelObjective": 11032,
+  "BestEvaluatedObjective": 11032,
   "BestVisitPoiIds": [
     5,
     9,
+    4,
+    10,
     1
   ],
   "EliteModelObjectives": [
-    4552,
-    3459,
-    3144,
-    2003,
-    1993
+    11032,
+    9750,
+    9736,
+    9102,
+    8914
   ],
   "EliteVisitIds": [
     [
       5,
       9,
-      1
-    ],
-    [
-      5,
+      4,
       10,
       1
     ],
@@ -35,25 +34,30 @@
     ],
     [
       5,
-      10,
-      1,
-      6
+      9,
+      1
     ],
     [
+      5,
       10,
       1,
-      6
+      9
+    ],
+    [
+      5,
+      10,
+      1
     ]
   ],
-  "BestTravelMinutes": 65,
-  "BestDurationMinutes": 200,
-  "BestEstimatedCost": 45000,
-  "EndAtUtc": "2026-10-20T04:20:00+00:00",
-  "NodesExpanded": 43962,
+  "BestTravelMinutes": 87,
+  "BestDurationMinutes": 302,
+  "BestEstimatedCost": 75000,
+  "EndAtUtc": "2026-10-20T06:02:00+00:00",
+  "NodesExpanded": 82705,
   "PrunedByConstraints": 0,
   "PrunedByForwardChecking": 0,
-  "PrunedByBound": 36329,
-  "SolutionsFound": 25575,
+  "PrunedByBound": 67349,
+  "SolutionsFound": 48110,
   "NodesToFirstSolution": 2,
   "SearchCompleted": true,
   "NodeLimitReached": false,

@@ -2,79 +2,96 @@
   "ScenarioId": "grid-c40-m6-frequent-s1",
   "Source": "GroupA_Grid",
   "Feasible": true,
-  "BestModelObjective": -25452,
-  "BestEvaluatedObjective": -17452,
+  "BestModelObjective": null,
+  "BestEvaluatedObjective": 6446,
   "BestVisitPoiIds": [
     5,
     4,
     2,
-    6,
     3,
-    1
+    1,
+    9,
+    6,
+    11,
+    31
   ],
-  "EliteModelObjectives": [
-    -29067
-  ],
+  "EliteModelObjectives": [],
   "EliteVisitIds": [
     [
       5,
+      4,
+      2,
       3,
       1,
-      2,
-      4,
-      6
-    ],
-    [
-      5,
-      3,
-      1,
-      2,
-      4,
+      37,
+      31,
       6,
-      25
+      11,
+      21
     ],
     [
       5,
+      4,
+      2,
       3,
       1,
-      2,
-      4,
+      11,
+      31,
       6,
-      20
+      36,
+      37
     ],
     [
       5,
+      4,
+      2,
       3,
       1,
-      2,
-      4,
-      16,
-      6
-    ],
-    [
-      5,
-      3,
-      1,
-      2,
-      4,
+      11,
+      31,
       6,
+      15,
+      37
+    ],
+    [
+      5,
+      4,
+      2,
+      3,
+      1,
+      11,
+      31,
+      6,
+      39,
+      37
+    ],
+    [
+      5,
+      4,
+      2,
+      3,
+      1,
+      11,
+      31,
+      6,
+      36,
       21
     ]
   ],
-  "BestTravelMinutes": 149,
-  "BestDurationMinutes": 464,
-  "BestEstimatedCost": 90000,
-  "EndAtUtc": "2026-10-20T08:44:00+00:00",
+  "BestTravelMinutes": 135,
+  "BestDurationMinutes": 600,
+  "BestEstimatedCost": 135000,
+  "EndAtUtc": "2026-10-20T11:00:00+00:00",
   "NodesExpanded": 200000,
-  "PrunedByConstraints": 266369,
-  "PrunedByForwardChecking": 5076134,
-  "PrunedByBound": 27264,
-  "SolutionsFound": 28487,
+  "PrunedByConstraints": 344902,
+  "PrunedByForwardChecking": 5082047,
+  "PrunedByBound": 3945,
+  "SolutionsFound": 41586,
   "NodesToFirstSolution": 7,
   "SearchCompleted": false,
   "NodeLimitReached": true,
   "TimeLimitReached": false,
-  "EvaluatorCalls": 12,
+  "EvaluatorCalls": 37,
   "UsedRelaxedRestModel": true,
-  "ChoseRelaxedRestModel": false
+  "ChoseRelaxedRestModel": true
 }

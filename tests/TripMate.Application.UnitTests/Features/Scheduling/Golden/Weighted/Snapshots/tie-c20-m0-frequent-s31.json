@@ -2,68 +2,68 @@
   "ScenarioId": "tie-c20-m0-frequent-s31",
   "Source": "GroupE_Tie",
   "Feasible": true,
-  "BestModelObjective": -14037,
-  "BestEvaluatedObjective": -6037,
+  "BestModelObjective": 1760,
+  "BestEvaluatedObjective": 9760,
   "BestVisitPoiIds": [
-    5,
-    4,
-    3,
-    2,
-    7,
     1,
-    6
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
   ],
   "EliteModelObjectives": [
-    -14037,
-    -14049,
-    -14058,
-    -14078,
-    -14094
+    1760,
+    1760,
+    1760,
+    1760,
+    1760
   ],
   "EliteVisitIds": [
     [
-      5,
-      4,
-      3,
-      2,
-      7,
       1,
-      6
-    ],
-    [
-      5,
-      4,
-      3,
       2,
-      1,
-      7,
-      6
-    ],
-    [
-      5,
-      4,
       3,
-      2,
-      7,
-      6,
-      1
-    ],
-    [
-      5,
       4,
-      3,
-      2,
-      1,
+      5,
       6,
       7
     ],
     [
-      5,
-      4,
-      3,
-      7,
-      2,
       1,
+      2,
+      3,
+      4,
+      5,
+      7,
+      6
+    ],
+    [
+      1,
+      2,
+      3,
+      4,
+      6,
+      5,
+      7
+    ],
+    [
+      1,
+      2,
+      3,
+      4,
+      6,
+      7,
+      5
+    ],
+    [
+      1,
+      2,
+      3,
+      4,
+      7,
+      5,
       6
     ]
   ],
@@ -80,7 +80,7 @@
   "SearchCompleted": true,
   "NodeLimitReached": false,
   "TimeLimitReached": false,
-  "EvaluatorCalls": 13,
+  "EvaluatorCalls": 276,
   "UsedRelaxedRestModel": true,
   "ChoseRelaxedRestModel": false
 }

@@ -2,19 +2,19 @@
   "ScenarioId": "budget-limited-optional-s23",
   "Source": "GroupD_Budget",
   "Feasible": true,
-  "BestModelObjective": 12195,
-  "BestEvaluatedObjective": 12195,
+  "BestModelObjective": 21290,
+  "BestEvaluatedObjective": 21290,
   "BestVisitPoiIds": [
     16,
     30,
     21
   ],
   "EliteModelObjectives": [
-    12195,
-    11197,
-    11105,
-    11026,
-    10952
+    21290,
+    20344,
+    20218,
+    20211,
+    19535
   ],
   "EliteVisitIds": [
     [
@@ -23,9 +23,14 @@
       21
     ],
     [
+      9,
+      16,
+      30
+    ],
+    [
       16,
       30,
-      2
+      11
     ],
     [
       9,
@@ -34,12 +39,8 @@
     ],
     [
       16,
-      30
-    ],
-    [
-      16,
-      30,
-      33
+      11,
+      14
     ]
   ],
   "BestTravelMinutes": 42,
@@ -55,7 +56,7 @@
   "SearchCompleted": true,
   "NodeLimitReached": false,
   "TimeLimitReached": false,
-  "EvaluatorCalls": 16,
+  "EvaluatorCalls": 17,
   "UsedRelaxedRestModel": true,
   "ChoseRelaxedRestModel": false
 }

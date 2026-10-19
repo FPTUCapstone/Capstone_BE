@@ -2,19 +2,19 @@
   "ScenarioId": "weighted-small-maxstops-3-s62",
   "Source": "GroupG_SmallExhaustive",
   "Feasible": true,
-  "BestModelObjective": 6090,
-  "BestEvaluatedObjective": 6090,
+  "BestModelObjective": 12714,
+  "BestEvaluatedObjective": 12714,
   "BestVisitPoiIds": [
     3,
     5,
     8
   ],
   "EliteModelObjectives": [
-    6090,
-    4557,
-    4158,
-    3947,
-    3883
+    12714,
+    9882,
+    9786,
+    9210,
+    8198
   ],
   "EliteVisitIds": [
     [
@@ -24,19 +24,22 @@
     ],
     [
       3,
+      5,
+      4
+    ],
+    [
+      3,
       2,
       4
     ],
     [
-      8,
-      4
-    ],
-    [
-      5,
-      3
-    ],
-    [
       3,
+      5,
+      7
+    ],
+    [
+      8,
+      4,
       5
     ]
   ],
@@ -44,11 +47,11 @@
   "BestDurationMinutes": 179,
   "BestEstimatedCost": 45000,
   "EndAtUtc": "2026-10-20T03:59:00+00:00",
-  "NodesExpanded": 227,
+  "NodesExpanded": 81,
   "PrunedByConstraints": 0,
   "PrunedByForwardChecking": 0,
-  "PrunedByBound": 29,
-  "SolutionsFound": 226,
+  "PrunedByBound": 39,
+  "SolutionsFound": 80,
   "NodesToFirstSolution": 2,
   "SearchCompleted": true,
   "NodeLimitReached": false,

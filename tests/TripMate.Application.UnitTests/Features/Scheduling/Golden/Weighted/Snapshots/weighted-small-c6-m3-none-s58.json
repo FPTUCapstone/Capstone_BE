@@ -2,56 +2,64 @@
   "ScenarioId": "weighted-small-c6-m3-none-s58",
   "Source": "GroupG_SmallExhaustive",
   "Feasible": true,
-  "BestModelObjective": -6020,
-  "BestEvaluatedObjective": -6020,
+  "BestModelObjective": -1574,
+  "BestEvaluatedObjective": -1574,
   "BestVisitPoiIds": [
+    5,
+    4,
+    1,
     2,
-    3,
-    1
+    3
   ],
   "EliteModelObjectives": [
-    -6020,
-    -6558,
-    -6925,
-    -7354,
-    -8465
+    -1574,
+    -2276,
+    -2324,
+    -2360,
+    -2360
   ],
   "EliteVisitIds": [
     [
+      5,
+      4,
+      1,
+      2,
+      3
+    ],
+    [
       2,
       3,
       1
     ],
     [
-      3,
+      5,
+      4,
       2,
+      3,
       1
     ],
     [
+      2,
+      4,
+      1,
+      3
+    ],
+    [
       3,
-      1,
-      2
-    ],
-    [
       2,
-      1,
-      3
-    ],
-    [
-      1,
-      2,
-      3
+      4,
+      1
     ]
   ],
-  "BestTravelMinutes": 78,
-  "BestDurationMinutes": 213,
-  "BestEstimatedCost": 45000,
-  "EndAtUtc": "2026-10-20T04:33:00+00:00",
-  "NodesExpanded": 732,
+  "BestTravelMinutes": 113,
+  "BestDurationMinutes": 328,
+  "BestEstimatedCost": 75000,
+  "EndAtUtc": "2026-10-20T06:28:00+00:00",
+  "NodesExpanded": 1133,
   "PrunedByConstraints": 0,
   "PrunedByForwardChecking": 0,
-  "PrunedByBound": 466,
-  "SolutionsFound": 218,
+  "PrunedByBound": 575,
+  "SolutionsFound": 435,
   "NodesToFirstSolution": 4,
   "SearchCompleted": true,
   "NodeLimitReached": false,
