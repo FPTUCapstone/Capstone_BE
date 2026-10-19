@@ -61,7 +61,15 @@ public sealed class PaymentTests
             paymentExpiresAtUtc: Now.AddMinutes(15));
 
         var clock = new FixedClock(Now);
-        var gateway = new FakePaymentGateway();
+        var gateway = new FakePaymentGateway
+        {
+            OnCreate = () =>
+            {
+                var pendingClaim = db.PaymentTransactions.Single();
+                pendingClaim.Status.Should().Be(PaymentTransactionStatus.Pending);
+                pendingClaim.CheckoutUrl.Should().BeNull();
+            },
+        };
         var options = new PaymentOptions { Provider = "Mock" };
         var handler = new CreateOrReusePaymentLinkCommandHandler(
             db, new TestCurrentUserService(travelerId), clock, gateway, options);
@@ -286,7 +294,7 @@ public sealed class PaymentTests
     }
 
     [Fact]
-    public async Task PayOsWebhook_LateSuccessAfterBookingExpiry_PersistsTxSuccessWithoutReinstatingBooking()
+    public async Task PayOsWebhook_LateSuccessAfterBookingExpiry_DoesNotReopenTerminalTransactionOrBooking()
     {
         await using var db = CreateDbContext();
         var (_, booking) = await SeedBookingAsync(db, BookingStatus.Expired, PaymentStatus.Unpaid,
@@ -294,6 +302,7 @@ public sealed class PaymentTests
 
         const long orderCode = 88881;
         var tx = PaymentTransaction.Create(booking.Id, PaymentGateway.PayOS, booking.TotalAmount, orderCode, Now.AddMinutes(-15));
+        tx.MarkExpired("Booking payment hold expired.", Now.AddMinutes(-10));
         db.PaymentTransactions.Add(tx);
         await db.SaveChangesAsync();
 
@@ -323,11 +332,48 @@ public sealed class PaymentTests
         result.IsSuccess.Should().BeTrue();
 
         var reloadedTx = await db.PaymentTransactions.FindAsync(tx.Id);
-        reloadedTx!.Status.Should().Be(PaymentTransactionStatus.Success);
+        reloadedTx!.Status.Should().Be(PaymentTransactionStatus.Expired);
+        reloadedTx.RawResponse.Should().NotBeNullOrWhiteSpace();
 
         // Decision 8: Booking remains Expired and is never reinstated
         var reloadedBooking = await db.Bookings.FindAsync(booking.Id);
         reloadedBooking!.Status.Should().Be(BookingStatus.Expired);
+        reloadedBooking.PaymentStatus.Should().Be(PaymentStatus.Unpaid);
+    }
+
+    [Fact]
+    public async Task PayOsWebhook_LateSuccessAfterCancellation_DoesNotReopenTransactionOrConfirmBooking()
+    {
+        await using var db = CreateDbContext();
+        var (_, booking) = await SeedBookingAsync(db, BookingStatus.PendingPayment, PaymentStatus.Unpaid,
+            paymentExpiresAtUtc: Now.AddMinutes(15));
+
+        const long orderCode = 88883;
+        var tx = PaymentTransaction.Create(booking.Id, PaymentGateway.PayOS, booking.TotalAmount, orderCode, Now);
+        tx.MarkCancelled("Traveler cancelled.", Now.AddMinutes(1));
+        db.PaymentTransactions.Add(tx);
+        await db.SaveChangesAsync();
+
+        var processor = new PaymentCompletionProcessor(db, new FixedClock(Now.AddMinutes(2)));
+        var completed = await processor.CompleteAsync(
+            transactionId: tx.Id,
+            orderCode: null,
+            outcome: PaymentTransactionStatus.Success,
+            gatewayRef: "PAYOS-LATE-REF",
+            rawResponse: "Late success notification.",
+            verifiedAmount: booking.TotalAmount,
+            verifiedCurrency: "VND",
+            cancellationToken: CancellationToken.None);
+
+        completed.IsSuccess.Should().BeTrue();
+        completed.Value.StatusChanged.Should().BeFalse();
+
+        var reloadedTx = await db.PaymentTransactions.FindAsync(tx.Id);
+        reloadedTx!.Status.Should().Be(PaymentTransactionStatus.Cancelled);
+        reloadedTx.GatewayTransactionRef.Should().Be("PAYOS-LATE-REF");
+
+        var reloadedBooking = await db.Bookings.FindAsync(booking.Id);
+        reloadedBooking!.Status.Should().Be(BookingStatus.PendingPayment);
         reloadedBooking.PaymentStatus.Should().Be(PaymentStatus.Unpaid);
     }
 
@@ -439,11 +485,14 @@ public sealed class PaymentTests
 
         public PaymentLinkRequest? LastRequest { get; private set; }
 
+        public Action? OnCreate { get; init; }
+
         public Task<PaymentLinkResult> CreatePaymentLinkAsync(
             PaymentLinkRequest request,
             CancellationToken cancellationToken)
         {
             LastRequest = request;
+            OnCreate?.Invoke();
             return Task.FromResult(new PaymentLinkResult(
                 PaymentLinkId: $"MOCK-LINK-{request.OrderCode}",
                 CheckoutUrl: $"http://localhost:3001/checkout/mock?paymentId={request.OrderCode}&bookingId={request.BookingId}",

@@ -81,15 +81,21 @@ public class PaymentTransaction : BaseEntity
         };
     }
 
-    public void UpdateCheckoutDetails(string? paymentLinkId, string? checkoutUrl)
+    public void UpdateCheckoutDetails(
+        string? paymentLinkId,
+        string? checkoutUrl,
+        string? qrCode,
+        DateTimeOffset? expiresAtUtc)
     {
         PaymentLinkId = paymentLinkId?.Trim();
         CheckoutUrl = checkoutUrl?.Trim();
+        QrCode = qrCode?.Trim();
+        ExpiresAtUtc = expiresAtUtc?.ToUniversalTime();
     }
 
     public bool MarkSuccess(string? gatewayRef, string? rawResponse, DateTimeOffset nowUtc)
     {
-        if (Status == PaymentTransactionStatus.Success)
+        if (Status != PaymentTransactionStatus.Pending)
             return false;
 
         Status = PaymentTransactionStatus.Success;
@@ -99,6 +105,19 @@ public class PaymentTransaction : BaseEntity
             RawResponse = rawResponse;
         UpdatedAtUtc = nowUtc.ToUniversalTime();
         return true;
+    }
+
+    /// <summary>
+    /// Keeps evidence of a late gateway notification without reopening a terminal transaction.
+    /// A payment reported after cancellation or expiry must be reconciled/refunded separately.
+    /// </summary>
+    public void RecordLateGatewayNotification(string? gatewayRef, string? rawResponse, DateTimeOffset nowUtc)
+    {
+        if (!string.IsNullOrWhiteSpace(gatewayRef))
+            GatewayTransactionRef = gatewayRef.Trim();
+        if (!string.IsNullOrWhiteSpace(rawResponse))
+            RawResponse = rawResponse;
+        UpdatedAtUtc = nowUtc.ToUniversalTime();
     }
 
     public bool MarkCancelled(string? rawResponse, DateTimeOffset nowUtc)

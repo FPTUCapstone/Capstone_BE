@@ -71,19 +71,27 @@ public sealed class PaymentCompletionProcessor(
 
         var now = clock.UtcNow;
         var statusChanged = false;
+        var acceptedPayment = false;
 
         switch (outcome)
         {
             case PaymentTransactionStatus.Success:
-                if (transaction.Status != PaymentTransactionStatus.Success)
+                if (transaction.Status == PaymentTransactionStatus.Pending)
                 {
                     transaction.MarkSuccess(gatewayRef, rawResponse, now);
                     statusChanged = true;
+                    acceptedPayment = true;
+                }
+                else if (transaction.Status != PaymentTransactionStatus.Success)
+                {
+                    // A terminal transaction must never be reopened by a late PayOS webhook.
+                    // Retain its gateway evidence for reconciliation/refund processing instead.
+                    transaction.RecordLateGatewayNotification(gatewayRef, rawResponse, now);
                 }
 
                 // Decision 6 & 8: If booking is still eligible (PendingPayment and not expired), confirm it.
                 // If booking has already expired, keep booking Expired and do not reinstate.
-                if (booking.Status == BookingStatus.PendingPayment)
+                if (acceptedPayment && booking.Status == BookingStatus.PendingPayment)
                 {
                     if (booking.PaymentExpiresAtUtc.HasValue && booking.PaymentExpiresAtUtc.Value < now)
                     {

@@ -80,6 +80,15 @@ services:
       Jwt__Issuer: TripMate
       Jwt__Audience: TripMateClients
       Jwt__SigningKey: ${JWT_SIGNING_KEY}
+      # UC-28: keep the gateway switch and PayOS credentials in the local, git-ignored
+      # .env file. Defaulting to Mock preserves the isolated development flow; set
+      # Payment__Provider=PayOS to receive a real VietQR payload on Web and Mobile.
+      Payment__Provider: ${Payment__Provider:-Mock}
+      Payment__PayOs__ClientId: ${Payment__PayOs__ClientId:-}
+      Payment__PayOs__ApiKey: ${Payment__PayOs__ApiKey:-}
+      Payment__PayOs__ChecksumKey: ${Payment__PayOs__ChecksumKey:-}
+      Payment__PayOs__ReturnUrl: ${Payment__PayOs__ReturnUrl:-http://localhost:3001/checkout/result}
+      Payment__PayOs__CancelUrl: ${Payment__PayOs__CancelUrl:-http://localhost:3001/checkout/result}
       OPENROUTESERVICE__APIKEY: ${OPENROUTESERVICE__APIKEY:?OPENROUTESERVICE__APIKEY must be set in .env}
       OPENROUTESERVICE__BASEURL: ${OPENROUTESERVICE__BASEURL:-https://api.heigit.org/openrouteservice/}
       SchedulingRateLimit__MaxFreshGenerationsPerMinute: ${SchedulingRateLimit__MaxFreshGenerationsPerMinute:-3}
