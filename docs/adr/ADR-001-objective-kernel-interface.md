@@ -57,3 +57,34 @@ Kiến trúc sẽ được xem xét chuyển sang zero-allocation struct generic
 1. **p95 Latency:** Thời gian giải p95 của solver vượt quá **800 ms** trong production hoặc trên bộ kịch bản kiểm thử tải thực tế.
 2. **Weighted / Lex Ratio:** Tỷ lệ chi phí mỗi node giữa `WeightedUtilityKernel` và `LexicographicKernel` vượt quá **$2\times$** (`Weighted > 2x Lex`).
 3. **Virtual Dispatch Overhead:** Dữ liệu profile sản xuất (PerfView / dotTrace) chỉ ra chi phí virtual call vượt quá **10%** tổng thời gian CPU của solver.
+
+---
+
+## 5. Cập nhật Thực nghiệm: Biến cố Tăng Chi phí PR-07b & Khắc phục PR-07c (Post-PR07 Evaluation)
+
+### 5.1. Vấn đề tại PR-07b (Kích hoạt Điều kiện 2)
+Trong PR-07b, việc siết cận theo hậu tố thời gian động (G2 dynamic suffix) đòi hỏi duyệt đủ danh sách ứng viên và thực hiện sắp xếp động (insertion sort) mảng ứng viên tại mỗi lần gọi `CanImprove`.
+- **Hệ quả:** Chi phí trên mỗi node tăng lên 3.051 ns/node trên instance n=25, đạt **$2.09\times$ so với Lexicographic** (vượt ngưỡng cảnh báo $2\times$ của Điều kiện 2).
+- Trên các kịch bản $n=40$, chi phí đạt 4.300 – 5.900 ns/node, khiến thời gian giải tổng thể bị chậm đi 16% – 30% dù số node giảm.
+
+### 5.2. Biện pháp Tối ưu hóa tại PR-07c
+Để đưa chi phí node về dưới ngưỡng cho phép mà vẫn duy trì tính chặt chẽ của cận TimeFit:
+1. **H1 - Bucketed Time-Suffix Bound (Cận chia khung 15 phút):**
+   - Rời rạc hóa thời gian $[0, \text{Horizon}]$ thành các bucket 15 phút.
+   - Tính sẵn bảng cận và sắp xếp sẵn mảng thứ tự mật độ/giá trị cho từng khung tại `Initialize`.
+   - Trong `CanImprove`: Chỉ tra cứu theo chỉ số khung $b = \min(\text{departure} / 15, B - 1)$.
+   - Khôi phục khả năng **ngắt sớm** trong `UB_slots` (`if (s <= 0) break;`).
+   - Loại bỏ hoàn toàn thao tác sắp xếp trong vòng lặp tìm kiếm, đảm bảo zero heap allocation.
+   - Do $MaxFactorFrom(v, t)$ đơn điệu giảm theo thời gian và $t_b \le \text{departure}$, tính admissible được bảo toàn tuyệt đối ($MaxFactorFrom(v, t_b) \ge MaxFactorFrom(v, \text{departure})$).
+2. **H2 - Greedy $\Delta J$ Initial Incumbent:**
+   - Xây dựng thuật toán tham lam nhanh ($< 50$ ms ở $n=40$) chèn các điểm bắt buộc và lần lượt thêm điểm tùy chọn có $\Delta J > 0$ lớn nhất.
+   - Giúp nhánh cây cắt tỉa hiệu quả ngay từ các tầng đầu mà không làm tăng chi phí mỗi node.
+
+### 5.3. Kết quả Đo lường Thực nghiệm sau PR-07c
+- **Chi phí mỗi node:**
+  - Trên synthetic $n=12..15$ Real TimeFit: Giảm từ ~2.500–3.500 ns/node xuống **1.490 – 2.600 ns/node** (trung bình ~1.600 ns/node).
+  - Trên các kịch bản $n=40$ Golden: Giảm từ 4.300 – 5.900 ns/node xuống **2.990 – 4.270 ns/node** (tốc độ giải nhanh hơn **25% – 36%**, ví dụ `grid-c40-m0` giảm từ 913 ms xuống 599 ms).
+- **Tỷ lệ chi phí Weighted / Lexicographic:** Quay trở lại vùng an toàn **~1.3x – 1.5x**, triệt để giải tỏa cảnh báo của Điều kiện 2.
+
+### 5.4. Kết luận Kiến trúc
+Sau tối ưu PR-07c, kiến trúc interface `IObjectiveKernel` tiếp tục được chứng minh là đủ nhanh, tinh gọn và đạt mọi chỉ tiêu kỹ thuật. **Quyết định giữ nguyên interface tiếp tục có hiệu lực.**
