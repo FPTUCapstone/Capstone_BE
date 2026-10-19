@@ -841,11 +841,11 @@ public class LocalShadowBenchmarkRunner(ITestOutputHelper output)
     {
         return new PersonalizationOptions
         {
-            Version = "2026.1",
+            Version = "2026.2",
             Pace = new Dictionary<TravelerPace, PaceParams>
             {
-                [TravelerPace.Relaxed] = new(LambdaPerMin: 0.02, MaxStopsPerDay: 3, MaxDailyEffort: 200, RestAfterMin: 90),
-                [TravelerPace.Moderate] = new(LambdaPerMin: 0.015, MaxStopsPerDay: 5, MaxDailyEffort: 300, RestAfterMin: 120),
+                [TravelerPace.Relaxed] = new(LambdaPerMin: 0.018, MaxStopsPerDay: 3, MaxDailyEffort: 200, RestAfterMin: 90),
+                [TravelerPace.Moderate] = new(LambdaPerMin: 0.012, MaxStopsPerDay: 5, MaxDailyEffort: 300, RestAfterMin: 120),
                 [TravelerPace.Fast] = new(LambdaPerMin: 0.008, MaxStopsPerDay: 8, MaxDailyEffort: 450, RestAfterMin: 180),
             },
             Mu = 0.005,

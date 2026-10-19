@@ -16,7 +16,7 @@ public sealed class PersonalizationOptions
     public const string SectionName = "SchedulingGeneration:Personalization";
 
     /// <summary>Phiên bản cấu hình tham số cá nhân hóa, ghi nhận vào log/telemetry của mỗi lần giải.</summary>
-    public string Version { get; init; } = "2026.1";
+    public string Version { get; init; } = "2026.2";
 
     /// <summary>Bảng tham số theo nhịp độ di chuyển (Relaxed, Moderate, Fast).</summary>
     public Dictionary<TravelerPace, PaceParams> Pace { get; init; } = [];

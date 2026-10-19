@@ -12,18 +12,18 @@ public class PersonalParamsFactoryTests
 {
     private static PersonalizationOptions CreateStandardOptions() => new()
     {
-        Version = "2026.1",
+        Version = "2026.2",
         Pace = new Dictionary<TravelerPace, PaceParams>
         {
-            [TravelerPace.Relaxed] = new(LambdaPerMin: 0.025, MaxStopsPerDay: 3, MaxDailyEffort: 200, RestAfterMin: 90),
-            [TravelerPace.Moderate] = new(LambdaPerMin: 0.015, MaxStopsPerDay: 5, MaxDailyEffort: 300, RestAfterMin: 120),
+            [TravelerPace.Relaxed] = new(LambdaPerMin: 0.018, MaxStopsPerDay: 3, MaxDailyEffort: 200, RestAfterMin: 90),
+            [TravelerPace.Moderate] = new(LambdaPerMin: 0.012, MaxStopsPerDay: 5, MaxDailyEffort: 300, RestAfterMin: 120),
             [TravelerPace.Fast] = new(LambdaPerMin: 0.008, MaxStopsPerDay: 8, MaxDailyEffort: 450, RestAfterMin: 180),
         },
         Mu = 0.005,
         GammaDefault = 0.6,
         GammaLoved = 0.85,
         RhoOutdoor = 0.25,
-        RhoRest = 0.20,
+        RhoRest = 0.0,
         RhoStops = 0.30,
         RhoEffortPerHour = 0.05,
         TagToCategory = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
@@ -61,7 +61,7 @@ public class PersonalParamsFactoryTests
         p.MaxConsecutiveOutdoor.Should().Be(3);
         p.LovedCategories.Should().Contain(PoiCategoryNames.Beach);
         p.LovedCategories.Should().Contain(PoiCategoryNames.Culture);
-        p.ConfigVersion.Should().Be("2026.1");
+        p.ConfigVersion.Should().Be("2026.2");
     }
 
     [Fact]
@@ -81,12 +81,12 @@ public class PersonalParamsFactoryTests
 
         var p = factory.Create(profile);
 
-        p.LambdaPerMin.Should().Be(0.015);
+        p.LambdaPerMin.Should().Be(0.012);
         p.MaxStopsPerDay.Should().Be(5);
         p.MaxDailyEffort.Should().Be(300);
         p.MaxConsecutiveOutdoor.Should().Be(3);
         p.LovedCategories.Should().BeEquivalentTo([PoiCategoryNames.Culture, PoiCategoryNames.Museum]);
-        p.ConfigVersion.Should().Be("2026.1");
+        p.ConfigVersion.Should().Be("2026.2");
     }
 
     [Fact]
@@ -106,7 +106,7 @@ public class PersonalParamsFactoryTests
 
         var p = factory.Create(profile);
 
-        p.LambdaPerMin.Should().Be(0.025, "Relaxed pace has largest lambda");
+        p.LambdaPerMin.Should().Be(0.018, "Relaxed pace has largest lambda");
         p.MaxStopsPerDay.Should().Be(3, "Relaxed pace has lowest max stops");
         p.MaxDailyEffort.Should().Be((int)Math.Round(200 * 0.7), "Low risk scales effort by 0.7");
         p.MaxConsecutiveOutdoor.Should().Be(2, "Low risk reduces max consecutive outdoor stops to 2");
@@ -121,14 +121,14 @@ public class PersonalParamsFactoryTests
 
         var p = factory.Create(null);
 
-        p.LambdaPerMin.Should().Be(0.015);
+        p.LambdaPerMin.Should().Be(0.012);
         p.MaxStopsPerDay.Should().Be(5);
         p.MaxDailyEffort.Should().Be(300);
         p.RestAfterMin.Should().Be(120);
         p.MaxConsecutiveOutdoor.Should().Be(3);
         p.SunriseFactor.Should().Be(0.6);
         p.LovedCategories.Should().BeEmpty();
-        p.ConfigVersion.Should().Be("2026.1");
+        p.ConfigVersion.Should().Be("2026.2");
     }
 
     [Fact]
