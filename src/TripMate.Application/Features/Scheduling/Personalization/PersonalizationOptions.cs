@@ -25,10 +25,10 @@ public sealed class PersonalizationOptions
     public double Mu { get; init; } = 0.005;
 
     /// <summary>Hệ số suy giảm biên mặc định (default diminishing marginal utility factor).</summary>
-    public double GammaDefault { get; init; } = 0.6;
+    public double GammaDefault { get; init; } = 0.7;
 
     /// <summary>Hệ số suy giảm biên cho danh mục yêu thích (loved category factor).</summary>
-    public double GammaLoved { get; init; } = 0.85;
+    public double GammaLoved { get; init; } = 0.9;
 
     /// <summary>Trọng số phạt chuỗi hoạt động ngoài trời liên tiếp vượt ngưỡng.</summary>
     public double RhoOutdoor { get; init; } = 0.25;
