@@ -24,6 +24,7 @@ public class WeightedUtilityKernelTests
             1.0 + 0.005 * (startMin % 60) + 0.001 * (node % 10);
 
         public double MaxFactor(int node) => 1.5;
+        public double MaxFactorFrom(int node, int fromMinute) => 1.5;
     }
 
     private static (WeightedObjectiveInputs Inputs, IReadOnlyDictionary<long, int> NodeOf) CreateSensitiveInputs(RoutingContext ctx)

@@ -210,6 +210,37 @@ public sealed class RealTimeFitProvider : ITimeFitProvider
     }
 
     /// <summary>
+    /// Hệ số lớn nhất còn đạt được từ thời điểm fromMinute đến hết ngày (0 allocation).
+    /// Tích các f_r > 1 của những khung có close_r > fromMinute, kẹp tối đa 1.5.
+    /// </summary>
+    public double MaxFactorFrom(int node, int fromMinute)
+    {
+        if ((uint)node >= (uint)_windows.Length)
+        {
+            return 1.0;
+        }
+
+        var windows = _windows[node];
+        if (windows.Length == 0)
+        {
+            return 1.0;
+        }
+
+        var boost = 1.0;
+        for (var i = 0; i < windows.Length; i++)
+        {
+            var w = windows[i];
+            if (w.Factor > 1.0 && w.Close > fromMinute)
+            {
+                boost *= w.Factor;
+            }
+        }
+
+        if (boost > 1.5) return 1.5;
+        return boost;
+    }
+
+    /// <summary>
     /// Cho phép truy vấn các khung giờ đã tính cho node (phục vụ kiểm thử).
     /// </summary>
     public IReadOnlyList<TimeFitWindow> GetWindows(int node)

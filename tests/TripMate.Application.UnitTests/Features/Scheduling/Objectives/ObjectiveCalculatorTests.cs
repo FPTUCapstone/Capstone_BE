@@ -36,6 +36,7 @@ public class ObjectiveCalculatorTests
         }
 
         public double MaxFactor(int node) => 1.5;
+        public double MaxFactorFrom(int node, int fromMinute) => 1.5;
     }
 
     private static (WeightedObjectiveInputs Inputs, IReadOnlyDictionary<long, int> NodeOf) CreateSensitiveInputs(

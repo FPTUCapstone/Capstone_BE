@@ -34,7 +34,8 @@ public enum BoundVariant
     GreedySlotsOnly,
     ApplyGamma,
     NoRoundingSlack,
-    IgnoreOptionalIncomingTravel
+    IgnoreOptionalIncomingTravel,
+    StaticMaxFactor
 }
 
 /// <summary>
@@ -75,6 +76,12 @@ internal sealed class WeightedUtilityKernel : IObjectiveKernel
     private int[] _mark = null!;
     private int _stamp;
     private int _maxStops;
+
+    private int[] _candNodes = null!;
+    private long[] _candVal = null!;
+    private double[] _candDensity = null!;
+    private int[] _slotsOrder = null!;
+    private int[] _timeOrder = null!;
 
     private WeightedIncumbent? _incumbent;
     private long _pendingObjective;
@@ -160,6 +167,12 @@ internal sealed class WeightedUtilityKernel : IObjectiveKernel
 
         _maxStops = _options.MaxStops ?? int.MaxValue;
         var n = _ctx.Nodes.Count;
+
+        _candNodes = new int[n];
+        _candVal = new long[n];
+        _candDensity = new double[n];
+        _slotsOrder = new int[n];
+        _timeOrder = new int[n];
 
         _uMax = new long[n];
         _vEff = new long[n];
@@ -290,7 +303,19 @@ internal sealed class WeightedUtilityKernel : IObjectiveKernel
             remainingMandatory++;
             if (_variant != BoundVariant.OmitMandatoryGain)
             {
-                mandatoryGain += _uMax[m]; // điểm bắt buộc CHẮC CHẮN được ghé
+                if (_variant == BoundVariant.StaticMaxFactor || _variant == BoundVariant.IgnoreOptionalIncomingTravel)
+                {
+                    mandatoryGain += _uMax[m];
+                }
+                else
+                {
+                    var factor = _inputs.TimeFit.MaxFactorFrom(m, departure);
+                    if (_variant == BoundVariant.ApplyGamma)
+                    {
+                        factor *= _inputs.P.GammaLoved;
+                    }
+                    mandatoryGain += (long)Math.Ceiling(WeightedObjectiveInputs.Scale * _inputs.Base[m] * factor);
+                }
             }
             forcedTravel += _pre.MinIncomingRaw[m];
             timeLeft -= _pre.MinIncomingTravel[m] + _ctx.Nodes[m].VisitMinutes;
@@ -298,46 +323,167 @@ internal sealed class WeightedUtilityKernel : IObjectiveKernel
         }
 
         var finalReturn = _ctx.RawTravel(current, _ctx.EndMatrixIndex);
-        _stamp++;
-        for (var i = 0; i < domainCount; i++)
-        {
-            var v = domain[i];
-            finalReturn = Math.Min(finalReturn, _pre.ReturnRaw[v]);
-            var node = _ctx.Nodes[v];
-            if (node.IsMandatory) continue;
-            if (budgetLeft is { } left && node.Cost > left) continue; // một mình đã vượt ngân sách
-            if (_variant != BoundVariant.IgnoreOptionalIncomingTravel && _vEff[v] <= 0) continue;
-            _mark[v] = _stamp;
-        }
-
-        long ubTime = 0; var t = timeLeft; // knapsack phân số theo thời gian
-        foreach (var v in _byDensity)
-        {
-            if (_mark[v] != _stamp) continue;
-            if (t <= 0) break;
-            if (_weight[v] <= t) { ubTime += _vEff[v]; t -= _weight[v]; }
-            else { ubTime += _vEff[v] * t / _weight[v] + 1; break; } // +1: bù làm tròn xuống của phép chia
-        }
-
         var maxVisits = Math.Min(_maxStops, _ctx.Nodes.Count);
-        var slots = Math.Max(0, maxVisits - depth - remainingMandatory); // nhớ trừ điểm bắt buộc
-        long ubSlots = 0; var s = slots;
-        if (_variant == BoundVariant.GreedySlotsOnly)
+        var slots = Math.Max(0, maxVisits - depth - remainingMandatory);
+
+        long ubTime = 0;
+        long ubSlots = 0;
+
+        if (_variant == BoundVariant.StaticMaxFactor || _variant == BoundVariant.IgnoreOptionalIncomingTravel)
         {
+            _stamp++;
+            for (var i = 0; i < domainCount; i++)
+            {
+                var v = domain[i];
+                finalReturn = Math.Min(finalReturn, _pre.ReturnRaw[v]);
+                var node = _ctx.Nodes[v];
+                if (node.IsMandatory) continue;
+                if (budgetLeft is { } left && node.Cost > left) continue;
+                if (_variant != BoundVariant.IgnoreOptionalIncomingTravel && _vEff[v] <= 0) continue;
+                _mark[v] = _stamp;
+            }
+
+            var t = timeLeft;
             foreach (var v in _byDensity)
             {
-                if (s <= 0) break;
                 if (_mark[v] != _stamp) continue;
-                ubSlots += _vEff[v]; s--;
+                if (t <= 0) break;
+                if (_weight[v] <= t) { ubTime += _vEff[v]; t -= _weight[v]; }
+                else { ubTime += _vEff[v] * t / _weight[v] + 1; break; }
+            }
+
+            var s = slots;
+            if (_variant == BoundVariant.GreedySlotsOnly)
+            {
+                foreach (var v in _byDensity)
+                {
+                    if (s <= 0) break;
+                    if (_mark[v] != _stamp) continue;
+                    ubSlots += _vEff[v]; s--;
+                }
+            }
+            else
+            {
+                foreach (var v in _byValue)
+                {
+                    if (s <= 0) break;
+                    if (_mark[v] != _stamp) continue;
+                    ubSlots += _vEff[v]; s--;
+                }
             }
         }
         else
         {
-            foreach (var v in _byValue)
+            var candCount = 0;
+            for (var i = 0; i < domainCount; i++)
             {
-                if (s <= 0) break;
-                if (_mark[v] != _stamp) continue;
-                ubSlots += _vEff[v]; s--;
+                var v = domain[i];
+                finalReturn = Math.Min(finalReturn, _pre.ReturnRaw[v]);
+                var node = _ctx.Nodes[v];
+                if (node.IsMandatory) continue;
+                if (budgetLeft is { } left && node.Cost > left) continue;
+
+                var factor = _inputs.TimeFit.MaxFactorFrom(v, departure);
+                if (_variant == BoundVariant.ApplyGamma)
+                {
+                    factor *= _inputs.P.GammaLoved;
+                }
+                var uMaxAt = (long)Math.Ceiling(WeightedObjectiveInputs.Scale * _inputs.Base[v] * factor);
+                var minIncomingCost = (long)Math.Floor(WeightedObjectiveInputs.Scale * _inputs.P.LambdaPerMin * _pre.MinIncomingRaw[v]);
+                var vEff = uMaxAt - minIncomingCost;
+
+                if (vEff <= 0) continue;
+
+                _candNodes[candCount] = v;
+                _candVal[candCount] = vEff;
+                _candDensity[candCount] = (double)vEff / Math.Max(1, _weight[v]);
+                _slotsOrder[candCount] = candCount;
+                _timeOrder[candCount] = candCount;
+                candCount++;
+            }
+
+            if (candCount > 0)
+            {
+                if (_variant == BoundVariant.GreedySlotsOnly)
+                {
+                    // Bẫy GreedySlotsOnly: Sắp theo mật độ thay vì giá trị
+                    for (var i = 1; i < candCount; i++)
+                    {
+                        var key = _slotsOrder[i];
+                        var density = _candDensity[key];
+                        var j = i - 1;
+                        while (j >= 0 && _candDensity[_slotsOrder[j]] < density)
+                        {
+                            _slotsOrder[j + 1] = _slotsOrder[j];
+                            j--;
+                        }
+                        _slotsOrder[j + 1] = key;
+                    }
+
+                    var takeSlots = Math.Min(slots, candCount);
+                    for (var i = 0; i < takeSlots; i++)
+                    {
+                        ubSlots += _candVal[_slotsOrder[i]];
+                    }
+
+                    ubTime = ubSlots;
+                }
+                else
+                {
+                    // UB_slots: Duyệt đủ danh sách, lấy đúng slots giá trị G2 lớn nhất
+                    for (var i = 1; i < candCount; i++)
+                    {
+                        var key = _slotsOrder[i];
+                        var val = _candVal[key];
+                        var j = i - 1;
+                        while (j >= 0 && _candVal[_slotsOrder[j]] < val)
+                        {
+                            _slotsOrder[j + 1] = _slotsOrder[j];
+                            j--;
+                        }
+                        _slotsOrder[j + 1] = key;
+                    }
+
+                    var takeSlots = Math.Min(slots, candCount);
+                    for (var i = 0; i < takeSlots; i++)
+                    {
+                        ubSlots += _candVal[_slotsOrder[i]];
+                    }
+
+                    // UB_time: Knapsack phân số theo mật độ động G2
+                    for (var i = 1; i < candCount; i++)
+                    {
+                        var key = _timeOrder[i];
+                        var density = _candDensity[key];
+                        var j = i - 1;
+                        while (j >= 0 && _candDensity[_timeOrder[j]] < density)
+                        {
+                            _timeOrder[j + 1] = _timeOrder[j];
+                            j--;
+                        }
+                        _timeOrder[j + 1] = key;
+                    }
+
+                    var t = timeLeft;
+                    for (var i = 0; i < candCount; i++)
+                    {
+                        if (t <= 0) break;
+                        var idx = _timeOrder[i];
+                        var nodeIdx = _candNodes[idx];
+                        var w = _weight[nodeIdx];
+                        var v = _candVal[idx];
+                        if (w <= t)
+                        {
+                            ubTime += v;
+                            t -= w;
+                        }
+                        else
+                        {
+                            ubTime += v * t / w + 1;
+                            break;
+                        }
+                    }
+                }
             }
         }
 
@@ -351,7 +497,7 @@ internal sealed class WeightedUtilityKernel : IObjectiveKernel
 
         LastCanImproveDebug = $"obj={_obj[depth]}, mandGain={mandatoryGain}, optGain={optionalGain}, ubTime={ubTime}, ubSlots={ubSlots}, travelLb={travelLb}, slack={slack}, ub={ub}, inc={_incumbent?.Objective}, timeLeft={timeLeft}";
 
-        if (ub < _incumbent.Objective) return false; // < : giữ nhánh hòa cho tie-break
+        if (ub < _incumbent!.Objective) return false; // < : giữ nhánh hòa cho tie-break
         return true;
     }
 

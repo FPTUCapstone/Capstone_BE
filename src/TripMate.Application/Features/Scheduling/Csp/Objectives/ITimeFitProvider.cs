@@ -10,6 +10,9 @@ public interface ITimeFitProvider
 
     /// <summary>Hệ số lớn nhất có thể của node trong ngày (dùng cho cận trên admissible).</summary>
     double MaxFactor(int node);
+
+    /// <summary>Hệ số lớn nhất còn đạt được từ thời điểm fromMinute đến hết ngày (dùng cho cận trên G2).</summary>
+    double MaxFactorFrom(int node, int fromMinute);
 }
 
 /// <summary>
@@ -19,6 +22,7 @@ public sealed class ConstantTimeFit : ITimeFitProvider
 {
     public double Factor(int node, int startMin, int endMin) => 1.0;
     public double MaxFactor(int node) => 1.0;
+    public double MaxFactorFrom(int node, int fromMinute) => 1.0;
 }
 
 /// <summary>

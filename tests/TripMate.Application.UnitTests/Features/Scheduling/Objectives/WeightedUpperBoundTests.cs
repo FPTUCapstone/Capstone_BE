@@ -84,6 +84,49 @@ public class WeightedUpperBoundTests
         }
     }
 
+    [Theory]
+    [MemberData(nameof(WeightedScenarios))]
+    public void MaxFactorFrom_dominates_every_feasible_gain(string id)
+    {
+        var scenario = WeightedScenarioFactory.CreateAllScenarios().First(s => s.Id == id);
+        var ctx = CspItinerarySolver.CreatePrimaryContext(scenario.Input, scenario.Matrix, scenario.Candidates, scenario.Indices, new SchedulingGenerationOptions());
+        var personalParams = new PersonalParams(
+            LambdaPerMin: 0.015,
+            Mu: 0.005,
+            MaxStopsPerDay: 5,
+            MaxDailyEffort: 300,
+            RestAfterMin: 120,
+            MaxConsecutiveOutdoor: 3,
+            SunriseFactor: 0.6,
+            GammaDefault: 0.6,
+            GammaLoved: 0.85,
+            LovedCategories: new HashSet<string>(),
+            RhoOutdoor: 0.25,
+            RhoRest: 0.20,
+            RhoStops: 0.30,
+            RhoEffortPerHour: 0.05,
+            ConfigVersion: "test-real-timefit");
+
+        var provider = new RealTimeFitProvider(ctx, personalParams);
+
+        for (var v = 0; v < ctx.Nodes.Count; v++)
+        {
+            var visitMin = ctx.Nodes[v].VisitMinutes;
+            foreach (var (open, close) in ctx.OpenWindows(v))
+            {
+                for (var t = 0; t <= ctx.Horizon; t += 5)
+                {
+                    var maxFactorFrom = provider.MaxFactorFrom(v, t);
+                    for (var start = Math.Max(open, t); start + visitMin <= close; start += 5)
+                    {
+                        var factor = provider.Factor(v, start, start + visitMin);
+                        Assert.True(factor <= maxFactorFrom + 1e-9, $"{id} node {v} t {t} start {start}: factor {factor} > MaxFactorFrom {maxFactorFrom}");
+                    }
+                }
+            }
+        }
+    }
+
     [Fact]
     public void RoundingSlack_Guarantees_Upper_Bound_Dominates_True_Sum_When_Half_Integers()
     {
