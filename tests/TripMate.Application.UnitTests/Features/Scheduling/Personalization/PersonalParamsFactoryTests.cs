@@ -26,14 +26,15 @@ public class PersonalParamsFactoryTests
         RhoRest = 0.20,
         RhoStops = 0.30,
         RhoEffortPerHour = 0.05,
-        TagToCategory = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        TagToCategory = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
         {
-            ["beach"] = PoiCategoryNames.Beach,
-            ["photography"] = PoiCategoryNames.Culture,
-            ["heritage"] = PoiCategoryNames.Culture,
-            ["museum"] = PoiCategoryNames.Museum,
-            ["nature"] = PoiCategoryNames.Nature,
-            ["food"] = PoiCategoryNames.FoodAndDrink,
+            ["beach"] = [PoiCategoryNames.Beach],
+            ["photography"] = [PoiCategoryNames.Culture],
+            ["heritage"] = [PoiCategoryNames.Culture],
+            ["museum"] = [PoiCategoryNames.Museum],
+            ["nature"] = [PoiCategoryNames.Nature, PoiCategoryNames.NaturalAttraction],
+            ["outdoor"] = [PoiCategoryNames.Nature, PoiCategoryNames.NaturalAttraction, PoiCategoryNames.Beach],
+            ["food"] = [PoiCategoryNames.FoodAndDrink],
         },
     };
 
@@ -191,12 +192,36 @@ public class PersonalParamsFactoryTests
     {
         var standardOptions = CreateStandardOptions();
 
-        foreach (var category in standardOptions.TagToCategory.Values)
+        foreach (var categories in standardOptions.TagToCategory.Values)
         {
-            PoiCategoryNames.AllCanonical.Should().Contain(
-                category,
-                $"Standard TagToCategory value '{category}' must be one of the 8 canonical database POI categories");
+            foreach (var category in categories)
+            {
+                PoiCategoryNames.AllCanonical.Should().Contain(
+                    category,
+                    $"Standard TagToCategory value '{category}' must be one of the 8 canonical database POI categories");
+            }
         }
+    }
+
+    [Fact]
+    public void Persona_With_Nature_Tag_Contains_Both_Nature_And_NaturalAttraction_In_LovedCategories()
+    {
+        var options = CreateStandardOptions();
+        var factory = new PersonalParamsFactory(Microsoft.Extensions.Options.Options.Create(options));
+
+        var profile = TravelerProfile.CreateEmpty(1, DateTimeOffset.UtcNow);
+        profile.ReplacePreferences(
+            interestTagsJson: "[\"nature\"]",
+            preferredTransportMode: null,
+            travelPace: TravelerPace.Moderate,
+            riskTolerance: RiskToleranceLevel.Medium,
+            foodPreferencesJson: null,
+            nowUtc: DateTimeOffset.UtcNow);
+
+        var p = factory.Create(profile);
+
+        p.LovedCategories.Should().Contain(PoiCategoryNames.Nature);
+        p.LovedCategories.Should().Contain(PoiCategoryNames.NaturalAttraction);
     }
 
     [Fact]

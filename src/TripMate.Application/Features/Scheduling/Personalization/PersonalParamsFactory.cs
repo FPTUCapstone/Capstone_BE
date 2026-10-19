@@ -53,7 +53,7 @@ public sealed class PersonalParamsFactory(
 
     private IReadOnlySet<string> DeriveLovedCategories(
         string? interestTagsJson,
-        IReadOnlyDictionary<string, string> tagToCategory)
+        IReadOnlyDictionary<string, string[]> tagToCategory)
     {
         if (string.IsNullOrWhiteSpace(interestTagsJson) || tagToCategory.Count == 0)
         {
@@ -77,9 +77,15 @@ public sealed class PersonalParamsFactory(
                 }
 
                 var tag = rawTag.Trim();
-                if (tagToCategory.TryGetValue(tag, out var category) && !string.IsNullOrWhiteSpace(category))
+                if (tagToCategory.TryGetValue(tag, out var categories) && categories is not null)
                 {
-                    loved.Add(TripMate.Domain.Constants.PoiCategoryNames.NormalizeToCanonical(category));
+                    foreach (var category in categories)
+                    {
+                        if (!string.IsNullOrWhiteSpace(category))
+                        {
+                            loved.Add(TripMate.Domain.Constants.PoiCategoryNames.NormalizeToCanonical(category));
+                        }
+                    }
                 }
             }
 

@@ -42,8 +42,8 @@ public sealed class PersonalizationOptions
     /// <summary>Trọng số phạt vượt quá nỗ lực thể lực tối đa trong ngày (chuẩn hóa theo 60 phút để không biến soft penalty thành hard constraint).</summary>
     public double RhoEffortPerHour { get; init; } = 0.05;
 
-    /// <summary>Bảng ánh xạ từ interest tag sang tên danh mục chuẩn hóa trong database.</summary>
-    public Dictionary<string, string> TagToCategory { get; init; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Bảng ánh xạ từ interest tag sang danh sách tên danh mục chuẩn hóa trong database.</summary>
+    public Dictionary<string, string[]> TagToCategory { get; init; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 public sealed class PersonalizationOptionsValidator : IValidateOptions<PersonalizationOptions>
@@ -148,6 +148,30 @@ public sealed class PersonalizationOptionsValidator : IValidateOptions<Personali
         if (options.RhoEffortPerHour < 0)
         {
             failures.Add($"{nameof(options.RhoEffortPerHour)} must be non-negative.");
+        }
+
+        if (options.TagToCategory is not null)
+        {
+            foreach (var (tag, categories) in options.TagToCategory)
+            {
+                if (categories is null or { Length: 0 })
+                {
+                    failures.Add($"TagToCategory['{tag}'] must contain at least one category.");
+                    continue;
+                }
+
+                foreach (var category in categories)
+                {
+                    if (string.IsNullOrWhiteSpace(category))
+                    {
+                        failures.Add($"TagToCategory['{tag}'] contains a null or empty category.");
+                    }
+                    else if (!PoiCategoryNames.AllCanonical.Contains(category))
+                    {
+                        failures.Add($"TagToCategory['{tag}'] contains invalid canonical category '{category}'. Must be one of the 8 canonical database POI categories.");
+                    }
+                }
+            }
         }
 
         return failures.Count > 0
