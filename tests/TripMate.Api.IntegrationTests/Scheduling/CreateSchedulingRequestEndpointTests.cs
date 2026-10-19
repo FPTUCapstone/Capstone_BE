@@ -13,6 +13,7 @@ using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Csp;
+using TripMate.Application.Features.Scheduling.Shadow;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -288,6 +289,37 @@ public sealed class CreateSchedulingRequestEndpointTests
         payload.SchedulingRequestId.Should().BeGreaterThan(0);
     }
 
+    [Fact]
+    public async Task Post_WhenShadowModeEnabled_ProcessesPrimaryRequestAndInvokesShadowRunner()
+    {
+        var shadowCaptured = new TaskCompletionSource<ShadowWorkItem>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var mockShadowRunner = new CapturingShadowRunner(shadowCaptured);
+
+        using var factory = new TripMateApiFactory(configureTestServices: services =>
+        {
+            services.RemoveAll<IShadowSchedulingRunner>();
+            services.AddSingleton<IShadowSchedulingRunner>(mockShadowRunner);
+            services.RemoveAll<Microsoft.Extensions.Options.IOptions<ShadowOptions>>();
+            services.AddSingleton(Microsoft.Extensions.Options.Options.Create(new ShadowOptions
+            {
+                Enabled = true,
+                SampleRate = 1.0,
+                TimeoutMs = 5000,
+            }));
+        });
+        await SeedSelectablePoiAsync(factory);
+        using var client = factory.CreateAuthenticatedClient(42, UserRole.Traveler);
+
+        using var response = await SendValidRequestAsync(client, Guid.NewGuid());
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var completed = await Task.WhenAny(shadowCaptured.Task, Task.Delay(3000));
+        completed.Should().Be(shadowCaptured.Task);
+        var workItem = await shadowCaptured.Task;
+        workItem.Should().NotBeNull();
+        workItem.PrimaryPlan.Should().NotBeNull();
+    }
+
     private static async Task<HttpResponseMessage> SendValidRequestAsync(
         HttpClient client,
         Guid idempotencyKey,
@@ -375,5 +407,13 @@ public sealed class CreateSchedulingRequestEndpointTests
             long userId,
             CancellationToken cancellationToken) =>
             ValueTask.FromResult(decision);
+    }
+
+    private sealed class CapturingShadowRunner(TaskCompletionSource<ShadowWorkItem> captured) : IShadowSchedulingRunner
+    {
+        public void Enqueue(ShadowWorkItem item)
+        {
+            captured.TrySetResult(item);
+        }
     }
 }
