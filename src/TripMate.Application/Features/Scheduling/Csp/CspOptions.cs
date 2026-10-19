@@ -26,6 +26,13 @@ public sealed class CspOptions
     public int MaxNodes { get; init; } = 200_000;
 
     /// <summary>
+    /// Giới hạn số nút của cây tìm kiếm cho chế độ WeightedUtility (cá nhân hóa).
+    /// Mặc định 15.000 nút dựa trên đường cong chất lượng (J suy giảm &lt; 0.4% so với 50.000, p95 &lt; 60ms theo ADR-001).
+    /// Null: dùng chung <see cref="MaxNodes"/>.
+    /// </summary>
+    public int? WeightedMaxNodes { get; init; }
+
+    /// <summary>
     /// Lưới an toàn về thời gian (mili giây), chỉ để chặn trường hợp máy quá tải; mặc định 2.500 ms theo Report 3 V2. Đây
     /// là mốc cứng cho cả lần giải: bước duyệt xem đồng hồ ở mọi nút, mỗi lần gọi evaluator được kiểm tra trước và sau và
     /// nhận token bị hủy đúng mốc, polish và bước chấm cuối cũng dừng ở mốc này. Duyệt

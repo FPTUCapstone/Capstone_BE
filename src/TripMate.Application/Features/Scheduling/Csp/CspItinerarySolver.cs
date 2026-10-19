@@ -208,9 +208,11 @@ public sealed class CspItinerarySolver(
         var clock = Stopwatch.StartNew();
 
         // Một mốc thời gian cứng cho cả lần giải (review Phase 3): bước duyệt, mọi lần gọi evaluator, polish và bước
-        // chấm cuối đều xem cùng một đồng hồ. Chạm mốc ở bất kỳ đâu thì kết quả CSP bị bỏ (R5).
         using var deadline = new SolveDeadline(clock, _cspOptions.TimeLimitMilliseconds, cancellationToken);
-        var budget = new SearchBudget(_cspOptions.MaxNodes);
+        int maxNodes = _cspOptions.Mode == ObjectiveMode.WeightedUtility && _cspOptions.WeightedMaxNodes.HasValue
+            ? _cspOptions.WeightedMaxNodes.Value
+            : _cspOptions.MaxNodes;
+        var budget = new SearchBudget(maxNodes);
         var ctx = CreatePrimaryContext(input, matrix, matrixCandidates, candidateMatrixIndices, _options);
 
         WeightedObjectiveInputs? weightedInputs = null;

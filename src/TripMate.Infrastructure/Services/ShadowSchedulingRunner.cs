@@ -137,7 +137,7 @@ public class ShadowSchedulingRunner : BackgroundService, IShadowSchedulingRunner
             Csp = new CspOptions
             {
                 Mode = ObjectiveMode.WeightedUtility,
-                MaxNodes = item.GenerationOptions.Csp.MaxNodes,
+                MaxNodes = item.GenerationOptions.Csp.WeightedMaxNodes ?? item.GenerationOptions.Csp.MaxNodes,
                 TimeLimitMilliseconds = Math.Min(item.GenerationOptions.Csp.TimeLimitMilliseconds, timeoutMs),
                 FinalCandidatesToValidate = item.GenerationOptions.Csp.FinalCandidatesToValidate,
                 PolishWithLocalSearch = false,
