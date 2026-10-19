@@ -163,7 +163,7 @@ public class LocalShadowBenchmarkRunner(ITestOutputHelper output)
                 var personalizedCandidates = scenario.Candidates.Select(c =>
                 {
                     var prefTokens = persona.Tags;
-                    var cat = c.CategoryName ?? PoiCategoryNames.Culture;
+                    var cat = GetDeterministicCategory(c);
                     var tags = c.Tags ?? [];
                     var features = PersonalizationFeatureBuilder.Build(
                         prefTokens,
@@ -455,7 +455,7 @@ public class LocalShadowBenchmarkRunner(ITestOutputHelper output)
 
                 var personalizedCandidates = scenario.Candidates.Select(c =>
                 {
-                    var cat = c.CategoryName ?? PoiCategoryNames.Culture;
+                    var cat = GetDeterministicCategory(c);
                     var features = PersonalizationFeatureBuilder.Build(
                         persona.Tags,
                         cat,
@@ -879,6 +879,28 @@ public class LocalShadowBenchmarkRunner(ITestOutputHelper output)
                 ["relaxation"] = [PoiCategoryNames.Beach],
             }
         };
+    }
+
+    private static readonly string[] SyntheticTourCategories =
+    [
+        PoiCategoryNames.Culture,
+        PoiCategoryNames.Museum,
+        PoiCategoryNames.NaturalAttraction,
+        PoiCategoryNames.Nature,
+        PoiCategoryNames.Beach,
+        PoiCategoryNames.ThemePark,
+        PoiCategoryNames.WaterPark,
+    ];
+
+    private static string GetDeterministicCategory(GenerationCandidate candidate)
+    {
+        if (!string.IsNullOrWhiteSpace(candidate.CategoryName))
+        {
+            return candidate.CategoryName;
+        }
+
+        var index = (int)(Math.Abs(candidate.Id) % SyntheticTourCategories.Length);
+        return SyntheticTourCategories[index];
     }
 
     private static GoldenScenario CreateDaNangRealScenario()
