@@ -1,9 +1,9 @@
 {
   "date": "2026-10-16-review2",
-  "source_hash": "89ff053e45ce5b7e586abef4c82190c4174dbaac3a3bccf58f2bab35a4447813",
+  "source_hash": "edb8ca24474bb8e886f721a7b71a7b7a2a3378c164e4acdae8541cf2da7fab81",
   "measured_source_hash": "16d70025d5be317d18578a3001a413a49c632e3082cfb0662402589625bea2ba",
   "equivalence_basis": "Báo cáo chỉ đo mode Lexicographic; golden Lexicographic 55/55 không đổi qua PR-02 đến PR-07c (bucketed bound & greedy incumbent)",
-  "source_file_count": 58,
+  "source_file_count": 57,
 
 
   "generated_at_utc": "2026-10-15T22:58:31Z",
