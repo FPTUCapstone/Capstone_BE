@@ -14,6 +14,7 @@ using TripMate.Application.Features.Scheduling.Create;
 using TripMate.Application.Features.Scheduling.Diagnostics;
 using TripMate.Application.Features.Scheduling.Explanation;
 using TripMate.Application.Features.Scheduling.Personalization;
+using TripMate.Application.Features.Scheduling.Shadow;
 using TripMate.Application.UnitTests.TestUtilities;
 using TripMate.Domain.Constants;
 using TripMate.Domain.Entities;
@@ -2383,6 +2384,47 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         (await dbContext.Itineraries.CountAsync()).Should().Be(1);
     }
 
+    [Fact]
+    public async Task Handle_WhenShadowEnabledAndSampled_EnqueuesShadowWorkItemWithoutAffectingPrimaryResult()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await SeedSelectablePoiAsync(dbContext);
+        var shadowRunner = new RecordingShadowRunner();
+        var shadowOptions = new ShadowOptions
+        {
+            Enabled = true,
+            SampleRate = 1.0,
+            TimeoutMs = 5000,
+        };
+
+        var command = CreateCommand(Guid.NewGuid()) with
+        {
+            MandatoryPoiIds = [mandatoryPoi.Id],
+        };
+
+        var result = await CreateHandler(
+                dbContext,
+                shadowRunner: shadowRunner,
+                shadowOptions: shadowOptions)
+            .Handle(command, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Should().NotBeNull();
+        result.Value!.ItineraryId.Should().BeGreaterThan(0);
+        shadowRunner.EnqueuedItems.Should().HaveCount(1);
+        shadowRunner.EnqueuedItems[0].RequestId.Should().Be(result.Value.SchedulingRequestId);
+    }
+
+    private sealed class RecordingShadowRunner : IShadowSchedulingRunner
+    {
+        public List<ShadowWorkItem> EnqueuedItems { get; } = [];
+
+        public void Enqueue(ShadowWorkItem item)
+        {
+            EnqueuedItems.Add(item);
+        }
+    }
+
     private CreateSchedulingRequestCommandHandler CreateHandler(
         TestDbContext dbContext,
         IRouteDurationProvider? routeDurationProvider = null,
@@ -2396,7 +2438,9 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         ILogger<CreateSchedulingRequestCommandHandler>? explanationLogger = null,
         IGenerateRateLimiter? generateRateLimiter = null,
         SchedulingReservationOptions? reservationOptions = null,
-        WeightedRequestInputsFactory? weightedInputsFactory = null)
+        WeightedRequestInputsFactory? weightedInputsFactory = null,
+        IShadowSchedulingRunner? shadowRunner = null,
+        ShadowOptions? shadowOptions = null)
     {
         return new(
             dbContext,
@@ -2414,7 +2458,9 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
             explanationLogger,
             generateRateLimiter,
             reservationOptions,
-            weightedInputsFactory: weightedInputsFactory);
+            weightedInputsFactory: weightedInputsFactory,
+            shadowRunner: shadowRunner,
+            shadowOptions: shadowOptions);
     }
 
     private static ItineraryExplanationExecutionOptions EnabledExplanationOptions() =>

@@ -155,6 +155,9 @@ public static class DependencyInjection
         services.AddSingleton(serviceProvider => serviceProvider
             .GetRequiredService<IOptions<ShadowOptions>>()
             .Value);
+        services.AddSingleton<ShadowSchedulingRunner>();
+        services.AddSingleton<IShadowSchedulingRunner>(sp => sp.GetRequiredService<ShadowSchedulingRunner>());
+        services.AddHostedService(sp => sp.GetRequiredService<ShadowSchedulingRunner>());
         services.AddOptions<TimeOfDayOptions>()
             .Bind(configuration.GetSection(TimeOfDayOptions.SectionName))
             .Validate(options => options.MaxExtraMinutes is >= 0 and <= 120, "TimeOfDay:MaxExtraMinutes must be between 0 and 120.")
