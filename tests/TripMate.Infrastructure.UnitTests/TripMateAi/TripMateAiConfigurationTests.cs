@@ -518,6 +518,9 @@ public sealed class TripMateAiConfigurationTests
         yield return new("SchedulingGeneration:Personalization:Pace:Fast:MaxDailyEffort", "450");
         yield return new("SchedulingGeneration:Personalization:Pace:Fast:RestAfterMin", "180");
         yield return new("SchedulingGeneration:TimeFit:Version", "2026.1");
+        yield return new("SchedulingGeneration:Shadow:Enabled", "false");
+        yield return new("SchedulingGeneration:Shadow:SampleRate", "1.0");
+        yield return new("SchedulingGeneration:Shadow:TimeoutMs", "5000");
     }
 
     private static string FindRepositoryFile(params string[] relativeSegments)

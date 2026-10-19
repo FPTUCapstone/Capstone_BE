@@ -18,6 +18,7 @@ using TripMate.Application.Features.PointsOfInterest.ExternalReviews;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Explanation;
 using TripMate.Application.Features.Scheduling.Personalization;
+using TripMate.Application.Features.Scheduling.Shadow;
 using TripMate.Application.Features.Scheduling.TimeOfDay;
 using TripMate.Application.Features.Traveler.Bookings.Common;
 using TripMate.Application.Features.TravelGroups.ManageInvitation;
@@ -144,6 +145,15 @@ public static class DependencyInjection
             TimeFitOptionsValidator>();
         services.AddSingleton(serviceProvider => serviceProvider
             .GetRequiredService<IOptions<TimeFitOptions>>()
+            .Value);
+        services.AddOptions<ShadowOptions>()
+            .Bind(configuration.GetSection(ShadowOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<
+            IValidateOptions<ShadowOptions>,
+            ShadowOptionsValidator>();
+        services.AddSingleton(serviceProvider => serviceProvider
+            .GetRequiredService<IOptions<ShadowOptions>>()
             .Value);
         services.AddOptions<TimeOfDayOptions>()
             .Bind(configuration.GetSection(TimeOfDayOptions.SectionName))
