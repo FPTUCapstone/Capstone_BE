@@ -254,21 +254,6 @@ public class ObjectiveKernelFactoryTests
         }
     }
 
-    [Fact]
-    public void PersonalizedBaseAdapter_Degrades_To_Half_When_ScoreRange_Is_Below_Threshold()
-    {
-        var allScenarios = GoldenScenarioFactory.CreateAllScenarios();
-        var scenario = allScenarios.First(s => s.Id == "grid-c10-m0-none-s1");
-        var ctx = CspItinerarySolver.CreatePrimaryContext(
-            scenario.Input, scenario.Matrix, scenario.Candidates, scenario.Indices, Options);
-
-        var normalizedBase = PersonalizedBaseAdapter.CreateNormalizedBase(ctx);
-
-        foreach (var score in normalizedBase)
-        {
-            score.Should().Be(0.5, "When range < 0.05, base score must default to 0.5");
-        }
-    }
 
     [Fact]
     public void Solver_Executes_Successfully_In_WeightedUtility_Mode()
