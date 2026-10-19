@@ -264,9 +264,9 @@ public sealed class CspItinerarySolver(
         var incumbent = search.AcceptIncumbent(initialIncumbent);
         var scheduleComparer = search.ScheduleComparer;
         var candidates = new List<(EvaluatedItinerarySchedule Schedule, bool Relaxed)>();
-        if (incumbent is not null)
+        if (incumbent is not null && search.AcceptedSchedule is not null)
         {
-            candidates.Add((initialIncumbent!, false));
+            candidates.Add((search.AcceptedSchedule, false));
         }
 
         SearchRun? relaxed = null;
@@ -536,6 +536,7 @@ public sealed class CspItinerarySolver(
         internal IObjectiveKernel Kernel => _kernel;
         private readonly int[][] _domains;
         private readonly RankedValue[][] _ranked;
+        private readonly WeightedObjectiveInputs? _weightedInputs;
         private int _depth;
         private int _mandatoryPlaced;
         private bool _aborted;
@@ -560,6 +561,7 @@ public sealed class CspItinerarySolver(
             _restApplies = restApplies;
             _evaluate = evaluate;
             _cancellationToken = cancellationToken;
+            _weightedInputs = weightedInputs;
             _maxStops = options.MaxStops ?? int.MaxValue;
             _mandatoryTotal = ctx.MandatoryNodes.Count;
 
@@ -696,11 +698,65 @@ public sealed class CspItinerarySolver(
         /// <summary>Chỉ số ma trận của điểm cuối (điểm xuất phát ở gốc).</summary>
         private int CurrentMatrix => _depth == 0 ? _ctx.StartMatrixIndex : _ctx.Nodes[_sequence[_depth - 1]].MatrixIndex;
 
+        public EvaluatedItinerarySchedule? AcceptedSchedule { get; private set; }
+
         /// <summary>
-        /// Nhận lịch heuristic làm incumbent ban đầu nếu nó nằm trong giới hạn CSP: một cận ngoài giới hạn có thể tốt hơn
-        /// mọi lời giải hợp lệ, cắt mất chúng và trở thành kết quả trả về.
+        /// Nhận lịch heuristic hoặc tính incumbent tham lam (nếu là WeightedUtility) làm incumbent ban đầu nếu nó nằm trong giới hạn CSP.
         /// </summary>
-        public IncumbentToken? AcceptIncumbent(EvaluatedItinerarySchedule? schedule) => _kernel.AcceptInitial(schedule);
+        public IncumbentToken? AcceptIncumbent(EvaluatedItinerarySchedule? schedule)
+        {
+            var bestSchedule = schedule;
+            if (_options.Mode == ObjectiveMode.WeightedUtility && _weightedInputs is not null)
+            {
+                var greedy = GreedyWeightedIncumbent.Build(_ctx, _weightedInputs, _options, _evaluate, Statistics, _initialDomain);
+                if (greedy is not null)
+                {
+                    if (bestSchedule is null)
+                    {
+                        bestSchedule = greedy;
+                    }
+                    else
+                    {
+                        var jHeuristic = ComputeModelObjective(_ctx, _weightedInputs, bestSchedule);
+                        var jGreedy = ComputeModelObjective(_ctx, _weightedInputs, greedy);
+                        if (jGreedy > jHeuristic)
+                        {
+                            bestSchedule = greedy;
+                        }
+                    }
+                }
+            }
+
+            AcceptedSchedule = bestSchedule;
+            return _kernel.AcceptInitial(bestSchedule);
+        }
+
+        private static long ComputeModelObjective(RoutingContext ctx, WeightedObjectiveInputs inputs, EvaluatedItinerarySchedule schedule)
+        {
+            var nodeOf = new Dictionary<long, int>(ctx.Nodes.Count);
+            for (var i = 0; i < ctx.Nodes.Count; i++)
+            {
+                nodeOf[ctx.Nodes[i].Candidate.Id] = i;
+            }
+
+            var seq = new int[schedule.VisitPoiIds.Count];
+            for (var i = 0; i < schedule.VisitPoiIds.Count; i++)
+            {
+                if (!nodeOf.TryGetValue(schedule.VisitPoiIds[i], out var node))
+                {
+                    return long.MinValue;
+                }
+                seq[i] = node;
+            }
+
+            if (RouteState.Build(ctx, seq) is not { } route)
+            {
+                return long.MinValue;
+            }
+
+            var catScratch = new int[inputs.CategoryCount];
+            return ObjectiveCalculator.Replay(inputs, ctx, route.Sequence, route.Earliest, catScratch);
+        }
 
         public void Run(IncumbentToken? incumbent)
         {
