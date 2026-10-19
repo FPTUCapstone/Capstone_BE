@@ -66,15 +66,15 @@
   "BestEstimatedCost": 90000,
   "EndAtUtc": "2026-10-20T08:00:00+00:00",
   "NodesExpanded": 200000,
-  "PrunedByConstraints": 1610,
+  "PrunedByConstraints": 1609,
   "PrunedByForwardChecking": 35395,
-  "PrunedByBound": 142234,
+  "PrunedByBound": 142235,
   "SolutionsFound": 14134,
   "NodesToFirstSolution": 7,
   "SearchCompleted": false,
   "NodeLimitReached": true,
   "TimeLimitReached": false,
-  "EvaluatorCalls": 17,
+  "EvaluatorCalls": 14,
   "UsedRelaxedRestModel": true,
   "ChoseRelaxedRestModel": false
 }

@@ -56,7 +56,7 @@
   "SearchCompleted": false,
   "NodeLimitReached": true,
   "TimeLimitReached": false,
-  "EvaluatorCalls": 14,
+  "EvaluatorCalls": 13,
   "UsedRelaxedRestModel": true,
   "ChoseRelaxedRestModel": false
 }

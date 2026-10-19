@@ -111,7 +111,7 @@
       "Source": "GroupA_Grid",
       "Feasible": true,
       "SearchCompleted": true,
-      "NodesExpanded": 23750,
+      "NodesExpanded": 22815,
       "BestModelObjective": 8017,
       "BestEvaluatedObjective": 8017,
       "BestHasTimeFitFactorNotOne": true,
@@ -126,7 +126,7 @@
       "Source": "GroupA_Grid",
       "Feasible": true,
       "SearchCompleted": true,
-      "NodesExpanded": 59987,
+      "NodesExpanded": 56219,
       "BestModelObjective": 2082,
       "BestEvaluatedObjective": 2082,
       "BestHasTimeFitFactorNotOne": true,
@@ -190,12 +190,12 @@
       "Feasible": true,
       "SearchCompleted": false,
       "NodesExpanded": 200000,
-      "BestModelObjective": 1018,
-      "BestEvaluatedObjective": 1018,
+      "BestModelObjective": 4499,
+      "BestEvaluatedObjective": 4499,
       "BestHasTimeFitFactorNotOne": true,
       "BestVisitTimeFitFactors": [
         1.1,
-        1.0333,
+        1.0667,
         1
       ]
     },
@@ -238,12 +238,12 @@
       "Feasible": true,
       "SearchCompleted": false,
       "NodesExpanded": 200000,
-      "BestModelObjective": 11989,
-      "BestEvaluatedObjective": 11989,
+      "BestModelObjective": 12265,
+      "BestEvaluatedObjective": 12265,
       "BestHasTimeFitFactorNotOne": true,
       "BestVisitTimeFitFactors": [
         1.1,
-        1.07
+        1.0667
       ]
     },
     {
@@ -252,8 +252,8 @@
       "Feasible": true,
       "SearchCompleted": false,
       "NodesExpanded": 200000,
-      "BestModelObjective": 2415,
-      "BestEvaluatedObjective": 2415,
+      "BestModelObjective": 4308,
+      "BestEvaluatedObjective": 4308,
       "BestHasTimeFitFactorNotOne": true,
       "BestVisitTimeFitFactors": [
         1.1,
@@ -267,13 +267,14 @@
       "Feasible": true,
       "SearchCompleted": false,
       "NodesExpanded": 200000,
-      "BestModelObjective": -3538,
-      "BestEvaluatedObjective": -3538,
+      "BestModelObjective": -2165,
+      "BestEvaluatedObjective": -2165,
       "BestHasTimeFitFactorNotOne": true,
       "BestVisitTimeFitFactors": [
         1.1,
-        1.0533,
-        1
+        1.07,
+        1,
+        0.8
       ]
     },
     {
@@ -282,8 +283,8 @@
       "Feasible": true,
       "SearchCompleted": false,
       "NodesExpanded": 200000,
-      "BestModelObjective": -28651,
-      "BestEvaluatedObjective": -28651,
+      "BestModelObjective": -24915,
+      "BestEvaluatedObjective": -24915,
       "BestHasTimeFitFactorNotOne": true,
       "BestVisitTimeFitFactors": [
         1.1,
@@ -299,7 +300,7 @@
       "Source": "GroupA_Grid",
       "Feasible": true,
       "SearchCompleted": true,
-      "NodesExpanded": 45685,
+      "NodesExpanded": 44768,
       "BestModelObjective": 8017,
       "BestEvaluatedObjective": 8017,
       "BestHasTimeFitFactorNotOne": true,
@@ -314,7 +315,7 @@
       "Source": "GroupA_Grid",
       "Feasible": true,
       "SearchCompleted": true,
-      "NodesExpanded": 111712,
+      "NodesExpanded": 108213,
       "BestModelObjective": 2082,
       "BestEvaluatedObjective": 2082,
       "BestHasTimeFitFactorNotOne": true,
@@ -380,12 +381,12 @@
       "Feasible": true,
       "SearchCompleted": false,
       "NodesExpanded": 200000,
-      "BestModelObjective": 1018,
-      "BestEvaluatedObjective": 1018,
+      "BestModelObjective": 4499,
+      "BestEvaluatedObjective": 4499,
       "BestHasTimeFitFactorNotOne": true,
       "BestVisitTimeFitFactors": [
         1.1,
-        1.0333,
+        1.0667,
         1
       ]
     },
@@ -428,12 +429,12 @@
       "Feasible": true,
       "SearchCompleted": false,
       "NodesExpanded": 200000,
-      "BestModelObjective": 11989,
-      "BestEvaluatedObjective": 11989,
+      "BestModelObjective": 12265,
+      "BestEvaluatedObjective": 12265,
       "BestHasTimeFitFactorNotOne": true,
       "BestVisitTimeFitFactors": [
         1.1,
-        1.07
+        1.0667
       ]
     },
     {
@@ -442,8 +443,8 @@
       "Feasible": true,
       "SearchCompleted": false,
       "NodesExpanded": 200000,
-      "BestModelObjective": 2415,
-      "BestEvaluatedObjective": 2415,
+      "BestModelObjective": 4308,
+      "BestEvaluatedObjective": 4308,
       "BestHasTimeFitFactorNotOne": true,
       "BestVisitTimeFitFactors": [
         1.1,
@@ -457,13 +458,14 @@
       "Feasible": true,
       "SearchCompleted": false,
       "NodesExpanded": 200000,
-      "BestModelObjective": -3538,
-      "BestEvaluatedObjective": -3538,
+      "BestModelObjective": -2165,
+      "BestEvaluatedObjective": -2165,
       "BestHasTimeFitFactorNotOne": true,
       "BestVisitTimeFitFactors": [
         1.1,
-        1.0533,
-        1
+        1.07,
+        1,
+        0.8
       ]
     },
     {
@@ -472,8 +474,8 @@
       "Feasible": true,
       "SearchCompleted": false,
       "NodesExpanded": 200000,
-      "BestModelObjective": -27518,
-      "BestEvaluatedObjective": -23514,
+      "BestModelObjective": -24915,
+      "BestEvaluatedObjective": -20913,
       "BestHasTimeFitFactorNotOne": true,
       "BestVisitTimeFitFactors": [
         1.1,
@@ -489,7 +491,7 @@
       "Source": "GroupA_Grid",
       "Feasible": true,
       "SearchCompleted": true,
-      "NodesExpanded": 36784,
+      "NodesExpanded": 36157,
       "BestModelObjective": 8017,
       "BestEvaluatedObjective": 8017,
       "BestHasTimeFitFactorNotOne": true,
@@ -504,7 +506,7 @@
       "Source": "GroupA_Grid",
       "Feasible": true,
       "SearchCompleted": true,
-      "NodesExpanded": 81577,
+      "NodesExpanded": 80102,
       "BestModelObjective": 2082,
       "BestEvaluatedObjective": 3873,
       "BestHasTimeFitFactorNotOne": true,
@@ -570,12 +572,12 @@
       "Feasible": true,
       "SearchCompleted": false,
       "NodesExpanded": 200000,
-      "BestModelObjective": 1018,
-      "BestEvaluatedObjective": 1018,
+      "BestModelObjective": 4499,
+      "BestEvaluatedObjective": 4499,
       "BestHasTimeFitFactorNotOne": true,
       "BestVisitTimeFitFactors": [
         1.1,
-        1.0333,
+        1.0667,
         1
       ]
     },
@@ -619,12 +621,12 @@
       "Feasible": true,
       "SearchCompleted": false,
       "NodesExpanded": 200000,
-      "BestModelObjective": 11989,
-      "BestEvaluatedObjective": 11989,
+      "BestModelObjective": 12265,
+      "BestEvaluatedObjective": 12265,
       "BestHasTimeFitFactorNotOne": true,
       "BestVisitTimeFitFactors": [
         1.1,
-        1.07
+        1.0667
       ]
     },
     {
@@ -633,8 +635,8 @@
       "Feasible": true,
       "SearchCompleted": false,
       "NodesExpanded": 200000,
-      "BestModelObjective": 3143,
-      "BestEvaluatedObjective": 3143,
+      "BestModelObjective": 4308,
+      "BestEvaluatedObjective": 4308,
       "BestHasTimeFitFactorNotOne": true,
       "BestVisitTimeFitFactors": [
         1.1,
@@ -648,13 +650,14 @@
       "Feasible": true,
       "SearchCompleted": false,
       "NodesExpanded": 200000,
-      "BestModelObjective": -3538,
-      "BestEvaluatedObjective": -3538,
+      "BestModelObjective": -2165,
+      "BestEvaluatedObjective": -228,
       "BestHasTimeFitFactorNotOne": true,
       "BestVisitTimeFitFactors": [
         1.1,
-        1.0533,
-        1
+        1.07,
+        1,
+        0.7
       ]
     },
     {
@@ -783,11 +786,12 @@
       "Feasible": true,
       "SearchCompleted": false,
       "NodesExpanded": 200000,
-      "BestModelObjective": -2771,
-      "BestEvaluatedObjective": -2771,
+      "BestModelObjective": 953,
+      "BestEvaluatedObjective": 953,
       "BestHasTimeFitFactorNotOne": true,
       "BestVisitTimeFitFactors": [
         1.1,
+        1.04,
         1
       ]
     },
@@ -797,11 +801,12 @@
       "Feasible": true,
       "SearchCompleted": false,
       "NodesExpanded": 200000,
-      "BestModelObjective": -1854,
-      "BestEvaluatedObjective": -1854,
+      "BestModelObjective": 8709,
+      "BestEvaluatedObjective": 8709,
       "BestHasTimeFitFactorNotOne": true,
       "BestVisitTimeFitFactors": [
         1.1,
+        1.0667,
         1
       ]
     },
@@ -811,12 +816,13 @@
       "Feasible": true,
       "SearchCompleted": false,
       "NodesExpanded": 200000,
-      "BestModelObjective": -8479,
-      "BestEvaluatedObjective": -6500,
+      "BestModelObjective": -6303,
+      "BestEvaluatedObjective": -2646,
       "BestHasTimeFitFactorNotOne": true,
       "BestVisitTimeFitFactors": [
         1.1,
         1,
+        0.75,
         0.7
       ]
     },
@@ -825,7 +831,7 @@
       "Source": "GroupC_Incumbent",
       "Feasible": true,
       "SearchCompleted": true,
-      "NodesExpanded": 47739,
+      "NodesExpanded": 43962,
       "BestModelObjective": 4552,
       "BestEvaluatedObjective": 4552,
       "BestHasTimeFitFactorNotOne": true,
@@ -915,12 +921,12 @@
       "Feasible": true,
       "SearchCompleted": false,
       "NodesExpanded": 200000,
-      "BestModelObjective": 4755,
-      "BestEvaluatedObjective": 4755,
+      "BestModelObjective": 6940,
+      "BestEvaluatedObjective": 6940,
       "BestHasTimeFitFactorNotOne": true,
       "BestVisitTimeFitFactors": [
         1.1,
-        1.0667,
+        1.0733,
         1
       ]
     },
@@ -930,12 +936,12 @@
       "Feasible": true,
       "SearchCompleted": false,
       "NodesExpanded": 200000,
-      "BestModelObjective": -404,
-      "BestEvaluatedObjective": -404,
+      "BestModelObjective": 584,
+      "BestEvaluatedObjective": 584,
       "BestHasTimeFitFactorNotOne": true,
       "BestVisitTimeFitFactors": [
         1.1,
-        1.0467,
+        1.0433,
         1
       ]
     },
@@ -1002,7 +1008,7 @@
       "Source": "GroupG_SmallExhaustive",
       "Feasible": true,
       "SearchCompleted": true,
-      "NodesExpanded": 184,
+      "NodesExpanded": 172,
       "BestModelObjective": 3053,
       "BestEvaluatedObjective": 3053,
       "BestHasTimeFitFactorNotOne": true,
@@ -1059,7 +1065,7 @@
       "Source": "GroupG_SmallExhaustive",
       "Feasible": true,
       "SearchCompleted": true,
-      "NodesExpanded": 551,
+      "NodesExpanded": 494,
       "BestModelObjective": -1156,
       "BestEvaluatedObjective": -1156,
       "BestHasTimeFitFactorNotOne": true,
@@ -1074,7 +1080,7 @@
       "Source": "GroupG_SmallExhaustive",
       "Feasible": true,
       "SearchCompleted": true,
-      "NodesExpanded": 719,
+      "NodesExpanded": 717,
       "BestModelObjective": -5639,
       "BestEvaluatedObjective": -5639,
       "BestHasTimeFitFactorNotOne": true,

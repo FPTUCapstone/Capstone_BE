@@ -1,5 +1,5 @@
 {
-  "GeneratedAtUtc": "2026-10-19T01:17:36.0039623\u002B00:00",
+  "GeneratedAtUtc": "2026-10-19T02:20:25.0847778\u002B00:00",
   "Instances": [
     {
       "InstanceId": "instance-n12-m0-s81",
@@ -7,9 +7,9 @@
       "Mandatory": 0,
       "MaxNodes": 500000,
       "NodesWithoutBound": 2460,
-      "NodesWithBound": 2241,
-      "PrunedByBound": 293,
-      "ReductionPercent": 8.9,
+      "NodesWithBound": 2240,
+      "PrunedByBound": 295,
+      "ReductionPercent": 8.94,
       "CompletedWithoutBound": true,
       "CompletedWithBound": true,
       "ObjectiveWithoutBound": 6168,
@@ -21,9 +21,9 @@
       "Mandatory": 1,
       "MaxNodes": 500000,
       "NodesWithoutBound": 1280,
-      "NodesWithBound": 1245,
-      "PrunedByBound": 98,
-      "ReductionPercent": 2.73,
+      "NodesWithBound": 1234,
+      "PrunedByBound": 120,
+      "ReductionPercent": 3.59,
       "CompletedWithoutBound": true,
       "CompletedWithBound": true,
       "ObjectiveWithoutBound": 4740,
@@ -49,9 +49,9 @@
       "Mandatory": 1,
       "MaxNodes": 500000,
       "NodesWithoutBound": 1371,
-      "NodesWithBound": 1342,
-      "PrunedByBound": 95,
-      "ReductionPercent": 2.12,
+      "NodesWithBound": 1339,
+      "PrunedByBound": 97,
+      "ReductionPercent": 2.33,
       "CompletedWithoutBound": true,
       "CompletedWithBound": true,
       "ObjectiveWithoutBound": 2382,
@@ -77,9 +77,9 @@
       "Mandatory": 1,
       "MaxNodes": 500000,
       "NodesWithoutBound": 1279,
-      "NodesWithBound": 1265,
-      "PrunedByBound": 68,
-      "ReductionPercent": 1.09,
+      "NodesWithBound": 1261,
+      "PrunedByBound": 78,
+      "ReductionPercent": 1.41,
       "CompletedWithoutBound": true,
       "CompletedWithBound": true,
       "ObjectiveWithoutBound": 1314,
@@ -91,9 +91,9 @@
       "Mandatory": 0,
       "MaxNodes": 500000,
       "NodesWithoutBound": 7686,
-      "NodesWithBound": 6490,
-      "PrunedByBound": 811,
-      "ReductionPercent": 15.56,
+      "NodesWithBound": 6483,
+      "PrunedByBound": 820,
+      "ReductionPercent": 15.65,
       "CompletedWithoutBound": true,
       "CompletedWithBound": true,
       "ObjectiveWithoutBound": 7828,
@@ -105,16 +105,16 @@
       "Mandatory": 1,
       "MaxNodes": 500000,
       "NodesWithoutBound": 2564,
-      "NodesWithBound": 2294,
-      "PrunedByBound": 624,
-      "ReductionPercent": 10.53,
+      "NodesWithBound": 2273,
+      "PrunedByBound": 641,
+      "ReductionPercent": 11.35,
       "CompletedWithoutBound": true,
       "CompletedWithBound": true,
       "ObjectiveWithoutBound": 4609,
       "ObjectiveWithBound": 4609
     }
   ],
-  "AverageReductionPercent": 7.35,
+  "AverageReductionPercent": 7.65,
   "GoldenComparison": {
     "TotalScenarios": 67,
     "ShiftedToSearchCompletedCount": 9,
@@ -129,8 +129,8 @@
       "grid-c10-m3-frequent-s1",
       "incumbent-invalid-rejected-s13"
     ],
-    "BestObjectiveIncreasedCount": 6,
-    "AverageObjectiveIncrease": 2224.33,
+    "BestObjectiveIncreasedCount": 24,
+    "AverageObjectiveIncrease": 2110.29,
     "BaselineCompletedCount": 23,
     "BaselineCompletedEliteMatchesCount": 23,
     "AllBaselineCompletedEliteMatch": true,
@@ -178,10 +178,10 @@
         "CurrentSearchCompleted": false,
         "Shifted": false,
         "BaselineBestModelObjective": -22509,
-        "CurrentBestModelObjective": -22509,
-        "ObjectiveIncreased": false,
-        "ObjectiveDiff": 0,
-        "FirstEliteMatches": true
+        "CurrentBestModelObjective": -22264,
+        "ObjectiveIncreased": true,
+        "ObjectiveDiff": 245,
+        "FirstEliteMatches": false
       },
       {
         "ScenarioId": "grid-c20-m0-none-s1",
@@ -202,9 +202,9 @@
         "CurrentSearchCompleted": false,
         "Shifted": false,
         "BaselineBestModelObjective": 554,
-        "CurrentBestModelObjective": 554,
-        "ObjectiveIncreased": false,
-        "ObjectiveDiff": 0,
+        "CurrentBestModelObjective": 1336,
+        "ObjectiveIncreased": true,
+        "ObjectiveDiff": 782,
         "FirstEliteMatches": true
       },
       {
@@ -238,9 +238,9 @@
         "CurrentSearchCompleted": false,
         "Shifted": false,
         "BaselineBestModelObjective": 10612,
-        "CurrentBestModelObjective": 10612,
-        "ObjectiveIncreased": false,
-        "ObjectiveDiff": 0,
+        "CurrentBestModelObjective": 10918,
+        "ObjectiveIncreased": true,
+        "ObjectiveDiff": 306,
         "FirstEliteMatches": true
       },
       {
@@ -250,9 +250,9 @@
         "CurrentSearchCompleted": false,
         "Shifted": false,
         "BaselineBestModelObjective": 1991,
-        "CurrentBestModelObjective": 1991,
-        "ObjectiveIncreased": false,
-        "ObjectiveDiff": 0,
+        "CurrentBestModelObjective": 3360,
+        "ObjectiveIncreased": true,
+        "ObjectiveDiff": 1369,
         "FirstEliteMatches": true
       },
       {
@@ -262,9 +262,9 @@
         "CurrentSearchCompleted": false,
         "Shifted": false,
         "BaselineBestModelObjective": -4070,
-        "CurrentBestModelObjective": -4070,
-        "ObjectiveIncreased": false,
-        "ObjectiveDiff": 0,
+        "CurrentBestModelObjective": -2823,
+        "ObjectiveIncreased": true,
+        "ObjectiveDiff": 1247,
         "FirstEliteMatches": true
       },
       {
@@ -274,9 +274,9 @@
         "CurrentSearchCompleted": false,
         "Shifted": false,
         "BaselineBestModelObjective": -29067,
-        "CurrentBestModelObjective": -29067,
-        "ObjectiveIncreased": false,
-        "ObjectiveDiff": 0,
+        "CurrentBestModelObjective": -25452,
+        "ObjectiveIncreased": true,
+        "ObjectiveDiff": 3615,
         "FirstEliteMatches": true
       },
       {
@@ -346,9 +346,9 @@
         "CurrentSearchCompleted": false,
         "Shifted": false,
         "BaselineBestModelObjective": 554,
-        "CurrentBestModelObjective": 554,
-        "ObjectiveIncreased": false,
-        "ObjectiveDiff": 0,
+        "CurrentBestModelObjective": 1336,
+        "ObjectiveIncreased": true,
+        "ObjectiveDiff": 782,
         "FirstEliteMatches": true
       },
       {
@@ -382,9 +382,9 @@
         "CurrentSearchCompleted": false,
         "Shifted": false,
         "BaselineBestModelObjective": 10612,
-        "CurrentBestModelObjective": 10612,
-        "ObjectiveIncreased": false,
-        "ObjectiveDiff": 0,
+        "CurrentBestModelObjective": 10918,
+        "ObjectiveIncreased": true,
+        "ObjectiveDiff": 306,
         "FirstEliteMatches": true
       },
       {
@@ -394,9 +394,9 @@
         "CurrentSearchCompleted": false,
         "Shifted": false,
         "BaselineBestModelObjective": 1991,
-        "CurrentBestModelObjective": 1991,
-        "ObjectiveIncreased": false,
-        "ObjectiveDiff": 0,
+        "CurrentBestModelObjective": 3360,
+        "ObjectiveIncreased": true,
+        "ObjectiveDiff": 1369,
         "FirstEliteMatches": true
       },
       {
@@ -406,9 +406,9 @@
         "CurrentSearchCompleted": false,
         "Shifted": false,
         "BaselineBestModelObjective": -4070,
-        "CurrentBestModelObjective": -4070,
-        "ObjectiveIncreased": false,
-        "ObjectiveDiff": 0,
+        "CurrentBestModelObjective": -2823,
+        "ObjectiveIncreased": true,
+        "ObjectiveDiff": 1247,
         "FirstEliteMatches": true
       },
       {
@@ -418,9 +418,9 @@
         "CurrentSearchCompleted": false,
         "Shifted": false,
         "BaselineBestModelObjective": -28027,
-        "CurrentBestModelObjective": -28027,
-        "ObjectiveIncreased": false,
-        "ObjectiveDiff": 0,
+        "CurrentBestModelObjective": -25452,
+        "ObjectiveIncreased": true,
+        "ObjectiveDiff": 2575,
         "FirstEliteMatches": true
       },
       {
@@ -490,9 +490,9 @@
         "CurrentSearchCompleted": false,
         "Shifted": false,
         "BaselineBestModelObjective": 601,
-        "CurrentBestModelObjective": 601,
-        "ObjectiveIncreased": false,
-        "ObjectiveDiff": 0,
+        "CurrentBestModelObjective": 1336,
+        "ObjectiveIncreased": true,
+        "ObjectiveDiff": 735,
         "FirstEliteMatches": true
       },
       {
@@ -526,9 +526,9 @@
         "CurrentSearchCompleted": false,
         "Shifted": false,
         "BaselineBestModelObjective": 10612,
-        "CurrentBestModelObjective": 10612,
-        "ObjectiveIncreased": false,
-        "ObjectiveDiff": 0,
+        "CurrentBestModelObjective": 10918,
+        "ObjectiveIncreased": true,
+        "ObjectiveDiff": 306,
         "FirstEliteMatches": true
       },
       {
@@ -538,9 +538,9 @@
         "CurrentSearchCompleted": false,
         "Shifted": false,
         "BaselineBestModelObjective": 1991,
-        "CurrentBestModelObjective": 2355,
+        "CurrentBestModelObjective": 3360,
         "ObjectiveIncreased": true,
-        "ObjectiveDiff": 364,
+        "ObjectiveDiff": 1369,
         "FirstEliteMatches": true
       },
       {
@@ -550,9 +550,9 @@
         "CurrentSearchCompleted": false,
         "Shifted": false,
         "BaselineBestModelObjective": -5992,
-        "CurrentBestModelObjective": -5992,
-        "ObjectiveIncreased": false,
-        "ObjectiveDiff": 0,
+        "CurrentBestModelObjective": -2823,
+        "ObjectiveIncreased": true,
+        "ObjectiveDiff": 3169,
         "FirstEliteMatches": true
       },
       {
@@ -658,9 +658,9 @@
         "CurrentSearchCompleted": false,
         "Shifted": false,
         "BaselineBestModelObjective": -3061,
-        "CurrentBestModelObjective": -3061,
-        "ObjectiveIncreased": false,
-        "ObjectiveDiff": 0,
+        "CurrentBestModelObjective": 221,
+        "ObjectiveIncreased": true,
+        "ObjectiveDiff": 3282,
         "FirstEliteMatches": true
       },
       {
@@ -670,9 +670,9 @@
         "CurrentSearchCompleted": false,
         "Shifted": false,
         "BaselineBestModelObjective": -2144,
-        "CurrentBestModelObjective": -2144,
-        "ObjectiveIncreased": false,
-        "ObjectiveDiff": 0,
+        "CurrentBestModelObjective": 7469,
+        "ObjectiveIncreased": true,
+        "ObjectiveDiff": 9613,
         "FirstEliteMatches": true
       },
       {
@@ -682,9 +682,9 @@
         "CurrentSearchCompleted": false,
         "Shifted": false,
         "BaselineBestModelObjective": -10457,
-        "CurrentBestModelObjective": -10457,
-        "ObjectiveIncreased": false,
-        "ObjectiveDiff": 0,
+        "CurrentBestModelObjective": -7089,
+        "ObjectiveIncreased": true,
+        "ObjectiveDiff": 3368,
         "FirstEliteMatches": true
       },
       {
@@ -766,9 +766,9 @@
         "CurrentSearchCompleted": false,
         "Shifted": false,
         "BaselineBestModelObjective": 4118,
-        "CurrentBestModelObjective": 4118,
-        "ObjectiveIncreased": false,
-        "ObjectiveDiff": 0,
+        "CurrentBestModelObjective": 5567,
+        "ObjectiveIncreased": true,
+        "ObjectiveDiff": 1449,
         "FirstEliteMatches": true
       },
       {
@@ -778,9 +778,9 @@
         "CurrentSearchCompleted": false,
         "Shifted": false,
         "BaselineBestModelObjective": -2514,
-        "CurrentBestModelObjective": -800,
+        "CurrentBestModelObjective": -269,
         "ObjectiveIncreased": true,
-        "ObjectiveDiff": 1714,
+        "ObjectiveDiff": 2245,
         "FirstEliteMatches": false
       },
       {

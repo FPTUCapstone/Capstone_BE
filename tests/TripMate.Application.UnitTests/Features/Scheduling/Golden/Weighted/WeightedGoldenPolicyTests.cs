@@ -37,8 +37,14 @@ public class WeightedGoldenPolicyTests
     private static string GetBaselinePR07Directory() =>
         Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../Features/Scheduling/Golden/Weighted/Baseline-PR07"));
 
+    private static string GetBaselinePR07bDirectory() =>
+        Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../Features/Scheduling/Golden/Weighted/Baseline-PR07b"));
+
     private static string GetBaselinePR08Directory() =>
         Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../Features/Scheduling/Golden/Weighted-TimeFit/Baseline-PR08"));
+
+    private static string GetBaselinePR07bTimeFitDirectory() =>
+        Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../Features/Scheduling/Golden/Weighted-TimeFit/Baseline-PR07b"));
 
     private static (IReadOnlyList<GenerationCandidate> Candidates, IReadOnlyDictionary<long, int> Indices) Index(GenerationInput input)
     {
@@ -240,6 +246,132 @@ public class WeightedGoldenPolicyTests
         {
             actual.BestModelObjective.Value.Should().BeGreaterThanOrEqualTo(baseline.BestModelObjective.Value,
                 $"Kịch bản {scenario.Id} chạm node limit nhưng mục tiêu kém hơn baseline PR-08.");
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(GetScenarios))]
+    public void Solver_SatisfiesPruningPolicy_ComparedToBaselinePR07b(GoldenScenario scenario)
+    {
+        ArgumentNullException.ThrowIfNull(scenario);
+
+        var baselineDir = GetBaselinePR07bDirectory();
+        var baselineFile = Path.Combine(baselineDir, $"{scenario.Id}.json");
+        File.Exists(baselineFile).Should().BeTrue($"Baseline file {baselineFile} must exist.");
+
+        var baselineJson = File.ReadAllText(baselineFile);
+        var baseline = JsonSerializer.Deserialize<WeightedSolverGoldenSnapshot>(baselineJson, JsonOptions)!;
+
+        var primaryCtx = CspItinerarySolver.CreatePrimaryContext(
+            scenario.Input, scenario.Matrix, scenario.Candidates, scenario.Indices, Options);
+
+        var requestInputs = WeightedGoldenInputsFactory.CreateRequestInputs(scenario.Candidates);
+        var inputs = ObjectiveKernelFactory.BuildWeightedInputs(primaryCtx, requestInputs);
+        var nodeOf = primaryCtx.Nodes.Select((n, i) => (n.Candidate.Id, Index: i)).ToDictionary(x => x.Id, x => x.Index);
+
+        var baseCspOpts = scenario.CspOptions ?? GoldenCspOptions;
+        var cspOptions = new CspOptions
+        {
+            Mode = ObjectiveMode.WeightedUtility,
+            TimeLimitMilliseconds = baseCspOpts.TimeLimitMilliseconds,
+            MaxNodes = baseCspOpts.MaxNodes,
+            MaxStops = baseCspOpts.MaxStops,
+            MaxOptionalDomainSize = baseCspOpts.MaxOptionalDomainSize,
+            FinalCandidatesToValidate = baseCspOpts.FinalCandidatesToValidate,
+            PolishWithLocalSearch = false
+        };
+
+        var solver = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, cspOptions);
+        var result = solver.Solve(
+            scenario.Input,
+            scenario.Matrix,
+            scenario.Candidates,
+            scenario.Indices,
+            scenario.InitialIncumbent,
+            weighted: requestInputs,
+            cancellationToken: CancellationToken.None);
+
+        var actual = WeightedSnapshotMapper.From(scenario, result, primaryCtx, inputs, nodeOf);
+
+        if (baseline.SearchCompleted)
+        {
+            actual.BestVisitPoiIds.Should().Equal(baseline.BestVisitPoiIds,
+                $"Kịch bản {scenario.Id} hoàn thành tìm kiếm nhưng nghiệm tốt nhất bị lệch so với PR-07b.");
+
+            actual.BestModelObjective.Should().Be(baseline.BestModelObjective,
+                $"Kịch bản {scenario.Id} có hàm mục tiêu mô hình bị lệch so với PR-07b.");
+
+            actual.NodesExpanded.Should().BeLessThanOrEqualTo(baseline.NodesExpanded,
+                $"Kịch bản {scenario.Id} duyệt nhiều node hơn baseline PR-07b khi có bound.");
+        }
+
+        if (baseline.NodeLimitReached && baseline.BestModelObjective.HasValue && actual.BestModelObjective.HasValue)
+        {
+            actual.BestModelObjective.Value.Should().BeGreaterThanOrEqualTo(baseline.BestModelObjective.Value,
+                $"Kịch bản {scenario.Id} chạm node limit nhưng mục tiêu kém hơn baseline PR-07b.");
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(GetScenarios))]
+    public void Solver_SatisfiesPruningPolicy_ComparedToBaselinePR07bTimeFit(GoldenScenario scenario)
+    {
+        ArgumentNullException.ThrowIfNull(scenario);
+
+        var baselineDir = GetBaselinePR07bTimeFitDirectory();
+        var baselineFile = Path.Combine(baselineDir, $"{scenario.Id}.json");
+        File.Exists(baselineFile).Should().BeTrue($"Baseline file {baselineFile} must exist.");
+
+        var baselineJson = File.ReadAllText(baselineFile);
+        var baseline = JsonSerializer.Deserialize<WeightedSolverGoldenSnapshot>(baselineJson, JsonOptions)!;
+
+        var primaryCtx = CspItinerarySolver.CreatePrimaryContext(
+            scenario.Input, scenario.Matrix, scenario.Candidates, scenario.Indices, Options);
+
+        var requestInputs = WeightedTimeFitInputsFactory.CreateRequestInputs(scenario.Candidates);
+        var inputs = ObjectiveKernelFactory.BuildWeightedInputs(primaryCtx, requestInputs);
+        var nodeOf = primaryCtx.Nodes.Select((n, i) => (n.Candidate.Id, Index: i)).ToDictionary(x => x.Id, x => x.Index);
+
+        var baseCspOpts = scenario.CspOptions ?? GoldenCspOptions;
+        var cspOptions = new CspOptions
+        {
+            Mode = ObjectiveMode.WeightedUtility,
+            TimeLimitMilliseconds = baseCspOpts.TimeLimitMilliseconds,
+            MaxNodes = baseCspOpts.MaxNodes,
+            MaxStops = baseCspOpts.MaxStops,
+            MaxOptionalDomainSize = baseCspOpts.MaxOptionalDomainSize,
+            FinalCandidatesToValidate = baseCspOpts.FinalCandidatesToValidate,
+            PolishWithLocalSearch = false
+        };
+
+        var solver = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, cspOptions);
+        var result = solver.Solve(
+            scenario.Input,
+            scenario.Matrix,
+            scenario.Candidates,
+            scenario.Indices,
+            scenario.InitialIncumbent,
+            weighted: requestInputs,
+            cancellationToken: CancellationToken.None);
+
+        var actual = WeightedSnapshotMapper.From(scenario, result, primaryCtx, inputs, nodeOf);
+
+        if (baseline.SearchCompleted)
+        {
+            actual.BestVisitPoiIds.Should().Equal(baseline.BestVisitPoiIds,
+                $"Kịch bản {scenario.Id} hoàn thành tìm kiếm nhưng nghiệm tốt nhất bị lệch so với PR-07b TimeFit.");
+
+            actual.BestModelObjective.Should().Be(baseline.BestModelObjective,
+                $"Kịch bản {scenario.Id} có hàm mục tiêu mô hình bị lệch so với PR-07b TimeFit.");
+
+            actual.NodesExpanded.Should().BeLessThanOrEqualTo(baseline.NodesExpanded,
+                $"Kịch bản {scenario.Id} duyệt nhiều node hơn baseline PR-07b TimeFit khi có bound.");
+        }
+
+        if (baseline.NodeLimitReached && baseline.BestModelObjective.HasValue && actual.BestModelObjective.HasValue)
+        {
+            actual.BestModelObjective.Value.Should().BeGreaterThanOrEqualTo(baseline.BestModelObjective.Value,
+                $"Kịch bản {scenario.Id} chạm node limit nhưng mục tiêu kém hơn baseline PR-07b TimeFit.");
         }
     }
 

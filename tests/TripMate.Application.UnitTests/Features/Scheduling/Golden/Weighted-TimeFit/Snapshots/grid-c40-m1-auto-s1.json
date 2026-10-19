@@ -2,12 +2,12 @@
   "ScenarioId": "grid-c40-m1-auto-s1",
   "Source": "GroupA_Grid",
   "Feasible": true,
-  "BestModelObjective": 2415,
-  "BestEvaluatedObjective": 2415,
+  "BestModelObjective": 4308,
+  "BestEvaluatedObjective": 4308,
   "BestVisitPoiIds": [
+    36,
     1,
-    11,
-    37
+    9
   ],
   "EliteModelObjectives": [],
   "EliteVisitIds": [],
@@ -18,13 +18,13 @@
   "NodesExpanded": 200000,
   "PrunedByConstraints": 0,
   "PrunedByForwardChecking": 0,
-  "PrunedByBound": 193980,
+  "PrunedByBound": 194016,
   "SolutionsFound": 199999,
   "NodesToFirstSolution": 2,
   "SearchCompleted": false,
   "NodeLimitReached": true,
   "TimeLimitReached": false,
-  "EvaluatorCalls": 8,
+  "EvaluatorCalls": 6,
   "UsedRelaxedRestModel": true,
   "ChoseRelaxedRestModel": false
 }

@@ -67,14 +67,14 @@
   "EndAtUtc": "2026-10-20T07:01:00+00:00",
   "NodesExpanded": 200000,
   "PrunedByConstraints": 0,
-  "PrunedByForwardChecking": 22712,
-  "PrunedByBound": 144719,
-  "SolutionsFound": 14927,
+  "PrunedByForwardChecking": 20485,
+  "PrunedByBound": 145915,
+  "SolutionsFound": 13970,
   "NodesToFirstSolution": 7,
   "SearchCompleted": false,
   "NodeLimitReached": true,
   "TimeLimitReached": false,
-  "EvaluatorCalls": 1,
+  "EvaluatorCalls": 2,
   "UsedRelaxedRestModel": false,
   "ChoseRelaxedRestModel": false
 }
