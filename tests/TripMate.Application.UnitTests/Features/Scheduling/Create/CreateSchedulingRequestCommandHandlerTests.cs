@@ -1904,8 +1904,8 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
             new HashSet<string>(),
             rankingEntry: null);
 
-        candidate.TripMateBaseScore.Should().Be(0m);
-        candidate.EffectiveDesirabilityScore.Should().Be(0m);
+        candidate.TripMateBaseScore.Should().BeNull();
+        candidate.EffectiveDesirabilityScore.Should().BeNull();
         candidate.ScenicScoreForRanking.Should().BeNull();
         candidate.PhotoRatingForRanking.Should().BeNull();
         candidate.EstimatedVisitCostForRanking.Should().BeNull();
