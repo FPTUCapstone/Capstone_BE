@@ -6,11 +6,11 @@ on:
     branches:
       - develop
 
-# A newer push to the same pull request supersedes the older run, so cancel it. Runs on develop
-# are never cancelled.
+# Keep every PR test run alive. The SQL Server suite is long-running and GitHub can otherwise
+# cancel a nearly completed run while its final cleanup is still being reported.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 jobs:
   test:
