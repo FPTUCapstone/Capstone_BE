@@ -46,7 +46,8 @@ public class TimingReportTests
         return (candidates, indices);
     }
 
-    [Fact(Skip = "PR-07b baseline recorded in H0. Run manually if re-baselining is required.")]
+    [Fact]
+    [Trait("Category", "Benchmark")]
     public void MeasurePR07b_TimingBaselines()
     {
         (int n, int m, int seed, int availableMin, int? maxStops, int maxNodes)[] configs =
@@ -208,6 +209,7 @@ public class TimingReportTests
     }
 
     [Fact]
+    [Trait("Category", "Benchmark")]
     public void MeasurePR07c_Timing()
     {
         var baselinePath = Path.Combine(GetWeightedDirectory(), "_timing-baseline-pr07b.json");

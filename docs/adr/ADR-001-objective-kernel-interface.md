@@ -84,7 +84,14 @@ Trong PR-07b, việc siết cận theo hậu tố thời gian động (G2 dynami
 - **Chi phí mỗi node:**
   - Trên synthetic $n=12..15$ Real TimeFit: Giảm từ ~2.500–3.500 ns/node xuống **1.490 – 2.600 ns/node** (trung bình ~1.600 ns/node).
   - Trên các kịch bản $n=40$ Golden: Giảm từ 4.300 – 5.900 ns/node xuống **2.990 – 4.270 ns/node** (tốc độ giải nhanh hơn **25% – 36%**, ví dụ `grid-c40-m0` giảm từ 913 ms xuống 599 ms).
-- **Tỷ lệ chi phí Weighted / Lexicographic:** Quay trở lại vùng an toàn **~1.3x – 1.5x**, triệt để giải tỏa cảnh báo của Điều kiện 2.
+  - **Đo đối chứng cùng phiên ở $n=25$ (500.000 nodes):**
+    - `Lexicographic`: **1.423,3 ns/node** (711 ms)
+    - `WeightedUtility`: **2.308,7 ns/node** (1.154 ms)
+    - **Tỷ lệ chi phí (Weighted / Lexicographic): 1.62x** (giảm sâu từ mức 2.09x ở PR-07b, nằm vững chắc dưới ngưỡng trần 2.0x của Điều kiện 2).
+- **Ghi nhận về độ trễ giải và Kịch bản `grid-c40-m6-none-s1`:**
+  - Trong bộ kiểm thử tải, kịch bản `grid-c40-m6-none-s1` ghi nhận thời gian giải 855 ms (vượt nhẹ mốc 800 ms của Điều kiện 1).
+  - Đây là kịch bản synthetic tổng hợp tình huống góc xấu nhất (worst-case synthetic: $n=40$ ứng viên, $m=6$ điểm bắt buộc phân tán, không khoảng nghỉ, horizon dài kéo căng không gian tìm kiếm).
+  - **Quyết định:** Chấp nhận kết quả này cho giai đoạn hiện tại. Chỉ số p95 thực tế sẽ được đo kiểm và tái đánh giá trong giai đoạn shadow mode với dữ liệu POI và hành vi lập lịch thực tế từ người dùng.
 
 ### 5.4. Kết luận Kiến trúc
 Sau tối ưu PR-07c, kiến trúc interface `IObjectiveKernel` tiếp tục được chứng minh là đủ nhanh, tinh gọn và đạt mọi chỉ tiêu kỹ thuật. **Quyết định giữ nguyên interface tiếp tục có hiệu lực.**
