@@ -6,10 +6,11 @@ using Microsoft.AspNetCore.Mvc;
 using TripMate.Api.Common;
 using TripMate.Application.Features.Admin.ActiveTrips.GetDetails;
 using TripMate.Application.Features.Admin.ActiveTrips.GetList;
+using TripMate.Domain.Enums;
 
 namespace TripMate.Api.Controllers.V1;
 
-[Authorize(Roles = "Administrator")]
+[Authorize(Policy = UserRoleExtensions.StaffOnly)]
 [Route("api/v1/admin/trips/active")]
 public sealed class AdminActiveTripsController(ISender sender) : ApiControllerBase(sender)
 {
@@ -39,6 +40,8 @@ public sealed class AdminActiveTripsController(ISender sender) : ApiControllerBa
         CancellationToken cancellationToken)
     {
         var result = await Sender.Send(new GetActiveTripDetailsQuery(tripId), cancellationToken);
+        // This response can contain consent-gated precise location data.
+        Response.Headers.CacheControl = "no-store";
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 }

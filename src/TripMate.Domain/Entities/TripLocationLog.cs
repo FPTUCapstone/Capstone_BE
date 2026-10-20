@@ -13,6 +13,14 @@ public sealed class TripLocationLog
 
     public TripSession Session { get; private set; } = null!;
 
+    /// <summary>
+    /// The traveler represented by this point. Legacy records can be null and are never
+    /// disclosed through operational monitoring.
+    /// </summary>
+    public long? SubjectUserId { get; private set; }
+
+    public User? SubjectUser { get; private set; }
+
     public decimal Latitude { get; private set; }
 
     public decimal Longitude { get; private set; }

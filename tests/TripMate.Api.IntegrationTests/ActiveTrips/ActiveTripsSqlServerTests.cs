@@ -145,7 +145,7 @@ public sealed class ActiveTripsSqlServerTests
     private sealed class Administrator : ICurrentUserService
     {
         public long? UserId => 1;
-        public string? Role => "Administrator";
+        public string? Role => "Staff";
     }
 
     private sealed class Clock : IDateTimeProvider

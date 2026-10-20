@@ -14,18 +14,18 @@ namespace TripMate.Api.IntegrationTests.ActiveTrips;
 
 /// <summary>
 /// UC-13 → UC-58/UC-59 end to end: the progress a Traveler records through the navigation API is
-/// exactly what the Administrator sees for that session, the shared planning status is never
+/// exactly what Operations Staff sees for that session, the shared planning status is never
 /// touched, and the session leaves both screens once it closes.
 /// </summary>
 [Collection(nameof(TripMateApiFactory))]
 public sealed class ActiveTripNavigationProgressTests
 {
     [Fact]
-    public async Task AdministratorSeesTheSessionsOwnProgress_InMemory()
+    public async Task StaffSeesTheSessionsOwnProgress_InMemory()
     {
         await using var factory = new TripMateApiFactory();
 
-        await AssertAdministratorSeesSessionProgressAsync(
+        await AssertStaffSeesSessionProgressAsync(
             factory,
             operation => factory.WithDbContextAsync(async db =>
             {
@@ -36,12 +36,12 @@ public sealed class ActiveTripNavigationProgressTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
-    public async Task AdministratorSeesTheSessionsOwnProgress_SqlServer()
+    public async Task StaffSeesTheSessionsOwnProgress_SqlServer()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
         await using var factory = new TripMateApiFactory(sqlServerConnectionString: database.ConnectionString);
 
-        await AssertAdministratorSeesSessionProgressAsync(
+        await AssertStaffSeesSessionProgressAsync(
             factory,
             async operation =>
             {
@@ -50,14 +50,14 @@ public sealed class ActiveTripNavigationProgressTests
             });
     }
 
-    private static async Task AssertAdministratorSeesSessionProgressAsync(
+    private static async Task AssertStaffSeesSessionProgressAsync(
         TripMateApiFactory factory,
         Func<Func<IApplicationDbContext, Task>, Task> withDb)
     {
         Seed seed = null!;
         await withDb(async db => seed = await SeedAsync(db));
         using var traveler = factory.CreateAuthenticatedClient(seed.TravelerId, UserRole.Traveler);
-        using var administrator = factory.CreateAuthenticatedClient(seed.AdministratorId, UserRole.Administrator);
+        using var staff = factory.CreateAuthenticatedClient(seed.StaffId, UserRole.Staff);
 
         using var startRequest = new HttpRequestMessage(
             HttpMethod.Post,
@@ -79,7 +79,7 @@ public sealed class ActiveTripNavigationProgressTests
             skipped.StatusCode.Should().Be(HttpStatusCode.OK);
         }
 
-        using (var list = await administrator.GetAsync("/api/v1/admin/trips/active"))
+        using (var list = await staff.GetAsync("/api/v1/admin/trips/active"))
         {
             list.StatusCode.Should().Be(HttpStatusCode.OK);
             (await ReadAsync(list)).RootElement.GetProperty("items").EnumerateArray()
@@ -87,7 +87,7 @@ public sealed class ActiveTripNavigationProgressTests
                 .Should().Contain(sessionId.ToString());
         }
 
-        using (var detail = await administrator.GetAsync(detailPath))
+        using (var detail = await staff.GetAsync(detailPath))
         {
             detail.StatusCode.Should().Be(HttpStatusCode.OK);
             using var json = await ReadAsync(detail);
@@ -115,12 +115,12 @@ public sealed class ActiveTripNavigationProgressTests
             stopped.StatusCode.Should().Be(HttpStatusCode.OK);
         }
 
-        using (var afterStop = await administrator.GetAsync(detailPath))
+        using (var afterStop = await staff.GetAsync(detailPath))
         {
             afterStop.StatusCode.Should().Be(HttpStatusCode.NotFound);
         }
 
-        using (var listAfterStop = await administrator.GetAsync("/api/v1/admin/trips/active"))
+        using (var listAfterStop = await staff.GetAsync("/api/v1/admin/trips/active"))
         {
             (await ReadAsync(listAfterStop)).RootElement.GetProperty("items").EnumerateArray()
                 .Select(item => item.GetProperty("tripId").GetString())
@@ -133,8 +133,8 @@ public sealed class ActiveTripNavigationProgressTests
         var now = DateTimeOffset.UtcNow;
         var suffix = Guid.NewGuid().ToString("N");
         var traveler = User($"uc13-uc59-traveler-{suffix}@example.com", UserRole.Traveler, now);
-        var administrator = User($"uc13-uc59-admin-{suffix}@example.com", UserRole.Administrator, now);
-        db.Users.AddRange(traveler, administrator);
+        var staff = User($"uc13-uc59-staff-{suffix}@example.com", UserRole.Staff, now);
+        db.Users.AddRange(traveler, staff);
         var category = PoiCategory.Create($"UC-59 progress {suffix}", null);
         db.PoiCategories.Add(category);
         await db.SaveChangesAsync(CancellationToken.None);
@@ -168,7 +168,7 @@ public sealed class ActiveTripNavigationProgressTests
         await db.SaveChangesAsync(CancellationToken.None);
         return new Seed(
             traveler.Id,
-            administrator.Id,
+            staff.Id,
             itinerary.Id,
             itinerary.Items.OrderBy(item => item.SequenceNo).Select(item => item.Id).ToArray());
     }
@@ -176,7 +176,7 @@ public sealed class ActiveTripNavigationProgressTests
     private static User User(string email, UserRole role, DateTimeOffset now) => new()
     {
         Email = email,
-        FullName = role == UserRole.Administrator ? "UC-59 Administrator" : "UC-59 Traveler",
+        FullName = role == UserRole.Staff ? "UC-59 Staff" : "UC-59 Traveler",
         Role = role,
         Status = AccountStatus.Active,
         CreatedAtUtc = now,
@@ -186,5 +186,5 @@ public sealed class ActiveTripNavigationProgressTests
     private static async Task<JsonDocument> ReadAsync(HttpResponseMessage response) =>
         JsonDocument.Parse(await response.Content.ReadAsStringAsync());
 
-    private sealed record Seed(long TravelerId, long AdministratorId, long ItineraryId, long[] ItemIds);
+    private sealed record Seed(long TravelerId, long StaffId, long ItineraryId, long[] ItemIds);
 }

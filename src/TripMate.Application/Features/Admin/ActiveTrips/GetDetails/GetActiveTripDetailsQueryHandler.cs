@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.Json;
 
 using MediatR;
 
@@ -25,7 +26,7 @@ public sealed class GetActiveTripDetailsQueryHandler(
         GetActiveTripDetailsQuery request,
         CancellationToken cancellationToken)
     {
-        if (currentUserService.UserId is null || currentUserService.Role != "Administrator")
+        if (currentUserService.UserId is null || currentUserService.Role != nameof(UserRole.Staff))
         {
             return Result.Failure<ActiveTripDetailDto>(
                 ActiveTripErrorCodes.Forbidden,
@@ -47,6 +48,8 @@ public sealed class GetActiveTripDetailsQueryHandler(
                 candidate.LastSyncedAtUtc,
                 candidate.CurrentLatitude,
                 candidate.CurrentLongitude,
+                candidate.CurrentLocationSubjectUserId,
+                candidate.TravelerUserId,
                 candidate.TravelerUser.FullName,
                 candidate.TravelerUser.Email))
             .FirstOrDefaultAsync(cancellationToken);
@@ -60,24 +63,13 @@ public sealed class GetActiveTripDetailsQueryHandler(
                 ActiveTripErrorCodes.NotFoundMessage);
         }
 
-        // BR-130 (D8): fail-closed — the access audit row is persisted before any GPS-bearing
-        // detail is assembled; an audit failure fails the request instead of serving untracked.
-        dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(
-            currentUserService.UserId,
-            AuditActionTypes.ActiveTripDetailsViewed,
-            AuditEntityTypes.TripSession,
-            request.TripId,
-            nowUtc,
-            AuditOutcome.Success));
-        await dbContext.SaveChangesAsync(cancellationToken);
-
         var itineraryId = session.ItineraryId;
+        // The SQL column is nullable even though UC-17 creates named groups. Coalesce in
+        // SQL so EF does not call GetString on a NULL value while materializing the row.
         var groups = await dbContext.TravelGroups
             .AsNoTracking()
             .Where(group => group.ItineraryId == itineraryId)
             .OrderBy(group => group.Id)
-            // The SQL column is nullable even though UC-17 creates named groups. Coalesce in
-            // SQL so EF does not call GetString on a NULL value while materializing the row.
             .Select(group => new GroupRow(group.Id, group.Name ?? string.Empty, group.HostUser.FullName))
             .ToListAsync(cancellationToken);
         var groupIds = groups.Select(group => group.GroupId).ToArray();
@@ -95,6 +87,27 @@ public sealed class GetActiveTripDetailsQueryHandler(
                     member.JoinedAtUtc,
                     member.LocationSharingEnabled))
                 .ToListAsync(cancellationToken);
+
+        // Consent for group members and consent for Operations Staff are distinct scopes. The
+        // existing GroupMember.LocationSharingEnabled flag is surfaced only as group state and
+        // must never grant Staff access to a precise coordinate.
+        var locationSubjects = (groups.Count == 0
+                ? [session.TravelerUserId]
+                : members.Select(member => member.UserId).Distinct().ToArray())
+            .Distinct()
+            .ToArray();
+        var disclosedSubjectIds = locationSubjects.Length == 0
+            ? []
+            : await dbContext.TripLocationDisclosureConsents
+                .AsNoTracking()
+                .Where(consent => consent.SessionId == request.TripId
+                    && consent.Audience == LocationDisclosureAudience.OperationsStaff
+                    && consent.RevokedAtUtc == null
+                    && locationSubjects.Contains(consent.UserId))
+                .Select(consent => consent.UserId)
+                .Distinct()
+                .ToArrayAsync(cancellationToken);
+        var locationDisclosure = BuildLocationDisclosure(locationSubjects, disclosedSubjectIds);
 
         var destinationNames = session.SourceTourId.HasValue
             ? await dbContext.TourDestinations
@@ -175,7 +188,9 @@ public sealed class GetActiveTripDetailsQueryHandler(
         // Latest N logs selected descending, returned ascending for display (spec D4).
         var locationTrailRows = await dbContext.TripLocationLogs
             .AsNoTracking()
-            .Where(log => log.SessionId == request.TripId)
+            .Where(log => log.SessionId == request.TripId
+                && log.SubjectUserId.HasValue
+                && disclosedSubjectIds.Contains(log.SubjectUserId.Value))
             .OrderByDescending(log => log.RecordedAtUtc)
             .ThenByDescending(log => log.Id)
             .Take(LocationTrailLimit)
@@ -187,7 +202,7 @@ public sealed class GetActiveTripDetailsQueryHandler(
             .ToListAsync(cancellationToken);
         locationTrailRows.Reverse();
 
-        return Result.Success(BuildDetail(
+        var detail = BuildDetail(
             session,
             groups,
             members,
@@ -198,7 +213,29 @@ public sealed class GetActiveTripDetailsQueryHandler(
             weatherById,
             reroutingEvents,
             locationTrailRows,
-            nowUtc));
+            locationDisclosure,
+            disclosedSubjectIds,
+            nowUtc);
+
+        // BR-130: success is recorded only after every detail query and response mapping succeeds.
+        // The audit write remains fail-closed: if it cannot be persisted, no location-bearing
+        // detail payload is returned. Metadata deliberately contains disclosure counts only.
+        dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(
+            currentUserService.UserId,
+            AuditActionTypes.ActiveTripDetailsViewed,
+            AuditEntityTypes.TripSession,
+            request.TripId,
+            nowUtc,
+            AuditOutcome.Success,
+            afterData: JsonSerializer.Serialize(new
+            {
+                locationDisclosure.State,
+                locationDisclosure.SharedMemberCount,
+                locationDisclosure.HiddenMemberCount
+            })));
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        return Result.Success(detail);
     }
 
     private static ActiveTripDetailDto BuildDetail(
@@ -212,6 +249,8 @@ public sealed class GetActiveTripDetailsQueryHandler(
         Dictionary<long, WeatherEvent> weatherById,
         List<ReroutingRow> reroutingRows,
         List<TrailRow> trailRows,
+        LocationDisclosureDto locationDisclosure,
+        long[] disclosedSubjectIds,
         DateTimeOffset nowUtc)
     {
         var names = groups.Select(group => group.Name?.Trim())
@@ -234,6 +273,8 @@ public sealed class GetActiveTripDetailsQueryHandler(
 
         var currentLocation =
             session.CurrentLatitude.HasValue && session.CurrentLongitude.HasValue
+                && session.CurrentLocationSubjectUserId.HasValue
+                && disclosedSubjectIds.Contains(session.CurrentLocationSubjectUserId.Value)
                 ? new CurrentLocationDto(
                     session.CurrentLatitude.Value,
                     session.CurrentLongitude.Value,
@@ -275,11 +316,12 @@ public sealed class GetActiveTripDetailsQueryHandler(
             memberCount,
             incidents.Count(incident => incident.ResolvedAtUtc == null),
             groupPanels,
+            locationDisclosure,
             currentLocation,
             progressRows.Select(row => new ItineraryProgressItemDto(
                 row.ItemId.ToString(CultureInfo.InvariantCulture),
                 row.SequenceNo,
-                row.PoiId?.ToString(CultureInfo.InvariantCulture),
+                row.PoiId.ToString(CultureInfo.InvariantCulture),
                 row.PoiName,
                 row.ItemKind.ToString(),
                 row.Status,
@@ -313,14 +355,26 @@ public sealed class GetActiveTripDetailsQueryHandler(
                 row.Status,
                 row.ProposedAtUtc,
                 row.DecidedAtUtc,
-                // proposed_itinerary_snapshot is NOT NULL, so a snapshot always exists; its
-                // content is excluded by the approved contract (spec D5).
                 HasProposedItinerarySnapshot: true)).ToArray(),
             trailRows.Select(row => new TripLocationPointDto(
                 row.Latitude,
                 row.Longitude,
                 row.RecordedAtUtc,
                 row.IsOfflineCaptured)).ToArray());
+    }
+
+    private static LocationDisclosureDto BuildLocationDisclosure(
+        long[] locationSubjects,
+        long[] disclosedSubjectIds)
+    {
+        var shared = disclosedSubjectIds.Length;
+        var hidden = Math.Max(locationSubjects.Length - shared, 0);
+        var state = shared == 0
+            ? "Redacted"
+            : hidden == 0
+                ? "Full"
+                : "Partial";
+        return new LocationDisclosureDto(state, shared, hidden);
     }
 
     private sealed record SessionRow(
@@ -333,6 +387,8 @@ public sealed class GetActiveTripDetailsQueryHandler(
         DateTimeOffset? LastSyncedAtUtc,
         decimal? CurrentLatitude,
         decimal? CurrentLongitude,
+        long? CurrentLocationSubjectUserId,
+        long TravelerUserId,
         string TravelerName,
         string? TravelerEmail);
 
@@ -348,12 +404,12 @@ public sealed class GetActiveTripDetailsQueryHandler(
     private sealed record ProgressRow(
         long ItemId,
         int SequenceNo,
-        long? PoiId,
-        string? PoiName,
+        long PoiId,
+        string PoiName,
         ItineraryItemKind ItemKind,
         string Status,
-        DateTimeOffset? PlannedArrivalUtc,
-        DateTimeOffset? PlannedDepartureUtc,
+        DateTimeOffset PlannedArrivalUtc,
+        DateTimeOffset PlannedDepartureUtc,
         int StayDurationMinutes);
 
     private sealed record HistoryRow(
