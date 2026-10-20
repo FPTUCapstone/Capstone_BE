@@ -78,7 +78,8 @@ public sealed class PaymentCompletionProcessor(
             case PaymentTransactionStatus.Success:
                 if (transaction.Status == PaymentTransactionStatus.Pending)
                 {
-                    transaction.MarkSuccess(gatewayRef, rawResponse, now);
+                    var commissionRate = await dbContext.TourSchedules.Where(s => s.Id == booking.TourScheduleId).Select(s => dbContext.OperatorProfiles.Where(o => o.UserId == s.Tour.OperatorUserId).Select(o => o.CommissionRate).FirstOrDefault()).FirstOrDefaultAsync(cancellationToken);
+                    transaction.MarkSuccess(gatewayRef, rawResponse, now, commissionRate);
                     statusChanged = true;
                     acceptedPayment = true;
                 }

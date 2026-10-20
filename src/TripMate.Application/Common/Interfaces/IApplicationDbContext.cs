@@ -84,6 +84,8 @@ public interface IApplicationDbContext
 
     DbSet<PaymentTransaction> PaymentTransactions { get; }
 
+    DbSet<Refund> Refunds { get; }
+
     DbSet<TravelGroup> TravelGroups { get; }
 
     DbSet<GroupMember> GroupMembers { get; }
