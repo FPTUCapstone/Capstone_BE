@@ -6,6 +6,15 @@
     filters. commerce.Tours and dbo.Users already exist (tripmate_schema_v7.sql); this migration
     only adds the new reporting.RevenueExports table.
 */
+-- Filtered indexes below require these session options.  Do not rely on the
+-- caller (sqlcmd, Docker init, or a deployment runner) to provide them.
+SET ANSI_NULLS ON;
+SET ANSI_PADDING ON;
+SET ANSI_WARNINGS ON;
+SET ARITHABORT ON;
+SET CONCAT_NULL_YIELDS_NULL ON;
+SET QUOTED_IDENTIFIER ON;
+SET NUMERIC_ROUNDABORT OFF;
 SET XACT_ABORT ON;
 GO
 
