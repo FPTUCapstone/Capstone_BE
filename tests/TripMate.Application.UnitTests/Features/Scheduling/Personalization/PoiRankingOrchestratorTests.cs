@@ -22,7 +22,8 @@ public sealed class PoiRankingOrchestratorTests
     {
         var dbContext = new Mock<IApplicationDbContext>(MockBehavior.Strict);
         var provider = new RecordingProvider();
-        var orchestrator = CreateOrchestrator(dbContext.Object, provider, providerEnabled: true);
+        var logger = new RecordingLogger<PoiRankingOrchestrator>();
+        var orchestrator = CreateOrchestrator(dbContext.Object, provider, providerEnabled: true, logger: logger);
 
         PoiRankingSnapshot snapshot = await orchestrator.BuildRankingAsync(
             new PoiRankingInput(17L, ["culture"], []),
@@ -33,6 +34,12 @@ public sealed class PoiRankingOrchestratorTests
         snapshot.OutcomeCategory.Should().Be(PoiRankingOutcomeCategory.ProviderSkipped);
         provider.CallCount.Should().Be(0);
         dbContext.VerifyNoOtherCalls();
+
+        LogEntry log = logger.Entries.Should().ContainSingle().Subject;
+        log.Level.Should().Be(LogLevel.Information);
+        log.Properties["Outcome"].Should().Be("provider-skipped");
+        log.Properties["FallbackUsed"].Should().Be(false);
+        log.Properties["TimedOut"].Should().Be(false);
     }
 
     [Fact]
@@ -63,7 +70,7 @@ public sealed class PoiRankingOrchestratorTests
             CancellationToken.None);
 
         snapshot.Entries[11L].TripMateBaseScore.Should().Be(0.875m);
-        snapshot.Entries[11L].EffectiveDesirabilityScore.Should().Be(0.875m);
+        snapshot.Entries[11L].EffectiveDesirabilityScore.Should().Be(0.765m);
         countingContext.VerifyGet(
             context => context.RecommendationBehaviorEvents,
             Times.Exactly(2));
@@ -174,7 +181,7 @@ public sealed class PoiRankingOrchestratorTests
         snapshot.OutcomeCategory.Should().Be(PoiRankingOutcomeCategory.ProviderSkipped);
         snapshot.Entries.Should().HaveCount(3);
         snapshot.Entries.Values.Should().OnlyContain(entry =>
-            entry.EffectiveDesirabilityScore == entry.TripMateBaseScore);
+            entry.EffectiveDesirabilityScore == (0.60m * entry.TripMateBaseScore) + (0.40m * 0.50m));
         snapshot.ProviderPoolPoiIds.Should().NotContain(1L);
         provider.CallCount.Should().Be(0);
         LogEntry log = logger.Entries.Should().ContainSingle().Subject;
@@ -185,7 +192,7 @@ public sealed class PoiRankingOrchestratorTests
             ["CandidateCount"] = 4,
             ["PoolCount"] = 3,
             ["Outcome"] = "provider-skipped",
-            ["FallbackUsed"] = false,
+            ["FallbackUsed"] = true,
             ["TimedOut"] = false,
         });
         log.Message.Should().NotContain("FAKE_SECRET_SHOULD_NOT_APPEAR");
@@ -216,7 +223,7 @@ public sealed class PoiRankingOrchestratorTests
         snapshot.OutcomeCategory.Should().Be(PoiRankingOutcomeCategory.ProviderSkipped);
         snapshot.Entries.Should().HaveCount(3);
         snapshot.Entries.Values.Should().OnlyContain(entry =>
-            entry.EffectiveDesirabilityScore == entry.TripMateBaseScore);
+            entry.EffectiveDesirabilityScore == (0.60m * entry.TripMateBaseScore) + (0.40m * 0.50m));
         LogEntry log = logger.Entries.Should().ContainSingle().Subject;
         log.Level.Should().Be(LogLevel.Information);
         log.Properties.Should().Contain(new Dictionary<string, object?>
@@ -224,7 +231,7 @@ public sealed class PoiRankingOrchestratorTests
             ["CandidateCount"] = 4,
             ["PoolCount"] = 3,
             ["Outcome"] = "provider-skipped",
-            ["FallbackUsed"] = false,
+            ["FallbackUsed"] = true,
             ["TimedOut"] = false,
         });
     }
@@ -405,7 +412,7 @@ public sealed class PoiRankingOrchestratorTests
 
         snapshot.OutcomeCategory.Should().Be(PoiRankingOutcomeCategory.InvalidResponse);
         snapshot.Entries.Values.Should().OnlyContain(entry =>
-            entry.EffectiveDesirabilityScore == entry.TripMateBaseScore);
+            entry.EffectiveDesirabilityScore == (0.60m * entry.TripMateBaseScore) + (0.40m * 0.60m));
         provider.CallCount.Should().Be(1);
         LogEntry log = logger.Entries.Should().ContainSingle().Subject;
         log.Level.Should().Be(LogLevel.Warning);
@@ -441,7 +448,7 @@ public sealed class PoiRankingOrchestratorTests
 
         snapshot.OutcomeCategory.ToString().Should().Be(expectedOutcome);
         snapshot.Entries[1L].EffectiveDesirabilityScore.Should().Be(
-            snapshot.Entries[1L].TripMateBaseScore);
+            (0.60m * snapshot.Entries[1L].TripMateBaseScore) + (0.40m * 0.60m));
         provider.CallCount.Should().Be(1);
         LogEntry log = logger.Entries.Should().ContainSingle().Subject;
         log.Level.Should().Be(LogLevel.Warning);
@@ -477,7 +484,7 @@ public sealed class PoiRankingOrchestratorTests
 
         snapshot.OutcomeCategory.Should().Be(PoiRankingOutcomeCategory.Timeout);
         snapshot.Entries[1L].EffectiveDesirabilityScore.Should().Be(
-            snapshot.Entries[1L].TripMateBaseScore);
+            (0.60m * snapshot.Entries[1L].TripMateBaseScore) + (0.40m * 0.60m));
         provider.CallCount.Should().Be(1);
         callerCancellation.IsCancellationRequested.Should().BeFalse();
         LogEntry log = logger.Entries.Should().ContainSingle().Subject;
@@ -694,6 +701,133 @@ public sealed class PoiRankingOrchestratorTests
         snapshot.ProviderPoolPoiIds.Should().BeEquivalentTo([6L, 7L, 8L, 9L, 10L]);
         finalTopThree.Should().Equal(10L, 9L, 8L);
     }
+
+    [Fact]
+    public async Task BuildRankingAsync_WhenAiSucceeds_UsesActualAiScoreAndIgnoresFallback()
+    {
+        await using var dbContext = CreateDbContext();
+        var provider = new RecordingProvider
+        {
+            Handler = (req, _) => Task.FromResult(Result.Success(new PoiRankingResult(
+                req.Candidates.Select(c => new PoiRankingItem(c.PoiId, 0.90m, "Great match")).ToArray()))),
+        };
+        var logger = new RecordingLogger<PoiRankingOrchestrator>();
+        var orchestrator = CreateOrchestrator(dbContext, provider, true, logger: logger);
+
+        PoiRankingSnapshot snapshot = await orchestrator.BuildRankingAsync(
+            new PoiRankingInput(17L, ["culture"], [Candidate(1L)]),
+            CancellationToken.None);
+
+        // BaseScore is 0.250m, actual AiScore is 0.90m
+        // Expected: 0.60 * 0.250 + 0.40 * 0.90 = 0.150 + 0.360 = 0.510m
+        snapshot.OutcomeCategory.Should().Be(PoiRankingOutcomeCategory.Success);
+        snapshot.Entries[1L].EffectiveDesirabilityScore.Should().Be(0.510m);
+        provider.CallCount.Should().Be(1);
+
+        LogEntry log = logger.Entries.Should().ContainSingle().Subject;
+        log.Level.Should().Be(LogLevel.Information);
+        log.Properties["Outcome"].Should().Be("success");
+        log.Properties["FallbackUsed"].Should().Be(false);
+        log.Properties["TimedOut"].Should().Be(false);
+    }
+
+    public static TheoryData<PoiRankingOutcomeCategory, bool, decimal, int, string> ReachableNonSuccessOutcomes => new()
+    {
+        // Failure outcomes (require preferences so provider is actually called and fails):
+        { PoiRankingOutcomeCategory.Timeout, true, ExpectedBlendedScore(0.250m, 0.60m), 1, "timeout" },
+        { PoiRankingOutcomeCategory.Quota, true, ExpectedBlendedScore(0.250m, 0.60m), 1, "quota" },
+        { PoiRankingOutcomeCategory.Network, true, ExpectedBlendedScore(0.250m, 0.60m), 1, "network" },
+        { PoiRankingOutcomeCategory.ServerError, true, ExpectedBlendedScore(0.250m, 0.60m), 1, "server-error" },
+        { PoiRankingOutcomeCategory.InvalidResponse, true, ExpectedBlendedScore(0.250m, 0.60m), 1, "invalid-response" },
+        // ProviderSkipped case A: Provider disabled with preferences -> fallback 0.60, provider not called
+        { PoiRankingOutcomeCategory.ProviderSkipped, true, ExpectedBlendedScore(0.250m, 0.60m), 0, "provider-skipped" },
+        // ProviderSkipped case B: Cold start (no preferences, provider enabled) -> fallback 0.50, provider not called
+        { PoiRankingOutcomeCategory.ProviderSkipped, false, ExpectedBlendedScore(0.250m, 0.50m), 0, "provider-skipped" },
+    };
+
+    [Theory]
+    [MemberData(nameof(ReachableNonSuccessOutcomes))]
+    public async Task BuildRankingAsync_AllReachableNonSuccessOutcomes_ApplyConsistentFallbackAndTelemetry(
+        PoiRankingOutcomeCategory outcomeCategory,
+        bool hasPreferences,
+        decimal expectedScore,
+        int expectedCallCount,
+        string expectedLogOutcome)
+    {
+        await using var dbContext = CreateDbContext();
+        RecordingProvider provider;
+        bool providerEnabled = true;
+        PersonalizationRankingOptions? options = null;
+
+        switch (outcomeCategory)
+        {
+            case PoiRankingOutcomeCategory.Timeout:
+                provider = new RecordingProvider
+                {
+                    Handler = async (_, cancellationToken) =>
+                    {
+                        await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                        return Result.Success(new PoiRankingResult([]));
+                    },
+                };
+                options = Options(providerTimeout: TimeSpan.FromMilliseconds(20));
+                break;
+            case PoiRankingOutcomeCategory.Quota:
+                provider = new RecordingProvider
+                {
+                    Handler = (_, _) => Task.FromResult(
+                        Result.Failure<PoiRankingResult>(PoiRankingProviderErrorCodes.Quota, "Quota")),
+                };
+                break;
+            case PoiRankingOutcomeCategory.Network:
+                provider = new RecordingProvider
+                {
+                    Handler = (_, _) => Task.FromResult(
+                        Result.Failure<PoiRankingResult>(PoiRankingProviderErrorCodes.Network, "Network")),
+                };
+                break;
+            case PoiRankingOutcomeCategory.ServerError:
+                provider = new RecordingProvider
+                {
+                    Handler = (_, _) => Task.FromResult(
+                        Result.Failure<PoiRankingResult>(PoiRankingProviderErrorCodes.ServerError, "Server error")),
+                };
+                break;
+            case PoiRankingOutcomeCategory.InvalidResponse:
+                provider = new RecordingProvider
+                {
+                    Handler = (_, _) => Task.FromResult(
+                        Result.Failure<PoiRankingResult>(PoiRankingProviderErrorCodes.InvalidResponse, "Invalid response")),
+                };
+                break;
+            case PoiRankingOutcomeCategory.ProviderSkipped:
+                provider = new RecordingProvider();
+                providerEnabled = !hasPreferences; // if hasPreferences=true, disabled to trigger skipped; if false, enabled but cold start triggers skipped
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(outcomeCategory));
+        }
+
+        var logger = new RecordingLogger<PoiRankingOrchestrator>();
+        var orchestrator = CreateOrchestrator(dbContext, provider, providerEnabled, options, logger);
+        var preferenceTokens = hasPreferences ? new[] { "culture" } : Array.Empty<string>();
+
+        PoiRankingSnapshot snapshot = await orchestrator.BuildRankingAsync(
+            new PoiRankingInput(17L, preferenceTokens, [Candidate(1L)]),
+            CancellationToken.None);
+
+        snapshot.OutcomeCategory.Should().Be(outcomeCategory);
+        snapshot.Entries[1L].EffectiveDesirabilityScore.Should().Be(expectedScore);
+        provider.CallCount.Should().Be(expectedCallCount);
+
+        LogEntry log = logger.Entries.Should().ContainSingle().Subject;
+        log.Properties["Outcome"].Should().Be(expectedLogOutcome);
+        log.Properties["FallbackUsed"].Should().Be(true);
+        log.Properties["TimedOut"].Should().Be(outcomeCategory == PoiRankingOutcomeCategory.Timeout);
+    }
+
+    private static decimal ExpectedBlendedScore(decimal baseScore, decimal aiFallback) =>
+        (0.60m * baseScore) + (0.40m * aiFallback);
 
     public static TheoryData<string> PoolOrderingCases => new()
     {

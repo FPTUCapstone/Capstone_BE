@@ -31,6 +31,10 @@ public sealed class PersonalizationRankingOptions
     public int MaxProviderCandidates { get; init; } = 60;
 
     public TimeSpan ProviderTimeout { get; init; } = TimeSpan.FromSeconds(5);
+
+    public decimal PersonalizedAiFallbackScore { get; init; } = 0.60m;
+
+    public decimal DefaultAiFallbackScore { get; init; } = 0.50m;
 }
 
 public sealed class PersonalizationRankingOptionsValidator(
@@ -115,6 +119,15 @@ public sealed class PersonalizationRankingOptionsValidator(
             failures.Add($"{nameof(options.ProviderTimeout)} must be greater than zero.");
         }
 
+        AddUnitIntervalFailure(
+            options.PersonalizedAiFallbackScore,
+            nameof(options.PersonalizedAiFallbackScore),
+            failures);
+        AddUnitIntervalFailure(
+            options.DefaultAiFallbackScore,
+            nameof(options.DefaultAiFallbackScore),
+            failures);
+
         return failures.Count == 0
             ? ValidateOptionsResult.Success
             : ValidateOptionsResult.Fail(failures);
@@ -128,6 +141,17 @@ public sealed class PersonalizationRankingOptionsValidator(
         if (value < 0m)
         {
             failures.Add($"{propertyName} must be greater than or equal to zero.");
+        }
+    }
+
+    private static void AddUnitIntervalFailure(
+        decimal value,
+        string propertyName,
+        ICollection<string> failures)
+    {
+        if (value is < 0m or > 1m)
+        {
+            failures.Add($"{propertyName} must be between 0 and 1.");
         }
     }
 }

@@ -27,6 +27,8 @@ public sealed class PersonalizationRankingOptionsTests
         options.MinCategoryDistinctPoiCount.Should().Be(2);
         options.MaxProviderCandidates.Should().Be(60);
         options.ProviderTimeout.Should().Be(TimeSpan.FromSeconds(5));
+        options.PersonalizedAiFallbackScore.Should().Be(0.60m);
+        options.DefaultAiFallbackScore.Should().Be(0.50m);
     }
 
     [Fact]
@@ -188,6 +190,38 @@ public sealed class PersonalizationRankingOptionsTests
         Validate(options).Succeeded.Should().Be(succeeds);
     }
 
+    [Theory]
+    [InlineData("0", true)]
+    [InlineData("1", true)]
+    [InlineData("0.60", true)]
+    [InlineData("-0.001", false)]
+    [InlineData("1.001", false)]
+    public void Validate_PersonalizedAiFallbackScore_MustBeUnitInterval(string value, bool succeeds)
+    {
+        PersonalizationRankingOptions options = ValidOptions(
+            personalizedAiFallbackScore: decimal.Parse(
+                value,
+                System.Globalization.CultureInfo.InvariantCulture));
+
+        Validate(options).Succeeded.Should().Be(succeeds);
+    }
+
+    [Theory]
+    [InlineData("0", true)]
+    [InlineData("1", true)]
+    [InlineData("0.50", true)]
+    [InlineData("-0.001", false)]
+    [InlineData("1.001", false)]
+    public void Validate_DefaultAiFallbackScore_MustBeUnitInterval(string value, bool succeeds)
+    {
+        PersonalizationRankingOptions options = ValidOptions(
+            defaultAiFallbackScore: decimal.Parse(
+                value,
+                System.Globalization.CultureInfo.InvariantCulture));
+
+        Validate(options).Succeeded.Should().Be(succeeds);
+    }
+
     private static ValidateOptionsResult Validate(
         PersonalizationRankingOptions options,
         SchedulingGenerationOptions? schedulingOptions = null) =>
@@ -228,7 +262,9 @@ public sealed class PersonalizationRankingOptionsTests
         decimal priorWeight = 2.0m,
         int minCategoryDistinctPoiCount = 2,
         int maxProviderCandidates = 60,
-        TimeSpan? providerTimeout = null) => new()
+        TimeSpan? providerTimeout = null,
+        decimal personalizedAiFallbackScore = 0.60m,
+        decimal defaultAiFallbackScore = 0.50m) => new()
         {
             CategoryAffinityWeight = categoryAffinityWeight,
             TagAffinityWeight = tagAffinityWeight,
@@ -242,5 +278,7 @@ public sealed class PersonalizationRankingOptionsTests
             MinCategoryDistinctPoiCount = minCategoryDistinctPoiCount,
             MaxProviderCandidates = maxProviderCandidates,
             ProviderTimeout = providerTimeout ?? TimeSpan.FromSeconds(5),
+            PersonalizedAiFallbackScore = personalizedAiFallbackScore,
+            DefaultAiFallbackScore = defaultAiFallbackScore,
         };
 }

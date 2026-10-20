@@ -97,7 +97,11 @@ public sealed class PoiRankingOrchestrator
             .Select(candidate => candidate.Candidate.PoiId)
             .ToFrozenSet();
 
-        // Không có sở thích thì provider không có gì để xếp hạng (chỉ trả 0.5 đồng đều), nên giữ nguyên điểm base.
+        decimal fallbackAiScore = preferenceTokens.Length > 0
+            ? _options.PersonalizedAiFallbackScore
+            : _options.DefaultAiFallbackScore;
+
+        // When provider is disabled or there are no preference tokens, skip the provider and apply fallback score.
         if (!_providerEnabled || preferenceTokens.Length == 0)
         {
             LogOutcome(
@@ -106,13 +110,14 @@ public sealed class PoiRankingOrchestrator
                 providerPool.Count,
                 latencyMilliseconds: 0,
                 outcome: "provider-skipped",
-                fallbackUsed: false,
+                fallbackUsed: true,
                 timedOut: false);
             return CreateBaseSnapshot(
                 providerPool,
                 providerPoolPoiIds,
                 PoiRankingOutcomeCategory.ProviderSkipped,
-                aggregation);
+                aggregation,
+                fallbackAiScore);
         }
 
         var request = new PoiRankingRequest(
@@ -164,7 +169,8 @@ public sealed class PoiRankingOrchestrator
                     providerPool,
                     providerPoolPoiIds,
                     PoiRankingOutcomeCategory.Timeout,
-                    aggregation);
+                    aggregation,
+                    fallbackAiScore);
             }
         }
 
@@ -183,7 +189,8 @@ public sealed class PoiRankingOrchestrator
                 providerPool,
                 providerPoolPoiIds,
                 outcomeCategory,
-                aggregation);
+                aggregation,
+                fallbackAiScore);
         }
 
         if (!TryValidateProviderResult(
@@ -203,7 +210,8 @@ public sealed class PoiRankingOrchestrator
                 providerPool,
                 providerPoolPoiIds,
                 PoiRankingOutcomeCategory.InvalidResponse,
-                aggregation);
+                aggregation,
+                fallbackAiScore);
         }
 
         LogOutcome(
@@ -221,9 +229,9 @@ public sealed class PoiRankingOrchestrator
                 candidate => candidate.Candidate.PoiId,
                 candidate => CreateSnapshotEntry(
                     candidate,
-                    (_options.BaseWeight * candidate.BaseScore)
-                    + (_options.AiWeight
-                        * validatedItems[candidate.Candidate.PoiId].AiScore))),
+                    BlendScore(
+                        candidate.BaseScore,
+                        validatedItems[candidate.Candidate.PoiId].AiScore))),
             PoiRankingOutcomeCategory.Success,
             aggregation);
     }
@@ -301,16 +309,22 @@ public sealed class PoiRankingOrchestrator
             new Dictionary<long, PersonalBehaviorCounts>(),
             new Dictionary<int, CategoryBehaviorCounts>()));
 
-    private static PoiRankingSnapshot CreateBaseSnapshot(
+    private decimal BlendScore(decimal baseScore, decimal aiScore) =>
+        (_options.BaseWeight * baseScore) + (_options.AiWeight * aiScore);
+
+    private PoiRankingSnapshot CreateBaseSnapshot(
         IReadOnlyCollection<ProviderPoolSelectionCandidate> providerPool,
         FrozenSet<long> providerPoolPoiIds,
         PoiRankingOutcomeCategory outcomeCategory,
-        PersonalBehaviorAggregation behaviorAggregation) =>
+        PersonalBehaviorAggregation behaviorAggregation,
+        decimal fallbackAiScore) =>
         new(
             providerPoolPoiIds,
             providerPool.ToFrozenDictionary(
                 candidate => candidate.Candidate.PoiId,
-                candidate => CreateSnapshotEntry(candidate, candidate.BaseScore)),
+                candidate => CreateSnapshotEntry(
+                    candidate,
+                    BlendScore(candidate.BaseScore, fallbackAiScore))),
             outcomeCategory,
             behaviorAggregation);
 
