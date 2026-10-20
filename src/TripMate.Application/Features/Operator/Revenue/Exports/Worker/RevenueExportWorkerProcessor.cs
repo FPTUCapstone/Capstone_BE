@@ -11,8 +11,10 @@ namespace TripMate.Application.Features.Operator.Revenue.Exports.Worker;
 /// <summary>
 /// UC-45's durable asynchronous export path: claims Queued records one batch at a time and
 /// regenerates them from their own immutable filter snapshot (BR-110), never from live input.
-/// Restart-safe: a claimed-but-not-yet-completed record stays Processing until this (or another)
-/// worker instance resumes the sweep; it is never silently dropped.
+/// Restart-safe: every sweep first reclaims any record left in Processing past the stale
+/// timeout — the worker that claimed it crashed, was redeployed, or was cancelled before
+/// reaching MarkReady/MarkFailed — so a record is requeued (or, past the retry limit, marked
+/// Failed) instead of being silently stuck forever.
 /// </summary>
 public sealed class RevenueExportWorkerProcessor(
     IApplicationDbContext db,
@@ -24,6 +26,8 @@ public sealed class RevenueExportWorkerProcessor(
 {
     public async Task<int> ProcessQueuedBatchAsync(CancellationToken cancellationToken)
     {
+        await ReclaimStaleProcessingAsync(cancellationToken);
+
         var batch = await db.RevenueExports
             .Where(x => x.Status == RevenueExportStatus.Queued)
             .OrderBy(x => x.RequestedAtUtc)
@@ -41,6 +45,42 @@ public sealed class RevenueExportWorkerProcessor(
         }
 
         return processed;
+    }
+
+    /// <summary>
+    /// Recovers records a worker claimed (Processing) but never resolved — crashed, redeployed,
+    /// or cancelled before MarkReady/MarkFailed. Without this sweep such a record stays
+    /// Processing forever and the FE polls it indefinitely (see RevenueExport.ReclaimIfStale).
+    /// </summary>
+    private async Task ReclaimStaleProcessingAsync(CancellationToken cancellationToken)
+    {
+        var staleTimeout = TimeSpan.FromMinutes(options.StaleProcessingTimeoutMinutes);
+        var staleBefore = clock.UtcNow - staleTimeout;
+
+        var staleBatch = await db.RevenueExports
+            .Where(x => x.Status == RevenueExportStatus.Processing
+                && x.ProcessingStartedAtUtc != null
+                && x.ProcessingStartedAtUtc <= staleBefore)
+            .Take(options.WorkerBatchSize)
+            .ToListAsync(cancellationToken);
+
+        foreach (var export in staleBatch)
+        {
+            if (!export.ReclaimIfStale(clock.UtcNow, staleTimeout, options.MaxProcessingAttempts))
+            {
+                continue;
+            }
+
+            try
+            {
+                await db.SaveChangesAsync(cancellationToken);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                // Another worker instance already resolved this record; not an error for this sweep.
+                db.ClearTrackedEntities();
+            }
+        }
     }
 
     /// <summary>

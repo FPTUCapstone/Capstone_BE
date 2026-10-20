@@ -35,6 +35,9 @@ public sealed class RevenueExportConfiguration : IEntityTypeConfiguration<Revenu
         builder.Property(x => x.StorageKey).HasColumnName("storage_key").HasMaxLength(500);
         builder.Property(x => x.FailureCode).HasColumnName("failure_code").HasMaxLength(100);
 
+        builder.Property(x => x.ProcessingStartedAtUtc).HasColumnName("processing_started_at").AsUtcDateTime2();
+        builder.Property(x => x.AttemptCount).HasColumnName("attempt_count").IsRequired();
+
         builder.Property(x => x.RowVersion).HasColumnName("row_version").IsRowVersion();
 
         builder.HasOne<TripMate.Domain.Entities.User>()
@@ -55,6 +58,11 @@ public sealed class RevenueExportConfiguration : IEntityTypeConfiguration<Revenu
         builder.HasIndex(x => x.Status)
             .HasDatabaseName("IX_RevenueExports_Status_Queued")
             .HasFilter("[status] = 'Queued'");
+
+        // Stale-reclaim sweep scan: only Processing rows are candidates.
+        builder.HasIndex(x => x.ProcessingStartedAtUtc)
+            .HasDatabaseName("IX_RevenueExports_Status_Processing")
+            .HasFilter("[status] = 'Processing'");
 
         // Expiry cleanup scan: only Ready rows with an expiry are candidates.
         builder.HasIndex(x => x.ExpiresAtUtc)
