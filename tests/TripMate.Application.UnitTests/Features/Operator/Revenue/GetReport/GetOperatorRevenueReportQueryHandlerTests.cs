@@ -24,7 +24,7 @@ public sealed class GetOperatorRevenueReportQueryHandlerTests
         {
             UserId = operatorUser.Id,
             Role = nameof(UserRole.TourOperator),
-        });
+        }, new OperatorRevenueAggregator(db));
 
         var result = await handler.Handle(
             new GetOperatorRevenueReportQuery(Start, End, "yearly"),
@@ -66,7 +66,7 @@ public sealed class GetOperatorRevenueReportQueryHandlerTests
         {
             UserId = operatorUser.Id,
             Role = nameof(UserRole.TourOperator),
-        });
+        }, new OperatorRevenueAggregator(db));
 
         var result = await handler.Handle(
             new GetOperatorRevenueReportQuery(Start, End, "monthly"),
