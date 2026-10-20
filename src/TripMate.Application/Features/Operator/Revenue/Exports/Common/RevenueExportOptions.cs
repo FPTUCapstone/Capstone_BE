@@ -19,4 +19,13 @@ public sealed class RevenueExportOptions
 
     /// <summary>Delay between the expiry-cleanup sweeps that remove assets past ExpiresAtUtc.</summary>
     public int ExpiryCleanupIntervalMinutes { get; set; } = 60;
+
+    /// <summary>
+    /// How long a record may sit in Processing before it is considered abandoned (the worker that
+    /// claimed it crashed, was redeployed, or was cancelled) and becomes eligible for reclaim.
+    /// </summary>
+    public int StaleProcessingTimeoutMinutes { get; set; } = 15;
+
+    /// <summary>Maximum claim attempts for one record before a stale reclaim gives up as Failed.</summary>
+    public int MaxProcessingAttempts { get; set; } = 3;
 }

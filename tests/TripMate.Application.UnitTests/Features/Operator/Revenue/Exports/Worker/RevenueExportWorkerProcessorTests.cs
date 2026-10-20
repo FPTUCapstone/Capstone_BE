@@ -79,6 +79,64 @@ public sealed class RevenueExportWorkerProcessorTests
         storage.UploadCallCount.Should().Be(1);
     }
 
+    [Fact]
+    public async Task ProcessQueuedBatchAsync_ReclaimsRecordStuckInProcessingPastStaleTimeout()
+    {
+        var dbName = Guid.NewGuid().ToString();
+        var exportId = await SeedQueuedExportWithOneBookingAsync(dbName);
+
+        // Simulate a worker that claimed the record and then crashed, was redeployed, or was
+        // cancelled before reaching MarkReady/MarkFailed: claim it directly and leave it
+        // Processing, with ProcessingStartedAtUtc far enough in the past to be stale.
+        var claimedAt = Now - TimeSpan.FromMinutes(30);
+        await using (var crashedDb = TestDbContext.Create(dbName))
+        {
+            var export = await crashedDb.RevenueExports.SingleAsync(x => x.Id == exportId);
+            export.ClaimForProcessing(claimedAt);
+            await crashedDb.SaveChangesAsync();
+        }
+
+        await using var db = TestDbContext.Create(dbName);
+        var storage = new RecordingRevenueExportStorage();
+        var processed = await CreateProcessor(
+                db, storage, new RevenueExportOptions { StaleProcessingTimeoutMinutes = 15 })
+            .ProcessQueuedBatchAsync(CancellationToken.None);
+
+        processed.Should().Be(1, "the stale Processing record is reclaimed to Queued and processed in the same sweep");
+        var reclaimed = await db.RevenueExports.SingleAsync(x => x.Id == exportId);
+        reclaimed.Status.Should().Be(RevenueExportStatus.Ready);
+        reclaimed.AttemptCount.Should().Be(2, "one attempt before the crash, one more after reclaim");
+    }
+
+    [Fact]
+    public async Task ProcessQueuedBatchAsync_RecordStuckPastMaxAttempts_GivesUpAsFailedInsteadOfRetryingForever()
+    {
+        var dbName = Guid.NewGuid().ToString();
+        var exportId = await SeedQueuedExportWithOneBookingAsync(dbName);
+
+        var staleTimeout = TimeSpan.FromMinutes(15);
+        await using (var crashedDb = TestDbContext.Create(dbName))
+        {
+            var crashedExport = await crashedDb.RevenueExports.SingleAsync(x => x.Id == exportId);
+            crashedExport.ClaimForProcessing(Now - TimeSpan.FromMinutes(45)); // attempt 1, then "crashes"
+            crashedExport.ReclaimIfStale(Now - TimeSpan.FromMinutes(30), staleTimeout, maxAttempts: 2); // -> Queued
+            crashedExport.ClaimForProcessing(Now - TimeSpan.FromMinutes(30)); // attempt 2, then "crashes" again
+            await crashedDb.SaveChangesAsync();
+        }
+
+        await using var db = TestDbContext.Create(dbName);
+        var storage = new RecordingRevenueExportStorage();
+        var processed = await CreateProcessor(
+                db, storage, new RevenueExportOptions { StaleProcessingTimeoutMinutes = 15, MaxProcessingAttempts = 2 })
+            .ProcessQueuedBatchAsync(CancellationToken.None);
+
+        processed.Should().Be(0, "the record is given up as Failed, not reclaimed for a third attempt");
+        var export = await db.RevenueExports.SingleAsync(x => x.Id == exportId);
+        export.Status.Should().Be(RevenueExportStatus.Failed);
+        export.FailureCode.Should().Be("stale_processing_timeout");
+        storage.UploadCallCount.Should().Be(0);
+    }
+
     private static async Task<long> SeedQueuedExportWithOneBookingAsync(string dbName)
     {
         await using var seedDb = TestDbContext.Create(dbName);
@@ -100,14 +158,15 @@ public sealed class RevenueExportWorkerProcessorTests
         return export.Id;
     }
 
-    private static RevenueExportWorkerProcessor CreateProcessor(TestDbContext db, IRevenueExportStorage storage) =>
+    private static RevenueExportWorkerProcessor CreateProcessor(
+        TestDbContext db, IRevenueExportStorage storage, RevenueExportOptions? options = null) =>
         new(
             db,
             new FakeDateTimeProvider { UtcNow = Now },
             new OperatorRevenueAggregator(db),
             new FakeXlsxRenderer(),
             storage,
-            new RevenueExportOptions());
+            options ?? new RevenueExportOptions());
 
     private sealed class FakeXlsxRenderer : IRevenueExportRenderer
     {

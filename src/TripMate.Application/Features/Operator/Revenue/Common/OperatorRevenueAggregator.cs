@@ -7,10 +7,11 @@ using TripMate.Domain.Enums;
 namespace TripMate.Application.Features.Operator.Revenue.Common;
 
 /// <summary>
-/// The single BR-109/BR-112 financial calculation path shared by UC-44 (view, paginated) and
-/// UC-45 (export, unpaginated). Nothing here recomputes a divergent figure: both features read
-/// the same confirmed/completed, verified-payment bookings and the same historical commission
-/// snapshot, so a displayed total and an exported total can never disagree.
+/// The single commission/net calculation path shared by UC-44 (view, paginated) and UC-45
+/// (export, unpaginated) revenue reporting (SRS §3.8.5.1, Option B commission policy). Nothing
+/// here recomputes a divergent figure: both features read the same confirmed/completed,
+/// verified-payment bookings and the same historical commission snapshot, so a displayed total
+/// and an exported total can never disagree.
 /// </summary>
 public sealed class OperatorRevenueAggregator(IApplicationDbContext db)
 {
@@ -34,27 +35,27 @@ public sealed class OperatorRevenueAggregator(IApplicationDbContext db)
 
         var canonical = rows.GroupBy(x => x.BookingId).Select(g => g.OrderBy(x => x.PaidAt).First()).ToList();
 
-        var refundsData = await db.Refunds.AsNoTracking()
-            .Join(db.Bookings.AsNoTracking(), refund => refund.BookingId, booking => booking.Id, (refund, booking) => new { refund, booking })
-            .Where(x => x.refund.Status == "Processed" && x.refund.ProcessedAtUtc >= from && x.refund.ProcessedAtUtc < until
-                && x.booking.TourSchedule.Tour.OperatorUserId == operatorId
-                && (!tourId.HasValue || x.booking.TourSchedule.TourId == tourId.Value))
-            .Select(x => new { x.refund.BookingId, x.refund.Amount, ProcessedAtUtc = x.refund.ProcessedAtUtc!.Value, TourId = x.booking.TourSchedule.TourId })
-            .ToListAsync(ct);
+        var bookingIds = canonical.Select(x => x.BookingId).ToList();
 
-        var totalRefundedAmount = refundsData.Sum(x => x.Amount);
+        // Option B commission policy: a refund always offsets the commission/net of the booking
+        // it belongs to, regardless of when the refund itself was processed. Refunds are looked
+        // up by booking id only (no ProcessedAtUtc filter against the report window) — otherwise
+        // a booking paid in one period but refunded in a later period would show full commission
+        // in BOTH periods' reports (the refund's own period has no matching payment to apply it
+        // against, and the payment's period never learns about a refund that hasn't happened yet).
+        var refundsByBooking = bookingIds.Count == 0
+            ? new Dictionary<long, decimal>()
+            : await db.Refunds.AsNoTracking()
+                .Where(r => r.Status == "Processed" && bookingIds.Contains(r.BookingId))
+                .GroupBy(r => r.BookingId)
+                .Select(g => new { BookingId = g.Key, Amount = g.Sum(x => x.Amount) })
+                .ToDictionaryAsync(x => x.BookingId, x => x.Amount, ct);
 
-        var refundsByBooking = refundsData
-            .GroupBy(x => x.BookingId)
-            .ToDictionary(g => g.Key, g => g.Sum(x => x.Amount));
+        var totalRefundedAmount = refundsByBooking.Values.Sum();
 
-        var refundsByTourAndPeriod = refundsData
-            .GroupBy(x => new { x.TourId, PeriodKey = PeriodKey(x.ProcessedAtUtc, granularity, zone) })
-            .ToDictionary(g => g.Key, g => g.Sum(x => x.Amount));
-
-        // BR-112 (revised): commission is non-refundable, but it is charged on the amount the
-        // operator actually keeps after that booking's own refunds, not on the raw payment. A
-        // fully-refunded booking must contribute zero commission, never a negative payout.
+        // Commission is non-refundable, but it is charged on the amount the operator actually
+        // keeps after that booking's own refunds, not on the raw payment. A fully-refunded
+        // booking must contribute zero commission, never a negative payout.
         decimal CommissionFor(long bookingId, decimal amount, decimal rate)
         {
             var refunded = refundsByBooking.GetValueOrDefault(bookingId, 0m);
@@ -81,7 +82,7 @@ public sealed class OperatorRevenueAggregator(IApplicationDbContext db)
 
         var allTourDetails = canonical.GroupBy(x => new { x.TourId, x.Title }).Select(g =>
         {
-            var refundedForTour = refundsData.Where(r => r.TourId == g.Key.TourId).Sum(r => r.Amount);
+            var refundedForTour = g.Sum(x => refundsByBooking.GetValueOrDefault(x.BookingId, 0m));
             var gross = g.Sum(x => x.TotalAmount + x.DiscountAmount);
             var commission = g.Sum(x => CommissionFor(x.BookingId, x.Amount, x.Rate));
             var net = g.Sum(x => x.Amount - CommissionFor(x.BookingId, x.Amount, x.Rate)) - refundedForTour;
@@ -90,9 +91,7 @@ public sealed class OperatorRevenueAggregator(IApplicationDbContext db)
 
         var chartData = canonical.GroupBy(x => PeriodKey(x.PaidAt, granularity, zone)).OrderBy(g => g.Key).Select(g =>
         {
-            var refundedInPeriod = refundsByTourAndPeriod
-                .Where(kvp => kvp.Key.PeriodKey == g.Key)
-                .Sum(kvp => kvp.Value);
+            var refundedInPeriod = g.Sum(x => refundsByBooking.GetValueOrDefault(x.BookingId, 0m));
             var gross = g.Sum(x => x.TotalAmount + x.DiscountAmount);
             var commission = g.Sum(x => CommissionFor(x.BookingId, x.Amount, x.Rate));
             var net = g.Sum(x => x.Amount - CommissionFor(x.BookingId, x.Amount, x.Rate)) - refundedInPeriod;

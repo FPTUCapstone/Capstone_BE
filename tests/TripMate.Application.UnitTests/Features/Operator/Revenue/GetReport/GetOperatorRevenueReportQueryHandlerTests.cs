@@ -135,6 +135,52 @@ public sealed class GetOperatorRevenueReportQueryHandlerTests
         detail.NetAmount.Should().Be(0m);
     }
 
+    [Fact]
+    public async Task Handle_RefundProcessedInLaterPeriod_StillZeroesCommissionInPaymentPeriod()
+    {
+        await using var db = TestDbContext.Create();
+        var operatorUser = await SeedApprovedOperatorAsync(db, 7, commissionRate: 10m);
+
+        var tour = CreateTour(104, operatorUser.Id, "Tour D");
+        db.Add(tour);
+        await db.SaveChangesAsync();
+
+        var schedule = CreateTourSchedule(204, tour.Id);
+        db.Add(schedule);
+        await db.SaveChangesAsync();
+
+        var booking = await SeedPaidBookingAsync(db, bookingId: 304, scheduleId: schedule.Id,
+            totalAmount: 1_000_000m, succeededAtUtc: new DateTimeOffset(2026, 9, 30, 10, 0, 0, TimeSpan.Zero));
+        db.Add(CreateRefund(403, booking.Id, 1_000_000m,
+            processedAtUtc: new DateTimeOffset(2026, 10, 2, 10, 0, 0, TimeSpan.Zero)));
+        await db.SaveChangesAsync();
+
+        var handler = new GetOperatorRevenueReportQueryHandler(db, new FakeCurrentUserService
+        {
+            UserId = operatorUser.Id,
+            Role = nameof(UserRole.TourOperator),
+        }, new OperatorRevenueAggregator(db));
+
+        var septemberResult = await handler.Handle(
+            new GetOperatorRevenueReportQuery(Start, End, "monthly"),
+            CancellationToken.None);
+
+        septemberResult.IsSuccess.Should().BeTrue();
+        septemberResult.Value.Summary.PaymentsReceived.Should().Be(1_000_000m);
+        septemberResult.Value.Summary.RefundedAmount.Should().Be(1_000_000m);
+        septemberResult.Value.Summary.PlatformCommission.Should().Be(0m);
+        septemberResult.Value.Summary.NetAmount.Should().Be(0m);
+
+        var octoberResult = await handler.Handle(
+            new GetOperatorRevenueReportQuery(new DateOnly(2026, 10, 1), new DateOnly(2026, 10, 31), "monthly"),
+            CancellationToken.None);
+
+        octoberResult.IsSuccess.Should().BeTrue();
+        octoberResult.Value.Summary.PaymentsReceived.Should().Be(0m);
+        octoberResult.Value.Summary.PlatformCommission.Should().Be(0m);
+        octoberResult.Value.TourDetails.Should().BeEmpty();
+    }
+
     private static async Task<User> SeedApprovedOperatorAsync(TestDbContext db, long id, decimal commissionRate = 10m)
     {
         var user = new User

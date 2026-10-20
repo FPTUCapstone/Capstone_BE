@@ -46,6 +46,12 @@ public class RevenueExport : BaseEntity
 
     public string? FailureCode { get; private set; }
 
+    /// <summary>When the current (or most recent) Processing attempt was claimed; null while Queued.</summary>
+    public DateTimeOffset? ProcessingStartedAtUtc { get; private set; }
+
+    /// <summary>How many times this record has been claimed for processing, including the current attempt.</summary>
+    public int AttemptCount { get; private set; }
+
     /// <summary>Optimistic concurrency token guarding the atomic worker claim (one worker per record).</summary>
     public byte[] RowVersion { get; private set; } = [];
 
@@ -83,6 +89,33 @@ public class RevenueExport : BaseEntity
     {
         if (Status != RevenueExportStatus.Queued) return false;
         Status = RevenueExportStatus.Processing;
+        ProcessingStartedAtUtc = nowUtc.ToUniversalTime();
+        AttemptCount += 1;
+        return true;
+    }
+
+    /// <summary>
+    /// Recovers a record left in Processing past <paramref name="staleTimeout"/> — the worker
+    /// that claimed it crashed, was redeployed, or was cancelled before reaching MarkReady or
+    /// MarkFailed. Requeues it for another attempt, or gives up as Failed once
+    /// <paramref name="maxAttempts"/> is reached, so a crash never leaves an export stuck in
+    /// Processing forever. Returns false (no-op) if the record is not actually stale.
+    /// </summary>
+    public bool ReclaimIfStale(DateTimeOffset nowUtc, TimeSpan staleTimeout, int maxAttempts)
+    {
+        if (Status != RevenueExportStatus.Processing || !ProcessingStartedAtUtc.HasValue) return false;
+        if (nowUtc - ProcessingStartedAtUtc.Value < staleTimeout) return false;
+
+        if (AttemptCount >= maxAttempts)
+        {
+            Status = RevenueExportStatus.Failed;
+            FailureCode = "stale_processing_timeout";
+            CompletedAtUtc = nowUtc.ToUniversalTime();
+            return true;
+        }
+
+        Status = RevenueExportStatus.Queued;
+        ProcessingStartedAtUtc = null;
         return true;
     }
 
