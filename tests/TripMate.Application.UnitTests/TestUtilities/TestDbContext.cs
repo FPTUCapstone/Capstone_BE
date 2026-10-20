@@ -399,11 +399,18 @@ public class TestDbContext(
         base.OnModelCreating(modelBuilder);
     }
 
-    public static TestDbContext Create()
+    public static TestDbContext Create() => Create(Guid.NewGuid().ToString());
+
+    /// <summary>
+    /// Shares one in-memory store across multiple TestDbContext instances (same databaseName),
+    /// so a test can simulate two workers racing the same row with independent tracked graphs —
+    /// a single context's own change tracker cannot reproduce that race against itself.
+    /// </summary>
+    public static TestDbContext Create(string databaseName)
     {
         var options =
             new DbContextOptionsBuilder<TestDbContext>()
-                .UseInMemoryDatabase(Guid.NewGuid().ToString())
+                .UseInMemoryDatabase(databaseName)
                 .Options;
 
         return new TestDbContext(options);

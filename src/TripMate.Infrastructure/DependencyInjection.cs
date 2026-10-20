@@ -126,6 +126,10 @@ public static class DependencyInjection
         services.AddOptions<RevenueExportOptions>()
             .Bind(configuration.GetSection(RevenueExportOptions.SectionName));
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<RevenueExportOptions>>().Value);
+        services.AddScoped<TripMate.Application.Features.Operator.Revenue.Exports.Worker.RevenueExportWorkerProcessor>();
+        services.AddScoped<TripMate.Application.Features.Operator.Revenue.Exports.Worker.RevenueExportExpiryProcessor>();
+        services.AddHostedService<RevenueExportWorkerBackgroundService>();
+        services.AddHostedService<RevenueExportExpiryBackgroundService>();
 
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
         services.AddOptions<OpenRouteServiceOptions>()
