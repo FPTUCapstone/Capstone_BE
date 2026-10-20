@@ -64,6 +64,7 @@ public static class DependencyInjection
         services.AddScoped<IItineraryVersionService, ItineraryVersionService>();
         services.AddScoped<IGroupInvitationLock, SqlServerGroupInvitationLock>();
         services.AddScoped<IGroupJoinLock, SqlServerGroupJoinLock>();
+        services.AddScoped<IUserUnlockLock, SqlServerUserUnlockLock>();
         services.AddSingleton<IGroupInvitationCodeGenerator, RandomGroupInvitationCodeGenerator>();
         services.AddScoped<ISchedulingRequestLock, SqlServerSchedulingRequestLock>();
         services.AddScoped<ITripReviewContextReader, SqlServerTripReviewContextReader>();
@@ -95,12 +96,19 @@ public static class DependencyInjection
         services.AddSingleton<IOperatorDocumentCleanupJournal>(sp =>
             sp.GetRequiredService<SqlOperatorDocumentCleanupJournal>());
         services.AddHostedService<OperatorDocumentCleanupBackgroundService>();
+        services.AddScoped<IUserAdministrationNotificationOutboxStore, SqlServerUserAdministrationNotificationOutboxStore>();
+        services.AddScoped<UserAdministrationNotificationDeliveryProcessor>();
 
         services.AddOptions<TourMediaCleanupOptions>()
             .Bind(configuration.GetSection(TourMediaCleanupOptions.SectionName))
             .ValidateDataAnnotations()
             .ValidateOnStart();
         services.AddHostedService<TourMediaCleanupBackgroundService>();
+        services.AddOptions<UserAdministrationNotificationDeliveryOptions>()
+            .Bind(configuration.GetSection(UserAdministrationNotificationDeliveryOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.AddHostedService<UserAdministrationNotificationDeliveryBackgroundService>();
 
         services.AddOptions<CloudinaryOptions>()
             .Bind(configuration.GetSection(CloudinaryOptions.SectionName))
@@ -322,6 +330,8 @@ public static class DependencyInjection
         services.AddScoped<SmtpEmailSender>();
         services.AddScoped<IEmailSender>(sp => sp.GetRequiredService<SmtpEmailSender>());
         services.AddScoped<IEmailVerificationSender>(sp => sp.GetRequiredService<SmtpEmailSender>());
+        services.AddScoped<IUserAdministrationNotificationEmailSender>(sp =>
+            sp.GetRequiredService<SmtpEmailSender>());
         services.AddSingleton<IEmailVerificationResendCooldown, EmailVerificationResendCooldown>();
         services.AddSingleton<FirebaseEmailVerificationLinkService>();
         services.AddSingleton<IEmailVerificationLinkService>(sp =>

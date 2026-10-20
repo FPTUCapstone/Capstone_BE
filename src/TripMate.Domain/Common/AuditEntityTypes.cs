@@ -19,4 +19,5 @@ public static class AuditEntityTypes
 
     // UC-59 BR-130
     public const string TripSession = "TripSession";
+
 }

@@ -18,7 +18,7 @@ namespace TripMate.Infrastructure.Email;
 /// Cancellation before any delivery attempt preserves normal CancellationToken semantics.
 /// Logs carry classifications only — never the OTP, credentials, recipient, or raw SMTP payloads.
 /// </summary>
-public sealed class SmtpEmailSender : IEmailSender, IEmailVerificationSender
+public sealed class SmtpEmailSender : IEmailSender, IEmailVerificationSender, IUserAdministrationNotificationEmailSender
 {
     private const int SendTimeoutMilliseconds = 10_000;
 
@@ -72,6 +72,23 @@ public sealed class SmtpEmailSender : IEmailSender, IEmailVerificationSender
             destinationEmail,
             EmailVerificationEmailComposer.Compose(verificationLink),
             "Email verification",
+            cancellationToken);
+    }
+
+    Task<EmailDeliveryResult> IUserAdministrationNotificationEmailSender.SendAsync(
+        string destinationEmail,
+        string subject,
+        string body,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(destinationEmail);
+        ArgumentException.ThrowIfNullOrWhiteSpace(subject);
+        ArgumentException.ThrowIfNullOrWhiteSpace(body);
+
+        return SendAsync(
+            destinationEmail,
+            new PasswordResetEmailContent(subject, body),
+            "Administrative notification",
             cancellationToken);
     }
 

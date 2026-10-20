@@ -29,6 +29,9 @@ public static class AuditActionTypes
     public const string AuthChangePassword = "AUTH_CHANGE_PASSWORD";
 
     public const string AlgorithmParametersUpdate = "UpdateAlgorithmParameters";
+
     // UC-59 BR-130: Administrator access to active trip details
     public const string ActiveTripDetailsViewed = "ViewActiveTripDetails";
+
+    public const string UserUnlock = "UnlockUserAccount";
 }
