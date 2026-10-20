@@ -15,6 +15,7 @@ using TripMate.Application.Features.Authentication.PasswordReset;
 using TripMate.Application.Features.Bookings.Common;
 using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Navigation.Common;
+using TripMate.Application.Features.Operator.Revenue.Exports.Common;
 using TripMate.Application.Features.PointsOfInterest.ExternalReviews;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Explanation;
@@ -34,6 +35,7 @@ using TripMate.Infrastructure.ExternalReviews;
 using TripMate.Infrastructure.Media;
 using TripMate.Infrastructure.Media.Cloudinary;
 using TripMate.Infrastructure.Persistence;
+using TripMate.Infrastructure.Reporting;
 using TripMate.Infrastructure.Reviews.Media;
 using TripMate.Infrastructure.Reviews.Moderation;
 using TripMate.Infrastructure.Routing;
@@ -118,6 +120,12 @@ public static class DependencyInjection
             sp.GetRequiredService<SqlTravelerAvatarCleanupJournal>());
         services.AddHostedService<TravelerAvatarCleanupBackgroundService>();
         services.AddSingleton<IOperatorDocumentStorage, CloudinaryOperatorDocumentStorage>();
+        services.AddSingleton<IRevenueExportStorage, CloudinaryRevenueExportStorage>();
+        services.AddSingleton<IRevenueExportRenderer, XlsxRevenueExportRenderer>();
+
+        services.AddOptions<RevenueExportOptions>()
+            .Bind(configuration.GetSection(RevenueExportOptions.SectionName));
+        services.AddSingleton(sp => sp.GetRequiredService<IOptions<RevenueExportOptions>>().Value);
 
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
         services.AddOptions<OpenRouteServiceOptions>()
