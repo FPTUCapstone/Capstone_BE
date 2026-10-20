@@ -44,13 +44,27 @@ public sealed class OperatorRevenueAggregator(IApplicationDbContext db)
 
         var totalRefundedAmount = refundsData.Sum(x => x.Amount);
 
+        var refundsByBooking = refundsData
+            .GroupBy(x => x.BookingId)
+            .ToDictionary(g => g.Key, g => g.Sum(x => x.Amount));
+
         var refundsByTourAndPeriod = refundsData
             .GroupBy(x => new { x.TourId, PeriodKey = PeriodKey(x.ProcessedAtUtc, granularity, zone) })
             .ToDictionary(g => g.Key, g => g.Sum(x => x.Amount));
 
+        // BR-112 (revised): commission is non-refundable, but it is charged on the amount the
+        // operator actually keeps after that booking's own refunds, not on the raw payment. A
+        // fully-refunded booking must contribute zero commission, never a negative payout.
+        decimal CommissionFor(long bookingId, decimal amount, decimal rate)
+        {
+            var refunded = refundsByBooking.GetValueOrDefault(bookingId, 0m);
+            var net = Math.Max(0m, amount - refunded);
+            return Math.Round(net * rate / 100m, 2);
+        }
+
         var paymentsReceived = canonical.Sum(x => x.Amount);
         var discountsGiven = canonical.Sum(x => x.DiscountAmount);
-        var platformCommission = canonical.Sum(x => Math.Round(x.Amount * x.Rate / 100m, 2));
+        var platformCommission = canonical.Sum(x => CommissionFor(x.BookingId, x.Amount, x.Rate));
         var netSales = paymentsReceived - totalRefundedAmount;
 
         var summary = new OperatorRevenueSummaryDto(
@@ -69,8 +83,8 @@ public sealed class OperatorRevenueAggregator(IApplicationDbContext db)
         {
             var refundedForTour = refundsData.Where(r => r.TourId == g.Key.TourId).Sum(r => r.Amount);
             var gross = g.Sum(x => x.TotalAmount + x.DiscountAmount);
-            var commission = g.Sum(x => Math.Round(x.Amount * x.Rate / 100m, 2));
-            var net = g.Sum(x => x.Amount - Math.Round(x.Amount * x.Rate / 100m, 2)) - refundedForTour;
+            var commission = g.Sum(x => CommissionFor(x.BookingId, x.Amount, x.Rate));
+            var net = g.Sum(x => x.Amount - CommissionFor(x.BookingId, x.Amount, x.Rate)) - refundedForTour;
             return new OperatorTourRevenueDto(g.Key.TourId, $"TOUR-{g.Key.TourId}", g.Key.Title, g.Count(), g.Sum(x => x.Quantity), gross, refundedForTour, commission, net);
         }).OrderByDescending(x => x.NetAmount).ToList();
 
@@ -80,8 +94,8 @@ public sealed class OperatorRevenueAggregator(IApplicationDbContext db)
                 .Where(kvp => kvp.Key.PeriodKey == g.Key)
                 .Sum(kvp => kvp.Value);
             var gross = g.Sum(x => x.TotalAmount + x.DiscountAmount);
-            var commission = g.Sum(x => Math.Round(x.Amount * x.Rate / 100m, 2));
-            var net = g.Sum(x => x.Amount - Math.Round(x.Amount * x.Rate / 100m, 2)) - refundedInPeriod;
+            var commission = g.Sum(x => CommissionFor(x.BookingId, x.Amount, x.Rate));
+            var net = g.Sum(x => x.Amount - CommissionFor(x.BookingId, x.Amount, x.Rate)) - refundedInPeriod;
             return new OperatorRevenueChartDto(g.Key, g.Key, gross, commission, net, refundedInPeriod, g.Count());
         }).ToList();
 
