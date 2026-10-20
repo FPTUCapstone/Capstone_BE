@@ -81,8 +81,8 @@ public sealed class CancelBookingCommandHandler(
                     var nowUtc = clock.UtcNow;
                     decimal refundAmount = DetermineRefundAmount(booking, actor, nowUtc, out var failure);
                     if (failure is not null) return failure;
-                    PaymentTransaction? successfulPayment = await FindSuccessfulPaymentAsync(booking,
-                        transactionCancellationToken);
+                    PaymentTransaction? successfulPayment = await BookingCancellationPaymentVerifier
+                        .FindSuccessfulPaymentAsync(dbContext, booking, transactionCancellationToken);
                     if (refundAmount > 0m && successfulPayment is null)
                     {
                         return Result.Failure<CancelBookingResponse>(BookingCancellationErrorCodes.PaymentNotRefundable,
@@ -97,7 +97,7 @@ public sealed class CancelBookingCommandHandler(
                     var beforeState = new { status = booking.Status.ToString(), paymentStatus = booking.PaymentStatus.ToString() };
                     string? reason = ComposeReason(request.ReasonCategory, request.ReasonDetail);
                     booking.Cancel(nowUtc, reason);
-                    booking.TourSchedule.ReleaseCapacity(booking.Quantity);
+                    booking.TourSchedule.ReleaseReservedCapacity(booking.Quantity);
                     foreach (var ticket in booking.Tickets) ticket.Cancel();
                     await dbContext.RevokeActiveTicketQrCodesAsync(booking.Id, nowUtc, transactionCancellationToken);
 
@@ -152,20 +152,6 @@ public sealed class CancelBookingCommandHandler(
         actor == BookingCancellationActor.Traveler
             ? booking.TravelerUserId == actorUserId
             : booking.TourSchedule!.Tour.OperatorUserId == actorUserId;
-
-    private async Task<PaymentTransaction?> FindSuccessfulPaymentAsync(Booking booking,
-        CancellationToken cancellationToken)
-    {
-        if (booking.Status == BookingStatus.PendingPayment) return null;
-        if (booking.PaymentStatus != PaymentStatus.Paid) return null;
-        return await dbContext.PaymentTransactions
-            .Where(transaction => transaction.BookingId == booking.Id
-                && transaction.TransactionType == PaymentTransaction.TypePayment
-                && transaction.Status == PaymentTransactionStatus.Success
-                && transaction.Amount == booking.TotalAmount)
-            .OrderByDescending(transaction => transaction.CreatedAtUtc)
-            .FirstOrDefaultAsync(cancellationToken);
-    }
 
     private Task<BookingCancellationOperation?> FindOperationAsync(long actorUserId, Guid idempotencyKey,
         CancellationToken cancellationToken) => dbContext.BookingCancellationOperations.AsNoTracking()

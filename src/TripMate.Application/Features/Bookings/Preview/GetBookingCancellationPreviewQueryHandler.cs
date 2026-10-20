@@ -45,6 +45,13 @@ public sealed class GetBookingCancellationPreviewQueryHandler(
         }
 
         var decision = BookingCancellationPreviewPolicy.Evaluate(booking, isTraveler, clock.UtcNow);
+        if (decision.CanCancel && decision.RefundAmount > 0m
+            && await BookingCancellationPaymentVerifier.FindSuccessfulPaymentAsync(dbContext, booking, cancellationToken)
+                is null)
+        {
+            decision = (false, 0m, BookingCancellationErrorCodes.PaymentNotRefundable,
+                "This booking has no verified payment eligible for a refund.");
+        }
         return Result.Success(new BookingCancellationPreviewResponse(booking.Id, booking.TourSchedule.Tour.Title,
             booking.TourSchedule.StartAtUtc, booking.Quantity, booking.TotalAmount, booking.Status.ToString(),
             booking.PaymentStatus.ToString(), decision.CanCancel, decision.Code, decision.Message,
@@ -61,9 +68,6 @@ internal static class BookingCancellationPreviewPolicy
             || booking.Tickets.Any(ticket => ticket.Status == TicketStatus.Used))
             return (false, 0m, BookingCancellationErrorCodes.InvalidState, "This booking can no longer be cancelled.");
         if (booking.Status == BookingStatus.PendingPayment) return (true, 0m, null, null);
-        if (booking.PaymentStatus != PaymentStatus.Paid)
-            return (false, 0m, BookingCancellationErrorCodes.PaymentNotRefundable,
-                "This booking has no verified payment eligible for a refund.");
         if (!isTraveler) return (true, booking.TotalAmount, null, null);
         if (!TravelerCancellationPolicy.TryParse(booking.CancellationPolicySnapshot, out var policy))
             return (false, 0m, BookingCancellationErrorCodes.PolicyUnavailable,
