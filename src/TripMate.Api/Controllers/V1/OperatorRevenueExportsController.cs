@@ -53,14 +53,19 @@ public sealed class OperatorRevenueExportsController(ISender sender) : ApiContro
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 
+    public sealed record DownloadRevenueExportResponse(string FileName, string DownloadUrl);
+
     [HttpGet("{exportId:long}/download")]
-    [ProducesResponseType(StatusCodes.Status302Found)]
+    [ProducesResponseType(typeof(DownloadRevenueExportResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Download(long exportId, CancellationToken cancellationToken)
     {
         var result = await Sender.Send(new GetRevenueExportDownloadQuery(exportId), cancellationToken);
         if (!result.IsSuccess) return HandleFailure(result);
 
-        return Redirect(result.Value.DownloadUrl.AbsoluteUri);
+        // A JSON body (not a 302) lets the FE BFF fetch and stream the bytes itself, so the
+        // signed Cloudinary URL is never sent to the browser (spec: never expose a persistent
+        // object-storage URL in client state).
+        return Ok(new DownloadRevenueExportResponse(result.Value.FileName, result.Value.DownloadUrl.AbsoluteUri));
     }
 }
