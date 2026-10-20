@@ -669,6 +669,9 @@ internal sealed class NoOpUserAdministrationNotificationOutboxStore : IUserAdmin
     public Task CompleteAsync(long notificationId, Guid leaseToken, DateTimeOffset completedAtUtc,
         CancellationToken cancellationToken) => Task.CompletedTask;
 
+    public Task<bool> RenewLeaseAsync(long notificationId, Guid leaseToken, DateTimeOffset renewedAtUtc,
+        DateTimeOffset leaseExpiresAtUtc, CancellationToken cancellationToken) => Task.FromResult(true);
+
     public Task RetryAsync(long notificationId, Guid leaseToken, DateTimeOffset notBeforeAtUtc,
         DateTimeOffset updatedAtUtc, CancellationToken cancellationToken) => Task.CompletedTask;
 

@@ -26,6 +26,13 @@ internal interface IUserAdministrationNotificationOutboxStore
         DateTimeOffset completedAtUtc,
         CancellationToken cancellationToken);
 
+    Task<bool> RenewLeaseAsync(
+        long notificationId,
+        Guid leaseToken,
+        DateTimeOffset renewedAtUtc,
+        DateTimeOffset leaseExpiresAtUtc,
+        CancellationToken cancellationToken);
+
     Task RetryAsync(
         long notificationId,
         Guid leaseToken,
@@ -76,7 +83,7 @@ internal sealed class UserAdministrationNotificationDeliveryProcessor(
                 break;
             }
 
-            await ProcessClaimAsync(claims[0], cancellationToken);
+            await ProcessClaimAsync(claims[0], leaseDuration, cancellationToken);
             processed++;
         }
 
@@ -85,15 +92,15 @@ internal sealed class UserAdministrationNotificationDeliveryProcessor(
 
     private async Task ProcessClaimAsync(
         UserAdministrationNotificationClaim claim,
+        TimeSpan leaseDuration,
         CancellationToken cancellationToken)
     {
         EmailDeliveryResult result;
         try
         {
-            result = await sender.SendAsync(
-                claim.DestinationEmail,
-                claim.Subject,
-                claim.Body,
+            result = await SendWithLeaseRenewalAsync(
+                claim,
+                leaseDuration,
                 cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -131,5 +138,36 @@ internal sealed class UserAdministrationNotificationDeliveryProcessor(
             default:
                 throw new InvalidOperationException("Unknown email delivery status.");
         }
+    }
+
+    private async Task<EmailDeliveryResult> SendWithLeaseRenewalAsync(
+        UserAdministrationNotificationClaim claim,
+        TimeSpan leaseDuration,
+        CancellationToken cancellationToken)
+    {
+        Task<EmailDeliveryResult> delivery = sender.SendAsync(
+            claim.DestinationEmail, claim.Subject, claim.Body, cancellationToken);
+        TimeSpan renewalInterval = TimeSpan.FromTicks(Math.Max(1, leaseDuration.Ticks / 3));
+
+        while (!delivery.IsCompleted)
+        {
+            Task delay = Task.Delay(renewalInterval, cancellationToken);
+            if (await Task.WhenAny(delivery, delay) == delivery)
+            {
+                break;
+            }
+
+            DateTimeOffset now = clock.UtcNow;
+            bool renewed = await outbox.RenewLeaseAsync(
+                claim.NotificationId, claim.LeaseToken, now, now + leaseDuration, cancellationToken);
+            if (!renewed)
+            {
+                logger.LogWarning("Administrative notification {NotificationId} lost its delivery lease while sending.",
+                    claim.NotificationId);
+                break;
+            }
+        }
+
+        return await delivery;
     }
 }

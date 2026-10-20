@@ -81,6 +81,34 @@ internal sealed class SqlServerUserAdministrationNotificationOutboxStore(Applica
             item => item.CompleteDelivery(leaseToken, completedAtUtc),
             cancellationToken);
 
+    public async Task<bool> RenewLeaseAsync(
+        long notificationId,
+        Guid leaseToken,
+        DateTimeOffset renewedAtUtc,
+        DateTimeOffset leaseExpiresAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var now = renewedAtUtc.ToUniversalTime();
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
+        Notification? item = await dbContext.Notifications.FromSqlInterpolated($"""
+            SELECT * FROM dbo.Notifications WITH (UPDLOCK, ROWLOCK)
+            WHERE notification_id = {notificationId}
+              AND status = 'Pending'
+              AND delivery_lease_token = {leaseToken}
+              AND delivery_lease_expires_at > {now}
+            """).SingleOrDefaultAsync(cancellationToken);
+        if (item is null)
+        {
+            await transaction.CommitAsync(cancellationToken);
+            return false;
+        }
+
+        item.RenewDeliveryLease(leaseToken, now, leaseExpiresAtUtc);
+        await dbContext.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return true;
+    }
+
     public Task RetryAsync(
         long notificationId,
         Guid leaseToken,

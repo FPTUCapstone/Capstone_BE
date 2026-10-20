@@ -103,6 +103,16 @@ public sealed class UnlockUserAccountCommandHandler(
                 "The user account is not locked.");
         }
 
+        // Capture the lock evidence before restoration clears it. An unlock audit must explain
+        // both why/when the account was locked and exactly which status was restored.
+        var previousLock = new
+        {
+            previousStatus = target.StatusBeforeLock?.ToString(),
+            previousLockedByUserId = target.LockedByUserId,
+            previousLockedAtUtc = target.LockedAtUtc,
+            previousLockReason = target.LockReason,
+        };
+
         if (!target.TryRestoreFromLock(out AccountStatus restoredStatus))
         {
             return Result.Failure<UnlockUserAccountResponse>(
@@ -122,8 +132,14 @@ public sealed class UnlockUserAccountCommandHandler(
             createdAtUtc: now,
             result: AuditOutcome.Success,
             reason: reason,
-            beforeData: JsonSerializer.Serialize(new { status = AccountStatus.Locked.ToString() }),
-            afterData: JsonSerializer.Serialize(new { status = restoredStatus.ToString() })));
+            beforeData: JsonSerializer.Serialize(previousLock),
+            afterData: JsonSerializer.Serialize(new
+            {
+                status = restoredStatus.ToString(),
+                lockedByUserId = target.LockedByUserId,
+                lockedAtUtc = target.LockedAtUtc,
+                lockReason = target.LockReason,
+            })));
         dbContext.Notifications.Add(new Notification
         {
             User = target,

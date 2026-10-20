@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
@@ -69,6 +71,14 @@ public sealed class UnlockUserAccountCommandHandlerTests
         audit.ActorUserId.Should().Be(_currentUser.UserId);
         audit.Result.Should().Be(AuditOutcome.Success);
         audit.Reason.Should().Be("Verified identity and access.");
+        using JsonDocument before = JsonDocument.Parse(audit.BeforeData!);
+        before.RootElement.GetProperty("previousStatus").GetString().Should().Be(AccountStatus.PendingApproval.ToString());
+        before.RootElement.GetProperty("previousLockedByUserId").GetInt64().Should().Be(10);
+        before.RootElement.GetProperty("previousLockedAtUtc").GetDateTimeOffset().Should().Be(Now.AddHours(-2));
+        before.RootElement.GetProperty("previousLockReason").GetString().Should().Be("Security review");
+        using JsonDocument after = JsonDocument.Parse(audit.AfterData!);
+        after.RootElement.GetProperty("status").GetString().Should().Be(AccountStatus.PendingApproval.ToString());
+        after.RootElement.GetProperty("lockedByUserId").ValueKind.Should().Be(JsonValueKind.Null);
         _dbContext.UserUnlockOperations.Should().ContainSingle(operation =>
             operation.AdministratorUserId == _currentUser.UserId
             && operation.TargetUserId == target.Id

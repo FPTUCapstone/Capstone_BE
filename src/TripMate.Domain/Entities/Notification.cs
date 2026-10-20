@@ -110,6 +110,24 @@ public class Notification : BaseEntity
         DeliveryLastErrorCode = null;
     }
 
+    public void RenewDeliveryLease(Guid leaseToken, DateTimeOffset renewedAtUtc, DateTimeOffset leaseExpiresAtUtc)
+    {
+        EnsureCurrentLease(leaseToken);
+        var renewedAt = renewedAtUtc.ToUniversalTime();
+        var leaseExpiresAt = leaseExpiresAtUtc.ToUniversalTime();
+        if (DeliveryLeaseExpiresAtUtc is null || DeliveryLeaseExpiresAtUtc <= renewedAt)
+        {
+            throw new InvalidOperationException("The notification delivery lease has expired.");
+        }
+
+        if (leaseExpiresAt <= renewedAt)
+        {
+            throw new ArgumentOutOfRangeException(nameof(leaseExpiresAtUtc));
+        }
+
+        DeliveryLeaseExpiresAtUtc = leaseExpiresAt;
+    }
+
     public void FailDelivery(Guid leaseToken, DateTimeOffset failedAtUtc)
     {
         EnsureCurrentLease(leaseToken);

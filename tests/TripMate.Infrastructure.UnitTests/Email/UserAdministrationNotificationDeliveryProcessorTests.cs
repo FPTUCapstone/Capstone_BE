@@ -54,9 +54,21 @@ public sealed class UserAdministrationNotificationDeliveryProcessorTests
         store.Retries.Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task ProcessDueBatchAsync_WhenEmailIsSlow_RenewsItsLeaseBeforeCompleting()
+    {
+        var store = new RecordingOutboxStore();
+        var processor = CreateProcessor(store, new DelayedSender(TimeSpan.FromMilliseconds(80)));
+
+        await processor.ProcessDueBatchAsync(TimeSpan.FromMilliseconds(20), 1, CancellationToken.None);
+
+        store.Renewals.Should().NotBeEmpty();
+        store.Completed.Should().ContainSingle();
+    }
+
     private static UserAdministrationNotificationDeliveryProcessor CreateProcessor(
         RecordingOutboxStore store,
-        RecordingSender sender) =>
+        IUserAdministrationNotificationEmailSender sender) =>
         new(store, sender, new MutableClock(Now), NullLogger<UserAdministrationNotificationDeliveryProcessor>.Instance);
 
     private sealed class RecordingOutboxStore : IUserAdministrationNotificationOutboxStore
@@ -68,6 +80,8 @@ public sealed class UserAdministrationNotificationDeliveryProcessorTests
         public List<long> Retries { get; } = [];
 
         public List<long> Failures { get; } = [];
+
+        public List<long> Renewals { get; } = [];
 
         public Task<IReadOnlyList<UserAdministrationNotificationClaim>> ClaimDueAsync(
             DateTimeOffset nowUtc,
@@ -98,6 +112,13 @@ public sealed class UserAdministrationNotificationDeliveryProcessorTests
             return Task.CompletedTask;
         }
 
+        public Task<bool> RenewLeaseAsync(long notificationId, Guid leaseToken, DateTimeOffset renewedAtUtc,
+            DateTimeOffset leaseExpiresAtUtc, CancellationToken cancellationToken)
+        {
+            Renewals.Add(notificationId);
+            return Task.FromResult(true);
+        }
+
         public Task RetryAsync(long notificationId, Guid leaseToken, DateTimeOffset notBeforeAtUtc, DateTimeOffset updatedAtUtc, CancellationToken cancellationToken)
         {
             Retries.Add(notificationId);
@@ -123,6 +144,16 @@ public sealed class UserAdministrationNotificationDeliveryProcessorTests
         {
             Destinations.Add(destinationEmail);
             return Task.FromResult(result);
+        }
+    }
+
+    private sealed class DelayedSender(TimeSpan delay) : IUserAdministrationNotificationEmailSender
+    {
+        public async Task<EmailDeliveryResult> SendAsync(string destinationEmail, string subject, string body,
+            CancellationToken cancellationToken)
+        {
+            await Task.Delay(delay, cancellationToken);
+            return EmailDeliveryResult.Delivered;
         }
     }
 
