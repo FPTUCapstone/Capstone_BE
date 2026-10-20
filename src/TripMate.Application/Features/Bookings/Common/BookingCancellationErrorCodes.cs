@@ -11,4 +11,5 @@ public static class BookingCancellationErrorCodes
     public const string WindowClosed = "booking.cancellation.window_closed";
     public const string PolicyUnavailable = "booking.cancellation.policy_unavailable";
     public const string IdempotencyPayloadMismatch = "booking.cancellation.idempotency_payload_mismatch";
+    public const string ConcurrentRetryExhausted = "booking.cancellation.concurrent_retry_exhausted";
 }

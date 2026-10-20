@@ -97,7 +97,7 @@ public sealed class CancelBookingCommandHandler(
                     var beforeState = new { status = booking.Status.ToString(), paymentStatus = booking.PaymentStatus.ToString() };
                     string? reason = ComposeReason(request.ReasonCategory, request.ReasonDetail);
                     booking.Cancel(nowUtc, reason);
-                    booking.TourSchedule.ReleaseReservedCapacity(booking.Quantity);
+                    booking.TourSchedule.ReleaseCapacity(booking.Quantity);
                     foreach (var ticket in booking.Tickets) ticket.Cancel();
                     await dbContext.RevokeActiveTicketQrCodesAsync(booking.Id, nowUtc, transactionCancellationToken);
 
@@ -123,9 +123,19 @@ public sealed class CancelBookingCommandHandler(
                 if (operation is not null) return ReplayOrMismatch(operation, request.BookingId, requestHash);
                 throw;
             }
-            catch (Exception exception) when (attempt < MaxDeadlockAttempts && dbContext.IsDeadlock(exception))
+            catch (Exception exception) when (dbContext.IsDeadlock(exception))
             {
                 dbContext.ClearTrackedEntities();
+                if (attempt >= MaxDeadlockAttempts)
+                {
+                    return Result.Failure<CancelBookingResponse>(
+                        BookingCancellationErrorCodes.ConcurrentRetryExhausted,
+                        "Cancellation is busy because another request is updating this booking. Please try again.");
+                }
+
+                // Avoid immediately recreating the same lock cycle. The delay is bounded,
+                // deterministic and cancellation-aware: 25ms, then 50ms.
+                await Task.Delay(TimeSpan.FromMilliseconds(25 * (1 << (attempt - 1))), cancellationToken);
             }
         }
     }
@@ -150,7 +160,7 @@ public sealed class CancelBookingCommandHandler(
         if (booking.PaymentStatus != PaymentStatus.Paid) return null;
         return await dbContext.PaymentTransactions
             .Where(transaction => transaction.BookingId == booking.Id
-                && transaction.TransactionType == PaymentTransactionType.Payment
+                && transaction.TransactionType == PaymentTransaction.TypePayment
                 && transaction.Status == PaymentTransactionStatus.Success
                 && transaction.Amount == booking.TotalAmount)
             .OrderByDescending(transaction => transaction.CreatedAtUtc)
