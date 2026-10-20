@@ -90,6 +90,11 @@ public class TestDbContext(
     public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
     public DbSet<Refund> Refunds => Set<Refund>();
 
+    public DbSet<Ticket> Tickets => Set<Ticket>();
+
+    public DbSet<BookingCancellationOperation> BookingCancellationOperations =>
+        Set<BookingCancellationOperation>();
+
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
 
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
@@ -144,6 +149,8 @@ public class TestDbContext(
     public List<string> FinalizedTravelerAvatarPublicIds { get; } = [];
 
     public List<string> EnqueuedTravelerAvatarPublicIds { get; } = [];
+
+    public List<long> RevokedTicketQrBookingIds { get; } = [];
 
     public bool ThrowOnSaveConcurrency { get; set; }
 
@@ -236,6 +243,13 @@ public class TestDbContext(
     }
 
     public void ClearTrackedEntities() => ChangeTracker.Clear();
+
+    public Task<int> RevokeActiveTicketQrCodesAsync(long bookingId, DateTimeOffset revokedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        RevokedTicketQrBookingIds.Add(bookingId);
+        return Task.FromResult(0);
+    }
 
     public async Task<T> ExecuteInSerializableTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,

@@ -19,5 +19,6 @@ public sealed class RefundConfiguration : IEntityTypeConfiguration<Refund>
         builder.Property(refund => refund.InitiatedBy).HasColumnName("initiated_by").HasConversion<string>().HasMaxLength(20).IsRequired();
         builder.Property(refund => refund.Status).HasColumnName("status").HasConversion<string>().HasMaxLength(20).IsRequired();
         builder.Property(refund => refund.RequestedAtUtc).HasColumnName("requested_at").IsRequired();
+        builder.Property(refund => refund.ProcessedAtUtc).HasColumnName("processed_at");
     }
 }

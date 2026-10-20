@@ -97,7 +97,7 @@ public sealed class CancelBookingCommandHandler(
                     var beforeState = new { status = booking.Status.ToString(), paymentStatus = booking.PaymentStatus.ToString() };
                     string? reason = ComposeReason(request.ReasonCategory, request.ReasonDetail);
                     booking.Cancel(nowUtc, reason);
-                    booking.TourSchedule.ReleaseReservedCapacity(booking.Quantity);
+                    booking.TourSchedule.ReleaseCapacity(booking.Quantity);
                     foreach (var ticket in booking.Tickets) ticket.Cancel();
                     await dbContext.RevokeActiveTicketQrCodesAsync(booking.Id, nowUtc, transactionCancellationToken);
 

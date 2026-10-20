@@ -64,6 +64,31 @@ public class Booking : BaseEntity
     /// <summary>Subtotal before voucher discount, derived from the two persisted amounts.</summary>
     public decimal SubtotalAmount => TotalAmount + DiscountAmount;
 
+    public static Booking Create(long travelerUserId, long tourScheduleId, int quantity,
+        decimal totalAmount, BookingStatus status, PaymentStatus paymentStatus,
+        string? cancellationPolicySnapshot = null)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(travelerUserId);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(tourScheduleId);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(quantity);
+        ArgumentOutOfRangeException.ThrowIfNegative(totalAmount);
+        string snapshot = cancellationPolicySnapshot ?? DefaultCancellationPolicySnapshot;
+        ArgumentException.ThrowIfNullOrWhiteSpace(snapshot);
+        if (snapshot.Length > PolicySnapshotMaxLength)
+            throw new ArgumentOutOfRangeException(nameof(cancellationPolicySnapshot));
+
+        return new Booking
+        {
+            TravelerUserId = travelerUserId,
+            TourScheduleId = tourScheduleId,
+            Quantity = quantity,
+            TotalAmount = totalAmount,
+            Status = status,
+            PaymentStatus = paymentStatus,
+            CancellationPolicySnapshot = snapshot,
+        };
+    }
+
     public static Booking Restore(long id, long travelerUserId, long tourScheduleId, int quantity,
         decimal totalAmount, BookingStatus status, PaymentStatus paymentStatus,
         string cancellationPolicySnapshot)

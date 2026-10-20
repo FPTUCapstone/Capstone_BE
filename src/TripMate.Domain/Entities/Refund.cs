@@ -19,6 +19,7 @@ public class Refund : BaseEntity
     public RefundInitiator InitiatedBy { get; private set; }
     public RefundStatus Status { get; private set; }
     public DateTimeOffset RequestedAtUtc { get; private set; }
+    public DateTimeOffset? ProcessedAtUtc { get; private set; }
 
     public static Refund CreatePending(long bookingId, long transactionId, long cancellationOperationId,
         decimal amount, string? reason, RefundInitiator initiatedBy, DateTimeOffset requestedAtUtc)

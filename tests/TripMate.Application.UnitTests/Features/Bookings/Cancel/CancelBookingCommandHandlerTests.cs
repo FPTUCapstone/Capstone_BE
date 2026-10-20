@@ -244,7 +244,7 @@ public sealed class CancelBookingCommandHandlerTests
         Set(transaction, nameof(PaymentTransaction.Id), id);
         Set(transaction, nameof(PaymentTransaction.BookingId), bookingId);
         Set(transaction, nameof(PaymentTransaction.Amount), amount);
-        Set(transaction, nameof(PaymentTransaction.TransactionType), PaymentTransactionType.Payment);
+        Set(transaction, nameof(PaymentTransaction.TransactionType), PaymentTransaction.TypePayment);
         Set(transaction, nameof(PaymentTransaction.Status), PaymentTransactionStatus.Success);
         Set(transaction, nameof(PaymentTransaction.CreatedAtUtc), createdAtUtc);
         return transaction;
