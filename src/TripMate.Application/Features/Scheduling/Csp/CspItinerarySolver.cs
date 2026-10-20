@@ -765,8 +765,8 @@ public sealed class CspItinerarySolver(
                 return long.MinValue;
             }
 
-            var catScratch = new int[inputs.CategoryCount];
-            return ObjectiveCalculator.Replay(inputs, ctx, route.Sequence, route.Earliest, catScratch);
+            var groupScratch = new int[inputs.DiversityGroupCount];
+            return ObjectiveCalculator.Replay(inputs, ctx, route.Sequence, route.Earliest, groupScratch);
         }
 
         public void Run(IncumbentToken? incumbent)

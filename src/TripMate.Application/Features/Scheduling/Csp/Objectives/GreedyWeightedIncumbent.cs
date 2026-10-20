@@ -24,7 +24,7 @@ public static class GreedyWeightedIncumbent
         var maxStops = options.MaxStops ?? int.MaxValue;
         maxStops = Math.Min(maxStops, ctx.Nodes.Count);
 
-        var catScratch = new int[inputs.CategoryCount];
+        var groupScratch = new int[inputs.DiversityGroupCount];
         var currentSeq = new List<int>(maxStops);
 
         // 1. Chèn các điểm bắt buộc vào vị trí khả thi có J cao nhất
@@ -40,7 +40,7 @@ public static class GreedyWeightedIncumbent
                 var route = RouteState.Build(ctx, currentSeq);
                 if (route is not null && (ctx.Budget is null || route.Cost <= ctx.Budget.Value))
                 {
-                    var j = ObjectiveCalculator.Replay(inputs, ctx, route.Sequence, route.Earliest, catScratch);
+                    var j = ObjectiveCalculator.Replay(inputs, ctx, route.Sequence, route.Earliest, groupScratch);
                     if (j > bestJ)
                     {
                         bestJ = j;
@@ -67,7 +67,7 @@ public static class GreedyWeightedIncumbent
             {
                 return [];
             }
-            currentJ = ObjectiveCalculator.Replay(inputs, ctx, route.Sequence, route.Earliest, catScratch);
+            currentJ = ObjectiveCalculator.Replay(inputs, ctx, route.Sequence, route.Earliest, groupScratch);
         }
 
         // 2. Vòng lặp chèn điểm tùy chọn có ΔJ lớn nhất
@@ -97,7 +97,7 @@ public static class GreedyWeightedIncumbent
                     var route = RouteState.Build(ctx, currentSeq);
                     if (route is not null && (ctx.Budget is null || route.Cost <= ctx.Budget.Value))
                     {
-                        var j = ObjectiveCalculator.Replay(inputs, ctx, route.Sequence, route.Earliest, catScratch);
+                        var j = ObjectiveCalculator.Replay(inputs, ctx, route.Sequence, route.Earliest, groupScratch);
                         var deltaJ = j - currentJ;
                         if (deltaJ > bestDeltaJ)
                         {

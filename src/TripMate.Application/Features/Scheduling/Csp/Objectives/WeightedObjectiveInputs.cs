@@ -10,17 +10,17 @@ public sealed class WeightedObjectiveInputs
 {
     public const long Scale = 10_000;
 
-    /// <summary>Điểm lợi ích cơ sở theo node index ∈ [0, 1], đã cộng stability bonus nếu có.</summary>
+    /// <summary>Base utility score per node index ∈ [0, 1], including stability bonus if any.</summary>
     public required double[] Base { get; init; }
 
-    /// <summary>Ánh xạ từ node index sang chỉ số danh mục dày đặc (dense category index).</summary>
-    public required int[] CategoryIndex { get; init; }
+    /// <summary>Mapping from node index to dense diversity discount group index.</summary>
+    public required int[] DiversityGroupIndex { get; init; }
 
-    /// <summary>Tổng số danh mục phân biệt.</summary>
-    public required int CategoryCount { get; init; }
+    /// <summary>Total distinct diversity discount groups.</summary>
+    public required int DiversityGroupCount { get; init; }
 
-    /// <summary>Hệ số đa dạng danh mục tính sẵn: [cat][k] = round(γ_cat^k * Scale).</summary>
-    public required long[][] GammaScaled { get; init; }
+    /// <summary>Precomputed diversity discount table: [node][k] = round(γ_node^k * Scale).</summary>
+    public required long[][] GammaScaledByNode { get; init; }
 
     /// <summary>Đánh dấu node có phải là địa điểm ngoài trời chịu ảnh hưởng thời tiết/nắng nóng.</summary>
     public required bool[] IsExposedOutdoor { get; init; }

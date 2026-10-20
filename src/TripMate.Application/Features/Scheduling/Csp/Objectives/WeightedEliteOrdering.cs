@@ -12,7 +12,7 @@ namespace TripMate.Application.Features.Scheduling.Csp.Objectives;
 internal sealed class WeightedEliteOrdering(
     WeightedObjectiveInputs inputs,
     RoutingContext ctx,
-    int[] catScratch) : IEliteOrdering
+    int[] groupScratch) : IEliteOrdering
 {
     public bool MayAccept(in EliteKey candidate, in EliteKey worst)
     {
@@ -80,7 +80,7 @@ internal sealed class WeightedEliteOrdering(
 
     public EliteKey CreateKey(RouteState state)
     {
-        var j = ObjectiveCalculator.Replay(inputs, ctx, state.Sequence, state.Earliest, catScratch);
+        var j = ObjectiveCalculator.Replay(inputs, ctx, state.Sequence, state.Earliest, groupScratch);
         return new EliteKey((double)j / WeightedObjectiveInputs.Scale, state.TravelMinutes, state.Finish);
     }
 }

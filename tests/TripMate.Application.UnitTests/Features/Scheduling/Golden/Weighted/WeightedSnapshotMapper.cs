@@ -25,7 +25,7 @@ public static class WeightedSnapshotMapper
         var stats = result.Statistics;
         Assert.False(stats.TimeLimitReached, $"Scenario {scenario.Id} timed out in Weighted mode! TimeLimitMilliseconds must be large enough.");
 
-        var catScratch = new int[inputs.CategoryCount];
+        var groupScratch = new int[inputs.DiversityGroupCount];
         var itemScratch = new List<GeneratedItineraryItem>(32);
 
         long? bestModelObjective = null;
@@ -46,7 +46,7 @@ public static class WeightedSnapshotMapper
 
             // 1. Evaluated J trên lịch thực tế
             bestEvaluatedObjective = ObjectiveCalculator.Evaluate(
-                inputs, primaryCtx, schedule, nodeOf, scenario.Indices, catScratch, itemScratch);
+                inputs, primaryCtx, schedule, nodeOf, scenario.Indices, groupScratch, itemScratch);
 
             // 2. Model J từ sequence
             var visitItems = schedule.Plan.Items
@@ -60,7 +60,7 @@ public static class WeightedSnapshotMapper
                 if (RouteState.Build(primaryCtx, seq) is { } state)
                 {
                     bestModelObjective = ObjectiveCalculator.Replay(
-                        inputs, primaryCtx, state.Sequence, state.Earliest, catScratch);
+                        inputs, primaryCtx, state.Sequence, state.Earliest, groupScratch);
                 }
             }
         }
@@ -75,7 +75,7 @@ public static class WeightedSnapshotMapper
                 if (RouteState.Build(primaryCtx, seq) is { } state)
                 {
                     var obj = ObjectiveCalculator.Replay(
-                        inputs, primaryCtx, state.Sequence, state.Earliest, catScratch);
+                        inputs, primaryCtx, state.Sequence, state.Earliest, groupScratch);
                     eliteObjectives.Add(obj);
                 }
             }

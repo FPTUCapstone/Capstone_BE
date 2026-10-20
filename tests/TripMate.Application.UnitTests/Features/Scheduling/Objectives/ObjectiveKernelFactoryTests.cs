@@ -31,9 +31,11 @@ public class ObjectiveKernelFactoryTests
             baseScores[i] = ((i * 37 + 13) % 100) / 100.0;
         }
 
-        var gamma = new long[1][];
-        gamma[0] = new long[20];
-        for (var k = 0; k < 20; k++) gamma[0][k] = (long)Math.Round(Math.Pow(0.6, k) * WeightedObjectiveInputs.Scale);
+        var gamma = Enumerable.Range(0, n)
+            .Select(_ => Enumerable.Range(0, 20)
+                .Select(k => (long)Math.Round(Math.Pow(0.6, k) * WeightedObjectiveInputs.Scale))
+                .ToArray())
+            .ToArray();
 
         var p = new PersonalParams(
             LambdaPerMin: 0.015,
@@ -55,9 +57,9 @@ public class ObjectiveKernelFactoryTests
         var inputs = new WeightedObjectiveInputs
         {
             Base = baseScores,
-            CategoryIndex = new int[n],
-            CategoryCount = 1,
-            GammaScaled = gamma,
+            DiversityGroupIndex = new int[n],
+            DiversityGroupCount = 1,
+            GammaScaledByNode = gamma,
             IsExposedOutdoor = new bool[n],
             IsFood = new bool[n],
             IsRestStop = new bool[n],
@@ -349,19 +351,23 @@ public class ObjectiveKernelFactoryTests
         var cultureNode = 1; // c2
         var themeParkNode = 2; // c3
 
-        var museumCatIdx = weightedInputs.CategoryIndex[museumNode];
-        var cultureCatIdx = weightedInputs.CategoryIndex[cultureNode];
-        var themeParkCatIdx = weightedInputs.CategoryIndex[themeParkNode];
+        // Culture and Museum share the same diversity discount group
+        weightedInputs.DiversityGroupIndex[museumNode].Should().Be(
+            weightedInputs.DiversityGroupIndex[cultureNode],
+            "Culture and Museum must belong to the same diversity group");
+        weightedInputs.DiversityGroupIndex[themeParkNode].Should().NotBe(
+            weightedInputs.DiversityGroupIndex[museumNode],
+            "Theme park must be in an independent diversity group");
 
         // Culture and Museum must receive GammaLoved = 0.85
         var expectedLovedK1 = (long)Math.Round(0.85 * WeightedObjectiveInputs.Scale);
         var expectedDefaultK1 = (long)Math.Round(0.60 * WeightedObjectiveInputs.Scale);
 
-        weightedInputs.GammaScaled[museumCatIdx][1].Should().Be(expectedLovedK1, "Museum POI must receive GammaLoved");
-        weightedInputs.GammaScaled[cultureCatIdx][1].Should().Be(expectedLovedK1, "Culture POI must receive GammaLoved");
+        weightedInputs.GammaScaledByNode[museumNode][1].Should().Be(expectedLovedK1, "Museum POI must receive GammaLoved");
+        weightedInputs.GammaScaledByNode[cultureNode][1].Should().Be(expectedLovedK1, "Culture POI must receive GammaLoved");
 
         // Theme Park is not in LovedCategories -> receives GammaDefault = 0.60
-        weightedInputs.GammaScaled[themeParkCatIdx][1].Should().Be(expectedDefaultK1, "Theme park POI must receive GammaDefault");
+        weightedInputs.GammaScaledByNode[themeParkNode][1].Should().Be(expectedDefaultK1, "Theme park POI must receive GammaDefault");
     }
 
     [Fact]
@@ -426,20 +432,19 @@ public class ObjectiveKernelFactoryTests
 
         for (var i = 0; i < 4; i++)
         {
-            var catIdx = weightedInputs.CategoryIndex[i];
-            for (var k = 0; k < 10; k++)
+            for (var k = 0; k < weightedInputs.GammaScaledByNode[i].Length; k++)
             {
-                weightedInputs.GammaScaled[catIdx][k].Should().Be(
+                weightedInputs.GammaScaledByNode[i][k].Should().Be(
                     WeightedObjectiveInputs.Scale,
                     $"General category at k={k} must have scale factor 1.0 (no discount)");
             }
         }
 
         // Test with ObjectiveCalculator.Replay: 4 General POIs in sequence
-        var catScratch = new int[weightedInputs.CategoryCount];
+        var groupScratch = new int[weightedInputs.DiversityGroupCount];
         var seq = new[] { 0, 1, 2, 3 };
         var earliest = new[] { 10, 50, 90, 130 };
-        var totalJ = ObjectiveCalculator.Replay(weightedInputs, ctx, seq, earliest, catScratch);
+        var totalJ = ObjectiveCalculator.Replay(weightedInputs, ctx, seq, earliest, groupScratch);
 
         // Every node contributes base (0.5 * 1,000,000 = 500,000) with gamma=1.0 minus travel cost
         // Total gain should be 4 * 500,000 = 2,000,000
@@ -507,10 +512,9 @@ public class ObjectiveKernelFactoryTests
         var weightedRequest = new WeightedRequestInputs(baseScores, personalParams, new ConstantTimeFitFactory());
         var weightedInputs = ObjectiveKernelFactory.BuildWeightedInputs(ctx, weightedRequest);
 
-        var catIdx = weightedInputs.CategoryIndex[0];
-        weightedInputs.GammaScaled[catIdx][0].Should().Be((long)(1.0 * WeightedObjectiveInputs.Scale));
-        weightedInputs.GammaScaled[catIdx][1].Should().Be((long)Math.Round(0.6 * WeightedObjectiveInputs.Scale));
-        weightedInputs.GammaScaled[catIdx][2].Should().Be((long)Math.Round(0.36 * WeightedObjectiveInputs.Scale));
-        weightedInputs.GammaScaled[catIdx][3].Should().Be((long)Math.Round(0.216 * WeightedObjectiveInputs.Scale));
+        weightedInputs.GammaScaledByNode[0][0].Should().Be((long)(1.0 * WeightedObjectiveInputs.Scale));
+        weightedInputs.GammaScaledByNode[0][1].Should().Be((long)Math.Round(0.6 * WeightedObjectiveInputs.Scale));
+        weightedInputs.GammaScaledByNode[0][2].Should().Be((long)Math.Round(0.36 * WeightedObjectiveInputs.Scale));
+        weightedInputs.GammaScaledByNode[0][3].Should().Be((long)Math.Round(0.216 * WeightedObjectiveInputs.Scale));
     }
 }

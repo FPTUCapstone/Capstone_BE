@@ -87,50 +87,56 @@ internal static class ObjectiveKernelFactory
         var p = weighted.Params;
         var timeFit = weighted.TimeFit.Create(ctx);
 
-        var categoryMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        var categoryIndex = new int[n];
-        for (var i = 0; i < n; i++)
+        var gammaLength = Math.Max(1, n);
+        var gammaGeneral = new long[gammaLength];
+        for (var k = 0; k < gammaLength; k++)
         {
-            var catName = PoiCategoryNames.NormalizeToCanonical(ctx.Nodes[i].Candidate.CategoryName);
-            if (!categoryMap.TryGetValue(catName, out var idx))
-            {
-                idx = categoryMap.Count;
-                categoryMap[catName] = idx;
-            }
-            categoryIndex[i] = idx;
+            gammaGeneral[k] = WeightedObjectiveInputs.Scale;
         }
 
-        var catCount = Math.Max(1, categoryMap.Count);
-        var gammaScaled = new long[catCount][];
-        foreach (var (catName, c) in categoryMap)
+        var gammaLoved = new long[gammaLength];
+        for (var k = 0; k < gammaLength; k++)
         {
-            gammaScaled[c] = new long[32];
-            if (string.Equals(catName, "General", StringComparison.OrdinalIgnoreCase))
+            gammaLoved[k] = (long)Math.Round(Math.Pow(p.GammaLoved, k) * WeightedObjectiveInputs.Scale);
+        }
+
+        var gammaDefault = new long[gammaLength];
+        for (var k = 0; k < gammaLength; k++)
+        {
+            gammaDefault[k] = (long)Math.Round(Math.Pow(p.GammaDefault, k) * WeightedObjectiveInputs.Scale);
+        }
+
+        var groupMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var diversityGroupIndex = new int[n];
+        var gammaScaledByNode = new long[n][];
+
+        for (var i = 0; i < n; i++)
+        {
+            var rawCategory = ctx.Nodes[i].Candidate.CategoryName;
+            var groupName = PoiCategoryNames.GetDiversityGroup(rawCategory);
+            if (!groupMap.TryGetValue(groupName, out var groupIndex))
             {
-                // POI có danh mục không xác định ("General") dùng γ = 1 cho mọi k (không bị phạt trùng danh mục)
-                for (var k = 0; k < 32; k++)
-                {
-                    gammaScaled[c][k] = WeightedObjectiveInputs.Scale;
-                }
+                groupIndex = groupMap.Count;
+                groupMap[groupName] = groupIndex;
+            }
+            diversityGroupIndex[i] = groupIndex;
+
+            var canonicalCat = PoiCategoryNames.NormalizeToCanonical(rawCategory);
+            if (string.Equals(canonicalCat, PoiCategoryNames.General, StringComparison.OrdinalIgnoreCase))
+            {
+                gammaScaledByNode[i] = gammaGeneral;
+            }
+            else if (p.LovedCategories.Contains(canonicalCat))
+            {
+                gammaScaledByNode[i] = gammaLoved;
             }
             else
             {
-                var factor = p.LovedCategories.Contains(catName) ? p.GammaLoved : p.GammaDefault;
-                for (var k = 0; k < 32; k++)
-                {
-                    gammaScaled[c][k] = (long)Math.Round(Math.Pow(factor, k) * WeightedObjectiveInputs.Scale);
-                }
+                gammaScaledByNode[i] = gammaDefault;
             }
         }
 
-        if (categoryMap.Count == 0)
-        {
-            gammaScaled[0] = new long[32];
-            for (var k = 0; k < 32; k++)
-            {
-                gammaScaled[0][k] = WeightedObjectiveInputs.Scale;
-            }
-        }
+        var groupCount = Math.Max(1, groupMap.Count);
 
         var isExposedOutdoor = new bool[n];
         var isFood = new bool[n];
@@ -149,9 +155,9 @@ internal static class ObjectiveKernelFactory
         return new WeightedObjectiveInputs
         {
             Base = baseScores,
-            CategoryIndex = categoryIndex,
-            CategoryCount = catCount,
-            GammaScaled = gammaScaled,
+            DiversityGroupIndex = diversityGroupIndex,
+            DiversityGroupCount = groupCount,
+            GammaScaledByNode = gammaScaledByNode,
             IsExposedOutdoor = isExposedOutdoor,
             IsFood = isFood,
             IsRestStop = isRestStop,

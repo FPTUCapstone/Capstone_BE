@@ -32,7 +32,7 @@ public class WeightedUtilityKernelTests
         var n = ctx.Nodes.Count;
         var nodeOf = new Dictionary<long, int>(n);
         var baseScores = new double[n];
-        var categoryIndex = new int[n];
+        var diversityGroupIndex = new int[n];
         var isExposedOutdoor = new bool[n];
         var isFood = new bool[n];
         var isRestStop = new bool[n];
@@ -43,7 +43,7 @@ public class WeightedUtilityKernelTests
             var poiId = ctx.Nodes[v].Candidate.Id;
             nodeOf[poiId] = v;
             baseScores[v] = 0.2 + 0.8 * ((poiId * 2654435761L & 0x7FFFFFFF) % 1000) / 1000.0;
-            categoryIndex[v] = v % 3;
+            diversityGroupIndex[v] = v % 3;
 
             isExposedOutdoor[v] = (v % 2) == 0;
             isFood[v] = (v % 4) == 0;
@@ -51,13 +51,13 @@ public class WeightedUtilityKernelTests
             effort[v] = 20 + (v % 4) * 15;
         }
 
-        var gammaScaled = new long[3][];
-        for (var c = 0; c < 3; c++)
+        var gammaScaledByNode = new long[n][];
+        for (var node = 0; node < n; node++)
         {
-            gammaScaled[c] = new long[20];
+            gammaScaledByNode[node] = new long[20];
             for (var k = 0; k < 20; k++)
             {
-                gammaScaled[c][k] = (long)Math.Round(Math.Pow(0.85, k) * WeightedObjectiveInputs.Scale);
+                gammaScaledByNode[node][k] = (long)Math.Round(Math.Pow(0.85, k) * WeightedObjectiveInputs.Scale);
             }
         }
 
@@ -81,9 +81,9 @@ public class WeightedUtilityKernelTests
         var inputs = new WeightedObjectiveInputs
         {
             Base = baseScores,
-            CategoryIndex = categoryIndex,
-            CategoryCount = 3,
-            GammaScaled = gammaScaled,
+            DiversityGroupIndex = diversityGroupIndex,
+            DiversityGroupCount = 3,
+            GammaScaledByNode = gammaScaledByNode,
             IsExposedOutdoor = isExposedOutdoor,
             IsFood = isFood,
             IsRestStop = isRestStop,
@@ -138,7 +138,7 @@ public class WeightedUtilityKernelTests
         var stats = new CspStatistics();
         kernel.Initialize(ctx, buffers, pre, stats);
 
-        var catScratch = new int[inputs.CategoryCount];
+        var groupScratch = new int[inputs.DiversityGroupCount];
 
         // 1. Push node 0
         var node0 = ctx.Nodes[0];
@@ -149,7 +149,7 @@ public class WeightedUtilityKernelTests
         kernel.OnPush(0, 0, start0, ctx.StartMatrixIndex);
 
         var key0 = kernel.PeekEliteKey(1, buffers.Departure[0], node0.MatrixIndex, 30, buffers.Departure[0] + 15);
-        var replayedJ0 = ObjectiveCalculator.Replay(inputs, ctx, new[] { 0 }, new[] { start0 }, catScratch);
+        var replayedJ0 = ObjectiveCalculator.Replay(inputs, ctx, new[] { 0 }, new[] { start0 }, groupScratch);
         ((long)Math.Round(key0.Utility * WeightedObjectiveInputs.Scale)).Should().Be(replayedJ0);
 
         // 2. Push node 1
@@ -161,7 +161,7 @@ public class WeightedUtilityKernelTests
         kernel.OnPush(1, 1, start1, node0.MatrixIndex);
 
         var key1 = kernel.PeekEliteKey(2, buffers.Departure[1], node1.MatrixIndex, 45, buffers.Departure[1] + 15);
-        var replayedJ1 = ObjectiveCalculator.Replay(inputs, ctx, new[] { 0, 1 }, new[] { start0, start1 }, catScratch);
+        var replayedJ1 = ObjectiveCalculator.Replay(inputs, ctx, new[] { 0, 1 }, new[] { start0, start1 }, groupScratch);
         ((long)Math.Round(key1.Utility * WeightedObjectiveInputs.Scale)).Should().Be(replayedJ1);
 
         // 3. Pop node 1
@@ -177,7 +177,7 @@ public class WeightedUtilityKernelTests
         kernel.OnPush(1, 2, start2, node0.MatrixIndex);
 
         var key2 = kernel.PeekEliteKey(2, buffers.Departure[1], node2.MatrixIndex, 45, buffers.Departure[1] + 15);
-        var replayedJ2 = ObjectiveCalculator.Replay(inputs, ctx, new[] { 0, 2 }, new[] { start0, start2 }, catScratch);
+        var replayedJ2 = ObjectiveCalculator.Replay(inputs, ctx, new[] { 0, 2 }, new[] { start0, start2 }, groupScratch);
         ((long)Math.Round(key2.Utility * WeightedObjectiveInputs.Scale)).Should().Be(replayedJ2);
     }
 
@@ -284,9 +284,9 @@ public class WeightedUtilityKernelTests
         ((long)Math.Round(modelJ.Utility * WeightedObjectiveInputs.Scale)).Should().Be(kernel.IncumbentObjectiveForTest!.Value);
 
         // Kiểm tra thực tế: J thật của lịch chèn nghỉ khác với J mô hình
-        var catScratch = new int[inputs.CategoryCount];
+        var groupScratch = new int[inputs.DiversityGroupCount];
         var itemScratch = new List<GeneratedItineraryItem>(32);
-        var realJ = ObjectiveCalculator.Evaluate(inputs, primaryCtx, schedule, nodeOf, scenario.Indices, catScratch, itemScratch);
+        var realJ = ObjectiveCalculator.Evaluate(inputs, primaryCtx, schedule, nodeOf, scenario.Indices, groupScratch, itemScratch);
 
         // Ghi nhận điểm chênh lệch và khẳng định Incumbent lưu đúng modelJ chứ không phải realJ
         kernel.IncumbentObjectiveForTest!.Value.Should().NotBe(realJ, "Incumbent phải dùng J mô hình để tránh cắt nhầm nhánh ở PR-07 khi TimeFit không đơn điệu");
@@ -297,7 +297,7 @@ public class WeightedUtilityKernelTests
     {
         // Kiểm thử W3: Thứ tự theo ComparePendingToIncumbent và theo WeightedEliteOrdering.Compare phải cùng dấu
         var (ctx, inputs, _) = CreateSensitiveFixture();
-        var scratch = new int[inputs.CategoryCount];
+        var scratch = new int[inputs.DiversityGroupCount];
         var ordering = new WeightedEliteOrdering(inputs, ctx, scratch);
 
         var state1 = RouteState.Build(ctx, new[] { 0, 1 });
@@ -370,11 +370,11 @@ public class WeightedUtilityKernelTests
         var scheduleB = result2.Schedule!;
 
         var (ctx, inputs, nodeOf) = CreateSensitiveFixture();
-        var catScratch = new int[inputs.CategoryCount];
+        var groupScratch = new int[inputs.DiversityGroupCount];
         var itemScratch = new List<GeneratedItineraryItem>(32);
 
         var comparer = new WeightedScheduleComparer(
-            inputs, ctx, nodeOf, scenario.Indices, catScratch, itemScratch);
+            inputs, ctx, nodeOf, scenario.Indices, groupScratch, itemScratch);
 
         // Schedule so với chính nó phải bằng 0
         comparer.Compare(scheduleA, scheduleA).Should().Be(0);

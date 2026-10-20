@@ -11,7 +11,7 @@ public static class ObjectiveCalculator
 
     /// <summary>
     /// Scaled delta-J when visiting a node during [start, end], arriving via travelRaw leg duration and waiting for wait minutes.
-    /// categoryCountBefore: number of visits in the same category prior to this visit. Updates soft state in place.
+    /// groupCountBefore: number of visits in the same diversity group prior to this visit. Updates soft state in place.
     /// </summary>
     public static long VisitTerm(
         WeightedObjectiveInputs x,
@@ -20,12 +20,12 @@ public static class ObjectiveCalculator
         int end,
         int travelRaw,
         int wait,
-        int categoryCountBefore,
+        int groupCountBefore,
         ref SoftState soft)
     {
         var p = x.P;
-        int cat = x.CategoryIndex[node];
-        double gamma = x.GammaScaled[cat][categoryCountBefore] / (double)WeightedObjectiveInputs.Scale;
+        long[] gammaRow = x.GammaScaledByNode[node];
+        double gamma = gammaRow[groupCountBefore] / (double)WeightedObjectiveInputs.Scale;
         double gain = x.Base[node] * x.TimeFit.Factor(node, start, end) * gamma;
 
         double cost = p.LambdaPerMin * travelRaw + p.Mu * wait;
@@ -72,9 +72,9 @@ public static class ObjectiveCalculator
         RoutingContext ctx,
         IReadOnlyList<int> seq,
         IReadOnlyList<int> starts,
-        Span<int> catScratch)
+        Span<int> groupScratch)
     {
-        catScratch.Clear();
+        groupScratch.Clear();
         var soft = default(SoftState);
         long j = 0;
         int prevMatrix = ctx.StartMatrixIndex;
@@ -87,11 +87,11 @@ public static class ObjectiveCalculator
             int arrive = prevDeparture + ctx.Travel(prevMatrix, n.MatrixIndex);
             int start = starts[i];
             int end = start + n.VisitMinutes;
-            int cat = x.CategoryIndex[v];
+            int group = x.DiversityGroupIndex[v];
             int travelRaw = ctx.RawTravel(prevMatrix, n.MatrixIndex);
             int wait = start - arrive;
-            j += VisitTerm(x, v, start, end, travelRaw, wait, catScratch[cat], ref soft);
-            catScratch[cat]++;
+            j += VisitTerm(x, v, start, end, travelRaw, wait, groupScratch[group], ref soft);
+            groupScratch[group]++;
             prevMatrix = n.MatrixIndex;
             prevDeparture = end;
         }
@@ -120,7 +120,7 @@ public static class ObjectiveCalculator
             s,
             nodeOf,
             ctx.CandidateMatrixIndices,
-            new int[x.CategoryCount],
+            new int[x.DiversityGroupCount],
             new List<GeneratedItineraryItem>(s.Plan.Items.Count));
     }
 
@@ -133,10 +133,10 @@ public static class ObjectiveCalculator
         EvaluatedItinerarySchedule s,
         IReadOnlyDictionary<long, int> nodeOf,
         IReadOnlyDictionary<long, int> matrixIndexOf,
-        Span<int> catScratch,
+        Span<int> groupScratch,
         List<GeneratedItineraryItem> itemScratch)
     {
-        catScratch.Clear();
+        groupScratch.Clear();
         itemScratch.Clear();
         itemScratch.AddRange(s.Plan.Items);
         itemScratch.Sort(static (a, b) => a.SequenceNo.CompareTo(b.SequenceNo));
@@ -185,9 +185,9 @@ public static class ObjectiveCalculator
                 int wait = start - arrivedAt;
                 Invariant.Check(wait >= 0, "Actual schedule started before arrival");
 
-                int cat = x.CategoryIndex[node];
-                j += VisitTerm(x, node, start, end, travelRaw, wait, catScratch[cat], ref soft);
-                catScratch[cat]++;
+                int group = x.DiversityGroupIndex[node];
+                j += VisitTerm(x, node, start, end, travelRaw, wait, groupScratch[group], ref soft);
+                groupScratch[group]++;
                 prevEnd = end;
             }
 

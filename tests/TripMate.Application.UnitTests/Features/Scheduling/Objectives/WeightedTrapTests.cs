@@ -343,9 +343,9 @@ public class WeightedTrapTests
                 var seq = visitPoiIds.Select(id => nodeOf[id]).ToArray();
                 if (RouteState.Build(primaryCtx, seq) is { } state)
                 {
-                    var catScratch = new int[weightedInputs.CategoryCount];
+                    var groupScratch = new int[weightedInputs.DiversityGroupCount];
                     modelObjective = ObjectiveCalculator.Replay(
-                        weightedInputs, primaryCtx, state.Sequence, state.Earliest, catScratch);
+                        weightedInputs, primaryCtx, state.Sequence, state.Earliest, groupScratch);
                 }
             }
             else if (visitPoiIds.Count == 0)

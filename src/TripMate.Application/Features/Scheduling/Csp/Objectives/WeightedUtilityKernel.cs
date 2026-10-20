@@ -63,9 +63,9 @@ internal sealed class WeightedUtilityKernel : IObjectiveKernel
 
     private long[] _obj = null!;
     private SoftState[] _soft = null!;
-    private int[] _categoryCount = null!;
+    private int[] _groupCounts = null!;
 
-    private int[] _catScratch = null!;
+    private int[] _groupScratch = null!;
     private List<GeneratedItineraryItem> _itemScratch = null!;
 
     private long[] _uMax = null!;
@@ -156,8 +156,8 @@ internal sealed class WeightedUtilityKernel : IObjectiveKernel
 
         _obj = new long[maxDepth + 1];
         _soft = new SoftState[maxDepth + 1];
-        _categoryCount = new int[_inputs.CategoryCount];
-        _catScratch = new int[_inputs.CategoryCount];
+        _groupCounts = new int[_inputs.DiversityGroupCount];
+        _groupScratch = new int[_inputs.DiversityGroupCount];
         _itemScratch = new List<GeneratedItineraryItem>(maxDepth + 4);
 
         _nodeOf = new Dictionary<long, int>(_ctx.Nodes.Count);
@@ -167,8 +167,8 @@ internal sealed class WeightedUtilityKernel : IObjectiveKernel
             _nodeOf[id] = node;
         }
 
-        _eliteOrdering = new WeightedEliteOrdering(_inputs, _ctx, _catScratch);
-        _scheduleComparer = new WeightedScheduleComparer(_inputs, _ctx, _nodeOf, _ctx.CandidateMatrixIndices, _catScratch, _itemScratch);
+        _eliteOrdering = new WeightedEliteOrdering(_inputs, _ctx, _groupScratch);
+        _scheduleComparer = new WeightedScheduleComparer(_inputs, _ctx, _nodeOf, _ctx.CandidateMatrixIndices, _groupScratch, _itemScratch);
 
         _maxStops = _options.MaxStops ?? int.MaxValue;
         var n = _ctx.Nodes.Count;
@@ -319,7 +319,7 @@ internal sealed class WeightedUtilityKernel : IObjectiveKernel
         }
 
         // Luôn phát lại (Replay), phản ánh mọi khác biệt giữa hai context (kể cả thời gian di chuyển, buffer, v.v.)
-        var j = ObjectiveCalculator.Replay(_inputs, _ctx, route.Sequence, route.Earliest, _catScratch);
+        var j = ObjectiveCalculator.Replay(_inputs, _ctx, route.Sequence, route.Earliest, _groupScratch);
         _incumbent = new WeightedIncumbent(j, route.TravelMinutes, route.Finish, w.VisitPoiIds);
     }
 
@@ -334,21 +334,21 @@ internal sealed class WeightedUtilityKernel : IObjectiveKernel
         var arrive = prevDeparture + _ctx.Travel(fromMatrix, node.MatrixIndex);
         var wait = start - arrive;
         var end = start + node.VisitMinutes;
-        var cat = _inputs.CategoryIndex[value];
-        var catCountBefore = _categoryCount[cat];
+        var group = _inputs.DiversityGroupIndex[value];
+        var groupCountBefore = _groupCounts[group];
 
         ref var soft = ref _soft[depth + 1];
         soft = _soft[depth];
 
-        var delta = ObjectiveCalculator.VisitTerm(_inputs, value, start, end, travelRaw, wait, catCountBefore, ref soft);
+        var delta = ObjectiveCalculator.VisitTerm(_inputs, value, start, end, travelRaw, wait, groupCountBefore, ref soft);
         _obj[depth + 1] = _obj[depth] + delta;
-        _categoryCount[cat]++;
+        _groupCounts[group]++;
     }
 
     public void OnPop(int depth, int value)
     {
-        var cat = _inputs.CategoryIndex[value];
-        _categoryCount[cat]--;
+        var group = _inputs.DiversityGroupIndex[value];
+        _groupCounts[group]--;
     }
 
     public bool CanImprove(int[] domain, int domainCount, int depth, int departure, int current)
@@ -637,10 +637,11 @@ internal sealed class WeightedUtilityKernel : IObjectiveKernel
         var node = _ctx.Nodes[value];
         var travelRaw = _ctx.RawTravel(current, node.MatrixIndex);
         var end = start + node.VisitMinutes;
-        var cat = _inputs.CategoryIndex[value];
-        var catCount = _categoryCount[cat];
+        var group = _inputs.DiversityGroupIndex[value];
+        var groupCount = _groupCounts[group];
 
-        var gamma = _inputs.GammaScaled[cat][catCount] / (double)WeightedObjectiveInputs.Scale;
+        long[] gammaRow = _inputs.GammaScaledByNode[value];
+        var gamma = gammaRow[groupCount] / (double)WeightedObjectiveInputs.Scale;
         var gain = _inputs.Base[value] * _inputs.TimeFit.Factor(value, start, end) * gamma;
         var travelCost = _inputs.P.LambdaPerMin * travelRaw;
 

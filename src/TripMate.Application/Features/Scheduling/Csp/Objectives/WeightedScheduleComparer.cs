@@ -14,7 +14,7 @@ internal sealed class WeightedScheduleComparer(
     RoutingContext ctx,
     IReadOnlyDictionary<long, int> nodeOf,
     IReadOnlyDictionary<long, int> matrixIndexOf,
-    int[] catScratch,
+    int[] groupScratch,
     List<GeneratedItineraryItem> itemScratch) : IComparer<EvaluatedItinerarySchedule>
 {
     private readonly ConditionalWeakTable<EvaluatedItinerarySchedule, StrongBox<long>> _cache = new();
@@ -81,7 +81,7 @@ internal sealed class WeightedScheduleComparer(
             return boxed.Value;
         }
 
-        var j = ObjectiveCalculator.Evaluate(inputs, ctx, s, nodeOf, matrixIndexOf, catScratch, itemScratch);
+        var j = ObjectiveCalculator.Evaluate(inputs, ctx, s, nodeOf, matrixIndexOf, groupScratch, itemScratch);
         _cache.Add(s, new StrongBox<long>(j));
         return j;
     }

@@ -24,6 +24,57 @@ public class ObjectiveCalculatorTests
         _output = output;
     }
 
+    [Fact]
+    public void VisitTerm_WhenNodeIndexDiffersFromDiversityGroupIndex_UsesNodeGammaAndGroupCounter()
+    {
+        var inputs = new WeightedObjectiveInputs
+        {
+            Base = [1.0, 1.0, 1.0],
+            DiversityGroupIndex = [0, 0, 1],
+            DiversityGroupCount = 2,
+            GammaScaledByNode =
+            [
+                [WeightedObjectiveInputs.Scale, 6_000],
+                [WeightedObjectiveInputs.Scale, 9_000],
+                [WeightedObjectiveInputs.Scale, 9_000]
+            ],
+            IsExposedOutdoor = [false, false, false],
+            IsFood = [false, false, false],
+            IsRestStop = [false, false, false],
+            Effort = [0, 0, 0],
+            TimeFit = new ConstantTimeFit(),
+            P = new PersonalParams(
+                LambdaPerMin: 0,
+                Mu: 0,
+                MaxStopsPerDay: int.MaxValue,
+                MaxDailyEffort: int.MaxValue,
+                RestAfterMin: int.MaxValue,
+                MaxConsecutiveOutdoor: int.MaxValue,
+                SunriseFactor: 1,
+                GammaDefault: 0.6,
+                GammaLoved: 0.9,
+                LovedCategories: new HashSet<string>(),
+                RhoOutdoor: 0,
+                RhoRest: 0,
+                RhoStops: 0,
+                RhoEffortPerHour: 0,
+                ConfigVersion: "test"),
+        };
+        var soft = default(SoftState);
+
+        var result = ObjectiveCalculator.VisitTerm(
+            inputs,
+            node: 1,
+            start: 0,
+            end: 30,
+            travelRaw: 0,
+            wait: 0,
+            groupCountBefore: 1,
+            ref soft);
+
+        result.Should().Be(9_000);
+    }
+
     /// <summary>
     /// TimeFit nhạy cảm với từng phút bắt đầu ghé điểm, dùng để khóa chặt bất biến giờ bắt đầu tham quan trong I2.
     /// Dùng modulo nguyên tố 101 để tránh chu kỳ chia hết cho các khoảng thời gian phổ biến (60 phút, 420 phút UTC+7, 1440 phút).
@@ -45,7 +96,7 @@ public class ObjectiveCalculatorTests
         var n = ctx.Nodes.Count;
         var nodeOf = new Dictionary<long, int>(n);
         var baseScores = new double[n];
-        var categoryIndex = new int[n];
+        var diversityGroupIndex = new int[n];
         var isExposedOutdoor = new bool[n];
         var isFood = new bool[n];
         var isRestStop = new bool[n];
@@ -56,7 +107,7 @@ public class ObjectiveCalculatorTests
             var poiId = ctx.Nodes[v].Candidate.Id;
             nodeOf[poiId] = v;
             baseScores[v] = 0.2 + 0.8 * ((poiId * 2654435761L & 0x7FFFFFFF) % 1000) / 1000.0;
-            categoryIndex[v] = v % 3;
+            diversityGroupIndex[v] = v % 3;
 
             isExposedOutdoor[v] = (v % 2) == 0;
             isFood[v] = (v % 4) == 0;
@@ -64,13 +115,13 @@ public class ObjectiveCalculatorTests
             effort[v] = 20 + (v % 4) * 15;
         }
 
-        var gammaScaled = new long[3][];
-        for (var c = 0; c < 3; c++)
+        var gammaScaledByNode = new long[n][];
+        for (var node = 0; node < n; node++)
         {
-            gammaScaled[c] = new long[20];
+            gammaScaledByNode[node] = new long[20];
             for (var k = 0; k < 20; k++)
             {
-                gammaScaled[c][k] = (long)Math.Round(Math.Pow(0.85, k) * WeightedObjectiveInputs.Scale);
+                gammaScaledByNode[node][k] = (long)Math.Round(Math.Pow(0.85, k) * WeightedObjectiveInputs.Scale);
             }
         }
 
@@ -95,9 +146,9 @@ public class ObjectiveCalculatorTests
         var inputs = new WeightedObjectiveInputs
         {
             Base = baseScores,
-            CategoryIndex = categoryIndex,
-            CategoryCount = 3,
-            GammaScaled = gammaScaled,
+            DiversityGroupIndex = diversityGroupIndex,
+            DiversityGroupCount = 3,
+            GammaScaledByNode = gammaScaledByNode,
             IsExposedOutdoor = isExposedOutdoor,
             IsFood = isFood,
             IsRestStop = isRestStop,
@@ -115,7 +166,7 @@ public class ObjectiveCalculatorTests
         var n = ctx.Nodes.Count;
         var nodeOf = new Dictionary<long, int>(n);
         var baseScores = new double[n];
-        var categoryIndex = new int[n];
+        var diversityGroupIndex = new int[n];
         var isExposedOutdoor = new bool[n];
         var isFood = new bool[n];
         var isRestStop = new bool[n];
@@ -126,7 +177,7 @@ public class ObjectiveCalculatorTests
             var poiId = ctx.Nodes[v].Candidate.Id;
             nodeOf[poiId] = v;
             baseScores[v] = 0.2 + 0.8 * ((poiId * 2654435761L & 0x7FFFFFFF) % 1000) / 1000.0;
-            categoryIndex[v] = v % 3;
+            diversityGroupIndex[v] = v % 3;
 
             isExposedOutdoor[v] = (v % 2) == 0;
             isFood[v] = (v % 4) == 0;
@@ -134,13 +185,13 @@ public class ObjectiveCalculatorTests
             effort[v] = 20 + (v % 4) * 15;
         }
 
-        var gammaScaled = new long[3][];
-        for (var c = 0; c < 3; c++)
+        var gammaScaledByNode = new long[n][];
+        for (var node = 0; node < n; node++)
         {
-            gammaScaled[c] = new long[20];
+            gammaScaledByNode[node] = new long[20];
             for (var k = 0; k < 20; k++)
             {
-                gammaScaled[c][k] = (long)Math.Round(Math.Pow(0.85, k) * WeightedObjectiveInputs.Scale);
+                gammaScaledByNode[node][k] = (long)Math.Round(Math.Pow(0.85, k) * WeightedObjectiveInputs.Scale);
             }
         }
 
@@ -164,9 +215,9 @@ public class ObjectiveCalculatorTests
         var inputs = new WeightedObjectiveInputs
         {
             Base = baseScores,
-            CategoryIndex = categoryIndex,
-            CategoryCount = 3,
-            GammaScaled = gammaScaled,
+            DiversityGroupIndex = diversityGroupIndex,
+            DiversityGroupCount = 3,
+            GammaScaledByNode = gammaScaledByNode,
             IsExposedOutdoor = isExposedOutdoor,
             IsFood = isFood,
             IsRestStop = isRestStop,
@@ -201,7 +252,7 @@ public class ObjectiveCalculatorTests
         nonRestScenarios.Count.Should().Be(24, "Must have exactly 24 measured non-rest golden scenarios");
 
         var evaluator = new ItineraryScheduleEvaluator(Options);
-        var catScratch = new int[3];
+        var groupScratch = new int[3];
         var itemScratch = new List<GeneratedItineraryItem>(32);
 
         foreach (var scenario in nonRestScenarios)
@@ -230,11 +281,11 @@ public class ObjectiveCalculatorTests
             routeState.Should().NotBeNull($"RouteState.Build must succeed for scenario {scenario.Id}");
 
             // 1. Replay trên mô hình tìm kiếm
-            var replay = ObjectiveCalculator.Replay(inputs, primaryCtx, routeState!.Sequence, routeState.Earliest, catScratch);
+            var replay = ObjectiveCalculator.Replay(inputs, primaryCtx, routeState!.Sequence, routeState.Earliest, groupScratch);
 
             // 2. Evaluate trên lịch đã qua Evaluator
             var evaluated = ObjectiveCalculator.Evaluate(
-                inputs, primaryCtx, schedule, nodeOf, scenario.Indices, catScratch, itemScratch);
+                inputs, primaryCtx, schedule, nodeOf, scenario.Indices, groupScratch, itemScratch);
 
             _output.WriteLine($"[I2 PASS] {scenario.Id} | Stops: {visitItems.Count} | Replay: {replay} | Evaluate: {evaluated}");
 
@@ -266,7 +317,7 @@ public class ObjectiveCalculatorTests
         nonRestScenarios.Count.Should().Be(24, "Must have exactly 24 measured non-rest golden scenarios");
 
         var evaluator = new ItineraryScheduleEvaluator(Options);
-        var catScratch = new int[3];
+        var groupScratch = new int[3];
         var itemScratch = new List<GeneratedItineraryItem>(32);
 
         foreach (var scenario in nonRestScenarios)
@@ -295,11 +346,11 @@ public class ObjectiveCalculatorTests
             routeState.Should().NotBeNull($"RouteState.Build must succeed for scenario {scenario.Id}");
 
             // 1. Replay trên mô hình tìm kiếm
-            var replay = ObjectiveCalculator.Replay(inputs, primaryCtx, routeState!.Sequence, routeState.Earliest, catScratch);
+            var replay = ObjectiveCalculator.Replay(inputs, primaryCtx, routeState!.Sequence, routeState.Earliest, groupScratch);
 
             // 2. Evaluate trên lịch đã qua Evaluator
             var evaluated = ObjectiveCalculator.Evaluate(
-                inputs, primaryCtx, schedule, nodeOf, scenario.Indices, catScratch, itemScratch);
+                inputs, primaryCtx, schedule, nodeOf, scenario.Indices, groupScratch, itemScratch);
 
             _output.WriteLine($"[I2 Real TimeFit PASS] {scenario.Id} | Stops: {visitItems.Count} | Replay: {replay} | Evaluate: {evaluated}");
 
@@ -330,7 +381,7 @@ public class ObjectiveCalculatorTests
             targetScenario.Input, targetScenario.Matrix, targetScenario.Candidates, targetScenario.Indices, Options);
 
         var (inputs, nodeOf) = CreateSensitiveInputs(primaryCtx);
-        var catScratch = new int[3];
+        var groupScratch = new int[3];
         var itemScratch = new List<GeneratedItineraryItem>(32);
 
         var visitItems = schedule.Plan.Items
@@ -341,7 +392,7 @@ public class ObjectiveCalculatorTests
         var seq = visitItems.Select(i => nodeOf[i.PointOfInterestId!.Value]).ToArray();
         var routeState = RouteState.Build(primaryCtx, seq)!;
 
-        var replay = ObjectiveCalculator.Replay(inputs, primaryCtx, routeState.Sequence, routeState.Earliest, catScratch);
+        var replay = ObjectiveCalculator.Replay(inputs, primaryCtx, routeState.Sequence, routeState.Earliest, groupScratch);
 
         // Cố ý dịch giờ đến và đi của điểm cuối cùng lên shiftMinutes phút
         var lastVisitIndex = schedule.Plan.Items.Count - 1;
@@ -378,7 +429,7 @@ public class ObjectiveCalculatorTests
             schedule.VisitPoiIds);
 
         var evaluatedShifted = ObjectiveCalculator.Evaluate(
-            inputs, primaryCtx, modifiedSchedule, nodeOf, targetScenario.Indices, catScratch, itemScratch);
+            inputs, primaryCtx, modifiedSchedule, nodeOf, targetScenario.Indices, groupScratch, itemScratch);
 
         _output.WriteLine($"[I2 SANITY] Shift: +{shiftMinutes}m | Original Replay: {replay} vs Shifted Evaluate: {evaluatedShifted}");
 
@@ -397,7 +448,7 @@ public class ObjectiveCalculatorTests
             .ToList();
 
         var evaluator = new ItineraryScheduleEvaluator(Options);
-        var catScratch = new int[3];
+        var groupScratch = new int[3];
         var itemScratch = new List<GeneratedItineraryItem>(32);
 
         foreach (var scenario in restScenarios)
@@ -416,7 +467,7 @@ public class ObjectiveCalculatorTests
             var (inputs, nodeOf) = CreateSensitiveInputs(primaryCtx);
 
             var action = () => ObjectiveCalculator.Evaluate(
-                inputs, primaryCtx, result.Schedule, nodeOf, scenario.Indices, catScratch, itemScratch);
+                inputs, primaryCtx, result.Schedule, nodeOf, scenario.Indices, groupScratch, itemScratch);
 
             action.Should().NotThrow("Evaluate must satisfy Invariant: legSum + returnRaw == TotalMatrixTravelMinutes");
         }
@@ -442,17 +493,17 @@ public class ObjectiveCalculatorTests
             scenario.Input, scenario.Matrix, scenario.Candidates, scenario.Indices, Options);
 
         var (inputs, nodeOf) = CreateSensitiveInputs(primaryCtx);
-        var catScratch = new int[3];
+        var groupScratch = new int[3];
         var itemScratch = new List<GeneratedItineraryItem>(32);
 
         var j = ObjectiveCalculator.Evaluate(
-            inputs, primaryCtx, schedule, nodeOf, scenario.Indices, catScratch, itemScratch);
+            inputs, primaryCtx, schedule, nodeOf, scenario.Indices, groupScratch, itemScratch);
 
         j.Should().NotBe(0);
     }
 
     [Fact]
-    public void I4_Mandatory_visit_and_rest_in_same_schedule_counts_category_and_evaluates_without_error()
+    public void I4_Mandatory_visit_and_rest_in_same_schedule_counts_group_and_evaluates_without_error()
     {
         var allScenarios = GoldenScenarioFactory.CreateAllScenarios();
         var scenario = allScenarios.First(s => s.Id == "grid-c20-m3-frequent-s1");
@@ -475,17 +526,17 @@ public class ObjectiveCalculatorTests
             scenario.Input, scenario.Matrix, scenario.Candidates, scenario.Indices, Options);
 
         var (inputs, nodeOf) = CreateSensitiveInputs(primaryCtx);
-        var catScratch = new int[inputs.CategoryCount];
+        var groupScratch = new int[inputs.DiversityGroupCount];
         var itemScratch = new List<GeneratedItineraryItem>(32);
 
         var j = ObjectiveCalculator.Evaluate(
-            inputs, primaryCtx, schedule, nodeOf, scenario.Indices, catScratch, itemScratch);
+            inputs, primaryCtx, schedule, nodeOf, scenario.Indices, groupScratch, itemScratch);
 
         j.Should().NotBe(0);
-        var totalVisitsCounted = catScratch.Sum();
+        var totalVisitsCounted = groupScratch.Sum();
         var actualVisitsInSchedule = schedule.Plan.Items.Count(i => i.Kind == ItineraryItemKind.Visit);
         totalVisitsCounted.Should().Be(
             actualVisitsInSchedule,
-            "Chỉ điểm ghé tham quan (Visit) mới được tính vào catScratch, điểm nghỉ (Rest) không được cộng vào danh mục");
+            "Chỉ điểm ghé tham quan (Visit) mới được tính vào groupScratch, điểm nghỉ (Rest) không được cộng vào nhóm");
     }
 }
