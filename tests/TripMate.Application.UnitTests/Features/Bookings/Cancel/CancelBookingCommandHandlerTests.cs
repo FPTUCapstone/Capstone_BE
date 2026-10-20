@@ -186,6 +186,31 @@ public sealed class CancelBookingCommandHandlerTests
         (await db.Refunds.CountAsync()).Should().Be(1);
     }
 
+    [Fact]
+    public async Task Handle_WhenDeadlocksExhaustBoundedRetries_ReturnsRetryableFailure()
+    {
+        await using var db = TestDbContext.Create();
+        var departure = new DateTimeOffset(2026, 11, 15, 8, 0, 0, TimeSpan.Zero);
+        var tour = CreateTour(21, 8);
+        var schedule = CreateSchedule(31, tour, departure, reservedCapacity: 1);
+        var booking = Booking.Restore(41, 7, schedule.Id, 1, 500_000m, BookingStatus.Confirmed,
+            PaymentStatus.Paid, TravelerCancellationPolicy.DefaultSnapshot);
+        db.Tours.Add(tour); db.TourSchedules.Add(schedule); db.Bookings.Add(booking);
+        await db.SaveChangesAsync();
+        db.SerializableTransactionCompletionFailureFactory = _ => new SimulatedDeadlockException();
+
+        var handler = new CancelBookingCommandHandler(db,
+            new FakeCurrentUserService { UserId = 7, Role = nameof(UserRole.Traveler) },
+            new FakeDateTimeProvider { UtcNow = departure.AddDays(-7) }, new NoIdempotencyConflict());
+
+        var result = await handler.Handle(new CancelBookingCommand(booking.Id, Guid.NewGuid(), null, null),
+            CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(BookingCancellationErrorCodes.ConcurrentRetryExhausted);
+        db.TransactionExecutionCount.Should().Be(3);
+    }
+
     private static Tour CreateTour(long id, long operatorUserId)
     {
         var tour = (Tour)Activator.CreateInstance(typeof(Tour), nonPublic: true)!;
@@ -219,7 +244,7 @@ public sealed class CancelBookingCommandHandlerTests
         Set(transaction, nameof(PaymentTransaction.Id), id);
         Set(transaction, nameof(PaymentTransaction.BookingId), bookingId);
         Set(transaction, nameof(PaymentTransaction.Amount), amount);
-        Set(transaction, nameof(PaymentTransaction.TransactionType), PaymentTransactionType.Payment);
+        Set(transaction, nameof(PaymentTransaction.TransactionType), PaymentTransaction.TypePayment);
         Set(transaction, nameof(PaymentTransaction.Status), PaymentTransactionStatus.Success);
         Set(transaction, nameof(PaymentTransaction.CreatedAtUtc), createdAtUtc);
         return transaction;

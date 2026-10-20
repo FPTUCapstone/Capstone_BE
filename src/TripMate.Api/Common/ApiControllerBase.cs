@@ -263,6 +263,7 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             BookingCancellationErrorCodes.WindowClosed => StatusCodes.Status422UnprocessableEntity,
             BookingCancellationErrorCodes.ReasonRequired => StatusCodes.Status422UnprocessableEntity,
             BookingCancellationErrorCodes.PolicyUnavailable => StatusCodes.Status503ServiceUnavailable,
+            BookingCancellationErrorCodes.ConcurrentRetryExhausted => StatusCodes.Status503ServiceUnavailable,
 
             TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.ItineraryNotFound =>
                 StatusCodes.Status404NotFound,
