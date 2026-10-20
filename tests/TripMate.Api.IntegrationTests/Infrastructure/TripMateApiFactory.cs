@@ -511,6 +511,9 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
         CancellationToken cancellationToken) =>
         operation(cancellationToken);
 
+    public Task<int> RevokeActiveTicketQrCodesAsync(long bookingId, DateTimeOffset revokedAtUtc,
+        CancellationToken cancellationToken) => Task.FromResult(0);
+
     public void ClearTrackedEntities() => ChangeTracker.Clear();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

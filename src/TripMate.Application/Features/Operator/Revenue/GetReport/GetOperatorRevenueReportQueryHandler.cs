@@ -41,7 +41,7 @@ public sealed class GetOperatorRevenueReportQueryHandler(IApplicationDbContext d
         // P1: Get refunds grouped by TourId and PeriodKey (not just total sum)
         var refundsData = await db.Refunds.AsNoTracking()
             .Join(db.Bookings.AsNoTracking(), refund => refund.BookingId, booking => booking.Id, (refund, booking) => new { refund, booking })
-            .Where(x => x.refund.Status == "Processed" && x.refund.ProcessedAtUtc >= from && x.refund.ProcessedAtUtc < until
+            .Where(x => x.refund.Status == RefundStatus.Processed && x.refund.ProcessedAtUtc >= from && x.refund.ProcessedAtUtc < until
                 && x.booking.TourSchedule.Tour.OperatorUserId == operatorId
                 && (!request.TourId.HasValue || x.booking.TourSchedule.TourId == request.TourId.Value))
             .Select(x => new { x.refund.BookingId, x.refund.Amount, ProcessedAtUtc = x.refund.ProcessedAtUtc!.Value, TourId = x.booking.TourSchedule.TourId })

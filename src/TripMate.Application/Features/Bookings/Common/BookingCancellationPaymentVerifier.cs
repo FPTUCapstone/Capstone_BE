@@ -18,7 +18,7 @@ public static class BookingCancellationPaymentVerifier
         CancellationToken cancellationToken) =>
         dbContext.PaymentTransactions
             .Where(transaction => transaction.BookingId == booking.Id
-                && transaction.TransactionType == PaymentTransactionType.Payment
+                && transaction.TransactionType == PaymentTransaction.TypePayment
                 && transaction.Status == PaymentTransactionStatus.Success
                 && transaction.Amount == booking.TotalAmount)
             .OrderByDescending(transaction => transaction.CreatedAtUtc)
