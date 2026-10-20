@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - develop
+      - main
 
 # Keep every PR test run alive. The SQL Server suite is long-running and GitHub can otherwise
 # cancel a nearly completed run while its final cleanup is still being reported.
