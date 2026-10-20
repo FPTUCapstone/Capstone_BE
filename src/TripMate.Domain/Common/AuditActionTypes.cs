@@ -32,4 +32,7 @@ public static class AuditActionTypes
     public const string BookingCancel = "CancelBooking";
     // UC-59 BR-130: Administrator access to active trip details
     public const string ActiveTripDetailsViewed = "ViewActiveTripDetails";
+
+    // UC-45 Export Revenue Report
+    public const string RevenueExportRequested = "REVENUE_EXPORT_REQUESTED";
 }

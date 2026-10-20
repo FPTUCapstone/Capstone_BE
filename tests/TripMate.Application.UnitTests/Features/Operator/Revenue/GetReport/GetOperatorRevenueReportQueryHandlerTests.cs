@@ -1,5 +1,3 @@
-using System.Reflection;
-
 using FluentAssertions;
 
 using TripMate.Application.Features.Operator.Revenue.Common;
@@ -7,6 +5,8 @@ using TripMate.Application.Features.Operator.Revenue.GetReport;
 using TripMate.Application.UnitTests.TestUtilities;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
+
+using static TripMate.Application.UnitTests.TestUtilities.OperatorRevenueTestFixtures;
 
 namespace TripMate.Application.UnitTests.Features.Operator.Revenue.GetReport;
 

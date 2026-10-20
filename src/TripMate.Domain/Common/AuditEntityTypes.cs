@@ -20,4 +20,7 @@ public static class AuditEntityTypes
 
     // UC-59 BR-130
     public const string TripSession = "TripSession";
+
+    // UC-45 Export Revenue Report
+    public const string RevenueExport = "RevenueExport";
 }
