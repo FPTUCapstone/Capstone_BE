@@ -97,7 +97,8 @@ public sealed class PoiRankingOrchestrator
             .Select(candidate => candidate.Candidate.PoiId)
             .ToFrozenSet();
 
-        if (!_providerEnabled)
+        // Không có sở thích thì provider không có gì để xếp hạng (chỉ trả 0.5 đồng đều), nên giữ nguyên điểm base.
+        if (!_providerEnabled || preferenceTokens.Length == 0)
         {
             LogOutcome(
                 LogLevel.Information,

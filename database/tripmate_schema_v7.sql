@@ -1057,6 +1057,7 @@ CREATE TABLE commerce.Vouchers (
     voucher_id                BIGINT IDENTITY(1,1) PRIMARY KEY,
     owner_operator_user_id      BIGINT NULL REFERENCES dbo.OperatorProfiles(user_id),
     code                          VARCHAR(30) NOT NULL UNIQUE,
+    name                          NVARCHAR(120) NOT NULL,
     discount_type                   VARCHAR(10) NOT NULL CHECK (discount_type IN ('Percentage','Flat')),
     discount_value                    DECIMAL(12,2) NOT NULL CHECK (discount_value > 0),
     max_discount_amount                 DECIMAL(12,2) NULL,   -- NEW in v2: caps a Percentage discount's absolute value
@@ -1069,6 +1070,7 @@ CREATE TABLE commerce.Vouchers (
     status                                            VARCHAR(10) NOT NULL DEFAULT 'Active'
         CHECK (status IN ('Active','Expired','Disabled')),
     created_at                                          DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    updated_at                                          DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
     CONSTRAINT CK_Vouchers_ValidWindow CHECK (valid_to > valid_from),
     CONSTRAINT CK_Vouchers_UsageWithinLimit CHECK (usage_limit IS NULL OR used_count <= usage_limit)
 );
@@ -1124,7 +1126,7 @@ CREATE TABLE commerce.BookingParticipants (
     email                          NVARCHAR(256) NULL,
     participant_type                  VARCHAR(10) NULL CHECK (participant_type IN ('Adult','Child','Infant')),
     id_document_type                     VARCHAR(20) NULL CHECK (id_document_type IN ('CCCD','Passport','Other')),
-    id_document_number                      NVARCHAR(50) NULL,   -- PII — see note above
+    id_document_number                      NVARCHAR(512) NULL,  -- encrypted PII — see note above
     nationality                                CHAR(3) NULL   -- ISO 3166-1 alpha-3 country code
 );
 GO
@@ -1201,19 +1203,29 @@ GO
 
 CREATE TABLE payment.PaymentTransactions (
     transaction_id               BIGINT IDENTITY(1,1) PRIMARY KEY,
-    booking_id                     BIGINT NOT NULL REFERENCES commerce.Bookings(booking_id),
-    gateway                          VARCHAR(20) NOT NULL CHECK (gateway IN ('VNPAY','MoMo','PayOS','Stripe')),
-    gateway_transaction_ref            NVARCHAR(150) NULL,
-    amount                                DECIMAL(12,2) NOT NULL CHECK (amount > 0),
-    currency                                CHAR(3) NOT NULL DEFAULT 'VND',
-    transaction_type                          VARCHAR(10) NOT NULL CHECK (transaction_type IN ('Payment','Refund')),
-    status                                       VARCHAR(10) NOT NULL DEFAULT 'Pending'
-        CHECK (status IN ('Pending','Success','Failed')),
-    raw_response                                   NVARCHAR(MAX) NULL,
-    created_at                                       DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+    booking_id                   BIGINT NOT NULL REFERENCES commerce.Bookings(booking_id),
+    gateway                      VARCHAR(20) NOT NULL CHECK (gateway IN ('VNPAY','MoMo','PayOS','Stripe','Mock')),
+    gateway_transaction_ref      NVARCHAR(150) NULL,
+    amount                       DECIMAL(12,2) NOT NULL CHECK (amount > 0),
+    currency                     CHAR(3) NOT NULL DEFAULT 'VND',
+    transaction_type             VARCHAR(10) NOT NULL CHECK (transaction_type IN ('Payment','Refund')),
+    status                       VARCHAR(10) NOT NULL DEFAULT 'Pending'
+        CHECK (status IN ('Pending','Success','Cancelled','Expired','Failed')),
+    order_code                   BIGINT NOT NULL DEFAULT (0),
+    payment_link_id              NVARCHAR(100) NULL,
+    checkout_url                 NVARCHAR(1000) NULL,
+    qr_code                      NVARCHAR(MAX) NULL,
+    expires_at                   DATETIME2 NULL,
+    updated_at                   DATETIME2 NULL,
+    raw_response                 NVARCHAR(MAX) NULL,
+    created_at                   DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
 );
 GO
 CREATE INDEX IX_PaymentTransactions_Booking ON payment.PaymentTransactions(booking_id);
+GO
+CREATE UNIQUE INDEX UX_PaymentTransactions_OrderCode ON payment.PaymentTransactions(order_code) WHERE order_code > 0;
+GO
+CREATE UNIQUE INDEX UX_PaymentTransactions_Booking_Pending ON payment.PaymentTransactions(booking_id) WHERE status = 'Pending';
 GO
 
 CREATE TABLE payment.Refunds (

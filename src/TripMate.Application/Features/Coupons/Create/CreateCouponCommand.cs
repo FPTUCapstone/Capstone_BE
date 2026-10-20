@@ -5,7 +5,7 @@ using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Coupons.Create;
 
-public sealed record CreateCouponCommand(string Code, VoucherDiscountType DiscountType, decimal DiscountValue,
+public sealed record CreateCouponCommand(string Code, string Name, VoucherDiscountType DiscountType, decimal DiscountValue,
     decimal? MaxDiscountAmount, decimal MinOrderAmount, int? UsageLimit, int? UsageLimitPerUser,
     DateTimeOffset ValidFromUtc, DateTimeOffset ValidToUtc, IReadOnlyCollection<long>? ApplicableTourIds)
     : IRequest<Result<CreateCouponResponse>>;

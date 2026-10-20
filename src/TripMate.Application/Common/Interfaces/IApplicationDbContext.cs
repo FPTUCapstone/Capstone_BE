@@ -74,6 +74,18 @@ public interface IApplicationDbContext
 
     DbSet<Voucher> Vouchers { get; }
 
+    DbSet<Booking> Bookings { get; }
+
+    DbSet<BookingParticipant> BookingParticipants { get; }
+
+    DbSet<VoucherRedemption> VoucherRedemptions { get; }
+
+    DbSet<TourBookingCreateOperation> TourBookingCreateOperations { get; }
+
+    DbSet<PaymentTransaction> PaymentTransactions { get; }
+
+    DbSet<Refund> Refunds { get; }
+
     DbSet<TravelGroup> TravelGroups { get; }
 
     DbSet<GroupMember> GroupMembers { get; }

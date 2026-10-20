@@ -80,6 +80,16 @@ public class TestDbContext(
 
     public DbSet<Voucher> Vouchers => Set<Voucher>();
 
+    public DbSet<Booking> Bookings => Set<Booking>();
+
+    public DbSet<BookingParticipant> BookingParticipants => Set<BookingParticipant>();
+
+    public DbSet<VoucherRedemption> VoucherRedemptions => Set<VoucherRedemption>();
+
+    public DbSet<TourBookingCreateOperation> TourBookingCreateOperations => Set<TourBookingCreateOperation>();
+    public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
+    public DbSet<Refund> Refunds => Set<Refund>();
+
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
 
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
@@ -302,6 +312,12 @@ public class TestDbContext(
             .HasOne(profile => profile.User)
             .WithOne()
             .HasForeignKey<OperatorProfile>(profile => profile.UserId);
+
+        // Mirrors TourConfiguration so public-visibility predicates can be exercised without SQL Server.
+        modelBuilder.Entity<Tour>()
+            .HasOne(tour => tour.OperatorProfile)
+            .WithMany()
+            .HasForeignKey(tour => tour.OperatorUserId);
 
         modelBuilder.Entity<OperatorProfile>()
             .HasOne(profile => profile.Reviewer)

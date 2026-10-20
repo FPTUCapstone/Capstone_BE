@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -18,6 +19,8 @@ using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Explanation;
 using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Application.Features.Scheduling.TimeOfDay;
+using TripMate.Application.Features.Traveler.Bookings.Common;
+using TripMate.Application.Features.Traveler.Payments.Common;
 using TripMate.Application.Features.TravelGroups.ManageInvitation;
 using TripMate.Application.Features.TripReviews.Common;
 using TripMate.Application.Features.TripReviews.Media;
@@ -35,6 +38,7 @@ using TripMate.Infrastructure.Reviews.Moderation;
 using TripMate.Infrastructure.Routing;
 using TripMate.Infrastructure.Security;
 using TripMate.Infrastructure.Services;
+using TripMate.Infrastructure.Services.Payment;
 using TripMate.Infrastructure.Services.Redis;
 
 namespace TripMate.Infrastructure;
@@ -142,6 +146,36 @@ public static class DependencyInjection
         services.AddSingleton(serviceProvider => serviceProvider
             .GetRequiredService<IOptions<SchedulingReservationOptions>>()
             .Value);
+        services.AddOptions<TourBookingOptions>()
+            .Bind(configuration.GetSection(TourBookingOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<TourBookingOptions>, TourBookingOptionsValidator>();
+        services.AddSingleton(serviceProvider =>
+            serviceProvider.GetRequiredService<IOptions<TourBookingOptions>>().Value);
+        services.AddHostedService<PendingBookingExpiryBackgroundService>();
+
+        services.AddOptions<PaymentOptions>()
+            .Bind(configuration.GetSection(PaymentOptions.SectionName));
+        var legacyPayOs = configuration.GetSection(PaymentOptionsConfiguration.LegacyPayOsSectionName)
+            .Get<PayOsOptions>();
+        services.PostConfigure<PaymentOptions>(options =>
+            PaymentOptionsConfiguration.ApplyLegacyPayOs(options, legacyPayOs));
+        services.AddSingleton(serviceProvider =>
+            serviceProvider.GetRequiredService<IOptions<PaymentOptions>>().Value);
+        services.AddScoped<IPaymentCompletionProcessor, PaymentCompletionProcessor>();
+
+        var paymentConfig = PaymentOptionsConfiguration.Read(configuration);
+        if (string.Equals(paymentConfig.Provider, "PayOS", StringComparison.OrdinalIgnoreCase))
+        {
+            services.AddHttpClient<PayOsPaymentGateway>();
+            services.AddScoped<IPaymentGateway, PayOsPaymentGateway>();
+        }
+        else
+        {
+            services.AddScoped<IPaymentGateway, MockPaymentGateway>();
+        }
+        services.AddDataProtection();
+        services.AddSingleton<IPiiProtector, DataProtectionPiiProtector>();
         services.AddOptions<NavigationSessionOptions>()
             .Bind(configuration.GetSection(NavigationSessionOptions.SectionName))
             .ValidateOnStart();
@@ -208,16 +242,14 @@ public static class DependencyInjection
                 serviceProvider.GetRequiredService<IOptions<ExplanationProviderOptions>>().Value.RateLimitPerMinute,
                 serviceProvider.GetRequiredService<IOptions<ExplanationProviderOptions>>().Value.MaxConcurrency)));
         services.AddSingleton<IAiProviderBudget>(sp => sp.GetRequiredService<InMemoryAiProviderBudget>());
-        services.AddHttpClient<IPoiRankingProvider, HttpPoiRankingProvider>();
+        services.AddPoiRankingHttpProvider(configuration);
         services.AddOptions<ExplanationProviderOptions>()
             .Bind(configuration.GetSection(ExplanationProviderOptions.SectionName))
             .ValidateOnStart();
         services.AddSingleton<
             IValidateOptions<ExplanationProviderOptions>,
             ExplanationProviderOptionsValidator>();
-        services.AddHttpClient<
-            IItineraryExplanationProvider,
-            HttpItineraryExplanationProvider>();
+        services.AddItineraryExplanationHttpProvider(configuration);
         services.AddOptions<ItineraryExplanationExecutionOptions>()
             .Configure<IOptions<ExplanationProviderOptions>>((executionOptions, providerOptions) =>
             {
