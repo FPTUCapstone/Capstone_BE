@@ -109,6 +109,37 @@ public sealed class RevenueExportWorkerProcessorTests
     }
 
     [Fact]
+    public async Task ProcessQueuedBatchAsync_ReclaimsLegacyProcessingRecordWithNoProcessingStartedAt()
+    {
+        var dbName = Guid.NewGuid().ToString();
+        var exportId = await SeedQueuedExportWithOneBookingAsync(dbName);
+
+        // Simulate a record claimed by a worker running before ProcessingStartedAtUtc existed
+        // (e.g. still Processing from right before this migration/version shipped): the column
+        // backfills to NULL for pre-existing Processing rows, with no timestamp to measure
+        // staleness against. Such a record must still be reclaimed, not excluded forever by a
+        // filter that requires a non-null timestamp.
+        await using (var crashedDb = TestDbContext.Create(dbName))
+        {
+            var legacyExport = await crashedDb.RevenueExports.SingleAsync(x => x.Id == exportId);
+            legacyExport.ClaimForProcessing(Now);
+            await crashedDb.SaveChangesAsync();
+            crashedDb.Entry(legacyExport).Property(nameof(RevenueExport.ProcessingStartedAtUtc)).CurrentValue = null;
+            await crashedDb.SaveChangesAsync();
+        }
+
+        await using var db = TestDbContext.Create(dbName);
+        var storage = new RecordingRevenueExportStorage();
+        var processed = await CreateProcessor(
+                db, storage, new RevenueExportOptions { StaleProcessingTimeoutMinutes = 15 })
+            .ProcessQueuedBatchAsync(CancellationToken.None);
+
+        processed.Should().Be(1, "a legacy Processing record with no ProcessingStartedAtUtc must be reclaimed immediately");
+        var reclaimed = await db.RevenueExports.SingleAsync(x => x.Id == exportId);
+        reclaimed.Status.Should().Be(RevenueExportStatus.Ready);
+    }
+
+    [Fact]
     public async Task ProcessQueuedBatchAsync_RecordStuckPastMaxAttempts_GivesUpAsFailedInsteadOfRetryingForever()
     {
         var dbName = Guid.NewGuid().ToString();

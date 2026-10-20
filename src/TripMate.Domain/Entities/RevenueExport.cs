@@ -100,11 +100,15 @@ public class RevenueExport : BaseEntity
     /// MarkFailed. Requeues it for another attempt, or gives up as Failed once
     /// <paramref name="maxAttempts"/> is reached, so a crash never leaves an export stuck in
     /// Processing forever. Returns false (no-op) if the record is not actually stale.
+    /// A null ProcessingStartedAtUtc (a record claimed by a pre-recovery worker version, before
+    /// this field existed) is treated as immediately stale rather than ignored forever: there is
+    /// no earlier claim timestamp to wait out, and it is exactly the record this recovery exists
+    /// to rescue.
     /// </summary>
     public bool ReclaimIfStale(DateTimeOffset nowUtc, TimeSpan staleTimeout, int maxAttempts)
     {
-        if (Status != RevenueExportStatus.Processing || !ProcessingStartedAtUtc.HasValue) return false;
-        if (nowUtc - ProcessingStartedAtUtc.Value < staleTimeout) return false;
+        if (Status != RevenueExportStatus.Processing) return false;
+        if (ProcessingStartedAtUtc.HasValue && nowUtc - ProcessingStartedAtUtc.Value < staleTimeout) return false;
 
         if (AttemptCount >= maxAttempts)
         {

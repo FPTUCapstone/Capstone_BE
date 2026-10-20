@@ -57,10 +57,11 @@ public sealed class RevenueExportWorkerProcessor(
         var staleTimeout = TimeSpan.FromMinutes(options.StaleProcessingTimeoutMinutes);
         var staleBefore = clock.UtcNow - staleTimeout;
 
+        // A null ProcessingStartedAtUtc means the record was claimed by a worker from before this
+        // recovery existed — it must be picked up here too, not excluded forever by this filter.
         var staleBatch = await db.RevenueExports
             .Where(x => x.Status == RevenueExportStatus.Processing
-                && x.ProcessingStartedAtUtc != null
-                && x.ProcessingStartedAtUtc <= staleBefore)
+                && (x.ProcessingStartedAtUtc == null || x.ProcessingStartedAtUtc <= staleBefore))
             .Take(options.WorkerBatchSize)
             .ToListAsync(cancellationToken);
 
