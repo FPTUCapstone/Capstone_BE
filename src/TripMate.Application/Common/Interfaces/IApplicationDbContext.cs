@@ -86,6 +86,8 @@ public interface IApplicationDbContext
 
     DbSet<Refund> Refunds { get; }
 
+    DbSet<RevenueExport> RevenueExports { get; }
+
     DbSet<Ticket> Tickets => throw new NotSupportedException("Tickets are unavailable in this context.");
 
     DbSet<BookingCancellationOperation> BookingCancellationOperations =>
