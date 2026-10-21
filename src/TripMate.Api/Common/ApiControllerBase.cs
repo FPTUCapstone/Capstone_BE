@@ -15,6 +15,7 @@ using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.TourMedia.Common;
 using TripMate.Application.Features.Tours.Shared;
 using TripMate.Application.Features.Traveler.Payments.Common;
+using TripMate.Application.Features.TripHistory.Common;
 using TripMate.Application.Features.TripReviews.Common;
 
 namespace TripMate.Api.Common;
@@ -314,6 +315,15 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
 
             TripMate.Application.Features.PointsOfInterest.ExternalReviews.ExternalReviewErrorCodes.TranslationUnavailable =>
                 StatusCodes.Status503ServiceUnavailable,
+
+            TripHistoryErrorCodes.Unauthorized =>
+                StatusCodes.Status401Unauthorized,
+
+            TripHistoryErrorCodes.Forbidden =>
+                StatusCodes.Status403Forbidden,
+
+            TripHistoryErrorCodes.RecordNotFound =>
+                StatusCodes.Status404NotFound,
 
             TripReviewErrorCodes.Unauthorized =>
                 StatusCodes.Status401Unauthorized,
