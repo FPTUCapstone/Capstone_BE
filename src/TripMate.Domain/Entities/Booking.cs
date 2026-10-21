@@ -212,6 +212,20 @@ public class Booking : BaseEntity
         CancelReason = reason;
     }
 
+    public void ApplyRefund(decimal cumulativeRefundAmount)
+    {
+        if (Status != BookingStatus.Cancelled)
+            throw new InvalidOperationException("Only a cancelled booking can receive a refund.");
+        if (cumulativeRefundAmount < 0 || cumulativeRefundAmount > TotalAmount)
+            throw new ArgumentOutOfRangeException(nameof(cumulativeRefundAmount));
+
+        PaymentStatus = cumulativeRefundAmount == 0m
+            ? PaymentStatus.Paid
+            : cumulativeRefundAmount == TotalAmount
+                ? PaymentStatus.Refunded
+                : PaymentStatus.PartiallyRefunded;
+    }
+
     /// <summary>BK-yyyyMMdd-NNNNN, e.g. BK-20261017-00001. Sequence is per-day, assigned by the caller.</summary>
     public static string GenerateCode(DateTimeOffset nowUtc, int dailySequence)
     {
