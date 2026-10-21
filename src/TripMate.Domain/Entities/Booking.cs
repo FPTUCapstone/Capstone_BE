@@ -14,8 +14,12 @@ public class Booking : BaseEntity
 {
     public const int BookingCodeMaxLength = 30;
     public const int CancelReasonMaxLength = 300;
+    public const int PolicySnapshotMaxLength = 500;
+    public const string DefaultCancellationPolicySnapshot =
+        "{\"atLeastSevenDaysPercent\":100,\"threeToSevenDaysPercent\":70,\"oneToThreeDaysPercent\":30}";
 
     private readonly List<BookingParticipant> _participants = [];
+    private readonly List<Ticket> _tickets = [];
 
     private Booking()
     {
@@ -51,10 +55,65 @@ public class Booking : BaseEntity
 
     public string? CancelReason { get; private set; }
 
+    public string CancellationPolicySnapshot { get; private set; } = DefaultCancellationPolicySnapshot;
+
     public IReadOnlyCollection<BookingParticipant> Participants => _participants.AsReadOnly();
+
+    public IReadOnlyCollection<Ticket> Tickets => _tickets.AsReadOnly();
 
     /// <summary>Subtotal before voucher discount, derived from the two persisted amounts.</summary>
     public decimal SubtotalAmount => TotalAmount + DiscountAmount;
+
+    public static Booking Create(long travelerUserId, long tourScheduleId, int quantity,
+        decimal totalAmount, BookingStatus status, PaymentStatus paymentStatus,
+        string? cancellationPolicySnapshot = null)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(travelerUserId);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(tourScheduleId);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(quantity);
+        ArgumentOutOfRangeException.ThrowIfNegative(totalAmount);
+        string snapshot = cancellationPolicySnapshot ?? DefaultCancellationPolicySnapshot;
+        ArgumentException.ThrowIfNullOrWhiteSpace(snapshot);
+        if (snapshot.Length > PolicySnapshotMaxLength)
+            throw new ArgumentOutOfRangeException(nameof(cancellationPolicySnapshot));
+
+        return new Booking
+        {
+            TravelerUserId = travelerUserId,
+            TourScheduleId = tourScheduleId,
+            Quantity = quantity,
+            TotalAmount = totalAmount,
+            Status = status,
+            PaymentStatus = paymentStatus,
+            CancellationPolicySnapshot = snapshot,
+        };
+    }
+
+    public static Booking Restore(long id, long travelerUserId, long tourScheduleId, int quantity,
+        decimal totalAmount, BookingStatus status, PaymentStatus paymentStatus,
+        string cancellationPolicySnapshot)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(id);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(travelerUserId);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(tourScheduleId);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(quantity);
+        ArgumentOutOfRangeException.ThrowIfNegative(totalAmount);
+        ArgumentException.ThrowIfNullOrWhiteSpace(cancellationPolicySnapshot);
+        if (cancellationPolicySnapshot.Length > PolicySnapshotMaxLength)
+            throw new ArgumentOutOfRangeException(nameof(cancellationPolicySnapshot));
+
+        return new Booking
+        {
+            Id = id,
+            TravelerUserId = travelerUserId,
+            TourScheduleId = tourScheduleId,
+            Quantity = quantity,
+            TotalAmount = totalAmount,
+            Status = status,
+            PaymentStatus = paymentStatus,
+            CancellationPolicySnapshot = cancellationPolicySnapshot,
+        };
+    }
 
     public static Booking Create(string bookingCode, long travelerUserId, long tourScheduleId,
         long? voucherId, decimal unitPrice, decimal discountAmount, decimal totalAmount,
@@ -115,6 +174,42 @@ public class Booking : BaseEntity
 
         Status = BookingStatus.Expired;
         return true;
+    }
+
+    /// <summary>
+    /// Atomically marks an eligible booking as Confirmed and Paid upon verified payment success.
+    /// Returns true if the status changed; returns false if already Paid or if ineligible (e.g. Expired/Cancelled).
+    /// </summary>
+    public bool MarkPaid(DateTimeOffset nowUtc)
+    {
+        if (Status == BookingStatus.Confirmed && PaymentStatus == PaymentStatus.Paid)
+            return false;
+
+        if (Status != BookingStatus.PendingPayment)
+            return false;
+
+        DateTimeOffset now = nowUtc.ToUniversalTime();
+        if (PaymentExpiresAtUtc.HasValue && PaymentExpiresAtUtc.Value < now)
+        {
+            Status = BookingStatus.Expired;
+            return false;
+        }
+
+        Status = BookingStatus.Confirmed;
+        PaymentStatus = PaymentStatus.Paid;
+        return true;
+    }
+
+    public void Cancel(DateTimeOffset cancelledAtUtc, string? reason)
+    {
+        if (Status is not (BookingStatus.PendingPayment or BookingStatus.Confirmed))
+            throw new InvalidOperationException("Only pending or confirmed bookings can be cancelled.");
+        if (reason?.Length > CancelReasonMaxLength)
+            throw new ArgumentOutOfRangeException(nameof(reason));
+
+        Status = BookingStatus.Cancelled;
+        CancelledAtUtc = cancelledAtUtc.ToUniversalTime();
+        CancelReason = reason;
     }
 
     /// <summary>BK-yyyyMMdd-NNNNN, e.g. BK-20261017-00001. Sequence is per-day, assigned by the caller.</summary>

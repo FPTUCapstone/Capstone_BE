@@ -82,6 +82,20 @@ public interface IApplicationDbContext
 
     DbSet<TourBookingCreateOperation> TourBookingCreateOperations { get; }
 
+    DbSet<PaymentTransaction> PaymentTransactions { get; }
+
+    DbSet<Refund> Refunds { get; }
+
+    DbSet<RevenueExport> RevenueExports { get; }
+
+    DbSet<Ticket> Tickets => throw new NotSupportedException("Tickets are unavailable in this context.");
+
+    DbSet<BookingCancellationOperation> BookingCancellationOperations =>
+        throw new NotSupportedException("Booking cancellation operations are unavailable in this context.");
+
+    Task<int> RevokeActiveTicketQrCodesAsync(long bookingId, DateTimeOffset revokedAtUtc,
+        CancellationToken cancellationToken) => throw new NotSupportedException("Ticket QR revocation is unavailable in this context.");
+
     DbSet<TravelGroup> TravelGroups { get; }
 
     DbSet<GroupMember> GroupMembers { get; }

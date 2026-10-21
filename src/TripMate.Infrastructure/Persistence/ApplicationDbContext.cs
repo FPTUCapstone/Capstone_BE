@@ -93,6 +93,16 @@ public class ApplicationDbContext(
     public DbSet<VoucherRedemption> VoucherRedemptions => Set<VoucherRedemption>();
 
     public DbSet<TourBookingCreateOperation> TourBookingCreateOperations => Set<TourBookingCreateOperation>();
+    public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
+    public DbSet<Refund> Refunds => Set<Refund>();
+    public DbSet<RevenueExport> RevenueExports => Set<RevenueExport>();
+
+    public DbSet<Ticket> Tickets => Set<Ticket>();
+    public DbSet<BookingCancellationOperation> BookingCancellationOperations =>
+        Set<BookingCancellationOperation>();
+
+    public Task<int> RevokeActiveTicketQrCodesAsync(long bookingId, DateTimeOffset revokedAtUtc,
+        CancellationToken cancellationToken) => Task.FromResult(0);
 
     public Task<int> RevokeRefreshTokenAsync(
         string tokenHash,

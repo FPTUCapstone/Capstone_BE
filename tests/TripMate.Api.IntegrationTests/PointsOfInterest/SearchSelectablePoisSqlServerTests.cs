@@ -130,6 +130,7 @@ public sealed class SearchSelectablePoisSqlServerTests
         var seed = await SeedBoundaryPoisAsync(database);
         using var factory = new TripMateApiFactory(
             sqlServerConnectionString: database.ConnectionString,
+            dateTimeProviderFactory: _ => new FixedDateTimeProvider(),
             configureTestServices: services =>
             {
                 services.RemoveAll<IRouteDurationProvider>();
@@ -420,6 +421,13 @@ public sealed class SearchSelectablePoisSqlServerTests
         PointOfInterest[] InsidePois,
         PointOfInterest[] OutsidePois,
         PointOfInterest[] TieBreakPois);
+
+    private sealed class FixedDateTimeProvider : IDateTimeProvider
+    {
+        // Keep the request start time in this contract test in the future independently
+        // of the day on which CI runs it.
+        public DateTimeOffset UtcNow => new(2026, 10, 20, 0, 0, 0, TimeSpan.Zero);
+    }
 
     private sealed class AllowAllGenerateRateLimiter : IGenerateRateLimiter
     {

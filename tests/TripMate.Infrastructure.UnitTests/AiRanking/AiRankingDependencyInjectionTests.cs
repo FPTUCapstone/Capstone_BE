@@ -160,6 +160,7 @@ public sealed class AiRankingDependencyInjectionTests
         yield return new("Cloudinary:ApiSecret", "test-secret");
         yield return new("Cloudinary:TourMediaFolderRoot", "tripmate/tests/tours");
         yield return new("Cloudinary:OperatorDocumentsFolderRoot", "tripmate/tests/operator-documents");
+        yield return new("Cloudinary:RevenueExportsFolderRoot", "tripmate/tests/revenue-exports");
         yield return new("SchedulingRateLimit:Provider", "SingleInstance");
         yield return new("SchedulingGeneration:Personalization:Version", "2026.1");
         yield return new("SchedulingGeneration:Personalization:Pace:Relaxed:LambdaPerMin", "0.025");

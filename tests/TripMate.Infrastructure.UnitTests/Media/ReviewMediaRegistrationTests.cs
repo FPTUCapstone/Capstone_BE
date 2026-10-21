@@ -70,6 +70,7 @@ public sealed class ReviewMediaRegistrationTests
         ["Cloudinary:TourMediaFolderRoot"] = "tripmate/tests/tours",
         ["Cloudinary:ReviewMediaFolderRoot"] = ReviewCloudinaryOptions.StableReviewMediaFolderRoot,
         ["Cloudinary:OperatorDocumentsFolderRoot"] = "tripmate/tests/operator-documents",
+        ["Cloudinary:RevenueExportsFolderRoot"] = "tripmate/tests/revenue-exports",
         ["SchedulingGeneration:Personalization:Version"] = "2026.1",
         ["SchedulingGeneration:Personalization:Pace:Relaxed:LambdaPerMin"] = "0.025",
         ["SchedulingGeneration:Personalization:Pace:Relaxed:MaxStopsPerDay"] = "3",

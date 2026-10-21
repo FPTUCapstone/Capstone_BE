@@ -87,6 +87,14 @@ public class TestDbContext(
     public DbSet<VoucherRedemption> VoucherRedemptions => Set<VoucherRedemption>();
 
     public DbSet<TourBookingCreateOperation> TourBookingCreateOperations => Set<TourBookingCreateOperation>();
+    public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
+    public DbSet<Refund> Refunds => Set<Refund>();
+    public DbSet<RevenueExport> RevenueExports => Set<RevenueExport>();
+
+    public DbSet<Ticket> Tickets => Set<Ticket>();
+
+    public DbSet<BookingCancellationOperation> BookingCancellationOperations =>
+        Set<BookingCancellationOperation>();
 
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
 
@@ -142,6 +150,8 @@ public class TestDbContext(
     public List<string> FinalizedTravelerAvatarPublicIds { get; } = [];
 
     public List<string> EnqueuedTravelerAvatarPublicIds { get; } = [];
+
+    public List<long> RevokedTicketQrBookingIds { get; } = [];
 
     public bool ThrowOnSaveConcurrency { get; set; }
 
@@ -234,6 +244,13 @@ public class TestDbContext(
     }
 
     public void ClearTrackedEntities() => ChangeTracker.Clear();
+
+    public Task<int> RevokeActiveTicketQrCodesAsync(long bookingId, DateTimeOffset revokedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        RevokedTicketQrBookingIds.Add(bookingId);
+        return Task.FromResult(0);
+    }
 
     public async Task<T> ExecuteInSerializableTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
@@ -382,11 +399,18 @@ public class TestDbContext(
         base.OnModelCreating(modelBuilder);
     }
 
-    public static TestDbContext Create()
+    public static TestDbContext Create() => Create(Guid.NewGuid().ToString());
+
+    /// <summary>
+    /// Shares one in-memory store across multiple TestDbContext instances (same databaseName),
+    /// so a test can simulate two workers racing the same row with independent tracked graphs —
+    /// a single context's own change tracker cannot reproduce that race against itself.
+    /// </summary>
+    public static TestDbContext Create(string databaseName)
     {
         var options =
             new DbContextOptionsBuilder<TestDbContext>()
-                .UseInMemoryDatabase(Guid.NewGuid().ToString())
+                .UseInMemoryDatabase(databaseName)
                 .Options;
 
         return new TestDbContext(options);

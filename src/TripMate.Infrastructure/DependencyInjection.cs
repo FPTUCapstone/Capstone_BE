@@ -12,8 +12,10 @@ using StackExchange.Redis;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Media;
 using TripMate.Application.Features.Authentication.PasswordReset;
+using TripMate.Application.Features.Bookings.Common;
 using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Navigation.Common;
+using TripMate.Application.Features.Operator.Revenue.Exports.Common;
 using TripMate.Application.Features.PointsOfInterest.ExternalReviews;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Explanation;
@@ -21,6 +23,7 @@ using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Application.Features.Scheduling.Shadow;
 using TripMate.Application.Features.Scheduling.TimeOfDay;
 using TripMate.Application.Features.Traveler.Bookings.Common;
+using TripMate.Application.Features.Traveler.Payments.Common;
 using TripMate.Application.Features.TravelGroups.ManageInvitation;
 using TripMate.Application.Features.TripReviews.Common;
 using TripMate.Application.Features.TripReviews.Media;
@@ -33,11 +36,13 @@ using TripMate.Infrastructure.ExternalReviews;
 using TripMate.Infrastructure.Media;
 using TripMate.Infrastructure.Media.Cloudinary;
 using TripMate.Infrastructure.Persistence;
+using TripMate.Infrastructure.Reporting;
 using TripMate.Infrastructure.Reviews.Media;
 using TripMate.Infrastructure.Reviews.Moderation;
 using TripMate.Infrastructure.Routing;
 using TripMate.Infrastructure.Security;
 using TripMate.Infrastructure.Services;
+using TripMate.Infrastructure.Services.Payment;
 using TripMate.Infrastructure.Services.Redis;
 
 namespace TripMate.Infrastructure;
@@ -68,6 +73,8 @@ public static class DependencyInjection
         services.AddScoped<ITripReviewContextReader, SqlServerTripReviewContextReader>();
         services.AddScoped<ITripReviewWriteLock, SqlServerTripReviewWriteLock>();
         services.AddSingleton<ITripReviewPersistenceErrorClassifier, SqlServerTripReviewPersistenceErrorClassifier>();
+        services.AddSingleton<IBookingCancellationPersistenceErrorClassifier,
+            SqlServerBookingCancellationPersistenceErrorClassifier>();
         services.AddSingleton<IReviewContentModerator, LocalReviewContentModerator>();
         services.AddSingleton<IReviewImageInspector, ReviewImageInspector>();
         services.AddScoped<SqlServerReviewMediaJournal>();
@@ -114,6 +121,16 @@ public static class DependencyInjection
             sp.GetRequiredService<SqlTravelerAvatarCleanupJournal>());
         services.AddHostedService<TravelerAvatarCleanupBackgroundService>();
         services.AddSingleton<IOperatorDocumentStorage, CloudinaryOperatorDocumentStorage>();
+        services.AddSingleton<IRevenueExportStorage, CloudinaryRevenueExportStorage>();
+        services.AddSingleton<IRevenueExportRenderer, XlsxRevenueExportRenderer>();
+
+        services.AddOptions<RevenueExportOptions>()
+            .Bind(configuration.GetSection(RevenueExportOptions.SectionName));
+        services.AddSingleton(sp => sp.GetRequiredService<IOptions<RevenueExportOptions>>().Value);
+        services.AddScoped<TripMate.Application.Features.Operator.Revenue.Exports.Worker.RevenueExportWorkerProcessor>();
+        services.AddScoped<TripMate.Application.Features.Operator.Revenue.Exports.Worker.RevenueExportExpiryProcessor>();
+        services.AddHostedService<RevenueExportWorkerBackgroundService>();
+        services.AddHostedService<RevenueExportExpiryBackgroundService>();
 
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
         services.AddOptions<OpenRouteServiceOptions>()
@@ -181,6 +198,27 @@ public static class DependencyInjection
         services.AddSingleton(serviceProvider =>
             serviceProvider.GetRequiredService<IOptions<TourBookingOptions>>().Value);
         services.AddHostedService<PendingBookingExpiryBackgroundService>();
+
+        services.AddOptions<PaymentOptions>()
+            .Bind(configuration.GetSection(PaymentOptions.SectionName));
+        var legacyPayOs = configuration.GetSection(PaymentOptionsConfiguration.LegacyPayOsSectionName)
+            .Get<PayOsOptions>();
+        services.PostConfigure<PaymentOptions>(options =>
+            PaymentOptionsConfiguration.ApplyLegacyPayOs(options, legacyPayOs));
+        services.AddSingleton(serviceProvider =>
+            serviceProvider.GetRequiredService<IOptions<PaymentOptions>>().Value);
+        services.AddScoped<IPaymentCompletionProcessor, PaymentCompletionProcessor>();
+
+        var paymentConfig = PaymentOptionsConfiguration.Read(configuration);
+        if (string.Equals(paymentConfig.Provider, "PayOS", StringComparison.OrdinalIgnoreCase))
+        {
+            services.AddHttpClient<PayOsPaymentGateway>();
+            services.AddScoped<IPaymentGateway, PayOsPaymentGateway>();
+        }
+        else
+        {
+            services.AddScoped<IPaymentGateway, MockPaymentGateway>();
+        }
         services.AddDataProtection();
         services.AddSingleton<IPiiProtector, DataProtectionPiiProtector>();
         services.AddOptions<NavigationSessionOptions>()
