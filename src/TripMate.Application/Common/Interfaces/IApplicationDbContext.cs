@@ -86,6 +86,9 @@ public interface IApplicationDbContext
 
     DbSet<Refund> Refunds { get; }
 
+    DbSet<RefundManualCompletionOperation> RefundManualCompletionOperations =>
+        throw new NotSupportedException("Manual refund completion idempotency is unavailable in this context.");
+
     DbSet<RevenueExport> RevenueExports { get; }
 
     DbSet<Ticket> Tickets => throw new NotSupportedException("Tickets are unavailable in this context.");

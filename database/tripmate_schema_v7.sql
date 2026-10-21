@@ -1232,6 +1232,7 @@ GO
 CREATE TABLE payment.PaymentTransactions (
     transaction_id               BIGINT IDENTITY(1,1) PRIMARY KEY,
     booking_id                   BIGINT NOT NULL REFERENCES commerce.Bookings(booking_id),
+    refund_id                    BIGINT NULL,
     gateway                      VARCHAR(20) NOT NULL CHECK (gateway IN ('VNPAY','MoMo','PayOS','Stripe','Mock')),
     gateway_transaction_ref      NVARCHAR(150) NULL,
     amount                       DECIMAL(12,2) NOT NULL CHECK (amount > 0),
@@ -1265,17 +1266,41 @@ CREATE TABLE payment.Refunds (
     amount                          DECIMAL(12,2) NOT NULL CHECK (amount > 0),
     initiated_by                      VARCHAR(14) NOT NULL
         CHECK (initiated_by IN ('System','TourOperator','Administrator')),
-    status                              VARCHAR(10) NOT NULL DEFAULT 'Pending'
-        CHECK (status IN ('Pending','Processed','Failed')),
+    status                              VARCHAR(20) NOT NULL DEFAULT 'Pending'
+        CHECK (status IN ('Pending','Processing','RetryPending','ManualReview','Processed','Failed','Rejected')),
     requested_at                          DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
     processed_at                            DATETIME2 NULL,
+    gateway_reference                      NVARCHAR(150) NULL,
+    attempt_count                          INT NOT NULL CONSTRAINT DF_Refunds_AttemptCount DEFAULT (0)
+        CHECK (attempt_count >= 0),
+    last_attempt_at                        DATETIME2 NULL,
+    next_attempt_at                        DATETIME2 NULL,
+    last_error_code                        NVARCHAR(100) NULL,
+    last_error_message                     NVARCHAR(1000) NULL,
     CONSTRAINT FK_Refunds_CancellationOperation FOREIGN KEY (cancellation_operation_id)
         REFERENCES commerce.BookingCancellationOperations(operation_id)
 );
 GO
 CREATE INDEX IX_Refunds_Booking ON payment.Refunds(booking_id);
+CREATE INDEX IX_Refunds_Due ON payment.Refunds(status, next_attempt_at);
 CREATE UNIQUE INDEX UX_Refunds_CancellationOperation ON payment.Refunds(cancellation_operation_id)
     WHERE cancellation_operation_id IS NOT NULL;
+GO
+ALTER TABLE payment.PaymentTransactions ADD CONSTRAINT FK_PaymentTransactions_Refund
+    FOREIGN KEY (refund_id) REFERENCES payment.Refunds(refund_id);
+GO
+
+CREATE TABLE payment.RefundManualCompletionOperations (
+    operation_id         BIGINT IDENTITY(1,1) PRIMARY KEY,
+    refund_id            BIGINT NOT NULL REFERENCES payment.Refunds(refund_id),
+    actor_user_id        BIGINT NOT NULL REFERENCES dbo.Users(user_id),
+    idempotency_key      UNIQUEIDENTIFIER NOT NULL,
+    request_hash         CHAR(64) NOT NULL,
+    gateway_reference    NVARCHAR(150) NOT NULL,
+    completed_at         DATETIME2 NOT NULL,
+    CONSTRAINT UX_RefundManualCompletionOperations_ActorKey UNIQUE (actor_user_id, idempotency_key),
+    CONSTRAINT UX_RefundManualCompletionOperations_Refund UNIQUE (refund_id)
+);
 GO
 
 CREATE TABLE payment.Payouts (
