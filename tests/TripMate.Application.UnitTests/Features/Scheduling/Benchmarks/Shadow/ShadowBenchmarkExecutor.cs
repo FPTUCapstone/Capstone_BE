@@ -135,7 +135,7 @@ public static class ShadowBenchmarkExecutor
         };
     }
 
-    private static SchedulingGenerationOptions OptionsFor(ObjectiveMode mode) => new()
+    internal static SchedulingGenerationOptions OptionsFor(ObjectiveMode mode) => new()
     {
         SolverMode = SchedulingSolverMode.Csp,
         Csp = new CspOptions
@@ -146,7 +146,7 @@ public static class ShadowBenchmarkExecutor
         }
     };
 
-    private static async Task<Execution> ExecuteOnceAsync(
+    internal static async Task<Execution> ExecuteOnceAsync(
         GoldenScenario scenario,
         GenerationInput input,
         SchedulingGenerationOptions options,
@@ -173,7 +173,7 @@ public static class ShadowBenchmarkExecutor
         return new Execution(true, schedule, stopwatch.Elapsed.TotalMilliseconds);
     }
 
-    private sealed record Execution(bool Feasible, EvaluatedItinerarySchedule? Schedule, double ElapsedMilliseconds);
+    internal sealed record Execution(bool Feasible, EvaluatedItinerarySchedule? Schedule, double ElapsedMilliseconds);
 
     private sealed class PrecomputedRouteDurationProvider(RouteDurationMatrix matrix) : IRouteDurationProvider
     {
