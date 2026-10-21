@@ -195,7 +195,7 @@ public sealed class GetOperatorRevenueReportQueryHandlerTests
         Set(refund, nameof(Refund.Id), id);
         Set(refund, nameof(Refund.BookingId), bookingId);
         Set(refund, nameof(Refund.Amount), amount);
-        Set(refund, nameof(Refund.Status), "Processed");
+        Set(refund, nameof(Refund.Status), RefundStatus.Processed);
         Set(refund, nameof(Refund.ProcessedAtUtc), processedAtUtc);
         return refund;
     }
