@@ -79,7 +79,7 @@ public static class PersonaAnalysisCommand
         PoiRankingProviderOptions? providerOptions = null;
         string safeEndpoint;
         string fixtureSha256 = "N/A (Live service)";
-        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangV3bData();
+        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangPersonalizationData();
 
         if (options.Mode.Equals("live", StringComparison.OrdinalIgnoreCase))
         {
@@ -223,7 +223,12 @@ public static class PersonaAnalysisCommand
                 SuccessCount: runResult.SuccessCount,
                 ProviderSkippedCount: runResult.ProviderSkippedCount,
                 FallbackCount: runResult.FallbackCount,
-                JaccardThreshold: jaccardThreshold);
+                JaccardThreshold: jaccardThreshold,
+                CategoryAffinityWeight: rankingOptions.CategoryAffinityWeight,
+                TagAffinityWeight: rankingOptions.TagAffinityWeight,
+                BehaviorAffinityWeight: rankingOptions.BehaviorAffinityWeight,
+                ScenicQualityWeight: rankingOptions.ScenicQualityWeight,
+                PhotoQualityWeight: rankingOptions.PhotoQualityWeight);
 
             var markdown = PersonaAnalysisMarkdownRenderer.Render(metadata, runResult);
 

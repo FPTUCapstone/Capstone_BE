@@ -12,7 +12,7 @@ namespace TripMate.Application.UnitTests.Features.Scheduling.Benchmarks.Analysis
 
 public class BgeM3CanonicalFixtureTests
 {
-    private const string ExpectedHash = "371409083827D5135ECFF8B18A478EB10A0E09F4F51E123DFD767893C1C2671D";
+    private const string ExpectedHash = "5F8257FA2F4EF8B7677CBC91648D846C9EB5F9A74A7C1767BF638104DB0C823A";
 
     [Fact]
     public void CanonicalFixtureFile_Exists_AndMatchesExactSha256()
@@ -31,7 +31,7 @@ public class BgeM3CanonicalFixtureTests
     [Fact]
     public void LoadAndVerify_ReturnsActualHashAndValidatedDocument()
     {
-        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangV3bData();
+        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangPersonalizationData();
         var fixturePath = BgeM3BenchmarkFixture.ResolveFixturePath();
         var actualHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(fixturePath)));
 
@@ -44,7 +44,7 @@ public class BgeM3CanonicalFixtureTests
     [Fact]
     public void LoadAndVerify_WhenScenarioDoesNotMatch_RejectsFixture()
     {
-        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangV3bData() with
+        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangPersonalizationData() with
         {
             Id = "different-scenario"
         };
@@ -58,7 +58,7 @@ public class BgeM3CanonicalFixtureTests
     [Fact]
     public void CanonicalFixture_MatchesScenarioFactoryData_AsSingleSourceOfTruth()
     {
-        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangV3bData();
+        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangPersonalizationData();
         var doc = BgeM3BenchmarkFixture.LoadAndVerify(cityData).Document;
 
         doc.SchemaVersion.Should().Be("1.0");
@@ -120,7 +120,7 @@ public class BgeM3CanonicalFixtureTests
     [Fact]
     public void BgeM3CanonicalFixtureValidator_Rejects_MissingPoi()
     {
-        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangV3bData();
+        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangPersonalizationData();
         var validDoc = BgeM3BenchmarkFixture.LoadAndVerify(cityData).Document;
 
         // Mutate: remove POI 1 from CultureEnthusiast
@@ -144,7 +144,7 @@ public class BgeM3CanonicalFixtureTests
     [Fact]
     public void BgeM3CanonicalFixtureValidator_Rejects_ScoreOutOfRange()
     {
-        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangV3bData();
+        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangPersonalizationData();
         var validDoc = BgeM3BenchmarkFixture.LoadAndVerify(cityData).Document;
 
         // Mutate: score > 1.0
@@ -168,7 +168,7 @@ public class BgeM3CanonicalFixtureTests
     [Fact]
     public void BgeM3CanonicalFixtureValidator_Rejects_MissingPersona()
     {
-        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangV3bData();
+        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangPersonalizationData();
         var validDoc = BgeM3BenchmarkFixture.LoadAndVerify(cityData).Document;
 
         var corruptedDoc = validDoc with { Personas = validDoc.Personas.Where(p => p.PersonaId != "CultureEnthusiast").ToList() };
@@ -181,7 +181,7 @@ public class BgeM3CanonicalFixtureTests
     [Fact]
     public void BgeM3CanonicalFixtureValidator_Rejects_WrongTokenSet()
     {
-        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangV3bData();
+        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangPersonalizationData();
         var validDoc = BgeM3BenchmarkFixture.LoadAndVerify(cityData).Document;
 
         var corruptedEntries = validDoc.Personas.Select(p =>
@@ -208,7 +208,7 @@ public class BgeM3CanonicalFixtureTests
     [InlineData("timestamp")]
     public void BgeM3CanonicalFixtureValidator_Rejects_InvalidRequiredMetadata(string field)
     {
-        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangV3bData();
+        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangPersonalizationData();
         var valid = BgeM3BenchmarkFixture.LoadAndVerify(cityData).Document;
         var invalid = field switch
         {

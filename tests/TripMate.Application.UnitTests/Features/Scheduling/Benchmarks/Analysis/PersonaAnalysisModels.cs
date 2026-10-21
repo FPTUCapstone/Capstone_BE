@@ -18,6 +18,11 @@ public sealed record PersonaJaccardMatrix(
     double[,] Matrix,
     IReadOnlyList<PersonaJaccardPair> Pairs);
 
+public sealed record PersonaPairGateBreakdown(
+    IReadOnlyList<PersonaJaccardPair> PersonalizedPairsBelowThreshold,
+    IReadOnlyList<PersonaJaccardPair> PersonalizedPairsAboveOrEqualThreshold,
+    IReadOnlyList<PersonaJaccardPair> ColdStartPairs);
+
 public sealed record PersonaBaselineResult(
     string PersonaId,
     string DisplayName,
@@ -70,4 +75,44 @@ public sealed record PersonaAnalysisRunResult(
     IReadOnlyList<PersonaJaccardPair> PairsAboveOrEqualThreshold,
     int SuccessCount = 0,
     int ProviderSkippedCount = 0,
-    int FallbackCount = 0);
+    int FallbackCount = 0)
+{
+    public bool ColdStartGatePassed
+    {
+        get
+        {
+            var coldStartPersonaIds = GetColdStartPersonaIds();
+            return coldStartPersonaIds.Count == 0
+                || coldStartPersonaIds.All(id =>
+                    Baselines.FirstOrDefault(baseline => baseline.PersonaId == id) is
+                    {
+                        Feasible: true,
+                        StopCount: > 0,
+                        DiversityGroupCount: >= 2
+                    });
+        }
+    }
+
+    public PersonaPairGateBreakdown ClassifyPairs(double threshold)
+    {
+        var coldStartPersonaIds = GetColdStartPersonaIds();
+        var personalizedPairs = JaccardMatrix.Pairs
+            .Where(pair => !coldStartPersonaIds.Contains(pair.PersonaIdA)
+                && !coldStartPersonaIds.Contains(pair.PersonaIdB))
+            .ToArray();
+        var coldStartPairs = JaccardMatrix.Pairs
+            .Where(pair => coldStartPersonaIds.Contains(pair.PersonaIdA)
+                || coldStartPersonaIds.Contains(pair.PersonaIdB))
+            .ToArray();
+
+        return new PersonaPairGateBreakdown(
+            personalizedPairs.Where(pair => pair.Jaccard < threshold).ToArray(),
+            personalizedPairs.Where(pair => pair.Jaccard >= threshold).ToArray(),
+            coldStartPairs);
+    }
+
+    private IReadOnlySet<string> GetColdStartPersonaIds() => CityData.Personas
+        .Where(persona => persona.Tags.Count == 0)
+        .Select(persona => persona.Id)
+        .ToHashSet(StringComparer.Ordinal);
+}

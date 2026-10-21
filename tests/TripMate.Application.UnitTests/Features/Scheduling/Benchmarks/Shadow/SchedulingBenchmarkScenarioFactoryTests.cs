@@ -95,16 +95,30 @@ public class SchedulingBenchmarkScenarioFactoryTests
     }
 
     [Fact]
-    public void CreateDaNangV3b_AddsOnlyTrustedNatureSeedRecords()
+    public void CreateDaNangPersonalization_IncludesReviewedCandidatePool()
     {
-        var data = SchedulingBenchmarkScenarioFactory.CreateDaNangV3bData();
+        var data = SchedulingBenchmarkScenarioFactory.CreateDaNangPersonalizationData();
 
-        data.Pois.Should().HaveCount(19);
-        data.Pois.Skip(16).Select(poi => poi.Id).Should().Equal(17, 18, 19);
-        data.Pois.Skip(16).Should().OnlyContain(poi => poi.CategoryName == PoiCategoryNames.NaturalAttraction);
-        data.Pois.Skip(16).Select(poi => string.Join(',', poi.Tags)).Should().Equal(
-            "nature", "nature,outdoor", "nature,outdoor");
+        data.Pois.Should().HaveCount(40);
+        data.Pois.Select(poi => poi.Id).Should().Equal(Enumerable.Range(1, 40).Select(id => (long)id));
+        data.Pois.Select(poi => poi.Name).Should().Contain(
+            "Sun World Ba Na Hills",
+            "Mikazuki 365 Water Park",
+            "Dong Dinh Museum",
+            "Làng mộc Kim Bồng",
+            "Thánh địa Mỹ Sơn",
+            "VinWonders Nam Hội An",
+            "Mỳ Quảng Quê Xưa",
+            "Morning Glory Signature");
+        data.Pois.Select(poi => poi.Name).Should().Contain(
+            "Đỉnh Bàn Cờ",
+            "Hải đăng Tiên Sa",
+            "Cây Đa Di Sản Sơn Trà",
+            "Cầu đi bộ Nguyễn Văn Trỗi",
+            "Làng Bích họa Đà Nẵng");
         data.Source.Should().Contain("20260914_seed_danang_planning_pois.sql");
+        data.Source.Should().Contain("20261015_seed_danang_city_real_pois.sql");
+        data.Source.Should().Contain("Da Nang Tourism Promotion Center");
     }
 
     private static CityBenchmarkScenarioData CreateTinyCityData(string id, long poiId, decimal latitude)

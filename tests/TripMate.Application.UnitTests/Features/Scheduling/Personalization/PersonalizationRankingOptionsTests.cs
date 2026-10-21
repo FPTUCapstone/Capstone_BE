@@ -15,13 +15,13 @@ public sealed class PersonalizationRankingOptionsTests
         var options = new PersonalizationRankingOptions();
 
         PersonalizationRankingOptions.SectionName.Should().Be("Personalization");
-        options.CategoryAffinityWeight.Should().Be(0.300m);
-        options.TagAffinityWeight.Should().Be(0.200m);
-        options.BehaviorAffinityWeight.Should().Be(0.250m);
-        options.ScenicQualityWeight.Should().Be(0.125m);
-        options.PhotoQualityWeight.Should().Be(0.125m);
-        options.BaseWeight.Should().Be(0.60m);
-        options.AiWeight.Should().Be(0.40m);
+        options.CategoryAffinityWeight.Should().Be(0.450m);
+        options.TagAffinityWeight.Should().Be(0.350m);
+        options.BehaviorAffinityWeight.Should().Be(0.100m);
+        options.ScenicQualityWeight.Should().Be(0.050m);
+        options.PhotoQualityWeight.Should().Be(0.050m);
+        options.BaseWeight.Should().Be(0.55m);
+        options.AiWeight.Should().Be(0.45m);
         options.SkipWeight.Should().Be(0.5m);
         options.PriorWeight.Should().Be(2.0m);
         options.MinCategoryDistinctPoiCount.Should().Be(2);

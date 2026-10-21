@@ -16,7 +16,7 @@ public class PersonaAnalysisMarkdownRendererTests
     public void Render_IsLocaleInvariant_UnderVietnameseAndInvariantCulture()
     {
         var metadata = new PersonaAnalysisReportMetadata("2026-10-21", "Release", "Windows", ".NET 10.0", "TestBox", 8, 0.60m, 0.40m, 0.60m, 0.50m);
-        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangV3bData();
+        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangPersonalizationData();
 
         var baselines = new List<PersonaBaselineResult>
         {
@@ -66,7 +66,7 @@ public class PersonaAnalysisMarkdownRendererTests
         var tempDir = Path.Combine(Path.GetTempPath(), $"tripmate-analysis-{Guid.NewGuid():N}");
         var artifactPath = Path.Combine(tempDir, "UC-10-persona-analysis-2026-10-21.md");
         var metadata = new PersonaAnalysisReportMetadata("2026-10-21", "Release", "test", ".NET", "test", 1, 0.60m, 0.40m, 0.60m, 0.50m);
-        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangV3bData();
+        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangPersonalizationData();
         var runResult = new PersonaAnalysisRunResult(
             cityData,
             Baselines: [],
@@ -178,7 +178,7 @@ public class PersonaAnalysisMarkdownRendererTests
             EvaluationMode: "recorded",
             FixtureSha256: BgeM3BenchmarkFixture.ExpectedFixtureSha256);
         var liveMeta = new PersonaAnalysisReportMetadata("2026-10-21", "Release", "test", ".NET", "test", 1, 0.60m, 0.40m, 0.60m, 0.50m, EvaluationMode: "live");
-        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangV3bData();
+        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangPersonalizationData();
         var runResult = new PersonaAnalysisRunResult(
             cityData,
             Baselines: [],
@@ -201,7 +201,7 @@ public class PersonaAnalysisMarkdownRendererTests
     public void Render_ContainsNoUnsubstantiatedCausalClaims()
     {
         var metadata = new PersonaAnalysisReportMetadata("2026-10-21", "Release", "test", ".NET", "test", 1, 0.60m, 0.40m, 0.60m, 0.50m, EvaluationMode: "recorded");
-        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangV3bData();
+        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangPersonalizationData();
         var pairs = new List<PersonaJaccardPair>
         {
             new("CultureEnthusiast", "FoodLoverRelaxed", [1, 2, 3], [1, 2], 3, 2, 2, 3, 0.6667)
@@ -226,7 +226,7 @@ public class PersonaAnalysisMarkdownRendererTests
     public void Render_ArtifactHasNoFinalNewline()
     {
         var metadata = new PersonaAnalysisReportMetadata("2026-10-21", "Release", "test", ".NET", "test", 1, 0.60m, 0.40m, 0.60m, 0.50m);
-        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangV3bData();
+        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangPersonalizationData();
         var runResult = new PersonaAnalysisRunResult(
             cityData,
             Baselines: [],
@@ -270,12 +270,49 @@ public class PersonaAnalysisMarkdownRendererTests
 
         var markdown = PersonaAnalysisMarkdownRenderer.Render(metadata, result);
 
-        markdown.Should().Contain("ALL PERSONA PAIRS MEET JACCARD GATE (< 0.50)");
-        markdown.Should().Contain("Pairs Meeting Gate (< 0.50)**: 1 / 1");
-        markdown.Should().Contain("Gate (< 0.50)");
+        markdown.Should().Contain("PERSONALIZED PAIRS MEET JACCARD GATE (< 0.50)");
+        markdown.Should().Contain("Personalized Pairs Meeting Gate (< 0.50)**: 1 / 1");
+        markdown.Should().Contain("Personalized Gate (< 0.50)");
         markdown.Should().Contain("J < 0.50");
         markdown.Should().Contain("PASS");
         markdown.Should().NotContain("FAIL (>= 0.40)");
+    }
+
+    [Fact]
+    public void Render_ReportsColdStartComparisonsWithoutApplyingPersonalizationGate()
+    {
+        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangPersonalizationData();
+        var personalizedPair = new PersonaJaccardPair(
+            "CultureEnthusiast", "FoodLoverRelaxed", [1, 2], [3], 2, 1, 0, 3, 0.0);
+        var coldStartPair = new PersonaJaccardPair(
+            "ScenicPhotography", "DefaultGeneralist", [1, 2], [1, 2], 2, 2, 2, 2, 1.0);
+        var pairs = new[] { personalizedPair, coldStartPair };
+        var result = new PersonaAnalysisRunResult(
+            cityData,
+            Baselines:
+            [
+                new PersonaBaselineResult(
+                    "DefaultGeneralist", "Default Generalist", true, [1, 2], 2, 10, 2, 0, 100)
+            ],
+            new PersonaJaccardMatrix(
+                ["CultureEnthusiast", "FoodLoverRelaxed", "ScenicPhotography", "DefaultGeneralist"],
+                new double[4, 4],
+                pairs),
+            Ablations: [],
+            Sensitivities: [],
+            PairsBelowThreshold: [personalizedPair],
+            PairsAboveOrEqualThreshold: [coldStartPair]);
+
+        var markdown = PersonaAnalysisMarkdownRenderer.Render(
+            new PersonaAnalysisReportMetadata(
+                "2026-10-21", "Release", "test", ".NET", "test", 1,
+                0.60m, 0.40m, 0.60m, 0.50m),
+            result);
+
+        markdown.Should().Contain("PASS — PERSONALIZED PAIRS MEET JACCARD GATE");
+        markdown.Should().Contain("Cold-Start Comparison Pairs (observational)**: 1");
+        markdown.Should().Contain("OBSERVED (not gated)");
+        markdown.Should().NotContain("ScenicPhotography` vs `DefaultGeneralist`**: Jaccard = **1.0000** (Intersection");
     }
 
     private static PersonaAnalysisRunResult CreateRendererResult(
@@ -284,8 +321,12 @@ public class PersonaAnalysisMarkdownRendererTests
     {
         var pairs = pair is null ? Array.Empty<PersonaJaccardPair>() : [pair];
         return new PersonaAnalysisRunResult(
-            SchedulingBenchmarkScenarioFactory.CreateDaNangV3bData(),
-            Baselines: [],
+            SchedulingBenchmarkScenarioFactory.CreateDaNangPersonalizationData(),
+            Baselines:
+            [
+                new PersonaBaselineResult(
+                    "DefaultGeneralist", "Default Generalist", true, [1, 2], 2, 10, 2, 0, 100)
+            ],
             new PersonaJaccardMatrix(pair is null ? [] : ["A", "B"], new double[pair is null ? 0 : 2, pair is null ? 0 : 2], pairs),
             ablations,
             Sensitivities: [],

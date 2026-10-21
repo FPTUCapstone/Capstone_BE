@@ -64,7 +64,8 @@ public static class ShadowBenchmarkExecutor
         ArgumentOutOfRangeException.ThrowIfNegative(warmupIterations);
         ArgumentOutOfRangeException.ThrowIfLessThan(measuredIterations, 1);
 
-        var baseScorer = new PersonalizationBaseScorer(new PersonalizationRankingOptions());
+        var baseScorer = new PersonalizationBaseScorer(
+            SchedulingBenchmarkScenarioFactory.CreateV3bRankingOptions());
         var candidates = scenario.Candidates.Select(candidate => Personalize(candidate, persona, baseScorer)).ToArray();
         var input = scenario.Input with { Candidates = candidates };
         var weightedFactory = new WeightedRequestInputsFactory(new PersonalParamsFactory(

@@ -2,6 +2,7 @@ using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+
 using Moq;
 
 using TripMate.Application.Common.Interfaces;
@@ -135,12 +136,12 @@ public class PersonaRankingPipelineTests
         BgeM3BenchmarkFixture.ModelName.Should().Be("bge-m3:latest");
         BgeM3BenchmarkFixture.ScenarioId.Should().Be("danang-real-1day");
         BgeM3BenchmarkFixture.PersonaCount.Should().Be(5);
-        BgeM3BenchmarkFixture.PoiCount.Should().Be(19);
+        BgeM3BenchmarkFixture.PoiCount.Should().Be(40);
 
-        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangV3bData();
+        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangPersonalizationData();
         var document = BgeM3BenchmarkFixture.LoadAndVerify(cityData).Document;
         var cultureScores = document.Personas.Single(persona => persona.PersonaId == "CultureEnthusiast").Scores;
-        cultureScores.Should().HaveCount(19);
+        cultureScores.Should().HaveCount(40);
         cultureScores["1"].Should().BeGreaterThan(0.70m, "Cham Museum is top cultural match");
 
         var generalistScores = document.Personas.Single(persona => persona.PersonaId == "DefaultGeneralist").Scores;
@@ -199,7 +200,7 @@ public class PersonaRankingPipelineTests
             TripMateBaseScore: 0.50m,
             EffectiveDesirabilityScore: 0.88m);
 
-        var scenario = SchedulingBenchmarkScenarioFactory.CreateScenario(SchedulingBenchmarkScenarioFactory.CreateDaNangV3bData());
+        var scenario = SchedulingBenchmarkScenarioFactory.CreateScenario(SchedulingBenchmarkScenarioFactory.CreateDaNangPersonalizationData());
         var input = scenario.Input with { Candidates = [candidate] };
 
         var weighted = factory.Create([candidate], null, input, PoiRankingOutcomeCategory.Success);

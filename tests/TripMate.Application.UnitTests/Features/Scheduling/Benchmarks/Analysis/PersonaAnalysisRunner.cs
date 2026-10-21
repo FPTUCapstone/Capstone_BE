@@ -9,8 +9,8 @@ using TripMate.Application.Features.Scheduling.Csp;
 using TripMate.Application.Features.Scheduling.Csp.Objectives;
 using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Application.Features.Scheduling.TimeOfDay;
-using TripMate.Application.UnitTests.Features.Scheduling.Golden;
 using TripMate.Application.UnitTests.Features.Scheduling.Benchmarks.Shadow;
+using TripMate.Application.UnitTests.Features.Scheduling.Golden;
 using TripMate.Domain.Constants;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
@@ -92,7 +92,7 @@ public static class PersonaAnalysisRunner
         double jaccardThreshold = 0.40,
         CancellationToken cancellationToken = default)
     {
-        cityData ??= SchedulingBenchmarkScenarioFactory.CreateDaNangV3bData();
+        cityData ??= SchedulingBenchmarkScenarioFactory.CreateDaNangPersonalizationData();
         provider ??= new RecordedPoiRankingProvider();
         rankingOptions ??= new PersonalizationRankingOptions();
 
@@ -234,7 +234,6 @@ public static class PersonaAnalysisRunner
         }
 
         var jaccardMatrix = new PersonaJaccardMatrix(personaIds, matrix, pairs);
-
         // 3. Run Ablation study (6 variants across 5 personas = 30 evaluations)
         var ablations = new List<AblationVariantResult>();
         foreach (var persona in cityData.Personas)

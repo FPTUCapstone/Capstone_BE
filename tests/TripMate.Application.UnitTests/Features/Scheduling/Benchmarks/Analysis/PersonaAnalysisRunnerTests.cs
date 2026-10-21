@@ -2,9 +2,9 @@ using System.Globalization;
 
 using FluentAssertions;
 
-using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Application.UnitTests.Features.Scheduling.Benchmarks.Shadow;
 
 using Xunit;
@@ -13,6 +13,21 @@ namespace TripMate.Application.UnitTests.Features.Scheduling.Benchmarks.Analysis
 
 public class PersonaAnalysisRunnerTests
 {
+    [Fact]
+    public async Task RunAsync_CanonicalCandidatePool_PassesEveryPersonalizedPairAndColdStartGate()
+    {
+        var result = await PersonaAnalysisRunner.RunAsync(
+            SchedulingBenchmarkScenarioFactory.CreateDaNangPersonalizationData(),
+            jaccardThreshold: 0.40);
+        var pairGate = result.ClassifyPairs(0.40);
+
+        result.JaccardMatrix.Pairs.Should().HaveCount(10);
+        pairGate.PersonalizedPairsBelowThreshold.Should().HaveCount(6);
+        pairGate.PersonalizedPairsAboveOrEqualThreshold.Should().BeEmpty();
+        pairGate.ColdStartPairs.Should().HaveCount(4);
+        result.ColdStartGatePassed.Should().BeTrue();
+    }
+
     [Fact]
     public async Task RunAsync_ProductionFallbackDescription_UsesAuthoritativeOptions()
     {
@@ -38,7 +53,7 @@ public class PersonaAnalysisRunnerTests
         var provider = new OneCallPerPreferenceSetProvider();
 
         var result = await PersonaAnalysisRunner.RunAsync(
-            SchedulingBenchmarkScenarioFactory.CreateDaNangV3bData(),
+            SchedulingBenchmarkScenarioFactory.CreateDaNangPersonalizationData(),
             provider,
             evaluationMode: "live");
 
@@ -53,7 +68,7 @@ public class PersonaAnalysisRunnerTests
         var provider = new FailOnRepeatedPreferenceSetProvider();
 
         var result = await PersonaAnalysisRunner.RunAsync(
-            SchedulingBenchmarkScenarioFactory.CreateDaNangV3bData(),
+            SchedulingBenchmarkScenarioFactory.CreateDaNangPersonalizationData(),
             provider,
             evaluationMode: "live");
 
@@ -66,7 +81,7 @@ public class PersonaAnalysisRunnerTests
     [Fact]
     public async Task RunAsync_BuildsSymmetricMatrixAndStructuredResults()
     {
-        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangV3bData();
+        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangPersonalizationData();
         var originalCulture = CultureInfo.CurrentCulture;
         PersonaAnalysisRunResult result;
         try
@@ -128,7 +143,7 @@ public class PersonaAnalysisRunnerTests
     [Fact]
     public async Task RunAsync_IsDeterministic_AcrossTwoExecutions()
     {
-        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangV3bData();
+        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangPersonalizationData();
 
         var run1 = await PersonaAnalysisRunner.RunAsync(cityData);
         var run2 = await PersonaAnalysisRunner.RunAsync(cityData);
@@ -143,7 +158,7 @@ public class PersonaAnalysisRunnerTests
     [Fact]
     public async Task PersonalizeCandidatesAsync_PropagatesOutcomeCategory_AndFallbackStatus()
     {
-        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangV3bData();
+        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangPersonalizationData();
         var scenario = SchedulingBenchmarkScenarioFactory.CreateScenario(cityData);
         var provider = new RecordedPoiRankingProvider();
         var rankingOptions = new PersonalizationRankingOptions();

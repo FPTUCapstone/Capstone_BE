@@ -13,7 +13,7 @@ public sealed class RecordedPoiRankingProvider : IPoiRankingProvider
     public RecordedPoiRankingProvider(string? overridePersonaId = null)
         : this(
             BgeM3BenchmarkFixture.LoadAndVerify(
-                SchedulingBenchmarkScenarioFactory.CreateDaNangV3bData()),
+                SchedulingBenchmarkScenarioFactory.CreateDaNangPersonalizationData()),
             overridePersonaId)
     {
     }

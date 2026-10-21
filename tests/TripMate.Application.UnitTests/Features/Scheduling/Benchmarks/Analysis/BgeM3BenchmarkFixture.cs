@@ -28,9 +28,9 @@ public static class BgeM3BenchmarkFixture
     public const string ModelName = "bge-m3:latest";
     public const string ScenarioId = "danang-real-1day";
     public const int PersonaCount = 5;
-    public const int PoiCount = 19;
+    public const int PoiCount = 40;
     public const string Provenance = "Captured from live TripMate AI /v1/rank-pois on 2026-10-21; configured/expected model bge-m3:latest; runtime model identity is not exposed by the provider contract; DefaultGeneralist scores use the production cold-start fallback, not a raw provider response";
-    public const string ExpectedFixtureSha256 = "371409083827D5135ECFF8B18A478EB10A0E09F4F51E123DFD767893C1C2671D";
+    public const string ExpectedFixtureSha256 = "5F8257FA2F4EF8B7677CBC91648D846C9EB5F9A74A7C1767BF638104DB0C823A";
 
     public static string ResolveFixturePath()
     {

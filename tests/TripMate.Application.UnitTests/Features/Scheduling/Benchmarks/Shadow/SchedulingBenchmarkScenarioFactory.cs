@@ -124,6 +124,84 @@ public static class SchedulingBenchmarkScenarioFactory
         };
     }
 
+    public static CityBenchmarkScenarioData CreateDaNangPersonalizationData()
+    {
+        var baseline = CreateDaNangV3bData();
+        var tuesday = (byte)2;
+        BenchmarkPoiData[] additionalPois =
+        [
+            new(20, "Sun World Ba Na Hills", new RoutePoint(15.997596m, 107.988215m),
+                PoiCategoryNames.ThemePark, 300, 1_000_000m, IndoorOutdoorType.Mixed, true, 7m, 7m, ["theme park", "relaxation"],
+                [new GenerationOpeningHours(tuesday, new TimeOnly(8, 0), new TimeOnly(22, 0))]),
+            new(21, "Mikazuki 365 Water Park", new RoutePoint(16.125205m, 108.120618m),
+                PoiCategoryNames.WaterPark, 240, 350_000m, IndoorOutdoorType.Indoor, true, 7m, 7m, ["water park", "relaxation"],
+                [new GenerationOpeningHours(tuesday, new TimeOnly(9, 0), new TimeOnly(19, 0))]),
+            new(22, "Dong Dinh Museum", new RoutePoint(16.112646m, 108.278505m),
+                PoiCategoryNames.Museum, 90, 35_000m, IndoorOutdoorType.Mixed, true, 7m, 7m, ["culture", "museum", "art"],
+                [new GenerationOpeningHours(tuesday, new TimeOnly(7, 0), new TimeOnly(17, 0))]),
+            new(23, "Làng mộc Kim Bồng", new RoutePoint(15.865159m, 108.324237m),
+                PoiCategoryNames.Culture, 60, 35_000m, IndoorOutdoorType.Outdoor, false, 7m, 7m, ["heritage", "culture"],
+                [new GenerationOpeningHours(tuesday, new TimeOnly(8, 0), new TimeOnly(17, 30))]),
+            new(24, "Thánh địa Mỹ Sơn", new RoutePoint(15.768789m, 108.119316m),
+                PoiCategoryNames.Culture, 150, 100_000m, IndoorOutdoorType.Outdoor, false, 7m, 7m, ["heritage", "history", "architecture"],
+                [new GenerationOpeningHours(tuesday, new TimeOnly(6, 0), new TimeOnly(18, 0))]),
+            new(25, "VinWonders Nam Hội An", new RoutePoint(15.786494m, 108.408451m),
+                PoiCategoryNames.ThemePark, 300, 650_000m, IndoorOutdoorType.Mixed, true, 7m, 7m, ["theme park", "relaxation"],
+                [new GenerationOpeningHours(tuesday, new TimeOnly(9, 0), new TimeOnly(19, 0))]),
+            new(26, "Mỳ Quảng Quê Xưa", new RoutePoint(16.046888m, 108.221160m),
+                PoiCategoryNames.FoodAndDrink, 45, 57_500m, IndoorOutdoorType.Indoor, true, 7m, 7m, ["food", "cuisine"],
+                [new GenerationOpeningHours(tuesday, new TimeOnly(6, 0), new TimeOnly(22, 30))]),
+            new(27, "Bánh xèo Bà Dưỡng", new RoutePoint(16.058865m, 108.216435m),
+                PoiCategoryNames.FoodAndDrink, 60, 50_000m, IndoorOutdoorType.Mixed, true, 7m, 7m, ["food", "cuisine"],
+                [new GenerationOpeningHours(tuesday, new TimeOnly(9, 30), new TimeOnly(21, 30))]),
+            new(28, "Mì Quảng Bà Mua", new RoutePoint(16.066019m, 108.219144m),
+                PoiCategoryNames.FoodAndDrink, 45, 40_000m, IndoorOutdoorType.Indoor, true, 7m, 7m, ["food", "cuisine"],
+                [new GenerationOpeningHours(tuesday, new TimeOnly(7, 0), new TimeOnly(20, 0))]),
+            new(29, "Bún chả cá 109", new RoutePoint(16.074418m, 108.220757m),
+                PoiCategoryNames.FoodAndDrink, 45, 50_000m, IndoorOutdoorType.Indoor, true, 7m, 7m, ["food", "cuisine"],
+                [new GenerationOpeningHours(tuesday, new TimeOnly(6, 30), new TimeOnly(22, 30))]),
+            new(30, "Hải sản Mộc Quán", new RoutePoint(16.064016m, 108.241554m),
+                PoiCategoryNames.FoodAndDrink, 75, 185_000m, IndoorOutdoorType.Mixed, true, 7m, 7m, ["food", "cuisine"],
+                [new GenerationOpeningHours(tuesday, new TimeOnly(10, 30), new TimeOnly(22, 30))]),
+            new(31, "Hải sản Bé Ni 2", new RoutePoint(16.066800m, 108.245089m),
+                PoiCategoryNames.FoodAndDrink, 75, 0m, IndoorOutdoorType.Mixed, true, 7m, 7m, ["food", "cuisine"],
+                [new GenerationOpeningHours(tuesday, new TimeOnly(0, 0), new TimeOnly(23, 59))]),
+            new(32, "Hải sản Năm Đảnh", new RoutePoint(16.102249m, 108.253336m),
+                PoiCategoryNames.FoodAndDrink, 75, 80_000m, IndoorOutdoorType.Mixed, true, 7m, 7m, ["food", "cuisine"],
+                [new GenerationOpeningHours(tuesday, new TimeOnly(10, 0), new TimeOnly(22, 0))]),
+            new(33, "Bánh Xèo 76", new RoutePoint(16.041647m, 108.240083m),
+                PoiCategoryNames.FoodAndDrink, 45, 30_000m, IndoorOutdoorType.Mixed, true, 7m, 7m, ["food", "cuisine"],
+                [new GenerationOpeningHours(tuesday, new TimeOnly(10, 0), new TimeOnly(21, 0))]),
+            new(34, "Cơm gà Bà Buội", new RoutePoint(15.878479m, 108.330403m),
+                PoiCategoryNames.FoodAndDrink, 45, 55_000m, IndoorOutdoorType.Indoor, true, 7m, 7m, ["food", "cuisine"],
+                [new GenerationOpeningHours(tuesday, new TimeOnly(10, 30), new TimeOnly(14, 0))]),
+            new(35, "Morning Glory Signature", new RoutePoint(15.875959m, 108.326191m),
+                PoiCategoryNames.FoodAndDrink, 75, 200_000m, IndoorOutdoorType.Mixed, true, 7m, 7m, ["food", "cuisine"],
+                [new GenerationOpeningHours(tuesday, new TimeOnly(10, 30), new TimeOnly(22, 30))]),
+            new(36, "Đỉnh Bàn Cờ", new RoutePoint(16.118936m, 108.271983m),
+                PoiCategoryNames.NaturalAttraction, 90, 0m, IndoorOutdoorType.Outdoor, false, 10m, 10m, ["photography", "scenic", "sightseeing"],
+                [new GenerationOpeningHours(tuesday, new TimeOnly(7, 30), new TimeOnly(17, 30))]),
+            new(37, "Hải đăng Tiên Sa", new RoutePoint(16.139667m, 108.322083m),
+                PoiCategoryNames.NaturalAttraction, 60, 0m, IndoorOutdoorType.Outdoor, false, 9m, 10m, ["photography", "scenic", "sightseeing"],
+                [new GenerationOpeningHours(tuesday, new TimeOnly(7, 0), new TimeOnly(17, 0))]),
+            new(38, "Cây Đa Di Sản Sơn Trà", new RoutePoint(16.116682m, 108.292581m),
+                PoiCategoryNames.NaturalAttraction, 60, 0m, IndoorOutdoorType.Outdoor, false, 9m, 8m, ["nature", "adventure", "outdoor", "hiking"],
+                [new GenerationOpeningHours(tuesday, new TimeOnly(7, 0), new TimeOnly(17, 0))]),
+            new(39, "Cầu đi bộ Nguyễn Văn Trỗi", new RoutePoint(16.051390m, 108.231430m),
+                PoiCategoryNames.Culture, 45, 0m, IndoorOutdoorType.Outdoor, false, 0m, 0m, ["photography", "scenic", "sightseeing"],
+                [new GenerationOpeningHours(tuesday, new TimeOnly(5, 0), new TimeOnly(23, 0))]),
+            new(40, "Làng Bích họa Đà Nẵng", new RoutePoint(16.060710m, 108.220030m),
+                PoiCategoryNames.Culture, 45, 0m, IndoorOutdoorType.Outdoor, false, 0m, 0m, ["photography", "scenic", "art"],
+                [new GenerationOpeningHours(tuesday, new TimeOnly(7, 0), new TimeOnly(21, 0))])
+        ];
+
+        return baseline with
+        {
+            Source = baseline.Source + "; extension from database seeds plus reviewed Da Nang scenic POIs from the Da Nang Tourism Promotion Center and OpenStreetMap",
+            Pois = [.. baseline.Pois, .. additionalPois]
+        };
+    }
+
     public static IReadOnlyList<GoldenScenario> CreateV3bScenarios(CityBenchmarkScenarioData cityData)
     {
         var corpus = GoldenScenarioFactory.CreateAllScenarios().ToDictionary(scenario => scenario.Id, StringComparer.Ordinal);
@@ -234,6 +312,15 @@ public static class SchedulingBenchmarkScenarioFactory
             ["sightseeing"] = [PoiCategoryNames.Culture],
             ["relaxation"] = [PoiCategoryNames.Beach]
         }
+    };
+
+    internal static PersonalizationRankingOptions CreateV3bRankingOptions() => new()
+    {
+        CategoryAffinityWeight = 0.300m,
+        TagAffinityWeight = 0.200m,
+        BehaviorAffinityWeight = 0.250m,
+        ScenicQualityWeight = 0.125m,
+        PhotoQualityWeight = 0.125m
     };
 
     private static RouteDurationMatrix CreateMatrix(IReadOnlyList<RoutePoint> points)

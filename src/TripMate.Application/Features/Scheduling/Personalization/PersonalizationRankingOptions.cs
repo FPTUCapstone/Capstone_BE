@@ -8,19 +8,19 @@ public sealed class PersonalizationRankingOptions
 {
     public const string SectionName = "Personalization";
 
-    public decimal CategoryAffinityWeight { get; init; } = 0.300m;
+    public decimal CategoryAffinityWeight { get; init; } = 0.450m;
 
-    public decimal TagAffinityWeight { get; init; } = 0.200m;
+    public decimal TagAffinityWeight { get; init; } = 0.350m;
 
-    public decimal BehaviorAffinityWeight { get; init; } = 0.250m;
+    public decimal BehaviorAffinityWeight { get; init; } = 0.100m;
 
-    public decimal ScenicQualityWeight { get; init; } = 0.125m;
+    public decimal ScenicQualityWeight { get; init; } = 0.050m;
 
-    public decimal PhotoQualityWeight { get; init; } = 0.125m;
+    public decimal PhotoQualityWeight { get; init; } = 0.050m;
 
-    public decimal BaseWeight { get; init; } = 0.60m;
+    public decimal BaseWeight { get; init; } = 0.55m;
 
-    public decimal AiWeight { get; init; } = 0.40m;
+    public decimal AiWeight { get; init; } = 0.45m;
 
     public decimal SkipWeight { get; init; } = 0.5m;
 
