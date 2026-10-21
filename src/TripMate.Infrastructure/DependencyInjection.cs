@@ -75,6 +75,7 @@ public static class DependencyInjection
         services.AddSingleton<ITripReviewPersistenceErrorClassifier, SqlServerTripReviewPersistenceErrorClassifier>();
         services.AddSingleton<IBookingCancellationPersistenceErrorClassifier,
             SqlServerBookingCancellationPersistenceErrorClassifier>();
+        services.AddScoped<IRefundManualCompletionLock, SqlServerRefundManualCompletionLock>();
         services.AddSingleton<IReviewContentModerator, LocalReviewContentModerator>();
         services.AddSingleton<IReviewImageInspector, ReviewImageInspector>();
         services.AddScoped<SqlServerReviewMediaJournal>();

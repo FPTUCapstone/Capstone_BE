@@ -5,6 +5,7 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
+using TripMate.Application.Features.Bookings.Common;
 using TripMate.Application.Features.Bookings.Refunds;
 using TripMate.Application.Features.Traveler.Payments.Common;
 using TripMate.Application.UnitTests.TestUtilities;
@@ -130,7 +131,8 @@ public sealed class RefundProcessorTests
         db.Users.Add(administrator);
         await db.SaveChangesAsync();
         var currentUser = new FakeCurrentUserService { UserId = administrator.Id, Role = nameof(UserRole.Administrator) };
-        var handler = new CompleteManualRefundCommandHandler(db, currentUser, new FixedClock(Now.AddMinutes(5)));
+        var handler = new CompleteManualRefundCommandHandler(db, currentUser, new FixedClock(Now.AddMinutes(5)),
+            new NoOpManualCompletionLock());
 
         var key = Guid.NewGuid();
         var result = await handler.Handle(new CompleteManualRefundCommand((await db.Refunds.SingleAsync()).Id, key,
@@ -223,5 +225,10 @@ public sealed class RefundProcessorTests
     {
         public IPaymentGateway? Resolve(PaymentGateway gateway) => gateways.SingleOrDefault(candidate =>
             candidate.Gateway == gateway);
+    }
+
+    private sealed class NoOpManualCompletionLock : IRefundManualCompletionLock
+    {
+        public Task AcquireAsync(long refundId, CancellationToken cancellationToken) => Task.CompletedTask;
     }
 }

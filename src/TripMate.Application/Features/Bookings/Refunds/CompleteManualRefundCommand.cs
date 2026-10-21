@@ -1,6 +1,6 @@
-using System.Text.Json;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 
 using MediatR;
 
@@ -28,7 +28,8 @@ public sealed record ManualRefundCompletionResponse(long RefundId, string Status
 public sealed class CompleteManualRefundCommandHandler(
     IApplicationDbContext dbContext,
     ICurrentUserService currentUser,
-    IDateTimeProvider clock)
+    IDateTimeProvider clock,
+    IRefundManualCompletionLock completionLock)
     : IRequestHandler<CompleteManualRefundCommand, Result<ManualRefundCompletionResponse>>
 {
     public async Task<Result<ManualRefundCompletionResponse>> Handle(CompleteManualRefundCommand request,
@@ -44,6 +45,7 @@ public sealed class CompleteManualRefundCommandHandler(
 
         return await dbContext.ExecuteInSerializableTransactionAsync(async token =>
         {
+            await completionLock.AcquireAsync(request.RefundId, token);
             string requestHash = ComputeRequestHash(request.RefundId, request.GatewayReference!);
             RefundManualCompletionOperation? existingOperation = await dbContext.RefundManualCompletionOperations
                 .AsNoTracking()

@@ -19,6 +19,7 @@ using Serilog;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Bookings.Common;
 using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Explanation;
@@ -168,6 +169,7 @@ public sealed class TripMateApiFactory(
                 services.RemoveAll<ITourMediaUploadLock>();
                 services.RemoveAll<ITourMediaCleanupOutboxStore>();
                 services.RemoveAll<IAccountCredentialLock>();
+                services.RemoveAll<IRefundManualCompletionLock>();
                 services.RemoveAll<IRouteDurationProvider>();
 
                 services.AddDbContext<TestApiDbContext>(options =>
@@ -207,6 +209,7 @@ public sealed class TripMateApiFactory(
                 services.AddScoped<ITourMediaUploadLock, NoOpTourMediaUploadLock>();
                 services.AddScoped<ITourMediaCleanupOutboxStore, NoOpTourMediaCleanupOutboxStore>();
                 services.AddScoped<IAccountCredentialLock, NoOpAccountCredentialLock>();
+                services.AddScoped<IRefundManualCompletionLock, NoOpRefundManualCompletionLock>();
                 services.AddScoped<IRouteDurationProvider, TestRouteDurationProvider>();
             }
             else if (saveChangesInterceptor is not null || dbInterceptor is not null)
@@ -638,6 +641,11 @@ internal sealed class NoOpAccountCredentialLock : IAccountCredentialLock
 {
     public Task AcquireAsync(long userId, CancellationToken cancellationToken) =>
         Task.CompletedTask;
+}
+
+internal sealed class NoOpRefundManualCompletionLock : IRefundManualCompletionLock
+{
+    public Task AcquireAsync(long refundId, CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
 internal sealed class TestRouteDurationProvider : IRouteDurationProvider
