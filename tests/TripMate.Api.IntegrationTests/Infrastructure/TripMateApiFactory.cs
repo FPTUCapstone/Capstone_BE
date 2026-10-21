@@ -143,7 +143,9 @@ public sealed class TripMateApiFactory(
                         || services[index].ImplementationType?.FullName
                             is "TripMate.Infrastructure.Services.TourMediaCleanupBackgroundService"
                             or "TripMate.Infrastructure.Services.TravelerAvatarCleanupBackgroundService"
-                            or "TripMate.Infrastructure.Services.PendingBookingExpiryBackgroundService"))
+                            or "TripMate.Infrastructure.Services.PendingBookingExpiryBackgroundService"
+                            or "TripMate.Infrastructure.Services.RevenueExportWorkerBackgroundService"
+                            or "TripMate.Infrastructure.Services.RevenueExportExpiryBackgroundService"))
                 {
                     services.RemoveAt(index);
                 }
