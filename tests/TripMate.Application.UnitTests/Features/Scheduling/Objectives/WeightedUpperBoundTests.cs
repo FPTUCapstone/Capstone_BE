@@ -4,6 +4,7 @@ using TripMate.Application.Features.Scheduling.Csp.Objectives;
 using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Application.Features.Scheduling.TimeOfDay;
 using TripMate.Application.UnitTests.Features.Scheduling.Golden.Weighted;
+
 using Xunit;
 
 namespace TripMate.Application.UnitTests.Features.Scheduling.Objectives;

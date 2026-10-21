@@ -1,4 +1,5 @@
 using System.Diagnostics;
+
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Csp;
 using TripMate.Application.Features.Scheduling.Csp.Objectives;

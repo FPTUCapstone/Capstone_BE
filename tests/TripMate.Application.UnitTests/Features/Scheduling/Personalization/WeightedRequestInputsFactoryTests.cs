@@ -1,5 +1,7 @@
 using FluentAssertions;
+
 using Microsoft.Extensions.Options;
+
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Csp;
 using TripMate.Application.Features.Scheduling.Csp.Objectives;
@@ -11,6 +13,7 @@ using TripMate.Application.UnitTests.Features.Scheduling.Golden.Weighted;
 using TripMate.Domain.Constants;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
+
 using Xunit;
 
 namespace TripMate.Application.UnitTests.Features.Scheduling.Personalization;

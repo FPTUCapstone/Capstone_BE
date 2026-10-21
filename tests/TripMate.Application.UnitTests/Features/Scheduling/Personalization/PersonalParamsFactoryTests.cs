@@ -1,9 +1,12 @@
 using FluentAssertions;
+
 using Microsoft.Extensions.Options;
+
 using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Domain.Constants;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
+
 using Xunit;
 
 namespace TripMate.Application.UnitTests.Features.Scheduling.Personalization;

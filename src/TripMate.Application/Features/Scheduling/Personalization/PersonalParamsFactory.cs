@@ -1,6 +1,8 @@
 using System.Text.Json;
+
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 

@@ -1,13 +1,15 @@
 using FluentAssertions;
+
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Csp;
 using TripMate.Application.Features.Scheduling.Csp.Objectives;
 using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Application.Features.Scheduling.Routing;
+using TripMate.Application.Features.Scheduling.TimeOfDay;
 using TripMate.Application.UnitTests.Features.Scheduling.Golden;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
-using TripMate.Application.Features.Scheduling.TimeOfDay;
+
 using Xunit;
 using Xunit.Abstractions;
 

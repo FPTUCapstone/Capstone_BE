@@ -1,4 +1,5 @@
 using System.Diagnostics;
+
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Csp;
 using TripMate.Application.Features.Scheduling.Csp.Objectives;
@@ -6,6 +7,7 @@ using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Application.Features.Scheduling.Routing;
 using TripMate.Application.UnitTests.Features.Scheduling.Golden;
 using TripMate.Application.UnitTests.Features.Scheduling.Golden.Weighted;
+
 using Xunit;
 
 namespace TripMate.Application.UnitTests.Features.Scheduling.Objectives;

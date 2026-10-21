@@ -1,12 +1,14 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Csp;
 using TripMate.Application.Features.Scheduling.Csp.Objectives;
 using TripMate.Application.UnitTests.Features.Scheduling.Fixtures;
 using TripMate.Application.UnitTests.Features.Scheduling.Golden.WeightedTimeFit;
 using TripMate.Domain.Enums;
+
 using Xunit;
 using Xunit.Abstractions;
 

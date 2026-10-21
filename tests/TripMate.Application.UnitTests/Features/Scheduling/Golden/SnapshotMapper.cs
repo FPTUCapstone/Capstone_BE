@@ -1,9 +1,9 @@
-using Xunit;
-
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Csp;
 using TripMate.Application.Features.Scheduling.Routing;
 using TripMate.Domain.Enums;
+
+using Xunit;
 
 namespace TripMate.Application.UnitTests.Features.Scheduling.Golden;
 

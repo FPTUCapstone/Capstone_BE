@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Routing;
 

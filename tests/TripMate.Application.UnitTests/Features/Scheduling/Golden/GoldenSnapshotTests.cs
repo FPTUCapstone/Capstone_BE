@@ -1,12 +1,13 @@
 using System.Text.Json;
 
 using FluentAssertions;
-using Xunit;
 
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Csp;
 using TripMate.Application.UnitTests.Features.Scheduling.Fixtures;
 using TripMate.Domain.Enums;
+
+using Xunit;
 
 namespace TripMate.Application.UnitTests.Features.Scheduling.Golden;
 

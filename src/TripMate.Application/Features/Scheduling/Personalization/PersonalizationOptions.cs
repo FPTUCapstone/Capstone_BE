@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Options;
-using TripMate.Domain.Enums;
 
 using TripMate.Domain.Constants;
+using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Scheduling.Personalization;
 

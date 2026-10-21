@@ -6,6 +6,7 @@ using TripMate.Application.Features.Scheduling.Routing;
 using TripMate.Application.UnitTests.Features.Scheduling.Fixtures;
 using TripMate.Domain.Constants;
 using TripMate.Domain.Enums;
+
 using Xunit;
 
 namespace TripMate.Application.UnitTests.Features.Scheduling.Objectives;
@@ -361,7 +362,7 @@ public class WeightedTrapTests
     {
         var c1 = OptionalRouteOptimizationScenarios.CreateCandidate(101, "C1", visitDurationMinutes: 30, cost: 0, effectiveDesirabilityScore: 0.35m);
         var c2 = OptionalRouteOptimizationScenarios.CreateCandidate(102, "C2", visitDurationMinutes: 30, cost: 0, effectiveDesirabilityScore: 0.30m);
-        var m  = OptionalRouteOptimizationScenarios.CreateCandidate(103, "M",  visitDurationMinutes: 30, cost: 0, effectiveDesirabilityScore: 0.90m);
+        var m = OptionalRouteOptimizationScenarios.CreateCandidate(103, "M", visitDurationMinutes: 30, cost: 0, effectiveDesirabilityScore: 0.90m);
 
         var candidates = new[] { c1, c2, m };
         var indices = new Dictionary<long, int> { [101] = 1, [102] = 2, [103] = 3 };
@@ -534,10 +535,10 @@ public class WeightedTrapTests
     public static TrapFixture CreateRoundingTrapFixture()
     {
         var sub = OptionalRouteOptimizationScenarios.CreateCandidate(100, "Sub", visitDurationMinutes: 5, cost: 0, effectiveDesirabilityScore: 0.2000m) with { CategoryName = "Sub" };
-        var o1  = OptionalRouteOptimizationScenarios.CreateCandidate(101, "O1",  visitDurationMinutes: 5, cost: 0, effectiveDesirabilityScore: 0.2000m) with { CategoryName = "O1" };
-        var m1  = OptionalRouteOptimizationScenarios.CreateCandidate(102, "M1",  visitDurationMinutes: 5, cost: 0, effectiveDesirabilityScore: 0.1000m) with { CategoryName = "M1" };
-        var m2  = OptionalRouteOptimizationScenarios.CreateCandidate(103, "M2",  visitDurationMinutes: 5, cost: 0, effectiveDesirabilityScore: 0.1000m) with { CategoryName = "M2" };
-        var m3  = OptionalRouteOptimizationScenarios.CreateCandidate(104, "M3",  visitDurationMinutes: 5, cost: 0, effectiveDesirabilityScore: 0.1000m) with { CategoryName = "M3" };
+        var o1 = OptionalRouteOptimizationScenarios.CreateCandidate(101, "O1", visitDurationMinutes: 5, cost: 0, effectiveDesirabilityScore: 0.2000m) with { CategoryName = "O1" };
+        var m1 = OptionalRouteOptimizationScenarios.CreateCandidate(102, "M1", visitDurationMinutes: 5, cost: 0, effectiveDesirabilityScore: 0.1000m) with { CategoryName = "M1" };
+        var m2 = OptionalRouteOptimizationScenarios.CreateCandidate(103, "M2", visitDurationMinutes: 5, cost: 0, effectiveDesirabilityScore: 0.1000m) with { CategoryName = "M2" };
+        var m3 = OptionalRouteOptimizationScenarios.CreateCandidate(104, "M3", visitDurationMinutes: 5, cost: 0, effectiveDesirabilityScore: 0.1000m) with { CategoryName = "M3" };
 
         var candidates = new[] { sub, o1, m1, m2, m3 };
         var indices = new Dictionary<long, int> { [100] = 1, [101] = 2, [102] = 3, [103] = 4, [104] = 5 };

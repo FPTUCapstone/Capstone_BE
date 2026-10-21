@@ -40,4 +40,3 @@ public sealed class ConstantTimeFitFactory : ITimeFitProviderFactory
 {
     public ITimeFitProvider Create(Routing.RoutingContext ctx) => new ConstantTimeFit();
 }
-

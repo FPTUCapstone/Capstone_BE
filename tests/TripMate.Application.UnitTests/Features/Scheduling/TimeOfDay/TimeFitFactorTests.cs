@@ -1,4 +1,5 @@
 using FluentAssertions;
+
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Csp;
 using TripMate.Application.Features.Scheduling.Personalization;

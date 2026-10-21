@@ -1,4 +1,5 @@
 using FluentAssertions;
+
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -10,6 +11,7 @@ using TripMate.Application.Features.Scheduling.Shadow;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 using TripMate.Infrastructure.Services;
+
 using Xunit;
 
 namespace TripMate.Infrastructure.UnitTests.Services;

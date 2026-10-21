@@ -1,7 +1,10 @@
 using System.Diagnostics;
+
 using FluentAssertions;
+
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Csp;
+
 using Xunit;
 using Xunit.Abstractions;
 
