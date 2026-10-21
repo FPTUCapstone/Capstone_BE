@@ -133,6 +133,18 @@ public sealed class PayOsPaymentGateway(
         }
     }
 
+    // PayOS currently exposes payment-link creation/cancellation through this integration, but
+    // not an original-channel refund endpoint that TripMate can call safely. Keep UC-42 durable
+    // and explicit: the worker records this as terminal instead of pretending a remote refund
+    // succeeded. A provider adapter with a supported refund API can override this contract.
+    public Task<RefundSubmissionResult> SubmitRefundAsync(
+        RefundSubmissionRequest request,
+        CancellationToken cancellationToken) => Task.FromResult(new RefundSubmissionResult(
+        false,
+        FailureCode: "payment.refund.provider_not_supported",
+        FailureMessage: "The configured payment provider does not support automatic refunds.",
+        IsRetryable: false));
+
     private sealed record PayOsCreateResponse(
         [property: JsonPropertyName("code")] string? Code,
         [property: JsonPropertyName("desc")] string? Desc,

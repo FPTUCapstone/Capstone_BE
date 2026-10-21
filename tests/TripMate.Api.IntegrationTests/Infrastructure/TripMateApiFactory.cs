@@ -145,6 +145,7 @@ public sealed class TripMateApiFactory(
                             is "TripMate.Infrastructure.Services.TourMediaCleanupBackgroundService"
                             or "TripMate.Infrastructure.Services.TravelerAvatarCleanupBackgroundService"
                             or "TripMate.Infrastructure.Services.PendingBookingExpiryBackgroundService"
+                            or "TripMate.Infrastructure.Services.RefundProcessingBackgroundService"
                             or "TripMate.Infrastructure.Services.RevenueExportWorkerBackgroundService"
                             or "TripMate.Infrastructure.Services.RevenueExportExpiryBackgroundService"))
                 {

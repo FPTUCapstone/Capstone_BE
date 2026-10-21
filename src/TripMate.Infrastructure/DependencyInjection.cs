@@ -13,6 +13,7 @@ using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Media;
 using TripMate.Application.Features.Authentication.PasswordReset;
 using TripMate.Application.Features.Bookings.Common;
+using TripMate.Application.Features.Bookings.Refunds;
 using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Navigation.Common;
 using TripMate.Application.Features.Operator.Revenue.Exports.Common;
@@ -168,6 +169,14 @@ public static class DependencyInjection
         services.AddSingleton(serviceProvider =>
             serviceProvider.GetRequiredService<IOptions<TourBookingOptions>>().Value);
         services.AddHostedService<PendingBookingExpiryBackgroundService>();
+
+        services.AddOptions<RefundProcessingOptions>()
+            .Bind(configuration.GetSection(RefundProcessingOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<RefundProcessingOptions>, RefundProcessingOptionsValidator>();
+        services.AddSingleton(serviceProvider => serviceProvider.GetRequiredService<IOptions<RefundProcessingOptions>>().Value);
+        services.AddScoped<RefundProcessor>();
+        services.AddHostedService<RefundProcessingBackgroundService>();
 
         services.AddOptions<PaymentOptions>()
             .Bind(configuration.GetSection(PaymentOptions.SectionName));

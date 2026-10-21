@@ -23,6 +23,22 @@ public record PaymentLinkCancellationRequest(
     string? PaymentLinkId,
     string Reason);
 
+public record RefundSubmissionRequest(
+    long RefundId,
+    long BookingId,
+    decimal Amount,
+    string Currency,
+    string? OriginalGatewayTransactionReference,
+    string? Reason,
+    string IdempotencyKey);
+
+public record RefundSubmissionResult(
+    bool IsAccepted,
+    string? GatewayReference = null,
+    string? FailureCode = null,
+    string? FailureMessage = null,
+    bool IsRetryable = true);
+
 public interface IPaymentGateway
 {
     PaymentGateway Gateway { get; }
@@ -38,4 +54,11 @@ public interface IPaymentGateway
     Task CancelPaymentLinkAsync(
         PaymentLinkCancellationRequest request,
         CancellationToken cancellationToken) => Task.CompletedTask;
+
+    /// <summary>Submits a server-owned refund to the channel that took the original payment.</summary>
+    Task<RefundSubmissionResult> SubmitRefundAsync(
+        RefundSubmissionRequest request,
+        CancellationToken cancellationToken) => Task.FromResult(new RefundSubmissionResult(
+            false, FailureCode: "payment.refund.unsupported",
+            FailureMessage: "This payment gateway does not support automatic refunds.", IsRetryable: false));
 }
