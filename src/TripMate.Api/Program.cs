@@ -15,8 +15,8 @@ using Serilog;
 
 using TripMate.Api.Authorization;
 using TripMate.Api.Common;
-using TripMate.Api.Diagnostics;
 using TripMate.Api.DevSearch;
+using TripMate.Api.Diagnostics;
 using TripMate.Api.Middleware;
 using TripMate.Api.OpenApi;
 using TripMate.Application;
