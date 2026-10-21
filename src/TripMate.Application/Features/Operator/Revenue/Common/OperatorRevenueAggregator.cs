@@ -46,7 +46,7 @@ public sealed class OperatorRevenueAggregator(IApplicationDbContext db)
         var refundsByBooking = bookingIds.Count == 0
             ? new Dictionary<long, decimal>()
             : await db.Refunds.AsNoTracking()
-                .Where(r => r.Status == "Processed" && bookingIds.Contains(r.BookingId))
+                .Where(r => r.Status == RefundStatus.Processed && bookingIds.Contains(r.BookingId))
                 .GroupBy(r => r.BookingId)
                 .Select(g => new { BookingId = g.Key, Amount = g.Sum(x => x.Amount) })
                 .ToDictionaryAsync(x => x.BookingId, x => x.Amount, ct);
