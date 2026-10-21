@@ -17,7 +17,7 @@ namespace TripMate.Application.Features.Bookings.Refunds;
 public sealed class RefundProcessor(
     IApplicationDbContext dbContext,
     IDateTimeProvider clock,
-    IPaymentGateway gateway,
+    IRefundPaymentGatewayResolver gatewayResolver,
     RefundProcessingOptions options)
 {
     public async Task<RefundSweepResult> ProcessDueRefundsAsync(CancellationToken cancellationToken)
@@ -42,21 +42,33 @@ public sealed class RefundProcessor(
                 if (claim is null) continue;
 
                 RefundSubmissionResult submission;
-                try
+                IPaymentGateway? gateway = gatewayResolver.Resolve(claim.OriginalGateway);
+                if (gateway is null)
                 {
-                    submission = await gateway.SubmitRefundAsync(new RefundSubmissionRequest(claim.RefundId,
-                        claim.BookingId, claim.Amount, claim.Currency, claim.OriginalGatewayReference, claim.Reason,
-                        $"tripmate-refund-{claim.RefundId}"),
-                        cancellationToken);
+                    submission = new RefundSubmissionResult(false,
+                        FailureCode: "payment.refund.manual_review_required",
+                        FailureMessage: "The original payment provider is not available for automatic refunds.",
+                        IsRetryable: false,
+                        RequiresManualReview: true);
                 }
-                catch (Exception exception) when (exception is HttpRequestException or TimeoutException)
+                else
                 {
-                    submission = new RefundSubmissionResult(false, FailureCode: "payment.refund.gateway_unavailable",
-                        FailureMessage: "The payment gateway did not respond.", IsRetryable: true);
+                    try
+                    {
+                        submission = await gateway.SubmitRefundAsync(new RefundSubmissionRequest(claim.RefundId,
+                            claim.BookingId, claim.Amount, claim.Currency, claim.OriginalGatewayReference, claim.Reason,
+                            $"tripmate-refund-{claim.RefundId}"), cancellationToken);
+                    }
+                    catch (Exception exception) when (exception is HttpRequestException or TimeoutException)
+                    {
+                        submission = new RefundSubmissionResult(false,
+                            FailureCode: "payment.refund.gateway_unavailable",
+                            FailureMessage: "The payment gateway did not respond.", IsRetryable: true);
+                    }
                 }
 
                 bool succeeded = await dbContext.ExecuteInSerializableTransactionAsync(
-                    token => RecordOutcomeAsync(claim, submission, token), cancellationToken);
+                    token => RecordOutcomeAsync(claim, submission, gateway?.Gateway, token), cancellationToken);
                 if (succeeded) completed++; else deferred++;
             }
             catch (Exception exception)
@@ -104,8 +116,7 @@ public sealed class RefundProcessor(
         PaymentTransaction? original = await dbContext.PaymentTransactions.AsNoTracking()
             .SingleOrDefaultAsync(transaction => transaction.Id == refund.TransactionId, cancellationToken);
         if (original is null || original.TransactionType != PaymentTransaction.TypePayment ||
-            original.Status != PaymentTransactionStatus.Success || original.Amount < refund.Amount ||
-            original.Gateway != gateway.Gateway)
+            original.Status != PaymentTransactionStatus.Success || original.Amount < refund.Amount)
         {
             refund.Reject("payment.refund.original_payment_invalid",
                 "The original payment is not verified for the requested refund amount.");
@@ -115,10 +126,11 @@ public sealed class RefundProcessor(
 
         await dbContext.SaveChangesAsync(cancellationToken);
         return new RefundClaim(refund.Id, refund.BookingId, refund.Amount, original.Currency,
-            original.GatewayTransactionRef, refund.Reason);
+            original.Gateway, original.GatewayTransactionRef, refund.Reason);
     }
 
     private async Task<bool> RecordOutcomeAsync(RefundClaim claim, RefundSubmissionResult submission,
+        PaymentGateway? gateway,
         CancellationToken cancellationToken)
     {
         Refund? refund = await dbContext.Refunds.SingleOrDefaultAsync(candidate => candidate.Id == claim.RefundId,
@@ -130,11 +142,14 @@ public sealed class RefundProcessor(
         if (booking is null) throw new InvalidOperationException("Refund booking no longer exists.");
 
         var now = clock.UtcNow;
-        var transaction = PaymentTransaction.CreateRefund(booking.Id, refund.Id, gateway.Gateway, refund.Amount, now,
-            claim.Currency);
-        dbContext.PaymentTransactions.Add(transaction);
         if (submission.IsAccepted)
         {
+            if (gateway is null)
+                throw new InvalidOperationException("An accepted refund must identify its original payment gateway.");
+
+            var transaction = PaymentTransaction.CreateRefund(booking.Id, refund.Id, gateway.Value, refund.Amount, now,
+                claim.Currency);
+            dbContext.PaymentTransactions.Add(transaction);
             string reference = submission.GatewayReference ?? $"REFUND-{refund.Id}-{refund.AttemptCount}";
             transaction.MarkSuccess(reference, JsonSerializer.Serialize(submission), now, 0m);
             refund.MarkProcessed(reference, now);
@@ -146,8 +161,21 @@ public sealed class RefundProcessor(
             booking.ApplyRefund(priorRefunded + refund.Amount);
             AddNotifications(booking, refund, now);
         }
+        else if (submission.RequiresManualReview)
+        {
+            refund.RequireManualReview(
+                submission.FailureCode ?? "payment.refund.manual_review_required",
+                submission.FailureMessage);
+            await AddManualReviewNotificationsAsync(booking, refund, now, cancellationToken);
+        }
         else
         {
+            if (gateway is null)
+                throw new InvalidOperationException("A submitted refund failure must identify its original payment gateway.");
+
+            var transaction = PaymentTransaction.CreateRefund(booking.Id, refund.Id, gateway.Value, refund.Amount, now,
+                claim.Currency);
+            dbContext.PaymentTransactions.Add(transaction);
             transaction.MarkFailed(JsonSerializer.Serialize(submission), now);
             string code = submission.FailureCode ?? "payment.refund.gateway_rejected";
             if (submission.IsRetryable && refund.AttemptCount < options.MaxAttempts)
@@ -191,8 +219,58 @@ public sealed class RefundProcessor(
         });
     }
 
+    private async Task AddManualReviewNotificationsAsync(Booking booking, Refund refund, DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        const string body = "Your refund is awaiting manual payment-provider processing.";
+        dbContext.Notifications.Add(new Notification
+        {
+            UserId = booking.TravelerUserId,
+            Channel = NotificationChannel.Push,
+            Type = "BookingRefundManualReview",
+            Title = "Refund is under review",
+            Body = body,
+            RelatedEntityType = "Refund",
+            RelatedEntityId = refund.Id,
+            Status = NotificationStatus.Pending,
+            CreatedAtUtc = now,
+        });
+        dbContext.Notifications.Add(new Notification
+        {
+            UserId = booking.TourSchedule.Tour.OperatorUserId,
+            Channel = NotificationChannel.Push,
+            Type = "BookingRefundManualReview",
+            Title = "Refund is under review",
+            Body = $"Refund for booking {booking.BookingCode} requires manual payment-provider processing.",
+            RelatedEntityType = "Refund",
+            RelatedEntityId = refund.Id,
+            Status = NotificationStatus.Pending,
+            CreatedAtUtc = now,
+        });
+
+        List<long> administratorIds = await dbContext.Users.AsNoTracking()
+            .Where(user => user.Role == UserRole.Administrator && user.Status == AccountStatus.Active)
+            .Select(user => user.Id)
+            .ToListAsync(cancellationToken);
+        foreach (long administratorId in administratorIds)
+        {
+            dbContext.Notifications.Add(new Notification
+            {
+                UserId = administratorId,
+                Channel = NotificationChannel.Push,
+                Type = "BookingRefundManualReviewRequired",
+                Title = "Manual refund required",
+                Body = $"Refund {refund.Id} for booking {booking.BookingCode} requires PayOS settlement.",
+                RelatedEntityType = "Refund",
+                RelatedEntityId = refund.Id,
+                Status = NotificationStatus.Pending,
+                CreatedAtUtc = now,
+            });
+        }
+    }
+
     private sealed record RefundClaim(long RefundId, long BookingId, decimal Amount, string Currency,
-        string? OriginalGatewayReference, string? Reason);
+        PaymentGateway OriginalGateway, string? OriginalGatewayReference, string? Reason);
 }
 
 public sealed record RefundSweepResult(int ProcessedCount, int DeferredCount, IReadOnlyList<RefundSweepFailure> Failures);

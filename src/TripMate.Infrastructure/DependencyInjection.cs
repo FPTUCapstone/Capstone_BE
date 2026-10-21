@@ -189,15 +189,15 @@ public static class DependencyInjection
         services.AddScoped<IPaymentCompletionProcessor, PaymentCompletionProcessor>();
 
         var paymentConfig = PaymentOptionsConfiguration.Read(configuration);
-        if (string.Equals(paymentConfig.Provider, "PayOS", StringComparison.OrdinalIgnoreCase))
-        {
-            services.AddHttpClient<PayOsPaymentGateway>();
-            services.AddScoped<IPaymentGateway, PayOsPaymentGateway>();
-        }
-        else
-        {
-            services.AddScoped<IPaymentGateway, MockPaymentGateway>();
-        }
+        // Checkout uses the configured provider. Refunds use the provider persisted on the
+        // original transaction, so keep both supported adapters resolvable independently.
+        services.AddHttpClient<PayOsPaymentGateway>();
+        services.AddScoped<MockPaymentGateway>();
+        services.AddScoped<IRefundPaymentGatewayResolver, RefundPaymentGatewayResolver>();
+        services.AddScoped<IPaymentGateway>(serviceProvider =>
+            string.Equals(paymentConfig.Provider, "PayOS", StringComparison.OrdinalIgnoreCase)
+                ? serviceProvider.GetRequiredService<PayOsPaymentGateway>()
+                : serviceProvider.GetRequiredService<MockPaymentGateway>());
         services.AddDataProtection();
         services.AddSingleton<IPiiProtector, DataProtectionPiiProtector>();
         services.AddOptions<NavigationSessionOptions>()

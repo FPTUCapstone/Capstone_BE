@@ -37,7 +37,17 @@ public record RefundSubmissionResult(
     string? GatewayReference = null,
     string? FailureCode = null,
     string? FailureMessage = null,
-    bool IsRetryable = true);
+    bool IsRetryable = true,
+    bool RequiresManualReview = false);
+
+/// <summary>
+/// Resolves the gateway which accepted the original payment. Refunds must never be
+/// sent through whichever provider happens to be configured for new checkouts today.
+/// </summary>
+public interface IRefundPaymentGatewayResolver
+{
+    IPaymentGateway? Resolve(PaymentGateway gateway);
+}
 
 public interface IPaymentGateway
 {

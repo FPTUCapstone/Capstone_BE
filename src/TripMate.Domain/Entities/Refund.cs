@@ -82,8 +82,8 @@ public class Refund : BaseEntity
         ArgumentException.ThrowIfNullOrWhiteSpace(gatewayReference);
         if (gatewayReference.Trim().Length > GatewayReferenceMaxLength)
             throw new ArgumentOutOfRangeException(nameof(gatewayReference));
-        if (Status != RefundStatus.Processing)
-            throw new InvalidOperationException("Only an in-progress refund can be completed.");
+        if (Status is not (RefundStatus.Processing or RefundStatus.ManualReview))
+            throw new InvalidOperationException("Only an in-progress or manually reviewed refund can be completed.");
 
         Status = RefundStatus.Processed;
         GatewayReference = gatewayReference.Trim();
@@ -103,6 +103,25 @@ public class Refund : BaseEntity
         LastErrorCode = errorCode.Trim();
         LastErrorMessage = string.IsNullOrWhiteSpace(errorMessage) ? null : errorMessage.Trim();
         NextAttemptAtUtc = nextAttemptAtUtc.ToUniversalTime();
+    }
+
+    /// <summary>
+    /// Stops automatic processing without claiming that money was returned. This is used when
+    /// the original provider requires an operator-mediated refund rather than exposing a safe
+    /// original-channel refund API.
+    /// </summary>
+    public void RequireManualReview(string reasonCode, string? reasonMessage)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(reasonCode);
+        if (reasonCode.Trim().Length > ErrorCodeMaxLength || reasonMessage?.Trim().Length > ErrorMessageMaxLength)
+            throw new ArgumentOutOfRangeException(nameof(reasonCode));
+        if (Status != RefundStatus.Processing)
+            throw new InvalidOperationException("Only an in-progress refund can require manual review.");
+
+        Status = RefundStatus.ManualReview;
+        LastErrorCode = reasonCode.Trim();
+        LastErrorMessage = string.IsNullOrWhiteSpace(reasonMessage) ? null : reasonMessage.Trim();
+        NextAttemptAtUtc = null;
     }
 
     /// <summary>

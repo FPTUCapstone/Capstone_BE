@@ -1,5 +1,7 @@
 using System.Reflection;
 
+using FluentAssertions;
+
 using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
@@ -21,7 +23,8 @@ public sealed class RefundProcessorTests
         await using TestDbContext db = CreateDbContext();
         Refund refund = await SeedRefundAsync(db);
         var gateway = new FakeRefundGateway(new RefundSubmissionResult(true, GatewayReference: "gw-refund-1"));
-        var processor = new RefundProcessor(db, new FixedClock(Now), gateway, new RefundProcessingOptions());
+        var processor = new RefundProcessor(db, new FixedClock(Now), new FakeRefundGatewayResolver(gateway),
+            new RefundProcessingOptions());
 
         RefundSweepResult result = await processor.ProcessDueRefundsAsync(CancellationToken.None);
 
@@ -46,7 +49,7 @@ public sealed class RefundProcessorTests
         await SeedRefundAsync(db);
         var gateway = new FakeRefundGateway(new RefundSubmissionResult(false,
             FailureCode: "payment.refund.gateway_unavailable", FailureMessage: "Timed out", IsRetryable: true));
-        var processor = new RefundProcessor(db, new FixedClock(Now), gateway,
+        var processor = new RefundProcessor(db, new FixedClock(Now), new FakeRefundGatewayResolver(gateway),
             new RefundProcessingOptions { RetryDelay = TimeSpan.FromMinutes(3) });
 
         RefundSweepResult result = await processor.ProcessDueRefundsAsync(CancellationToken.None);
@@ -63,31 +66,87 @@ public sealed class RefundProcessorTests
     }
 
     [Fact]
-    public async Task ProcessDueRefunds_WhenOriginalGatewayDiffers_RejectsWithoutSubmittingToAnotherChannel()
+    public async Task ProcessDueRefunds_WhenCurrentCheckoutGatewayDiffers_UsesOriginalPaymentGateway()
     {
         await using TestDbContext db = CreateDbContext();
-        await SeedRefundAsync(db);
-        var gateway = new FakeRefundGateway(new RefundSubmissionResult(true, GatewayReference: "wrong-channel"),
+        await SeedRefundAsync(db, PaymentGateway.PayOS);
+        var configuredForNewCheckouts = new FakeRefundGateway(new RefundSubmissionResult(true, GatewayReference: "mock"));
+        var originalGateway = new FakeRefundGateway(new RefundSubmissionResult(true, GatewayReference: "payos-refund"),
             PaymentGateway.PayOS);
-        var processor = new RefundProcessor(db, new FixedClock(Now), gateway, new RefundProcessingOptions());
+        var processor = new RefundProcessor(db, new FixedClock(Now),
+            new FakeRefundGatewayResolver(configuredForNewCheckouts, originalGateway), new RefundProcessingOptions());
+
+        RefundSweepResult result = await processor.ProcessDueRefundsAsync(CancellationToken.None);
+
+        Assert.Equal(1, result.ProcessedCount);
+        Assert.Null(configuredForNewCheckouts.LastRequest);
+        Assert.NotNull(originalGateway.LastRequest);
+        Refund refund = await db.Refunds.SingleAsync();
+        Assert.Equal(RefundStatus.Processed, refund.Status);
+    }
+
+    [Fact]
+    public async Task ProcessDueRefunds_WhenGatewayRequiresManualReview_DoesNotRecordRefundAsFailed()
+    {
+        await using TestDbContext db = CreateDbContext();
+        await SeedRefundAsync(db, PaymentGateway.PayOS);
+        var gateway = new FakeRefundGateway(new RefundSubmissionResult(false,
+            FailureCode: "payment.refund.manual_review_required",
+            FailureMessage: "Provider requires operations settlement.",
+            IsRetryable: false,
+            RequiresManualReview: true), PaymentGateway.PayOS);
+        var processor = new RefundProcessor(db, new FixedClock(Now), new FakeRefundGatewayResolver(gateway),
+            new RefundProcessingOptions());
 
         RefundSweepResult result = await processor.ProcessDueRefundsAsync(CancellationToken.None);
 
         Assert.Equal(0, result.ProcessedCount);
-        Assert.Null(gateway.LastRequest);
+        Assert.Equal(1, result.DeferredCount);
         Refund refund = await db.Refunds.SingleAsync();
-        Assert.Equal(RefundStatus.Rejected, refund.Status);
-        Assert.Equal("payment.refund.original_payment_invalid", refund.LastErrorCode);
+        Assert.Equal(RefundStatus.ManualReview, refund.Status);
+        Assert.Equal("payment.refund.manual_review_required", refund.LastErrorCode);
         Assert.Empty(await db.PaymentTransactions
             .Where(transaction => transaction.TransactionType == PaymentTransaction.TypeRefund)
             .ToListAsync());
+    }
+
+    [Fact]
+    public async Task CompleteManualRefund_WhenAdministratorProvidesSettlementReference_RecordsImmutableEvidence()
+    {
+        await using TestDbContext db = CreateDbContext();
+        await SeedRefundAsync(db, PaymentGateway.PayOS);
+        var manualGateway = new FakeRefundGateway(new RefundSubmissionResult(false,
+            FailureCode: "payment.refund.manual_review_required", RequiresManualReview: true), PaymentGateway.PayOS);
+        var processor = new RefundProcessor(db, new FixedClock(Now), new FakeRefundGatewayResolver(manualGateway),
+            new RefundProcessingOptions());
+        await processor.ProcessDueRefundsAsync(CancellationToken.None);
+
+        var administrator = new User
+        {
+            Role = UserRole.Administrator,
+            Status = AccountStatus.Active,
+            FullName = "Refund administrator",
+        };
+        db.Users.Add(administrator);
+        await db.SaveChangesAsync();
+        var currentUser = new FakeCurrentUserService { UserId = administrator.Id, Role = nameof(UserRole.Administrator) };
+        var handler = new CompleteManualRefundCommandHandler(db, currentUser, new FixedClock(Now.AddMinutes(5)));
+
+        var result = await handler.Handle(new CompleteManualRefundCommand((await db.Refunds.SingleAsync()).Id,
+            "PAYOS-MANUAL-REF-1"), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        (await db.Refunds.SingleAsync()).Status.Should().Be(RefundStatus.Processed);
+        (await db.PaymentTransactions.SingleAsync(item => item.TransactionType == PaymentTransaction.TypeRefund)).Status
+            .Should().Be(PaymentTransactionStatus.Success);
+        (await db.Bookings.SingleAsync()).PaymentStatus.Should().Be(PaymentStatus.Refunded);
     }
 
     private static TestDbContext CreateDbContext() => new(new DbContextOptionsBuilder<TestDbContext>()
         .UseInMemoryDatabase(Guid.NewGuid().ToString())
         .Options);
 
-    private static async Task<Refund> SeedRefundAsync(TestDbContext db)
+    private static async Task<Refund> SeedRefundAsync(TestDbContext db, PaymentGateway gateway = PaymentGateway.Mock)
     {
         var tour = (Tour)Activator.CreateInstance(typeof(Tour), nonPublic: true)!;
         Set(tour, nameof(Tour.OperatorUserId), 22L);
@@ -115,7 +174,7 @@ public sealed class RefundProcessorTests
         db.Bookings.Add(booking);
         await db.SaveChangesAsync();
 
-        PaymentTransaction payment = PaymentTransaction.Create(booking.Id, PaymentGateway.Mock, 500_000m,
+        PaymentTransaction payment = PaymentTransaction.Create(booking.Id, gateway, 500_000m,
             orderCode: 1, createdAtUtc: Now);
         payment.MarkSuccess("payment-ref-1", "{}", Now, 0m);
         db.PaymentTransactions.Add(payment);
@@ -152,5 +211,11 @@ public sealed class RefundProcessorTests
             LastRequest = request;
             return Task.FromResult(result);
         }
+    }
+
+    private sealed class FakeRefundGatewayResolver(params IPaymentGateway[] gateways) : IRefundPaymentGatewayResolver
+    {
+        public IPaymentGateway? Resolve(PaymentGateway gateway) => gateways.SingleOrDefault(candidate =>
+            candidate.Gateway == gateway);
     }
 }

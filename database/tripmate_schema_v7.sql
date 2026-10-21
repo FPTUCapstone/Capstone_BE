@@ -1267,7 +1267,7 @@ CREATE TABLE payment.Refunds (
     initiated_by                      VARCHAR(14) NOT NULL
         CHECK (initiated_by IN ('System','TourOperator','Administrator')),
     status                              VARCHAR(20) NOT NULL DEFAULT 'Pending'
-        CHECK (status IN ('Pending','Processing','RetryPending','Processed','Failed','Rejected')),
+        CHECK (status IN ('Pending','Processing','RetryPending','ManualReview','Processed','Failed','Rejected')),
     requested_at                          DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
     processed_at                            DATETIME2 NULL,
     gateway_reference                      NVARCHAR(150) NULL,

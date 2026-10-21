@@ -5,6 +5,7 @@ public enum RefundStatus
     Pending,
     Processing,
     RetryPending,
+    ManualReview,
     Processed,
     Failed,
     Rejected,

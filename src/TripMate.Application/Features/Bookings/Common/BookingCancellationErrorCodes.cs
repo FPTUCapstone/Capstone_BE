@@ -12,4 +12,6 @@ public static class BookingCancellationErrorCodes
     public const string PolicyUnavailable = "booking.cancellation.policy_unavailable";
     public const string IdempotencyPayloadMismatch = "booking.cancellation.idempotency_payload_mismatch";
     public const string ConcurrentRetryExhausted = "booking.cancellation.concurrent_retry_exhausted";
+    public const string RefundManualReviewRequired = "booking.refund.manual_review_required";
+    public const string RefundInvalidState = "booking.refund.invalid_state";
 }

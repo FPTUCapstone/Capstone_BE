@@ -45,7 +45,7 @@ BEGIN
     EXECUTE (@dropStatusConstraintSql);
 END;
 ALTER TABLE payment.Refunds ADD CONSTRAINT CK_Refunds_Status
-    CHECK (status IN ('Pending','Processing','RetryPending','Processed','Failed','Rejected'));
+    CHECK (status IN ('Pending','Processing','RetryPending','ManualReview','Processed','Failed','Rejected'));
 
 IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE parent_object_id = OBJECT_ID(N'payment.Refunds')
                AND name = N'CK_Refunds_AttemptCount')

@@ -67,6 +67,10 @@ public sealed class RefundProcessingMigrationSqlServerTests
             SELECT COUNT(*) FROM sys.check_constraints WHERE parent_object_id = OBJECT_ID(N'payment.Refunds')
             AND name IN (N'CK_Refunds_Status',N'CK_Refunds_AttemptCount');
             """)).Should().Be(2);
+        (await database.ExecuteScalarAsync<string>("""
+            SELECT definition FROM sys.check_constraints
+            WHERE parent_object_id = OBJECT_ID(N'payment.Refunds') AND name = N'CK_Refunds_Status';
+            """)).Should().Contain("ManualReview");
         (await database.ExecuteScalarAsync<int>("""
             SELECT COUNT(*) FROM sys.indexes WHERE object_id = OBJECT_ID(N'payment.Refunds') AND name = N'IX_Refunds_Due';
             """)).Should().Be(1);
