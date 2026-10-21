@@ -1290,6 +1290,19 @@ ALTER TABLE payment.PaymentTransactions ADD CONSTRAINT FK_PaymentTransactions_Re
     FOREIGN KEY (refund_id) REFERENCES payment.Refunds(refund_id);
 GO
 
+CREATE TABLE payment.RefundManualCompletionOperations (
+    operation_id         BIGINT IDENTITY(1,1) PRIMARY KEY,
+    refund_id            BIGINT NOT NULL REFERENCES payment.Refunds(refund_id),
+    actor_user_id        BIGINT NOT NULL REFERENCES dbo.Users(user_id),
+    idempotency_key      UNIQUEIDENTIFIER NOT NULL,
+    request_hash         CHAR(64) NOT NULL,
+    gateway_reference    NVARCHAR(150) NOT NULL,
+    completed_at         DATETIME2 NOT NULL,
+    CONSTRAINT UX_RefundManualCompletionOperations_ActorKey UNIQUE (actor_user_id, idempotency_key),
+    CONSTRAINT UX_RefundManualCompletionOperations_Refund UNIQUE (refund_id)
+);
+GO
+
 CREATE TABLE payment.Payouts (
     payout_id              BIGINT IDENTITY(1,1) PRIMARY KEY,
     operator_user_id          BIGINT NOT NULL REFERENCES dbo.OperatorProfiles(user_id),

@@ -132,14 +132,20 @@ public sealed class RefundProcessorTests
         var currentUser = new FakeCurrentUserService { UserId = administrator.Id, Role = nameof(UserRole.Administrator) };
         var handler = new CompleteManualRefundCommandHandler(db, currentUser, new FixedClock(Now.AddMinutes(5)));
 
-        var result = await handler.Handle(new CompleteManualRefundCommand((await db.Refunds.SingleAsync()).Id,
+        var key = Guid.NewGuid();
+        var result = await handler.Handle(new CompleteManualRefundCommand((await db.Refunds.SingleAsync()).Id, key,
+            "PAYOS-MANUAL-REF-1"), CancellationToken.None);
+        var replay = await handler.Handle(new CompleteManualRefundCommand((await db.Refunds.SingleAsync()).Id, key,
             "PAYOS-MANUAL-REF-1"), CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
+        replay.IsSuccess.Should().BeTrue();
+        replay.Value.Should().BeEquivalentTo(result.Value);
         (await db.Refunds.SingleAsync()).Status.Should().Be(RefundStatus.Processed);
         (await db.PaymentTransactions.SingleAsync(item => item.TransactionType == PaymentTransaction.TypeRefund)).Status
             .Should().Be(PaymentTransactionStatus.Success);
         (await db.Bookings.SingleAsync()).PaymentStatus.Should().Be(PaymentStatus.Refunded);
+        (await db.RefundManualCompletionOperations.CountAsync()).Should().Be(1);
     }
 
     private static TestDbContext CreateDbContext() => new(new DbContextOptionsBuilder<TestDbContext>()

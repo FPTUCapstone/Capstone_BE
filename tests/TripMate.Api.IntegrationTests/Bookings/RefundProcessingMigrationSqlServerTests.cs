@@ -7,6 +7,7 @@ namespace TripMate.Api.IntegrationTests.Bookings;
 public sealed class RefundProcessingMigrationSqlServerTests
 {
     private const string MigrationFileName = "20261021_add_refund_processing_lifecycle.sql";
+    private const string ManualCompletionMigrationFileName = "20261022_add_refund_manual_completion_operations.sql";
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
@@ -21,6 +22,23 @@ public sealed class RefundProcessingMigrationSqlServerTests
 
         await ApplyAsync(database);
         await AssertShapeAsync(database);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task ManualCompletionMigration_CreatesDurableIdempotencyTableAndCanRunAgain()
+    {
+        await using SqlServerTestDatabase database = await SqlServerTestDatabase.CreateEmptyAsync();
+        await database.ExecuteNonQueryAsync("CREATE SCHEMA payment;");
+        await database.ExecuteNonQueryAsync("""
+            CREATE TABLE dbo.Users (user_id BIGINT NOT NULL PRIMARY KEY);
+            CREATE TABLE payment.Refunds (refund_id BIGINT NOT NULL PRIMARY KEY);
+            """);
+
+        await ApplyManualCompletionAsync(database);
+        await AssertManualCompletionShapeAsync(database);
+        await ApplyManualCompletionAsync(database);
+        await AssertManualCompletionShapeAsync(database);
     }
 
     private static async Task<SqlServerTestDatabase> CreateLegacyDatabaseAsync()
@@ -52,6 +70,20 @@ public sealed class RefundProcessingMigrationSqlServerTests
 
     private static Task ApplyAsync(SqlServerTestDatabase database) => database.ExecuteScriptAsync(Path.Combine(
         AppContext.BaseDirectory, "Database", "migrations", MigrationFileName));
+
+    private static Task ApplyManualCompletionAsync(SqlServerTestDatabase database) => database.ExecuteScriptAsync(Path.Combine(
+        AppContext.BaseDirectory, "Database", "migrations", ManualCompletionMigrationFileName));
+
+    private static async Task AssertManualCompletionShapeAsync(SqlServerTestDatabase database)
+    {
+        (await database.ExecuteScalarAsync<int>("""
+            SELECT COUNT(*) FROM sys.tables WHERE object_id = OBJECT_ID(N'payment.RefundManualCompletionOperations');
+            """)).Should().Be(1);
+        (await database.ExecuteScalarAsync<int>("""
+            SELECT COUNT(*) FROM sys.indexes WHERE object_id = OBJECT_ID(N'payment.RefundManualCompletionOperations')
+            AND name IN (N'UX_RefundManualCompletionOperations_ActorKey',N'UX_RefundManualCompletionOperations_Refund');
+            """)).Should().Be(2);
+    }
 
     private static async Task AssertShapeAsync(SqlServerTestDatabase database)
     {

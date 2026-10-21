@@ -1,4 +1,6 @@
 using System.Text.Json;
+using System.Security.Cryptography;
+using System.Text;
 
 using MediatR;
 
@@ -17,7 +19,7 @@ namespace TripMate.Application.Features.Bookings.Refunds;
 /// Records an administrator-verified settlement for a provider which has no safe automatic
 /// original-channel refund API. It never initiates a payout or invents beneficiary details.
 /// </summary>
-public sealed record CompleteManualRefundCommand(long RefundId, string? GatewayReference)
+public sealed record CompleteManualRefundCommand(long RefundId, Guid IdempotencyKey, string? GatewayReference)
     : IRequest<Result<ManualRefundCompletionResponse>>;
 
 public sealed record ManualRefundCompletionResponse(long RefundId, string Status, string GatewayReference,
@@ -35,13 +37,30 @@ public sealed class CompleteManualRefundCommandHandler(
         if (currentUser.UserId is not long administratorId || currentUser.Role != nameof(UserRole.Administrator))
             return Result.Failure<ManualRefundCompletionResponse>(BookingCancellationErrorCodes.Unauthorized,
                 "Administrator access is required to record a manual refund settlement.");
-        if (request.RefundId <= 0 || string.IsNullOrWhiteSpace(request.GatewayReference) ||
+        if (request.RefundId <= 0 || request.IdempotencyKey == Guid.Empty || string.IsNullOrWhiteSpace(request.GatewayReference) ||
             request.GatewayReference.Trim().Length > Refund.GatewayReferenceMaxLength)
             return Result.Failure<ManualRefundCompletionResponse>(BookingCancellationErrorCodes.InvalidState,
                 "A valid gateway settlement reference is required.");
 
         return await dbContext.ExecuteInSerializableTransactionAsync(async token =>
         {
+            string requestHash = ComputeRequestHash(request.RefundId, request.GatewayReference!);
+            RefundManualCompletionOperation? existingOperation = await dbContext.RefundManualCompletionOperations
+                .AsNoTracking()
+                .SingleOrDefaultAsync(operation => operation.ActorUserId == administratorId &&
+                    operation.IdempotencyKey == request.IdempotencyKey, token);
+            if (existingOperation is not null)
+            {
+                if (existingOperation.RefundId != request.RefundId || existingOperation.RequestHash != requestHash)
+                    return Result.Failure<ManualRefundCompletionResponse>(
+                        BookingCancellationErrorCodes.IdempotencyPayloadMismatch,
+                        "This idempotency key has already been used with a different manual refund request.");
+
+                return Result.Success(new ManualRefundCompletionResponse(existingOperation.RefundId,
+                    RefundStatus.Processed.ToString(), existingOperation.GatewayReference,
+                    existingOperation.CompletedAtUtc));
+            }
+
             Refund? refund = await dbContext.Refunds.SingleOrDefaultAsync(item => item.Id == request.RefundId, token);
             if (refund is null)
                 return Result.Failure<ManualRefundCompletionResponse>(BookingCancellationErrorCodes.NotFound,
@@ -70,6 +89,8 @@ public sealed class CompleteManualRefundCommandHandler(
                 .SumAsync(item => (decimal?)item.Amount, token) ?? 0m;
             booking.ApplyRefund(priorRefunded + refund.Amount);
             dbContext.PaymentTransactions.Add(settlement);
+            dbContext.RefundManualCompletionOperations.Add(RefundManualCompletionOperation.Create(refund.Id,
+                administratorId, request.IdempotencyKey, requestHash, reference, now));
             AddCompletionNotifications(booking, refund, now);
             dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(administratorId, "ManualRefundCompleted", "Refund",
                 refund.Id, now, AuditOutcome.Success,
@@ -79,6 +100,12 @@ public sealed class CompleteManualRefundCommandHandler(
             return Result.Success(new ManualRefundCompletionResponse(refund.Id, refund.Status.ToString(), reference,
                 refund.ProcessedAtUtc!.Value));
         }, cancellationToken);
+    }
+
+    private static string ComputeRequestHash(long refundId, string gatewayReference)
+    {
+        string canonical = $"{refundId}\n{gatewayReference.Trim()}";
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical))).ToLowerInvariant();
     }
 
     private void AddCompletionNotifications(Booking booking, Refund refund, DateTimeOffset now)
