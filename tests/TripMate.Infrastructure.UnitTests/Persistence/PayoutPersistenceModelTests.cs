@@ -52,7 +52,10 @@ public sealed class PayoutPersistenceModelTests
             "CK_Payouts_PeriodOrder",
             "CK_Payouts_NetAmount",
             "CK_Payouts_Status",
-            "CK_Payouts_LifecycleState");
+            "CK_Payouts_LifecycleState",
+            "CK_Payouts_PayableNet");
+        payout.GetCheckConstraints().Single(constraint => constraint.Name == "CK_Payouts_NetAmount").Sql.Should().Be(
+            "payable_net_before_adjustments IS NULL OR net_amount = payable_net_before_adjustments - adjustments_applied");
     }
 
     [Fact]
@@ -64,7 +67,8 @@ public sealed class PayoutPersistenceModelTests
             Payout.StatusSettlementProcessing,
             Payout.StatusSettled,
             Payout.StatusSettlementFailed,
-            Payout.StatusRejected);
+            Payout.StatusRejected,
+            Payout.StatusCancelled);
     }
 
     private static ApplicationDbContext CreateContext()

@@ -3,6 +3,7 @@ using FluentAssertions;
 using FluentValidation.TestHelper;
 
 using TripMate.Application.Common.Interfaces;
+using TripMate.Application.Features.Admin.Payouts.Common;
 using TripMate.Application.Features.Admin.Payouts.GetList;
 using TripMate.Application.UnitTests.TestUtilities;
 
