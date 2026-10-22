@@ -53,17 +53,17 @@ public sealed class PayoutsSqlServerTests
                 gross_revenue, commission_amount, net_amount, status, requested_at,
                 reviewed_by, reviewed_at, rejection_reason, settlement_authorized_by,
                 settlement_authorized_at, gateway_reference, gateway_failure_reason,
-                gateway_attempt_count, last_gateway_attempt_at)
+                gateway_attempt_count, last_gateway_attempt_at, payout_code)
             VALUES (@op1, '2026-08-01', '2026-08-31', 10000000, 1000000, 9000000, 'PendingReview', '2026-09-01T02:30:00',
-                    NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL),
+                    NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL, 'PO-1'),
                    (@op2, '2026-08-01', '2026-08-31', 200000, 10000, 190000, 'PendingReview', NULL,
-                    NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL),
+                    NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL, 'PO-2'),
                    (@op3, '2026-07-01', '2026-07-31', 500000, 62500, 437500, 'ApprovedForSettlement', NULL,
-                    @staff, '2026-08-01T00:00:00', NULL, NULL, NULL, NULL, NULL, 0, NULL),
+                    @staff, '2026-08-01T00:00:00', NULL, NULL, NULL, NULL, NULL, 0, NULL, 'PO-3'),
                    (@op2, '2026-07-01', '2026-07-31', 300000, 15000, 285000, 'Rejected', NULL,
-                    @staff, '2026-08-01T00:00:00', N'Invalid settlement evidence', NULL, NULL, NULL, NULL, 0, NULL),
+                    @staff, '2026-08-01T00:00:00', N'Invalid settlement evidence', NULL, NULL, NULL, NULL, 0, NULL, 'PO-4'),
                    (@op1, '2026-05-01', '2026-05-31', 100000, 5000, 95000, 'Settled', '2026-06-01T00:00:00',
-                    @staff, '2026-06-01T00:00:00', NULL, @administrator, '2026-06-01T01:00:00', N'gateway-5', NULL, 1, '2026-06-01T01:01:00');
+                    @staff, '2026-06-01T00:00:00', NULL, @administrator, '2026-06-01T01:00:00', N'gateway-5', NULL, 1, '2026-06-01T01:01:00', 'PO-5');
             """);
         await using var db = database.CreateDbContext();
         var handler = new GetPayoutsQueryHandler(db, new Staff());
@@ -112,6 +112,42 @@ public sealed class PayoutsSqlServerTests
         requested.RequestedAtUtc.Should().NotBeNull();
         var unrequested = all.Value.Items.Single(item => item.PayoutCode == "PO-2");
         unrequested.RequestedAtUtc.Should().BeNull();
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Handle_ReturnsPersistedPayoutCodeAndPeriodCount_NotAnIdDerivedCode()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await database.ExecuteNonQueryAsync("""
+            DECLARE @op BIGINT;
+            INSERT dbo.Users(role, email, full_name, status)
+            VALUES ('TourOperator', N'code-op@example.com', N'Code Op', 'Active');
+            SET @op = SCOPE_IDENTITY();
+            INSERT dbo.OperatorProfiles(user_id, company_name, tax_code, business_license_no)
+            VALUES (@op, N'Code Op Tours', N'TAX-CODE-1', N'LIC-CODE-1');
+
+            DECLARE @staff BIGINT;
+            INSERT dbo.Users(role, email, full_name, status)
+            VALUES ('Staff', N'code-staff@example.com', N'Code Staff', 'Active');
+            SET @staff = SCOPE_IDENTITY();
+
+            INSERT payment.Payouts(operator_user_id, period_start, period_end,
+                gross_revenue, commission_amount, net_amount, status, requested_at,
+                gateway_attempt_count, payout_code, period_count)
+            VALUES (@op, '2026-08-01', '2026-10-31', 30000000, 3000000, 27000000, 'PendingReview', '2026-10-23T02:00:00',
+                    0, 'PO-202610-000042', 3);
+            """);
+        await using var db = database.CreateDbContext();
+        var handler = new GetPayoutsQueryHandler(db, new Staff());
+
+        var listed = await handler.Handle(new GetPayoutsQuery(), default);
+        var item = listed.Value.Items.Should().ContainSingle().Subject;
+        item.PayoutCode.Should().Be("PO-202610-000042", "list must echo the code UC-46 persisted, not PO-{id}");
+        item.PeriodCount.Should().Be(3, "a multi-month available-balance payout must show how many months it covers");
+
+        var byPersistedCode = await handler.Handle(new GetPayoutsQuery(Keyword: "PO-202610"), default);
+        byPersistedCode.Value.TotalCount.Should().Be(1, "keyword search matches the persisted code, not the id");
     }
 
     private sealed class Staff : ICurrentUserService
