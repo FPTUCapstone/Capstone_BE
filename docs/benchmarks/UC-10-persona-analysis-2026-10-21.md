@@ -8,11 +8,11 @@
 - **Configuration**: Release
 - **OS / Runtime**: Microsoft Windows 10.0.26200 / .NET 10.0.0
 - **Machine**: HAN (12 logical cores)
-- **Git Commit**: `5831e458b66d23fefd8adb86f5c525aec4538b7e` (dirty)
+- **Git Commit**: `f2585ab80ac9ef3c08a49275edd3d0d7d5b40099` (dirty)
 - **Evaluation Mode**: Recorded BGE-M3 Replay (deterministic)
 - **Configured Embedding Model**: `bge-m3:latest`
 - **Runtime Model Identity**: not exposed by provider contract
-- **Fixture Provenance SHA-256**: `5F8257FA2F4EF8B7677CBC91648D846C9EB5F9A74A7C1767BF638104DB0C823A`
+- **Fixture Provenance SHA-256**: `D50E09CC6900D908D93B62068BDE138EDB35DE12FB5B4241D3EB8110986BC4AC`
 - **Service Endpoint**: `Recorded fixture (local deterministic)`
 - **Target Scenario**: `danang-real-1day` (40 POIs)
 - **Objective Mode**: `WeightedUtility` (Csp)

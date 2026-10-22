@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-
 using FluentAssertions;
 
 using TripMate.Application.Common.Models;
@@ -12,33 +10,57 @@ namespace TripMate.Application.UnitTests.Features.Scheduling.Benchmarks.Analysis
 
 public class BgeM3CanonicalFixtureTests
 {
-    private const string ExpectedHash = "5F8257FA2F4EF8B7677CBC91648D846C9EB5F9A74A7C1767BF638104DB0C823A";
+    private const string ExpectedHash = "D50E09CC6900D908D93B62068BDE138EDB35DE12FB5B4241D3EB8110986BC4AC";
 
     [Fact]
-    public void CanonicalFixtureFile_Exists_AndMatchesExactSha256()
+    public void CanonicalFixtureFile_Exists_AndMatchesCanonicalSha256()
     {
         var fixturePath = BgeM3BenchmarkFixture.ResolveFixturePath();
         File.Exists(fixturePath).Should().BeTrue("canonical raw fixture must exist on disk");
-
-        using var stream = File.OpenRead(fixturePath);
-        using var sha = SHA256.Create();
-        var hash = Convert.ToHexString(sha.ComputeHash(stream));
-
-        hash.Should().Be(ExpectedHash, "raw fixture bytes must match expected cryptographic SHA-256");
-        hash.Should().Be(BgeM3BenchmarkFixture.ExpectedFixtureSha256);
-    }
-
-    [Fact]
-    public void LoadAndVerify_ReturnsActualHashAndValidatedDocument()
-    {
         var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangPersonalizationData();
-        var fixturePath = BgeM3BenchmarkFixture.ResolveFixturePath();
-        var actualHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(fixturePath)));
 
         var fixture = BgeM3BenchmarkFixture.LoadAndVerify(cityData);
 
-        fixture.Sha256.Should().Be(actualHash);
+        fixture.Sha256.Should().Be(ExpectedHash, "canonical fixture content must match expected cryptographic SHA-256");
+        fixture.Sha256.Should().Be(BgeM3BenchmarkFixture.ExpectedFixtureSha256);
+    }
+
+    [Fact]
+    public void LoadAndVerify_ReturnsCanonicalHashAndValidatedDocument()
+    {
+        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangPersonalizationData();
+
+        var fixture = BgeM3BenchmarkFixture.LoadAndVerify(cityData);
+
+        fixture.Sha256.Should().Be(ExpectedHash);
         fixture.Document.ScenarioId.Should().Be(cityData.Id);
+    }
+
+    [Fact]
+    public void LoadAndVerify_AcceptsCanonicalFixtureAcrossPlatformLineEndings()
+    {
+        var cityData = SchedulingBenchmarkScenarioFactory.CreateDaNangPersonalizationData();
+        var canonicalJson = File.ReadAllText(BgeM3BenchmarkFixture.ResolveFixturePath());
+        var lfJson = canonicalJson.Replace("\r\n", "\n", StringComparison.Ordinal);
+        var lfFixturePath = Path.GetTempFileName();
+        var crlfFixturePath = Path.GetTempFileName();
+
+        try
+        {
+            File.WriteAllText(lfFixturePath, lfJson);
+            File.WriteAllText(crlfFixturePath, lfJson.Replace("\n", "\r\n", StringComparison.Ordinal));
+
+            var lfFixture = BgeM3BenchmarkFixture.LoadAndVerify(cityData, lfFixturePath);
+            var crlfFixture = BgeM3BenchmarkFixture.LoadAndVerify(cityData, crlfFixturePath);
+
+            lfFixture.Sha256.Should().Be(BgeM3BenchmarkFixture.ExpectedFixtureSha256);
+            crlfFixture.Sha256.Should().Be(lfFixture.Sha256);
+        }
+        finally
+        {
+            File.Delete(lfFixturePath);
+            File.Delete(crlfFixturePath);
+        }
     }
 
     [Fact]

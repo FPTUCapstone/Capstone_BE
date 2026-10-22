@@ -30,7 +30,7 @@ public static class BgeM3BenchmarkFixture
     public const int PersonaCount = 5;
     public const int PoiCount = 40;
     public const string Provenance = "Captured from live TripMate AI /v1/rank-pois on 2026-10-21; configured/expected model bge-m3:latest; runtime model identity is not exposed by the provider contract; DefaultGeneralist scores use the production cold-start fallback, not a raw provider response";
-    public const string ExpectedFixtureSha256 = "5F8257FA2F4EF8B7677CBC91648D846C9EB5F9A74A7C1767BF638104DB0C823A";
+    public const string ExpectedFixtureSha256 = "D50E09CC6900D908D93B62068BDE138EDB35DE12FB5B4241D3EB8110986BC4AC";
 
     public static string ResolveFixturePath()
     {
@@ -57,7 +57,7 @@ public static class BgeM3BenchmarkFixture
     {
         var path = fixturePath ?? ResolveFixturePath();
         var bytes = File.ReadAllBytes(path);
-        var actualSha256 = Convert.ToHexString(SHA256.HashData(bytes));
+        var actualSha256 = ComputeCanonicalSha256(bytes);
         if (!string.Equals(actualSha256, ExpectedFixtureSha256, StringComparison.Ordinal))
         {
             throw new InvalidOperationException(
@@ -70,5 +70,25 @@ public static class BgeM3BenchmarkFixture
 
         BgeM3CanonicalFixtureValidator.Validate(cityData, document);
         return new VerifiedBgeM3Fixture(document, actualSha256);
+    }
+
+    private static string ComputeCanonicalSha256(ReadOnlySpan<byte> bytes)
+    {
+        var normalized = new byte[bytes.Length];
+        var length = 0;
+
+        for (var index = 0; index < bytes.Length; index++)
+        {
+            if (bytes[index] == '\r' && index + 1 < bytes.Length && bytes[index + 1] == '\n')
+            {
+                normalized[length++] = (byte)'\n';
+                index++;
+                continue;
+            }
+
+            normalized[length++] = bytes[index];
+        }
+
+        return Convert.ToHexString(SHA256.HashData(normalized.AsSpan(0, length)));
     }
 }
