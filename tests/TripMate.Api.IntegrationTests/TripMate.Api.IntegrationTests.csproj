@@ -130,6 +130,12 @@
     <None Include="..\..\database\migrations\20261015_add_booking_cancellation.sql"
           Link="Database\migrations\20261015_add_booking_cancellation.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261021_add_refund_processing_lifecycle.sql"
+          Link="Database\migrations\20261021_add_refund_processing_lifecycle.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261022_add_refund_manual_completion_operations.sql"
+          Link="Database\migrations\20261022_add_refund_manual_completion_operations.sql"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
