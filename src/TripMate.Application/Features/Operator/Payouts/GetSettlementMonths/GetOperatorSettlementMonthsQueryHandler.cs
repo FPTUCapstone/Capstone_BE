@@ -43,8 +43,13 @@ public sealed class GetOperatorSettlementMonthsQueryHandler(
                     && p.Status != Payout.StatusRejected && p.Status != Payout.StatusCancelled))
             .Select(b => new
             {
-                b.SettlementMonth, b.EligibleBookingCount, b.PaymentsReceived, b.DiscountsGiven,
-                b.RefundedAmount, b.CommissionAmount, b.PayableNetAmount,
+                b.SettlementMonth,
+                b.EligibleBookingCount,
+                b.PaymentsReceived,
+                b.DiscountsGiven,
+                b.RefundedAmount,
+                b.CommissionAmount,
+                b.PayableNetAmount,
                 PayoutCode = db.Payouts.Where(p => p.Id == b.PayoutId).Select(p => p.PayoutCode).FirstOrDefault(),
             })
             .ToListAsync(ct);

@@ -1,7 +1,7 @@
 using FluentAssertions;
 
-using TripMate.Application.Features.Admin.Payouts.GetDetail;
 using TripMate.Application.Features.Admin.Payouts.Common;
+using TripMate.Application.Features.Admin.Payouts.GetDetail;
 using TripMate.Application.UnitTests.Features.Operator.Payouts;
 using TripMate.Application.UnitTests.TestUtilities;
 using TripMate.Domain.Entities;
