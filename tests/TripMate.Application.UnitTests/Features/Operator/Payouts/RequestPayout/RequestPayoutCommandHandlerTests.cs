@@ -26,7 +26,7 @@ public sealed class RequestPayoutCommandHandlerTests
             db, bookingId: 301, scheduleId: schedule.Id, totalAmount: 10_000_000m,
             succeededAtUtc: new DateTimeOffset(2026, 8, 15, 3, 0, 0, TimeSpan.Zero));
 
-        var handler = new RequestPayoutCommandHandler(db, CurrentUser(operatorUser.Id), new FixedClock(Now));
+        var handler = new RequestPayoutCommandHandler(db, CurrentUser(operatorUser.Id), new FixedClock(Now), new FakePayoutPersistenceErrorClassifier());
 
         var result = await handler.Handle(new RequestPayoutCommand(), CancellationToken.None);
 
@@ -60,7 +60,7 @@ public sealed class RequestPayoutCommandHandlerTests
         await PayoutTestFixture.SeedCompletedBookingAsync(
             db, 302, scheduleSep.Id, 2_000_000m, new DateTimeOffset(2026, 9, 5, 3, 0, 0, TimeSpan.Zero));
 
-        var handler = new RequestPayoutCommandHandler(db, CurrentUser(operatorUser.Id), new FixedClock(Now));
+        var handler = new RequestPayoutCommandHandler(db, CurrentUser(operatorUser.Id), new FixedClock(Now), new FakePayoutPersistenceErrorClassifier());
 
         var result = await handler.Handle(new RequestPayoutCommand(), CancellationToken.None);
 
@@ -88,7 +88,7 @@ public sealed class RequestPayoutCommandHandlerTests
         await PayoutTestFixture.SeedCompletedBookingAsync(
             db, 301, schedule.Id, 10_000_000m, new DateTimeOffset(2026, 10, 1, 3, 0, 0, TimeSpan.Zero));
 
-        var handler = new RequestPayoutCommandHandler(db, CurrentUser(operatorUser.Id), new FixedClock(Now));
+        var handler = new RequestPayoutCommandHandler(db, CurrentUser(operatorUser.Id), new FixedClock(Now), new FakePayoutPersistenceErrorClassifier());
 
         var result = await handler.Handle(new RequestPayoutCommand(), CancellationToken.None);
 
@@ -110,7 +110,7 @@ public sealed class RequestPayoutCommandHandlerTests
         await PayoutTestFixture.SeedCompletedBookingAsync(
             db, 301, schedule.Id, 10_000_000m, new DateTimeOffset(2026, 8, 15, 3, 0, 0, TimeSpan.Zero));
 
-        var handler = new RequestPayoutCommandHandler(db, CurrentUser(operatorUser.Id), new FixedClock(Now));
+        var handler = new RequestPayoutCommandHandler(db, CurrentUser(operatorUser.Id), new FixedClock(Now), new FakePayoutPersistenceErrorClassifier());
         var first = await handler.Handle(new RequestPayoutCommand(), CancellationToken.None);
         first.IsSuccess.Should().BeTrue();
 
@@ -134,7 +134,7 @@ public sealed class RequestPayoutCommandHandlerTests
         await PayoutTestFixture.SeedCompletedBookingAsync(
             db, 301, schedule.Id, 10_000_000m, new DateTimeOffset(2026, 8, 15, 3, 0, 0, TimeSpan.Zero));
 
-        var handler = new RequestPayoutCommandHandler(db, CurrentUser(operatorUser.Id), new FixedClock(Now));
+        var handler = new RequestPayoutCommandHandler(db, CurrentUser(operatorUser.Id), new FixedClock(Now), new FakePayoutPersistenceErrorClassifier());
 
         var result = await handler.Handle(new RequestPayoutCommand(), CancellationToken.None);
 
@@ -157,7 +157,7 @@ public sealed class RequestPayoutCommandHandlerTests
         await PayoutTestFixture.SeedCompletedBookingAsync(
             db, 301, schedule.Id, 500_000m, new DateTimeOffset(2026, 8, 15, 3, 0, 0, TimeSpan.Zero));
 
-        var handler = new RequestPayoutCommandHandler(db, CurrentUser(operatorUser.Id), new FixedClock(Now));
+        var handler = new RequestPayoutCommandHandler(db, CurrentUser(operatorUser.Id), new FixedClock(Now), new FakePayoutPersistenceErrorClassifier());
 
         var result = await handler.Handle(new RequestPayoutCommand(), CancellationToken.None);
 
@@ -182,7 +182,7 @@ public sealed class RequestPayoutCommandHandlerTests
             401, bookingId: 301, amount: 2_000_000m, processedAtUtc: new DateTimeOffset(2026, 8, 18, 3, 0, 0, TimeSpan.Zero)));
         await db.SaveChangesAsync();
 
-        var handler = new RequestPayoutCommandHandler(db, CurrentUser(operatorUser.Id), new FixedClock(Now));
+        var handler = new RequestPayoutCommandHandler(db, CurrentUser(operatorUser.Id), new FixedClock(Now), new FakePayoutPersistenceErrorClassifier());
 
         var result = await handler.Handle(new RequestPayoutCommand(), CancellationToken.None);
 

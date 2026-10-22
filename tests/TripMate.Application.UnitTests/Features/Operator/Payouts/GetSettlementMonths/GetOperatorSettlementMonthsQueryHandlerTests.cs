@@ -80,7 +80,7 @@ public sealed class GetOperatorSettlementMonthsQueryHandlerTests
 
         var currentUser = RequestPayoutCommandHandlerTests.CurrentUser(operatorUser.Id);
         var clock = new RequestPayoutCommandHandlerTests.FixedClock(Now);
-        var requestHandler = new RequestPayoutCommandHandler(db, currentUser, clock);
+        var requestHandler = new RequestPayoutCommandHandler(db, currentUser, clock, new FakePayoutPersistenceErrorClassifier());
         var requested = await requestHandler.Handle(new RequestPayoutCommand(), CancellationToken.None);
         requested.IsSuccess.Should().BeTrue();
 

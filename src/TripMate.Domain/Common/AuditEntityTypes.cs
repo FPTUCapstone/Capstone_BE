@@ -23,4 +23,7 @@ public static class AuditEntityTypes
 
     // UC-45 Export Revenue Report
     public const string RevenueExport = "RevenueExport";
+
+    // UC-64/73/74 Staff Payout Request Review
+    public const string Payout = "Payout";
 }

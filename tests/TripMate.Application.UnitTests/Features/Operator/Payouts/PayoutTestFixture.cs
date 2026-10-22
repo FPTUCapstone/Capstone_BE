@@ -117,6 +117,36 @@ internal static class PayoutTestFixture
         return (booking, transaction.Id);
     }
 
+    /// <summary>Seeds a PendingReview payout for one settlement month — enough for admin
+    /// review (UC-64/73/74) handlers, which only read/transition the header row.</summary>
+    public static async Task<Payout> SeedPendingReviewPayoutAsync(
+        TestDbContext db, long operatorUserId, DateOnly settlementMonth,
+        decimal paymentsReceived = 10_000_000m, decimal commissionAmount = 1_000_000m,
+        DateTimeOffset? requestedAtUtc = null)
+    {
+        var payout = Payout.Create(
+            payoutCode: $"PO-TEST-{Guid.NewGuid():N}"[..24],
+            operatorUserId: operatorUserId,
+            months: [new PayoutMonthTotal(
+                settlementMonth, EligibleBookingCount: 1, ParticipantCount: 1,
+                PaymentsReceived: paymentsReceived, DiscountsGiven: 0m, RefundedAmount: 0m,
+                CommissionAmount: commissionAmount, PayableNetAmount: paymentsReceived - commissionAmount)],
+            cutOffAtUtc: requestedAtUtc ?? DateTimeOffset.UtcNow,
+            adjustmentsApplied: 0m,
+            minimumAmountChecked: 1_000_000m,
+            bankName: "Vietcombank",
+            accountHolderName: "Nguyen Van A",
+            accountNumberMasked: "****1234",
+            accountNumberProtected: "protected:1029384756",
+            requestedAtUtc: requestedAtUtc ?? DateTimeOffset.UtcNow);
+
+        db.Payouts.Add(payout);
+        await db.SaveChangesAsync();
+        payout.AssignPayoutCode($"{Payout.PayoutCodePrefix}{payout.Id:D6}");
+        await db.SaveChangesAsync();
+        return payout;
+    }
+
     public static Refund CreateProcessedRefund(long id, long bookingId, decimal amount, DateTimeOffset processedAtUtc)
     {
         var refund = (Refund)Activator.CreateInstance(typeof(Refund), nonPublic: true)!;

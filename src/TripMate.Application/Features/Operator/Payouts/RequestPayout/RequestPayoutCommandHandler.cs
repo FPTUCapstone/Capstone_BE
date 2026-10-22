@@ -19,7 +19,8 @@ namespace TripMate.Application.Features.Operator.Payouts.RequestPayout;
 public sealed class RequestPayoutCommandHandler(
     IApplicationDbContext db,
     ICurrentUserService currentUser,
-    IDateTimeProvider clock)
+    IDateTimeProvider clock,
+    IPayoutPersistenceErrorClassifier persistenceErrors)
     : IRequestHandler<RequestPayoutCommand, Result<PayoutSummaryDto>>
 {
     public async Task<Result<PayoutSummaryDto>> Handle(RequestPayoutCommand request, CancellationToken ct)
@@ -154,7 +155,7 @@ public sealed class RequestPayoutCommandHandler(
                 m.Calc.PayableNetBeforeAdjustments)).ToList();
 
             var payout = Payout.Create(
-                payoutCode: "PENDING", // replaced below once the identity value is known
+                payoutCode: $"TMP-{Guid.NewGuid():N}"[..Payout.PayoutCodeMaxLength], // unique placeholder; final code assigned after insert
                 operatorUserId: operatorId,
                 months: monthTotals,
                 cutOffAtUtc: nowUtc,
@@ -188,7 +189,7 @@ public sealed class RequestPayoutCommandHandler(
             {
                 await db.SaveChangesAsync(innerCt);
             }
-            catch (DbUpdateException)
+            catch (DbUpdateException exception) when (persistenceErrors.IsActiveOperatorConflict(exception))
             {
                 return Result.Failure<PayoutSummaryDto>(
                     OperatorPayoutErrorCodes.ActivePayoutExists, "A payout request is already in progress for this operator.");

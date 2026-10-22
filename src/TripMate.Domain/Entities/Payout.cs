@@ -247,6 +247,53 @@ public sealed class Payout
     }
 
     public bool IsCancellable => Status == StatusPendingReview;
+
+    /// <summary>
+    /// UC-73: moves a request from PendingReview to ApprovedForSettlement. Returns false without
+    /// changing state when the request is not currently PendingReview (caller maps that to a 409).
+    /// </summary>
+    public bool Approve(long reviewerUserId, DateTimeOffset reviewedAtUtc)
+    {
+        if (reviewerUserId <= 0)
+            throw new ArgumentOutOfRangeException(nameof(reviewerUserId));
+
+        if (Status != StatusPendingReview)
+            return false;
+
+        Status = StatusApprovedForSettlement;
+        ReviewedBy = reviewerUserId;
+        ReviewedAtUtc = reviewedAtUtc;
+        return true;
+    }
+
+    /// <summary>
+    /// UC-74: moves a request from PendingReview to Rejected with a required reason. Returns false
+    /// without changing state when the request is not currently PendingReview (caller maps that to
+    /// a 409). The reason is expected to already be trimmed and within RejectionReasonMaxLength;
+    /// this is a defensive invariant guard, not where the Staff-facing length rule is enforced
+    /// (that belongs to the Application layer). There is no minimum length — SRS UC-74 only
+    /// requires the reason be present (decided 2026-10-22, scoped against the SRS text, which has
+    /// no 10-character minimum and no MSG157).
+    /// </summary>
+    public bool Reject(long reviewerUserId, string reason, DateTimeOffset reviewedAtUtc)
+    {
+        if (reviewerUserId <= 0)
+            throw new ArgumentOutOfRangeException(nameof(reviewerUserId));
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        if (reason.Length > RejectionReasonMaxLength)
+            throw new ArgumentException(
+                $"Rejection reason must be at most {RejectionReasonMaxLength} characters.", nameof(reason));
+
+        if (Status != StatusPendingReview)
+            return false;
+
+        Status = StatusRejected;
+        ReviewedBy = reviewerUserId;
+        ReviewedAtUtc = reviewedAtUtc;
+        RejectionReason = reason;
+        return true;
+    }
 }
 
 /// <summary>One settlement month's totals, as fed into <see cref="Payout.Create"/> to build both

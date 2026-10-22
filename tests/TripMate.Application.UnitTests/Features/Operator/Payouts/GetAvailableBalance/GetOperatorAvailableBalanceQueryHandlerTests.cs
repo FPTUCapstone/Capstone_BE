@@ -72,7 +72,7 @@ public sealed class GetOperatorAvailableBalanceQueryHandlerTests
 
         var currentUser = RequestPayoutCommandHandlerTests.CurrentUser(operatorUser.Id);
         var clock = new RequestPayoutCommandHandlerTests.FixedClock(Now);
-        var requested = await new RequestPayoutCommandHandler(db, currentUser, clock)
+        var requested = await new RequestPayoutCommandHandler(db, currentUser, clock, new FakePayoutPersistenceErrorClassifier())
             .Handle(new RequestPayoutCommand(), CancellationToken.None);
         requested.IsSuccess.Should().BeTrue();
 

@@ -17,7 +17,7 @@ public sealed class PayoutConfiguration : IEntityTypeConfiguration<Payout>
                 "period_end >= period_start");
             table.HasCheckConstraint(
                 "CK_Payouts_NetAmount",
-                "net_amount = gross_revenue - commission_amount");
+                "payable_net_before_adjustments IS NULL OR net_amount = payable_net_before_adjustments - adjustments_applied");
             table.HasCheckConstraint(
                 "CK_Payouts_Status",
                 "status IN ('PendingReview','ApprovedForSettlement','SettlementProcessing','Settled','SettlementFailed','Rejected','Cancelled')");
@@ -63,7 +63,13 @@ public sealed class PayoutConfiguration : IEntityTypeConfiguration<Payout>
             .HasColumnName("status")
             .HasMaxLength(Payout.StatusMaxLength)
             .IsUnicode(false)
-            .IsRequired();
+            .IsRequired()
+            // UC-73/UC-74 (I02): two concurrent Staff decisions on the same PendingReview payout
+            // race on this column. Making it a concurrency token means the losing SaveChangesAsync
+            // throws DbUpdateConcurrencyException instead of silently overwriting the first
+            // writer's transition (same pattern as UserConfiguration.Status and
+            // OperatorProfileConfiguration.ApprovalStatus).
+            .IsConcurrencyToken();
         builder.Property(payout => payout.RequestedAtUtc).HasColumnName("requested_at").AsUtcDateTime2();
         builder.Property(payout => payout.ReviewedBy).HasColumnName("reviewed_by");
         builder.Property(payout => payout.ReviewedAtUtc).HasColumnName("reviewed_at").AsUtcDateTime2();
