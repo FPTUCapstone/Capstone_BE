@@ -288,7 +288,9 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             BookingCancellationErrorCodes.Forbidden => StatusCodes.Status403Forbidden,
             BookingCancellationErrorCodes.InvalidState or
                 BookingCancellationErrorCodes.PaymentNotRefundable or
-                BookingCancellationErrorCodes.IdempotencyPayloadMismatch => StatusCodes.Status409Conflict,
+                BookingCancellationErrorCodes.IdempotencyPayloadMismatch or
+                BookingCancellationErrorCodes.RefundInvalidState or
+                BookingCancellationErrorCodes.RefundManualReviewRequired => StatusCodes.Status409Conflict,
             BookingCancellationErrorCodes.WindowClosed => StatusCodes.Status422UnprocessableEntity,
             BookingCancellationErrorCodes.ReasonRequired => StatusCodes.Status422UnprocessableEntity,
             BookingCancellationErrorCodes.PolicyUnavailable => StatusCodes.Status503ServiceUnavailable,

@@ -7,6 +7,7 @@ using TripMate.Api.Common;
 using TripMate.Api.Controllers.V1.Requests;
 using TripMate.Application.Features.Bookings.Cancel;
 using TripMate.Application.Features.Bookings.Preview;
+using TripMate.Application.Features.Bookings.Refunds;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Api.Controllers.V1;
@@ -16,6 +17,17 @@ namespace TripMate.Api.Controllers.V1;
 [Route("api/v1/bookings")]
 public sealed class BookingsController(ISender sender) : ApiControllerBase(sender)
 {
+    [HttpGet("{bookingId:long}/refund")]
+    [ProducesResponseType(typeof(BookingRefundProgressResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetRefundProgress(long bookingId, CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(new GetBookingRefundProgressQuery(bookingId), cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
     [HttpGet("{bookingId:long}/cancellation-preview")]
     [ProducesResponseType(typeof(BookingCancellationPreviewResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
