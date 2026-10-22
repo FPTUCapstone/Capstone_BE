@@ -52,7 +52,8 @@ public sealed class PayoutPersistenceModelTests
             "CK_Payouts_PeriodOrder",
             "CK_Payouts_NetAmount",
             "CK_Payouts_Status",
-            "CK_Payouts_LifecycleState");
+            "CK_Payouts_LifecycleState",
+            "CK_Payouts_PayableNet");
     }
 
     [Fact]
@@ -64,7 +65,8 @@ public sealed class PayoutPersistenceModelTests
             Payout.StatusSettlementProcessing,
             Payout.StatusSettled,
             Payout.StatusSettlementFailed,
-            Payout.StatusRejected);
+            Payout.StatusRejected,
+            Payout.StatusCancelled);
     }
 
     private static ApplicationDbContext CreateContext()

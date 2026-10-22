@@ -137,6 +137,14 @@ public class TestDbContext(
 
     public DbSet<Payout> Payouts => Set<Payout>();
 
+    public DbSet<PayoutItem> PayoutItems => Set<PayoutItem>();
+
+    public DbSet<PayoutRefundItem> PayoutRefundItems => Set<PayoutRefundItem>();
+
+    public DbSet<PayoutAdjustment> PayoutAdjustments => Set<PayoutAdjustment>();
+
+    public DbSet<PayoutPeriodBreakdown> PayoutPeriodBreakdowns => Set<PayoutPeriodBreakdown>();
+
     public int TransactionExecutionCount { get; private set; }
 
     public bool IsExecutingSerializableTransaction { get; private set; }
