@@ -51,7 +51,7 @@ public sealed class GetPayoutsQueryHandler(
         {
             var pattern = ContainsPattern(request.Keyword.Trim());
             filtered = filtered.Where(payout =>
-                EF.Functions.Like(Payout.PayoutCodePrefix + payout.Id.ToString(), pattern, "\\") ||
+                EF.Functions.Like(payout.PayoutCode, pattern, "\\") ||
                 EF.Functions.Like(payout.Operator.CompanyName, pattern, "\\"));
         }
 
@@ -87,10 +87,12 @@ public sealed class GetPayoutsQueryHandler(
                 .Take(request.PageSize)
                 .Select(payout => new PageRow(
                     payout.Id,
+                    payout.PayoutCode,
                     payout.OperatorUserId,
                     payout.Operator.CompanyName,
                     payout.PeriodStart,
                     payout.PeriodEnd,
+                    payout.PeriodCount,
                     payout.GrossRevenue,
                     payout.CommissionAmount,
                     payout.NetAmount,
@@ -110,12 +112,13 @@ public sealed class GetPayoutsQueryHandler(
             summary.TotalAmount,
             pageRows.Select(row => new PayoutListItemDto(
                 row.PayoutId.ToString(CultureInfo.InvariantCulture),
-                Payout.PayoutCodePrefix + row.PayoutId.ToString(CultureInfo.InvariantCulture),
+                row.PayoutCode,
                 new PayoutOperatorDto(
                     row.OperatorUserId.ToString(CultureInfo.InvariantCulture),
                     row.CompanyName),
                 row.PeriodStart,
                 row.PeriodEnd,
+                row.PeriodCount,
                 row.GrossRevenue,
                 row.CommissionAmount,
                 row.NetAmount,
@@ -135,10 +138,12 @@ public sealed class GetPayoutsQueryHandler(
 
     private sealed record PageRow(
         long PayoutId,
+        string PayoutCode,
         long OperatorUserId,
         string CompanyName,
         DateOnly PeriodStart,
         DateOnly PeriodEnd,
+        int PeriodCount,
         decimal GrossRevenue,
         decimal CommissionAmount,
         decimal NetAmount,
