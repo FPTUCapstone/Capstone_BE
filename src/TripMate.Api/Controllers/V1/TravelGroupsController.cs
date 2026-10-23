@@ -11,6 +11,7 @@ using TripMate.Application.Features.TravelGroups.CreateTravelGroup;
 using TripMate.Application.Features.TravelGroups.GetInvitation;
 using TripMate.Application.Features.TravelGroups.GetMembers;
 using TripMate.Application.Features.TravelGroups.JoinTravelGroup;
+using TripMate.Application.Features.TravelGroups.LeaveTravelGroup;
 using TripMate.Application.Features.TravelGroups.ManageInvitation;
 using TripMate.Domain.Enums;
 
@@ -122,6 +123,25 @@ public class TravelGroupsController(
         return result.IsSuccess
             ? Ok(result.Value)
             : HandleFailure(result);
+    }
+
+    [HttpPost("{groupId:long}/leave")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Leave(long groupId, CancellationToken cancellationToken)
+    {
+        if (!currentUserService.UserId.HasValue)
+        {
+            return Unauthorized();
+        }
+
+        var result = await Sender.Send(
+            new LeaveTravelGroupCommand(groupId, currentUserService.UserId.Value),
+            cancellationToken);
+        return result.IsSuccess ? NoContent() : HandleFailure(result);
     }
 
     [HttpPost("{groupId:long}/invitation")]

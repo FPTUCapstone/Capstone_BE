@@ -136,6 +136,9 @@
     <None Include="..\..\database\migrations\20261022_add_refund_manual_completion_operations.sql"
           Link="Database\migrations\20261022_add_refund_manual_completion_operations.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261023_add_travel_group_closed_at.sql"
+          Link="Database\migrations\20261023_add_travel_group_closed_at.sql"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

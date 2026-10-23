@@ -34,6 +34,88 @@ public sealed class GroupInvitationCommandHandlerTests
     }
 
     [Fact]
+    public async Task GetOrCreate_WhenHostHasLeft_ReturnsHostPermissionRequiredWithoutCreatingInvitation()
+    {
+        await using var db = TestDbContext.Create();
+        var group = await AddGroupAsync(db);
+        var hostMembership = await db.GroupMembers.SingleAsync(member =>
+            member.GroupId == group.Id && member.UserId == group.HostUserId);
+        typeof(GroupMember).GetProperty(nameof(GroupMember.Status))!
+            .SetValue(hostMembership, GroupMemberStatus.Left);
+        await db.SaveChangesAsync();
+
+        var result = await CreateGetOrCreateHandler(db).Handle(
+            new GetOrCreateGroupInvitationCommand(group.Id, group.HostUserId, Guid.NewGuid()),
+            CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(TravelGroupErrorCodes.HostPermissionRequired);
+        (await db.GroupInvitations.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task GetOrCreate_WhenHostHasLeftAfterFirstRequest_DeniesIdempotencyReplay()
+    {
+        await using var db = TestDbContext.Create();
+        var group = await AddGroupAsync(db);
+        var key = Guid.NewGuid();
+        var handler = CreateGetOrCreateHandler(db);
+        (await handler.Handle(new GetOrCreateGroupInvitationCommand(group.Id, group.HostUserId, key),
+            CancellationToken.None)).IsSuccess.Should().BeTrue();
+
+        var hostMembership = await db.GroupMembers.SingleAsync(member =>
+            member.GroupId == group.Id && member.UserId == group.HostUserId);
+        typeof(GroupMember).GetProperty(nameof(GroupMember.Status))!
+            .SetValue(hostMembership, GroupMemberStatus.Left);
+        await db.SaveChangesAsync();
+
+        var replay = await handler.Handle(
+            new GetOrCreateGroupInvitationCommand(group.Id, group.HostUserId, key),
+            CancellationToken.None);
+
+        replay.IsFailure.Should().BeTrue();
+        replay.ErrorCode.Should().Be(TravelGroupErrorCodes.HostPermissionRequired);
+    }
+
+    [Fact]
+    public async Task GetOrCreate_WhenGroupIsClosed_ReturnsGroupClosedWithoutCreatingInvitation()
+    {
+        await using var db = TestDbContext.Create();
+        var group = await AddGroupAsync(db);
+        group.Close(_clock.UtcNow);
+        await db.SaveChangesAsync();
+
+        var result = await CreateGetOrCreateHandler(db).Handle(
+            new GetOrCreateGroupInvitationCommand(group.Id, group.HostUserId, Guid.NewGuid()),
+            CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(TravelGroupErrorCodes.GroupClosed);
+        (await db.GroupInvitations.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task GetOrCreate_WhenGroupClosesAfterFirstRequest_DeniesIdempotencyReplay()
+    {
+        await using var db = TestDbContext.Create();
+        var group = await AddGroupAsync(db);
+        var key = Guid.NewGuid();
+        var handler = CreateGetOrCreateHandler(db);
+        (await handler.Handle(new GetOrCreateGroupInvitationCommand(group.Id, group.HostUserId, key),
+            CancellationToken.None)).IsSuccess.Should().BeTrue();
+
+        group.Close(_clock.UtcNow);
+        await db.SaveChangesAsync();
+
+        var replay = await handler.Handle(
+            new GetOrCreateGroupInvitationCommand(group.Id, group.HostUserId, key),
+            CancellationToken.None);
+
+        replay.IsFailure.Should().BeTrue();
+        replay.ErrorCode.Should().Be(TravelGroupErrorCodes.GroupClosed);
+    }
+
+    [Fact]
     public async Task GetOrCreate_WhenUsableInvitationExists_ReturnsItWithoutCreatingAnother()
     {
         await using var db = TestDbContext.Create();
@@ -256,7 +338,10 @@ public sealed class GroupInvitationCommandHandlerTests
         }
 
         var group = TravelGroup.Create(1, hostUserId.Value, "Invitation Test Group", _clock.UtcNow);
+        var hostMember = GroupMember.CreateHost(group, hostUserId.Value, _clock.UtcNow);
+        group.AddMember(hostMember);
         db.TravelGroups.Add(group);
+        db.GroupMembers.Add(hostMember);
         await db.SaveChangesAsync();
         return group;
     }
@@ -268,11 +353,16 @@ internal sealed class RecordingGroupInvitationLock : IGroupInvitationLock
 
     public List<string> AcquisitionOrder { get; } = [];
 
+    public Task AcquireGroupLockAsync(long groupId, CancellationToken cancellationToken)
+    {
+        AcquisitionOrder.Add($"group:{groupId}");
+        return Task.CompletedTask;
+    }
+
     public Task AcquireAsync(long groupId, long travelerUserId, Guid idempotencyKey, CancellationToken cancellationToken)
     {
         AcquiredResources.Add((groupId, travelerUserId, idempotencyKey));
-        AcquisitionOrder.Add($"group:{groupId}");
-        return Task.CompletedTask;
+        return AcquireGroupLockAsync(groupId, cancellationToken);
     }
 
     public Task AcquireCodeAsync(string inviteCode, CancellationToken cancellationToken)

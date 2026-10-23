@@ -569,6 +569,9 @@ internal sealed class NoOpTravelGroupCreationLock : ITravelGroupCreationLock
 
 internal sealed class NoOpGroupInvitationLock : IGroupInvitationLock
 {
+    public Task AcquireGroupLockAsync(long groupId, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+
     public Task AcquireAsync(
         long groupId,
         long travelerUserId,

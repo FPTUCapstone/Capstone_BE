@@ -13,6 +13,7 @@ namespace TripMate.Domain.Entities;
  *   - HostUserId (long): ID of the creator/host traveler (host_user_id).
  *   - Name (string?): User-defined group name (max 150 chars).
  *   - CreatedAtUtc (DateTimeOffset): UTC timestamp of creation.
+ *   - ClosedAtUtc (DateTimeOffset?): UTC timestamp when the final Host left and the group closed.
  */
 public class TravelGroup : BaseEntity
 {
@@ -75,6 +76,8 @@ public class TravelGroup : BaseEntity
 
     public DateTimeOffset CreatedAtUtc { get; private set; }
 
+    public DateTimeOffset? ClosedAtUtc { get; private set; }
+
     public IReadOnlyCollection<GroupMember> GroupMembers => _groupMembers.AsReadOnly();
 
     public IReadOnlyCollection<GroupInvitation> GroupInvitations => _groupInvitations.AsReadOnly();
@@ -94,6 +97,16 @@ public class TravelGroup : BaseEntity
         }
 
         _groupMembers.Add(member);
+    }
+
+    public void Close(DateTimeOffset closedAtUtc)
+    {
+        if (ClosedAtUtc is not null)
+        {
+            return;
+        }
+
+        ClosedAtUtc = closedAtUtc;
     }
 
 }

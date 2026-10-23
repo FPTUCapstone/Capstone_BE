@@ -16,11 +16,13 @@ public sealed class SqlServerGroupInvitationLock(ApplicationDbContext dbContext)
         CancellationToken cancellationToken)
     {
         var operationResource = $"TripMate:GroupInvitationOperation:{travelerUserId}:{idempotencyKey:N}";
-        var groupResource = $"TripMate:GroupInvitation:{groupId}";
 
         await AcquireResourceAsync(operationResource, cancellationToken);
-        await AcquireResourceAsync(groupResource, cancellationToken);
+        await AcquireGroupLockAsync(groupId, cancellationToken);
     }
+
+    public Task AcquireGroupLockAsync(long groupId, CancellationToken cancellationToken) =>
+        AcquireResourceAsync($"TripMate:GroupInvitation:{groupId}", cancellationToken);
 
     public Task AcquireCodeAsync(string inviteCode, CancellationToken cancellationToken)
     {

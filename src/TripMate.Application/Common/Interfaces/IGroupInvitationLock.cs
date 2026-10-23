@@ -6,6 +6,12 @@ namespace TripMate.Application.Common.Interfaces;
 /// </summary>
 public interface IGroupInvitationLock
 {
+    /// <summary>
+    /// Serializes every group-lifecycle operation that can create, expire, or invalidate invitations.
+    /// The lock lifetime is the surrounding database transaction.
+    /// </summary>
+    Task AcquireGroupLockAsync(long groupId, CancellationToken cancellationToken);
+
     Task AcquireAsync(
         long groupId,
         long travelerUserId,

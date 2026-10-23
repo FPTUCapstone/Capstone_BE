@@ -313,6 +313,12 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.GroupNotFound =>
                 StatusCodes.Status404NotFound,
 
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.GroupClosed =>
+                StatusCodes.Status409Conflict,
+
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.HostTransferRequired =>
+                StatusCodes.Status409Conflict,
+
             TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.HostPermissionRequired =>
                 StatusCodes.Status403Forbidden,
 

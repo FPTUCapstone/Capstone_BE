@@ -1508,7 +1508,8 @@ CREATE TABLE social.TravelGroups (
     itinerary_id        BIGINT NOT NULL REFERENCES planning.Itineraries(itinerary_id),
     host_user_id           BIGINT NOT NULL REFERENCES dbo.Users(user_id),
     name                      NVARCHAR(150) NULL,
-    created_at                  DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+    created_at                  DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    closed_at                   DATETIME2 NULL
 );
 GO
 

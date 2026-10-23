@@ -105,6 +105,36 @@ internal static class GroupInvitationCommandExecutor
 
         await invitationLock.AcquireAsync(groupId, currentUserId, idempotencyKey, cancellationToken);
 
+        var group = await dbContext.TravelGroups.FirstOrDefaultAsync(
+            entity => entity.Id == groupId,
+            cancellationToken);
+        if (group is null)
+        {
+            return Result.Failure<GetGroupInvitationResponse>(
+                TravelGroupErrorCodes.GroupNotFound,
+                "The specified travel group does not exist.");
+        }
+
+        if (group.ClosedAtUtc is not null)
+        {
+            return Result.Failure<GetGroupInvitationResponse>(
+                TravelGroupErrorCodes.GroupClosed,
+                "The travel group is closed.");
+        }
+
+        var isActiveHost = group.HostUserId == currentUserId && await dbContext.GroupMembers
+            .AsNoTracking()
+            .AnyAsync(member => member.GroupId == groupId
+                && member.UserId == currentUserId
+                && member.Status == GroupMemberStatus.Active,
+                cancellationToken);
+        if (!isActiveHost)
+        {
+            return Result.Failure<GetGroupInvitationResponse>(
+                TravelGroupErrorCodes.HostPermissionRequired,
+                "Only an active Group Host can manage invitations.");
+        }
+
         var previousOperation = await dbContext.GroupInvitationOperations
             .Include(operation => operation.Invitation)
             .FirstOrDefaultAsync(
@@ -120,31 +150,7 @@ internal static class GroupInvitationCommandExecutor
                     "The Idempotency-Key was already used with different request data.");
             }
 
-            var replayGroup = await dbContext.TravelGroups.FirstOrDefaultAsync(
-                group => group.Id == groupId,
-                cancellationToken);
-            return replayGroup is null
-                ? Result.Failure<GetGroupInvitationResponse>(
-                    TravelGroupErrorCodes.GroupNotFound,
-                    "The specified travel group does not exist.")
-                : Result.Success(ToResponse(replayGroup, previousOperation.Invitation));
-        }
-
-        var group = await dbContext.TravelGroups.FirstOrDefaultAsync(
-            entity => entity.Id == groupId,
-            cancellationToken);
-        if (group is null)
-        {
-            return Result.Failure<GetGroupInvitationResponse>(
-                TravelGroupErrorCodes.GroupNotFound,
-                "The specified travel group does not exist.");
-        }
-
-        if (group.HostUserId != currentUserId)
-        {
-            return Result.Failure<GetGroupInvitationResponse>(
-                TravelGroupErrorCodes.HostPermissionRequired,
-                "Only the Group Host can manage invitations.");
+            return Result.Success(ToResponse(group, previousOperation.Invitation));
         }
 
         var now = dateTimeProvider.UtcNow;

@@ -79,6 +79,47 @@ public sealed class GroupInvitationEndpointTests
     }
 
     [Fact]
+    public async Task GetOrCreateInvitation_WhenGroupIsClosed_ReturnsConflictWithoutReplayingAnInvitation()
+    {
+        await using var factory = new TripMateApiFactory();
+        var seed = await SeedAsync(factory);
+        await factory.WithDbContextAsync(async context =>
+        {
+            var group = await context.TravelGroups.SingleAsync(item => item.Id == seed.GroupId);
+            group.Close(DateTimeOffset.UtcNow);
+            await context.SaveChangesAsync();
+            return true;
+        });
+        using var client = factory.CreateAuthenticatedClient(seed.HostUserId, UserRole.Traveler);
+        client.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
+
+        var response = await client.PostAsync($"/api/v1/travel-groups/{seed.GroupId}/invitation", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("errorCode").GetString()
+            .Should().Be("travel_group.group_closed");
+    }
+
+    [Fact]
+    public async Task Leave_WhenCallerIsFinalHost_ClosesTheGroup()
+    {
+        await using var factory = new TripMateApiFactory();
+        var seed = await SeedAsync(factory);
+        using var client = factory.CreateAuthenticatedClient(seed.HostUserId, UserRole.Traveler);
+
+        var response = await client.PostAsync($"/api/v1/travel-groups/{seed.GroupId}/leave", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        var closedAtUtc = await factory.WithDbContextAsync(async context =>
+            await context.TravelGroups
+                .Where(group => group.Id == seed.GroupId)
+                .Select(group => group.ClosedAtUtc)
+                .SingleAsync());
+        closedAtUtc.Should().NotBeNull();
+    }
+
+    [Fact]
     public async Task GetOrCreateInvitation_WithRepeatedKey_ReturnsSameInvitation()
     {
         await using var factory = new TripMateApiFactory();
@@ -152,7 +193,10 @@ public sealed class GroupInvitationEndpointTests
             await context.SaveChangesAsync();
 
             var group = TravelGroup.Create(1, host.Id, "Invitation Endpoint Group", now);
+            var hostMember = GroupMember.CreateHost(group, host.Id, now);
+            group.AddMember(hostMember);
             context.TravelGroups.Add(group);
+            context.GroupMembers.Add(hostMember);
             await context.SaveChangesAsync();
             return (host.Id, group.Id);
         });

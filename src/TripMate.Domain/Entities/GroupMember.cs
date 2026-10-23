@@ -71,6 +71,23 @@ public class GroupMember
         LocationSharingEnabled = false;
     }
 
+    public void Leave(DateTimeOffset leftAtUtc)
+    {
+        if (Status != GroupMemberStatus.Active)
+        {
+            throw new InvalidOperationException($"Cannot leave a membership with status {Status}.");
+        }
+
+        if (leftAtUtc < JoinedAtUtc)
+        {
+            throw new ArgumentOutOfRangeException(nameof(leftAtUtc));
+        }
+
+        Status = GroupMemberStatus.Left;
+        LeftAtUtc = leftAtUtc;
+        LocationSharingEnabled = false;
+    }
+
     public long GroupId { get; private set; }
 
     public TravelGroup TravelGroup { get; private set; } = null!;

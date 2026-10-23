@@ -87,6 +87,16 @@ public sealed class JoinTravelGroupCommandHandler(
         // 3. Acquire group lock before querying tables in serializable transaction
         await joinLock.AcquireGroupLockAsync(targetGroupId, cancellationToken);
 
+        var groupIsClosed = await dbContext.TravelGroups
+            .AsNoTracking()
+            .AnyAsync(group => group.Id == targetGroupId && group.ClosedAtUtc != null, cancellationToken);
+        if (groupIsClosed)
+        {
+            return Result.Failure<JoinTravelGroupResponse>(
+                TravelGroupErrorCodes.GroupClosed,
+                "The travel group is closed.");
+        }
+
         // Check for existing operation replay (e.g. retry after success, even if code expired or regenerated)
         var existingOperation = await dbContext.GroupJoinOperations
             .Include(op => op.TravelGroup)
