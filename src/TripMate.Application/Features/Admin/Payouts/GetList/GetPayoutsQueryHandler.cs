@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Admin.Payouts.Common;
 using TripMate.Domain.Entities;
 
 namespace TripMate.Application.Features.Admin.Payouts.GetList;

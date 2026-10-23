@@ -165,10 +165,19 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripMate.Application.Features.Admin.ActiveTrips.GetList.ActiveTripErrorCodes.NotFound =>
                 StatusCodes.Status404NotFound,
 
-            TripMate.Application.Features.Admin.Payouts.GetList.PayoutErrorCodes.Forbidden =>
+            TripMate.Application.Features.Admin.Payouts.Common.PayoutErrorCodes.Forbidden =>
                 StatusCodes.Status403Forbidden,
 
-            TripMate.Application.Features.Admin.Payouts.GetList.PayoutErrorCodes.InvalidPeriodRange =>
+            TripMate.Application.Features.Admin.Payouts.Common.PayoutErrorCodes.InvalidPeriodRange =>
+                StatusCodes.Status400BadRequest,
+
+            TripMate.Application.Features.Admin.Payouts.Common.PayoutErrorCodes.NotFound =>
+                StatusCodes.Status404NotFound,
+
+            TripMate.Application.Features.Admin.Payouts.Common.PayoutErrorCodes.NotPendingReview =>
+                StatusCodes.Status409Conflict,
+
+            TripMate.Application.Features.Admin.Payouts.Common.PayoutErrorCodes.RejectionReasonInvalid =>
                 StatusCodes.Status400BadRequest,
 
             TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.Forbidden =>
@@ -226,6 +235,24 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             OperatorTourErrorCodes.AdminAccessRequired => StatusCodes.Status403Forbidden,
             TripMate.Application.Features.Operator.Revenue.Common.OperatorRevenueErrorCodes.InvalidGranularity =>
                 StatusCodes.Status400BadRequest,
+
+            TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.OperatorNotApproved =>
+                StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.ValidationRequiredField or
+                TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.InvalidSettlementMonth =>
+                StatusCodes.Status400BadRequest,
+            TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.MonthNotClosed or
+                TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.NoEligibleBooking or
+                TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.PayoutNotRequestable or
+                TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.BelowMinimumPayout =>
+                StatusCodes.Status422UnprocessableEntity,
+            TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.ActivePayoutExists or
+                TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.PayoutNotCancellable =>
+                StatusCodes.Status409Conflict,
+            TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.PayoutNotFound =>
+                StatusCodes.Status404NotFound,
+            TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.SystemError =>
+                StatusCodes.Status500InternalServerError,
 
             TripMate.Application.Features.Operator.Revenue.Exports.Common.RevenueExportErrorCodes.ValidationFailed =>
                 StatusCodes.Status400BadRequest,

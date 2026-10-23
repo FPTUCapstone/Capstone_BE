@@ -29,6 +29,16 @@ public sealed class PayoutsSqlServerTests
             INSERT dbo.OperatorProfiles(user_id, company_name, tax_code, business_license_no)
             VALUES (@op2, N'Hoi An Walks', N'TAX-UC63-2', N'LIC-UC63-2');
 
+            -- UC-46 allows only one active payout per operator. The approved record below
+            -- therefore belongs to a third operator rather than @op1, which already owns a
+            -- PendingReview request in this fixture.
+            DECLARE @op3 BIGINT;
+            INSERT dbo.Users(role, email, full_name, status)
+            VALUES ('TourOperator', N'po3@example.com', N'PO Three', 'Active');
+            SET @op3 = SCOPE_IDENTITY();
+            INSERT dbo.OperatorProfiles(user_id, company_name, tax_code, business_license_no)
+            VALUES (@op3, N'Hue Heritage', N'TAX-UC63-3', N'LIC-UC63-3');
+
             DECLARE @staff BIGINT;
             INSERT dbo.Users(role, email, full_name, status)
             VALUES ('Staff', N'payout-staff@example.com', N'Payout Staff', 'Active');
@@ -48,7 +58,7 @@ public sealed class PayoutsSqlServerTests
                     NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL),
                    (@op2, '2026-08-01', '2026-08-31', 200000, 10000, 190000, 'PendingReview', NULL,
                     NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL),
-                   (@op1, '2026-07-01', '2026-07-31', 500000, 62500, 437500, 'ApprovedForSettlement', NULL,
+                   (@op3, '2026-07-01', '2026-07-31', 500000, 62500, 437500, 'ApprovedForSettlement', NULL,
                     @staff, '2026-08-01T00:00:00', NULL, NULL, NULL, NULL, NULL, 0, NULL),
                    (@op2, '2026-07-01', '2026-07-31', 300000, 15000, 285000, 'Rejected', NULL,
                     @staff, '2026-08-01T00:00:00', N'Invalid settlement evidence', NULL, NULL, NULL, NULL, 0, NULL),
