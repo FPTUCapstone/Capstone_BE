@@ -30,8 +30,8 @@ public sealed class StatisticalReportExportRenderer : IStatisticalReportExportRe
         WriteCsv(builder, "Metric", "Value", "Unit");
         foreach (var metric in report.Metrics) WriteCsv(builder, metric.Label, metric.Value.ToString(CultureInfo.InvariantCulture), metric.IsCurrency ? "VND" : "count");
         builder.AppendLine();
-        WriteCsv(builder, "Segment", "Primary", "Secondary", "Tertiary");
-        foreach (var row in report.Breakdown) WriteCsv(builder, row.Label, row.PrimaryValue.ToString(CultureInfo.InvariantCulture), row.SecondaryValue.ToString(CultureInfo.InvariantCulture), row.TertiaryValue.ToString(CultureInfo.InvariantCulture));
+        WriteCsv(builder, "Segment", "Primary", "Related value");
+        foreach (var row in report.Breakdown) WriteCsv(builder, row.Label, row.PrimaryValue.ToString(CultureInfo.InvariantCulture), row.SecondaryValue.ToString(CultureInfo.InvariantCulture));
         return new UTF8Encoding(encoderShouldEmitUTF8Identifier: true).GetBytes(builder.ToString());
     }
 
@@ -62,10 +62,10 @@ public sealed class StatisticalReportExportRenderer : IStatisticalReportExportRe
         foreach (var metric in report.Metrics) { summary.Cell(row, 1).Value = metric.Label; summary.Cell(row, 2).Value = metric.Value; summary.Cell(row, 3).Value = metric.IsCurrency ? "VND" : "count"; row++; }
         summary.Columns().AdjustToContents();
         var detail = workbook.Worksheets.Add("Breakdown");
-        string[] headers = ["Segment", "Primary", "Secondary", "Tertiary"];
+        string[] headers = ["Segment", "Primary", "Related value"];
         for (var i = 0; i < headers.Length; i++) { detail.Cell(1, i + 1).Value = headers[i]; detail.Cell(1, i + 1).Style.Font.Bold = true; }
         row = 2;
-        foreach (var item in report.Breakdown) { detail.Cell(row, 1).Value = item.Label; detail.Cell(row, 2).Value = item.PrimaryValue; detail.Cell(row, 3).Value = item.SecondaryValue; detail.Cell(row, 4).Value = item.TertiaryValue; row++; }
+        foreach (var item in report.Breakdown) { detail.Cell(row, 1).Value = item.Label; detail.Cell(row, 2).Value = item.PrimaryValue; detail.Cell(row, 3).Value = item.SecondaryValue; row++; }
         detail.Columns().AdjustToContents();
         using var stream = new MemoryStream(); workbook.SaveAs(stream); return stream.ToArray();
     }
