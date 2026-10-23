@@ -180,6 +180,14 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripMate.Application.Features.Admin.Payouts.Common.PayoutErrorCodes.RejectionReasonInvalid =>
                 StatusCodes.Status400BadRequest,
 
+            TripMate.Application.Features.Admin.StatisticalReports.Common.StatisticalReportErrorCodes.Forbidden =>
+                StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.Admin.StatisticalReports.Common.StatisticalReportErrorCodes.PeriodNotClosed =>
+                StatusCodes.Status422UnprocessableEntity,
+            TripMate.Application.Features.Admin.StatisticalReports.Common.StatisticalReportErrorCodes.InvalidCriteria or
+                TripMate.Application.Features.Admin.StatisticalReports.Common.StatisticalReportErrorCodes.UnsupportedScope =>
+                StatusCodes.Status400BadRequest,
+
             TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.Forbidden =>
                 StatusCodes.Status403Forbidden,
 

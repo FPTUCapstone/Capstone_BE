@@ -83,6 +83,10 @@ public class ApplicationDbContext(
     public DbSet<ServiceProvider> ServiceProviders => Set<ServiceProvider>();
 
     public DbSet<CommercialService> CommercialServices => Set<CommercialService>();
+    public DbSet<ServiceBooking> ServiceBookings => Set<ServiceBooking>();
+    public DbSet<ClosedStatisticalPeriod> ClosedStatisticalPeriods => Set<ClosedStatisticalPeriod>();
+    public DbSet<StatisticalReportSnapshot> StatisticalReportSnapshots => Set<StatisticalReportSnapshot>();
+    public DbSet<StatisticalReportExportOperation> StatisticalReportExportOperations => Set<StatisticalReportExportOperation>();
 
     public DbSet<Voucher> Vouchers => Set<Voucher>();
 

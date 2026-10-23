@@ -72,6 +72,14 @@ public interface IApplicationDbContext
 
     DbSet<CommercialService> CommercialServices { get; }
 
+    DbSet<ServiceBooking> ServiceBookings { get; }
+
+    DbSet<ClosedStatisticalPeriod> ClosedStatisticalPeriods { get; }
+
+    DbSet<StatisticalReportSnapshot> StatisticalReportSnapshots { get; }
+
+    DbSet<StatisticalReportExportOperation> StatisticalReportExportOperations { get; }
+
     DbSet<Voucher> Vouchers { get; }
 
     DbSet<Booking> Bookings { get; }
