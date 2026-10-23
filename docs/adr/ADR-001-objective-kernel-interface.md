@@ -95,3 +95,11 @@ Trong PR-07b, việc siết cận theo hậu tố thời gian động (G2 dynami
 
 ### 5.4. Kết luận Kiến trúc
 Sau tối ưu PR-07c, kiến trúc interface `IObjectiveKernel` tiếp tục được chứng minh là đủ nhanh, tinh gọn và đạt mọi chỉ tiêu kỹ thuật. **Quyết định giữ nguyên interface tiếp tục có hiệu lực.**
+
+### 5.5. Regenerate trong WeightedUtility (Issue #113, 2026-10-24)
+
+Regenerate giữ nguyên objective `WeightedUtility`; không fallback ngầm sang `Lexicographic`.
+`ItineraryVersionService` tạo `WeightedRequestInputs` từ traveler profile và candidate của lần
+regenerate. Điểm sau tier penalty được chuẩn hóa tuyến tính về `[0,1]` khi cần, bảo toàn thứ tự tier
+và thứ tự trong tier. Kết quả phải là version mới hoặc business failure, không để lỗi thiếu weighted
+inputs hay invariant điểm thoát thành HTTP 500.

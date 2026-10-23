@@ -92,6 +92,19 @@ uses the authoritative schedule evaluation (`ItineraryScheduleEvaluator`) and
 `SolverMode`. The gates in this specification still run the Adjust Items suites under each mode,
 as a regression check that the mode switch does not affect them.
 
+### Regenerate in WeightedUtility mode (issue #113, decided 2026-10-24)
+
+- Regenerate keeps the configured `WeightedUtility` objective. It must not silently fall back to
+  `Lexicographic`.
+- `ItineraryVersionService` builds `WeightedRequestInputs` from the same traveler profile and
+  prepared candidates used by the regeneration request before calling `GenerateAsync`.
+- The "prefer other places" tier adjustment remains monotonic. When it produces scores outside
+  `[0,1]`, Regenerate linearly normalizes the selected candidate scores into `[0,1]` before the
+  weighted-input invariant is checked. This preserves tier and within-tier ordering.
+- A regeneration returns a new itinerary version or an existing business failure such as
+  `itinerary.no_alternative` / `itinerary.constraints_infeasible`; missing weighted inputs or tier
+  penalties must not escape as an unhandled exception.
+
 ## Invariants that must hold in every solver mode
 
 - **TM-216 boundary.** AI influences scheduling only through `EffectiveDesirabilityScore`
@@ -919,3 +932,6 @@ reverted and the switch ships later as its own change (developer decision, 2026-
 7. When the wall-clock safety limit fires, the returned itinerary equals the heuristic result
    exactly and is diagnosed as `CspFallback`.
 8. The aggregate diagnostic names the solver used and never contains user or POI identity.
+9. Under `Csp.Mode = WeightedUtility`, Regenerate supplies weighted inputs, accepts tier-adjusted
+   candidates without violating the `[0,1]` invariant, and returns a new version or a business
+   failure instead of throwing.

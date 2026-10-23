@@ -6,6 +6,9 @@ using TripMate.Application.Common.Geo;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Scheduling.Common;
+using TripMate.Application.Features.Scheduling.Csp;
+using TripMate.Application.Features.Scheduling.Csp.Objectives;
+using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Application.Features.Scheduling.TimeOfDay;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
@@ -16,7 +19,8 @@ public sealed class ItineraryVersionService(
     IApplicationDbContext dbContext,
     IRouteDurationProvider routeDurationProvider,
     SchedulingGenerationOptions? generationOptions = null,
-    TimeOfDayOptions? timeOfDayOptions = null)
+    TimeOfDayOptions? timeOfDayOptions = null,
+    WeightedRequestInputsFactory? weightedInputsFactory = null)
     : IItineraryVersionService
 {
     public async Task<Result<Itinerary>> CreateRegeneratedVersionAsync(
@@ -29,13 +33,12 @@ public sealed class ItineraryVersionService(
             return UnsupportedPublicTransit();
         }
 
+        var effectiveGenerationOptions = generationOptions ?? new SchedulingGenerationOptions();
         var timeZone = TimeZoneInfo.FindSystemTimeZoneById(request.TimeZoneId);
-        var travelerInterestTags = await dbContext.TravelerProfiles
+        var travelerProfile = await dbContext.TravelerProfiles
             .AsNoTracking()
-            .Where(profile => profile.UserId == request.TravelerUserId)
-            .Select(profile => profile.InterestTagsJson)
-            .SingleOrDefaultAsync(cancellationToken);
-        var preferenceTokens = TravelerPreferenceScoring.ParsePreferenceTokens(travelerInterestTags);
+            .SingleOrDefaultAsync(profile => profile.UserId == request.TravelerUserId, cancellationToken);
+        var preferenceTokens = TravelerPreferenceScoring.ParsePreferenceTokens(travelerProfile?.InterestTagsJson);
         var mandatoryIds = JsonSerializer.Deserialize<long[]>(request.MandatoryPoiIdsJson) ?? [];
         var pois = await LoadRelevantActivePoisAsync(request, mandatoryIds, cancellationToken);
         var currentStops = await dbContext.Itineraries
@@ -106,6 +109,11 @@ public sealed class ItineraryVersionService(
                 PhotoRating: poi.PhotoRating,
                 CategoryName: poi.Category.Name,
                 HasShelter: poi.HasShelter)).ToArray(), lastSuggestedVersions), mandatoryIds);
+        if (effectiveGenerationOptions.Csp.Mode == ObjectiveMode.WeightedUtility)
+        {
+            candidates = NormalizeEffectiveDesirabilityScores(candidates);
+        }
+
         var end = endPoi is null
             ? new RoutePoint(request.StartLatitude, request.StartLongitude)
             : new RoutePoint(endPoi.Latitude, endPoi.Longitude);
@@ -121,8 +129,19 @@ public sealed class ItineraryVersionService(
             candidates,
             mandatoryIds);
         var routing = new MemoizingRouteDurationProvider(routeDurationProvider);
-        var plan = await new ItineraryGenerationService(routing, generationOptions)
-            .GenerateAsync(input, cancellationToken);
+        WeightedRequestInputs? weightedInputs = null;
+        if (effectiveGenerationOptions.Csp.Mode == ObjectiveMode.WeightedUtility)
+        {
+            var factory = weightedInputsFactory ?? new WeightedRequestInputsFactory(new PersonalParamsFactory());
+            weightedInputs = factory.Create(
+                input.Candidates,
+                travelerProfile,
+                input,
+                PoiRankingOutcomeCategory.ProviderSkipped);
+        }
+
+        var plan = await new ItineraryGenerationService(routing, effectiveGenerationOptions)
+            .GenerateAsync(input, weightedInputs, cancellationToken);
         if (plan.IsFailure)
         {
             return Result.Failure<Itinerary>(
@@ -130,7 +149,7 @@ public sealed class ItineraryVersionService(
                 plan.ErrorMessage ?? "The saved constraints cannot produce an itinerary.");
         }
 
-        plan = Result.Success(await new TimeOfDayRefiner(routing, generationOptions, timeOfDayOptions ?? new TimeOfDayOptions())
+        plan = Result.Success(await new TimeOfDayRefiner(routing, effectiveGenerationOptions, timeOfDayOptions ?? new TimeOfDayOptions())
             .RefineAsync(input, plan.Value, TimeOfDayTraitsFactory.From(pois), cancellationToken));
 
         // Nothing else fits: keep the current version instead of saving an identical copy.
@@ -457,6 +476,37 @@ public sealed class ItineraryVersionService(
         return candidates.Select(candidate => lastSuggestedVersions.TryGetValue(candidate.Id, out var version)
             ? candidate with { EffectiveDesirabilityScore = (candidate.EffectiveDesirabilityScore ?? 0m) - (tierStep * version) }
             : candidate);
+    }
+
+    private static IReadOnlyList<GenerationCandidate> NormalizeEffectiveDesirabilityScores(
+        IReadOnlyList<GenerationCandidate> candidates)
+    {
+        if (candidates.Count == 0)
+        {
+            return candidates;
+        }
+
+        var scores = candidates
+            .Select(candidate => candidate.EffectiveDesirabilityScore
+                ?? candidate.TripMateBaseScore
+                ?? 0.5m)
+            .ToArray();
+        var minimum = scores.Min();
+        var maximum = scores.Max();
+        if (minimum >= 0m && maximum <= 1m)
+        {
+            return candidates;
+        }
+
+        var range = maximum - minimum;
+        return candidates
+            .Select((candidate, index) => candidate with
+            {
+                EffectiveDesirabilityScore = range == 0m
+                    ? Math.Clamp(scores[index], 0m, 1m)
+                    : (scores[index] - minimum) / range,
+            })
+            .ToArray();
     }
 
     private IReadOnlyList<GenerationCandidate> LimitMatrixCandidates(
