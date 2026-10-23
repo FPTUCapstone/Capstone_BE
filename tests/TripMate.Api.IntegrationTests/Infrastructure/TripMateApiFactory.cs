@@ -524,6 +524,8 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
 
     public DbSet<SystemConfig> SystemConfigs => Set<SystemConfig>();
 
+    public DbSet<LandingContentVersion> LandingContentVersions => Set<LandingContentVersion>();
+
     public Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken) =>
