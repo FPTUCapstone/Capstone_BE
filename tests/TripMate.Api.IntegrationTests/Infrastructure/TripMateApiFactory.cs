@@ -150,7 +150,9 @@ public sealed class TripMateApiFactory(
                             or "TripMate.Infrastructure.Services.PendingBookingExpiryBackgroundService"
                             or "TripMate.Infrastructure.Services.RefundProcessingBackgroundService"
                             or "TripMate.Infrastructure.Services.RevenueExportWorkerBackgroundService"
-                            or "TripMate.Infrastructure.Services.RevenueExportExpiryBackgroundService"))
+                            or "TripMate.Infrastructure.Services.RevenueExportExpiryBackgroundService"
+                            or "TripMate.Infrastructure.TripAlerts.TripAlertScanBackgroundService"
+                            or "TripMate.Infrastructure.TripAlerts.TripAlertDeliveryBackgroundService"))
                 {
                     services.RemoveAt(index);
                 }
@@ -471,6 +473,8 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
 
     public DbSet<Incident> Incidents => Set<Incident>();
 
+    public DbSet<AlertDeliveryWork> AlertDeliveryWork => Set<AlertDeliveryWork>();
+
     public DbSet<TripStateHistory> TripStateHistories => Set<TripStateHistory>();
 
     public DbSet<TripLocationLog> TripLocationLogs => Set<TripLocationLog>();
@@ -480,6 +484,14 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<ReroutingEvent> ReroutingEvents => Set<ReroutingEvent>();
 
     public DbSet<Payout> Payouts => Set<Payout>();
+
+    public DbSet<PayoutItem> PayoutItems => Set<PayoutItem>();
+
+    public DbSet<PayoutRefundItem> PayoutRefundItems => Set<PayoutRefundItem>();
+
+    public DbSet<PayoutAdjustment> PayoutAdjustments => Set<PayoutAdjustment>();
+
+    public DbSet<PayoutPeriodBreakdown> PayoutPeriodBreakdowns => Set<PayoutPeriodBreakdown>();
 
     public async Task<int> RevokeRefreshTokenAsync(
         string tokenHash,

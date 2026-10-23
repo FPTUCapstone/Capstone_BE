@@ -8,6 +8,9 @@ namespace TripMate.Domain.Entities;
 /// </summary>
 public class Notification : BaseEntity
 {
+    public const string TripAlertType = "TripAlert";
+    public const string IncidentRelatedEntityType = "Incident";
+
     public long UserId { get; set; }
 
     public User User { get; set; } = null!;
@@ -29,4 +32,18 @@ public class Notification : BaseEntity
     public DateTimeOffset CreatedAtUtc { get; set; }
 
     public DateTimeOffset? SentAtUtc { get; set; }
+
+    public DateTimeOffset? ReadAtUtc { get; private set; }
+
+    public bool MarkRead(DateTimeOffset readAtUtc)
+    {
+        if (Status == NotificationStatus.Read)
+        {
+            return false;
+        }
+
+        Status = NotificationStatus.Read;
+        ReadAtUtc = readAtUtc.ToUniversalTime();
+        return true;
+    }
 }
