@@ -85,7 +85,7 @@ public sealed class PayoutsSqlServerTests
         approved.Value.Items.Should().ContainSingle().Which.PayoutCode.Should().Be("PO-3");
         approved.Value.TotalAmount.Should().Be(437500m);
 
-        // 3. Keyword matches the derived payout code and the operator company name.
+        // 3. Keyword matches the persisted payout code and the operator company name.
         var byCode = await handler.Handle(new GetPayoutsQuery(Status: "ApprovedForSettlement", Keyword: "PO-3"), default);
         byCode.Value.TotalCount.Should().Be(1);
         byCode.Value.Items[0].PayoutCode.Should().Be("PO-3");
