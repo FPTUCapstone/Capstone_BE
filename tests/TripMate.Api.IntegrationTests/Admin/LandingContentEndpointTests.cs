@@ -29,6 +29,32 @@ public sealed class LandingContentEndpointTests
     }
 
     [Fact]
+    public async Task PublicGet_WithoutAuthentication_ReturnsOnlyTheLatestPublishedSnapshot()
+    {
+        await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
+        using var client = factory.CreateClient();
+        await SeedPublishedVersionAsync(factory, "Published");
+        await factory.WithDbContextAsync(async db =>
+        {
+            db.LandingContentVersions.Add(LandingContentVersion.CreateDraft(
+                JsonSerializer.Serialize(Content("Private draft")), 1, 100,
+                new DateTimeOffset(2026, 10, 23, 1, 0, 0, TimeSpan.Zero)));
+            return await db.SaveChangesAsync();
+        });
+
+        var response = await client.GetAsync("/api/v1/landing-content");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var root = body.RootElement;
+        root.GetProperty("versionNumber").GetInt32().Should().Be(1);
+        root.GetProperty("content").GetProperty("hero").GetProperty("headline").GetString().Should().Be("Published");
+        root.TryGetProperty("draft", out _).Should().BeFalse();
+        root.TryGetProperty("history", out _).Should().BeFalse();
+        root.TryGetProperty("publishedByName", out _).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task DraftThenPublish_WithAdministrator_ReturnsTheNextImmutableVersion()
     {
         await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);

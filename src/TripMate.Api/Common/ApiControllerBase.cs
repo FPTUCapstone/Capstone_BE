@@ -11,6 +11,7 @@ using TripMate.Application.Features.Coupons.Common;
 using TripMate.Application.Features.Navigation.Common;
 using TripMate.Application.Features.Operator.Tours.Common;
 using TripMate.Application.Features.PointsOfInterest.Common;
+using TripMate.Application.Features.Public.LandingContent;
 using TripMate.Application.Features.RecommendationFeedback.Common;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.TourMedia.Common;
@@ -172,6 +173,8 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             LandingContentErrorCodes.StaleVersion => StatusCodes.Status409Conflict,
             LandingContentErrorCodes.InvalidContent => StatusCodes.Status422UnprocessableEntity,
             LandingContentErrorCodes.VersionNotFound => StatusCodes.Status404NotFound,
+
+            PublicLandingContentErrorCodes.NotAvailable => StatusCodes.Status503ServiceUnavailable,
 
             TripMate.Application.Features.Admin.Payouts.Common.PayoutErrorCodes.Forbidden =>
                 StatusCodes.Status403Forbidden,
