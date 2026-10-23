@@ -76,6 +76,18 @@ public sealed class LandingContentEndpointTests
         (await factory.WithDbContextAsync(db => db.LandingContentVersions.CountAsync(version => !version.IsPublished))).Should().Be(0);
     }
 
+    [Fact]
+    public async Task Upload_WithoutFile_ReturnsBadRequest()
+    {
+        await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
+        using var client = CreateClient(factory, UserRole.Administrator);
+        using var form = new MultipartFormDataContent();
+
+        var response = await client.PostAsync("/api/v1/admin/landing-content/media", form);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
     private static async Task SeedPublishedVersionAsync(TripMateApiFactory factory, string headline)
     {
         await factory.WithDbContextAsync(async db =>

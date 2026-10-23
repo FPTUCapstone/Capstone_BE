@@ -56,7 +56,7 @@ public sealed class AdminLandingContentController(ISender sender) : ApiControlle
     [HttpPost("media")]
     [Consumes("multipart/form-data")]
     [RequestSizeLimit(6 * 1024 * 1024)]
-    public async Task<IActionResult> Upload([FromForm] IFormFile? file, CancellationToken cancellationToken)
+    public async Task<IActionResult> Upload(IFormFile? file, CancellationToken cancellationToken)
     {
         if (file is null) return Problem(title: "An image file is required.", statusCode: StatusCodes.Status400BadRequest);
         await using var stream = file.OpenReadStream();
