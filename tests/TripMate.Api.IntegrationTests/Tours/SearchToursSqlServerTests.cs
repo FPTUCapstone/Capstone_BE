@@ -1,4 +1,5 @@
 using System.Data.Common;
+using System.Text.Json;
 
 using FluentAssertions;
 
@@ -128,7 +129,8 @@ public sealed class SearchToursSqlServerTests
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
         await SeedFilterScenarioAsync(database);
-        await using var context = database.CreateDbContext();
+        var gate = new ThumbnailQueryInterceptor();
+        await using var context = database.CreateDbContext(gate);
         var handler = CreateHandler(context);
 
         var result = await handler.Handle(
@@ -139,7 +141,101 @@ public sealed class SearchToursSqlServerTests
         result.Value.TotalCount.Should().Be(4);
         result.Value.TotalPages.Should().Be(2);
         result.Value.Items.Should().BeEmpty();
+        gate.MediaQueries.Should().BeEmpty();
     }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Search_Thumbnail_UsesOnlyActivePrimaryOfPublicTour()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await SeedVisibilityScenarioAsync(database);
+        await database.ExecuteNonQueryAsync("""
+            INSERT INTO commerce.TourMedia
+                (tour_id, cloudinary_public_id, delivery_url, sort_order,
+                 is_primary, lifecycle_status, deleted_at, alt_text)
+            VALUES
+                (9007199254740993, N'tm208/first',
+                 N'https://res.cloudinary.com/test/image/upload/first.jpg',
+                 1, 0, 'Active', NULL, N'First, not primary'),
+                (9007199254740993, N'tm208/cover',
+                 N'https://res.cloudinary.com/test/image/upload/cover.jpg',
+                 2, 1, 'Active', NULL, N'Approved cover'),
+                (102, N'tm208/removed',
+                 N'https://res.cloudinary.com/test/image/upload/removed.jpg',
+                 1, 1, 'Deleted', '2026-09-17T12:00:00', N'Removed cover'),
+                (102, N'tm208/not-promoted',
+                 N'https://res.cloudinary.com/test/image/upload/not-promoted.jpg',
+                 2, 0, 'Active', NULL, N'Not promoted'),
+                (103, N'tm208/unpublished',
+                 N'https://res.cloudinary.com/test/image/upload/unpublished.jpg',
+                 1, 1, 'Active', NULL, N'Unpublished'),
+                (104, N'tm208/draft',
+                 N'https://res.cloudinary.com/test/image/upload/draft.jpg',
+                 1, 1, 'Active', NULL, N'Draft');
+
+            INSERT INTO catalog.POICategories (name) VALUES (N'TM208 test');
+            INSERT INTO catalog.POIs (category_id, name, latitude, longitude)
+            SELECT category_id, N'Unrelated POI', 16.0, 108.0
+            FROM catalog.POICategories WHERE name = N'TM208 test';
+            INSERT INTO catalog.POIPhotos (poi_id, url, sort_order)
+            SELECT poi_id, N'https://example.test/poi-not-tour.jpg', 1
+            FROM catalog.POIs WHERE name = N'Unrelated POI';
+            """);
+        await using var context = database.CreateDbContext();
+        var result = await CreateHandler(context).Handle(
+            new SearchToursQuery(), CancellationToken.None);
+
+        result.Value.TotalCount.Should().Be(3);
+        result.Value.Items.Select(item => item.Title).Should()
+            .Equal("Alpha public", "No schedule", "Sold out");
+        ThumbnailJson(result.Value.Items[0]).GetString().Should().Be(
+            "https://res.cloudinary.com/test/image/upload/cover.jpg");
+        ThumbnailJson(result.Value.Items[1]).ValueKind.Should().Be(JsonValueKind.Null);
+        ThumbnailJson(result.Value.Items[2]).ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Search_ThumbnailLookup_IsSingleQueryBoundedToSelectedPage()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await SeedFilterScenarioAsync(database);
+        await database.ExecuteNonQueryAsync("""
+            INSERT INTO commerce.TourMedia
+                (tour_id, cloudinary_public_id, delivery_url, sort_order,
+                 is_primary, lifecycle_status, alt_text)
+            SELECT tour_id,
+                   CONCAT(N'tm208/tour/', tour_id),
+                   CONCAT(N'https://res.cloudinary.com/test/image/upload/', tour_id, N'.jpg'),
+                   1, 1, 'Active', N'Cover'
+            FROM commerce.Tours WHERE tour_id BETWEEN 201 AND 204;
+            """);
+        var gate = new ThumbnailQueryInterceptor();
+        await using var context = database.CreateDbContext(gate);
+        var result = await CreateHandler(context).Handle(
+            new SearchToursQuery(Page: 2, PageSize: 1), CancellationToken.None);
+
+        result.Value.Page.Should().Be(2);
+        result.Value.TotalCount.Should().Be(4);
+        result.Value.TotalPages.Should().Be(4);
+        result.Value.Items.Should().ContainSingle();
+        var item = result.Value.Items[0];
+        ThumbnailJson(item).GetString().Should().Be(
+            $"https://res.cloudinary.com/test/image/upload/{item.TourId}.jpg");
+        gate.MediaQueries.Should().ContainSingle();
+        gate.MediaParameterValues.Should().ContainSingle();
+        gate.MediaParameterValues[0].Should().Contain(item.TourId);
+        gate.MediaQueries[0].Should().NotContain("cloudinary_public_id")
+            .And.NotContain("alt_text")
+            .And.NotContain("POIPhotos");
+    }
+
+    private static JsonElement ThumbnailJson(TourSearchItemDto item) =>
+        JsonSerializer.SerializeToElement(
+            item,
+            new JsonSerializerOptions(JsonSerializerDefaults.Web))
+            .GetProperty("thumbnailUrl");
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
@@ -204,7 +300,7 @@ public sealed class SearchToursSqlServerTests
         var result = await searchTask.WaitAsync(TimeSpan.FromSeconds(10));
         result.Value.TotalCount.Should().Be(3);
         result.Value.Items.Should().HaveCount(3);
-        gate.ReaderCommandCount.Should().Be(3);
+        gate.ReaderCommandCount.Should().Be(4);
         gate.PageSql.Should().Contain("COLLATE Vietnamese_100_CI_AS");
 
         await database.ExecuteNonQueryAsync(
@@ -393,6 +489,29 @@ public sealed class SearchToursSqlServerTests
             }
 
             return result;
+        }
+    }
+
+    private sealed class ThumbnailQueryInterceptor : DbCommandInterceptor
+    {
+        public List<string> MediaQueries { get; } = [];
+
+        public List<string> MediaParameterValues { get; } = [];
+
+        public override ValueTask<DbDataReader> ReaderExecutedAsync(
+            DbCommand command,
+            CommandExecutedEventData eventData,
+            DbDataReader result,
+            CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("TourMedia", StringComparison.Ordinal))
+            {
+                MediaQueries.Add(command.CommandText);
+                MediaParameterValues.AddRange(command.Parameters.Cast<DbParameter>()
+                    .Select(parameter => parameter.Value?.ToString() ?? string.Empty));
+            }
+
+            return new ValueTask<DbDataReader>(result);
         }
     }
 

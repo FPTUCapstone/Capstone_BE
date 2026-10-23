@@ -9,4 +9,9 @@ public static class ItineraryErrorCodes
     public const string IdempotencyKeyRequired = "itinerary.idempotency_key_required";
     public const string IdempotencyKeyPayloadMismatch = "itinerary.idempotency_key_payload_mismatch";
     public const string ConstraintsInfeasible = "itinerary.constraints_infeasible";
+    public const string NavigationInProgress = "itinerary.navigation_in_progress";
+    public const string NoAlternative = "itinerary.no_alternative";
+
+    /// <summary>A stop the traveler chose does not fit; metadata names the stop and the reason.</summary>
+    public const string StopInfeasible = "itinerary.stop_infeasible";
 }

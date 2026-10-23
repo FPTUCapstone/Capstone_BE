@@ -1,5 +1,7 @@
 using Microsoft.Extensions.Options;
 
+using TripMate.Infrastructure.Ai;
+
 namespace TripMate.Infrastructure.AiRanking;
 
 public sealed class PoiRankingProviderOptionsValidator
@@ -17,11 +19,19 @@ public sealed class PoiRankingProviderOptionsValidator
                 : ValidateOptionsResult.Fail(failures);
         }
 
-        if (!Uri.TryCreate(options.Endpoint, UriKind.Absolute, out Uri? endpoint)
-            || endpoint.Scheme != Uri.UriSchemeHttps)
+        bool isTripMateAi = options.Provider == AiProviderKind.TripMateAi;
+        if (!Enum.IsDefined(options.Provider))
         {
-            failures.Add(
-                $"{nameof(options.Endpoint)} must be an absolute HTTPS URI when AI ranking is enabled.");
+            failures.Add($"{nameof(options.Provider)} must be Gemini or TripMateAi.");
+        }
+
+        // Service TripMate AI chạy trong mạng nội bộ (Docker), nên cho phép HTTP nhưng chỉ với host nội bộ;
+        // Gemini và mọi host bên ngoài vẫn bắt buộc HTTPS, để khóa API không đi ra ngoài dưới dạng văn bản thuần.
+        if (!AiEndpointPolicy.IsAllowedEndpoint(options.Endpoint, options.Provider))
+        {
+            failures.Add(isTripMateAi
+                ? $"{nameof(options.Endpoint)} must be an absolute HTTPS URI, or an HTTP URI on an internal host (a Docker service name, localhost, or a private or link-local address), when AI ranking uses TripMateAi."
+                : $"{nameof(options.Endpoint)} must be an absolute HTTPS URI when AI ranking is enabled.");
         }
 
         if (string.IsNullOrWhiteSpace(options.ApiKey))
@@ -30,7 +40,7 @@ public sealed class PoiRankingProviderOptionsValidator
                 $"{nameof(options.ApiKey)} is required when AI ranking is enabled.");
         }
 
-        if (string.IsNullOrWhiteSpace(options.ModelName))
+        if (!isTripMateAi && string.IsNullOrWhiteSpace(options.ModelName))
         {
             failures.Add(
                 $"{nameof(options.ModelName)} is required when AI ranking is enabled.");

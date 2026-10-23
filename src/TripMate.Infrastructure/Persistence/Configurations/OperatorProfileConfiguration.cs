@@ -29,7 +29,19 @@ public class OperatorProfileConfiguration : IEntityTypeConfiguration<OperatorPro
         builder.Property(op => op.CreatedAtUtc).HasColumnName("created_at").AsUtcDateTime2();
         builder.Property(op => op.UpdatedAtUtc).HasColumnName("updated_at").AsUtcDateTime2();
 
+        builder.Property(op => op.BankName).HasColumnName("bank_name").HasMaxLength(OperatorProfile.BankNameMaxLength);
+        builder.Property(op => op.AccountHolderName).HasColumnName("account_holder_name")
+            .HasMaxLength(OperatorProfile.AccountHolderNameMaxLength);
+        builder.Property(op => op.AccountNumberMasked).HasColumnName("account_number_masked")
+            .HasMaxLength(OperatorProfile.AccountNumberMaskedMaxLength);
+        builder.Property(op => op.AccountNumberProtected).HasColumnName("account_number_protected").HasMaxLength(500);
+        builder.Property(op => op.BankAccountUpdatedAtUtc).HasColumnName("bank_account_updated_at").AsUtcDateTime2();
+
         builder.HasIndex(op => op.TaxCode).IsUnique().HasDatabaseName("UQ_OperatorProfiles_TaxCode");
+        builder.HasIndex(op => op.BusinessLicenseNo)
+            .IsUnique()
+            .HasDatabaseName("UX_OperatorProfiles_BusinessLicenseNo")
+            .HasFilter("[business_license_no] <> N''");
 
         builder
             .HasOne(op => op.User)

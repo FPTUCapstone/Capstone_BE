@@ -1,0 +1,1 @@
+{"schemaVersion":"1.0","codeVersion":"04c2777+candidate-pool-working-tree","purpose":"exploratory","providerCap":3,"matrixCap":2,"diversityCoreSize":1,"diversityReservedSlots":1,"categoryDiversityWeight":1,"geoDiversityWeight":1,"geoCellDefinition":"synthetic-cell-v1","backfillOrder":"frozen-provider-order","sensitivityProviderCap":4,"sensitivityMatrixCap":3}

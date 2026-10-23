@@ -1,33 +1,25 @@
-## Summary
+## 1. Related PRs
+- Link related PRs or _No related PRs_
+## 2. Attention!
+**These are things you need to get done before release to production. Please read it carefully!**
+- _write here_
+## 3. Summary(short description about PRs's goal)
+- _write here_
+## 4. Link specs
+- _write here_
+## 5. Output(Image, video, JSON example)
+- _write here_
 
-<!-- What changed and why? Keep this focused on one logical change. -->
+## Definition of Done
 
-## Affected endpoints and features
-
-<!-- List endpoints/features, or write "None" for non-functional changes. -->
-
-- <!-- Example: `POST /api/v1/auth/login` -->
-
-## Related task or issue
-
-<!-- Add a link or identifier, or write "None". -->
-
-## Validation performed
+**Validation performed**
 
 - [ ] `dotnet build`
 - [ ] `dotnet test`
 - [ ] Migration added and applied locally (or not applicable)
 - [ ] Manual endpoint checks via Swagger/HTTP client (or not applicable)
 
-## Database changes
-
-<!-- List new/changed entities and migrations, or write "None". -->
-
-## Known limitations
-
-<!-- Describe limitations, follow-up work, or write "None". -->
-
-## Definition of Done
+**Checklist**
 
 - [ ] The change matches the assigned scope and contains no unrelated work.
 - [ ] Clean Architecture dependency direction is respected.
@@ -38,7 +30,3 @@
       committed.
 - [ ] `README.md` and `.env.example` were updated if configuration or setup changed.
 - [ ] Self-review is complete and remaining technical debt is documented.
-
-## Reviewer notes
-
-<!-- Call out architecture decisions, risky areas, or specific feedback requested. -->

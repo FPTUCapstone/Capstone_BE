@@ -169,11 +169,11 @@ public class SignOutEndpointsTests
 
     private static void AssertDeletesRefreshCookie(HttpResponseMessage response)
     {
-        response.Headers.GetValues("Set-Cookie").Should().ContainSingle();
-        response.Headers.GetValues("Set-Cookie").Single()
-            .Should().StartWith("tripmate_refresh=")
-            .And.Contain("expires=")
-            .And.Contain("path=/api/v1/auth");
+        var cookies = response.Headers.GetValues("Set-Cookie").ToArray();
+        cookies.Should().HaveCount(2);
+        cookies.Should().OnlyContain(cookie => cookie.StartsWith("tripmate_refresh=") && cookie.Contains("expires="));
+        cookies.Should().Contain(cookie => cookie.Contains("path=/"));
+        cookies.Should().Contain(cookie => cookie.Contains("path=/api/v1/auth"));
     }
 
     private static async Task<(long CurrentUserId, long OtherUserId)> SeedSessionsAsync(

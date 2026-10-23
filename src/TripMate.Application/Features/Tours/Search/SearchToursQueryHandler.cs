@@ -48,9 +48,8 @@ public sealed class SearchToursQueryHandler(
                 var tours = dbContext.Tours
                     .AsNoTracking()
                     .Where(tour =>
-                        tour.Status == TourStatus.Approved
-                        && tour.PublishedAtUtc.HasValue
-                        && tour.PublishedAtUtc.Value <= now
+                        (tour.Status == TourStatus.Published
+                         || (tour.Status == TourStatus.Approved && tour.PublishedAtUtc.HasValue && tour.PublishedAtUtc.Value <= now))
                         && tour.OperatorProfile.ApprovalStatus == OperatorApprovalStatus.Approved
                         && tour.OperatorProfile.User.Status == AccountStatus.Active);
 
@@ -140,6 +139,18 @@ public sealed class SearchToursQueryHandler(
                     .ToDictionary(group => group.Key,
                         group => (IReadOnlyList<string>)group.Select(link => link.Name).ToArray());
 
+                var thumbnailsByTour = pageTourIds.Length == 0
+                    ? new Dictionary<long, string>()
+                    : await dbContext.TourMedia
+                        .AsNoTracking()
+                        .Where(media => pageTourIds.Contains(media.TourId)
+                            && media.IsPrimary)
+                        .Select(media => new { media.TourId, media.DeliveryUrl })
+                        .ToDictionaryAsync(
+                            media => media.TourId,
+                            media => media.DeliveryUrl,
+                            transactionCancellationToken);
+
                 var items = rows.Select(row => MapItem(
                         row.Id,
                         row.Title,
@@ -150,7 +161,8 @@ public sealed class SearchToursQueryHandler(
                         row.ScheduleId,
                         row.DepartureAtUtc,
                         row.TotalCapacity,
-                        row.ReservedCapacity))
+                        row.ReservedCapacity,
+                        thumbnailsByTour.GetValueOrDefault(row.Id)))
                     .ToArray();
                 var totalPages = totalCount / request.PageSize
                     + (totalCount % request.PageSize == 0 ? 0 : 1);
@@ -176,7 +188,8 @@ public sealed class SearchToursQueryHandler(
         long? scheduleId,
         DateTimeOffset? departureAtUtc,
         int? totalCapacity,
-        int? reservedCapacity)
+        int? reservedCapacity,
+        string? thumbnailUrl)
     {
         var hasValidCapacity = totalCapacity is > 0
             && reservedCapacity is >= 0
@@ -215,6 +228,7 @@ public sealed class SearchToursQueryHandler(
             publicScheduleId?.ToString(CultureInfo.InvariantCulture),
             publicDepartureAtUtc,
             availability,
-            remainingSlots);
+            remainingSlots,
+            thumbnailUrl);
     }
 }

@@ -164,7 +164,8 @@ GO
 CREATE TABLE dbo.Users (
     user_id             BIGINT IDENTITY(1,1) PRIMARY KEY,
     role                VARCHAR(20)   NOT NULL
-        CHECK (role IN ('Traveler','TourOperator','Administrator')),
+        CONSTRAINT CK_Users_Role
+        CHECK (role IN ('Traveler','TourOperator','Administrator','Staff')),
     email               NVARCHAR(256) NULL,
     phone_number        NVARCHAR(20)  NULL,
     password_hash       NVARCHAR(256) NULL,
@@ -223,7 +224,6 @@ CREATE TABLE dbo.TravelerProfiles (
     risk_tolerance              VARCHAR(20) NULL CHECK (risk_tolerance IN ('Low','Medium','High')),
     food_preferences_json       NVARCHAR(1000) NULL,   -- JSON array, e.g. ["vegetarian","seafood"]
     interest_tags_json          NVARCHAR(1000) NULL,   -- JSON array of catalog.Tags.name
-    default_budget              DECIMAL(12,2) NULL,
     updated_at                  DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
 );
 GO
@@ -261,6 +261,38 @@ CREATE TABLE dbo.OperatorDocuments (
 );
 GO
 CREATE INDEX IX_OperatorDocuments_Operator ON dbo.OperatorDocuments(operator_user_id);
+GO
+
+-- UC-02: a committed cleanup reservation exists before each private Cloudinary upload.
+-- The worker retries failed deletion and removes a reservation only after an asset is
+-- absent or confirmed as a document of a committed registration.
+CREATE TABLE dbo.OperatorDocumentCleanupOutbox (
+    cleanup_id          BIGINT IDENTITY(1,1) PRIMARY KEY,
+    public_id           NVARCHAR(500) NOT NULL,
+    content_type        VARCHAR(32) NOT NULL
+        CHECK (content_type IN ('application/pdf','image/jpeg','image/png')),
+    expected_reference  NVARCHAR(500) NOT NULL,
+    cleanup_status      VARCHAR(16) NOT NULL DEFAULT 'Pending'
+        CHECK (cleanup_status IN ('Pending','Leased')),
+    not_before_at       DATETIME2 NOT NULL,
+    attempt_count       INT NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+    lease_token         UNIQUEIDENTIFIER NULL,
+    lease_expires_at    DATETIME2 NULL,
+    last_error_code     VARCHAR(100) NULL,
+    created_at          DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    updated_at          DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT CK_OperatorDocumentCleanupOutbox_Lease CHECK (
+        (cleanup_status = 'Pending' AND lease_token IS NULL AND lease_expires_at IS NULL) OR
+        (cleanup_status = 'Leased' AND lease_token IS NOT NULL AND lease_expires_at IS NOT NULL))
+);
+GO
+CREATE UNIQUE INDEX UX_OperatorDocumentCleanupOutbox_PublicId
+    ON dbo.OperatorDocumentCleanupOutbox(public_id);
+GO
+CREATE INDEX IX_OperatorDocumentCleanupOutbox_Due
+    ON dbo.OperatorDocumentCleanupOutbox(cleanup_status, not_before_at, lease_expires_at, cleanup_id);
+GO
+CREATE INDEX IX_OperatorDocuments_FileUrl ON dbo.OperatorDocuments(file_url);
 GO
 
 CREATE TABLE dbo.SystemConfigs (
@@ -355,6 +387,8 @@ CREATE TABLE catalog.POIs (
     has_shelter                  BIT NOT NULL DEFAULT 0,
     estimated_visit_cost         DECIMAL(12,2) NULL,
     source_url                   NVARCHAR(500) NULL,
+    tripadvisor_location_id      BIGINT NULL
+        CONSTRAINT CK_POIs_TripadvisorLocationId CHECK (tripadvisor_location_id > 0),
     verified_at                  DATETIME2 NULL,
     status                       VARCHAR(10) NOT NULL DEFAULT 'Active' CHECK (status IN ('Active','Inactive')),
     created_by                   BIGINT NULL REFERENCES dbo.Users(user_id),
@@ -366,6 +400,9 @@ CREATE TABLE catalog.POIs (
 GO
 CREATE INDEX IX_POIs_Category ON catalog.POIs(category_id);
 CREATE INDEX IX_POIs_LatLng ON catalog.POIs(latitude, longitude);
+CREATE UNIQUE INDEX UX_POIs_TripadvisorLocationId
+    ON catalog.POIs(tripadvisor_location_id)
+    WHERE tripadvisor_location_id IS NOT NULL;
 GO
 
 CREATE TABLE catalog.POIOpeningHours (
@@ -447,9 +484,32 @@ GO
 CREATE UNIQUE INDEX UX_Destinations_Name ON catalog.Destinations(name);
 GO
 
+-- TM-70 V2: server-owned, English Tour taxonomy. Production seed values are
+-- intentionally deferred to Product/BA approval.
+CREATE TABLE catalog.TourCategories (
+    category_id INT IDENTITY(1,1) NOT NULL
+        CONSTRAINT PK_TourCategories PRIMARY KEY,
+    code VARCHAR(50) COLLATE Latin1_General_100_CI_AS NOT NULL,
+    name NVARCHAR(100) COLLATE Latin1_General_100_CI_AS NOT NULL,
+    is_active BIT NOT NULL
+        CONSTRAINT DF_TourCategories_IsActive DEFAULT 1,
+    CONSTRAINT CK_TourCategories_CodeNotBlank
+        CHECK (LEN(LTRIM(RTRIM(code))) > 0),
+    CONSTRAINT CK_TourCategories_NameNotBlank
+        CHECK (LEN(LTRIM(RTRIM(name))) > 0)
+);
+GO
+CREATE UNIQUE INDEX UX_TourCategories_Code ON catalog.TourCategories(code);
+CREATE INDEX IX_TourCategories_ActiveName
+    ON catalog.TourCategories(is_active, name, category_id);
+GO
+
 CREATE TABLE commerce.Tours (
     tour_id             BIGINT IDENTITY(1,1) PRIMARY KEY,
     operator_user_id    BIGINT NOT NULL REFERENCES dbo.OperatorProfiles(user_id),
+    version_root_tour_id BIGINT NULL CONSTRAINT FK_Tours_VersionRoot REFERENCES commerce.Tours(tour_id),
+    version_no           INT NOT NULL DEFAULT 1 CHECK (version_no > 0),
+    category_id           INT NULL,
     title                NVARCHAR(200) NOT NULL,
     description           NVARCHAR(MAX) NULL,
     destination            NVARCHAR(300) COLLATE Vietnamese_100_CI_AS NULL, -- legacy draft data only; TM-70 reads TourDestinations
@@ -463,6 +523,8 @@ CREATE TABLE commerce.Tours (
     published_at                DATETIME2 NULL,
     created_at                  DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
     updated_at                  DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT FK_Tours_TourCategories FOREIGN KEY (category_id)
+        REFERENCES catalog.TourCategories(category_id),
     CONSTRAINT CK_Tours_BasePriceWholeVnd
         CHECK (base_price = FLOOR(base_price))
     -- v2: slot_capacity/slots_booked moved to commerce.TourSchedules —
@@ -470,7 +532,10 @@ CREATE TABLE commerce.Tours (
 );
 GO
 CREATE INDEX IX_Tours_Operator ON commerce.Tours(operator_user_id);
+CREATE UNIQUE INDEX UX_Tours_VersionLineage ON commerce.Tours(version_root_tour_id, version_no)
+    WHERE version_root_tour_id IS NOT NULL;
 CREATE INDEX IX_Tours_Status ON commerce.Tours(status);
+CREATE INDEX IX_Tours_Category ON commerce.Tours(category_id);
 GO
 
 -- TM-206: Tour-owned Cloudinary image metadata. Raw image binaries are never
@@ -796,6 +861,8 @@ CREATE TABLE planning.ItineraryItems (
     transport_mode_to_next                 VARCHAR(20) NULL
         CHECK (transport_mode_to_next IN ('Walking','Motorbike','Car','PublicTransit')),
     travel_duration_to_next_minutes         INT NULL,
+    travel_distance_to_next_meters          INT NULL
+        CONSTRAINT CK_ItineraryItems_TravelDistance CHECK (travel_distance_to_next_meters >= 0),
     status                                   VARCHAR(10) NOT NULL DEFAULT 'Planned'
         CHECK (status IN ('Planned','Visited','Skipped')),
     CONSTRAINT UQ_ItineraryItems UNIQUE (itinerary_id, sequence_no),
@@ -990,6 +1057,7 @@ CREATE TABLE commerce.Vouchers (
     voucher_id                BIGINT IDENTITY(1,1) PRIMARY KEY,
     owner_operator_user_id      BIGINT NULL REFERENCES dbo.OperatorProfiles(user_id),
     code                          VARCHAR(30) NOT NULL UNIQUE,
+    name                          NVARCHAR(120) NOT NULL,
     discount_type                   VARCHAR(10) NOT NULL CHECK (discount_type IN ('Percentage','Flat')),
     discount_value                    DECIMAL(12,2) NOT NULL CHECK (discount_value > 0),
     max_discount_amount                 DECIMAL(12,2) NULL,   -- NEW in v2: caps a Percentage discount's absolute value
@@ -1002,6 +1070,7 @@ CREATE TABLE commerce.Vouchers (
     status                                            VARCHAR(10) NOT NULL DEFAULT 'Active'
         CHECK (status IN ('Active','Expired','Disabled')),
     created_at                                          DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    updated_at                                          DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
     CONSTRAINT CK_Vouchers_ValidWindow CHECK (valid_to > valid_from),
     CONSTRAINT CK_Vouchers_UsageWithinLimit CHECK (usage_limit IS NULL OR used_count <= usage_limit)
 );
@@ -1035,13 +1104,41 @@ CREATE TABLE commerce.Bookings (
     booked_at                                                DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
     payment_expires_at                                          DATETIME2 NULL,
     cancelled_at                                                   DATETIME2 NULL,
-    cancel_reason                                                     NVARCHAR(300) NULL
+    cancel_reason                                                     NVARCHAR(300) NULL,
+    cancellation_policy_snapshot                                      NVARCHAR(500) NOT NULL
+        CONSTRAINT DF_Bookings_CancellationPolicySnapshot DEFAULT
+        (N'{"atLeastSevenDaysPercent":100,"threeToSevenDaysPercent":70,"oneToThreeDaysPercent":30}')
 );
 GO
 CREATE INDEX IX_Bookings_Traveler ON commerce.Bookings(traveler_user_id, status);
 CREATE INDEX IX_Bookings_TourSchedule ON commerce.Bookings(tour_schedule_id, status);
 CREATE INDEX IX_Bookings_ExpiryScan ON commerce.Bookings(status, payment_expires_at)
     WHERE status = 'PendingPayment';
+GO
+
+CREATE TABLE commerce.BookingCancellationOperations (
+    operation_id       BIGINT IDENTITY(1,1) NOT NULL
+        CONSTRAINT PK_BookingCancellationOperations PRIMARY KEY,
+    booking_id           BIGINT NOT NULL,
+    actor_user_id          BIGINT NOT NULL,
+    actor                    VARCHAR(12) NOT NULL,
+    idempotency_key           UNIQUEIDENTIFIER NOT NULL,
+    request_hash                 CHAR(64) NOT NULL,
+    refund_amount                 DECIMAL(12,2) NOT NULL,
+    cancelled_at                    DATETIME2 NOT NULL,
+    CONSTRAINT UX_BookingCancellationOperations_ActorKey UNIQUE (actor_user_id, idempotency_key),
+    CONSTRAINT FK_BookingCancellationOperations_Booking FOREIGN KEY (booking_id)
+        REFERENCES commerce.Bookings(booking_id),
+    CONSTRAINT FK_BookingCancellationOperations_ActorUser FOREIGN KEY (actor_user_id)
+        REFERENCES dbo.Users(user_id),
+    CONSTRAINT CK_BookingCancellationOperations_Actor
+        CHECK (actor IN ('Traveler','TourOperator')),
+    CONSTRAINT CK_BookingCancellationOperations_RefundAmount
+        CHECK (refund_amount >= 0)
+);
+GO
+CREATE INDEX IX_BookingCancellationOperations_Booking
+    ON commerce.BookingCancellationOperations(booking_id);
 GO
 
 -- NEW in v2 — named ticket-holders per booking, required to issue individual Tickets
@@ -1057,7 +1154,7 @@ CREATE TABLE commerce.BookingParticipants (
     email                          NVARCHAR(256) NULL,
     participant_type                  VARCHAR(10) NULL CHECK (participant_type IN ('Adult','Child','Infant')),
     id_document_type                     VARCHAR(20) NULL CHECK (id_document_type IN ('CCCD','Passport','Other')),
-    id_document_number                      NVARCHAR(50) NULL,   -- PII — see note above
+    id_document_number                      NVARCHAR(512) NULL,  -- encrypted PII — see note above
     nationality                                CHAR(3) NULL   -- ISO 3166-1 alpha-3 country code
 );
 GO
@@ -1134,36 +1231,76 @@ GO
 
 CREATE TABLE payment.PaymentTransactions (
     transaction_id               BIGINT IDENTITY(1,1) PRIMARY KEY,
-    booking_id                     BIGINT NOT NULL REFERENCES commerce.Bookings(booking_id),
-    gateway                          VARCHAR(20) NOT NULL CHECK (gateway IN ('VNPAY','MoMo','PayOS','Stripe')),
-    gateway_transaction_ref            NVARCHAR(150) NULL,
-    amount                                DECIMAL(12,2) NOT NULL CHECK (amount > 0),
-    currency                                CHAR(3) NOT NULL DEFAULT 'VND',
-    transaction_type                          VARCHAR(10) NOT NULL CHECK (transaction_type IN ('Payment','Refund')),
-    status                                       VARCHAR(10) NOT NULL DEFAULT 'Pending'
-        CHECK (status IN ('Pending','Success','Failed')),
-    raw_response                                   NVARCHAR(MAX) NULL,
-    created_at                                       DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+    booking_id                   BIGINT NOT NULL REFERENCES commerce.Bookings(booking_id),
+    refund_id                    BIGINT NULL,
+    gateway                      VARCHAR(20) NOT NULL CHECK (gateway IN ('VNPAY','MoMo','PayOS','Stripe','Mock')),
+    gateway_transaction_ref      NVARCHAR(150) NULL,
+    amount                       DECIMAL(12,2) NOT NULL CHECK (amount > 0),
+    currency                     CHAR(3) NOT NULL DEFAULT 'VND',
+    transaction_type             VARCHAR(10) NOT NULL CHECK (transaction_type IN ('Payment','Refund')),
+    status                       VARCHAR(10) NOT NULL DEFAULT 'Pending'
+        CHECK (status IN ('Pending','Success','Cancelled','Expired','Failed')),
+    order_code                   BIGINT NOT NULL DEFAULT (0),
+    payment_link_id              NVARCHAR(100) NULL,
+    checkout_url                 NVARCHAR(1000) NULL,
+    qr_code                      NVARCHAR(MAX) NULL,
+    expires_at                   DATETIME2 NULL,
+    updated_at                   DATETIME2 NULL,
+    raw_response                 NVARCHAR(MAX) NULL,
+    created_at                   DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
 );
 GO
 CREATE INDEX IX_PaymentTransactions_Booking ON payment.PaymentTransactions(booking_id);
+GO
+CREATE UNIQUE INDEX UX_PaymentTransactions_OrderCode ON payment.PaymentTransactions(order_code) WHERE order_code > 0;
+GO
+CREATE UNIQUE INDEX UX_PaymentTransactions_Booking_Pending ON payment.PaymentTransactions(booking_id) WHERE status = 'Pending';
 GO
 
 CREATE TABLE payment.Refunds (
     refund_id            BIGINT IDENTITY(1,1) PRIMARY KEY,
     booking_id              BIGINT NOT NULL REFERENCES commerce.Bookings(booking_id),
     transaction_id             BIGINT NULL REFERENCES payment.PaymentTransactions(transaction_id),
+    cancellation_operation_id    BIGINT NULL,
     reason                        NVARCHAR(500) NULL,
     amount                          DECIMAL(12,2) NOT NULL CHECK (amount > 0),
     initiated_by                      VARCHAR(14) NOT NULL
         CHECK (initiated_by IN ('System','TourOperator','Administrator')),
-    status                              VARCHAR(10) NOT NULL DEFAULT 'Pending'
-        CHECK (status IN ('Pending','Processed','Failed')),
+    status                              VARCHAR(20) NOT NULL DEFAULT 'Pending'
+        CHECK (status IN ('Pending','Processing','RetryPending','ManualReview','Processed','Failed','Rejected')),
     requested_at                          DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
-    processed_at                            DATETIME2 NULL
+    processed_at                            DATETIME2 NULL,
+    gateway_reference                      NVARCHAR(150) NULL,
+    attempt_count                          INT NOT NULL CONSTRAINT DF_Refunds_AttemptCount DEFAULT (0)
+        CHECK (attempt_count >= 0),
+    last_attempt_at                        DATETIME2 NULL,
+    next_attempt_at                        DATETIME2 NULL,
+    last_error_code                        NVARCHAR(100) NULL,
+    last_error_message                     NVARCHAR(1000) NULL,
+    CONSTRAINT FK_Refunds_CancellationOperation FOREIGN KEY (cancellation_operation_id)
+        REFERENCES commerce.BookingCancellationOperations(operation_id)
 );
 GO
 CREATE INDEX IX_Refunds_Booking ON payment.Refunds(booking_id);
+CREATE INDEX IX_Refunds_Due ON payment.Refunds(status, next_attempt_at);
+CREATE UNIQUE INDEX UX_Refunds_CancellationOperation ON payment.Refunds(cancellation_operation_id)
+    WHERE cancellation_operation_id IS NOT NULL;
+GO
+ALTER TABLE payment.PaymentTransactions ADD CONSTRAINT FK_PaymentTransactions_Refund
+    FOREIGN KEY (refund_id) REFERENCES payment.Refunds(refund_id);
+GO
+
+CREATE TABLE payment.RefundManualCompletionOperations (
+    operation_id         BIGINT IDENTITY(1,1) PRIMARY KEY,
+    refund_id            BIGINT NOT NULL REFERENCES payment.Refunds(refund_id),
+    actor_user_id        BIGINT NOT NULL REFERENCES dbo.Users(user_id),
+    idempotency_key      UNIQUEIDENTIFIER NOT NULL,
+    request_hash         CHAR(64) NOT NULL,
+    gateway_reference    NVARCHAR(150) NOT NULL,
+    completed_at         DATETIME2 NOT NULL,
+    CONSTRAINT UX_RefundManualCompletionOperations_ActorKey UNIQUE (actor_user_id, idempotency_key),
+    CONSTRAINT UX_RefundManualCompletionOperations_Refund UNIQUE (refund_id)
+);
 GO
 
 CREATE TABLE payment.Payouts (
@@ -1174,16 +1311,47 @@ CREATE TABLE payment.Payouts (
     gross_revenue                   DECIMAL(14,2) NOT NULL CHECK (gross_revenue >= 0),
     commission_amount                 DECIMAL(14,2) NOT NULL CHECK (commission_amount >= 0),
     net_amount                          DECIMAL(14,2) NOT NULL CHECK (net_amount >= 0),
-    status                                 VARCHAR(12) NOT NULL DEFAULT 'Pending'
-        CHECK (status IN ('Pending','Requested','Confirmed','Paid','Rejected')),
+    status                                 VARCHAR(24) NOT NULL CONSTRAINT DF_Payouts_Status DEFAULT 'PendingReview'
+        CONSTRAINT CK_Payouts_Status CHECK (status IN ('PendingReview','ApprovedForSettlement','SettlementProcessing','Settled','SettlementFailed','Rejected')),
     requested_at                             DATETIME2 NULL,
-    confirmed_by                               BIGINT NULL REFERENCES dbo.Users(user_id),
-    confirmed_at                                 DATETIME2 NULL,
+    reviewed_by                              BIGINT NULL REFERENCES dbo.Users(user_id),
+    reviewed_at                              DATETIME2 NULL,
+    rejection_reason                         NVARCHAR(500) NULL,
+    settlement_authorized_by                 BIGINT NULL REFERENCES dbo.Users(user_id),
+    settlement_authorized_at                 DATETIME2 NULL,
+    gateway_reference                        NVARCHAR(200) NULL,
+    gateway_failure_reason                   NVARCHAR(500) NULL,
+    gateway_attempt_count                    INT NOT NULL CONSTRAINT DF_Payouts_GatewayAttemptCount DEFAULT 0,
+    last_gateway_attempt_at                  DATETIME2 NULL,
     CONSTRAINT CK_Payouts_PeriodOrder CHECK (period_end >= period_start),
-    CONSTRAINT CK_Payouts_NetAmount CHECK (net_amount = gross_revenue - commission_amount)
+    CONSTRAINT CK_Payouts_NetAmount CHECK (net_amount = gross_revenue - commission_amount),
+    CONSTRAINT CK_Payouts_LifecycleState CHECK (
+        gateway_attempt_count >= 0
+        AND ((status = 'PendingReview' AND reviewed_by IS NULL AND reviewed_at IS NULL AND rejection_reason IS NULL
+              AND settlement_authorized_by IS NULL AND settlement_authorized_at IS NULL AND gateway_reference IS NULL
+              AND gateway_failure_reason IS NULL AND gateway_attempt_count = 0 AND last_gateway_attempt_at IS NULL)
+          OR (status = 'ApprovedForSettlement' AND reviewed_by IS NOT NULL AND reviewed_at IS NOT NULL AND rejection_reason IS NULL
+              AND settlement_authorized_by IS NULL AND settlement_authorized_at IS NULL AND gateway_reference IS NULL
+              AND gateway_failure_reason IS NULL AND gateway_attempt_count = 0 AND last_gateway_attempt_at IS NULL)
+          OR (status = 'Rejected' AND reviewed_by IS NOT NULL AND reviewed_at IS NOT NULL AND rejection_reason IS NOT NULL
+              AND settlement_authorized_by IS NULL AND settlement_authorized_at IS NULL AND gateway_reference IS NULL
+              AND gateway_failure_reason IS NULL AND gateway_attempt_count = 0 AND last_gateway_attempt_at IS NULL)
+          OR (status = 'SettlementProcessing' AND reviewed_by IS NOT NULL AND reviewed_at IS NOT NULL AND rejection_reason IS NULL
+              AND settlement_authorized_by IS NOT NULL AND settlement_authorized_at IS NOT NULL AND gateway_failure_reason IS NULL)
+          OR (status = 'Settled' AND reviewed_by IS NOT NULL AND reviewed_at IS NOT NULL AND rejection_reason IS NULL
+              AND settlement_authorized_by IS NOT NULL AND settlement_authorized_at IS NOT NULL AND gateway_reference IS NOT NULL
+              AND gateway_failure_reason IS NULL AND gateway_attempt_count >= 1 AND last_gateway_attempt_at IS NOT NULL)
+          OR (status = 'SettlementFailed' AND reviewed_by IS NOT NULL AND reviewed_at IS NOT NULL AND rejection_reason IS NULL
+              AND settlement_authorized_by IS NOT NULL AND settlement_authorized_at IS NOT NULL AND gateway_failure_reason IS NOT NULL
+              AND gateway_attempt_count >= 1 AND last_gateway_attempt_at IS NOT NULL))
+    )
 );
 GO
 CREATE INDEX IX_Payouts_Operator ON payment.Payouts(operator_user_id, status);
+GO
+CREATE UNIQUE INDEX UX_Payouts_ActiveOperatorPeriod
+    ON payment.Payouts(operator_user_id, period_start, period_end)
+    WHERE status IN ('PendingReview','ApprovedForSettlement','SettlementProcessing');
 GO
 
 CREATE TABLE payment.PayoutItems (
@@ -1213,7 +1381,7 @@ GO
 
 CREATE TABLE commercial.ServiceProviders (
     provider_id         BIGINT IDENTITY(1,1) PRIMARY KEY,
-    name                   NVARCHAR(150) NOT NULL,
+    name                   NVARCHAR(150) COLLATE Vietnamese_100_CI_AS NOT NULL,
     service_category          VARCHAR(20) NOT NULL
         CHECK (service_category IN ('Vehicle','Hotel','Restaurant')),
     contact_email                NVARCHAR(200) NULL,
@@ -1233,7 +1401,7 @@ CREATE TABLE commercial.Services (
     provider_id              BIGINT NOT NULL REFERENCES commercial.ServiceProviders(provider_id),
     service_category            VARCHAR(20) NOT NULL
         CHECK (service_category IN ('Vehicle','Hotel','Restaurant')),
-    name                            NVARCHAR(200) NOT NULL,   -- e.g. "Honda Wave", "Deluxe Room", "Set Menu for 2"
+    name                            NVARCHAR(200) COLLATE Vietnamese_100_CI_AS NOT NULL,   -- e.g. "Honda Wave", "Deluxe Room", "Set Menu for 2"
     description                        NVARCHAR(2000) NULL,
     poi_id                                 BIGINT NULL REFERENCES catalog.POIs(poi_id),   -- physical venue on the map, if any (Hotel/Restaurant; usually NULL for a Vehicle fleet)
     price_amount                              DECIMAL(12,2) NOT NULL CHECK (price_amount >= 0),
@@ -1243,11 +1411,56 @@ CREATE TABLE commercial.Services (
     attributes_json                                       NVARCHAR(1000) NULL,   -- category-specific fields, e.g. Vehicle:{seats,transmission}, Hotel:{room_type,beds}, Restaurant:{cuisine,table_size}
     availability_status                                       VARCHAR(14) NOT NULL DEFAULT 'Available'
         CHECK (availability_status IN ('Available','Unavailable')),
+    currency_code                                             VARCHAR(3) NOT NULL
+        CONSTRAINT DF_Services_CurrencyCode DEFAULT 'VND'
+        CONSTRAINT CK_Services_CurrencyCode CHECK (currency_code = 'VND'),
+    price_includes_tax                                           BIT NOT NULL
+        CONSTRAINT DF_Services_PriceIncludesTax DEFAULT 0,
+    refundable_deposit_amount                              DECIMAL(12,2) NULL
+        CONSTRAINT CK_Services_RefundableDepositNonNegative
+            CHECK (refundable_deposit_amount IS NULL OR refundable_deposit_amount >= 0),
+    cover_image_url                                      NVARCHAR(500) NULL
+        CONSTRAINT CK_Services_CoverImageHttps
+            CHECK (cover_image_url IS NULL OR cover_image_url LIKE 'https://%'),
+    fulfilment_location_label                            NVARCHAR(300) NULL,
+    pickup_or_arrival_instructions                      NVARCHAR(1000) NULL
+        CONSTRAINT CK_Services_PickupInstructionsLength
+            CHECK (pickup_or_arrival_instructions IS NULL
+                OR LEN(pickup_or_arrival_instructions) <= 1000),
+    cancellation_policy_summary                           NVARCHAR(500) NULL
+        CONSTRAINT CK_Services_CancellationSummaryLength
+            CHECK (cancellation_policy_summary IS NULL
+                OR LEN(cancellation_policy_summary) <= 500),
+    last_updated_at                                           DATETIME2 NOT NULL
+        CONSTRAINT DF_Services_LastUpdatedAt DEFAULT SYSUTCDATETIME(),
     created_at                                                    DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
 );
 GO
 CREATE INDEX IX_Services_Provider ON commercial.Services(provider_id);
 CREATE INDEX IX_Services_Category ON commercial.Services(service_category, availability_status);
+GO
+
+CREATE OR ALTER TRIGGER commercial.TR_Services_SetLastUpdatedAt
+ON commercial.Services
+AFTER UPDATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF UPDATE(provider_id) OR UPDATE(service_category) OR UPDATE(name) OR UPDATE(description)
+        OR UPDATE(poi_id) OR UPDATE(price_amount) OR UPDATE(price_unit)
+        OR UPDATE(capacity) OR UPDATE(attributes_json) OR UPDATE(availability_status)
+        OR UPDATE(currency_code) OR UPDATE(price_includes_tax)
+        OR UPDATE(refundable_deposit_amount) OR UPDATE(cover_image_url)
+        OR UPDATE(fulfilment_location_label) OR UPDATE(pickup_or_arrival_instructions)
+        OR UPDATE(cancellation_policy_summary)
+    BEGIN
+        UPDATE service
+        SET last_updated_at = SYSUTCDATETIME()
+        FROM commercial.Services AS service
+        INNER JOIN inserted AS changed ON changed.service_id = service.service_id;
+    END;
+END;
 GO
 
 CREATE TABLE commercial.ServiceBookings (
@@ -1376,6 +1589,140 @@ CREATE TABLE social.GroupLocationSharing (
 );
 GO
 CREATE INDEX IX_GroupLocationSharing_Group ON social.GroupLocationSharing(group_id, recorded_at DESC);
+GO
+
+-- TM-79 Task 3a: parent-only staged schema; legacy Reviews remain unchanged.
+CREATE TABLE social.TripReviews (
+    trip_review_id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_TripReviews PRIMARY KEY,
+    booking_id BIGINT NULL CONSTRAINT FK_TripReviews_Booking REFERENCES commerce.Bookings(booking_id),
+    service_booking_id BIGINT NULL CONSTRAINT FK_TripReviews_ServiceBooking REFERENCES commercial.ServiceBookings(service_booking_id),
+    traveler_user_id BIGINT NOT NULL CONSTRAINT FK_TripReviews_Traveler REFERENCES dbo.Users(user_id),
+    tour_id BIGINT NULL CONSTRAINT FK_TripReviews_Tour REFERENCES commerce.Tours(tour_id),
+    itinerary_id BIGINT NULL CONSTRAINT FK_TripReviews_Itinerary REFERENCES planning.Itineraries(itinerary_id),
+    poi_id BIGINT NULL CONSTRAINT FK_TripReviews_Poi REFERENCES catalog.POIs(poi_id),
+    overall_rating TINYINT NOT NULL,
+    title NVARCHAR(200) COLLATE Vietnamese_100_CI_AS NOT NULL,
+    content NVARCHAR(1000) COLLATE Vietnamese_100_CI_AS NOT NULL,
+    route_pacing VARCHAR(9) NULL,
+    csp_rating TINYINT NULL,
+    publish_display_name BIT NOT NULL,
+    public_display_name NVARCHAR(MAX) COLLATE Vietnamese_100_CI_AS NOT NULL,
+    publication_status VARCHAR(9) NOT NULL,
+    policy_version NVARCHAR(MAX) COLLATE Vietnamese_100_CI_AS NULL,
+    created_at DATETIME2(7) NOT NULL,
+    edit_deadline DATETIME2(7) NOT NULL,
+    updated_at DATETIME2(7) NOT NULL,
+    version ROWVERSION NOT NULL,
+    CONSTRAINT CK_TripReviews_Overall CHECK (overall_rating BETWEEN 1 AND 5),
+    CONSTRAINT CK_TripReviews_Csp CHECK (csp_rating BETWEEN 1 AND 5),
+    CONSTRAINT CK_TripReviews_Pacing CHECK (route_pacing IN ('tooTight','wellPaced','tooLoose')),
+    CONSTRAINT CK_TripReviews_Parent CHECK (
+        (booking_id IS NOT NULL AND service_booking_id IS NULL) OR
+        (booking_id IS NULL AND service_booking_id IS NOT NULL)),
+    CONSTRAINT CK_TripReviews_Subject CHECK (
+        (booking_id IS NOT NULL AND service_booking_id IS NULL AND poi_id IS NULL
+            AND ((tour_id IS NOT NULL AND itinerary_id IS NULL)
+                OR (tour_id IS NULL AND itinerary_id IS NOT NULL)))
+        OR
+        (booking_id IS NULL AND service_booking_id IS NOT NULL
+            AND tour_id IS NULL AND itinerary_id IS NULL AND poi_id IS NOT NULL)),
+    CONSTRAINT CK_TripReviews_Publication CHECK (publication_status = 'Published'),
+    CONSTRAINT CK_TripReviews_Title CHECK (LEN(title) > 0),
+    CONSTRAINT CK_TripReviews_Content CHECK (LEN(content) > 0),
+    -- NULL denotes unscreened text; reject the .NET whitespace set for non-null versions.
+    CONSTRAINT CK_TripReviews_Policy CHECK (policy_version IS NULL OR LEN(TRIM(
+        NCHAR(9)+NCHAR(10)+NCHAR(11)+NCHAR(12)+NCHAR(13)+NCHAR(32)+NCHAR(133)+NCHAR(160)+
+        NCHAR(5760)+NCHAR(8192)+NCHAR(8193)+NCHAR(8194)+NCHAR(8195)+NCHAR(8196)+NCHAR(8197)+
+        NCHAR(8198)+NCHAR(8199)+NCHAR(8200)+NCHAR(8201)+NCHAR(8202)+NCHAR(8232)+NCHAR(8233)+
+        NCHAR(8239)+NCHAR(8287)+NCHAR(12288) FROM policy_version COLLATE Latin1_General_100_BIN2)) > 0),
+    CONSTRAINT CK_TripReviews_Display CHECK (LEN(public_display_name) > 0),
+    CONSTRAINT CK_TripReviews_Deadline CHECK (edit_deadline = DATEADD(day, 7, created_at))
+);
+CREATE UNIQUE INDEX UX_TripReviews_CommerceBooking
+    ON social.TripReviews(booking_id) WHERE booking_id IS NOT NULL;
+CREATE UNIQUE INDEX UX_TripReviews_ServiceBooking
+    ON social.TripReviews(service_booking_id) WHERE service_booking_id IS NOT NULL;
+CREATE INDEX IX_TripReviews_TourPublicationRating
+    ON social.TripReviews(tour_id, publication_status)
+    INCLUDE (overall_rating)
+    WHERE tour_id IS NOT NULL;
+GO
+
+CREATE TABLE social.TripReviewMediaOperations (
+ operation_id UNIQUEIDENTIFIER NOT NULL CONSTRAINT PK_TripReviewMediaOperations PRIMARY KEY,
+ batch_id UNIQUEIDENTIFIER NOT NULL,
+ booking_id BIGINT NULL CONSTRAINT FK_TripReviewMediaOperations_Booking REFERENCES commerce.Bookings(booking_id),
+ service_booking_id BIGINT NULL CONSTRAINT FK_TripReviewMediaOperations_ServiceBooking REFERENCES commercial.ServiceBookings(service_booking_id),
+ traveler_user_id BIGINT NOT NULL CONSTRAINT FK_TripReviewMediaOperations_Traveler REFERENCES dbo.Users(user_id),
+ sort_order TINYINT NOT NULL,
+ public_id VARCHAR(255) COLLATE Latin1_General_100_BIN2 NOT NULL,
+ state VARCHAR(16) COLLATE Latin1_General_100_BIN2 NOT NULL,
+ content_type VARCHAR(10) COLLATE Latin1_General_100_BIN2 NOT NULL,
+ extension VARCHAR(5) COLLATE Latin1_General_100_BIN2 NOT NULL,
+ input_byte_length BIGINT NOT NULL,
+ stored_byte_length BIGINT NULL,
+ width INT NOT NULL, height INT NOT NULL,
+ delivery_url NVARCHAR(2048) COLLATE Vietnamese_100_CI_AS NULL,
+ created_at DATETIME2(7) NOT NULL, updated_at DATETIME2(7) NOT NULL,
+ uploaded_at DATETIME2(7) NULL, adopted_at DATETIME2(7) NULL, cleaned_at DATETIME2(7) NULL,
+ version ROWVERSION NOT NULL,
+ CONSTRAINT CK_TripReviewMediaOperations_Parent CHECK(
+  (booking_id IS NOT NULL AND service_booking_id IS NULL)
+  OR (booking_id IS NULL AND service_booking_id IS NOT NULL)),
+ CONSTRAINT CK_TripReviewMediaOperations_Slot CHECK(sort_order BETWEEN 0 AND 4),
+ CONSTRAINT CK_TripReviewMediaOperations_PublicId CHECK(LEN(TRIM(CHAR(9)+CHAR(10)+CHAR(13)+CHAR(32) FROM public_id))>0),
+ CONSTRAINT CK_TripReviewMediaOperations_Format CHECK(
+  (content_type='image/jpeg' AND extension='.jpg') OR
+  (content_type='image/png' AND extension='.png') OR
+  (content_type='image/webp' AND extension='.webp')),
+ CONSTRAINT CK_TripReviewMediaOperations_Bytes CHECK(input_byte_length BETWEEN 1 AND 5000000 AND (stored_byte_length IS NULL OR stored_byte_length>0)),
+ CONSTRAINT CK_TripReviewMediaOperations_Pixels CHECK(width>0 AND height>0 AND CONVERT(BIGINT,width)*height<=24000000),
+ CONSTRAINT CK_TripReviewMediaOperations_Url CHECK(delivery_url IS NULL OR LEN(TRIM(NCHAR(9)+NCHAR(10)+NCHAR(13)+NCHAR(32) FROM delivery_url))>0),
+ CONSTRAINT CK_TripReviewMediaOperations_State CHECK(
+  (state='Reserved' AND delivery_url IS NULL AND stored_byte_length IS NULL AND uploaded_at IS NULL AND adopted_at IS NULL AND cleaned_at IS NULL)
+  OR (state='Uploaded' AND delivery_url IS NOT NULL AND stored_byte_length IS NOT NULL AND uploaded_at IS NOT NULL AND adopted_at IS NULL AND cleaned_at IS NULL)
+  OR (state='Adopted' AND delivery_url IS NOT NULL AND stored_byte_length IS NOT NULL AND uploaded_at IS NOT NULL AND adopted_at IS NOT NULL AND cleaned_at IS NULL)
+  OR (state IN ('CleanupPending','Cleaned') AND adopted_at IS NULL
+    AND ((delivery_url IS NULL AND stored_byte_length IS NULL AND uploaded_at IS NULL)
+      OR (delivery_url IS NOT NULL AND stored_byte_length IS NOT NULL AND uploaded_at IS NOT NULL))
+    AND ((state='CleanupPending' AND cleaned_at IS NULL) OR (state='Cleaned' AND cleaned_at IS NOT NULL))))
+);
+CREATE UNIQUE INDEX UX_TripReviewMediaOperations_PublicId ON social.TripReviewMediaOperations(public_id);
+CREATE UNIQUE INDEX UX_TripReviewMediaOperations_BatchSlot ON social.TripReviewMediaOperations(batch_id,sort_order);
+CREATE INDEX IX_TripReviewMediaOperations_Recovery ON social.TripReviewMediaOperations(state,updated_at,operation_id);
+CREATE INDEX IX_TripReviewMediaOperations_CommerceBooking ON social.TripReviewMediaOperations(booking_id) WHERE booking_id IS NOT NULL;
+CREATE INDEX IX_TripReviewMediaOperations_ServiceBooking ON social.TripReviewMediaOperations(service_booking_id) WHERE service_booking_id IS NOT NULL;
+CREATE TABLE social.TripReviewMedia (
+ media_id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_TripReviewMedia PRIMARY KEY,
+ trip_review_id BIGINT NOT NULL CONSTRAINT FK_TripReviewMedia_Review REFERENCES social.TripReviews(trip_review_id),
+ operation_id UNIQUEIDENTIFIER NOT NULL CONSTRAINT FK_TripReviewMedia_Operation REFERENCES social.TripReviewMediaOperations(operation_id),
+ sort_order TINYINT NOT NULL CONSTRAINT CK_TripReviewMedia_Slot CHECK(sort_order BETWEEN 0 AND 4),
+ created_at DATETIME2(7) NOT NULL
+);
+CREATE UNIQUE INDEX UX_TripReviewMedia_Operation ON social.TripReviewMedia(operation_id);
+CREATE UNIQUE INDEX UX_TripReviewMedia_ReviewSlot ON social.TripReviewMedia(trip_review_id,sort_order);
+CREATE TABLE social.TripReviewMediaRecovery (
+ operation_id UNIQUEIDENTIFIER NOT NULL CONSTRAINT PK_TripReviewMediaRecovery PRIMARY KEY,
+ upload_fence UNIQUEIDENTIFIER NULL,
+ upload_lease_until DATETIME2(7) NULL,
+ upload_outcome VARCHAR(16) COLLATE Latin1_General_100_BIN2 NOT NULL,
+ cleanup_fence UNIQUEIDENTIFIER NULL,
+ cleanup_lease_until DATETIME2(7) NULL,
+ attempts INT NOT NULL CONSTRAINT DF_TripReviewMediaRecovery_Attempts DEFAULT(0),
+ next_attempt_at DATETIME2(7) NULL,
+ exhausted BIT NOT NULL CONSTRAINT DF_TripReviewMediaRecovery_Exhausted DEFAULT(0),
+ last_failure_code VARCHAR(24) COLLATE Latin1_General_100_BIN2 NULL,
+ last_failure_at DATETIME2(7) NULL,
+ version ROWVERSION NOT NULL,
+ CONSTRAINT FK_TripReviewMediaRecovery_Operation FOREIGN KEY(operation_id) REFERENCES social.TripReviewMediaOperations(operation_id),
+ CONSTRAINT CK_TripReviewMediaRecovery_Upload CHECK(upload_outcome IN ('NeverDispatched','Unknown','Succeeded','Rejected')),
+ CONSTRAINT CK_TripReviewMediaRecovery_UploadFence CHECK((upload_fence IS NULL AND upload_lease_until IS NULL) OR (upload_fence IS NOT NULL AND upload_lease_until IS NOT NULL)),
+ CONSTRAINT CK_TripReviewMediaRecovery_CleanupFence CHECK((cleanup_fence IS NULL AND cleanup_lease_until IS NULL) OR (cleanup_fence IS NOT NULL AND cleanup_lease_until IS NOT NULL)),
+ CONSTRAINT CK_TripReviewMediaRecovery_Attempts CHECK(attempts BETWEEN 0 AND 8),
+ CONSTRAINT CK_TripReviewMediaRecovery_Exhausted CHECK(exhausted=0 OR next_attempt_at IS NULL),
+ CONSTRAINT CK_TripReviewMediaRecovery_Failure CHECK((last_failure_code IS NULL AND last_failure_at IS NULL) OR (last_failure_code IS NOT NULL AND last_failure_at IS NOT NULL AND last_failure_code IN ('Transient','Permanent','Configuration','OutcomeUnknown')))
+);
+CREATE INDEX IX_TripReviewMediaRecovery_Due ON social.TripReviewMediaRecovery(exhausted,next_attempt_at,operation_id);
 GO
 
 CREATE TABLE social.Reviews (

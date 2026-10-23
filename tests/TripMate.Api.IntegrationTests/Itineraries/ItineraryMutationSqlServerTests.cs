@@ -10,6 +10,7 @@ using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Itineraries.Accept;
 using TripMate.Application.Features.Itineraries.AdjustItems;
 using TripMate.Application.Features.Itineraries.Common;
+using TripMate.Application.Features.Itineraries.GetDetail;
 using TripMate.Application.Features.Itineraries.Regenerate;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Domain.Entities;
@@ -21,6 +22,30 @@ namespace TripMate.Api.IntegrationTests.Itineraries;
 [Collection(nameof(TripMateApiFactory))]
 public sealed class ItineraryMutationSqlServerTests
 {
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task GetDetail_HistoricalIdReturnsCurrentPersistedFriendlyExplanation()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedWithHistoricalSuccessorAsync(database);
+        await using var context = database.CreateDbContext();
+
+        var result = await new GetItineraryDetailQueryHandler(
+                context,
+                new ItineraryAccessService(context),
+                new FixedDateTimeProvider())
+            .Handle(
+                new GetItineraryDetailQuery(seed.PredecessorItineraryId, seed.UserId),
+                CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.ItineraryId.Should().Be(seed.CurrentItineraryId);
+        result.Value.Version.Should().Be(2);
+        var item = result.Value.Items.Should().ContainSingle().Subject;
+        item.RecommendationReason.Should().Be("Current recommendation reason");
+        item.FriendlyExplanation.Should().Be("Current persisted explanation");
+    }
+
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
     public async Task Regenerate_SameKeyReplaysTheSameSuccessor()
@@ -59,6 +84,94 @@ public sealed class ItineraryMutationSqlServerTests
         await using var verification = database.CreateDbContext();
         (await verification.Itineraries.CountAsync()).Should().Be(2);
         (await verification.ItineraryVersionOperations.CountAsync()).Should().Be(1);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Adjust_WithANewStopAndAWalkingLeg_PersistsTheLegDistanceAndMode()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database);
+        var newPoiId = await AddPoiAsync(database, seed.UserId, "REVIEW2 SQL Restaurant", 16.0472m, 108.2069m);
+
+        var result = await RunAdjustAsync(
+            database,
+            seed,
+            Guid.NewGuid(),
+            [new ItineraryStop(seed.FirstPoiId, TransportMode.Walking), new ItineraryStop(newPoiId)]);
+
+        result.IsSuccess.Should().BeTrue();
+        await using var verification = database.CreateDbContext();
+        var items = await verification.ItineraryItems
+            .Where(item => item.ItineraryId == result.Value.ItineraryId)
+            .OrderBy(item => item.SequenceNo)
+            .ToListAsync();
+        items.Select(item => item.PointOfInterestId).Should().Equal(seed.FirstPoiId, newPoiId);
+        items[0].TransportModeToNext.Should().Be(TransportMode.Walking);
+        items[0].TravelDistanceToNextMeters.Should().Be(FixedRouteDurationProvider.Meters);
+        items[1].TravelDistanceToNextMeters.Should().BeNull();
+        result.Value.Items.ElementAt(1).TransportModeFromPrevious.Should().Be(TransportMode.Walking);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Adjust_WithAStopOutsideTheArea_ReturnsTheStopAndReasonWithoutSaving()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database);
+        var farPoiId = await AddPoiAsync(database, seed.UserId, "REVIEW2 SQL Hue", 16.4698m, 107.5786m);
+
+        var result = await RunAdjustAsync(
+            database,
+            seed,
+            Guid.NewGuid(),
+            [new ItineraryStop(seed.FirstPoiId), new ItineraryStop(farPoiId)]);
+
+        result.ErrorCode.Should().Be(ItineraryErrorCodes.StopInfeasible);
+        result.ErrorMetadata["poiId"].Should().Be(farPoiId);
+        result.ErrorMetadata["reason"].Should().Be(StopInfeasibilityReasons.OutsideRadius);
+        await using var verification = database.CreateDbContext();
+        (await verification.Itineraries.CountAsync()).Should().Be(1);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Adjust_RetryThatOnlyChangesTheLastStopMode_ReplaysTheSameVersion()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database);
+        var key = Guid.NewGuid();
+
+        var first = await RunAdjustAsync(database, seed, key,
+            [new ItineraryStop(seed.FirstPoiId), new ItineraryStop(seed.SecondPoiId, TransportMode.Car)]);
+        var retry = await RunAdjustAsync(database, seed, key,
+            [new ItineraryStop(seed.FirstPoiId), new ItineraryStop(seed.SecondPoiId)]);
+
+        first.IsSuccess.Should().BeTrue();
+        retry.IsSuccess.Should().BeTrue();
+        retry.Value.ItineraryId.Should().Be(first.Value.ItineraryId);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Adjust_RemovingAMandatoryPlace_DropsItFromTheRequest()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database);
+        await using (var setup = database.CreateDbContext())
+        {
+            var request = await setup.SchedulingRequests.SingleAsync(item => item.Id == seed.SchedulingRequestId);
+            setup.Entry(request).Property(item => item.MandatoryPoiIdsJson).CurrentValue =
+                $"[{seed.FirstPoiId},{seed.SecondPoiId}]";
+            await setup.SaveChangesAsync();
+        }
+
+        var result = await RunAdjustAsync(database, seed, Guid.NewGuid(), [new ItineraryStop(seed.SecondPoiId)]);
+
+        result.IsSuccess.Should().BeTrue();
+        await using var verification = database.CreateDbContext();
+        (await verification.SchedulingRequests.SingleAsync(item => item.Id == seed.SchedulingRequestId))
+            .MandatoryPoiIdsJson.Should().Be($"[{seed.SecondPoiId}]");
     }
 
     [SqlServerFact]
@@ -254,6 +367,46 @@ public sealed class ItineraryMutationSqlServerTests
                 CancellationToken.None);
     }
 
+    private static async Task<Result<ItineraryDetailResponse>> RunAdjustAsync(
+        SqlServerTestDatabase database,
+        SeedData seed,
+        Guid key,
+        IReadOnlyList<ItineraryStop> stops)
+    {
+        await using var context = database.CreateDbContext();
+        return await new AdjustItineraryItemsCommandHandler(
+                context,
+                new ItineraryAccessService(context),
+                new ItineraryVersionService(context, new FixedRouteDurationProvider()),
+                new SqlServerItineraryMutationLock(context),
+                new FixedDateTimeProvider())
+            .Handle(
+                new AdjustItineraryItemsCommand(
+                    seed.ItineraryId,
+                    seed.UserId,
+                    key,
+                    stops.Select(stop => stop.PoiId).ToArray(),
+                    stops),
+                CancellationToken.None);
+    }
+
+    private static async Task<long> AddPoiAsync(
+        SqlServerTestDatabase database,
+        long userId,
+        string name,
+        decimal latitude,
+        decimal longitude)
+    {
+        await using var context = database.CreateDbContext();
+        var category = await context.PoiCategories.FirstAsync();
+        var poi = PointOfInterest.Create(category, name, latitude, longitude, userId, FixedDateTimeProvider.UtcNow, averageVisitDurationMinutes: 45);
+        poi.ConfigurePlanningMetadata(50_000m, "https://example.com/review2", FixedDateTimeProvider.UtcNow);
+        poi.AddOpeningHour(PoiOpeningHour.Create(2, new TimeOnly(7, 0), new TimeOnly(20, 0), false));
+        context.PointsOfInterest.Add(poi);
+        await context.SaveChangesAsync();
+        return poi.Id;
+    }
+
     private static RegenerateItineraryCommandHandler CreateRegenerateHandler(
         ApplicationDbContext context,
         MutationLockStartBarrier? barrier = null) =>
@@ -282,14 +435,16 @@ public sealed class ItineraryMutationSqlServerTests
             FixedDateTimeProvider.StartAt,
             FixedDateTimeProvider.StartAt.AddHours(4),
             version: 2);
-        successor.AddItem(ItineraryItem.CreateVisit(
+        var successorItem = ItineraryItem.CreateVisit(
             1,
             seed.FirstPoiId,
             FixedDateTimeProvider.StartAt.AddMinutes(30),
             FixedDateTimeProvider.StartAt.AddMinutes(90),
             false,
             50_000m,
-            "Historical visit"));
+            "Current recommendation reason");
+        successorItem.AttachFriendlyExplanation("Current persisted explanation");
+        successor.AddItem(successorItem);
         context.Itineraries.Add(successor);
         await context.SaveChangesAsync();
 
@@ -321,6 +476,10 @@ public sealed class ItineraryMutationSqlServerTests
         var firstPoi = CreatePoi(category, user.Id, "UC11 SQL Museum", now);
         var secondPoi = CreatePoi(category, user.Id, "UC11 SQL Gallery", now);
         context.PointsOfInterest.AddRange(firstPoi, secondPoi);
+        // Regenerating prefers places outside the current version and refuses an identical copy,
+        // so the area needs more places than one trip can hold for repeated regenerations.
+        context.PointsOfInterest.AddRange(Enumerable.Range(1, 10)
+            .Select(index => CreatePoi(category, user.Id, $"UC11 SQL Extra {index}", now)));
         await context.SaveChangesAsync();
 
         var request = SchedulingRequest.Create(
@@ -342,7 +501,9 @@ public sealed class ItineraryMutationSqlServerTests
             "[]",
             RestPreference.None,
             now);
-        request.Complete(now);
+        var generationOwnerId = Guid.NewGuid();
+        request.ClaimGeneration(generationOwnerId, now.AddMinutes(1), now);
+        request.CompleteGeneration(generationOwnerId, now);
         context.SchedulingRequests.Add(request);
         await context.SaveChangesAsync();
 
@@ -351,14 +512,16 @@ public sealed class ItineraryMutationSqlServerTests
             "UC11 SQL Trip",
             FixedDateTimeProvider.StartAt,
             FixedDateTimeProvider.StartAt.AddHours(4));
-        itinerary.AddItem(ItineraryItem.CreateVisit(
+        var firstItem = ItineraryItem.CreateVisit(
             1,
             firstPoi.Id,
             FixedDateTimeProvider.StartAt.AddMinutes(30),
             FixedDateTimeProvider.StartAt.AddMinutes(90),
             false,
             50_000m,
-            "Initial visit"));
+            "Initial visit");
+        firstItem.AttachFriendlyExplanation("Historical persisted explanation");
+        itinerary.AddItem(firstItem);
         itinerary.AddItem(ItineraryItem.CreateVisit(
             2,
             secondPoi.Id,
@@ -378,8 +541,9 @@ public sealed class ItineraryMutationSqlServerTests
         foreach (var fileName in new[]
                  {
                      "20260914_add_scheduling_request_generation.sql",
-                     "20260915_extend_scheduling_request_contract.sql",
-                     "20260919_allow_named_rest_items.sql",
+                    "20260915_extend_scheduling_request_contract.sql",
+                    "20260919_allow_named_rest_items.sql",
+                    "20261004_add_scheduling_generation_reservation.sql",
                  })
         {
             var migrationPath = Path.Combine(
@@ -469,21 +633,25 @@ public sealed class ItineraryMutationSqlServerTests
 
     private sealed class FixedRouteDurationProvider : IRouteDurationProvider
     {
+        public const int Meters = 4_000;
+
         public Task<RouteDurationMatrix> GetMatrixAsync(
             IReadOnlyList<RoutePoint> points,
             TransportMode transportMode,
             CancellationToken cancellationToken)
         {
             var durations = new int[points.Count, points.Count];
+            var meters = new int[points.Count, points.Count];
             for (var row = 0; row < points.Count; row++)
             {
                 for (var column = 0; column < points.Count; column++)
                 {
                     durations[row, column] = row == column ? 0 : 10;
+                    meters[row, column] = row == column ? 0 : Meters;
                 }
             }
 
-            return Task.FromResult(RouteDurationMatrix.Create(durations));
+            return Task.FromResult(RouteDurationMatrix.Create(durations, unreachable: null, meters: meters));
         }
     }
 }

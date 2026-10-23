@@ -8,6 +8,18 @@ public class SchedulingRequest : BaseEntity
     public const int RequestHashLength = 64;
     public const int TimeZoneIdMaxLength = 100;
 
+    /// <summary>Shortest trip a Traveler can request: one hour.</summary>
+    public const int MinAvailableMinutes = 60;
+
+    /// <summary>Longest trip a Traveler can request: one continuous window of 72 hours, which may cross midnight.</summary>
+    public const int MaxAvailableMinutes = 72 * 60;
+
+    /// <summary>Smallest "explore around" radius, in kilometres.</summary>
+    public const int MinSearchRadiusKm = 1;
+
+    /// <summary>Largest "explore around" radius, in kilometres (e.g. Da Nang to Hue is about 85 km).</summary>
+    public const int MaxSearchRadiusKm = 100;
+
     private SchedulingRequest()
     {
     }
@@ -58,6 +70,12 @@ public class SchedulingRequest : BaseEntity
 
     public string? FailureMessage { get; private set; }
 
+    public Guid? GenerationOwnerId { get; private set; }
+
+    public DateTimeOffset? GenerationLeaseExpiresAtUtc { get; private set; }
+
+    public int GenerationAttempt { get; private set; }
+
     public static SchedulingRequest Create(
         long travelerUserId,
         Guid operationKey,
@@ -107,7 +125,7 @@ public class SchedulingRequest : BaseEntity
                 nameof(endPointOfInterestId));
         }
 
-        if (availableMinutes is < 60 or > 720)
+        if (availableMinutes is < MinAvailableMinutes or > MaxAvailableMinutes)
         {
             throw new ArgumentOutOfRangeException(nameof(availableMinutes));
         }
@@ -117,7 +135,7 @@ public class SchedulingRequest : BaseEntity
             throw new ArgumentOutOfRangeException(nameof(transportMode));
         }
 
-        if (searchRadiusKm is < 1m or > 50m)
+        if (searchRadiusKm is < MinSearchRadiusKm or > MaxSearchRadiusKm)
         {
             throw new ArgumentOutOfRangeException(nameof(searchRadiusKm));
         }
@@ -156,7 +174,7 @@ public class SchedulingRequest : BaseEntity
         };
     }
 
-    public void Complete(DateTimeOffset completedAtUtc)
+    private void MarkCompleted(DateTimeOffset completedAtUtc)
     {
         Status = SchedulingRequestStatus.Completed;
         CompletedAtUtc = completedAtUtc.ToUniversalTime();
@@ -164,19 +182,154 @@ public class SchedulingRequest : BaseEntity
         FailureMessage = null;
     }
 
-    public void FailInfeasible(string failureCode, string failureMessage, DateTimeOffset completedAtUtc)
+    private void MarkFailed(
+        string failureCode,
+        string failureMessage,
+        DateTimeOffset completedAtUtc)
     {
         if (string.IsNullOrWhiteSpace(failureCode))
         {
             throw new ArgumentException("A failure code is required.", nameof(failureCode));
         }
 
-        Status = SchedulingRequestStatus.Failed;
-        FailureCode = failureCode.Trim();
-        FailureMessage = string.IsNullOrWhiteSpace(failureMessage)
+        var normalizedFailureMessage = string.IsNullOrWhiteSpace(failureMessage)
             ? throw new ArgumentException("A failure message is required.", nameof(failureMessage))
             : failureMessage.Trim();
+
+        Status = SchedulingRequestStatus.Failed;
+        FailureCode = failureCode.Trim();
+        FailureMessage = normalizedFailureMessage;
         CompletedAtUtc = completedAtUtc.ToUniversalTime();
+    }
+
+    public void ClaimGeneration(
+        Guid ownerId,
+        DateTimeOffset leaseExpiresAtUtc,
+        DateTimeOffset claimedAtUtc)
+    {
+        ValidateOwner(ownerId);
+        var claimedAt = claimedAtUtc.ToUniversalTime();
+        var leaseExpiresAt = leaseExpiresAtUtc.ToUniversalTime();
+        if (leaseExpiresAt <= claimedAt)
+        {
+            throw new ArgumentException(
+                "The generation lease must expire after it is claimed.",
+                nameof(leaseExpiresAtUtc));
+        }
+
+        var canClaim = Status == SchedulingRequestStatus.Pending
+            || (Status == SchedulingRequestStatus.Processing
+                && GenerationLeaseExpiresAtUtc.HasValue
+                && GenerationLeaseExpiresAtUtc.Value <= claimedAt);
+        if (!canClaim)
+        {
+            throw new InvalidOperationException(
+                "The scheduling request is not available for generation.");
+        }
+
+        var nextAttempt = checked(GenerationAttempt + 1);
+        Status = SchedulingRequestStatus.Processing;
+        GenerationOwnerId = ownerId;
+        GenerationLeaseExpiresAtUtc = leaseExpiresAt;
+        GenerationAttempt = nextAttempt;
+    }
+
+    public void RenewGenerationLease(
+        Guid ownerId,
+        DateTimeOffset leaseExpiresAtUtc,
+        DateTimeOffset renewedAtUtc)
+    {
+        var renewedAt = renewedAtUtc.ToUniversalTime();
+        EnsureActiveOwner(ownerId, renewedAt);
+        var leaseExpiresAt = leaseExpiresAtUtc.ToUniversalTime();
+        if (leaseExpiresAt <= renewedAt)
+        {
+            throw new ArgumentException(
+                "The renewed generation lease must expire in the future.",
+                nameof(leaseExpiresAtUtc));
+        }
+
+        GenerationLeaseExpiresAtUtc = leaseExpiresAt;
+    }
+
+    /// <summary>
+    /// Drops mandatory places that are not in <paramref name="keptPoiIds"/> any more (the traveler removed or
+    /// replaced them). The mandatory list never grows here.
+    /// </summary>
+    public void KeepOnlyMandatoryPois(IEnumerable<long> keptPoiIds)
+    {
+        ArgumentNullException.ThrowIfNull(keptPoiIds);
+        var kept = keptPoiIds.ToHashSet();
+        var current = System.Text.Json.JsonSerializer.Deserialize<long[]>(MandatoryPoiIdsJson) ?? [];
+        var remaining = current.Where(kept.Contains).ToArray();
+        if (remaining.Length != current.Length)
+        {
+            MandatoryPoiIdsJson = System.Text.Json.JsonSerializer.Serialize(remaining);
+        }
+    }
+
+    public void CompleteGeneration(Guid ownerId, DateTimeOffset completedAtUtc)
+    {
+        var completedAt = completedAtUtc.ToUniversalTime();
+        EnsureActiveOwner(ownerId, completedAt);
+        MarkCompleted(completedAt);
+        ClearGenerationLease();
+    }
+
+    public void FailGeneration(
+        Guid ownerId,
+        string failureCode,
+        string failureMessage,
+        DateTimeOffset completedAtUtc)
+    {
+        var completedAt = completedAtUtc.ToUniversalTime();
+        EnsureActiveOwner(ownerId, completedAt);
+        MarkFailed(failureCode, failureMessage, completedAt);
+        ClearGenerationLease();
+    }
+
+    public void ReleaseGeneration(Guid ownerId, DateTimeOffset releasedAtUtc)
+    {
+        EnsureActiveOwner(ownerId, releasedAtUtc.ToUniversalTime());
+        Status = SchedulingRequestStatus.Pending;
+        CompletedAtUtc = null;
+        FailureCode = null;
+        FailureMessage = null;
+        ClearGenerationLease();
+    }
+
+    private void EnsureActiveOwner(Guid ownerId, DateTimeOffset observedAtUtc)
+    {
+        EnsureCurrentOwner(ownerId);
+        if (!GenerationLeaseExpiresAtUtc.HasValue
+            || GenerationLeaseExpiresAtUtc.Value <= observedAtUtc.ToUniversalTime())
+        {
+            throw new InvalidOperationException("The generation lease has expired.");
+        }
+    }
+
+    private void EnsureCurrentOwner(Guid ownerId)
+    {
+        ValidateOwner(ownerId);
+        if (Status != SchedulingRequestStatus.Processing || GenerationOwnerId != ownerId)
+        {
+            throw new InvalidOperationException(
+                "The caller does not own the active generation lease.");
+        }
+    }
+
+    private static void ValidateOwner(Guid ownerId)
+    {
+        if (ownerId == Guid.Empty)
+        {
+            throw new ArgumentException("A generation owner is required.", nameof(ownerId));
+        }
+    }
+
+    private void ClearGenerationLease()
+    {
+        GenerationOwnerId = null;
+        GenerationLeaseExpiresAtUtc = null;
     }
 
     private static string NormalizeRequestHash(string value)

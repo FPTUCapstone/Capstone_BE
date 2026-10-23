@@ -22,8 +22,8 @@ public class CreatePoiCommandHandlerTests
     public async Task Handle_WithValidMinimalCommand_CreatesActivePoiWithDefaults()
     {
         await using var dbContext = TestDbContext.Create();
-        var (administrator, category) = await SeedAdministratorAndCategory(dbContext);
-        var handler = CreateHandler(dbContext, administrator.Id);
+        var (staff, category) = await SeedStaffAndCategory(dbContext);
+        var handler = CreateHandler(dbContext, staff.Id);
 
         var result = await handler.Handle(ValidCommand(category.Id), CancellationToken.None);
 
@@ -45,8 +45,10 @@ public class CreatePoiCommandHandlerTests
 
     [Theory]
     [InlineData(UserRole.Traveler, AccountStatus.Active)]
-    [InlineData(UserRole.Administrator, AccountStatus.Inactive)]
-    public async Task Handle_WithoutActiveAdministrator_ReturnsForbiddenAndDoesNotWrite(
+    [InlineData(UserRole.TourOperator, AccountStatus.Active)]
+    [InlineData(UserRole.Administrator, AccountStatus.Active)]
+    [InlineData(UserRole.Staff, AccountStatus.Inactive)]
+    public async Task Handle_WithoutActiveStaff_ReturnsForbiddenAndDoesNotWrite(
         UserRole role,
         AccountStatus status)
     {
@@ -66,11 +68,11 @@ public class CreatePoiCommandHandlerTests
     public async Task Handle_WithMissingCategory_ReturnsReferenceNotFoundAndDoesNotWrite()
     {
         await using var dbContext = TestDbContext.Create();
-        var administrator = await SeedUser(
+        var staff = await SeedUser(
             dbContext,
-            UserRole.Administrator,
+            UserRole.Staff,
             AccountStatus.Active);
-        var handler = CreateHandler(dbContext, administrator.Id);
+        var handler = CreateHandler(dbContext, staff.Id);
 
         var result = await handler.Handle(ValidCommand(999), CancellationToken.None);
 
@@ -83,11 +85,11 @@ public class CreatePoiCommandHandlerTests
     public async Task Handle_WithMissingTag_ReturnsReferenceNotFoundAndDoesNotWrite()
     {
         await using var dbContext = TestDbContext.Create();
-        var (administrator, category) = await SeedAdministratorAndCategory(dbContext);
+        var (staff, category) = await SeedStaffAndCategory(dbContext);
         var existingTag = Tag.Create("Garden");
         dbContext.Tags.Add(existingTag);
         await dbContext.SaveChangesAsync();
-        var handler = CreateHandler(dbContext, administrator.Id);
+        var handler = CreateHandler(dbContext, staff.Id);
         var command = ValidCommand(category.Id) with { TagIds = [existingTag.Id, 999] };
 
         var result = await handler.Handle(command, CancellationToken.None);
@@ -101,17 +103,17 @@ public class CreatePoiCommandHandlerTests
     public async Task Handle_WithPossibleDuplicate_ReturnsConflictMetadataAndDoesNotWrite()
     {
         await using var dbContext = TestDbContext.Create();
-        var (administrator, category) = await SeedAdministratorAndCategory(dbContext);
+        var (staff, category) = await SeedStaffAndCategory(dbContext);
         var existing = PointOfInterest.Create(
             category,
             "Da Lat Flower Park",
             11.9417554m,
             108.4382784m,
-            administrator.Id,
+            staff.Id,
             Now);
         dbContext.PointsOfInterest.Add(existing);
         await dbContext.SaveChangesAsync();
-        var handler = CreateHandler(dbContext, administrator.Id);
+        var handler = CreateHandler(dbContext, staff.Id);
         var command = ValidCommand(category.Id) with
         {
             Name = "  da lat flower park  ",
@@ -131,16 +133,16 @@ public class CreatePoiCommandHandlerTests
     public async Task Handle_WithConfirmedDuplicate_CreatesAnotherPoi()
     {
         await using var dbContext = TestDbContext.Create();
-        var (administrator, category) = await SeedAdministratorAndCategory(dbContext);
+        var (staff, category) = await SeedStaffAndCategory(dbContext);
         dbContext.PointsOfInterest.Add(PointOfInterest.Create(
             category,
             "Da Lat Flower Park",
             11.941755m,
             108.438278m,
-            administrator.Id,
+            staff.Id,
             Now));
         await dbContext.SaveChangesAsync();
-        var handler = CreateHandler(dbContext, administrator.Id);
+        var handler = CreateHandler(dbContext, staff.Id);
         var command = ValidCommand(category.Id) with { ConfirmDuplicate = true };
 
         var result = await handler.Handle(command, CancellationToken.None);
@@ -154,11 +156,11 @@ public class CreatePoiCommandHandlerTests
     public async Task Handle_WithChildren_PersistsOpeningHoursAndTags()
     {
         await using var dbContext = TestDbContext.Create();
-        var (administrator, category) = await SeedAdministratorAndCategory(dbContext);
+        var (staff, category) = await SeedStaffAndCategory(dbContext);
         var tags = new[] { Tag.Create("Garden"), Tag.Create("Family") };
         dbContext.Tags.AddRange(tags);
         await dbContext.SaveChangesAsync();
-        var handler = CreateHandler(dbContext, administrator.Id);
+        var handler = CreateHandler(dbContext, staff.Id);
         var command = ValidCommand(category.Id) with
         {
             OpeningHours =
@@ -190,17 +192,17 @@ public class CreatePoiCommandHandlerTests
     public async Task Handle_WithValidCommand_RecordsCreatorTimestampsAndAuditAggregateJson()
     {
         await using var dbContext = TestDbContext.Create();
-        var (administrator, category) = await SeedAdministratorAndCategory(dbContext);
-        var handler = CreateHandler(dbContext, administrator.Id);
+        var (staff, category) = await SeedStaffAndCategory(dbContext);
+        var handler = CreateHandler(dbContext, staff.Id);
 
         var result = await handler.Handle(ValidCommand(category.Id), CancellationToken.None);
 
-        result.Value.CreatedById.Should().Be(administrator.Id);
+        result.Value.CreatedById.Should().Be(staff.Id);
         result.Value.CreatedAtUtc.Should().Be(Now);
         result.Value.UpdatedAtUtc.Should().Be(Now);
 
         var audit = await dbContext.AuditLogs.SingleAsync();
-        audit.ActorUserId.Should().Be(administrator.Id);
+        audit.ActorUserId.Should().Be(staff.Id);
         audit.ActionType.Should().Be(AuditActionTypes.PoiCreate);
         audit.AffectedEntity.Should().Be(AuditEntityTypes.PointOfInterest);
         audit.AffectedEntityId.Should().Be(result.Value.Id);
@@ -222,9 +224,9 @@ public class CreatePoiCommandHandlerTests
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .Options;
         await using var dbContext = new CreatorClearingTestDbContext(options);
-        var (administrator, category) = await SeedAdministratorAndCategory(dbContext);
+        var (staff, category) = await SeedStaffAndCategory(dbContext);
         dbContext.ClearCreatorAfterNextSave = true;
-        var handler = CreateHandler(dbContext, administrator.Id);
+        var handler = CreateHandler(dbContext, staff.Id);
 
         Func<Task> action = async () =>
             await handler.Handle(ValidCommand(category.Id), CancellationToken.None);
@@ -242,7 +244,7 @@ public class CreatePoiCommandHandlerTests
             new FakeCurrentUserService
             {
                 UserId = currentUserId,
-                Role = UserRole.Administrator.ToString(),
+                Role = UserRole.Staff.ToString(),
             },
             new FakeDateTimeProvider { UtcNow = Now });
 
@@ -253,15 +255,15 @@ public class CreatePoiCommandHandlerTests
             Latitude: 11.9417554m,
             Longitude: 108.4382784m);
 
-    private static async Task<(User Administrator, PoiCategory Category)>
-        SeedAdministratorAndCategory(TestDbContext dbContext)
+    private static async Task<(User Staff, PoiCategory Category)>
+        SeedStaffAndCategory(TestDbContext dbContext)
     {
-        var administrator = await SeedUser(
+        var staff = await SeedUser(
             dbContext,
-            UserRole.Administrator,
+            UserRole.Staff,
             AccountStatus.Active);
         var category = await SeedCategory(dbContext);
-        return (administrator, category);
+        return (staff, category);
     }
 
     private static async Task<User> SeedUser(

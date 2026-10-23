@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using TripMate.Application.Common.Geo;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Domain.Constants;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -28,6 +29,12 @@ public sealed class SearchSelectablePoisQueryHandler(IApplicationDbContext dbCon
                 && poi.SourceUrl != null
                 && poi.VerifiedAtUtc != null);
 
+        if (request.ExcludeFoodAndDrink)
+        {
+            // The mandatory-stop picker hides restaurants: generation cannot place them at a meal time.
+            eligiblePois = eligiblePois.Where(poi => poi.Category.Name != PoiCategoryNames.FoodAndDrink);
+        }
+
         if (!string.IsNullOrEmpty(normalizedQuery))
         {
             eligiblePois = eligiblePois.Where(poi => poi.Name.Contains(normalizedQuery));
@@ -46,10 +53,10 @@ public sealed class SearchSelectablePoisQueryHandler(IApplicationDbContext dbCon
                 && poi.Latitude <= bounds.MaximumLatitude
                 && poi.Longitude >= bounds.MinimumLongitude
                 && poi.Longitude <= bounds.MaximumLongitude
-                && ((poi.Latitude - distance.Latitude) * distance.LatitudeKilometersPerDegree)
-                    * ((poi.Latitude - distance.Latitude) * distance.LatitudeKilometersPerDegree)
-                   + ((poi.Longitude - distance.Longitude) * distance.LongitudeKilometersPerDegree)
-                    * ((poi.Longitude - distance.Longitude) * distance.LongitudeKilometersPerDegree)
+                && ((double)(poi.Latitude - distance.Latitude) * distance.LatitudeKilometersPerDegree)
+                    * ((double)(poi.Latitude - distance.Latitude) * distance.LatitudeKilometersPerDegree)
+                   + ((double)(poi.Longitude - distance.Longitude) * distance.LongitudeKilometersPerDegree)
+                    * ((double)(poi.Longitude - distance.Longitude) * distance.LongitudeKilometersPerDegree)
                    <= distance.RadiusSquared);
         }
 
@@ -60,10 +67,10 @@ public sealed class SearchSelectablePoisQueryHandler(IApplicationDbContext dbCon
         {
             orderedPois = eligiblePois
                 .OrderBy(poi =>
-                    ((poi.Latitude - distance.Latitude) * distance.LatitudeKilometersPerDegree)
-                    * ((poi.Latitude - distance.Latitude) * distance.LatitudeKilometersPerDegree)
-                    + ((poi.Longitude - distance.Longitude) * distance.LongitudeKilometersPerDegree)
-                    * ((poi.Longitude - distance.Longitude) * distance.LongitudeKilometersPerDegree))
+                    ((double)(poi.Latitude - distance.Latitude) * distance.LatitudeKilometersPerDegree)
+                    * ((double)(poi.Latitude - distance.Latitude) * distance.LatitudeKilometersPerDegree)
+                    + ((double)(poi.Longitude - distance.Longitude) * distance.LongitudeKilometersPerDegree)
+                    * ((double)(poi.Longitude - distance.Longitude) * distance.LongitudeKilometersPerDegree))
                 .ThenBy(poi => poi.Name)
                 .ThenBy(poi => poi.Id);
         }
@@ -96,14 +103,15 @@ public sealed class SearchSelectablePoisQueryHandler(IApplicationDbContext dbCon
             totalCount));
     }
 
-    private static double DegreesToRadians(double degrees) => degrees * Math.PI / 180d;
-
+    // Distance terms are doubles: as decimals, EF Core types these parameters like the
+    // decimal(9, 6) coordinate columns, and radius² above 999.999999 km² (radius >= 32 km)
+    // fails with "Parameter value is out of range".
     private sealed record DistanceCalculation(
         decimal Latitude,
         decimal Longitude,
-        decimal LatitudeKilometersPerDegree,
-        decimal LongitudeKilometersPerDegree,
-        decimal RadiusSquared)
+        double LatitudeKilometersPerDegree,
+        double LongitudeKilometersPerDegree,
+        double RadiusSquared)
     {
         public static DistanceCalculation Create(
             decimal latitude,
@@ -115,33 +123,10 @@ public sealed class SearchSelectablePoisQueryHandler(IApplicationDbContext dbCon
             return new DistanceCalculation(
                 latitude,
                 longitude,
-                GeoDistance.LatitudeKilometersPerDegree,
-                longitudeKilometersPerDegree,
-                radiusKm * radiusKm);
+                (double)GeoDistance.LatitudeKilometersPerDegree,
+                (double)longitudeKilometersPerDegree,
+                (double)radiusKm * radiusKm);
         }
     }
 
-    private sealed record LocationBounds(
-        decimal MinimumLatitude,
-        decimal MaximumLatitude,
-        decimal MinimumLongitude,
-        decimal MaximumLongitude)
-    {
-        public static LocationBounds From(decimal latitude, decimal longitude, int radiusKm)
-        {
-            var latitudeDelta = radiusKm / GeoDistance.LatitudeKilometersPerDegree;
-            var cosine = Math.Abs(Math.Cos(DegreesToRadians((double)latitude)));
-            var longitudeDelta = cosine < 0.000001d
-                ? 180m
-                : Math.Min(
-                    180m,
-                    (decimal)(radiusKm
-                        / (GeoDistance.LongitudeKilometersPerDegreeAtEquator * cosine)));
-            return new LocationBounds(
-                Math.Max(-90m, latitude - latitudeDelta),
-                Math.Min(90m, latitude + latitudeDelta),
-                Math.Max(-180m, longitude - longitudeDelta),
-                Math.Min(180m, longitude + longitudeDelta));
-        }
-    }
 }

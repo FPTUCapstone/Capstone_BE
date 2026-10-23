@@ -58,9 +58,19 @@ public sealed class WebVerifyEmailCommandHandler(
                 await dbContext.SaveChangesAsync(cancellationToken);
                 break;
             case AccountStatus.Active:
-            case AccountStatus.PendingApproval:
             case AccountStatus.Rejected:
                 // Preserve current legacy/application state; sign-in applies all eligibility gates.
+                break;
+            case AccountStatus.PendingApproval:
+                if (user.Role == UserRole.TourOperator &&
+                    (user.EmailVerifiedAtUtc is not { } verifiedAt ||
+                     verifiedAt < user.CreatedAtUtc || verifiedAt > dateTimeProvider.UtcNow))
+                {
+                    var verifiedNow = dateTimeProvider.UtcNow;
+                    user.EmailVerifiedAtUtc = verifiedNow;
+                    user.UpdatedAtUtc = verifiedNow;
+                    await dbContext.SaveChangesAsync(cancellationToken);
+                }
                 break;
             default:
                 return Result.Failure<WebVerifyEmailResponse>(AuthErrorCodes.AccountInactive, "Your account is inactive. Please contact support.");

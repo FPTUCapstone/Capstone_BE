@@ -30,6 +30,12 @@ public class TourPersistenceModelTests
         ColumnName(tour, nameof(Tour.OperatorUserId)).Should().Be("operator_user_id");
         ColumnName(tour, nameof(Tour.BasePrice)).Should().Be("base_price");
         ColumnName(tour, nameof(Tour.PublishedAtUtc)).Should().Be("published_at");
+        ColumnName(tour, nameof(Tour.TimeZoneId)).Should().Be("time_zone_id");
+        ColumnName(tour, nameof(Tour.Highlights)).Should().Be("highlights");
+        ColumnName(tour, nameof(Tour.Inclusions)).Should().Be("inclusions");
+        ColumnName(tour, nameof(Tour.Exclusions)).Should().Be("exclusions");
+        ColumnName(tour, nameof(Tour.TravellerRequirements)).Should().Be("traveller_requirements");
+        ColumnName(tour, nameof(Tour.CancellationPolicyTemplateId)).Should().Be("cancellation_policy_template_id");
 
         tour.FindProperty(nameof(Tour.Title))!.GetMaxLength().Should().Be(Tour.TitleMaxLength);
         tour.FindProperty("Destination").Should().BeNull();
@@ -97,6 +103,11 @@ public class TourPersistenceModelTests
         ColumnName(schedule, nameof(TourSchedule.TourId)).Should().Be("tour_id");
         ColumnName(schedule, nameof(TourSchedule.StartAtUtc)).Should().Be("start_datetime");
         ColumnName(schedule, nameof(TourSchedule.EndAtUtc)).Should().Be("end_datetime");
+        ColumnName(schedule, nameof(TourSchedule.MinimumCapacity)).Should().Be("minimum_capacity");
+        ColumnName(schedule, nameof(TourSchedule.RegistrationDeadlineAtUtc)).Should().Be("registration_deadline_at");
+        ColumnName(schedule, nameof(TourSchedule.AdultPrice)).Should().Be("adult_price");
+        ColumnName(schedule, nameof(TourSchedule.ChildPrice)).Should().Be("child_price");
+        ColumnName(schedule, nameof(TourSchedule.InfantPrice)).Should().Be("infant_price");
         schedule.FindProperty(nameof(TourSchedule.MeetingPoint))!.GetMaxLength()
             .Should().Be(TourSchedule.MeetingPointMaxLength);
         schedule.FindProperty(nameof(TourSchedule.ReservedCapacity))!.GetDefaultValue().Should().Be(0);
@@ -139,7 +150,7 @@ public class TourPersistenceModelTests
     public void StatusEnums_MatchSqlCheckConstraintValues()
     {
         Enum.GetNames<TourStatus>().Should()
-            .Equal("Draft", "Pending", "Approved", "Rejected", "Inactive");
+            .Equal("Draft", "Pending", "Approved", "Rejected", "Published", "Inactive");
         Enum.GetNames<TourScheduleStatus>().Should()
             .Equal("Scheduled", "Cancelled", "Completed");
     }

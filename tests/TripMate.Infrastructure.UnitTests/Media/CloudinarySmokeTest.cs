@@ -93,6 +93,75 @@ public sealed class CloudinarySmokeTest(ITestOutputHelper output)
         }
     }
 
+    [CloudinarySmokeFact]
+    public async Task OperatorDocumentsRequireSignedDownloadAndAreDeleted()
+    {
+        var options = new CloudinaryOptions
+        {
+            CloudName = RequiredEnvironmentVariable("Cloudinary__CloudName"),
+            ApiKey = RequiredEnvironmentVariable("Cloudinary__ApiKey"),
+            ApiSecret = RequiredEnvironmentVariable("Cloudinary__ApiSecret"),
+            TourMediaFolderRoot = RequiredEnvironmentVariable("Cloudinary__TourMediaFolderRoot"),
+            OperatorDocumentsFolderRoot = RequiredEnvironmentVariable("Cloudinary__OperatorDocumentsFolderRoot"),
+        };
+        new CloudinaryOptionsValidator().Validate(CloudinaryOptions.SectionName, options)
+            .Succeeded.Should().BeTrue();
+
+        var storage = new CloudinaryOperatorDocumentStorage(
+            new CloudinarySdkClient(Options.Create(options)), Options.Create(options));
+        using var http = new HttpClient();
+
+        foreach (bool isPdf in new[] { false, true })
+        {
+            string publicId = $"{options.OperatorDocumentsFolderRoot}/tm02-smoke/{Guid.NewGuid():N}" +
+                (isPdf ? ".pdf" : string.Empty);
+            string contentType = isPdf ? "application/pdf" : "image/png";
+            byte[] bytes = isPdf
+                ? Encoding.ASCII.GetBytes("%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF")
+                : CreateOnePixelPng();
+            bool uploadAttempted = false;
+
+            try
+            {
+                uploadAttempted = true;
+                OperatorDocumentStorageUploadResult upload = await storage.UploadAsync(
+                    new OperatorDocumentStorageUpload(publicId, contentType, bytes),
+                    CancellationToken.None);
+                upload.FailureKind.Should().BeNull("the configured provider must accept private documents");
+                upload.DeliveryUrl.Should().NotBeNull();
+                upload.DeliveryUrl!.Scheme.Should().Be("cloudinary-operator");
+
+                Uri? signedUrl = storage.CreateTemporaryDownloadUrl(
+                    upload.DeliveryUrl.AbsoluteUri, DateTimeOffset.UtcNow.AddMinutes(5));
+                signedUrl.Should().NotBeNull();
+                using HttpResponseMessage signedResponse = await http.GetAsync(signedUrl);
+                signedResponse.IsSuccessStatusCode.Should().BeTrue(
+                    "an Administrator-issued short-lived URL must retrieve the asset");
+
+                string resourceType = isPdf ? "raw" : "image";
+                string publicPath = isPdf ? publicId : publicId + ".png";
+                var unsignedUrl = new Uri(
+                    $"https://res.cloudinary.com/{options.CloudName}/{resourceType}/upload/{publicPath}");
+                using HttpResponseMessage unsignedResponse = await http.GetAsync(unsignedUrl);
+                unsignedResponse.IsSuccessStatusCode.Should().BeFalse(
+                    "an authenticated operator document must not be publicly delivered");
+                output.WriteLine("Private {0} smoke verified; asset URL and content omitted.",
+                    isPdf ? "PDF" : "PNG");
+            }
+            finally
+            {
+                if (uploadAttempted)
+                {
+                    OperatorDocumentStorageDeleteResult cleanup = await storage.DeleteAsync(
+                        publicId, contentType, CancellationToken.None);
+                    cleanup.Outcome.Should().BeOneOf(
+                        OperatorDocumentStorageDeleteOutcome.Deleted,
+                        OperatorDocumentStorageDeleteOutcome.AlreadyAbsent);
+                }
+            }
+        }
+    }
+
     private static string RequiredEnvironmentVariable(string name) =>
         Environment.GetEnvironmentVariable(name) is { Length: > 0 } value
             ? value

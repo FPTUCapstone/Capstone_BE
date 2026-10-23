@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 
 using Microsoft.Extensions.Options;
 
@@ -35,37 +36,114 @@ public sealed class OpenRouteServiceRouteDurationProvider(
             Content = JsonContent.Create(new
             {
                 locations = points.Select(point => new[] { point.Longitude, point.Latitude }),
-                metrics = new[] { "duration" },
+                metrics = new[] { "duration", "distance" },
             }),
         };
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
 
-        using var response = await httpClient.SendAsync(request, cancellationToken);
-        response.EnsureSuccessStatusCode();
-        var payload = await response.Content.ReadFromJsonAsync<MatrixResponse>(cancellationToken);
-        if (payload?.Durations is null || payload.Durations.Length != points.Count
-            || payload.Durations.Any(row => row is null || row.Length != points.Count))
+        try
         {
-            throw new InvalidOperationException("OpenRouteService returned an invalid duration matrix.");
-        }
-
-        var minutes = new int[points.Count, points.Count];
-        for (var row = 0; row < points.Count; row++)
-        {
-            for (var column = 0; column < points.Count; column++)
+            using var response = await httpClient.SendAsync(request, cancellationToken);
+            response.EnsureSuccessStatusCode();
+            var payload = await response.Content.ReadFromJsonAsync<MatrixResponse>(cancellationToken);
+            if (payload?.Durations is null || payload.Durations.Length != points.Count
+                || payload.Durations.Any(row => row is null || row.Length != points.Count))
             {
-                var seconds = payload.Durations[row][column];
-                if (seconds is null || seconds < 0)
-                {
-                    throw new InvalidOperationException("OpenRouteService returned an invalid route duration.");
-                }
-
-                minutes[row, column] = (int)Math.Ceiling(seconds.Value / 60d);
+                throw InvalidProviderResponse("OpenRouteService returned an invalid duration matrix.");
             }
+
+            var durationFactor = DurationFactor(transportMode);
+            var minutes = new int[points.Count, points.Count];
+            var unreachable = new bool[points.Count, points.Count];
+            // Distances are optional: without them the itinerary still works, it just shows no km.
+            var meters = HasMatrixShape(payload.Distances, points.Count)
+                ? new int[points.Count, points.Count]
+                : null;
+            for (var row = 0; row < points.Count; row++)
+            {
+                for (var column = 0; column < points.Count; column++)
+                {
+                    var seconds = payload.Durations[row][column];
+                    if (seconds is null)
+                    {
+                        // ORS returns null when it finds no route, e.g. a point with no road nearby.
+                        // Generation drops such places instead of failing the whole itinerary.
+                        unreachable[row, column] = row != column;
+                        continue;
+                    }
+
+                    if (seconds < 0)
+                    {
+                        throw InvalidProviderResponse("OpenRouteService returned an invalid route duration.");
+                    }
+
+                    minutes[row, column] = (int)Math.Ceiling(seconds.Value * durationFactor / 60d);
+
+                    if (meters is not null && payload.Distances![row][column] is { } distance)
+                    {
+                        if (distance < 0)
+                        {
+                            throw InvalidProviderResponse("OpenRouteService returned an invalid route distance.");
+                        }
+
+                        meters[row, column] = (int)Math.Round(distance, MidpointRounding.AwayFromZero);
+                    }
+                }
+            }
+
+            return RouteDurationMatrix.Create(minutes, unreachable, meters);
+        }
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new RouteDurationProviderException(
+                "OpenRouteService",
+                RouteDurationProviderFailureKind.Timeout,
+                "The routing service timed out.",
+                ex);
+        }
+        catch (TimeoutException ex)
+        {
+            throw new RouteDurationProviderException(
+                "OpenRouteService",
+                RouteDurationProviderFailureKind.Timeout,
+                "The routing service timed out.",
+                ex);
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new RouteDurationProviderException(
+                "OpenRouteService",
+                RouteDurationProviderFailureKind.Unavailable,
+                "The routing service is unavailable.",
+                ex);
+        }
+        catch (JsonException ex)
+        {
+            throw InvalidProviderResponse("OpenRouteService returned a malformed response.", ex);
+        }
+    }
+
+    private double DurationFactor(TransportMode transportMode)
+    {
+        if (transportMode != TransportMode.Motorbike)
+        {
+            return 1d;
         }
 
-        return RouteDurationMatrix.Create(minutes);
+        // The range is enforced at startup by OpenRouteServiceOptionsValidator.
+        return options.Value.MotorbikeDurationFactor;
     }
+
+    private static bool HasMatrixShape(double?[][]? matrix, int size) =>
+        matrix is not null && matrix.Length == size && matrix.All(row => row is not null && row.Length == size);
+
+    private static RouteDurationProviderException InvalidProviderResponse(
+        string message,
+        Exception? innerException = null) => new(
+            "OpenRouteService",
+            RouteDurationProviderFailureKind.Unavailable,
+            message,
+            innerException ?? new InvalidDataException(message));
 
     private static string ToProfile(TransportMode transportMode) => transportMode switch
     {
@@ -79,5 +157,7 @@ public sealed class OpenRouteServiceRouteDurationProvider(
     private sealed class MatrixResponse
     {
         public double?[][]? Durations { get; init; }
+
+        public double?[][]? Distances { get; init; }
     }
 }

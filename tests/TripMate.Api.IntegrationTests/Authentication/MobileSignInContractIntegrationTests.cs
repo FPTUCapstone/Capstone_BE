@@ -65,7 +65,31 @@ public class MobileSignInContractIntegrationTests
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();
         body.GetProperty("errorCode").GetString().Should().Be("auth.admin_mobile_sign_in_disabled");
-        body.GetProperty("title").GetString().Should().Be("Administrator accounts are supported on Web only.");
+        body.GetProperty("title").GetString().Should().Be("Administration accounts are supported on Web only.");
+        body.ToString().Should().NotContain("accessToken").And.NotContain("refreshToken");
+        await factory.WithDbContextAsync(async db =>
+        {
+            var user = await db.Users.SingleAsync(u => u.Email == "mobile@example.com");
+            user.LastLoginAtUtc.Should().BeNull();
+            (await db.RefreshTokens.CountAsync(t => t.UserId == user.Id)).Should().Be(0);
+            return true;
+        });
+    }
+
+    [Fact]
+    public async Task Post_LegacyLogin_ActiveStaff_IsForbiddenWithoutSessionSideEffects()
+    {
+        using var factory = new TripMateApiFactory();
+        using var client = factory.CreateClient();
+        await SeedLoginUser(factory, UserRole.Staff, null);
+
+        var response = await client.PostAsJsonAsync(
+            "/api/v1/auth/login", new { email = "mobile@example.com", password = "CorrectPass1" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("errorCode").GetString().Should().Be("auth.admin_mobile_sign_in_disabled");
+        body.GetProperty("title").GetString().Should().Be("Administration accounts are supported on Web only.");
         body.ToString().Should().NotContain("accessToken").And.NotContain("refreshToken");
         await factory.WithDbContextAsync(async db =>
         {

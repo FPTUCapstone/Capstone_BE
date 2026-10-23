@@ -18,11 +18,6 @@ namespace TripMate.Api.IntegrationTests.Authentication;
 [Collection(nameof(TripMateApiFactory))]
 public class SignOutIntegrationTests
 {
-    private const string LogRelativePath = "logs/uc04-s11.log";
-
-    private static string LogFullPath =>
-        Path.Combine(Directory.GetCurrentDirectory(), LogRelativePath);
-
     [Fact]
     public async Task Post_MobileLogout_TravelerActiveSession_RevokesSession()
     {
@@ -262,7 +257,6 @@ public class SignOutIntegrationTests
     [Fact]
     public async Task Post_WebLogout_SaveChangesThrows_Returns500PreservesCookieAndDoesNotLogSecrets()
     {
-        ResetLogFile();
         var interceptor = new ToggleSaveChangesFailureInterceptor();
         await using var factory = new TripMateApiFactory(saveChangesInterceptor: interceptor);
         using var client = factory.CreateClient();
@@ -298,6 +292,7 @@ public class SignOutIntegrationTests
         interceptor.FaultCount.Should().Be(1);
 
         var logged = await ReadLogUntil(
+            factory.LogFilePath,
             text => text.Contains("/api/v1/auth/web/logout", StringComparison.Ordinal)
                 && text.Contains("500", StringComparison.Ordinal));
         logged.Should().Contain("/api/v1/auth/web/logout");
@@ -320,16 +315,22 @@ public class SignOutIntegrationTests
 
     private static void AssertDeletionCookie(HttpResponseMessage response)
     {
-        var cookie = response.Headers.GetValues("Set-Cookie")
-            .Single(value => value.StartsWith("tripmate_refresh=", StringComparison.OrdinalIgnoreCase));
-        var normalized = cookie.ToLowerInvariant();
-        normalized.Should().Contain("tripmate_refresh=");
-        normalized.Should().Contain("path=/api/v1/auth");
-        normalized.Should().Contain("samesite=lax");
-        normalized.Should().Contain("httponly");
-        normalized.Should().Contain("secure");
-        normalized.Should().Contain("max-age=0");
-        normalized.Should().Contain("expires=thu, 01 jan 1970 00:00:00 gmt");
+        var cookies = response.Headers.GetValues("Set-Cookie")
+            .Where(value => value.StartsWith("tripmate_refresh=", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        cookies.Should().HaveCount(2);
+        foreach (var cookie in cookies)
+        {
+            var normalized = cookie.ToLowerInvariant();
+            normalized.Should().Contain("tripmate_refresh=");
+            normalized.Should().Contain("samesite=lax");
+            normalized.Should().Contain("httponly");
+            normalized.Should().Contain("secure");
+            normalized.Should().Contain("max-age=0");
+            normalized.Should().Contain("expires=thu, 01 jan 1970 00:00:00 gmt");
+        }
+        cookies.Should().Contain(c => c.ToLowerInvariant().Contains("path=/api/v1/auth"));
+        cookies.Should().Contain(c => c.ToLowerInvariant().Contains("path=/") && !c.ToLowerInvariant().Contains("path=/api/v1/auth"));
     }
 
     private static async Task<SeededSession> SeedSession(
@@ -423,22 +424,13 @@ public class SignOutIntegrationTests
         });
     }
 
-    private static void ResetLogFile()
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(LogFullPath)!);
-        if (File.Exists(LogFullPath))
-        {
-            File.Delete(LogFullPath);
-        }
-    }
-
-    private static async Task<string> ReadLogUntil(Func<string, bool> completed)
+    private static async Task<string> ReadLogUntil(string logPath, Func<string, bool> completed)
     {
         var logged = string.Empty;
         for (var attempt = 0; attempt < 20; attempt++)
         {
             await Task.Delay(300);
-            if (!File.Exists(LogFullPath))
+            if (!File.Exists(logPath))
             {
                 continue;
             }
@@ -446,7 +438,7 @@ public class SignOutIntegrationTests
             try
             {
                 using var stream = new FileStream(
-                    LogFullPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
                 using var reader = new StreamReader(stream);
                 logged = await reader.ReadToEndAsync();
             }

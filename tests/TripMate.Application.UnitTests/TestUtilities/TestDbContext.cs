@@ -34,7 +34,20 @@ public class TestDbContext(
 
     public DbSet<Tour> Tours => Set<Tour>();
 
+    public DbSet<TourCategory> TourCategories => Set<TourCategory>();
+
     public DbSet<TourSchedule> TourSchedules => Set<TourSchedule>();
+
+    public DbSet<TourItineraryItem> TourItineraryItems => Set<TourItineraryItem>();
+
+    public DbSet<TourPackageCreateOperation> TourPackageCreateOperations =>
+        Set<TourPackageCreateOperation>();
+
+    public DbSet<CancellationPolicyTemplate> CancellationPolicyTemplates =>
+        Set<CancellationPolicyTemplate>();
+
+    public DbSet<TourCancellationPolicyRule> TourCancellationPolicyRules =>
+        Set<TourCancellationPolicyRule>();
 
     public DbSet<Destination> Destinations => Set<Destination>();
 
@@ -56,7 +69,34 @@ public class TestDbContext(
 
     public DbSet<Review> Reviews => Set<Review>();
 
+    public DbSet<TripReview> TripReviews => Set<TripReview>();
+    public DbSet<TripReviewMedia> TripReviewMedia => Set<TripReviewMedia>();
+
     public DbSet<Message> Messages => Set<Message>();
+
+    public DbSet<ServiceProvider> ServiceProviders => Set<ServiceProvider>();
+
+    public DbSet<CommercialService> CommercialServices => Set<CommercialService>();
+
+    public DbSet<Voucher> Vouchers => Set<Voucher>();
+
+    public DbSet<Booking> Bookings => Set<Booking>();
+
+    public DbSet<BookingParticipant> BookingParticipants => Set<BookingParticipant>();
+
+    public DbSet<VoucherRedemption> VoucherRedemptions => Set<VoucherRedemption>();
+
+    public DbSet<TourBookingCreateOperation> TourBookingCreateOperations => Set<TourBookingCreateOperation>();
+    public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
+    public DbSet<Refund> Refunds => Set<Refund>();
+    public DbSet<RefundManualCompletionOperation> RefundManualCompletionOperations =>
+        Set<RefundManualCompletionOperation>();
+    public DbSet<RevenueExport> RevenueExports => Set<RevenueExport>();
+
+    public DbSet<Ticket> Tickets => Set<Ticket>();
+
+    public DbSet<BookingCancellationOperation> BookingCancellationOperations =>
+        Set<BookingCancellationOperation>();
 
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
 
@@ -67,6 +107,9 @@ public class TestDbContext(
     public DbSet<ItineraryItem> ItineraryItems => Set<ItineraryItem>();
 
     public DbSet<SchedulingRequest> SchedulingRequests => Set<SchedulingRequest>();
+
+    public DbSet<RecommendationBehaviorEvent> RecommendationBehaviorEvents =>
+        Set<RecommendationBehaviorEvent>();
 
     public DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests => Set<TravelGroupCreationRequest>();
 
@@ -80,23 +123,58 @@ public class TestDbContext(
 
     public DbSet<SystemConfig> SystemConfigs => Set<SystemConfig>();
 
+    public DbSet<TripSession> TripSessions => Set<TripSession>();
+
+    public DbSet<TripSessionItem> TripSessionItems => Set<TripSessionItem>();
+
+    public DbSet<Incident> Incidents => Set<Incident>();
+
+    public DbSet<TripStateHistory> TripStateHistories => Set<TripStateHistory>();
+
+    public DbSet<TripLocationLog> TripLocationLogs => Set<TripLocationLog>();
+
+    public DbSet<WeatherEvent> WeatherEvents => Set<WeatherEvent>();
+
+    public DbSet<ReroutingEvent> ReroutingEvents => Set<ReroutingEvent>();
+
+    public DbSet<Payout> Payouts => Set<Payout>();
+
+    public DbSet<PayoutItem> PayoutItems => Set<PayoutItem>();
+
+    public DbSet<PayoutRefundItem> PayoutRefundItems => Set<PayoutRefundItem>();
+
+    public DbSet<PayoutAdjustment> PayoutAdjustments => Set<PayoutAdjustment>();
+
+    public DbSet<PayoutPeriodBreakdown> PayoutPeriodBreakdowns => Set<PayoutPeriodBreakdown>();
+
     public int TransactionExecutionCount { get; private set; }
 
     public bool IsExecutingSerializableTransaction { get; private set; }
 
+    public int SerializableReadCount { get; private set; }
+
     public int SaveChangesAsyncCallCount { get; private set; }
 
+    public List<string> FinalizedOperatorDocumentCleanupPublicIds { get; } = [];
+
+    public List<string> FinalizedTravelerAvatarPublicIds { get; } = [];
+
+    public List<string> EnqueuedTravelerAvatarPublicIds { get; } = [];
+
+    public List<long> RevokedTicketQrBookingIds { get; } = [];
+
     public bool ThrowOnSaveConcurrency { get; set; }
+
+    public Func<int, Exception?>? SerializableTransactionCompletionFailureFactory { get; set; }
+
+    public Func<int, Exception?>? TransactionCompletionFailureFactory { get; set; }
 
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         SaveChangesAsyncCallCount++;
-        if (ThrowOnSaveConcurrency)
-        {
-            throw new DbUpdateConcurrencyException("Concurrency conflict simulated in test.");
-        }
-
-        return base.SaveChangesAsync(cancellationToken);
+        return ThrowOnSaveConcurrency
+            ? throw new DbUpdateConcurrencyException("Concurrency conflict simulated in test.")
+            : base.SaveChangesAsync(cancellationToken);
     }
 
     public async Task<int> RevokeRefreshTokenAsync(
@@ -130,15 +208,59 @@ public class TestDbContext(
         return audits.Count;
     }
 
+    public Action? OnTransactionCompleted { get; set; }
+    public Exception? ThrowOnTransaction { get; set; }
+
     public async Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken)
     {
         TransactionExecutionCount++;
-        return await operation(cancellationToken);
+        try
+        {
+            if (ThrowOnTransaction is not null)
+                throw ThrowOnTransaction;
+
+            T result = await operation(cancellationToken);
+            Exception? completionFailure =
+                TransactionCompletionFailureFactory?.Invoke(TransactionExecutionCount);
+            return completionFailure is not null ? throw completionFailure : result;
+        }
+        finally
+        {
+            OnTransactionCompleted?.Invoke();
+        }
+    }
+
+    public Task FinalizeOperatorDocumentCleanupReservationsAsync(
+        IReadOnlyCollection<string> publicIds,
+        CancellationToken cancellationToken)
+    {
+        FinalizedOperatorDocumentCleanupPublicIds.AddRange(publicIds);
+        return Task.CompletedTask;
+    }
+
+    public Task FinalizeTravelerAvatarReservationAsync(string publicId, CancellationToken cancellationToken)
+    {
+        FinalizedTravelerAvatarPublicIds.Add(publicId);
+        return Task.CompletedTask;
+    }
+
+    public Task EnqueueTravelerAvatarCleanupAsync(string publicId, DateTimeOffset nowUtc,
+        CancellationToken cancellationToken)
+    {
+        EnqueuedTravelerAvatarPublicIds.Add(publicId);
+        return Task.CompletedTask;
     }
 
     public void ClearTrackedEntities() => ChangeTracker.Clear();
+
+    public Task<int> RevokeActiveTicketQrCodesAsync(long bookingId, DateTimeOffset revokedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        RevokedTicketQrBookingIds.Add(bookingId);
+        return Task.FromResult(0);
+    }
 
     public async Task<T> ExecuteInSerializableTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
@@ -148,7 +270,10 @@ public class TestDbContext(
         IsExecutingSerializableTransaction = true;
         try
         {
-            return await operation(cancellationToken);
+            T result = await operation(cancellationToken);
+            Exception? completionFailure =
+                SerializableTransactionCompletionFailureFactory?.Invoke(TransactionExecutionCount);
+            return completionFailure is not null ? throw completionFailure : result;
         }
         finally
         {
@@ -156,8 +281,24 @@ public class TestDbContext(
         }
     }
 
+    public Task<T> ExecuteWithSerializableReadsAsync<T>(
+        Func<CancellationToken, Task<T>> reads,
+        CancellationToken cancellationToken)
+    {
+        SerializableReadCount++;
+        return reads(cancellationToken);
+    }
+
+    public bool IsDeadlock(Exception exception) => exception is SimulatedDeadlockException;
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<TripSessionItem>()
+            .HasKey(item => new { item.SessionId, item.ItineraryItemId });
+
+        modelBuilder.Entity<VoucherApplicableTour>()
+            .HasKey(mapping => new { mapping.VoucherId, mapping.TourId });
+
         modelBuilder.Entity<PoiOpeningHour>()
             .HasKey(hours => new { hours.PointOfInterestId, hours.DayOfWeek });
 
@@ -197,6 +338,12 @@ public class TestDbContext(
             .WithOne()
             .HasForeignKey<OperatorProfile>(profile => profile.UserId);
 
+        // Mirrors TourConfiguration so public-visibility predicates can be exercised without SQL Server.
+        modelBuilder.Entity<Tour>()
+            .HasOne(tour => tour.OperatorProfile)
+            .WithMany()
+            .HasForeignKey(tour => tour.OperatorUserId);
+
         modelBuilder.Entity<OperatorProfile>()
             .HasOne(profile => profile.Reviewer)
             .WithMany()
@@ -219,6 +366,11 @@ public class TestDbContext(
 
         modelBuilder.Entity<Message>()
             .HasKey(message => message.MessageCode);
+
+        modelBuilder.Entity<CommercialService>()
+            .HasOne(service => service.Provider)
+            .WithMany()
+            .HasForeignKey(service => service.ProviderId);
 
         modelBuilder.Entity<GroupMember>()
             .HasKey(member => new { member.GroupId, member.UserId });
@@ -257,11 +409,18 @@ public class TestDbContext(
         base.OnModelCreating(modelBuilder);
     }
 
-    public static TestDbContext Create()
+    public static TestDbContext Create() => Create(Guid.NewGuid().ToString());
+
+    /// <summary>
+    /// Shares one in-memory store across multiple TestDbContext instances (same databaseName),
+    /// so a test can simulate two workers racing the same row with independent tracked graphs —
+    /// a single context's own change tracker cannot reproduce that race against itself.
+    /// </summary>
+    public static TestDbContext Create(string databaseName)
     {
         var options =
             new DbContextOptionsBuilder<TestDbContext>()
-                .UseInMemoryDatabase(Guid.NewGuid().ToString())
+                .UseInMemoryDatabase(databaseName)
                 .Options;
 
         return new TestDbContext(options);

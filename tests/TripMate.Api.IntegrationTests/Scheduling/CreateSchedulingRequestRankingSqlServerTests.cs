@@ -27,6 +27,8 @@ public sealed class CreateSchedulingRequestRankingSqlServerTests
 {
     private const decimal CenterLatitude = 16.0544m;
     private const decimal CenterLongitude = 108.2022m;
+    // One 30-minute visit plus travel and configured buffers fits; two visits require 140 minutes.
+    private const int SingleOptionalCapacityMinutes = 120;
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
@@ -45,11 +47,12 @@ public sealed class CreateSchedulingRequestRankingSqlServerTests
             seed.UserId,
             Guid.NewGuid(),
             provider,
-            providerEnabled: false);
+            providerEnabled: false,
+            availableMinutes: SingleOptionalCapacityMinutes);
 
         provider.CallCount.Should().Be(0);
-        (await ReadVisitPoiIdsAsync(database, itineraryId)).Should().StartWith(
-            [seed.OptionalPoiIds[0], seed.OptionalPoiIds[1]]);
+        (await ReadVisitPoiIdsAsync(database, itineraryId)).Should().Equal(
+            seed.OptionalPoiIds[0]);
     }
 
     [SqlServerFact]
@@ -75,14 +78,14 @@ public sealed class CreateSchedulingRequestRankingSqlServerTests
             seed.UserId,
             Guid.NewGuid(),
             provider,
-            new RecordingRouteDurationProvider());
+            new RecordingRouteDurationProvider(),
+            availableMinutes: SingleOptionalCapacityMinutes);
 
         // Base: 0.30 vs 0.20. Effective: 0.18 vs 0.52 under the canonical 60/40 blend.
         provider.CallCount.Should().Be(1);
         provider.LastRequest!.Candidates.Select(candidate => candidate.PoiId)
             .Should().BeEquivalentTo(seed.OptionalPoiIds);
-        (await ReadVisitPoiIdsAsync(database, itineraryId)).Should().StartWith(
-            [lowerBasePoiId, higherBasePoiId]);
+        (await ReadVisitPoiIdsAsync(database, itineraryId)).Should().Equal(lowerBasePoiId);
     }
 
     [SqlServerFact]
@@ -346,6 +349,41 @@ public sealed class CreateSchedulingRequestRankingSqlServerTests
         visits.Should().NotContain(expensivePoiId);
     }
 
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task BehaviorChangeOnce_RetriesWithCurrentSnapshotAndFrozenRanking()
+    {
+        await using var database = await CreateDatabaseAsync();
+        RankingSeed seed = await SeedAsync(database,
+        [
+            new PoiDefinition("Behavior candidate", 5m, 5m, 10_000m),
+        ]);
+        long candidatePoiId = seed.OptionalPoiIds.Single();
+        var provider = new RecordingRankingProvider(
+            beforeReturn: _ => database.ExecuteNonQueryAsync($"""
+                INSERT INTO social.RecommendationBehaviorEvents (
+                    traveler_user_id, poi_id, itinerary_id, event_type,
+                    original_position, new_position, was_mandatory, source,
+                    occurred_at_utc, client_event_id)
+                VALUES (
+                    {seed.UserId}, {candidatePoiId}, NULL, 'Like',
+                    NULL, NULL, NULL, 'PoiDetail', SYSUTCDATETIME(), NEWID());
+                """));
+        var routeProvider = new RecordingRouteDurationProvider();
+
+        long itineraryId = await ExecuteAsync(
+            database,
+            seed.UserId,
+            Guid.NewGuid(),
+            provider,
+            providerEnabled: true,
+            routeProvider: routeProvider);
+
+        provider.CallCount.Should().Be(1);
+        routeProvider.CallCount.Should().Be(2);
+        (await ReadVisitPoiIdsAsync(database, itineraryId)).Should().Contain(candidatePoiId);
+    }
+
     private static async Task<SqlServerTestDatabase> CreateDatabaseAsync()
     {
         SqlServerTestDatabase database = await SqlServerTestDatabase.CreateAsync();
@@ -363,7 +401,8 @@ public sealed class CreateSchedulingRequestRankingSqlServerTests
         RecordingRouteDurationProvider? routeProvider = null,
         PersonalizationRankingOptions? rankingOptions = null,
         SchedulingGenerationOptions? generationOptions = null,
-        decimal budgetVnd = 800_000m)
+        decimal budgetVnd = 800_000m,
+        int availableMinutes = 480)
     {
         await using var context = database.CreateDbContext();
         var handler = new CreateSchedulingRequestCommandHandler(
@@ -379,7 +418,10 @@ public sealed class CreateSchedulingRequestRankingSqlServerTests
                 NullLogger<PoiRankingOrchestrator>.Instance),
             generationOptions);
         var result = await handler.Handle(
-            CreateCommand(userId, key, mandatoryPoiIds ?? [], budgetVnd),
+            CreateCommand(userId, key, mandatoryPoiIds ?? [], budgetVnd) with
+            {
+                AvailableMinutes = availableMinutes,
+            },
             CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue(result.ErrorMessage);
@@ -391,7 +433,8 @@ public sealed class CreateSchedulingRequestRankingSqlServerTests
         long userId,
         Guid key,
         RecordingRankingProvider provider,
-        RecordingRouteDurationProvider routeProvider)
+        RecordingRouteDurationProvider routeProvider,
+        int availableMinutes = 480)
     {
         await using var factory = new TripMateApiFactory(
             sqlServerConnectionString: database.ConnectionString,
@@ -422,7 +465,7 @@ public sealed class CreateSchedulingRequestRankingSqlServerTests
                 explorationLatitude = CenterLatitude,
                 explorationLongitude = CenterLongitude,
                 returnToStart = true,
-                availableMinutes = 480,
+                availableMinutes,
                 transportMode = "Motorbike",
                 searchRadiusKm = 10m,
                 budgetVnd = 800_000m,
@@ -457,6 +500,11 @@ public sealed class CreateSchedulingRequestRankingSqlServerTests
             UpdatedAtUtc = now,
         };
         context.Users.Add(user);
+        await context.SaveChangesAsync();
+
+        // UC-10 TripMate AI provider spec, A2: the ranking provider is called only when the traveler has a
+        // preference token, so the traveler gets one interest that no seeded POI matches.
+        context.TravelerProfiles.Add(TravelerProfile.Create(user.Id, "[\"unmatched-interest\"]", now));
         await context.SaveChangesAsync();
 
         var category = PoiCategory.Create($"TM-215-{suffix}", null);
@@ -571,8 +619,9 @@ public sealed class CreateSchedulingRequestRankingSqlServerTests
         foreach (string fileName in new[]
                  {
                      "20260914_add_scheduling_request_generation.sql",
-                     "20260915_extend_scheduling_request_contract.sql",
-                     "20260919_allow_named_rest_items.sql",
+                    "20260915_extend_scheduling_request_contract.sql",
+                    "20260919_allow_named_rest_items.sql",
+                    "20261004_add_scheduling_generation_reservation.sql",
                  })
         {
             string migrationPath = Path.Combine(
@@ -610,6 +659,8 @@ public sealed class CreateSchedulingRequestRankingSqlServerTests
 
     private sealed class RecordingRouteDurationProvider : IRouteDurationProvider
     {
+        public int CallCount { get; private set; }
+
         public IReadOnlyList<RoutePoint> LastPoints { get; private set; } = [];
 
         public Task<RouteDurationMatrix> GetMatrixAsync(
@@ -617,6 +668,7 @@ public sealed class CreateSchedulingRequestRankingSqlServerTests
             TransportMode transportMode,
             CancellationToken cancellationToken)
         {
+            CallCount++;
             LastPoints = points.ToArray();
             var durations = new int[points.Count, points.Count];
             for (var row = 0; row < points.Count; row++)

@@ -67,6 +67,15 @@
     <None Include="..\..\database\migrations\20260915_extend_scheduling_request_contract.sql"
           Link="Database\migrations\20260915_extend_scheduling_request_contract.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261004_add_scheduling_generation_reservation.sql"
+          Link="Database\migrations\20261004_add_scheduling_generation_reservation.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261008_add_uc13_navigation_execution.sql"
+          Link="Database\migrations\20261008_add_uc13_navigation_execution.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures\Database\uc13_revision1_navigation_execution.sql"
+          Link="Database\Fixtures\uc13_revision1_navigation_execution.sql"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="Fixtures\Database\tm206_pre_migration_schema.sql"
           Link="Database\Fixtures\tm206_pre_migration_schema.sql"
           CopyToOutputDirectory="PreserveNewest" />
@@ -82,10 +91,65 @@
     <None Include="..\..\database\migrations\20261001_add_itinerary_item_friendly_explanation.sql"
           Link="Database\migrations\20261001_add_itinerary_item_friendly_explanation.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261003_add_commercial_service_disclosures.sql"
+          Link="Database\migrations\20261003_add_commercial_service_disclosures.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261007_allow_staff_role.sql"
+          Link="Database\migrations\20261007_allow_staff_role.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\seeds\20261003_uc30_commercial_services_development.sql"
+          Link="Database\seeds\20261003_uc30_commercial_services_development.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261002_add_operator_license_unique.sql"
+          Link="Database\migrations\20261002_add_operator_license_unique.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261008_add_operator_document_cleanup_outbox.sql"
+          Link="Database\migrations\20261008_add_operator_document_cleanup_outbox.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261009_add_tour_categories.sql"
+          Link="Database\migrations\20261009_add_tour_categories.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261014_add_trip_review_rating_index.sql"
+          Link="Database\migrations\20261014_add_trip_review_rating_index.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261015_add_tour_package_authoring.sql"
+          Link="Database\migrations\20261015_add_tour_package_authoring.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261016_add_tour_destination_summary.sql"
+          Link="Database\migrations\20261016_add_tour_destination_summary.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261016_add_tour_version_lineage.sql"
+          Link="Database\migrations\20261016_add_tour_version_lineage.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261017_add_operator_coupon_lifecycle.sql"
+          Link="Database\migrations\20261017_add_operator_coupon_lifecycle.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261013_remove_traveler_profile_default_budget.sql"
+          Link="Database\migrations\20261013_remove_traveler_profile_default_budget.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261015_add_booking_cancellation.sql"
+          Link="Database\migrations\20261015_add_booking_cancellation.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261021_add_refund_processing_lifecycle.sql"
+          Link="Database\migrations\20261021_add_refund_processing_lifecycle.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261022_add_refund_manual_completion_operations.sql"
+          Link="Database\migrations\20261022_add_refund_manual_completion_operations.sql"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <None Include="..\..\database\migrations\20260930_add_trip_review_media_recovery.sql" Condition="Exists('..\..\database\migrations\20260930_add_trip_review_media_recovery.sql')" Link="Database\migrations\20260930_add_trip_review_media_recovery.sql" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Fixtures\Database\tm79_pre_migration_schema.sql" Link="Database\Fixtures\tm79_pre_migration_schema.sql" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures\Database\tm79_pre_nullable_policy_parent.sql" Link="Database\Fixtures\tm79_pre_nullable_policy_parent.sql" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures\Database\tm79_pre_media_schema.sql" Link="Database\Fixtures\tm79_pre_media_schema.sql" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20260929_add_trip_review_media.sql" Condition="Exists('..\..\database\migrations\20260929_add_trip_review_media.sql')" Link="Database\migrations\20260929_add_trip_review_media.sql" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20260928_add_trip_review_parent.sql" Condition="Exists('..\..\database\migrations\20260928_add_trip_review_parent.sql')" Link="Database\migrations\20260928_add_trip_review_parent.sql" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261007_extend_trip_review_typed_parents.sql" Condition="Exists('..\..\database\migrations\20261007_extend_trip_review_typed_parents.sql')" Link="Database\migrations\20261007_extend_trip_review_typed_parents.sql" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

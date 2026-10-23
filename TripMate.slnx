@@ -9,5 +9,9 @@
     <Project Path="tests/TripMate.Application.UnitTests/TripMate.Application.UnitTests.csproj" />
     <Project Path="tests/TripMate.Api.IntegrationTests/TripMate.Api.IntegrationTests.csproj" />
     <Project Path="tests/TripMate.Infrastructure.UnitTests/TripMate.Infrastructure.UnitTests.csproj" />
+    <Project Path="tests/TripMate.CandidatePoolReplay.Tests/TripMate.CandidatePoolReplay.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/TripMate.CandidatePoolReplay/TripMate.CandidatePoolReplay.csproj" />
   </Folder>
 </Solution>

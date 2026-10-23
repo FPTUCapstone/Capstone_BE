@@ -62,7 +62,18 @@ public sealed class AdjustItineraryItemsCommandHandler(
                         "Only the itinerary owner can adjust it.");
                 }
 
-                var requestHash = ComputeHash(command.ItineraryId, command.OrderedVisitPoiIds);
+                if (await ItineraryNavigationLock.IsInProgressAsync(
+                        dbContext,
+                        access.SchedulingRequestId,
+                        dateTimeProvider.UtcNow,
+                        transactionCancellationToken))
+                {
+                    return Result.Failure<ItineraryDetailResponse>(
+                        ItineraryErrorCodes.NavigationInProgress,
+                        ItineraryNavigationLock.Message);
+                }
+
+                var requestHash = ComputeHash(command.ItineraryId, command.EffectiveStops);
                 var operation = await dbContext.ItineraryVersionOperations
                     .SingleOrDefaultAsync(item =>
                         item.TravelerUserId == command.TravelerUserId
@@ -85,20 +96,6 @@ public sealed class AdjustItineraryItemsCommandHandler(
                             "The previous itinerary operation has not completed.");
                 }
 
-                var visitIds = await dbContext.ItineraryItems
-                    .Where(item => item.ItineraryId == access.CurrentItinerary.Id
-                        && item.Kind == ItineraryItemKind.Visit
-                        && item.PointOfInterestId.HasValue)
-                    .Select(item => item.PointOfInterestId!.Value)
-                    .ToListAsync(transactionCancellationToken);
-                var visitIdSet = visitIds.ToHashSet();
-                if (command.OrderedVisitPoiIds.Any(id => !visitIdSet.Contains(id)))
-                {
-                    return Result.Failure<ItineraryDetailResponse>(
-                        ItineraryErrorCodes.InvalidState,
-                        "The selected locations are not part of the current itinerary.");
-                }
-
                 if (!access.CurrentItinerary.SchedulingRequestId.HasValue)
                 {
                     return Result.Failure<ItineraryDetailResponse>(
@@ -108,16 +105,22 @@ public sealed class AdjustItineraryItemsCommandHandler(
 
                 var schedulingRequest = await dbContext.SchedulingRequests
                     .SingleAsync(item => item.Id == access.CurrentItinerary.SchedulingRequestId.Value, transactionCancellationToken);
+
+                // A mandatory place the traveler removed or replaced stops being mandatory, so a later
+                // regeneration does not bring it back.
+                schedulingRequest.KeepOnlyMandatoryPois(command.OrderedVisitPoiIds);
                 var successorResult = await versionService.CreateAdjustedVersionAsync(
                     access.CurrentItinerary,
                     schedulingRequest,
-                    command.OrderedVisitPoiIds.ToArray(),
+                    command.EffectiveStops,
                     transactionCancellationToken);
                 if (successorResult.IsFailure)
                 {
+                    // Nothing is saved, so the mandatory list change above is discarded too.
                     return Result.Failure<ItineraryDetailResponse>(
                         successorResult.ErrorCode!,
-                        successorResult.ErrorMessage!);
+                        successorResult.ErrorMessage!,
+                        successorResult.ErrorMetadata);
                 }
 
                 var operationRecord = ItineraryVersionOperation.Create(
@@ -147,18 +150,25 @@ public sealed class AdjustItineraryItemsCommandHandler(
             .ThenInclude(item => item.PointOfInterest)
             .ThenInclude(poi => poi!.Category)
             .SingleAsync(item => item.Id == itineraryId, cancellationToken);
+        var context = await ItineraryDetailContext.LoadAsync(dbContext, itinerary.SchedulingRequestId, cancellationToken);
         return Result.Success(GetDetail.GetItineraryDetailQueryHandler.ToResponse(
             itinerary,
             true,
-            itinerary.SchedulingRequestId ?? 0));
+            context.Request,
+            context.EndPoi));
     }
 
     private static Result<ItineraryDetailResponse> Failure(Result<ItineraryAccess> result) =>
         Result.Failure<ItineraryDetailResponse>(result.ErrorCode!, result.ErrorMessage!);
 
-    private static string ComputeHash(long itineraryId, IReadOnlyCollection<long> orderedVisitPoiIds)
+    private static string ComputeHash(long itineraryId, IReadOnlyList<ItineraryStop> stops)
     {
-        var payload = $"adjust|{itineraryId}|{string.Join(',', orderedVisitPoiIds)}";
+        // Ids-only payloads hash as before, so a retried legacy request still replays. The last stop has no
+        // next leg, so its mode is ignored here as it is everywhere else.
+        var stopsText = string.Join(',', stops.Select((stop, index) => index < stops.Count - 1 && stop.TransportModeToNext is { } mode
+            ? $"{stop.PoiId}:{mode}"
+            : stop.PoiId.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        var payload = $"adjust|{itineraryId}|{stopsText}";
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(payload))).ToLowerInvariant();
     }
 }

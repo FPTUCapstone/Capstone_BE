@@ -1,10 +1,12 @@
 using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 using TripMate.Application.Features.PointsOfInterest.Common;
 using TripMate.Application.Features.PointsOfInterest.Detail;
 using TripMate.Application.UnitTests.TestUtilities;
+using TripMate.Domain.Constants;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -213,6 +215,31 @@ public class GetPoiDetailQueryHandlerTests
         (await dbContext.AuditLogs.CountAsync()).Should().Be(0);
     }
 
+    [Theory]
+    [InlineData("Museum", null, CostKind.AdmissionTicket)]
+    [InlineData("Museum", 0, CostKind.AdmissionTicket)]
+    [InlineData("Museum", 60000, CostKind.AdmissionTicket)]
+    [InlineData(PoiCategoryNames.FoodAndDrink, 50000, CostKind.AverageSpend)]
+    public async Task Handle_ReturnsEstimatedVisitCostAsStoredWithItsCostKind(
+        string categoryName,
+        int? storedCost,
+        CostKind expectedKind)
+    {
+        await using var dbContext = TestDbContext.Create();
+        var category = await SeedCategory(dbContext, categoryName);
+        var poi = await SeedPoi(dbContext, category, "Priced place", PointOfInterestStatus.Active);
+        if (storedCost.HasValue)
+        {
+            poi.ConfigurePlanningMetadata(storedCost.Value, "https://example.com/price", Now);
+            await dbContext.SaveChangesAsync();
+        }
+
+        var result = await CreateHandler(dbContext).Handle(new GetPoiDetailQuery(poi.Id), CancellationToken.None);
+
+        result.Value.EstimatedVisitCost.Should().Be(storedCost);
+        result.Value.CostKind.Should().Be(expectedKind);
+    }
+
     private static async Task<PoiCategory> SeedCategory(TestDbContext dbContext, string name)
     {
         var category = PoiCategory.Create(name, null);
@@ -255,5 +282,8 @@ public class GetPoiDetailQueryHandlerTests
     private static GetPoiDetailQueryHandler CreateHandler(
         TestDbContext dbContext,
         DateTimeOffset? utcNow = null) =>
-        new(dbContext, new FakeDateTimeProvider { UtcNow = utcNow ?? Now });
+        new(
+            dbContext,
+            new FakeDateTimeProvider { UtcNow = utcNow ?? Now },
+            NullLogger<GetPoiDetailQueryHandler>.Instance);
 }

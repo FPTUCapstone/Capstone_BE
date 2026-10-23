@@ -27,3 +27,39 @@ repeating registration or resetting a record between successful decisions.
 It deliberately creates no usable passwords and is not included in the normal
 schema application path. Use an existing development Administrator session to
 review the seeded records.
+
+## UC-59 active-trip detail fixtures
+
+`20261001_seed_uc59_active_trip_details.sql` is a manual, idempotent development seed.
+It adds two active sessions with itinerary progress, FSM history, weather-linked
+incidents, rerouting proposals, and location trails. One is a group journey with
+members and location-sharing flags; the other is a booked tour with an open
+weather alert. Fixture users have `example.invalid` email addresses and no
+passwords. The script does not reset existing trips or run during normal schema
+initialization. Run it only against a local development database after v7 schema
+setup; rerunning it reports the same two session IDs.
+
+## City-centre and Hoi An planning POIs
+
+`20261015_seed_danang_city_real_pois.sql` is an idempotent manual seed that adds
+eleven real Da Nang / Hoi An places (bridges, APEC Park, My Khe Beach, Con Market,
+Linh Ung Pagoda, Non Nuoc stone village, Kim Bong, My Son, VinWonders Nam Hoi An)
+with seven daily opening-hour rows and tags. Coordinates come from Mapbox Search
+Box; each row stores its own source URL. Public spaces and Non Nuoc have no
+published hours, so their windows are TripMate planning estimates, as noted in
+the script header. The seed also sets the hand-made `TM-213 Manual …` test POIs
+to `Inactive` so they no longer enter generated itineraries. Apply it after the
+2026-09-14 planning seed; rerunning it updates the same rows.
+
+## UC-26 tour detail fixtures
+
+`20261017_seed_uc26_view_tour_details_development.sql` is a manual, **development/UAT-only**
+seed for the public "View Tour Details" page. It publishes fake tours (one fully populated, one
+minimal, one sold out, one with a large Int64 id), a fake approved operator, fake published reviews
+and a set of hidden tours (draft, pending, rejected, inactive, not yet published, unapproved or
+locked operator) that the public API must answer with 404. It refuses to run unless the database
+name contains `UAT`, `Dev`, `Test` or `Local`, and a second run aborts, so it cannot be applied to
+a production database by mistake. Fixture users use `example.invalid` addresses and have no
+passwords. Apply it once after schema v7 and all migrations (`sqlcmd -I -f 65001`); recreate the
+database to reset it.
+

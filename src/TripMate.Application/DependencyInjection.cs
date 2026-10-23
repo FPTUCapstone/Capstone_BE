@@ -7,6 +7,8 @@ using MediatR;
 using Microsoft.Extensions.DependencyInjection;
 
 using TripMate.Application.Common.Behaviours;
+using TripMate.Application.Features.Operator.Revenue.Common;
+using TripMate.Application.Features.Traveler.Bookings.Expiry;
 
 namespace TripMate.Application;
 
@@ -17,6 +19,8 @@ public static class DependencyInjection
         var assembly = Assembly.GetExecutingAssembly();
 
         services.AddValidatorsFromAssembly(assembly);
+        services.AddScoped<PendingBookingExpiryProcessor>();
+        services.AddScoped<OperatorRevenueAggregator>();
 
         services.AddMediatR(cfg =>
         {

@@ -52,13 +52,14 @@ cp .env.example .env      # chỉ 1 lần đầu, chỉnh giá trị nếu cần
 docker compose up -d --build
 ```
 
-Lệnh trên tự làm hết 3 việc theo đúng thứ tự: dựng SQL Server container → áp schema
-(`database/tripmate_schema_v7.sql`) → chạy API. Không cần tự canh thời gian chờ DB sẵn sàng.
+Lệnh trên dựng SQL Server và Redis, áp schema (`database/tripmate_schema_v7.sql`), rồi chạy API.
+Redis là state dùng chung cho rate limit tạo lịch trình khi API chạy nhiều instance. Không cần tự
+canh thời gian chờ các service sẵn sàng.
 
 Kiểm tra đã chạy đúng:
 
 ```bash
-docker compose ps                 # 3 service: sqlserver, api phải "Up"; db-init "Exited (0)"
+docker compose ps                 # sqlserver, redis, api phải "Up"; db-init "Exited (0)"
 curl http://localhost:5000/health # {"status":"healthy"}
 ```
 
@@ -139,6 +140,22 @@ riêng phần database, đúng với việc bạn chỉ muốn chạy SQL trên 
    dotnet run --project src/TripMate.Api
    ```
 
+   Cấu hình Development mặc định dùng rate limiter `SingleInstance`, nên cách chạy local này không
+   cần Redis. Môi trường production/multi-instance phải dùng `SchedulingRateLimit:Provider=Redis`
+   và cấp secret `ConnectionStrings__Redis`; không commit endpoint hoặc credential vào appsettings.
+
+   Bộ xếp lịch mặc định là CSP (`SchedulingGeneration:SolverMode=Csp`).
+   - Nếu số liệu theo dõi cho thấy CSP thường chạm giới hạn thời gian, giảm số nút bằng
+     `SchedulingGeneration__Csp__MaxNodes`, ví dụ `100000`.
+   - Để quay về thuật toán cũ, đặt `SchedulingGeneration__SolverMode=Heuristic`.
+
+   Cả hai đều chỉ là cấu hình, không cần sửa code. Ngưỡng theo dõi nằm trong
+   `specs/UC-10-csp-itinerary-solver-spec.md`, mục Phase 3.
+
+   Mỗi lần tạo lịch, log có một dòng `Scheduling solver outcome ...`, ghi kết quả solver, thời gian
+   CSP và việc có chạm giới hạn thời gian hay không. Thời gian của cả request nằm ở dòng
+   `Request finished ... POST .../api/v1/scheduling-requests`.
+
 5. Swagger UI ở `https://localhost:<port>/swagger` (môi trường Development).
 
 ## 6. Chạy test
@@ -162,6 +179,17 @@ Mỗi test tạo một database riêng tên `TripMate_Test_<guid>`, áp trực t
 `database/tripmate_schema_v7.sql`, và chỉ xóa đúng database tạm đó sau khi chạy. Nếu biến môi trường
 đã được đặt nhưng SQL Server, credential hoặc schema có lỗi, test sẽ fail thay vì tự động skip.
 Tài khoản trong connection string cần quyền tạo và xóa database test.
+
+Các test Redis thật được đánh dấu `Category=Redis`. Docker Compose đã có service Redis dùng chung:
+
+```powershell
+docker compose up -d redis
+$env:TRIPMATE_REDIS_TEST_CONNECTION = "localhost:6379"
+dotnet test tests/TripMate.Api.IntegrationTests/TripMate.Api.IntegrationTests.csproj --filter "Category=Redis"
+```
+
+Nếu biến này chưa được đặt, test Redis được skip ở local; workflow backend trên GitHub bắt buộc chạy
+toàn bộ nhóm này và fail nếu có test bị skip.
 
 ## 7. ⚠️ Database-First — không dùng EF Core migrations
 
@@ -211,6 +239,14 @@ Trước khi chạy local, cấu hình `Jwt:SigningKey` và `ConnectionStrings:D
 Secrets cho project `src/TripMate.Api`, hoặc biến môi trường `Jwt__SigningKey` và
 `ConnectionStrings__Default`. API dừng khởi động khi thiếu các giá trị bắt buộc này.
 Mỗi môi trường phải cấp secret riêng — **không bao giờ commit secret thật**.
+
+UC-02 upload giấy tờ operator lên Cloudinary dưới delivery type `authenticated`.
+Ngoài các biến Cloudinary hiện có, khi chạy API bằng Docker Compose cần đặt
+`Cloudinary__OperatorDocumentsFolderRoot` trong `.env` theo thư mục tài liệu
+operator của môi trường đó (xem `.env.example`). Với môi trường đã có tài liệu,
+giữ nguyên folder root cũ cho đến khi xử lý hết URL public; không đổi folder để
+che giấu URL vì asset cũ vẫn truy cập được. Chi tiết kiểm kê và xử lý tài liệu
+cũ nằm trong `docs/uc-02-legacy-operator-documents.md`.
 
 ### 9.1 Firebase Admin credentials (bắt buộc cho đăng nhập Firebase)
 
@@ -272,3 +308,9 @@ không bao giờ commit. Thứ tự ưu tiên credential: JSON inline → `GOOGL
 Xem [`CONTRIBUTING.md`](CONTRIBUTING.md) (branch, commit convention, Pull Request) và
 [`AGENTS.md`](AGENTS.md) (quy tắc kiến trúc bắt buộc, đặc biệt là phần database-first) trước khi
 đóng góp code.
+
+## TM-70 semantic search PoC (opt-in)
+
+See [isolated semantic PoC instructions](tools/semantic-poc/README.md) for the CPU embedding service,
+Qdrant fixture evaluation and SQL-authoritative tests. Ordinary startup and production tour search
+are unchanged; semantic contract approval is pending.

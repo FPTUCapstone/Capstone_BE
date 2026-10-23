@@ -27,6 +27,7 @@ public sealed class SchedulingRequestsController(
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status422UnprocessableEntity)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status429TooManyRequests)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> Create(
         [FromBody] CreateSchedulingRequest request,
         [BindRequired, FromHeader(Name = "Idempotency-Key")] Guid idempotencyKey,

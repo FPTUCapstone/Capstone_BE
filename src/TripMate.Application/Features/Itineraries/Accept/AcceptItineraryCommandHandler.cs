@@ -87,8 +87,8 @@ public sealed class AcceptItineraryCommandHandler(
             .ThenInclude(poi => poi!.Category)
             .SingleAsync(item => item.Id == itineraryId, cancellationToken);
 
-        var schedulingRequestId = itinerary.SchedulingRequestId ?? 0;
+        var context = await ItineraryDetailContext.LoadAsync(dbContext, itinerary.SchedulingRequestId, cancellationToken);
         return Result.Success(
-            GetDetail.GetItineraryDetailQueryHandler.ToResponse(itinerary, true, schedulingRequestId));
+            GetDetail.GetItineraryDetailQueryHandler.ToResponse(itinerary, true, context.Request, context.EndPoi));
     }
 }

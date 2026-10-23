@@ -169,6 +169,7 @@ public sealed class CloudinaryTourMediaStorageTests
                 ApiKey = "test-api-key",
                 ApiSecret = "test-api-secret",
                 TourMediaFolderRoot = "tripmate/tours",
+                OperatorDocumentsFolderRoot = "tripmate/operator-documents",
             }),
             logger ?? new CapturingLogger<CloudinaryTourMediaStorage>());
 
@@ -196,6 +197,9 @@ public sealed class CloudinaryTourMediaStorageTests
             LastDelete = request;
             return Task.FromResult(DeleteOutcome);
         }
+
+        public Uri? CreateTemporaryDownloadUrl(string publicId, string format, bool isRaw,
+            DateTimeOffset expiresAtUtc) => null;
     }
 
     private sealed class ThrowingCloudinaryClient(string message) : ICloudinaryClient
@@ -209,6 +213,9 @@ public sealed class CloudinaryTourMediaStorageTests
             CloudinaryDeleteRequest request,
             CancellationToken cancellationToken) =>
             throw new InvalidOperationException(message);
+
+        public Uri? CreateTemporaryDownloadUrl(string publicId, string format, bool isRaw,
+            DateTimeOffset expiresAtUtc) => null;
     }
 
     private sealed class CancellingCloudinaryClient : ICloudinaryClient
@@ -222,6 +229,9 @@ public sealed class CloudinaryTourMediaStorageTests
             CloudinaryDeleteRequest request,
             CancellationToken cancellationToken) =>
             Task.FromCanceled<CloudinaryDeleteOutcome>(cancellationToken);
+
+        public Uri? CreateTemporaryDownloadUrl(string publicId, string format, bool isRaw,
+            DateTimeOffset expiresAtUtc) => null;
     }
 
     private sealed class CapturingLogger<T> : ILogger<T>

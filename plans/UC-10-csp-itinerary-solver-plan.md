@@ -1,0 +1,374 @@
+# UC-10 CSP Itinerary Solver — Implementation Plan
+
+## Status
+
+Approved by the developer on 2026-10-10, together with
+[`specs/UC-10-csp-itinerary-solver-spec.md`](../specs/UC-10-csp-itinerary-solver-spec.md).
+
+- **Phase 1:** merged as PR #57 (merge commit `983a192`), on branch `feature/phuctv-csp-solver`
+  from `develop` at `af505f4`. Worktree: `D:\FPTUCapstone\Capstone_BE_CSP`.
+- **Phase 1 commits:**
+
+  | Task | Commit |
+  | ---- | ------ |
+  | P1.2 (patches 0001, 0002, 0004) | `63309cc`, `1ca8b57`, `c864aa3` |
+  | P1.3 | `89d8fad` |
+  | P1.4 | `5173488` |
+  | P1.5 | `928d353` |
+  | Spec and plan | `4ca96ed`, `d4a4992` |
+  | P1.7 (review round 1 remediation) | `96c0eb8` |
+  | P1.7 (regenerated baseline report) | `7019457` |
+  | P1.8 (review round 2 remediation) | `8988247`, `637ebbd` |
+  | Merge of `develop` (reviewed in round 3) | `94995d9` |
+  | P1.9 (review round 3 remediation, reviewed in round 4) | `68eb255`, `ebd90a9` |
+
+  P1.7 follows the reviewed head `d4a4992`; P1.8 follows the reviewed head `7019457`; P1.9 follows
+  the reviewed head `94995d9`; P1.10 follows the reviewed head `ebd90a9`.
+- **Phase 2:** merged as PR #62 (merge commit `31f9a5a`, final head `7f38cbc`).
+- **Phase 3:** implemented on the same branch. The default switch merges after the Report 3 V2
+  amendment. See [Phase 3](#phase-3--pr-3-default-switch).
+
+## Verification commands
+
+Focused:
+
+```powershell
+dotnet test tests/TripMate.Application.UnitTests -c Release --filter "FullyQualifiedName~Scheduling"
+dotnet run -c Release --project tools/benchmarks/solver-comparison
+```
+
+Final (with `TRIPMATE_SQLSERVER_TEST_CONNECTION` set):
+
+```powershell
+dotnet format TripMate.slnx --verify-no-changes --no-restore
+dotnet build TripMate.slnx -c Release --no-restore --nologo
+dotnet test TripMate.slnx -c Release --no-build --nologo
+git diff --check
+```
+
+## Phase 1 — PR 1 (opt-in CSP)
+
+### P1.1 — Baseline
+Record build and test results on the untouched worktree.
+
+### P1.2 — Apply the developer patches
+Apply 0001, 0002, and 0004 with `git am`, keeping their content unchanged. Then confirm:
+- build has 0 warnings and format passes;
+- Scheduling tests pass, including the 39 new CSP and routing tests.
+
+No code is edited in this task.
+
+### P1.3 — Configuration binding (TDD)
+Tests first:
+- `SchedulingGeneration:SolverMode` binds `Heuristic`, `Csp`, and `MiniRouting`.
+- An unknown value fails options validation at startup.
+- Non-positive `Csp:MaxNodes`, `Csp:TimeLimitMilliseconds`, or `Csp:MaxOptionalDomainSize`, or a
+  non-positive `Csp:MaxStops` when set, fails options validation.
+- `SchedulingGeneration:Csp:*` binds into `CspOptions`.
+- The shipped `appsettings.json` resolves to `Heuristic`.
+
+Then add the explicit `SolverMode` entry to `appsettings.json`, and validation to the existing
+`SchedulingGenerationOptionsValidator` if it is not already enforced.
+
+### P1.4 — Benchmark runner
+Add `tools/benchmarks/solver-comparison`: a console project outside the solution, mirroring
+`optional-route-optimization`.
+- Product-rule comparison computed from the generated plans, using the canonical order from
+  `OptionalRouteOptimizer.SortOptionalsCanonical`.
+- Corpus: the named fixtures plus the UC-10 segments, candidates {10, 20, 40} × mandatory
+  {0, 1, 3, 6} × seeds 1–25.
+- Three timed modes per scenario: optimization disabled, Heuristic, and CSP. Each has a warmup
+  and the same iteration count as the existing runner.
+- Output: the data files (`.csv`, `.timings.csv`, `.meta.json`) and a Markdown report rendered
+  from them, with the disclosures required by the spec (P1.7 item 2).
+- Add a small unit test for the product-rule plan comparator used by the runner.
+  - Option A: the comparator lives in the unit-test fixtures folder so the runner can reference it.
+  - Option B: the comparator stays inside the runner.
+  - Pick A, so the comparison logic itself is tested.
+
+### P1.5 — Baseline benchmark report
+Run the runner with the patch defaults and commit
+`docs/benchmarks/UC-10-csp-solver-comparison-2026-10-10.md`. It must state that the result is
+synthetic, generator-only evidence.
+
+### P1.6 — Verification and PR 1 readiness
+Final verification commands with SQL Server. Record the evidence in the spec status.
+
+### P1.7 — Review round 1 remediation (PR #57, reviewed head `d4a4992`)
+1. **MEDIUM 1, CSP limits (TDD).**
+   - Write the tests first, and see them fail on `d4a4992`. With restrictive `MaxStops` and
+     `MaxOptionalDomainSize`, the CSP result:
+     - stays within `MaxStops`;
+     - uses only top-N optional POIs;
+     - is the same with the incumbent on or off once the search completes.
+   - Then:
+     - `MiniRoutingSolver.Construct` takes the allowed optional nodes and a stop limit;
+     - the CSP builds its incumbent from the root domain;
+     - `SearchRun.WithinLimits` guards the incumbent and the polish.
+2. **MEDIUM 2, auditable benchmark.**
+   - The service records the solver outcome through `SchedulingSolverDiagnostics`.
+   - Tests cover the `csp`, `heuristic`, search-limit fallback and infeasible outcomes.
+   - The runner:
+     - persists `.csv`, `.timings.csv` and `.meta.json`, and renders the Markdown from them;
+     - records the full SHA;
+     - refuses a dirty source tree.
+   - `SolverComparisonReportTests` checks the committed report against its data.
+3. **Regenerate the baseline.**
+   - Commit the source changes.
+   - Run `dotnet run -c Release --project tools/benchmarks/solver-comparison` on the clean tree.
+   - Commit the four report files in a separate commit.
+   - Do not rewrite history.
+4. **LOW 1 and LOW 2.** Correct the spec's affected flows (Adjust Items bypasses `SolverMode`), and
+   update this status and the spec's branch and commit references.
+5. **Re-review gate.**
+   - Full suite, plus SQL Server and Redis integration tests with no required-test skips.
+   - Format.
+   - Exact-head CI.
+   - Request re-review on the new head SHA.
+
+### P1.8 — Review round 2 remediation (PR #57, reviewed head `7019457`)
+1. **MEDIUM 2, fail-closed benchmark validation (TDD).**
+   - Write parameterized tests that corrupt a valid data set and require `Read` or `Validate` to
+     fail: unknown mode or outcome, an outcome of another mode, negative, NaN or infinite elapsed
+     time, a surplus row for an unknown scenario, a duplicate key, a mismatched segment, a missing
+     iteration, iterations 0 and above `MeasuredIterations`, an unknown verdict, a CSP plan above
+     `MaxStops`, a duplicate scenario, a corpus-size mismatch, a short commit, no measured
+     iterations, and a metadata date that does not match the file name.
+   - Add `SolverComparisonReport.Validate`, called by `Read`, `Write` and `Markdown`.
+   - Add `FindProvenance` and `EnsureProvenance`: the committed report's commit must be an ancestor
+     of `HEAD` and the run must use a clean tree. Tests cover the not-ancestor, unknown and dirty
+     cases. `ci.yml` checks out with `fetch-depth: 0`.
+   - The committed corpus passes unchanged, so the report is not regenerated.
+2. **LOW 2.** Add `96c0eb8` and `7019457` to the commit table.
+3. **Re-review gate.** As in P1.7 step 5, on the new head SHA.
+
+### P1.9 — Review round 3 remediation (independent algorithm review of head `94995d9`)
+1. **HIGH, rest reserve (test first).**
+   - Add `CspRestOptimalityTests`: random non-metric instances (4–6 candidates, tight opening hours,
+     optional budget), 80 per rest preference. An evaluator-based brute force gives the optimum,
+     and the test counts CSP schedules that are worse or missing.
+   - Measured on `94995d9`: `Auto` 6/77 worse, `Frequent` 23/69 worse, none missing.
+   - Then, in `CspItinerarySolver`:
+     - always run the relaxed model when rest applies, after the reserved one, with the reserved
+       run's best evaluated objective as its initial bound;
+     - evaluate every elite solution of both runs and keep the lowest evaluated objective.
+   - Result: `Auto` 0/77 worse, `Frequent` 1/69 worse. The test thresholds pin these numbers.
+   - Correct the `SearchCompleted` comment.
+2. **MEDIUM 2.** One `NodeBudget` shared by both runs, with a test that the total stays within
+   `MaxNodes`. Document the time-limit determinism exception (spec invariants, report
+   limitations).
+3. **MEDIUM 1.** Replace the commit provenance with `SolverComparisonReport.ComputeSourceHash`
+   over `SourceInputs`, with tests for line endings, content changes and missing inputs. The latest
+   report must match the current source. Remove the git calls from the runner and the test, and
+   revert `ci.yml` to the `develop` checkout.
+4. **Benchmark corpus.** Add `RestPreference` to `CreateSyntheticCorpusScenario` and the runner
+   (`None`, `Auto`, `Frequent`; `-auto` and `-frequent` segment suffixes), a `rest_preference`
+   column, and a per-preference quality table.
+5. **LOWs.**
+   - A CSP plan no longer records `OptionalRouteOptimization`.
+   - New `SchedulingSolverOutcome` tags: `csp.evaluator_calls` and `csp.chose_relaxed_rest_model`.
+   - Validate `MiniRouting.*` and `Csp:FinalCandidatesToValidate`.
+   - Remove per-node allocations in `LowerBound`, `RouteEliteSet.Offer` and `OrderValues`.
+6. **MEDIUM 3 and R4.** No code change. They stay Phase 2 R1a and R4.
+7. **Regenerate the report** with the source changes. The order of commits no longer matters,
+   because the report is tied to a source hash, not a commit. Commit the source and the four report
+   files together, or the report right after the source.
+8. **Re-review gate.** As in P1.7 step 5, on the new head SHA.
+
+### P1.10 — Review round 4 remediation (independent final re-review of head `ebd90a9`)
+1. **Open-prefix fix (developer brute-force check, test first).**
+   - Add `CspBruteForceTests`: a non-pruning brute force on 600 random non-metric instances
+     without rest, and 400 more under restrictive `MaxStops` and `MaxOptionalDomainSize`. The
+     rest-aware comparison stays skipped (Phase 2 R9).
+   - Add a fixed shortcut regression test.
+   - On `ebd90a9`, seed 10 returns 391 against an optimum of 242, and the shortcut test finds no
+     schedule.
+   - Then:
+     - `RouteState.BuildOpen` and `Close`;
+     - the CSP extends open prefixes and checks C5 against `minExit`;
+     - a solution must return directly in time;
+     - `ExhaustiveBest` stops pruning.
+2. **MEDIUM, exact corpus (test first).**
+   - Add the mutation tests listed in the spec (round 4 table).
+   - Then:
+     - `SolverComparisonCorpus` becomes the single corpus definition, used by the runner;
+     - `Validate` checks the declared corpus and requires set equality with it;
+     - add the corpus file to `SourceInputs`.
+3. **LOW, node count (test first).** Assert `NodesExpanded == MaxNodes` when the node limit stops
+   one run or the reserved and relaxed runs together. Then `TryExpand` checks the budget and the
+   time limit before it counts a node.
+4. **Regenerate the report.** Commit the source and the four report files together.
+5. **Re-review gate.** As in P1.7 step 5, on the new head SHA.
+
+## Phase 2 — PR 2 (CSP follows the product rule)
+
+Phase 2 is split into two PRs, both from `feature/phuctv-csp-solver` after `983a192`:
+- **PR 2a:** implemented; see the spec's PR 2a status.
+  - P2.1, P2.2, P2.2a and P2.3.
+  - P2.3a (R5, hybrid option).
+  - The P2.6 search optimization and the node-budget decision.
+- **PR 2b:** P2.3b, P2.3c, P2.4 and P2.5, plus R9 sign-off.
+  - P2.3b (R8) and the R9 fixes (rest shortcuts in the relaxed run, evaluator cap 16,384) are
+    done locally on top of `65b09f7`.
+  - The large-instance gap is measured and documented.
+  - P2.3c, P2.4 (R6) and P2.5 are done, including the SQL Server and Redis integration suites
+    under CSP; see the spec's PR 2b status.
+- **P2.6:** the benchmark is rerun at the end of each PR.
+
+Each task is TDD. Write a failing CSP test first, using the existing scenario fixtures, then the
+minimal change in `CspItinerarySolver`.
+
+### P2.1 — R4: respect `EnableOptionalRouteOptimization = false`
+Expect the unoptimized heuristic result under `Csp` mode. Fixes the zigzag test and the
+"disabled" assertions of three others.
+
+### P2.2 — R1: lexicographic product objective
+- Represent the optional-inclusion vector as a bitset over canonical rank. It must support any
+  size: `MaxMatrixCandidates` has no upper bound, so `ulong` is not allowed.
+- The incumbent and the final choice compare with `ScheduleGlobalComparator`.
+- Branch and bound prunes on the optimistic mask (current mask OR remaining-domain mask). On an
+  equal mask, it prunes on the existing travel lower bound.
+- Tests:
+  - the canonical tie-break scenarios pick the same POI as the heuristic;
+  - a higher-ranked POI is never traded for travel time;
+  - pruning never removes a strictly better completion (exhaustive check on small instances).
+
+### P2.2a — R1a: heuristic result as the initial incumbent
+Tests first:
+- on every named fixture and a seeded synthetic sample, the CSP plan is never worse than the
+  heuristic plan under `ScheduleGlobalComparator`, including with a tiny node budget;
+- with no heuristic schedule, the search still runs and can find a feasible plan.
+
+### P2.3 — R2/R3: remove the fixed stop cap and widen the domain
+- `MaxStops` becomes nullable with default null.
+- `MaxOptionalDomainSize` defaults to `MaxMatrixCandidates`.
+- Test: a scenario where the heuristic schedules 11 stops yields at least 11 under CSP.
+
+### P2.3a — R5: deterministic wall-clock safety
+Test first: with a near-zero time limit, the result equals the heuristic result exactly and is
+recorded as `CspFallback`. A partial CSP result is never returned.
+
+### P2.3b — R8: solver diagnostics
+Test first: the aggregate diagnostic carries the solver value (`Heuristic`, `Csp`, or
+`CspFallback`) and the node and prune counts, with no user or POI identity.
+
+### P2.3c — Affected flows and the TM-216 boundary under CSP
+Run the `ItineraryVersionService` (Regenerate, Adjust Items) suites and the T-216 boundary tests
+with `SolverMode = Csp`. Add a test where an optional with the maximum AI score that is
+time-infeasible is still excluded under CSP.
+
+### P2.4 — R6: pin heuristic-characterization tests
+Pin only tests whose intent is legacy behavior, such as names containing `Characterize` or
+`Legacy`, to `SolverMode = Heuristic`. Do not edit their expectations.
+
+### P2.5 — Full suite under CSP
+Run the whole solution once with `SolverMode = Csp` forced through configuration. Every test that
+is not pinned must pass.
+
+### P2.6 — Benchmark against the gate
+- Re-run the runner and record the second report.
+- Gate: 100% better-or-equal under the product rule; CSP adds at most 300 ms p95 over the
+  disabled baseline in every segment; no run reaches the wall-clock limit.
+- If the gate fails, tune within the spec (node budget) or report the failing scenarios. The
+  product rule is never relaxed to pass the gate.
+
+## Phase 3 — PR 3 (default switch)
+Phase 3 starts from `31f9a5a`. It first resolves the four Low findings of the PR #62 review, then
+measures, then switches the default. Results are recorded in the spec's Phase 3 status.
+
+Commits: the user commits.
+1. **Solver fixes.** P3.1, P3.2, the comment part of P3.3, their tests and the regenerated
+   benchmark report. They form one commit because the source-hash test requires the report to
+   ship with the source it measured.
+2. **Documentation.** The spec and plan, with P3.3, the P3.4 results and the P3.5 operations
+   rules.
+3. **Monitoring.** P3.6: the solver outcome log line, its registration and its tests.
+4. **Default switch.** P3.5 only: `appsettings.json`, the integration configuration test and the
+   `README.md` note. Rolling back is therefore a configuration change.
+
+### P3.1 — Low 2: tag the returned heuristic plan
+**Done.** `csp.returned_heuristic_plan` comes from `ReturnedInitialIncumbent`.
+`GenerationService_TagsWhetherCspReturnedTheHeuristicPlan` failed first; it uses c10-m0-s4
+("equal") and c10-m0-s1 ("better").
+
+### P3.2 — Low 1: evaluate ties when rest applies
+**Done.** `Tighten` evaluates ties under `MaxTieEvaluations = 4,096`, which is separate from the
+16,384 evaluations for strict improvements. The cap is recorded as
+`csp.tie_evaluation_limit_reached`.
+- `Solve_BreaksTiesByTheFullProductRule_WhenRestApplies` reproduced the defect first: 4
+  mismatches over 2,000 seeds per preference.
+- `Solve_FindsTheOptimum_OnTheTieBreakRegressions` pins the four seeds, and fails when the cap
+  is 0.
+
+### P3.3 — Low 3: correct the determinism wording
+**Done.** The deterministic-output invariant, the R5 decision, acceptance criterion 5, and the
+`CspOptions` and `DiscardTimedOutResult` comments now state that the output is host-independent
+only while the wall-clock limit is not reached.
+
+### P3.4 — Low 3 and Low 4: measure before switching
+**Measured.** The spec's Phase 3 status has the tables. Developer decision, 2026-10-12: switch
+without waiting for the production hardware, under the monitoring and rollback rules in the spec.
+- **Benchmark:** the `phase3` report passes every gate.
+- **Repeated runs:** three runs, with largest added p95 of 189, 149 and 233 ms, and 0 fallbacks.
+- **Production-like measurement:**
+  - 0 fallbacks on 2 or 3 CPUs, even with 4 concurrent generations.
+  - 1 fallback in 1,496 CSP runs on 1 CPU with 4 concurrent generations, as designed.
+  - Above the 300 ms development-host gate on 1 CPU, and on 2 CPUs with 4 concurrent
+    generations.
+
+Steps:
+- Format first, then regenerate the benchmark with `--label=phase3`.
+- Repeat the run two or three times on the development host to confirm the 300 ms margin. Record
+  the p95 of the critical segments in the spec. Only the main report is committed.
+- Measure on production-like hardware: a Linux container limited to 1, 2 and 3 CPUs, with 1 and
+  4 concurrent runner processes, using fewer seeds and iterations. The target is no wall-clock
+  fallback.
+- If the limit fires, stop and report the options, for example a lower `MaxNodes`. The developer
+  decides.
+
+### P3.5 — Switch the default
+**Implemented. It merges only after the Report 3 V2 fallback amendment is accepted.**
+- `appsettings.json` sets `SchedulingGeneration:SolverMode = Csp`. The code default stays
+  `Heuristic`, as the fallback.
+- `ShippedConfiguration_SelectsTheCspSolverExplicitly` expects `Csp` from configuration and
+  `Heuristic` from the code default.
+- No other `appsettings.*.json` file sets `SolverMode`, and `.env.example` does not mention it.
+- `README.md` gains a note on the default and the rollback settings.
+- Full suite with SQL Server and Redis, without skips: see the spec.
+- Record the report reference in the PR.
+
+### P3.6 — Make the monitoring signal observable
+**Done.** Nothing in the API host listened to the `SchedulingSolverOutcome` activity source, so the
+runbook's signals were never recorded.
+- `SchedulingSolverOutcomeLogger` is a hosted service in `TripMate.Api`. It writes one
+  Information line per generation, with the aggregate R8 fields only.
+- `SchedulingSolverOutcomeLoggerTests` failed first, because the type did not exist.
+  `SchedulingSolverOutcomeLoggerRegistrationTests` failed first, because the host did not
+  register the service.
+- The API project is outside the benchmarked source, so the benchmark report is unchanged.
+
+### P3.7 — Review remediation (review of `d390462`, changes requested)
+**Done locally; the Report 3 V2 amendment is pending outside the codebase.**
+- **Blocker 1 (fallback algorithm):** the developer chose to amend Report 3 V2 to "fallback to the
+  existing heuristic plan". No code change. The spec records the proposed wording.
+- **Blocker 2 (hard deadline):** one `SolveDeadline` per solve, checked at every search node,
+  before and after every evaluator call (which also receives the deadline token), after polish and
+  once more at the end. Test-first: five of the seven new `CspItinerarySolverTests` failed before
+  the fix; the two cancellation guards passed before and after.
+- **Log signals:** `SchedulingSolverOutcomeLogger` adds node-limit, evaluator-call, in-search and
+  tie-limit fields. `LogsTheSearchLimitSignals` failed first.
+- **Benchmark:** the solver changed, so the report was regenerated after `dotnet format` (label
+  `phase3deadline`); see the spec for the numbers.
+- **Default switch:** the switch commit stays; re-review is requested once the amendment is
+  accepted. If the PR must merge first, revert the switch commit.
+
+## Review focus
+1. The product rule is unchanged and reused from `ScheduleGlobalComparator`, not reimplemented.
+2. The B&B bound is admissible under the lexicographic objective.
+3. Determinism: the node budget is the stop condition, not wall-clock time.
+4. No user-visible change before Phase 3.
+
+## Definition of done (per phase)
+- Every spec requirement of that phase has automated evidence.
+- Build, format, and the full suite with SQL Server are green.
+- The benchmark report is committed whenever solver behavior changes.

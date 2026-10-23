@@ -38,6 +38,17 @@ services:
     entrypoint: ["/bin/bash", "/scripts/apply-schema.sh"]
     restart: "no"
 
+  redis:
+    image: redis:7-alpine
+    container_name: tripmate-redis
+    ports:
+      - "${REDIS_HOST_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   api:
     # Explicit, stable tag — independent of the folder name Compose would otherwise derive it
     # from (<project>-api). Needed so `docker save`/`docker load` round-trips to the same name
@@ -55,6 +66,8 @@ services:
         condition: service_healthy
       db-init:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     dns:
       - 8.8.8.8
       - 1.1.1.1
@@ -63,26 +76,39 @@ services:
       ASPNETCORE_URLS: http://+:8080
       # Built from SA_PASSWORD in .env — no committed credential.
       ConnectionStrings__Default: "Server=sqlserver,1433;Database=TripMateDb;User Id=sa;Password=${SA_PASSWORD:?SA_PASSWORD must be set in .env (copy .env.example to .env)};TrustServerCertificate=True;"
+      ConnectionStrings__Redis: ${REDIS_CONNECTION_STRING:-redis:6379}
       Jwt__Issuer: TripMate
       Jwt__Audience: TripMateClients
       Jwt__SigningKey: ${JWT_SIGNING_KEY}
+      # UC-28: keep the gateway switch and PayOS credentials in the local, git-ignored
+      # .env file. Defaulting to Mock preserves the isolated development flow; set
+      # Payment__Provider=PayOS to receive a real VietQR payload on Web and Mobile.
+      Payment__Provider: ${Payment__Provider:-Mock}
+      Payment__PayOs__ClientId: ${Payment__PayOs__ClientId:-}
+      Payment__PayOs__ApiKey: ${Payment__PayOs__ApiKey:-}
+      Payment__PayOs__ChecksumKey: ${Payment__PayOs__ChecksumKey:-}
+      Payment__PayOs__ReturnUrl: ${Payment__PayOs__ReturnUrl:-http://localhost:3001/checkout/result}
+      Payment__PayOs__CancelUrl: ${Payment__PayOs__CancelUrl:-http://localhost:3001/checkout/result}
       OPENROUTESERVICE__APIKEY: ${OPENROUTESERVICE__APIKEY:?OPENROUTESERVICE__APIKEY must be set in .env}
       OPENROUTESERVICE__BASEURL: ${OPENROUTESERVICE__BASEURL:-https://api.heigit.org/openrouteservice/}
       SchedulingRateLimit__MaxFreshGenerationsPerMinute: ${SchedulingRateLimit__MaxFreshGenerationsPerMinute:-3}
       SchedulingRateLimit__CooldownSeconds: ${SchedulingRateLimit__CooldownSeconds:-15}
+      SchedulingRateLimit__Provider: Redis
       # TM-215 AI POI ranking. Windows User Secrets are unavailable inside Docker, so the
       # provider configuration must be supplied through the local, git-ignored .env file.
 
       AiRanking__Enabled: ${AiRanking__Enabled:-true}
+      AiRanking__Provider: ${AiRanking__Provider:-Gemini}
       AiRanking__Endpoint: ${AiRanking__Endpoint:-https://generativelanguage.googleapis.com/v1/interactions}
       AiRanking__ApiKey: ${AiRanking__ApiKey:?AiRanking__ApiKey must be set in .env}
       AiRanking__ModelName: ${AiRanking__ModelName:-gemini-3.5-flash-lite}
       AiRanking__RateLimitPerMinute: ${AiRanking__RateLimitPerMinute:-4}
       AiRanking__MaxConcurrency: ${AiRanking__MaxConcurrency:-2}
 
-      AiExplanation__Enabled: ${AiExplanation__Enabled:-false}
+      AiExplanation__Enabled: ${AiExplanation__Enabled:-true}
+      AiExplanation__Provider: ${AiExplanation__Provider:-Gemini}
       AiExplanation__Endpoint: ${AiExplanation__Endpoint:-https://generativelanguage.googleapis.com/v1/interactions}
-      AiExplanation__ApiKey: ${AiExplanation__ApiKey:-}
+      AiExplanation__ApiKey: ${AiExplanation__ApiKey:?AiExplanation__ApiKey must be set in .env}
       AiExplanation__ModelName: ${AiExplanation__ModelName:-gemini-3.5-flash-lite}
       AiExplanation__TimeoutSeconds: ${AiExplanation__TimeoutSeconds:-10}
       AiExplanation__OverallTimeoutSeconds: ${AiExplanation__OverallTimeoutSeconds:-20}
@@ -104,11 +130,13 @@ services:
       Email__Password: ${EMAIL_PASSWORD:?EMAIL_PASSWORD must be set in .env}
       Email__FromEmail: ${EMAIL_FROM_EMAIL:?EMAIL_FROM_EMAIL must be set in .env}
       PasswordResetSecurity__OtpPepper: ${PASSWORD_RESET_OTP_PEPPER:?PASSWORD_RESET_OTP_PEPPER must be set in .env}
-      # TM-207 Tour media: signed server-side Cloudinary operations. No unsigned upload preset.
+      # Tour/review media: signed server-side Cloudinary operations. No unsigned upload preset.
       Cloudinary__CloudName: ${Cloudinary__CloudName:?Cloudinary__CloudName must be set in .env}
       Cloudinary__ApiKey: ${Cloudinary__ApiKey:?Cloudinary__ApiKey must be set in .env}
       Cloudinary__ApiSecret: ${Cloudinary__ApiSecret:?Cloudinary__ApiSecret must be set in .env}
       Cloudinary__TourMediaFolderRoot: ${Cloudinary__TourMediaFolderRoot:?Cloudinary__TourMediaFolderRoot must be set in .env}
+      Cloudinary__ReviewMediaFolderRoot: ${Cloudinary__ReviewMediaFolderRoot:-tripmate/reviews}
+      Cloudinary__OperatorDocumentsFolderRoot: ${Cloudinary__OperatorDocumentsFolderRoot:?Cloudinary__OperatorDocumentsFolderRoot must be set in .env}
       TourMediaCleanup__PollInterval: ${TourMediaCleanup__PollInterval:-00:00:30}
       TourMediaCleanup__LeaseDuration: ${TourMediaCleanup__LeaseDuration:-00:02:00}
       TourMediaCleanup__BatchSize: ${TourMediaCleanup__BatchSize:-20}
@@ -122,5 +150,70 @@ services:
     ports:
       - "5000:8080"
 
+  # ---------------------------------------------------------------------------------------
+  # Service AI riêng của nhóm (repo Capstone_AI), thay cho Gemini. Chỉ chạy khi bật profile:
+  #   docker compose --profile ai up -d --build
+  # rồi đặt AiRanking__Provider=TripMateAi, AiExplanation__Provider=TripMateAi trong .env.
+  # Mặc định (không có --profile ai) ba service dưới đây không chạy, hệ thống dùng Gemini như cũ.
+  # ---------------------------------------------------------------------------------------
+  ollama:
+    profiles: ["ai"]
+    image: ollama/ollama:latest
+    container_name: tripmate-ollama
+    volumes:
+      - tripmate-ollama-data:/root/.ollama
+    mem_limit: ${OLLAMA_MEM_LIMIT:-6g}
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # One-shot: tải model public hoặc tạo LLM local từ Modelfile/GGUF được mount; model đã có thì bỏ qua.
+  ollama-init:
+    profiles: ["ai"]
+    image: ollama/ollama:latest
+    container_name: tripmate-ollama-init
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: ollama:11434
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3}
+      LLM_MODEL: ${LLM_MODEL:-qwen3:1.7b}
+      LLM_MODELFILE: ${LLM_MODELFILE:-}
+    volumes:
+      - ${TRIPMATE_MODEL_DIR:-../Capstone_AI/models}:/models:ro
+      - ${AI_REPO_PATH:-../Capstone_AI}/scripts/ollama-init.sh:/usr/local/bin/ollama-init.sh:ro
+    entrypoint: ["/bin/sh", "/usr/local/bin/ollama-init.sh"]
+    restart: "no"
+
+  ai:
+    profiles: ["ai"]
+    # Build từ repo Capstone_AI clone cạnh repo này (đổi AI_REPO_PATH nếu để chỗ khác),
+    # hoặc nạp sẵn image tripmate-ai:latest bằng docker load.
+    image: tripmate-ai:latest
+    build:
+      context: ${AI_REPO_PATH:-../Capstone_AI}
+    container_name: tripmate-ai
+    environment:
+      # Không dùng ":?" ở đây: Compose nội suy biến cho cả service ngoài profile đang chạy.
+      # Thiếu khóa thì service AI tự từ chối khởi động và báo lỗi trong log.
+      AI_API_KEY: ${TRIPMATE_AI_API_KEY:-}
+      OLLAMA_BASE_URL: http://ollama:11434
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3}
+      LLM_MODEL: ${LLM_MODEL:-qwen3:1.7b}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-9}
+    depends_on:
+      ollama:
+        condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
+
 volumes:
   tripmate-sqlserver-data:
+  tripmate-ollama-data:
+
+networks:
+  default:
+    name: capstone_be_default

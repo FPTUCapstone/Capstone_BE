@@ -36,10 +36,26 @@ public class TourScheduleConfiguration : IEntityTypeConfiguration<TourSchedule>
         builder.Property(schedule => schedule.TotalCapacity)
             .HasColumnName("total_capacity")
             .IsRequired();
+        builder.Property(schedule => schedule.MinimumCapacity)
+            .HasColumnName("minimum_capacity")
+            .IsRequired();
+        builder.Property(schedule => schedule.RegistrationDeadlineAtUtc)
+            .HasColumnName("registration_deadline_at")
+            .AsUtcDateTime2();
+        builder.Property(schedule => schedule.AdultPrice)
+            .HasColumnName("adult_price")
+            .HasPrecision(12, 2);
+        builder.Property(schedule => schedule.ChildPrice)
+            .HasColumnName("child_price")
+            .HasPrecision(12, 2);
+        builder.Property(schedule => schedule.InfantPrice)
+            .HasColumnName("infant_price")
+            .HasPrecision(12, 2);
         builder.Property(schedule => schedule.ReservedCapacity)
             .HasColumnName("reserved_capacity")
             .HasDefaultValue(0)
-            .IsRequired();
+            .IsRequired()
+            .IsConcurrencyToken();
         builder.Property(schedule => schedule.Status)
             .HasColumnName("status")
             .HasConversion<string>()

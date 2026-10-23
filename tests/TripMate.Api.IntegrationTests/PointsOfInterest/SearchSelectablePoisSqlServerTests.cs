@@ -58,6 +58,69 @@ public sealed class SearchSelectablePoisSqlServerTests
         extremeOffsetPage.Value.Items.Should().BeEmpty();
     }
 
+    [SqlServerTheory]
+    [Trait("Category", "SqlServer")]
+    [InlineData("hoi an")]
+    [InlineData("HOI AN")]
+    [InlineData("Hội An")]
+    [InlineData("chua cau")]
+    [InlineData("da nang")]
+    public async Task Search_ByNameWithoutDiacritics_MatchesVietnameseNamesInSqlServer(string query)
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await using (var seedContext = database.CreateDbContext())
+        {
+            var traveler = new User
+            {
+                Email = "poi-search-accents@example.com",
+                FullName = "POI Search Accent Traveler",
+                Role = UserRole.Traveler,
+                Status = AccountStatus.Active,
+                CreatedAtUtc = SeedTime,
+                UpdatedAtUtc = SeedTime,
+            };
+            var category = PoiCategory.Create("Culture", null);
+            seedContext.Users.Add(traveler);
+            seedContext.PoiCategories.Add(category);
+            await seedContext.SaveChangesAsync();
+
+            seedContext.PointsOfInterest.AddRange(
+                CreateSelectablePoi(category, traveler.Id, "Chùa Cầu Hội An Đà Nẵng", 15.8771m, 108.3261m),
+                CreateSelectablePoi(category, traveler.Id, "Marble Mountains", 16.0038m, 108.2639m));
+            await seedContext.SaveChangesAsync();
+        }
+
+        await using var context = database.CreateDbContext();
+        var result = await new SearchSelectablePoisQueryHandler(context).Handle(
+            new SearchSelectablePoisQuery(query, null, null, null, 1, 20),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Items.Select(item => item.Name).Should().Equal("Chùa Cầu Hội An Đà Nẵng");
+    }
+
+    [SqlServerTheory]
+    [Trait("Category", "SqlServer")]
+    [InlineData(32)]
+    [InlineData(50)]
+    [InlineData(100)]
+    public async Task Search_WithLargeRadius_ExecutesInSqlServer(int radiusKm)
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await SeedSelectablePoisAsync(database);
+
+        await using var context = database.CreateDbContext();
+        var handler = new SearchSelectablePoisQueryHandler(context);
+        var result = await handler.Handle(
+            new SearchSelectablePoisQuery(null, 16.0000m, 108.0000m, radiusKm, 1, 50),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.TotalCount.Should().Be(3);
+        result.Value.Items.Select(item => item.Name)
+            .Should().Equal("Near Alpha", "Near Bravo", "Outside Radius");
+    }
+
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
     public async Task Search_Endpoint_UsesSharedRadiusBoundaryAndStableIdTieBreakInSqlServer()
@@ -67,6 +130,7 @@ public sealed class SearchSelectablePoisSqlServerTests
         var seed = await SeedBoundaryPoisAsync(database);
         using var factory = new TripMateApiFactory(
             sqlServerConnectionString: database.ConnectionString,
+            dateTimeProviderFactory: _ => new FixedDateTimeProvider(),
             configureTestServices: services =>
             {
                 services.RemoveAll<IRouteDurationProvider>();
@@ -336,8 +400,9 @@ public sealed class SearchSelectablePoisSqlServerTests
         foreach (var fileName in new[]
                  {
                      "20260914_add_scheduling_request_generation.sql",
-                     "20260915_extend_scheduling_request_contract.sql",
-                     "20260919_allow_named_rest_items.sql",
+                    "20260915_extend_scheduling_request_contract.sql",
+                    "20260919_allow_named_rest_items.sql",
+                    "20261004_add_scheduling_generation_reservation.sql",
                  })
         {
             var migrationPath = Path.Combine(
@@ -357,8 +422,18 @@ public sealed class SearchSelectablePoisSqlServerTests
         PointOfInterest[] OutsidePois,
         PointOfInterest[] TieBreakPois);
 
+    private sealed class FixedDateTimeProvider : IDateTimeProvider
+    {
+        // Keep the request start time in this contract test in the future independently
+        // of the day on which CI runs it.
+        public DateTimeOffset UtcNow => new(2026, 10, 20, 0, 0, 0, TimeSpan.Zero);
+    }
+
     private sealed class AllowAllGenerateRateLimiter : IGenerateRateLimiter
     {
-        public GenerateRateLimitDecision TryAcquire(long userId) => new(true);
+        public ValueTask<GenerateRateLimitDecision> TryAcquireAsync(
+            long userId,
+            CancellationToken cancellationToken) =>
+            ValueTask.FromResult(new GenerateRateLimitDecision(true));
     }
 }

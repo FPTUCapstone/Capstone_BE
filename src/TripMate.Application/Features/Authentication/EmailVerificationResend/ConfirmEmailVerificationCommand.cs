@@ -81,6 +81,16 @@ public sealed class ConfirmEmailVerificationCommandHandler(
             user.UpdatedAtUtc = now;
             await dbContext.SaveChangesAsync(cancellationToken);
         }
+        else if (user.Status == AccountStatus.PendingApproval &&
+                 user.Role == UserRole.TourOperator &&
+                 (user.EmailVerifiedAtUtc is not { } verifiedAt ||
+                  verifiedAt < user.CreatedAtUtc || verifiedAt > clock.UtcNow))
+        {
+            var now = clock.UtcNow;
+            user.EmailVerifiedAtUtc = now;
+            user.UpdatedAtUtc = now;
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
 
         return Result.Success(new ConfirmEmailVerificationResponse(true));
     }

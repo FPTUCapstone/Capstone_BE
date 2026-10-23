@@ -3,6 +3,10 @@ using System.Threading.Tasks;
 
 using FluentAssertions;
 
+using Moq;
+
+using TripMate.Application.Common.Interfaces;
+using TripMate.Application.Common.Media;
 using TripMate.Application.Features.Admin.TourOperatorApplications.Common;
 using TripMate.Application.Features.Admin.TourOperatorApplications.GetDetail;
 using TripMate.Application.UnitTests.TestUtilities;
@@ -16,11 +20,16 @@ namespace TripMate.Application.UnitTests.Features.Admin.TourOperatorApplications
 public class GetOperatorApplicationDetailQueryHandlerTests
 {
     private readonly TestDbContext _dbContext = TestDbContext.Create();
+    private readonly Mock<IOperatorDocumentStorage> _storage = new();
+    private readonly Mock<IDateTimeProvider> _clock = new();
     private readonly GetOperatorApplicationDetailQueryHandler _handler;
 
     public GetOperatorApplicationDetailQueryHandlerTests()
     {
-        _handler = new GetOperatorApplicationDetailQueryHandler(_dbContext);
+        _clock.SetupGet(clock => clock.UtcNow)
+            .Returns(DateTimeOffset.Parse("2026-10-08T12:00:00Z"));
+        _handler = new GetOperatorApplicationDetailQueryHandler(
+            _dbContext, _storage.Object, _clock.Object);
     }
 
     [Fact]
@@ -148,7 +157,53 @@ public class GetOperatorApplicationDetailQueryHandlerTests
         dto.ContactPhone.Should().Be("0901234567");
         dto.ContactAddress.Should().Be("Da Nang, Vietnam");
         dto.Documents.Count.Should().Be(2);
+        dto.Documents.Should().OnlyContain(document => document.FileUrl == string.Empty,
+            "a legacy public URL cannot be safely returned as a document download link");
         dto.ReviewedBy.Should().BeNull();
         dto.ReviewedAt.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Handle_PrivateDocument_ReturnsOnlyShortLivedSignedLink()
+    {
+        const string storedReference = "cloudinary-operator://asset/raw/pdf/tripmate%2Foperator-documents%2Fopaque";
+        const string signedUrl = "https://api.cloudinary.com/download?expires_at=1791461100&signature=test";
+        var user = new User
+        {
+            FullName = "Operator",
+            Email = "operator@example.com",
+            Role = UserRole.TourOperator,
+            Status = AccountStatus.PendingApproval,
+        };
+        var profile = new OperatorProfile
+        {
+            User = user,
+            CompanyName = "Operator Co",
+            TaxCode = "0101234567",
+            BusinessLicenseNo = "79-0123/2026/TCDL-GPLHQT",
+            ApprovalStatus = OperatorApprovalStatus.PendingApproval,
+        };
+        _dbContext.Users.Add(user);
+        _dbContext.OperatorProfiles.Add(profile);
+        _dbContext.OperatorDocuments.Add(new OperatorDocument
+        {
+            OperatorProfile = profile,
+            DocumentType = OperatorDocumentType.BusinessLicense,
+            FileUrl = storedReference,
+            Status = DocumentStatus.Submitted,
+        });
+        await _dbContext.SaveChangesAsync(CancellationToken.None);
+        var expiresAt = _clock.Object.UtcNow.AddMinutes(5);
+        _storage.Setup(storage => storage.CreateTemporaryDownloadUrl(storedReference, expiresAt))
+            .Returns(new Uri(signedUrl));
+
+        var result = await _handler.Handle(
+            new GetOperatorApplicationDetailQuery(user.Id), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Documents.Should().ContainSingle()
+            .Which.FileUrl.Should().Be(signedUrl);
+        _storage.Verify(storage => storage.CreateTemporaryDownloadUrl(storedReference, expiresAt),
+            Times.Once);
     }
 }

@@ -3,13 +3,17 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
+using TripMate.Application.Common.Media;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Admin.TourOperatorApplications.Common;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Admin.TourOperatorApplications.GetDetail;
 
-public class GetOperatorApplicationDetailQueryHandler(IApplicationDbContext dbContext)
+public class GetOperatorApplicationDetailQueryHandler(
+    IApplicationDbContext dbContext,
+    IOperatorDocumentStorage documentStorage,
+    IDateTimeProvider clock)
     : IRequestHandler<GetOperatorApplicationDetailQuery, Result<TourOperatorApplicationDetailDto>>
 {
     public async Task<Result<TourOperatorApplicationDetailDto>> Handle(
@@ -46,11 +50,15 @@ public class GetOperatorApplicationDetailQueryHandler(IApplicationDbContext dbCo
                 "Operator profile not found.");
         }
 
+        // This query is exposed only by the Administrator-authorized endpoint. Never
+        // return the persisted reference or legacy public provider URL to the client.
+        var expiresAtUtc = clock.UtcNow.AddMinutes(5);
         var documentsDto = profile.Documents
             .Select(d => new OperatorDocumentDto(
                 d.Id,
                 d.DocumentType,
-                d.FileUrl,
+                documentStorage.CreateTemporaryDownloadUrl(d.FileUrl, expiresAtUtc)?.AbsoluteUri
+                    ?? string.Empty,
                 d.Status,
                 d.UploadedAtUtc))
             .ToList();

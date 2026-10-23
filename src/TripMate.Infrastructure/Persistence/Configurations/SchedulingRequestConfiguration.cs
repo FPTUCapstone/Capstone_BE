@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 using TripMate.Domain.Entities;
+using TripMate.Domain.Enums;
 using TripMate.Infrastructure.Persistence.Common;
 
 namespace TripMate.Infrastructure.Persistence.Configurations;
@@ -11,7 +12,14 @@ public sealed class SchedulingRequestConfiguration
 {
     public void Configure(EntityTypeBuilder<SchedulingRequest> builder)
     {
-        builder.ToTable("SchedulingRequests", "planning");
+        string processingStatus = nameof(SchedulingRequestStatus.Processing);
+        builder.ToTable("SchedulingRequests", "planning", table =>
+            table.HasCheckConstraint(
+                "CK_SchedulingRequests_GenerationReservation",
+                $"([status] = '{processingStatus}' AND [generation_owner_id] IS NOT NULL "
+                + "AND [generation_lease_expires_at] IS NOT NULL AND [generation_attempt] > 0) "
+                + $"OR ([status] <> '{processingStatus}' AND [generation_owner_id] IS NULL "
+                + "AND [generation_lease_expires_at] IS NULL AND [generation_attempt] >= 0)"));
 
         builder.HasKey(request => request.Id);
         builder.Property(request => request.Id)
@@ -104,6 +112,15 @@ public sealed class SchedulingRequestConfiguration
         builder.Property(request => request.FailureMessage)
             .HasColumnName("failure_message")
             .HasMaxLength(500);
+        builder.Property(request => request.GenerationOwnerId)
+            .HasColumnName("generation_owner_id");
+        builder.Property(request => request.GenerationLeaseExpiresAtUtc)
+            .HasColumnName("generation_lease_expires_at")
+            .AsUtcDateTime2();
+        builder.Property(request => request.GenerationAttempt)
+            .HasColumnName("generation_attempt")
+            .HasDefaultValue(0)
+            .IsRequired();
 
         builder.HasIndex(request => new { request.TravelerUserId, request.IdempotencyKey })
             .HasDatabaseName("UX_SchedulingRequests_Traveler_Key")

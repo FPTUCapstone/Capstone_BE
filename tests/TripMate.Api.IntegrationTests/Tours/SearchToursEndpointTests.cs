@@ -158,6 +158,14 @@ public sealed class SearchToursEndpointTests
                 (9007199254740997, 9007199254740995,
                  '2090-01-01T17:00:00', '2090-01-03T17:00:00', 15, 4, 'Scheduled');
             SET IDENTITY_INSERT commerce.TourSchedules OFF;
+
+            INSERT INTO commerce.TourMedia
+                (tour_id, cloudinary_public_id, delivery_url, sort_order,
+                 is_primary, lifecycle_status, alt_text)
+            VALUES
+                (9007199254740995, N'tm208/endpoint-cover',
+                 N'https://res.cloudinary.com/test/image/upload/endpoint-cover.jpg',
+                 1, 1, 'Active', N'Endpoint cover');
             """);
         await using var factory = new TripMateApiFactory(
             sqlServerConnectionString: database.ConnectionString);
@@ -178,6 +186,21 @@ public sealed class SearchToursEndpointTests
             .Should().Be("9007199254740997");
         item.GetProperty("departureAtUtc").GetString().Should().EndWith("Z");
         item.GetProperty("remainingSlots").GetInt32().Should().Be(11);
+        item.GetProperty("thumbnailUrl").GetString().Should().Be(
+            "https://res.cloudinary.com/test/image/upload/endpoint-cover.jpg");
         body.RootElement.GetProperty("asOfUtc").GetString().Should().EndWith("Z");
+
+        await database.ExecuteNonQueryAsync("""
+            UPDATE commerce.TourMedia
+            SET lifecycle_status = 'Deleted', is_primary = 0,
+                deleted_at = SYSUTCDATETIME()
+            WHERE tour_id = 9007199254740995;
+            """);
+        using var withoutPrimary = await client.GetAsync("/api/v1/tours");
+        withoutPrimary.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var withoutPrimaryBody = JsonDocument.Parse(
+            await withoutPrimary.Content.ReadAsStringAsync());
+        withoutPrimaryBody.RootElement.GetProperty("items").EnumerateArray()
+            .Single().GetProperty("thumbnailUrl").ValueKind.Should().Be(JsonValueKind.Null);
     }
 }

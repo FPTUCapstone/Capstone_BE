@@ -361,3 +361,26 @@ trạng thái sạch" ở trên, phải tự quản lý volume như cách compos
 Chỉ khi `database/tripmate_schema_v7.sql` đổi (thêm bảng, đổi cột, lên `v8`...) — leader build lại
 từ mục 10.2 và gửi file `.tar` mới cho team. Image này là ảnh chụp cố định tại thời điểm build,
 không tự đồng bộ theo `.sql` — sửa `.sql` xong mà không build lại thì file `.tar` cũ vẫn y nguyên.
+
+## TM-79 staged parent schema
+
+`migrations/20260928_add_trip_review_parent.sql` adds only `social.TripReviews`
+for the approved commerce.Bookings first delivery. Full schema contains the
+same parent definition. Reruns validate complete affected parent inventory
+against a transaction-local canonical comparison table; incompatible shape
+fails and rolls back without repair. Existing `social.Reviews` stays unchanged.
+Published parent FKs use NO ACTION, not cascade removal of review history.
+Review-media/POI evidence/legacy edit gates are not implemented by this script.
+Do not apply to shared/production data without the ordinary reviewed rollout.
+
+## TM-79 media-only schema (Task 8b)
+
+`migrations/20260929_add_trip_review_media.sql` adds review-owned operation
+journal and media links, after the parent migration. Fresh schema and upgrade
+must match. Correct reruns preserve rows and rowversions; incompatible full
+inventory fails atomically without drop/recreate repair. Foreign keys are
+restrictive. Input bytes are capped at 5,000,000; stored re-encoded size is
+positive but not capped at that input limit. SQL stores metadata, never binaries.
+This is not Cloudinary upload/deletion, a cleanup worker or a publication API.
+Cleaned is a schema state for later provider-confirmed recovery, not an exposed
+Task 8b production operation. POI/visit/legacy work remains separately gated.

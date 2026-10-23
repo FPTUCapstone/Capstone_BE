@@ -22,6 +22,24 @@ public class SearchSelectablePoisQueryValidatorTests
         result.IsValid.Should().BeTrue();
     }
 
+    [Theory]
+    [InlineData(1, true)]
+    [InlineData(100, true)]
+    [InlineData(0, false)]
+    [InlineData(101, false)]
+    public void Validate_RadiusMatchesPlannerBounds(int radiusKm, bool expectedValid)
+    {
+        var result = _validator.Validate(new SearchSelectablePoisQuery(
+            null,
+            16.043m,
+            108.206m,
+            radiusKm,
+            1,
+            20));
+
+        result.IsValid.Should().Be(expectedValid);
+    }
+
     [Fact]
     public void Validate_WithIncompleteLocation_ReturnsValidationFailure()
     {

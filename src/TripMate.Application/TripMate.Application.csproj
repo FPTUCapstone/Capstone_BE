@@ -6,6 +6,9 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="TripMate.Application.UnitTests" />
+    <InternalsVisibleTo Include="TripMate.Api.IntegrationTests" />
+    <InternalsVisibleTo Include="TripMate.CandidatePoolReplay" />
+    <InternalsVisibleTo Include="TripMate.CandidatePoolFunnelBenchmark" />
   </ItemGroup>
 
   <ItemGroup>

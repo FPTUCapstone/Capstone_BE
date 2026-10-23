@@ -15,6 +15,7 @@ ENV MSSQL_PID=Developer
 
 COPY database/tripmate_schema_v7.sql /tmp/tripmate_schema_v7.sql
 COPY database/migrations /tmp/migrations
+COPY database/seeds /tmp/seeds
 COPY database/seed-image.sh /tmp/seed-image.sh
 
 RUN --mount=type=secret,id=sa_password,uid=10001,gid=10001,mode=0400 \

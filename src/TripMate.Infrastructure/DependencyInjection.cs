@@ -1,29 +1,50 @@
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+
+using StackExchange.Redis;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Media;
 using TripMate.Application.Features.Authentication.PasswordReset;
+using TripMate.Application.Features.Bookings.Common;
+using TripMate.Application.Features.Bookings.Refunds;
 using TripMate.Application.Features.Itineraries.Common;
+using TripMate.Application.Features.Navigation.Common;
+using TripMate.Application.Features.Operator.Payouts.Common;
+using TripMate.Application.Features.Operator.Revenue.Exports.Common;
+using TripMate.Application.Features.PointsOfInterest.ExternalReviews;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Explanation;
 using TripMate.Application.Features.Scheduling.Personalization;
+using TripMate.Application.Features.Scheduling.TimeOfDay;
+using TripMate.Application.Features.Traveler.Bookings.Common;
+using TripMate.Application.Features.Traveler.Payments.Common;
 using TripMate.Application.Features.TravelGroups.ManageInvitation;
+using TripMate.Application.Features.TripReviews.Common;
+using TripMate.Application.Features.TripReviews.Media;
 using TripMate.Infrastructure.Ai;
 using TripMate.Infrastructure.AiExplanation;
 using TripMate.Infrastructure.AiRanking;
 using TripMate.Infrastructure.Authentication;
 using TripMate.Infrastructure.Email;
+using TripMate.Infrastructure.ExternalReviews;
 using TripMate.Infrastructure.Media;
 using TripMate.Infrastructure.Media.Cloudinary;
 using TripMate.Infrastructure.Persistence;
+using TripMate.Infrastructure.Reporting;
+using TripMate.Infrastructure.Reviews.Media;
+using TripMate.Infrastructure.Reviews.Moderation;
 using TripMate.Infrastructure.Routing;
 using TripMate.Infrastructure.Security;
 using TripMate.Infrastructure.Services;
+using TripMate.Infrastructure.Services.Payment;
+using TripMate.Infrastructure.Services.Redis;
 
 namespace TripMate.Infrastructure;
 
@@ -40,6 +61,8 @@ public static class DependencyInjection
 
         services.AddScoped<IApplicationDbContext>(sp =>
             sp.GetRequiredService<ApplicationDbContext>());
+        services.AddSingleton<IOperatorRegistrationConstraintClassifier,
+            OperatorRegistrationConstraintClassifier>();
         services.AddScoped<ITravelGroupCreationLock, SqlServerTravelGroupCreationLock>();
         services.AddScoped<IItineraryMutationLock, SqlServerItineraryMutationLock>();
         services.AddScoped<IItineraryAccessService, ItineraryAccessService>();
@@ -48,9 +71,39 @@ public static class DependencyInjection
         services.AddScoped<IGroupJoinLock, SqlServerGroupJoinLock>();
         services.AddSingleton<IGroupInvitationCodeGenerator, RandomGroupInvitationCodeGenerator>();
         services.AddScoped<ISchedulingRequestLock, SqlServerSchedulingRequestLock>();
+        services.AddScoped<ITripReviewContextReader, SqlServerTripReviewContextReader>();
+        services.AddScoped<ITripReviewWriteLock, SqlServerTripReviewWriteLock>();
+        services.AddSingleton<ITripReviewPersistenceErrorClassifier, SqlServerTripReviewPersistenceErrorClassifier>();
+        services.AddSingleton<IBookingCancellationPersistenceErrorClassifier,
+            SqlServerBookingCancellationPersistenceErrorClassifier>();
+        services.AddSingleton<IPayoutPersistenceErrorClassifier, SqlServerPayoutPersistenceErrorClassifier>();
+        services.AddScoped<IRefundManualCompletionLock, SqlServerRefundManualCompletionLock>();
+        services.AddSingleton<IReviewContentModerator, LocalReviewContentModerator>();
+        services.AddSingleton<IReviewImageInspector, ReviewImageInspector>();
+        services.AddScoped<SqlServerReviewMediaJournal>();
+        services.AddScoped<IReviewMediaJournal>(sp => sp.GetRequiredService<SqlServerReviewMediaJournal>());
+        services.AddScoped<IReviewMediaRecoveryJournal>(sp => sp.GetRequiredService<SqlServerReviewMediaJournal>());
+        services.TryAddSingleton(TimeProvider.System);
+        services.AddOptions<ReviewCloudinaryOptions>()
+            .Bind(configuration.GetSection("Cloudinary"))
+            .Validate(
+                options => options.ReviewMediaFolderRoot == ReviewCloudinaryOptions.StableReviewMediaFolderRoot,
+                "Cloudinary review media root is immutable for this schema version.")
+            .ValidateOnStart();
+        services.AddSingleton<IReviewCloudinaryClient, ReviewCloudinarySdkClient>();
+        services.AddSingleton<IReviewMediaStorage, CloudinaryReviewMediaStorage>();
+        services.AddScoped<ReviewMediaCoordinator>();
+        services.AddScoped<IReviewMediaCoordinator>(sp => sp.GetRequiredService<ReviewMediaCoordinator>());
+        services.AddScoped<ReviewMediaRecoveryRunner>();
+        services.AddHostedService<ReviewMediaRecoveryService>();
+
         services.AddScoped<ITourMediaUploadLock, SqlServerTourMediaUploadLock>();
         services.AddScoped<ITourMediaCleanupOutboxStore, SqlServerTourMediaCleanupOutboxStore>();
         services.AddScoped<TourMediaCleanupProcessor>();
+        services.AddSingleton<SqlOperatorDocumentCleanupJournal>();
+        services.AddSingleton<IOperatorDocumentCleanupJournal>(sp =>
+            sp.GetRequiredService<SqlOperatorDocumentCleanupJournal>());
+        services.AddHostedService<OperatorDocumentCleanupBackgroundService>();
 
         services.AddOptions<TourMediaCleanupOptions>()
             .Bind(configuration.GetSection(TourMediaCleanupOptions.SectionName))
@@ -65,21 +118,136 @@ public static class DependencyInjection
         services.AddSingleton<ICloudinaryClient, CloudinarySdkClient>();
         services.AddSingleton<ITourMediaImageInspector, SkiaSharpTourMediaImageInspector>();
         services.AddSingleton<ITourMediaStorage, CloudinaryTourMediaStorage>();
+        services.AddSingleton<ITravelerAvatarStorage, CloudinaryTravelerAvatarStorage>();
+        services.AddSingleton<SqlTravelerAvatarCleanupJournal>();
+        services.AddSingleton<ITravelerAvatarCleanupJournal>(sp =>
+            sp.GetRequiredService<SqlTravelerAvatarCleanupJournal>());
+        services.AddHostedService<TravelerAvatarCleanupBackgroundService>();
+        services.AddSingleton<IOperatorDocumentStorage, CloudinaryOperatorDocumentStorage>();
+        services.AddSingleton<IRevenueExportStorage, CloudinaryRevenueExportStorage>();
+        services.AddSingleton<IRevenueExportRenderer, XlsxRevenueExportRenderer>();
+
+        services.AddOptions<RevenueExportOptions>()
+            .Bind(configuration.GetSection(RevenueExportOptions.SectionName));
+        services.AddSingleton(sp => sp.GetRequiredService<IOptions<RevenueExportOptions>>().Value);
+        services.AddScoped<TripMate.Application.Features.Operator.Revenue.Exports.Worker.RevenueExportWorkerProcessor>();
+        services.AddScoped<TripMate.Application.Features.Operator.Revenue.Exports.Worker.RevenueExportExpiryProcessor>();
+        services.AddHostedService<RevenueExportWorkerBackgroundService>();
+        services.AddHostedService<RevenueExportExpiryBackgroundService>();
 
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
-        services.Configure<OpenRouteServiceOptions>(
-            configuration.GetSection(OpenRouteServiceOptions.SectionName));
-        services.AddSingleton(
-            configuration.GetSection(SchedulingGenerationOptions.SectionName)
-                .Get<SchedulingGenerationOptions>()
-            ?? new SchedulingGenerationOptions());
+        services.AddOptions<OpenRouteServiceOptions>()
+            .Bind(configuration.GetSection(OpenRouteServiceOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<OpenRouteServiceOptions>, OpenRouteServiceOptionsValidator>();
+        services.AddOptions<SchedulingGenerationOptions>()
+            .Bind(configuration.GetSection(SchedulingGenerationOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<
+            IValidateOptions<SchedulingGenerationOptions>,
+            SchedulingGenerationOptionsValidator>();
+        services.AddSingleton(serviceProvider => serviceProvider
+            .GetRequiredService<IOptions<SchedulingGenerationOptions>>()
+            .Value);
+        services.AddOptions<TimeOfDayOptions>()
+            .Bind(configuration.GetSection(TimeOfDayOptions.SectionName))
+            .Validate(options => options.MaxExtraMinutes is >= 0 and <= 120, "TimeOfDay:MaxExtraMinutes must be between 0 and 120.")
+            .ValidateOnStart();
+        services.AddSingleton(serviceProvider => serviceProvider
+            .GetRequiredService<IOptions<TimeOfDayOptions>>()
+            .Value);
+        services.AddOptions<SchedulingReservationOptions>()
+            .Bind(configuration.GetSection(SchedulingReservationOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<
+            IValidateOptions<SchedulingReservationOptions>,
+            SchedulingReservationOptionsValidator>();
+        services.AddSingleton(serviceProvider => serviceProvider
+            .GetRequiredService<IOptions<SchedulingReservationOptions>>()
+            .Value);
+        services.AddOptions<TourBookingOptions>()
+            .Bind(configuration.GetSection(TourBookingOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<TourBookingOptions>, TourBookingOptionsValidator>();
+        services.AddSingleton(serviceProvider =>
+            serviceProvider.GetRequiredService<IOptions<TourBookingOptions>>().Value);
+        services.AddHostedService<PendingBookingExpiryBackgroundService>();
+
+        services.AddOptions<RefundProcessingOptions>()
+            .Bind(configuration.GetSection(RefundProcessingOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<RefundProcessingOptions>, RefundProcessingOptionsValidator>();
+        services.AddSingleton(serviceProvider => serviceProvider.GetRequiredService<IOptions<RefundProcessingOptions>>().Value);
+        services.AddScoped<RefundProcessor>();
+        services.AddHostedService<RefundProcessingBackgroundService>();
+
+        services.AddOptions<PaymentOptions>()
+            .Bind(configuration.GetSection(PaymentOptions.SectionName));
+        var legacyPayOs = configuration.GetSection(PaymentOptionsConfiguration.LegacyPayOsSectionName)
+            .Get<PayOsOptions>();
+        services.PostConfigure<PaymentOptions>(options =>
+            PaymentOptionsConfiguration.ApplyLegacyPayOs(options, legacyPayOs));
+        services.AddSingleton(serviceProvider =>
+            serviceProvider.GetRequiredService<IOptions<PaymentOptions>>().Value);
+        services.AddScoped<IPaymentCompletionProcessor, PaymentCompletionProcessor>();
+
+        var paymentConfig = PaymentOptionsConfiguration.Read(configuration);
+        // Checkout uses the configured provider. Refunds use the provider persisted on the
+        // original transaction, so keep both supported adapters resolvable independently.
+        services.AddHttpClient<PayOsPaymentGateway>();
+        services.AddScoped<MockPaymentGateway>();
+        services.AddScoped<IRefundPaymentGatewayResolver, RefundPaymentGatewayResolver>();
+        services.AddScoped<IPaymentGateway>(serviceProvider =>
+            string.Equals(paymentConfig.Provider, "PayOS", StringComparison.OrdinalIgnoreCase)
+                ? serviceProvider.GetRequiredService<PayOsPaymentGateway>()
+                : serviceProvider.GetRequiredService<MockPaymentGateway>());
+        services.AddDataProtection();
+        services.AddSingleton<IPiiProtector, DataProtectionPiiProtector>();
+        services.AddOptions<NavigationSessionOptions>()
+            .Bind(configuration.GetSection(NavigationSessionOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<NavigationSessionOptions>, NavigationSessionOptionsValidator>();
+        services.AddSingleton(serviceProvider =>
+            serviceProvider.GetRequiredService<IOptions<NavigationSessionOptions>>().Value);
         services.AddOptions<SchedulingRateLimitOptions>()
             .Bind(configuration.GetSection(SchedulingRateLimitOptions.SectionName))
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<SchedulingRateLimitOptions>, SchedulingRateLimitOptionsValidator>();
         services.AddSingleton(serviceProvider =>
             serviceProvider.GetRequiredService<IOptions<SchedulingRateLimitOptions>>().Value);
-        services.AddSingleton<IGenerateRateLimiter, InMemoryGenerateRateLimiter>();
+        services.AddSingleton<GenerateRateLimiterMetrics>();
+
+        var rateLimitOptions = configuration.GetSection(SchedulingRateLimitOptions.SectionName)
+            .Get<SchedulingRateLimitOptions>() ?? new SchedulingRateLimitOptions();
+        if (rateLimitOptions.Provider == SchedulingRateLimitProvider.Redis)
+        {
+            services.AddSingleton<IConnectionMultiplexer>(serviceProvider =>
+            {
+                var options = serviceProvider.GetRequiredService<SchedulingRateLimitOptions>();
+                var connectionString = configuration.GetConnectionString(
+                    options.RedisConnectionStringName);
+                if (string.IsNullOrWhiteSpace(connectionString))
+                {
+                    throw new InvalidOperationException(
+                        $"Redis rate limit provider requires a valid connection string named '{options.RedisConnectionStringName}'.");
+                }
+
+                var redisOptions = ConfigurationOptions.Parse(connectionString);
+                redisOptions.AbortOnConnectFail = false;
+                int timeoutMilliseconds = (int)Math.Max(
+                    1000,
+                    options.CommandTimeout.TotalMilliseconds);
+                redisOptions.ConnectTimeout = timeoutMilliseconds;
+                redisOptions.SyncTimeout = timeoutMilliseconds;
+                redisOptions.AsyncTimeout = timeoutMilliseconds;
+                return ConnectionMultiplexer.Connect(redisOptions);
+            });
+            services.AddSingleton<IGenerateRateLimiter, RedisGenerateRateLimiter>();
+        }
+        else
+        {
+            services.AddSingleton<IGenerateRateLimiter, InMemoryGenerateRateLimiter>();
+        }
         services.AddOptions<PersonalizationRankingOptions>()
             .Bind(configuration.GetSection(PersonalizationRankingOptions.SectionName))
             .ValidateOnStart();
@@ -101,16 +269,14 @@ public static class DependencyInjection
                 serviceProvider.GetRequiredService<IOptions<ExplanationProviderOptions>>().Value.RateLimitPerMinute,
                 serviceProvider.GetRequiredService<IOptions<ExplanationProviderOptions>>().Value.MaxConcurrency)));
         services.AddSingleton<IAiProviderBudget>(sp => sp.GetRequiredService<InMemoryAiProviderBudget>());
-        services.AddHttpClient<IPoiRankingProvider, HttpPoiRankingProvider>();
+        services.AddPoiRankingHttpProvider(configuration);
         services.AddOptions<ExplanationProviderOptions>()
             .Bind(configuration.GetSection(ExplanationProviderOptions.SectionName))
             .ValidateOnStart();
         services.AddSingleton<
             IValidateOptions<ExplanationProviderOptions>,
             ExplanationProviderOptionsValidator>();
-        services.AddHttpClient<
-            IItineraryExplanationProvider,
-            HttpItineraryExplanationProvider>();
+        services.AddItineraryExplanationHttpProvider(configuration);
         services.AddOptions<ItineraryExplanationExecutionOptions>()
             .Configure<IOptions<ExplanationProviderOptions>>((executionOptions, providerOptions) =>
             {
@@ -142,16 +308,35 @@ public static class DependencyInjection
                     .GetRequiredService<Microsoft.Extensions.Options.IOptions<OpenRouteServiceOptions>>()
                     .Value;
                 client.BaseAddress = new Uri(routingOptions.BaseUrl, UriKind.Absolute);
-                client.Timeout = TimeSpan.FromSeconds(20);
+                client.Timeout = SchedulingReservationOptions.RouteProviderTimeout;
             });
         services.AddScoped<IRouteDurationProvider>(serviceProvider =>
             serviceProvider.GetRequiredService<OpenRouteServiceRouteDurationProvider>());
+
+        // REVIEW2: Tripadvisor (Terra) ratings/reviews and on-demand review translation (Gemini).
+        services.Configure<TripadvisorOptions>(configuration.GetSection(TripadvisorOptions.SectionName));
+        services.AddSingleton<TripadvisorCallBudget>();
+        services.AddHttpClient<ITripadvisorClient, TerraTripadvisorClient>((serviceProvider, client) =>
+        {
+            var tripadvisorOptions = serviceProvider
+                .GetRequiredService<Microsoft.Extensions.Options.IOptions<TripadvisorOptions>>()
+                .Value;
+            client.BaseAddress = new Uri(tripadvisorOptions.BaseUrl, UriKind.Absolute);
+        });
+        services.Configure<ReviewTranslationOptions>(configuration.GetSection(ReviewTranslationOptions.SectionName));
+        services.AddHttpClient<IReviewTranslator, GeminiReviewTranslator>();
         services.Configure<EmailOptions>(configuration.GetSection(EmailOptions.SectionName));
         services.Configure<PasswordResetSecurityOptions>(configuration.GetSection(PasswordResetSecurityOptions.SectionName));
 
         // UC-06 password reset: zero DB schema; reset state lives in process-local memory only.
         services.AddSingleton<IPasswordResetStateStore, InMemoryPasswordResetStateStore>();
         services.AddSingleton<IPasswordResetAccountLock, InMemoryPasswordResetAccountLock>();
+
+        // UC-07 change password: sp_getapplock (scoped, like ApplicationDbContext) serializes
+        // concurrent attempts for one account across every process/container — not only within
+        // one in-memory singleton — so a second request cannot revoke a session the first just
+        // issued.
+        services.AddScoped<IAccountCredentialLock, SqlServerAccountCredentialLock>();
         services.AddSingleton<IOtpCodeGenerator, CryptographicOtpCodeGenerator>();
         services.AddSingleton<IOtpProtectionService, HmacOtpProtectionService>();
         services.AddSingleton<IRequestTimingNormalizer, ResponseTimingNormalizer>();

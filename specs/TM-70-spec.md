@@ -1,5 +1,30 @@
 # TM-70 / UC-24 — Search Tours: đặc tả chức năng và tích hợp
 
+> **Thông báo thẩm quyền V2 (09/10/2026).** Tệp này được giữ lại như hồ sơ lịch sử
+> của phạm vi Phase 1 ban đầu và các quyết định D0–D8 cũ; nó không còn là hợp đồng
+> hiện hành cho toàn bộ UC-24 V2. Hợp đồng hiện hành nằm trong repository
+> `FPTUCapstone/Capstone_Docs` tại merge commit
+> `2ad6916dc1ff4f314c19e13258c088533a93cd9a`: [V2 addendum](https://github.com/FPTUCapstone/Capstone_Docs/blob/2ad6916dc1ff4f314c19e13258c088533a93cd9a/requirements/tm-70-uc24-search-tours-v2-addendum.md),
+> [V2 implementation plan](https://github.com/FPTUCapstone/Capstone_Docs/blob/2ad6916dc1ff4f314c19e13258c088533a93cd9a/requirements/tm-70-uc24-implementation-plan.md), và
+> [Review lifecycle clarification](https://github.com/FPTUCapstone/Capstone_Docs/blob/2ad6916dc1ff4f314c19e13258c088533a93cd9a/requirements/tm-70-review-lifecycle-minimal-clarification.md).
+> SHA này thuộc repository Docs nên không được kỳ vọng tồn tại trong lịch sử Git
+> của Backend. Bộ quyết định V2 D1–D9 là một bộ khác với D0–D8 lịch sử bên dưới;
+> cụ thể, **TM-70 V2 Addendum §8** quy định taxonomy `TourCategory` do server sở hữu,
+> mỗi Tour có đúng một category ở trạng thái đích.
+> Revision trên là bằng chứng tài liệu có thể kiểm chứng trong repository; không có
+> bằng chứng truy vết riêng rằng Product/BA đã duyệt taxonomy production, quy tắc
+> chuẩn hóa code, backfill hay thời điểm bắt buộc category. Các quyết định đó vẫn là
+> dependency cần Product/BA phê duyệt trước Phase 1.2.
+>
+> **Trạng thái chuyển tiếp Phase 1.1.** `commerce.Tours.category_id` chủ ý nullable:
+> tìm kiếm không lọc category vẫn gồm Tour legacy chưa được gán; lọc bằng một code
+> active chỉ trả Tour đã gán đúng category đó, nên Tour có `category_id = NULL`
+> không khớp. Không được tắt toàn bộ category filter để chờ backfill. Product/BA
+> phải duyệt seed list rồi Phase 1.2 mới seed, backfill và siết `NOT NULL` cho production.
+> UC-34 có category input nhưng BR-101 không tuyên bố category là bắt buộc; Phase 1.1
+> không phát minh quy tắc bắt buộc hoặc writer/API gán category. Writer cho UC-34/35
+> cần được đặc tả và phê duyệt riêng.
+
 **Phiên bản:** 1.2 — 19/09/2026. **Trạng thái:** owner đã duyệt D1 nhiều vùng và triển khai Database/Backend ngày 19/09/2026; D0, D2–D8 giữ nguyên. Web/Mobile UI và tích hợp client được hoãn sang Phase 2.
 
 **Task owner:** Mai Nguyễn Tiến Đạt / datmnt. **Nền tảng:** Backend + responsive Web + Flutter Mobile.
@@ -463,3 +488,31 @@ Không suy diễn có 0 bug sau checklist. Mục tiêu là giảm lỗi lặp l�
 Sau duyệt, thay đổi field/filter/visibility/capacity/date/price là contract hoặc business change: sửa spec + plan + acceptance matrix trước code. Không thêm “tiện thể” booking, map, categories, ảnh, keyword hoặc rename nhánh người khác.
 
 **Trạng thái 20/09/2026:** Database/Backend trong worktree `Capstone_BE_tm70` đã đổi sang D1 nhiều vùng và đồng bộ `origin/develop@930a5f9`; local full SQL-enabled suite **601/601 pass, 0 skip**, SQL-only **41/41 pass, 0 skip**. Chưa migrate TripMateDb cloud, chưa backfill dữ liệu vùng thật, chưa đo tải AC-31, chưa xác minh UTC schedule/`reserved_capacity`; CI trên PR head phải được xác minh riêng. Web/Mobile để Phase 2.
+
+
+## PR #54 final review traceability (2026-10-14)
+
+[Phase 1.1 review handoff](../docs/PR54-tour-category-review.md) records the SQL Server 2022 metadata audit, compatibility test, develop synchronization and deferred Phase 1.2/1.3/2 scope. It introduces no new business rule or approval.
+
+## TourCategory code encoding decision gate
+
+`TOUR_CATEGORY_CODE_ENCODING_DECISION_PENDING` records a P2 technical risk.
+Phase 1.1 currently stores `TourCategory.Code` as
+`VARCHAR(50) COLLATE Latin1_General_100_CI_AS` with a case-insensitive unique
+index. The domain factory trims input, requires a nonblank value and limits it to
+50 .NET characters, but does not restrict character classes, normalize casing or
+verify that every character is representable in the SQL column code page.
+
+Consequently, a category code outside that code page may be converted lossily on
+persistence and could lose stable identity or collide with another converted
+value. This is a potential future persistence risk; no specific collision is
+claimed or evidenced. Product/BA has not approved either possible direction:
+
+1. restrict the accepted code format and implement matching Domain/SQL validation; or
+2. migrate the persisted value to `NVARCHAR` with reviewed migration and contract changes.
+
+Disposition: `NON_BLOCKING_PHASE_1_1`. Blocking scope:
+`PHASE_1_2_SEEDS_AND_WRITERS`. Phase 1.1 adds no production taxonomy seeds or
+category writer, and existing Tours retain nullable category IDs. No option above
+is an approved requirement; implementation waits for the Product/BA decision
+register in the review handoff.

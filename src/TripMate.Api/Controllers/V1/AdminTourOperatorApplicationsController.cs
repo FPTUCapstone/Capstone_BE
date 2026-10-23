@@ -15,6 +15,7 @@ namespace TripMate.Api.Controllers.V1;
 public class AdminTourOperatorApplicationsController(ISender sender) : ApiControllerBase(sender)
 {
     [HttpGet("{userId:long}")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     public async Task<IActionResult> GetDetail(long userId, CancellationToken cancellationToken)
     {
         var result = await Sender.Send(new GetOperatorApplicationDetailQuery(userId), cancellationToken);
