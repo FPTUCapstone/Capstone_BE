@@ -352,7 +352,10 @@ public sealed class JoinTravelGroupSqlServerTests
         await context.SaveChangesAsync();
 
         var group = TravelGroup.Create(itinerary.Id, host.Id, "SQL Join Group", now);
+        var hostMember = GroupMember.CreateHost(group, host.Id, now);
+        group.AddMember(hostMember);
         context.TravelGroups.Add(group);
+        context.GroupMembers.Add(hostMember);
         await context.SaveChangesAsync();
 
         var invitation = GroupInvitation.Create(
