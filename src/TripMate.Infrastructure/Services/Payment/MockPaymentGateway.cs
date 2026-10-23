@@ -22,4 +22,9 @@ public sealed class MockPaymentGateway(PaymentOptions options) : IPaymentGateway
             CheckoutUrl: checkoutUrl,
             ExpiresAtUtc: expiry));
     }
+
+    public Task<RefundSubmissionResult> SubmitRefundAsync(
+        RefundSubmissionRequest request,
+        CancellationToken cancellationToken) => Task.FromResult(new RefundSubmissionResult(
+            true, GatewayReference: $"MOCK-REFUND-{request.RefundId}-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}"));
 }

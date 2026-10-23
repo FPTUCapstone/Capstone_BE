@@ -13,8 +13,10 @@ using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Media;
 using TripMate.Application.Features.Authentication.PasswordReset;
 using TripMate.Application.Features.Bookings.Common;
+using TripMate.Application.Features.Bookings.Refunds;
 using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Navigation.Common;
+using TripMate.Application.Features.Operator.Payouts.Common;
 using TripMate.Application.Features.Operator.Revenue.Exports.Common;
 using TripMate.Application.Features.PointsOfInterest.ExternalReviews;
 using TripMate.Application.Features.Scheduling.Common;
@@ -106,6 +108,8 @@ public static class DependencyInjection
         services.AddSingleton<ITripReviewPersistenceErrorClassifier, SqlServerTripReviewPersistenceErrorClassifier>();
         services.AddSingleton<IBookingCancellationPersistenceErrorClassifier,
             SqlServerBookingCancellationPersistenceErrorClassifier>();
+        services.AddSingleton<IPayoutPersistenceErrorClassifier, SqlServerPayoutPersistenceErrorClassifier>();
+        services.AddScoped<IRefundManualCompletionLock, SqlServerRefundManualCompletionLock>();
         services.AddSingleton<IReviewContentModerator, LocalReviewContentModerator>();
         services.AddSingleton<IReviewImageInspector, ReviewImageInspector>();
         services.AddScoped<SqlServerReviewMediaJournal>();
@@ -201,6 +205,14 @@ public static class DependencyInjection
             serviceProvider.GetRequiredService<IOptions<TourBookingOptions>>().Value);
         services.AddHostedService<PendingBookingExpiryBackgroundService>();
 
+        services.AddOptions<RefundProcessingOptions>()
+            .Bind(configuration.GetSection(RefundProcessingOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<RefundProcessingOptions>, RefundProcessingOptionsValidator>();
+        services.AddSingleton(serviceProvider => serviceProvider.GetRequiredService<IOptions<RefundProcessingOptions>>().Value);
+        services.AddScoped<RefundProcessor>();
+        services.AddHostedService<RefundProcessingBackgroundService>();
+
         services.AddOptions<PaymentOptions>()
             .Bind(configuration.GetSection(PaymentOptions.SectionName));
         var legacyPayOs = configuration.GetSection(PaymentOptionsConfiguration.LegacyPayOsSectionName)
@@ -212,15 +224,15 @@ public static class DependencyInjection
         services.AddScoped<IPaymentCompletionProcessor, PaymentCompletionProcessor>();
 
         var paymentConfig = PaymentOptionsConfiguration.Read(configuration);
-        if (string.Equals(paymentConfig.Provider, "PayOS", StringComparison.OrdinalIgnoreCase))
-        {
-            services.AddHttpClient<PayOsPaymentGateway>();
-            services.AddScoped<IPaymentGateway, PayOsPaymentGateway>();
-        }
-        else
-        {
-            services.AddScoped<IPaymentGateway, MockPaymentGateway>();
-        }
+        // Checkout uses the configured provider. Refunds use the provider persisted on the
+        // original transaction, so keep both supported adapters resolvable independently.
+        services.AddHttpClient<PayOsPaymentGateway>();
+        services.AddScoped<MockPaymentGateway>();
+        services.AddScoped<IRefundPaymentGatewayResolver, RefundPaymentGatewayResolver>();
+        services.AddScoped<IPaymentGateway>(serviceProvider =>
+            string.Equals(paymentConfig.Provider, "PayOS", StringComparison.OrdinalIgnoreCase)
+                ? serviceProvider.GetRequiredService<PayOsPaymentGateway>()
+                : serviceProvider.GetRequiredService<MockPaymentGateway>());
         services.AddDataProtection();
         services.AddSingleton<IPiiProtector, DataProtectionPiiProtector>();
         services.AddSingleton<IPushTokenProtector, DataProtectionPushTokenProtector>();

@@ -25,6 +25,8 @@ public sealed class PaymentTransactionConfiguration : IEntityTypeConfiguration<P
             .HasColumnName("booking_id")
             .IsRequired();
 
+        builder.Property(t => t.RefundId).HasColumnName("refund_id");
+
         builder.Property(t => t.Gateway)
             .HasColumnName("gateway")
             .HasMaxLength(20)
@@ -98,6 +100,11 @@ public sealed class PaymentTransactionConfiguration : IEntityTypeConfiguration<P
         builder.HasOne(t => t.Booking)
             .WithMany()
             .HasForeignKey(t => t.BookingId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne<Refund>()
+            .WithMany()
+            .HasForeignKey(t => t.RefundId)
             .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasIndex(t => t.BookingId)

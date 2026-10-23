@@ -89,6 +89,9 @@ public interface IApplicationDbContext
 
     DbSet<Refund> Refunds { get; }
 
+    DbSet<RefundManualCompletionOperation> RefundManualCompletionOperations =>
+        throw new NotSupportedException("Manual refund completion idempotency is unavailable in this context.");
+
     DbSet<RevenueExport> RevenueExports { get; }
 
     DbSet<Ticket> Tickets => throw new NotSupportedException("Tickets are unavailable in this context.");
@@ -143,6 +146,14 @@ public interface IApplicationDbContext
     DbSet<ReroutingEvent> ReroutingEvents { get; }
 
     DbSet<Payout> Payouts { get; }
+
+    DbSet<PayoutItem> PayoutItems { get; }
+
+    DbSet<PayoutRefundItem> PayoutRefundItems { get; }
+
+    DbSet<PayoutAdjustment> PayoutAdjustments { get; }
+
+    DbSet<PayoutPeriodBreakdown> PayoutPeriodBreakdowns { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 
