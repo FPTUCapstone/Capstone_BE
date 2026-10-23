@@ -9,6 +9,9 @@ using Microsoft.Extensions.DependencyInjection;
 using TripMate.Application.Common.Behaviours;
 using TripMate.Application.Features.Operator.Revenue.Common;
 using TripMate.Application.Features.Traveler.Bookings.Expiry;
+using TripMate.Application.Features.TripAlerts.Common;
+using TripMate.Application.Features.TripAlerts.Scanning;
+using TripMate.Application.Features.TripAlerts.Weather;
 
 namespace TripMate.Application;
 
@@ -21,6 +24,9 @@ public static class DependencyInjection
         services.AddValidatorsFromAssembly(assembly);
         services.AddScoped<PendingBookingExpiryProcessor>();
         services.AddScoped<OperatorRevenueAggregator>();
+        services.AddScoped<TripAlertPersistence>();
+        services.AddScoped<WeatherAlertClassifier>();
+        services.AddScoped<TripAlertScanner>();
 
         services.AddMediatR(cfg =>
         {

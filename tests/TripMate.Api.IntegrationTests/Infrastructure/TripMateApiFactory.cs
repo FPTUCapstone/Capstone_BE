@@ -146,7 +146,9 @@ public sealed class TripMateApiFactory(
                             or "TripMate.Infrastructure.Services.TravelerAvatarCleanupBackgroundService"
                             or "TripMate.Infrastructure.Services.PendingBookingExpiryBackgroundService"
                             or "TripMate.Infrastructure.Services.RevenueExportWorkerBackgroundService"
-                            or "TripMate.Infrastructure.Services.RevenueExportExpiryBackgroundService"))
+                            or "TripMate.Infrastructure.Services.RevenueExportExpiryBackgroundService"
+                            or "TripMate.Infrastructure.TripAlerts.TripAlertScanBackgroundService"
+                            or "TripMate.Infrastructure.TripAlerts.TripAlertDeliveryBackgroundService"))
                 {
                     services.RemoveAt(index);
                 }
@@ -462,6 +464,8 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<TripSessionItem> TripSessionItems => Set<TripSessionItem>();
 
     public DbSet<Incident> Incidents => Set<Incident>();
+
+    public DbSet<AlertDeliveryWork> AlertDeliveryWork => Set<AlertDeliveryWork>();
 
     public DbSet<TripStateHistory> TripStateHistories => Set<TripStateHistory>();
 

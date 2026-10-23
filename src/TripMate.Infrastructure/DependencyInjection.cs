@@ -24,6 +24,8 @@ using TripMate.Application.Features.Scheduling.TimeOfDay;
 using TripMate.Application.Features.Traveler.Bookings.Common;
 using TripMate.Application.Features.Traveler.Payments.Common;
 using TripMate.Application.Features.TravelGroups.ManageInvitation;
+using TripMate.Application.Features.TripAlerts.Common;
+using TripMate.Application.Features.TripAlerts.Weather;
 using TripMate.Application.Features.TripReviews.Common;
 using TripMate.Application.Features.TripReviews.Media;
 using TripMate.Infrastructure.Ai;
@@ -43,6 +45,8 @@ using TripMate.Infrastructure.Security;
 using TripMate.Infrastructure.Services;
 using TripMate.Infrastructure.Services.Payment;
 using TripMate.Infrastructure.Services.Redis;
+using TripMate.Infrastructure.TripAlerts;
+using TripMate.Infrastructure.Weather;
 
 namespace TripMate.Infrastructure;
 
@@ -59,6 +63,34 @@ public static class DependencyInjection
 
         services.AddScoped<IApplicationDbContext>(sp =>
             sp.GetRequiredService<ApplicationDbContext>());
+        services.AddOptions<TripAlertOptions>()
+            .Bind(configuration.GetSection(TripAlertOptions.SectionName))
+            .Validate(options => options.ScanInterval > TimeSpan.Zero, "Trip alert scan interval must be positive.")
+            .Validate(options => options.ScheduleDelayThreshold > TimeSpan.Zero, "Delay threshold must be positive.")
+            .Validate(options => options.DeviationCooldown > TimeSpan.Zero, "Deviation cooldown must be positive.")
+            .Validate(options => options.DeliveryLease > TimeSpan.Zero, "Delivery lease must be positive.")
+            .Validate(options => options.AdvisoryRainMmPerHour >= 0
+                && options.SevereRainMmPerHour > options.AdvisoryRainMmPerHour,
+                "Weather thresholds are invalid.")
+            .ValidateOnStart();
+        services.AddMemoryCache();
+        services.AddOptions<OpenWeatherOptions>()
+            .Bind(configuration.GetSection(OpenWeatherOptions.SectionName))
+            .Validate(options => !options.Enabled || !string.IsNullOrWhiteSpace(options.ApiKey),
+                "OpenWeather API key is required when weather integration is enabled.")
+            .Validate(options => options.CacheDuration > TimeSpan.Zero,
+                "OpenWeather cache duration must be positive.")
+            .ValidateOnStart();
+        services.AddHttpClient<ITripWeatherProvider, OpenWeather4TripWeatherProvider>((provider, client) =>
+        {
+            var weather = provider.GetRequiredService<IOptions<OpenWeatherOptions>>().Value;
+            client.BaseAddress = new Uri(weather.BaseUrl, UriKind.Absolute);
+            client.Timeout = TimeSpan.FromSeconds(10);
+        });
+        services.AddScoped<AlertDeliveryQueue>();
+        services.AddScoped<FirebaseTripAlertPushSender>();
+        services.AddHostedService<TripAlertScanBackgroundService>();
+        services.AddHostedService<TripAlertDeliveryBackgroundService>();
         services.AddSingleton<IOperatorRegistrationConstraintClassifier,
             OperatorRegistrationConstraintClassifier>();
         services.AddScoped<ITravelGroupCreationLock, SqlServerTravelGroupCreationLock>();
@@ -191,6 +223,7 @@ public static class DependencyInjection
         }
         services.AddDataProtection();
         services.AddSingleton<IPiiProtector, DataProtectionPiiProtector>();
+        services.AddSingleton<IPushTokenProtector, DataProtectionPushTokenProtector>();
         services.AddOptions<NavigationSessionOptions>()
             .Bind(configuration.GetSection(NavigationSessionOptions.SectionName))
             .ValidateOnStart();

@@ -15,6 +15,11 @@ using TripMate.Application.Features.Navigation.Depart;
 using TripMate.Application.Features.Navigation.Get;
 using TripMate.Application.Features.Navigation.Reach;
 using TripMate.Application.Features.Navigation.Skip;
+using TripMate.Application.Features.TripAlerts.Acknowledge;
+using TripMate.Application.Features.TripAlerts.Common;
+using TripMate.Application.Features.TripAlerts.List;
+using TripMate.Application.Features.TripAlerts.ReportDeviation;
+using TripMate.Application.Features.TripAlerts.WeatherAdvisories;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Api.Controllers.V1;
@@ -26,6 +31,93 @@ public sealed class NavigationSessionsController(
     ISender sender,
     ICurrentUserService currentUserService) : ApiControllerBase(sender)
 {
+    [HttpGet("{sessionId:long}/weather-advisories")]
+    [ProducesResponseType(typeof(IReadOnlyCollection<WeatherAdvisoryResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetWeatherAdvisories(
+        long sessionId,
+        CancellationToken cancellationToken)
+    {
+        if (!currentUserService.UserId.HasValue)
+        {
+            return Unauthorized();
+        }
+
+        var result = await Sender.Send(
+            new GetWeatherAdvisoriesQuery(sessionId, currentUserService.UserId.Value),
+            cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    [HttpGet("{sessionId:long}/alerts")]
+    [ProducesResponseType(typeof(IReadOnlyCollection<TripAlertResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ListAlerts(long sessionId, CancellationToken cancellationToken)
+    {
+        if (!currentUserService.UserId.HasValue)
+        {
+            return Unauthorized();
+        }
+
+        var result = await Sender.Send(
+            new ListTripAlertsQuery(sessionId, currentUserService.UserId.Value),
+            cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    [HttpPut("{sessionId:long}/alerts/{incidentId:long}/acknowledgement")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> AcknowledgeAlert(
+        long sessionId,
+        long incidentId,
+        CancellationToken cancellationToken)
+    {
+        if (!currentUserService.UserId.HasValue)
+        {
+            return Unauthorized();
+        }
+
+        var result = await Sender.Send(
+            new AcknowledgeTripAlertCommand(
+                sessionId,
+                incidentId,
+                currentUserService.UserId.Value),
+            cancellationToken);
+        return result.IsSuccess ? NoContent() : HandleFailure(result);
+    }
+
+    [HttpPost("{sessionId:long}/deviations")]
+    [ProducesResponseType(typeof(TripAlertResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status422UnprocessableEntity)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status429TooManyRequests)]
+    public async Task<IActionResult> ReportDeviation(
+        long sessionId,
+        [FromBody, Required] ReportDeviationRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!currentUserService.UserId.HasValue)
+        {
+            return Unauthorized();
+        }
+
+        var result = await Sender.Send(
+            new ReportDeviationCommand(
+                sessionId,
+                currentUserService.UserId.Value,
+                request.EventId,
+                request.ObservedAtUtc,
+                request.TargetItemId),
+            cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
     [HttpGet("{sessionId:long}")]
     [ProducesResponseType(typeof(NavigationSessionResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
