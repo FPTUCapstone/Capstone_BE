@@ -36,6 +36,7 @@ public sealed record PayoutListItemDto(
     PayoutOperatorDto Operator,
     DateOnly PeriodStart,
     DateOnly PeriodEnd,
+    int PeriodCount,
     decimal GrossRevenue,
     decimal CommissionAmount,
     decimal NetAmount,
