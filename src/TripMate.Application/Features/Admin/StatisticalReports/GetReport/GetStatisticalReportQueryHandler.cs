@@ -112,7 +112,7 @@ public sealed class GetStatisticalReportQueryHandler(
         [
             new("tour", "Tour package commissions", tourCommission, data.Tours.Sum(x => x.GrossAmount), data.Tours.Count, true),
             new("service", "Commercial service commissions", serviceCommission, data.Services.Sum(x => x.GrossAmount), data.Services.Count, true),
-            new("refund", "Processed refund reversals", refundReversal, 0m, data.RefundCount, true),
+            new("refund", "Less processed refund commission", refundReversal, data.RefundAmount, data.RefundCount, true),
         ]);
     }
 
