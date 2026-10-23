@@ -70,6 +70,8 @@ public class ApplicationDbContext(
 
     public DbSet<Notification> Notifications => Set<Notification>();
 
+    public DbSet<PushDeviceToken> PushDeviceTokens => Set<PushDeviceToken>();
+
     public DbSet<PoiPhoto> PoiPhotos => Set<PoiPhoto>();
 
     public DbSet<Review> Reviews => Set<Review>();
@@ -284,6 +286,8 @@ public class ApplicationDbContext(
     public DbSet<TripSessionItem> TripSessionItems => Set<TripSessionItem>();
 
     public DbSet<Incident> Incidents => Set<Incident>();
+
+    public DbSet<AlertDeliveryWork> AlertDeliveryWork => Set<AlertDeliveryWork>();
 
     public DbSet<TripStateHistory> TripStateHistories => Set<TripStateHistory>();
 

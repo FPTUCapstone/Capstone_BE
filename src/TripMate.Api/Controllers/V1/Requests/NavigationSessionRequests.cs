@@ -5,3 +5,8 @@ public sealed record NavigationProgressRequest(DateTimeOffset? OccurredAtUtc);
 
 /// <summary>Body for leaving the Exploring phase; <c>state</c> must be <c>Navigating</c>.</summary>
 public sealed record DepartNavigationSessionRequest(string? State, DateTimeOffset? OccurredAtUtc);
+
+public sealed record ReportDeviationRequest(
+    Guid EventId,
+    DateTimeOffset ObservedAtUtc,
+    long TargetItemId);

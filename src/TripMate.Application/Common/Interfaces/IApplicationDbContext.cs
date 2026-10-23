@@ -58,6 +58,9 @@ public interface IApplicationDbContext
 
     DbSet<Notification> Notifications { get; }
 
+    DbSet<PushDeviceToken> PushDeviceTokens =>
+        throw new NotSupportedException("Push device tokens are unavailable in this context.");
+
     DbSet<PoiPhoto> PoiPhotos { get; }
 
     DbSet<Review> Reviews { get; }
@@ -130,6 +133,9 @@ public interface IApplicationDbContext
         throw new NotSupportedException("Trip session items are unavailable in this context.");
 
     DbSet<Incident> Incidents { get; }
+
+    DbSet<AlertDeliveryWork> AlertDeliveryWork =>
+        throw new NotSupportedException("Alert delivery work is unavailable in this context.");
 
     DbSet<TripStateHistory> TripStateHistories { get; }
 

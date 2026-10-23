@@ -15,6 +15,7 @@ using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.TourMedia.Common;
 using TripMate.Application.Features.Tours.Shared;
 using TripMate.Application.Features.Traveler.Payments.Common;
+using TripMate.Application.Features.TripAlerts.Common;
 using TripMate.Application.Features.TripHistory.Common;
 using TripMate.Application.Features.TripReviews.Common;
 
@@ -454,6 +455,14 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             NavigationErrorCodes.NoNavigableItems
                 or NavigationErrorCodes.ItineraryScheduleIncomplete
                 or NavigationErrorCodes.ItemNotNavigable => StatusCodes.Status422UnprocessableEntity,
+
+            TripAlertErrorCodes.AccessDenied => StatusCodes.Status403Forbidden,
+            TripAlertErrorCodes.NotFound => StatusCodes.Status404NotFound,
+            TripAlertErrorCodes.SessionCompleted
+                or TripAlertErrorCodes.EventPayloadMismatch => StatusCodes.Status409Conflict,
+            TripAlertErrorCodes.TargetNotNavigable
+                or TripAlertErrorCodes.TargetAlreadyReached => StatusCodes.Status422UnprocessableEntity,
+            TripAlertErrorCodes.DeviationCooldown => StatusCodes.Status429TooManyRequests,
 
             PaymentErrorCodes.AccessDenied => StatusCodes.Status403Forbidden,
             PaymentErrorCodes.PaymentNotFound => StatusCodes.Status404NotFound,

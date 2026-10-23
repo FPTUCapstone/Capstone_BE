@@ -122,6 +122,10 @@ services:
       Cors__AllowedOrigins__2: http://localhost:3000
       EmailVerification__ContinueUrl: ${EMAIL_VERIFICATION_CONTINUE_URL}
       Firebase__ProjectId: "tripmate-82be3"
+      # UC-14 weather provider. The API key stays in the local, ignored .env file.
+      OpenWeather__Enabled: ${OpenWeather__Enabled:-false}
+      OpenWeather__EnableOfficialAlerts: ${OpenWeather__EnableOfficialAlerts:-false}
+      OpenWeather__ApiKey: ${OpenWeather__ApiKey:-}
       Google__ClientId: 1015595969076-socm44rbtpnbv0o4upl88h4btesqgr6i.apps.googleusercontent.com
       # UC-06 password reset: SMTP credentials + OTP pepper come from .env — never committed.
       # Windows dotnet user-secrets do not exist inside the container, so the values are
