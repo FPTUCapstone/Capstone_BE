@@ -6,8 +6,8 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
-using TripMate.Application.Features.TravelGroups.ManageInvitation;
 using TripMate.Application.Features.TravelGroups.LeaveTravelGroup;
+using TripMate.Application.Features.TravelGroups.ManageInvitation;
 using TripMate.Domain.Constants;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
