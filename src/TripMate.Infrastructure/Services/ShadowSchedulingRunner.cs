@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Threading.Channels;
 
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -26,19 +25,16 @@ public class ShadowSchedulingRunner : BackgroundService, IShadowSchedulingRunner
     private readonly Channel<ShadowWorkItem> _channel;
     private readonly IOptions<ShadowOptions> _options;
     private readonly WeightedRequestInputsFactory _weightedInputsFactory;
-    private readonly IServiceScopeFactory? _scopeFactory;
     private readonly ILogger<ShadowSchedulingRunner>? _logger;
 
     public ShadowSchedulingRunner(
         IOptions<ShadowOptions> options,
         WeightedRequestInputsFactory? weightedInputsFactory = null,
-        ILogger<ShadowSchedulingRunner>? logger = null,
-        IServiceScopeFactory? scopeFactory = null)
+        ILogger<ShadowSchedulingRunner>? logger = null)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _weightedInputsFactory = weightedInputsFactory ?? new WeightedRequestInputsFactory(new PersonalParamsFactory());
         _logger = logger;
-        _scopeFactory = scopeFactory;
         _channel = Channel.CreateBounded<ShadowWorkItem>(new BoundedChannelOptions(DefaultChannelCapacity)
         {
             FullMode = BoundedChannelFullMode.DropOldest,
@@ -70,7 +66,6 @@ public class ShadowSchedulingRunner : BackgroundService, IShadowSchedulingRunner
             {
                 try
                 {
-                    using var scope = _scopeFactory?.CreateScope();
                     await ProcessItemAsync(item, stoppingToken);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -149,7 +144,9 @@ public class ShadowSchedulingRunner : BackgroundService, IShadowSchedulingRunner
         bool timedOut = false;
         try
         {
-            var service = new ItineraryGenerationService(item.RouteDurationProvider, shadowGenOptions);
+            var service = new ItineraryGenerationService(
+                new PrecomputedRouteDurationProvider(item.RouteDurationMatrix),
+                shadowGenOptions);
             shadowPlanResult = await service.GenerateAsync(item.Input, weightedInputs, cts.Token);
         }
         catch (OperationCanceledException) when (cts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
@@ -240,5 +237,17 @@ public class ShadowSchedulingRunner : BackgroundService, IShadowSchedulingRunner
             DurationDiffMinutes: durationDiff,
             CostDiffVnd: costDiff,
             Error: null);
+    }
+
+    private sealed class PrecomputedRouteDurationProvider(RouteDurationMatrix matrix) : IRouteDurationProvider
+    {
+        public Task<RouteDurationMatrix> GetMatrixAsync(
+            IReadOnlyList<RoutePoint> points,
+            TransportMode transportMode,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(matrix);
+        }
     }
 }
