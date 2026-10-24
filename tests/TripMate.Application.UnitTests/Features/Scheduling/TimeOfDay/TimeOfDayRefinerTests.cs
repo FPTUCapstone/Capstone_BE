@@ -1,4 +1,5 @@
 using FluentAssertions;
+using FluentAssertions.Execution;
 
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.TimeOfDay;
@@ -35,6 +36,24 @@ public sealed class TimeOfDayRefinerTests
             .Should().Be("Xếp vào buổi sáng khi trời mát, ít đông");
         refined.Items.Single(item => item.PointOfInterestId == MuseumId).RecommendationReason
             .Should().Be("Xếp vào buổi trưa để tránh nắng");
+    }
+
+    [Fact]
+    public async Task RefineAsync_WhenPlanHasModelObjective_PreservesSolverResultAndAddsReasons()
+    {
+        var input = Input(museumToMountainMinutes: 15, extraForMorningOrder: 10);
+        var original = (await PlanAsync(input, MuseumId, MountainId)) with { ModelObjective = 9_500L };
+
+        var refined = await Refiner().RefineAsync(input, original, Traits, CancellationToken.None);
+
+        using var _ = new AssertionScope();
+        VisitIds(refined).Should().Equal(MuseumId, MountainId);
+        refined.Items.Select(item => (item.SequenceNo, item.PointOfInterestId, item.PlannedArrivalUtc, item.PlannedDepartureUtc))
+            .Should().Equal(original.Items.Select(item =>
+                (item.SequenceNo, item.PointOfInterestId, item.PlannedArrivalUtc, item.PlannedDepartureUtc)));
+        refined.ModelObjective.Should().Be(9_500L);
+        refined.Items.Single(item => item.PointOfInterestId == MountainId).RecommendationReason
+            .Should().Be("Điểm ngoài trời vào giữa trưa, nên mang nón và nước");
     }
 
     [Fact]
