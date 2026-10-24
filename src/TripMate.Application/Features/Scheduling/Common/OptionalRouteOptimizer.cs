@@ -517,7 +517,7 @@ public sealed class OptionalRouteOptimizer(
     {
         return candidates
             .Where(c => !mandatoryPoiIds.Contains(c.Id) && !ItineraryScheduleEvaluator.IsQualifiedRestCandidate(c))
-            .OrderByDescending(c => c.EffectiveDesirabilityScore)
+            .OrderByDescending(c => c.EffectiveDesirabilityScore ?? decimal.MinValue)
             .ThenByDescending(c => c.ScenicScoreForRanking ?? decimal.MinValue)
             .ThenByDescending(c => c.PhotoRatingForRanking ?? decimal.MinValue)
             .ThenBy(c => matrix.GetMinutes(0, candidateMatrixIndices[c.Id]))

@@ -1,0 +1,70 @@
+{
+  "ScenarioId": "boundary-fractional-seconds-s41",
+  "Source": "GroupF_Boundary",
+  "Feasible": true,
+  "BestModelObjective": 8915,
+  "BestEvaluatedObjective": 8915,
+  "BestVisitPoiIds": [
+    1,
+    2,
+    11,
+    5
+  ],
+  "EliteModelObjectives": [
+    8915,
+    7166,
+    6990,
+    6955,
+    6829
+  ],
+  "EliteVisitIds": [
+    [
+      1,
+      2,
+      11,
+      5
+    ],
+    [
+      1,
+      2,
+      5
+    ],
+    [
+      1,
+      2,
+      10,
+      11,
+      5
+    ],
+    [
+      1,
+      2,
+      11,
+      5,
+      13
+    ],
+    [
+      1,
+      2,
+      5,
+      11,
+      14
+    ]
+  ],
+  "BestTravelMinutes": 55,
+  "BestDurationMinutes": 230,
+  "BestEstimatedCost": 60000,
+  "EndAtUtc": "2026-10-20T04:50:30+00:00",
+  "NodesExpanded": 200000,
+  "PrunedByConstraints": 0,
+  "PrunedByForwardChecking": 0,
+  "PrunedByBound": 175403,
+  "SolutionsFound": 199998,
+  "NodesToFirstSolution": 3,
+  "SearchCompleted": false,
+  "NodeLimitReached": true,
+  "TimeLimitReached": false,
+  "EvaluatorCalls": 2,
+  "UsedRelaxedRestModel": false,
+  "ChoseRelaxedRestModel": false
+}

@@ -96,6 +96,8 @@ public sealed class TripMateApiFactory(
         builder.UseSetting("AiRanking:Enabled", "false");
         builder.UseSetting("AiExplanation:Enabled", "false");
         builder.UseSetting("SchedulingRateLimit:Provider", "SingleInstance");
+        builder.UseSetting("SchedulingGeneration:TimeFit:Version", "2026.1");
+        builder.UseSetting("SchedulingGeneration:Shadow:Enabled", "false");
 
         if (corsAllowedOrigins is not null)
         {

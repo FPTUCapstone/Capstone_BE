@@ -22,6 +22,7 @@ using TripMate.Application.Features.PointsOfInterest.ExternalReviews;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Explanation;
 using TripMate.Application.Features.Scheduling.Personalization;
+using TripMate.Application.Features.Scheduling.Shadow;
 using TripMate.Application.Features.Scheduling.TimeOfDay;
 using TripMate.Application.Features.Traveler.Bookings.Common;
 using TripMate.Application.Features.Traveler.Payments.Common;
@@ -181,6 +182,35 @@ public static class DependencyInjection
         services.AddSingleton(serviceProvider => serviceProvider
             .GetRequiredService<IOptions<SchedulingGenerationOptions>>()
             .Value);
+        services.AddOptions<PersonalizationOptions>()
+            .Bind(configuration.GetSection(PersonalizationOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<
+            IValidateOptions<PersonalizationOptions>,
+            PersonalizationOptionsValidator>();
+        services.AddSingleton<PersonalParamsFactory>();
+        services.AddSingleton<WeightedRequestInputsFactory>();
+        services.AddOptions<TimeFitOptions>()
+            .Bind(configuration.GetSection(TimeFitOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<
+            IValidateOptions<TimeFitOptions>,
+            TimeFitOptionsValidator>();
+        services.AddSingleton(serviceProvider => serviceProvider
+            .GetRequiredService<IOptions<TimeFitOptions>>()
+            .Value);
+        services.AddOptions<ShadowOptions>()
+            .Bind(configuration.GetSection(ShadowOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<
+            IValidateOptions<ShadowOptions>,
+            ShadowOptionsValidator>();
+        services.AddSingleton(serviceProvider => serviceProvider
+            .GetRequiredService<IOptions<ShadowOptions>>()
+            .Value);
+        services.AddSingleton<ShadowSchedulingRunner>();
+        services.AddSingleton<IShadowSchedulingRunner>(sp => sp.GetRequiredService<ShadowSchedulingRunner>());
+        services.AddHostedService(sp => sp.GetRequiredService<ShadowSchedulingRunner>());
         services.AddOptions<TimeOfDayOptions>()
             .Bind(configuration.GetSection(TimeOfDayOptions.SectionName))
             .Validate(options => options.MaxExtraMinutes is >= 0 and <= 120, "TimeOfDay:MaxExtraMinutes must be between 0 and 120.")

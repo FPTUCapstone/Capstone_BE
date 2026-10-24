@@ -505,6 +505,23 @@ public sealed class TripMateAiConfigurationTests
         yield return new("Cloudinary:OperatorDocumentsFolderRoot", "tripmate/tests/operator-documents");
         yield return new("Cloudinary:RevenueExportsFolderRoot", "tripmate/tests/revenue-exports");
         yield return new("SchedulingRateLimit:Provider", "SingleInstance");
+        yield return new("SchedulingGeneration:Personalization:Version", "2026.1");
+        yield return new("SchedulingGeneration:Personalization:Pace:Relaxed:LambdaPerMin", "0.025");
+        yield return new("SchedulingGeneration:Personalization:Pace:Relaxed:MaxStopsPerDay", "3");
+        yield return new("SchedulingGeneration:Personalization:Pace:Relaxed:MaxDailyEffort", "200");
+        yield return new("SchedulingGeneration:Personalization:Pace:Relaxed:RestAfterMin", "90");
+        yield return new("SchedulingGeneration:Personalization:Pace:Moderate:LambdaPerMin", "0.015");
+        yield return new("SchedulingGeneration:Personalization:Pace:Moderate:MaxStopsPerDay", "5");
+        yield return new("SchedulingGeneration:Personalization:Pace:Moderate:MaxDailyEffort", "300");
+        yield return new("SchedulingGeneration:Personalization:Pace:Moderate:RestAfterMin", "120");
+        yield return new("SchedulingGeneration:Personalization:Pace:Fast:LambdaPerMin", "0.008");
+        yield return new("SchedulingGeneration:Personalization:Pace:Fast:MaxStopsPerDay", "8");
+        yield return new("SchedulingGeneration:Personalization:Pace:Fast:MaxDailyEffort", "450");
+        yield return new("SchedulingGeneration:Personalization:Pace:Fast:RestAfterMin", "180");
+        yield return new("SchedulingGeneration:TimeFit:Version", "2026.1");
+        yield return new("SchedulingGeneration:Shadow:Enabled", "false");
+        yield return new("SchedulingGeneration:Shadow:SampleRate", "1.0");
+        yield return new("SchedulingGeneration:Shadow:TimeoutMs", "5000");
     }
 
     private static string FindRepositoryFile(params string[] relativeSegments)
