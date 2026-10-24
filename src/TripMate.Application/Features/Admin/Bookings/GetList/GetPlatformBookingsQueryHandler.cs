@@ -87,34 +87,32 @@ public sealed class GetPlatformBookingsQueryHandler(
         else
         {
             var pageQuery =
-                from booking in filtered
-                join traveler in dbContext.Users.AsNoTracking() on booking.TravelerUserId equals traveler.Id
-                select new PageRow(
-                    booking.Id,
-                    booking.BookingCode,
-                    traveler.Id,
-                    traveler.FullName,
-                    traveler.Email,
-                    booking.TourSchedule.Tour.Id,
-                    booking.TourSchedule.Tour.Title,
-                    booking.TourSchedule.Tour.OperatorUserId,
-                    booking.TourSchedule.Tour.OperatorProfile.CompanyName,
-                    booking.TourSchedule.Id,
-                    booking.TourSchedule.StartAtUtc,
-                    booking.Quantity,
-                    booking.TotalAmount + booking.DiscountAmount,
-                    booking.DiscountAmount,
-                    booking.TotalAmount,
-                    booking.Status,
-                    booking.PaymentStatus,
-                    booking.BookedAtUtc);
-
-            rows = await pageQuery
-                .OrderByDescending(row => row.BookedAtUtc)
-                .ThenByDescending(row => row.BookingId)
+                (from booking in filtered
+                 join traveler in dbContext.Users.AsNoTracking() on booking.TravelerUserId equals traveler.Id
+                 orderby booking.BookedAtUtc descending, booking.Id descending
+                 select new PageRow(
+                     booking.Id,
+                     booking.BookingCode,
+                     traveler.Id,
+                     traveler.FullName,
+                     traveler.Email,
+                     booking.TourSchedule.Tour.Id,
+                     booking.TourSchedule.Tour.Title,
+                     booking.TourSchedule.Tour.OperatorUserId,
+                     booking.TourSchedule.Tour.OperatorProfile.CompanyName,
+                     booking.TourSchedule.Id,
+                     booking.TourSchedule.StartAtUtc,
+                     booking.Quantity,
+                     booking.TotalAmount + booking.DiscountAmount,
+                     booking.DiscountAmount,
+                     booking.TotalAmount,
+                     booking.Status,
+                     booking.PaymentStatus,
+                     booking.BookedAtUtc))
                 .Skip((int)skipLong)
-                .Take(request.PageSize)
-                .ToListAsync(cancellationToken);
+                .Take(request.PageSize);
+
+            rows = await pageQuery.ToListAsync(cancellationToken);
         }
 
         int totalPages = (int)Math.Ceiling(totalCount / (double)request.PageSize);
