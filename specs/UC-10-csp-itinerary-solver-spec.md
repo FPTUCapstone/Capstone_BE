@@ -935,3 +935,6 @@ reverted and the switch ships later as its own change (developer decision, 2026-
 9. Under `Csp.Mode = WeightedUtility`, Regenerate supplies weighted inputs, accepts tier-adjusted
    candidates without violating the `[0,1]` invariant, and returns a new version or a business
    failure instead of throwing.
+10. When a generated plan contains `ModelObjective`, `TimeOfDayRefiner` preserves the solver's
+    selected visits, order, schedule, and objective. It may only add recommendation reasons.
+    Plans without `ModelObjective` retain the existing time-of-day reorder behavior.
