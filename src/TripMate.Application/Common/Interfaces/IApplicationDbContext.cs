@@ -127,6 +127,8 @@ public interface IApplicationDbContext
 
     DbSet<SystemConfig> SystemConfigs { get; }
 
+    DbSet<LandingContentVersion> LandingContentVersions { get; }
+
     DbSet<TripSession> TripSessions { get; }
 
     DbSet<TripSessionItem> TripSessionItems =>
