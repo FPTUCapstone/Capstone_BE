@@ -14,10 +14,11 @@ public sealed class TimeOfDayOptions
 }
 
 /// <summary>
-/// Runs after the solver (option A, decided 2026-10-16): tries other orders of the SAME visits and keeps one only
-/// when it scores better on <see cref="TimeOfDayScorer"/>, stays valid (same fixed-order scheduler) and makes the
-/// trip at most <see cref="TimeOfDayOptions.MaxExtraMinutes"/> longer. The solver objective itself is unchanged.
-/// The route provider should memoize: every order reuses one matrix.
+/// Runs after the solver (option A, decided 2026-10-16). Plans with a model objective keep the solver's order and
+/// receive recommendation reasons only. Other plans try orders of the same visits and keep one only when it scores
+/// better on <see cref="TimeOfDayScorer"/>, stays valid (same fixed-order scheduler), and makes the trip at most
+/// <see cref="TimeOfDayOptions.MaxExtraMinutes"/> longer. The route provider should memoize: every order reuses one
+/// matrix.
 /// </summary>
 public sealed class TimeOfDayRefiner(
     IRouteDurationProvider routeDurationProvider,
@@ -36,6 +37,11 @@ public sealed class TimeOfDayRefiner(
         if (!options.Enabled)
         {
             return plan;
+        }
+
+        if (plan.ModelObjective.HasValue)
+        {
+            return WithReasons(plan, input.TimeZone, traits);
         }
 
         var visits = plan.Items
