@@ -56,6 +56,20 @@ public class LoginCommandHandlerTests
     }
 
     [Fact]
+    public async Task Handle_WithActiveStaffOnNonMobilePath_IssuesSessionLikeAnyOtherRole()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var user = await SeedUser(dbContext, "staff@example.com", "CorrectPass1", AccountStatus.Active, UserRole.Staff);
+        var result = await CreateHandler(dbContext).Handle(
+            new LoginCommand("staff@example.com", "CorrectPass1"), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Role.Should().Be(UserRole.Staff);
+        dbContext.RefreshTokens.Should().ContainSingle(t => t.UserId == user.Id);
+        user.LastLoginAtUtc.Should().NotBeNull();
+    }
+
+    [Fact]
     public async Task Handle_WithActiveAdministratorOnNonMobilePath_StillIssuesSession()
     {
         await using var dbContext = TestDbContext.Create();

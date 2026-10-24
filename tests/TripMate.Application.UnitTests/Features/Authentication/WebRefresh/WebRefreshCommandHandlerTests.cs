@@ -49,6 +49,7 @@ public class WebRefreshCommandHandlerTests
     [Theory]
     [InlineData(UserRole.Traveler, null, null)]
     [InlineData(UserRole.Administrator, null, null)]
+    [InlineData(UserRole.Staff, null, null)]
     [InlineData(UserRole.TourOperator, OperatorApprovalStatus.Approved, "Approved")]
     [InlineData(UserRole.TourOperator, OperatorApprovalStatus.PendingApproval, "PendingApproval")]
     [InlineData(UserRole.TourOperator, OperatorApprovalStatus.Rejected, "Rejected")]
