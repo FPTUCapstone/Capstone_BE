@@ -307,6 +307,11 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             BookingCancellationErrorCodes.PolicyUnavailable => StatusCodes.Status503ServiceUnavailable,
             BookingCancellationErrorCodes.ConcurrentRetryExhausted => StatusCodes.Status503ServiceUnavailable,
 
+            TripMate.Application.Features.Admin.Bookings.Common.PlatformBookingErrorCodes.Forbidden =>
+                StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.Admin.Bookings.Common.PlatformBookingErrorCodes.InvalidDateRange =>
+                StatusCodes.Status400BadRequest,
+
             TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.ItineraryNotFound =>
                 StatusCodes.Status404NotFound,
 
