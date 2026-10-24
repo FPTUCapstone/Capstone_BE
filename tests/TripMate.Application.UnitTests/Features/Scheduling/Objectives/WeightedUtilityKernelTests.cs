@@ -351,6 +351,29 @@ public class WeightedUtilityKernelTests
     }
 
     [Fact]
+    public void Kernel_CanImprove_DoesNotAllocateAfterWarmup()
+    {
+        var (ctx, inputs, _) = CreateSensitiveFixture();
+        var buffers = new SearchBuffers(10, ctx.Nodes.Count);
+        var pre = CreatePrecomputed(ctx);
+        var kernel = new WeightedUtilityKernel(inputs, TestCspOptions);
+        kernel.Initialize(ctx, buffers, pre, new CspStatistics());
+        kernel.SetIncumbentForTest(long.MaxValue);
+        var domain = new[] { 1, 2 };
+
+        kernel.CanImprove(domain, domain.Length, 0, 0, ctx.StartMatrixIndex);
+        var allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+
+        for (var i = 0; i < 100; i++)
+        {
+            kernel.CanImprove(domain, domain.Length, 0, 0, ctx.StartMatrixIndex);
+        }
+
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+        allocated.Should().Be(0);
+    }
+
+    [Fact]
     public void WeightedScheduleComparer_Sorts_Properly_And_Uses_Cache()
     {
         var scenario = GoldenScenarioFactory.CreateAllScenarios().First(s => s.Id == "grid-c40-m1-none-s1");

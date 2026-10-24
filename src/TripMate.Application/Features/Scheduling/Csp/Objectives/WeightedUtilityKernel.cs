@@ -27,7 +27,7 @@ internal sealed class WeightedIncumbent(long objective, int travel, int finish, 
 /// <summary>
 /// Triển khai IObjectiveKernel cho bài toán CSP theo hàm mục tiêu cá nhân hóa (Personalized Weighted Utility).
 /// Tích lũy điểm mục tiêu và trạng thái phạt mềm qua mảng bộ đệm theo độ sâu (Zero Heap Allocation during Search).
-public enum BoundVariant
+internal enum BoundVariant
 {
     Correct,
     OmitMandatoryGain,
@@ -125,14 +125,7 @@ internal sealed class WeightedUtilityKernel : IObjectiveKernel
     public bool HasIncumbent => _incumbent is not null;
 
     internal long? IncumbentObjectiveForTest => _incumbent?.Objective;
-    internal WeightedIncumbent? IncumbentForTest => _incumbent;
     internal long[] UMaxForTest => _uMax;
-    internal long[] VEffForTest => _vEff;
-    internal int[] WeightForTest => _weight;
-    internal int[] ByDensityForTest => _byDensity;
-    internal int[] ByValueForTest => _byValue;
-    internal BoundVariant VariantForTest => _variant;
-    internal bool DisableBoundForTest => _disableBound;
 
     internal void SetIncumbentForTest(long objective, int travel = 0, int finish = 0, long[]? visitPoiIds = null)
     {
@@ -363,8 +356,9 @@ internal sealed class WeightedUtilityKernel : IObjectiveKernel
         var bIdx = Math.Min(departure / BucketMinutes, _bucketCount - 1);
         var bOffset = bIdx * _ctx.Nodes.Count;
 
-        foreach (var m in _ctx.MandatoryNodes)
+        for (var i = 0; i < _ctx.MandatoryNodes.Count; i++)
         {
+            var m = _ctx.MandatoryNodes[i];
             if (_buffers.Contains[m]) continue;
             remainingMandatory++;
             if (_variant != BoundVariant.OmitMandatoryGain)
@@ -624,13 +618,9 @@ internal sealed class WeightedUtilityKernel : IObjectiveKernel
         long optionalGain = _variant == BoundVariant.GreedySlotsOnly ? ubSlots : Math.Min(ubTime, ubSlots);
         long ub = _obj[depth] + mandatoryGain + optionalGain - travelLb + slack;
 
-        LastCanImproveDebug = $"obj={_obj[depth]}, mandGain={mandatoryGain}, optGain={optionalGain}, ubTime={ubTime}, ubSlots={ubSlots}, travelLb={travelLb}, slack={slack}, ub={ub}, inc={_incumbent?.Objective}, timeLeft={timeLeft}";
-
         if (ub < _incumbent!.Objective) return false; // < : giữ nhánh hòa cho tie-break
         return true;
     }
-
-    internal string LastCanImproveDebug { get; private set; } = string.Empty;
 
     public long ValueScore(int value, int start, int current, int slack)
     {

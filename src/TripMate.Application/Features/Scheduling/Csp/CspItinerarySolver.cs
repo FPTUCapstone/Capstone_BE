@@ -156,6 +156,11 @@ public sealed class CspItinerarySolver(
     /// </summary>
     internal Action<CancellationToken>? BeforeEvaluation { get; init; }
 
+    /// <summary>
+    /// Điểm chèn cho trap/oracle tests cần thay kernel WeightedUtility. Production không đặt.
+    /// </summary>
+    internal Func<WeightedObjectiveInputs, CspOptions, IObjectiveKernel>? WeightedKernelFactoryForTest { get; init; }
+
     internal static RoutingContext CreatePrimaryContext(
         GenerationInput input,
         RouteDurationMatrix matrix,
@@ -256,7 +261,9 @@ public sealed class CspItinerarySolver(
             return schedule;
         };
 
-        var search = new SearchRun(ctx, rule, _cspOptions, deadline, budget, restApplies, evaluate, cancellationToken, weightedInputs);
+        var search = new SearchRun(
+            ctx, rule, _cspOptions, deadline, budget, restApplies, evaluate, cancellationToken, weightedInputs,
+            CreateWeightedKernelForTest(weightedInputs));
         if (ctx.MandatoryNodes.Count != input.MandatoryPoiIds.Count)
         {
             search.Statistics.Elapsed = clock.Elapsed;
@@ -303,7 +310,9 @@ public sealed class CspItinerarySolver(
                     relaxedRule = CspProductRule.BuildRankRuleFromBase(relaxedCtx, relaxedWeightedInputs.Base);
                 }
 
-                relaxed = new SearchRun(relaxedCtx, relaxedRule, _cspOptions, deadline, budget, restApplies, evaluate, cancellationToken, relaxedWeightedInputs);
+                relaxed = new SearchRun(
+                    relaxedCtx, relaxedRule, _cspOptions, deadline, budget, restApplies, evaluate, cancellationToken,
+                    relaxedWeightedInputs, CreateWeightedKernelForTest(relaxedWeightedInputs));
 
                 relaxed.Statistics.EvaluatorCalls = search.Statistics.EvaluatorCalls;
                 relaxed.Run(search.Incumbent);
@@ -379,6 +388,9 @@ public sealed class CspItinerarySolver(
             EliteVisitIds = eliteVisitIds,
         };
     }
+
+    private IObjectiveKernel? CreateWeightedKernelForTest(WeightedObjectiveInputs? inputs) =>
+        inputs is null ? null : WeightedKernelFactoryForTest?.Invoke(inputs, _cspOptions);
 
     /// <summary>
     /// R5: lưới an toàn thời gian bị chạm thì kết quả CSP dở dang phụ thuộc tốc độ máy, nên bị bỏ hẳn, kể cả lịch heuristic

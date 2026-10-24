@@ -84,8 +84,6 @@ public class TimingReportTests
             var cspOpts = new CspOptions
             {
                 Mode = ObjectiveMode.WeightedUtility,
-                DisableBound = false,
-                BoundVariant = BoundVariant.Correct,
                 MaxNodes = maxNodes,
                 MaxStops = maxStops,
                 TimeLimitMilliseconds = 60_000,
@@ -125,8 +123,6 @@ public class TimingReportTests
             var cspOpts = new CspOptions
             {
                 Mode = ObjectiveMode.WeightedUtility,
-                DisableBound = false,
-                BoundVariant = BoundVariant.Correct,
                 MaxNodes = maxNodes,
                 MaxStops = maxStops,
                 TimeLimitMilliseconds = 60_000,
@@ -172,8 +168,6 @@ public class TimingReportTests
             var cspOpts = new CspOptions
             {
                 Mode = ObjectiveMode.WeightedUtility,
-                DisableBound = false,
-                BoundVariant = BoundVariant.Correct,
                 MaxNodes = baseCspOpts.MaxNodes,
                 MaxStops = baseCspOpts.MaxStops,
                 MaxOptionalDomainSize = baseCspOpts.MaxOptionalDomainSize,
@@ -255,8 +249,6 @@ public class TimingReportTests
             var cspOpts = new CspOptions
             {
                 Mode = ObjectiveMode.WeightedUtility,
-                DisableBound = false,
-                BoundVariant = BoundVariant.Correct,
                 MaxNodes = maxNodes,
                 MaxStops = maxStops,
                 TimeLimitMilliseconds = 60_000,
@@ -297,8 +289,6 @@ public class TimingReportTests
             var cspOpts = new CspOptions
             {
                 Mode = ObjectiveMode.WeightedUtility,
-                DisableBound = false,
-                BoundVariant = BoundVariant.Correct,
                 MaxNodes = maxNodes,
                 MaxStops = maxStops,
                 TimeLimitMilliseconds = 60_000,
@@ -345,8 +335,6 @@ public class TimingReportTests
             var cspOpts = new CspOptions
             {
                 Mode = ObjectiveMode.WeightedUtility,
-                DisableBound = false,
-                BoundVariant = BoundVariant.Correct,
                 MaxNodes = baseCspOpts.MaxNodes,
                 MaxStops = baseCspOpts.MaxStops,
                 MaxOptionalDomainSize = baseCspOpts.MaxOptionalDomainSize,

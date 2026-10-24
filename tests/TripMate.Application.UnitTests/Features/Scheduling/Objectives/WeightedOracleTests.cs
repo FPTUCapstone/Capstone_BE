@@ -170,7 +170,6 @@ public class WeightedOracleTests
         var cspOptionsBnB = new CspOptions
         {
             Mode = ObjectiveMode.WeightedUtility,
-            DisableBound = false,
             MaxStops = maxStops,
             MaxNodes = 500_000,
             TimeLimitMilliseconds = 120_000
@@ -184,12 +183,15 @@ public class WeightedOracleTests
         var cspOptionsBf = new CspOptions
         {
             Mode = ObjectiveMode.WeightedUtility,
-            DisableBound = true,
             MaxStops = maxStops,
             MaxNodes = 500_000,
             TimeLimitMilliseconds = 120_000
         };
-        var solverBf = new CspItinerarySolver(evaluator, Options, cspOptionsBf);
+        var solverBf = new CspItinerarySolver(evaluator, Options, cspOptionsBf)
+        {
+            WeightedKernelFactoryForTest = (inputs, kernelOptions) =>
+                new WeightedUtilityKernel(inputs, kernelOptions, disableBound: true)
+        };
         var resultBf = solverBf.Solve(
             input, matrix, candidates, candidateIndices,
             initialIncumbent: null, weighted: requestInputs, cancellationToken: CancellationToken.None);
