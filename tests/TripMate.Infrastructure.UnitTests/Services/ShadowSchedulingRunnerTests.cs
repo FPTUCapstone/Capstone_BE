@@ -18,6 +18,14 @@ namespace TripMate.Infrastructure.UnitTests.Services;
 
 public class ShadowSchedulingRunnerTests
 {
+    [Fact]
+    public void ShadowWorkItem_DoesNotCaptureRequestScopedServices()
+    {
+        typeof(ShadowWorkItem).GetProperties()
+            .Should().NotContain(property =>
+                typeof(IRouteDurationProvider).IsAssignableFrom(property.PropertyType));
+    }
+
     private static GenerationCandidate CreateCandidate(long id, string name, decimal? baseScore = 0.8m)
     {
         return new GenerationCandidate(
@@ -32,7 +40,7 @@ public class ShadowSchedulingRunnerTests
             EffectiveDesirabilityScore: baseScore);
     }
 
-    private static ShadowWorkItem CreateWorkItem(IRouteDurationProvider routeProvider, int timeoutMs = 5000)
+    private static ShadowWorkItem CreateWorkItem(int timeoutMs = 5000)
     {
         var candidates = new[]
         {
@@ -86,11 +94,25 @@ public class ShadowSchedulingRunnerTests
         return new ShadowWorkItem(
             RequestId: 42,
             Input: input,
-            RouteDurationProvider: routeProvider,
+            RouteDurationMatrix: CreateMatrix(input.Candidates.Count + 2),
             GenerationOptions: genOptions,
             TravelerProfile: null,
             RankingOutcome: PoiRankingOutcomeCategory.Success,
             PrimaryPlan: primaryPlan);
+    }
+
+    private static RouteDurationMatrix CreateMatrix(int pointCount, int minutes = 10)
+    {
+        var table = new int[pointCount, pointCount];
+        for (var row = 0; row < pointCount; row++)
+        {
+            for (var column = 0; column < pointCount; column++)
+            {
+                table[row, column] = row == column ? 0 : minutes;
+            }
+        }
+
+        return RouteDurationMatrix.Create(table);
     }
 
     [Fact]
@@ -108,7 +130,7 @@ public class ShadowSchedulingRunnerTests
             new WeightedRequestInputsFactory(new PersonalParamsFactory()),
             NullLogger<ShadowSchedulingRunner>.Instance);
 
-        var item = CreateWorkItem(new FixedRouteDurationProvider(10));
+        var item = CreateWorkItem();
 
         var metrics = await runner.ProcessItemAsync(item, CancellationToken.None);
 
@@ -120,32 +142,6 @@ public class ShadowSchedulingRunnerTests
         metrics.ElapsedMs.Should().BeGreaterThan(0);
         metrics.ModelObjective.Should().Be(9900L);
         metrics.JaccardSimilarity.Should().BeInRange(0.0, 1.0);
-    }
-
-    [Fact]
-    public async Task ProcessItemAsync_WhenTimedOut_AbortsGracefullyWithoutThrowing()
-    {
-        var options = Microsoft.Extensions.Options.Options.Create(new ShadowOptions
-        {
-            Enabled = true,
-            SampleRate = 1.0,
-            TimeoutMs = 150 // Very short timeout
-        });
-
-        var runner = new ShadowSchedulingRunner(
-            options,
-            new WeightedRequestInputsFactory(new PersonalParamsFactory()),
-            NullLogger<ShadowSchedulingRunner>.Instance);
-
-        var item = CreateWorkItem(new HangingRouteDurationProvider(), timeoutMs: 150);
-
-        var metrics = await runner.ProcessItemAsync(item, CancellationToken.None);
-
-        metrics.Should().NotBeNull();
-        metrics.RequestId.Should().Be(42);
-        metrics.Success.Should().BeFalse();
-        metrics.TimedOut.Should().BeTrue();
-        metrics.Error.Should().NotBeNull();
     }
 
     [Fact]
@@ -163,7 +159,7 @@ public class ShadowSchedulingRunnerTests
             null,
             NullLogger<ShadowSchedulingRunner>.Instance);
 
-        var item = CreateWorkItem(new FixedRouteDurationProvider(10));
+        var item = CreateWorkItem();
 
         // Enqueue should cleanly exit without throwing
         runner.Enqueue(item);
@@ -187,7 +183,7 @@ public class ShadowSchedulingRunnerTests
         using var cts = new CancellationTokenSource();
         var startTask = runner.StartAsync(cts.Token);
 
-        var item = CreateWorkItem(new FixedRouteDurationProvider(10));
+        var item = CreateWorkItem();
         runner.Enqueue(item);
 
         // Give background loop a moment to process
@@ -197,35 +193,4 @@ public class ShadowSchedulingRunnerTests
         await startTask;
     }
 
-    private sealed class FixedRouteDurationProvider(int minutes = 10) : IRouteDurationProvider
-    {
-        public Task<RouteDurationMatrix> GetMatrixAsync(
-            IReadOnlyList<RoutePoint> points,
-            TransportMode transportMode,
-            CancellationToken cancellationToken)
-        {
-            var table = new int[points.Count, points.Count];
-            for (var i = 0; i < points.Count; i++)
-            {
-                for (var j = 0; j < points.Count; j++)
-                {
-                    table[i, j] = i == j ? 0 : minutes;
-                }
-            }
-
-            return Task.FromResult(RouteDurationMatrix.Create(table));
-        }
-    }
-
-    private sealed class HangingRouteDurationProvider : IRouteDurationProvider
-    {
-        public async Task<RouteDurationMatrix> GetMatrixAsync(
-            IReadOnlyList<RoutePoint> points,
-            TransportMode transportMode,
-            CancellationToken cancellationToken)
-        {
-            await Task.Delay(Timeout.Infinite, cancellationToken);
-            throw new InvalidOperationException("Should have been cancelled");
-        }
-    }
 }

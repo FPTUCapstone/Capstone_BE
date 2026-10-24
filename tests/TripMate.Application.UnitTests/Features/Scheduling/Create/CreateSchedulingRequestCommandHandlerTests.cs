@@ -2389,6 +2389,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
     {
         await using var dbContext = TestDbContext.Create();
         var mandatoryPoi = await SeedSelectablePoiAsync(dbContext);
+        var routeProvider = new RecordingRouteDurationProvider();
         var shadowRunner = new RecordingShadowRunner();
         var shadowOptions = new ShadowOptions
         {
@@ -2404,6 +2405,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
 
         var result = await CreateHandler(
                 dbContext,
+                routeDurationProvider: routeProvider,
                 shadowRunner: shadowRunner,
                 shadowOptions: shadowOptions)
             .Handle(command, CancellationToken.None);
@@ -2413,6 +2415,9 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         result.Value!.ItineraryId.Should().BeGreaterThan(0);
         shadowRunner.EnqueuedItems.Should().HaveCount(1);
         shadowRunner.EnqueuedItems[0].RequestId.Should().Be(result.Value.SchedulingRequestId);
+        shadowRunner.EnqueuedItems[0].RouteDurationMatrix.PointCount.Should().Be(routeProvider.LastPointCount);
+        shadowRunner.EnqueuedItems[0].RouteDurationMatrix.GetMinutes(0, 1).Should().Be(15);
+        routeProvider.CallCount.Should().Be(1);
     }
 
     private sealed class RecordingShadowRunner : IShadowSchedulingRunner

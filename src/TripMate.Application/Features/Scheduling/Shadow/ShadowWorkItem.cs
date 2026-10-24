@@ -1,4 +1,3 @@
-using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Domain.Entities;
@@ -11,7 +10,7 @@ namespace TripMate.Application.Features.Scheduling.Shadow;
 public sealed record ShadowWorkItem(
     long RequestId,
     GenerationInput Input,
-    IRouteDurationProvider RouteDurationProvider,
+    RouteDurationMatrix RouteDurationMatrix,
     SchedulingGenerationOptions GenerationOptions,
     TravelerProfile? TravelerProfile,
     PoiRankingOutcomeCategory? RankingOutcome,
