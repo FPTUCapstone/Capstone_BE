@@ -71,6 +71,18 @@ public class GroupMember
         LocationSharingEnabled = false;
     }
 
+    public void Leave(DateTimeOffset leftAtUtc)
+    {
+        if (Status != GroupMemberStatus.Active)
+        {
+            throw new InvalidOperationException("Only an active member can leave a travel group.");
+        }
+
+        Status = GroupMemberStatus.Left;
+        LeftAtUtc = leftAtUtc;
+        LocationSharingEnabled = false;
+    }
+
     public long GroupId { get; private set; }
 
     public TravelGroup TravelGroup { get; private set; } = null!;

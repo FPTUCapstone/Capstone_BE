@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Features.Itineraries.AdjustItems;
 using TripMate.Application.Features.Itineraries.Common;
+using TripMate.Application.Features.Itineraries.List;
 using TripMate.Application.Features.Itineraries.Regenerate;
 using TripMate.Application.Features.Itineraries.Suggestions;
 using TripMate.Application.Features.PointsOfInterest.ExternalReviews;
@@ -831,6 +832,60 @@ public sealed class ItineraryVersionServiceTests
             CancellationToken.None);
 
         result.ErrorCode.Should().Be(ItineraryErrorCodes.OwnerPermissionRequired);
+    }
+
+    [Fact]
+    public async Task ItineraryAccess_WhenClosedRowRetainsActiveMember_DoesNotGrantGroupAccess()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var museum = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Cham Museum");
+        var request = await AddRequestAsync(dbContext, travelerUserId: 42);
+        var itinerary = await AddItineraryAsync(dbContext, request, 1, museum.Id);
+        var group = TravelGroup.Create(itinerary.Id, 42, "Closed family trip", Now);
+        var host = GroupMember.CreateHost(group, 42, Now);
+        var member = GroupMember.CreateMember(group, 77, Now);
+        group.AddMember(host);
+        group.AddMember(member);
+        dbContext.TravelGroups.Add(group);
+        await dbContext.SaveChangesAsync();
+
+        typeof(TravelGroup).GetProperty(nameof(TravelGroup.Status))!
+            .SetValue(group, TravelGroupStatus.Closed);
+        typeof(TravelGroup).GetProperty(nameof(TravelGroup.ClosedAtUtc))!
+            .SetValue(group, Now);
+        await dbContext.SaveChangesAsync();
+
+        var access = await new ItineraryAccessService(dbContext).ResolveCurrentAsync(
+            itinerary.Id, 77, trackCurrent: false, CancellationToken.None);
+
+        access.IsFailure.Should().BeTrue();
+        access.ErrorCode.Should().Be(ItineraryErrorCodes.AccessDenied);
+    }
+
+    [Fact]
+    public async Task ListItineraries_WhenGroupCloses_HidesPlanFromNonOwner()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var museum = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Cham Museum");
+        var request = await AddRequestAsync(dbContext, travelerUserId: 42);
+        var itinerary = await AddItineraryAsync(dbContext, request, 1, museum.Id);
+        var group = TravelGroup.Create(itinerary.Id, 42, "Closed family trip", Now);
+        group.AddMember(GroupMember.CreateHost(group, 42, Now));
+        group.AddMember(GroupMember.CreateMember(group, 77, Now));
+        dbContext.TravelGroups.Add(group);
+        await dbContext.SaveChangesAsync();
+        typeof(TravelGroup).GetProperty(nameof(TravelGroup.Status))!
+            .SetValue(group, TravelGroupStatus.Closed);
+        typeof(TravelGroup).GetProperty(nameof(TravelGroup.ClosedAtUtc))!
+            .SetValue(group, Now);
+        await dbContext.SaveChangesAsync();
+
+        var handler = new ListMyItinerariesQueryHandler(dbContext, new FakeDateTimeProvider { UtcNow = Now });
+        var memberResult = await handler.Handle(new ListMyItinerariesQuery(77, 1, 20), CancellationToken.None);
+        var ownerResult = await handler.Handle(new ListMyItinerariesQuery(42, 1, 20), CancellationToken.None);
+
+        memberResult.Value.Items.Should().BeEmpty();
+        ownerResult.Value.Items.Should().ContainSingle(item => item.ItineraryId == itinerary.Id);
     }
 
     [Fact]

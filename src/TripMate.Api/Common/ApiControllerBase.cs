@@ -333,6 +333,16 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.MemberListInconsistent =>
                 StatusCodes.Status500InternalServerError,
 
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.ConcurrentRetryExhausted =>
+                StatusCodes.Status503ServiceUnavailable,
+
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.GroupClosed or
+                TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.AlreadyLeft =>
+                StatusCodes.Status409Conflict,
+
+            TripMate.Application.Features.Notifications.MarkRead.NotificationErrorCodes.NotFound =>
+                StatusCodes.Status404NotFound,
+
             SchedulingErrorCodes.IdempotencyKeyPayloadMismatch =>
                 StatusCodes.Status409Conflict,
 

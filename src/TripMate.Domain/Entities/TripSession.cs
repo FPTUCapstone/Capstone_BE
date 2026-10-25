@@ -12,6 +12,7 @@ public sealed class TripSession : BaseEntity
     public const string RouteFinishedReason = "RouteFinished";
     public const string TravelerStoppedReason = "TravelerStopped";
     public const string ExpiredReason = "Expired";
+    public const string GroupAccessRevokedReason = "GroupAccessRevoked";
 
     private readonly List<TripSessionItem> _items = [];
     private readonly List<TripStateHistory> _stateHistory = [];
@@ -224,6 +225,18 @@ public sealed class TripSession : BaseEntity
         // A fully reached route has already closed itself, so an explicit finish is always a stop,
         // even when only skipped items (or nothing at all) remain unreached.
         Complete(TravelerStoppedReason, TripStateHistory.TriggeredByTraveler, finishedAtUtc);
+        return true;
+    }
+
+    public bool RevokeGroupAccess(DateTimeOffset revokedAtUtc)
+    {
+        EnsureUtc(revokedAtUtc, nameof(revokedAtUtc));
+        if (IsCompleted)
+        {
+            return false;
+        }
+
+        Complete(GroupAccessRevokedReason, TripStateHistory.TriggeredBySystem, revokedAtUtc);
         return true;
     }
 

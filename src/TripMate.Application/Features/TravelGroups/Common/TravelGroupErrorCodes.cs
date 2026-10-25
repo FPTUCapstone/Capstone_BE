@@ -15,4 +15,7 @@ public static class TravelGroupErrorCodes
     public const string AlreadyActiveMember = "travel_group.already_active_member";
     public const string ActiveMembershipRequired = "travel_group.active_membership_required";
     public const string MemberListInconsistent = "travel_group.member_list_inconsistent";
+    public const string GroupClosed = "travel_group.group_closed";
+    public const string AlreadyLeft = "travel_group.already_left";
+    public const string ConcurrentRetryExhausted = "travel_group.concurrent_retry_exhausted";
 }
