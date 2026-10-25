@@ -16,5 +16,6 @@ $env:Jwt__SigningKey = $values['JWT_SIGNING_KEY']
 $env:AiRanking__Enabled = 'false'
 $env:AiExplanation__Enabled = 'false'
 $env:Cloudinary__RevenueExportsFolderRoot = 'tripmate/revenue-exports'
+$env:Payment__Provider = if ([string]::IsNullOrWhiteSpace($values['Payment__Provider'])) { 'Mock' } else { $values['Payment__Provider'] }
 $apiRoot = Join-Path $repoRoot 'src\TripMate.Api'
-& dotnet (Join-Path $apiRoot 'bin\Debug\net10.0\TripMate.Api.dll') --urls http://localhost:5000 --contentRoot $apiRoot
+& dotnet run --project $apiRoot --urls http://localhost:5021
