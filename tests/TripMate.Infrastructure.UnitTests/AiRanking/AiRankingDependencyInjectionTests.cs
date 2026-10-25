@@ -12,6 +12,7 @@ using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Create;
 using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Infrastructure.AiRanking;
+using TripMate.Infrastructure.UnitTests.Security;
 
 namespace TripMate.Infrastructure.UnitTests.AiRanking;
 
@@ -158,6 +159,8 @@ public sealed class AiRankingDependencyInjectionTests
         yield return new("Cloudinary:CloudName", "test-cloud");
         yield return new("Cloudinary:ApiKey", "test-key");
         yield return new("Cloudinary:ApiSecret", "test-secret");
+        yield return new(TicketQrTestKeys.EncryptionKeySetting, TicketQrTestKeys.EncryptionKey);
+        yield return new(TicketQrTestKeys.SigningKeySetting, TicketQrTestKeys.SigningKey);
         yield return new("Cloudinary:TourMediaFolderRoot", "tripmate/tests/tours");
         yield return new("Cloudinary:OperatorDocumentsFolderRoot", "tripmate/tests/operator-documents");
         yield return new("Cloudinary:RevenueExportsFolderRoot", "tripmate/tests/revenue-exports");

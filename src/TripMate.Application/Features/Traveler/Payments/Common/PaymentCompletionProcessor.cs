@@ -100,7 +100,10 @@ public sealed class PaymentCompletionProcessor(
                     }
                     else
                     {
-                        booking.MarkPaid(now);
+                        // UC-29: only the transition to Confirmed issues the ticket, so repeated or late
+                        // notifications never create a second one (UC-28 10.a2). The QR is issued on first view.
+                        if (booking.MarkPaid(now))
+                            booking.IssueTicket(now);
                         statusChanged = true;
                     }
                 }

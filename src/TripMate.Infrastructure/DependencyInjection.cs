@@ -24,6 +24,7 @@ using TripMate.Application.Features.Scheduling.Explanation;
 using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Application.Features.Scheduling.Shadow;
 using TripMate.Application.Features.Scheduling.TimeOfDay;
+using TripMate.Application.Features.Tickets.Common;
 using TripMate.Application.Features.Traveler.Bookings.Common;
 using TripMate.Application.Features.Traveler.Payments.Common;
 using TripMate.Application.Features.TravelGroups.ManageInvitation;
@@ -391,6 +392,8 @@ public static class DependencyInjection
         services.AddHttpClient<IReviewTranslator, GeminiReviewTranslator>();
         services.Configure<EmailOptions>(configuration.GetSection(EmailOptions.SectionName));
         services.Configure<PasswordResetSecurityOptions>(configuration.GetSection(PasswordResetSecurityOptions.SectionName));
+        services.AddTicketQr(configuration);
+        services.AddSingleton<ITicketQrPersistenceErrorClassifier, SqlServerTicketQrPersistenceErrorClassifier>();
 
         // UC-06 password reset: zero DB schema; reset state lives in process-local memory only.
         services.AddSingleton<IPasswordResetStateStore, InMemoryPasswordResetStateStore>();
