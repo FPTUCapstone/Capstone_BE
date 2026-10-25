@@ -96,6 +96,9 @@ public interface IApplicationDbContext
 
     DbSet<Ticket> Tickets => throw new NotSupportedException("Tickets are unavailable in this context.");
 
+    DbSet<TicketQrCode> TicketQrCodes =>
+        throw new NotSupportedException("Ticket QR codes are unavailable in this context.");
+
     DbSet<BookingCancellationOperation> BookingCancellationOperations =>
         throw new NotSupportedException("Booking cancellation operations are unavailable in this context.");
 
