@@ -12,6 +12,8 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Scheduling.Common;
+using TripMate.Application.Features.Scheduling.Csp;
+using TripMate.Application.Features.Scheduling.Shadow;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -23,7 +25,7 @@ public sealed class CreateSchedulingRequestEndpointTests
     [Fact]
     public async Task Post_SameKeyAndPayload_ReplaysTheOriginalItinerary()
     {
-        using var factory = new TripMateApiFactory();
+        using var factory = CreateFactory();
         await SeedSelectablePoiAsync(factory);
         using var client = factory.CreateAuthenticatedClient(42, UserRole.Traveler);
         var idempotencyKey = Guid.NewGuid();
@@ -47,7 +49,7 @@ public sealed class CreateSchedulingRequestEndpointTests
     [Fact]
     public async Task Post_SameKeyWithDifferentPayload_ReturnsConflictWithoutNewRows()
     {
-        using var factory = new TripMateApiFactory();
+        using var factory = CreateFactory();
         await SeedSelectablePoiAsync(factory);
         using var client = factory.CreateAuthenticatedClient(42, UserRole.Traveler);
         var idempotencyKey = Guid.NewGuid();
@@ -67,7 +69,7 @@ public sealed class CreateSchedulingRequestEndpointTests
     [Fact]
     public async Task Post_DifferentKeyWithSamePayload_CreatesIndependentOperations()
     {
-        using var factory = new TripMateApiFactory(configureTestServices: services =>
+        using var factory = CreateFactory(services =>
         {
             services.RemoveAll<IGenerateRateLimiter>();
             services.AddSingleton<IGenerateRateLimiter, AllowAllGenerateRateLimiter>();
@@ -92,7 +94,7 @@ public sealed class CreateSchedulingRequestEndpointTests
     [Fact]
     public async Task Post_WithoutIdempotencyKey_ReturnsBadRequest()
     {
-        using var factory = new TripMateApiFactory();
+        using var factory = CreateFactory();
         using var client = factory.CreateAuthenticatedClient(42, UserRole.Traveler);
 
         using var response = await client.PostAsJsonAsync(
@@ -105,7 +107,7 @@ public sealed class CreateSchedulingRequestEndpointTests
     [Fact]
     public async Task Post_WithoutMandatoryPoiIds_CreatesAnItinerary()
     {
-        using var factory = new TripMateApiFactory();
+        using var factory = CreateFactory();
         await SeedSelectablePoiAsync(factory);
         using var client = factory.CreateAuthenticatedClient(42, UserRole.Traveler);
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/scheduling-requests")
@@ -137,7 +139,7 @@ public sealed class CreateSchedulingRequestEndpointTests
     [Fact]
     public async Task Post_AsUnauthenticatedCaller_ReturnsUnauthorized()
     {
-        using var factory = new TripMateApiFactory();
+        using var factory = CreateFactory();
         using var client = factory.CreateClient();
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/scheduling-requests")
         {
@@ -153,7 +155,7 @@ public sealed class CreateSchedulingRequestEndpointTests
     [Fact]
     public async Task Post_WhenRoutingProviderTimesOut_ReturnsSafeServiceUnavailableWithoutPartialRows()
     {
-        using var factory = new TripMateApiFactory(configureTestServices: services =>
+        using var factory = CreateFactory(services =>
         {
             services.RemoveAll<IRouteDurationProvider>();
             services.AddSingleton<IRouteDurationProvider>(new TimedOutRouteDurationProvider());
@@ -190,7 +192,7 @@ public sealed class CreateSchedulingRequestEndpointTests
     [Fact]
     public async Task Post_WhenRateLimiterUnavailable_Returns503WithoutPartialRows()
     {
-        using var factory = new TripMateApiFactory(configureTestServices: services =>
+        using var factory = CreateFactory(services =>
         {
             services.RemoveAll<IGenerateRateLimiter>();
             services.AddSingleton<IGenerateRateLimiter>(new FixedDecisionGenerateRateLimiter(
@@ -231,7 +233,7 @@ public sealed class CreateSchedulingRequestEndpointTests
         string errorCode,
         int retryAfterSeconds)
     {
-        using var factory = new TripMateApiFactory(configureTestServices: services =>
+        using var factory = CreateFactory(services =>
         {
             services.RemoveAll<IGenerateRateLimiter>();
             services.AddSingleton<IGenerateRateLimiter>(new FixedDecisionGenerateRateLimiter(
@@ -257,6 +259,72 @@ public sealed class CreateSchedulingRequestEndpointTests
         rowCounts.Itineraries.Should().Be(0);
         rowCounts.ItineraryItems.Should().Be(0);
     }
+
+    [Fact]
+    public async Task Post_WhenCspModeIsWeightedUtility_CreatesItinerarySuccessfully()
+    {
+        using var factory = CreateFactory(configureTestServices: services =>
+        {
+            services.RemoveAll<SchedulingGenerationOptions>();
+            services.AddSingleton(new SchedulingGenerationOptions
+            {
+                SolverMode = SchedulingSolverMode.Csp,
+                Csp = new CspOptions
+                {
+                    Mode = ObjectiveMode.WeightedUtility,
+                },
+            });
+        });
+        await SeedSelectablePoiAsync(factory);
+        using var client = factory.CreateAuthenticatedClient(42, UserRole.Traveler);
+
+        using var response = await SendValidRequestAsync(client, Guid.NewGuid());
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var serializerOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        serializerOptions.Converters.Add(new JsonStringEnumConverter());
+        var payload = await response.Content.ReadFromJsonAsync<SchedulingResponseDto>(serializerOptions);
+        payload.Should().NotBeNull();
+        payload!.ItineraryId.Should().BeGreaterThan(0);
+        payload.SchedulingRequestId.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public async Task Post_WhenShadowModeEnabled_ProcessesPrimaryRequestAndInvokesShadowRunner()
+    {
+        var shadowCaptured = new TaskCompletionSource<ShadowWorkItem>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var mockShadowRunner = new CapturingShadowRunner(shadowCaptured);
+
+        using var factory = CreateFactory(configureTestServices: services =>
+        {
+            services.RemoveAll<IShadowSchedulingRunner>();
+            services.AddSingleton<IShadowSchedulingRunner>(mockShadowRunner);
+            services.RemoveAll<Microsoft.Extensions.Options.IOptions<ShadowOptions>>();
+            services.AddSingleton(Microsoft.Extensions.Options.Options.Create(new ShadowOptions
+            {
+                Enabled = true,
+                SampleRate = 1.0,
+                TimeoutMs = 5000,
+            }));
+        });
+        await SeedSelectablePoiAsync(factory);
+        using var client = factory.CreateAuthenticatedClient(42, UserRole.Traveler);
+
+        using var response = await SendValidRequestAsync(client, Guid.NewGuid());
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var completed = await Task.WhenAny(shadowCaptured.Task, Task.Delay(3000));
+        completed.Should().Be(shadowCaptured.Task);
+        var workItem = await shadowCaptured.Task;
+        workItem.Should().NotBeNull();
+        workItem.PrimaryPlan.Should().NotBeNull();
+    }
+
+    private static TripMateApiFactory CreateFactory(
+        Action<IServiceCollection>? configureTestServices = null) =>
+        new(
+            dateTimeProviderFactory: _ => new FixedDateTimeProvider(),
+            configureTestServices: configureTestServices);
 
     private static async Task<HttpResponseMessage> SendValidRequestAsync(
         HttpClient client,
@@ -317,6 +385,13 @@ public sealed class CreateSchedulingRequestEndpointTests
         });
     }
 
+    private sealed class FixedDateTimeProvider : IDateTimeProvider
+    {
+        // Every request fixture starts at 08:00 ICT. Keep the validation clock at
+        // 07:00 ICT so this class remains stable regardless of CI execution date.
+        public DateTimeOffset UtcNow => new(2026, 10, 20, 0, 0, 0, TimeSpan.Zero);
+    }
+
     private sealed class TimedOutRouteDurationProvider : IRouteDurationProvider
     {
         public Task<RouteDurationMatrix> GetMatrixAsync(
@@ -345,5 +420,13 @@ public sealed class CreateSchedulingRequestEndpointTests
             long userId,
             CancellationToken cancellationToken) =>
             ValueTask.FromResult(decision);
+    }
+
+    private sealed class CapturingShadowRunner(TaskCompletionSource<ShadowWorkItem> captured) : IShadowSchedulingRunner
+    {
+        public void Enqueue(ShadowWorkItem item)
+        {
+            captured.TrySetResult(item);
+        }
     }
 }

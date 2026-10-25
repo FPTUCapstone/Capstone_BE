@@ -70,6 +70,8 @@ public class ApplicationDbContext(
 
     public DbSet<Notification> Notifications => Set<Notification>();
 
+    public DbSet<PushDeviceToken> PushDeviceTokens => Set<PushDeviceToken>();
+
     public DbSet<PoiPhoto> PoiPhotos => Set<PoiPhoto>();
 
     public DbSet<Review> Reviews => Set<Review>();
@@ -94,6 +96,17 @@ public class ApplicationDbContext(
 
     public DbSet<TourBookingCreateOperation> TourBookingCreateOperations => Set<TourBookingCreateOperation>();
     public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
+    public DbSet<Refund> Refunds => Set<Refund>();
+    public DbSet<RefundManualCompletionOperation> RefundManualCompletionOperations =>
+        Set<RefundManualCompletionOperation>();
+    public DbSet<RevenueExport> RevenueExports => Set<RevenueExport>();
+
+    public DbSet<Ticket> Tickets => Set<Ticket>();
+    public DbSet<BookingCancellationOperation> BookingCancellationOperations =>
+        Set<BookingCancellationOperation>();
+
+    public Task<int> RevokeActiveTicketQrCodesAsync(long bookingId, DateTimeOffset revokedAtUtc,
+        CancellationToken cancellationToken) => Task.FromResult(0);
 
     public Task<int> RevokeRefreshTokenAsync(
         string tokenHash,
@@ -274,6 +287,8 @@ public class ApplicationDbContext(
 
     public DbSet<Incident> Incidents => Set<Incident>();
 
+    public DbSet<AlertDeliveryWork> AlertDeliveryWork => Set<AlertDeliveryWork>();
+
     public DbSet<TripStateHistory> TripStateHistories => Set<TripStateHistory>();
 
     public DbSet<TripLocationLog> TripLocationLogs => Set<TripLocationLog>();
@@ -283,6 +298,14 @@ public class ApplicationDbContext(
     public DbSet<ReroutingEvent> ReroutingEvents => Set<ReroutingEvent>();
 
     public DbSet<Payout> Payouts => Set<Payout>();
+
+    public DbSet<PayoutItem> PayoutItems => Set<PayoutItem>();
+
+    public DbSet<PayoutRefundItem> PayoutRefundItems => Set<PayoutRefundItem>();
+
+    public DbSet<PayoutAdjustment> PayoutAdjustments => Set<PayoutAdjustment>();
+
+    public DbSet<PayoutPeriodBreakdown> PayoutPeriodBreakdowns => Set<PayoutPeriodBreakdown>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

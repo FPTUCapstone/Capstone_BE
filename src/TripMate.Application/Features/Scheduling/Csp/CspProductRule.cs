@@ -68,6 +68,37 @@ internal sealed class CspProductRule
         return new CspProductRule(ctx, canonical, rankOfId, rankOfNode);
     }
 
+    /// <summary>
+    /// Xây dựng quy tắc xếp hạng cho chế độ WeightedUtility: sắp xếp các điểm tùy chọn theo Base giảm dần,
+    /// nếu bằng điểm thì hòa tie bằng Candidate.Id tăng dần.
+    /// </summary>
+    public static CspProductRule BuildRankRuleFromBase(
+        RoutingContext ctx,
+        IReadOnlyList<double> baseScores)
+    {
+        var canonical = ctx.OptionalNodes
+            .OrderByDescending(node => baseScores[node])
+            .ThenBy(node => ctx.Nodes[node].Candidate.Id)
+            .Select(node => ctx.Nodes[node].Candidate)
+            .ToList();
+
+        var rankOfId = new Dictionary<long, int>(canonical.Count);
+        for (var rank = 0; rank < canonical.Count; rank++)
+        {
+            rankOfId[canonical[rank].Id] = rank;
+        }
+
+        var rankOfNode = new int[ctx.Nodes.Count];
+        for (var node = 0; node < ctx.Nodes.Count; node++)
+        {
+            rankOfNode[node] = ctx.Nodes[node].IsMandatory
+                ? -1
+                : rankOfId.GetValueOrDefault(ctx.Nodes[node].Candidate.Id, -1);
+        }
+
+        return new CspProductRule(ctx, canonical, rankOfId, rankOfNode);
+    }
+
     /// <summary>Hạng chuẩn của một nút tùy chọn; -1 với điểm bắt buộc.</summary>
     public int RankOf(int node) => _rankOfNode[node];
 

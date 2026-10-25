@@ -11,16 +11,18 @@ public sealed record GenerationCandidate(
     int VisitDurationMinutes,
     decimal? EstimatedVisitCost,
     IReadOnlyCollection<GenerationOpeningHours> OpeningHours,
-    decimal TripMateBaseScore,
-    decimal EffectiveDesirabilityScore,
-    decimal? ScenicScoreForRanking,
-    decimal? PhotoRatingForRanking,
-    decimal? EstimatedVisitCostForRanking,
+    decimal? TripMateBaseScore = null,
+    decimal? EffectiveDesirabilityScore = null,
+    decimal? ScenicScoreForRanking = null,
+    decimal? PhotoRatingForRanking = null,
+    decimal? EstimatedVisitCostForRanking = null,
     int PreferenceScore = 0,
     decimal? ScenicScore = null,
     decimal? PhotoRating = null,
     string? CategoryName = null,
-    bool HasShelter = false);
+    bool HasShelter = false,
+    IndoorOutdoorType IndoorOutdoor = IndoorOutdoorType.Outdoor,
+    IReadOnlyCollection<string>? Tags = null);
 
 public sealed record GenerationInput(
     DateTimeOffset StartAtUtc,
@@ -52,4 +54,5 @@ public sealed record GeneratedItineraryPlan(
     IReadOnlyCollection<GeneratedItineraryItem> Items,
     DateTimeOffset EndAtUtc,
     int TotalDurationMinutes,
-    decimal TotalEstimatedCost);
+    decimal TotalEstimatedCost,
+    long? ModelObjective = null);

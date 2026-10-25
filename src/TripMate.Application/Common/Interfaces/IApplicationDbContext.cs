@@ -58,6 +58,9 @@ public interface IApplicationDbContext
 
     DbSet<Notification> Notifications { get; }
 
+    DbSet<PushDeviceToken> PushDeviceTokens =>
+        throw new NotSupportedException("Push device tokens are unavailable in this context.");
+
     DbSet<PoiPhoto> PoiPhotos { get; }
 
     DbSet<Review> Reviews { get; }
@@ -83,6 +86,21 @@ public interface IApplicationDbContext
     DbSet<TourBookingCreateOperation> TourBookingCreateOperations { get; }
 
     DbSet<PaymentTransaction> PaymentTransactions { get; }
+
+    DbSet<Refund> Refunds { get; }
+
+    DbSet<RefundManualCompletionOperation> RefundManualCompletionOperations =>
+        throw new NotSupportedException("Manual refund completion idempotency is unavailable in this context.");
+
+    DbSet<RevenueExport> RevenueExports { get; }
+
+    DbSet<Ticket> Tickets => throw new NotSupportedException("Tickets are unavailable in this context.");
+
+    DbSet<BookingCancellationOperation> BookingCancellationOperations =>
+        throw new NotSupportedException("Booking cancellation operations are unavailable in this context.");
+
+    Task<int> RevokeActiveTicketQrCodesAsync(long bookingId, DateTimeOffset revokedAtUtc,
+        CancellationToken cancellationToken) => throw new NotSupportedException("Ticket QR revocation is unavailable in this context.");
 
     DbSet<TravelGroup> TravelGroups { get; }
 
@@ -116,6 +134,9 @@ public interface IApplicationDbContext
 
     DbSet<Incident> Incidents { get; }
 
+    DbSet<AlertDeliveryWork> AlertDeliveryWork =>
+        throw new NotSupportedException("Alert delivery work is unavailable in this context.");
+
     DbSet<TripStateHistory> TripStateHistories { get; }
 
     DbSet<TripLocationLog> TripLocationLogs { get; }
@@ -125,6 +146,14 @@ public interface IApplicationDbContext
     DbSet<ReroutingEvent> ReroutingEvents { get; }
 
     DbSet<Payout> Payouts { get; }
+
+    DbSet<PayoutItem> PayoutItems { get; }
+
+    DbSet<PayoutRefundItem> PayoutRefundItems { get; }
+
+    DbSet<PayoutAdjustment> PayoutAdjustments { get; }
+
+    DbSet<PayoutPeriodBreakdown> PayoutPeriodBreakdowns { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 

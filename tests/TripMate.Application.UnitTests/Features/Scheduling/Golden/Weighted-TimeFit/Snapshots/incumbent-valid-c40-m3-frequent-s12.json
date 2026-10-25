@@ -1,0 +1,33 @@
+{
+  "ScenarioId": "incumbent-valid-c40-m3-frequent-s12",
+  "Source": "GroupC_Incumbent",
+  "Feasible": true,
+  "BestModelObjective": -637,
+  "BestEvaluatedObjective": 5136,
+  "BestVisitPoiIds": [
+    3,
+    2,
+    21,
+    5,
+    11,
+    1
+  ],
+  "EliteModelObjectives": [],
+  "EliteVisitIds": [],
+  "BestTravelMinutes": 96,
+  "BestDurationMinutes": 411,
+  "BestEstimatedCost": 90000,
+  "EndAtUtc": "2026-10-20T07:51:00+00:00",
+  "NodesExpanded": 200000,
+  "PrunedByConstraints": 211715,
+  "PrunedByForwardChecking": 339179,
+  "PrunedByBound": 112372,
+  "SolutionsFound": 82131,
+  "NodesToFirstSolution": 4,
+  "SearchCompleted": false,
+  "NodeLimitReached": true,
+  "TimeLimitReached": false,
+  "EvaluatorCalls": 6,
+  "UsedRelaxedRestModel": true,
+  "ChoseRelaxedRestModel": false
+}

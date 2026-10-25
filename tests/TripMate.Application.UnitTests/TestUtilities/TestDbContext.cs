@@ -65,6 +65,8 @@ public class TestDbContext(
 
     public DbSet<Notification> Notifications => Set<Notification>();
 
+    public DbSet<PushDeviceToken> PushDeviceTokens => Set<PushDeviceToken>();
+
     public DbSet<PoiPhoto> PoiPhotos => Set<PoiPhoto>();
 
     public DbSet<Review> Reviews => Set<Review>();
@@ -88,6 +90,15 @@ public class TestDbContext(
 
     public DbSet<TourBookingCreateOperation> TourBookingCreateOperations => Set<TourBookingCreateOperation>();
     public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
+    public DbSet<Refund> Refunds => Set<Refund>();
+    public DbSet<RefundManualCompletionOperation> RefundManualCompletionOperations =>
+        Set<RefundManualCompletionOperation>();
+    public DbSet<RevenueExport> RevenueExports => Set<RevenueExport>();
+
+    public DbSet<Ticket> Tickets => Set<Ticket>();
+
+    public DbSet<BookingCancellationOperation> BookingCancellationOperations =>
+        Set<BookingCancellationOperation>();
 
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
 
@@ -120,6 +131,8 @@ public class TestDbContext(
 
     public DbSet<Incident> Incidents => Set<Incident>();
 
+    public DbSet<AlertDeliveryWork> AlertDeliveryWork => Set<AlertDeliveryWork>();
+
     public DbSet<TripStateHistory> TripStateHistories => Set<TripStateHistory>();
 
     public DbSet<TripLocationLog> TripLocationLogs => Set<TripLocationLog>();
@@ -129,6 +142,14 @@ public class TestDbContext(
     public DbSet<ReroutingEvent> ReroutingEvents => Set<ReroutingEvent>();
 
     public DbSet<Payout> Payouts => Set<Payout>();
+
+    public DbSet<PayoutItem> PayoutItems => Set<PayoutItem>();
+
+    public DbSet<PayoutRefundItem> PayoutRefundItems => Set<PayoutRefundItem>();
+
+    public DbSet<PayoutAdjustment> PayoutAdjustments => Set<PayoutAdjustment>();
+
+    public DbSet<PayoutPeriodBreakdown> PayoutPeriodBreakdowns => Set<PayoutPeriodBreakdown>();
 
     public int TransactionExecutionCount { get; private set; }
 
@@ -143,6 +164,8 @@ public class TestDbContext(
     public List<string> FinalizedTravelerAvatarPublicIds { get; } = [];
 
     public List<string> EnqueuedTravelerAvatarPublicIds { get; } = [];
+
+    public List<long> RevokedTicketQrBookingIds { get; } = [];
 
     public bool ThrowOnSaveConcurrency { get; set; }
 
@@ -236,6 +259,13 @@ public class TestDbContext(
 
     public void ClearTrackedEntities() => ChangeTracker.Clear();
 
+    public Task<int> RevokeActiveTicketQrCodesAsync(long bookingId, DateTimeOffset revokedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        RevokedTicketQrBookingIds.Add(bookingId);
+        return Task.FromResult(0);
+    }
+
     public async Task<T> ExecuteInSerializableTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken)
@@ -267,6 +297,9 @@ public class TestDbContext(
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<AlertDeliveryWork>().HasKey(work => work.NotificationId);
+        modelBuilder.Entity<PushDeviceToken>().HasKey(device => device.Id);
+
         modelBuilder.Entity<TripSessionItem>()
             .HasKey(item => new { item.SessionId, item.ItineraryItemId });
 
@@ -383,11 +416,18 @@ public class TestDbContext(
         base.OnModelCreating(modelBuilder);
     }
 
-    public static TestDbContext Create()
+    public static TestDbContext Create() => Create(Guid.NewGuid().ToString());
+
+    /// <summary>
+    /// Shares one in-memory store across multiple TestDbContext instances (same databaseName),
+    /// so a test can simulate two workers racing the same row with independent tracked graphs —
+    /// a single context's own change tracker cannot reproduce that race against itself.
+    /// </summary>
+    public static TestDbContext Create(string databaseName)
     {
         var options =
             new DbContextOptionsBuilder<TestDbContext>()
-                .UseInMemoryDatabase(Guid.NewGuid().ToString())
+                .UseInMemoryDatabase(databaseName)
                 .Options;
 
         return new TestDbContext(options);

@@ -1,5 +1,7 @@
 using FluentValidation;
 
+using TripMate.Application.Features.Admin.Payouts.Common;
+
 namespace TripMate.Application.Features.Admin.Payouts.GetList;
 
 public sealed class GetPayoutsQueryValidator : AbstractValidator<GetPayoutsQuery>

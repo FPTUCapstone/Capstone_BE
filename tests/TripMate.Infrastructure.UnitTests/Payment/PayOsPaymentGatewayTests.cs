@@ -67,6 +67,23 @@ public sealed class PayOsPaymentGatewayTests
         requestBody.Should().Contain("Traveler cancelled payment");
     }
 
+    [Fact]
+    public async Task SubmitRefundAsync_RequiresManualReview_InsteadOfFalselyReportingAFailedAutomaticRefund()
+    {
+        using var handler = new StubHandler(_ => throw new InvalidOperationException("No network call is expected."));
+        using var client = new HttpClient(handler);
+        var gateway = new PayOsPaymentGateway(client, CreateOptions());
+
+        RefundSubmissionResult result = await gateway.SubmitRefundAsync(new RefundSubmissionRequest(
+            RefundId: 1, BookingId: 2, Amount: 50_000m, Currency: "VND",
+            OriginalGatewayTransactionReference: "payment-ref", Reason: "Cancellation",
+            IdempotencyKey: "tripmate-refund-1"), CancellationToken.None);
+
+        result.IsAccepted.Should().BeFalse();
+        result.RequiresManualReview.Should().BeTrue();
+        result.FailureCode.Should().Be("payment.refund.manual_review_required");
+    }
+
     private static PaymentOptions CreateOptions() => new()
     {
         PayOs = new PayOsOptions

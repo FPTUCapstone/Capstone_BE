@@ -11,12 +11,14 @@ public class PaymentTransaction : BaseEntity
 {
     public const string DefaultCurrency = "VND";
     public const string TypePayment = "Payment";
+    public const string TypeRefund = "Refund";
 
     private PaymentTransaction()
     {
     }
 
     public long BookingId { get; private set; }
+    public long? RefundId { get; private set; }
 
     public Booking Booking { get; private set; } = null!;
 
@@ -43,6 +45,11 @@ public class PaymentTransaction : BaseEntity
     public DateTimeOffset? ExpiresAtUtc { get; private set; }
 
     public DateTimeOffset? UpdatedAtUtc { get; private set; }
+
+    /// <summary>Immutable accounting timestamp and rate captured when the gateway payment succeeds.</summary>
+    public DateTimeOffset? SucceededAtUtc { get; private set; }
+
+    public decimal? CommissionRateApplied { get; private set; }
 
     public string? RawResponse { get; private set; }
 
@@ -81,6 +88,28 @@ public class PaymentTransaction : BaseEntity
         };
     }
 
+    public static PaymentTransaction CreateRefund(long bookingId, long refundId, PaymentGateway gateway,
+        decimal amount, DateTimeOffset createdAtUtc, string currency = DefaultCurrency)
+    {
+        if (bookingId <= 0 || refundId <= 0 || amount <= 0)
+            throw new ArgumentOutOfRangeException(nameof(amount));
+
+        return new PaymentTransaction
+        {
+            BookingId = bookingId,
+            RefundId = refundId,
+            Gateway = gateway,
+            Amount = amount,
+            Currency = string.IsNullOrWhiteSpace(currency) ? DefaultCurrency : currency.Trim().ToUpperInvariant(),
+            TransactionType = TypeRefund,
+            Status = PaymentTransactionStatus.Pending,
+            // Refunds are gateway-initiated server operations, not checkout orders. 0 keeps
+            // them outside the payment-link order-code unique index.
+            OrderCode = 0,
+            CreatedAtUtc = createdAtUtc.ToUniversalTime(),
+        };
+    }
+
     public void UpdateCheckoutDetails(
         string? paymentLinkId,
         string? checkoutUrl,
@@ -93,12 +122,14 @@ public class PaymentTransaction : BaseEntity
         ExpiresAtUtc = expiresAtUtc?.ToUniversalTime();
     }
 
-    public bool MarkSuccess(string? gatewayRef, string? rawResponse, DateTimeOffset nowUtc)
+    public bool MarkSuccess(string? gatewayRef, string? rawResponse, DateTimeOffset nowUtc, decimal commissionRateApplied)
     {
         if (Status != PaymentTransactionStatus.Pending)
             return false;
 
         Status = PaymentTransactionStatus.Success;
+        SucceededAtUtc = nowUtc.ToUniversalTime();
+        CommissionRateApplied = commissionRateApplied;
         if (!string.IsNullOrWhiteSpace(gatewayRef))
             GatewayTransactionRef = gatewayRef.Trim();
         if (!string.IsNullOrWhiteSpace(rawResponse))

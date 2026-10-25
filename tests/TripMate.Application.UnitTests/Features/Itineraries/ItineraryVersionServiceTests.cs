@@ -8,6 +8,8 @@ using TripMate.Application.Features.Itineraries.Regenerate;
 using TripMate.Application.Features.Itineraries.Suggestions;
 using TripMate.Application.Features.PointsOfInterest.ExternalReviews;
 using TripMate.Application.Features.Scheduling.Common;
+using TripMate.Application.Features.Scheduling.Csp;
+using TripMate.Application.Features.Scheduling.TimeOfDay;
 using TripMate.Application.UnitTests.TestUtilities;
 using TripMate.Domain.Constants;
 using TripMate.Domain.Entities;
@@ -85,6 +87,57 @@ public sealed class ItineraryVersionServiceTests
 
         result.IsSuccess.Should().BeTrue();
         VisitIds(result.Value).Should().Equal(other.Id);
+    }
+
+    [Fact]
+    public async Task CreateRegeneratedVersion_InWeightedUtilityMode_SuggestsAnotherPlaceWithoutThrowing()
+    {
+        await using var dbContext = TestDbContext.Create();
+        const long travelerUserId = 42;
+        var request = await AddRequestAsync(dbContext, travelerUserId);
+        var current = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Current museum", visitMinutes: 300);
+        var other = await AddPlanningReadyPoiAsync(dbContext, "Nature", "Other park", visitMinutes: 300);
+        dbContext.TravelerProfiles.Add(TravelerProfile.Create(travelerUserId, "[\"culture\"]", Now));
+        var original = await AddItineraryAsync(dbContext, request, current.Id);
+        var options = new SchedulingGenerationOptions
+        {
+            SolverMode = SchedulingSolverMode.Csp,
+            Csp = new CspOptions { Mode = ObjectiveMode.WeightedUtility },
+        };
+
+        var result = await new ItineraryVersionService(
+                dbContext,
+                new FixedRouteDurationProvider(),
+                options,
+                new TimeOfDayOptions { Enabled = false })
+            .CreateRegeneratedVersionAsync(original, request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        VisitIds(result.Value).Should().Equal(other.Id);
+    }
+
+    [Fact]
+    public async Task CreateRegeneratedVersion_InWeightedUtilityMode_WhenNoOtherPlaceFits_ReturnsNoAlternative()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var request = await AddRequestAsync(dbContext, travelerUserId: 42);
+        var only = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Only museum");
+        var original = await AddItineraryAsync(dbContext, request, only.Id);
+        var options = new SchedulingGenerationOptions
+        {
+            SolverMode = SchedulingSolverMode.Csp,
+            Csp = new CspOptions { Mode = ObjectiveMode.WeightedUtility },
+        };
+
+        var result = await new ItineraryVersionService(
+                dbContext,
+                new FixedRouteDurationProvider(),
+                options,
+                new TimeOfDayOptions { Enabled = false })
+            .CreateRegeneratedVersionAsync(original, request, CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(ItineraryErrorCodes.NoAlternative);
     }
 
     [Fact]
