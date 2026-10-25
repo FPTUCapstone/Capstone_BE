@@ -1,11 +1,12 @@
 namespace TripMate.Domain.Enums;
 
 /// <summary>
-/// Matches the CK constraint on dbo.Notifications.channel in database/tripmate_schema_v7.sql.
+/// Matches dbo.Notifications.channel after the UC-21 InApp migration.
 /// </summary>
 public enum NotificationChannel
 {
     Push = 1,
     Email = 2,
     SMS = 3,
+    InApp = 4,
 }

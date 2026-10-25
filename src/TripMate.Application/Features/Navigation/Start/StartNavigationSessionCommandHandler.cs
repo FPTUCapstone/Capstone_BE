@@ -32,7 +32,7 @@ public sealed class StartNavigationSessionCommandHandler(
         {
             try
             {
-                var attemptResult = await dbContext.ExecuteInTransactionAsync(
+                var attemptResult = await dbContext.ExecuteInSerializableTransactionAsync(
                     transactionCancellationToken => StartAttemptAsync(request, transactionCancellationToken),
                     cancellationToken);
                 NavigationSessionMetrics.RecordStart(attemptResult.IsReplay

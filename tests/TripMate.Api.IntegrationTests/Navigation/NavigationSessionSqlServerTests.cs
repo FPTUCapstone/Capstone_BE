@@ -179,7 +179,8 @@ public sealed class NavigationSessionSqlServerTests
             new FixedClock(seed.StartedAtUtc.AddMinutes(30)));
         var stopHandler = new CompleteNavigationSessionCommandHandler(
             stopDb,
-            new FixedClock(seed.StartedAtUtc.AddMinutes(29)));
+            new FixedClock(seed.StartedAtUtc.AddMinutes(29)),
+            new ItineraryAccessService(stopDb));
 
         var reachTask = reachHandler.Handle(
             new ReachNavigationItemCommand(seed.SessionId, seed.ItemIds.Single(), seed.TravelerId, null),

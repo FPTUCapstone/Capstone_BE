@@ -121,6 +121,8 @@ public class TestDbContext(
 
     public DbSet<GroupJoinOperation> GroupJoinOperations => Set<GroupJoinOperation>();
 
+    public DbSet<GroupLeaveOperation> GroupLeaveOperations => Set<GroupLeaveOperation>();
+
     public DbSet<ItineraryVersionOperation> ItineraryVersionOperations => Set<ItineraryVersionOperation>();
 
     public DbSet<SystemConfig> SystemConfigs => Set<SystemConfig>();

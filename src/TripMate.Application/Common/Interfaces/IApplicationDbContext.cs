@@ -123,6 +123,9 @@ public interface IApplicationDbContext
 
     DbSet<GroupJoinOperation> GroupJoinOperations { get; }
 
+    DbSet<GroupLeaveOperation> GroupLeaveOperations =>
+        throw new NotSupportedException("Group leave operations are unavailable in this context.");
+
     DbSet<ItineraryVersionOperation> ItineraryVersionOperations { get; }
 
     DbSet<SystemConfig> SystemConfigs { get; }

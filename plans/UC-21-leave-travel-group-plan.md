@@ -1,0 +1,22 @@
+# UC-21 Leave Travel Group — Backend implementation plan
+
+**Spec:** `specs/UC-21-leave-travel-group-spec.md` (five business decisions and minimal `InApp` direction approved 2026-10-25). **Status:** Approved for implementation on the isolated UC-21 branch on 2026-10-25.
+
+## Baseline and integration boundary
+
+- Work from an isolated branch/worktree based on freshly fetched `origin/develop`; preserve the dirty UC-10 working tree. Run `dotnet test` before changes and report any pre-existing failure.
+- Do not change Booking, payment, tickets, creator ownership of itinerary, or tour-customer groups. FE Web is not in scope.
+- SQL migration must be idempotent and deployed before application code that maps its columns. Audit existing group rows before backfilling `Active`; do not infer `Closed` from missing memberships without an approved data rule.
+
+## Atomic tasks (test first)
+
+1. **Persist lifecycle and replay.** Add idempotent SQL under `database/migrations/` for `social.TravelGroups.status` (`Active`/`Closed`), `closed_at`, constraints, and a durable leave-operation table with unique `(traveler_user_id, idempotency_key)` and original response fields. Update `TravelGroup`, `GroupMember`, leave-operation entity, EF configurations and `IApplicationDbContext`. Tests first: legal transitions, migration against existing Active rows, exact replay after rejoin, and key reuse across groups. Verify focused domain and SQL Server integration tests.
+2. **Leave command and API.** Add `Features/TravelGroups/LeaveTravelGroup/` command, validator, handler and response; map `POST /api/v1/travel-groups/{groupId}/leave` in `TravelGroupsController`, and map new error codes in `ApiControllerBase`. Use serializable transaction, leave-key lock followed by existing group lifecycle lock. Tests first: non-Host, Host earliest `joined_at` with `user_id` tie-break, last-Host closure, `400/401/403/404/409`, invariant failure without mutation, exact replay, duplicate submission and concurrent leaves. Verify unit, endpoint and SQL Server integration tests.
+3. **Protect closed groups and former members.** Amend `ManageInvitation/GroupInvitationCommandHandlers`, `JoinTravelGroup/JoinTravelGroupCommandHandler`, `GetMembers/GetTravelGroupMembersQueryHandler` and group-only reads. Verify all relevant paths use the same transaction-scoped group lock and that invitation-code locks precede it. Tests first: old invitation replay, stale code, former Host invitation attempt, concurrent join/leave/invitation, and no group-only disclosure after leave. Verify focused tests.
+4. **Navigation revocation.** Amend `TripSession`, the leave handler and navigation access/response path (including `NavigationSessionMutator` and `CompleteNavigationSessionCommandHandler` where needed). Extend `CK_TripSessions_CompletionReason` idempotently to accept the new reason. End only active sessions whose access depends solely on the departed membership, record a distinct system access-revoked reason, and prevent any post-leave snapshot/progress leak. Tests first: retained owner/personal session, revoked group-only session, SQL constraint write, `Complete` after revocation and concurrent progress/leave. Verify focused navigation tests.
+5. **Host notification.** Extend `dbo.Notifications` channel constraint and `NotificationChannel` with `InApp`; persist exactly one `TravelGroupHostTransferred` event linked to the group in the Host-transfer transaction. Add bounded, recipient-only `GET /api/v1/notifications` and retry-safe `POST /api/v1/notifications/{notificationId}/read`. Do not create a push worker or change email/SMS delivery. Tests first: one row on succession, none on ordinary/final leave, replay deduplication, recipient isolation, pagination, read retry and delayed read without affecting Host transfer. Coordinate Mobile rendering separately.
+6. **Final verification/review.** Run `dotnet test`, review implementation against the spec and repository conventions, and report migration/deployment order plus any environment-limited SQL Server tests. Do not commit, push, merge or open a PR without a separate request.
+
+## Definition of done
+
+Every task has a red behavioral test first, green focused tests, and a two-pass spec/quality review. No former member can use an invitation or group-only navigation/reads after leaving; Booking and personal sessions are unchanged. A persisted notification is not reported as visible in-app until its read API and Mobile rendering exist.
