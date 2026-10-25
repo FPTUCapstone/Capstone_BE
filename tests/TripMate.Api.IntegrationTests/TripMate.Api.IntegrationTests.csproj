@@ -136,6 +136,15 @@
     <None Include="..\..\database\migrations\20261022_add_refund_manual_completion_operations.sql"
           Link="Database\migrations\20261022_add_refund_manual_completion_operations.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261025_uc21_group_leave_lifecycle.sql"
+          Link="Database\migrations\20261025_uc21_group_leave_lifecycle.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261025_uc21_navigation_access_revoked_reason.sql"
+          Link="Database\migrations\20261025_uc21_navigation_access_revoked_reason.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261025_uc21_notification_inapp.sql"
+          Link="Database\migrations\20261025_uc21_notification_inapp.sql"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

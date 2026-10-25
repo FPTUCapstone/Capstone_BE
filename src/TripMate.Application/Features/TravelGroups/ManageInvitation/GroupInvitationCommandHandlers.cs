@@ -123,11 +123,16 @@ internal static class GroupInvitationCommandExecutor
             var replayGroup = await dbContext.TravelGroups.FirstOrDefaultAsync(
                 group => group.Id == groupId,
                 cancellationToken);
-            return replayGroup is null
-                ? Result.Failure<GetGroupInvitationResponse>(
+            if (replayGroup is null)
+            {
+                return Result.Failure<GetGroupInvitationResponse>(
                     TravelGroupErrorCodes.GroupNotFound,
-                    "The specified travel group does not exist.")
-                : Result.Success(ToResponse(replayGroup, previousOperation.Invitation));
+                    "The specified travel group does not exist.");
+            }
+
+            var replayAccess = await ValidateInvitationAccessAsync(
+                dbContext, replayGroup, currentUserId, cancellationToken);
+            return replayAccess ?? Result.Success(ToResponse(replayGroup, previousOperation.Invitation));
         }
 
         var group = await dbContext.TravelGroups.FirstOrDefaultAsync(
@@ -140,11 +145,11 @@ internal static class GroupInvitationCommandExecutor
                 "The specified travel group does not exist.");
         }
 
-        if (group.HostUserId != currentUserId)
+        var accessFailure = await ValidateInvitationAccessAsync(
+            dbContext, group, currentUserId, cancellationToken);
+        if (accessFailure is not null)
         {
-            return Result.Failure<GetGroupInvitationResponse>(
-                TravelGroupErrorCodes.HostPermissionRequired,
-                "Only the Group Host can manage invitations.");
+            return accessFailure;
         }
 
         var now = dateTimeProvider.UtcNow;
@@ -202,6 +207,34 @@ internal static class GroupInvitationCommandExecutor
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return Result.Success(ToResponse(group, invitation));
+    }
+
+    private static async Task<Result<GetGroupInvitationResponse>?> ValidateInvitationAccessAsync(
+        IApplicationDbContext dbContext,
+        TravelGroup group,
+        long currentUserId,
+        CancellationToken cancellationToken)
+    {
+        if (group.Status == TravelGroupStatus.Closed)
+        {
+            return Result.Failure<GetGroupInvitationResponse>(
+                TravelGroupErrorCodes.GroupClosed,
+                "This travel group is closed.");
+        }
+
+        if (group.HostUserId != currentUserId
+            || !await dbContext.GroupMembers.AnyAsync(
+                member => member.GroupId == group.Id
+                    && member.UserId == currentUserId
+                    && member.Status == GroupMemberStatus.Active,
+                cancellationToken))
+        {
+            return Result.Failure<GetGroupInvitationResponse>(
+                TravelGroupErrorCodes.HostPermissionRequired,
+                "Only the active Group Host can manage invitations.");
+        }
+
+        return null;
     }
 
     private static async Task<GroupInvitation> CreateUniqueInvitationAsync(

@@ -22,6 +22,7 @@ public sealed class GetTravelGroupMembersQueryHandler(
         var travelGroup = await dbContext.TravelGroups
             .AsNoTracking()
             .Where(travelGroup => travelGroup.Id == request.GroupId
+                && travelGroup.Status == TravelGroupStatus.Active
                 && travelGroup.GroupMembers.Any(member =>
                     member.UserId == request.TravelerUserId
                     && member.Status == GroupMemberStatus.Active))

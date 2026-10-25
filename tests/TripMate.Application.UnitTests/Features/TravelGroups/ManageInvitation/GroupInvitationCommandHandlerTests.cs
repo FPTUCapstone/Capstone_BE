@@ -137,6 +137,70 @@ public sealed class GroupInvitationCommandHandlerTests
     }
 
     [Fact]
+    public async Task GetOrCreate_AfterFinalHostClosesGroup_DoesNotReplayOldInvitation()
+    {
+        await using var db = TestDbContext.Create();
+        var group = await AddGroupAsync(db);
+        var host = group.GroupMembers.Single();
+        var key = Guid.NewGuid();
+        var handler = CreateGetOrCreateHandler(db);
+        var issued = await handler.Handle(
+            new GetOrCreateGroupInvitationCommand(group.Id, group.HostUserId, key),
+            CancellationToken.None);
+        issued.IsSuccess.Should().BeTrue();
+
+        host.Leave(_clock.UtcNow);
+        group.Close(_clock.UtcNow);
+        await db.SaveChangesAsync();
+
+        var replay = await handler.Handle(
+            new GetOrCreateGroupInvitationCommand(group.Id, group.HostUserId, key),
+            CancellationToken.None);
+        replay.IsFailure.Should().BeTrue();
+        replay.ErrorCode.Should().Be(TravelGroupErrorCodes.GroupClosed);
+    }
+
+    [Fact]
+    public async Task Regenerate_AfterHostLeavesAndSuccessorTakesOver_RejectsFormerHost()
+    {
+        await using var db = TestDbContext.Create();
+        var group = await AddGroupAsync(db);
+        var host = group.GroupMembers.Single();
+        var successor = GroupMember.CreateMember(group, group.HostUserId + 1, _clock.UtcNow);
+        db.GroupMembers.Add(successor);
+        await db.SaveChangesAsync();
+
+        host.Leave(_clock.UtcNow);
+        group.TransferHostTo(successor);
+        await db.SaveChangesAsync();
+
+        var result = await CreateRegenerateHandler(db).Handle(
+            new RegenerateGroupInvitationCommand(group.Id, host.UserId, Guid.NewGuid()),
+            CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(TravelGroupErrorCodes.HostPermissionRequired);
+        (await db.GroupInvitations.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task GetOrCreate_WhenHistoricalHostIsNotActive_RejectsInvitationManagement()
+    {
+        await using var db = TestDbContext.Create();
+        var group = await AddGroupAsync(db);
+        var host = group.GroupMembers.Single();
+        host.Leave(_clock.UtcNow);
+        await db.SaveChangesAsync();
+
+        var result = await CreateGetOrCreateHandler(db).Handle(
+            new GetOrCreateGroupInvitationCommand(group.Id, group.HostUserId, Guid.NewGuid()),
+            CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(TravelGroupErrorCodes.HostPermissionRequired);
+    }
+
+    [Fact]
     public async Task GetOrCreate_CreatesAnEightCharacterInvitationForThirtyDaysWithoutBusinessQuota()
     {
         await using var db = TestDbContext.Create();
@@ -257,6 +321,7 @@ public sealed class GroupInvitationCommandHandlerTests
 
         var group = TravelGroup.Create(1, hostUserId.Value, "Invitation Test Group", _clock.UtcNow);
         db.TravelGroups.Add(group);
+        db.GroupMembers.Add(GroupMember.CreateHost(group, hostUserId.Value, _clock.UtcNow));
         await db.SaveChangesAsync();
         return group;
     }
