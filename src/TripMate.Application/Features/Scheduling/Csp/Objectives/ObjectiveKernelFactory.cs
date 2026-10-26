@@ -3,6 +3,7 @@ using TripMate.Application.Features.Scheduling.Csp.Objectives;
 using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Application.Features.Scheduling.Routing;
 using TripMate.Domain.Constants;
+using TripMate.Domain.Enums;
 
 
 namespace TripMate.Application.Features.Scheduling.Csp;
@@ -142,8 +143,8 @@ internal static class ObjectiveKernelFactory
         for (var i = 0; i < n; i++)
         {
             var cand = ctx.Nodes[i].Candidate;
-            isExposedOutdoor[i] = !cand.HasShelter;
-            isFood[i] = string.Equals(cand.CategoryName, PoiCategoryNames.FoodAndDrink, StringComparison.OrdinalIgnoreCase);
+            isExposedOutdoor[i] = cand.IndoorOutdoor != IndoorOutdoorType.Indoor && !cand.HasShelter;
+            isFood[i] = PoiCategoryNames.IsFoodAndDrink(cand.CategoryName);
             isRestStop[i] = ItineraryScheduleEvaluator.IsQualifiedRestCandidate(cand);
             effort[i] = cand.VisitDurationMinutes;
         }
