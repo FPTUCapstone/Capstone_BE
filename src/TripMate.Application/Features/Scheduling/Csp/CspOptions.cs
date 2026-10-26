@@ -60,15 +60,6 @@ public sealed class CspOptions
     /// </summary>
     public ObjectiveMode Mode { get; init; } = ObjectiveMode.Lexicographic;
 
-    /// <summary>
-    /// Chỉ dùng trong benchmark/test đối chứng: tắt cận trên để chạy duyệt vét cạn (brute force).
-    /// </summary>
-    public bool DisableBound { get; init; }
-
-    /// <summary>
-    /// Chỉ dùng trong test bẫy lỗi cận trên (E4).
-    /// </summary>
-    public Objectives.BoundVariant BoundVariant { get; init; } = Objectives.BoundVariant.Correct;
 }
 
 

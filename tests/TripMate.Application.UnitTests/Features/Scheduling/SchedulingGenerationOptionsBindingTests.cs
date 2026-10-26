@@ -3,6 +3,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 
 using TripMate.Application.Features.Scheduling.Common;
+using TripMate.Application.Features.Scheduling.Csp;
 
 namespace TripMate.Application.UnitTests.Features.Scheduling;
 
@@ -37,6 +38,21 @@ public sealed class SchedulingGenerationOptionsBindingTests
             MaxOptionalDomainSize = 12,
             MaxStops = 8,
         });
+    }
+
+    [Fact]
+    public void Bind_TestOnlyBoundKeys_CannotChangeCspBehavior()
+    {
+        var options = Bind(new Dictionary<string, string?>
+        {
+            ["Csp:DisableBound"] = "true",
+            ["Csp:BoundVariant"] = "OmitMandatoryGain",
+        });
+
+        typeof(CspOptions).GetProperties()
+            .Select(property => property.Name)
+            .Should().NotContain(["DisableBound", "BoundVariant"]);
+        options.Csp.Should().BeEquivalentTo(new CspOptions());
     }
 
     [Fact]

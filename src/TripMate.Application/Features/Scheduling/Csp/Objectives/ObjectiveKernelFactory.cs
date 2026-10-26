@@ -22,9 +22,7 @@ internal static class ObjectiveKernelFactory
             ObjectiveMode.WeightedUtility => new WeightedUtilityKernel(
                 weightedInputs ?? throw new InvalidOperationException(
                     "WeightedObjectiveInputs must be provided when ObjectiveMode is WeightedUtility."),
-                options,
-                options.DisableBound,
-                options.BoundVariant),
+                options),
             _ => new LexicographicKernel(rule, options),
         };
     }
@@ -40,9 +38,7 @@ internal static class ObjectiveKernelFactory
             ObjectiveMode.WeightedUtility => new WeightedUtilityKernel(
                 BuildWeightedInputs(ctx, weighted ?? throw new InvalidOperationException(
                     "WeightedRequestInputs must be provided when ObjectiveMode is WeightedUtility.")),
-                options,
-                options.DisableBound,
-                options.BoundVariant),
+                options),
             _ => new LexicographicKernel(rule, options),
         };
     }

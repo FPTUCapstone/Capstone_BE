@@ -41,10 +41,11 @@ public class WeightedTrapTests
     }
 
     [Theory]
-    [InlineData(BoundVariant.Correct, true)]
-    [InlineData(BoundVariant.OmitMandatoryGain, false)]
-    public void MandatoryGainTrap_Prunes_Optimal_When_Mandatory_Gain_Is_Omitted(BoundVariant variant, bool expectedCanImprove)
+    [InlineData((int)BoundVariant.Correct, true)]
+    [InlineData((int)BoundVariant.OmitMandatoryGain, false)]
+    public void MandatoryGainTrap_Prunes_Optimal_When_Mandatory_Gain_Is_Omitted(int variantValue, bool expectedCanImprove)
     {
+        var variant = (BoundVariant)variantValue;
         // 2 candidates: C1 (optional, low base), C2 (mandatory, high base)
         var c1 = OptionalRouteOptimizationScenarios.CreateCandidate(101, "C1", visitDurationMinutes: 30, cost: 0, effectiveDesirabilityScore: 0.2m);
         var c2 = OptionalRouteOptimizationScenarios.CreateCandidate(102, "C2", visitDurationMinutes: 30, cost: 0, effectiveDesirabilityScore: 0.9m);
@@ -102,10 +103,11 @@ public class WeightedTrapTests
     }
 
     [Theory]
-    [InlineData(BoundVariant.Correct, true)]
-    [InlineData(BoundVariant.GreedySlotsOnly, false)]
-    public void SlotGreedyTrap_Prunes_Optimal_When_Slots_Bound_Sorts_By_Density_Instead_Of_Value(BoundVariant variant, bool expectedCanImprove)
+    [InlineData((int)BoundVariant.Correct, true)]
+    [InlineData((int)BoundVariant.GreedySlotsOnly, false)]
+    public void SlotGreedyTrap_Prunes_Optimal_When_Slots_Bound_Sorts_By_Density_Instead_Of_Value(int variantValue, bool expectedCanImprove)
     {
+        var variant = (BoundVariant)variantValue;
         // MaxStops = 1.
         // Node 0: short duration (5 min), low base (0.15) -> high density 1500 / 6 = 250
         // With transition buffer, weights are ~21 for c1 and ~80 for c2.
@@ -167,10 +169,11 @@ public class WeightedTrapTests
     }
 
     [Theory]
-    [InlineData(BoundVariant.Correct, true)]
-    [InlineData(BoundVariant.ApplyGamma, false)]
-    public void GammaDensityTrap_Prunes_Optimal_When_Gamma_Is_Multiplied_In_Upper_Bound(BoundVariant variant, bool expectedCanImprove)
+    [InlineData((int)BoundVariant.Correct, true)]
+    [InlineData((int)BoundVariant.ApplyGamma, false)]
+    public void GammaDensityTrap_Prunes_Optimal_When_Gamma_Is_Multiplied_In_Upper_Bound(int variantValue, bool expectedCanImprove)
     {
+        var variant = (BoundVariant)variantValue;
         // Category "Culture" with Loved gamma = 0.60
         // Candidate has Base = 0.50 (gain 5,000).
         // If gamma (0.60) is multiplied, uMax becomes 3,000.
@@ -228,10 +231,11 @@ public class WeightedTrapTests
     }
 
     [Theory]
-    [InlineData(BoundVariant.Correct, true)]
-    [InlineData(BoundVariant.NoRoundingSlack, false)]
-    public void RoundingTrap_Prunes_Optimal_When_Slack_Is_Omitted_On_Half_Integers(BoundVariant variant, bool expectedCanImprove)
+    [InlineData((int)BoundVariant.Correct, true)]
+    [InlineData((int)BoundVariant.NoRoundingSlack, false)]
+    public void RoundingTrap_Prunes_Optimal_When_Slack_Is_Omitted_On_Half_Integers(int variantValue, bool expectedCanImprove)
     {
+        var variant = (BoundVariant)variantValue;
         // 2 candidates. Each has net = 999.5.
         // Scale * gain = 1000.
         // Scale * travelCost = 0.5.
@@ -311,8 +315,6 @@ public class WeightedTrapTests
         var cspOptions = new CspOptions
         {
             Mode = ObjectiveMode.WeightedUtility,
-            BoundVariant = variant,
-            DisableBound = disableBound,
             MaxNodes = fixture.CspOptions.MaxNodes,
             MaxStops = fixture.CspOptions.MaxStops,
             MaxOptionalDomainSize = fixture.CspOptions.MaxOptionalDomainSize,
@@ -321,7 +323,11 @@ public class WeightedTrapTests
             PolishWithLocalSearch = false
         };
 
-        var solver = new CspItinerarySolver(new ItineraryScheduleEvaluator(options), options, cspOptions);
+        var solver = new CspItinerarySolver(new ItineraryScheduleEvaluator(options), options, cspOptions)
+        {
+            WeightedKernelFactoryForTest = (inputs, kernelOptions) =>
+                new WeightedUtilityKernel(inputs, kernelOptions, disableBound, variant)
+        };
         var result = solver.Solve(
             fixture.Input,
             fixture.Matrix,
