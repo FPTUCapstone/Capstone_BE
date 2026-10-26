@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Traveler.Bookings.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -11,7 +12,20 @@ public sealed class PaymentCompletionProcessor(
     IApplicationDbContext dbContext,
     IDateTimeProvider clock) : IPaymentCompletionProcessor
 {
-    public async Task<Result<PaymentCompletionResult>> CompleteAsync(
+    public Task<Result<PaymentCompletionResult>> CompleteAsync(
+        long? transactionId,
+        long? orderCode,
+        PaymentTransactionStatus outcome,
+        string? gatewayRef,
+        string? rawResponse,
+        decimal? verifiedAmount,
+        string? verifiedCurrency,
+        CancellationToken cancellationToken) =>
+        dbContext.ExecuteInSerializableTransactionAsync(
+            token => CompleteInTransactionAsync(transactionId, orderCode, outcome, gatewayRef,
+                rawResponse, verifiedAmount, verifiedCurrency, token), cancellationToken);
+
+    private async Task<Result<PaymentCompletionResult>> CompleteInTransactionAsync(
         long? transactionId,
         long? orderCode,
         PaymentTransactionStatus outcome,
@@ -96,7 +110,7 @@ public sealed class PaymentCompletionProcessor(
                 {
                     if (booking.PaymentExpiresAtUtc.HasValue && booking.PaymentExpiresAtUtc.Value < now)
                     {
-                        booking.ExpirePendingPayment(now);
+                        await BookingExpiryEffects.ExpireAsync(dbContext, booking, now, cancellationToken);
                     }
                     else
                     {
@@ -126,7 +140,7 @@ public sealed class PaymentCompletionProcessor(
                     booking.PaymentExpiresAtUtc.HasValue &&
                     booking.PaymentExpiresAtUtc.Value <= now)
                 {
-                    booking.ExpirePendingPayment(now);
+                    await BookingExpiryEffects.ExpireAsync(dbContext, booking, now, cancellationToken);
                     statusChanged = true;
                 }
                 break;

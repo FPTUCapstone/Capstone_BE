@@ -13,11 +13,37 @@ namespace TripMate.Application.Features.Coupons.Update;
 public sealed class UpdateCouponCommandHandler(IApplicationDbContext dbContext, ICurrentUserService currentUser,
     IDateTimeProvider clock) : IRequestHandler<UpdateCouponCommand, Result<OperatorCouponResponse>>
 {
+    private const int MaxDeadlockAttempts = 3;
+
     public async Task<Result<OperatorCouponResponse>> Handle(UpdateCouponCommand request,
         CancellationToken cancellationToken)
     {
         if (!currentUser.UserId.HasValue) return Denied();
         var operatorId = currentUser.UserId.Value;
+
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await dbContext.ExecuteInSerializableTransactionAsync(
+                    token => UpdateInCurrentTransactionAsync(request, operatorId, token), cancellationToken);
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                dbContext.ClearTrackedEntities();
+                return UsageConflict();
+            }
+            catch (Exception exception) when (dbContext.IsDeadlock(exception))
+            {
+                dbContext.ClearTrackedEntities();
+                if (attempt >= MaxDeadlockAttempts) return UsageConflict();
+            }
+        }
+    }
+
+    private async Task<Result<OperatorCouponResponse>> UpdateInCurrentTransactionAsync(
+        UpdateCouponCommand request, long operatorId, CancellationToken cancellationToken)
+    {
         if (!await IsEligibleOperator(operatorId, cancellationToken)) return Denied();
 
         var coupon = await dbContext.Vouchers.Include(voucher => voucher.ApplicableTours)
@@ -25,6 +51,9 @@ public sealed class UpdateCouponCommandHandler(IApplicationDbContext dbContext, 
                 cancellationToken);
         if (coupon is null)
             return Result.Failure<OperatorCouponResponse>(CouponErrorCodes.NotFound, "The requested coupon was not found.");
+
+        if (request.UsageLimit.HasValue && request.UsageLimit.Value < coupon.UsedCount)
+            return UsageConflict();
 
         var tourResult = await ResolveEligibleTours(operatorId, request.ApplicableTourIds, cancellationToken);
         if (!tourResult.IsSuccess)
@@ -67,16 +96,17 @@ public sealed class UpdateCouponCommandHandler(IApplicationDbContext dbContext, 
         if (tours.Any(tour => tour.OperatorUserId != operatorId))
             return Result.Failure<IReadOnlyCollection<Tour>>(CouponErrorCodes.TourNotOwned,
                 "A selected tour is not owned by this operator.");
-        if (tours.Any(tour => !IsPublicCouponTour(tour, clock.UtcNow)))
+        if (tours.Any(tour => !CouponTourEligibility.IsEligible(tour, clock.UtcNow)))
             return Result.Failure<IReadOnlyCollection<Tour>>(CouponErrorCodes.TourNotEligible,
                 "Coupons can only apply to published tours.");
         return Result.Success<IReadOnlyCollection<Tour>>(tours);
     }
 
-    private static bool IsPublicCouponTour(Tour tour, DateTimeOffset now) => tour.Status == TourStatus.Published ||
-        (tour.Status == TourStatus.Approved && tour.PublishedAtUtc.HasValue && tour.PublishedAtUtc <= now);
-
     private static Result<OperatorCouponResponse> Denied() =>
         Result.Failure<OperatorCouponResponse>(CouponErrorCodes.OperatorAccessRequired,
             "An active approved Tour Operator account is required.");
+
+    private static Result<OperatorCouponResponse> UsageConflict() =>
+        Result.Failure<OperatorCouponResponse>(CouponErrorCodes.UsageConflict,
+            "Coupon usage changed. Reload the current usage count before saving again.");
 }
