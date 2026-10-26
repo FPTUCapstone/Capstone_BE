@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 
 using TripMate.Application.Features.TripReviews.Media;
 using TripMate.Infrastructure.Media.Cloudinary;
+using TripMate.Infrastructure.UnitTests.Security;
 
 namespace TripMate.Infrastructure.UnitTests.Media;
 
@@ -67,6 +68,8 @@ public sealed class ReviewMediaRegistrationTests
         ["Cloudinary:CloudName"] = "test-cloud",
         ["Cloudinary:ApiKey"] = "test-api-key",
         ["Cloudinary:ApiSecret"] = "test-api-secret",
+        [TicketQrTestKeys.EncryptionKeySetting] = TicketQrTestKeys.EncryptionKey,
+        [TicketQrTestKeys.SigningKeySetting] = TicketQrTestKeys.SigningKey,
         ["Cloudinary:TourMediaFolderRoot"] = "tripmate/tests/tours",
         ["Cloudinary:ReviewMediaFolderRoot"] = ReviewCloudinaryOptions.StableReviewMediaFolderRoot,
         ["Cloudinary:OperatorDocumentsFolderRoot"] = "tripmate/tests/operator-documents",

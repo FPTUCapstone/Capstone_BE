@@ -56,6 +56,10 @@ public sealed class TripMateApiFactory(
     internal const string JwtSigningKey =
         "dGVzdC1vbmx5LXNpZ25pbmcta2V5LXRoYXQtaXMtbG9uZy1lbm91Z2g=";
 
+    // Test-only UC-29 QR keys: bytes 1..32 and 33..64. Never used outside the test host.
+    internal const string TicketQrEncryptionKey = "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=";
+    internal const string TicketQrSigningKey = "ISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0A=";
+
     private readonly string _databaseName = $"tripmate-api-tests-{Guid.NewGuid():N}";
     private readonly string _logDirectory = Path.Combine(
         Path.GetTempPath(), "TripMate.Api.IntegrationTests", Guid.NewGuid().ToString("N"));
@@ -84,6 +88,8 @@ public sealed class TripMateApiFactory(
         builder.UseSetting("Jwt:Audience", JwtAudience);
         builder.UseSetting("Jwt:SigningKey", JwtSigningKey);
         builder.UseSetting("PasswordResetSecurity:OtpPepper", "test-only-pepper-0123456789abcdef");
+        builder.UseSetting("TicketQr:EncryptionKey", TicketQrEncryptionKey);
+        builder.UseSetting("TicketQr:SigningKey", TicketQrSigningKey);
         builder.UseSetting("EmailVerification:ContinueUrl", "https://tripmate.test/verify-email");
         builder.UseSetting("Cloudinary:CloudName", "test-cloud");
         builder.UseSetting("Cloudinary:ApiKey", "test-api-key");
@@ -450,6 +456,8 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<RevenueExport> RevenueExports => Set<RevenueExport>();
 
     public DbSet<Ticket> Tickets => Set<Ticket>();
+
+    public DbSet<TicketQrCode> TicketQrCodes => Set<TicketQrCode>();
     public DbSet<BookingCancellationOperation> BookingCancellationOperations =>
         Set<BookingCancellationOperation>();
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();

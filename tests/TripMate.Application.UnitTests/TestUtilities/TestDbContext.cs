@@ -97,6 +97,8 @@ public class TestDbContext(
 
     public DbSet<Ticket> Tickets => Set<Ticket>();
 
+    public DbSet<TicketQrCode> TicketQrCodes => Set<TicketQrCode>();
+
     public DbSet<BookingCancellationOperation> BookingCancellationOperations =>
         Set<BookingCancellationOperation>();
 
@@ -175,9 +177,18 @@ public class TestDbContext(
 
     public Func<int, Exception?>? TransactionCompletionFailureFactory { get; set; }
 
+    /// <summary>
+    /// Called before each save; a returned exception is thrown instead of saving. Lets a test simulate
+    /// a unique-index conflict that the in-memory provider cannot enforce.
+    /// </summary>
+    public Func<Exception?>? SaveChangesFailureFactory { get; set; }
+
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         SaveChangesAsyncCallCount++;
+        if (SaveChangesFailureFactory?.Invoke() is { } failure)
+            throw failure;
+
         return ThrowOnSaveConcurrency
             ? throw new DbUpdateConcurrencyException("Concurrency conflict simulated in test.")
             : base.SaveChangesAsync(cancellationToken);
