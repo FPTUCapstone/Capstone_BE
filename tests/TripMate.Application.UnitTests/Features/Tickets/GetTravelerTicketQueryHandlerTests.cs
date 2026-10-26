@@ -260,6 +260,24 @@ public class GetTravelerTicketQueryHandlerTests
     }
 
     [Fact]
+    public async Task FirstView_LosingTheRaceWhenNoActiveQrIsLeft_IssuesOne()
+    {
+        var data = new TicketTestData();
+        var ticket = await data.AddTicketAsync(await data.AddBookingAsync(BookingStatus.Confirmed, PaymentStatus.Paid));
+        var saves = 0;
+        data.Db.SaveChangesFailureFactory = () =>
+            ++saves == 1
+                ? new DbUpdateException("Cannot insert duplicate key row with unique index 'UX_TicketQrCodes_OneActivePerTicket'.")
+                : null;
+
+        var result = await Handle(data, GetTravelerTicketQuery.ForTicket(TravelerId, ticket.Id), InWindow);
+
+        result.IsSuccess.Should().BeTrue();
+        (await data.QrCodesAsync(ticket.Id)).Should().ContainSingle()
+            .Which.Status.Should().Be(TicketQrCodeStatus.Active);
+    }
+
+    [Fact]
     public async Task FirstView_WithAnUnrelatedSaveFailure_Rethrows()
     {
         var data = new TicketTestData();

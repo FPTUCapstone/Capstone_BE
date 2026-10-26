@@ -15,26 +15,37 @@ public sealed class TicketQrIssuer(
     ITicketQrCodec codec,
     ITicketQrPersistenceErrorClassifier classifier)
 {
+    /// <summary>Bounded so a fault the classifier misreads can never loop forever.</summary>
+    private const int MaxIssueAttempts = 5;
+
     public string ContentFor(TicketQrCode code) => codec.ContentFor(code.QrToken, code.Signature);
 
-    /// <summary>D7: the QR is created lazily the first time a usable ticket is viewed.</summary>
+    /// <summary>
+    /// D7: the QR is created lazily the first time a usable ticket is viewed. Losing the race on the
+    /// one-Active index is retried: the winner may itself have been revoked by a concurrent refresh
+    /// before this request reads it, so the loop either finds an Active QR or issues one.
+    /// </summary>
     public async Task<TicketQrCode> EnsureActiveAsync(long ticketId, DateTimeOffset nowUtc,
         CancellationToken cancellationToken)
     {
-        var active = await FindActiveAsync(ticketId, cancellationToken);
-        if (active is not null)
-            return active;
+        for (var attempt = 1; ; attempt++)
+        {
+            var active = await FindActiveAsync(ticketId, cancellationToken);
+            if (active is not null)
+                return active;
 
-        try
-        {
-            var code = NewCode(ticketId, nowUtc);
-            dbContext.TicketQrCodes.Add(code);
-            await dbContext.SaveChangesAsync(cancellationToken);
-            return code;
-        }
-        catch (DbUpdateException exception) when (classifier.IsOneActiveCodeConflict(exception))
-        {
-            return await ReadWinnerAsync(ticketId, cancellationToken);
+            try
+            {
+                var code = NewCode(ticketId, nowUtc);
+                dbContext.TicketQrCodes.Add(code);
+                await dbContext.SaveChangesAsync(cancellationToken);
+                return code;
+            }
+            catch (DbUpdateException exception)
+                when (attempt < MaxIssueAttempts && classifier.IsOneActiveCodeConflict(exception))
+            {
+                dbContext.ClearTrackedEntities();
+            }
         }
     }
 
@@ -61,7 +72,9 @@ public sealed class TicketQrIssuer(
         }
         catch (DbUpdateException exception) when (classifier.IsOneActiveCodeConflict(exception))
         {
-            return await ReadWinnerAsync(ticketId, cancellationToken);
+            // A concurrent refresh won; return its QR, or issue one if that QR was revoked meanwhile.
+            dbContext.ClearTrackedEntities();
+            return await EnsureActiveAsync(ticketId, nowUtc, cancellationToken);
         }
     }
 
@@ -69,14 +82,6 @@ public sealed class TicketQrIssuer(
     {
         var payload = codec.Issue(ticketId, nowUtc);
         return TicketQrCode.Issue(ticketId, payload.QrToken, payload.Signature, nowUtc);
-    }
-
-    private async Task<TicketQrCode> ReadWinnerAsync(long ticketId, CancellationToken cancellationToken)
-    {
-        dbContext.ClearTrackedEntities();
-        return await FindActiveAsync(ticketId, cancellationToken)
-            ?? throw new InvalidOperationException(
-                $"Ticket {ticketId} lost a QR issuance race but no Active QR exists.");
     }
 
     private Task<TicketQrCode?> FindActiveAsync(long ticketId, CancellationToken cancellationToken) =>
