@@ -117,7 +117,9 @@ public sealed class CreateTourBookingCommandHandler(
             var redemptionCount = voucher is null
                 ? 0
                 : await dbContext.VoucherRedemptions.AsNoTracking().Include(r => r.Booking)
-                    .CountAsync(r => r.VoucherId == voucher.Id && r.Booking.TravelerUserId == travelerId,
+                    .CountAsync(r => r.VoucherId == voucher.Id && r.Booking.TravelerUserId == travelerId &&
+                        r.Booking.Status != BookingStatus.Expired &&
+                        (r.Booking.Status != BookingStatus.Cancelled || r.Booking.PaymentStatus != PaymentStatus.Unpaid),
                         transactionCancellationToken);
 
             var participantTypes = request.Participants.Select(participant => participant.ParticipantType).ToList();
