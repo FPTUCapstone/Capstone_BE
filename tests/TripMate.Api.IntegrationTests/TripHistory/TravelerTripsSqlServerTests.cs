@@ -61,8 +61,10 @@ public sealed class TravelerTripsSqlServerTests
                   ('TM78-L1',1,NULL,1,0,0,'Completed','Paid');
             UPDATE commerce.Bookings SET cancelled_at='2026-08-20T00:00:00', cancel_reason=N'Change of plans'
             WHERE booking_code='TM78-X1';
+            -- UC-29 D2: UX_Tickets_OneTicketPerBooking allows one ticket per booking, so the T2
+            -- several-tickets preference is covered by TripCardHydratorTests, not here.
             INSERT commerce.Tickets(booking_id,ticket_code,status)
-            VALUES(1,'T-USED','Used'),(1,'T-VALID','Valid'),(2,'T-UP','Valid');
+            VALUES(1,'T-VALID','Valid'),(2,'T-UP','Valid');
             INSERT payment.PaymentTransactions(booking_id,gateway,amount,transaction_type,status)
             VALUES(3,'PayOS',800000,'Payment','Success'),(3,'VNPAY',800000,'Payment','Success');
             INSERT payment.Refunds(booking_id,transaction_id,amount,initiated_by,status)
@@ -216,8 +218,8 @@ public sealed class TravelerTripsSqlServerTests
         cancelled.Value.Refund.Should().Be(new TripRefundInfo("Processed", 800_000m, "VNPAY"));
         cancelled.Value.Cancellation!.Reason.Should().Be("Change of plans");
         cancelled.Value.Actions.CanViewRefund.Should().BeTrue();
-        // T2: the Valid ticket (inserted second, higher id) is preferred over the Used one.
-        completed.Value.Actions.TicketId.Should().Be(2);
+        // The booking's single Valid ticket is the e-ticket link (T2 ordering still runs on SQL Server).
+        completed.Value.Actions.TicketId.Should().Be(1);
         completed.Value.Actions.CanReview.Should().BeTrue();
     }
 

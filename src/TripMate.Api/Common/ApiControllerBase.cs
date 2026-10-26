@@ -12,6 +12,7 @@ using TripMate.Application.Features.Operator.Tours.Common;
 using TripMate.Application.Features.PointsOfInterest.Common;
 using TripMate.Application.Features.RecommendationFeedback.Common;
 using TripMate.Application.Features.Scheduling.Common;
+using TripMate.Application.Features.Tickets.Common;
 using TripMate.Application.Features.TourMedia.Common;
 using TripMate.Application.Features.Tours.Shared;
 using TripMate.Application.Features.Traveler.Payments.Common;
@@ -231,6 +232,7 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             CouponErrorCodes.CodeConflict => StatusCodes.Status409Conflict,
             CouponErrorCodes.NotFound => StatusCodes.Status404NotFound,
             CouponErrorCodes.InvalidState => StatusCodes.Status409Conflict,
+            CouponErrorCodes.UsageConflict => StatusCodes.Status409Conflict,
 
             OperatorTourErrorCodes.AccessRequired => StatusCodes.Status403Forbidden,
             OperatorTourErrorCodes.AdminAccessRequired => StatusCodes.Status403Forbidden,
@@ -358,6 +360,20 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
 
             TripMate.Application.Features.PointsOfInterest.ExternalReviews.ExternalReviewErrorCodes.TranslationUnavailable =>
                 StatusCodes.Status503ServiceUnavailable,
+
+            TicketErrorCodes.Unauthorized =>
+                StatusCodes.Status401Unauthorized,
+
+            TicketErrorCodes.Forbidden =>
+                StatusCodes.Status403Forbidden,
+
+            TicketErrorCodes.NotFound =>
+                StatusCodes.Status404NotFound,
+
+            TicketErrorCodes.BookingNotConfirmed
+                or TicketErrorCodes.NotIssued
+                or TicketErrorCodes.NotRefreshable =>
+                StatusCodes.Status409Conflict,
 
             TripHistoryErrorCodes.Unauthorized =>
                 StatusCodes.Status401Unauthorized,

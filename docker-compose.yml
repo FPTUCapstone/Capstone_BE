@@ -134,6 +134,9 @@ services:
       Email__Password: ${EMAIL_PASSWORD:?EMAIL_PASSWORD must be set in .env}
       Email__FromEmail: ${EMAIL_FROM_EMAIL:?EMAIL_FROM_EMAIL must be set in .env}
       PasswordResetSecurity__OtpPepper: ${PASSWORD_RESET_OTP_PEPPER:?PASSWORD_RESET_OTP_PEPPER must be set in .env}
+      # UC-29 e-ticket QR keys (Base64, 32 bytes each, different from each other).
+      TicketQr__EncryptionKey: ${TICKET_QR_ENCRYPTION_KEY:?TICKET_QR_ENCRYPTION_KEY must be set in .env}
+      TicketQr__SigningKey: ${TICKET_QR_SIGNING_KEY:?TICKET_QR_SIGNING_KEY must be set in .env}
       # Tour/review media: signed server-side Cloudinary operations. No unsigned upload preset.
       Cloudinary__CloudName: ${Cloudinary__CloudName:?Cloudinary__CloudName must be set in .env}
       Cloudinary__ApiKey: ${Cloudinary__ApiKey:?Cloudinary__ApiKey must be set in .env}

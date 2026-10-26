@@ -233,6 +233,7 @@ fails closed when the value is absent or invalid.
 | `Jwt:SigningKey` | Khoá đối xứng (base64) ký access token; bắt buộc cấp qua User Secrets hoặc `Jwt__SigningKey`. Không có key dự phòng trong code. |
 | `Jwt:AccessTokenLifetimeMinutes` | Thời hạn access token. |
 | `Cors:AllowedOrigins` | Domain được phép gọi API từ trình duyệt (Next.js admin web). |
+| `TicketQr:EncryptionKey` / `TicketQr:SigningKey` | Hai khoá Base64 32 byte, khác nhau, dùng mã hoá và ký QR e-ticket (UC-29). Bắt buộc ở **mọi** môi trường — xem mục 9.2. |
 
 Các file appsettings được theo dõi trong Git không chứa signing key hoặc connection string.
 Trước khi chạy local, cấu hình `Jwt:SigningKey` và `ConnectionStrings:Default` bằng .NET User
@@ -289,6 +290,30 @@ Cách thay thế (không dùng file): dán nội dung JSON vào biến môi trư
 `FIREBASE_SERVICE_ACCOUNT_KEY_JSON` (hoặc config key `Firebase:ServiceAccountKeyJson`) — cũng
 không bao giờ commit. Thứ tự ưu tiên credential: JSON inline → `GOOGLE_APPLICATION_CREDENTIALS`
 → Application Default Credentials.
+
+### 9.2 Khoá QR e-ticket (UC-29, bắt buộc)
+
+API **dừng khởi động** nếu thiếu `TicketQr:EncryptionKey` hoặc `TicketQr:SigningKey`, kể cả ở
+Development (không có khoá dự phòng trong code). Mỗi khoá là 32 byte ngẫu nhiên mã hoá Base64, hai
+khoá phải khác nhau. Mỗi developer tự tạo khoá riêng cho máy mình — không gửi qua chat, không commit.
+
+```bash
+# Tạo khoá (Git Bash / WSL / macOS / Linux)
+openssl rand -base64 32
+
+# Lưu vào User Secrets của project API (chạy 2 lần với 2 khoá khác nhau)
+dotnet user-secrets set "TicketQr:EncryptionKey" "<khoá thứ nhất>" --project src/TripMate.Api
+dotnet user-secrets set "TicketQr:SigningKey" "<khoá thứ hai>" --project src/TripMate.Api
+```
+
+```powershell
+# PowerShell, không cần openssl
+[Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+```
+
+Docker Compose đọc `TICKET_QR_ENCRYPTION_KEY` / `TICKET_QR_SIGNING_KEY` từ `.env` (xem `.env.example`).
+Trên môi trường deploy, đặt biến môi trường `TicketQr__EncryptionKey` / `TicketQr__SigningKey`.
+Đổi khoá làm mọi QR đang hiển thị mất hiệu lực; Traveler bấm [Refresh QR Code] để lấy mã mới.
 
 ## 10. Xử lý sự cố thường gặp
 
