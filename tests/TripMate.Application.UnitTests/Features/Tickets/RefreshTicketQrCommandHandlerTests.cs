@@ -157,6 +157,28 @@ public class RefreshTicketQrCommandHandlerTests
             .Should().Be(TicketQrCodeStatus.Revoked);
     }
 
+    [Fact]
+    public async Task Refresh_LosingTheRaceWhenNoActiveQrIsLeft_IssuesOne()
+    {
+        // CI (BE #126): another refresh had already revoked the winner and not yet inserted its own,
+        // so the loser found no Active row. It must still end with exactly one Active QR.
+        var data = new TicketTestData();
+        var ticket = await data.AddTicketAsync(await data.AddBookingAsync(BookingStatus.Confirmed, PaymentStatus.Paid));
+        await data.AddQrAsync(ticket.Id, "old-token", TicketQrCodeStatus.Active, InWindow.AddHours(-1));
+        var saves = 0;
+        data.Db.SaveChangesFailureFactory = () =>
+            ++saves == 2
+                ? new DbUpdateException("Cannot insert duplicate key row with unique index 'UX_TicketQrCodes_OneActivePerTicket'.")
+                : null;
+
+        var result = await Handle(data, ticket.Id, TravelerId, InWindow);
+
+        result.IsSuccess.Should().BeTrue();
+        var active = (await data.QrCodesAsync(ticket.Id)).Where(code => code.Status == TicketQrCodeStatus.Active).ToList();
+        active.Should().ContainSingle();
+        result.Value.Qr!.Content.Should().Be(data.Codec.ContentFor(active[0].QrToken, active[0].Signature));
+    }
+
     private static Task<Result<TicketResponse>> Handle(TicketTestData data, long ticketId, long travelerId,
         DateTimeOffset now) =>
         new RefreshTicketQrCommandHandler(data.Db, data.Codec, data.Classifier, ClockAt(now))
