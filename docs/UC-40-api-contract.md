@@ -147,7 +147,10 @@ by UC-43 (mobile), which is not built yet, so until it ships every booking repor
 | 403 | `operator_booking.forbidden` | the booking, tour or schedule is not owned by this operator (or does not exist, for a filter) | MSG126 |
 | 404 | `operator_booking.not_found` | detail: no such booking | MSG126 |
 | 400 | `operator_booking.invalid_filter` | bad `pageNumber`, `pageSize`, ids or an over-long `keyword` | validation message |
-| 400 | `operator_booking.invalid_date_range` | `departureFrom` is after `departureTo` | MSG29 |
+| 400 | `operator_booking.invalid_date_range` | `departureFrom` is after `departureTo` | MSG31 ("End date must be on or after the start date."; see note below) |
 | 500 | none | unexpected failure | MSG127 |
+
+Note: SRS 3.8.4.1 names MSG29 for an invalid date range, but in the SRS message catalogue MSG29 is the invalid
+latitude/longitude text and MSG31 is the date-range message, so the FE shows MSG31.
 
 An empty list is not an error (`200`, show MSG128).
