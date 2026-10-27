@@ -2,7 +2,8 @@
 
 ## Scope
 
-Change only the regeneration score normalization for candidates with no preference signal.
+Change only the regeneration score normalization for WeightedUtility candidates, with and
+without a preference signal.
 Preserve the WeightedUtility objective, tier ordering, and Lexicographic behavior.
 
 ## Steps
@@ -10,10 +11,11 @@ Preserve the WeightedUtility objective, tier ordering, and Lexicographic behavio
 1. Add a failing `ItineraryVersionServiceTests` case with no traveler profile, one previous
    60-minute POI, one unseen 60-minute POI, and 480 available minutes. Require the unseen POI
    first and both POIs in the resulting itinerary.
-2. Document the neutral cold-start score and its travel-cost calibration in the UC-10 spec and
-   ADR-001. Map cold-start regeneration tiers to `[0.5, 1]`; keep the prior `[0,1]` rule when a
-   preference signal exists.
-3. Run the regression, Lexicographic, WeightedUtility golden, benchmark, and Application unit
+2. Add reviewer regression cases with a matching `nature` or `culture` preference, proving that
+   the previous POI can fill the schedule in both cases.
+3. Document the neutral regeneration score and its travel-cost calibration in the UC-10 spec and
+   ADR-001. Map all regeneration tiers that need normalization to `[0.5, 1]`.
+4. Run the regression, Lexicographic, WeightedUtility golden, benchmark, and Application unit
    tests. Verify formatting and discard generated timing/snapshot changes.
 
 ## Verification

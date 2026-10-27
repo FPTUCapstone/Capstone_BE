@@ -142,6 +142,36 @@ public sealed class ItineraryVersionServiceTests
         VisitIds(result.Value).Should().Equal(newPoi.Id, previous.Id);
     }
 
+    [Theory]
+    [InlineData("nature")]
+    [InlineData("culture")]
+    public async Task CreateRegeneratedVersion_InWeightedUtilityMode_WithPreferencesUsesPreviousStopToFillAvailableTime(
+        string interestTag)
+    {
+        await using var dbContext = TestDbContext.Create();
+        const long travelerUserId = 42;
+        var request = await AddRequestAsync(dbContext, travelerUserId);
+        var previous = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Previous museum", visitMinutes: 60);
+        var newPoi = await AddPlanningReadyPoiAsync(dbContext, "Nature", "New park", visitMinutes: 60);
+        dbContext.TravelerProfiles.Add(TravelerProfile.Create(travelerUserId, $"[\"{interestTag}\"]", Now));
+        var original = await AddItineraryAsync(dbContext, request, previous.Id);
+        var options = new SchedulingGenerationOptions
+        {
+            SolverMode = SchedulingSolverMode.Csp,
+            Csp = new CspOptions { Mode = ObjectiveMode.WeightedUtility },
+        };
+
+        var result = await new ItineraryVersionService(
+                dbContext,
+                new FixedRouteDurationProvider(),
+                options,
+                new TimeOfDayOptions { Enabled = false })
+            .CreateRegeneratedVersionAsync(original, request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        VisitIds(result.Value).Should().Equal(newPoi.Id, previous.Id);
+    }
+
     [Fact]
     public async Task CreateRegeneratedVersion_InWeightedUtilityMode_WhenNoOtherPlaceFits_ReturnsNoAlternative()
     {
