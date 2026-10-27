@@ -1,6 +1,8 @@
 using FluentAssertions;
+
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Itineraries.Common;
@@ -487,10 +489,24 @@ public sealed class RemoveGroupMemberSqlServerTests
     {
         await using var context = database.CreateDbContext();
         var now = new FixedClock().UtcNow;
-        var host = new User { Email = $"uc20-host-{Guid.NewGuid():N}@example.com", FullName = "Host",
-            Role = UserRole.Traveler, Status = AccountStatus.Active, CreatedAtUtc = now, UpdatedAtUtc = now };
-        var member = new User { Email = $"uc20-member-{Guid.NewGuid():N}@example.com", FullName = "Member",
-            Role = UserRole.Traveler, Status = AccountStatus.Active, CreatedAtUtc = now, UpdatedAtUtc = now };
+        var host = new User
+        {
+            Email = $"uc20-host-{Guid.NewGuid():N}@example.com",
+            FullName = "Host",
+            Role = UserRole.Traveler,
+            Status = AccountStatus.Active,
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now
+        };
+        var member = new User
+        {
+            Email = $"uc20-member-{Guid.NewGuid():N}@example.com",
+            FullName = "Member",
+            Role = UserRole.Traveler,
+            Status = AccountStatus.Active,
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now
+        };
         context.Users.AddRange(host, member);
         await context.SaveChangesAsync();
         var itinerary = Itinerary.CreateManual(host.Id, "Shared", Itinerary.ActiveStatus, now);

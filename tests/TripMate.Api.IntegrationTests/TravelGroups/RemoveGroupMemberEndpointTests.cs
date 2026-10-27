@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
+
 using FluentAssertions;
+
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Features.TravelGroups.RemoveGroupMember;
 using TripMate.Domain.Entities;
