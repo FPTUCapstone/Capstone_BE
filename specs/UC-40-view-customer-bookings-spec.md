@@ -221,7 +221,7 @@ Field rules:
 | Unauthenticated | 401 | existing auth middleware | — |
 | Role is not `TourOperator`, or application not approved, or account not Active | 403 | `operator_tour.access_required` (reuse) | MSG126 |
 | `tourId`/`scheduleId` ≤ 0, `pageNumber` < 1, `pageSize` outside 1..100, keyword > 200 chars | 400 | `operator_booking.invalid_filter` | — |
-| `departureFrom > departureTo` | 400 | `operator_booking.invalid_date_range` | MSG29 |
+| `departureFrom > departureTo` | 400 | `operator_booking.invalid_date_range` | MSG31 (see note below) |
 | `tourId` / `scheduleId` exists but is not owned by the operator | 403 | `operator_booking.forbidden` | MSG126 / BR-105 |
 | `tourId` / `scheduleId` does not exist | 403 | `operator_booking.forbidden` | MSG126 (identical to "not owned", so a probe cannot tell the two apart) |
 | Detail: booking does not exist | 404 | `operator_booking.not_found` | MSG126 |
@@ -229,6 +229,9 @@ Field rules:
 | Unexpected failure | 500 | existing handler | MSG127 |
 
 Notes:
+- **MSG31, not MSG29.** SRS 3.8.4.1 names MSG29 for an invalid date range, but in the SRS message catalogue MSG29 is the
+  invalid latitude/longitude text and MSG31 ("End date must be on or after the start date.") is the date-range
+  message. The FE (UC-40 web spec, D1) and the approved UC-44 spec use MSG31, so this contract does too.
 - The 403-for-foreign / 404-for-missing split follows the precedent of UC-41 and UC-44. Booking ids are
   already distinguishable this way through UC-41, so this adds no new disclosure.
 - New error codes are added to `OperatorBookingErrorCodes` and **must be added to the status map in
