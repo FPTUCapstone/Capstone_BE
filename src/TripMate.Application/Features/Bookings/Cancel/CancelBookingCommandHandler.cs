@@ -64,8 +64,8 @@ public sealed class CancelBookingCommandHandler(
                             "You are not permitted to cancel this booking.");
                     }
 
-                    if (booking.Status is not (BookingStatus.PendingPayment or BookingStatus.Confirmed)
-                        || booking.Tickets.Any(ticket => ticket.Status == TicketStatus.Used))
+                    if (!BookingCancelEligibility.Evaluate(booking.Status,
+                            booking.Tickets.Any(ticket => ticket.Status == TicketStatus.Used)).CanCancel)
                     {
                         return Result.Failure<CancelBookingResponse>(BookingCancellationErrorCodes.InvalidState,
                             "This booking can no longer be cancelled.");
