@@ -105,6 +105,22 @@ as a regression check that the mode switch does not affect them.
   `itinerary.no_alternative` / `itinerary.constraints_infeasible`; missing weighted inputs or tier
   penalties must not escape as an unhandled exception.
 
+### Cold-start regeneration (issue #121, decided 2026-10-27)
+
+- When every candidate has zero preference score, use the existing neutral cold-start base of
+  `0.5` as the minimum WeightedUtility score. Map the adjusted regeneration tiers linearly into
+  `[0.5, 1]`, preserving both tier and within-tier order. If all adjusted scores are equal, use
+  `0.5` for every candidate. Regeneration with a preference signal retains the previous `[0,1]`
+  normalization rule.
+- Calibration: with the no-DI Moderate fallback used by the regression test
+  (`LambdaPerMin = 0.015`, `GammaDefault = 0.7`), a neutral second POI contributes
+  `0.5 × 0.7 = 0.35` before time-fit and travel cost.
+  An additional 10-minute leg costs `0.15`, so a nearby previous POI can fill a 480-minute day
+  after the unseen POI. A distant POI may still lose to travel and other soft penalties; this is
+  intentional WeightedUtility behavior, not a promise to fill every available minute.
+- The unseen POI must come first when both fit; a previously suggested POI remains eligible if
+  its marginal utility exceeds its travel and soft costs. Lexicographic behavior is unchanged.
+
 ## Invariants that must hold in every solver mode
 
 - **TM-216 boundary.** AI influences scheduling only through `EffectiveDesirabilityScore`

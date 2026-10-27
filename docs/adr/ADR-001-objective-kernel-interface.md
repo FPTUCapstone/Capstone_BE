@@ -104,6 +104,22 @@ regenerate. Điểm sau tier penalty được chuẩn hóa tuyến tính về `[
 và thứ tự trong tier. Kết quả phải là version mới hoặc business failure, không để lỗi thiếu weighted
 inputs hay invariant điểm thoát thành HTTP 500.
 
+### 5.5.1. Cold-start Regenerate (Issue #121, 2026-10-27)
+
+When every candidate has zero preference score, Regenerate uses the existing neutral cold-start
+base score `0.5` for the lowest tier and maps tier-adjusted scores linearly into `[0.5, 1]`.
+This preserves the preference for unseen POIs without giving a previously suggested POI zero
+utility. Equal adjusted scores receive `0.5`. Requests with a preference signal keep the earlier
+`[0,1]` normalization. The WeightedUtility objective and its travel/soft penalties remain unchanged.
+
+The rule is calibrated against the no-DI Moderate fallback used by the regression test:
+`LambdaPerMin = 0.015` and `GammaDefault = 0.7`. A neutral second POI has gain
+`0.5 × 0.7 = 0.35` before time-fit and travel;
+an additional 10-minute leg costs `0.15`. Thus the cold-start regression's nearby old POI can fill
+time after the new one. More distant or poorly timed POIs can still be omitted when their marginal
+utility is negative. This follows the existing neutral cold-start score rather than introducing an
+independent arbitrary floor. Lexicographic ranking is unchanged.
+
 ### 5.6. Quyền quyết định sau WeightedUtility (Issue #114, 2026-10-24)
 
 `ModelObjective` đánh dấu kế hoạch đã được solver `WeightedUtility` đánh giá theo hàm mục tiêu cá

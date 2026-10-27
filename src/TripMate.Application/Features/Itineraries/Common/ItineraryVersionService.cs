@@ -497,7 +497,12 @@ public sealed class ItineraryVersionService(
             .ToArray();
         var minimum = scores.Min();
         var maximum = scores.Max();
-        if (minimum >= 0m && maximum <= 1m)
+        var coldStart = candidates.All(candidate => candidate.TripMateBaseScore == 0m);
+        // The ranking pipeline already uses 0.5 for a traveler with no preference signal.
+        // Keep the lowest regeneration tier neutral instead of turning it into zero utility.
+        const decimal neutralColdStartScore = 0.5m;
+        var normalizedMinimum = coldStart ? neutralColdStartScore : 0m;
+        if (!coldStart && minimum >= 0m && maximum <= 1m)
         {
             return candidates;
         }
@@ -507,8 +512,8 @@ public sealed class ItineraryVersionService(
             .Select((candidate, index) => candidate with
             {
                 EffectiveDesirabilityScore = range == 0m
-                    ? Math.Clamp(scores[index], 0m, 1m)
-                    : (scores[index] - minimum) / range,
+                    ? coldStart ? neutralColdStartScore : Math.Clamp(scores[index], 0m, 1m)
+                    : normalizedMinimum + (scores[index] - minimum) / range * (1m - normalizedMinimum),
             })
             .ToArray();
     }
