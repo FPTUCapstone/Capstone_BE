@@ -129,6 +129,9 @@ public interface IApplicationDbContext
     DbSet<GroupLeaveOperation> GroupLeaveOperations =>
         throw new NotSupportedException("Group leave operations are unavailable in this context.");
 
+    DbSet<GroupMemberRemovalOperation> GroupMemberRemovalOperations =>
+        throw new NotSupportedException("Group member removal operations are unavailable in this context.");
+
     DbSet<ItineraryVersionOperation> ItineraryVersionOperations { get; }
 
     DbSet<SystemConfig> SystemConfigs { get; }

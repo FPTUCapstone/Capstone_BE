@@ -11,6 +11,7 @@ public class Notification : BaseEntity
     public const string TripAlertType = "TripAlert";
     public const string IncidentRelatedEntityType = "Incident";
     public const string TravelGroupHostTransferredType = "TravelGroupHostTransferred";
+    public const string TravelGroupMemberRemovedType = "TravelGroupMemberRemoved";
     public const string TravelGroupRelatedEntityType = "TravelGroup";
 
     public long UserId { get; set; }

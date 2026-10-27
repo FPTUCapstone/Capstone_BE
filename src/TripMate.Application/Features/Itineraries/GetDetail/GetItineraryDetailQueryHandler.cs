@@ -20,6 +20,24 @@ public sealed class GetItineraryDetailQueryHandler(
         GetItineraryDetailQuery request,
         CancellationToken cancellationToken)
     {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await dbContext.ExecuteInSerializableTransactionAsync(
+                    token => ReadAsync(request, token), cancellationToken);
+            }
+            catch (Exception exception) when (attempt < 3 && dbContext.IsDeadlock(exception))
+            {
+                dbContext.ClearTrackedEntities();
+            }
+        }
+    }
+
+    private async Task<Result<ItineraryDetailResponse>> ReadAsync(
+        GetItineraryDetailQuery request,
+        CancellationToken cancellationToken)
+    {
         var accessResult = await accessService.ResolveCurrentAsync(
             request.ItineraryId,
             request.TravelerUserId,

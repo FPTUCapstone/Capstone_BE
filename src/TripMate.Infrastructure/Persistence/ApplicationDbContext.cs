@@ -293,6 +293,8 @@ public class ApplicationDbContext(
 
     public DbSet<GroupLeaveOperation> GroupLeaveOperations => Set<GroupLeaveOperation>();
 
+    public DbSet<GroupMemberRemovalOperation> GroupMemberRemovalOperations => Set<GroupMemberRemovalOperation>();
+
     public DbSet<ItineraryVersionOperation> ItineraryVersionOperations => Set<ItineraryVersionOperation>();
 
     public DbSet<SystemConfig> SystemConfigs => Set<SystemConfig>();
