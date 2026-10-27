@@ -1,6 +1,8 @@
 using FluentAssertions;
+
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.TravelGroups.Common;
