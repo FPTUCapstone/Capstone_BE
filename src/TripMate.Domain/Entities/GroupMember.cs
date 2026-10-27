@@ -83,6 +83,18 @@ public class GroupMember
         LocationSharingEnabled = false;
     }
 
+    public void Remove(DateTimeOffset removedAtUtc)
+    {
+        if (Status != GroupMemberStatus.Active)
+        {
+            throw new InvalidOperationException("Only an active member can be removed from a travel group.");
+        }
+
+        Status = GroupMemberStatus.Removed;
+        LeftAtUtc = removedAtUtc;
+        LocationSharingEnabled = false;
+    }
+
     public long GroupId { get; private set; }
 
     public TravelGroup TravelGroup { get; private set; } = null!;

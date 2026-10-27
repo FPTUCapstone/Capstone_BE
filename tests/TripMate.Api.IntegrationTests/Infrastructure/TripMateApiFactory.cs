@@ -476,6 +476,9 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
         Set<GroupJoinOperation>();
     public DbSet<GroupLeaveOperation> GroupLeaveOperations =>
         Set<GroupLeaveOperation>();
+
+    public DbSet<GroupMemberRemovalOperation> GroupMemberRemovalOperations =>
+        Set<GroupMemberRemovalOperation>();
     public DbSet<ItineraryVersionOperation> ItineraryVersionOperations =>
         Set<ItineraryVersionOperation>();
 

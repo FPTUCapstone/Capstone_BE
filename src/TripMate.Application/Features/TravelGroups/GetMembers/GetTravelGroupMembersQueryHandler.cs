@@ -19,6 +19,24 @@ public sealed class GetTravelGroupMembersQueryHandler(
         GetTravelGroupMembersQuery request,
         CancellationToken cancellationToken)
     {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await dbContext.ExecuteInSerializableTransactionAsync(
+                    token => ReadAsync(request, token), cancellationToken);
+            }
+            catch (Exception exception) when (attempt < 3 && dbContext.IsDeadlock(exception))
+            {
+                dbContext.ClearTrackedEntities();
+            }
+        }
+    }
+
+    private async Task<Result<GetTravelGroupMembersResponse>> ReadAsync(
+        GetTravelGroupMembersQuery request,
+        CancellationToken cancellationToken)
+    {
         var travelGroup = await dbContext.TravelGroups
             .AsNoTracking()
             .Where(travelGroup => travelGroup.Id == request.GroupId

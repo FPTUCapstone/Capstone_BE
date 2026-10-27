@@ -151,6 +151,9 @@
     <None Include="..\..\database\migrations\20261025_uc21_notification_inapp.sql"
           Link="Database\migrations\20261025_uc21_notification_inapp.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261027_uc20_group_member_removal_operations.sql"
+          Link="Database\migrations\20261027_uc20_group_member_removal_operations.sql"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
