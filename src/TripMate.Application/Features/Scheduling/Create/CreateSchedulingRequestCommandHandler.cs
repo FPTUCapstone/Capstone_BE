@@ -1141,7 +1141,9 @@ public sealed class CreateSchedulingRequestCommandHandler(
             ScenicScore: poi.ScenicScore,
             PhotoRating: poi.PhotoRating,
             CategoryName: poi.Category.Name,
-            HasShelter: poi.HasShelter);
+            HasShelter: poi.HasShelter,
+            IndoorOutdoor: poi.IndoorOutdoor,
+            Tags: poi.PoiTags.Select(mapping => mapping.Tag.Name).ToArray());
 
     private static PoiRankingSnapshotEntry GetRequiredRankingEntry(
         PoiRankingSnapshot snapshot,

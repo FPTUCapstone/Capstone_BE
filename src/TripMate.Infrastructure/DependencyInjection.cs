@@ -216,6 +216,9 @@ public static class DependencyInjection
         services.AddOptions<TimeOfDayOptions>()
             .Bind(configuration.GetSection(TimeOfDayOptions.SectionName))
             .Validate(options => options.MaxExtraMinutes is >= 0 and <= 120, "TimeOfDay:MaxExtraMinutes must be between 0 and 120.")
+            .Validate(options => options.NormalExtraMinutes is >= 0 and <= 120, "TimeOfDay:NormalExtraMinutes must be between 0 and 120.")
+            .Validate(options => options.SunriseExtraMinutes is >= 0 and <= 120, "TimeOfDay:SunriseExtraMinutes must be between 0 and 120.")
+            .Validate(options => options.EarlyTripCutoffMinutes is >= 0 and < 24 * 60, "TimeOfDay:EarlyTripCutoffMinutes must be between 0 and 1439.")
             .ValidateOnStart();
         services.AddSingleton(serviceProvider => serviceProvider
             .GetRequiredService<IOptions<TimeOfDayOptions>>()
