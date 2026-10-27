@@ -108,7 +108,9 @@ public sealed class ItineraryVersionService(
                 ScenicScore: poi.ScenicScore,
                 PhotoRating: poi.PhotoRating,
                 CategoryName: poi.Category.Name,
-                HasShelter: poi.HasShelter)).ToArray(), lastSuggestedVersions), mandatoryIds);
+                HasShelter: poi.HasShelter,
+                IndoorOutdoor: poi.IndoorOutdoor,
+                Tags: poi.PoiTags.Select(mapping => mapping.Tag.Name).ToArray())).ToArray(), lastSuggestedVersions), mandatoryIds);
         if (effectiveGenerationOptions.Csp.Mode == ObjectiveMode.WeightedUtility)
         {
             candidates = NormalizeEffectiveDesirabilityScores(candidates);
@@ -340,7 +342,9 @@ public sealed class ItineraryVersionService(
                 ScenicScore: poi.ScenicScore,
                 PhotoRating: poi.PhotoRating,
                 CategoryName: poi.Category.Name,
-                HasShelter: poi.HasShelter)), keepIds);
+                HasShelter: poi.HasShelter,
+                IndoorOutdoor: poi.IndoorOutdoor,
+                Tags: poi.PoiTags.Select(mapping => mapping.Tag.Name).ToArray())), keepIds);
         var effectiveAvailableMinutes = availableMinutesOverride ?? request.AvailableMinutes;
         var input = new GenerationInput(
             request.StartAtUtc,

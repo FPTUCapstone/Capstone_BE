@@ -454,7 +454,7 @@ public class ObjectiveKernelFactoryTests
     }
 
     [Fact]
-    public void BuildWeightedInputs_WithRealCategory_AppliesGammaDiscountAsUsual()
+    public void BuildWeightedInputs_WithRealCategory_AppliesGammaAndFoodAliasRules()
     {
         var openingHours = new[] { new GenerationOpeningHours(2, new TimeOnly(7, 0), new TimeOnly(21, 0)) };
         var candidates = new List<GenerationCandidate>();
@@ -517,5 +517,15 @@ public class ObjectiveKernelFactoryTests
         weightedInputs.GammaScaledByNode[0][1].Should().Be((long)Math.Round(0.6 * WeightedObjectiveInputs.Scale));
         weightedInputs.GammaScaledByNode[0][2].Should().Be((long)Math.Round(0.36 * WeightedObjectiveInputs.Scale));
         weightedInputs.GammaScaledByNode[0][3].Should().Be((long)Math.Round(0.216 * WeightedObjectiveInputs.Scale));
+
+        var foodCandidates = candidates.Select((candidate, index) => index == 0
+            ? candidate with { CategoryName = "Cafe", IndoorOutdoor = IndoorOutdoorType.Indoor }
+            : candidate).ToArray();
+        var foodInput = input with { Candidates = foodCandidates, MandatoryPoiIds = [1L] };
+        var foodContext = CspItinerarySolver.CreatePrimaryContext(foodInput, matrix, foodCandidates, indices, Options);
+        var foodInputs = ObjectiveKernelFactory.BuildWeightedInputs(foodContext, weightedRequest);
+
+        foodInputs.IsFood[0].Should().BeTrue();
+        foodInputs.IsExposedOutdoor[0].Should().BeFalse();
     }
 }

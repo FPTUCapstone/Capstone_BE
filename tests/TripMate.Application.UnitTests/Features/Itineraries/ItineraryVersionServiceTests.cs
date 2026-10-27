@@ -218,13 +218,15 @@ public sealed class ItineraryVersionServiceTests
             .Should().Be(10);
     }
 
-    [Fact]
-    public async Task CreateRegeneratedVersion_NeverAutoSchedulesFoodAndDrink()
+    [Theory]
+    [InlineData(PoiCategoryNames.FoodAndDrink)]
+    [InlineData("Cafe")]
+    public async Task CreateRegeneratedVersion_NeverAutoSchedulesFoodAndDrink(string categoryName)
     {
         await using var dbContext = TestDbContext.Create();
         var request = await AddRequestAsync(dbContext, travelerUserId: 42);
         var original = await AddItineraryAsync(dbContext, request);
-        var restaurant = await AddPlanningReadyPoiAsync(dbContext, PoiCategoryNames.FoodAndDrink, "Mi Quang Ba Mua");
+        var restaurant = await AddPlanningReadyPoiAsync(dbContext, categoryName, "Mi Quang Ba Mua");
         _ = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Cham Museum");
 
         var result = await new ItineraryVersionService(dbContext, new FixedRouteDurationProvider())
@@ -657,7 +659,7 @@ public sealed class ItineraryVersionServiceTests
     {
         await using var dbContext = TestDbContext.Create();
         var museum = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Cham Museum");
-        var openRestaurant = await AddPlanningReadyPoiAsync(dbContext, PoiCategoryNames.FoodAndDrink, "Mi Quang Ba Mua", 16.0480m, 108.2070m);
+        var openRestaurant = await AddPlanningReadyPoiAsync(dbContext, "Cafe", "Mi Quang Ba Mua", 16.0480m, 108.2070m);
         openRestaurant.LinkTripadvisorLocation(8_064_453);
         var breakfastOnly = PointOfInterest.Create(
             PoiCategory.Create(PoiCategoryNames.FoodAndDrink, null), "Breakfast stall", 16.0472m, 108.2069m, 1, Now,
@@ -696,7 +698,7 @@ public sealed class ItineraryVersionServiceTests
         await using var dbContext = TestDbContext.Create();
         var museum = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Cham Museum");
         var gallery = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Fine Arts Museum", 16.0480m, 108.2070m);
-        _ = await AddPlanningReadyPoiAsync(dbContext, PoiCategoryNames.FoodAndDrink, "Mi Quang Ba Mua", 16.0481m, 108.2071m);
+        _ = await AddPlanningReadyPoiAsync(dbContext, "Cafe", "Mi Quang Ba Mua", 16.0481m, 108.2071m);
         _ = await AddPlanningReadyPoiAsync(dbContext, "Nature", "Son Tra", 16.0482m, 108.2072m);
         var request = await AddRequestAsync(dbContext, travelerUserId: 42);
         var itinerary = await AddItineraryAsync(dbContext, request, 1, museum.Id);

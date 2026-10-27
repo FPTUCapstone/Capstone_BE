@@ -93,11 +93,50 @@ public sealed class TimeOfDayRefinerTests
         var input = Input(museumToMountainMinutes: 15, extraForMorningOrder: 30, startAt: earlyStartAtUtc);
         var original = await PlanAsync(input, MuseumId, MountainId);
 
-        var refined = await Refiner().RefineAsync(input, original, sunriseTraits, CancellationToken.None);
+        var refiner = new TimeOfDayRefiner(new SkewedProvider(), null,
+            new TimeOfDayOptions { MaxExtraMinutes = 60, SunriseExtraMinutes = 60 });
+        var refined = await refiner.RefineAsync(input, original, sunriseTraits, CancellationToken.None);
 
         VisitIds(refined).Should().Equal(MountainId, MuseumId);
         refined.Items.Single(item => item.PointOfInterestId == MountainId).RecommendationReason
             .Should().StartWith("Xếp lúc bình minh");
+    }
+
+    [Fact]
+    public async Task RefineAsync_ZeroExtraMinutes_RejectsSunriseDetour()
+    {
+        var earlyStartAtUtc = new DateTimeOffset(2026, 10, 19, 22, 30, 0, TimeSpan.Zero);
+        var sunriseTraits = new Dictionary<long, TimeOfDayTraits>
+        {
+            [MuseumId] = Traits[MuseumId],
+            [MountainId] = new(IndoorOutdoorType.Outdoor, false, "Beach", 9m, ["sunrise"]),
+        };
+        var input = Input(museumToMountainMinutes: 15, extraForMorningOrder: 30, startAt: earlyStartAtUtc);
+        var original = await PlanAsync(input, MuseumId, MountainId);
+        var refiner = new TimeOfDayRefiner(new SkewedProvider(), null, new TimeOfDayOptions { MaxExtraMinutes = 0 });
+
+        var refined = await refiner.RefineAsync(input, original, sunriseTraits, CancellationToken.None);
+
+        VisitIds(refined).Should().Equal(MuseumId, MountainId);
+    }
+
+    [Fact]
+    public async Task RefineAsync_ConfiguredEarlyCutoff_RejectsLaterSunriseDetour()
+    {
+        var earlyStartAtUtc = new DateTimeOffset(2026, 10, 19, 22, 30, 0, TimeSpan.Zero);
+        var sunriseTraits = new Dictionary<long, TimeOfDayTraits>
+        {
+            [MuseumId] = Traits[MuseumId],
+            [MountainId] = new(IndoorOutdoorType.Outdoor, false, "Beach", 9m, ["sunrise"]),
+        };
+        var input = Input(museumToMountainMinutes: 15, extraForMorningOrder: 30, startAt: earlyStartAtUtc);
+        var original = await PlanAsync(input, MuseumId, MountainId);
+        var refiner = new TimeOfDayRefiner(new SkewedProvider(), null,
+            new TimeOfDayOptions { MaxExtraMinutes = 60, SunriseExtraMinutes = 60, EarlyTripCutoffMinutes = 5 * 60 });
+
+        var refined = await refiner.RefineAsync(input, original, sunriseTraits, CancellationToken.None);
+
+        VisitIds(refined).Should().Equal(MuseumId, MountainId);
     }
 
     private static TimeOfDayRefiner Refiner(bool enabled = true) =>
