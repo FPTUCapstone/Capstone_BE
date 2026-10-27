@@ -339,7 +339,8 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
                 StatusCodes.Status503ServiceUnavailable,
 
             TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.GroupClosed or
-                TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.AlreadyLeft =>
+                TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.AlreadyLeft or
+                TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.MemberNotActive =>
                 StatusCodes.Status409Conflict,
 
             TripMate.Application.Features.Notifications.MarkRead.NotificationErrorCodes.NotFound =>
