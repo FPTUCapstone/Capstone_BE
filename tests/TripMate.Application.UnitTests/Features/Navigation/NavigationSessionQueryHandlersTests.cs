@@ -21,6 +21,37 @@ public sealed class NavigationSessionQueryHandlersTests
     private static readonly DateTimeOffset ExpiresAtUtc = StartedAtUtc.AddHours(12);
 
     [Fact]
+    public async Task Get_DeadlockDuringProtectedReadRetriesWithoutReturningAnUncommittedSnapshot()
+    {
+        await using var db = CreateDbContext();
+        var sessionId = await SeedAsync(db);
+        db.SerializableTransactionCompletionFailureFactory = attempt =>
+            attempt == 1 ? new SimulatedDeadlockException() : null;
+
+        var result = await new GetNavigationSessionQueryHandler(
+                db, new ItineraryAccessService(db), Clock(StartedAtUtc.AddHours(1)))
+            .Handle(new GetNavigationSessionQuery(sessionId, TravelerId), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        db.TransactionExecutionCount.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task List_DeadlockDuringProtectedReadRetriesWithoutReturningAnUncommittedSnapshot()
+    {
+        await using var db = CreateDbContext();
+        await SeedAsync(db);
+        db.SerializableTransactionCompletionFailureFactory = attempt =>
+            attempt == 1 ? new SimulatedDeadlockException() : null;
+
+        var result = await List(db, StartedAtUtc.AddHours(1), ListNavigationSessionsQuery.OpenStateFilter);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Should().ContainSingle();
+        db.TransactionExecutionCount.Should().Be(2);
+    }
+
+    [Fact]
     public async Task Get_AfterExpiryReturnsTheEffectiveStateWithoutWriting()
     {
         await using var db = CreateDbContext();

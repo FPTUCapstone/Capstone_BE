@@ -45,6 +45,7 @@ public sealed class SchedulingGenerationOptionsValidator : IValidateOptions<Sche
         AddIfNotPositive(failures, csp, nameof(options.Csp.MaxOptionalDomainSize), options.Csp.MaxOptionalDomainSize);
         AddIfNotPositive(failures, csp, nameof(options.Csp.MaxStops), options.Csp.MaxStops);
         AddIfNotPositive(failures, csp, nameof(options.Csp.FinalCandidatesToValidate), options.Csp.FinalCandidatesToValidate);
+        AddIfNotPositive(failures, csp, nameof(options.Csp.WeightedMaxNodes), options.Csp.WeightedMaxNodes);
 
         // MiniRouting dùng cho cả SolverMode.MiniRouting lẫn mức phạt bỏ điểm và bước polish của CSP.
         const string miniRouting = nameof(SchedulingGenerationOptions.MiniRouting);

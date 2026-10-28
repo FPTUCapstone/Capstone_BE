@@ -15,7 +15,28 @@ public sealed class GetNavigationSessionQueryHandler(
     IDateTimeProvider clock)
     : IRequestHandler<GetNavigationSessionQuery, Result<NavigationSessionResponse>>
 {
+    private const int MaxAttempts = 3;
+
     public async Task<Result<NavigationSessionResponse>> Handle(
+        GetNavigationSessionQuery request,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await dbContext.ExecuteInSerializableTransactionAsync(
+                    transactionToken => ReadAsync(request, transactionToken),
+                    cancellationToken);
+            }
+            catch (Exception exception) when (attempt < MaxAttempts && dbContext.IsDeadlock(exception))
+            {
+                dbContext.ClearTrackedEntities();
+            }
+        }
+    }
+
+    private async Task<Result<NavigationSessionResponse>> ReadAsync(
         GetNavigationSessionQuery request,
         CancellationToken cancellationToken)
     {

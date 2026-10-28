@@ -1,0 +1,40 @@
+{
+  "ScenarioId": "named-tail-infeasible",
+  "Source": "GroupB_Named",
+  "ExpectedFeasible": false,
+  "Feasible": true,
+  "BestVisitPoiIds": [
+    201,
+    101
+  ],
+  "EliteVisitIds": [
+    [
+      201,
+      101
+    ],
+    [
+      101
+    ]
+  ],
+  "BestTravelMinutes": 45,
+  "BestFinish": 200,
+  "NodesExpanded": 4,
+  "PrunedByConstraints": 0,
+  "PrunedByForwardChecking": 0,
+  "PrunedByBound": 0,
+  "SolutionsFound": 2,
+  "NodesToFirstSolution": 2,
+  "SearchCompleted": true,
+  "NodeLimitReached": false,
+  "TimeLimitReached": false,
+  "InitialIncumbentAccepted": false,
+  "ReturnedInitialIncumbent": false,
+  "EvaluatorCalls": 1,
+  "InSearchEvaluationLimitReached": false,
+  "TieEvaluationLimitReached": false,
+  "UsedRelaxedRestModel": false,
+  "ChoseRelaxedRestModel": false,
+  "DriftMeasured": true,
+  "MaxModelVsEvaluatorDriftMinutes": 0,
+  "TravelMinutesModelVsEvaluatorDiff": 0
+}

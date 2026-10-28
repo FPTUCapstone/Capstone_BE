@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 
+using TripMate.Domain.Constants;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Scheduling.Common;
@@ -273,6 +274,11 @@ public sealed class ItineraryScheduleEvaluator(SchedulingGenerationOptions? opti
 
     public static bool IsRestCategory(string categoryName, bool hasShelter)
     {
+        if (PoiCategoryNames.IsFoodAndDrink(categoryName))
+        {
+            return true;
+        }
+
         var normalizedCategory = new string(categoryName
             .Trim()
             .Normalize(NormalizationForm.FormD)
@@ -281,7 +287,7 @@ public sealed class ItineraryScheduleEvaluator(SchedulingGenerationOptions? opti
             .ToArray())
             .ToLowerInvariant();
 
-        if (normalizedCategory is "cafe" or "coffee shop" or "restaurant" or "rest area" or "rest stop")
+        if (normalizedCategory is "food & drink" or "cafe" or "coffee shop" or "restaurant" or "rest area" or "rest stop")
         {
             return true;
         }

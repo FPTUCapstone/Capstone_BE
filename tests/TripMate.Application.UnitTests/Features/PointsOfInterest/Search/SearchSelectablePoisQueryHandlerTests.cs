@@ -95,13 +95,15 @@ public class SearchSelectablePoisQueryHandlerTests
     }
 
     [Theory]
-    [InlineData(true, 1)]
-    [InlineData(false, 2)]
-    public async Task Handle_ExcludeFoodAndDrink_HidesRestaurantsOnlyWhenAsked(bool excludeFoodAndDrink, int expectedCount)
+    [InlineData(PoiCategoryNames.FoodAndDrink, true, 1)]
+    [InlineData(PoiCategoryNames.FoodAndDrink, false, 2)]
+    [InlineData("Cafe", true, 1)]
+    [InlineData("Cafe", false, 2)]
+    public async Task Handle_ExcludeFoodAndDrink_HidesRestaurantsOnlyWhenAsked(string categoryName, bool excludeFoodAndDrink, int expectedCount)
     {
         await using var dbContext = TestDbContext.Create();
         var museums = PoiCategory.Create("Museum", null);
-        var food = PoiCategory.Create(PoiCategoryNames.FoodAndDrink, null);
+        var food = PoiCategory.Create(categoryName, null);
         dbContext.PoiCategories.AddRange(museums, food);
         await dbContext.SaveChangesAsync();
 

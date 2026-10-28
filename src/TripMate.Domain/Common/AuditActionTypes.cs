@@ -30,9 +30,16 @@ public static class AuditActionTypes
 
     public const string AlgorithmParametersUpdate = "UpdateAlgorithmParameters";
     public const string BookingCancel = "CancelBooking";
+    public const string TravelGroupMemberRemoved = "TravelGroupMemberRemoved";
     // UC-59 BR-130: Administrator access to active trip details
     public const string ActiveTripDetailsViewed = "ViewActiveTripDetails";
 
     // UC-45 Export Revenue Report
     public const string RevenueExportRequested = "REVENUE_EXPORT_REQUESTED";
+
+    // UC-64 BR-130: Staff access to payout detail, including beneficiary bank data
+    public const string PayoutDetailsViewed = "ViewPayoutDetails";
+    // UC-73/UC-74: Staff decision on a payout request
+    public const string PayoutApproved = "ApprovePayoutRequest";
+    public const string PayoutRejected = "RejectPayoutRequest";
 }

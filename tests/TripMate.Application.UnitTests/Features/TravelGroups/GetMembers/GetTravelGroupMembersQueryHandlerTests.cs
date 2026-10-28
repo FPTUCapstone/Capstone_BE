@@ -48,6 +48,27 @@ public sealed class GetTravelGroupMembersQueryHandlerTests
     }
 
     [Fact]
+    public async Task Handle_ClosedGroup_DoesNotExposeMembers()
+    {
+        await using var db = TestDbContext.Create();
+        var host = await AddTravelerAsync(db, "Former Host");
+        var group = TravelGroup.Create(10, host.Id, "Closed group", DateTimeOffset.UtcNow);
+        db.TravelGroups.Add(group);
+        var membership = GroupMember.CreateHost(group, host.Id, DateTimeOffset.UtcNow);
+        db.GroupMembers.Add(membership);
+        await db.SaveChangesAsync();
+        membership.Leave(DateTimeOffset.UtcNow);
+        group.Close(DateTimeOffset.UtcNow);
+        await db.SaveChangesAsync();
+
+        var result = await CreateHandler(db).Handle(
+            new GetTravelGroupMembersQuery(group.Id, host.Id), CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(TravelGroupErrorCodes.ActiveMembershipRequired);
+    }
+
+    [Fact]
     public async Task Handle_RemovedMember_ReturnsActiveMembershipRequired()
     {
         await using var db = TestDbContext.Create();

@@ -96,7 +96,7 @@ public sealed class BookingConfiguration : IEntityTypeConfiguration<Booking>
             .HasForeignKey(participant => participant.BookingId)
             .OnDelete(DeleteBehavior.Cascade);
         builder.HasMany(booking => booking.Tickets)
-            .WithOne()
+            .WithOne(ticket => ticket.Booking)
             .HasForeignKey(ticket => ticket.BookingId)
             .OnDelete(DeleteBehavior.Cascade);
 

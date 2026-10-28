@@ -15,6 +15,54 @@ namespace TripMate.Application.UnitTests.Features.Bookings.Cancel;
 public sealed class CancelBookingCommandHandlerTests
 {
     [Theory]
+    [InlineData(false, 0)]
+    [InlineData(true, 1)]
+    public async Task Handle_CouponSlotReleaseDependsOnPaymentAndReplayDoesNotReleaseTwice(
+        bool paid, int expectedUsedCount)
+    {
+        await using var db = TestDbContext.Create();
+        var now = new DateTimeOffset(2026, 11, 1, 8, 0, 0, TimeSpan.Zero);
+        var tour = CreateTour(21, 8);
+        var schedule = CreateSchedule(31, tour, now.AddDays(14), reservedCapacity: 1);
+        var voucher = Voucher.Create(8, "SAVE10", VoucherDiscountType.Percentage, 10m,
+            100_000m, 0m, 5, 1, now.AddDays(-2), now.AddDays(2), [tour], now.AddDays(-3));
+        voucher.IncrementUsage();
+        db.Tours.Add(tour);
+        db.TourSchedules.Add(schedule);
+        db.Vouchers.Add(voucher);
+        db.Users.Add(new User { Id = 7, Email = "traveler@test.local", FullName = "Traveler", Role = UserRole.Traveler });
+        await db.SaveChangesAsync();
+
+        var booking = Booking.Create("BK-20261101-00001", 7, schedule.Id, voucher.Id,
+            1_000m, 100m, 900m,
+            [BookingParticipant.Create("Traveler", ParticipantType.Adult, null, null, null, null, null)],
+            now.AddDays(-1), now.AddDays(1));
+        if (paid) booking.MarkPaid(now.AddHours(-1));
+        db.Bookings.Add(booking);
+        db.VoucherRedemptions.Add(VoucherRedemption.Create(voucher, booking, 100m, now.AddDays(-1)));
+        await db.SaveChangesAsync();
+        if (paid)
+        {
+            db.PaymentTransactions.Add(CreateSuccessfulPayment(51, booking.Id, booking.TotalAmount, now.AddHours(-1)));
+            await db.SaveChangesAsync();
+        }
+
+        var handler = new CancelBookingCommandHandler(db,
+            new FakeCurrentUserService { UserId = 7, Role = nameof(UserRole.Traveler) },
+            new FakeDateTimeProvider { UtcNow = now }, new NoIdempotencyConflict());
+        var command = new CancelBookingCommand(booking.Id, Guid.NewGuid(), null, null);
+
+        (await handler.Handle(command, CancellationToken.None)).IsSuccess.Should().BeTrue();
+        (await handler.Handle(command, CancellationToken.None)).IsSuccess.Should().BeTrue();
+
+        db.ClearTrackedEntities();
+        (await db.Vouchers.SingleAsync()).UsedCount.Should().Be(expectedUsedCount);
+        (await db.Bookings.SingleAsync()).DiscountAmount.Should().Be(100m);
+        (await db.VoucherRedemptions.CountAsync()).Should().Be(1);
+        (await db.BookingCancellationOperations.CountAsync()).Should().Be(1);
+    }
+
+    [Theory]
     [InlineData(7, 100)]
     [InlineData(3, 70)]
     [InlineData(1, 30)]

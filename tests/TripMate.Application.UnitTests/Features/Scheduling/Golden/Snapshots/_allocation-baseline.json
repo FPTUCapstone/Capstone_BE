@@ -1,0 +1,225 @@
+{
+  "CreatedAtUtc": "2026-10-18T10:27:01.1653076+00:00",
+  "Scenarios": [
+    {
+      "ScenarioId": "grid-c10-m0-none-s1",
+      "AllocatedBytes": 70696
+    },
+    {
+      "ScenarioId": "grid-c10-m1-none-s1",
+      "AllocatedBytes": 417960
+    },
+    {
+      "ScenarioId": "grid-c10-m3-none-s1",
+      "AllocatedBytes": 492960
+    },
+    {
+      "ScenarioId": "grid-c10-m6-none-s1",
+      "AllocatedBytes": 143776
+    },
+    {
+      "ScenarioId": "grid-c20-m0-none-s1",
+      "AllocatedBytes": 1051296
+    },
+    {
+      "ScenarioId": "grid-c20-m1-none-s1",
+      "AllocatedBytes": 12870920
+    },
+    {
+      "ScenarioId": "grid-c20-m3-none-s1",
+      "AllocatedBytes": 13476592
+    },
+    {
+      "ScenarioId": "grid-c20-m6-none-s1",
+      "AllocatedBytes": 7987568
+    },
+    {
+      "ScenarioId": "grid-c40-m0-none-s1",
+      "AllocatedBytes": 520520
+    },
+    {
+      "ScenarioId": "grid-c40-m1-none-s1",
+      "AllocatedBytes": 12790544
+    },
+    {
+      "ScenarioId": "grid-c40-m3-none-s1",
+      "AllocatedBytes": 12838864
+    },
+    {
+      "ScenarioId": "grid-c40-m6-none-s1",
+      "AllocatedBytes": 13435760
+    },
+    {
+      "ScenarioId": "grid-c10-m0-auto-s1",
+      "AllocatedBytes": 272240
+    },
+    {
+      "ScenarioId": "grid-c10-m1-auto-s1",
+      "AllocatedBytes": 718656
+    },
+    {
+      "ScenarioId": "grid-c10-m3-auto-s1",
+      "AllocatedBytes": 736744
+    },
+    {
+      "ScenarioId": "grid-c10-m6-auto-s1",
+      "AllocatedBytes": 399232
+    },
+    {
+      "ScenarioId": "grid-c20-m0-auto-s1",
+      "AllocatedBytes": 1295976
+    },
+    {
+      "ScenarioId": "grid-c20-m1-auto-s1",
+      "AllocatedBytes": 13317744
+    },
+    {
+      "ScenarioId": "grid-c20-m3-auto-s1",
+      "AllocatedBytes": 13473104
+    },
+    {
+      "ScenarioId": "grid-c20-m6-auto-s1",
+      "AllocatedBytes": 15725984
+    },
+    {
+      "ScenarioId": "grid-c40-m0-auto-s1",
+      "AllocatedBytes": 719568
+    },
+    {
+      "ScenarioId": "grid-c40-m1-auto-s1",
+      "AllocatedBytes": 12431336
+    },
+    {
+      "ScenarioId": "grid-c40-m3-auto-s1",
+      "AllocatedBytes": 13176776
+    },
+    {
+      "ScenarioId": "grid-c40-m6-auto-s1",
+      "AllocatedBytes": 13868680
+    },
+    {
+      "ScenarioId": "grid-c10-m0-frequent-s1",
+      "AllocatedBytes": 32780448
+    },
+    {
+      "ScenarioId": "grid-c10-m1-frequent-s1",
+      "AllocatedBytes": 104180536
+    },
+    {
+      "ScenarioId": "grid-c10-m3-frequent-s1",
+      "AllocatedBytes": 75333784
+    },
+    {
+      "ScenarioId": "grid-c10-m6-frequent-s1",
+      "AllocatedBytes": 43709624
+    },
+    {
+      "ScenarioId": "grid-c20-m0-frequent-s1",
+      "AllocatedBytes": 20871320
+    },
+    {
+      "ScenarioId": "grid-c20-m1-frequent-s1",
+      "AllocatedBytes": 31225256
+    },
+    {
+      "ScenarioId": "grid-c20-m3-frequent-s1",
+      "AllocatedBytes": 30497792
+    },
+    {
+      "ScenarioId": "grid-c20-m6-frequent-s1",
+      "AllocatedBytes": 50439856
+    },
+    {
+      "ScenarioId": "grid-c40-m0-frequent-s1",
+      "AllocatedBytes": 656688
+    },
+    {
+      "ScenarioId": "grid-c40-m1-frequent-s1",
+      "AllocatedBytes": 11996368
+    },
+    {
+      "ScenarioId": "grid-c40-m3-frequent-s1",
+      "AllocatedBytes": 13038936
+    },
+    {
+      "ScenarioId": "grid-c40-m6-frequent-s1",
+      "AllocatedBytes": 31606872
+    },
+    {
+      "ScenarioId": "named-zigzag",
+      "AllocatedBytes": 17800
+    },
+    {
+      "ScenarioId": "named-zigzag-240",
+      "AllocatedBytes": 14784
+    },
+    {
+      "ScenarioId": "named-tail-infeasible",
+      "AllocatedBytes": 10288
+    },
+    {
+      "ScenarioId": "named-asymmetric",
+      "AllocatedBytes": 13600
+    },
+    {
+      "ScenarioId": "named-two-opt",
+      "AllocatedBytes": 16344
+    },
+    {
+      "ScenarioId": "named-relocate",
+      "AllocatedBytes": 15584
+    },
+    {
+      "ScenarioId": "named-reconsideration",
+      "AllocatedBytes": 19272
+    },
+    {
+      "ScenarioId": "incumbent-valid-c20-m2-none-s10",
+      "AllocatedBytes": 2820488
+    },
+    {
+      "ScenarioId": "incumbent-valid-c20-m1-auto-s11",
+      "AllocatedBytes": 13727680
+    },
+    {
+      "ScenarioId": "incumbent-valid-c40-m3-frequent-s12",
+      "AllocatedBytes": 11502952
+    },
+    {
+      "ScenarioId": "incumbent-invalid-rejected-s13",
+      "AllocatedBytes": 296368
+    },
+    {
+      "ScenarioId": "budget-tight-exact-mandatory-s21",
+      "AllocatedBytes": 36448
+    },
+    {
+      "ScenarioId": "budget-infeasible-pruned-s22",
+      "AllocatedBytes": 32872
+    },
+    {
+      "ScenarioId": "budget-limited-optional-s23",
+      "AllocatedBytes": 230096
+    },
+    {
+      "ScenarioId": "tie-c20-m0-frequent-s31",
+      "AllocatedBytes": 30302128
+    },
+    {
+      "ScenarioId": "tie-c30-m0-frequent-s32",
+      "AllocatedBytes": 67156344
+    },
+    {
+      "ScenarioId": "tie-c40-m1-frequent-s33",
+      "AllocatedBytes": 12873856
+    },
+    {
+      "ScenarioId": "boundary-fractional-seconds-s41",
+      "AllocatedBytes": 14093424
+    },
+    {
+      "ScenarioId": "boundary-urgent-slack-mrv-s42",
+      "AllocatedBytes": 2974200
+    }
+  ]
+}

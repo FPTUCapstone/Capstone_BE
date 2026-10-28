@@ -1,4 +1,5 @@
 using TripMate.Domain.Common;
+using TripMate.Domain.Enums;
 
 namespace TripMate.Domain.Entities;
 
@@ -13,6 +14,7 @@ namespace TripMate.Domain.Entities;
  *   - HostUserId (long): ID of the creator/host traveler (host_user_id).
  *   - Name (string?): User-defined group name (max 150 chars).
  *   - CreatedAtUtc (DateTimeOffset): UTC timestamp of creation.
+ *   - Status/ClosedAtUtc: Explicit UC-21 group lifecycle.
  */
 public class TravelGroup : BaseEntity
 {
@@ -54,6 +56,7 @@ public class TravelGroup : BaseEntity
         HostUserId = hostUserId;
         Name = normalizedName;
         CreatedAtUtc = createdAtUtc;
+        Status = TravelGroupStatus.Active;
     }
 
     public static TravelGroup Create(
@@ -75,9 +78,44 @@ public class TravelGroup : BaseEntity
 
     public DateTimeOffset CreatedAtUtc { get; private set; }
 
+    public TravelGroupStatus Status { get; private set; }
+
+    public DateTimeOffset? ClosedAtUtc { get; private set; }
+
     public IReadOnlyCollection<GroupMember> GroupMembers => _groupMembers.AsReadOnly();
 
     public IReadOnlyCollection<GroupInvitation> GroupInvitations => _groupInvitations.AsReadOnly();
+
+    public void Close(DateTimeOffset closedAtUtc)
+    {
+        if (Status != TravelGroupStatus.Active)
+        {
+            throw new InvalidOperationException("Only an active travel group can be closed.");
+        }
+
+        if (_groupMembers.Any(member => member.Status == GroupMemberStatus.Active))
+        {
+            throw new InvalidOperationException("An active member must leave before the travel group can close.");
+        }
+
+        Status = TravelGroupStatus.Closed;
+        ClosedAtUtc = closedAtUtc;
+    }
+
+    public void TransferHostTo(GroupMember successor)
+    {
+        ArgumentNullException.ThrowIfNull(successor);
+        if (Status != TravelGroupStatus.Active
+            || !ReferenceEquals(successor.TravelGroup, this)
+            || !_groupMembers.Contains(successor)
+            || successor.Status != GroupMemberStatus.Active
+            || successor.UserId == HostUserId)
+        {
+            throw new InvalidOperationException("The successor must be another active member of this open group.");
+        }
+
+        HostUserId = successor.UserId;
+    }
 
     public void AddMember(GroupMember member)
     {

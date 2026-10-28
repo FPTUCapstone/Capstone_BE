@@ -51,11 +51,13 @@ public class SolverComparisonReportTests
     public void CommittedReport_MatchesTheReportRecomputedFromItsDataFiles(string baseName)
     {
         var directory = BenchmarksDirectory();
+
         var data = SolverComparisonReport.Read(directory, baseName);
         var committed = File.ReadAllText(Path.Combine(directory, baseName + ".md")).Replace("\r\n", "\n", StringComparison.Ordinal);
 
         SolverComparisonReport.Markdown(data).Should().Be(committed);
     }
+
 
     [Theory]
     [MemberData(nameof(CommittedReports))]

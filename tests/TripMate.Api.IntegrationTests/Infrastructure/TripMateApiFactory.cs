@@ -19,6 +19,7 @@ using Serilog;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Bookings.Common;
 using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Explanation;
@@ -55,6 +56,10 @@ public sealed class TripMateApiFactory(
     internal const string JwtSigningKey =
         "dGVzdC1vbmx5LXNpZ25pbmcta2V5LXRoYXQtaXMtbG9uZy1lbm91Z2g=";
 
+    // Test-only UC-29 QR keys: bytes 1..32 and 33..64. Never used outside the test host.
+    internal const string TicketQrEncryptionKey = "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=";
+    internal const string TicketQrSigningKey = "ISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0A=";
+
     private readonly string _databaseName = $"tripmate-api-tests-{Guid.NewGuid():N}";
     private readonly string _logDirectory = Path.Combine(
         Path.GetTempPath(), "TripMate.Api.IntegrationTests", Guid.NewGuid().ToString("N"));
@@ -83,6 +88,8 @@ public sealed class TripMateApiFactory(
         builder.UseSetting("Jwt:Audience", JwtAudience);
         builder.UseSetting("Jwt:SigningKey", JwtSigningKey);
         builder.UseSetting("PasswordResetSecurity:OtpPepper", "test-only-pepper-0123456789abcdef");
+        builder.UseSetting("TicketQr:EncryptionKey", TicketQrEncryptionKey);
+        builder.UseSetting("TicketQr:SigningKey", TicketQrSigningKey);
         builder.UseSetting("EmailVerification:ContinueUrl", "https://tripmate.test/verify-email");
         builder.UseSetting("Cloudinary:CloudName", "test-cloud");
         builder.UseSetting("Cloudinary:ApiKey", "test-api-key");
@@ -95,6 +102,8 @@ public sealed class TripMateApiFactory(
         builder.UseSetting("AiRanking:Enabled", "false");
         builder.UseSetting("AiExplanation:Enabled", "false");
         builder.UseSetting("SchedulingRateLimit:Provider", "SingleInstance");
+        builder.UseSetting("SchedulingGeneration:TimeFit:Version", "2026.1");
+        builder.UseSetting("SchedulingGeneration:Shadow:Enabled", "false");
 
         if (corsAllowedOrigins is not null)
         {
@@ -145,8 +154,11 @@ public sealed class TripMateApiFactory(
                             is "TripMate.Infrastructure.Services.TourMediaCleanupBackgroundService"
                             or "TripMate.Infrastructure.Services.TravelerAvatarCleanupBackgroundService"
                             or "TripMate.Infrastructure.Services.PendingBookingExpiryBackgroundService"
+                            or "TripMate.Infrastructure.Services.RefundProcessingBackgroundService"
                             or "TripMate.Infrastructure.Services.RevenueExportWorkerBackgroundService"
-                            or "TripMate.Infrastructure.Services.RevenueExportExpiryBackgroundService"))
+                            or "TripMate.Infrastructure.Services.RevenueExportExpiryBackgroundService"
+                            or "TripMate.Infrastructure.TripAlerts.TripAlertScanBackgroundService"
+                            or "TripMate.Infrastructure.TripAlerts.TripAlertDeliveryBackgroundService"))
                 {
                     services.RemoveAt(index);
                 }
@@ -163,10 +175,12 @@ public sealed class TripMateApiFactory(
                 services.RemoveAll<IItineraryMutationLock>();
                 services.RemoveAll<IGroupInvitationLock>();
                 services.RemoveAll<IGroupJoinLock>();
+                services.RemoveAll<IGroupLeaveLock>();
                 services.RemoveAll<ISchedulingRequestLock>();
                 services.RemoveAll<ITourMediaUploadLock>();
                 services.RemoveAll<ITourMediaCleanupOutboxStore>();
                 services.RemoveAll<IAccountCredentialLock>();
+                services.RemoveAll<IRefundManualCompletionLock>();
                 services.RemoveAll<IRouteDurationProvider>();
 
                 services.AddDbContext<TestApiDbContext>(options =>
@@ -202,10 +216,12 @@ public sealed class TripMateApiFactory(
                 services.AddScoped<IItineraryMutationLock, NoOpItineraryMutationLock>();
                 services.AddScoped<IGroupInvitationLock, NoOpGroupInvitationLock>();
                 services.AddScoped<IGroupJoinLock, NoOpGroupJoinLock>();
+                services.AddScoped<IGroupLeaveLock, NoOpGroupLeaveLock>();
                 services.AddScoped<ISchedulingRequestLock, NoOpSchedulingRequestLock>();
                 services.AddScoped<ITourMediaUploadLock, NoOpTourMediaUploadLock>();
                 services.AddScoped<ITourMediaCleanupOutboxStore, NoOpTourMediaCleanupOutboxStore>();
                 services.AddScoped<IAccountCredentialLock, NoOpAccountCredentialLock>();
+                services.AddScoped<IRefundManualCompletionLock, NoOpRefundManualCompletionLock>();
                 services.AddScoped<IRouteDurationProvider, TestRouteDurationProvider>();
             }
             else if (saveChangesInterceptor is not null || dbInterceptor is not null)
@@ -435,9 +451,13 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
         Set<TourBookingCreateOperation>();
     public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
     public DbSet<Refund> Refunds => Set<Refund>();
+    public DbSet<RefundManualCompletionOperation> RefundManualCompletionOperations =>
+        Set<RefundManualCompletionOperation>();
     public DbSet<RevenueExport> RevenueExports => Set<RevenueExport>();
 
     public DbSet<Ticket> Tickets => Set<Ticket>();
+
+    public DbSet<TicketQrCode> TicketQrCodes => Set<TicketQrCode>();
     public DbSet<BookingCancellationOperation> BookingCancellationOperations =>
         Set<BookingCancellationOperation>();
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
@@ -454,6 +474,11 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
         Set<GroupInvitationOperation>();
     public DbSet<GroupJoinOperation> GroupJoinOperations =>
         Set<GroupJoinOperation>();
+    public DbSet<GroupLeaveOperation> GroupLeaveOperations =>
+        Set<GroupLeaveOperation>();
+
+    public DbSet<GroupMemberRemovalOperation> GroupMemberRemovalOperations =>
+        Set<GroupMemberRemovalOperation>();
     public DbSet<ItineraryVersionOperation> ItineraryVersionOperations =>
         Set<ItineraryVersionOperation>();
 
@@ -462,6 +487,8 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<TripSessionItem> TripSessionItems => Set<TripSessionItem>();
 
     public DbSet<Incident> Incidents => Set<Incident>();
+
+    public DbSet<AlertDeliveryWork> AlertDeliveryWork => Set<AlertDeliveryWork>();
 
     public DbSet<TripStateHistory> TripStateHistories => Set<TripStateHistory>();
 
@@ -472,6 +499,14 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<ReroutingEvent> ReroutingEvents => Set<ReroutingEvent>();
 
     public DbSet<Payout> Payouts => Set<Payout>();
+
+    public DbSet<PayoutItem> PayoutItems => Set<PayoutItem>();
+
+    public DbSet<PayoutRefundItem> PayoutRefundItems => Set<PayoutRefundItem>();
+
+    public DbSet<PayoutAdjustment> PayoutAdjustments => Set<PayoutAdjustment>();
+
+    public DbSet<PayoutPeriodBreakdown> PayoutPeriodBreakdowns => Set<PayoutPeriodBreakdown>();
 
     public async Task<int> RevokeRefreshTokenAsync(
         string tokenHash,
@@ -576,6 +611,15 @@ internal sealed class NoOpGroupJoinLock : IGroupJoinLock
         Task.CompletedTask;
 }
 
+internal sealed class NoOpGroupLeaveLock : IGroupLeaveLock
+{
+    public Task AcquireOperationLockAsync(long travelerUserId, Guid idempotencyKey, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+
+    public Task AcquireGroupLockAsync(long groupId, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+}
+
 internal sealed class NoOpSchedulingRequestLock : ISchedulingRequestLock
 {
     public Task AcquireAsync(
@@ -635,6 +679,11 @@ internal sealed class NoOpAccountCredentialLock : IAccountCredentialLock
 {
     public Task AcquireAsync(long userId, CancellationToken cancellationToken) =>
         Task.CompletedTask;
+}
+
+internal sealed class NoOpRefundManualCompletionLock : IRefundManualCompletionLock
+{
+    public Task AcquireAsync(long refundId, CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
 internal sealed class TestRouteDurationProvider : IRouteDurationProvider

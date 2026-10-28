@@ -65,6 +65,8 @@ public class TestDbContext(
 
     public DbSet<Notification> Notifications => Set<Notification>();
 
+    public DbSet<PushDeviceToken> PushDeviceTokens => Set<PushDeviceToken>();
+
     public DbSet<PoiPhoto> PoiPhotos => Set<PoiPhoto>();
 
     public DbSet<Review> Reviews => Set<Review>();
@@ -89,9 +91,13 @@ public class TestDbContext(
     public DbSet<TourBookingCreateOperation> TourBookingCreateOperations => Set<TourBookingCreateOperation>();
     public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
     public DbSet<Refund> Refunds => Set<Refund>();
+    public DbSet<RefundManualCompletionOperation> RefundManualCompletionOperations =>
+        Set<RefundManualCompletionOperation>();
     public DbSet<RevenueExport> RevenueExports => Set<RevenueExport>();
 
     public DbSet<Ticket> Tickets => Set<Ticket>();
+
+    public DbSet<TicketQrCode> TicketQrCodes => Set<TicketQrCode>();
 
     public DbSet<BookingCancellationOperation> BookingCancellationOperations =>
         Set<BookingCancellationOperation>();
@@ -117,6 +123,10 @@ public class TestDbContext(
 
     public DbSet<GroupJoinOperation> GroupJoinOperations => Set<GroupJoinOperation>();
 
+    public DbSet<GroupLeaveOperation> GroupLeaveOperations => Set<GroupLeaveOperation>();
+
+    public DbSet<GroupMemberRemovalOperation> GroupMemberRemovalOperations => Set<GroupMemberRemovalOperation>();
+
     public DbSet<ItineraryVersionOperation> ItineraryVersionOperations => Set<ItineraryVersionOperation>();
 
     public DbSet<SystemConfig> SystemConfigs => Set<SystemConfig>();
@@ -127,6 +137,8 @@ public class TestDbContext(
 
     public DbSet<Incident> Incidents => Set<Incident>();
 
+    public DbSet<AlertDeliveryWork> AlertDeliveryWork => Set<AlertDeliveryWork>();
+
     public DbSet<TripStateHistory> TripStateHistories => Set<TripStateHistory>();
 
     public DbSet<TripLocationLog> TripLocationLogs => Set<TripLocationLog>();
@@ -136,6 +148,14 @@ public class TestDbContext(
     public DbSet<ReroutingEvent> ReroutingEvents => Set<ReroutingEvent>();
 
     public DbSet<Payout> Payouts => Set<Payout>();
+
+    public DbSet<PayoutItem> PayoutItems => Set<PayoutItem>();
+
+    public DbSet<PayoutRefundItem> PayoutRefundItems => Set<PayoutRefundItem>();
+
+    public DbSet<PayoutAdjustment> PayoutAdjustments => Set<PayoutAdjustment>();
+
+    public DbSet<PayoutPeriodBreakdown> PayoutPeriodBreakdowns => Set<PayoutPeriodBreakdown>();
 
     public int TransactionExecutionCount { get; private set; }
 
@@ -159,9 +179,18 @@ public class TestDbContext(
 
     public Func<int, Exception?>? TransactionCompletionFailureFactory { get; set; }
 
+    /// <summary>
+    /// Called before each save; a returned exception is thrown instead of saving. Lets a test simulate
+    /// a unique-index conflict that the in-memory provider cannot enforce.
+    /// </summary>
+    public Func<Exception?>? SaveChangesFailureFactory { get; set; }
+
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         SaveChangesAsyncCallCount++;
+        if (SaveChangesFailureFactory?.Invoke() is { } failure)
+            throw failure;
+
         return ThrowOnSaveConcurrency
             ? throw new DbUpdateConcurrencyException("Concurrency conflict simulated in test.")
             : base.SaveChangesAsync(cancellationToken);
@@ -283,6 +312,9 @@ public class TestDbContext(
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<AlertDeliveryWork>().HasKey(work => work.NotificationId);
+        modelBuilder.Entity<PushDeviceToken>().HasKey(device => device.Id);
+
         modelBuilder.Entity<TripSessionItem>()
             .HasKey(item => new { item.SessionId, item.ItineraryItemId });
 

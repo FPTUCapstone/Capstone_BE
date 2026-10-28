@@ -113,6 +113,12 @@ public sealed class TravelerElectronicPaymentSqlServerTests
 
             var tx = await verifyContext.PaymentTransactions.FindAsync(paymentId);
             tx!.Status.Should().Be(PaymentTransactionStatus.Success);
+
+            var ticket = (await verifyContext.Tickets.Where(candidate => candidate.BookingId == bookingId)
+                .ToListAsync()).Should().ContainSingle().Subject;
+            ticket.TicketCode.Should().Be(Ticket.CodeFor(bookingId));
+            ticket.Status.Should().Be(TicketStatus.Valid);
+            ticket.IssuedAtUtc.Should().Be(Now);
         }
     }
 

@@ -70,7 +70,7 @@ public sealed class StartNavigationSessionCommandHandlerTests
         await using var db = CreateDbContext();
         var itinerary = await SeedActiveItineraryAsync(db, Now.AddHours(1));
         var key = Guid.NewGuid();
-        db.TransactionCompletionFailureFactory = attempt => attempt == 1 ? new SimulatedDeadlockException() : null;
+        db.SerializableTransactionCompletionFailureFactory = attempt => attempt == 1 ? new SimulatedDeadlockException() : null;
 
         var result = await CreateHandler(db, Now).Handle(
             new StartNavigationSessionCommand(itinerary.Id, 7, key),

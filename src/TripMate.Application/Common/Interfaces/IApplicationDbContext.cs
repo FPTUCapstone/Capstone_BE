@@ -58,6 +58,9 @@ public interface IApplicationDbContext
 
     DbSet<Notification> Notifications { get; }
 
+    DbSet<PushDeviceToken> PushDeviceTokens =>
+        throw new NotSupportedException("Push device tokens are unavailable in this context.");
+
     DbSet<PoiPhoto> PoiPhotos { get; }
 
     DbSet<Review> Reviews { get; }
@@ -86,9 +89,15 @@ public interface IApplicationDbContext
 
     DbSet<Refund> Refunds { get; }
 
+    DbSet<RefundManualCompletionOperation> RefundManualCompletionOperations =>
+        throw new NotSupportedException("Manual refund completion idempotency is unavailable in this context.");
+
     DbSet<RevenueExport> RevenueExports { get; }
 
     DbSet<Ticket> Tickets => throw new NotSupportedException("Tickets are unavailable in this context.");
+
+    DbSet<TicketQrCode> TicketQrCodes =>
+        throw new NotSupportedException("Ticket QR codes are unavailable in this context.");
 
     DbSet<BookingCancellationOperation> BookingCancellationOperations =>
         throw new NotSupportedException("Booking cancellation operations are unavailable in this context.");
@@ -117,6 +126,12 @@ public interface IApplicationDbContext
 
     DbSet<GroupJoinOperation> GroupJoinOperations { get; }
 
+    DbSet<GroupLeaveOperation> GroupLeaveOperations =>
+        throw new NotSupportedException("Group leave operations are unavailable in this context.");
+
+    DbSet<GroupMemberRemovalOperation> GroupMemberRemovalOperations =>
+        throw new NotSupportedException("Group member removal operations are unavailable in this context.");
+
     DbSet<ItineraryVersionOperation> ItineraryVersionOperations { get; }
 
     DbSet<SystemConfig> SystemConfigs { get; }
@@ -128,6 +143,9 @@ public interface IApplicationDbContext
 
     DbSet<Incident> Incidents { get; }
 
+    DbSet<AlertDeliveryWork> AlertDeliveryWork =>
+        throw new NotSupportedException("Alert delivery work is unavailable in this context.");
+
     DbSet<TripStateHistory> TripStateHistories { get; }
 
     DbSet<TripLocationLog> TripLocationLogs { get; }
@@ -137,6 +155,14 @@ public interface IApplicationDbContext
     DbSet<ReroutingEvent> ReroutingEvents { get; }
 
     DbSet<Payout> Payouts { get; }
+
+    DbSet<PayoutItem> PayoutItems { get; }
+
+    DbSet<PayoutRefundItem> PayoutRefundItems { get; }
+
+    DbSet<PayoutAdjustment> PayoutAdjustments { get; }
+
+    DbSet<PayoutPeriodBreakdown> PayoutPeriodBreakdowns { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 

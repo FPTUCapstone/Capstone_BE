@@ -124,7 +124,11 @@ public sealed class JoinTravelGroupCommandHandler(
                 inv => inv.InviteCode == normalizedCode,
                 cancellationToken);
 
-        if (invitation is null || !invitation.IsUsableAt(now) || invitation.TravelGroup is null || invitation.GroupId != targetGroupId)
+        if (invitation is null
+            || !invitation.IsUsableAt(now)
+            || invitation.TravelGroup is null
+            || invitation.TravelGroup.Status != TravelGroupStatus.Active
+            || invitation.GroupId != targetGroupId)
         {
             return Result.Failure<JoinTravelGroupResponse>(
                 TravelGroupErrorCodes.InvitationUnavailable,

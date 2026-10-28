@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore.Storage;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Media;
 using TripMate.Domain.Entities;
+using TripMate.Domain.Enums;
 
 namespace TripMate.Infrastructure.Persistence;
 
@@ -70,6 +71,8 @@ public class ApplicationDbContext(
 
     public DbSet<Notification> Notifications => Set<Notification>();
 
+    public DbSet<PushDeviceToken> PushDeviceTokens => Set<PushDeviceToken>();
+
     public DbSet<PoiPhoto> PoiPhotos => Set<PoiPhoto>();
 
     public DbSet<Review> Reviews => Set<Review>();
@@ -95,14 +98,29 @@ public class ApplicationDbContext(
     public DbSet<TourBookingCreateOperation> TourBookingCreateOperations => Set<TourBookingCreateOperation>();
     public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
     public DbSet<Refund> Refunds => Set<Refund>();
+    public DbSet<RefundManualCompletionOperation> RefundManualCompletionOperations =>
+        Set<RefundManualCompletionOperation>();
     public DbSet<RevenueExport> RevenueExports => Set<RevenueExport>();
 
     public DbSet<Ticket> Tickets => Set<Ticket>();
+
+    public DbSet<TicketQrCode> TicketQrCodes => Set<TicketQrCode>();
     public DbSet<BookingCancellationOperation> BookingCancellationOperations =>
         Set<BookingCancellationOperation>();
 
+    /// <summary>
+    /// UC-29 / BR-86: cancelling a booking invalidates its QR immediately. Runs inside the caller's
+    /// cancellation transaction. commerce.TicketQrCodes has no revocation timestamp column, so
+    /// <paramref name="revokedAtUtc"/> is not stored.
+    /// </summary>
     public Task<int> RevokeActiveTicketQrCodesAsync(long bookingId, DateTimeOffset revokedAtUtc,
-        CancellationToken cancellationToken) => Task.FromResult(0);
+        CancellationToken cancellationToken) =>
+        TicketQrCodes
+            .Where(code => code.Status == TicketQrCodeStatus.Active
+                && Tickets.Any(ticket => ticket.Id == code.TicketId && ticket.BookingId == bookingId))
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(code => code.Status, TicketQrCodeStatus.Revoked),
+                cancellationToken);
 
     public Task<int> RevokeRefreshTokenAsync(
         string tokenHash,
@@ -273,6 +291,10 @@ public class ApplicationDbContext(
 
     public DbSet<GroupJoinOperation> GroupJoinOperations => Set<GroupJoinOperation>();
 
+    public DbSet<GroupLeaveOperation> GroupLeaveOperations => Set<GroupLeaveOperation>();
+
+    public DbSet<GroupMemberRemovalOperation> GroupMemberRemovalOperations => Set<GroupMemberRemovalOperation>();
+
     public DbSet<ItineraryVersionOperation> ItineraryVersionOperations => Set<ItineraryVersionOperation>();
 
     public DbSet<SystemConfig> SystemConfigs => Set<SystemConfig>();
@@ -283,6 +305,8 @@ public class ApplicationDbContext(
 
     public DbSet<Incident> Incidents => Set<Incident>();
 
+    public DbSet<AlertDeliveryWork> AlertDeliveryWork => Set<AlertDeliveryWork>();
+
     public DbSet<TripStateHistory> TripStateHistories => Set<TripStateHistory>();
 
     public DbSet<TripLocationLog> TripLocationLogs => Set<TripLocationLog>();
@@ -292,6 +316,14 @@ public class ApplicationDbContext(
     public DbSet<ReroutingEvent> ReroutingEvents => Set<ReroutingEvent>();
 
     public DbSet<Payout> Payouts => Set<Payout>();
+
+    public DbSet<PayoutItem> PayoutItems => Set<PayoutItem>();
+
+    public DbSet<PayoutRefundItem> PayoutRefundItems => Set<PayoutRefundItem>();
+
+    public DbSet<PayoutAdjustment> PayoutAdjustments => Set<PayoutAdjustment>();
+
+    public DbSet<PayoutPeriodBreakdown> PayoutPeriodBreakdowns => Set<PayoutPeriodBreakdown>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

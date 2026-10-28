@@ -1,0 +1,73 @@
+{
+  "ScenarioId": "tie-c30-m0-frequent-s32",
+  "Source": "GroupE_Tie",
+  "Feasible": true,
+  "BestModelObjective": 31143,
+  "BestEvaluatedObjective": 31785,
+  "BestVisitPoiIds": [
+    5,
+    11,
+    10,
+    9,
+    14
+  ],
+  "EliteModelObjectives": [
+    31143,
+    31143,
+    31076,
+    31076,
+    30994
+  ],
+  "EliteVisitIds": [
+    [
+      11,
+      5,
+      9,
+      10,
+      14
+    ],
+    [
+      11,
+      5,
+      10,
+      9,
+      14
+    ],
+    [
+      11,
+      10,
+      5,
+      9,
+      14
+    ],
+    [
+      11,
+      10,
+      9,
+      5,
+      14
+    ],
+    [
+      11,
+      5,
+      9,
+      10
+    ]
+  ],
+  "BestTravelMinutes": 30,
+  "BestDurationMinutes": 250,
+  "BestEstimatedCost": 50000,
+  "EndAtUtc": "2026-10-20T05:10:00+00:00",
+  "NodesExpanded": 130000,
+  "PrunedByConstraints": 0,
+  "PrunedByForwardChecking": 0,
+  "PrunedByBound": 80707,
+  "SolutionsFound": 129998,
+  "NodesToFirstSolution": 2,
+  "SearchCompleted": false,
+  "NodeLimitReached": true,
+  "TimeLimitReached": false,
+  "EvaluatorCalls": 12,
+  "UsedRelaxedRestModel": true,
+  "ChoseRelaxedRestModel": false
+}

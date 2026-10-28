@@ -73,9 +73,8 @@ public sealed class PendingBookingExpiryProcessor(
                                         candidate.PaymentExpiresAtUtc.HasValue &&
                                         candidate.PaymentExpiresAtUtc.Value <= now,
                 cancellationToken);
-        if (booking is null || !booking.ExpirePendingPayment(now)) return 0;
-
-        booking.TourSchedule.ReleaseCapacity(booking.Quantity);
+        if (booking is null || !await BookingExpiryEffects.ExpireAsync(dbContext, booking, now, cancellationToken))
+            return 0;
         await dbContext.SaveChangesAsync(cancellationToken);
         return 1;
     }
@@ -96,8 +95,7 @@ public sealed class PendingBookingExpiryProcessor(
         var expiredCount = 0;
         foreach (Booking booking in bookings)
         {
-            if (!booking.ExpirePendingPayment(now)) continue;
-            booking.TourSchedule.ReleaseCapacity(booking.Quantity);
+            if (!await BookingExpiryEffects.ExpireAsync(dbContext, booking, now, cancellationToken)) continue;
             expiredCount++;
         }
 

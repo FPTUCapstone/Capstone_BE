@@ -4,10 +4,13 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Features.Itineraries.AdjustItems;
 using TripMate.Application.Features.Itineraries.Common;
+using TripMate.Application.Features.Itineraries.List;
 using TripMate.Application.Features.Itineraries.Regenerate;
 using TripMate.Application.Features.Itineraries.Suggestions;
 using TripMate.Application.Features.PointsOfInterest.ExternalReviews;
 using TripMate.Application.Features.Scheduling.Common;
+using TripMate.Application.Features.Scheduling.Csp;
+using TripMate.Application.Features.Scheduling.TimeOfDay;
 using TripMate.Application.UnitTests.TestUtilities;
 using TripMate.Domain.Constants;
 using TripMate.Domain.Entities;
@@ -88,6 +91,57 @@ public sealed class ItineraryVersionServiceTests
     }
 
     [Fact]
+    public async Task CreateRegeneratedVersion_InWeightedUtilityMode_SuggestsAnotherPlaceWithoutThrowing()
+    {
+        await using var dbContext = TestDbContext.Create();
+        const long travelerUserId = 42;
+        var request = await AddRequestAsync(dbContext, travelerUserId);
+        var current = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Current museum", visitMinutes: 300);
+        var other = await AddPlanningReadyPoiAsync(dbContext, "Nature", "Other park", visitMinutes: 300);
+        dbContext.TravelerProfiles.Add(TravelerProfile.Create(travelerUserId, "[\"culture\"]", Now));
+        var original = await AddItineraryAsync(dbContext, request, current.Id);
+        var options = new SchedulingGenerationOptions
+        {
+            SolverMode = SchedulingSolverMode.Csp,
+            Csp = new CspOptions { Mode = ObjectiveMode.WeightedUtility },
+        };
+
+        var result = await new ItineraryVersionService(
+                dbContext,
+                new FixedRouteDurationProvider(),
+                options,
+                new TimeOfDayOptions { Enabled = false })
+            .CreateRegeneratedVersionAsync(original, request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        VisitIds(result.Value).Should().Equal(other.Id);
+    }
+
+    [Fact]
+    public async Task CreateRegeneratedVersion_InWeightedUtilityMode_WhenNoOtherPlaceFits_ReturnsNoAlternative()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var request = await AddRequestAsync(dbContext, travelerUserId: 42);
+        var only = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Only museum");
+        var original = await AddItineraryAsync(dbContext, request, only.Id);
+        var options = new SchedulingGenerationOptions
+        {
+            SolverMode = SchedulingSolverMode.Csp,
+            Csp = new CspOptions { Mode = ObjectiveMode.WeightedUtility },
+        };
+
+        var result = await new ItineraryVersionService(
+                dbContext,
+                new FixedRouteDurationProvider(),
+                options,
+                new TimeOfDayOptions { Enabled = false })
+            .CreateRegeneratedVersionAsync(original, request, CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(ItineraryErrorCodes.NoAlternative);
+    }
+
+    [Fact]
     public async Task CreateRegeneratedVersion_PrefersAPlaceNeverSuggestedOverOneFromAnEarlierVersion()
     {
         // v1 showed the museum, v2 (current) the park: v3 must not bounce back to the museum
@@ -164,13 +218,15 @@ public sealed class ItineraryVersionServiceTests
             .Should().Be(10);
     }
 
-    [Fact]
-    public async Task CreateRegeneratedVersion_NeverAutoSchedulesFoodAndDrink()
+    [Theory]
+    [InlineData(PoiCategoryNames.FoodAndDrink)]
+    [InlineData("Cafe")]
+    public async Task CreateRegeneratedVersion_NeverAutoSchedulesFoodAndDrink(string categoryName)
     {
         await using var dbContext = TestDbContext.Create();
         var request = await AddRequestAsync(dbContext, travelerUserId: 42);
         var original = await AddItineraryAsync(dbContext, request);
-        var restaurant = await AddPlanningReadyPoiAsync(dbContext, PoiCategoryNames.FoodAndDrink, "Mi Quang Ba Mua");
+        var restaurant = await AddPlanningReadyPoiAsync(dbContext, categoryName, "Mi Quang Ba Mua");
         _ = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Cham Museum");
 
         var result = await new ItineraryVersionService(dbContext, new FixedRouteDurationProvider())
@@ -603,7 +659,7 @@ public sealed class ItineraryVersionServiceTests
     {
         await using var dbContext = TestDbContext.Create();
         var museum = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Cham Museum");
-        var openRestaurant = await AddPlanningReadyPoiAsync(dbContext, PoiCategoryNames.FoodAndDrink, "Mi Quang Ba Mua", 16.0480m, 108.2070m);
+        var openRestaurant = await AddPlanningReadyPoiAsync(dbContext, "Cafe", "Mi Quang Ba Mua", 16.0480m, 108.2070m);
         openRestaurant.LinkTripadvisorLocation(8_064_453);
         var breakfastOnly = PointOfInterest.Create(
             PoiCategory.Create(PoiCategoryNames.FoodAndDrink, null), "Breakfast stall", 16.0472m, 108.2069m, 1, Now,
@@ -642,7 +698,7 @@ public sealed class ItineraryVersionServiceTests
         await using var dbContext = TestDbContext.Create();
         var museum = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Cham Museum");
         var gallery = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Fine Arts Museum", 16.0480m, 108.2070m);
-        _ = await AddPlanningReadyPoiAsync(dbContext, PoiCategoryNames.FoodAndDrink, "Mi Quang Ba Mua", 16.0481m, 108.2071m);
+        _ = await AddPlanningReadyPoiAsync(dbContext, "Cafe", "Mi Quang Ba Mua", 16.0481m, 108.2071m);
         _ = await AddPlanningReadyPoiAsync(dbContext, "Nature", "Son Tra", 16.0482m, 108.2072m);
         var request = await AddRequestAsync(dbContext, travelerUserId: 42);
         var itinerary = await AddItineraryAsync(dbContext, request, 1, museum.Id);
@@ -778,6 +834,60 @@ public sealed class ItineraryVersionServiceTests
             CancellationToken.None);
 
         result.ErrorCode.Should().Be(ItineraryErrorCodes.OwnerPermissionRequired);
+    }
+
+    [Fact]
+    public async Task ItineraryAccess_WhenClosedRowRetainsActiveMember_DoesNotGrantGroupAccess()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var museum = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Cham Museum");
+        var request = await AddRequestAsync(dbContext, travelerUserId: 42);
+        var itinerary = await AddItineraryAsync(dbContext, request, 1, museum.Id);
+        var group = TravelGroup.Create(itinerary.Id, 42, "Closed family trip", Now);
+        var host = GroupMember.CreateHost(group, 42, Now);
+        var member = GroupMember.CreateMember(group, 77, Now);
+        group.AddMember(host);
+        group.AddMember(member);
+        dbContext.TravelGroups.Add(group);
+        await dbContext.SaveChangesAsync();
+
+        typeof(TravelGroup).GetProperty(nameof(TravelGroup.Status))!
+            .SetValue(group, TravelGroupStatus.Closed);
+        typeof(TravelGroup).GetProperty(nameof(TravelGroup.ClosedAtUtc))!
+            .SetValue(group, Now);
+        await dbContext.SaveChangesAsync();
+
+        var access = await new ItineraryAccessService(dbContext).ResolveCurrentAsync(
+            itinerary.Id, 77, trackCurrent: false, CancellationToken.None);
+
+        access.IsFailure.Should().BeTrue();
+        access.ErrorCode.Should().Be(ItineraryErrorCodes.AccessDenied);
+    }
+
+    [Fact]
+    public async Task ListItineraries_WhenGroupCloses_HidesPlanFromNonOwner()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var museum = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Cham Museum");
+        var request = await AddRequestAsync(dbContext, travelerUserId: 42);
+        var itinerary = await AddItineraryAsync(dbContext, request, 1, museum.Id);
+        var group = TravelGroup.Create(itinerary.Id, 42, "Closed family trip", Now);
+        group.AddMember(GroupMember.CreateHost(group, 42, Now));
+        group.AddMember(GroupMember.CreateMember(group, 77, Now));
+        dbContext.TravelGroups.Add(group);
+        await dbContext.SaveChangesAsync();
+        typeof(TravelGroup).GetProperty(nameof(TravelGroup.Status))!
+            .SetValue(group, TravelGroupStatus.Closed);
+        typeof(TravelGroup).GetProperty(nameof(TravelGroup.ClosedAtUtc))!
+            .SetValue(group, Now);
+        await dbContext.SaveChangesAsync();
+
+        var handler = new ListMyItinerariesQueryHandler(dbContext, new FakeDateTimeProvider { UtcNow = Now });
+        var memberResult = await handler.Handle(new ListMyItinerariesQuery(77, 1, 20), CancellationToken.None);
+        var ownerResult = await handler.Handle(new ListMyItinerariesQuery(42, 1, 20), CancellationToken.None);
+
+        memberResult.Value.Items.Should().BeEmpty();
+        ownerResult.Value.Items.Should().ContainSingle(item => item.ItineraryId == itinerary.Id);
     }
 
     [Fact]

@@ -200,6 +200,23 @@ public class Booking : BaseEntity
         return true;
     }
 
+    /// <summary>
+    /// UC-29: issues the booking's single e-ticket once a verified payment has confirmed it.
+    /// Only a persisted booking can hold a ticket, because the ticket code is derived from its id.
+    /// Returns false when the booking is not Confirmed and Paid or already holds a ticket.
+    /// </summary>
+    public bool IssueTicket(DateTimeOffset nowUtc)
+    {
+        if (Id <= 0)
+            throw new InvalidOperationException("A ticket can be issued only for a persisted booking.");
+
+        if (Status != BookingStatus.Confirmed || PaymentStatus != PaymentStatus.Paid || _tickets.Count > 0)
+            return false;
+
+        _tickets.Add(Ticket.IssueFor(this, nowUtc));
+        return true;
+    }
+
     public void Cancel(DateTimeOffset cancelledAtUtc, string? reason)
     {
         if (Status is not (BookingStatus.PendingPayment or BookingStatus.Confirmed))
@@ -210,6 +227,20 @@ public class Booking : BaseEntity
         Status = BookingStatus.Cancelled;
         CancelledAtUtc = cancelledAtUtc.ToUniversalTime();
         CancelReason = reason;
+    }
+
+    public void ApplyRefund(decimal cumulativeRefundAmount)
+    {
+        if (Status != BookingStatus.Cancelled)
+            throw new InvalidOperationException("Only a cancelled booking can receive a refund.");
+        if (cumulativeRefundAmount < 0 || cumulativeRefundAmount > TotalAmount)
+            throw new ArgumentOutOfRangeException(nameof(cumulativeRefundAmount));
+
+        PaymentStatus = cumulativeRefundAmount == 0m
+            ? PaymentStatus.Paid
+            : cumulativeRefundAmount == TotalAmount
+                ? PaymentStatus.Refunded
+                : PaymentStatus.PartiallyRefunded;
     }
 
     /// <summary>BK-yyyyMMdd-NNNNN, e.g. BK-20261017-00001. Sequence is per-day, assigned by the caller.</summary>
