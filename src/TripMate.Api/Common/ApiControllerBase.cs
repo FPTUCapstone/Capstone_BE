@@ -314,6 +314,14 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripMate.Application.Features.Admin.Bookings.Common.PlatformBookingErrorCodes.InvalidDateRange =>
                 StatusCodes.Status400BadRequest,
 
+            TripMate.Application.Features.Operator.Bookings.Common.OperatorBookingErrorCodes.Forbidden =>
+                StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.Operator.Bookings.Common.OperatorBookingErrorCodes.NotFound =>
+                StatusCodes.Status404NotFound,
+            TripMate.Application.Features.Operator.Bookings.Common.OperatorBookingErrorCodes.InvalidFilter or
+                TripMate.Application.Features.Operator.Bookings.Common.OperatorBookingErrorCodes.InvalidDateRange =>
+                StatusCodes.Status400BadRequest,
+
             TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.ItineraryNotFound =>
                 StatusCodes.Status404NotFound,
 
