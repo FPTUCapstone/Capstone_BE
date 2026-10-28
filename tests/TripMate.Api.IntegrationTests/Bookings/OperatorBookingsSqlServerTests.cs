@@ -82,10 +82,9 @@ public sealed class OperatorBookingsSqlServerTests
                 N'ciphertext-P1234567', 'VNM'),
                (@in1, N'Nguyen Thi B', NULL, NULL, 'Child', NULL, NULL, NULL);
 
-        -- Two tickets on IN1: the earliest check-in timestamp must win. IN2 has an unused ticket.
+        -- UX_Tickets_OneTicketPerBooking allows one ticket per booking: IN1 is checked in, IN2 has an unused ticket.
         INSERT commerce.Tickets(booking_id, ticket_code, status, issued_at, checked_in_at)
-        VALUES (@in1, 'TK-UC40-IN1-A', 'Used', '2026-10-21T08:01:00', '2026-11-02T02:00:00'),
-               (@in1, 'TK-UC40-IN1-B', 'Used', '2026-10-21T08:02:00', '2026-11-02T01:00:00'),
+        VALUES (@in1, 'TK-UC40-IN1-A', 'Used', '2026-10-21T08:01:00', '2026-11-02T01:00:00'),
                (@in2, 'TK-UC40-IN2-A', 'Valid', '2026-10-21T08:01:00', NULL);
 
         INSERT payment.PaymentTransactions(booking_id, gateway, gateway_transaction_ref, amount, transaction_type,
@@ -177,7 +176,7 @@ public sealed class OperatorBookingsSqlServerTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
-    public async Task List_DerivesEarliestCheckInFromTicketsOnSqlServer()
+    public async Task List_DerivesCheckInFromTicketOnSqlServer()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
         await database.ExecuteNonQueryAsync(SeedScript);
