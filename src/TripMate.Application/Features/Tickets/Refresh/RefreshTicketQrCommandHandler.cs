@@ -38,7 +38,15 @@ public sealed class RefreshTicketQrCommandHandler(
         }
 
         var issuer = new TicketQrIssuer(dbContext, codec, classifier);
-        await issuer.RotateAsync(snapshot.TicketId, now, cancellationToken);
+        var rotation = await issuer.RotateAsync(snapshot.TicketId, now, cancellationToken);
+        if (rotation.IsFailure)
+        {
+            return Result.Failure<TicketResponse>(
+                rotation.ErrorCode!,
+                rotation.ErrorMessage!,
+                rotation.ErrorMetadata);
+        }
+
         return Result.Success(
             await TicketResponseBuilder.BuildAsync(dbContext, issuer, snapshot, now, cancellationToken));
     }

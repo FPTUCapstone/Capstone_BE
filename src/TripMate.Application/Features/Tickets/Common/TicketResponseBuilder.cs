@@ -23,7 +23,10 @@ public static class TicketResponseBuilder
         if (TicketDisplayStatusEvaluator.ShowsQr(status))
         {
             var code = await issuer.EnsureActiveAsync(snapshot.TicketId, nowUtc, cancellationToken);
-            qr = new TicketQrResponse(issuer.ContentFor(code), code.IssuedAtUtc);
+            if (code is not null)
+            {
+                qr = new TicketQrResponse(issuer.ContentFor(code), code.IssuedAtUtc);
+            }
         }
 
         var counts = await dbContext.BookingParticipants.AsNoTracking()
