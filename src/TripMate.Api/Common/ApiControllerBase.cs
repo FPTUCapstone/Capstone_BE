@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Authentication.Common;
+using TripMate.Application.Features.Bookings.Common;
 using TripMate.Application.Features.CommercialServices.Common;
 using TripMate.Application.Features.Coupons.Common;
 using TripMate.Application.Features.Navigation.Common;
@@ -224,6 +225,17 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             OperatorTourErrorCodes.AdminAccessRequired => StatusCodes.Status403Forbidden,
             TripMate.Application.Features.Operator.Revenue.Common.OperatorRevenueErrorCodes.InvalidGranularity =>
                 StatusCodes.Status400BadRequest,
+
+            TripMate.Application.Features.Operator.Revenue.Exports.Common.RevenueExportErrorCodes.ValidationFailed =>
+                StatusCodes.Status400BadRequest,
+            TripMate.Application.Features.Operator.Revenue.Exports.Common.RevenueExportErrorCodes.AccessRequired =>
+                StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.Operator.Revenue.Exports.Common.RevenueExportErrorCodes.NoRecords =>
+                StatusCodes.Status422UnprocessableEntity,
+            TripMate.Application.Features.Operator.Revenue.Exports.Common.RevenueExportErrorCodes.GenerationFailed =>
+                StatusCodes.Status500InternalServerError,
+            TripMate.Application.Features.Operator.Revenue.Exports.Common.RevenueExportErrorCodes.NotFound =>
+                StatusCodes.Status404NotFound,
             OperatorTourErrorCodes.PoiNotFound or OperatorTourErrorCodes.CategoryNotFound or
                 OperatorTourErrorCodes.DestinationNotFound or
                 OperatorTourErrorCodes.TourNotFound or OperatorTourErrorCodes.CancellationPolicyUnavailable =>
@@ -252,6 +264,17 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
                 StatusCodes.Status422UnprocessableEntity,
             TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.IdempotencyKeyRequired =>
                 StatusCodes.Status400BadRequest,
+
+            BookingCancellationErrorCodes.Unauthorized => StatusCodes.Status401Unauthorized,
+            BookingCancellationErrorCodes.NotFound => StatusCodes.Status404NotFound,
+            BookingCancellationErrorCodes.Forbidden => StatusCodes.Status403Forbidden,
+            BookingCancellationErrorCodes.InvalidState or
+                BookingCancellationErrorCodes.PaymentNotRefundable or
+                BookingCancellationErrorCodes.IdempotencyPayloadMismatch => StatusCodes.Status409Conflict,
+            BookingCancellationErrorCodes.WindowClosed => StatusCodes.Status422UnprocessableEntity,
+            BookingCancellationErrorCodes.ReasonRequired => StatusCodes.Status422UnprocessableEntity,
+            BookingCancellationErrorCodes.PolicyUnavailable => StatusCodes.Status503ServiceUnavailable,
+            BookingCancellationErrorCodes.ConcurrentRetryExhausted => StatusCodes.Status503ServiceUnavailable,
 
             TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.ItineraryNotFound =>
                 StatusCodes.Status404NotFound,

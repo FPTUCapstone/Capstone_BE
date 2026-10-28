@@ -89,6 +89,7 @@ public sealed class TripMateApiFactory(
         builder.UseSetting("Cloudinary:ApiSecret", "test-api-secret");
         builder.UseSetting("Cloudinary:TourMediaFolderRoot", "tripmate/tests/tours");
         builder.UseSetting("Cloudinary:OperatorDocumentsFolderRoot", "tripmate/tests/operator-documents");
+        builder.UseSetting("Cloudinary:RevenueExportsFolderRoot", "tripmate/tests/revenue-exports");
         // Integration tests must not inherit Development's external-provider enablement
         // or depend on developer User Secrets being present on the test host.
         builder.UseSetting("AiRanking:Enabled", "false");
@@ -143,7 +144,9 @@ public sealed class TripMateApiFactory(
                         || services[index].ImplementationType?.FullName
                             is "TripMate.Infrastructure.Services.TourMediaCleanupBackgroundService"
                             or "TripMate.Infrastructure.Services.TravelerAvatarCleanupBackgroundService"
-                            or "TripMate.Infrastructure.Services.PendingBookingExpiryBackgroundService"))
+                            or "TripMate.Infrastructure.Services.PendingBookingExpiryBackgroundService"
+                            or "TripMate.Infrastructure.Services.RevenueExportWorkerBackgroundService"
+                            or "TripMate.Infrastructure.Services.RevenueExportExpiryBackgroundService"))
                 {
                     services.RemoveAt(index);
                 }
@@ -432,6 +435,11 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
         Set<TourBookingCreateOperation>();
     public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
     public DbSet<Refund> Refunds => Set<Refund>();
+    public DbSet<RevenueExport> RevenueExports => Set<RevenueExport>();
+
+    public DbSet<Ticket> Tickets => Set<Ticket>();
+    public DbSet<BookingCancellationOperation> BookingCancellationOperations =>
+        Set<BookingCancellationOperation>();
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
     public DbSet<Itinerary> Itineraries => Set<Itinerary>();
@@ -507,6 +515,9 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken) =>
         operation(cancellationToken);
+
+    public Task<int> RevokeActiveTicketQrCodesAsync(long bookingId, DateTimeOffset revokedAtUtc,
+        CancellationToken cancellationToken) => Task.FromResult(0);
 
     public void ClearTrackedEntities() => ChangeTracker.Clear();
 

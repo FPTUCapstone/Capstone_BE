@@ -8,6 +8,8 @@ using TripMate.Application.UnitTests.TestUtilities;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
+using static TripMate.Application.UnitTests.TestUtilities.OperatorRevenueTestFixtures;
+
 namespace TripMate.Application.UnitTests.Features.Operator.Revenue.GetReport;
 
 public sealed class GetOperatorRevenueReportQueryHandlerTests
@@ -24,7 +26,7 @@ public sealed class GetOperatorRevenueReportQueryHandlerTests
         {
             UserId = operatorUser.Id,
             Role = nameof(UserRole.TourOperator),
-        });
+        }, new OperatorRevenueAggregator(db));
 
         var result = await handler.Handle(
             new GetOperatorRevenueReportQuery(Start, End, "yearly"),
@@ -66,7 +68,7 @@ public sealed class GetOperatorRevenueReportQueryHandlerTests
         {
             UserId = operatorUser.Id,
             Role = nameof(UserRole.TourOperator),
-        });
+        }, new OperatorRevenueAggregator(db));
 
         var result = await handler.Handle(
             new GetOperatorRevenueReportQuery(Start, End, "monthly"),
@@ -74,16 +76,16 @@ public sealed class GetOperatorRevenueReportQueryHandlerTests
 
         result.IsSuccess.Should().BeTrue();
 
-        // Summary already subtracted the refund correctly before the fix.
+        // Commission is charged only on the amount retained after the refund.
         result.Value.Summary.RefundedAmount.Should().Be(300_000m);
         result.Value.Summary.NetAmount.Should().Be(
-            (1_000_000m - 100_000m) + (2_000_000m - 200_000m) - 300_000m);
+            (1_000_000m - 70_000m - 300_000m) + (2_000_000m - 200_000m));
 
         // P1: tour breakdown must carry the refund only against the tour it belongs to.
         var detailA = result.Value.TourDetails.Single(t => t.TourId == tourA.Id);
         var detailB = result.Value.TourDetails.Single(t => t.TourId == tourB.Id);
         detailA.RefundedAmount.Should().Be(300_000m);
-        detailA.NetAmount.Should().Be(1_000_000m - 100_000m - 300_000m);
+        detailA.NetAmount.Should().Be(1_000_000m - 70_000m - 300_000m);
         detailB.RefundedAmount.Should().Be(0m);
         detailB.NetAmount.Should().Be(2_000_000m - 200_000m);
 
@@ -91,7 +93,94 @@ public sealed class GetOperatorRevenueReportQueryHandlerTests
         var septemberBucket = result.Value.ChartData.Single(c => c.PeriodKey == "2026-09");
         septemberBucket.RefundedAmount.Should().Be(300_000m);
         septemberBucket.NetAmount.Should().Be(
-            (1_000_000m - 100_000m) + (2_000_000m - 200_000m) - 300_000m);
+            (1_000_000m - 70_000m - 300_000m) + (2_000_000m - 200_000m));
+    }
+
+    [Fact]
+    public async Task Handle_BookingFullyRefunded_ChargesZeroCommissionNotNegativePayout()
+    {
+        await using var db = TestDbContext.Create();
+        var operatorUser = await SeedApprovedOperatorAsync(db, 7, commissionRate: 10m);
+
+        var tour = CreateTour(103, operatorUser.Id, "Tour C");
+        db.Add(tour);
+        await db.SaveChangesAsync();
+
+        var schedule = CreateTourSchedule(203, tour.Id);
+        db.Add(schedule);
+        await db.SaveChangesAsync();
+
+        var booking = await SeedPaidBookingAsync(db, bookingId: 303, scheduleId: schedule.Id,
+            totalAmount: 1_000_000m, succeededAtUtc: new DateTimeOffset(2026, 9, 10, 3, 0, 0, TimeSpan.Zero));
+        db.Add(CreateRefund(402, booking.Id, 1_000_000m,
+            processedAtUtc: new DateTimeOffset(2026, 9, 12, 3, 0, 0, TimeSpan.Zero)));
+        await db.SaveChangesAsync();
+
+        var handler = new GetOperatorRevenueReportQueryHandler(db, new FakeCurrentUserService
+        {
+            UserId = operatorUser.Id,
+            Role = nameof(UserRole.TourOperator),
+        }, new OperatorRevenueAggregator(db));
+
+        var result = await handler.Handle(
+            new GetOperatorRevenueReportQuery(Start, End, "monthly"),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Summary.PaymentsReceived.Should().Be(1_000_000m);
+        result.Value.Summary.RefundedAmount.Should().Be(1_000_000m);
+        result.Value.Summary.PlatformCommission.Should().Be(0m);
+        result.Value.Summary.NetAmount.Should().Be(0m);
+
+        var detail = result.Value.TourDetails.Single(t => t.TourId == tour.Id);
+        detail.Commission.Should().Be(0m);
+        detail.NetAmount.Should().Be(0m);
+    }
+
+    [Fact]
+    public async Task Handle_RefundProcessedInLaterPeriod_StillZeroesCommissionInPaymentPeriod()
+    {
+        await using var db = TestDbContext.Create();
+        var operatorUser = await SeedApprovedOperatorAsync(db, 7, commissionRate: 10m);
+
+        var tour = CreateTour(104, operatorUser.Id, "Tour D");
+        db.Add(tour);
+        await db.SaveChangesAsync();
+
+        var schedule = CreateTourSchedule(204, tour.Id);
+        db.Add(schedule);
+        await db.SaveChangesAsync();
+
+        var booking = await SeedPaidBookingAsync(db, bookingId: 304, scheduleId: schedule.Id,
+            totalAmount: 1_000_000m, succeededAtUtc: new DateTimeOffset(2026, 9, 30, 10, 0, 0, TimeSpan.Zero));
+        db.Add(CreateRefund(403, booking.Id, 1_000_000m,
+            processedAtUtc: new DateTimeOffset(2026, 10, 2, 10, 0, 0, TimeSpan.Zero)));
+        await db.SaveChangesAsync();
+
+        var handler = new GetOperatorRevenueReportQueryHandler(db, new FakeCurrentUserService
+        {
+            UserId = operatorUser.Id,
+            Role = nameof(UserRole.TourOperator),
+        }, new OperatorRevenueAggregator(db));
+
+        var septemberResult = await handler.Handle(
+            new GetOperatorRevenueReportQuery(Start, End, "monthly"),
+            CancellationToken.None);
+
+        septemberResult.IsSuccess.Should().BeTrue();
+        septemberResult.Value.Summary.PaymentsReceived.Should().Be(1_000_000m);
+        septemberResult.Value.Summary.RefundedAmount.Should().Be(1_000_000m);
+        septemberResult.Value.Summary.PlatformCommission.Should().Be(0m);
+        septemberResult.Value.Summary.NetAmount.Should().Be(0m);
+
+        var octoberResult = await handler.Handle(
+            new GetOperatorRevenueReportQuery(new DateOnly(2026, 10, 1), new DateOnly(2026, 10, 31), "monthly"),
+            CancellationToken.None);
+
+        octoberResult.IsSuccess.Should().BeTrue();
+        octoberResult.Value.Summary.PaymentsReceived.Should().Be(0m);
+        octoberResult.Value.Summary.PlatformCommission.Should().Be(0m);
+        octoberResult.Value.TourDetails.Should().BeEmpty();
     }
 
     private static async Task<User> SeedApprovedOperatorAsync(TestDbContext db, long id, decimal commissionRate = 10m)
@@ -195,7 +284,7 @@ public sealed class GetOperatorRevenueReportQueryHandlerTests
         Set(refund, nameof(Refund.Id), id);
         Set(refund, nameof(Refund.BookingId), bookingId);
         Set(refund, nameof(Refund.Amount), amount);
-        Set(refund, nameof(Refund.Status), "Processed");
+        Set(refund, nameof(Refund.Status), RefundStatus.Processed);
         Set(refund, nameof(Refund.ProcessedAtUtc), processedAtUtc);
         return refund;
     }

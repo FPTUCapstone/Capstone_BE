@@ -1104,13 +1104,41 @@ CREATE TABLE commerce.Bookings (
     booked_at                                                DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
     payment_expires_at                                          DATETIME2 NULL,
     cancelled_at                                                   DATETIME2 NULL,
-    cancel_reason                                                     NVARCHAR(300) NULL
+    cancel_reason                                                     NVARCHAR(300) NULL,
+    cancellation_policy_snapshot                                      NVARCHAR(500) NOT NULL
+        CONSTRAINT DF_Bookings_CancellationPolicySnapshot DEFAULT
+        (N'{"atLeastSevenDaysPercent":100,"threeToSevenDaysPercent":70,"oneToThreeDaysPercent":30}')
 );
 GO
 CREATE INDEX IX_Bookings_Traveler ON commerce.Bookings(traveler_user_id, status);
 CREATE INDEX IX_Bookings_TourSchedule ON commerce.Bookings(tour_schedule_id, status);
 CREATE INDEX IX_Bookings_ExpiryScan ON commerce.Bookings(status, payment_expires_at)
     WHERE status = 'PendingPayment';
+GO
+
+CREATE TABLE commerce.BookingCancellationOperations (
+    operation_id       BIGINT IDENTITY(1,1) NOT NULL
+        CONSTRAINT PK_BookingCancellationOperations PRIMARY KEY,
+    booking_id           BIGINT NOT NULL,
+    actor_user_id          BIGINT NOT NULL,
+    actor                    VARCHAR(12) NOT NULL,
+    idempotency_key           UNIQUEIDENTIFIER NOT NULL,
+    request_hash                 CHAR(64) NOT NULL,
+    refund_amount                 DECIMAL(12,2) NOT NULL,
+    cancelled_at                    DATETIME2 NOT NULL,
+    CONSTRAINT UX_BookingCancellationOperations_ActorKey UNIQUE (actor_user_id, idempotency_key),
+    CONSTRAINT FK_BookingCancellationOperations_Booking FOREIGN KEY (booking_id)
+        REFERENCES commerce.Bookings(booking_id),
+    CONSTRAINT FK_BookingCancellationOperations_ActorUser FOREIGN KEY (actor_user_id)
+        REFERENCES dbo.Users(user_id),
+    CONSTRAINT CK_BookingCancellationOperations_Actor
+        CHECK (actor IN ('Traveler','TourOperator')),
+    CONSTRAINT CK_BookingCancellationOperations_RefundAmount
+        CHECK (refund_amount >= 0)
+);
+GO
+CREATE INDEX IX_BookingCancellationOperations_Booking
+    ON commerce.BookingCancellationOperations(booking_id);
 GO
 
 -- NEW in v2 — named ticket-holders per booking, required to issue individual Tickets
@@ -1232,6 +1260,7 @@ CREATE TABLE payment.Refunds (
     refund_id            BIGINT IDENTITY(1,1) PRIMARY KEY,
     booking_id              BIGINT NOT NULL REFERENCES commerce.Bookings(booking_id),
     transaction_id             BIGINT NULL REFERENCES payment.PaymentTransactions(transaction_id),
+    cancellation_operation_id    BIGINT NULL,
     reason                        NVARCHAR(500) NULL,
     amount                          DECIMAL(12,2) NOT NULL CHECK (amount > 0),
     initiated_by                      VARCHAR(14) NOT NULL
@@ -1239,10 +1268,14 @@ CREATE TABLE payment.Refunds (
     status                              VARCHAR(10) NOT NULL DEFAULT 'Pending'
         CHECK (status IN ('Pending','Processed','Failed')),
     requested_at                          DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
-    processed_at                            DATETIME2 NULL
+    processed_at                            DATETIME2 NULL,
+    CONSTRAINT FK_Refunds_CancellationOperation FOREIGN KEY (cancellation_operation_id)
+        REFERENCES commerce.BookingCancellationOperations(operation_id)
 );
 GO
 CREATE INDEX IX_Refunds_Booking ON payment.Refunds(booking_id);
+CREATE UNIQUE INDEX UX_Refunds_CancellationOperation ON payment.Refunds(cancellation_operation_id)
+    WHERE cancellation_operation_id IS NOT NULL;
 GO
 
 CREATE TABLE payment.Payouts (

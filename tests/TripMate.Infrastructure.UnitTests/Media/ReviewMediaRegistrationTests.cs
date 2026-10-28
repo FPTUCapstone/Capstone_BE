@@ -70,5 +70,6 @@ public sealed class ReviewMediaRegistrationTests
         ["Cloudinary:TourMediaFolderRoot"] = "tripmate/tests/tours",
         ["Cloudinary:ReviewMediaFolderRoot"] = ReviewCloudinaryOptions.StableReviewMediaFolderRoot,
         ["Cloudinary:OperatorDocumentsFolderRoot"] = "tripmate/tests/operator-documents",
+        ["Cloudinary:RevenueExportsFolderRoot"] = "tripmate/tests/revenue-exports",
     };
 }
