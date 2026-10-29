@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 
 using FluentAssertions;
+
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
@@ -244,8 +245,12 @@ public sealed class ManagedPoiListSqlServerTests
 
     private static User CreateActor(UserRole role) => new()
     {
-        Email = $"{Guid.NewGuid():N}@example.com", FullName = "SQL management actor", Role = role,
-        Status = AccountStatus.Active, CreatedAtUtc = SeedTime, UpdatedAtUtc = SeedTime,
+        Email = $"{Guid.NewGuid():N}@example.com",
+        FullName = "SQL management actor",
+        Role = role,
+        Status = AccountStatus.Active,
+        CreatedAtUtc = SeedTime,
+        UpdatedAtUtc = SeedTime,
     };
 
     private static async Task<string> ReadSnapshotAsync(SqlServerTestDatabase database)
@@ -254,15 +259,35 @@ public sealed class ManagedPoiListSqlServerTests
         await using var context = database.CreateDbContext();
         var pois = await context.PointsOfInterest.AsNoTracking().OrderBy(poi => poi.Id).Select(poi => new
         {
-            poi.Id, poi.CategoryId, poi.Name, poi.Description, poi.Address, poi.Latitude, poi.Longitude,
-            poi.Status, poi.IndoorOutdoor, poi.AverageVisitDurationMinutes, poi.HasShelter, poi.ScenicScore,
-            poi.PhotoRating, poi.EstimatedVisitCost, poi.SourceUrl, poi.TripadvisorLocationId, poi.VerifiedAtUtc,
-            poi.CreatedById, poi.CreatedAtUtc, poi.UpdatedAtUtc,
+            poi.Id,
+            poi.CategoryId,
+            poi.Name,
+            poi.Description,
+            poi.Address,
+            poi.Latitude,
+            poi.Longitude,
+            poi.Status,
+            poi.IndoorOutdoor,
+            poi.AverageVisitDurationMinutes,
+            poi.HasShelter,
+            poi.ScenicScore,
+            poi.PhotoRating,
+            poi.EstimatedVisitCost,
+            poi.SourceUrl,
+            poi.TripadvisorLocationId,
+            poi.VerifiedAtUtc,
+            poi.CreatedById,
+            poi.CreatedAtUtc,
+            poi.UpdatedAtUtc,
         }).ToListAsync();
         var hours = await context.PoiOpeningHours.AsNoTracking().OrderBy(hour => hour.PointOfInterestId)
             .ThenBy(hour => hour.DayOfWeek).Select(hour => new
             {
-                hour.PointOfInterestId, hour.DayOfWeek, hour.OpenTime, hour.CloseTime, hour.IsClosed,
+                hour.PointOfInterestId,
+                hour.DayOfWeek,
+                hour.OpenTime,
+                hour.CloseTime,
+                hour.IsClosed,
             }).ToListAsync();
         var categories = await context.PoiCategories.AsNoTracking().OrderBy(category => category.Id)
             .Select(category => new { category.Id, category.Name, category.Description }).ToListAsync();
@@ -271,8 +296,17 @@ public sealed class ManagedPoiListSqlServerTests
             .ToListAsync();
         var audit = await context.AuditLogs.AsNoTracking().OrderBy(log => log.Id).Select(log => new
         {
-            log.Id, log.ActorUserId, log.ActionType, log.AffectedEntity, log.AffectedEntityId,
-            log.BeforeData, log.AfterData, log.IpAddress, log.Result, log.Reason, log.CreatedAtUtc,
+            log.Id,
+            log.ActorUserId,
+            log.ActionType,
+            log.AffectedEntity,
+            log.AffectedEntityId,
+            log.BeforeData,
+            log.AfterData,
+            log.IpAddress,
+            log.Result,
+            log.Reason,
+            log.CreatedAtUtc,
         }).ToListAsync();
         context.ChangeTracker.Entries().Should().BeEmpty();
         return JsonSerializer.Serialize(new { counts, pois, hours, categories, actors, audit });

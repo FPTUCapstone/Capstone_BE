@@ -108,7 +108,10 @@ public class ListManagedPoisQueryHandlerTests
 
         var result = await Handler(context, actor.Id).Handle(new()
         {
-            Search = "  Matching  ", CategoryId = selected.Id, Status = status, PageSize = 1,
+            Search = "  Matching  ",
+            CategoryId = selected.Id,
+            Status = status,
+            PageSize = 1,
         }, default);
 
         result.Value.TotalCount.Should().Be(1);

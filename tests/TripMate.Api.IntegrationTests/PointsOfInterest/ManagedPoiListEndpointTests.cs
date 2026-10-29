@@ -3,7 +3,9 @@ using System.Net.Http.Json;
 using System.Text.Json;
 
 using FluentAssertions;
+
 using MediatR;
+
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
