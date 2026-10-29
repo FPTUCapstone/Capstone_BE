@@ -29,7 +29,7 @@ public sealed class CheckInTravelerCommandHandler(
         CheckInTravelerCommand request,
         CancellationToken cancellationToken)
     {
-        // 1. Verify operator access (BR-82)
+        // 1. Verify operator access (BR-108)
         var access = await OperatorBookingAccess.ResolveOperatorIdAsync(
             dbContext, currentUserService, cancellationToken);
         if (access.IsFailure)
@@ -39,7 +39,7 @@ public sealed class CheckInTravelerCommandHandler(
 
         var operatorId = access.Value;
 
-        // 2. Validate schedule existence and operator tour ownership (BR-82)
+        // 2. Validate schedule existence and operator tour ownership (BR-108)
         var schedule = await dbContext.TourSchedules.AsNoTracking()
             .Where(s => s.Id == request.ScheduleId)
             .Select(s => new
@@ -66,7 +66,7 @@ public sealed class CheckInTravelerCommandHandler(
                 CheckInErrorCodes.ScheduleForbidden, "You do not have permission to check in for this tour departure.");
         }
 
-        // 3. Validate departure date window in Asia/Ho_Chi_Minh (BR-83)
+        // 3. Validate departure date window in Asia/Ho_Chi_Minh (BR-84, BR-108)
         var nowUtc = clock.UtcNow;
         var validityWindow = TicketValidityWindow.For(schedule.StartAtUtc);
         if (nowUtc < validityWindow.ValidFromUtc || nowUtc > validityWindow.ValidUntilUtc)
@@ -77,7 +77,7 @@ public sealed class CheckInTravelerCommandHandler(
                 "Check-in is only permitted on the departure date.");
         }
 
-        // 4. Resolve Ticket and Active QR (BR-108, PC-01..PC-03)
+        // 4. Resolve Ticket and Active QR (BR-83 cryptographic signature & timestamp, PC-01..PC-03)
         long ticketId;
         long? qrCodeIdFromPayload = null;
 
@@ -145,7 +145,7 @@ public sealed class CheckInTravelerCommandHandler(
                 "The ticket could not be found.");
         }
 
-        // 6. Validate schedule match (PC-05)
+        // 6. Validate schedule match (Normal Flow step 5, Abnormal Case 5.a2)
         if (ticketData.TourScheduleId != request.ScheduleId)
         {
             await RecordAuditRejectionAsync(operatorId, ticketId, "Ticket is for a different departure schedule.", nowUtc);
@@ -154,7 +154,7 @@ public sealed class CheckInTravelerCommandHandler(
                 "The ticket is for a different departure schedule.");
         }
 
-        // 7. Validate booking status (BR-84, PC-05)
+        // 7. Validate booking status (BR-82 verified payment, BR-86 cancellation invalidates ticket)
         if (ticketData.BookingStatus == BookingStatus.Cancelled)
         {
             await RecordAuditRejectionAsync(operatorId, ticketId, "Booking was cancelled.", nowUtc);
