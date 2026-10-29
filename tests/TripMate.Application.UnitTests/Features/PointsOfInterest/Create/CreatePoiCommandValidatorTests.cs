@@ -18,6 +18,15 @@ public class CreatePoiCommandValidatorTests
         result.IsValid.Should().BeTrue();
     }
 
+    [Fact]
+    public void Validate_RequiresExplicitIndoorOutdoorClassification()
+    {
+        var result = _validator.Validate(ValidCommand() with { IndoorOutdoor = null });
+
+        result.Errors.Select(error => error.PropertyName)
+            .Should().Contain(nameof(CreatePoiCommand.IndoorOutdoor));
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("   ")]

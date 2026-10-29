@@ -6,6 +6,7 @@ using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.TripAlerts.Common;
 using TripMate.Domain.Entities;
+using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.TripAlerts.List;
 
@@ -61,13 +62,26 @@ public sealed class ListTripAlertsQueryHandler(IApplicationDbContext dbContext)
             .GroupBy(proposal => proposal.IncidentId)
             .Select(group => new { IncidentId = group.Key, ProposalId = group.Max(item => item.Id) })
             .ToDictionaryAsync(item => item.IncidentId, item => (long?)item.ProposalId, cancellationToken);
+        var affectedPoiIds = incidents
+            .Where(incident => incident.AffectedItem is not null)
+            .Select(incident => incident.AffectedItem!.PoiId)
+            .Distinct()
+            .ToArray();
+        var reviewedOutdoorPoiIds = await dbContext.PointsOfInterest.AsNoTracking()
+            .Where(poi => affectedPoiIds.Contains(poi.Id)
+                && poi.IndoorOutdoor == IndoorOutdoorType.Outdoor
+                && poi.IndoorOutdoorReviewedAtUtc != null)
+            .Select(poi => poi.Id)
+            .ToArrayAsync(cancellationToken);
 
         IReadOnlyCollection<TripAlertResponse> response = incidents
             .Where(incident => notifications.ContainsKey(incident.Id))
             .Select(incident => TripAlertResponse.From(
                 incident,
                 notifications[incident.Id],
-                proposals.GetValueOrDefault(incident.Id)))
+                proposals.GetValueOrDefault(incident.Id),
+                incident.AffectedItem is not null
+                    && reviewedOutdoorPoiIds.Contains(incident.AffectedItem.PoiId)))
             .ToArray();
         return Result.Success(response);
     }

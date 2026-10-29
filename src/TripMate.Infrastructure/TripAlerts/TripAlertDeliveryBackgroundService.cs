@@ -22,10 +22,10 @@ internal sealed class TripAlertDeliveryBackgroundService(
                 foundWork = alert is not null;
                 if (alert is not null)
                 {
-                    var sent = false;
+                    var result = new TripAlertPushResult(false, []);
                     try
                     {
-                        sent = await sender.SendAsync(alert, stoppingToken);
+                        result = await sender.SendAsync(alert, stoppingToken);
                     }
                     catch (Exception exception) when (exception is not OperationCanceledException)
                     {
@@ -33,7 +33,7 @@ internal sealed class TripAlertDeliveryBackgroundService(
                             alert.NotificationId, exception.GetType().Name);
                     }
 
-                    await queue.CompleteAsync(alert, sent, stoppingToken);
+                    await queue.CompleteAsync(alert, result, stoppingToken);
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
