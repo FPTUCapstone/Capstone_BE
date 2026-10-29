@@ -72,20 +72,22 @@ public static class DependencyInjection
             .Validate(options => options.DeviationCooldown > TimeSpan.Zero, "Deviation cooldown must be positive.")
             .Validate(options => options.DeliveryLease > TimeSpan.Zero, "Delivery lease must be positive.")
             .Validate(options => options.AdvisoryRainMmPerHour >= 0
-                && options.SevereRainMmPerHour > options.AdvisoryRainMmPerHour,
+                && options.SevereRainMmPerHour > options.AdvisoryRainMmPerHour
+                && options.ExtremeRainMmPerHour > options.SevereRainMmPerHour,
                 "Weather thresholds are invalid.")
             .ValidateOnStart();
         services.AddMemoryCache();
-        services.AddOptions<OpenWeatherOptions>()
-            .Bind(configuration.GetSection(OpenWeatherOptions.SectionName))
+        services.AddOptions<TomorrowWeatherOptions>()
+            .Bind(configuration.GetSection(TomorrowWeatherOptions.SectionName))
             .Validate(options => !options.Enabled || !string.IsNullOrWhiteSpace(options.ApiKey),
-                "OpenWeather API key is required when weather integration is enabled.")
-            .Validate(options => options.CacheDuration > TimeSpan.Zero,
-                "OpenWeather cache duration must be positive.")
+                "Tomorrow API key is required when weather integration is enabled.")
+            .Validate(options => options.CacheDuration > TimeSpan.Zero
+                && options.CacheDuration <= TimeSpan.FromMinutes(10),
+                "Tomorrow cache duration must be at most ten minutes.")
             .ValidateOnStart();
-        services.AddHttpClient<ITripWeatherProvider, OpenWeather4TripWeatherProvider>((provider, client) =>
+        services.AddHttpClient<ITripWeatherProvider, TomorrowTripWeatherProvider>((provider, client) =>
         {
-            var weather = provider.GetRequiredService<IOptions<OpenWeatherOptions>>().Value;
+            var weather = provider.GetRequiredService<IOptions<TomorrowWeatherOptions>>().Value;
             client.BaseAddress = new Uri(weather.BaseUrl, UriKind.Absolute);
             client.Timeout = TimeSpan.FromSeconds(10);
         });

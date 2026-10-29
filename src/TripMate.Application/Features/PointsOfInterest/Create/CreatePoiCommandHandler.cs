@@ -109,6 +109,10 @@ public sealed class CreatePoiCommandHandler(
             request.AverageVisitDurationMinutes
                 ?? PointOfInterest.DefaultAverageVisitDurationMinutes,
             request.HasShelter ?? false);
+        if (request.IndoorOutdoor.HasValue)
+        {
+            pointOfInterest.ReviewIndoorOutdoor(request.IndoorOutdoor.Value, now);
+        }
 
         foreach (var hours in request.OpeningHours ?? [])
         {
