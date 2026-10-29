@@ -1,0 +1,13 @@
+FROM python:3.11.9-slim
+WORKDIR /service
+COPY requirements.txt requirements.lock.txt ./
+RUN pip install --no-cache-dir torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir -r requirements.lock.txt \
+    && mkdir /model-cache && chown 10001:10001 /model-cache
+COPY app.py protocol.py ./
+RUN groupadd --gid 10001 embedding && useradd --uid 10001 --gid 10001 --home-dir /model-cache --no-create-home embedding
+ENV HF_HOME=/model-cache HF_HUB_DISABLE_TELEMETRY=1
+ENV HOME=/model-cache TORCHINDUCTOR_CACHE_DIR=/model-cache/torchinductor
+USER 10001:10001
+EXPOSE 8000
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--no-access-log"]
