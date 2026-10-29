@@ -26,6 +26,13 @@ public sealed class CspOptions
     public int MaxNodes { get; init; } = 200_000;
 
     /// <summary>
+    /// Giới hạn số nút của cây tìm kiếm cho chế độ WeightedUtility (cá nhân hóa).
+    /// Mặc định 50.000 nút dựa trên đường cong chất lượng (J suy giảm TB 0.36%, p95 &lt; 300ms theo ADR-001).
+    /// Null: dùng chung <see cref="MaxNodes"/>.
+    /// </summary>
+    public int? WeightedMaxNodes { get; init; }
+
+    /// <summary>
     /// Lưới an toàn về thời gian (mili giây), chỉ để chặn trường hợp máy quá tải; mặc định 2.500 ms theo Report 3 V2. Đây
     /// là mốc cứng cho cả lần giải: bước duyệt xem đồng hồ ở mọi nút, mỗi lần gọi evaluator được kiểm tra trước và sau và
     /// nhận token bị hủy đúng mốc, polish và bước chấm cuối cũng dừng ở mốc này. Duyệt
@@ -47,4 +54,17 @@ public sealed class CspOptions
     /// Tắt mặc định để kết quả là CSP thuần; bật khi ưu tiên chất lượng lộ trình.
     /// </summary>
     public bool PolishWithLocalSearch { get; init; }
+
+    /// <summary>
+    /// Chế độ hàm mục tiêu: Lexicographic (mặc định) hoặc WeightedUtility (cá nhân hóa).
+    /// </summary>
+    public ObjectiveMode Mode { get; init; } = ObjectiveMode.Lexicographic;
+
+}
+
+
+public enum ObjectiveMode
+{
+    Lexicographic = 0,
+    WeightedUtility = 1
 }

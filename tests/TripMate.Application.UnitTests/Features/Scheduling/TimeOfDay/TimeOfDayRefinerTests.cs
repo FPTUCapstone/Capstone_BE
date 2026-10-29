@@ -1,4 +1,5 @@
 using FluentAssertions;
+using FluentAssertions.Execution;
 
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.TimeOfDay;
@@ -38,6 +39,24 @@ public sealed class TimeOfDayRefinerTests
     }
 
     [Fact]
+    public async Task RefineAsync_WhenPlanHasModelObjective_PreservesSolverResultAndAddsReasons()
+    {
+        var input = Input(museumToMountainMinutes: 15, extraForMorningOrder: 10);
+        var original = (await PlanAsync(input, MuseumId, MountainId)) with { ModelObjective = 9_500L };
+
+        var refined = await Refiner().RefineAsync(input, original, Traits, CancellationToken.None);
+
+        using var _ = new AssertionScope();
+        VisitIds(refined).Should().Equal(MuseumId, MountainId);
+        refined.Items.Select(item => (item.SequenceNo, item.PointOfInterestId, item.PlannedArrivalUtc, item.PlannedDepartureUtc))
+            .Should().Equal(original.Items.Select(item =>
+                (item.SequenceNo, item.PointOfInterestId, item.PlannedArrivalUtc, item.PlannedDepartureUtc)));
+        refined.ModelObjective.Should().Be(9_500L);
+        refined.Items.Single(item => item.PointOfInterestId == MountainId).RecommendationReason
+            .Should().Be("Điểm ngoài trời vào giữa trưa, nên mang nón và nước");
+    }
+
+    [Fact]
     public async Task RefineAsync_KeepsTheSolverOrder_WhenTheBetterOrderCostsMoreThanTheLimit()
     {
         var input = Input(museumToMountainMinutes: 15, extraForMorningOrder: 60);
@@ -59,6 +78,67 @@ public sealed class TimeOfDayRefinerTests
         refined.Should().BeSameAs(original);
     }
 
+    [Fact]
+    public async Task RefineAsync_AllowsExtraDetour_WhenTripStartsEarlyAndHasSunriseSpot()
+    {
+        // 05:30 in Da Nang (UTC 22:30 on Monday 2026-10-19)
+        var earlyStartAtUtc = new DateTimeOffset(2026, 10, 19, 22, 30, 0, TimeSpan.Zero);
+        var sunriseTraits = new Dictionary<long, TimeOfDayTraits>
+        {
+            [MuseumId] = Traits[MuseumId],
+            [MountainId] = new(IndoorOutdoorType.Outdoor, false, "Beach", 9m, ["Ngắm bình minh", "Chèo SUP"]),
+        };
+
+        // extraForMorningOrder = 30 exceeds normal 15 min limit, but within 60 min early sunrise limit
+        var input = Input(museumToMountainMinutes: 15, extraForMorningOrder: 30, startAt: earlyStartAtUtc);
+        var original = await PlanAsync(input, MuseumId, MountainId);
+
+        var refiner = new TimeOfDayRefiner(new SkewedProvider(), null,
+            new TimeOfDayOptions { MaxExtraMinutes = 60, SunriseExtraMinutes = 60 });
+        var refined = await refiner.RefineAsync(input, original, sunriseTraits, CancellationToken.None);
+
+        VisitIds(refined).Should().Equal(MountainId, MuseumId);
+        refined.Items.Single(item => item.PointOfInterestId == MountainId).RecommendationReason
+            .Should().StartWith("Xếp lúc bình minh");
+    }
+
+    [Fact]
+    public async Task RefineAsync_ZeroExtraMinutes_RejectsSunriseDetour()
+    {
+        var earlyStartAtUtc = new DateTimeOffset(2026, 10, 19, 22, 30, 0, TimeSpan.Zero);
+        var sunriseTraits = new Dictionary<long, TimeOfDayTraits>
+        {
+            [MuseumId] = Traits[MuseumId],
+            [MountainId] = new(IndoorOutdoorType.Outdoor, false, "Beach", 9m, ["sunrise"]),
+        };
+        var input = Input(museumToMountainMinutes: 15, extraForMorningOrder: 30, startAt: earlyStartAtUtc);
+        var original = await PlanAsync(input, MuseumId, MountainId);
+        var refiner = new TimeOfDayRefiner(new SkewedProvider(), null, new TimeOfDayOptions { MaxExtraMinutes = 0 });
+
+        var refined = await refiner.RefineAsync(input, original, sunriseTraits, CancellationToken.None);
+
+        VisitIds(refined).Should().Equal(MuseumId, MountainId);
+    }
+
+    [Fact]
+    public async Task RefineAsync_ConfiguredEarlyCutoff_RejectsLaterSunriseDetour()
+    {
+        var earlyStartAtUtc = new DateTimeOffset(2026, 10, 19, 22, 30, 0, TimeSpan.Zero);
+        var sunriseTraits = new Dictionary<long, TimeOfDayTraits>
+        {
+            [MuseumId] = Traits[MuseumId],
+            [MountainId] = new(IndoorOutdoorType.Outdoor, false, "Beach", 9m, ["sunrise"]),
+        };
+        var input = Input(museumToMountainMinutes: 15, extraForMorningOrder: 30, startAt: earlyStartAtUtc);
+        var original = await PlanAsync(input, MuseumId, MountainId);
+        var refiner = new TimeOfDayRefiner(new SkewedProvider(), null,
+            new TimeOfDayOptions { MaxExtraMinutes = 60, SunriseExtraMinutes = 60, EarlyTripCutoffMinutes = 5 * 60 });
+
+        var refined = await refiner.RefineAsync(input, original, sunriseTraits, CancellationToken.None);
+
+        VisitIds(refined).Should().Equal(MuseumId, MountainId);
+    }
+
     private static TimeOfDayRefiner Refiner(bool enabled = true) =>
         new(new SkewedProvider(), null, new TimeOfDayOptions { Enabled = enabled, MaxExtraMinutes = 15 });
 
@@ -77,12 +157,12 @@ public sealed class TimeOfDayRefinerTests
     /// Museum is next to the start; the mountain is further, so visiting the mountain first costs
     /// <paramref name="extraForMorningOrder"/> more minutes than the solver order.
     /// </summary>
-    private static GenerationInput Input(int museumToMountainMinutes, int extraForMorningOrder)
+    private static GenerationInput Input(int museumToMountainMinutes, int extraForMorningOrder, DateTimeOffset? startAt = null)
     {
         SkewedProvider.MuseumToMountain = museumToMountainMinutes;
         SkewedProvider.ExtraStartToMountain = extraForMorningOrder;
         return new GenerationInput(
-            StartAtUtc,
+            startAt ?? StartAtUtc,
             TimeZoneInfo.FindSystemTimeZoneById("Asia/Ho_Chi_Minh"),
             new RoutePoint(16.0544m, 108.2022m),
             new RoutePoint(16.0544m, 108.2022m),

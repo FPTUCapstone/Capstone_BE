@@ -42,6 +42,7 @@ public sealed class RoutingContext
     private RoutingContext(
         GenerationInput input,
         RouteDurationMatrix matrix,
+        IReadOnlyDictionary<long, int> candidateMatrixIndices,
         RoutingNode[] nodes,
         DayWindow[][] windows,
         int horizon,
@@ -50,6 +51,7 @@ public sealed class RoutingContext
         RestShortcuts? shortcuts)
     {
         Input = input;
+        CandidateMatrixIndices = candidateMatrixIndices;
         _shortcuts = shortcuts;
         _matrix = matrix;
         Nodes = nodes;
@@ -70,6 +72,8 @@ public sealed class RoutingContext
 
     public GenerationInput Input { get; }
 
+    public IReadOnlyDictionary<long, int> CandidateMatrixIndices { get; }
+
     public IReadOnlyList<RoutingNode> Nodes { get; }
 
     public IReadOnlyList<int> MandatoryNodes { get; }
@@ -81,6 +85,14 @@ public sealed class RoutingContext
 
     /// <summary>Mốc phút phải về tới điểm kết thúc, đã trừ thời gian dự phòng cho điểm nghỉ.</summary>
     public int Horizon { get; }
+
+    public int TransitionBuffer => _transitionBuffer;
+
+    /// <summary>
+    /// Quy đổi thời điểm DateTimeOffset sang số phút theo gốc mô hình (Input.StartAtUtc).
+    /// </summary>
+    public int ToModelMinute(DateTimeOffset t) =>
+        (int)Math.Ceiling((t - Input.StartAtUtc).TotalMinutes - 1e-9);
 
     public decimal? Budget => Input.BudgetVnd;
 
@@ -114,7 +126,7 @@ public sealed class RoutingContext
 
         var maxScore = eligible
             .Where(candidate => !mandatory.Contains(candidate.Id))
-            .Select(candidate => candidate.EffectiveDesirabilityScore)
+            .Select(candidate => candidate.EffectiveDesirabilityScore ?? 0m)
             .DefaultIfEmpty(0m)
             .Max();
 
@@ -127,7 +139,7 @@ public sealed class RoutingContext
                 mandatory.Contains(candidate.Id),
                 mandatory.Contains(candidate.Id)
                     ? 0
-                    : SkipPenalty(candidate.EffectiveDesirabilityScore, maxScore, routingOptions.MaxSkipPenaltyMinutes)))
+                    : SkipPenalty(candidate.EffectiveDesirabilityScore ?? 0m, maxScore, routingOptions.MaxSkipPenaltyMinutes)))
             .ToArray();
 
         // reserveRestTime = false cho mô hình nới lỏng: dùng khi cần chứng minh vô nghiệm (xem CspItinerarySolver).
@@ -142,6 +154,7 @@ public sealed class RoutingContext
         return new RoutingContext(
             input,
             matrix,
+            candidateMatrixIndices,
             nodes,
             windows,
             horizon,
@@ -212,6 +225,20 @@ public sealed class RoutingContext
         return NoLatestStart;
     }
 
+    /// <summary>
+    /// Trả về các khung giờ mở cửa [Open, Close] có mở cửa của node (dùng cho tests/chẩn đoán).
+    /// </summary>
+    public IEnumerable<(int Open, int Close)> OpenWindows(int node)
+    {
+        foreach (var window in _windows[node])
+        {
+            if (window.HasOpening)
+            {
+                yield return (window.Open, window.Close);
+            }
+        }
+    }
+
     private static int SkipPenalty(decimal score, decimal maxScore, int maxPenalty)
     {
         if (maxScore <= 0m)
@@ -262,7 +289,7 @@ public sealed class RoutingContext
         return windows;
     }
 
-    private static int ToMinutes(GenerationInput input, DateTime localTime, bool ceiling)
+    internal static int ToMinutes(GenerationInput input, DateTime localTime, bool ceiling)
     {
         var utc = TimeZoneInfo.ConvertTimeToUtc(DateTime.SpecifyKind(localTime, DateTimeKind.Unspecified), input.TimeZone);
         var minutes = (new DateTimeOffset(utc, TimeSpan.Zero) - input.StartAtUtc).TotalMinutes;

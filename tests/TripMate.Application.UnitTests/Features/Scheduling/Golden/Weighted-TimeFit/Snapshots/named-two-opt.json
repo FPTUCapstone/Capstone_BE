@@ -1,0 +1,62 @@
+{
+  "ScenarioId": "named-two-opt",
+  "Source": "GroupB_Named",
+  "Feasible": true,
+  "BestModelObjective": 15311,
+  "BestEvaluatedObjective": 15311,
+  "BestVisitPoiIds": [
+    101,
+    102,
+    104
+  ],
+  "EliteModelObjectives": [
+    15311,
+    14407,
+    13812,
+    12642,
+    9461
+  ],
+  "EliteVisitIds": [
+    [
+      101,
+      102,
+      104
+    ],
+    [
+      101,
+      102,
+      103
+    ],
+    [
+      101,
+      103,
+      102,
+      104
+    ],
+    [
+      101,
+      103,
+      102
+    ],
+    [
+      101,
+      102
+    ]
+  ],
+  "BestTravelMinutes": 35,
+  "BestDurationMinutes": 170,
+  "BestEstimatedCost": 30000,
+  "EndAtUtc": "2026-10-20T03:50:00+00:00",
+  "NodesExpanded": 15,
+  "PrunedByConstraints": 0,
+  "PrunedByForwardChecking": 0,
+  "PrunedByBound": 5,
+  "SolutionsFound": 14,
+  "NodesToFirstSolution": 2,
+  "SearchCompleted": true,
+  "NodeLimitReached": false,
+  "TimeLimitReached": false,
+  "EvaluatorCalls": 1,
+  "UsedRelaxedRestModel": false,
+  "ChoseRelaxedRestModel": false
+}

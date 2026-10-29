@@ -5,6 +5,7 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
+using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Traveler.Payments.Common;
 using TripMate.Application.Features.Traveler.Payments.Create;
 using TripMate.Application.Features.Traveler.Payments.Mock;
@@ -422,6 +423,107 @@ public sealed class PaymentTests
         reloadedBooking!.Status.Should().Be(BookingStatus.Confirmed);
         reloadedBooking.PaymentStatus.Should().Be(PaymentStatus.Paid);
     }
+
+    [Fact]
+    public async Task MockOutcome_Success_IssuesOneValidTicketWithoutAQrCode()
+    {
+        await using var db = CreateDbContext();
+        var (travelerId, booking) = await SeedBookingAsync(db, BookingStatus.PendingPayment, PaymentStatus.Unpaid,
+            paymentExpiresAtUtc: Now.AddMinutes(15));
+        var tx = PaymentTransaction.Create(booking.Id, PaymentGateway.Mock, booking.TotalAmount, 9995, Now);
+        db.PaymentTransactions.Add(tx);
+        await db.SaveChangesAsync();
+        var processor = new PaymentCompletionProcessor(db, new FixedClock(Now));
+        var handler = new CompleteMockPaymentCommandHandler(
+            db, new TestCurrentUserService(travelerId), processor, new PaymentOptions { Provider = "Mock" });
+
+        var result = await handler.Handle(new CompleteMockPaymentCommand(tx.Id, "Success"), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        db.ClearTrackedEntities();
+        var ticket = (await db.Tickets.Where(candidate => candidate.BookingId == booking.Id).ToListAsync())
+            .Should().ContainSingle().Subject;
+        ticket.Status.Should().Be(TicketStatus.Valid);
+        ticket.TicketCode.Should().Be(Ticket.CodeFor(booking.Id));
+        ticket.IssuedAtUtc.Should().Be(Now);
+        (await db.TicketQrCodes.AnyAsync()).Should().BeFalse("the QR is issued when the traveler opens the ticket");
+    }
+
+    [Fact]
+    public async Task PayOsWebhook_DuplicateSuccess_IssuesOnlyOneTicket()
+    {
+        await using var db = CreateDbContext();
+        var (_, booking) = await SeedBookingAsync(db, BookingStatus.PendingPayment, PaymentStatus.Unpaid,
+            paymentExpiresAtUtc: Now.AddMinutes(15));
+        var tx = PaymentTransaction.Create(booking.Id, PaymentGateway.PayOS, booking.TotalAmount, 88884, Now);
+        db.PaymentTransactions.Add(tx);
+        await db.SaveChangesAsync();
+        var processor = new PaymentCompletionProcessor(db, new FixedClock(Now));
+
+        await CompleteAsync(processor, tx.Id, PaymentTransactionStatus.Success, booking.TotalAmount);
+        await CompleteAsync(processor, tx.Id, PaymentTransactionStatus.Success, booking.TotalAmount);
+
+        (await db.Tickets.CountAsync(ticket => ticket.BookingId == booking.Id)).Should().Be(1);
+    }
+
+    [Theory]
+    [InlineData(PaymentTransactionStatus.Cancelled)]
+    [InlineData(PaymentTransactionStatus.Expired)]
+    [InlineData(PaymentTransactionStatus.Failed)]
+    public async Task NonSuccessOutcome_IssuesNoTicket(PaymentTransactionStatus outcome)
+    {
+        await using var db = CreateDbContext();
+        var (_, booking) = await SeedBookingAsync(db, BookingStatus.PendingPayment, PaymentStatus.Unpaid,
+            paymentExpiresAtUtc: Now.AddMinutes(15));
+        var tx = PaymentTransaction.Create(booking.Id, PaymentGateway.PayOS, booking.TotalAmount, 88885, Now);
+        db.PaymentTransactions.Add(tx);
+        await db.SaveChangesAsync();
+
+        await CompleteAsync(new PaymentCompletionProcessor(db, new FixedClock(Now)), tx.Id, outcome,
+            booking.TotalAmount);
+
+        (await db.Tickets.AnyAsync()).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Success_AfterTheBookingHoldExpired_IssuesNoTicket()
+    {
+        await using var db = CreateDbContext();
+        var (_, booking) = await SeedBookingAsync(db, BookingStatus.PendingPayment, PaymentStatus.Unpaid,
+            paymentExpiresAtUtc: Now.AddMinutes(-1));
+        var tx = PaymentTransaction.Create(booking.Id, PaymentGateway.PayOS, booking.TotalAmount, 88886,
+            Now.AddMinutes(-10));
+        db.PaymentTransactions.Add(tx);
+        await db.SaveChangesAsync();
+
+        await CompleteAsync(new PaymentCompletionProcessor(db, new FixedClock(Now)), tx.Id,
+            PaymentTransactionStatus.Success, booking.TotalAmount);
+
+        (await db.Bookings.FindAsync(booking.Id))!.Status.Should().Be(BookingStatus.Expired);
+        (await db.Tickets.AnyAsync()).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task LateSuccess_AfterATerminalTransaction_IssuesNoTicket()
+    {
+        await using var db = CreateDbContext();
+        var (_, booking) = await SeedBookingAsync(db, BookingStatus.PendingPayment, PaymentStatus.Unpaid,
+            paymentExpiresAtUtc: Now.AddMinutes(15));
+        var tx = PaymentTransaction.Create(booking.Id, PaymentGateway.PayOS, booking.TotalAmount, 88887, Now);
+        tx.MarkCancelled("Traveler cancelled.", Now.AddMinutes(1));
+        db.PaymentTransactions.Add(tx);
+        await db.SaveChangesAsync();
+
+        await CompleteAsync(new PaymentCompletionProcessor(db, new FixedClock(Now.AddMinutes(2))), tx.Id,
+            PaymentTransactionStatus.Success, booking.TotalAmount);
+
+        (await db.Tickets.AnyAsync()).Should().BeFalse();
+    }
+
+    private static Task<Result<PaymentCompletionResult>> CompleteAsync(PaymentCompletionProcessor processor,
+        long transactionId, PaymentTransactionStatus outcome, decimal amount) =>
+        processor.CompleteAsync(transactionId, orderCode: null, outcome, gatewayRef: "REF", rawResponse: "raw",
+            verifiedAmount: amount, verifiedCurrency: "VND", CancellationToken.None);
 
     private static TestDbContext CreateDbContext()
     {

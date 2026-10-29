@@ -11,7 +11,8 @@ public sealed class UpdateCouponCommandValidator : AbstractValidator<UpdateCoupo
     public UpdateCouponCommandValidator(IDateTimeProvider dateTimeProvider)
     {
         RuleFor(command => command.CouponId).GreaterThan(0);
-        RuleFor(command => command.Name).NotEmpty().Must(name => name.Trim().Length <= Voucher.NameMaxLength);
+        RuleFor(command => command.Name).Must(name =>
+            !string.IsNullOrWhiteSpace(name) && name.Trim().Length <= Voucher.NameMaxLength);
         RuleFor(command => command.DiscountType).IsInEnum();
         RuleFor(command => command.DiscountValue).GreaterThan(0m).Must(IsSupportedMoneyAmount);
         RuleFor(command => command.MinOrderAmount).GreaterThanOrEqualTo(0m).Must(IsSupportedMoneyAmount);

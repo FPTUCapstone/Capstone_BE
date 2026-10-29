@@ -1,7 +1,10 @@
 using System.Diagnostics;
 
 using TripMate.Application.Features.Scheduling.Common;
+using TripMate.Application.Features.Scheduling.Csp.Objectives;
+using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Application.Features.Scheduling.Routing;
+using TripMate.Domain.Constants;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Scheduling.Csp;
@@ -102,6 +105,8 @@ public sealed record CspResult(
     /// <see cref="ItineraryScheduleEvaluator"/> chèn vào.
     /// </summary>
     public bool ProvedInfeasible => Schedule is null && Statistics.SearchCompleted && Statistics.SolutionsFound == 0;
+
+    internal IReadOnlyList<IReadOnlyList<long>> EliteVisitIds { get; init; } = [];
 }
 
 /// <summary>
@@ -151,13 +156,26 @@ public sealed class CspItinerarySolver(
     /// </summary>
     internal Action<CancellationToken>? BeforeEvaluation { get; init; }
 
+    /// <summary>
+    /// Điểm chèn cho trap/oracle tests cần thay kernel WeightedUtility. Production không đặt.
+    /// </summary>
+    internal Func<WeightedObjectiveInputs, CspOptions, IObjectiveKernel>? WeightedKernelFactoryForTest { get; init; }
+
+    internal static RoutingContext CreatePrimaryContext(
+        GenerationInput input,
+        RouteDurationMatrix matrix,
+        IReadOnlyList<GenerationCandidate> matrixCandidates,
+        IReadOnlyDictionary<long, int> candidateMatrixIndices,
+        SchedulingGenerationOptions options) =>
+        RoutingContext.Create(input, matrix, matrixCandidates, candidateMatrixIndices, options, options.MiniRouting);
+
     public CspResult Solve(
         GenerationInput input,
         RouteDurationMatrix matrix,
         IReadOnlyList<GenerationCandidate> matrixCandidates,
         IReadOnlyDictionary<long, int> candidateMatrixIndices,
         CancellationToken cancellationToken = default) =>
-        Solve(input, matrix, matrixCandidates, candidateMatrixIndices, initialIncumbent: null, cancellationToken);
+        Solve(input, matrix, matrixCandidates, candidateMatrixIndices, initialIncumbent: null, weighted: null, cancellationToken);
 
     /// <param name="initialIncumbent">
     /// Lịch của heuristic cho cùng đầu vào (R1a). Khi nằm trong giới hạn CSP, nó là incumbent ban đầu của branch and
@@ -170,6 +188,16 @@ public sealed class CspItinerarySolver(
         IReadOnlyList<GenerationCandidate> matrixCandidates,
         IReadOnlyDictionary<long, int> candidateMatrixIndices,
         EvaluatedItinerarySchedule? initialIncumbent,
+        CancellationToken cancellationToken = default) =>
+        Solve(input, matrix, matrixCandidates, candidateMatrixIndices, initialIncumbent, weighted: null, cancellationToken);
+
+    public CspResult Solve(
+        GenerationInput input,
+        RouteDurationMatrix matrix,
+        IReadOnlyList<GenerationCandidate> matrixCandidates,
+        IReadOnlyDictionary<long, int> candidateMatrixIndices,
+        EvaluatedItinerarySchedule? initialIncumbent,
+        WeightedRequestInputs? weighted,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(input);
@@ -177,14 +205,37 @@ public sealed class CspItinerarySolver(
         ArgumentNullException.ThrowIfNull(matrixCandidates);
         ArgumentNullException.ThrowIfNull(candidateMatrixIndices);
 
+        if (_cspOptions.Mode == ObjectiveMode.WeightedUtility && _cspOptions.PolishWithLocalSearch)
+        {
+            throw new NotSupportedException("PolishWithLocalSearch (GLS) is not supported in WeightedUtility mode.");
+        }
+
         var clock = Stopwatch.StartNew();
 
         // Một mốc thời gian cứng cho cả lần giải (review Phase 3): bước duyệt, mọi lần gọi evaluator, polish và bước
-        // chấm cuối đều xem cùng một đồng hồ. Chạm mốc ở bất kỳ đâu thì kết quả CSP bị bỏ (R5).
         using var deadline = new SolveDeadline(clock, _cspOptions.TimeLimitMilliseconds, cancellationToken);
-        var budget = new SearchBudget(_cspOptions.MaxNodes);
-        var ctx = RoutingContext.Create(input, matrix, matrixCandidates, candidateMatrixIndices, _options, _options.MiniRouting);
-        var rule = CspProductRule.Create(ctx, matrixCandidates, candidateMatrixIndices, matrix);
+        int maxNodes = _cspOptions.Mode == ObjectiveMode.WeightedUtility && _cspOptions.WeightedMaxNodes.HasValue
+            ? _cspOptions.WeightedMaxNodes.Value
+            : _cspOptions.MaxNodes;
+        var budget = new SearchBudget(maxNodes);
+        var ctx = CreatePrimaryContext(input, matrix, matrixCandidates, candidateMatrixIndices, _options);
+
+        WeightedObjectiveInputs? weightedInputs = null;
+        CspProductRule rule;
+        if (_cspOptions.Mode == ObjectiveMode.WeightedUtility)
+        {
+            if (weighted is null)
+            {
+                throw new InvalidOperationException("WeightedRequestInputs must be provided when ObjectiveMode is WeightedUtility.");
+            }
+            weightedInputs = ObjectiveKernelFactory.BuildWeightedInputs(ctx, weighted);
+            rule = CspProductRule.BuildRankRuleFromBase(ctx, weightedInputs.Base);
+        }
+        else
+        {
+            rule = CspProductRule.Create(ctx, matrixCandidates, candidateMatrixIndices, matrix);
+        }
+
 
         // Khi có điểm nghỉ, lịch thật khác mô hình: chỉ lời giải đã qua evaluator mới được siết incumbent.
         var restApplies = input.RestPreference == RestPreference.Frequent
@@ -210,7 +261,9 @@ public sealed class CspItinerarySolver(
             return schedule;
         };
 
-        var search = new SearchRun(ctx, rule, _cspOptions, deadline, budget, restApplies, evaluate, cancellationToken);
+        var search = new SearchRun(
+            ctx, rule, _cspOptions, deadline, budget, restApplies, evaluate, cancellationToken, weightedInputs,
+            CreateWeightedKernelForTest(weightedInputs));
         if (ctx.MandatoryNodes.Count != input.MandatoryPoiIds.Count)
         {
             search.Statistics.Elapsed = clock.Elapsed;
@@ -218,10 +271,11 @@ public sealed class CspItinerarySolver(
         }
 
         var incumbent = search.AcceptIncumbent(initialIncumbent);
+        var scheduleComparer = search.ScheduleComparer;
         var candidates = new List<(EvaluatedItinerarySchedule Schedule, bool Relaxed)>();
-        if (incumbent is not null)
+        if (incumbent is not null && search.AcceptedSchedule is not null)
         {
-            candidates.Add((initialIncumbent!, false));
+            candidates.Add((search.AcceptedSchedule, false));
         }
 
         SearchRun? relaxed = null;
@@ -247,7 +301,19 @@ public sealed class CspItinerarySolver(
                 var relaxedCtx = RoutingContext.Create(
                     input, matrix, matrixCandidates, candidateMatrixIndices, _options, _options.MiniRouting,
                     reserveRestTime: false, restShortcuts: true);
-                relaxed = new SearchRun(relaxedCtx, rule, _cspOptions, deadline, budget, restApplies, evaluate, cancellationToken);
+
+                WeightedObjectiveInputs? relaxedWeightedInputs = null;
+                CspProductRule relaxedRule = rule;
+                if (_cspOptions.Mode == ObjectiveMode.WeightedUtility)
+                {
+                    relaxedWeightedInputs = ObjectiveKernelFactory.BuildWeightedInputs(relaxedCtx, weighted!);
+                    relaxedRule = CspProductRule.BuildRankRuleFromBase(relaxedCtx, relaxedWeightedInputs.Base);
+                }
+
+                relaxed = new SearchRun(
+                    relaxedCtx, relaxedRule, _cspOptions, deadline, budget, restApplies, evaluate, cancellationToken,
+                    relaxedWeightedInputs, CreateWeightedKernelForTest(relaxedWeightedInputs));
+
                 relaxed.Statistics.EvaluatorCalls = search.Statistics.EvaluatorCalls;
                 relaxed.Run(search.Incumbent);
                 if (relaxed.Statistics.TimeLimitReached)
@@ -283,25 +349,48 @@ public sealed class CspItinerarySolver(
         }
 
         search.Statistics.Elapsed = clock.Elapsed;
+        var eliteVisitIds = search.Elite.Ordered
+            .Select(s => (IReadOnlyList<long>)s.Sequence.Select(n => search.Context.Nodes[n].Candidate.Id).ToArray())
+            .ToArray();
+
         if (candidates.Count == 0)
         {
-            return new CspResult(null, search.Statistics, search.ConflictingMandatoryPoiIds());
+            return new CspResult(null, search.Statistics, search.ConflictingMandatoryPoiIds())
+            {
+                EliteVisitIds = eliteVisitIds,
+            };
         }
 
-        // Chọn lịch bằng đúng quy tắc của heuristic trên kết quả của evaluator; bằng nhau thì giữ lịch đứng trước.
+        // Chọn lịch bằng đúng quy tắc của hàm mục tiêu trên kết quả của evaluator; bằng nhau thì giữ lịch đứng trước.
+        // Dùng một comparer duy nhất lấy từ kernel của primary run cho cả tập ứng viên.
         var best = candidates[0];
         foreach (var candidate in candidates.Skip(1))
         {
-            if (rule.ScheduleComparer.Compare(candidate.Schedule, best.Schedule) < 0)
+            if (scheduleComparer.Compare(candidate.Schedule, best.Schedule) < 0)
             {
                 best = candidate;
             }
         }
 
+        long? modelObjective = null;
+        if (scheduleComparer is WeightedScheduleComparer weightedComparer)
+        {
+            modelObjective = weightedComparer.GetObjective(best.Schedule);
+        }
+
         search.Statistics.ChoseRelaxedRestModel = best.Relaxed;
         search.Statistics.ReturnedInitialIncumbent = ReferenceEquals(best.Schedule, initialIncumbent);
-        return new CspResult(best.Schedule, search.Statistics, []);
+        var finalSchedule = modelObjective.HasValue
+            ? best.Schedule with { Plan = best.Schedule.Plan with { ModelObjective = modelObjective } }
+            : best.Schedule;
+        return new CspResult(finalSchedule, search.Statistics, [])
+        {
+            EliteVisitIds = eliteVisitIds,
+        };
     }
+
+    private IObjectiveKernel? CreateWeightedKernelForTest(WeightedObjectiveInputs? inputs) =>
+        inputs is null ? null : WeightedKernelFactoryForTest?.Invoke(inputs, _cspOptions);
 
     /// <summary>
     /// R5: lưới an toàn thời gian bị chạm thì kết quả CSP dở dang phụ thuộc tốc độ máy, nên bị bỏ hẳn, kể cả lịch heuristic
@@ -378,10 +467,11 @@ public sealed class CspItinerarySolver(
     }
 
     /// <summary>
+
     /// Mốc thời gian chung của một lần giải (<see cref="CspOptions.TimeLimitMilliseconds"/>), đo bằng đồng hồ bắt đầu cùng
     /// lần giải. <see cref="Token"/> bị hủy khi tới mốc hoặc khi bên gọi hủy, để một lần chấm đang chạy dừng ngay.
     /// </summary>
-    private sealed class SolveDeadline : IDisposable
+    internal sealed class SolveDeadline : IDisposable
     {
         private readonly Stopwatch _clock;
         private readonly int _limitMilliseconds;
@@ -414,7 +504,7 @@ public sealed class CspItinerarySolver(
     private sealed class TimeLimitExceededException : Exception;
 
     /// <summary>Giới hạn dùng chung cho mọi lần duyệt của một lần giải: số nút và số lần evaluator trong lúc duyệt.</summary>
-    private sealed class SearchBudget(int maxNodes)
+    internal sealed class SearchBudget(int maxNodes)
     {
         public int MaxNodes { get; } = maxNodes;
 
@@ -426,96 +516,12 @@ public sealed class CspItinerarySolver(
     }
 
     /// <summary>
-    /// Lời giải tốt nhất đã biết cho branch and bound: vector bao gồm và phút di chuyển theo ma trận. Phút di chuyển lấy
-    /// từ lịch đã qua evaluator (gồm cả chặng tới điểm nghỉ) hoặc, khi không có nghỉ, từ mô hình (hai giá trị bằng nhau).
-    /// </summary>
-    private sealed class Incumbent(ulong[] inclusion, int travel)
-    {
-        public ulong[] Inclusion { get; set; } = inclusion;
-
-        public int Travel { get; set; } = travel;
-
-        /// <summary>Âm khi (inclusion, travel) tốt hơn incumbent theo product rule.</summary>
-        public int CompareTo(ulong[] inclusion, int travel)
-        {
-            var result = CspProductRule.CompareInclusion(inclusion, Inclusion);
-            return result != 0 ? result : travel.CompareTo(Travel);
-        }
-    }
-
-    /// <summary>K lời giải tốt nhất theo product rule trên mô hình, không trùng nhau.</summary>
-    private sealed class EliteSet(CspProductRule rule, int capacity)
-    {
-        private readonly List<(RouteState State, ulong[] Inclusion)> _items = [];
-
-        public RouteState? Best => _items.Count == 0 ? null : _items[0].State;
-
-        public IEnumerable<RouteState> Ordered => _items.Select(item => item.State);
-
-        /// <summary>
-        /// Kiểm tra rẻ trước khi dựng lời giải: false khi tập đã đầy và lời giải chắc chắn kém phần tử cuối theo vector
-        /// bao gồm, phút di chuyển rồi thời lượng. Hòa ở cả ba thì để <see cref="Offer(RouteState, ulong[])"/> so tiếp Id.
-        /// </summary>
-        public bool MayAccept(ulong[] inclusion, int travel, int finish)
-        {
-            if (_items.Count < capacity)
-            {
-                return true;
-            }
-
-            var (worst, worstInclusion) = _items[^1];
-            var comparison = CspProductRule.CompareInclusion(inclusion, worstInclusion);
-            if (comparison != 0)
-            {
-                return comparison < 0;
-            }
-
-            comparison = travel.CompareTo(worst.TravelMinutes);
-            return comparison != 0 ? comparison < 0 : finish <= worst.Finish;
-        }
-
-        public void Offer(RouteState state) => Offer(state, rule.Inclusion(state.Sequence));
-
-        public void Offer(RouteState state, ulong[] inclusion)
-        {
-            var index = 0;
-            while (index < _items.Count)
-            {
-                var comparison = rule.Compare(state, inclusion, _items[index].State, _items[index].Inclusion);
-                if (comparison == 0)
-                {
-                    // Product rule so tới cả dãy Id, nên bằng nhau nghĩa là cùng một lộ trình.
-                    return;
-                }
-
-                if (comparison < 0)
-                {
-                    break;
-                }
-
-                index++;
-            }
-
-            if (index >= capacity)
-            {
-                return;
-            }
-
-            _items.Insert(index, (state, inclusion));
-            if (_items.Count > capacity)
-            {
-                _items.RemoveAt(_items.Count - 1);
-            }
-        }
-    }
-
-    /// <summary>
     /// Trạng thái của một lần duyệt cây tìm kiếm. Lộ trình đang xét nằm trong một bộ mảng dùng chung: thêm điểm khi đi
     /// xuống (<see cref="Push"/>), gỡ khi quay lui (<see cref="Pop"/>), và mỗi độ sâu có sẵn bộ đệm cho miền giá trị và
     /// thứ tự thử, nên phép duyệt không cấp phát bộ nhớ ở mỗi nút. Chỉ lời giải có thể vào elite set mới được dựng thành
     /// <see cref="RouteState"/>.
     /// </summary>
-    private sealed class SearchRun
+    internal sealed class SearchRun
     {
         private const int UrgentSlackMinutes = 60;
 
@@ -547,10 +553,13 @@ public sealed class CspItinerarySolver(
         private readonly int[] _travel;
         private readonly decimal[] _cost;
         private readonly bool[] _contains;
-        private readonly ulong[] _inclusion;
-        private readonly ulong[] _optimistic;
+        private readonly SearchBuffers _buffers;
+        private readonly SearchPrecomputed _pre;
+        private readonly IObjectiveKernel _kernel;
+        internal IObjectiveKernel Kernel => _kernel;
         private readonly int[][] _domains;
         private readonly RankedValue[][] _ranked;
+        private readonly WeightedObjectiveInputs? _weightedInputs;
         private int _depth;
         private int _mandatoryPlaced;
         private bool _aborted;
@@ -563,7 +572,9 @@ public sealed class CspItinerarySolver(
             SearchBudget budget,
             bool restApplies,
             Func<RoutingContext, IReadOnlyList<int>, CspStatistics, EvaluatedItinerarySchedule?> evaluate,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            WeightedObjectiveInputs? weightedInputs = null,
+            IObjectiveKernel? customKernel = null)
         {
             _ctx = ctx;
             _rule = rule;
@@ -573,9 +584,9 @@ public sealed class CspItinerarySolver(
             _restApplies = restApplies;
             _evaluate = evaluate;
             _cancellationToken = cancellationToken;
+            _weightedInputs = weightedInputs;
             _maxStops = options.MaxStops ?? int.MaxValue;
             _mandatoryTotal = ctx.MandatoryNodes.Count;
-            Elite = new EliteSet(rule, Math.Max(1, options.FinalCandidatesToValidate));
 
             // Miền giá trị ban đầu: mọi điểm bắt buộc + N điểm tùy chọn theo thứ hạng chuẩn. Giữ thứ tự hạng: forward
             // checking giữ nguyên thứ tự, nên mọi miền con cũng xếp theo hạng, đúng như cận lạc quan cần.
@@ -595,13 +606,12 @@ public sealed class CspItinerarySolver(
 
             // Độ sâu tối đa là số điểm trong miền.
             var maxDepth = _initialDomain.Length + 1;
-            _sequence = new int[maxDepth];
-            _departure = new int[maxDepth];
-            _travel = new int[maxDepth + 1];
-            _cost = new decimal[maxDepth + 1];
-            _contains = new bool[nodeCount];
-            _inclusion = new ulong[rule.Words];
-            _optimistic = new ulong[rule.Words];
+            _buffers = new SearchBuffers(maxDepth, nodeCount);
+            _sequence = _buffers.Sequence;
+            _departure = _buffers.Departure;
+            _travel = _buffers.Travel;
+            _cost = _buffers.Cost;
+            _contains = _buffers.Contains;
             _domains = new int[maxDepth][];
             _ranked = new RankedValue[maxDepth][];
             for (var depth = 0; depth < maxDepth; depth++)
@@ -674,6 +684,21 @@ public sealed class CspItinerarySolver(
 
             var maxPenalty = ctx.OptionalNodes.Select(i => ctx.Nodes[i].SkipPenalty).DefaultIfEmpty(1).Max();
             _mandatoryWeight = 2 * Math.Max(1, maxPenalty);
+
+            _pre = new SearchPrecomputed(
+                _minIncomingTravel,
+                _minIncomingRaw,
+                _latestPossibleStart,
+                _minExit,
+                _returnRaw,
+                _minReturnTravel,
+                _mandatoryWeight,
+                _initialDomain,
+                _inInitialDomain);
+
+            _kernel = customKernel ?? ObjectiveKernelFactory.Create(rule, options, weightedInputs);
+            _kernel.Initialize(ctx, _buffers, _pre, Statistics);
+            Elite = new EliteSet(_kernel.EliteOrdering, Math.Max(1, options.FinalCandidatesToValidate));
         }
 
         public CspStatistics Statistics { get; } = new();
@@ -682,8 +707,10 @@ public sealed class CspItinerarySolver(
 
         public EliteSet Elite { get; }
 
+        public IComparer<EvaluatedItinerarySchedule> ScheduleComparer => _kernel.ScheduleComparer;
+
         /// <summary>Incumbent khi lần duyệt kết thúc (đã siết bởi các lời giải tìm được); null nếu chưa có.</summary>
-        public Incumbent? Incumbent { get; private set; }
+        public IncumbentToken? Incumbent => _kernel.ExportIncumbent();
 
         /// <summary>Lịch đã qua evaluator trong lúc duyệt và đã siết incumbent (chỉ khi có điểm nghỉ).</summary>
         public List<EvaluatedItinerarySchedule> EvaluatedSolutions { get; } = [];
@@ -694,36 +721,69 @@ public sealed class CspItinerarySolver(
         /// <summary>Chỉ số ma trận của điểm cuối (điểm xuất phát ở gốc).</summary>
         private int CurrentMatrix => _depth == 0 ? _ctx.StartMatrixIndex : _ctx.Nodes[_sequence[_depth - 1]].MatrixIndex;
 
+        public EvaluatedItinerarySchedule? AcceptedSchedule { get; private set; }
+
         /// <summary>
-        /// Nhận lịch heuristic làm incumbent ban đầu nếu nó nằm trong giới hạn CSP: một cận ngoài giới hạn có thể tốt hơn
-        /// mọi lời giải hợp lệ, cắt mất chúng và trở thành kết quả trả về.
+        /// Nhận lịch heuristic hoặc tính incumbent tham lam (nếu là WeightedUtility) làm incumbent ban đầu nếu nó nằm trong giới hạn CSP.
         /// </summary>
-        public Incumbent? AcceptIncumbent(EvaluatedItinerarySchedule? schedule)
+        public IncumbentToken? AcceptIncumbent(EvaluatedItinerarySchedule? schedule)
         {
-            if (schedule is null)
+            var bestSchedule = schedule;
+            if (_options.Mode == ObjectiveMode.WeightedUtility && _weightedInputs is not null)
             {
-                return null;
+                var greedy = GreedyWeightedIncumbent.Build(_ctx, _weightedInputs, _options, _evaluate, Statistics, _initialDomain);
+                if (greedy is not null)
+                {
+                    if (bestSchedule is null)
+                    {
+                        bestSchedule = greedy;
+                    }
+                    else
+                    {
+                        var jHeuristic = ComputeModelObjective(_ctx, _weightedInputs, bestSchedule);
+                        var jGreedy = ComputeModelObjective(_ctx, _weightedInputs, greedy);
+                        if (jGreedy > jHeuristic)
+                        {
+                            bestSchedule = greedy;
+                        }
+                    }
+                }
             }
 
-            var nodeOf = new Dictionary<long, int>(_ctx.Nodes.Count);
-            for (var node = 0; node < _ctx.Nodes.Count; node++)
-            {
-                nodeOf[_ctx.Nodes[node].Candidate.Id] = node;
-            }
-
-            if (schedule.VisitPoiIds.Count > _maxStops
-                || schedule.VisitPoiIds.Any(id => !nodeOf.TryGetValue(id, out var node) || !_inInitialDomain[node]))
-            {
-                return null;
-            }
-
-            Statistics.InitialIncumbentAccepted = true;
-            return new Incumbent(_rule.Inclusion(schedule.VisitPoiIds), schedule.TotalMatrixTravelMinutes);
+            AcceptedSchedule = bestSchedule;
+            return _kernel.AcceptInitial(bestSchedule);
         }
 
-        public void Run(Incumbent? incumbent)
+        private static long ComputeModelObjective(RoutingContext ctx, WeightedObjectiveInputs inputs, EvaluatedItinerarySchedule schedule)
         {
-            Incumbent = incumbent;
+            var nodeOf = new Dictionary<long, int>(ctx.Nodes.Count);
+            for (var i = 0; i < ctx.Nodes.Count; i++)
+            {
+                nodeOf[ctx.Nodes[i].Candidate.Id] = i;
+            }
+
+            var seq = new int[schedule.VisitPoiIds.Count];
+            for (var i = 0; i < schedule.VisitPoiIds.Count; i++)
+            {
+                if (!nodeOf.TryGetValue(schedule.VisitPoiIds[i], out var node))
+                {
+                    return long.MinValue;
+                }
+                seq[i] = node;
+            }
+
+            if (RouteState.Build(ctx, seq) is not { } route)
+            {
+                return long.MinValue;
+            }
+
+            var groupScratch = new int[inputs.DiversityGroupCount];
+            return ObjectiveCalculator.Replay(inputs, ctx, route.Sequence, route.Earliest, groupScratch);
+        }
+
+        public void Run(IncumbentToken? incumbent)
+        {
+            _kernel.ImportIncumbent(incumbent);
 
             // Forward checking tại gốc: điểm nào không bao giờ xếp được thì loại ngay.
             var domain = _domains[0];
@@ -793,7 +853,7 @@ public sealed class CspItinerarySolver(
 
             // Branch and bound: nhánh này không thể tốt hơn incumbent theo product rule thì cắt.
             var domain = _domains[_depth];
-            if (!CanImprove(domain, domainCount, departure, current))
+            if (!_kernel.CanImprove(domain, domainCount, _depth, departure, current))
             {
                 Statistics.PrunedByBound++;
                 return;
@@ -851,25 +911,30 @@ public sealed class CspItinerarySolver(
             _travel[_depth + 1] = _travel[_depth] + _ctx.RawTravel(fromMatrix, node.MatrixIndex);
             _cost[_depth + 1] = _cost[_depth] + node.Cost;
             _contains[value] = true;
-            CspProductRule.Set(_inclusion, _rule.RankOf(value));
+            _kernel.OnPush(_depth, value, start, fromMatrix);
             if (node.IsMandatory)
             {
                 _mandatoryPlaced++;
             }
 
             _depth++;
+            _buffers.Depth = _depth;
+            _buffers.MandatoryPlaced = _mandatoryPlaced;
         }
 
         private void Pop()
         {
             _depth--;
+            _buffers.Depth = _depth;
             var value = _sequence[_depth];
             _contains[value] = false;
-            CspProductRule.Clear(_inclusion, _rule.RankOf(value));
+            _kernel.OnPop(_depth, value);
             if (_ctx.Nodes[value].IsMandatory)
             {
                 _mandatoryPlaced--;
             }
+
+            _buffers.MandatoryPlaced = _mandatoryPlaced;
         }
 
         /// <summary>
@@ -882,10 +947,11 @@ public sealed class CspItinerarySolver(
             Statistics.NodesToFirstSolution ??= Statistics.NodesExpanded;
             var travel = _travel[_depth] + _ctx.RawTravel(current, _ctx.EndMatrixIndex);
             var finish = departure + _ctx.ReturnTravel(current);
-            if (Elite.MayAccept(_inclusion, travel, finish)
+            var key = _kernel.PeekEliteKey(_depth, departure, current, travel, finish);
+            if (Elite.MayAccept(key)
                 && RouteState.Build(_ctx, new ArraySegment<int>(_sequence, 0, _depth)) is { } solution)
             {
-                Elite.Offer(solution, (ulong[])_inclusion.Clone());
+                Elite.Offer(solution, _kernel.SnapshotEliteKey(_depth, departure, current, travel, finish));
             }
 
             Tighten(travel);
@@ -900,7 +966,7 @@ public sealed class CspItinerarySolver(
         /// </summary>
         private void Tighten(int travel)
         {
-            var comparison = Incumbent?.CompareTo(_inclusion, travel) ?? -1;
+            var comparison = _kernel.CompareToIncumbent(_depth, Departure, CurrentMatrix, travel);
             if (comparison > 0 || (comparison == 0 && !_restApplies))
             {
                 return;
@@ -908,7 +974,7 @@ public sealed class CspItinerarySolver(
 
             if (!_restApplies)
             {
-                Replace((ulong[])_inclusion.Clone(), travel);
+                _kernel.AcceptIncumbent(_depth, Departure, CurrentMatrix, travel);
                 return;
             }
 
@@ -939,87 +1005,10 @@ public sealed class CspItinerarySolver(
             }
 
             EvaluatedSolutions.Add(schedule);
-            if (Incumbent is null || Incumbent.CompareTo(_inclusion, schedule.TotalMatrixTravelMinutes) < 0)
+            if (!_kernel.HasIncumbent || _kernel.CompareEvaluated(schedule) < 0)
             {
-                Replace((ulong[])_inclusion.Clone(), schedule.TotalMatrixTravelMinutes);
+                _kernel.AcceptEvaluated(schedule);
             }
-        }
-
-        private void Replace(ulong[] inclusion, int travel)
-        {
-            if (Incumbent is null)
-            {
-                Incumbent = new Incumbent(inclusion, travel);
-                return;
-            }
-
-            Incumbent.Inclusion = inclusion;
-            Incumbent.Travel = travel;
-        }
-
-        /// <summary>
-        /// Cận lạc quan theo product rule (admissible). Mọi lời giải mở rộng từ lộ trình đang xét chỉ có thể thêm điểm tùy
-        /// chọn còn trong miền, trong giới hạn thời gian còn lại (mỗi điểm tốn ít nhất đường đến ngắn nhất + thời gian tham
-        /// quan), ngân sách còn lại và số chỗ còn trống, sau khi đã dành chỗ cho điểm bắt buộc còn thiếu. Với thứ tự từ
-        /// điển, chọn tham lam theo hạng (thêm nếu còn vừa) cho đúng vector bao gồm lớn nhất của bài nới lỏng đó. Vector này
-        /// kém incumbent thì cắt. Bằng incumbent thì lời giải phải thêm đúng các điểm đã chọn, và cắt khi cận dưới phút di
-        /// chuyển (đã đi + đường đến ngắn nhất của mọi điểm phải thêm + chặng về ngắn nhất) vượt incumbent.
-        /// </summary>
-        private bool CanImprove(int[] domain, int domainCount, int departure, int current)
-        {
-            if (Incumbent is null)
-            {
-                return true;
-            }
-
-            long travel = _travel[_depth];
-            var timeLeft = _ctx.Horizon - departure - _minReturnTravel;
-            var budgetLeft = _ctx.Budget - _cost[_depth];
-            var remainingMandatory = 0;
-            foreach (var m in _ctx.MandatoryNodes)
-            {
-                if (!_contains[m])
-                {
-                    remainingMandatory++;
-                    travel += _minIncomingRaw[m];
-                    timeLeft -= _minIncomingTravel[m] + _ctx.Nodes[m].VisitMinutes;
-                    budgetLeft -= _ctx.Nodes[m].Cost;
-                }
-            }
-
-            var slots = _maxStops - _depth - remainingMandatory;
-            var optimistic = _optimistic;
-            Array.Copy(_inclusion, optimistic, optimistic.Length);
-            var finalReturn = _ctx.RawTravel(current, _ctx.EndMatrixIndex);
-            for (var i = 0; i < domainCount; i++)
-            {
-                var v = domain[i];
-                finalReturn = Math.Min(finalReturn, _returnRaw[v]);
-                var node = _ctx.Nodes[v];
-                if (node.IsMandatory || slots <= 0)
-                {
-                    continue;
-                }
-
-                var footprint = _minIncomingTravel[v] + node.VisitMinutes;
-                if (footprint <= timeLeft && (budgetLeft is not { } left || node.Cost <= left))
-                {
-                    CspProductRule.Set(optimistic, _rule.RankOf(v));
-                    timeLeft -= footprint;
-                    budgetLeft -= node.Cost;
-                    slots--;
-                    travel += _minIncomingRaw[v];
-                }
-            }
-
-            var comparison = CspProductRule.CompareInclusion(optimistic, Incumbent.Inclusion);
-            if (comparison != 0)
-            {
-                return comparison < 0;
-            }
-
-            // Bằng phút di chuyển vẫn có thể thắng ở thời lượng hoặc dãy Id, nên chỉ cắt khi cận vượt hẳn incumbent.
-            return travel + finalReturn <= Incumbent.Travel;
         }
 
         /// <summary>
@@ -1119,8 +1108,7 @@ public sealed class CspItinerarySolver(
                 }
 
                 var slack = _latestPossibleStart[v] - start;
-                var benefit = node.IsMandatory ? _mandatoryWeight : node.SkipPenalty;
-                var score = _ctx.RawTravel(current, node.MatrixIndex) - benefit;
+                var score = _kernel.ValueScore(v, start, current, slack);
                 ranked[count++] = new RankedValue(v, start, node.IsMandatory && slack < UrgentSlackMinutes, slack, score, node.Candidate.Id);
             }
 
@@ -1129,7 +1117,7 @@ public sealed class CspItinerarySolver(
             return count;
         }
 
-        private readonly record struct RankedValue(int Value, int Start, bool Urgent, int Slack, int Score, long Id);
+        private readonly record struct RankedValue(int Value, int Start, bool Urgent, int Slack, long Score, long Id);
 
         /// <summary>Khẩn cấp trước; trong nhóm khẩn cấp theo độ trễ tăng dần; rồi theo điểm, rồi theo Id.</summary>
         private sealed class RankedValueComparer : IComparer<RankedValue>

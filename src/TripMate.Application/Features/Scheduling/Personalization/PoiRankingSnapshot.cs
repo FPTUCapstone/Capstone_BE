@@ -2,7 +2,7 @@ using System.Collections.Frozen;
 
 namespace TripMate.Application.Features.Scheduling.Personalization;
 
-internal enum PoiRankingOutcomeCategory
+public enum PoiRankingOutcomeCategory
 {
     Success,
     ProviderSkipped,

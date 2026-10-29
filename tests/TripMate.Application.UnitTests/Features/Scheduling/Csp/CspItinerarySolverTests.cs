@@ -5,6 +5,8 @@ using FluentAssertions;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Csp;
+using TripMate.Application.Features.Scheduling.Csp.Objectives;
+using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Application.Features.Scheduling.Routing;
 using TripMate.Application.UnitTests.Features.Scheduling.Fixtures;
 using TripMate.Domain.Enums;
@@ -1043,6 +1045,47 @@ public class CspItinerarySolverTests
                 })
                 .ToArray(),
         }, matrix);
+    }
+
+    [Fact]
+    public void Solve_InWeightedUtilityMode_UsesWeightedMaxNodes_WhenSpecified()
+    {
+        var (input, matrix) = SmallScenario(1);
+        var (candidates, indices) = Index(input);
+        var baseScores = candidates.ToDictionary(c => c.Id, _ => 0.5);
+        var pParams = new PersonalParams(
+            LambdaPerMin: 0.012,
+            Mu: 0.005,
+            MaxStopsPerDay: 5,
+            MaxDailyEffort: 300,
+            RestAfterMin: 120,
+            MaxConsecutiveOutdoor: 3,
+            SunriseFactor: 0.6,
+            GammaDefault: 0.7,
+            GammaLoved: 0.9,
+            LovedCategories: new HashSet<string>(),
+            RhoOutdoor: 0.25,
+            RhoRest: 0.0,
+            RhoStops: 0.30,
+            RhoEffortPerHour: 0.05,
+            ConfigVersion: "2026.2");
+        var weightedInputs = new WeightedRequestInputs(
+            baseScores,
+            pParams,
+            new ConstantTimeFitFactory());
+
+        var cspOptions = new CspOptions
+        {
+            Mode = ObjectiveMode.WeightedUtility,
+            MaxNodes = 100_000,
+            WeightedMaxNodes = 5,
+        };
+
+        var result = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, cspOptions)
+            .Solve(input, matrix, candidates, indices, initialIncumbent: null, weighted: weightedInputs);
+
+        result.Statistics.NodesExpanded.Should().BeLessOrEqualTo(5);
+        result.Statistics.NodeLimitReached.Should().BeTrue();
     }
 
     /// <summary>

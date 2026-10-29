@@ -11,7 +11,9 @@ using TripMate.Application.Features.TravelGroups.CreateTravelGroup;
 using TripMate.Application.Features.TravelGroups.GetInvitation;
 using TripMate.Application.Features.TravelGroups.GetMembers;
 using TripMate.Application.Features.TravelGroups.JoinTravelGroup;
+using TripMate.Application.Features.TravelGroups.LeaveTravelGroup;
 using TripMate.Application.Features.TravelGroups.ManageInvitation;
+using TripMate.Application.Features.TravelGroups.RemoveGroupMember;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Api.Controllers.V1;
@@ -30,6 +32,72 @@ public class TravelGroupsController(
     ISender sender,
     ICurrentUserService currentUserService) : ApiControllerBase(sender)
 {
+    [HttpDelete("{groupId}/members/{memberUserId}")]
+    [ProducesResponseType(typeof(RemoveGroupMemberResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> RemoveMember(
+        string groupId,
+        string memberUserId,
+        [BindRequired, FromHeader(Name = "Idempotency-Key")] string idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        if (!currentUserService.UserId.HasValue)
+        {
+            return Unauthorized();
+        }
+
+        if (!long.TryParse(groupId, out var parsedGroupId) || parsedGroupId <= 0
+            || !long.TryParse(memberUserId, out var parsedMemberUserId) || parsedMemberUserId <= 0
+            || parsedMemberUserId == currentUserService.UserId.Value
+            || !Guid.TryParse(idempotencyKey, out var key)
+            || key == Guid.Empty)
+        {
+            return Problem(
+                title: "Positive group/member IDs, a different member, and a valid Idempotency-Key are required.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var result = await Sender.Send(new RemoveGroupMemberCommand(
+            parsedGroupId, parsedMemberUserId, currentUserService.UserId.Value, key), cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    [HttpPost("{groupId:long}/leave")]
+    [ProducesResponseType(typeof(LeaveTravelGroupResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Leave(
+        long groupId,
+        [BindRequired, FromHeader(Name = "Idempotency-Key")] string idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        if (!currentUserService.UserId.HasValue)
+        {
+            return Unauthorized();
+        }
+
+        if (groupId <= 0
+            || !Guid.TryParse(idempotencyKey, out var parsedIdempotencyKey)
+            || parsedIdempotencyKey == Guid.Empty)
+        {
+            return Problem(
+                title: "A positive group ID and valid Idempotency-Key header are required.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        var result = await Sender.Send(
+            new LeaveTravelGroupCommand(groupId, currentUserService.UserId.Value, parsedIdempotencyKey),
+            cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
     [HttpGet("{groupId:long}/members")]
     [ProducesResponseType(typeof(GetTravelGroupMembersResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]

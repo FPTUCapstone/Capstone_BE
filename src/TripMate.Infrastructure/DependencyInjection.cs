@@ -22,7 +22,9 @@ using TripMate.Application.Features.PointsOfInterest.ExternalReviews;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Explanation;
 using TripMate.Application.Features.Scheduling.Personalization;
+using TripMate.Application.Features.Scheduling.Shadow;
 using TripMate.Application.Features.Scheduling.TimeOfDay;
+using TripMate.Application.Features.Tickets.Common;
 using TripMate.Application.Features.Traveler.Bookings.Common;
 using TripMate.Application.Features.Traveler.Payments.Common;
 using TripMate.Application.Features.TravelGroups.ManageInvitation;
@@ -103,6 +105,7 @@ public static class DependencyInjection
         services.AddScoped<IItineraryVersionService, ItineraryVersionService>();
         services.AddScoped<IGroupInvitationLock, SqlServerGroupInvitationLock>();
         services.AddScoped<IGroupJoinLock, SqlServerGroupJoinLock>();
+        services.AddScoped<IGroupLeaveLock, SqlServerGroupLeaveLock>();
         services.AddSingleton<IGroupInvitationCodeGenerator, RandomGroupInvitationCodeGenerator>();
         services.AddScoped<ISchedulingRequestLock, SqlServerSchedulingRequestLock>();
         services.AddScoped<ITripReviewContextReader, SqlServerTripReviewContextReader>();
@@ -183,9 +186,41 @@ public static class DependencyInjection
         services.AddSingleton(serviceProvider => serviceProvider
             .GetRequiredService<IOptions<SchedulingGenerationOptions>>()
             .Value);
+        services.AddOptions<PersonalizationOptions>()
+            .Bind(configuration.GetSection(PersonalizationOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<
+            IValidateOptions<PersonalizationOptions>,
+            PersonalizationOptionsValidator>();
+        services.AddSingleton<PersonalParamsFactory>();
+        services.AddSingleton<WeightedRequestInputsFactory>();
+        services.AddOptions<TimeFitOptions>()
+            .Bind(configuration.GetSection(TimeFitOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<
+            IValidateOptions<TimeFitOptions>,
+            TimeFitOptionsValidator>();
+        services.AddSingleton(serviceProvider => serviceProvider
+            .GetRequiredService<IOptions<TimeFitOptions>>()
+            .Value);
+        services.AddOptions<ShadowOptions>()
+            .Bind(configuration.GetSection(ShadowOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<
+            IValidateOptions<ShadowOptions>,
+            ShadowOptionsValidator>();
+        services.AddSingleton(serviceProvider => serviceProvider
+            .GetRequiredService<IOptions<ShadowOptions>>()
+            .Value);
+        services.AddSingleton<ShadowSchedulingRunner>();
+        services.AddSingleton<IShadowSchedulingRunner>(sp => sp.GetRequiredService<ShadowSchedulingRunner>());
+        services.AddHostedService(sp => sp.GetRequiredService<ShadowSchedulingRunner>());
         services.AddOptions<TimeOfDayOptions>()
             .Bind(configuration.GetSection(TimeOfDayOptions.SectionName))
             .Validate(options => options.MaxExtraMinutes is >= 0 and <= 120, "TimeOfDay:MaxExtraMinutes must be between 0 and 120.")
+            .Validate(options => options.NormalExtraMinutes is >= 0 and <= 120, "TimeOfDay:NormalExtraMinutes must be between 0 and 120.")
+            .Validate(options => options.SunriseExtraMinutes is >= 0 and <= 120, "TimeOfDay:SunriseExtraMinutes must be between 0 and 120.")
+            .Validate(options => options.EarlyTripCutoffMinutes is >= 0 and < 24 * 60, "TimeOfDay:EarlyTripCutoffMinutes must be between 0 and 1439.")
             .ValidateOnStart();
         services.AddSingleton(serviceProvider => serviceProvider
             .GetRequiredService<IOptions<TimeOfDayOptions>>()
@@ -362,6 +397,8 @@ public static class DependencyInjection
         services.AddHttpClient<IReviewTranslator, GeminiReviewTranslator>();
         services.Configure<EmailOptions>(configuration.GetSection(EmailOptions.SectionName));
         services.Configure<PasswordResetSecurityOptions>(configuration.GetSection(PasswordResetSecurityOptions.SectionName));
+        services.AddTicketQr(configuration);
+        services.AddSingleton<ITicketQrPersistenceErrorClassifier, SqlServerTicketQrPersistenceErrorClassifier>();
 
         // UC-06 password reset: zero DB schema; reset state lives in process-local memory only.
         services.AddSingleton<IPasswordResetStateStore, InMemoryPasswordResetStateStore>();

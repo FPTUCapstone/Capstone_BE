@@ -15,6 +15,22 @@ namespace TripMate.Api.IntegrationTests.TravelGroups;
 public sealed class TravelGroupsOpenApiTests
 {
     [Fact]
+    public async Task RemoveGroupMember_DocumentsRequiredIdempotencyHeader()
+    {
+        await using var factory = new TripMateApiFactory();
+        var document = factory.Services.GetRequiredService<ISwaggerProvider>().GetSwagger("v1");
+        var json = await document.SerializeAsJsonAsync(OpenApiSpecVersion.OpenApi3_0);
+        using var openApi = JsonDocument.Parse(json);
+        var parameters = openApi.RootElement.GetProperty("paths")
+            .GetProperty("/api/v1/travel-groups/{groupId}/members/{memberUserId}")
+            .GetProperty("delete").GetProperty("parameters");
+        var header = parameters.EnumerateArray()
+            .Single(parameter => parameter.GetProperty("name").GetString() == "Idempotency-Key");
+        header.GetProperty("in").GetString().Should().Be("header");
+        header.GetProperty("required").GetBoolean().Should().BeTrue();
+    }
+
+    [Fact]
     public async Task CreateTravelGroup_DocumentsRequiredIdempotencyHeader()
     {
         await using var factory = new TripMateApiFactory();

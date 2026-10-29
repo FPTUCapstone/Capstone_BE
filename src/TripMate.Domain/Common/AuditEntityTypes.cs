@@ -17,6 +17,7 @@ public static class AuditEntityTypes
 
     public const string SystemConfig = "SystemConfig";
     public const string Booking = "Booking";
+    public const string TravelGroup = "TravelGroup";
 
     // UC-59 BR-130
     public const string TripSession = "TripSession";

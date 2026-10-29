@@ -96,6 +96,9 @@ public interface IApplicationDbContext
 
     DbSet<Ticket> Tickets => throw new NotSupportedException("Tickets are unavailable in this context.");
 
+    DbSet<TicketQrCode> TicketQrCodes =>
+        throw new NotSupportedException("Ticket QR codes are unavailable in this context.");
+
     DbSet<BookingCancellationOperation> BookingCancellationOperations =>
         throw new NotSupportedException("Booking cancellation operations are unavailable in this context.");
 
@@ -122,6 +125,12 @@ public interface IApplicationDbContext
     DbSet<GroupInvitationOperation> GroupInvitationOperations { get; }
 
     DbSet<GroupJoinOperation> GroupJoinOperations { get; }
+
+    DbSet<GroupLeaveOperation> GroupLeaveOperations =>
+        throw new NotSupportedException("Group leave operations are unavailable in this context.");
+
+    DbSet<GroupMemberRemovalOperation> GroupMemberRemovalOperations =>
+        throw new NotSupportedException("Group member removal operations are unavailable in this context.");
 
     DbSet<ItineraryVersionOperation> ItineraryVersionOperations { get; }
 

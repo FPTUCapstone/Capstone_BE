@@ -1,0 +1,34 @@
+{
+  "ScenarioId": "weighted-small-tight-horizon-s61",
+  "Source": "GroupG_SmallExhaustive",
+  "Feasible": true,
+  "BestModelObjective": -6096,
+  "BestEvaluatedObjective": -6096,
+  "BestVisitPoiIds": [
+    1
+  ],
+  "EliteModelObjectives": [
+    -6096
+  ],
+  "EliteVisitIds": [
+    [
+      1
+    ]
+  ],
+  "BestTravelMinutes": 60,
+  "BestDurationMinutes": 115,
+  "BestEstimatedCost": 15000,
+  "EndAtUtc": "2026-10-20T02:55:00+00:00",
+  "NodesExpanded": 2,
+  "PrunedByConstraints": 1,
+  "PrunedByForwardChecking": 4,
+  "PrunedByBound": 0,
+  "SolutionsFound": 1,
+  "NodesToFirstSolution": 2,
+  "SearchCompleted": true,
+  "NodeLimitReached": false,
+  "TimeLimitReached": false,
+  "EvaluatorCalls": 2,
+  "UsedRelaxedRestModel": false,
+  "ChoseRelaxedRestModel": false
+}

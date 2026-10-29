@@ -12,6 +12,7 @@ using TripMate.Application.Features.Operator.Tours.Common;
 using TripMate.Application.Features.PointsOfInterest.Common;
 using TripMate.Application.Features.RecommendationFeedback.Common;
 using TripMate.Application.Features.Scheduling.Common;
+using TripMate.Application.Features.Tickets.Common;
 using TripMate.Application.Features.TourMedia.Common;
 using TripMate.Application.Features.Tours.Shared;
 using TripMate.Application.Features.Traveler.Payments.Common;
@@ -231,6 +232,7 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             CouponErrorCodes.CodeConflict => StatusCodes.Status409Conflict,
             CouponErrorCodes.NotFound => StatusCodes.Status404NotFound,
             CouponErrorCodes.InvalidState => StatusCodes.Status409Conflict,
+            CouponErrorCodes.UsageConflict => StatusCodes.Status409Conflict,
 
             OperatorTourErrorCodes.AccessRequired => StatusCodes.Status403Forbidden,
             OperatorTourErrorCodes.AdminAccessRequired => StatusCodes.Status403Forbidden,
@@ -307,6 +309,19 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             BookingCancellationErrorCodes.PolicyUnavailable => StatusCodes.Status503ServiceUnavailable,
             BookingCancellationErrorCodes.ConcurrentRetryExhausted => StatusCodes.Status503ServiceUnavailable,
 
+            TripMate.Application.Features.Admin.Bookings.Common.PlatformBookingErrorCodes.Forbidden =>
+                StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.Admin.Bookings.Common.PlatformBookingErrorCodes.InvalidDateRange =>
+                StatusCodes.Status400BadRequest,
+
+            TripMate.Application.Features.Operator.Bookings.Common.OperatorBookingErrorCodes.Forbidden =>
+                StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.Operator.Bookings.Common.OperatorBookingErrorCodes.NotFound =>
+                StatusCodes.Status404NotFound,
+            TripMate.Application.Features.Operator.Bookings.Common.OperatorBookingErrorCodes.InvalidFilter or
+                TripMate.Application.Features.Operator.Bookings.Common.OperatorBookingErrorCodes.InvalidDateRange =>
+                StatusCodes.Status400BadRequest,
+
             TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.ItineraryNotFound =>
                 StatusCodes.Status404NotFound,
 
@@ -328,6 +343,17 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.MemberListInconsistent =>
                 StatusCodes.Status500InternalServerError,
 
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.ConcurrentRetryExhausted =>
+                StatusCodes.Status503ServiceUnavailable,
+
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.GroupClosed or
+                TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.AlreadyLeft or
+                TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.MemberNotActive =>
+                StatusCodes.Status409Conflict,
+
+            TripMate.Application.Features.Notifications.MarkRead.NotificationErrorCodes.NotFound =>
+                StatusCodes.Status404NotFound,
+
             SchedulingErrorCodes.IdempotencyKeyPayloadMismatch =>
                 StatusCodes.Status409Conflict,
 
@@ -343,6 +369,20 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
 
             TripMate.Application.Features.PointsOfInterest.ExternalReviews.ExternalReviewErrorCodes.TranslationUnavailable =>
                 StatusCodes.Status503ServiceUnavailable,
+
+            TicketErrorCodes.Unauthorized =>
+                StatusCodes.Status401Unauthorized,
+
+            TicketErrorCodes.Forbidden =>
+                StatusCodes.Status403Forbidden,
+
+            TicketErrorCodes.NotFound =>
+                StatusCodes.Status404NotFound,
+
+            TicketErrorCodes.BookingNotConfirmed
+                or TicketErrorCodes.NotIssued
+                or TicketErrorCodes.NotRefreshable =>
+                StatusCodes.Status409Conflict,
 
             TripHistoryErrorCodes.Unauthorized =>
                 StatusCodes.Status401Unauthorized,

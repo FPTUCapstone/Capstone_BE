@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Bookings.Common;
+using TripMate.Application.Features.Traveler.Bookings.Common;
 using TripMate.Domain.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
@@ -63,8 +64,8 @@ public sealed class CancelBookingCommandHandler(
                             "You are not permitted to cancel this booking.");
                     }
 
-                    if (booking.Status is not (BookingStatus.PendingPayment or BookingStatus.Confirmed)
-                        || booking.Tickets.Any(ticket => ticket.Status == TicketStatus.Used))
+                    if (!BookingCancelEligibility.Evaluate(booking.Status,
+                            booking.Tickets.Any(ticket => ticket.Status == TicketStatus.Used)).CanCancel)
                     {
                         return Result.Failure<CancelBookingResponse>(BookingCancellationErrorCodes.InvalidState,
                             "This booking can no longer be cancelled.");
@@ -96,8 +97,12 @@ public sealed class CancelBookingCommandHandler(
 
                     var beforeState = new { status = booking.Status.ToString(), paymentStatus = booking.PaymentStatus.ToString() };
                     string? reason = ComposeReason(request.ReasonCategory, request.ReasonDetail);
+                    bool releaseCouponUsage = booking.Status == BookingStatus.PendingPayment &&
+                                              booking.PaymentStatus == PaymentStatus.Unpaid;
                     booking.Cancel(nowUtc, reason);
                     booking.TourSchedule.ReleaseCapacity(booking.Quantity);
+                    if (releaseCouponUsage)
+                        await BookingVoucherUsage.ReleaseAsync(dbContext, booking, transactionCancellationToken);
                     foreach (var ticket in booking.Tickets) ticket.Cancel();
                     await dbContext.RevokeActiveTicketQrCodesAsync(booking.Id, nowUtc, transactionCancellationToken);
 
