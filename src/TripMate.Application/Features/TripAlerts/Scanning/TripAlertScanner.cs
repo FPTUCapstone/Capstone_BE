@@ -13,11 +13,11 @@ public sealed class TripAlertScanner(
     IApplicationDbContext dbContext,
     IDateTimeProvider clock,
     IOptions<TripAlertOptions> options,
-    ITripWeatherProvider weatherProvider,
-    WeatherAlertClassifier weatherClassifier)
+    ITripWeatherProvider weatherProvider)
 {
     private readonly TripAlertOptions options = options.Value;
     private readonly TripAlertPersistence persistence = new(dbContext);
+    private readonly WeatherAlertPolicy weatherPolicy = new(options);
 
     public async Task ScanAsync(CancellationToken cancellationToken)
     {
@@ -150,14 +150,23 @@ public sealed class TripAlertScanner(
                     cancellationToken);
             }
 
+            var untilVisit = item.PlannedArrivalUtc - now;
+            if (untilVisit > TimeSpan.FromHours(3)
+                || (untilVisit < TimeSpan.Zero && item != items.OrderBy(i => i.SequenceNo).First()))
+            {
+                continue;
+            }
+
             TripWeatherSnapshot? weather;
             try
             {
                 weather = await weatherProvider.GetAsync(
-                    new WeatherForecastRequest(item.Latitude, item.Longitude, item.PlannedArrivalUtc),
+                    new WeatherForecastRequest(item.Latitude, item.Longitude,
+                        untilVisit < TimeSpan.Zero ? now : item.PlannedArrivalUtc,
+                        UseRealtime: untilVisit < TimeSpan.Zero),
                     cancellationToken);
             }
-            catch (Exception exception) when (exception is not OperationCanceledException)
+            catch (Exception) when (!cancellationToken.IsCancellationRequested)
             {
                 continue;
             }
@@ -167,7 +176,8 @@ public sealed class TripAlertScanner(
                 continue;
             }
 
-            await ScanWeather(session, item, poi.IndoorOutdoor, weather, now, cancellationToken);
+            await ScanWeather(session, item, poi.IndoorOutdoor,
+                poi.IndoorOutdoorReviewedAtUtc.HasValue, weather, now, cancellationToken);
         }
     }
 
@@ -175,53 +185,50 @@ public sealed class TripAlertScanner(
         TripSession session,
         TripSessionItem item,
         IndoorOutdoorType indoorOutdoor,
+        bool classificationReviewed,
         TripWeatherSnapshot weather,
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
         var activeKeys = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var alert in weather.OfficialAlerts.Where(alert =>
-                     alert.StartsAtUtc <= item.PlannedArrivalUtc
-                     && alert.EndsAtUtc >= item.PlannedArrivalUtc))
+        var action = weatherPolicy.Decide(weather.RainMmPerHour, weather.Thunderstorm,
+            indoorOutdoor, classificationReviewed, item.PlannedArrivalUtc - now, weather.Basis);
+        if (action == WeatherAlertAction.PersistedAdvisory)
         {
-            var key = $"openweather4:{alert.Id}";
-            activeKeys.Add(key);
-            await EnsurePersisted(
-                session,
-                Incident.SevereWeatherType,
-                key,
-                item.ItineraryItemId,
-                alert.Description ?? alert.Label,
-                now,
-                cancellationToken);
+            var key = $"{WeatherAlertPolicy.ModerateRainSourcePrefix}{item.ItineraryItemId}:{item.PlannedArrivalUtc:O}";
+            var alreadyActive = await dbContext.Incidents.AnyAsync(incident =>
+                incident.SessionId == session.Id
+                && incident.IncidentType == Incident.WeatherAdvisoryType
+                && incident.SourceKey == key
+                && incident.ResolvedAtUtc == null, cancellationToken);
+            var cooldown = await dbContext.Incidents.AnyAsync(incident =>
+                incident.SessionId == session.Id
+                && incident.IncidentType == Incident.WeatherAdvisoryType
+                && incident.DetectedAtUtc > now.AddHours(-3), cancellationToken);
+            if (alreadyActive || !cooldown)
+            {
+                activeKeys.Add(key);
+                await EnsurePersisted(session, Incident.WeatherAdvisoryType, key,
+                    item.ItineraryItemId, null, now, cancellationToken, weather);
+            }
         }
-
-        var level = weatherClassifier.Classify(
-            weather.RainMmPerHour,
-            weather.Thunderstorm,
-            activeKeys.Count > 0,
-            indoorOutdoor);
-        if (activeKeys.Count == 0 && level == WeatherAlertLevel.Warning)
+        else if (action == WeatherAlertAction.Warning)
         {
-            var condition = weather.Thunderstorm ? "thunderstorm" : "rain-heavy";
-            var key = $"weather:{condition}:{item.ItineraryItemId}:{item.PlannedArrivalUtc:O}";
+            var prefix = weather.Thunderstorm ? WeatherAlertPolicy.ThunderstormSourcePrefix
+                : weather.RainMmPerHour >= options.ExtremeRainMmPerHour
+                    ? WeatherAlertPolicy.ExtremeRainSourcePrefix
+                    : WeatherAlertPolicy.HeavyRainSourcePrefix;
+            var key = $"{prefix}{item.ItineraryItemId}:{item.PlannedArrivalUtc:O}";
             activeKeys.Add(key);
-            await EnsurePersisted(
-                session,
-                Incident.SevereWeatherType,
-                key,
-                item.ItineraryItemId,
-                weather.Thunderstorm
-                    ? weather.Condition ?? "Thunderstorm forecast."
-                    : $"Forecast rain intensity: {weather.RainMmPerHour:0.##} mm/hour.",
-                now,
-                cancellationToken);
+            await EnsurePersisted(session, Incident.SevereWeatherType, key,
+                item.ItineraryItemId, null, now, cancellationToken, weather);
         }
 
         var stale = await dbContext.Incidents
             .Where(incident =>
                 incident.SessionId == session.Id
-                && incident.IncidentType == Incident.SevereWeatherType
+                && (incident.IncidentType == Incident.SevereWeatherType
+                    || incident.IncidentType == Incident.WeatherAdvisoryType)
                 && incident.AffectedItineraryItemId == item.ItineraryItemId
                 && incident.ResolvedAtUtc == null
                 && incident.SourceKey != null)
@@ -245,7 +252,8 @@ public sealed class TripAlertScanner(
         long itemId,
         string? description,
         DateTimeOffset detectedAtUtc,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TripWeatherSnapshot? weather = null)
     {
         if (await dbContext.Incidents.AnyAsync(incident =>
                 incident.SessionId == session.Id
@@ -272,7 +280,7 @@ public sealed class TripAlertScanner(
                 }
 
                 await persistence.CreateAsync(
-                    session, type, sourceKey, detectedAtUtc, itemId, null, description, ct);
+                    session, type, sourceKey, detectedAtUtc, itemId, null, description, ct, weather);
                 return true;
             }, cancellationToken);
         }
