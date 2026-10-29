@@ -8,6 +8,7 @@ using TripMate.Application.Features.Bookings.Common;
 using TripMate.Application.Features.CommercialServices.Common;
 using TripMate.Application.Features.Coupons.Common;
 using TripMate.Application.Features.Navigation.Common;
+using TripMate.Application.Features.Operator.CheckIn.Common;
 using TripMate.Application.Features.Operator.Tours.Common;
 using TripMate.Application.Features.PointsOfInterest.Common;
 using TripMate.Application.Features.RecommendationFeedback.Common;
@@ -321,6 +322,25 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripMate.Application.Features.Operator.Bookings.Common.OperatorBookingErrorCodes.InvalidFilter or
                 TripMate.Application.Features.Operator.Bookings.Common.OperatorBookingErrorCodes.InvalidDateRange =>
                 StatusCodes.Status400BadRequest,
+
+            CheckInErrorCodes.Unauthorized =>
+                StatusCodes.Status401Unauthorized,
+            CheckInErrorCodes.Forbidden or
+                CheckInErrorCodes.ScheduleForbidden =>
+                StatusCodes.Status403Forbidden,
+            CheckInErrorCodes.ScheduleNotFound or
+                CheckInErrorCodes.TicketNotFound =>
+                StatusCodes.Status404NotFound,
+            CheckInErrorCodes.InvalidInput or
+                CheckInErrorCodes.InvalidQr =>
+                StatusCodes.Status400BadRequest,
+            CheckInErrorCodes.DepartureNotToday or
+                CheckInErrorCodes.WrongSchedule or
+                CheckInErrorCodes.BookingCancelled or
+                CheckInErrorCodes.BookingNotConfirmed or
+                CheckInErrorCodes.AlreadyUsed or
+                CheckInErrorCodes.TicketInvalid =>
+                StatusCodes.Status409Conflict,
 
             TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.ItineraryNotFound =>
                 StatusCodes.Status404NotFound,
