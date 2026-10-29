@@ -1,7 +1,11 @@
 using System.Reflection;
+
 using FluentAssertions;
+
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Operator.Bookings.Common;
@@ -86,7 +90,7 @@ public sealed class CheckInTravelerCommandHandlerTests
     }
 
     [Fact]
-    public async Task Handle_WhenScheduleBelongsToAnotherOperator_ReturnsScheduleForbidden()
+    public async Task Handle_WhenScheduleBelongsToAnotherOperator_ReturnsScheduleForbiddenAndLogsAudit()
     {
         await SeedOperatorProfileAsync(OperatorUserId);
         var schedule = await SeedTourScheduleAsync(OtherOperatorUserId, DepartureStartUtc);
@@ -97,6 +101,41 @@ public sealed class CheckInTravelerCommandHandlerTests
 
         result.IsFailure.Should().BeTrue();
         result.ErrorCode.Should().Be(CheckInErrorCodes.ScheduleForbidden);
+
+        var audit = await dbContext.AuditLogs.FirstOrDefaultAsync(a => a.ActionType == "CheckInScanRejected");
+        audit.Should().NotBeNull();
+        audit!.ActorUserId.Should().Be(OperatorUserId);
+        audit.Reason.Should().Be("Operator does not own this tour departure schedule.");
+    }
+
+    [Fact]
+    public async Task Handle_WhenAuditPersistenceFails_LogsStructuredDiagnosticAndReturnsFailureGracefully()
+    {
+        await SeedOperatorProfileAsync(OperatorUserId);
+        var schedule = await SeedTourScheduleAsync(OtherOperatorUserId, DepartureStartUtc);
+
+        var testLogger = new TestLogger<CheckInTravelerCommandHandler>();
+        var testHandler = new CheckInTravelerCommandHandler(
+            dbContext,
+            currentUserService,
+            ticketQrCodec,
+            clock,
+            testLogger);
+
+        // Simulate database failure during audit save
+        dbContext.SaveChangesFailureFactory = () => new InvalidOperationException("Simulated database outage");
+
+        var result = await testHandler.Handle(
+            new CheckInTravelerCommand(schedule.Id, QrContent: "TM1.any.signature"),
+            CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(CheckInErrorCodes.ScheduleForbidden);
+
+        testLogger.Logs.Should().ContainSingle(l =>
+            l.Level == LogLevel.Error &&
+            l.Message.Contains("Failed to persist rejection audit log") &&
+            l.Message.Contains(OperatorUserId.ToString()));
     }
 
     [Fact]
@@ -384,5 +423,24 @@ public sealed class CheckInTravelerCommandHandlerTests
     private sealed class TestClock : IDateTimeProvider
     {
         public DateTimeOffset UtcNow { get; set; }
+    }
+
+    private sealed class TestLogger<T> : ILogger<T>
+    {
+        public List<(LogLevel Level, string Message, Exception? Exception)> Logs { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            Logs.Add((logLevel, formatter(state, exception), exception));
+        }
     }
 }

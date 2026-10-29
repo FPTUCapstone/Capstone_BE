@@ -1,5 +1,8 @@
 using MediatR;
+
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Operator.Bookings.Common;
@@ -20,10 +23,13 @@ public sealed class CheckInTravelerCommandHandler(
     IApplicationDbContext dbContext,
     ICurrentUserService currentUserService,
     ITicketQrCodec ticketQrCodec,
-    IDateTimeProvider clock)
+    IDateTimeProvider clock,
+    ILogger<CheckInTravelerCommandHandler>? logger = null)
     : IRequestHandler<CheckInTravelerCommand, Result<CheckInResultDto>>
 {
     private const int MaxConcurrencyAttempts = 5;
+    private readonly ILogger<CheckInTravelerCommandHandler> _logger =
+        logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<CheckInTravelerCommandHandler>.Instance;
 
     public async Task<Result<CheckInResultDto>> Handle(
         CheckInTravelerCommand request,
@@ -38,6 +44,7 @@ public sealed class CheckInTravelerCommandHandler(
         }
 
         var operatorId = access.Value;
+        var nowUtc = clock.UtcNow;
 
         // 2. Validate schedule existence and operator tour ownership (BR-108)
         var schedule = await dbContext.TourSchedules.AsNoTracking()
@@ -62,12 +69,12 @@ public sealed class CheckInTravelerCommandHandler(
 
         if (schedule.OperatorUserId != operatorId)
         {
+            await RecordAuditRejectionAsync(operatorId, null, "Operator does not own this tour departure schedule.", nowUtc);
             return Result.Failure<CheckInResultDto>(
                 CheckInErrorCodes.ScheduleForbidden, "You do not have permission to check in for this tour departure.");
         }
 
         // 3. Validate departure date window in Asia/Ho_Chi_Minh (BR-84, BR-108)
-        var nowUtc = clock.UtcNow;
         var validityWindow = TicketValidityWindow.For(schedule.StartAtUtc);
         if (nowUtc < validityWindow.ValidFromUtc || nowUtc > validityWindow.ValidUntilUtc)
         {
@@ -103,7 +110,7 @@ public sealed class CheckInTravelerCommandHandler(
 
             if (matchedTicketId is null)
             {
-                await RecordAuditRejectionAsync(operatorId, null, $"No ticket found matching code '{code}'.", nowUtc);
+                await RecordAuditRejectionAsync(operatorId, null, "No ticket found matching the submitted booking code.", nowUtc);
                 return Result.Failure<CheckInResultDto>(
                     CheckInErrorCodes.TicketNotFound,
                     "The ticket could not be found.");
@@ -367,9 +374,11 @@ public sealed class CheckInTravelerCommandHandler(
             dbContext.CheckInLogs.Add(log);
             await dbContext.SaveChangesAsync(CancellationToken.None);
         }
-        catch
+        catch (Exception ex)
         {
             // Logging failure does not disrupt response delivery.
+            _logger.LogError(ex, "Failed to record check-in log: ticketId={TicketId}, operatorId={OperatorId}, result={Result}",
+                ticketId, operatorId, result);
         }
     }
 
@@ -392,9 +401,12 @@ public sealed class CheckInTravelerCommandHandler(
             dbContext.AuditLogs.Add(audit);
             await dbContext.SaveChangesAsync(CancellationToken.None);
         }
-        catch
+        catch (Exception ex)
         {
-            // Database-outage limitation: rejection audit log failure is suppressed.
+            // Database-outage limitation: rejection audit log failure is suppressed from disrupting response,
+            // but logged for structured diagnostic observability.
+            _logger.LogError(ex, "Failed to persist rejection audit log: operatorId={OperatorId}, ticketId={TicketId}, reason={Reason}",
+                operatorId, ticketId, reason);
         }
     }
 }
