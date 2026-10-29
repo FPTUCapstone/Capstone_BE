@@ -10,4 +10,5 @@ public sealed class TripAlertOptions
     public TimeSpan DeliveryLease { get; init; } = TimeSpan.FromMinutes(2);
     public double AdvisoryRainMmPerHour { get; init; } = 2.5;
     public double SevereRainMmPerHour { get; init; } = 10;
+    public double ExtremeRainMmPerHour { get; init; } = 50;
 }

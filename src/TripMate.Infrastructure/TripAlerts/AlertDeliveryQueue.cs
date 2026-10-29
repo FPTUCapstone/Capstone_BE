@@ -99,10 +99,30 @@ internal sealed class AlertDeliveryQueue(
     public async Task CompleteAsync(
         ClaimedTripAlert alert,
         bool sent,
+        CancellationToken cancellationToken) =>
+        await CompleteAsync(
+            alert,
+            new TripAlertPushResult(sent, []),
+            cancellationToken);
+
+    public async Task CompleteAsync(
+        ClaimedTripAlert alert,
+        TripAlertPushResult result,
         CancellationToken cancellationToken)
     {
         var now = clock.UtcNow;
-        DateTimeOffset? next = !sent && alert.AttemptCount < MaxAttempts
+        if (result.InvalidProtectedTokens.Count > 0)
+        {
+            var invalidTokens = result.InvalidProtectedTokens.ToArray();
+            await dbContext.PushDeviceTokens
+                .Where(token => token.DeactivatedAtUtc == null
+                    && invalidTokens.Contains(token.ProtectedToken))
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(token => token.DeactivatedAtUtc, now)
+                    .SetProperty(token => token.UpdatedAtUtc, now), cancellationToken);
+        }
+
+        DateTimeOffset? next = !result.Sent && alert.AttemptCount < MaxAttempts
             ? now + (alert.AttemptCount == 1 ? TimeSpan.FromMinutes(15) : TimeSpan.FromMinutes(30))
             : null;
         var nextAttemptParameter = new SqlParameter("nextAttemptAt", SqlDbType.DateTime2)
@@ -119,7 +139,7 @@ internal sealed class AlertDeliveryQueue(
             SET [status] = {3}, sent_at = CASE WHEN {3} = {5} THEN {4} ELSE sent_at END
             WHERE notification_id = {0} AND [status] <> {6};
             """, [alert.NotificationId, alert.ClaimToken, nextAttemptParameter,
-                sent ? nameof(NotificationStatus.Sent) : nameof(NotificationStatus.Failed), now,
+                result.Sent ? nameof(NotificationStatus.Sent) : nameof(NotificationStatus.Failed), now,
                 nameof(NotificationStatus.Sent), nameof(NotificationStatus.Read)], cancellationToken);
     }
 

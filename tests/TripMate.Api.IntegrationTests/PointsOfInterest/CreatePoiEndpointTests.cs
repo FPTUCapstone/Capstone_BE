@@ -73,7 +73,7 @@ public class CreatePoiEndpointTests
     }
 
     [Fact]
-    public async Task Post_WithNullIndoorOutdoor_UsesOutdoorDefault()
+    public async Task Post_WithNullIndoorOutdoor_RequiresExplicitClassification()
     {
         await using var factory = new TripMateApiFactory();
         var seed = await SeedAsync(factory);
@@ -90,9 +90,10 @@ public class CreatePoiEndpointTests
             indoorOutdoor = (string?)null,
         });
 
-        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        body.RootElement.GetProperty("indoorOutdoor").GetString().Should().Be("Outdoor");
+        body.RootElement.GetProperty("errors").TryGetProperty("indoorOutdoor", out _)
+            .Should().BeTrue();
     }
 
     [Theory]
@@ -146,6 +147,7 @@ public class CreatePoiEndpointTests
             categoryId = seed.CategoryId,
             latitude = 11.941755m,
             longitude = 108.438278m,
+            indoorOutdoor = "Outdoor",
             address = $"  {expectedAddress}  ",
             description = $"  {expectedDescription}  ",
         });
@@ -184,6 +186,7 @@ public class CreatePoiEndpointTests
             categoryId = seed.CategoryId,
             latitude = 16.003892m,
             longitude = 108.264170m,
+            indoorOutdoor = "Outdoor",
             address = new string(' ', PointOfInterest.AddressMaxLength + 1),
             description = new string(' ', PointOfInterest.DescriptionMaxLength + 1),
         });
@@ -426,6 +429,7 @@ public class CreatePoiEndpointTests
         categoryId,
         latitude = 11.941755m,
         longitude = 108.438278m,
+        indoorOutdoor = "Outdoor",
     };
 
     private static async Task AssertForbiddenProblemDetailsAsync(HttpResponseMessage response)
