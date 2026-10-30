@@ -3,6 +3,7 @@ using MediatR;
 using Microsoft.AspNetCore.Mvc;
 
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Admin.LandingContent.Common;
 using TripMate.Application.Features.Authentication.Common;
 using TripMate.Application.Features.Bookings.Common;
 using TripMate.Application.Features.CommercialServices.Common;
@@ -10,6 +11,7 @@ using TripMate.Application.Features.Coupons.Common;
 using TripMate.Application.Features.Navigation.Common;
 using TripMate.Application.Features.Operator.Tours.Common;
 using TripMate.Application.Features.PointsOfInterest.Common;
+using TripMate.Application.Features.Public.LandingContent;
 using TripMate.Application.Features.RecommendationFeedback.Common;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Tickets.Common;
@@ -166,6 +168,14 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
 
             TripMate.Application.Features.Admin.ActiveTrips.GetList.ActiveTripErrorCodes.NotFound =>
                 StatusCodes.Status404NotFound,
+
+            LandingContentErrorCodes.Forbidden => StatusCodes.Status403Forbidden,
+            LandingContentErrorCodes.NotInitialized => StatusCodes.Status503ServiceUnavailable,
+            LandingContentErrorCodes.StaleVersion => StatusCodes.Status409Conflict,
+            LandingContentErrorCodes.InvalidContent => StatusCodes.Status422UnprocessableEntity,
+            LandingContentErrorCodes.VersionNotFound => StatusCodes.Status404NotFound,
+
+            PublicLandingContentErrorCodes.NotAvailable => StatusCodes.Status503ServiceUnavailable,
 
             TripMate.Application.Features.Admin.Payouts.Common.PayoutErrorCodes.Forbidden =>
                 StatusCodes.Status403Forbidden,

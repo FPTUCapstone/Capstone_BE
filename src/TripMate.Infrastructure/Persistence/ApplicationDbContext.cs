@@ -299,6 +299,8 @@ public class ApplicationDbContext(
 
     public DbSet<SystemConfig> SystemConfigs => Set<SystemConfig>();
 
+    public DbSet<LandingContentVersion> LandingContentVersions => Set<LandingContentVersion>();
+
     public DbSet<TripSession> TripSessions => Set<TripSession>();
 
     public DbSet<TripSessionItem> TripSessionItems => Set<TripSessionItem>();
