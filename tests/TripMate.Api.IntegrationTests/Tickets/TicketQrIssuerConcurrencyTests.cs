@@ -26,6 +26,7 @@ namespace TripMate.Api.IntegrationTests.Tickets;
 /// T3 — Lazy issuance versus ticket consumption: EnsureActiveAsync cannot issue a QR after a ticket becomes Used.
 /// T4 — Cancelled ticket: A cancelled ticket cannot receive a new Active QR.
 /// T5 — Deterministic barrier interleaving: Verifies that RotateAsync under serialization detects concurrent consumption.
+/// T6 — Stale response recovery: TicketResponseBuilder re-reads snapshot when EnsureActiveAsync encounters concurrent consumption.
 /// Note: The cross-feature integration test with UC-43 CheckInTravelerCommand is independently implemented in PR B (TM-89 UC-43).
 /// </summary>
 [Trait("Category", "SqlServer")]
@@ -49,7 +50,7 @@ public sealed class TicketQrIssuerConcurrencyTests
             await issuer.EnsureActiveAsync(ticketId, Now, CancellationToken.None);
         }
 
-        // Run 8 concurrent refreshes
+        // Run concurrent refreshes (Concurrency = 2 in PR A; 8 concurrent refreshes tested in TravelerTicketsSqlServerTests)
         using var start = new SemaphoreSlim(0, Concurrency);
         var tasks = Enumerable.Range(0, Concurrency).Select(async _ =>
         {
@@ -182,7 +183,8 @@ public sealed class TicketQrIssuerConcurrencyTests
             await issuer.EnsureActiveAsync(ticketId, Now, CancellationToken.None);
         }
 
-        var barrier = new Barrier(2);
+        var snapshotRead = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var checkInCommitted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         // Thread 1: Refresh command handler
         var refreshTask = Task.Run(async () =>
@@ -193,10 +195,11 @@ public sealed class TicketQrIssuerConcurrencyTests
             snapshot.Should().NotBeNull();
             snapshot!.TicketStatus.Should().Be(TicketStatus.Valid);
 
-            // Synchronize: wait for Thread 2 to consume ticket
-            barrier.SignalAndWait();
-            // Give Thread 2 a moment to commit consumption
-            await Task.Delay(50);
+            // Signal Thread 2 that snapshot has been read while ticket is Valid
+            snapshotRead.SetResult(true);
+
+            // Wait deterministically until Thread 2 has fully committed the check-in to SQL Server
+            await checkInCommitted.Task;
 
             var issuer = new TicketQrIssuer(context, Codec(), new SqlServerTicketQrPersistenceErrorClassifier());
             return await issuer.RotateAsync(ticketId, Now, CancellationToken.None);
@@ -205,10 +208,13 @@ public sealed class TicketQrIssuerConcurrencyTests
         // Thread 2: Simulates UC-43 Check-In committing Ticket.Status = Used
         var checkInTask = Task.Run(async () =>
         {
-            barrier.SignalAndWait(); // Wait for Thread 1 to read snapshot
+            // Wait for Thread 1 to read the initial snapshot first
+            await snapshotRead.Task;
+
             await using var context = database.CreateDbContext();
             await context.Database.ExecuteSqlInterpolatedAsync(
                 $"UPDATE commerce.Tickets SET status = 'Used', checked_in_at = {Now.UtcDateTime} WHERE ticket_id = {ticketId};");
+            checkInCommitted.SetResult(true);
         });
 
         await Task.WhenAll(refreshTask, checkInTask);
@@ -221,6 +227,46 @@ public sealed class TicketQrIssuerConcurrencyTests
         var activeCount = await database.ExecuteScalarAsync<int>(
             $"SELECT COUNT(*) FROM commerce.TicketQrCodes WHERE ticket_id = {ticketId} AND status = 'Active';");
         activeCount.Should().Be(0, "Zero Active QR codes must remain when ticket was consumed during refresh.");
+    }
+
+    [SqlServerFact]
+    public async Task T6_ViewTicket_WhenTicketConcurrentlyUsedDuringQrIssuance_ReturnsConsistentUsedResponseAndNoQr()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await TicketSqlServerSeed.CreateAsync(database, Departure);
+        var ticketId = await seed.AddTicketAsync(await seed.AddBookingAsync(BookingStatus.Confirmed, PaymentStatus.Paid));
+
+        // Read snapshot while ticket is Valid (as GetTravelerTicketQueryHandler does)
+        TicketSnapshot? snapshot;
+        await using (var context = database.CreateDbContext())
+        {
+            snapshot = await TicketSnapshot.ReadAsync(context, ticketId, CancellationToken.None);
+        }
+        snapshot.Should().NotBeNull();
+        snapshot!.TicketStatus.Should().Be(TicketStatus.Valid);
+        snapshot.CheckedInAtUtc.Should().BeNull();
+
+        // Simulate concurrent check-in committing to SQL Server before EnsureActiveAsync executes
+        await using (var context = database.CreateDbContext())
+        {
+            await context.Database.ExecuteSqlInterpolatedAsync(
+                $"UPDATE commerce.Tickets SET status = 'Used', checked_in_at = {Now.UtcDateTime} WHERE ticket_id = {ticketId};");
+        }
+
+        // Build response
+        await using (var context = database.CreateDbContext())
+        {
+            var issuer = new TicketQrIssuer(context, Codec(), new SqlServerTicketQrPersistenceErrorClassifier());
+            var response = await TicketResponseBuilder.BuildAsync(context, issuer, snapshot, Now, CancellationToken.None);
+
+            response.TicketStatus.Should().Be(TicketDisplayStatus.Used);
+            response.CheckedInAtUtc.Should().Be(Now);
+            response.Qr.Should().BeNull("A ticket consumed during QR issuance must not receive an active QR.");
+        }
+
+        var activeCount = await database.ExecuteScalarAsync<int>(
+            $"SELECT COUNT(*) FROM commerce.TicketQrCodes WHERE ticket_id = {ticketId} AND status = 'Active';");
+        activeCount.Should().Be(0, "Zero Active QR codes must remain when ticket was consumed.");
     }
 
     private static AesGcmHmacTicketQrCodec Codec() => new(Options.Create(new TicketQrOptions

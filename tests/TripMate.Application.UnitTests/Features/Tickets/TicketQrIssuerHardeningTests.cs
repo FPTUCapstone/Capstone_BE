@@ -21,6 +21,8 @@ namespace TripMate.Application.UnitTests.Features.Tickets;
 /// T4 — Cancelled ticket: A cancelled ticket cannot receive a new Active QR.
 /// T5 — Existing Active QR: Must not return an invalid/stale QR after a terminal ticket transition.
 /// T6 — Regression: Valid ticket viewing and QR rotation continue working.
+/// T7 — Stale response recovery: TicketResponseBuilder returns Used status and no QR when ticket is consumed concurrently.
+/// T8 — Stale response recovery: TicketResponseBuilder returns Cancelled status and no QR when ticket is cancelled concurrently.
 /// </summary>
 public sealed class TicketQrIssuerHardeningTests
 {
@@ -167,5 +169,53 @@ public sealed class TicketQrIssuerHardeningTests
         qrs.Should().HaveCount(2);
         qrs.Single(q => q.Id == firstQr.Id).Status.Should().Be(TicketQrCodeStatus.Revoked);
         qrs.Single(q => q.Id == rotation.Value.Id).Status.Should().Be(TicketQrCodeStatus.Active);
+    }
+
+    [Fact]
+    public async Task T7_StaleResponseRecovery_WhenTicketConcurrentlyUsedDuringQrIssuance_ReturnsUsedResponseAndNoQr()
+    {
+        var data = new TicketTestData();
+        var ticket = await data.AddTicketAsync(await data.AddBookingAsync(BookingStatus.Confirmed, PaymentStatus.Paid));
+
+        // Initial snapshot read while ticket is Valid
+        var snapshot = await TicketSnapshot.ReadAsync(data.Db, ticket.Id, CancellationToken.None);
+        snapshot.Should().NotBeNull();
+        snapshot!.TicketStatus.Should().Be(TicketStatus.Valid);
+        snapshot.CheckedInAtUtc.Should().BeNull();
+
+        // Simulate concurrent check-in: ticket transitions to Used with check-in timestamp
+        SetProperty(ticket, nameof(Ticket.Status), TicketStatus.Used);
+        SetProperty(ticket, nameof(Ticket.CheckedInAtUtc), InWindow);
+        await data.Db.SaveChangesAsync();
+
+        var issuer = new TicketQrIssuer(data.Db, data.Codec, data.Classifier);
+        var response = await TicketResponseBuilder.BuildAsync(data.Db, issuer, snapshot, InWindow, CancellationToken.None);
+
+        // Verify response consistency: must reflect Used status with check-in timestamp and no QR
+        response.TicketStatus.Should().Be(TicketDisplayStatus.Used);
+        response.CheckedInAtUtc.Should().Be(InWindow);
+        response.Qr.Should().BeNull("A ticket consumed during QR issuance must not receive an active QR.");
+    }
+
+    [Fact]
+    public async Task T8_StaleResponseRecovery_WhenTicketConcurrentlyCancelledDuringQrIssuance_ReturnsCancelledResponseAndNoQr()
+    {
+        var data = new TicketTestData();
+        var ticket = await data.AddTicketAsync(await data.AddBookingAsync(BookingStatus.Confirmed, PaymentStatus.Paid));
+
+        // Initial snapshot read while ticket is Valid
+        var snapshot = await TicketSnapshot.ReadAsync(data.Db, ticket.Id, CancellationToken.None);
+        snapshot.Should().NotBeNull();
+        snapshot!.TicketStatus.Should().Be(TicketStatus.Valid);
+
+        // Simulate concurrent cancellation
+        ticket.Cancel();
+        await data.Db.SaveChangesAsync();
+
+        var issuer = new TicketQrIssuer(data.Db, data.Codec, data.Classifier);
+        var response = await TicketResponseBuilder.BuildAsync(data.Db, issuer, snapshot, InWindow, CancellationToken.None);
+
+        response.TicketStatus.Should().Be(TicketDisplayStatus.Cancelled);
+        response.Qr.Should().BeNull("A cancelled ticket must not receive an active QR.");
     }
 }
