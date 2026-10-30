@@ -378,6 +378,7 @@ CREATE TABLE catalog.POIs (
     address                     NVARCHAR(400) NULL,
     indoor_outdoor               VARCHAR(10) NOT NULL DEFAULT 'Outdoor'
         CHECK (indoor_outdoor IN ('Indoor','Outdoor','Mixed')),
+    indoor_outdoor_reviewed_at_utc DATETIME2 NULL,
     -- TM-98 leaves these nullable cold-start scores unset on creation.
     -- A later approved aggregation flow may populate them from
     -- social.Reviews.scenic_rating / photo_rating (target_type = 'POI').
@@ -953,9 +954,12 @@ CREATE TABLE trip.Incidents (
     incident_id       BIGINT IDENTITY(1,1) PRIMARY KEY,
     session_id           BIGINT NOT NULL REFERENCES trip.TripSessions(session_id) ON DELETE CASCADE,
     incident_type          VARCHAR(20) NOT NULL
-        CHECK (incident_type IN ('SevereWeather','ScheduleDelay','RouteDeviation','POIClosure')),
+        CHECK (incident_type IN ('SevereWeather','WeatherAdvisory','ScheduleDelay','RouteDeviation','POIClosure')),
     weather_event_id          BIGINT NULL REFERENCES trip.WeatherEvents(weather_event_id),
     description                 NVARCHAR(500) NULL,
+    weather_basis               VARCHAR(30) NULL,
+    weather_at_utc              DATETIME2 NULL,
+    rain_intensity_mm_per_hour FLOAT NULL,
     detected_at                   DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
     resolved_at                     DATETIME2 NULL
 );

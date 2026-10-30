@@ -5,27 +5,53 @@ using TripMate.Application.Common.Interfaces;
 
 namespace TripMate.Infrastructure.TripAlerts;
 
+internal sealed record TripAlertPushAttempt(
+    string ProtectedToken,
+    bool IsSuccess,
+    MessagingErrorCode? ErrorCode);
+
+internal sealed record TripAlertPushResult(
+    bool Sent,
+    IReadOnlyCollection<string> InvalidProtectedTokens)
+{
+    public static TripAlertPushResult Classify(
+        IReadOnlyCollection<TripAlertPushAttempt> attempts) =>
+        new(
+            attempts.Any(attempt => attempt.IsSuccess),
+            attempts
+                .Where(attempt => !attempt.IsSuccess
+                    && attempt.ErrorCode is MessagingErrorCode.Unregistered
+                        or MessagingErrorCode.SenderIdMismatch)
+                .Select(attempt => attempt.ProtectedToken)
+                .Distinct(StringComparer.Ordinal)
+                .ToArray());
+}
+
 internal sealed class FirebaseTripAlertPushSender(
     IPushTokenProtector protector,
     IFirebaseAuthService firebaseAuthService)
 {
-    public async Task<bool> SendAsync(
+    public async Task<TripAlertPushResult> SendAsync(
         ClaimedTripAlert alert,
         CancellationToken cancellationToken)
     {
         _ = firebaseAuthService; // Resolving it initializes the shared FirebaseApp.
-        var tokens = alert.ProtectedDeviceTokens
-            .Select(protector.Unprotect)
-            .Distinct(StringComparer.Ordinal)
+        var devices = alert.ProtectedDeviceTokens
+            .Select(protectedToken => new
+            {
+                ProtectedToken = protectedToken,
+                Token = protector.Unprotect(protectedToken),
+            })
+            .DistinctBy(device => device.Token, StringComparer.Ordinal)
             .ToArray();
-        if (tokens.Length == 0 || FirebaseApp.DefaultInstance is null)
+        if (devices.Length == 0 || FirebaseApp.DefaultInstance is null)
         {
-            return false;
+            return new TripAlertPushResult(false, []);
         }
 
         var message = new MulticastMessage
         {
-            Tokens = tokens,
+            Tokens = devices.Select(device => device.Token).ToArray(),
             Notification = new FirebaseAdmin.Messaging.Notification
             {
                 Title = alert.Title,
@@ -41,6 +67,11 @@ internal sealed class FirebaseTripAlertPushSender(
         };
         BatchResponse response = await FirebaseMessaging.DefaultInstance
             .SendEachForMulticastAsync(message, cancellationToken);
-        return response.SuccessCount > 0;
+        return TripAlertPushResult.Classify(response.Responses
+            .Select((result, index) => new TripAlertPushAttempt(
+                devices[index].ProtectedToken,
+                result.IsSuccess,
+                (result.Exception as FirebaseMessagingException)?.MessagingErrorCode))
+            .ToArray());
     }
 }
