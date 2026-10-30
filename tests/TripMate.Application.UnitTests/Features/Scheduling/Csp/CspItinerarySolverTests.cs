@@ -628,12 +628,43 @@ public class CspItinerarySolverTests
     {
         var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(8, 0, 1);
         var (candidates, indices) = Index(input);
+
+        var evaluationStarted = false;
+        var cancellationObserved = false;
+        var threwOperationCanceled = false;
+
         var solver = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, new CspOptions { TimeLimitMilliseconds = 200 })
         {
             BeforeEvaluation = token =>
             {
-                token.WaitHandle.WaitOne(TimeSpan.FromSeconds(3));
-                token.ThrowIfCancellationRequested();
+                evaluationStarted = true;
+
+                // Wait for the deadline cancellation signal up to 3 seconds.
+                // Using small wait slices (50ms) ensures prompt response when the token is signaled
+                // and avoids waiting out the full 3 seconds while cooperatively yielding between slices.
+                var waitWatch = Stopwatch.StartNew();
+                while (!token.IsCancellationRequested && waitWatch.Elapsed < TimeSpan.FromSeconds(3))
+                {
+                    if (token.WaitHandle.WaitOne(50))
+                    {
+                        break;
+                    }
+                }
+
+                if (token.IsCancellationRequested)
+                {
+                    cancellationObserved = true;
+                }
+
+                try
+                {
+                    token.ThrowIfCancellationRequested();
+                }
+                catch (OperationCanceledException)
+                {
+                    threwOperationCanceled = true;
+                    throw;
+                }
             },
         };
 
@@ -641,6 +672,9 @@ public class CspItinerarySolverTests
         var result = solver.Solve(input, matrix, candidates, indices, HeuristicSchedule(input, matrix));
         watch.Stop();
 
+        evaluationStarted.Should().BeTrue();
+        cancellationObserved.Should().BeTrue();
+        threwOperationCanceled.Should().BeTrue();
         result.Statistics.TimeLimitReached.Should().BeTrue();
         result.Schedule.Should().BeNull();
         watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(2));
