@@ -19,7 +19,7 @@ public sealed class TicketQrIssuer(
     ITicketQrPersistenceErrorClassifier classifier)
 {
     /// <summary>Bounded so a fault the classifier misreads can never loop forever.</summary>
-    private const int MaxIssueAttempts = 5;
+    private const int MaxIssueAttempts = 8;
 
     public string ContentFor(TicketQrCode code) => codec.ContentFor(code.QrToken, code.Signature);
 
@@ -88,7 +88,7 @@ public sealed class TicketQrIssuer(
                 when (attempt < MaxIssueAttempts && dbContext.IsDeadlock(exception))
             {
                 dbContext.ClearTrackedEntities();
-                var delayMs = Random.Shared.Next(15, 40) * (1 << (attempt - 1));
+                var delayMs = Math.Min(500, Random.Shared.Next(25, 76) * (1 << (attempt - 1)));
                 await Task.Delay(TimeSpan.FromMilliseconds(delayMs), cancellationToken);
             }
         }
@@ -173,7 +173,7 @@ public sealed class TicketQrIssuer(
                 when (attempt < MaxIssueAttempts && dbContext.IsDeadlock(exception))
             {
                 dbContext.ClearTrackedEntities();
-                var delayMs = Random.Shared.Next(15, 40) * (1 << (attempt - 1));
+                var delayMs = Math.Min(500, Random.Shared.Next(25, 76) * (1 << (attempt - 1)));
                 await Task.Delay(TimeSpan.FromMilliseconds(delayMs), cancellationToken);
             }
         }

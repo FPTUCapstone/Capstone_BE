@@ -1,0 +1,37 @@
+name: tm70-semantic-e2e-dev
+services:
+  embedding:
+    build:
+      context: ./services/embedding-service
+      dockerfile: Dockerfile.dev
+    ports: ["127.0.0.1:8017:8000"]
+    volumes: ["model-cache:/model-cache"]
+    mem_limit: 3g
+    cpus: 2
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 40
+      start_period: 120s
+  qdrant:
+    image: qdrant/qdrant:v1.13.4
+    ports: ["127.0.0.1:6337:6333"]
+    volumes: ["qdrant-data:/qdrant/storage"]
+    mem_limit: 1g
+    cpus: 2
+  sql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${TM70_DEV_SQL_PASSWORD:?Supply an ephemeral dev password}
+      MSSQL_MEMORY_LIMIT_MB: "2048"
+    ports: ["127.0.0.1:14337:1433"]
+    volumes: ["sql-data:/var/opt/mssql"]
+    mem_limit: 3g
+    cpus: 2
+volumes:
+  model-cache:
+  qdrant-data:
+  sql-data:

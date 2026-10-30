@@ -207,6 +207,13 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.RejectionReasonTooLong =>
                 StatusCodes.Status422UnprocessableEntity,
 
+            TripMate.Application.Features.PointsOfInterest.Management.ManagedPoiErrors.AccessRequired =>
+                StatusCodes.Status403Forbidden,
+
+            TripMate.Application.Features.PointsOfInterest.Management.ManagedPoiErrors.InvalidQuery or
+                TripMate.Application.Features.PointsOfInterest.Management.ManagedPoiErrors.CategoryNotFound =>
+                StatusCodes.Status400BadRequest,
+
             PoiErrorCodes.AdminAccessRequired =>
                 StatusCodes.Status403Forbidden,
 
