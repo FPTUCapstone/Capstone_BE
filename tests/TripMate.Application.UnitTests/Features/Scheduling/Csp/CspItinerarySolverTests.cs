@@ -628,22 +628,68 @@ public class CspItinerarySolverTests
     {
         var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(8, 0, 1);
         var (candidates, indices) = Index(input);
-        var solver = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, new CspOptions { TimeLimitMilliseconds = 200 })
+
+        // Pre-warm ThreadPool worker capacity to guarantee prompt dispatch of the asynchronous
+        // CancelAfter timer callback under heavy parallel xUnit test execution on constrained CI runners.
+        ThreadPool.GetMinThreads(out int prevMinW, out int prevMinI);
+        ThreadPool.SetMinThreads(Math.Max(prevMinW, 32), Math.Max(prevMinI, 32));
+
+        var evaluationStarted = false;
+        var cancellationObserved = false;
+        var threwOperationCanceled = false;
+
+        try
         {
-            BeforeEvaluation = token =>
+            var solver = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, new CspOptions { TimeLimitMilliseconds = 200 })
             {
-                token.WaitHandle.WaitOne(TimeSpan.FromSeconds(3));
-                token.ThrowIfCancellationRequested();
-            },
-        };
+                BeforeEvaluation = token =>
+                {
+                    evaluationStarted = true;
 
-        var watch = Stopwatch.StartNew();
-        var result = solver.Solve(input, matrix, candidates, indices, HeuristicSchedule(input, matrix));
-        watch.Stop();
+                    // Wait for the deadline cancellation signal up to 3 seconds.
+                    // Using small wait slices (50ms) ensures the calling thread cooperates with the OS scheduler,
+                    // allowing queued ThreadPool timer callbacks to be serviced promptly even under runner CPU load.
+                    var waitWatch = Stopwatch.StartNew();
+                    while (!token.IsCancellationRequested && waitWatch.Elapsed < TimeSpan.FromSeconds(3))
+                    {
+                        if (token.WaitHandle.WaitOne(50))
+                        {
+                            break;
+                        }
+                    }
 
-        result.Statistics.TimeLimitReached.Should().BeTrue();
-        result.Schedule.Should().BeNull();
-        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(2));
+                    if (token.IsCancellationRequested)
+                    {
+                        cancellationObserved = true;
+                    }
+
+                    try
+                    {
+                        token.ThrowIfCancellationRequested();
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        threwOperationCanceled = true;
+                        throw;
+                    }
+                },
+            };
+
+            var watch = Stopwatch.StartNew();
+            var result = solver.Solve(input, matrix, candidates, indices, HeuristicSchedule(input, matrix));
+            watch.Stop();
+
+            evaluationStarted.Should().BeTrue();
+            cancellationObserved.Should().BeTrue();
+            threwOperationCanceled.Should().BeTrue();
+            result.Statistics.TimeLimitReached.Should().BeTrue();
+            result.Schedule.Should().BeNull();
+            watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(2));
+        }
+        finally
+        {
+            ThreadPool.SetMinThreads(prevMinW, prevMinI);
+        }
     }
 
     /// <summary>
