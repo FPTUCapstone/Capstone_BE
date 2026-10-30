@@ -184,6 +184,7 @@ public sealed class CheckInTravelerCommandHandler(
         if (ticketData.Status == TicketStatus.Used)
         {
             await RecordCheckInLogAsync(ticketId, qrCodeIdFromPayload, operatorId, CheckInScanResult.AlreadyUsed, nowUtc, request.Latitude, request.Longitude);
+            await RecordAuditRejectionAsync(operatorId, ticketId, $"Ticket {ticketData.TicketCode} was already checked in.", nowUtc);
 
             var metadata = new Dictionary<string, object?>
             {
@@ -253,6 +254,7 @@ public sealed class CheckInTravelerCommandHandler(
                 if (checkInResult.AlreadyUsed)
                 {
                     await RecordCheckInLogAsync(ticketId, qrCodeIdFromPayload, operatorId, CheckInScanResult.AlreadyUsed, nowUtc, request.Latitude, request.Longitude);
+                    await RecordAuditRejectionAsync(operatorId, ticketId, $"Ticket {ticketData.TicketCode} was already checked in.", nowUtc);
 
                     var metadata = new Dictionary<string, object?>
                     {
@@ -270,6 +272,7 @@ public sealed class CheckInTravelerCommandHandler(
 
                 if (!checkInResult.Success)
                 {
+                    await RecordAuditRejectionAsync(operatorId, ticketId, "Ticket could not be checked in.", nowUtc);
                     return Result.Failure<CheckInResultDto>(
                         CheckInErrorCodes.TicketInvalid,
                         "Ticket could not be checked in.");

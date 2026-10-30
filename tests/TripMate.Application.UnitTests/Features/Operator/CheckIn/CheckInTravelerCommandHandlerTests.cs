@@ -297,6 +297,13 @@ public sealed class CheckInTravelerCommandHandlerTests
             .FirstOrDefaultAsync(l => l.TicketId == ticket.Id && l.ScanResult == CheckInScanResult.AlreadyUsed);
         alreadyUsedLog.Should().NotBeNull();
         alreadyUsedLog!.CheckedInAtUtc.Should().Be(InWindowUtc.AddMinutes(5));
+
+        // Check that AlreadyUsed was also persisted to dbo.AuditLogs per PC-05
+        var auditLog = await dbContext.AuditLogs
+            .FirstOrDefaultAsync(a => a.ActionType == "CheckInScanRejected" && a.AffectedEntityId == ticket.Id);
+        auditLog.Should().NotBeNull();
+        auditLog!.ActorUserId.Should().Be(OperatorUserId);
+        auditLog.Reason.Should().Contain("already checked in");
     }
 
     [Fact]
