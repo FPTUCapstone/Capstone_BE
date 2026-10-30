@@ -26,7 +26,7 @@ namespace TripMate.Api.IntegrationTests.Tickets;
 /// T3 — Lazy issuance versus ticket consumption: EnsureActiveAsync cannot issue a QR after a ticket becomes Used.
 /// T4 — Cancelled ticket: A cancelled ticket cannot receive a new Active QR.
 /// T5 — Deterministic barrier interleaving: Verifies that RotateAsync under serialization detects concurrent consumption.
-/// Deferred — Cross-feature integration test with UC-43 CheckInTravelerCommand (deferred to PR B).
+/// Note: The cross-feature integration test with UC-43 CheckInTravelerCommand is independently implemented in PR B (TM-89 UC-43).
 /// </summary>
 [Trait("Category", "SqlServer")]
 public sealed class TicketQrIssuerConcurrencyTests
@@ -221,12 +221,6 @@ public sealed class TicketQrIssuerConcurrencyTests
         var activeCount = await database.ExecuteScalarAsync<int>(
             $"SELECT COUNT(*) FROM commerce.TicketQrCodes WHERE ticket_id = {ticketId} AND status = 'Active';");
         activeCount.Should().Be(0, "Zero Active QR codes must remain when ticket was consumed during refresh.");
-    }
-
-    [Fact(Skip = "DEFERRED: Cross-feature integration test with UC-43 CheckInTravelerCommand requires PR B implementation.")]
-    public void Deferred_UC43_CrossFeature_CheckInTravelerCommand_Integration()
-    {
-        // Placeholder deferred until PR B implements CheckInTravelerCommand
     }
 
     private static AesGcmHmacTicketQrCodec Codec() => new(Options.Create(new TicketQrOptions
