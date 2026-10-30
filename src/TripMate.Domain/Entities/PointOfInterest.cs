@@ -33,6 +33,7 @@ public class PointOfInterest : BaseEntity
     public string? Address { get; private set; }
 
     public IndoorOutdoorType IndoorOutdoor { get; private set; }
+    public DateTimeOffset? IndoorOutdoorReviewedAtUtc { get; private set; }
 
     public decimal? ScenicScore { get; private set; }
 
@@ -139,6 +140,18 @@ public class PointOfInterest : BaseEntity
 
         openingHour.AttachTo(this);
         _openingHours.Add(openingHour);
+    }
+
+    public void ReviewIndoorOutdoor(IndoorOutdoorType classification, DateTimeOffset reviewedAtUtc)
+    {
+        if (!Enum.IsDefined(classification))
+        {
+            throw new ArgumentOutOfRangeException(nameof(classification));
+        }
+
+        IndoorOutdoor = classification;
+        IndoorOutdoorReviewedAtUtc = reviewedAtUtc.ToUniversalTime();
+        UpdatedAtUtc = reviewedAtUtc.ToUniversalTime();
     }
 
     public void LinkTripadvisorLocation(long? locationId)

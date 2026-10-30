@@ -25,7 +25,6 @@ public static class DependencyInjection
         services.AddScoped<PendingBookingExpiryProcessor>();
         services.AddScoped<OperatorRevenueAggregator>();
         services.AddScoped<TripAlertPersistence>();
-        services.AddScoped<WeatherAlertClassifier>();
         services.AddScoped<TripAlertScanner>();
 
         services.AddMediatR(cfg =>

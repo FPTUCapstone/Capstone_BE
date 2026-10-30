@@ -1,6 +1,7 @@
 using MediatR;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
@@ -14,9 +15,12 @@ namespace TripMate.Application.Features.TripAlerts.WeatherAdvisories;
 public sealed class GetWeatherAdvisoriesQueryHandler(
     IApplicationDbContext dbContext,
     ITripWeatherProvider weatherProvider,
-    WeatherAlertClassifier classifier)
+    IDateTimeProvider clock,
+    IOptions<TripAlertOptions> options)
     : IRequestHandler<GetWeatherAdvisoriesQuery, Result<IReadOnlyCollection<WeatherAdvisoryResponse>>>
 {
+    private readonly WeatherAlertPolicy policy = new(options);
+
     public async Task<Result<IReadOnlyCollection<WeatherAdvisoryResponse>>> Handle(
         GetWeatherAdvisoriesQuery request,
         CancellationToken cancellationToken)
@@ -36,14 +40,34 @@ public sealed class GetWeatherAdvisoriesQueryHandler(
                 TripAlertErrorCodes.AccessDenied, "You do not have access to these advisories.");
         }
 
-        var pending = session.Items.Where(item => item.Status == TripSessionItem.PendingStatus).ToArray();
+        var now = clock.UtcNow;
+        if (session.EndedAtUtc.HasValue || (session.ExpiresAtUtc.HasValue && session.ExpiresAtUtc <= now))
+        {
+            return Result.Failure<IReadOnlyCollection<WeatherAdvisoryResponse>>(
+                TripAlertErrorCodes.SessionCompleted, "The navigation session is no longer open.");
+        }
+
+        var pending = session.Items.Where(item => item.Status == TripSessionItem.PendingStatus
+            && item.PlannedArrivalUtc >= now
+            && item.PlannedArrivalUtc <= now.AddHours(3)).ToArray();
         var poiIds = pending.Select(item => item.PoiId).Distinct().ToArray();
         var poiKinds = await dbContext.PointsOfInterest.AsNoTracking()
             .Where(poi => poiIds.Contains(poi.Id))
-            .ToDictionaryAsync(poi => poi.Id, poi => poi.IndoorOutdoor, cancellationToken);
+            .ToDictionaryAsync(poi => poi.Id,
+                poi => new { poi.IndoorOutdoor, poi.IndoorOutdoorReviewedAtUtc }, cancellationToken);
+        var persistedItemIds = await dbContext.Incidents.AsNoTracking()
+            .Where(incident => incident.SessionId == session.Id
+                && incident.IncidentType == Incident.WeatherAdvisoryType
+                && incident.ResolvedAtUtc == null
+                && incident.AffectedItineraryItemId.HasValue)
+            .Select(incident => incident.AffectedItineraryItemId!.Value)
+            .ToArrayAsync(cancellationToken);
         var results = new List<WeatherAdvisoryResponse>();
         foreach (var item in pending.Where(item =>
-                     poiKinds.GetValueOrDefault(item.PoiId) == IndoorOutdoorType.Outdoor))
+                     poiKinds.TryGetValue(item.PoiId, out var kind)
+                     && kind.IndoorOutdoor == IndoorOutdoorType.Outdoor
+                     && kind.IndoorOutdoorReviewedAtUtc.HasValue
+                     && !persistedItemIds.Contains(item.ItineraryItemId)))
         {
             TripWeatherSnapshot? weather;
             try
@@ -52,15 +76,15 @@ public sealed class GetWeatherAdvisoriesQueryHandler(
                     new WeatherForecastRequest(item.Latitude, item.Longitude, item.PlannedArrivalUtc),
                     cancellationToken);
             }
-            catch (Exception exception) when (exception is not OperationCanceledException)
+            catch (Exception) when (!cancellationToken.IsCancellationRequested)
             {
                 continue;
             }
 
             if (weather is null
-                || classifier.Classify(weather.RainMmPerHour, weather.Thunderstorm,
-                    weather.OfficialAlerts.Count > 0, IndoorOutdoorType.Outdoor)
-                != WeatherAlertLevel.Advisory)
+                || policy.Decide(weather.RainMmPerHour, weather.Thunderstorm,
+                    IndoorOutdoorType.Outdoor, true, item.PlannedArrivalUtc - now, weather.Basis)
+                    is not (WeatherAlertAction.TransientAdvisory or WeatherAlertAction.PersistedAdvisory))
             {
                 continue;
             }
