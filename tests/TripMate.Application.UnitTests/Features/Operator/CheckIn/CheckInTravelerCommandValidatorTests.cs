@@ -1,4 +1,5 @@
 using FluentAssertions;
+
 using TripMate.Application.Features.Operator.CheckIn.Scan;
 
 namespace TripMate.Application.UnitTests.Features.Operator.CheckIn;
