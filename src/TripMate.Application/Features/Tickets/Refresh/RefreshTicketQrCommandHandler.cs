@@ -48,6 +48,6 @@ public sealed class RefreshTicketQrCommandHandler(
         }
 
         return Result.Success(
-            await TicketResponseBuilder.BuildAsync(dbContext, issuer, snapshot, now, cancellationToken));
+            await TicketResponseBuilder.BuildAsync(dbContext, issuer, snapshot, now, cancellationToken, rotation.Value));
     }
 }
