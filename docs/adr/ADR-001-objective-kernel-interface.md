@@ -100,9 +100,30 @@ Sau tối ưu PR-07c, kiến trúc interface `IObjectiveKernel` tiếp tục đ�
 
 Regenerate giữ nguyên objective `WeightedUtility`; không fallback ngầm sang `Lexicographic`.
 `ItineraryVersionService` tạo `WeightedRequestInputs` từ traveler profile và candidate của lần
-regenerate. Điểm sau tier penalty được chuẩn hóa tuyến tính về `[0,1]` khi cần, bảo toàn thứ tự tier
-và thứ tự trong tier. Kết quả phải là version mới hoặc business failure, không để lỗi thiếu weighted
+regenerate. Điểm sau tier penalty ban đầu được chuẩn hóa tuyến tính về `[0,1]` khi cần; mục 5.5.1
+thay khoảng này bằng `[0.5,1]` để tier thấp nhất vẫn có utility dương. Cả hai phép chuẩn hóa đều
+bảo toàn thứ tự tier và thứ tự trong tier. Kết quả phải là version mới hoặc business failure,
+không để lỗi thiếu weighted
 inputs hay invariant điểm thoát thành HTTP 500.
+
+### 5.5.1. Regenerate score floor (Issue #121, updated 2026-10-28)
+
+For every WeightedUtility Regenerate request, tier-adjusted scores that need normalization map
+linearly into `[0.5, 1]`. Scores already inside that interval remain unchanged. Equal adjusted
+scores that need normalization receive `0.5`. The rule applies whether or not the traveler has
+matching preferences, so the lowest tier does not become zero utility. Tier and within-tier
+ordering remain monotonic. The WeightedUtility objective and its travel/soft penalties remain
+unchanged; Lexicographic ranking is unaffected.
+
+The `0.5` baseline belongs to the regeneration objective. It uses the same neutral numeric
+convention as Create's ranking fallback, but the values do not come from the same pipeline:
+Regenerate computes preference scores as `0`, `100`, `200`, ... before applying tier penalties.
+With time-fit factor `1` and no extra soft penalties, a second POI in the same diversity group
+has gain `0.5 × 0.7 = 0.35`; a POI in a different group has gain `0.5`, as in the regression.
+The no-DI Moderate fallback uses `LambdaPerMin = 0.015`, so an extra 10-minute leg costs `0.15`.
+The `appsettings.json` pace defaults are Relaxed `0.018`, Moderate `0.012`, Fast `0.008`, making
+that leg cost at most `0.18` with those defaults. Distant or poorly timed POIs can still lose to
+travel and soft penalties.
 
 ### 5.6. Quyền quyết định sau WeightedUtility (Issue #114, 2026-10-24)
 
