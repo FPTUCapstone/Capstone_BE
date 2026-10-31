@@ -325,6 +325,79 @@ public sealed class CheckInTravelerCommandHandlerTests
         updatedTicket!.Status.Should().Be(TicketStatus.Used);
     }
 
+    [Theory]
+    [InlineData("revoked")]
+    [InlineData("consumed")]
+    [InlineData("missing")]
+    [InlineData("issued-at")]
+    public async Task Handle_WhenAuthenticQrIsNotTheActivePersistedCredential_RejectsWithoutConsumingReplacement(string scenario)
+    {
+        await SeedOperatorProfileAsync(OperatorUserId);
+        var schedule = await SeedTourScheduleAsync(OperatorUserId, DepartureStartUtc);
+        var (_, ticket, qr) = await SeedBookingAndTicketAsync(schedule.Id, BookingStatus.Confirmed, PaymentStatus.Paid);
+        var oldContent = ticketQrCodec.ContentFor(qr.QrToken, qr.Signature);
+        TicketQrCode? replacement = null;
+        if (scenario == "missing")
+        {
+            dbContext.TicketQrCodes.Remove(qr);
+        }
+        else if (scenario == "issued-at")
+        {
+            Set(qr, nameof(TicketQrCode.IssuedAtUtc), qr.IssuedAtUtc.AddSeconds(1));
+        }
+        else
+        {
+            if (scenario == "revoked") qr.Revoke();
+            else qr.Consume(InWindowUtc.AddMinutes(-1));
+            var payload = ticketQrCodec.Issue(ticket.Id, InWindowUtc);
+            replacement = TicketQrCode.Issue(ticket.Id, payload.QrToken, payload.Signature, InWindowUtc);
+            dbContext.TicketQrCodes.Add(replacement);
+        }
+        await dbContext.SaveChangesAsync();
+
+        var result = await handler.Handle(new CheckInTravelerCommand(schedule.Id, QrContent: oldContent), CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(CheckInErrorCodes.InvalidQr);
+        ticket.Status.Should().Be(TicketStatus.Valid);
+        if (replacement is not null) replacement.Status.Should().Be(TicketQrCodeStatus.Active);
+        (await dbContext.CheckInLogs.CountAsync(l => l.ScanResult == CheckInScanResult.Success)).Should().Be(0);
+        (await dbContext.AuditLogs.CountAsync(a => a.ActionType == "CheckInScanRejected")).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Handle_WhenQrIssuedWithinFractionalSecond_MatchesSignedUnixSecondAndLogsExactCredential()
+    {
+        await SeedOperatorProfileAsync(OperatorUserId);
+        var schedule = await SeedTourScheduleAsync(OperatorUserId, DepartureStartUtc);
+        var (_, ticket, qr) = await SeedBookingAndTicketAsync(schedule.Id, BookingStatus.Confirmed, PaymentStatus.Paid);
+        Set(qr, nameof(TicketQrCode.IssuedAtUtc), qr.IssuedAtUtc.AddMilliseconds(123));
+        await dbContext.SaveChangesAsync();
+
+        var result = await handler.Handle(new CheckInTravelerCommand(schedule.Id,
+            QrContent: ticketQrCodec.ContentFor(qr.QrToken, qr.Signature)), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        (await dbContext.CheckInLogs.SingleAsync()).QrCodeId.Should().Be(qr.Id);
+    }
+
+    [Fact]
+    public async Task Handle_WhenAuthenticQrSignatureIsTampered_RejectsWithoutMutation()
+    {
+        await SeedOperatorProfileAsync(OperatorUserId);
+        var schedule = await SeedTourScheduleAsync(OperatorUserId, DepartureStartUtc);
+        var (_, ticket, qr) = await SeedBookingAndTicketAsync(schedule.Id, BookingStatus.Confirmed, PaymentStatus.Paid);
+        var signature = (qr.Signature[0] == 'A' ? "B" : "A") + qr.Signature[1..];
+
+        var result = await handler.Handle(new CheckInTravelerCommand(schedule.Id,
+            QrContent: ticketQrCodec.ContentFor(qr.QrToken, signature)), CancellationToken.None);
+
+        result.ErrorCode.Should().Be(CheckInErrorCodes.InvalidQr);
+        ticket.Status.Should().Be(TicketStatus.Valid);
+        qr.Status.Should().Be(TicketQrCodeStatus.Active);
+        (await dbContext.CheckInLogs.CountAsync()).Should().Be(0);
+    }
+
     private async Task SeedOperatorProfileAsync(long userId)
     {
         var user = (User)Activator.CreateInstance(typeof(User), nonPublic: true)!;

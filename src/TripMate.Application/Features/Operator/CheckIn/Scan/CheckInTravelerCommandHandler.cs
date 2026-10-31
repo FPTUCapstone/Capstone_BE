@@ -87,6 +87,7 @@ public sealed class CheckInTravelerCommandHandler(
         // 4. Resolve Ticket and Active QR (BR-83 cryptographic signature & timestamp, PC-01..PC-03)
         long ticketId;
         long? qrCodeIdFromPayload = null;
+        TicketQrVerification? verifiedQr = null;
 
         if (!string.IsNullOrWhiteSpace(request.QrContent))
         {
@@ -99,6 +100,7 @@ public sealed class CheckInTravelerCommandHandler(
             }
 
             ticketId = verification.TicketId;
+            verifiedQr = verification;
         }
         else if (!string.IsNullOrWhiteSpace(request.BookingCode))
         {
@@ -220,20 +222,37 @@ public sealed class CheckInTravelerCommandHandler(
                         .SingleOrDefaultAsync(txToken);
 
                     if (ticket is null)
-                        return (Success: false, AlreadyUsed: false, CheckedInAt: (DateTimeOffset?)null);
+                        return new CheckInTransactionOutcome();
 
                     if (ticket.Status == TicketStatus.Used)
-                        return (Success: false, AlreadyUsed: true, CheckedInAt: ticket.CheckedInAtUtc);
+                        return new CheckInTransactionOutcome(AlreadyUsed: true, CheckedInAt: ticket.CheckedInAtUtc);
 
                     if (ticket.Status != TicketStatus.Valid)
-                        return (Success: false, AlreadyUsed: false, CheckedInAt: (DateTimeOffset?)null);
+                        return new CheckInTransactionOutcome();
+
+                    TicketQrCode? activeQr;
+                    if (verifiedQr is not null)
+                    {
+                        // Refresh revokes the old credential. Never substitute the replacement QR.
+                        activeQr = await dbContext.TicketQrCodes
+                            .Where(c => c.TicketId == ticketId && c.QrToken == verifiedQr.QrToken)
+                            .SingleOrDefaultAsync(txToken);
+                        if (activeQr is null || activeQr.Status != TicketQrCodeStatus.Active
+                            || activeQr.QrToken != verifiedQr.QrToken
+                            || activeQr.IssuedAtUtc.ToUnixTimeSeconds() != verifiedQr.IssuedAtUtc.ToUnixTimeSeconds())
+                            return new CheckInTransactionOutcome(InvalidQr: true);
+
+                        qrCodeIdFromPayload = activeQr.Id;
+                    }
+                    else
+                    {
+                        // Manual booking/ticket code is independently authorized and validated above.
+                        activeQr = await dbContext.TicketQrCodes
+                            .Where(c => c.TicketId == ticketId && c.Status == TicketQrCodeStatus.Active)
+                            .SingleOrDefaultAsync(txToken);
+                    }
 
                     ticket.CheckIn(nowUtc);
-
-                    var activeQr = await dbContext.TicketQrCodes
-                        .Where(c => c.TicketId == ticketId && c.Status == TicketQrCodeStatus.Active)
-                        .SingleOrDefaultAsync(txToken);
-
                     activeQr?.Consume(nowUtc);
 
                     var checkInLog = CheckInLog.Create(
@@ -248,8 +267,24 @@ public sealed class CheckInTravelerCommandHandler(
                     dbContext.CheckInLogs.Add(checkInLog);
                     await dbContext.SaveChangesAsync(txToken);
 
-                    return (Success: true, AlreadyUsed: false, CheckedInAt: (DateTimeOffset?)nowUtc);
+                    // Prepare the complete response before commit: aggregation failure must roll back
+                    // the ticket, QR and log along with the rest of this transaction.
+                    var progress = await ComputeDepartureProgressAsync(
+                        schedule.Id, schedule.TourTitle, schedule.StartAtUtc, schedule.EndAtUtc, schedule.MeetingPoint, txToken);
+                    return new CheckInTransactionOutcome(Result: new CheckInResultDto(
+                        ticketData.TicketCode,
+                        ticketData.BookingCode,
+                        passengerName,
+                        ticketData.Quantity,
+                        nowUtc,
+                        progress));
                 }, cancellationToken);
+
+                if (checkInResult.InvalidQr)
+                {
+                    await RecordAuditRejectionAsync(operatorId, ticketId, "QR credential is not active or its issuance metadata does not match.", nowUtc);
+                    return Result.Failure<CheckInResultDto>(CheckInErrorCodes.InvalidQr, "Invalid or revoked QR code.");
+                }
 
                 if (checkInResult.AlreadyUsed)
                 {
@@ -270,7 +305,7 @@ public sealed class CheckInTravelerCommandHandler(
                         metadata);
                 }
 
-                if (!checkInResult.Success)
+                if (checkInResult.Result is null)
                 {
                     await RecordAuditRejectionAsync(operatorId, ticketId, "Ticket could not be checked in.", nowUtc);
                     return Result.Failure<CheckInResultDto>(
@@ -278,7 +313,7 @@ public sealed class CheckInTravelerCommandHandler(
                         "Ticket could not be checked in.");
                 }
 
-                break;
+                return Result.Success(checkInResult.Result);
             }
             catch (Exception ex) when (attempt < MaxConcurrencyAttempts && dbContext.IsDeadlock(ex))
             {
@@ -287,19 +322,13 @@ public sealed class CheckInTravelerCommandHandler(
                 await Task.Delay(TimeSpan.FromMilliseconds(delayMs), cancellationToken);
             }
         }
-
-        // 10. Dynamic departure aggregation (D1)
-        var progress = await ComputeDepartureProgressAsync(
-            schedule.Id, schedule.TourTitle, schedule.StartAtUtc, schedule.EndAtUtc, schedule.MeetingPoint, cancellationToken);
-
-        return Result.Success(new CheckInResultDto(
-            ticketData.TicketCode,
-            ticketData.BookingCode,
-            passengerName,
-            ticketData.Quantity,
-            nowUtc,
-            progress));
     }
+
+    private sealed record CheckInTransactionOutcome(
+        bool AlreadyUsed = false,
+        DateTimeOffset? CheckedInAt = null,
+        bool InvalidQr = false,
+        CheckInResultDto? Result = null);
 
     private async Task<string> ResolvePassengerNameAsync(
         long bookingId,
