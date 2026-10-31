@@ -105,6 +105,8 @@ public class ApplicationDbContext(
     public DbSet<Ticket> Tickets => Set<Ticket>();
 
     public DbSet<TicketQrCode> TicketQrCodes => Set<TicketQrCode>();
+
+    public DbSet<CheckInLog> CheckInLogs => Set<CheckInLog>();
     public DbSet<BookingCancellationOperation> BookingCancellationOperations =>
         Set<BookingCancellationOperation>();
 
