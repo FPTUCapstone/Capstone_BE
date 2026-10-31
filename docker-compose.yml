@@ -123,9 +123,8 @@ services:
       EmailVerification__ContinueUrl: ${EMAIL_VERIFICATION_CONTINUE_URL}
       Firebase__ProjectId: "tripmate-82be3"
       # UC-14 weather provider. The API key stays in the local, ignored .env file.
-      OpenWeather__Enabled: ${OpenWeather__Enabled:-false}
-      OpenWeather__EnableOfficialAlerts: ${OpenWeather__EnableOfficialAlerts:-false}
-      OpenWeather__ApiKey: ${OpenWeather__ApiKey:-}
+      Tomorrow__Enabled: ${Tomorrow__Enabled:-false}
+      Tomorrow__ApiKey: ${Tomorrow__ApiKey:-}
       Google__ClientId: 1015595969076-socm44rbtpnbv0o4upl88h4btesqgr6i.apps.googleusercontent.com
       # UC-06 password reset: SMTP credentials + OTP pepper come from .env — never committed.
       # Windows dotnet user-secrets do not exist inside the container, so the values are
@@ -134,6 +133,9 @@ services:
       Email__Password: ${EMAIL_PASSWORD:?EMAIL_PASSWORD must be set in .env}
       Email__FromEmail: ${EMAIL_FROM_EMAIL:?EMAIL_FROM_EMAIL must be set in .env}
       PasswordResetSecurity__OtpPepper: ${PASSWORD_RESET_OTP_PEPPER:?PASSWORD_RESET_OTP_PEPPER must be set in .env}
+      # UC-29 e-ticket QR keys (Base64, 32 bytes each, different from each other).
+      TicketQr__EncryptionKey: ${TICKET_QR_ENCRYPTION_KEY:?TICKET_QR_ENCRYPTION_KEY must be set in .env}
+      TicketQr__SigningKey: ${TICKET_QR_SIGNING_KEY:?TICKET_QR_SIGNING_KEY must be set in .env}
       # Tour/review media: signed server-side Cloudinary operations. No unsigned upload preset.
       Cloudinary__CloudName: ${Cloudinary__CloudName:?Cloudinary__CloudName must be set in .env}
       Cloudinary__ApiKey: ${Cloudinary__ApiKey:?Cloudinary__ApiKey must be set in .env}

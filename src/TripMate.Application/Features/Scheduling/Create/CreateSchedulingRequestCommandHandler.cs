@@ -557,10 +557,17 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 && ShouldSampleShadow(requestId, _shadowOptions.SampleRate)
                 && _shadowRunner is not null)
             {
+                var routePoints = new List<RoutePoint> { input.Start };
+                routePoints.AddRange(input.Candidates.Select(candidate => candidate.Location));
+                routePoints.Add(input.End);
+                var routeMatrix = await measuredRouteProvider.GetMatrixAsync(
+                    routePoints,
+                    input.TransportMode,
+                    cancellationToken);
                 _shadowRunner.Enqueue(new ShadowWorkItem(
                     requestId,
                     input,
-                    measuredRouteProvider,
+                    routeMatrix,
                     _generationOptions,
                     travelerProfile,
                     ranking?.OutcomeCategory,
@@ -1134,7 +1141,9 @@ public sealed class CreateSchedulingRequestCommandHandler(
             ScenicScore: poi.ScenicScore,
             PhotoRating: poi.PhotoRating,
             CategoryName: poi.Category.Name,
-            HasShelter: poi.HasShelter);
+            HasShelter: poi.HasShelter,
+            IndoorOutdoor: poi.IndoorOutdoor,
+            Tags: poi.PoiTags.Select(mapping => mapping.Tag.Name).ToArray());
 
     private static PoiRankingSnapshotEntry GetRequiredRankingEntry(
         PoiRankingSnapshot snapshot,

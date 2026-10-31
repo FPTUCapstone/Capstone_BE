@@ -8,6 +8,7 @@ public sealed class Incident : BaseEntity
     public const int SourceKeyMaxLength = 300;
     public const int DescriptionMaxLength = 500;
     public const string SevereWeatherType = "SevereWeather";
+    public const string WeatherAdvisoryType = "WeatherAdvisory";
     public const string ScheduleDelayType = "ScheduleDelay";
     public const string RouteDeviationType = "RouteDeviation";
     public const string PoiClosureType = "POIClosure";
@@ -25,6 +26,9 @@ public sealed class Incident : BaseEntity
     public TripSessionItem? AffectedItem { get; private set; }
     public string? SourceKey { get; private set; }
     public Guid? ClientEventId { get; private set; }
+    public string? WeatherBasis { get; private set; }
+    public DateTimeOffset? WeatherAtUtc { get; private set; }
+    public double? RainIntensityMmPerHour { get; private set; }
     public DateTimeOffset DetectedAtUtc { get; private set; }
     public DateTimeOffset? ResolvedAtUtc { get; private set; }
 
@@ -35,10 +39,14 @@ public sealed class Incident : BaseEntity
         DateTimeOffset detectedAtUtc,
         long? affectedItineraryItemId = null,
         Guid? clientEventId = null,
-        string? description = null)
+        string? description = null,
+        string? weatherBasis = null,
+        DateTimeOffset? weatherAtUtc = null,
+        double? rainIntensityMmPerHour = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         if (incidentType is not SevereWeatherType
+            and not WeatherAdvisoryType
             and not ScheduleDelayType
             and not RouteDeviationType
             and not PoiClosureType)
@@ -53,6 +61,12 @@ public sealed class Incident : BaseEntity
             throw new ArgumentException("Client event ID cannot be empty.", nameof(clientEventId));
         }
 
+        if (rainIntensityMmPerHour.HasValue
+            && (!double.IsFinite(rainIntensityMmPerHour.Value) || rainIntensityMmPerHour < 0))
+        {
+            throw new ArgumentOutOfRangeException(nameof(rainIntensityMmPerHour));
+        }
+
         return new Incident
         {
             Session = session,
@@ -65,6 +79,9 @@ public sealed class Incident : BaseEntity
             SourceKey = normalizedSourceKey,
             ClientEventId = clientEventId,
             Description = normalizedDescription,
+            WeatherBasis = weatherBasis,
+            WeatherAtUtc = weatherAtUtc?.ToUniversalTime(),
+            RainIntensityMmPerHour = rainIntensityMmPerHour,
             DetectedAtUtc = detectedAtUtc.ToUniversalTime(),
         };
     }

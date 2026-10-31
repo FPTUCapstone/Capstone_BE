@@ -9,15 +9,25 @@ public sealed class TimeOfDayOptions
 
     public bool Enabled { get; init; } = true;
 
-    /// <summary>How much longer (minutes) the trip may get to place visits in a better part of the day.</summary>
-    public int MaxExtraMinutes { get; init; } = 15;
+    /// <summary>Absolute cap on minutes added by refinement; zero disables all extensions.</summary>
+    public int MaxExtraMinutes { get; init; } = 60;
+
+    /// <summary>Minutes considered for ordinary trips, subject to MaxExtraMinutes.</summary>
+    public int NormalExtraMinutes { get; init; } = 15;
+
+    /// <summary>Minutes considered for an early sunrise stop, subject to MaxExtraMinutes.</summary>
+    public int SunriseExtraMinutes { get; init; } = 60;
+
+    /// <summary>Latest local start minute, counted from midnight, that qualifies as an early trip.</summary>
+    public int EarlyTripCutoffMinutes { get; init; } = 7 * 60;
 }
 
 /// <summary>
-/// Runs after the solver (option A, decided 2026-10-16): tries other orders of the SAME visits and keeps one only
-/// when it scores better on <see cref="TimeOfDayScorer"/>, stays valid (same fixed-order scheduler) and makes the
-/// trip at most <see cref="TimeOfDayOptions.MaxExtraMinutes"/> longer. The solver objective itself is unchanged.
-/// The route provider should memoize: every order reuses one matrix.
+/// Runs after the solver (option A, decided 2026-10-16). Plans with a model objective keep the solver's order and
+/// receive recommendation reasons only. Other plans try orders of the same visits and keep one only when it scores
+/// better on <see cref="TimeOfDayScorer"/>, stays valid (same fixed-order scheduler), and makes the trip at most
+/// <see cref="TimeOfDayOptions.MaxExtraMinutes"/> longer. The route provider should memoize: every order reuses one
+/// matrix.
 /// </summary>
 public sealed class TimeOfDayRefiner(
     IRouteDurationProvider routeDurationProvider,
@@ -38,6 +48,11 @@ public sealed class TimeOfDayRefiner(
             return plan;
         }
 
+        if (plan.ModelObjective.HasValue)
+        {
+            return WithReasons(plan, input.TimeZone, traits);
+        }
+
         var visits = plan.Items
             .Where(item => item.Kind == ItineraryItemKind.Visit && item.PointOfInterestId.HasValue)
             .OrderBy(item => item.SequenceNo)
@@ -48,13 +63,13 @@ public sealed class TimeOfDayRefiner(
         if (visits.Length >= 2)
         {
             var localStart = TimeOnly.FromDateTime(TimeZoneInfo.ConvertTime(input.StartAtUtc, input.TimeZone).DateTime);
-            var isEarlyTrip = localStart <= new TimeOnly(7, 0);
+            var isEarlyTrip = localStart <= TimeOnly.FromTimeSpan(TimeSpan.FromMinutes(options.EarlyTripCutoffMinutes));
             var hasEarlySunriseSpot = isEarlyTrip && visits.Any(id =>
                 traits.TryGetValue(id, out var t) && TimeOfDayScorer.IsSunriseSpot(t));
 
             var effectiveMaxExtraMinutes = hasEarlySunriseSpot
-                ? Math.Max(options.MaxExtraMinutes, 60)
-                : Math.Max(0, options.MaxExtraMinutes);
+                ? Math.Min(options.MaxExtraMinutes, options.SunriseExtraMinutes)
+                : Math.Min(options.MaxExtraMinutes, options.NormalExtraMinutes);
 
             var latestEnd = plan.EndAtUtc.AddMinutes(effectiveMaxExtraMinutes);
             var service = new ItineraryGenerationService(routeDurationProvider, generationOptions);

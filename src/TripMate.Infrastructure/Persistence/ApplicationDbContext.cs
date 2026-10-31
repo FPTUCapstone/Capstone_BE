@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore.Storage;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Media;
 using TripMate.Domain.Entities;
+using TripMate.Domain.Enums;
 
 namespace TripMate.Infrastructure.Persistence;
 
@@ -102,11 +103,24 @@ public class ApplicationDbContext(
     public DbSet<RevenueExport> RevenueExports => Set<RevenueExport>();
 
     public DbSet<Ticket> Tickets => Set<Ticket>();
+
+    public DbSet<TicketQrCode> TicketQrCodes => Set<TicketQrCode>();
     public DbSet<BookingCancellationOperation> BookingCancellationOperations =>
         Set<BookingCancellationOperation>();
 
+    /// <summary>
+    /// UC-29 / BR-86: cancelling a booking invalidates its QR immediately. Runs inside the caller's
+    /// cancellation transaction. commerce.TicketQrCodes has no revocation timestamp column, so
+    /// <paramref name="revokedAtUtc"/> is not stored.
+    /// </summary>
     public Task<int> RevokeActiveTicketQrCodesAsync(long bookingId, DateTimeOffset revokedAtUtc,
-        CancellationToken cancellationToken) => Task.FromResult(0);
+        CancellationToken cancellationToken) =>
+        TicketQrCodes
+            .Where(code => code.Status == TicketQrCodeStatus.Active
+                && Tickets.Any(ticket => ticket.Id == code.TicketId && ticket.BookingId == bookingId))
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(code => code.Status, TicketQrCodeStatus.Revoked),
+                cancellationToken);
 
     public Task<int> RevokeRefreshTokenAsync(
         string tokenHash,
@@ -276,6 +290,10 @@ public class ApplicationDbContext(
     public DbSet<GroupInvitationOperation> GroupInvitationOperations => Set<GroupInvitationOperation>();
 
     public DbSet<GroupJoinOperation> GroupJoinOperations => Set<GroupJoinOperation>();
+
+    public DbSet<GroupLeaveOperation> GroupLeaveOperations => Set<GroupLeaveOperation>();
+
+    public DbSet<GroupMemberRemovalOperation> GroupMemberRemovalOperations => Set<GroupMemberRemovalOperation>();
 
     public DbSet<ItineraryVersionOperation> ItineraryVersionOperations => Set<ItineraryVersionOperation>();
 

@@ -103,3 +103,11 @@ Regenerate giữ nguyên objective `WeightedUtility`; không fallback ngầm san
 regenerate. Điểm sau tier penalty được chuẩn hóa tuyến tính về `[0,1]` khi cần, bảo toàn thứ tự tier
 và thứ tự trong tier. Kết quả phải là version mới hoặc business failure, không để lỗi thiếu weighted
 inputs hay invariant điểm thoát thành HTTP 500.
+
+### 5.6. Quyền quyết định sau WeightedUtility (Issue #114, 2026-10-24)
+
+`ModelObjective` đánh dấu kế hoạch đã được solver `WeightedUtility` đánh giá theo hàm mục tiêu cá
+nhân hóa. Với kế hoạch này, `TimeOfDayRefiner` chỉ bổ sung `RecommendationReason`; không tạo lại
+lịch, đổi thứ tự, hoặc thay thế kế hoạch, vì các thao tác đó có thể làm giảm objective và làm mất
+`ModelObjective`. Kế hoạch không có `ModelObjective`, gồm luồng `Lexicographic` hiện tại, vẫn dùng
+cơ chế sắp xếp lại theo thời điểm trong ngày như trước.

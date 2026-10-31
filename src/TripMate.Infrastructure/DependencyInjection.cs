@@ -24,6 +24,7 @@ using TripMate.Application.Features.Scheduling.Explanation;
 using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Application.Features.Scheduling.Shadow;
 using TripMate.Application.Features.Scheduling.TimeOfDay;
+using TripMate.Application.Features.Tickets.Common;
 using TripMate.Application.Features.Traveler.Bookings.Common;
 using TripMate.Application.Features.Traveler.Payments.Common;
 using TripMate.Application.Features.TravelGroups.ManageInvitation;
@@ -73,20 +74,22 @@ public static class DependencyInjection
             .Validate(options => options.DeviationCooldown > TimeSpan.Zero, "Deviation cooldown must be positive.")
             .Validate(options => options.DeliveryLease > TimeSpan.Zero, "Delivery lease must be positive.")
             .Validate(options => options.AdvisoryRainMmPerHour >= 0
-                && options.SevereRainMmPerHour > options.AdvisoryRainMmPerHour,
+                && options.SevereRainMmPerHour > options.AdvisoryRainMmPerHour
+                && options.ExtremeRainMmPerHour > options.SevereRainMmPerHour,
                 "Weather thresholds are invalid.")
             .ValidateOnStart();
         services.AddMemoryCache();
-        services.AddOptions<OpenWeatherOptions>()
-            .Bind(configuration.GetSection(OpenWeatherOptions.SectionName))
+        services.AddOptions<TomorrowWeatherOptions>()
+            .Bind(configuration.GetSection(TomorrowWeatherOptions.SectionName))
             .Validate(options => !options.Enabled || !string.IsNullOrWhiteSpace(options.ApiKey),
-                "OpenWeather API key is required when weather integration is enabled.")
-            .Validate(options => options.CacheDuration > TimeSpan.Zero,
-                "OpenWeather cache duration must be positive.")
+                "Tomorrow API key is required when weather integration is enabled.")
+            .Validate(options => options.CacheDuration > TimeSpan.Zero
+                && options.CacheDuration <= TimeSpan.FromMinutes(10),
+                "Tomorrow cache duration must be at most ten minutes.")
             .ValidateOnStart();
-        services.AddHttpClient<ITripWeatherProvider, OpenWeather4TripWeatherProvider>((provider, client) =>
+        services.AddHttpClient<ITripWeatherProvider, TomorrowTripWeatherProvider>((provider, client) =>
         {
-            var weather = provider.GetRequiredService<IOptions<OpenWeatherOptions>>().Value;
+            var weather = provider.GetRequiredService<IOptions<TomorrowWeatherOptions>>().Value;
             client.BaseAddress = new Uri(weather.BaseUrl, UriKind.Absolute);
             client.Timeout = TimeSpan.FromSeconds(10);
         });
@@ -102,6 +105,7 @@ public static class DependencyInjection
         services.AddScoped<IItineraryVersionService, ItineraryVersionService>();
         services.AddScoped<IGroupInvitationLock, SqlServerGroupInvitationLock>();
         services.AddScoped<IGroupJoinLock, SqlServerGroupJoinLock>();
+        services.AddScoped<IGroupLeaveLock, SqlServerGroupLeaveLock>();
         services.AddSingleton<IGroupInvitationCodeGenerator, RandomGroupInvitationCodeGenerator>();
         services.AddScoped<ISchedulingRequestLock, SqlServerSchedulingRequestLock>();
         services.AddScoped<ITripReviewContextReader, SqlServerTripReviewContextReader>();
@@ -214,6 +218,9 @@ public static class DependencyInjection
         services.AddOptions<TimeOfDayOptions>()
             .Bind(configuration.GetSection(TimeOfDayOptions.SectionName))
             .Validate(options => options.MaxExtraMinutes is >= 0 and <= 120, "TimeOfDay:MaxExtraMinutes must be between 0 and 120.")
+            .Validate(options => options.NormalExtraMinutes is >= 0 and <= 120, "TimeOfDay:NormalExtraMinutes must be between 0 and 120.")
+            .Validate(options => options.SunriseExtraMinutes is >= 0 and <= 120, "TimeOfDay:SunriseExtraMinutes must be between 0 and 120.")
+            .Validate(options => options.EarlyTripCutoffMinutes is >= 0 and < 24 * 60, "TimeOfDay:EarlyTripCutoffMinutes must be between 0 and 1439.")
             .ValidateOnStart();
         services.AddSingleton(serviceProvider => serviceProvider
             .GetRequiredService<IOptions<TimeOfDayOptions>>()
@@ -390,6 +397,8 @@ public static class DependencyInjection
         services.AddHttpClient<IReviewTranslator, GeminiReviewTranslator>();
         services.Configure<EmailOptions>(configuration.GetSection(EmailOptions.SectionName));
         services.Configure<PasswordResetSecurityOptions>(configuration.GetSection(PasswordResetSecurityOptions.SectionName));
+        services.AddTicketQr(configuration);
+        services.AddSingleton<ITicketQrPersistenceErrorClassifier, SqlServerTicketQrPersistenceErrorClassifier>();
 
         // UC-06 password reset: zero DB schema; reset state lives in process-local memory only.
         services.AddSingleton<IPasswordResetStateStore, InMemoryPasswordResetStateStore>();

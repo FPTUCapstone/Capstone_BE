@@ -5,6 +5,7 @@ using FluentAssertions;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Logging.Abstractions;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
@@ -16,6 +17,7 @@ using TripMate.Application.Features.Navigation.Depart;
 using TripMate.Application.Features.Navigation.Reach;
 using TripMate.Application.Features.Navigation.Skip;
 using TripMate.Application.Features.Navigation.Start;
+using TripMate.Application.Features.TravelGroups.RemoveGroupMember;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 using TripMate.Infrastructure.Persistence;
@@ -24,6 +26,83 @@ namespace TripMate.Api.IntegrationTests.Navigation;
 
 public sealed class NavigationSessionSqlServerTests
 {
+    [SqlServerTheory]
+    [Trait("Category", "SqlServer")]
+    [InlineData("start")]
+    [InlineData("reach")]
+    [InlineData("skip")]
+    [InlineData("depart")]
+    public async Task Uc20Removal_AfterNavigationAccessCheck_CommitsAfterMutationAndEndsGroupSession(string action)
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedGroupMemberAsync(database, createSession: action != "start", exploring: action == "depart");
+        var accessRead = new BlockingReaderInterceptor("GroupMembers");
+        await using var mutationDb = database.CreateDbContext(accessRead);
+        var mutation = RunAction(action, mutationDb, seed);
+
+        await accessRead.ReadExecuted.Task.WaitAsync(TimeSpan.FromSeconds(15));
+        var removal = RemoveWithUc20Async(database, seed);
+        var removalCommittedBeforeMutation = await Task.WhenAny(
+            removal, Task.Delay(TimeSpan.FromSeconds(1))) == removal;
+
+        accessRead.Resume.TrySetResult();
+        var actionResult = await mutation.WaitAsync(TimeSpan.FromSeconds(30));
+        var removalResult = await removal.WaitAsync(TimeSpan.FromSeconds(30));
+        removalCommittedBeforeMutation.Should().BeFalse();
+        actionResult.IsSuccess.Should().BeTrue();
+        removalResult.IsSuccess.Should().BeTrue();
+
+        await using var verification = database.CreateDbContext();
+        (await verification.GroupMembers.SingleAsync(item => item.GroupId == seed.GroupId
+            && item.UserId == seed.TravelerId)).Status.Should().Be(GroupMemberStatus.Removed);
+        (await verification.TripSessions.SingleAsync(item => item.TravelerUserId == seed.TravelerId))
+            .EndedAtUtc.Should().NotBeNull();
+        (await verification.GroupMemberRemovalOperations.CountAsync()).Should().Be(1);
+        (await verification.Notifications.CountAsync()).Should().Be(1);
+    }
+
+    [SqlServerTheory]
+    [Trait("Category", "SqlServer")]
+    [InlineData("start")]
+    [InlineData("reach")]
+    [InlineData("skip")]
+    [InlineData("depart")]
+    public async Task Uc20Removal_BeforeNavigationAccessCheck_DeniesMutation(string action)
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedGroupMemberAsync(database, createSession: action != "start", exploring: action == "depart");
+        var sessionRead = new BlockingReaderInterceptor("TripSessions");
+        await using var mutationDb = database.CreateDbContext(sessionRead);
+        var mutation = RunAction(action, mutationDb, seed);
+
+        await sessionRead.ReadExecuted.Task.WaitAsync(TimeSpan.FromSeconds(15));
+        var removalResult = await RemoveWithUc20Async(database, seed).WaitAsync(TimeSpan.FromSeconds(30));
+        removalResult.IsSuccess.Should().BeTrue();
+        sessionRead.Resume.TrySetResult();
+        var actionResult = await mutation.WaitAsync(TimeSpan.FromSeconds(30));
+        actionResult.IsFailure.Should().BeTrue();
+        actionResult.ErrorCode.Should().Be(NavigationErrorCodes.AccessDenied);
+
+        await using var verification = database.CreateDbContext();
+        (await verification.GroupMembers.SingleAsync(item => item.GroupId == seed.GroupId
+            && item.UserId == seed.TravelerId)).Status.Should().Be(GroupMemberStatus.Removed);
+        (await verification.TripSessions.CountAsync(item => item.TravelerUserId == seed.TravelerId))
+            .Should().Be(action == "start" ? 0 : 1);
+        (await verification.GroupMemberRemovalOperations.CountAsync()).Should().Be(1);
+        (await verification.Notifications.CountAsync()).Should().Be(1);
+    }
+
+    private static async Task<Result<RemoveGroupMemberResponse>> RemoveWithUc20Async(
+        SqlServerTestDatabase database, GroupSeedResult seed)
+    {
+        await using var context = database.CreateDbContext();
+        return await new RemoveGroupMemberCommandHandler(
+            context, new FixedClock(seed.StartedAtUtc.AddMinutes(30)),
+            new SqlServerGroupJoinLock(context), new ItineraryAccessService(context),
+            NullLogger<RemoveGroupMemberCommandHandler>.Instance).Handle(
+            new(seed.GroupId, seed.TravelerId, seed.OwnerId, Guid.NewGuid()), CancellationToken.None);
+    }
+
     [SqlServerTheory]
     [Trait("Category", "SqlServer")]
     [InlineData("start")]
@@ -179,7 +258,8 @@ public sealed class NavigationSessionSqlServerTests
             new FixedClock(seed.StartedAtUtc.AddMinutes(30)));
         var stopHandler = new CompleteNavigationSessionCommandHandler(
             stopDb,
-            new FixedClock(seed.StartedAtUtc.AddMinutes(29)));
+            new FixedClock(seed.StartedAtUtc.AddMinutes(29)),
+            new ItineraryAccessService(stopDb));
 
         var reachTask = reachHandler.Handle(
             new ReachNavigationItemCommand(seed.SessionId, seed.ItemIds.Single(), seed.TravelerId, null),

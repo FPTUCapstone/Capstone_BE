@@ -64,8 +64,8 @@ internal static class BookingCancellationPreviewPolicy
     internal static (bool CanCancel, decimal RefundAmount, string? Code, string? Message) Evaluate(
         Domain.Entities.Booking booking, bool isTraveler, DateTimeOffset nowUtc)
     {
-        if (booking.Status is not (BookingStatus.PendingPayment or BookingStatus.Confirmed)
-            || booking.Tickets.Any(ticket => ticket.Status == TicketStatus.Used))
+        if (!BookingCancelEligibility.Evaluate(booking.Status,
+                booking.Tickets.Any(ticket => ticket.Status == TicketStatus.Used)).CanCancel)
             return (false, 0m, BookingCancellationErrorCodes.InvalidState, "This booking can no longer be cancelled.");
         if (booking.Status == BookingStatus.PendingPayment) return (true, 0m, null, null);
         if (!isTraveler) return (true, booking.TotalAmount, null, null);

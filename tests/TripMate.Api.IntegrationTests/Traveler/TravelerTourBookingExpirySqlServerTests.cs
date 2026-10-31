@@ -43,6 +43,52 @@ public sealed class TravelerTourBookingExpirySqlServerTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
+    public async Task ExpireDueBookingWithVoucher_OnSqlServer_ReleasesSlotOnceAndKeepsRedemption()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var (bookingId, scheduleId) = await SeedDueBookingAsync(database);
+        long voucherId;
+
+        await using (var setup = database.CreateDbContext())
+        {
+            var booking = await setup.Bookings.SingleAsync(candidate => candidate.Id == bookingId);
+            var tour = await setup.TourSchedules.Where(candidate => candidate.Id == scheduleId)
+                .Select(candidate => candidate.Tour).SingleAsync();
+            var voucher = Voucher.Create(tour.OperatorUserId, "SQLSAVE10", "SQL expiry coupon",
+                VoucherDiscountType.Percentage, 10m, 500_000m, 0m, 1, 1,
+                Now.AddDays(-1), Now.AddDays(1), [tour], Now.AddDays(-2));
+            setup.Vouchers.Add(voucher);
+            await setup.SaveChangesAsync();
+            voucherId = voucher.Id;
+            Set(booking, nameof(Booking.VoucherId), voucherId);
+            Set(booking, nameof(Booking.DiscountAmount), 100_000m);
+            Set(booking, nameof(Booking.TotalAmount), 900_000m);
+            voucher.IncrementUsage();
+            setup.VoucherRedemptions.Add(VoucherRedemption.Create(voucher, booking, 100_000m,
+                Now.AddMinutes(-20)));
+            await setup.SaveChangesAsync();
+        }
+
+        await using (var context = database.CreateDbContext())
+        {
+            var processor = new PendingBookingExpiryProcessor(context, new FixedClock(), new TourBookingOptions());
+            (await processor.ExpireDueBookingsAsync(CancellationToken.None)).ExpiredCount.Should().Be(1);
+            (await processor.ExpireDueBookingsAsync(CancellationToken.None)).ExpiredCount.Should().Be(0);
+        }
+
+        await using var verify = database.CreateDbContext();
+        (await verify.Vouchers.AsNoTracking().SingleAsync(candidate => candidate.Id == voucherId))
+            .UsedCount.Should().Be(0);
+        (await verify.Bookings.AsNoTracking().SingleAsync(candidate => candidate.Id == bookingId))
+            .DiscountAmount.Should().Be(100_000m);
+        (await verify.TourSchedules.AsNoTracking().SingleAsync(candidate => candidate.Id == scheduleId))
+            .ReservedCapacity.Should().Be(0);
+        (await verify.VoucherRedemptions.CountAsync(candidate => candidate.BookingId == bookingId))
+            .Should().Be(1);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
     public async Task Create_WithTwoSimultaneousRequestsForTheLastSeat_OnSqlServer_OnlyOneSucceeds()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();

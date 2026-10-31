@@ -63,8 +63,11 @@ public sealed class OperatorCouponsController(ISender sender) : ApiControllerBas
     [HttpPut("{couponId:long}")]
     [ProducesResponseType(typeof(OperatorCouponResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> Update(long couponId, UpdateCouponCommand command,
         CancellationToken cancellationToken)
     {

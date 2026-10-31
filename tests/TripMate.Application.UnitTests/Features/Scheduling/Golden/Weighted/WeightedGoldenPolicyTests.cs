@@ -65,7 +65,6 @@ public class WeightedGoldenPolicyTests
         var optsUnbounded = new CspOptions
         {
             Mode = ObjectiveMode.WeightedUtility,
-            DisableBound = true,
             TimeLimitMilliseconds = 120_000,
             MaxNodes = maxNodes,
             MaxStops = baseCspOpts.MaxStops,
@@ -73,7 +72,11 @@ public class WeightedGoldenPolicyTests
             FinalCandidatesToValidate = baseCspOpts.FinalCandidatesToValidate,
             PolishWithLocalSearch = false
         };
-        var solverUnbounded = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, optsUnbounded);
+        var solverUnbounded = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, optsUnbounded)
+        {
+            WeightedKernelFactoryForTest = (weightedInputs, kernelOptions) =>
+                new WeightedUtilityKernel(weightedInputs, kernelOptions, disableBound: true)
+        };
         var resultUnbounded = solverUnbounded.Solve(
             scenario.Input,
             scenario.Matrix,
@@ -89,7 +92,6 @@ public class WeightedGoldenPolicyTests
         var optsBounded = new CspOptions
         {
             Mode = ObjectiveMode.WeightedUtility,
-            DisableBound = false,
             TimeLimitMilliseconds = 120_000,
             MaxNodes = maxNodes,
             MaxStops = baseCspOpts.MaxStops,
@@ -165,7 +167,6 @@ public class WeightedGoldenPolicyTests
             var optsUnbounded = new CspOptions
             {
                 Mode = ObjectiveMode.WeightedUtility,
-                DisableBound = true,
                 MaxNodes = 50_000,
                 TimeLimitMilliseconds = 60_000,
                 PolishWithLocalSearch = false
@@ -173,13 +174,16 @@ public class WeightedGoldenPolicyTests
             var optsBounded = new CspOptions
             {
                 Mode = ObjectiveMode.WeightedUtility,
-                DisableBound = false,
                 MaxNodes = 50_000,
                 TimeLimitMilliseconds = 60_000,
                 PolishWithLocalSearch = false
             };
 
-            var solverUnbounded = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, optsUnbounded);
+            var solverUnbounded = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, optsUnbounded)
+            {
+                WeightedKernelFactoryForTest = (weightedInputs, kernelOptions) =>
+                    new WeightedUtilityKernel(weightedInputs, kernelOptions, disableBound: true)
+            };
             var solverBounded = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, optsBounded);
 
             var rUnbounded = solverUnbounded.Solve(input25, matrix25, cands25, idx25, initialIncumbent: null, weighted: reqInputs25);

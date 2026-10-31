@@ -27,10 +27,6 @@ public static class PoiCategoryNames
         WaterPark,
     };
 
-    /// <summary>
-    /// Restaurants and cafés. Never auto-scheduled by itinerary generation; travelers add them
-    /// to an itinerary themselves.
-    /// </summary>
     public static readonly string[] FoodAndDrinkAliases =
     [
         FoodAndDrink,
@@ -45,6 +41,7 @@ public static class PoiCategoryNames
         "Coffee",
     ];
 
+    /// <summary>Recognizes restaurant and café category aliases used by planning and cost rules.</summary>
     public static bool IsFoodAndDrink(string? categoryName)
     {
         if (string.IsNullOrWhiteSpace(categoryName))

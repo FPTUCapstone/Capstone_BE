@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Traveler.Bookings.Common;
 using TripMate.Application.Features.Traveler.Payments.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
@@ -47,49 +48,52 @@ public sealed class GetBookingPaymentStatusQueryHandler(
                 PaymentErrorCodes.PaymentNotFound, "Booking was not found.");
         }
 
-        var booking = await dbContext.Bookings
-            .FirstOrDefaultAsync(b => b.Id == request.BookingId, cancellationToken);
-
-        if (booking is null || booking.TravelerUserId != travelerId)
+        return await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
         {
-            return Result.Failure<PaymentStatusResponse>(
-                PaymentErrorCodes.PaymentNotFound, "The requested booking was not found.");
-        }
+            var booking = await dbContext.Bookings
+                .FirstOrDefaultAsync(b => b.Id == request.BookingId, transactionCancellationToken);
 
-        var now = clock.UtcNow;
-
-        // Auto-expire booking if hold window passed
-        if (booking.Status == BookingStatus.PendingPayment &&
-            booking.PaymentExpiresAtUtc.HasValue &&
-            booking.PaymentExpiresAtUtc.Value <= now)
-        {
-            booking.ExpirePendingPayment(now);
-            var activePending = await dbContext.PaymentTransactions
-                .Where(t => t.BookingId == booking.Id && t.Status == PaymentTransactionStatus.Pending)
-                .ToListAsync(cancellationToken);
-            foreach (var tx in activePending)
+            if (booking is null || booking.TravelerUserId != travelerId)
             {
-                tx.MarkExpired(null, now);
+                return Result.Failure<PaymentStatusResponse>(
+                    PaymentErrorCodes.PaymentNotFound, "The requested booking was not found.");
             }
-            await dbContext.SaveChangesAsync(cancellationToken);
-        }
 
-        var latestTransaction = await dbContext.PaymentTransactions
-            .Where(t => t.BookingId == booking.Id)
-            .OrderByDescending(t => t.Id)
-            .FirstOrDefaultAsync(cancellationToken);
+            var now = clock.UtcNow;
 
-        return Result.Success(new PaymentStatusResponse(
-            PaymentId: latestTransaction?.Id,
-            BookingId: booking.Id,
-            BookingStatus: booking.Status.ToString(),
-            PaymentStatus: booking.PaymentStatus.ToString(),
-            Gateway: latestTransaction?.Gateway.ToString(),
-            TransactionStatus: latestTransaction?.Status.ToString(),
-            Amount: latestTransaction?.Amount ?? booking.TotalAmount,
-            Currency: latestTransaction?.Currency ?? PaymentTransaction.DefaultCurrency,
-            CheckoutUrl: latestTransaction?.CheckoutUrl,
-            PaymentLinkExpiresAtUtc: latestTransaction?.ExpiresAtUtc,
-            BookingPaymentExpiresAtUtc: booking.PaymentExpiresAtUtc));
+            // Auto-expire booking if hold window passed
+            if (booking.Status == BookingStatus.PendingPayment &&
+                booking.PaymentExpiresAtUtc.HasValue &&
+                booking.PaymentExpiresAtUtc.Value <= now)
+            {
+                await BookingExpiryEffects.ExpireAsync(dbContext, booking, now, transactionCancellationToken);
+                var activePending = await dbContext.PaymentTransactions
+                    .Where(t => t.BookingId == booking.Id && t.Status == PaymentTransactionStatus.Pending)
+                    .ToListAsync(transactionCancellationToken);
+                foreach (var tx in activePending)
+                {
+                    tx.MarkExpired(null, now);
+                }
+                await dbContext.SaveChangesAsync(transactionCancellationToken);
+            }
+
+            var latestTransaction = await dbContext.PaymentTransactions
+                .Where(t => t.BookingId == booking.Id)
+                .OrderByDescending(t => t.Id)
+                .FirstOrDefaultAsync(transactionCancellationToken);
+
+            return Result.Success(new PaymentStatusResponse(
+                PaymentId: latestTransaction?.Id,
+                BookingId: booking.Id,
+                BookingStatus: booking.Status.ToString(),
+                PaymentStatus: booking.PaymentStatus.ToString(),
+                Gateway: latestTransaction?.Gateway.ToString(),
+                TransactionStatus: latestTransaction?.Status.ToString(),
+                Amount: latestTransaction?.Amount ?? booking.TotalAmount,
+                Currency: latestTransaction?.Currency ?? PaymentTransaction.DefaultCurrency,
+                CheckoutUrl: latestTransaction?.CheckoutUrl,
+                PaymentLinkExpiresAtUtc: latestTransaction?.ExpiresAtUtc,
+                BookingPaymentExpiresAtUtc: booking.PaymentExpiresAtUtc));
+        }, cancellationToken);
     }
 }

@@ -145,15 +145,15 @@ BEGIN TRY
                 FOREIGN KEY (requested_itinerary_id)
                 REFERENCES planning.Itineraries(itinerary_id);';
 
-    -- Revision 1 of this migration allowed AllItemsReached. Never rewrite user data: stop the
-    -- upgrade when a stored reason is outside the current vocabulary.
+    -- Revision 1 allowed AllItemsReached. UC-21 later added GroupAccessRevoked. This script is
+    -- reapplied by apply-schema.sh, so recognize that later valid reason without rewriting data.
     EXEC sys.sp_executesql N'
         IF EXISTS (
             SELECT 1
             FROM trip.TripSessions
             WHERE completion_reason IS NOT NULL
-              AND completion_reason NOT IN (''RouteFinished'', ''TravelerStopped'', ''Expired''))
-            THROW 51013, ''UC-13 migration blocked: trip.TripSessions contains completion reasons outside RouteFinished, TravelerStopped, and Expired (for example the retired AllItemsReached).'', 1;';
+              AND completion_reason NOT IN (''RouteFinished'', ''TravelerStopped'', ''Expired'', ''GroupAccessRevoked''))
+            THROW 51013, ''UC-13 migration blocked: trip.TripSessions contains an unknown completion reason (for example the retired AllItemsReached).'', 1;';
 
     IF EXISTS (
         SELECT 1 FROM sys.check_constraints

@@ -136,6 +136,24 @@
     <None Include="..\..\database\migrations\20261022_add_refund_manual_completion_operations.sql"
           Link="Database\migrations\20261022_add_refund_manual_completion_operations.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261024_uc29_1_ticket_issuance.sql"
+          Link="Database\migrations\20261024_uc29_1_ticket_issuance.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261024_uc29_2_backfill_tickets.sql"
+          Link="Database\migrations\20261024_uc29_2_backfill_tickets.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261025_uc21_group_leave_lifecycle.sql"
+          Link="Database\migrations\20261025_uc21_group_leave_lifecycle.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261025_uc21_navigation_access_revoked_reason.sql"
+          Link="Database\migrations\20261025_uc21_navigation_access_revoked_reason.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261025_uc21_notification_inapp.sql"
+          Link="Database\migrations\20261025_uc21_notification_inapp.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261027_uc20_group_member_removal_operations.sql"
+          Link="Database\migrations\20261027_uc20_group_member_removal_operations.sql"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

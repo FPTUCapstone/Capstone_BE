@@ -248,21 +248,18 @@ public sealed class NavigationSessionMutationHandlersTests
     }
 
     [Fact]
-    public async Task Finish_IsAllowedAfterAccessRevocationAndReplayKeepsTheReason()
+    public async Task Finish_AfterAccessRevocationDoesNotDiscloseTheSnapshot()
     {
         await using var db = CreateDbContext();
         var inaccessible = await SeedAsync(db, itineraryOwnerId: OtherTravelerId, travelerId: TravelerId);
         var now = StartedAtUtc.AddHours(1);
 
         var finished = await Finish(db, now, inaccessible.SessionId);
-        var replay = await Finish(db, now.AddMinutes(5), inaccessible.SessionId);
         var foreign = await Finish(db, now, inaccessible.SessionId, OtherTravelerId);
 
-        finished.Value.CompletionReason.Should().Be(TripSession.TravelerStoppedReason);
-        finished.Value.EndedAtUtc.Should().Be(now);
-        replay.Value.EndedAtUtc.Should().Be(now);
+        finished.ErrorCode.Should().Be(NavigationErrorCodes.AccessDenied);
         foreign.ErrorCode.Should().Be(NavigationErrorCodes.AccessDenied);
-        (await LoadAsync(db, inaccessible.SessionId)).StateHistory.Should().HaveCount(2);
+        (await LoadAsync(db, inaccessible.SessionId)).StateHistory.Should().HaveCount(1);
     }
 
     [Fact]
@@ -324,7 +321,7 @@ public sealed class NavigationSessionMutationHandlersTests
         DateTimeOffset now,
         long sessionId,
         long travelerId = TravelerId) =>
-        new CompleteNavigationSessionCommandHandler(db, Clock(now))
+        new CompleteNavigationSessionCommandHandler(db, Clock(now), new ItineraryAccessService(db))
             .Handle(new CompleteNavigationSessionCommand(sessionId, travelerId), CancellationToken.None);
 
     private static FakeDateTimeProvider Clock(DateTimeOffset now) => new() { UtcNow = now };
