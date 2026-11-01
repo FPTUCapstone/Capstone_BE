@@ -60,4 +60,15 @@ public sealed class TicketQrCode : BaseEntity
         Status = TicketQrCodeStatus.Revoked;
         return true;
     }
+
+    /// <summary>Marks the active QR code as consumed by check-in (UC-43).</summary>
+    public bool Consume(DateTimeOffset consumedAtUtc)
+    {
+        if (Status != TicketQrCodeStatus.Active)
+            return false;
+
+        Status = TicketQrCodeStatus.Consumed;
+        ConsumedAtUtc = consumedAtUtc.ToUniversalTime();
+        return true;
+    }
 }

@@ -62,4 +62,20 @@ public sealed class Ticket : BaseEntity
             Status = TicketStatus.Cancelled;
         }
     }
+
+    public void CheckIn(DateTimeOffset checkedInAtUtc)
+    {
+        if (Status == TicketStatus.Used)
+        {
+            throw new InvalidOperationException("A used ticket cannot be checked in again.");
+        }
+
+        if (Status != TicketStatus.Valid)
+        {
+            throw new InvalidOperationException($"Cannot check in a ticket with status {Status}.");
+        }
+
+        Status = TicketStatus.Used;
+        CheckedInAtUtc = checkedInAtUtc.ToUniversalTime();
+    }
 }

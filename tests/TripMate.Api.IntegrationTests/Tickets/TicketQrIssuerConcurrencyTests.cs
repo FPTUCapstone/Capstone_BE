@@ -9,6 +9,8 @@ using Microsoft.Extensions.Options;
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Operator.CheckIn.Common;
+using TripMate.Application.Features.Operator.CheckIn.Scan;
 using TripMate.Application.Features.Tickets.Common;
 using TripMate.Application.Features.Tickets.Get;
 using TripMate.Application.Features.Tickets.Refresh;
@@ -267,6 +269,96 @@ public sealed class TicketQrIssuerConcurrencyTests
         var activeCount = await database.ExecuteScalarAsync<int>(
             $"SELECT COUNT(*) FROM commerce.TicketQrCodes WHERE ticket_id = {ticketId} AND status = 'Active';");
         activeCount.Should().Be(0, "Zero Active QR codes must remain when ticket was consumed.");
+    }
+
+    [SqlServerFact]
+    public async Task CrossFeature_CheckInTravelerCommand_TransitionsTicketToUsed_AndConsumesActiveQr()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await TicketSqlServerSeed.CreateAsync(database, Departure);
+        var bookingId = await seed.AddBookingAsync(BookingStatus.Confirmed, PaymentStatus.Paid);
+        var ticketId = await seed.AddTicketAsync(bookingId);
+
+        // Ensure active QR exists first
+        await using (var context = database.CreateDbContext())
+        {
+            var issuer = new TicketQrIssuer(context, Codec(), new SqlServerTicketQrPersistenceErrorClassifier());
+            await issuer.EnsureActiveAsync(ticketId, Departure, CancellationToken.None);
+        }
+
+        var activeBefore = await database.ExecuteScalarAsync<int>(
+            $"SELECT COUNT(*) FROM commerce.TicketQrCodes WHERE ticket_id = {ticketId} AND status = 'Active';");
+        activeBefore.Should().Be(1);
+
+        // Execute CheckInTravelerCommand on departure day
+        await using (var context = database.CreateDbContext())
+        {
+            var currentUserService = new FakeOperatorUserService(seed.OperatorId);
+            var handler = new CheckInTravelerCommandHandler(context, currentUserService, Codec(), new TestClock(Departure));
+            var bookingCode = await context.Bookings.Where(b => b.Id == bookingId).Select(b => b.BookingCode).SingleAsync();
+
+            var checkInResult = await handler.Handle(
+                new CheckInTravelerCommand(seed.ScheduleId, BookingCode: bookingCode),
+                CancellationToken.None);
+
+            checkInResult.IsSuccess.Should().BeTrue();
+            checkInResult.Value.TicketCode.Should().Be(Ticket.CodeFor(bookingId));
+        }
+
+        var ticketStatus = await database.ExecuteScalarAsync<string>(
+            $"SELECT status FROM commerce.Tickets WHERE ticket_id = {ticketId};");
+        ticketStatus.Should().Be("Used");
+
+        var activeAfter = await database.ExecuteScalarAsync<int>(
+            $"SELECT COUNT(*) FROM commerce.TicketQrCodes WHERE ticket_id = {ticketId} AND status = 'Active';");
+        activeAfter.Should().Be(0);
+
+        var consumedAfter = await database.ExecuteScalarAsync<int>(
+            $"SELECT COUNT(*) FROM commerce.TicketQrCodes WHERE ticket_id = {ticketId} AND status = 'Consumed';");
+        consumedAfter.Should().Be(1);
+
+        var checkInLogCount = await database.ExecuteScalarAsync<int>(
+            $"SELECT COUNT(*) FROM commerce.CheckInLogs WHERE ticket_id = {ticketId} AND scan_result = 'Success';");
+        checkInLogCount.Should().Be(1);
+
+        // Verify repeat scan rejects with AlreadyUsed and persists both CheckInLogs and AuditLogs on real SQL Server (Gate B4)
+        await using (var context = database.CreateDbContext())
+        {
+            var currentUserService = new FakeOperatorUserService(seed.OperatorId);
+            var handler = new CheckInTravelerCommandHandler(context, currentUserService, Codec(), new TestClock(Departure.AddMinutes(5)));
+            var bookingCode = await context.Bookings.Where(b => b.Id == bookingId).Select(b => b.BookingCode).SingleAsync();
+
+            var repeatResult = await handler.Handle(
+                new CheckInTravelerCommand(seed.ScheduleId, BookingCode: bookingCode),
+                CancellationToken.None);
+
+            repeatResult.IsFailure.Should().BeTrue();
+            repeatResult.ErrorCode.Should().Be(CheckInErrorCodes.AlreadyUsed);
+        }
+
+        var successCountAfterRepeat = await database.ExecuteScalarAsync<int>(
+            $"SELECT COUNT(*) FROM commerce.CheckInLogs WHERE ticket_id = {ticketId} AND scan_result = 'Success';");
+        successCountAfterRepeat.Should().Be(1, "Repeat scan must not create a second successful check-in.");
+
+        var alreadyUsedCount = await database.ExecuteScalarAsync<int>(
+            $"SELECT COUNT(*) FROM commerce.CheckInLogs WHERE ticket_id = {ticketId} AND scan_result = 'AlreadyUsed';");
+        alreadyUsedCount.Should().Be(1, "Repeat scan must be recorded in commerce.CheckInLogs.");
+
+        var auditLogCount = await database.ExecuteScalarAsync<int>(
+            $"SELECT COUNT(*) FROM dbo.AuditLogs WHERE action_type = 'CheckInScanRejected' AND affected_entity_id = {ticketId};");
+        auditLogCount.Should().Be(1, "Rejected repeat scan must be persisted to dbo.AuditLogs per PC-05.");
+    }
+
+    private sealed class FakeOperatorUserService(long operatorUserId) : ICurrentUserService
+    {
+        public long? UserId => operatorUserId;
+        public string? Email => "operator@example.com";
+        public string? Role => nameof(UserRole.TourOperator);
+    }
+
+    private sealed class TestClock(DateTimeOffset now) : IDateTimeProvider
+    {
+        public DateTimeOffset UtcNow => now;
     }
 
     private static AesGcmHmacTicketQrCodec Codec() => new(Options.Create(new TicketQrOptions

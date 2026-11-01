@@ -42,4 +42,7 @@ public static class AuditActionTypes
     // UC-73/UC-74: Staff decision on a payout request
     public const string PayoutApproved = "ApprovePayoutRequest";
     public const string PayoutRejected = "RejectPayoutRequest";
+
+    // UC-43 Check-in scan verification rejected
+    public const string CheckInScanRejected = "CheckInScanRejected";
 }
