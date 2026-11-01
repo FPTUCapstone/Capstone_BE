@@ -6,5 +6,11 @@ namespace TripMate.Application.UnitTests.TestUtilities;
 
 public sealed class FakePayoutPersistenceErrorClassifier : IPayoutPersistenceErrorClassifier
 {
-    public bool IsActiveOperatorConflict(DbUpdateException exception) => false;
+    public bool ActiveOperatorConflict { get; set; }
+
+    public bool SettlementWorkItemConflict { get; set; }
+
+    public bool IsActiveOperatorConflict(DbUpdateException exception) => ActiveOperatorConflict;
+
+    public bool IsSettlementWorkItemConflict(DbUpdateException exception) => SettlementWorkItemConflict;
 }

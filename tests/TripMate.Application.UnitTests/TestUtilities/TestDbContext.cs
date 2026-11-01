@@ -159,6 +159,10 @@ public class TestDbContext(
 
     public DbSet<PayoutPeriodBreakdown> PayoutPeriodBreakdowns => Set<PayoutPeriodBreakdown>();
 
+    public DbSet<Bank> Banks => Set<Bank>();
+
+    public DbSet<PayoutSettlementWorkItem> PayoutSettlementWorkItems => Set<PayoutSettlementWorkItem>();
+
     public int TransactionExecutionCount { get; private set; }
 
     public bool IsExecutingSerializableTransaction { get; private set; }
@@ -315,6 +319,8 @@ public class TestDbContext(
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<AlertDeliveryWork>().HasKey(work => work.NotificationId);
+        modelBuilder.Entity<Bank>().HasKey(bank => bank.BankBin);
+        modelBuilder.Entity<PayoutSettlementWorkItem>().HasIndex(item => item.PayoutId).IsUnique();
         modelBuilder.Entity<PushDeviceToken>().HasKey(device => device.Id);
 
         modelBuilder.Entity<TripSessionItem>()

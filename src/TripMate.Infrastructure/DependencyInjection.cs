@@ -48,6 +48,7 @@ using TripMate.Infrastructure.Routing;
 using TripMate.Infrastructure.Security;
 using TripMate.Infrastructure.Services;
 using TripMate.Infrastructure.Services.Payment;
+using TripMate.Infrastructure.Services.Payment.PayoutDisbursement;
 using TripMate.Infrastructure.Services.Redis;
 using TripMate.Infrastructure.TripAlerts;
 using TripMate.Infrastructure.Weather;
@@ -270,6 +271,7 @@ public static class DependencyInjection
             string.Equals(paymentConfig.Provider, "PayOS", StringComparison.OrdinalIgnoreCase)
                 ? serviceProvider.GetRequiredService<PayOsPaymentGateway>()
                 : serviceProvider.GetRequiredService<MockPaymentGateway>());
+        services.AddPayoutDisbursement(configuration);
         services.AddDataProtection();
         services.AddSingleton<IPiiProtector, DataProtectionPiiProtector>();
         services.AddSingleton<IPushTokenProtector, DataProtectionPushTokenProtector>();

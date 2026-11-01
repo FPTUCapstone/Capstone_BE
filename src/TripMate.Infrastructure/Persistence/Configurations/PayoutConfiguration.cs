@@ -25,6 +25,9 @@ public sealed class PayoutConfiguration : IEntityTypeConfiguration<Payout>
                 "CK_Payouts_LifecycleState",
                 "gateway_attempt_count >= 0");
             table.HasCheckConstraint(
+                "CK_Payouts_BankBin",
+                "bank_bin IS NULL OR (bank_bin NOT LIKE '%[^0-9]%' AND LEN(bank_bin) = 6)");
+            table.HasCheckConstraint(
                 "CK_Payouts_PayableNet",
                 "payable_net_before_adjustments IS NULL OR payable_net_before_adjustments - adjustments_applied >= 0");
         });
@@ -58,6 +61,11 @@ public sealed class PayoutConfiguration : IEntityTypeConfiguration<Payout>
         builder.Property(payout => payout.AccountHolderName).HasColumnName("account_holder_name").HasMaxLength(Payout.AccountHolderNameMaxLength);
         builder.Property(payout => payout.AccountNumberMasked).HasColumnName("account_number_masked").HasMaxLength(Payout.AccountNumberMaskedMaxLength);
         builder.Property(payout => payout.AccountNumberProtected).HasColumnName("account_number_protected").HasMaxLength(500);
+        builder.Property(payout => payout.BankBin)
+            .HasColumnName("bank_bin")
+            .HasMaxLength(Payout.BankBinLength)
+            .IsFixedLength()
+            .IsUnicode(false);
 
         builder.Property(payout => payout.Status)
             .HasColumnName("status")

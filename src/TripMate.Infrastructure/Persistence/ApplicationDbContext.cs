@@ -327,6 +327,10 @@ public class ApplicationDbContext(
 
     public DbSet<PayoutPeriodBreakdown> PayoutPeriodBreakdowns => Set<PayoutPeriodBreakdown>();
 
+    public DbSet<Bank> Banks => Set<Bank>();
+
+    public DbSet<PayoutSettlementWorkItem> PayoutSettlementWorkItems => Set<PayoutSettlementWorkItem>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(

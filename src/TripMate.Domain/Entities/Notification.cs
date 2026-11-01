@@ -13,6 +13,9 @@ public class Notification : BaseEntity
     public const string TravelGroupHostTransferredType = "TravelGroupHostTransferred";
     public const string TravelGroupMemberRemovedType = "TravelGroupMemberRemoved";
     public const string TravelGroupRelatedEntityType = "TravelGroup";
+    public const string PayoutSettledType = "PayoutSettled";
+    public const string PayoutSettlementFailedType = "PayoutSettlementFailed";
+    public const string PayoutRelatedEntityType = "Payout";
 
     public long UserId { get; set; }
 

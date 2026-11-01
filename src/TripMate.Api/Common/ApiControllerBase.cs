@@ -183,6 +183,14 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripMate.Application.Features.Admin.Payouts.Common.PayoutErrorCodes.RejectionReasonInvalid =>
                 StatusCodes.Status400BadRequest,
 
+            TripMate.Application.Features.Admin.PayoutSettlements.Common.PayoutSettlementErrorCodes.NotApprovedForSettlement =>
+                StatusCodes.Status409Conflict,
+
+            TripMate.Application.Features.Admin.PayoutSettlements.Common.PayoutSettlementErrorCodes.BeneficiaryIncomplete or
+                TripMate.Application.Features.Admin.PayoutSettlements.Common.PayoutSettlementErrorCodes.AmountInvalid or
+                TripMate.Application.Features.Admin.PayoutSettlements.Common.PayoutSettlementErrorCodes.BankBinUnresolved =>
+                StatusCodes.Status422UnprocessableEntity,
+
             TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.Forbidden =>
                 StatusCodes.Status403Forbidden,
 

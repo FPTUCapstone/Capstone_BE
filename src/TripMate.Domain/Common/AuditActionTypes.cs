@@ -42,6 +42,12 @@ public static class AuditActionTypes
     // UC-73/UC-74: Staff decision on a payout request
     public const string PayoutApproved = "ApprovePayoutRequest";
     public const string PayoutRejected = "RejectPayoutRequest";
+    // UC-65: Administrator settlement authorization and the worker's outcomes
+    public const string PayoutSettlementAuthorized = "AuthorizePayoutSettlement";
+    public const string PayoutSettlementDetailsViewed = "ViewPayoutSettlementDetails";
+    public const string PayoutSettled = "PayoutSettled";
+    public const string PayoutSettlementFailed = "PayoutSettlementFailed";
+    public const string PayoutReconciliationRequired = "PayoutReconciliationRequired";
 
     // UC-43 Check-in scan verification rejected
     public const string CheckInScanRejected = "CheckInScanRejected";

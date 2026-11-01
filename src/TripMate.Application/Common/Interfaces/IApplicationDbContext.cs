@@ -167,6 +167,10 @@ public interface IApplicationDbContext
 
     DbSet<PayoutPeriodBreakdown> PayoutPeriodBreakdowns { get; }
 
+    DbSet<Bank> Banks { get; }
+
+    DbSet<PayoutSettlementWorkItem> PayoutSettlementWorkItems { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 
     Task<int> RevokeRefreshTokenAsync(

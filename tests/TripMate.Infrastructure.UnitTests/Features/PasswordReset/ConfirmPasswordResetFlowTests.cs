@@ -328,6 +328,8 @@ public class ConfirmPasswordResetFlowTests
         DbSet<Domain.Entities.PayoutAdjustment> IApplicationDbContext.PayoutAdjustments => throw new NotSupportedException();
 
         DbSet<Domain.Entities.PayoutPeriodBreakdown> IApplicationDbContext.PayoutPeriodBreakdowns => throw new NotSupportedException();
+        DbSet<Domain.Entities.Bank> IApplicationDbContext.Banks => throw new NotSupportedException();
+        DbSet<Domain.Entities.PayoutSettlementWorkItem> IApplicationDbContext.PayoutSettlementWorkItems => throw new NotSupportedException();
 
         public Task<int> RevokeRefreshTokenAsync(
             string tokenHash,
@@ -353,6 +355,8 @@ public class ConfirmPasswordResetFlowTests
             // The confirm flow only persists Users and RefreshTokens; excluding the rest
             // avoids building a model for entities this test never touches.
             modelBuilder.Ignore<Domain.Entities.TravelerProfile>();
+            modelBuilder.Ignore<Domain.Entities.Bank>();
+            modelBuilder.Ignore<Domain.Entities.PayoutSettlementWorkItem>();
             modelBuilder.Ignore<Domain.Entities.PoiCategory>();
             modelBuilder.Ignore<Domain.Entities.PointOfInterest>();
             modelBuilder.Ignore<Domain.Entities.PoiOpeningHour>();

@@ -12,6 +12,7 @@ public sealed class Payout
     public const int BankNameMaxLength = 150;
     public const int AccountHolderNameMaxLength = 150;
     public const int AccountNumberMaskedMaxLength = 30;
+    public const int BankBinLength = 6;
 
     public const string StatusPendingReview = "PendingReview";
     public const string StatusApprovedForSettlement = "ApprovedForSettlement";
@@ -102,6 +103,10 @@ public sealed class Payout
     public string? AccountNumberMasked { get; private set; }
 
     public string? AccountNumberProtected { get; private set; }
+
+    /// <summary>NAPAS/VietQR bank identification number of the beneficiary bank, resolved and
+    /// persisted when the Administrator authorizes settlement (UC-65). Null until then.</summary>
+    public string? BankBin { get; private set; }
 
     public string Status { get; private set; } = StatusPendingReview;
 
@@ -293,6 +298,99 @@ public sealed class Payout
         ReviewedAtUtc = reviewedAtUtc;
         RejectionReason = reason;
         return true;
+    }
+
+    /// <summary>
+    /// UC-65: the Administrator's authorization, moving ApprovedForSettlement to
+    /// SettlementProcessing and recording the beneficiary bank BIN resolved by the caller.
+    /// Returns false without changing state when the request is not ApprovedForSettlement (the
+    /// caller maps that to a 409). A malformed BIN is a programming error: the caller resolves it
+    /// against the catalogue first.
+    /// </summary>
+    public bool AuthorizeSettlement(long administratorUserId, DateTimeOffset authorizedAtUtc, string bankBin)
+    {
+        if (administratorUserId <= 0)
+            throw new ArgumentOutOfRangeException(nameof(administratorUserId));
+
+        if (string.IsNullOrEmpty(bankBin) || bankBin.Length != BankBinLength || !bankBin.All(char.IsAsciiDigit))
+            throw new ArgumentException($"A bank BIN is exactly {BankBinLength} digits.", nameof(bankBin));
+
+        if (Status != StatusApprovedForSettlement)
+            return false;
+
+        Status = StatusSettlementProcessing;
+        SettlementAuthorizedBy = administratorUserId;
+        SettlementAuthorizedAtUtc = authorizedAtUtc;
+        BankBin = bankBin;
+        return true;
+    }
+
+    /// <summary>Counts one call to the disbursement gateway (submit, poll, or lookup) and keeps
+    /// the instant of the latest one. Satisfies the lifecycle constraint that a final outcome
+    /// follows at least one recorded attempt.</summary>
+    public void RecordGatewayAttempt(DateTimeOffset attemptedAtUtc)
+    {
+        EnsureProcessing();
+        GatewayAttemptCount++;
+        LastGatewayAttemptAtUtc = attemptedAtUtc;
+    }
+
+    public void SetGatewayReference(string gatewayReference)
+    {
+        EnsureProcessing();
+        ArgumentException.ThrowIfNullOrWhiteSpace(gatewayReference);
+        var trimmed = gatewayReference.Trim();
+        if (trimmed.Length > GatewayReferenceMaxLength)
+            throw new ArgumentException(
+                $"Gateway reference must be at most {GatewayReferenceMaxLength} characters.", nameof(gatewayReference));
+
+        GatewayReference = trimmed;
+    }
+
+    /// <summary>UC-65 worker outcome: the gateway confirmed the disbursement. Returns false when the
+    /// payout is not SettlementProcessing; throws when the evidence the lifecycle constraint
+    /// requires (a gateway reference and a recorded attempt) is missing.</summary>
+    public bool MarkSettled()
+    {
+        if (Status != StatusSettlementProcessing)
+            return false;
+
+        if (string.IsNullOrEmpty(GatewayReference))
+            throw new InvalidOperationException("A settled payout needs the gateway reference.");
+
+        if (GatewayAttemptCount < 1 || LastGatewayAttemptAtUtc is null)
+            throw new InvalidOperationException("A settled payout needs at least one recorded gateway attempt.");
+
+        Status = StatusSettled;
+        GatewayFailureReason = null;
+        return true;
+    }
+
+    /// <summary>UC-65 worker outcome: the payout ultimately failed. The reason is a safe code, not
+    /// a raw gateway message. Returns false when the payout is not SettlementProcessing.</summary>
+    public bool MarkSettlementFailed(string failureReason)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(failureReason);
+        var trimmed = failureReason.Trim();
+        if (trimmed.Length > GatewayFailureReasonMaxLength)
+            throw new ArgumentException(
+                $"Failure reason must be at most {GatewayFailureReasonMaxLength} characters.", nameof(failureReason));
+
+        if (Status != StatusSettlementProcessing)
+            return false;
+
+        if (GatewayAttemptCount < 1 || LastGatewayAttemptAtUtc is null)
+            throw new InvalidOperationException("A failed settlement needs at least one recorded gateway attempt.");
+
+        Status = StatusSettlementFailed;
+        GatewayFailureReason = trimmed;
+        return true;
+    }
+
+    private void EnsureProcessing()
+    {
+        if (Status != StatusSettlementProcessing)
+            throw new InvalidOperationException("Gateway activity is only recorded while the payout is SettlementProcessing.");
     }
 }
 

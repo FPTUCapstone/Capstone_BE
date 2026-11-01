@@ -508,6 +508,10 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
 
     public DbSet<PayoutPeriodBreakdown> PayoutPeriodBreakdowns => Set<PayoutPeriodBreakdown>();
 
+    public DbSet<Bank> Banks => Set<Bank>();
+
+    public DbSet<PayoutSettlementWorkItem> PayoutSettlementWorkItems => Set<PayoutSettlementWorkItem>();
+
     public async Task<int> RevokeRefreshTokenAsync(
         string tokenHash,
         DateTimeOffset revokedAtUtc,
