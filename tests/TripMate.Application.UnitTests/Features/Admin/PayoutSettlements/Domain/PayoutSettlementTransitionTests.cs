@@ -236,21 +236,21 @@ public sealed class PayoutSettlementTransitionTests
             case Payout.StatusSettlementProcessing:
                 return ProcessingPayout();
             case Payout.StatusSettled:
-            {
-                var settled = ProcessingPayout();
-                settled.RecordGatewayAttempt(Now.AddMinutes(1));
-                settled.SetGatewayReference("payos-123");
-                settled.MarkSettled();
-                return settled;
-            }
+                {
+                    var settled = ProcessingPayout();
+                    settled.RecordGatewayAttempt(Now.AddMinutes(1));
+                    settled.SetGatewayReference("payos-123");
+                    settled.MarkSettled();
+                    return settled;
+                }
 
             case Payout.StatusSettlementFailed:
-            {
-                var failed = ProcessingPayout();
-                failed.RecordGatewayAttempt(Now.AddMinutes(1));
-                failed.MarkSettlementFailed("gateway_rejected");
-                return failed;
-            }
+                {
+                    var failed = ProcessingPayout();
+                    failed.RecordGatewayAttempt(Now.AddMinutes(1));
+                    failed.MarkSettlementFailed("gateway_rejected");
+                    return failed;
+                }
 
             case Payout.StatusPendingReview:
                 return Payout.Create(
@@ -258,18 +258,18 @@ public sealed class PayoutSettlementTransitionTests
                     [new PayoutMonthTotal(new DateOnly(2026, 10, 1), 1, 1, 1_000_000m, 0m, 0m, 100_000m, 900_000m)],
                     Now, 0m, 1_000_000m, "Vietcombank", "A", "****1", "protected:x", Now);
             case Payout.StatusRejected:
-            {
-                var rejected = PayoutInStatus(Payout.StatusPendingReview);
-                rejected.Reject(5, "Beneficiary mismatch", Now);
-                return rejected;
-            }
+                {
+                    var rejected = PayoutInStatus(Payout.StatusPendingReview);
+                    rejected.Reject(5, "Beneficiary mismatch", Now);
+                    return rejected;
+                }
 
             case Payout.StatusCancelled:
-            {
-                var cancelled = PayoutInStatus(Payout.StatusPendingReview);
-                cancelled.Cancel(Now);
-                return cancelled;
-            }
+                {
+                    var cancelled = PayoutInStatus(Payout.StatusPendingReview);
+                    cancelled.Cancel(Now);
+                    return cancelled;
+                }
 
             default:
                 throw new ArgumentOutOfRangeException(nameof(status));
