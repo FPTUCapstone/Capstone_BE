@@ -3,6 +3,7 @@ namespace TripMate.Domain.Common;
 public static class AuditActionTypes
 {
     public const string PoiCreate = "POI_CREATE";
+    public const string PoiDeactivated = "POI_DEACTIVATED";
 
     public const string OperatorApplicationApprove = "ApproveOperatorApplication";
 
