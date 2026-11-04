@@ -8,4 +8,5 @@ public enum TourScheduleStatus
     Scheduled = 1,
     Cancelled = 2,
     Completed = 3,
+    EmergencyStopped = 4,
 }

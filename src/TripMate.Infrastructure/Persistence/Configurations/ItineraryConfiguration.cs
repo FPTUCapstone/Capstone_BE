@@ -12,6 +12,8 @@ namespace TripMate.Infrastructure.Persistence.Configurations;
  */
 public class ItineraryConfiguration : IEntityTypeConfiguration<Itinerary>
 {
+    public const string SourceBookingIndexName = "IX_Itineraries_SourceBookingId";
+
     public void Configure(EntityTypeBuilder<Itinerary> builder)
     {
         builder.ToTable("Itineraries", "planning");
@@ -25,6 +27,7 @@ public class ItineraryConfiguration : IEntityTypeConfiguration<Itinerary>
         builder.Property(i => i.Status).HasColumnName("status").HasMaxLength(10).IsRequired();
         builder.Property(i => i.SchedulingRequestId).HasColumnName("scheduling_request_id");
         builder.Property(i => i.SourceTourId).HasColumnName("source_tour_id");
+        builder.Property(i => i.SourceBookingId).HasColumnName("source_booking_id");
         builder.Property(i => i.ValidFromUtc).HasColumnName("valid_from").AsUtcDateTime2();
         builder.Property(i => i.ValidToUtc).HasColumnName("valid_to").AsUtcDateTime2();
         builder.Property(i => i.CreatedAtUtc).HasColumnName("created_at").AsUtcDateTime2().IsRequired();
@@ -43,6 +46,15 @@ public class ItineraryConfiguration : IEntityTypeConfiguration<Itinerary>
             .WithMany()
             .HasForeignKey(i => i.SourceTourId)
             .OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(i => i.SourceBooking)
+            .WithMany()
+            .HasForeignKey(i => i.SourceBookingId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasIndex(i => i.SourceBookingId)
+            .HasDatabaseName(SourceBookingIndexName)
+            .HasFilter("[source_booking_id] IS NOT NULL")
+            .IsUnique();
 
         builder.Navigation(i => i.TravelGroups)
             .UsePropertyAccessMode(PropertyAccessMode.Field);

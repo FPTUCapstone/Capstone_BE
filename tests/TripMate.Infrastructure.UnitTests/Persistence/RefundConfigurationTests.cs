@@ -28,4 +28,25 @@ public sealed class RefundConfigurationTests
                 $"{propertyName} must persist DateTimeOffset as UTC DATETIME2");
         }
     }
+
+    [Fact]
+    public void EmergencyCancellationOperation_HasUniqueDepartureAndCommand()
+    {
+        using var context = new ApplicationDbContext(new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
+        var operation = context.Model.FindEntityType(typeof(EmergencyTourCancellationOperation));
+        operation.Should().NotBeNull();
+        operation!.GetSchema().Should().Be("commerce");
+        operation.GetTableName().Should().Be("EmergencyTourCancellationOperations");
+        operation.FindProperty(nameof(EmergencyTourCancellationOperation.CommittedAtUtc))!
+            .GetValueConverter().Should().NotBeNull();
+        operation.GetIndexes().Should().ContainSingle(index => index.IsUnique
+            && index.Properties.Count == 1
+            && index.Properties[0].Name == nameof(EmergencyTourCancellationOperation.TourScheduleId));
+        operation.GetIndexes().Should().ContainSingle(index => index.IsUnique
+            && index.Properties.Select(property => property.Name).SequenceEqual(
+                new[] { nameof(EmergencyTourCancellationOperation.ActorUserId),
+                    nameof(EmergencyTourCancellationOperation.CommandId) }));
+
+    }
 }

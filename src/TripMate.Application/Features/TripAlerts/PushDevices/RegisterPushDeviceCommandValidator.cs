@@ -6,7 +6,7 @@ public sealed class RegisterPushDeviceCommandValidator : AbstractValidator<Regis
 {
     public RegisterPushDeviceCommandValidator()
     {
-        RuleFor(command => command.TravelerUserId).GreaterThan(0);
+        RuleFor(command => command.UserId).GreaterThan(0);
         RuleFor(command => command.InstallationId).NotEqual(Guid.Empty);
         RuleFor(command => command.Token).NotEmpty().MaximumLength(1500);
     }

@@ -13,6 +13,18 @@ public class Notification : BaseEntity
     public const string TravelGroupHostTransferredType = "TravelGroupHostTransferred";
     public const string TravelGroupMemberRemovedType = "TravelGroupMemberRemoved";
     public const string TravelGroupRelatedEntityType = "TravelGroup";
+    public const string EmergencyDepartureCancelledType = "EmergencyDepartureCancelled";
+    public const string EmergencyDepartureStoppedType = "EmergencyDepartureStopped";
+    public const string BookingRelatedEntityType = "Booking";
+    public const string WeatherSafetyReviewCreatedType = "WeatherSafetyReviewCreated";
+    public const string WeatherSafetyReviewEscalatedType = "WeatherSafetyReviewEscalated";
+
+    // Shown on the lock screen: never a tour, place, reason, contact, refund or identifier.
+    public const string SafetyAlertTitle = "TripMate safety alert";
+    public const string SafetyAlertBody = "A tour safety review requires your attention.";
+    public const string TripUpdateTitle = "TripMate trip update";
+    public const string TripUpdateBody =
+        "Your tour booking has an important update. Open TripMate for details.";
 
     public long UserId { get; set; }
 

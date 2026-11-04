@@ -14,4 +14,7 @@ public static class TourBookingErrorCodes
     public const string IdempotencyKeyRequired = "tour_booking.idempotency_key_required";
     public const string IdempotencyKeyPayloadMismatch = "tour_booking.idempotency_key_payload_mismatch";
     public const string TooManyUnpaidBookings = "tour_booking.too_many_unpaid_bookings";
+    public const string BookingNotFound = "tour_booking.booking_not_found";
+    public const string EmergencyStatusNotFound = "tour_booking.emergency_status_not_found";
+    public const string TourItineraryNotBookable = "tour_booking.itinerary_not_bookable";
 }

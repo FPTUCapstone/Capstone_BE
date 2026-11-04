@@ -18,10 +18,35 @@ public sealed class WeatherEventConfiguration : IEntityTypeConfiguration<Weather
         builder.Property(weatherEvent => weatherEvent.Longitude).HasColumnName("longitude").HasPrecision(9, 6);
         builder.Property(weatherEvent => weatherEvent.EventType).HasColumnName("event_type").HasMaxLength(40).IsUnicode(false).IsRequired();
         builder.Property(weatherEvent => weatherEvent.Severity).HasColumnName("severity").HasMaxLength(10).IsUnicode(false).IsRequired();
-        builder.Property(weatherEvent => weatherEvent.Description).HasColumnName("description").HasMaxLength(1000);
+        builder.Property(weatherEvent => weatherEvent.Description).HasColumnName("description")
+            .HasMaxLength(WeatherEvent.DescriptionMaxLength);
         builder.Property(weatherEvent => weatherEvent.ValidFromUtc).HasColumnName("valid_from").AsUtcDateTime2().IsRequired();
         builder.Property(weatherEvent => weatherEvent.ValidToUtc).HasColumnName("valid_to").AsUtcDateTime2();
         builder.Property(weatherEvent => weatherEvent.Source).HasColumnName("source").HasMaxLength(50).IsUnicode(false).IsRequired();
         builder.Property(weatherEvent => weatherEvent.IngestedAtUtc).HasColumnName("ingested_at").AsUtcDateTime2().IsRequired();
+
+        // UC-70 additions
+        builder.Property(weatherEvent => weatherEvent.Provider).HasColumnName("provider")
+            .HasMaxLength(WeatherEvent.ProviderMaxLength).IsUnicode(false);
+        builder.Property(weatherEvent => weatherEvent.ProviderEventId).HasColumnName("provider_event_id")
+            .HasMaxLength(WeatherEvent.ProviderEventIdMaxLength).IsUnicode(false);
+        builder.Property(weatherEvent => weatherEvent.Revision).HasColumnName("revision")
+            .HasMaxLength(WeatherEvent.RevisionMaxLength).IsUnicode(false);
+        builder.Property(weatherEvent => weatherEvent.OriginalAuthority).HasColumnName("original_authority")
+            .HasMaxLength(WeatherEvent.OriginalAuthorityMaxLength);
+        builder.Property(weatherEvent => weatherEvent.OriginalSourceReference).HasColumnName("original_source_reference")
+            .HasMaxLength(WeatherEvent.OriginalSourceReferenceMaxLength);
+        builder.Property(weatherEvent => weatherEvent.OfficialVietnamRiskLevel).HasColumnName("official_vietnam_risk_level");
+        builder.Property(weatherEvent => weatherEvent.VerifiedDirective).HasColumnName("verified_directive")
+            .HasMaxLength(WeatherEvent.VerifiedDirectiveMaxLength).IsUnicode(false);
+        builder.Property(weatherEvent => weatherEvent.IsWithdrawn).HasColumnName("is_withdrawn").IsRequired();
+        builder.Property(weatherEvent => weatherEvent.GeometryGeoJson).HasColumnName("geometry_geojson");
+        builder.Property(weatherEvent => weatherEvent.RawPayloadHash).HasColumnName("raw_payload_hash")
+            .HasMaxLength(WeatherEvent.RawPayloadHashMaxLength).IsUnicode(false);
+        builder.Property(weatherEvent => weatherEvent.UpdatedAtUtc).HasColumnName("updated_at").AsUtcDateTime2();
+
+        builder.HasIndex(weatherEvent => new { weatherEvent.Provider, weatherEvent.ProviderEventId }).IsUnique()
+            .HasFilter("[provider] IS NOT NULL AND [provider_event_id] IS NOT NULL")
+            .HasDatabaseName("UX_WeatherEvents_ProviderEvent");
     }
 }

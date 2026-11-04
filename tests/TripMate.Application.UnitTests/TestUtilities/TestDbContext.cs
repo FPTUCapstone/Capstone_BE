@@ -91,6 +91,8 @@ public class TestDbContext(
     public DbSet<TourBookingCreateOperation> TourBookingCreateOperations => Set<TourBookingCreateOperation>();
     public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
     public DbSet<Refund> Refunds => Set<Refund>();
+    public DbSet<EmergencyTourCancellationOperation> EmergencyTourCancellationOperations =>
+        Set<EmergencyTourCancellationOperation>();
     public DbSet<RefundManualCompletionOperation> RefundManualCompletionOperations =>
         Set<RefundManualCompletionOperation>();
     public DbSet<RevenueExport> RevenueExports => Set<RevenueExport>();
@@ -147,6 +149,15 @@ public class TestDbContext(
 
     public DbSet<WeatherEvent> WeatherEvents => Set<WeatherEvent>();
 
+    public DbSet<WeatherAlertInboxItem> WeatherAlertInboxItems => Set<WeatherAlertInboxItem>();
+
+    public DbSet<WeatherEventEvaluation> WeatherEventEvaluations => Set<WeatherEventEvaluation>();
+
+    public DbSet<WeatherSafetyReview> WeatherSafetyReviews => Set<WeatherSafetyReview>();
+
+    public DbSet<WeatherLocationMapping> WeatherLocationMappings => Set<WeatherLocationMapping>();
+
+
     public DbSet<ReroutingEvent> ReroutingEvents => Set<ReroutingEvent>();
 
     public DbSet<Payout> Payouts => Set<Payout>();
@@ -177,6 +188,13 @@ public class TestDbContext(
 
     public bool ThrowOnSaveConcurrency { get; set; }
 
+    /// <summary>
+    /// Receives the 1-based SaveChangesAsync attempt number and returns the exception to
+    /// throw for that attempt (null = save normally). Lets tests simulate persistence
+    /// failures deterministically without constructing SqlException.
+    /// </summary>
+    public Func<int, Exception?>? SaveChangesAttemptFailureFactory { get; set; }
+
     public Func<int, Exception?>? SerializableTransactionCompletionFailureFactory { get; set; }
 
     public Func<int, Exception?>? TransactionCompletionFailureFactory { get; set; }
@@ -190,8 +208,10 @@ public class TestDbContext(
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         SaveChangesAsyncCallCount++;
-        if (SaveChangesFailureFactory?.Invoke() is { } failure)
+        if ((SaveChangesFailureFactory?.Invoke() ?? SaveChangesAttemptFailureFactory?.Invoke(SaveChangesAsyncCallCount)) is { } failure)
+        {
             throw failure;
+        }
 
         return ThrowOnSaveConcurrency
             ? throw new DbUpdateConcurrencyException("Concurrency conflict simulated in test.")
@@ -310,7 +330,24 @@ public class TestDbContext(
         return reads(cancellationToken);
     }
 
-    public bool IsDeadlock(Exception exception) => exception is SimulatedDeadlockException;
+    public bool IsDeadlock(Exception exception) => WalkChain<SimulatedDeadlockException>(exception);
+
+    public bool IsSourceBookingUniqueConflict(DbUpdateException exception) =>
+        WalkChain<SimulatedSourceBookingUniqueConflictException>(exception);
+
+    private static bool WalkChain<TException>(Exception exception)
+        where TException : Exception
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is TException)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

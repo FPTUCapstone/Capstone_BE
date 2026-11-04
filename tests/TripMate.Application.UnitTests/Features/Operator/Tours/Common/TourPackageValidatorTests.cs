@@ -47,6 +47,24 @@ public sealed class TourPackageValidatorTests
     }
 
     [Fact]
+    public void CreateAndUpdate_RejectPartialOrOutOfRangeMeetingCoordinates()
+    {
+        var original = Create();
+        var partial = original with { Schedules = [original.Schedules[0] with { MeetingLatitude = 16m }] };
+        var invalid = original with { Schedules = [original.Schedules[0] with
+            { MeetingLatitude = 91m, MeetingLongitude = 108m }] };
+        var valid = original with { Schedules = [original.Schedules[0] with
+            { MeetingLatitude = 16m, MeetingLongitude = 108m }] };
+
+        CreateValidator.Validate(partial).IsValid.Should().BeFalse();
+        UpdateValidator.Validate(Update(partial)).IsValid.Should().BeFalse();
+        CreateValidator.Validate(invalid).IsValid.Should().BeFalse();
+        UpdateValidator.Validate(Update(invalid)).IsValid.Should().BeFalse();
+        CreateValidator.Validate(valid).IsValid.Should().BeTrue();
+        UpdateValidator.Validate(Update(valid)).IsValid.Should().BeTrue();
+    }
+
+    [Fact]
     public void Create_RequiresBetweenOneAndTenUniqueDestinations()
     {
         Action<long[], bool> check = (ids, valid) =>

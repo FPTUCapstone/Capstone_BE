@@ -45,7 +45,7 @@ public static class TripBookingStream
     {
         // Derived from the classifier so the status-to-tab mapping lives in exactly one place.
         var statuses = Enum.GetValues<BookingStatus>()
-            .Where(status => TripHistoryClassifier.TabForBooking(status) == filter.Tab)
+            .Where(status => TripHistoryClassifier.TryTabForBooking(status) == filter.Tab)
             .ToArray();
         if (statuses.Length == 0)
         {
