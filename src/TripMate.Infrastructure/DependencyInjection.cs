@@ -155,6 +155,7 @@ public static class DependencyInjection
         services.AddSingleton<ICloudinaryClient, CloudinarySdkClient>();
         services.AddSingleton<ITourMediaImageInspector, SkiaSharpTourMediaImageInspector>();
         services.AddSingleton<ITourMediaStorage, CloudinaryTourMediaStorage>();
+        services.AddSingleton<ILandingContentMediaStorage, CloudinaryLandingContentMediaStorage>();
         services.AddSingleton<ITravelerAvatarStorage, CloudinaryTravelerAvatarStorage>();
         services.AddSingleton<SqlTravelerAvatarCleanupJournal>();
         services.AddSingleton<ITravelerAvatarCleanupJournal>(sp =>
