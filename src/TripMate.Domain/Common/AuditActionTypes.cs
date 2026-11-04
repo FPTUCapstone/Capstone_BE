@@ -22,6 +22,15 @@ public static class AuditActionTypes
     public const string TourRejected = "TOUR_REJECTED";
     public const string TourPublished = "TOUR_PUBLISHED";
     public const string TourUnpublished = "TOUR_UNPUBLISHED";
+    public const string TourWeatherReadinessReviewed = "TOUR_WEATHER_READINESS_REVIEWED";
+    public const string TourEmergencyCancelled = "TOUR_EMERGENCY_CANCELLED";
+    public const string TourEmergencyStopped = "TOUR_EMERGENCY_STOPPED";
+    public const string TourEmergencyEvidenceAdded = "TOUR_EMERGENCY_EVIDENCE_ADDED";
+    public const string TourEmergencyEvidenceWithdrawn = "TOUR_EMERGENCY_EVIDENCE_WITHDRAWN";
+    public const string WeatherSafetyReviewCreated = "WEATHER_SAFETY_REVIEW_CREATED";
+    public const string WeatherSafetyReviewAcknowledged = "WEATHER_SAFETY_REVIEW_ACKNOWLEDGED";
+    public const string WeatherSafetyReviewEscalated = "WEATHER_SAFETY_REVIEW_ESCALATED";
+    public const string BookingItineraryMaterializationFailed = "BOOKING_ITINERARY_MATERIALIZATION_FAILED";
 
     // UC-05 Sign Out
     public const string AuthSignOut = "AUTH_SIGN_OUT";

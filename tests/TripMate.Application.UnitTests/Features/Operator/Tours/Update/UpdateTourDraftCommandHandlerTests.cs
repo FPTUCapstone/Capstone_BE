@@ -28,8 +28,10 @@ public sealed class UpdateTourDraftCommandHandlerTests
         var result = await handler.Handle(new UpdateTourDraftCommand(created.Value.TourId,
             "Updated tour", "Updated description", null, 2_000_000m, 1,
             [TourAuthoringTestData.SecondDestinationId], TourAuthoringTestData.PolicyTemplateId, " Meals ", null,
-            [new CreateTourItineraryItemRequest(1, 1, 89, new TimeOnly(9, 0), 120, "Updated")],
-            [new CreateTourScheduleRequest(clock.UtcNow.AddDays(4), clock.UtcNow.AddDays(4).AddHours(8), "Airport", 30)]),
+            [new CreateTourItineraryItemRequest(1, 1, 89, new TimeOnly(9, 0), 120, "Updated",
+                IsRequiredForWeather: true)],
+            [new CreateTourScheduleRequest(clock.UtcNow.AddDays(4), clock.UtcNow.AddDays(4).AddHours(8),
+                "Airport", 30, MeetingLatitude: 16.0439m, MeetingLongitude: 108.1994m)]),
             CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
@@ -42,6 +44,8 @@ public sealed class UpdateTourDraftCommandHandlerTests
         (await db.TourCancellationPolicyRules.CountAsync(rule => rule.TourId == tour.Id)).Should().Be(3);
         tour.ItineraryItems.Should().ContainSingle(item => item.PoiId == 89);
         tour.Schedules.Should().ContainSingle(item => item.TotalCapacity == 30);
+        tour.ItineraryItems.Single().IsRequiredForWeather.Should().BeTrue();
+        tour.Schedules.Single().MeetingLatitude.Should().Be(16.0439m);
     }
 
     [Fact]

@@ -154,6 +154,15 @@
     <None Include="..\..\database\migrations\20261027_uc20_group_member_removal_operations.sql"
           Link="Database\migrations\20261027_uc20_group_member_removal_operations.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261028_weather_readiness.sql"
+          Link="Database\migrations\20261028_weather_readiness.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261028_uc70_emergency_cancellation.sql"
+          Link="Database\migrations\20261028_uc70_emergency_cancellation.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261102_weather_operator_review.sql"
+          Link="Database\migrations\20261102_weather_operator_review.sql"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

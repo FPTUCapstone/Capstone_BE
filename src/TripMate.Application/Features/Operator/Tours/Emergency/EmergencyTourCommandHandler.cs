@@ -1,0 +1,291 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+
+using Microsoft.EntityFrameworkCore;
+
+using TripMate.Application.Common.Interfaces;
+using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Operator.Tours.Emergency.CancelBeforeDeparture;
+using TripMate.Application.Features.Operator.Tours.Emergency.Common;
+using TripMate.Application.Features.Operator.Tours.Emergency.EmergencyStopActive;
+using TripMate.Application.Features.TripAlerts.Common;
+using TripMate.Domain.Common;
+using TripMate.Domain.Entities;
+using TripMate.Domain.Enums;
+
+namespace TripMate.Application.Features.Operator.Tours.Emergency;
+
+public sealed class EmergencyTourCommandHandler(
+    IApplicationDbContext dbContext,
+    ICurrentUserService currentUser,
+    IDateTimeProvider clock,
+    IPasswordHasherService passwordHasher)
+{
+    public async Task<Result<EmergencyTourActionResponse>> Handle(
+        CancelBeforeDepartureCommand request,
+        CancellationToken cancellationToken)
+    {
+        var validation = await new CancelBeforeDepartureCommandValidator()
+            .ValidateAsync(request, cancellationToken);
+        if (!validation.IsValid)
+            return Failure(EmergencyTourErrorCodes.InvalidRequest, validation.Errors[0].ErrorMessage);
+        return await ExecuteAsync(
+            request.TourId, request.ScheduleId, request.CommandId, request.ImpactVersion,
+            EmergencyTourCancellationOperation.CancelBeforeDepartureAction, request.Reason, request.ReasonDetails,
+            null, request.EmergencyContact, request.EvidenceReference, request.EvidenceUrl,
+            request.AuthorityReference, request.AddEvidenceLater, null, cancellationToken);
+    }
+
+    public async Task<Result<EmergencyTourActionResponse>> Handle(
+        EmergencyStopActiveCommand request,
+        CancellationToken cancellationToken)
+    {
+        var validation = await new EmergencyStopActiveCommandValidator()
+            .ValidateAsync(request, cancellationToken);
+        if (!validation.IsValid)
+            return Failure(EmergencyTourErrorCodes.InvalidRequest, validation.Errors[0].ErrorMessage);
+        return await ExecuteAsync(
+            request.TourId, request.ScheduleId, request.CommandId, request.ImpactVersion,
+            EmergencyTourCancellationOperation.EmergencyStopActiveAction, request.Reason, request.ReasonDetails,
+            request.ImmediateInstructions, request.EmergencyContact, request.EvidenceReference,
+            request.EvidenceUrl, request.AuthorityReference, request.AddEvidenceLater,
+            request.CurrentPassword, cancellationToken);
+    }
+
+    private async Task<Result<EmergencyTourActionResponse>> ExecuteAsync(
+        long tourId,
+        long scheduleId,
+        Guid commandId,
+        string impactVersion,
+        string action,
+        EmergencyTourReason reason,
+        string reasonDetails,
+        string? immediateInstructions,
+        string? emergencyContact,
+        string? evidenceReference,
+        string? evidenceUrl,
+        string? authorityReference,
+        bool addEvidenceLater,
+        string? currentPassword,
+        CancellationToken cancellationToken)
+    {
+        if (currentUser.UserId is not long operatorId
+            || currentUser.Role != nameof(UserRole.TourOperator))
+            return Failure(EmergencyTourErrorCodes.Forbidden, "Tour Operator access is required.");
+
+        bool isPreStart = action == EmergencyTourCancellationOperation.CancelBeforeDepartureAction;
+
+        // Step-up authentication for active stop: verify password before entering transaction.
+        // Password is never logged, persisted, or included in idempotency hash.
+        if (!isPreStart)
+        {
+            if (string.IsNullOrWhiteSpace(currentPassword))
+                return Failure(EmergencyTourErrorCodes.InvalidPassword, "The current password is required.");
+
+            var operatorUser = await dbContext.Users.AsNoTracking()
+                .SingleOrDefaultAsync(u => u.Id == operatorId, cancellationToken);
+            if (operatorUser?.PasswordHash is null || !passwordHasher.Verify(currentPassword, operatorUser.PasswordHash))
+                return Failure(EmergencyTourErrorCodes.InvalidPassword, "The current password is invalid.");
+        }
+
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await dbContext.ExecuteInSerializableTransactionAsync(async token =>
+                {
+            bool operatorIsEligible = await EmergencyOperatorAccess.IsEligibleOperatorAsync(
+                dbContext, operatorId, token);
+            if (!operatorIsEligible)
+                return Failure(EmergencyTourErrorCodes.Forbidden,
+                    "An active, approved Tour Operator account is required.");
+
+            TourSchedule? schedule = await dbContext.TourSchedules
+                .Include(candidate => candidate.Tour)
+                .SingleOrDefaultAsync(candidate => candidate.Id == scheduleId
+                    && candidate.TourId == tourId
+                    && candidate.Tour.OperatorUserId == operatorId, token);
+            if (schedule is null)
+                return Failure(EmergencyTourErrorCodes.NotFound, "The departure could not be found.");
+            DateTimeOffset now = clock.UtcNow;
+
+            string requestHash = ComputeRequestHash(tourId, scheduleId, commandId, impactVersion,
+                action, reason, reasonDetails, immediateInstructions, emergencyContact,
+                evidenceReference, evidenceUrl, authorityReference, addEvidenceLater);
+            EmergencyTourCancellationOperation? replay = await dbContext
+                .EmergencyTourCancellationOperations.AsNoTracking()
+                .SingleOrDefaultAsync(operation => operation.ActorUserId == operatorId
+                    && operation.CommandId == commandId, token);
+            if (replay is not null)
+                return replay.RequestHash == requestHash
+                    ? Result.Success(ToResponse(replay))
+                    : Failure(EmergencyTourErrorCodes.IdempotencyPayloadMismatch,
+                        "This command id has already been used with different data.");
+
+            EmergencyTourCancellationOperation? prior = await dbContext
+                .EmergencyTourCancellationOperations.AsNoTracking()
+                .SingleOrDefaultAsync(operation => operation.TourScheduleId == scheduleId, token);
+            if (prior is not null)
+                return Failure(EmergencyTourErrorCodes.AlreadyTerminal,
+                    "The departure already has a terminal decision.");
+            if (schedule.Status == TourScheduleStatus.Completed || clock.UtcNow >= schedule.EndAtUtc)
+                return Failure(EmergencyTourErrorCodes.AlreadyCompleted,
+                    "A completed departure cannot be cancelled or stopped.");
+            if (schedule.Status != TourScheduleStatus.Scheduled)
+                return Failure(EmergencyTourErrorCodes.AlreadyTerminal,
+                    "The departure already has a terminal decision.");
+
+            EmergencyTourImpactSnapshot impact = await EmergencyTourImpact.LoadAsync(
+                dbContext, schedule, token);
+
+            if (impact.HasUnverifiedSessions)
+                return Failure(EmergencyTourErrorCodes.TripSessionLinkUnverified,
+                    "An unverified session link was detected and cannot be mutated.");
+
+            if (!CryptographicOperations.FixedTimeEquals(
+                    Encoding.UTF8.GetBytes(impact.Version), Encoding.UTF8.GetBytes(impactVersion)))
+                return Failure(EmergencyTourErrorCodes.ConcurrentStateChanged,
+                    "The departure impact changed. Refresh the preview before confirming.");
+
+            string beforeData = JsonSerializer.Serialize(new
+            {
+                PermissionPath = EmergencyTourAuditValues.OwningActiveApprovedTourOperator,
+                CorrelationId = commandId,
+                Schedule = new { schedule.Id, Status = schedule.Status.ToString() },
+                Bookings = impact.Bookings.Select(booking => new
+                {
+                    booking.Id,
+                    Status = booking.Status.ToString(),
+                    PaymentStatus = booking.PaymentStatus.ToString(),
+                    booking.CancellationPolicySnapshot,
+                }),
+                Sessions = impact.ActiveSessions.Select(session => new
+                {
+                    session.Id,
+                    session.FsmState,
+                }),
+            });
+            string composedReason = $"{reason}: {reasonDetails.Trim()}";
+            string bookingReason = composedReason.Length <= Booking.CancelReasonMaxLength
+                ? composedReason
+                : composedReason[..Booking.CancelReasonMaxLength];
+            string auditReason = composedReason.Length <= AuditLog.ReasonMaxLength
+                ? composedReason
+                : composedReason[..AuditLog.ReasonMaxLength];
+
+            bool stateChanged = await EmergencyDepartureStateMutator.MutateAsync(
+                dbContext, schedule, impact.Bookings, impact.ActiveSessions,
+                isPreStart, now, bookingReason, reason.ToString(), token);
+            if (!stateChanged)
+                return Failure(EmergencyTourErrorCodes.WrongActionWindow,
+                    "The selected emergency action no longer matches the departure time window.");
+
+            string policyEvidence = JsonSerializer.Serialize(impact.Bookings.Select(booking => new
+            {
+                booking.Id,
+                booking.CancellationPolicySnapshot,
+            }));
+            string policySnapshot = policyEvidence.Length <= EmergencyTourCancellationOperation.ContractPolicySnapshotMaxLength
+                ? policyEvidence
+                : $"sha256:{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(policyEvidence))).ToLowerInvariant()}";
+            var operation = EmergencyTourCancellationOperation.Create(
+                schedule.Id, operatorId, commandId, requestHash, action, reason.ToString(),
+                reasonDetails, immediateInstructions, emergencyContact, evidenceReference,
+                policySnapshot, impact.Bookings.Length, now,
+                evidenceUrl: evidenceUrl,
+                authorityReference: authorityReference,
+                evidenceProvenance: EmergencyEvidenceProvenance.OperatorProvided,
+                evidenceAddedLater: addEvidenceLater);
+            dbContext.EmergencyTourCancellationOperations.Add(operation);
+
+            AddNotifications(schedule, impact.Bookings, action, now);
+            dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(operatorId,
+                isPreStart ? AuditActionTypes.TourEmergencyCancelled : AuditActionTypes.TourEmergencyStopped,
+                AuditEntityTypes.TourSchedule, schedule.Id, now, AuditOutcome.Success,
+                auditReason,
+                beforeData: beforeData,
+                afterData: JsonSerializer.Serialize(new
+                {
+                    PermissionPath = EmergencyTourAuditValues.OwningActiveApprovedTourOperator,
+                    CorrelationId = operation.CommandId,
+                    Schedule = new { schedule.Id, Status = schedule.Status.ToString() },
+                    Bookings = impact.Bookings.Select(booking => new
+                    {
+                        booking.Id,
+                        Status = booking.Status.ToString(),
+                    }),
+                    Sessions = impact.ActiveSessions.Select(session => new
+                    {
+                        session.Id,
+                        session.FsmState,
+                    }),
+                    operation.AffectedBookingCount,
+                    EvidenceProvenance = operation.EvidenceProvenance,
+                    operation.EvidenceAddedLater,
+                    EvidenceReferenceHash = Hash(operation.EvidenceReference),
+                    EvidenceUrlHash = Hash(operation.EvidenceUrl),
+                    AuthorityReferenceHash = Hash(operation.AuthorityReference),
+                })));
+            await dbContext.SaveChangesAsync(token);
+                    return Result.Success(ToResponse(operation));
+                }, cancellationToken);
+            }
+            catch (Exception exception) when (attempt < 3
+                && (exception is DbUpdateException || dbContext.IsDeadlock(exception)))
+            {
+                dbContext.ClearTrackedEntities();
+            }
+        }
+    }
+
+    private void AddNotifications(
+        TourSchedule schedule,
+        IReadOnlyCollection<Booking> bookings,
+        string action,
+        DateTimeOffset now)
+    {
+        bool stopped = action == EmergencyTourCancellationOperation.EmergencyStopActiveAction;
+        string type = stopped
+            ? Notification.EmergencyDepartureStoppedType
+            : Notification.EmergencyDepartureCancelledType;
+        foreach (Booking booking in bookings)
+        {
+            EmergencyPushNotices.AddBookingNotice(
+                dbContext, booking.TravelerUserId, booking.Id, type, now);
+        }
+    }
+
+    private static string? Hash(string? value) => value is null
+        ? null
+        : Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
+
+    private static string ComputeRequestHash(long tourId, long scheduleId, Guid commandId,
+        string impactVersion, string action, EmergencyTourReason reason, string reasonDetails,
+        string? immediateInstructions, string? emergencyContact, string? evidenceReference,
+        string? evidenceUrl, string? authorityReference, bool addEvidenceLater)
+    {
+        // Notice: currentPassword is intentionally omitted from the request hash.
+        string canonical = string.Join('\n', tourId, scheduleId, commandId, impactVersion,
+            action, reason, reasonDetails.Trim(), immediateInstructions?.Trim() ?? string.Empty,
+            emergencyContact?.Trim() ?? string.Empty, evidenceReference?.Trim() ?? string.Empty,
+            evidenceUrl?.Trim() ?? string.Empty, authorityReference?.Trim() ?? string.Empty,
+            addEvidenceLater ? "1" : "0");
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical)))
+            .ToLowerInvariant();
+    }
+
+    private static EmergencyTourActionResponse ToResponse(
+        EmergencyTourCancellationOperation operation) => new(
+            operation.Id,
+            operation.TourScheduleId,
+            operation.Action,
+            operation.Action == EmergencyTourCancellationOperation.CancelBeforeDepartureAction
+                ? TourScheduleStatus.Cancelled.ToString()
+                : TourScheduleStatus.EmergencyStopped.ToString(),
+            operation.AffectedBookingCount,
+            operation.CommittedAtUtc);
+
+    private static Result<EmergencyTourActionResponse> Failure(string code, string message) =>
+        Result.Failure<EmergencyTourActionResponse>(code, message);
+}

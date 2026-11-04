@@ -9,6 +9,7 @@ using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Media;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
+using TripMate.Infrastructure.Persistence.Configurations;
 
 namespace TripMate.Infrastructure.Persistence;
 
@@ -17,6 +18,8 @@ public class ApplicationDbContext(
     : DbContext(options), IApplicationDbContext
 {
     private const int SqlServerDeadlockVictimError = 1205;
+    private const int SqlServerUniqueIndexError = 2601;
+    private const int SqlServerUniqueConstraintError = 2627;
 
     public DbSet<User> Users => Set<User>();
 
@@ -98,6 +101,8 @@ public class ApplicationDbContext(
     public DbSet<TourBookingCreateOperation> TourBookingCreateOperations => Set<TourBookingCreateOperation>();
     public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
     public DbSet<Refund> Refunds => Set<Refund>();
+    public DbSet<EmergencyTourCancellationOperation> EmergencyTourCancellationOperations =>
+        Set<EmergencyTourCancellationOperation>();
     public DbSet<RefundManualCompletionOperation> RefundManualCompletionOperations =>
         Set<RefundManualCompletionOperation>();
     public DbSet<RevenueExport> RevenueExports => Set<RevenueExport>();
@@ -192,6 +197,24 @@ public class ApplicationDbContext(
         for (var current = exception; current is not null; current = current.InnerException)
         {
             if (current is SqlException { Number: SqlServerDeadlockVictimError })
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public bool IsSourceBookingUniqueConflict(DbUpdateException exception)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is SqlException
+                {
+                    Number: SqlServerUniqueIndexError or SqlServerUniqueConstraintError
+                } sqlException
+                && sqlException.Message.Contains(
+                    $"'{ItineraryConfiguration.SourceBookingIndexName}'", StringComparison.Ordinal))
             {
                 return true;
             }
@@ -314,6 +337,14 @@ public class ApplicationDbContext(
     public DbSet<TripLocationLog> TripLocationLogs => Set<TripLocationLog>();
 
     public DbSet<WeatherEvent> WeatherEvents => Set<WeatherEvent>();
+
+    public DbSet<WeatherAlertInboxItem> WeatherAlertInboxItems => Set<WeatherAlertInboxItem>();
+
+    public DbSet<WeatherEventEvaluation> WeatherEventEvaluations => Set<WeatherEventEvaluation>();
+
+    public DbSet<WeatherSafetyReview> WeatherSafetyReviews => Set<WeatherSafetyReview>();
+
+    public DbSet<WeatherLocationMapping> WeatherLocationMappings => Set<WeatherLocationMapping>();
 
     public DbSet<ReroutingEvent> ReroutingEvents => Set<ReroutingEvent>();
 

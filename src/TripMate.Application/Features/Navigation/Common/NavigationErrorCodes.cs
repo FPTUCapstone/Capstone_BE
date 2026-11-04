@@ -11,6 +11,7 @@ public static class NavigationErrorCodes
     public const string IdempotencyKeyPayloadMismatch = "navigation.idempotency_key_payload_mismatch";
     public const string ItemAlreadyReached = "navigation.item_already_reached";
     public const string SessionCompleted = "navigation.session_completed";
+    public const string SessionInterrupted = "navigation.session_interrupted";
     public const string NoNavigableItems = "navigation.no_navigable_items";
     public const string ItineraryScheduleIncomplete = "navigation.itinerary_schedule_incomplete";
     public const string ItemNotNavigable = "navigation.item_not_navigable";

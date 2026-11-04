@@ -24,6 +24,10 @@ public class TourSchedule : BaseEntity
 
     public string? MeetingPoint { get; private set; }
 
+    public decimal? MeetingLatitude { get; private set; }
+
+    public decimal? MeetingLongitude { get; private set; }
+
     public int TotalCapacity { get; private set; }
 
     public int MinimumCapacity { get; private set; }
@@ -45,7 +49,8 @@ public class TourSchedule : BaseEntity
     public static TourSchedule Create(DateTimeOffset startAtUtc, DateTimeOffset endAtUtc,
         string? meetingPoint, int totalCapacity, DateTimeOffset createdAtUtc,
         int minimumCapacity = 1, DateTimeOffset? registrationDeadlineAtUtc = null,
-        decimal? adultPrice = null, decimal? childPrice = null, decimal? infantPrice = null)
+        decimal? adultPrice = null, decimal? childPrice = null, decimal? infantPrice = null,
+        decimal? meetingLatitude = null, decimal? meetingLongitude = null)
     {
         if (endAtUtc <= startAtUtc) throw new ArgumentOutOfRangeException(nameof(endAtUtc));
         if (totalCapacity <= 0) throw new ArgumentOutOfRangeException(nameof(totalCapacity));
@@ -60,7 +65,9 @@ public class TourSchedule : BaseEntity
         var normalizedMeetingPoint = string.IsNullOrWhiteSpace(meetingPoint) ? null : meetingPoint.Trim();
         if (normalizedMeetingPoint?.Length > MeetingPointMaxLength)
             throw new ArgumentOutOfRangeException(nameof(meetingPoint));
-        return new TourSchedule
+        if (meetingLatitude.HasValue != meetingLongitude.HasValue)
+            throw new ArgumentException("Meeting coordinates must be provided together.");
+        var schedule = new TourSchedule
         {
             StartAtUtc = startAtUtc.ToUniversalTime(),
             EndAtUtc = endAtUtc.ToUniversalTime(),
@@ -75,6 +82,9 @@ public class TourSchedule : BaseEntity
             Status = TourScheduleStatus.Scheduled,
             CreatedAtUtc = createdAtUtc.ToUniversalTime(),
         };
+        if (meetingLatitude.HasValue)
+            schedule.SetVerifiedMeetingCoordinates(meetingLatitude.Value, meetingLongitude!.Value);
+        return schedule;
     }
 
     internal void AttachTo(Tour tour)
@@ -125,6 +135,45 @@ public class TourSchedule : BaseEntity
         Status == TourScheduleStatus.Scheduled &&
         (!RegistrationDeadlineAtUtc.HasValue || nowUtc < RegistrationDeadlineAtUtc.Value) &&
         nowUtc < StartAtUtc;
+
+    public void SetVerifiedMeetingCoordinates(decimal latitude, decimal longitude)
+    {
+        if (latitude is < -90 or > 90) throw new ArgumentOutOfRangeException(nameof(latitude));
+        if (longitude is < -180 or > 180) throw new ArgumentOutOfRangeException(nameof(longitude));
+        MeetingLatitude = latitude;
+        MeetingLongitude = longitude;
+    }
+
+    public void ReviewWeatherMeetingPoint(string meetingPoint, decimal latitude, decimal longitude)
+    {
+        if (string.IsNullOrWhiteSpace(meetingPoint))
+            throw new ArgumentException("A meeting point name is required.", nameof(meetingPoint));
+        var normalized = meetingPoint.Trim();
+        if (normalized.Length > MeetingPointMaxLength)
+            throw new ArgumentOutOfRangeException(nameof(meetingPoint));
+
+        SetVerifiedMeetingCoordinates(latitude, longitude);
+        MeetingPoint = normalized;
+    }
+
+    public bool CancelBeforeDeparture(DateTimeOffset nowUtc)
+    {
+        if (Status != TourScheduleStatus.Scheduled || nowUtc.ToUniversalTime() >= StartAtUtc)
+            return false;
+
+        Status = TourScheduleStatus.Cancelled;
+        return true;
+    }
+
+    public bool EmergencyStop(DateTimeOffset nowUtc)
+    {
+        DateTimeOffset now = nowUtc.ToUniversalTime();
+        if (Status != TourScheduleStatus.Scheduled || now < StartAtUtc || now >= EndAtUtc)
+            return false;
+
+        Status = TourScheduleStatus.EmergencyStopped;
+        return true;
+    }
 
     private static bool HasFraction(decimal? price) => price.HasValue && price.Value != decimal.Truncate(price.Value);
 }

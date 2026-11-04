@@ -19,7 +19,9 @@ using TripMate.Api.DevSearch;
 using TripMate.Api.Diagnostics;
 using TripMate.Api.Middleware;
 using TripMate.Api.OpenApi;
+using TripMate.Api.Realtime;
 using TripMate.Application;
+using TripMate.Application.Common.Interfaces;
 using TripMate.Domain.Enums;
 using TripMate.Infrastructure;
 using TripMate.Infrastructure.Authentication;
@@ -36,10 +38,13 @@ try
         .ReadFrom.Configuration(context.Configuration)
         .ReadFrom.Services(services)
         .WriteTo.Console());
+    builder.Services.AddSingleton<Serilog.Core.ILogEventFilter, HubQueryTokenLogFilter>();
 
     builder.Services.AddApplication();
     builder.Services.AddInfrastructure(builder.Configuration);
     builder.Services.AddDevTourSearch(builder.Configuration, builder.Environment);
+    builder.Services.AddSignalR();
+    builder.Services.AddSingleton<IWeatherSafetyReviewNotifier, SignalRWeatherSafetyReviewNotifier>();
 
     // UC-10 Phase 3: one log line per scheduling solver outcome, the signal for CSP monitoring.
     builder.Services.AddHostedService<SchedulingSolverOutcomeLogger>();
@@ -159,6 +164,20 @@ try
                     Convert.FromBase64String(signingKey)),
                 ClockSkew = TimeSpan.FromMinutes(1),
             };
+            options.Events = new JwtBearerEvents
+            {
+                OnMessageReceived = context =>
+                {
+                    var accessToken = context.Request.Query["access_token"];
+                    if (!string.IsNullOrWhiteSpace(accessToken)
+                        && context.HttpContext.Request.Path.StartsWithSegments(WeatherSafetyReviewHub.Route))
+                    {
+                        context.Token = accessToken;
+                    }
+
+                    return Task.CompletedTask;
+                },
+            };
         });
 
     builder.Services.AddAuthorization(options =>
@@ -264,6 +283,7 @@ try
     app.UseRateLimiter();
 
     app.MapControllers();
+    app.MapHub<WeatherSafetyReviewHub>(WeatherSafetyReviewHub.Route);
 
     app.MapGet("/health", () => Results.Ok(new { status = "healthy" })).AllowAnonymous();
 

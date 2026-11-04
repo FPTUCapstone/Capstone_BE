@@ -13,6 +13,7 @@ public sealed class TripSession : BaseEntity
     public const string TravelerStoppedReason = "TravelerStopped";
     public const string ExpiredReason = "Expired";
     public const string GroupAccessRevokedReason = "GroupAccessRevoked";
+    public const string WeatherEmergencyReason = "WeatherEmergency";
 
     private readonly List<TripSessionItem> _items = [];
     private readonly List<TripStateHistory> _stateHistory = [];
@@ -40,7 +41,7 @@ public sealed class TripSession : BaseEntity
     public IReadOnlyCollection<TripSessionItem> Items => _items.AsReadOnly();
     public IReadOnlyCollection<TripStateHistory> StateHistory => _stateHistory.AsReadOnly();
 
-    private bool IsCompleted => FsmState == CompletedState;
+    private bool IsTerminal => FsmState is CompletedState or InterruptedState;
 
     private bool HasReachedEveryItem =>
         _items.All(item => item.Status == TripSessionItem.ReachedStatus);
@@ -123,6 +124,8 @@ public sealed class TripSession : BaseEntity
     public TripSessionProgressOutcome ReachItem(long itineraryItemId, DateTimeOffset reachedAtUtc)
     {
         EnsureUtc(reachedAtUtc, nameof(reachedAtUtc));
+        if (FsmState == InterruptedState)
+            return TripSessionProgressOutcome.SessionInterrupted;
         var target = FindItem(itineraryItemId);
         if (target is null)
         {
@@ -134,9 +137,11 @@ public sealed class TripSession : BaseEntity
             return TripSessionProgressOutcome.Replayed;
         }
 
-        if (IsCompleted)
+        if (IsTerminal)
         {
-            return TripSessionProgressOutcome.SessionCompleted;
+            return FsmState == InterruptedState
+                ? TripSessionProgressOutcome.SessionInterrupted
+                : TripSessionProgressOutcome.SessionCompleted;
         }
 
         target.MarkReached(reachedAtUtc);
@@ -166,6 +171,8 @@ public sealed class TripSession : BaseEntity
     public TripSessionProgressOutcome SkipItem(long itineraryItemId, DateTimeOffset skippedAtUtc)
     {
         EnsureUtc(skippedAtUtc, nameof(skippedAtUtc));
+        if (FsmState == InterruptedState)
+            return TripSessionProgressOutcome.SessionInterrupted;
         var target = FindItem(itineraryItemId);
         if (target is null)
         {
@@ -182,9 +189,11 @@ public sealed class TripSession : BaseEntity
             return TripSessionProgressOutcome.Replayed;
         }
 
-        if (IsCompleted)
+        if (IsTerminal)
         {
-            return TripSessionProgressOutcome.SessionCompleted;
+            return FsmState == InterruptedState
+                ? TripSessionProgressOutcome.SessionInterrupted
+                : TripSessionProgressOutcome.SessionCompleted;
         }
 
         target.MarkSkipped(skippedAtUtc);
@@ -194,9 +203,11 @@ public sealed class TripSession : BaseEntity
     public TripSessionProgressOutcome Depart(DateTimeOffset departedAtUtc)
     {
         EnsureUtc(departedAtUtc, nameof(departedAtUtc));
-        if (IsCompleted)
+        if (IsTerminal)
         {
-            return TripSessionProgressOutcome.SessionCompleted;
+            return FsmState == InterruptedState
+                ? TripSessionProgressOutcome.SessionInterrupted
+                : TripSessionProgressOutcome.SessionCompleted;
         }
 
         if (FsmState != ExploringState)
@@ -217,7 +228,7 @@ public sealed class TripSession : BaseEntity
     public bool Finish(DateTimeOffset finishedAtUtc)
     {
         EnsureUtc(finishedAtUtc, nameof(finishedAtUtc));
-        if (IsCompleted)
+        if (IsTerminal)
         {
             return false;
         }
@@ -231,7 +242,7 @@ public sealed class TripSession : BaseEntity
     public bool RevokeGroupAccess(DateTimeOffset revokedAtUtc)
     {
         EnsureUtc(revokedAtUtc, nameof(revokedAtUtc));
-        if (IsCompleted)
+        if (IsTerminal)
         {
             return false;
         }
@@ -243,7 +254,7 @@ public sealed class TripSession : BaseEntity
     public bool ExpireIfDue(DateTimeOffset nowUtc)
     {
         EnsureUtc(nowUtc, nameof(nowUtc));
-        if (IsCompleted || ExpiresAtUtc is not { } expiresAtUtc || nowUtc < expiresAtUtc)
+        if (IsTerminal || ExpiresAtUtc is not { } expiresAtUtc || nowUtc < expiresAtUtc)
         {
             return false;
         }
@@ -251,6 +262,23 @@ public sealed class TripSession : BaseEntity
         Complete(ExpiredReason, TripStateHistory.TriggeredBySystem, expiresAtUtc);
         return true;
     }
+
+    public bool InterruptForEmergency(DateTimeOffset interruptedAtUtc, string reason)
+    {
+        EnsureUtc(interruptedAtUtc, nameof(interruptedAtUtc));
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        if (IsTerminal) return false;
+
+        CompletionReason = reason.Trim();
+        EndedAtUtc = interruptedAtUtc;
+        ExploringItemId = null;
+        RecordTransition(FsmState, InterruptedState, CompletionReason,
+            TripStateHistory.TriggeredBySystem, interruptedAtUtc);
+        return true;
+    }
+
+    public bool InterruptForWeather(DateTimeOffset interruptedAtUtc) =>
+        InterruptForEmergency(interruptedAtUtc, WeatherEmergencyReason);
 
     /// <summary>
     /// Resolves the time of a Traveler action: a device-observed time is kept only when it is not
@@ -335,4 +363,5 @@ public enum TripSessionProgressOutcome
     NotInSnapshot = 3,
     AlreadyReached = 4,
     SessionCompleted = 5,
+    SessionInterrupted = 6,
 }

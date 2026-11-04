@@ -32,6 +32,7 @@ using TripMate.Application.Features.TripAlerts.Common;
 using TripMate.Application.Features.TripAlerts.Weather;
 using TripMate.Application.Features.TripReviews.Common;
 using TripMate.Application.Features.TripReviews.Media;
+using TripMate.Application.Features.Weather.Processing;
 using TripMate.Infrastructure.Ai;
 using TripMate.Infrastructure.AiExplanation;
 using TripMate.Infrastructure.AiRanking;
@@ -42,6 +43,7 @@ using TripMate.Infrastructure.Media;
 using TripMate.Infrastructure.Media.Cloudinary;
 using TripMate.Infrastructure.Persistence;
 using TripMate.Infrastructure.Reporting;
+using TripMate.Infrastructure.Weather;
 using TripMate.Infrastructure.Reviews.Media;
 using TripMate.Infrastructure.Reviews.Moderation;
 using TripMate.Infrastructure.Routing;
@@ -399,6 +401,26 @@ public static class DependencyInjection
         services.Configure<PasswordResetSecurityOptions>(configuration.GetSection(PasswordResetSecurityOptions.SectionName));
         services.AddTicketQr(configuration);
         services.AddSingleton<ITicketQrPersistenceErrorClassifier, SqlServerTicketQrPersistenceErrorClassifier>();
+
+        // Weather alerts create Operator reviews; they never invoke UC-70 cancellation commands.
+        services.AddOptions<TomorrowIoOptions>()
+            .Bind(configuration.GetSection(TomorrowIoOptions.SectionName))
+            .PostConfigure(options =>
+            {
+                if (string.IsNullOrWhiteSpace(options.ApiKey))
+                    options.ApiKey = configuration["Tomorrow:ApiKey"] ?? string.Empty;
+            });
+        services.Configure<WeatherAlertProcessingOptions>(configuration.GetSection(TomorrowIoOptions.SectionName));
+        services.AddSingleton<IValidateOptions<TomorrowIoOptions>, TomorrowIoOptionsValidator>();
+        services.AddSingleton<ITomorrowWebhookAuthenticator, TomorrowWebhookAuthenticator>();
+        services.AddSingleton<IWeatherAlertNormalizer, TomorrowAlertNormalizer>();
+        services.AddScoped<IWeatherAlertInboxStore, SqlWeatherAlertInboxStore>();
+        services.AddScoped<IWeatherAlertInboxProcessor, WeatherAlertInboxProcessor>();
+        services.AddHttpClient<ITomorrowAlertsClient, TomorrowAlertsClient>();
+        services.AddHostedService<WeatherAlertInboxBackgroundService>();
+        services.AddHostedService<WeatherSafetyReviewEscalationBackgroundService>();
+        services.AddHostedService<TomorrowNotificationReconciliationBackgroundService>();
+        services.AddHostedService<WeatherLocationSyncBackgroundService>();
 
         // UC-06 password reset: zero DB schema; reset state lives in process-local memory only.
         services.AddSingleton<IPasswordResetStateStore, InMemoryPasswordResetStateStore>();

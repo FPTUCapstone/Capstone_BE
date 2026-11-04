@@ -10,6 +10,7 @@ using TripMate.Application.Features.Coupons.Common;
 using TripMate.Application.Features.Navigation.Common;
 using TripMate.Application.Features.Operator.CheckIn.Common;
 using TripMate.Application.Features.Operator.Tours.Common;
+using TripMate.Application.Features.Operator.Tours.Emergency;
 using TripMate.Application.Features.PointsOfInterest.Common;
 using TripMate.Application.Features.RecommendationFeedback.Common;
 using TripMate.Application.Features.Scheduling.Common;
@@ -285,9 +286,31 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             OperatorTourErrorCodes.ReviewPrerequisitesMissing => StatusCodes.Status422UnprocessableEntity,
             OperatorTourErrorCodes.RejectionReasonInvalid => StatusCodes.Status422UnprocessableEntity,
 
+            EmergencyTourErrorCodes.NotFound => StatusCodes.Status404NotFound,
+            EmergencyTourErrorCodes.Forbidden => StatusCodes.Status403Forbidden,
+            EmergencyTourErrorCodes.InvalidRequest => StatusCodes.Status400BadRequest,
+            EmergencyTourErrorCodes.AlreadyCompleted => StatusCodes.Status422UnprocessableEntity,
+            EmergencyTourErrorCodes.AlreadyTerminal or
+                EmergencyTourErrorCodes.ConcurrentStateChanged or
+                EmergencyTourErrorCodes.WrongActionWindow or
+                EmergencyTourErrorCodes.EvidenceNotPending or
+                EmergencyTourErrorCodes.EvidenceStale or
+                EmergencyTourErrorCodes.TripSessionLinkUnverified or
+                EmergencyTourErrorCodes.IdempotencyPayloadMismatch => StatusCodes.Status409Conflict,
+
+            TripMate.Application.Features.Operator.WeatherSafetyReviews.WeatherSafetyReviewErrorCodes.NotFound =>
+                StatusCodes.Status404NotFound,
+            TripMate.Application.Features.Operator.WeatherSafetyReviews.WeatherSafetyReviewErrorCodes.Forbidden =>
+                StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.Operator.WeatherSafetyReviews.WeatherSafetyReviewErrorCodes.AlreadyClosed =>
+                StatusCodes.Status409Conflict,
+
             TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.AccessRequired =>
                 StatusCodes.Status403Forbidden,
             TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.ScheduleNotFound =>
+                StatusCodes.Status404NotFound,
+            TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.BookingNotFound or
+                TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.EmergencyStatusNotFound =>
                 StatusCodes.Status404NotFound,
             TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.VoucherNotFound =>
                 StatusCodes.Status404NotFound,

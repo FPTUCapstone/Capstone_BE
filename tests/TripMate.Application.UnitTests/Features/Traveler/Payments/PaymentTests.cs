@@ -6,12 +6,15 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Itineraries.Common;
+using TripMate.Application.Features.Navigation.Start;
 using TripMate.Application.Features.Traveler.Payments.Common;
 using TripMate.Application.Features.Traveler.Payments.Create;
 using TripMate.Application.Features.Traveler.Payments.Mock;
 using TripMate.Application.Features.Traveler.Payments.Status;
 using TripMate.Application.Features.Traveler.Payments.Webhook;
 using TripMate.Application.UnitTests.TestUtilities;
+using TripMate.Domain.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -218,6 +221,394 @@ public sealed class PaymentTests
 
         var reloadedTx = await db.PaymentTransactions.FindAsync(tx.Id);
         reloadedTx!.Status.Should().Be(PaymentTransactionStatus.Success);
+    }
+
+    [Fact]
+    public async Task MockOutcome_Success_MaterializesNavigableItineraryAndStartsNavigation()
+    {
+        await using var db = CreateDbContext();
+        var (travelerId, booking) = await SeedBookingAsync(db, BookingStatus.PendingPayment, PaymentStatus.Unpaid,
+            paymentExpiresAtUtc: Now.AddMinutes(15));
+        // Departure is already running (start = Now) so the navigation window is open.
+        SeedBookableTourWithStops(db, booking.TourScheduleId, departureStartUtc: Now);
+        await db.SaveChangesAsync();
+
+        var tx = PaymentTransaction.Create(booking.Id, PaymentGateway.Mock, booking.TotalAmount, 9995, Now);
+        db.PaymentTransactions.Add(tx);
+        await db.SaveChangesAsync();
+
+        var clock = new FixedClock(Now);
+        var processor = new PaymentCompletionProcessor(db, clock);
+        var handler = new CompleteMockPaymentCommandHandler(
+            db, new TestCurrentUserService(travelerId), processor, new PaymentOptions { Provider = "Mock" });
+
+        var result = await handler.Handle(new CompleteMockPaymentCommand(tx.Id, "Success"), CancellationToken.None);
+        result.IsSuccess.Should().BeTrue();
+
+        var itinerary = await db.Itineraries
+            .Include(entity => entity.Items)
+            .SingleAsync(entity => entity.SourceBookingId == booking.Id);
+        itinerary.SourceType.Should().Be(Itinerary.BookedTourSourceType);
+        itinerary.Status.Should().Be(Itinerary.ActiveStatus);
+        itinerary.TravelerUserId.Should().Be(travelerId);
+        itinerary.ValidFromUtc.Should().Be(Now);
+        itinerary.ValidToUtc.Should().Be(Now.AddHours(8));
+
+        // Asia/Ho_Chi_Minh (+07, no DST): local departure date 2026-10-18.
+        var items = itinerary.Items.OrderBy(item => item.SequenceNo).ToList();
+        items.Should().HaveCount(2);
+        items[0].SequenceNo.Should().Be(1);
+        items[0].PointOfInterestId.Should().Be(501);
+        items[0].PlannedArrivalUtc.Should().Be(new DateTimeOffset(2026, 10, 18, 10, 30, 0, TimeSpan.Zero));
+        items[0].PlannedDepartureUtc.Should().Be(new DateTimeOffset(2026, 10, 18, 11, 30, 0, TimeSpan.Zero));
+        items[0].IsMandatory.Should().BeTrue();
+        items[0].RecommendationReason.Should().Be("Golden Bridge walk");
+        items[1].SequenceNo.Should().Be(2);
+        items[1].PointOfInterestId.Should().Be(502);
+        items[1].PlannedArrivalUtc.Should().Be(new DateTimeOffset(2026, 10, 18, 12, 0, 0, TimeSpan.Zero));
+        items[1].PlannedDepartureUtc.Should().Be(new DateTimeOffset(2026, 10, 18, 12, 45, 0, TimeSpan.Zero));
+
+        // The snapshot produced by payment must itself be navigable via the production handler.
+        var navigation = await new StartNavigationSessionCommandHandler(db, new ItineraryAccessService(db), clock)
+            .Handle(new StartNavigationSessionCommand(itinerary.Id, travelerId, Guid.NewGuid()),
+                CancellationToken.None);
+        navigation.IsSuccess.Should().BeTrue(
+            "payment output must be navigable, not an empty shell: {0}", navigation.ErrorMessage);
+        navigation.Value.Items.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task MockOutcome_Success_WithUnmaterializableTemplate_KeepsPaymentTruthAndAudits()
+    {
+        await using var db = CreateDbContext();
+        var (travelerId, booking) = await SeedBookingAsync(db, BookingStatus.PendingPayment, PaymentStatus.Unpaid,
+            paymentExpiresAtUtc: Now.AddMinutes(15));
+        // Legacy/inconsistent template: a published departure without scheduled stops.
+        var tour = (Tour)Activator.CreateInstance(typeof(Tour), nonPublic: true)!;
+        typeof(Tour).GetProperty(nameof(Tour.Id))!.SetValue(tour, 11L);
+        typeof(Tour).GetProperty(nameof(Tour.OperatorUserId))!.SetValue(tour, 7L);
+        typeof(Tour).GetProperty(nameof(Tour.Status))!.SetValue(tour, TourStatus.Published);
+        var schedule = TourSchedule.Create(Now.AddDays(4), Now.AddDays(4).AddHours(8), "Da Nang", 20, Now);
+        typeof(TourSchedule).GetProperty(nameof(TourSchedule.Id))!.SetValue(schedule, booking.TourScheduleId);
+        typeof(TourSchedule).GetProperty(nameof(TourSchedule.TourId))!.SetValue(schedule, tour.Id);
+        typeof(TourSchedule).GetProperty(nameof(TourSchedule.Tour))!.SetValue(schedule, tour);
+        db.Tours.Add(tour);
+        db.TourSchedules.Add(schedule);
+
+        var tx = PaymentTransaction.Create(booking.Id, PaymentGateway.Mock, booking.TotalAmount, 9996, Now);
+        db.PaymentTransactions.Add(tx);
+        await db.SaveChangesAsync();
+
+        var clock = new FixedClock(Now);
+        var processor = new PaymentCompletionProcessor(db, clock);
+
+        var result = await processor.CompleteAsync(tx.Id, null, PaymentTransactionStatus.Success,
+            "gateway-ref-1", "{}", null, null, CancellationToken.None);
+
+        // Gateway acknowledgement and payment truth must survive untouched.
+        result.IsSuccess.Should().BeTrue();
+        var reloadedBooking = await db.Bookings.FindAsync(booking.Id);
+        reloadedBooking!.Status.Should().Be(BookingStatus.Confirmed);
+        reloadedBooking.PaymentStatus.Should().Be(PaymentStatus.Paid);
+        // No misleading empty Active itinerary, no invented times.
+        db.Itineraries.Should().BeEmpty();
+        db.ItineraryItems.Should().BeEmpty();
+        db.AuditLogs.Should().Contain(audit =>
+            audit.ActionType == AuditActionTypes.BookingItineraryMaterializationFailed
+            && audit.Result == AuditOutcome.Failure
+            && audit.Reason!.Contains(BookedTourItineraryMaterializer.NoStopsFailureCode));
+    }
+
+    [Fact]
+    public async Task RawDeadlock_StopsAtMaxAttemptsAndPropagates()
+    {
+        var dbName = Guid.NewGuid().ToString();
+        var (_, bookingId, txId) = await SeedPendingPaymentAsync(dbName, bookable: true);
+        // Bare deadlock victim (SQL 1205 can surface unwrapped from reads/saves) — the
+        // coordinator must retry it through the same bounded loop, then rethrow untouched.
+        var faulty = FaultyContext(dbName, attempt =>
+            attempt <= 3 ? new SimulatedDeadlockException() : null);
+
+        var thrown = await Assert.ThrowsAnyAsync<SimulatedDeadlockException>(() =>
+            new PaymentCompletionProcessor(faulty, new FixedClock(Now))
+                .CompleteAsync(txId, null, PaymentTransactionStatus.Success,
+                    "gateway-ref-1", "{}", null, null, CancellationToken.None));
+
+        thrown.Should().BeOfType<SimulatedDeadlockException>();
+        faulty.SaveChangesAsyncCallCount.Should().Be(3, "bounded to three attempts, the last one rethrown");
+        await using var verify = TestDbContext.Create(dbName);
+        verify.Itineraries.Should().BeEmpty();
+        (await verify.Bookings.FindAsync(bookingId))!.Status.Should().Be(BookingStatus.PendingPayment);
+        (await verify.PaymentTransactions.FindAsync(txId))!.Status.Should().Be(PaymentTransactionStatus.Pending);
+    }
+
+    [Fact]
+    public async Task RawDeadlock_CancellationIsHonoredBetweenAttempts()
+    {
+        var dbName = Guid.NewGuid().ToString();
+        var (_, bookingId, txId) = await SeedPendingPaymentAsync(dbName, bookable: true);
+        using var cancellationSource = new CancellationTokenSource();
+        var faulty = FaultyContext(dbName, attempt =>
+        {
+            if (attempt == 1)
+            {
+                cancellationSource.Cancel();
+                return new SimulatedDeadlockException();
+            }
+
+            return null;
+        });
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            new PaymentCompletionProcessor(faulty, new FixedClock(Now))
+                .CompleteAsync(txId, null, PaymentTransactionStatus.Success,
+                    "gateway-ref-1", "{}", null, null, cancellationSource.Token));
+
+        faulty.SaveChangesAsyncCallCount.Should().Be(1, "cancellation stops the loop before attempt two");
+        await using var verify = TestDbContext.Create(dbName);
+        (await verify.Bookings.FindAsync(bookingId))!.Status.Should().Be(BookingStatus.PendingPayment);
+        verify.Itineraries.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task SourceBookingUniqueConflict_ReloadsWinnerAndReturnsReplay()
+    {
+        var dbName = Guid.NewGuid().ToString();
+        var (_, bookingId, txId) = await SeedPendingPaymentAsync(dbName, bookable: true);
+        var faulty = FaultyContext(dbName, attempt => attempt == 1
+            ? new DbUpdateException("unique conflict", new SimulatedSourceBookingUniqueConflictException())
+            : null);
+
+        var result = await new PaymentCompletionProcessor(faulty, new FixedClock(Now))
+            .CompleteAsync(txId, null, PaymentTransactionStatus.Success,
+                "gateway-ref-1", "{}", null, null, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        faulty.SaveChangesAsyncCallCount.Should().Be(2, "one conflict attempt plus the successful replay attempt");
+        await using var verify = TestDbContext.Create(dbName);
+        (await verify.Itineraries.CountAsync(i => i.SourceBookingId == bookingId)).Should().Be(1);
+        (await verify.Bookings.FindAsync(bookingId))!.Status.Should().Be(BookingStatus.Confirmed);
+    }
+
+    [Fact]
+    public async Task RepeatedSourceBookingConflict_StopsAtMaxAttemptsAndPropagates()
+    {
+        var dbName = Guid.NewGuid().ToString();
+        var (_, bookingId, txId) = await SeedPendingPaymentAsync(dbName, bookable: true);
+        var faulty = FaultyContext(dbName, attempt =>
+            new DbUpdateException("unique conflict", new SimulatedSourceBookingUniqueConflictException()));
+
+        await Assert.ThrowsAnyAsync<DbUpdateException>(() =>
+            new PaymentCompletionProcessor(faulty, new FixedClock(Now))
+                .CompleteAsync(txId, null, PaymentTransactionStatus.Success,
+                    "gateway-ref-1", "{}", null, null, CancellationToken.None));
+
+        faulty.SaveChangesAsyncCallCount.Should().Be(3, "bounded to three attempts, the last one rethrown");
+        await using var verify = TestDbContext.Create(dbName);
+        verify.Itineraries.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RepeatedDeadlock_StopsAtMaxAttemptsAndPropagates()
+    {
+        var dbName = Guid.NewGuid().ToString();
+        var (_, _, txId) = await SeedPendingPaymentAsync(dbName, bookable: true);
+        // A fourth save would succeed (sentinel): the bounded loop must never reach it.
+        var faulty = FaultyContext(dbName, attempt => attempt <= 3
+            ? new DbUpdateException("deadlock victim", new SimulatedDeadlockException())
+            : null);
+
+        await Assert.ThrowsAnyAsync<DbUpdateException>(() =>
+            new PaymentCompletionProcessor(faulty, new FixedClock(Now))
+                .CompleteAsync(txId, null, PaymentTransactionStatus.Success,
+                    "gateway-ref-1", "{}", null, null, CancellationToken.None));
+
+        faulty.SaveChangesAsyncCallCount.Should().Be(3, "deadlock retries are bounded and never unbounded");
+    }
+
+    [Fact]
+    public async Task RepeatedDeadlock_CancellationIsHonoredBetweenAttempts()
+    {
+        var dbName = Guid.NewGuid().ToString();
+        var (_, _, txId) = await SeedPendingPaymentAsync(dbName, bookable: true);
+        using var cancellationSource = new CancellationTokenSource();
+        var faulty = FaultyContext(dbName, attempt =>
+        {
+            if (attempt == 1)
+            {
+                // Cancel while the first attempt fails: the retry loop must observe the
+                // token before starting attempt two.
+                cancellationSource.Cancel();
+                return new DbUpdateException("deadlock victim", new SimulatedDeadlockException());
+            }
+
+            return null;
+        });
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            new PaymentCompletionProcessor(faulty, new FixedClock(Now))
+                .CompleteAsync(txId, null, PaymentTransactionStatus.Success,
+                    "gateway-ref-1", "{}", null, null, cancellationSource.Token));
+
+        faulty.SaveChangesAsyncCallCount.Should().Be(1, "cancellation must stop the retry loop");
+    }
+
+    [Fact]
+    public async Task NonUniquePersistenceFailure_IsNotRetriedAndPropagates()
+    {
+        var dbName = Guid.NewGuid().ToString();
+        var (_, _, txId) = await SeedPendingPaymentAsync(dbName, bookable: true);
+        var faulty = FaultyContext(dbName, attempt => new DbUpdateException(
+            "The INSERT statement conflicted with the FOREIGN KEY constraint.",
+            new InvalidOperationException("FK violation on another table.")));
+
+        await Assert.ThrowsAnyAsync<DbUpdateException>(() =>
+            new PaymentCompletionProcessor(faulty, new FixedClock(Now))
+                .CompleteAsync(txId, null, PaymentTransactionStatus.Success,
+                    "gateway-ref-1", "{}", null, null, CancellationToken.None));
+
+        faulty.SaveChangesAsyncCallCount.Should().Be(1, "only source-booking unique conflicts may retry");
+        await using var verify = TestDbContext.Create(dbName);
+        verify.Itineraries.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ItineraryConstraintFailure_IsNotRetriedAndPropagates()
+    {
+        var dbName = Guid.NewGuid().ToString();
+        var (_, bookingId, txId) = await SeedPendingPaymentAsync(dbName, bookable: true);
+        // The itinerary insert would be part of this save; a constraint failure on it is a
+        // data error, never a concurrency conflict, so it must propagate untouched.
+        var faulty = FaultyContext(dbName, attempt => new DbUpdateException(
+            "The UPDATE statement conflicted with the CHECK constraint.",
+            new InvalidOperationException("Check constraint violation while persisting the itinerary.")));
+
+        await Assert.ThrowsAnyAsync<DbUpdateException>(() =>
+            new PaymentCompletionProcessor(faulty, new FixedClock(Now))
+                .CompleteAsync(txId, null, PaymentTransactionStatus.Success,
+                    "gateway-ref-1", "{}", null, null, CancellationToken.None));
+
+        faulty.SaveChangesAsyncCallCount.Should().Be(1);
+        await using var verify = TestDbContext.Create(dbName);
+        verify.Itineraries.Should().BeEmpty();
+        (await verify.Bookings.FindAsync(bookingId))!.Status.Should().Be(BookingStatus.PendingPayment);
+    }
+
+    [Fact]
+    public async Task MaterializationFailure_AuditActorIsNull()
+    {
+        await using var db = CreateDbContext();
+        var (travelerId, booking) = await SeedBookingAsync(db, BookingStatus.PendingPayment, PaymentStatus.Unpaid,
+            paymentExpiresAtUtc: Now.AddMinutes(15));
+        // Legacy/inconsistent template: a published departure without scheduled stops.
+        var tour = (Tour)Activator.CreateInstance(typeof(Tour), nonPublic: true)!;
+        typeof(Tour).GetProperty(nameof(Tour.Id))!.SetValue(tour, 11L);
+        typeof(Tour).GetProperty(nameof(Tour.OperatorUserId))!.SetValue(tour, 7L);
+        typeof(Tour).GetProperty(nameof(Tour.Status))!.SetValue(tour, TourStatus.Published);
+        var schedule = TourSchedule.Create(Now.AddDays(4), Now.AddDays(4).AddHours(8), "Da Nang", 20, Now);
+        typeof(TourSchedule).GetProperty(nameof(TourSchedule.Id))!.SetValue(schedule, booking.TourScheduleId);
+        typeof(TourSchedule).GetProperty(nameof(TourSchedule.TourId))!.SetValue(schedule, tour.Id);
+        typeof(TourSchedule).GetProperty(nameof(TourSchedule.Tour))!.SetValue(schedule, tour);
+        db.Tours.Add(tour);
+        db.TourSchedules.Add(schedule);
+        var tx = PaymentTransaction.Create(booking.Id, PaymentGateway.Mock, booking.TotalAmount, 9998, Now);
+        db.PaymentTransactions.Add(tx);
+        await db.SaveChangesAsync();
+
+        var result = await new PaymentCompletionProcessor(db, new FixedClock(Now))
+            .CompleteAsync(tx.Id, null, PaymentTransactionStatus.Success,
+                "gateway-ref-secret", "raw-payload", null, null, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var audit = await db.AuditLogs
+            .SingleAsync(entry => entry.ActionType == AuditActionTypes.BookingItineraryMaterializationFailed);
+        audit.ActorUserId.Should().BeNull("the system workflow performed the failure, not the traveler");
+        audit.AffectedEntity.Should().Be(AuditEntityTypes.Booking);
+        audit.AffectedEntityId.Should().Be(booking.Id);
+        audit.Result.Should().Be(AuditOutcome.Failure);
+        audit.Reason.Should().Contain(BookedTourItineraryMaterializer.NoStopsFailureCode);
+        audit.Reason.Should().NotContain("gateway-ref-secret");
+        audit.Reason.Should().NotContain("raw-payload");
+        audit.Reason.Should().NotContain(" at ");
+    }
+
+    private static async Task<(long TravelerId, long BookingId, long TransactionId)> SeedPendingPaymentAsync(
+        string databaseName, bool bookable)
+    {
+        await using var db = TestDbContext.Create(databaseName);
+        var (travelerId, booking) = await SeedBookingAsync(db, BookingStatus.PendingPayment, PaymentStatus.Unpaid,
+            paymentExpiresAtUtc: Now.AddMinutes(15));
+        if (bookable)
+        {
+            SeedBookableTourWithStops(db, booking.TourScheduleId, departureStartUtc: Now);
+        }
+
+        var tx = PaymentTransaction.Create(booking.Id, PaymentGateway.Mock, booking.TotalAmount, 9999, Now);
+        db.PaymentTransactions.Add(tx);
+        await db.SaveChangesAsync();
+        return (travelerId, booking.Id, tx.Id);
+    }
+
+    private static TestDbContext FaultyContext(string databaseName, Func<int, Exception?> failureFactory) =>
+        new(new DbContextOptionsBuilder<TestDbContext>()
+            .UseInMemoryDatabase(databaseName)
+            .Options)
+        {
+            SaveChangesAttemptFailureFactory = failureFactory,
+        };
+
+    [Fact]
+    public async Task MockOutcome_Success_CreatesBookedTourItineraryLinkedToBooking()
+    {
+        await using var db = CreateDbContext();
+        var (travelerId, booking) = await SeedBookingAsync(db, BookingStatus.PendingPayment, PaymentStatus.Unpaid,
+            paymentExpiresAtUtc: Now.AddMinutes(15));
+        SeedBookableTourWithStops(db, booking.TourScheduleId, departureStartUtc: Now);
+        await db.SaveChangesAsync();
+
+        var tx = PaymentTransaction.Create(booking.Id, PaymentGateway.Mock, booking.TotalAmount, 9993, Now);
+        db.PaymentTransactions.Add(tx);
+        await db.SaveChangesAsync();
+
+        var clock = new FixedClock(Now);
+        var processor = new PaymentCompletionProcessor(db, clock);
+        var handler = new CompleteMockPaymentCommandHandler(
+            db, new TestCurrentUserService(travelerId), processor, new PaymentOptions { Provider = "Mock" });
+
+        var result = await handler.Handle(new CompleteMockPaymentCommand(tx.Id, "Success"), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var itineraries = await db.Itineraries.ToListAsync();
+        itineraries.Should().ContainSingle();
+        var itinerary = itineraries.Single();
+        itinerary.SourceBookingId.Should().Be(booking.Id);
+        itinerary.SourceType.Should().Be(Itinerary.BookedTourSourceType);
+        itinerary.TravelerUserId.Should().Be(travelerId);
+        itinerary.Status.Should().Be(Itinerary.ActiveStatus);
+        itinerary.SourceTourId.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public async Task MockOutcome_ReplayDoesNotDuplicateBookedTourItinerary()
+    {
+        await using var db = CreateDbContext();
+        var (travelerId, booking) = await SeedBookingAsync(db, BookingStatus.PendingPayment, PaymentStatus.Unpaid,
+            paymentExpiresAtUtc: Now.AddMinutes(15));
+        SeedBookableTourWithStops(db, booking.TourScheduleId, departureStartUtc: Now);
+
+        var tx = PaymentTransaction.Create(booking.Id, PaymentGateway.Mock, booking.TotalAmount, 9994, Now);
+        db.PaymentTransactions.Add(tx);
+        await db.SaveChangesAsync();
+
+        var clock = new FixedClock(Now);
+        var processor = new PaymentCompletionProcessor(db, clock);
+
+        (await processor.CompleteAsync(tx.Id, null, PaymentTransactionStatus.Success,
+            "ref-1", "{}", null, null, CancellationToken.None)).IsSuccess.Should().BeTrue();
+        (await processor.CompleteAsync(tx.Id, null, PaymentTransactionStatus.Success,
+            "ref-1", "{}", null, null, CancellationToken.None)).IsSuccess.Should().BeTrue();
+
+        db.Itineraries.Should().ContainSingle(itinerary => itinerary.SourceBookingId == booking.Id);
     }
 
     [Fact]
@@ -531,6 +922,46 @@ public sealed class PaymentTests
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .Options;
         return new TestDbContext(options);
+    }
+
+    private static void SeedBookableTourWithStops(TestDbContext db, long scheduleId, DateTimeOffset departureStartUtc)
+    {
+        var category = PoiCategory.Create("Beach", null);
+        typeof(PoiCategory).GetProperty(nameof(PoiCategory.Id))!.SetValue(category, 31);
+        var poiOne = (PointOfInterest)Activator.CreateInstance(typeof(PointOfInterest), nonPublic: true)!;
+        typeof(PointOfInterest).GetProperty(nameof(PointOfInterest.Id))!.SetValue(poiOne, 501L);
+        typeof(PointOfInterest).GetProperty(nameof(PointOfInterest.Name))!.SetValue(poiOne, "Golden Bridge");
+        typeof(PointOfInterest).GetProperty(nameof(PointOfInterest.Latitude))!.SetValue(poiOne, 16.0m);
+        typeof(PointOfInterest).GetProperty(nameof(PointOfInterest.Longitude))!.SetValue(poiOne, 108.0m);
+        typeof(PointOfInterest).GetProperty(nameof(PointOfInterest.CategoryId))!.SetValue(poiOne, 31);
+        var poiTwo = (PointOfInterest)Activator.CreateInstance(typeof(PointOfInterest), nonPublic: true)!;
+        typeof(PointOfInterest).GetProperty(nameof(PointOfInterest.Id))!.SetValue(poiTwo, 502L);
+        typeof(PointOfInterest).GetProperty(nameof(PointOfInterest.Name))!.SetValue(poiTwo, "Marble Mountains");
+        typeof(PointOfInterest).GetProperty(nameof(PointOfInterest.Latitude))!.SetValue(poiTwo, 16.0m);
+        typeof(PointOfInterest).GetProperty(nameof(PointOfInterest.Longitude))!.SetValue(poiTwo, 108.2m);
+        typeof(PointOfInterest).GetProperty(nameof(PointOfInterest.CategoryId))!.SetValue(poiTwo, 31);
+
+        var tour = (Tour)Activator.CreateInstance(typeof(Tour), nonPublic: true)!;
+        typeof(Tour).GetProperty(nameof(Tour.Id))!.SetValue(tour, 11L);
+        typeof(Tour).GetProperty(nameof(Tour.OperatorUserId))!.SetValue(tour, 7L);
+        typeof(Tour).GetProperty(nameof(Tour.Status))!.SetValue(tour, TourStatus.Published);
+        typeof(Tour).GetProperty(nameof(Tour.TimeZoneId))!.SetValue(tour, "Asia/Ho_Chi_Minh");
+        var stopOne = TourItineraryItem.Create(1, 1, 501, new TimeOnly(17, 30), 60, "Golden Bridge walk");
+        var stopTwo = TourItineraryItem.Create(1, 2, 502, new TimeOnly(19, 0), 45, null);
+        var itineraryItemsField = typeof(Tour).GetField("_itineraryItems",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        ((List<TourItineraryItem>)itineraryItemsField.GetValue(tour)!).AddRange([stopOne, stopTwo]);
+
+        var schedule = TourSchedule.Create(departureStartUtc, departureStartUtc.AddHours(8),
+            "Da Nang", 20, Now);
+        typeof(TourSchedule).GetProperty(nameof(TourSchedule.Id))!.SetValue(schedule, scheduleId);
+        typeof(TourSchedule).GetProperty(nameof(TourSchedule.TourId))!.SetValue(schedule, tour.Id);
+        typeof(TourSchedule).GetProperty(nameof(TourSchedule.Tour))!.SetValue(schedule, tour);
+
+        db.PoiCategories.Add(category);
+        db.PointsOfInterest.AddRange(poiOne, poiTwo);
+        db.Tours.Add(tour);
+        db.TourSchedules.Add(schedule);
     }
 
     private static async Task<(long TravelerId, Booking Booking)> SeedBookingAsync(
