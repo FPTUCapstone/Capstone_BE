@@ -99,11 +99,32 @@ as a regression check that the mode switch does not affect them.
 - `ItineraryVersionService` builds `WeightedRequestInputs` from the same traveler profile and
   prepared candidates used by the regeneration request before calling `GenerateAsync`.
 - The "prefer other places" tier adjustment remains monotonic. When it produces scores outside
-  `[0,1]`, Regenerate linearly normalizes the selected candidate scores into `[0,1]` before the
-  weighted-input invariant is checked. This preserves tier and within-tier ordering.
+  the weighted-input range, Regenerate linearly normalizes the selected candidate scores before
+  the invariant is checked. Issue #121 below refines the target interval to `[0.5,1]`, preserving
+  tier and within-tier ordering.
 - A regeneration returns a new itinerary version or an existing business failure such as
   `itinerary.no_alternative` / `itinerary.constraints_infeasible`; missing weighted inputs or tier
   penalties must not escape as an unhandled exception.
+
+### Regeneration score floor (issue #121, updated after PR #133 review on 2026-10-28)
+
+- For every WeightedUtility Regenerate request, map tier-adjusted scores that need normalization
+  linearly into `[0.5, 1]`, preserving both tier and within-tier order. Scores already in that
+  interval remain unchanged. If all adjusted scores are equal and need normalization, use `0.5`
+  for every candidate. This rule also applies when a traveler has matching preferences; a
+  previous POI must not receive zero utility solely because it is the lowest tier.
+- `0.5` is a neutral baseline for the regeneration objective, not a reused
+  `TripMateBaseScore` from Create's ranking snapshot. Regenerate calculates preference scores
+  on a different scale (`0`, `100`, `200`, ...), then applies tier penalties.
+- Calibration assumes time-fit factor `1` and no extra soft penalties: a second POI in the same
+  diversity group has gain `0.5 × 0.7 = 0.35` with `GammaDefault = 0.7`. A POI in another group
+  has gain `0.5`, as in the regression test. The no-DI Moderate fallback has
+  `LambdaPerMin = 0.015`, so a 10-minute added leg costs `0.15`. The `appsettings.json` pace
+  defaults are Relaxed `0.018`, Moderate `0.012`, Fast `0.008`; at the default Relaxed pace,
+  that leg costs `0.18`, below the conservative same-group gain. More travel, poor time fit, or other
+  penalties can still make a POI undesirable; filling every minute is not guaranteed.
+- The unseen POI must come first when both fit; a previously suggested POI remains eligible if
+  its marginal utility exceeds its travel and soft costs. Lexicographic behavior is unchanged.
 
 ## Invariants that must hold in every solver mode
 
