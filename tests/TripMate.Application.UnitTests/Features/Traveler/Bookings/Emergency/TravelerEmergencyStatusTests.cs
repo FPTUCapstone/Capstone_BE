@@ -97,7 +97,7 @@ public sealed class TravelerEmergencyStatusTests
     {
         var preview = await new GetEmergencyTourImpactQueryHandler(db, currentUser, clock)
             .Handle(new GetEmergencyTourImpactQuery(1, schedule.Id), CancellationToken.None);
-        await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher)
+        await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, new NoOpWeatherSafetyReviewNotifier())
             .Handle(new EmergencyStopActiveCommand(1, schedule.Id, Guid.NewGuid(),
                 preview.Value.ImpactVersion, ValidOperatorPassword,
                 EmergencyTourReason.SafetyIncident,

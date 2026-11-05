@@ -80,7 +80,7 @@ public sealed class BookedTourEmergencyFlowSqlServerTests
         impact.Value.HasUnverifiedSessions.Should().BeFalse();
 
         var stop = await new EmergencyTourCommandHandler(db, OperatorUser(operatorId), new FixedClock(Now),
-                new PasswordHasherService())
+                new PasswordHasherService(), new NoOpReviewNotifier())
             .Handle(new EmergencyStopActiveCommand(tourId, booking.TourScheduleId, Guid.NewGuid(),
                 impact.Value.ImpactVersion, OperatorPassword, EmergencyTourReason.SafetyIncident,
                 "Rockslide blocks the mountain pass.",
@@ -296,5 +296,13 @@ public sealed class BookedTourEmergencyFlowSqlServerTests
     private sealed class FixedClock(DateTimeOffset utcNow) : IDateTimeProvider
     {
         public DateTimeOffset UtcNow => utcNow;
+    }
+
+    private sealed class NoOpReviewNotifier : IWeatherSafetyReviewNotifier
+    {
+        public Task NotifyChangedAsync(
+            long operatorUserId,
+            WeatherSafetyReviewChanged notification,
+            CancellationToken cancellationToken) => Task.CompletedTask;
     }
 }

@@ -9,11 +9,12 @@ public sealed class CancelBeforeDepartureCommandHandler(
     IApplicationDbContext dbContext,
     ICurrentUserService currentUser,
     IDateTimeProvider clock,
-    IPasswordHasherService passwordHasher)
+    IPasswordHasherService passwordHasher,
+    IWeatherSafetyReviewNotifier reviewNotifier)
     : IRequestHandler<CancelBeforeDepartureCommand, Result<EmergencyTourActionResponse>>
 {
     private readonly EmergencyTourCommandHandler executor =
-        new(dbContext, currentUser, clock, passwordHasher);
+        new(dbContext, currentUser, clock, passwordHasher, reviewNotifier);
 
     public Task<Result<EmergencyTourActionResponse>> Handle(
         CancelBeforeDepartureCommand request,

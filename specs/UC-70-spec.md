@@ -59,6 +59,7 @@ instructions and emergency contact from `emergency-status`.
   `SafetyIncident`, `Other`) in addition to the navigation lifecycle reasons.
 - One committed operation per schedule and one operation per actor/command ID.
 - State, pending notifications and audit are persisted in one serializable transaction.
+- That transaction also closes every open `WeatherSafetyReview` of the departure. The `Closed` realtime hint is sent only after commit; a replay closes nothing.
 - No FCM or payment gateway call occurs inside that transaction.
 - Unused tickets/QR are revoked; used ticket history is preserved.
 - Active commercial sessions are linked exactly by `Itinerary.SourceBookingId`; the departure is

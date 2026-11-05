@@ -20,7 +20,8 @@ public sealed class EmergencyTourCommandHandler(
     IApplicationDbContext dbContext,
     ICurrentUserService currentUser,
     IDateTimeProvider clock,
-    IPasswordHasherService passwordHasher)
+    IPasswordHasherService passwordHasher,
+    IWeatherSafetyReviewNotifier reviewNotifier)
 {
     public async Task<Result<EmergencyTourActionResponse>> Handle(
         CancelBeforeDepartureCommand request,
@@ -102,10 +103,12 @@ public sealed class EmergencyTourCommandHandler(
 
         for (var attempt = 1; ; attempt++)
         {
+            long[] closedReviewIds = [];
             try
             {
-                return await dbContext.ExecuteInSerializableTransactionAsync(async token =>
+                Result<EmergencyTourActionResponse> result = await dbContext.ExecuteInSerializableTransactionAsync(async token =>
                 {
+            closedReviewIds = [];
             bool operatorIsEligible = await EmergencyOperatorAccess.IsEligibleOperatorAsync(
                 dbContext, operatorId, token);
             if (!operatorIsEligible)
@@ -211,6 +214,14 @@ public sealed class EmergencyTourCommandHandler(
             dbContext.EmergencyTourCancellationOperations.Add(operation);
 
             AddNotifications(schedule, impact.Bookings, action, now);
+
+            List<WeatherSafetyReview> openReviews = await dbContext.WeatherSafetyReviews
+                .Where(review => review.TourScheduleId == schedule.Id
+                    && review.Status != WeatherSafetyReview.StatusClosed)
+                .ToListAsync(token);
+            openReviews.ForEach(review => review.Close());
+            closedReviewIds = [.. openReviews.Select(review => review.Id)];
+
             dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(operatorId,
                 isPreStart ? AuditActionTypes.TourEmergencyCancelled : AuditActionTypes.TourEmergencyStopped,
                 AuditEntityTypes.TourSchedule, schedule.Id, now, AuditOutcome.Success,
@@ -232,6 +243,7 @@ public sealed class EmergencyTourCommandHandler(
                         session.FsmState,
                     }),
                     operation.AffectedBookingCount,
+                    ClosedReviewIds = closedReviewIds,
                     EvidenceProvenance = operation.EvidenceProvenance,
                     operation.EvidenceAddedLater,
                     EvidenceReferenceHash = Hash(operation.EvidenceReference),
@@ -241,6 +253,17 @@ public sealed class EmergencyTourCommandHandler(
             await dbContext.SaveChangesAsync(token);
                     return Result.Success(ToResponse(operation));
                 }, cancellationToken);
+
+                // Only a committed decision reaches this point, and a replay closes nothing.
+                foreach (long reviewId in closedReviewIds)
+                {
+                    await reviewNotifier.NotifyChangedAsync(
+                        operatorId,
+                        new WeatherSafetyReviewChanged(
+                            reviewId, scheduleId, WeatherSafetyReviewChangeTypes.Closed, clock.UtcNow),
+                        cancellationToken);
+                }
+                return result;
             }
             catch (Exception exception) when (attempt < 3
                 && (exception is DbUpdateException || dbContext.IsDeadlock(exception)))

@@ -17,6 +17,7 @@ public sealed class EmergencyTourCommandHandlerTests
 {
     private static readonly DateTimeOffset Now = new(2026, 11, 1, 0, 0, 0, TimeSpan.Zero);
     private static readonly FakePasswordHasher PasswordHasher = new();
+    private static readonly NoOpWeatherSafetyReviewNotifier Notifier = new();
     private const string ValidOperatorPassword = "OperatorPass123!";
 
     [Fact]
@@ -37,7 +38,7 @@ public sealed class EmergencyTourCommandHandlerTests
         var command = new CancelBeforeDepartureCommand(1, schedule.Id, commandId,
             preview.Value.ImpactVersion, EmergencyTourReason.WeatherEmergency,
             "Typhoon makes the departure unsafe.", "0900000000", "bulletin-123");
-        var handler = new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher);
+        var handler = new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier);
 
         var first = await handler.Handle(command, CancellationToken.None);
         var replay = await handler.Handle(command, CancellationToken.None);
@@ -67,7 +68,7 @@ public sealed class EmergencyTourCommandHandlerTests
         var preview = await new GetEmergencyTourImpactQueryHandler(db, currentUser, clock)
             .Handle(new GetEmergencyTourImpactQuery(1, schedule.Id), CancellationToken.None);
 
-        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher)
+        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
             .Handle(new CancelBeforeDepartureCommand(1, schedule.Id, Guid.NewGuid(),
                 preview.Value.ImpactVersion, EmergencyTourReason.WeatherEmergency,
                 "Typhoon makes the departure unsafe.", "0900000000"), CancellationToken.None);
@@ -122,7 +123,7 @@ public sealed class EmergencyTourCommandHandlerTests
             "Stay with the guide at the verified meeting point.", "0900000000",
             "incident-123");
 
-        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher)
+        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
             .Handle(command, CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
@@ -151,7 +152,7 @@ public sealed class EmergencyTourCommandHandlerTests
         var preview = await new GetEmergencyTourImpactQueryHandler(db, currentUser, clock)
             .Handle(new GetEmergencyTourImpactQuery(1, schedule.Id), CancellationToken.None);
 
-        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher)
+        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
             .Handle(new EmergencyStopActiveCommand(1, schedule.Id, Guid.NewGuid(),
                 preview.Value.ImpactVersion, ValidOperatorPassword, EmergencyTourReason.SafetyIncident,
                 "Road access is unsafe and the trip must stop.",
@@ -175,7 +176,7 @@ public sealed class EmergencyTourCommandHandlerTests
         var preview = await new GetEmergencyTourImpactQueryHandler(db, currentUser, clock)
             .Handle(new GetEmergencyTourImpactQuery(1, schedule.Id), CancellationToken.None);
 
-        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher)
+        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
             .Handle(new CancelBeforeDepartureCommand(1, schedule.Id, Guid.NewGuid(),
                 preview.Value.ImpactVersion, EmergencyTourReason.WeatherEmergency,
                 "Typhoon makes the departure unsafe."), CancellationToken.None);
@@ -199,7 +200,7 @@ public sealed class EmergencyTourCommandHandlerTests
         var preview = await new GetEmergencyTourImpactQueryHandler(db, currentUser, clock)
             .Handle(new GetEmergencyTourImpactQuery(1, schedule.Id), CancellationToken.None);
 
-        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher)
+        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
             .Handle(new CancelBeforeDepartureCommand(1, schedule.Id, Guid.NewGuid(),
                 preview.Value.ImpactVersion, EmergencyTourReason.WeatherEmergency,
                 "Typhoon makes the departure unsafe."), CancellationToken.None);
@@ -226,7 +227,7 @@ public sealed class EmergencyTourCommandHandlerTests
         var preview = await new GetEmergencyTourImpactQueryHandler(db, currentUser, clock)
             .Handle(new GetEmergencyTourImpactQuery(1, schedule.Id), CancellationToken.None);
 
-        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher)
+        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
             .Handle(new CancelBeforeDepartureCommand(1, schedule.Id, Guid.NewGuid(),
                 preview.Value.ImpactVersion, EmergencyTourReason.WeatherEmergency,
                 "Typhoon makes the departure unsafe."), CancellationToken.None);
@@ -253,7 +254,7 @@ public sealed class EmergencyTourCommandHandlerTests
         var preview = await new GetEmergencyTourImpactQueryHandler(db, currentUser, clock)
             .Handle(new GetEmergencyTourImpactQuery(1, schedule.Id), CancellationToken.None);
 
-        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher)
+        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
             .Handle(new CancelBeforeDepartureCommand(1, schedule.Id, Guid.NewGuid(),
                 preview.Value.ImpactVersion, EmergencyTourReason.TransportFailure,
                 "The contracted vehicle is unavailable.", "0900000000", null),
@@ -282,7 +283,7 @@ public sealed class EmergencyTourCommandHandlerTests
         var preview = await new GetEmergencyTourImpactQueryHandler(db, currentUser, clock)
             .Handle(new GetEmergencyTourImpactQuery(1, schedule.Id), CancellationToken.None);
 
-        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher)
+        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
             .Handle(new CancelBeforeDepartureCommand(1, schedule.Id, Guid.NewGuid(),
                 preview.Value.ImpactVersion, EmergencyTourReason.TransportFailure,
                 "The contracted vehicle is unavailable.", "0900000000", null),
@@ -305,7 +306,7 @@ public sealed class EmergencyTourCommandHandlerTests
         var clock = new FakeDateTimeProvider { UtcNow = Now };
         const string wrongPassword = "NotTheRightPassword1!";
 
-        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher)
+        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
             .Handle(new EmergencyStopActiveCommand(1, schedule.Id, Guid.NewGuid(),
                 new string('a', 64), wrongPassword, EmergencyTourReason.SafetyIncident,
                 "Road access is unsafe and the trip must stop.",
@@ -388,7 +389,7 @@ public sealed class EmergencyTourCommandHandlerTests
         SeedBooking(db, schedule, 10, 3, BookingStatus.PendingPayment, PaymentStatus.Unpaid, 50_000m);
         await db.SaveChangesAsync();
 
-        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher)
+        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
             .Handle(new CancelBeforeDepartureCommand(1, schedule.Id, Guid.NewGuid(),
                 preview.Value.ImpactVersion, EmergencyTourReason.TransportFailure,
                 "The contracted vehicle is unavailable.", "0900000000", null),
@@ -410,7 +411,7 @@ public sealed class EmergencyTourCommandHandlerTests
         var currentUser = new FakeCurrentUserService { UserId = 99, Role = nameof(UserRole.TourOperator) };
         var clock = new FakeDateTimeProvider { UtcNow = Now };
 
-        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher)
+        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
             .Handle(new CancelBeforeDepartureCommand(1, schedule.Id, Guid.NewGuid(), new string('a', 64),
                 EmergencyTourReason.Other, "A documented emergency prevents operation.",
                 "0900000000", null), CancellationToken.None);
@@ -433,7 +434,7 @@ public sealed class EmergencyTourCommandHandlerTests
         var preview = await new GetEmergencyTourImpactQueryHandler(db, currentUser, clock)
             .Handle(new GetEmergencyTourImpactQuery(1, schedule.Id), CancellationToken.None);
 
-        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher)
+        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
             .Handle(new CancelBeforeDepartureCommand(1, schedule.Id, Guid.NewGuid(),
                 preview.Value.ImpactVersion, EmergencyTourReason.Other,
                 new string('x', 1000), "0900000000", null), CancellationToken.None);
@@ -477,7 +478,7 @@ public sealed class EmergencyTourCommandHandlerTests
         var preview = await new GetEmergencyTourImpactQueryHandler(db, currentUser, clock)
             .Handle(new GetEmergencyTourImpactQuery(1, schedule.Id), CancellationToken.None);
 
-        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher)
+        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
             .Handle(new CancelBeforeDepartureCommand(1, schedule.Id, Guid.NewGuid(),
                 preview.Value.ImpactVersion, EmergencyTourReason.TransportFailure,
                 "The contracted vehicle is unavailable.", "0900000000", null),
@@ -510,7 +511,7 @@ public sealed class EmergencyTourCommandHandlerTests
         var preview = await new GetEmergencyTourImpactQueryHandler(db, currentUser, clock)
             .Handle(new GetEmergencyTourImpactQuery(1, schedule.Id), CancellationToken.None);
 
-        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher)
+        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
             .Handle(new CancelBeforeDepartureCommand(1, schedule.Id, Guid.NewGuid(),
                 preview.Value.ImpactVersion, EmergencyTourReason.TransportFailure,
                 "The contracted vehicle is unavailable.", "0900000000", null),
@@ -556,7 +557,7 @@ public sealed class EmergencyTourCommandHandlerTests
         var preview = await new GetEmergencyTourImpactQueryHandler(db, currentUser, clock)
             .Handle(new GetEmergencyTourImpactQuery(1, targetSchedule.Id), CancellationToken.None);
 
-        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher)
+        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
             .Handle(new EmergencyStopActiveCommand(1, targetSchedule.Id, Guid.NewGuid(),
                 preview.Value.ImpactVersion, ValidOperatorPassword,
                 EmergencyTourReason.SafetyIncident,
@@ -585,7 +586,7 @@ public sealed class EmergencyTourCommandHandlerTests
         var preview = await new GetEmergencyTourImpactQueryHandler(db, currentUser, clock)
             .Handle(new GetEmergencyTourImpactQuery(1, schedule.Id), CancellationToken.None);
 
-        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher)
+        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
             .Handle(new CancelBeforeDepartureCommand(1, schedule.Id, Guid.NewGuid(),
                 preview.Value.ImpactVersion, EmergencyTourReason.TransportFailure,
                 "The contracted vehicle is unavailable.", "0900000000", null),
@@ -615,7 +616,7 @@ public sealed class EmergencyTourCommandHandlerTests
             "Stay with the guide at the verified meeting point.", "0900000000",
             "incident-123");
 
-        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher)
+        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
             .Handle(command, CancellationToken.None);
 
         result.IsFailure.Should().BeTrue();
@@ -650,7 +651,7 @@ public sealed class EmergencyTourCommandHandlerTests
             "Road access is unsafe and the trip must stop.",
             "Stay with the guide at the verified meeting point.", "0900000000",
             "incident-123");
-        var handler = new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher);
+        var handler = new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier);
         var committed = await handler.Handle(validCommand, CancellationToken.None);
 
         var replayWithWrongPassword = validCommand with { CurrentPassword = "WrongPassword999!" };
@@ -684,7 +685,7 @@ public sealed class EmergencyTourCommandHandlerTests
             "Stay with the guide at the verified meeting point.", "0900000000",
             EvidenceUrl: "http://insecure-site.test/report");
 
-        var httpResult = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher)
+        var httpResult = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
             .Handle(httpCommand, CancellationToken.None);
 
         httpResult.IsFailure.Should().BeTrue();
@@ -697,7 +698,7 @@ public sealed class EmergencyTourCommandHandlerTests
             "Stay with the guide at the verified meeting point.", "0900000000",
             EvidenceUrl: "https://admin:secret@weather-agency.gov.test/notice");
 
-        var credResult = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher)
+        var credResult = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
             .Handle(credCommand, CancellationToken.None);
 
         credResult.IsFailure.Should().BeTrue();
@@ -726,7 +727,7 @@ public sealed class EmergencyTourCommandHandlerTests
             "Evacuate to high ground immediately.", "0900000000",
             EvidenceReference: null, AuthorityReference: null, AddEvidenceLater: false);
 
-        var failResult = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher)
+        var failResult = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
             .Handle(failCommand, CancellationToken.None);
 
         failResult.IsFailure.Should().BeTrue();
@@ -739,7 +740,7 @@ public sealed class EmergencyTourCommandHandlerTests
             "Evacuate to high ground immediately.", "0900000000",
             EvidenceReference: null, AuthorityReference: null, AddEvidenceLater: true);
 
-        var okResult = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher)
+        var okResult = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
             .Handle(okCommand, CancellationToken.None);
 
         okResult.IsSuccess.Should().BeTrue();
@@ -779,7 +780,7 @@ public sealed class EmergencyTourCommandHandlerTests
             "Stay with the guide at the verified meeting point.", "0900000000",
             "incident-123");
 
-        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher)
+        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
             .Handle(command, CancellationToken.None);
 
         result.IsFailure.Should().BeTrue();
@@ -811,7 +812,7 @@ public sealed class EmergencyTourCommandHandlerTests
             preview.Value.ImpactVersion, EmergencyTourReason.WeatherEmergency,
             "Severe weather prevents travel.", "0900000000");
 
-        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher)
+        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
             .Handle(command, CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
@@ -834,7 +835,7 @@ public sealed class EmergencyTourCommandHandlerTests
         var clock = new FakeDateTimeProvider { UtcNow = Now };
         var preview = await new GetEmergencyTourImpactQueryHandler(db, currentUser, clock)
             .Handle(new GetEmergencyTourImpactQuery(1, schedule.Id), CancellationToken.None);
-        await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher)
+        await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
             .Handle(new EmergencyStopActiveCommand(1, schedule.Id, Guid.NewGuid(),
                 preview.Value.ImpactVersion, ValidOperatorPassword, EmergencyTourReason.AuthorityDirective,
                 "Civil defense issued an evacuation order.",
@@ -875,7 +876,7 @@ public sealed class EmergencyTourCommandHandlerTests
         var clock = new FakeDateTimeProvider { UtcNow = Now };
         var preview = await new GetEmergencyTourImpactQueryHandler(db, currentUser, clock)
             .Handle(new GetEmergencyTourImpactQuery(1, schedule.Id), CancellationToken.None);
-        await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher)
+        await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
             .Handle(new CancelBeforeDepartureCommand(1, schedule.Id, Guid.NewGuid(),
                 preview.Value.ImpactVersion, EmergencyTourReason.WeatherEmergency,
                 "Typhoon makes the departure unsafe.", "0900000000"), CancellationToken.None);
@@ -912,7 +913,7 @@ public sealed class EmergencyTourCommandHandlerTests
         var clock = new FakeDateTimeProvider { UtcNow = Now };
         var preview = await new GetEmergencyTourImpactQueryHandler(db, currentUser, clock)
             .Handle(new GetEmergencyTourImpactQuery(1, schedule.Id), CancellationToken.None);
-        await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher)
+        await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
             .Handle(new EmergencyStopActiveCommand(1, schedule.Id, Guid.NewGuid(),
                 preview.Value.ImpactVersion, ValidOperatorPassword, EmergencyTourReason.AuthorityDirective,
                 "Civil defense issued an evacuation order.",
