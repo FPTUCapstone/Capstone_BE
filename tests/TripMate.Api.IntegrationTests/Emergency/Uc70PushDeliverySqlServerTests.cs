@@ -422,7 +422,7 @@ public sealed class Uc70PushDeliverySqlServerTests
     }
 
     private static EmergencyTourCommandHandler Handler(ApplicationDbContext db, long operatorId) =>
-        new(db, new CurrentUser(operatorId), new Clock { UtcNow = Now }, new PasswordHasherService());
+        new(db, new CurrentUser(operatorId), new Clock { UtcNow = Now }, new PasswordHasherService(), new NullNotifier());
 
     private static async Task<Seed> SeedAsync(
         SqlServerTestDatabase database,

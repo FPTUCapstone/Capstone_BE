@@ -7,6 +7,8 @@ using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
@@ -525,6 +527,350 @@ public sealed class EmergencyTourSqlServerTests
         travelerResponse.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task CancelBeforeDeparture_ClosesEveryOpenReviewOfThatDepartureOnly_AfterCommit()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database, Now.AddDays(5));
+        var otherOperator = await SeedAsync(database, Now.AddDays(5));
+        var reviews = await AddReviewsInEveryStateAsync(database, seed);
+        long sibling = await AddSiblingScheduleReviewAsync(database, seed);
+        long otherReview = (await AddReviewsInEveryStateAsync(database, otherOperator)).Pending;
+        var notifier = new CommitCheckingNotifier(database);
+        using var factory = CreateFactory(database.ConnectionString, notifier);
+        using var client = factory.CreateAuthenticatedClient(seed.OperatorId, UserRole.TourOperator);
+
+        using var response = await PostCancelAsync(client, seed, await ReadImpactVersionAsync(client, seed));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        foreach (long id in new[] { reviews.Pending, reviews.Acknowledged, reviews.Escalated, reviews.AlreadyClosed })
+            (await ReviewStatusAsync(database, id)).Should().Be(WeatherSafetyReview.StatusClosed);
+        (await ReviewStatusAsync(database, sibling)).Should().Be(WeatherSafetyReview.StatusPendingAcknowledgement);
+        (await ReviewStatusAsync(database, otherReview)).Should().Be(WeatherSafetyReview.StatusPendingAcknowledgement);
+        (await database.ExecuteScalarAsync<int>($"""
+            SELECT COUNT(*) FROM payment.Refunds WHERE booking_id = {seed.BookingId};
+            """)).Should().Be(0);
+
+        notifier.Closed.Select(call => call.ReviewId).Should().BeEquivalentTo(
+            [reviews.Pending, reviews.Acknowledged, reviews.Escalated],
+            "a review that was already closed has nothing new to announce");
+        notifier.Closed.Should().OnlyContain(call => call.OperatorId == seed.OperatorId
+            && call.ScheduleId == seed.ScheduleId
+            && call.StatusAtNotify == WeatherSafetyReview.StatusClosed);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task EmergencyStop_ClosesEveryOpenReviewOfThatDeparture_AfterCommit()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database, Now.AddHours(-2));
+        var reviews = await AddReviewsInEveryStateAsync(database, seed);
+        var notifier = new CommitCheckingNotifier(database);
+        using var factory = CreateFactory(database.ConnectionString, notifier);
+        using var client = factory.CreateAuthenticatedClient(seed.OperatorId, UserRole.TourOperator);
+
+        using var response = await PostStopAsync(
+            client, seed, await ReadImpactVersionAsync(client, seed), OperatorPassword);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await database.ExecuteScalarAsync<string>($"""
+            SELECT status FROM commerce.TourSchedules WHERE schedule_id = {seed.ScheduleId};
+            """)).Should().Be("EmergencyStopped");
+        foreach (long id in new[] { reviews.Pending, reviews.Acknowledged, reviews.Escalated })
+            (await ReviewStatusAsync(database, id)).Should().Be(WeatherSafetyReview.StatusClosed);
+        notifier.Closed.Select(call => call.ReviewId).Should().BeEquivalentTo(
+            [reviews.Pending, reviews.Acknowledged, reviews.Escalated]);
+        notifier.Closed.Should().OnlyContain(call => call.StatusAtNotify == WeatherSafetyReview.StatusClosed);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task ReplayedDecision_DoesNotRepeatTheReviewClosure()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database, Now.AddDays(5));
+        var reviews = await AddReviewsInEveryStateAsync(database, seed);
+        var notifier = new CommitCheckingNotifier(database);
+        using var factory = CreateFactory(database.ConnectionString, notifier);
+        using var client = factory.CreateAuthenticatedClient(seed.OperatorId, UserRole.TourOperator);
+        string impactVersion = await ReadImpactVersionAsync(client, seed);
+        string key = Guid.NewGuid().ToString();
+
+        using var first = await PostCancelAsync(client, seed, impactVersion, key);
+        using var replay = await PostCancelAsync(client, seed, impactVersion, key);
+
+        first.StatusCode.Should().Be(HttpStatusCode.OK);
+        replay.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await ReviewStatusAsync(database, reviews.Pending)).Should().Be(WeatherSafetyReview.StatusClosed);
+        notifier.Closed.Should().HaveCount(3, "only the committed decision announces the closure");
+        (await database.ExecuteScalarAsync<int>($"""
+            SELECT COUNT(*) FROM commerce.EmergencyTourCancellationOperations
+            WHERE tour_schedule_id = {seed.ScheduleId};
+            """)).Should().Be(1);
+        (await database.ExecuteScalarAsync<int>("""
+            SELECT COUNT(*) FROM dbo.AuditLogs WHERE action_type = 'TOUR_EMERGENCY_CANCELLED';
+            """)).Should().Be(1);
+        (await database.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM dbo.Notifications;")).Should().Be(1);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task ConcurrentDecisions_CloseTheReviewOnce()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database, Now.AddDays(5));
+        var reviews = await AddReviewsInEveryStateAsync(database, seed);
+        var notifier = new CommitCheckingNotifier(database);
+        using var factory = CreateFactory(database.ConnectionString, notifier);
+        using var client1 = factory.CreateAuthenticatedClient(seed.OperatorId, UserRole.TourOperator);
+        using var client2 = factory.CreateAuthenticatedClient(seed.OperatorId, UserRole.TourOperator);
+        string impactVersion = await ReadImpactVersionAsync(client1, seed);
+
+        var responses = await Task.WhenAll(
+            PostCancelAsync(client1, seed, impactVersion),
+            PostCancelAsync(client2, seed, impactVersion));
+
+        responses.Count(response => response.StatusCode == HttpStatusCode.OK).Should().Be(1);
+        responses.Count(response => response.StatusCode == HttpStatusCode.Conflict).Should().Be(1);
+        (await ReviewStatusAsync(database, reviews.Pending)).Should().Be(WeatherSafetyReview.StatusClosed);
+        notifier.Closed.Should().HaveCount(3);
+        foreach (var response in responses) response.Dispose();
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task WrongPassword_LeavesReviewsOpen()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database, Now.AddHours(-2));
+        var reviews = await AddReviewsInEveryStateAsync(database, seed);
+        var notifier = new CommitCheckingNotifier(database);
+        using var factory = CreateFactory(database.ConnectionString, notifier);
+        using var client = factory.CreateAuthenticatedClient(seed.OperatorId, UserRole.TourOperator);
+
+        using var response = await PostStopAsync(
+            client, seed, await ReadImpactVersionAsync(client, seed), "Not-The-Password-1!");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        await AssertReviewsStayOpenAsync(database, reviews, notifier);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task StaleImpactVersion_LeavesReviewsOpen()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database, Now.AddDays(5));
+        var reviews = await AddReviewsInEveryStateAsync(database, seed);
+        var notifier = new CommitCheckingNotifier(database);
+        using var factory = CreateFactory(database.ConnectionString, notifier);
+        using var client = factory.CreateAuthenticatedClient(seed.OperatorId, UserRole.TourOperator);
+
+        using var response = await PostCancelAsync(client, seed, new string('0', 64));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        await AssertReviewsStayOpenAsync(database, reviews, notifier);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task OtherOperator_LeavesReviewsOpen()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database, Now.AddDays(5));
+        var other = await SeedAsync(database, Now.AddDays(5));
+        var reviews = await AddReviewsInEveryStateAsync(database, seed);
+        var notifier = new CommitCheckingNotifier(database);
+        using var factory = CreateFactory(database.ConnectionString, notifier);
+        using var owner = factory.CreateAuthenticatedClient(seed.OperatorId, UserRole.TourOperator);
+        using var client = factory.CreateAuthenticatedClient(other.OperatorId, UserRole.TourOperator);
+
+        using var response = await PostCancelAsync(client, seed, await ReadImpactVersionAsync(owner, seed));
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        await AssertReviewsStayOpenAsync(database, reviews, notifier);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task UnverifiedSession_LeavesReviewsOpen()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database, Now.AddHours(-2), seedUnverifiedSession: true);
+        var reviews = await AddReviewsInEveryStateAsync(database, seed);
+        var notifier = new CommitCheckingNotifier(database);
+        using var factory = CreateFactory(database.ConnectionString, notifier);
+        using var client = factory.CreateAuthenticatedClient(seed.OperatorId, UserRole.TourOperator);
+
+        using var response = await PostStopAsync(
+            client, seed, await ReadImpactVersionAsync(client, seed), OperatorPassword);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        await AssertReviewsStayOpenAsync(database, reviews, notifier);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task RolledBackDecision_LeavesReviewsOpen()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database, Now.AddDays(5));
+        var reviews = await AddReviewsInEveryStateAsync(database, seed);
+        var notifier = new CommitCheckingNotifier(database);
+        var faultInterceptor = new AuditLogFailureInterceptor();
+        using var factory = CreateFactory(database.ConnectionString, notifier, faultInterceptor);
+        using var client = factory.CreateAuthenticatedClient(seed.OperatorId, UserRole.TourOperator);
+        string impactVersion = await ReadImpactVersionAsync(client, seed);
+
+        faultInterceptor.Arm();
+        using var response = await PostCancelAsync(client, seed, impactVersion);
+
+        response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
+        (await database.ExecuteScalarAsync<string>($"""
+            SELECT status FROM commerce.TourSchedules WHERE schedule_id = {seed.ScheduleId};
+            """)).Should().Be("Scheduled");
+        await AssertReviewsStayOpenAsync(database, reviews, notifier);
+    }
+
+    private static async Task AssertReviewsStayOpenAsync(
+        SqlServerTestDatabase database,
+        ReviewIds reviews,
+        CommitCheckingNotifier notifier)
+    {
+        (await ReviewStatusAsync(database, reviews.Pending)).Should().Be(WeatherSafetyReview.StatusPendingAcknowledgement);
+        (await ReviewStatusAsync(database, reviews.Acknowledged)).Should().Be(WeatherSafetyReview.StatusAcknowledged);
+        (await ReviewStatusAsync(database, reviews.Escalated)).Should().Be(WeatherSafetyReview.StatusEscalated);
+        notifier.Closed.Should().BeEmpty();
+    }
+
+    private static Task<string> ReviewStatusAsync(SqlServerTestDatabase database, long reviewId) =>
+        database.ExecuteScalarAsync<string>($"""
+            SELECT status FROM trip.WeatherSafetyReviews WHERE review_id = {reviewId};
+            """);
+
+    private static async Task<string> ReadImpactVersionAsync(HttpClient client, Seed seed)
+    {
+        using var preview = await client.GetAsync(
+            $"/api/v1/operator/tours/{seed.TourId}/schedules/{seed.ScheduleId}/emergency-impact");
+        return await ReadPropertyAsync(preview, "impactVersion");
+    }
+
+    private static Task<HttpResponseMessage> PostCancelAsync(
+        HttpClient client, Seed seed, string impactVersion, string? key = null)
+    {
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/api/v1/operator/tours/{seed.TourId}/schedules/{seed.ScheduleId}/cancel-before-departure")
+        {
+            Content = JsonContent.Create(new
+            {
+                impactVersion,
+                reason = "WeatherEmergency",
+                reasonDetails = "Storm making departure impossible.",
+                emergencyContact = "0900000000",
+            }),
+        };
+        request.Headers.Add("Idempotency-Key", key ?? Guid.NewGuid().ToString());
+        return client.SendAsync(request);
+    }
+
+    private static Task<HttpResponseMessage> PostStopAsync(
+        HttpClient client, Seed seed, string impactVersion, string password)
+    {
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"/api/v1/operator/tours/{seed.TourId}/schedules/{seed.ScheduleId}/emergency-stop")
+        {
+            Content = JsonContent.Create(new
+            {
+                impactVersion,
+                currentPassword = password,
+                reason = "SafetyIncident",
+                reasonDetails = "Incident during the active trip.",
+                immediateInstructions = "Stay with the guide.",
+                emergencyContact = "0900000000",
+            }),
+        };
+        request.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
+        return client.SendAsync(request);
+    }
+
+    private static async Task<ReviewIds> AddReviewsInEveryStateAsync(SqlServerTestDatabase database, Seed seed)
+    {
+        await using var db = database.CreateDbContext();
+        var pending = NewReview(seed.ScheduleId, "pending");
+        var acknowledged = NewReview(seed.ScheduleId, "acknowledged");
+        acknowledged.Acknowledge(seed.OperatorId, Now);
+        var escalated = NewReview(seed.ScheduleId, "escalated");
+        escalated.Escalate(Now, "Desk");
+        var closed = NewReview(seed.ScheduleId, "closed");
+        closed.Close();
+        db.WeatherSafetyReviews.AddRange(pending, acknowledged, escalated, closed);
+        await db.SaveChangesAsync();
+        return new ReviewIds(pending.Id, acknowledged.Id, escalated.Id, closed.Id);
+    }
+
+    private static async Task<long> AddSiblingScheduleReviewAsync(SqlServerTestDatabase database, Seed seed)
+    {
+        await using var db = database.CreateDbContext();
+        var sibling = TourSchedule.Create(
+            Now.AddDays(9), Now.AddDays(9).AddHours(8), "Da Nang", 20, Now, adultPrice: 100_000m);
+        Set(sibling, nameof(TourSchedule.TourId), seed.TourId);
+        db.TourSchedules.Add(sibling);
+        await db.SaveChangesAsync();
+        var review = NewReview(sibling.Id, "sibling");
+        db.WeatherSafetyReviews.Add(review);
+        await db.SaveChangesAsync();
+        return review.Id;
+    }
+
+    private static WeatherSafetyReview NewReview(long scheduleId, string eventId) =>
+        WeatherSafetyReview.CreateHold(scheduleId, "Tomorrow", eventId, Now.AddMinutes(-5), Now.AddMinutes(25));
+
+    private static TripMateApiFactory CreateFactory(
+        string sqlServerConnectionString,
+        CommitCheckingNotifier notifier,
+        SaveChangesInterceptor? saveChangesInterceptor = null) => new(
+        sqlServerConnectionString: sqlServerConnectionString,
+        dateTimeProviderFactory: _ => new FixedDateTimeProvider(Now),
+        saveChangesInterceptor: saveChangesInterceptor,
+        configureTestServices: services =>
+        {
+            services.RemoveAll<IWeatherSafetyReviewNotifier>();
+            services.AddSingleton<IWeatherSafetyReviewNotifier>(notifier);
+        });
+
+    private sealed record ReviewIds(long Pending, long Acknowledged, long Escalated, long AlreadyClosed);
+
+    private sealed record ClosedCall(long OperatorId, long ReviewId, long ScheduleId, string StatusAtNotify);
+
+    /// <summary>
+    /// Reads the review from another connection when notified. A notification sent inside the
+    /// decision transaction would time out on the row lock, so this proves it was sent after commit.
+    /// </summary>
+    private sealed class CommitCheckingNotifier(SqlServerTestDatabase database) : IWeatherSafetyReviewNotifier
+    {
+        private readonly System.Collections.Concurrent.ConcurrentQueue<ClosedCall> _closed = new();
+
+        public IReadOnlyCollection<ClosedCall> Closed => _closed.ToArray();
+
+        public async Task NotifyChangedAsync(
+            long operatorUserId,
+            WeatherSafetyReviewChanged notification,
+            CancellationToken cancellationToken)
+        {
+            if (notification.ChangeType != WeatherSafetyReviewChangeTypes.Closed) return;
+            string status = await database.ExecuteScalarAsync<string>($"""
+                SET LOCK_TIMEOUT 3000;
+                SELECT status FROM trip.WeatherSafetyReviews WHERE review_id = {notification.ReviewId};
+                """);
+            _closed.Enqueue(new ClosedCall(
+                operatorUserId, notification.ReviewId, notification.TourScheduleId, status));
+        }
+    }
+
     private static TripMateApiFactory CreateFactory(string sqlServerConnectionString) => new(
         sqlServerConnectionString: sqlServerConnectionString,
         dateTimeProviderFactory: _ => new FixedDateTimeProvider(Now));
@@ -573,8 +919,8 @@ public sealed class EmergencyTourSqlServerTests
         {
             UserId = operatorUser.Id,
             CompanyName = "UC70 Tours",
-            TaxCode = "UC70-TAX",
-            BusinessLicenseNo = "UC70-LICENSE",
+            TaxCode = $"UC70-{Guid.NewGuid():N}"[..20],
+            BusinessLicenseNo = $"UC70-{Guid.NewGuid():N}"[..20],
             ApprovalStatus = OperatorApprovalStatus.Approved,
             CreatedAtUtc = Now,
             UpdatedAtUtc = Now,
@@ -611,7 +957,7 @@ public sealed class EmergencyTourSqlServerTests
         if (isBookingPaid)
         {
             var amounts = paymentAmounts ?? [100_000m];
-            int orderCode = 1000;
+            int orderCode = 1000 + ((int)booking.Id * 10);
             foreach (decimal amount in amounts)
             {
                 var payment = PaymentTransaction.Create(
