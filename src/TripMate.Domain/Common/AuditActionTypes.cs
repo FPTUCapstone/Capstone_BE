@@ -27,6 +27,7 @@ public static class AuditActionTypes
     public const string TourEmergencyStopped = "TOUR_EMERGENCY_STOPPED";
     public const string TourEmergencyEvidenceAdded = "TOUR_EMERGENCY_EVIDENCE_ADDED";
     public const string TourEmergencyEvidenceWithdrawn = "TOUR_EMERGENCY_EVIDENCE_WITHDRAWN";
+    public const string TourEmergencyStopReauthenticationFailed = "TOUR_EMERGENCY_STOP_REAUTH_FAILED";
     public const string WeatherSafetyReviewCreated = "WEATHER_SAFETY_REVIEW_CREATED";
     public const string WeatherSafetyReviewAcknowledged = "WEATHER_SAFETY_REVIEW_ACKNOWLEDGED";
     public const string WeatherSafetyReviewEscalated = "WEATHER_SAFETY_REVIEW_ESCALATED";

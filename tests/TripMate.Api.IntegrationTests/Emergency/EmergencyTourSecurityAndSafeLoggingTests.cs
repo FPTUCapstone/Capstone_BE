@@ -8,12 +8,15 @@ using System.Text.Json;
 
 using FluentAssertions;
 
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
+using TripMate.Api.Common;
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Operator.Tours.Emergency;
+using TripMate.Domain.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 using TripMate.Infrastructure.Services;
@@ -537,6 +540,107 @@ public sealed class EmergencyTourSecurityAndSafeLoggingTests
         replayResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         string replayBody = await replayResponse.Content.ReadAsStringAsync();
         replayBody.Should().Contain(EmergencyTourErrorCodes.InvalidPassword);
+    }
+
+    [Fact]
+    public async Task Security_EmergencyStop_WrongPasswords_Get429ThenRightPasswordWorksAfterTheWindow()
+    {
+        using var factory = new TripMateApiFactory(
+            dateTimeProviderFactory: _ => new FixedDateTimeProvider(Now),
+            configureTestServices: services => services.Configure<EmergencyStopRateLimitOptions>(options =>
+            {
+                options.PermitLimit = 3;
+                options.Window = TimeSpan.FromSeconds(8);
+            }));
+        var seed = await SeedAsync(factory, Now.AddHours(-1));
+        using var client = factory.CreateAuthenticatedClient(seed.OperatorId, UserRole.TourOperator);
+        string endpoint = $"/api/v1/operator/tours/{seed.TourId}/schedules/{seed.ScheduleId}";
+        using var previewResponse = await client.GetAsync($"{endpoint}/emergency-impact");
+        string impactVersion = await ReadPropertyAsync(previewResponse, "impactVersion");
+        client.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
+        Task<HttpResponseMessage> Attempt(string password) => client.PostAsJsonAsync($"{endpoint}/emergency-stop", new
+        {
+            impactVersion,
+            currentPassword = password,
+            reason = "SafetyIncident",
+            reasonDetails = "Rate limit check.",
+            immediateInstructions = "Stay with guide.",
+            emergencyContact = "0900000000",
+        });
+
+        var statuses = new List<HttpStatusCode>();
+        string lastBody = string.Empty;
+        for (int attempt = 0; attempt < 4; attempt++)
+        {
+            using var response = await Attempt(WrongPassword);
+            statuses.Add(response.StatusCode);
+            lastBody = await response.Content.ReadAsStringAsync();
+        }
+
+        statuses.Take(3).Should().OnlyContain(status => status == HttpStatusCode.BadRequest);
+        statuses[3].Should().Be(HttpStatusCode.TooManyRequests);
+        lastBody.Should().NotContain(WrongPassword);
+        lastBody.Should().NotContain("password", "a throttled answer says nothing about the credential");
+        await factory.WithDbContextAsync(async db =>
+        {
+            var failures = await db.AuditLogs
+                .Where(audit => audit.ActionType == AuditActionTypes.TourEmergencyStopReauthenticationFailed)
+                .ToListAsync();
+            failures.Should().HaveCount(3);
+            failures.Should().OnlyContain(audit => audit.ActorUserId == seed.OperatorId
+                && audit.Result == AuditOutcome.Failure
+                && audit.AffectedEntityId == seed.ScheduleId);
+            string stored = JsonSerializer.Serialize(failures.Select(audit => new { audit.Reason, audit.BeforeData, audit.AfterData }));
+            stored.Should().NotContain(WrongPassword);
+            (await db.TourSchedules.SingleAsync(item => item.Id == seed.ScheduleId)).Status
+                .Should().Be(TourScheduleStatus.Scheduled);
+            return true;
+        });
+
+        HttpStatusCode afterWindow = HttpStatusCode.TooManyRequests;
+        for (int wait = 0; wait < 24 && afterWindow == HttpStatusCode.TooManyRequests; wait++)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(500));
+            using var response = await Attempt(OperatorPassword);
+            afterWindow = response.StatusCode;
+        }
+
+        afterWindow.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Security_EmergencyStop_LimitIsPerOperator()
+    {
+        using var factory = new TripMateApiFactory(
+            dateTimeProviderFactory: _ => new FixedDateTimeProvider(Now),
+            configureTestServices: services => services.Configure<EmergencyStopRateLimitOptions>(options =>
+            {
+                options.PermitLimit = 1;
+                options.Window = TimeSpan.FromMinutes(5);
+            }));
+        var seed = await SeedAsync(factory, Now.AddHours(-1));
+        object body = new
+        {
+            impactVersion = new string('a', 64),
+            currentPassword = WrongPassword,
+            reason = "SafetyIncident",
+            reasonDetails = "Rate limit check.",
+            immediateInstructions = "Stay with guide.",
+            emergencyContact = "0900000000",
+        };
+        string endpoint = $"/api/v1/operator/tours/{seed.TourId}/schedules/{seed.ScheduleId}/emergency-stop";
+        using var first = factory.CreateAuthenticatedClient(seed.OperatorId, UserRole.TourOperator);
+        first.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
+        using var other = factory.CreateAuthenticatedClient(seed.OperatorId + 1000, UserRole.TourOperator);
+        other.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
+
+        using var allowed = await first.PostAsJsonAsync(endpoint, body);
+        using var throttled = await first.PostAsJsonAsync(endpoint, body);
+        using var otherOperator = await other.PostAsJsonAsync(endpoint, body);
+
+        allowed.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        throttled.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
+        otherOperator.StatusCode.Should().NotBe(HttpStatusCode.TooManyRequests);
     }
 
     private static TripMateApiFactory CreateFactory() => new(

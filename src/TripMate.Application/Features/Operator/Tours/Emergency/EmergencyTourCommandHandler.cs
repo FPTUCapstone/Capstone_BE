@@ -86,7 +86,18 @@ public sealed class EmergencyTourCommandHandler(
             var operatorUser = await dbContext.Users.AsNoTracking()
                 .SingleOrDefaultAsync(u => u.Id == operatorId, cancellationToken);
             if (operatorUser?.PasswordHash is null || !passwordHasher.Verify(currentPassword, operatorUser.PasswordHash))
+            {
+                dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(
+                    operatorUser?.Id,
+                    AuditActionTypes.TourEmergencyStopReauthenticationFailed,
+                    AuditEntityTypes.TourSchedule,
+                    scheduleId,
+                    clock.UtcNow,
+                    AuditOutcome.Failure,
+                    "Emergency stop re-authentication failed."));
+                await dbContext.SaveChangesAsync(cancellationToken);
                 return Failure(EmergencyTourErrorCodes.InvalidPassword, "The current password is invalid.");
+            }
         }
 
         for (var attempt = 1; ; attempt++)

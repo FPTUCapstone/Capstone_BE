@@ -64,6 +64,10 @@ instructions and emergency contact from `emergency-status`.
 - Active commercial sessions are linked exactly by `Itinerary.SourceBookingId`; the departure is
   derived through `Booking.TourScheduleId`.
 - An open session without that exact link blocks both decisions with `TripSessionLinkUnverified`.
+- Late payment and payment reconciliation after an emergency cancellation
+  are owned by the Payment module and are outside UC-70.
+- Emergency Stop is limited per Operator (10 attempts in 5 minutes, then HTTP 429), and each wrong password
+  leaves a failed audit entry without the password.
 - Traveler acknowledgment records receipt idempotently; it never infers that the Traveler is safe
   and changes nothing else.
 - Operator-supplied evidence is stored as `OperatorProvided`, never presented as independently verified.

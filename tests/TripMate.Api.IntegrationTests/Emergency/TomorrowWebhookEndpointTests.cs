@@ -6,9 +6,13 @@ using System.Text.Json;
 using FluentAssertions;
 
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
+using TripMate.Api.Controllers.V1;
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Domain.Entities;
@@ -186,6 +190,119 @@ public sealed class TomorrowWebhookEndpointTests
         using var response = await client.SendAsync(request);
 
         response.StatusCode.Should().Be(HttpStatusCode.UnsupportedMediaType);
+    }
+
+    private sealed class UnknownLengthContent(int totalBytes) : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) =>
+            stream.WriteAsync(new byte[totalBytes]).AsTask();
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = -1;
+            return false;
+        }
+    }
+
+    private sealed class EndlessBody : Stream
+    {
+        public long BytesRead { get; private set; }
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            BytesRead += buffer.Length;
+            return ValueTask.FromResult(BytesRead > 64L * 1024 * 1024 ? 0 : buffer.Length);
+        }
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
+
+    [Fact]
+    public async Task ReceiveAlert_WithChunkedOversizedBody_Returns413()
+    {
+        using var factory = CreateFactory(maxPayloadBytes: 1024);
+        using var client = factory.CreateClient();
+        var content = new UnknownLengthContent(4096);
+        content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/webhooks/tomorrow/alerts")
+        {
+            Content = content,
+        };
+
+        using var response = await client.SendAsync(request);
+
+        ((int)response.StatusCode).Should().Be(StatusCodes.Status413PayloadTooLarge);
+    }
+
+    [Fact]
+    public async Task ReceiveAlert_WithBodyOfUnknownLength_StopsReadingAtTheLimit()
+    {
+        const int limit = 1024;
+        var options = Options.Create(new TomorrowIoOptions { WebhookSecret = Secret, MaxPayloadSizeBytes = limit });
+        var body = new EndlessBody();
+        var context = new DefaultHttpContext();
+        context.Request.ContentType = "application/json";
+        context.Request.Body = body;
+        var controller = new TomorrowWebhooksController(
+            null!,
+            new TomorrowWebhookAuthenticator(options),
+            options,
+            NullLogger<TomorrowWebhooksController>.Instance)
+        {
+            ControllerContext = new ControllerContext { HttpContext = context },
+        };
+
+        var result = await controller.ReceiveAlertAsync(CancellationToken.None);
+
+        result.Should().BeOfType<ObjectResult>()
+            .Which.StatusCode.Should().Be(StatusCodes.Status413PayloadTooLarge);
+        body.BytesRead.Should().BeLessThanOrEqualTo(limit + 16 * 1024, "one read chunk past the limit is the most it may hold");
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("{not json")]
+    public async Task ReceiveAlert_WithSignedEmptyOrMalformedBody_Returns400AndStoresNothing(string payload)
+    {
+        using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+        var authenticator = factory.Services.GetRequiredService<ITomorrowWebhookAuthenticator>();
+        string signatureHeader = authenticator.GenerateSignatureHeader(payload, DateTimeOffset.UtcNow);
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/webhooks/tomorrow/alerts")
+        {
+            Content = new StringContent(payload, Encoding.UTF8, "application/json"),
+        };
+        request.Headers.Add("X-Signature", signatureHeader);
+
+        using var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await factory.WithDbContextAsync(db => db.WeatherAlertInboxItems.CountAsync())).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task ReceiveAlert_WithUnsignedMalformedBody_StillReturns401()
+    {
+        using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/webhooks/tomorrow/alerts")
+        {
+            Content = new StringContent("{not json", Encoding.UTF8, "application/json"),
+        };
+
+        using var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
     [Fact]
