@@ -7,7 +7,7 @@ public sealed class GetEmergencyTourImpactQueryValidator
 {
     public GetEmergencyTourImpactQueryValidator()
     {
-        RuleFor(query => query.TourId).GreaterThan(0);
-        RuleFor(query => query.ScheduleId).GreaterThan(0);
+        RuleFor(query => query.TourId).GreaterThan(0).WithMessage("Mã tour không hợp lệ.");
+        RuleFor(query => query.ScheduleId).GreaterThan(0).WithMessage("Mã lịch khởi hành không hợp lệ.");
     }
 }

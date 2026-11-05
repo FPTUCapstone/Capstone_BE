@@ -468,7 +468,7 @@ public sealed class WeatherSafetyReviewSqlServerTests
             JOIN trip.AlertDeliveryWork work ON work.notification_id = notification.notification_id
             WHERE notification.type = '{Notification.WeatherSafetyReviewCreatedType}'
               AND notification.related_entity_id = {reviewId}
-              AND notification.title = '{Notification.SafetyAlertTitle}'
+              AND notification.title = N'{Notification.SafetyAlertTitle}'
               AND notification.body NOT LIKE '%Da Nang%';
             """)).Should().Be(1);
 

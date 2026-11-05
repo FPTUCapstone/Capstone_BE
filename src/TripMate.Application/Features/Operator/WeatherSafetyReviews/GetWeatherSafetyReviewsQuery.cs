@@ -21,7 +21,7 @@ public sealed class GetWeatherSafetyReviewsQueryHandler(
     {
         if (currentUser.UserId is not long operatorId || currentUser.Role != nameof(UserRole.TourOperator))
         {
-            return Result.Failure<IReadOnlyList<WeatherSafetyReviewDto>>(WeatherSafetyReviewErrorCodes.Forbidden, "Tour Operator access is required.");
+            return Result.Failure<IReadOnlyList<WeatherSafetyReviewDto>>(WeatherSafetyReviewErrorCodes.Forbidden, "Cần quyền đơn vị điều hành tour.");
         }
 
         var query = dbContext.WeatherSafetyReviews

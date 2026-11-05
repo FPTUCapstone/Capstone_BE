@@ -74,7 +74,7 @@ public sealed class WeatherSafetyReviewEscalationBackgroundService(
         int escalatedCount = 0;
         foreach (var review in expiredReviews)
         {
-            bool escalated = review.Escalate(now, "OperationsEscalationDesk");
+            bool escalated = review.Escalate(now, "Bộ phận điều phối vận hành");
             if (!escalated) continue;
 
             EmergencyPushNotices.AddReviewNotice(

@@ -23,13 +23,13 @@ public sealed class GetEmergencyTourImpactQueryHandler(
         if (currentUser.UserId is not long operatorId
             || currentUser.Role != nameof(UserRole.TourOperator))
             return Result.Failure<EmergencyTourImpactResponse>(EmergencyTourErrorCodes.Forbidden,
-                "Tour Operator access is required.");
+                "Cần quyền đơn vị điều hành tour.");
 
         bool operatorIsEligible = await EmergencyOperatorAccess.IsEligibleOperatorAsync(
             dbContext, operatorId, cancellationToken);
         if (!operatorIsEligible)
             return Result.Failure<EmergencyTourImpactResponse>(EmergencyTourErrorCodes.Forbidden,
-                "An active, approved Tour Operator account is required.");
+                "Cần tài khoản đơn vị điều hành đang hoạt động và đã được duyệt.");
 
         var schedule = await dbContext.TourSchedules
             .Include(candidate => candidate.Tour)
@@ -38,13 +38,13 @@ public sealed class GetEmergencyTourImpactQueryHandler(
                 && candidate.Tour.OperatorUserId == operatorId, cancellationToken);
         if (schedule is null)
             return Result.Failure<EmergencyTourImpactResponse>(EmergencyTourErrorCodes.NotFound,
-                "The departure could not be found.");
+                "Không tìm thấy lịch khởi hành.");
         if (schedule.Status == TourScheduleStatus.Completed || clock.UtcNow >= schedule.EndAtUtc)
             return Result.Failure<EmergencyTourImpactResponse>(EmergencyTourErrorCodes.AlreadyCompleted,
-                "A completed departure cannot be cancelled or stopped.");
+                "Lịch khởi hành đã hoàn thành nên không thể hủy hoặc dừng.");
         if (schedule.Status != TourScheduleStatus.Scheduled)
             return Result.Failure<EmergencyTourImpactResponse>(EmergencyTourErrorCodes.AlreadyTerminal,
-                "The departure already has a terminal decision.");
+                "Lịch khởi hành này đã có quyết định cuối cùng.");
 
         var impact = await EmergencyTourImpact.LoadAsync(dbContext, schedule, cancellationToken);
         bool active = clock.UtcNow >= schedule.StartAtUtc;

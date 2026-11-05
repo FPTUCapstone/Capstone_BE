@@ -303,7 +303,7 @@ public sealed class EmergencyTourSecurityAndSafeLoggingTests
 
         stopResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest, because: reason);
         string body = await stopResponse.Content.ReadAsStringAsync();
-        body.Should().Contain("Evidence URL must be an absolute HTTPS URL without credentials.");
+        System.Text.RegularExpressions.Regex.Unescape(body).Should().Contain("Liên kết bằng chứng phải là HTTPS");
     }
 
     [Fact]
@@ -338,7 +338,7 @@ public sealed class EmergencyTourSecurityAndSafeLoggingTests
 
         stopResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         string body = await stopResponse.Content.ReadAsStringAsync();
-        body.Should().Contain("Evidence URL must be an absolute HTTPS URL without credentials.");
+        System.Text.RegularExpressions.Regex.Unescape(body).Should().Contain("Liên kết bằng chứng phải là HTTPS");
     }
 
     [Fact]
@@ -368,7 +368,7 @@ public sealed class EmergencyTourSecurityAndSafeLoggingTests
 
         stopResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         string body = await stopResponse.Content.ReadAsStringAsync();
-        body.Should().Contain("Evidence URL must be an absolute HTTPS URL without credentials.");
+        System.Text.RegularExpressions.Regex.Unescape(body).Should().Contain("Liên kết bằng chứng phải là HTTPS");
     }
 
     [Fact]

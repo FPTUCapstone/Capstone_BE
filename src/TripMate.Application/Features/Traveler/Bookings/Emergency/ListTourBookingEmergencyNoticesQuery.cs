@@ -42,7 +42,7 @@ public sealed class ListTourBookingEmergencyNoticesQueryHandler(
         {
             return Result.Failure<IReadOnlyList<TourBookingEmergencyNoticeResponse>>(
                 TourBookingErrorCodes.AccessRequired,
-                "An active Traveler account is required.");
+                "Cần tài khoản du khách đang hoạt động.");
         }
 
         // The decision records one notice per booking it affected, so a booking cancelled on its

@@ -41,13 +41,13 @@ public sealed class GetTourBookingEmergencyStatusQueryHandler(
         if (currentUser.UserId is not long travelerId
             || currentUser.Role != nameof(UserRole.Traveler))
             return Failure(TourBookingErrorCodes.AccessRequired,
-                "An authenticated Traveler account is required.");
+                "Vui lòng đăng nhập bằng tài khoản du khách.");
 
         bool travelerIsActive = await TravelerEmergencyAccess.IsActiveTravelerAsync(
             dbContext, travelerId, cancellationToken);
         if (!travelerIsActive)
             return Failure(TourBookingErrorCodes.AccessRequired,
-                "An active Traveler account is required.");
+                "Cần tài khoản du khách đang hoạt động.");
 
         var result = await dbContext.Bookings.AsNoTracking()
             .Where(booking => booking.Id == request.BookingId
@@ -66,17 +66,17 @@ public sealed class GetTourBookingEmergencyStatusQueryHandler(
             .SingleOrDefaultAsync(cancellationToken);
         if (result is null)
             return Failure(TourBookingErrorCodes.BookingNotFound,
-                "The booking could not be found.");
+                "Không tìm thấy đơn đặt tour.");
         if (!await TravelerEmergencyAccess.IsAffectedBookingAsync(
                 dbContext, travelerId, result.Id, cancellationToken))
             return Failure(TourBookingErrorCodes.EmergencyStatusNotFound,
-                "No emergency departure decision is available for this booking.");
+                "Đơn đặt tour này chưa có quyết định khẩn cấp nào.");
         var operation = await dbContext.EmergencyTourCancellationOperations.AsNoTracking()
             .SingleOrDefaultAsync(candidate =>
                 candidate.TourScheduleId == result.TourScheduleId, cancellationToken);
         if (operation is null)
             return Failure(TourBookingErrorCodes.EmergencyStatusNotFound,
-                "No emergency departure decision is available for this booking.");
+                "Đơn đặt tour này chưa có quyết định khẩn cấp nào.");
 
         return Result.Success(new TourBookingEmergencyStatusResponse(
             result.Id,

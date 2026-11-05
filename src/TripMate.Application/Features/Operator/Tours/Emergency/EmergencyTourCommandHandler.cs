@@ -73,7 +73,7 @@ public sealed class EmergencyTourCommandHandler(
     {
         if (currentUser.UserId is not long operatorId
             || currentUser.Role != nameof(UserRole.TourOperator))
-            return Failure(EmergencyTourErrorCodes.Forbidden, "Tour Operator access is required.");
+            return Failure(EmergencyTourErrorCodes.Forbidden, "Cần quyền đơn vị điều hành tour.");
 
         bool isPreStart = action == EmergencyTourCancellationOperation.CancelBeforeDepartureAction;
 
@@ -82,7 +82,7 @@ public sealed class EmergencyTourCommandHandler(
         if (!isPreStart)
         {
             if (string.IsNullOrWhiteSpace(currentPassword))
-                return Failure(EmergencyTourErrorCodes.InvalidPassword, "The current password is required.");
+                return Failure(EmergencyTourErrorCodes.InvalidPassword, "Vui lòng nhập mật khẩu hiện tại.");
 
             var operatorUser = await dbContext.Users.AsNoTracking()
                 .SingleOrDefaultAsync(u => u.Id == operatorId, cancellationToken);
@@ -97,7 +97,7 @@ public sealed class EmergencyTourCommandHandler(
                     AuditOutcome.Failure,
                     "Emergency stop re-authentication failed."));
                 await dbContext.SaveChangesAsync(cancellationToken);
-                return Failure(EmergencyTourErrorCodes.InvalidPassword, "The current password is invalid.");
+                return Failure(EmergencyTourErrorCodes.InvalidPassword, "Mật khẩu hiện tại không đúng.");
             }
         }
 
@@ -113,7 +113,7 @@ public sealed class EmergencyTourCommandHandler(
                 dbContext, operatorId, token);
             if (!operatorIsEligible)
                 return Failure(EmergencyTourErrorCodes.Forbidden,
-                    "An active, approved Tour Operator account is required.");
+                    "Cần tài khoản đơn vị điều hành đang hoạt động và đã được duyệt.");
 
             TourSchedule? schedule = await dbContext.TourSchedules
                 .Include(candidate => candidate.Tour)
@@ -121,7 +121,7 @@ public sealed class EmergencyTourCommandHandler(
                     && candidate.TourId == tourId
                     && candidate.Tour.OperatorUserId == operatorId, token);
             if (schedule is null)
-                return Failure(EmergencyTourErrorCodes.NotFound, "The departure could not be found.");
+                return Failure(EmergencyTourErrorCodes.NotFound, "Không tìm thấy lịch khởi hành.");
             DateTimeOffset now = clock.UtcNow;
 
             string requestHash = ComputeRequestHash(tourId, scheduleId, commandId, impactVersion,
@@ -135,32 +135,32 @@ public sealed class EmergencyTourCommandHandler(
                 return replay.RequestHash == requestHash
                     ? Result.Success(ToResponse(replay))
                     : Failure(EmergencyTourErrorCodes.IdempotencyPayloadMismatch,
-                        "This command id has already been used with different data.");
+                        "Yêu cầu này đã được gửi trước đó với nội dung khác.");
 
             EmergencyTourCancellationOperation? prior = await dbContext
                 .EmergencyTourCancellationOperations.AsNoTracking()
                 .SingleOrDefaultAsync(operation => operation.TourScheduleId == scheduleId, token);
             if (prior is not null)
                 return Failure(EmergencyTourErrorCodes.AlreadyTerminal,
-                    "The departure already has a terminal decision.");
+                    "Lịch khởi hành này đã có quyết định cuối cùng.");
             if (schedule.Status == TourScheduleStatus.Completed || clock.UtcNow >= schedule.EndAtUtc)
                 return Failure(EmergencyTourErrorCodes.AlreadyCompleted,
-                    "A completed departure cannot be cancelled or stopped.");
+                    "Lịch khởi hành đã hoàn thành nên không thể hủy hoặc dừng.");
             if (schedule.Status != TourScheduleStatus.Scheduled)
                 return Failure(EmergencyTourErrorCodes.AlreadyTerminal,
-                    "The departure already has a terminal decision.");
+                    "Lịch khởi hành này đã có quyết định cuối cùng.");
 
             EmergencyTourImpactSnapshot impact = await EmergencyTourImpact.LoadAsync(
                 dbContext, schedule, token);
 
             if (impact.HasUnverifiedSessions)
                 return Failure(EmergencyTourErrorCodes.TripSessionLinkUnverified,
-                    "An unverified session link was detected and cannot be mutated.");
+                    "Có phiên đi tour chưa xác minh nên không thể thực hiện thao tác này.");
 
             if (!CryptographicOperations.FixedTimeEquals(
                     Encoding.UTF8.GetBytes(impact.Version), Encoding.UTF8.GetBytes(impactVersion)))
                 return Failure(EmergencyTourErrorCodes.ConcurrentStateChanged,
-                    "The departure impact changed. Refresh the preview before confirming.");
+                    "Tác động của lịch khởi hành đã thay đổi. Vui lòng xem lại trước khi xác nhận.");
 
             string beforeData = JsonSerializer.Serialize(new
             {
@@ -193,7 +193,7 @@ public sealed class EmergencyTourCommandHandler(
                 isPreStart, now, bookingReason, reason.ToString(), token);
             if (!stateChanged)
                 return Failure(EmergencyTourErrorCodes.WrongActionWindow,
-                    "The selected emergency action no longer matches the departure time window.");
+                    "Thao tác đã chọn không còn phù hợp với thời gian của lịch khởi hành.");
 
             string policyEvidence = JsonSerializer.Serialize(impact.Bookings.Select(booking => new
             {
