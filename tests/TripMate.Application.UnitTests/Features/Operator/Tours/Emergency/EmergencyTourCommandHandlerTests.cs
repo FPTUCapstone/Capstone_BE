@@ -296,6 +296,33 @@ public sealed class EmergencyTourCommandHandlerTests
     }
 
     [Fact]
+    public async Task EmergencyStop_WithWrongPassword_RecordsAFailedAuditWithoutThePassword()
+    {
+        await using var db = TestDbContext.Create();
+        var schedule = SeedSchedule(db, Now.AddHours(-1));
+        await db.SaveChangesAsync();
+        var currentUser = new FakeCurrentUserService { UserId = 2, Role = nameof(UserRole.TourOperator) };
+        var clock = new FakeDateTimeProvider { UtcNow = Now };
+        const string wrongPassword = "NotTheRightPassword1!";
+
+        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher)
+            .Handle(new EmergencyStopActiveCommand(1, schedule.Id, Guid.NewGuid(),
+                new string('a', 64), wrongPassword, EmergencyTourReason.SafetyIncident,
+                "Road access is unsafe and the trip must stop.",
+                "Stay with the guide at the verified meeting point.", "0900000000", null),
+                CancellationToken.None);
+
+        result.ErrorCode.Should().Be(EmergencyTourErrorCodes.InvalidPassword);
+        AuditLog audit = await db.AuditLogs.SingleAsync();
+        audit.ActionType.Should().Be(AuditActionTypes.TourEmergencyStopReauthenticationFailed);
+        audit.Result.Should().Be(AuditOutcome.Failure);
+        audit.ActorUserId.Should().Be(2);
+        audit.AffectedEntityId.Should().Be(schedule.Id);
+        string stored = System.Text.Json.JsonSerializer.Serialize(new { audit.Reason, audit.BeforeData, audit.AfterData });
+        stored.Should().NotContain(wrongPassword);
+    }
+
+    [Fact]
     public async Task Preview_CountsOnlyValidTicketsAsUnused()
     {
         await using var db = TestDbContext.Create();

@@ -2,6 +2,7 @@ using MediatR;
 
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 using TripMate.Api.Common;
 using TripMate.Application.Features.Operator.Tours.Create;
@@ -122,6 +123,8 @@ public sealed class OperatorToursController(ISender sender) : ApiControllerBase(
     }
 
     [HttpPost("{tourId:long}/schedules/{scheduleId:long}/emergency-stop")]
+    [EnableRateLimiting(EmergencyStopRateLimiter.PolicyName)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status429TooManyRequests)]
     [ProducesResponseType(typeof(EmergencyTourActionResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]

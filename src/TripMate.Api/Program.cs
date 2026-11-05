@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Security.Claims;
 using System.Threading.RateLimiting;
 
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -250,6 +251,20 @@ try
                     Window = EmailVerificationResendRateLimiter.Window,
                     QueueLimit = 0,
                 }));
+        options.AddPolicy(EmergencyStopRateLimiter.PolicyName, context =>
+        {
+            var limit = context.RequestServices.GetRequiredService<IOptions<EmergencyStopRateLimitOptions>>().Value;
+            return RateLimitPartition.GetFixedWindowLimiter(
+                context.User.FindFirstValue(ClaimTypes.NameIdentifier)
+                    ?? context.Connection.RemoteIpAddress?.ToString()
+                    ?? "unknown",
+                _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = limit.PermitLimit,
+                    Window = limit.Window,
+                    QueueLimit = 0,
+                });
+        });
         options.AddPolicy(OperatorRegistrationRateLimiter.PolicyName, context =>
             RateLimitPartition.GetFixedWindowLimiter(
                 context.Connection.RemoteIpAddress?.ToString() ?? "unknown",

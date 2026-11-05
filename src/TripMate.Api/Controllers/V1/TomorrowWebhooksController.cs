@@ -1,3 +1,6 @@
+using System.Text;
+using System.Text.Json;
+
 using MediatR;
 
 using Microsoft.AspNetCore.Authorization;
@@ -30,6 +33,7 @@ public sealed class TomorrowWebhooksController(
     [HttpPost("alerts")]
     [HttpPost("")]
     [ProducesResponseType(StatusCodes.Status202Accepted)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status413PayloadTooLarge)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status415UnsupportedMediaType)]
@@ -47,28 +51,17 @@ public sealed class TomorrowWebhooksController(
             });
         }
 
-        // 2. Request body size check
-        if (Request.ContentLength.HasValue && Request.ContentLength.Value > _options.MaxPayloadSizeBytes)
+        // 2. Request body size check: a declared length is refused unread, and a chunked body
+        // is read only up to the limit.
+        if (Request.ContentLength > _options.MaxPayloadSizeBytes)
         {
-            return StatusCode(StatusCodes.Status413PayloadTooLarge, new ProblemDetails
-            {
-                Status = StatusCodes.Status413PayloadTooLarge,
-                Title = "Payload Too Large",
-                Detail = $"Payload exceeds maximum allowed size of {_options.MaxPayloadSizeBytes} bytes."
-            });
+            return PayloadTooLarge();
         }
 
-        using var reader = new StreamReader(Request.Body);
-        string rawBody = await reader.ReadToEndAsync(cancellationToken);
-
-        if (rawBody.Length > _options.MaxPayloadSizeBytes)
+        string? rawBody = await ReadBodyWithinLimitAsync(cancellationToken);
+        if (rawBody is null)
         {
-            return StatusCode(StatusCodes.Status413PayloadTooLarge, new ProblemDetails
-            {
-                Status = StatusCodes.Status413PayloadTooLarge,
-                Title = "Payload Too Large",
-                Detail = $"Payload exceeds maximum allowed size of {_options.MaxPayloadSizeBytes} bytes."
-            });
+            return PayloadTooLarge();
         }
 
         // 3. Signature verification
@@ -86,7 +79,18 @@ public sealed class TomorrowWebhooksController(
             });
         }
 
-        // 4. Enqueue into durable inbox
+        // 4. Only an authenticated sender learns whether its body was valid
+        if (!IsJson(rawBody))
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Title = "Invalid Payload",
+                Detail = "The request body must be a JSON document."
+            });
+        }
+
+        // 5. Enqueue into durable inbox
         var command = new ReceiveTomorrowAlertCommand(rawBody, signatureHeader);
         var result = await sender.Send(command, cancellationToken);
 
@@ -107,5 +111,43 @@ public sealed class TomorrowWebhooksController(
             status = result.Value.Status,
             isDuplicate = result.Value.IsDuplicate
         });
+    }
+
+    private async Task<string?> ReadBodyWithinLimitAsync(CancellationToken cancellationToken)
+    {
+        using var body = new MemoryStream();
+        byte[] chunk = new byte[16 * 1024];
+        int read;
+        while ((read = await Request.Body.ReadAsync(chunk, cancellationToken)) > 0)
+        {
+            if (body.Length + read > _options.MaxPayloadSizeBytes)
+            {
+                return null;
+            }
+
+            body.Write(chunk, 0, read);
+        }
+
+        return Encoding.UTF8.GetString(body.GetBuffer(), 0, (int)body.Length);
+    }
+
+    private ObjectResult PayloadTooLarge() => StatusCode(StatusCodes.Status413PayloadTooLarge, new ProblemDetails
+    {
+        Status = StatusCodes.Status413PayloadTooLarge,
+        Title = "Payload Too Large",
+        Detail = $"Payload exceeds maximum allowed size of {_options.MaxPayloadSizeBytes} bytes."
+    });
+
+    private static bool IsJson(string body)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 }
