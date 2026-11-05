@@ -34,14 +34,14 @@ public sealed class GetEmergencyTourEvidenceQueryHandler(
             || currentUser.Role != nameof(UserRole.TourOperator))
         {
             return Result.Failure<EmergencyTourEvidenceResponse>(
-                EmergencyTourErrorCodes.Forbidden, "Tour Operator access is required.");
+                EmergencyTourErrorCodes.Forbidden, "Cần quyền đơn vị điều hành tour.");
         }
 
         if (!await EmergencyOperatorAccess.IsEligibleOperatorAsync(dbContext, operatorId, cancellationToken))
         {
             return Result.Failure<EmergencyTourEvidenceResponse>(
                 EmergencyTourErrorCodes.Forbidden,
-                "An active, approved Tour Operator account is required.");
+                "Cần tài khoản đơn vị điều hành đang hoạt động và đã được duyệt.");
         }
 
         var operation = await dbContext.EmergencyTourCancellationOperations.AsNoTracking()
@@ -52,7 +52,7 @@ public sealed class GetEmergencyTourEvidenceQueryHandler(
         {
             return Result.Failure<EmergencyTourEvidenceResponse>(
                 EmergencyTourErrorCodes.NotFound,
-                "The emergency departure decision could not be found.");
+                "Không tìm thấy quyết định khẩn cấp của lịch khởi hành.");
         }
 
         return Result.Success(new EmergencyTourEvidenceResponse(

@@ -20,11 +20,11 @@ public class Notification : BaseEntity
     public const string WeatherSafetyReviewEscalatedType = "WeatherSafetyReviewEscalated";
 
     // Shown on the lock screen: never a tour, place, reason, contact, refund or identifier.
-    public const string SafetyAlertTitle = "TripMate safety alert";
-    public const string SafetyAlertBody = "A tour safety review requires your attention.";
-    public const string TripUpdateTitle = "TripMate trip update";
+    public const string SafetyAlertTitle = "TripMate: cảnh báo an toàn";
+    public const string SafetyAlertBody = "Có cảnh báo an toàn của tour cần bạn xem.";
+    public const string TripUpdateTitle = "TripMate: cập nhật chuyến đi";
     public const string TripUpdateBody =
-        "Your tour booking has an important update. Open TripMate for details.";
+        "Tour bạn đã đặt có cập nhật quan trọng. Mở TripMate để xem chi tiết.";
 
     public long UserId { get; set; }
 

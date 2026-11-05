@@ -44,12 +44,12 @@ public sealed class AcknowledgeWeatherSafetyReviewCommandHandler(
     {
         if (currentUser.UserId is not long operatorId || currentUser.Role != nameof(UserRole.TourOperator))
         {
-            return Result.Failure<WeatherSafetyReviewDto>(WeatherSafetyReviewErrorCodes.Forbidden, "Tour Operator access is required.");
+            return Result.Failure<WeatherSafetyReviewDto>(WeatherSafetyReviewErrorCodes.Forbidden, "Cần quyền đơn vị điều hành tour.");
         }
 
         if (!await EmergencyOperatorAccess.IsEligibleOperatorAsync(dbContext, operatorId, cancellationToken))
         {
-            return Result.Failure<WeatherSafetyReviewDto>(WeatherSafetyReviewErrorCodes.Forbidden, "Tour Operator account is not eligible.");
+            return Result.Failure<WeatherSafetyReviewDto>(WeatherSafetyReviewErrorCodes.Forbidden, "Tài khoản đơn vị điều hành không đủ điều kiện.");
         }
 
         var review = await dbContext.WeatherSafetyReviews
@@ -59,14 +59,14 @@ public sealed class AcknowledgeWeatherSafetyReviewCommandHandler(
 
         if (review is null || review.TourSchedule.Tour.OperatorUserId != operatorId)
         {
-            return Result.Failure<WeatherSafetyReviewDto>(WeatherSafetyReviewErrorCodes.NotFound, "Weather safety review could not be found.");
+            return Result.Failure<WeatherSafetyReviewDto>(WeatherSafetyReviewErrorCodes.NotFound, "Không tìm thấy hồ sơ cảnh báo an toàn.");
         }
 
         DateTimeOffset now = clock.UtcNow;
 
         if (review.Status == WeatherSafetyReview.StatusClosed)
         {
-            return Result.Failure<WeatherSafetyReviewDto>(WeatherSafetyReviewErrorCodes.AlreadyClosed, "Closed weather review cannot be acknowledged.");
+            return Result.Failure<WeatherSafetyReviewDto>(WeatherSafetyReviewErrorCodes.AlreadyClosed, "Hồ sơ cảnh báo đã đóng nên không thể xác nhận.");
         }
 
         // Idempotency: if already acknowledged by this operator, return current state safely
@@ -88,7 +88,7 @@ public sealed class AcknowledgeWeatherSafetyReviewCommandHandler(
         bool acknowledged = review.Acknowledge(operatorId, now, request.ImmediateInstructions);
         if (!acknowledged)
         {
-            return Result.Failure<WeatherSafetyReviewDto>("WEATHER_REVIEW_ACKNOWLEDGE_FAILED", "Failed to acknowledge review.");
+            return Result.Failure<WeatherSafetyReviewDto>("WEATHER_REVIEW_ACKNOWLEDGE_FAILED", "Không thể xác nhận hồ sơ cảnh báo. Vui lòng thử lại.");
         }
 
         string? afterData = JsonSerializer.Serialize(new

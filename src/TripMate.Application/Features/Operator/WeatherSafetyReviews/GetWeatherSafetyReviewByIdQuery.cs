@@ -20,7 +20,7 @@ public sealed class GetWeatherSafetyReviewByIdQueryHandler(
     {
         if (currentUser.UserId is not long operatorId || currentUser.Role != nameof(UserRole.TourOperator))
         {
-            return Result.Failure<WeatherSafetyReviewDto>(WeatherSafetyReviewErrorCodes.Forbidden, "Tour Operator access is required.");
+            return Result.Failure<WeatherSafetyReviewDto>(WeatherSafetyReviewErrorCodes.Forbidden, "Cần quyền đơn vị điều hành tour.");
         }
 
         var review = await dbContext.WeatherSafetyReviews
@@ -31,7 +31,7 @@ public sealed class GetWeatherSafetyReviewByIdQueryHandler(
 
         if (review is null || review.TourSchedule.Tour.OperatorUserId != operatorId)
         {
-            return Result.Failure<WeatherSafetyReviewDto>(WeatherSafetyReviewErrorCodes.NotFound, "Weather safety review could not be found.");
+            return Result.Failure<WeatherSafetyReviewDto>(WeatherSafetyReviewErrorCodes.NotFound, "Không tìm thấy hồ sơ cảnh báo an toàn.");
         }
 
         var weatherEvent = await dbContext.WeatherEvents

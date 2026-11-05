@@ -27,7 +27,7 @@ public sealed class AddEmergencyTourEvidenceCommandHandler(
     {
         if (currentUser.UserId is not long operatorId
             || currentUser.Role != nameof(UserRole.TourOperator))
-            return Failure(EmergencyTourErrorCodes.Forbidden, "Tour Operator access is required.");
+            return Failure(EmergencyTourErrorCodes.Forbidden, "Cần quyền đơn vị điều hành tour.");
 
         return await dbContext.ExecuteInSerializableTransactionAsync(async token =>
         {
@@ -35,7 +35,7 @@ public sealed class AddEmergencyTourEvidenceCommandHandler(
                 dbContext, operatorId, token);
             if (!operatorIsEligible)
                 return Failure(EmergencyTourErrorCodes.Forbidden,
-                    "An active, approved Tour Operator account is required.");
+                    "Cần tài khoản đơn vị điều hành đang hoạt động và đã được duyệt.");
 
             var operation = await dbContext.EmergencyTourCancellationOperations
                 .Include(candidate => candidate.TourSchedule)
@@ -45,14 +45,14 @@ public sealed class AddEmergencyTourEvidenceCommandHandler(
                     && candidate.TourSchedule.Tour.OperatorUserId == operatorId, token);
             if (operation is null)
                 return Failure(EmergencyTourErrorCodes.NotFound,
-                    "The emergency departure decision could not be found.");
+                    "Không tìm thấy quyết định khẩn cấp của lịch khởi hành.");
 
             // Required, not optional: a save replaces the whole set, so one not based on the
             // current evidence could silently erase it.
             if (request.ExpectedVersion != EmergencyEvidenceVersion.Of(operation))
             {
                 return Failure(EmergencyTourErrorCodes.EvidenceStale,
-                    "The evidence changed. Review the latest evidence before saving.");
+                    "Bằng chứng vừa được thay đổi. Vui lòng xem lại nội dung mới nhất trước khi lưu.");
             }
 
             bool changed;
