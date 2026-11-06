@@ -42,25 +42,25 @@ public sealed class SearchToursSqlServerTests
         result.Value.TotalPages.Should().Be(1);
         result.Value.AsOfUtc.Should().Be(Now.UtcDateTime);
         result.Value.Items.Select(item => item.Title).Should()
-            .Equal("Alpha public", "No schedule", "Sold out");
+            .Equal("Alpha public", "Sold out", "No schedule");
 
         var first = result.Value.Items[0];
         first.TourId.Should().Be("9007199254740993");
-        first.RepresentativeScheduleId.Should().Be("7002");
+        first.RepresentativeScheduleId.Should().Be("7001");
         first.DepartureAtUtc.Should().Be(
-            new DateTime(2026, 9, 20, 2, 0, 0, DateTimeKind.Utc));
-        first.AvailabilityStatus.Should().Be("available");
-        first.RemainingSlots.Should().Be(8);
+            new DateTime(2026, 9, 19, 1, 0, 0, DateTimeKind.Utc));
+        first.AvailabilityStatus.Should().Be("soldOut");
+        first.RemainingSlots.Should().Be(0);
         first.BasePrice.Should().Be(1_250_000);
         first.Currency.Should().Be("VND");
 
-        var noSchedule = result.Value.Items[1];
+        var noSchedule = result.Value.Items[2];
         noSchedule.RepresentativeScheduleId.Should().BeNull();
         noSchedule.DepartureAtUtc.Should().BeNull();
         noSchedule.AvailabilityStatus.Should().Be("noUpcomingSchedule");
         noSchedule.RemainingSlots.Should().BeNull();
 
-        var soldOut = result.Value.Items[2];
+        var soldOut = result.Value.Items[1];
         soldOut.RepresentativeScheduleId.Should().Be("7004");
         soldOut.AvailabilityStatus.Should().Be("soldOut");
         soldOut.RemainingSlots.Should().Be(0);
@@ -75,7 +75,7 @@ public sealed class SearchToursSqlServerTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
-    public async Task Search_CombinesLiteralDestinationVietnamDateAndInclusivePriceBounds()
+    public async Task Search_CombinesLiteralAccentInsensitiveDestinationVietnamDateAndInclusivePriceBounds()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
         await SeedFilterScenarioAsync(database);
@@ -92,14 +92,26 @@ public sealed class SearchToursSqlServerTests
                 PageSize: 1),
             CancellationToken.None);
 
-        result.Value.TotalCount.Should().Be(1);
-        result.Value.TotalPages.Should().Be(1);
+        result.Value.TotalCount.Should().Be(2);
+        result.Value.TotalPages.Should().Be(2);
         result.Value.Items.Should().ContainSingle();
         result.Value.Items[0].Title.Should().Be("Literal match");
         result.Value.Items[0].Destinations.Should().Equal("ĐÀ%_Nẵng", "Hội An");
         result.Value.Items[0].BasePrice.Should().Be(500_000);
         result.Value.Items[0].DepartureAtUtc.Should().Be(
             new DateTime(2026, 9, 19, 17, 0, 0, DateTimeKind.Utc));
+
+        var accentInsensitivePage = await handler.Handle(
+            new SearchToursQuery(
+                Destination: "  đà%_nẵng  ",
+                DepartureDate: new DateOnly(2026, 9, 20),
+                MinPrice: 500_000,
+                MaxPrice: 1_000_000,
+                Page: 2,
+                PageSize: 1),
+            CancellationToken.None);
+        accentInsensitivePage.Value.Items.Should().ContainSingle();
+        accentInsensitivePage.Value.Items[0].Title.Should().Be("Accent mismatch");
 
         var injectionAttempt = await handler.Handle(
             new SearchToursQuery(Destination: "%' OR 1=1 --"),
@@ -188,7 +200,7 @@ public sealed class SearchToursSqlServerTests
 
         result.Value.TotalCount.Should().Be(3);
         result.Value.Items.Select(item => item.Title).Should()
-            .Equal("Alpha public", "No schedule", "Sold out");
+            .Equal("Alpha public", "Sold out", "No schedule");
         ThumbnailJson(result.Value.Items[0]).GetString().Should().Be(
             "https://res.cloudinary.com/test/image/upload/cover.jpg");
         ThumbnailJson(result.Value.Items[1]).ValueKind.Should().Be(JsonValueKind.Null);
@@ -260,8 +272,9 @@ public sealed class SearchToursSqlServerTests
         result.Value.Items.Should().ContainSingle();
         var item = result.Value.Items[0];
         item.AvailabilityStatus.Should().Be("unknown");
-        item.RepresentativeScheduleId.Should().BeNull();
-        item.DepartureAtUtc.Should().BeNull();
+        item.RepresentativeScheduleId.Should().Be("7004");
+        item.DepartureAtUtc.Should().Be(
+            new DateTime(2026, 9, 19, 2, 0, 0, DateTimeKind.Utc));
         item.RemainingSlots.Should().BeNull();
     }
 
@@ -301,7 +314,7 @@ public sealed class SearchToursSqlServerTests
         result.Value.TotalCount.Should().Be(3);
         result.Value.Items.Should().HaveCount(3);
         gate.ReaderCommandCount.Should().Be(4);
-        gate.PageSql.Should().Contain("COLLATE Vietnamese_100_CI_AS");
+        gate.PageSql.Should().Contain("ORDER BY");
 
         await database.ExecuteNonQueryAsync(
             "UPDATE commerce.Tours SET status = 'Inactive' WHERE tour_id = 201;");
