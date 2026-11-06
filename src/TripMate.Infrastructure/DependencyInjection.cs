@@ -43,7 +43,6 @@ using TripMate.Infrastructure.Media;
 using TripMate.Infrastructure.Media.Cloudinary;
 using TripMate.Infrastructure.Persistence;
 using TripMate.Infrastructure.Reporting;
-using TripMate.Infrastructure.Weather;
 using TripMate.Infrastructure.Reviews.Media;
 using TripMate.Infrastructure.Reviews.Moderation;
 using TripMate.Infrastructure.Routing;
@@ -52,6 +51,7 @@ using TripMate.Infrastructure.Services;
 using TripMate.Infrastructure.Services.Payment;
 using TripMate.Infrastructure.Services.Redis;
 using TripMate.Infrastructure.TripAlerts;
+using TripMate.Infrastructure.Weather;
 using TripMate.Infrastructure.Weather;
 
 namespace TripMate.Infrastructure;

@@ -1,6 +1,8 @@
 using MediatR;
+
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+
 using TripMate.Api.Common;
 using TripMate.Application.Features.Operator.WeatherSafetyReviews;
 using TripMate.Domain.Enums;

@@ -1,6 +1,9 @@
 using System.Reflection;
+
 using FluentAssertions;
+
 using Microsoft.EntityFrameworkCore;
+
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Features.Weather.Emergency;
 using TripMate.Application.Features.Weather.Matching;

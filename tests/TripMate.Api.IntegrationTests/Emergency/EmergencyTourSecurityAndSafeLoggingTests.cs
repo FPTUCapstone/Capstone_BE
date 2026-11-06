@@ -8,8 +8,8 @@ using System.Text.Json;
 
 using FluentAssertions;
 
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 using TripMate.Api.Common;
@@ -342,7 +342,8 @@ public sealed class EmergencyTourSecurityAndSafeLoggingTests
     }
 
     [Fact]
-    public async Task Security_EvidenceUrl_RejectsUrlsWithCredentialsOrUserInfo()    {
+    public async Task Security_EvidenceUrl_RejectsUrlsWithCredentialsOrUserInfo()
+    {
         using var factory = CreateFactory();
         var seed = await SeedAsync(factory, Now.AddHours(-1));
         using var client = factory.CreateAuthenticatedClient(seed.OperatorId, UserRole.TourOperator);

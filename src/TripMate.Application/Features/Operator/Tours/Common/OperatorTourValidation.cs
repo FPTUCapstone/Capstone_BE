@@ -1,5 +1,5 @@
-using TripMate.Domain.Entities;
 using TripMate.Application.Features.Operator.Tours.Create;
+using TripMate.Domain.Entities;
 
 namespace TripMate.Application.Features.Operator.Tours.Common;
 

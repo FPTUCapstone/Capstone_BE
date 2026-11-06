@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.TripAlerts.Common;
 using TripMate.Domain.Common;

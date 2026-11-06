@@ -64,26 +64,26 @@ internal sealed class FirebaseTripAlertPushSender(
     internal static MulticastMessage BuildMessage(
         IReadOnlyList<string> tokens,
         ClaimedTripAlert alert) => new()
-    {
-        Tokens = tokens,
-        Notification = new FirebaseAdmin.Messaging.Notification
         {
-            Title = alert.Title,
-            Body = alert.Body,
-        },
-        Data = alert.Data,
-        // Wakes a background or killed app promptly; the content stays generic.
-        Android = new AndroidConfig
-        {
-            Priority = Priority.High,
-            Notification = alert.Data.GetValueOrDefault("type") switch
+            Tokens = tokens,
+            Notification = new FirebaseAdmin.Messaging.Notification
             {
-                EmergencyPushContract.ReviewType => TrayEntry(EmergencyPushContract.ReviewTrayTag),
-                EmergencyPushContract.BookingType => TrayEntry(EmergencyPushContract.BookingTrayTag),
-                _ => null,
+                Title = alert.Title,
+                Body = alert.Body,
             },
-        },
-    };
+            Data = alert.Data,
+            // Wakes a background or killed app promptly; the content stays generic.
+            Android = new AndroidConfig
+            {
+                Priority = Priority.High,
+                Notification = alert.Data.GetValueOrDefault("type") switch
+                {
+                    EmergencyPushContract.ReviewType => TrayEntry(EmergencyPushContract.ReviewTrayTag),
+                    EmergencyPushContract.BookingType => TrayEntry(EmergencyPushContract.BookingTrayTag),
+                    _ => null,
+                },
+            },
+        };
 
     // The timestamp must be set: left out, the SDK sends year 0001 and the tray misreports the age.
     private static AndroidNotification TrayEntry(string tag) =>

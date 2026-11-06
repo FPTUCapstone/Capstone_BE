@@ -1,5 +1,7 @@
 using System.Globalization;
+
 using Microsoft.AspNetCore.SignalR;
+
 using TripMate.Application.Common.Interfaces;
 
 namespace TripMate.Api.Realtime;
