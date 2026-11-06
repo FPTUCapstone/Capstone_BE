@@ -75,7 +75,7 @@ public sealed class SearchToursSqlServerTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
-    public async Task Search_CombinesLiteralDestinationVietnamDateAndInclusivePriceBounds()
+    public async Task Search_CombinesLiteralAccentInsensitiveDestinationVietnamDateAndInclusivePriceBounds()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
         await SeedFilterScenarioAsync(database);
@@ -92,14 +92,26 @@ public sealed class SearchToursSqlServerTests
                 PageSize: 1),
             CancellationToken.None);
 
-        result.Value.TotalCount.Should().Be(1);
-        result.Value.TotalPages.Should().Be(1);
+        result.Value.TotalCount.Should().Be(2);
+        result.Value.TotalPages.Should().Be(2);
         result.Value.Items.Should().ContainSingle();
         result.Value.Items[0].Title.Should().Be("Literal match");
         result.Value.Items[0].Destinations.Should().Equal("ĐÀ%_Nẵng", "Hội An");
         result.Value.Items[0].BasePrice.Should().Be(500_000);
         result.Value.Items[0].DepartureAtUtc.Should().Be(
             new DateTime(2026, 9, 19, 17, 0, 0, DateTimeKind.Utc));
+
+        var accentInsensitivePage = await handler.Handle(
+            new SearchToursQuery(
+                Destination: "  đà%_nẵng  ",
+                DepartureDate: new DateOnly(2026, 9, 20),
+                MinPrice: 500_000,
+                MaxPrice: 1_000_000,
+                Page: 2,
+                PageSize: 1),
+            CancellationToken.None);
+        accentInsensitivePage.Value.Items.Should().ContainSingle();
+        accentInsensitivePage.Value.Items[0].Title.Should().Be("Accent mismatch");
 
         var injectionAttempt = await handler.Handle(
             new SearchToursQuery(Destination: "%' OR 1=1 --"),
