@@ -29,3 +29,29 @@ public sealed class TomorrowIoOptionsBindingTests
             .Value.ApiKey.Should().Be(legacyApiKey);
     }
 }
+
+public sealed class TomorrowIoOptionsLegacyKeyValidationTests
+{
+    [Fact]
+    public void EnabledWithOnlyTheLegacyApiKey_PassesValidation()
+    {
+        IConfiguration configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Tomorrow:ApiKey"] = "legacy-test-key",
+                ["TomorrowIo:Enabled"] = "true",
+                ["TomorrowIo:WebhookSecret"] = "test-secret",
+                ["TomorrowIo:AlertId"] = "alert-123",
+            })
+            .Build();
+        var services = new ServiceCollection();
+
+        services.AddInfrastructure(configuration);
+        using ServiceProvider provider = services.BuildServiceProvider();
+
+        // Value runs PostConfigure (the legacy fallback) before the validator.
+        var options = provider.GetRequiredService<IOptions<TomorrowIoOptions>>().Value;
+        options.ApiKey.Should().Be("legacy-test-key");
+        options.AlertId.Should().Be("alert-123");
+    }
+}

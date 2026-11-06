@@ -319,8 +319,6 @@ public class ConfirmPasswordResetFlowTests
 
         DbSet<Domain.Entities.WeatherAlertInboxItem> IApplicationDbContext.WeatherAlertInboxItems => throw new NotSupportedException();
 
-        DbSet<Domain.Entities.WeatherEventEvaluation> IApplicationDbContext.WeatherEventEvaluations => throw new NotSupportedException();
-
         DbSet<Domain.Entities.WeatherSafetyReview> IApplicationDbContext.WeatherSafetyReviews => throw new NotSupportedException();
 
         DbSet<Domain.Entities.WeatherLocationMapping> IApplicationDbContext.WeatherLocationMappings => throw new NotSupportedException();

@@ -37,11 +37,20 @@ public sealed class TomorrowNotificationReconciliationBackgroundServiceTests
             return Task.FromResult(response);
         }
 
-        public Task<string> CreateLocationAsync(string name, double latitude, double longitude, CancellationToken cancellationToken = default)
-            => Task.FromResult("loc-stub");
+        public Task<TomorrowCreatedLocation> CreateLocationAsync(string name, double latitude, double longitude, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
 
-        public Task DeleteLocationAsync(string locationId, CancellationToken cancellationToken = default)
-            => Task.CompletedTask;
+        public Task<TomorrowCallOutcome> DeleteLocationAsync(string locationId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<TomorrowLinkedLocations> GetLinkedLocationIdsAsync(CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<TomorrowCallOutcome> LinkLocationsAsync(IReadOnlyCollection<string> locationIds, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public Task<TomorrowCallOutcome> UnlinkLocationsAsync(IReadOnlyCollection<string> locationIds, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 
     private sealed class StubWeatherAlertInboxStore : IWeatherAlertInboxStore
@@ -54,7 +63,7 @@ public sealed class TomorrowNotificationReconciliationBackgroundServiceTests
             => Task.FromResult((IReadOnlyList<WeatherAlertInboxItem>)[]);
 
         public Task<bool> EnqueueIfNotExistsAsync(
-            string provider, string providerNotificationId, string payload, string? signature, CancellationToken cancellationToken)
+            string provider, string providerNotificationId, string payload, CancellationToken cancellationToken)
         {
             if (ExistingIds.Contains(providerNotificationId))
             {
@@ -66,9 +75,9 @@ public sealed class TomorrowNotificationReconciliationBackgroundServiceTests
             return Task.FromResult(true);
         }
 
-        public Task MarkProcessedAsync(long inboxId, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task<bool> MarkProcessedAsync(WeatherAlertInboxItem leasedItem, CancellationToken cancellationToken) => Task.FromResult(true);
 
-        public Task MarkFailedAsync(long inboxId, string errorMessage, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task<bool> MarkFailedAsync(WeatherAlertInboxItem leasedItem, string errorMessage, CancellationToken cancellationToken) => Task.FromResult(true);
     }
 
     private readonly TestTimeProvider _timeProvider = new(new DateTimeOffset(2026, 11, 2, 12, 0, 0, TimeSpan.Zero));
@@ -89,6 +98,7 @@ public sealed class TomorrowNotificationReconciliationBackgroundServiceTests
         {
             Enabled = enabled,
             ApiKey = apiKey,
+            AlertId = "alert-1",
             ReconciliationLookbackMinutes = 60,
             ReconciliationIntervalMinutes = 15
         });
@@ -119,8 +129,8 @@ public sealed class TomorrowNotificationReconciliationBackgroundServiceTests
 
         var items = new List<TomorrowNotificationItem>
         {
-            new("notif-100", "evt-1", "alt-1", "PUBLISH", _timeProvider.GetUtcNow(), """{"id":"notif-100"}"""),
-            new("notif-101", "evt-2", "alt-2", "UPDATE", _timeProvider.GetUtcNow(), """{"id":"notif-101"}""")
+            new("notif-100", "alert-1", """{"id":"notif-100"}"""),
+            new("notif-101", "alert-1", """{"id":"notif-101"}""")
         };
 
         client.Responder = (start, end, token) => new TomorrowNotificationsResponse(items, null);
@@ -134,6 +144,22 @@ public sealed class TomorrowNotificationReconciliationBackgroundServiceTests
     }
 
     [Fact]
+    public async Task RunReconciliationCycleAsync_EnqueuesOnlyTheConfiguredAlert()
+    {
+        var (service, client, store) = CreateService();
+        client.Responder = (start, end, token) => new TomorrowNotificationsResponse(
+        [
+            new("notif-ours", "alert-1", """{"id":"notif-ours"}"""),
+            new("notif-other", "alert-of-another-team", """{"id":"notif-other"}"""),
+            new("notif-no-alert", null, """{"id":"notif-no-alert"}"""),
+        ], null);
+
+        await service.RunReconciliationCycleAsync(CancellationToken.None);
+
+        store.EnqueuedItems.Select(item => item.NotificationId).Should().Equal("notif-ours");
+    }
+
+    [Fact]
     public async Task RunReconciliationCycleAsync_WhenDuplicatesFound_DeduplicatesWithoutError()
     {
         var (service, client, store) = CreateService();
@@ -142,7 +168,7 @@ public sealed class TomorrowNotificationReconciliationBackgroundServiceTests
 
         var items = new List<TomorrowNotificationItem>
         {
-            new("notif-dupe", "evt-1", "alt-1", "PUBLISH", _timeProvider.GetUtcNow(), """{"id":"notif-dupe"}""")
+            new("notif-dupe", "alert-1", """{"id":"notif-dupe"}""")
         };
 
         client.Responder = (start, end, token) => new TomorrowNotificationsResponse(items, null);
@@ -183,11 +209,11 @@ public sealed class TomorrowNotificationReconciliationBackgroundServiceTests
 
         var page1 = new List<TomorrowNotificationItem>
         {
-            new("notif-p1", "evt-1", "alt-1", "PUBLISH", _timeProvider.GetUtcNow(), """{"id":"notif-p1"}""")
+            new("notif-p1", "alert-1", """{"id":"notif-p1"}""")
         };
         var page2 = new List<TomorrowNotificationItem>
         {
-            new("notif-p2", "evt-2", "alt-2", "PUBLISH", _timeProvider.GetUtcNow(), """{"id":"notif-p2"}""")
+            new("notif-p2", "alert-1", """{"id":"notif-p2"}""")
         };
 
         client.Responder = (start, end, token) => token switch

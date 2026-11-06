@@ -18,11 +18,10 @@ public sealed class WeatherAlertInboxItemConfiguration : IEntityTypeConfiguratio
         builder.Property(item => item.ProviderNotificationId).HasColumnName("provider_notification_id")
             .HasMaxLength(WeatherAlertInboxItem.ProviderNotificationIdMaxLength).IsUnicode(false);
         builder.Property(item => item.Payload).HasColumnName("payload").IsRequired();
-        builder.Property(item => item.Signature).HasColumnName("signature")
-            .HasMaxLength(WeatherAlertInboxItem.SignatureMaxLength).IsUnicode(false);
         builder.Property(item => item.Status).HasColumnName("status")
             .HasMaxLength(WeatherAlertInboxItem.StatusMaxLength).IsUnicode(false).IsRequired();
-        builder.Property(item => item.AttemptCount).HasColumnName("attempt_count").IsRequired();
+        // Each lease raises the attempt; two workers that read the same row cannot both claim it.
+        builder.Property(item => item.AttemptCount).HasColumnName("attempt_count").IsRequired().IsConcurrencyToken();
         builder.Property(item => item.MaxAttempts).HasColumnName("max_attempts").IsRequired();
         builder.Property(item => item.LeaseExpiresAtUtc).HasColumnName("lease_expires_at").AsUtcDateTime2();
         builder.Property(item => item.LeasedBy).HasColumnName("leased_by")

@@ -1,144 +1,146 @@
 using FluentAssertions;
 
+using Microsoft.Extensions.Options;
+
 using TripMate.Application.Features.Weather.Emergency;
+using TripMate.Domain.Entities;
 using TripMate.Infrastructure.Weather;
+using TripMate.Tests.Shared;
 
 namespace TripMate.Application.UnitTests.Features.Weather.Processing;
 
 public sealed class TomorrowAlertNormalizerTests
 {
-    private readonly TomorrowAlertNormalizer _normalizer = new();
+    private static readonly DateTimeOffset Received = new(2026, 11, 2, 10, 0, 0, TimeSpan.Zero);
+
+    private static TomorrowAlertNormalizer Create(string alertId = TomorrowAlertFixtures.DocsAlertId) =>
+        new(Options.Create(new TomorrowIoOptions { AlertId = alertId }));
+
+    private static IReadOnlyList<NormalizedWeatherEvent> Normalize(string payload, string alertId = TomorrowAlertFixtures.DocsAlertId)
+    {
+        var result = Create(alertId).Normalize(payload, "TomorrowIo", "delivery-1", Received);
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        return result.Value;
+    }
 
     [Fact]
-    public void Normalize_WithOfficialNchmfSeaBan_ExtractsAuthorityRiskAndDirective()
+    public void DocsCustomInsightPayload_BecomesOneCustomEventForItsLocation()
+    {
+        var evt = Normalize(TomorrowAlertFixtures.Webhook()).Should().ContainSingle().Subject;
+
+        evt.Provider.Should().Be(WeatherProviders.TomorrowIo);
+        evt.ProviderLocationIds.Should().Equal(TomorrowAlertFixtures.DocsLocationId);
+        evt.ValidFromUtc.Should().Be(new DateTimeOffset(2020, 5, 10, 7, 49, 34, TimeSpan.Zero), "the docs write +0000 offsets");
+        evt.ValidToUtc.Should().Be(evt.ValidFromUtc.AddHours(24));
+        evt.IsCustomEvent.Should().BeTrue();
+        evt.Category.Should().Be("CustomInsight");
+        evt.Description.Should().StartWith("* WHAT... Visibility 1km or less");
+        evt.VerifiedDirective.Should().Be(WeatherVerifiedDirective.None);
+        evt.Areas.Should().BeEmpty();
+        evt.ProviderEventId.Should().Be(
+            $"{TomorrowAlertFixtures.DocsAlertId}:1589096974:{TomorrowAlertFixtures.DocsLocationId}");
+    }
+
+    [Theory]
+    [InlineData("PRIOR")]
+    [InlineData("START")]
+    public void PriorAndStartOfOneOccurrence_ShareTheEventId(string type)
+    {
+        Normalize(TomorrowAlertFixtures.Webhook(type)).Single().ProviderEventId
+            .Should().Be(Normalize(TomorrowAlertFixtures.Webhook("PRIOR")).Single().ProviderEventId);
+    }
+
+    [Fact]
+    public void EndAllClear_ProducesNoEvidence()
+    {
+        Normalize(TomorrowAlertFixtures.EndWebhook()).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void MissingOptionalFields_AreTolerated()
+    {
+        var evt = Normalize(TomorrowAlertFixtures.MinimalWebhook("START")).Should().ContainSingle().Subject;
+
+        evt.Description.Should().BeNull();
+        evt.ProviderSeverity.Should().BeNull();
+    }
+
+    [Fact]
+    public void NotificationOfAnotherAlert_IsIgnored()
+    {
+        Normalize(TomorrowAlertFixtures.Webhook(alertId: "someone-else")).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void WithoutAConfiguredAlert_NothingIsAccepted()
+    {
+        Normalize(TomorrowAlertFixtures.Webhook(), alertId: "").Should().BeEmpty();
+    }
+
+    [Fact]
+    public void NotificationListItem_IsReadFromItsDocumentedShape()
+    {
+        var evt = Normalize(TomorrowAlertFixtures.ListItem()).Should().ContainSingle().Subject;
+
+        evt.ProviderLocationIds.Should().Equal(TomorrowAlertFixtures.DocsLocationId);
+        evt.ValidFromUtc.Should().Be(new DateTimeOffset(2020, 5, 10, 7, 49, 34, TimeSpan.Zero));
+        evt.ProviderSeverity.Should().Be(WeatherEvent.SeverityLow, "the docs list severity \"minor\"");
+        evt.ProviderEventId.Should().Be(Normalize(TomorrowAlertFixtures.Webhook("START")).Single().ProviderEventId);
+    }
+
+    [Fact]
+    public void CategoryPublishWithAuthorityDirective_CarriesAreaRiskAndDirective()
     {
         string payload = """
-        {
-            "events": [
-                {
-                    "id": "tomorrow-evt-001",
-                    "event": {
-                        "id": "official-storm-99",
-                        "eventCategory": "Typhoon",
-                        "start": "2026-11-03T06:00:00Z",
-                        "end": "2026-11-04T18:00:00Z",
-                        "updateTime": "2026-11-03T05:00:00Z",
-                        "status": "Active",
-                        "headline": "Cảnh báo bão khẩn cấp từ Trung tâm Dự báo Khí tượng Thủy văn Quốc gia NCHMF",
-                        "description": "Rủi ro thiên tai cấp 4. Ban chỉ huy yêu cầu cấm biển tuyệt đối các tàu thuyền xuất bến.",
-                        "severity": "Extreme",
-                        "geometry": {
-                            "type": "Polygon",
-                            "coordinates": [
-                                [
-                                    [108.20, 16.05],
-                                    [108.30, 16.05],
-                                    [108.30, 16.15],
-                                    [108.20, 16.15],
-                                    [108.20, 16.05]
-                                ]
-                            ]
-                        }
-                    }
-                }
-            ]
-        }
-        """;
+            {"data":{"alert":{"id":"38f689d83c264eb0b084ba095f2ea743"},"insight":{"id":"floods"},
+            "locations":[{"id":"a"},{"id":"b"}],
+            "notification":{"type":"PUBLISH","title":"Flood Hazard","description":"A flood hazard has been published."},
+            "event":{"startTime":"2026-11-03T00:00:00Z","endTime":"2026-11-04T00:00:00Z","updateTime":"2026-11-02T09:00:00Z",
+              "severity":"severe","certainty":"likely","urgency":"expected","source":"NCHMF",
+              "eventValues":{"origin":"NCHMF","title":"Bão số 9","description":"Rủi ro thiên tai cấp 4",
+                "instruction":"Yêu cầu cấm biển từ 12h","response":"avoid",
+                "location":{"type":"Polygon","coordinates":[[[108.0,15.9],[108.4,15.9],[108.4,16.2],[108.0,16.2],[108.0,15.9]]]}}}}}
+            """;
 
-        var result = _normalizer.Normalize(payload, "TomorrowIo", "notif-001", DateTimeOffset.UtcNow);
+        var evt = Normalize(payload).Should().ContainSingle().Subject;
 
-        result.IsSuccess.Should().BeTrue();
-        result.Value.Should().HaveCount(1);
-        var evt = result.Value[0];
-
-        evt.Provider.Should().Be("TomorrowIo");
-        evt.ProviderEventId.Should().Be("official-storm-99");
+        evt.IsCustomEvent.Should().BeFalse();
+        evt.Category.Should().Be("floods");
+        evt.OriginalAuthority.Should().Be("NCHMF");
         evt.OfficialVietnamRiskLevel.Should().Be(4);
         evt.VerifiedDirective.Should().Be(WeatherVerifiedDirective.TravelProhibition);
-        evt.OriginalAuthority.Should().Contain("Trung tâm Dự báo Khí tượng Thủy văn Quốc gia");
-        evt.IsWithdrawn.Should().BeFalse();
-        evt.ProviderSeverity.Should().Be("Extreme");
-        evt.Areas.Should().HaveCount(1);
-        evt.Areas[0].Outer.Should().HaveCount(5);
+        evt.ProviderSeverity.Should().Be(WeatherEvent.SeveritySevere);
+        evt.ValidToUtc.Should().Be(new DateTimeOffset(2026, 11, 4, 0, 0, 0, TimeSpan.Zero));
+        evt.UpdatedAtUtc.Should().Be(new DateTimeOffset(2026, 11, 2, 9, 0, 0, TimeSpan.Zero));
+        evt.ProviderLocationIds.Should().Equal("a", "b");
+        evt.Covers(new WeatherPoint(16.05m, 108.2m)).Should().BeTrue();
     }
 
     [Fact]
-    public void Normalize_WithProviderSeverityOnly_DoesNotAssignOfficialRiskLevelOrDirective()
+    public void CustomInsightText_NeverBecomesAVerifiedDirective()
     {
-        string payload = """
-        {
-            "id": "evt-provider-severity",
-            "start": "2026-11-03T08:00:00Z",
-            "end": "2026-11-03T18:00:00Z",
-            "severity": "Extreme",
-            "description": "High thunderstorm probability based on Tomorrow.io forecast model.",
-            "geometry": {
-                "type": "Polygon",
-                "coordinates": [
-                    [[108.2, 16.0], [108.3, 16.0], [108.3, 16.1], [108.2, 16.1], [108.2, 16.0]]
-                ]
-            }
-        }
-        """;
+        string payload = TomorrowAlertFixtures.Webhook().Replace(
+            "Low Visibility Advisory", "NCHMF cấm biển", StringComparison.Ordinal);
 
-        var result = _normalizer.Normalize(payload, "TomorrowIo", "notif-002", DateTimeOffset.UtcNow);
+        Normalize(payload).Single().VerifiedDirective.Should().Be(WeatherVerifiedDirective.None);
+    }
 
-        result.IsSuccess.Should().BeTrue();
-        var evt = result.Value[0];
-        evt.OfficialVietnamRiskLevel.Should().BeNull("provider severity must never populate Vietnamese risk level");
-        evt.VerifiedDirective.Should().Be(WeatherVerifiedDirective.None, "forecast severity is not a verified government directive");
-        evt.ProviderSeverity.Should().Be("Extreme");
+    [Theory]
+    [InlineData("not json")]
+    [InlineData("[]")]
+    [InlineData("""{"id":"legacy-self-designed","start":"2026-11-03T08:00:00Z"}""")]
+    [InlineData("""{"data":{"alert":{"id":"38f689d83c264eb0b084ba095f2ea743"},"notification":{"type":"START"},"event":{}}}""")]
+    public void PayloadOutsideTheContract_IsRejectedAsMalformed(string payload)
+    {
+        var result = Create().Normalize(payload, "TomorrowIo", "delivery-1", Received);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(WeatherAlertErrorCodes.PayloadMalformed);
     }
 
     [Fact]
-    public void Normalize_WithWithdrawnEvent_SetsIsWithdrawnTrue()
+    public void EmptyPayload_IsRejected()
     {
-        string payload = """
-        {
-            "id": "evt-cancelled-001",
-            "status": "Withdrawn",
-            "action": "CANCEL",
-            "start": "2026-11-03T08:00:00Z",
-            "end": "2026-11-03T18:00:00Z",
-            "headline": "Bão đã tan, hủy bỏ cảnh báo.",
-            "geometry": {
-                "type": "Polygon",
-                "coordinates": [
-                    [[108.2, 16.0], [108.3, 16.0], [108.3, 16.1], [108.2, 16.1], [108.2, 16.0]]
-                ]
-            }
-        }
-        """;
-
-        var result = _normalizer.Normalize(payload, "TomorrowIo", "notif-003", DateTimeOffset.UtcNow);
-
-        result.IsSuccess.Should().BeTrue();
-        result.Value[0].IsWithdrawn.Should().BeTrue();
-    }
-
-    [Fact]
-    public void Normalize_WithCustomInsightVectorEvent_MarksAsCustomEvent()
-    {
-        string payload = """
-        {
-            "insightId": "custom-insight-user-rule-123",
-            "feedId": "user-feed-danang",
-            "id": "custom-evt-99",
-            "start": "2026-11-03T08:00:00Z",
-            "end": "2026-11-03T18:00:00Z",
-            "geometry": {
-                "type": "Polygon",
-                "coordinates": [
-                    [[108.2, 16.0], [108.3, 16.0], [108.3, 16.1], [108.2, 16.1], [108.2, 16.0]]
-                ]
-            }
-        }
-        """;
-
-        var result = _normalizer.Normalize(payload, "TomorrowIo", "notif-004", DateTimeOffset.UtcNow);
-
-        result.IsSuccess.Should().BeTrue();
-        result.Value[0].IsCustomEvent.Should().BeTrue("events derived from custom insights must be flagged as custom");
-        result.Value[0].VerifiedDirective.Should().Be(WeatherVerifiedDirective.None);
+        Create().Normalize(" ", "TomorrowIo", null, Received).ErrorCode.Should().Be(WeatherAlertErrorCodes.PayloadEmpty);
     }
 }

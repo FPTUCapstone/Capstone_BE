@@ -1,6 +1,6 @@
 namespace TripMate.Domain.Entities;
 
-/// <summary>Weather event entity in trip.WeatherEvents (supporting UC-59 read-model and UC-70 official severe-weather automation).</summary>
+/// <summary>Weather event entity in trip.WeatherEvents (UC-59 read model; UC-70 provider evidence for Operator review).</summary>
 public sealed class WeatherEvent
 {
     public const string SeverityLow = "Low";
@@ -10,11 +10,9 @@ public sealed class WeatherEvent
 
     public const int ProviderMaxLength = 50;
     public const int ProviderEventIdMaxLength = 150;
-    public const int RevisionMaxLength = 50;
+    public const int EventTypeMaxLength = 40;
     public const int OriginalAuthorityMaxLength = 200;
-    public const int OriginalSourceReferenceMaxLength = 500;
     public const int VerifiedDirectiveMaxLength = 50;
-    public const int RawPayloadHashMaxLength = 64;
     public const int DescriptionMaxLength = 1000;
 
     private WeatherEvent()
@@ -48,21 +46,13 @@ public sealed class WeatherEvent
 
     public string? ProviderEventId { get; private set; }
 
-    public string? Revision { get; private set; }
-
     public string? OriginalAuthority { get; private set; }
-
-    public string? OriginalSourceReference { get; private set; }
 
     public int? OfficialVietnamRiskLevel { get; private set; }
 
     public string? VerifiedDirective { get; private set; }
 
     public bool IsWithdrawn { get; private set; }
-
-    public string? GeometryGeoJson { get; private set; }
-
-    public string? RawPayloadHash { get; private set; }
 
     public DateTimeOffset? UpdatedAtUtc { get; private set; }
 
@@ -75,13 +65,9 @@ public sealed class WeatherEvent
         DateTimeOffset? validToUtc,
         string? description,
         string? originalAuthority,
-        string? originalSourceReference,
         int? officialVietnamRiskLevel,
         string? verifiedDirective,
-        string? geometryGeoJson,
-        string? rawPayloadHash,
-        DateTimeOffset ingestedAtUtc,
-        string? revision = null)
+        DateTimeOffset ingestedAtUtc)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(provider);
         ArgumentException.ThrowIfNullOrWhiteSpace(providerEventId);
@@ -99,14 +85,10 @@ public sealed class WeatherEvent
             ValidToUtc = validToUtc?.ToUniversalTime(),
             Description = NormalizeDescription(description),
             OriginalAuthority = originalAuthority?.Trim(),
-            OriginalSourceReference = originalSourceReference?.Trim(),
             OfficialVietnamRiskLevel = officialVietnamRiskLevel,
             VerifiedDirective = verifiedDirective?.Trim(),
-            GeometryGeoJson = geometryGeoJson,
-            RawPayloadHash = rawPayloadHash?.Trim(),
             IngestedAtUtc = ingestedAtUtc.ToUniversalTime(),
             UpdatedAtUtc = ingestedAtUtc.ToUniversalTime(),
-            Revision = revision?.Trim(),
             IsWithdrawn = false,
         };
     }
@@ -118,10 +100,7 @@ public sealed class WeatherEvent
         string? description,
         int? officialVietnamRiskLevel,
         string? verifiedDirective,
-        string? geometryGeoJson,
-        string? rawPayloadHash,
-        DateTimeOffset updatedAtUtc,
-        string? revision = null)
+        DateTimeOffset updatedAtUtc)
     {
         ValidFromUtc = validFromUtc.ToUniversalTime();
         ValidToUtc = validToUtc?.ToUniversalTime();
@@ -132,16 +111,7 @@ public sealed class WeatherEvent
         }
         OfficialVietnamRiskLevel = officialVietnamRiskLevel;
         VerifiedDirective = verifiedDirective?.Trim();
-        if (!string.IsNullOrWhiteSpace(geometryGeoJson))
-        {
-            GeometryGeoJson = geometryGeoJson;
-        }
-        RawPayloadHash = rawPayloadHash?.Trim();
         UpdatedAtUtc = updatedAtUtc.ToUniversalTime();
-        if (!string.IsNullOrWhiteSpace(revision))
-        {
-            Revision = revision.Trim();
-        }
     }
 
     public void MarkWithdrawn(DateTimeOffset updatedAtUtc)

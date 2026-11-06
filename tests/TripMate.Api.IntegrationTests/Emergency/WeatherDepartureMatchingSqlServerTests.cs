@@ -198,22 +198,11 @@ public sealed class WeatherDepartureMatchingSqlServerTests
         impact2.RequiredStops.Should().HaveCount(1);
         impact2.RequiredStops[0].Point.Latitude.Should().Be(16.10m);
 
-        // Verify persisting an evaluation audit record to SQL Server succeeds
-        var evaluation = WeatherEventEvaluation.Record(
-            weatherEvent.Provider,
-            weatherEvent.ProviderEventId,
-            dep1.Id,
-            WeatherDecisionOutcome.SafetyReview.ToString(),
-            "MeetingPointInsideHazardArea",
-            "Meeting point is within Da Nang storm polygon.",
-            Now);
-        db.WeatherEventEvaluations.Add(evaluation);
-        await db.SaveChangesAsync();
-
-        var persistedEvaluation = await db.WeatherEventEvaluations
-            .FirstOrDefaultAsync(e => e.ProviderEventId == weatherEvent.ProviderEventId && e.TourScheduleId == dep1.Id);
-        persistedEvaluation.Should().NotBeNull();
-        persistedEvaluation!.DecisionOutcome.Should().Be(WeatherDecisionOutcome.SafetyReview.ToString());
+        // A Tomorrow.io Location alert names points, not an area: the point read back from
+        // DECIMAL(9,6) must equal the stored meeting point exactly.
+        var locationEvent = weatherEvent with { Areas = [], MonitoredPoints = [new WeatherPoint(16.050000m, 108.220000m)] };
+        var byLocation = await finder.FindAffectedDeparturesAsync(locationEvent, CancellationToken.None);
+        byLocation.Select(candidate => candidate.Schedule.Id).Should().Equal(dep1.Id);
     }
 
     private static Tour CreateTour(long operatorUserId, string title)

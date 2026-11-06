@@ -20,20 +20,21 @@ Operator xác nhận và gọi Operator Emergency Override thì tour mới có t
 
 ## Normalized Weather Event
 
-Contract nội bộ độc lập provider, gồm event identity/revision, authority, geometry, effective time,
-risk level, directive và withdrawal state. Contract này chỉ phục vụ đánh giá và cung cấp bằng chứng
+Contract nội bộ độc lập provider, gồm event identity, authority, vùng ảnh hưởng hoặc Location id của
+provider, effective time, risk level, directive và withdrawal state. Contract này chỉ phục vụ đánh giá và cung cấp bằng chứng
 cho Operator, không phải lệnh hủy tour.
 
 ## Real-Time Alert Delivery
 
-Tomorrow.io webhook là luồng nhận event chính. Backend xác minh `X-Signature`, lưu durable inbox và
-trả `2xx` nhanh. `GET /v4/notifications` chỉ reconciliation định kỳ để khôi phục webhook bị mất.
+Tomorrow.io webhook là luồng nhận event chính. Backend xác minh `X-Signature` (HMAC-SHA256 trên chuỗi
+timestamp), lưu durable inbox và trả `2xx` nhanh. `GET /v4/notifications?alertIds=` chỉ reconciliation
+định kỳ để khôi phục webhook bị mất. Chỉ notification của `TomorrowIo:AlertId` được dùng.
 `TomorrowIo:Enabled` là công tắc bật/tắt ingestion; không có Shadow/Automatic mode.
 
 ## Monitored Weather Location
 
-Location được tạo theo meeting point hoặc required stop có tọa độ duy nhất, không theo Traveler GPS.
-Nhiều tour có thể dùng chung một location.
+Location được tạo theo meeting point hoặc stop có `IsRequiredForWeather = true`, không theo Traveler GPS,
+và phải được link vào Alert mới sinh notification. Nhiều tour có thể dùng chung một location.
 
 ## Manual-Only Invariant
 

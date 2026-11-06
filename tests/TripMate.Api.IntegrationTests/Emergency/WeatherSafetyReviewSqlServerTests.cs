@@ -17,11 +17,27 @@ using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 using TripMate.Infrastructure.Services;
 using TripMate.Infrastructure.Weather;
+using TripMate.Tests.Shared;
 
 namespace TripMate.Api.IntegrationTests.Emergency;
 
 public sealed class WeatherSafetyReviewSqlServerTests
 {
+    private const string AlertId = "alert-uc70-e2e";
+    private const string StopLocationId = "loc-son-tra";
+
+    // Production order: the background worker leases an item before processing it.
+    private static async Task LeaseAndProcessAsync(TripMateApiFactory factory)
+    {
+        using var scope = factory.Services.CreateScope();
+        var store = scope.ServiceProvider.GetRequiredService<IWeatherAlertInboxStore>();
+        var processor = scope.ServiceProvider.GetRequiredService<IWeatherAlertInboxProcessor>();
+        foreach (var item in await store.LeasePendingItemsAsync(10, TimeSpan.FromMinutes(1), "e2e-worker", CancellationToken.None))
+        {
+            await processor.ProcessInboxItemAsync(item, CancellationToken.None);
+        }
+    }
+
     private static readonly DateTimeOffset Now = new(
         DateTimeOffset.UtcNow.Ticks / TimeSpan.TicksPerSecond * TimeSpan.TicksPerSecond, TimeSpan.Zero);
 
@@ -169,6 +185,12 @@ public sealed class WeatherSafetyReviewSqlServerTests
             (await database.ExecuteScalarAsync<string>($"""
                 SELECT status FROM trip.WeatherSafetyReviews WHERE review_id = {expiredReview.Id};
                 """)).Should().Be(WeatherSafetyReview.StatusEscalated);
+            (await database.ExecuteScalarAsync<string>($"""
+                SELECT escalation_contact FROM trip.WeatherSafetyReviews WHERE review_id = {expiredReview.Id};
+                """)).Should().Be("Bộ phận điều phối vận hành");
+            using var escalatedResponse = await owningClient.GetAsync($"/api/v1/operator/weather-safety-reviews/{expiredReview.Id}");
+            (await escalatedResponse.Content.ReadFromJsonAsync<WeatherSafetyReviewDto>())!.EscalationContact
+                .Should().Be("Bộ phận điều phối vận hành");
 
             (await database.ExecuteScalarAsync<int>($"""
                 SELECT COUNT(*) FROM dbo.AuditLogs
@@ -276,6 +298,10 @@ public sealed class WeatherSafetyReviewSqlServerTests
             Set(itineraryItem, nameof(TourItineraryItem.TourId), tour.Id);
             db.TourItineraryItems.Add(itineraryItem);
 
+            // The weather-required stop is a Tomorrow.io Location linked to the configured Alert.
+            db.WeatherLocationMappings.Add(WeatherLocationMapping.Create(
+                $"poi-{daNangPoi.Id}", StopLocationId, 16.10m, 108.25m, "Son Tra Peninsula", Now.AddHours(8), Now.AddDays(-1)));
+
             var schedule = TourSchedule.Create(
                 startAtUtc: Now.AddHours(-1),
                 endAtUtc: Now.AddHours(8),
@@ -316,6 +342,8 @@ public sealed class WeatherSafetyReviewSqlServerTests
                 {
                     opts.WebhookSecret = webhookSecret;
                     opts.Enabled = true;
+                    opts.ApiKey = "test-api-key-not-real";
+                    opts.AlertId = AlertId;
                     opts.WebhookToleranceSeconds = 300;
                     opts.MaxPayloadSizeBytes = 1_048_576;
                 });
@@ -353,8 +381,7 @@ public sealed class WeatherSafetyReviewSqlServerTests
         using var invalidSigRes = await anonClient.SendAsync(invalidSigReq);
         invalidSigRes.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
 
-        var authenticator = factory.Services.GetRequiredService<ITomorrowWebhookAuthenticator>();
-        string expiredSig = authenticator.GenerateSignatureHeader("{}", DateTimeOffset.UtcNow.AddMinutes(-10));
+        string expiredSig = TomorrowAlertFixtures.SignatureHeader(webhookSecret, DateTimeOffset.UtcNow.AddMinutes(-10));
         using var expiredSigReq = new HttpRequestMessage(HttpMethod.Post, "/api/v1/webhooks/tomorrow/alerts")
         {
             Content = new StringContent("{}", Encoding.UTF8, "application/json")
@@ -376,36 +403,10 @@ public sealed class WeatherSafetyReviewSqlServerTests
         preRefundCount.Should().Be(0);
         preOutboxTableCount.Should().Be(0);
 
-        // --- STEP 3: Controlled Signed Payload & Deduplication ---
-        string payload = """
-        {
-          "events": [
-            {
-              "id": "evt-da-nang-storm-001",
-              "startTime": "2026-11-02T09:00:00Z",
-              "endTime": "2026-11-02T19:00:00Z",
-              "severity": "Severe",
-              "headline": "Canh bao bao ven bien Da Nang - NCHMF",
-              "description": "NCHMF phat lenh cam bien va canh bao risk level 3 tai khu vuc Da Nang.",
-              "source": "NCHMF",
-              "geometry": {
-                "type": "Polygon",
-                "coordinates": [
-                  [
-                    [108.0, 16.0],
-                    [108.5, 16.0],
-                    [108.5, 16.5],
-                    [108.0, 16.5],
-                    [108.0, 16.0]
-                  ]
-                ]
-              }
-            }
-          ]
-        }
-        """.Replace("2026-11-02T09:00:00Z", $"{Now.AddHours(1):O}").Replace("2026-11-02T19:00:00Z", $"{Now.AddHours(11):O}");
-
-        string validSig = authenticator.GenerateSignatureHeader(payload, DateTimeOffset.UtcNow);
+        // --- STEP 3: The documented Custom Insight webhook for the monitored meeting point ---
+        string payload = TomorrowAlertFixtures.Webhook("PRIOR", alertId: AlertId, locationId: StopLocationId,
+            startTime: Now.AddMinutes(30));
+        string validSig = TomorrowAlertFixtures.SignatureHeader(webhookSecret, DateTimeOffset.UtcNow);
 
         using var validReq = new HttpRequestMessage(HttpMethod.Post, "/api/v1/webhooks/tomorrow/alerts")
         {
@@ -422,6 +423,7 @@ public sealed class WeatherSafetyReviewSqlServerTests
             doc.RootElement.GetProperty("status").GetString().Should().Be("Pending");
         }
 
+        // Tomorrow.io re-delivers the same body after a failed attempt.
         using var dupReq = new HttpRequestMessage(HttpMethod.Post, "/api/v1/webhooks/tomorrow/alerts")
         {
             Content = new StringContent(payload, Encoding.UTF8, "application/json")
@@ -439,24 +441,17 @@ public sealed class WeatherSafetyReviewSqlServerTests
         int inboxCount = await database.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM trip.WeatherAlertInboxItems;");
         inboxCount.Should().Be(1);
 
-        // --- STEP 4: Process Inbox Item -> WeatherEvent -> Evaluation -> WeatherSafetyReview ---
-        using (var scope = factory.Services.CreateScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<IApplicationDbContext>();
-            var processor = scope.ServiceProvider.GetRequiredService<IWeatherAlertInboxProcessor>();
-
-            var inboxItem = await db.WeatherAlertInboxItems.SingleAsync();
-            await processor.ProcessInboxItemAsync(inboxItem, CancellationToken.None);
-        }
+        // --- STEP 4: Lease and process -> WeatherEvent -> WeatherSafetyReview ---
+        await LeaseAndProcessAsync(factory);
 
         (await database.ExecuteScalarAsync<string>("SELECT status FROM trip.WeatherAlertInboxItems;")).Should().Be("Processed");
-        (await database.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM trip.WeatherEvents WHERE provider_event_id = 'evt-da-nang-storm-001';")).Should().Be(1);
-        (await database.ExecuteScalarAsync<int>("SELECT official_vietnam_risk_level FROM trip.WeatherEvents WHERE provider_event_id = 'evt-da-nang-storm-001';")).Should().Be(3);
-        (await database.ExecuteScalarAsync<int>($"SELECT COUNT(*) FROM trip.WeatherEventEvaluations WHERE tour_schedule_id = {scheduleId};")).Should().Be(1);
-        (await database.ExecuteScalarAsync<string>($"SELECT decision_outcome FROM trip.WeatherEventEvaluations WHERE tour_schedule_id = {scheduleId};")).Should().Be("ActiveSafetyHold");
+        (await database.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM trip.WeatherAlertInboxItems WHERE processed_at IS NOT NULL AND last_error IS NULL;")).Should().Be(1);
+        (await database.ExecuteScalarAsync<int>($"SELECT COUNT(*) FROM trip.WeatherEvents WHERE provider = 'TomorrowIo' AND provider_event_id LIKE '{AlertId}:%:{StopLocationId}';")).Should().Be(1);
 
         long reviewId = await database.ExecuteScalarAsync<long>($"SELECT review_id FROM trip.WeatherSafetyReviews WHERE tour_schedule_id = {scheduleId};");
         reviewId.Should().BeGreaterThan(0);
+        (await database.ExecuteScalarAsync<string>($"SELECT immediate_instructions FROM trip.WeatherSafetyReviews WHERE review_id = {reviewId};"))
+            .Should().Contain("Operator review", "a Custom Insight is advisory evidence for the Operator");
         realtimeNotifier.Calls.Should().ContainSingle(call =>
             call.OperatorUserId == operatorId
             && call.Notification.ReviewId == reviewId
@@ -472,24 +467,30 @@ public sealed class WeatherSafetyReviewSqlServerTests
               AND notification.body NOT LIKE '%Da Nang%';
             """)).Should().Be(1);
 
-        // A later revision of an event already reviewed must not fail on the unique
-        // review, nor send another notice.
+        // START of the same occurrence after the Operator acknowledged: still one review, one notice.
         (await database.ExecuteScalarAsync<int>($"""
             UPDATE trip.WeatherSafetyReviews SET status = '{WeatherSafetyReview.StatusAcknowledged}'
             WHERE review_id = {reviewId};
             SELECT @@ROWCOUNT;
             """)).Should().Be(1);
-        using (var scope = factory.Services.CreateScope())
+        string startPayload = TomorrowAlertFixtures.Webhook("START", alertId: AlertId, locationId: StopLocationId,
+            startTime: Now.AddMinutes(30));
+        using (var startReq = new HttpRequestMessage(HttpMethod.Post, "/api/v1/webhooks/tomorrow/alerts")
         {
-            var db = scope.ServiceProvider.GetRequiredService<IApplicationDbContext>();
-            var processor = scope.ServiceProvider.GetRequiredService<IWeatherAlertInboxProcessor>();
-            var inboxItem = await db.WeatherAlertInboxItems.SingleAsync();
-            await processor.ProcessInboxItemAsync(inboxItem, CancellationToken.None);
+            Content = new StringContent(startPayload, Encoding.UTF8, "application/json")
+        })
+        {
+            startReq.Headers.Add("X-Signature", TomorrowAlertFixtures.SignatureHeader(webhookSecret, DateTimeOffset.UtcNow));
+            using var startRes = await anonClient.SendAsync(startReq);
+            startRes.StatusCode.Should().Be(HttpStatusCode.Accepted);
         }
 
+        await LeaseAndProcessAsync(factory);
+
         (await database.ExecuteScalarAsync<int>($"SELECT COUNT(*) FROM trip.WeatherSafetyReviews WHERE tour_schedule_id = {scheduleId};")).Should().Be(1);
+        (await database.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM trip.WeatherEvents WHERE provider = 'TomorrowIo';")).Should().Be(1);
         (await database.ExecuteScalarAsync<int>($"SELECT COUNT(*) FROM dbo.Notifications WHERE type = '{Notification.WeatherSafetyReviewCreatedType}';")).Should().Be(1);
-        (await database.ExecuteScalarAsync<string>("SELECT status FROM trip.WeatherAlertInboxItems;")).Should().Be("Processed");
+        (await database.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM trip.WeatherAlertInboxItems WHERE status = 'Processed';")).Should().Be(2);
         await database.ExecuteScalarAsync<int>($"""
             UPDATE trip.WeatherSafetyReviews SET status = '{WeatherSafetyReview.StatusPendingAcknowledgement}'
             WHERE review_id = {reviewId};
@@ -677,11 +678,8 @@ public sealed class WeatherSafetyReviewSqlServerTests
             validToUtc: Now.AddHours(8),
             description: "Extreme typhoon affecting the coastal departure.",
             originalAuthority: "NCHMF",
-            originalSourceReference: "NCHMF bulletin 2026-11-02",
             officialVietnamRiskLevel: 4,
             verifiedDirective: "TravelProhibition",
-            geometryGeoJson: "{\"type\":\"Polygon\",\"coordinates\":[]}",
-            rawPayloadHash: new string('a', 64),
             ingestedAtUtc: Now.AddMinutes(-5));
         db.WeatherEvents.Add(weatherEvent);
         await db.SaveChangesAsync();

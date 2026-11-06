@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -7,8 +8,17 @@ using TripMate.Application.Common.Interfaces;
 
 namespace TripMate.Infrastructure.Weather;
 
+/// <summary>
+/// Verifies <c>X-Signature: t={timestamp},sig={hex}</c> as documented at
+/// https://docs.tomorrow.io/reference/api-webhooks: the signature is HMAC-SHA256 over the raw
+/// timestamp string with the webhook secret as key. The body is not signed.
+/// </summary>
 public sealed class TomorrowWebhookAuthenticator : ITomorrowWebhookAuthenticator
 {
+    // Unix seconds stay below this until the year 5138; a larger value can only be milliseconds.
+    private const long MillisecondTimestampThreshold = 100_000_000_000;
+    private const int Sha256HexLength = 64;
+
     private readonly TomorrowIoOptions _options;
     private readonly TimeProvider _timeProvider;
 
@@ -21,7 +31,6 @@ public sealed class TomorrowWebhookAuthenticator : ITomorrowWebhookAuthenticator
     }
 
     public bool ValidateSignature(
-        string payload,
         string? signatureHeader,
         DateTimeOffset? utcNow,
         out string? failureReason)
@@ -40,35 +49,37 @@ public sealed class TomorrowWebhookAuthenticator : ITomorrowWebhookAuthenticator
             return false;
         }
 
-        if (!TryParseSignatureHeader(signatureHeader, out long timestampSeconds, out string? signatureHex))
+        if (!TryParseSignatureHeader(signatureHeader, out string timestamp, out long timestampValue,
+                out byte[] signature))
         {
-            failureReason = "Malformed signature header. Expected format: t=<timestamp>,sig=<hex> or t=<timestamp>,v1=<hex>";
+            failureReason = "Malformed signature header. Expected format: t=<timestamp>,sig=<hex>.";
             return false;
         }
 
+        // The contract does not name the unit of t, so freshness accepts seconds or milliseconds.
+        var headerTime = timestampValue >= MillisecondTimestampThreshold
+            ? DateTimeOffset.FromUnixTimeMilliseconds(timestampValue)
+            : DateTimeOffset.FromUnixTimeSeconds(timestampValue);
         var currentTime = utcNow ?? _timeProvider.GetUtcNow();
-        var headerTime = DateTimeOffset.FromUnixTimeSeconds(timestampSeconds);
         var tolerance = TimeSpan.FromSeconds(Math.Max(1, _options.WebhookToleranceSeconds));
 
         if (headerTime < currentTime - tolerance)
         {
-            failureReason = $"Webhook signature timestamp is stale. Header: {headerTime:O}, Current: {currentTime:O}, Tolerance: {tolerance.TotalSeconds}s";
+            failureReason = $"Webhook signature timestamp is stale (tolerance {tolerance.TotalSeconds}s).";
             return false;
         }
 
         if (headerTime > currentTime + tolerance)
         {
-            failureReason = $"Webhook signature timestamp is too far in the future. Header: {headerTime:O}, Current: {currentTime:O}, Tolerance: {tolerance.TotalSeconds}s";
+            failureReason = $"Webhook signature timestamp is too far in the future (tolerance {tolerance.TotalSeconds}s).";
             return false;
         }
 
-        string expectedSignatureHex = ComputeSignatureHex(payload, timestampSeconds, _options.WebhookSecret);
+        // The raw timestamp string is signed exactly as received.
+        byte[] expected = HMACSHA256.HashData(
+            Encoding.UTF8.GetBytes(_options.WebhookSecret), Encoding.UTF8.GetBytes(timestamp));
 
-        byte[] expectedBytes = Encoding.UTF8.GetBytes(expectedSignatureHex);
-        byte[] actualBytes = Encoding.UTF8.GetBytes(signatureHex!.ToLowerInvariant());
-
-        if (expectedBytes.Length != actualBytes.Length ||
-            !CryptographicOperations.FixedTimeEquals(expectedBytes, actualBytes))
+        if (!CryptographicOperations.FixedTimeEquals(expected, signature))
         {
             failureReason = "Signature hash mismatch.";
             return false;
@@ -77,51 +88,41 @@ public sealed class TomorrowWebhookAuthenticator : ITomorrowWebhookAuthenticator
         return true;
     }
 
-    public string GenerateSignatureHeader(string payload, DateTimeOffset timestampUtc)
-    {
-        long timestampSeconds = timestampUtc.ToUnixTimeSeconds();
-        string signatureHex = ComputeSignatureHex(payload, timestampSeconds, _options.WebhookSecret);
-        return $"t={timestampSeconds},sig={signatureHex}";
-    }
-
     private static bool TryParseSignatureHeader(
         string header,
-        out long timestampSeconds,
-        out string? signatureHex)
+        out string timestamp,
+        out long timestampValue,
+        out byte[] signature)
     {
-        timestampSeconds = 0;
-        signatureHex = null;
+        timestamp = string.Empty;
+        timestampValue = 0;
+        signature = [];
+        string? signatureHex = null;
 
-        var parts = header.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        foreach (var part in parts)
+        foreach (var part in header.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            var kv = part.Split('=', 2, StringSplitOptions.TrimEntries);
-            if (kv.Length != 2) continue;
+            var pair = part.Split('=', 2, StringSplitOptions.TrimEntries);
+            if (pair.Length != 2) continue;
 
-            if (kv[0].Equals("t", StringComparison.OrdinalIgnoreCase))
-            {
-                if (!long.TryParse(kv[1], out timestampSeconds))
-                {
-                    return false;
-                }
-            }
-            else if (kv[0].Equals("sig", StringComparison.OrdinalIgnoreCase) ||
-                     kv[0].Equals("v1", StringComparison.OrdinalIgnoreCase))
-            {
-                signatureHex = kv[1];
-            }
+            if (pair[0] == "t") timestamp = pair[1];
+            else if (pair[0] == "sig") signatureHex = pair[1];
         }
 
-        return timestampSeconds > 0 && !string.IsNullOrWhiteSpace(signatureHex);
-    }
+        if (!long.TryParse(timestamp, NumberStyles.None, CultureInfo.InvariantCulture, out timestampValue)
+            || timestampValue <= 0
+            || signatureHex is not { Length: Sha256HexLength })
+        {
+            return false;
+        }
 
-    private static string ComputeSignatureHex(string payload, long timestampSeconds, string secret)
-    {
-        byte[] keyBytes = Encoding.UTF8.GetBytes(secret);
-        byte[] dataBytes = Encoding.UTF8.GetBytes($"{timestampSeconds}.{payload}");
-
-        using var hmac = new HMACSHA256(keyBytes);
-        byte[] hash = hmac.ComputeHash(dataBytes);
-        return Convert.ToHexString(hash).ToLowerInvariant();
+        try
+        {
+            signature = Convert.FromHexString(signatureHex);
+            return true;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
     }
 }

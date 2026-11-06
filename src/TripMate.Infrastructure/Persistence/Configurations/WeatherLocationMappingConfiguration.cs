@@ -21,7 +21,6 @@ public sealed class WeatherLocationMappingConfiguration : IEntityTypeConfigurati
         builder.Property(mapping => mapping.Longitude).HasColumnName("longitude").HasPrecision(9, 6).IsRequired();
         builder.Property(mapping => mapping.Name).HasColumnName("name")
             .HasMaxLength(WeatherLocationMapping.NameMaxLength);
-        builder.Property(mapping => mapping.LinkedDeparturesCount).HasColumnName("linked_departures_count").IsRequired();
         builder.Property(mapping => mapping.LastDepartureEndAtUtc).HasColumnName("last_departure_end_at").AsUtcDateTime2();
         builder.Property(mapping => mapping.IsActive).HasColumnName("is_active").IsRequired();
         builder.Property(mapping => mapping.CreatedAtUtc).HasColumnName("created_at").AsUtcDateTime2().IsRequired();

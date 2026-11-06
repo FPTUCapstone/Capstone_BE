@@ -20,7 +20,26 @@ public sealed class SqlWeatherAlertInboxStore(
         var utcNow = timeProvider.GetUtcNow();
         var leaseExpiry = utcNow.Add(leaseDuration);
 
-        return await context.ExecuteInTransactionAsync(async ct =>
+        try
+        {
+            return await LeaseAsync(batchSize, leasedBy, utcNow, leaseExpiry, cancellationToken);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // Another worker claimed one of these rows first; this worker leases again next poll.
+            context.ClearTrackedEntities();
+            logger.LogDebug("Inbox lease for worker {WorkerId} lost a race; retrying on the next poll.", leasedBy);
+            return [];
+        }
+    }
+
+    private Task<IReadOnlyList<WeatherAlertInboxItem>> LeaseAsync(
+        int batchSize,
+        string leasedBy,
+        DateTimeOffset utcNow,
+        DateTimeOffset leaseExpiry,
+        CancellationToken cancellationToken) =>
+        context.ExecuteInTransactionAsync(async ct =>
         {
             var candidates = await context.WeatherAlertInboxItems
                 .Where(x => (x.Status == WeatherAlertInboxItem.StatusPending ||
@@ -44,13 +63,11 @@ public sealed class SqlWeatherAlertInboxStore(
 
             return (IReadOnlyList<WeatherAlertInboxItem>)candidates;
         }, cancellationToken);
-    }
 
     public async Task<bool> EnqueueIfNotExistsAsync(
         string provider,
         string providerNotificationId,
         string payload,
-        string? signature,
         CancellationToken cancellationToken)
     {
         var exists = await context.WeatherAlertInboxItems
@@ -67,7 +84,6 @@ public sealed class SqlWeatherAlertInboxStore(
             provider: provider,
             payload: payload,
             providerNotificationId: providerNotificationId,
-            signature: signature,
             receivedAtUtc: timeProvider.GetUtcNow());
 
         context.WeatherAlertInboxItems.Add(item);
@@ -86,21 +102,47 @@ public sealed class SqlWeatherAlertInboxStore(
         }
     }
 
-    public async Task MarkProcessedAsync(long inboxId, CancellationToken cancellationToken)
+    public async Task<bool> MarkProcessedAsync(WeatherAlertInboxItem leasedItem, CancellationToken cancellationToken)
     {
-        var item = await context.WeatherAlertInboxItems.FindAsync([inboxId], cancellationToken);
-        if (item is null) return;
+        var processedAt = timeProvider.GetUtcNow();
+        int updated = await StillLeased(leasedItem).ExecuteUpdateAsync(setters => setters
+            .SetProperty(item => item.Status, WeatherAlertInboxItem.StatusProcessed)
+            .SetProperty(item => item.ProcessedAtUtc, processedAt)
+            .SetProperty(item => item.LeaseExpiresAtUtc, (DateTimeOffset?)null)
+            .SetProperty(item => item.LeasedBy, (string?)null), cancellationToken);
 
-        item.MarkProcessed(timeProvider.GetUtcNow());
-        await context.SaveChangesAsync(cancellationToken);
+        return updated == 1;
     }
 
-    public async Task MarkFailedAsync(long inboxId, string errorMessage, CancellationToken cancellationToken)
+    public async Task<bool> MarkFailedAsync(
+        WeatherAlertInboxItem leasedItem,
+        string errorMessage,
+        CancellationToken cancellationToken)
     {
-        var item = await context.WeatherAlertInboxItems.FindAsync([inboxId], cancellationToken);
-        if (item is null) return;
+        string error = errorMessage.Length > WeatherAlertInboxItem.LastErrorMaxLength
+            ? errorMessage[..WeatherAlertInboxItem.LastErrorMaxLength]
+            : errorMessage;
+        int updated = await StillLeased(leasedItem).ExecuteUpdateAsync(setters => setters
+            .SetProperty(item => item.Status, item => item.AttemptCount >= item.MaxAttempts
+                ? WeatherAlertInboxItem.StatusFailed
+                : WeatherAlertInboxItem.StatusPending)
+            .SetProperty(item => item.LastError, error)
+            .SetProperty(item => item.LeaseExpiresAtUtc, (DateTimeOffset?)null)
+            .SetProperty(item => item.LeasedBy, (string?)null), cancellationToken);
 
-        item.MarkFailed(errorMessage);
-        await context.SaveChangesAsync(cancellationToken);
+        return updated == 1;
+    }
+
+    // The lease owner plus the attempt number fence a lease: a reclaim by any worker, even
+    // the same one after its lease expired, raises the attempt count.
+    private IQueryable<WeatherAlertInboxItem> StillLeased(WeatherAlertInboxItem leasedItem)
+    {
+        long id = leasedItem.Id;
+        string? leasedBy = leasedItem.LeasedBy;
+        int attempt = leasedItem.AttemptCount;
+        return context.WeatherAlertInboxItems.Where(item => item.Id == id
+            && item.Status == WeatherAlertInboxItem.StatusProcessing
+            && item.LeasedBy == leasedBy
+            && item.AttemptCount == attempt);
     }
 }

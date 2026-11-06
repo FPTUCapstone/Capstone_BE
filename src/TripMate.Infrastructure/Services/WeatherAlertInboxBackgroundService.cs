@@ -50,7 +50,7 @@ public sealed class WeatherAlertInboxBackgroundService(
                     catch (Exception ex)
                     {
                         logger.LogError(ex, "Failed to process inbox item {InboxId}.", item.Id);
-                        await inboxStore.MarkFailedAsync(item.Id, ex.Message, stoppingToken);
+                        await inboxStore.MarkFailedAsync(item, ex.Message, stoppingToken);
                     }
                 }
             }

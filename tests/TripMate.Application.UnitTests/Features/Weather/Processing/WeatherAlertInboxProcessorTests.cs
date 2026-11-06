@@ -2,336 +2,288 @@ using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 
 using TripMate.Application.Common.Interfaces;
-using TripMate.Application.Features.Weather.Emergency;
 using TripMate.Application.Features.Weather.Matching;
 using TripMate.Application.Features.Weather.Processing;
 using TripMate.Application.UnitTests.TestUtilities;
 using TripMate.Domain.Entities;
+using TripMate.Domain.Enums;
 using TripMate.Infrastructure.Weather;
+using TripMate.Tests.Shared;
 
 namespace TripMate.Application.UnitTests.Features.Weather.Processing;
 
+/// <summary>
+/// The processor driven end to end with the documented Tomorrow.io payloads, the real
+/// normalizer, finder and impact loader, against an in-memory TripMate database.
+/// </summary>
 public sealed class WeatherAlertInboxProcessorTests
 {
+    private static readonly DateTimeOffset Now = new(2026, 11, 2, 10, 0, 0, TimeSpan.Zero);
+    private static readonly DateTimeOffset Departure = Now.AddHours(20);
+    private const string MeetingLocationId = "loc-meeting";
+    private const string StopLocationId = "loc-stop";
+
     private sealed class TestTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => utcNow;
     }
 
-    private readonly TestTimeProvider _timeProvider = new(new DateTimeOffset(2026, 11, 2, 10, 0, 0, TimeSpan.Zero));
-    private readonly TomorrowAlertNormalizer _normalizer = new();
-
-    private sealed class InMemoryInboxStore : IWeatherAlertInboxStore
+    private sealed class RecordingInboxStore : IWeatherAlertInboxStore
     {
-        public bool ProcessedCalled { get; private set; }
-        public bool FailedCalled { get; private set; }
+        public int Processed { get; private set; }
         public string? LastError { get; private set; }
 
         public Task<IReadOnlyList<WeatherAlertInboxItem>> LeasePendingItemsAsync(int batchSize, TimeSpan leaseDuration, string leasedBy, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<WeatherAlertInboxItem>>([]);
 
-        public Task<bool> EnqueueIfNotExistsAsync(string provider, string providerNotificationId, string payload, string? signature, CancellationToken cancellationToken) =>
+        public Task<bool> EnqueueIfNotExistsAsync(string provider, string providerNotificationId, string payload, CancellationToken cancellationToken) =>
             Task.FromResult(true);
 
-        public Task MarkProcessedAsync(long inboxId, CancellationToken cancellationToken)
+        public Task<bool> MarkProcessedAsync(WeatherAlertInboxItem leasedItem, CancellationToken cancellationToken)
         {
-            ProcessedCalled = true;
-            return Task.CompletedTask;
+            Processed++;
+            return Task.FromResult(true);
         }
 
-        public Task MarkFailedAsync(long inboxId, string errorMessage, CancellationToken cancellationToken)
+        public Task<bool> MarkFailedAsync(WeatherAlertInboxItem leasedItem, string errorMessage, CancellationToken cancellationToken)
         {
-            FailedCalled = true;
             LastError = errorMessage;
-            return Task.CompletedTask;
+            return Task.FromResult(true);
         }
     }
 
-    [Fact]
-    public async Task ProcessInboxItem_WhenNewOfficialEvent_CreatesWeatherEventInDatabase()
+    private static (WeatherAlertInboxProcessor Processor, RecordingInboxStore Store) Create(TestDbContext context)
     {
-        using var context = TestDbContext.Create(Guid.NewGuid().ToString());
-        var inboxStore = new InMemoryInboxStore();
+        var store = new RecordingInboxStore();
+        var normalizer = new TomorrowAlertNormalizer(Options.Create(new TomorrowIoOptions { AlertId = TomorrowAlertFixtures.DocsAlertId }));
         var processor = new WeatherAlertInboxProcessor(
-            context,
-            [_normalizer],
-            inboxStore,
-            _timeProvider,
-            NullLogger<WeatherAlertInboxProcessor>.Instance);
+            context, [normalizer], store, new TestTimeProvider(Now), NullLogger<WeatherAlertInboxProcessor>.Instance,
+            new WeatherAffectedDepartureFinder(context, new WeatherDepartureImpactLoader()),
+            Options.Create(new WeatherAlertProcessingOptions { SafetyReviewAcknowledgementSlaMinutes = 30 }));
+        return (processor, store);
+    }
 
-        string payload = """
-        {
-            "id": "evt-storm-101",
-            "start": "2026-11-03T08:00:00Z",
-            "end": "2026-11-03T18:00:00Z",
-            "updateTime": "2026-11-02T09:00:00Z",
-            "headline": "Cảnh báo từ Trung tâm Dự báo Khí tượng Thủy văn Quốc gia NCHMF",
-            "description": "Rủi ro thiên tai cấp 3",
-            "severity": "Severe"
-        }
-        """;
+    private static Task Process(WeatherAlertInboxProcessor processor, string payload, string deliveryId = "delivery-1") =>
+        processor.ProcessInboxItemAsync(
+            WeatherAlertInboxItem.CreatePending("TomorrowIo", payload, deliveryId, Now), CancellationToken.None);
 
-        var inboxItem = WeatherAlertInboxItem.CreatePending("TomorrowIo", payload, "notif-101", null, _timeProvider.GetUtcNow());
-        context.WeatherAlertInboxItems.Add(inboxItem);
-        await context.SaveChangesAsync();
+    [Theory]
+    [InlineData("PRIOR")]
+    [InlineData("START")]
+    public async Task OfficialNotification_ForAMonitoredMeetingPoint_CreatesOneReviewAndNothingElseChanges(string type)
+    {
+        using var context = await SeedAsync();
+        var (processor, store) = Create(context);
 
-        await processor.ProcessInboxItemAsync(inboxItem, CancellationToken.None);
+        await Process(processor, TomorrowAlertFixtures.Webhook(type, locationId: MeetingLocationId, startTime: Departure));
 
-        inboxStore.ProcessedCalled.Should().BeTrue();
-        var savedEvent = await context.WeatherEvents.FirstOrDefaultAsync(e => e.ProviderEventId == "evt-storm-101");
-        savedEvent.Should().NotBeNull();
-        savedEvent!.OfficialVietnamRiskLevel.Should().Be(3);
-        savedEvent.Description.Should().NotBeNullOrWhiteSpace();
-        savedEvent.Description.Should().Contain("3");
-        savedEvent.OriginalAuthority.Should().Contain("Trung tâm Dự báo Khí tượng Thủy văn Quốc gia");
-        savedEvent.IsWithdrawn.Should().BeFalse();
+        var review = await context.WeatherSafetyReviews.SingleAsync();
+        review.TourScheduleId.Should().Be(5);
+        review.Status.Should().Be(WeatherSafetyReview.StatusPendingAcknowledgement);
+        review.AcknowledgementDeadlineUtc.Should().Be(Now.AddMinutes(30));
+        (await context.WeatherEvents.SingleAsync()).Severity.Should().Be(WeatherEvent.SeverityModerate);
+        (await context.Notifications.CountAsync(n => n.Type == Notification.WeatherSafetyReviewCreatedType)).Should().Be(1);
+        store.Processed.Should().Be(1);
+
+        // Manual-only: the review is the only outcome; the departure itself is untouched.
+        (await context.TourSchedules.SingleAsync()).Status.Should().Be(TourScheduleStatus.Scheduled);
     }
 
     [Fact]
-    public async Task ProcessInboxItem_WhenNewerRevisionArrives_UpdatesExistingWeatherEvent()
+    public async Task DepartureSharingTheMonitoredMeetingPointCell_GetsAReview_EvenWithSlightlyDifferentCoordinates()
     {
-        using var context = TestDbContext.Create(Guid.NewGuid().ToString());
-        var inboxStore = new InMemoryInboxStore();
-        var processor = new WeatherAlertInboxProcessor(
-            context,
-            [_normalizer],
-            inboxStore,
-            _timeProvider,
-            NullLogger<WeatherAlertInboxProcessor>.Instance);
-
-        var existing = WeatherEvent.CreateOfficial(
-            provider: "TomorrowIo",
-            providerEventId: "evt-storm-102",
-            eventType: "SevereWeather",
-            severity: "Moderate",
-            validFromUtc: _timeProvider.GetUtcNow().AddHours(1),
-            validToUtc: _timeProvider.GetUtcNow().AddHours(10),
-            description: "Initial warning",
-            originalAuthority: "NCHMF",
-            originalSourceReference: null,
-            officialVietnamRiskLevel: 2,
-            verifiedDirective: null,
-            geometryGeoJson: null,
-            rawPayloadHash: "hash1",
-            ingestedAtUtc: _timeProvider.GetUtcNow().AddHours(-2));
-        context.WeatherEvents.Add(existing);
+        // The Location is keyed by the meeting point rounded to 4 decimals (about 11 m). Another
+        // departure meeting a few metres away shares that Location and must be matched by it.
+        using var context = await SeedAsync();
+        var schedule = await context.TourSchedules.SingleAsync();
+        schedule.SetVerifiedMeetingCoordinates(16.054412m, 108.202171m);
         await context.SaveChangesAsync();
+        var (processor, _) = Create(context);
 
-        string upgradedPayload = """
-        {
-            "id": "evt-storm-102",
-            "start": "2026-11-03T08:00:00Z",
-            "end": "2026-11-03T18:00:00Z",
-            "updateTime": "2026-11-02T11:00:00Z",
-            "headline": "Cảnh báo từ NCHMF",
-            "description": "Rủi ro thiên tai cấp 4. Yêu cầu cấm biển.",
-            "severity": "Extreme"
-        }
-        """;
+        await Process(processor, TomorrowAlertFixtures.Webhook("START", locationId: MeetingLocationId, startTime: Departure));
 
-        var inboxItem = WeatherAlertInboxItem.CreatePending("TomorrowIo", upgradedPayload, "notif-102", null, _timeProvider.GetUtcNow());
-        await processor.ProcessInboxItemAsync(inboxItem, CancellationToken.None);
-
-        inboxStore.ProcessedCalled.Should().BeTrue();
-        var updated = await context.WeatherEvents.FirstOrDefaultAsync(e => e.ProviderEventId == "evt-storm-102");
-        updated.Should().NotBeNull();
-        updated!.OfficialVietnamRiskLevel.Should().Be(4);
-        updated.VerifiedDirective.Should().Be("TravelProhibition");
-        updated.Severity.Should().Be("Extreme");
-        updated.Description.Should().Contain("4");
+        (await context.WeatherSafetyReviews.CountAsync()).Should().Be(1);
     }
 
     [Fact]
-    public async Task ProcessInboxItem_WhenOlderReplayArrives_IgnoresStaleReplay()
+    public async Task OfficialNotification_ForAMonitoredRequiredStop_CreatesAReview()
     {
-        using var context = TestDbContext.Create(Guid.NewGuid().ToString());
-        var inboxStore = new InMemoryInboxStore();
-        var processor = new WeatherAlertInboxProcessor(
-            context,
-            [_normalizer],
-            inboxStore,
-            _timeProvider,
-            NullLogger<WeatherAlertInboxProcessor>.Instance);
+        using var context = await SeedAsync();
+        var (processor, _) = Create(context);
 
-        var existing = WeatherEvent.CreateOfficial(
-            provider: "TomorrowIo",
-            providerEventId: "evt-storm-103",
-            eventType: "SevereWeather",
-            severity: "Extreme",
-            validFromUtc: _timeProvider.GetUtcNow().AddHours(1),
-            validToUtc: _timeProvider.GetUtcNow().AddHours(10),
-            description: "Newer alert",
-            originalAuthority: "NCHMF",
-            originalSourceReference: null,
-            officialVietnamRiskLevel: 4,
-            verifiedDirective: "TravelProhibition",
-            geometryGeoJson: null,
-            rawPayloadHash: "hash-new",
-            ingestedAtUtc: _timeProvider.GetUtcNow().AddHours(1)); // Updated at T+1
-        context.WeatherEvents.Add(existing);
-        await context.SaveChangesAsync();
+        await Process(processor, TomorrowAlertFixtures.Webhook("START", locationId: StopLocationId, startTime: Departure.AddHours(2)));
 
-        // Older replay with T-1 updateTime
-        string olderPayload = """
-        {
-            "id": "evt-storm-103",
-            "start": "2026-11-03T08:00:00Z",
-            "end": "2026-11-03T18:00:00Z",
-            "updateTime": "2026-11-02T08:00:00Z",
-            "headline": "Cảnh báo cũ từ NCHMF",
-            "description": "Rủi ro thiên tai cấp 2",
-            "severity": "Moderate"
-        }
-        """;
-
-        var inboxItem = WeatherAlertInboxItem.CreatePending("TomorrowIo", olderPayload, "notif-103", null, _timeProvider.GetUtcNow());
-        await processor.ProcessInboxItemAsync(inboxItem, CancellationToken.None);
-
-        inboxStore.ProcessedCalled.Should().BeTrue();
-        var current = await context.WeatherEvents.FirstOrDefaultAsync(e => e.ProviderEventId == "evt-storm-103");
-        current.Should().NotBeNull();
-        current!.OfficialVietnamRiskLevel.Should().Be(4, "older replay must not downgrade newer evidence");
-        current.Severity.Should().Be("Extreme");
+        (await context.WeatherSafetyReviews.CountAsync()).Should().Be(1);
     }
 
     [Fact]
-    public async Task ProcessInboxItem_WhenEventIsWithdrawn_MarksExistingWeatherEventWithdrawn()
+    public async Task PriorThenStartOfTheSameOccurrence_KeepOneEventAndOneReview()
     {
-        using var context = TestDbContext.Create(Guid.NewGuid().ToString());
-        var inboxStore = new InMemoryInboxStore();
-        var processor = new WeatherAlertInboxProcessor(
-            context,
-            [_normalizer],
-            inboxStore,
-            _timeProvider,
-            NullLogger<WeatherAlertInboxProcessor>.Instance);
+        using var context = await SeedAsync();
+        var (processor, _) = Create(context);
 
-        var existing = WeatherEvent.CreateOfficial(
-            provider: "TomorrowIo",
-            providerEventId: "evt-storm-104",
-            eventType: "SevereWeather",
-            severity: "Severe",
-            validFromUtc: _timeProvider.GetUtcNow().AddHours(1),
-            validToUtc: _timeProvider.GetUtcNow().AddHours(10),
-            description: "Active alert",
-            originalAuthority: "NCHMF",
-            originalSourceReference: null,
-            officialVietnamRiskLevel: 3,
-            verifiedDirective: null,
-            geometryGeoJson: null,
-            rawPayloadHash: "hash",
-            ingestedAtUtc: _timeProvider.GetUtcNow());
-        context.WeatherEvents.Add(existing);
-        await context.SaveChangesAsync();
+        await Process(processor, TomorrowAlertFixtures.Webhook("PRIOR", locationId: MeetingLocationId, startTime: Departure), "d-prior");
+        await Process(processor, TomorrowAlertFixtures.Webhook("START", locationId: MeetingLocationId, startTime: Departure), "d-start");
 
-        string withdrawalPayload = """
-        {
-            "id": "evt-storm-104",
-            "status": "Withdrawn",
-            "action": "CANCEL",
-            "start": "2026-11-03T08:00:00Z",
-            "end": "2026-11-03T18:00:00Z",
-            "updateTime": "2026-11-02T12:00:00Z",
-            "headline": "Bão đã tan"
-        }
-        """;
-
-        var inboxItem = WeatherAlertInboxItem.CreatePending("TomorrowIo", withdrawalPayload, "notif-104", null, _timeProvider.GetUtcNow());
-        await processor.ProcessInboxItemAsync(inboxItem, CancellationToken.None);
-
-        inboxStore.ProcessedCalled.Should().BeTrue();
-        var updated = await context.WeatherEvents.FirstOrDefaultAsync(e => e.ProviderEventId == "evt-storm-104");
-        updated.Should().NotBeNull();
-        updated!.IsWithdrawn.Should().BeTrue();
+        (await context.WeatherEvents.CountAsync()).Should().Be(1);
+        (await context.WeatherSafetyReviews.CountAsync()).Should().Be(1);
     }
-
-    private sealed class FixedDepartureFinder(WeatherDepartureCandidate candidate) : IWeatherAffectedDepartureFinder
-    {
-        public Task<IReadOnlyList<WeatherDepartureCandidate>> FindAffectedDeparturesAsync(
-            NormalizedWeatherEvent weatherEvent,
-            CancellationToken cancellationToken) =>
-            Task.FromResult<IReadOnlyList<WeatherDepartureCandidate>>([candidate]);
-    }
-
-    private static string StormPayload(string updateTime, string description) => $$"""
-        {
-            "id": "evt-storm-103",
-            "start": "2026-11-03T08:00:00Z",
-            "end": "2026-11-03T18:00:00Z",
-            "updateTime": "{{updateTime}}",
-            "headline": "Cảnh báo từ NCHMF",
-            "description": "{{description}}",
-            "severity": "Extreme",
-            "geometry": {
-                "type": "Polygon",
-                "coordinates": [[[107.0, 15.0], [109.0, 15.0], [109.0, 17.0], [107.0, 17.0], [107.0, 15.0]]]
-            }
-        }
-        """;
 
     [Fact]
-    public async Task ProcessInboxItem_WhenRevisionFollowsAcknowledgedReview_KeepsOneReviewAndOneEvaluation()
+    public async Task DuplicateDeliveryOfTheSamePayload_CreatesNothingTwice()
     {
-        using var context = TestDbContext.Create(Guid.NewGuid().ToString());
-        var inboxStore = new InMemoryInboxStore();
-        DateTimeOffset now = _timeProvider.GetUtcNow();
-        DateTimeOffset start = new(2026, 11, 3, 9, 0, 0, TimeSpan.Zero);
+        using var context = await SeedAsync();
+        var (processor, _) = Create(context);
+        string payload = TomorrowAlertFixtures.Webhook("PRIOR", locationId: MeetingLocationId, startTime: Departure);
+
+        await Process(processor, payload, "d-1");
+        await Process(processor, payload, "d-1-retry");
+
+        (await context.WeatherEvents.CountAsync()).Should().Be(1);
+        (await context.WeatherSafetyReviews.CountAsync()).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task EndAllClear_AddsNoEvidence_AndLeavesTheOpenReviewForTheOperator()
+    {
+        using var context = await SeedAsync();
+        var (processor, store) = Create(context);
+        await Process(processor, TomorrowAlertFixtures.Webhook("START", locationId: MeetingLocationId, startTime: Departure), "d-start");
+
+        await Process(processor, TomorrowAlertFixtures.EndWebhook(locationId: MeetingLocationId, endTime: Departure.AddHours(3)), "d-end");
+
+        (await context.WeatherEvents.CountAsync()).Should().Be(1);
+        (await context.WeatherSafetyReviews.SingleAsync()).Status.Should().Be(WeatherSafetyReview.StatusPendingAcknowledgement);
+        store.Processed.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task MinimalPayloadWithoutOptionalFields_StillCreatesAReview()
+    {
+        using var context = await SeedAsync();
+        var (processor, _) = Create(context);
+
+        await Process(processor, TomorrowAlertFixtures.MinimalWebhook("START", locationId: MeetingLocationId, startTime: Departure));
+
+        (await context.WeatherSafetyReviews.CountAsync()).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task LocationTripMateDoesNotMonitor_IsIgnoredSafely()
+    {
+        using var context = await SeedAsync();
+        var (processor, store) = Create(context);
+
+        await Process(processor, TomorrowAlertFixtures.Webhook("START", locationId: "someone-elses-location", startTime: Departure));
+
+        (await context.WeatherEvents.CountAsync()).Should().Be(0);
+        (await context.WeatherSafetyReviews.CountAsync()).Should().Be(0);
+        store.Processed.Should().Be(1);
+        store.LastError.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task RetiredLocation_IsIgnoredSafely()
+    {
+        using var context = await SeedAsync();
+        var mapping = await context.WeatherLocationMappings.SingleAsync(m => m.TomorrowLocationId == MeetingLocationId);
+        mapping.Deactivate(Now);
+        await context.SaveChangesAsync();
+        var (processor, _) = Create(context);
+
+        await Process(processor, TomorrowAlertFixtures.Webhook("START", locationId: MeetingLocationId, startTime: Departure));
+
+        (await context.WeatherSafetyReviews.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task NotificationFromAnotherAlert_IsIgnoredSafely()
+    {
+        using var context = await SeedAsync();
+        var (processor, store) = Create(context);
+
+        await Process(processor, TomorrowAlertFixtures.Webhook("START", alertId: "another-alert", locationId: MeetingLocationId, startTime: Departure));
+
+        (await context.WeatherEvents.CountAsync()).Should().Be(0);
+        (await context.WeatherSafetyReviews.CountAsync()).Should().Be(0);
+        store.Processed.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ReconciledListItem_CreatesTheSameReviewAsTheWebhook()
+    {
+        using var context = await SeedAsync();
+        var (processor, _) = Create(context);
+
+        await Process(processor, TomorrowAlertFixtures.ListItem(locationId: MeetingLocationId, expectedTime: Departure), "61d2e5719550aa00085ac502");
+
+        (await context.WeatherSafetyReviews.CountAsync()).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task AlertOutsideTheDepartureWindow_CreatesNoReview()
+    {
+        using var context = await SeedAsync();
+        var (processor, _) = Create(context);
+
+        await Process(processor, TomorrowAlertFixtures.Webhook("START", locationId: MeetingLocationId, startTime: Departure.AddDays(3)));
+
+        (await context.WeatherSafetyReviews.CountAsync()).Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData("not json")]
+    [InlineData("""{"unexpected":true}""")]
+    [InlineData("""{"data":{"alert":{"id":"38f689d83c264eb0b084ba095f2ea743"},"notification":{"type":"START"},"event":{}}}""")]
+    public async Task PayloadThatBreaksTheContract_IsMarkedFailedNotProcessed(string payload)
+    {
+        using var context = await SeedAsync();
+        var (processor, store) = Create(context);
+
+        await Process(processor, payload);
+
+        store.LastError.Should().NotBeNullOrWhiteSpace();
+        store.Processed.Should().Be(0);
+        (await context.WeatherSafetyReviews.CountAsync()).Should().Be(0);
+    }
+
+    private static async Task<TestDbContext> SeedAsync()
+    {
+        var context = TestDbContext.Create(Guid.NewGuid().ToString());
         var tour = (Tour)Activator.CreateInstance(typeof(Tour), nonPublic: true)!;
         typeof(Tour).GetProperty(nameof(Tour.Id))!.SetValue(tour, 1L);
         typeof(Tour).GetProperty(nameof(Tour.OperatorUserId))!.SetValue(tour, 2L);
-        var schedule = TourSchedule.Create(start, start.AddHours(8), "Da Nang", 20, now);
+        typeof(Tour).GetProperty(nameof(Tour.Status))!.SetValue(tour, TourStatus.Published);
+
+        var poi = PointOfInterest.Create(PoiCategory.Create("Landmark", null), "Marble Mountains",
+            16.003500m, 108.263900m, 1, Now, "Address", "Desc");
+        typeof(PointOfInterest).GetProperty(nameof(PointOfInterest.Id))!.SetValue(poi, 100L);
+        var stop = TourItineraryItem.Create(1, 1, poi.Id, null, 120, "Visit", isRequiredForWeather: true);
+        typeof(TourItineraryItem).GetProperty(nameof(TourItineraryItem.TourId))!.SetValue(stop, tour.Id);
+        typeof(TourItineraryItem).GetProperty(nameof(TourItineraryItem.Tour))!.SetValue(stop, tour);
+        typeof(TourItineraryItem).GetProperty(nameof(TourItineraryItem.Poi))!.SetValue(stop, poi);
+        ((List<TourItineraryItem>)typeof(Tour).GetField("_itineraryItems",
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(tour)!).Add(stop);
+
+        var schedule = TourSchedule.Create(Departure, Departure.AddHours(8), "Da Nang", 20, Now.AddDays(-5));
         typeof(TourSchedule).GetProperty(nameof(TourSchedule.Id))!.SetValue(schedule, 5L);
-        typeof(TourSchedule).GetProperty(nameof(TourSchedule.TourId))!.SetValue(schedule, 1L);
+        typeof(TourSchedule).GetProperty(nameof(TourSchedule.TourId))!.SetValue(schedule, tour.Id);
         typeof(TourSchedule).GetProperty(nameof(TourSchedule.Tour))!.SetValue(schedule, tour);
+        schedule.SetVerifiedMeetingCoordinates(16.054407m, 108.202167m);
+
         context.Tours.Add(tour);
+        context.PointsOfInterest.Add(poi);
+        context.TourItineraryItems.Add(stop);
         context.TourSchedules.Add(schedule);
+        context.WeatherLocationMappings.AddRange(
+            WeatherLocationMapping.Create("meeting-16.0544_108.2022", MeetingLocationId, 16.054407m, 108.202167m,
+                "Meeting", schedule.EndAtUtc, Now.AddDays(-1)),
+            WeatherLocationMapping.Create("poi-100", StopLocationId, 16.003500m, 108.263900m,
+                "Marble Mountains", schedule.EndAtUtc, Now.AddDays(-1)));
         await context.SaveChangesAsync();
-        var finder = new FixedDepartureFinder(new WeatherDepartureCandidate(schedule,
-            new WeatherDepartureImpact(start, start.AddHours(8), new WeatherPoint(16m, 108m), [], true)));
-        var processor = new WeatherAlertInboxProcessor(
-            context,
-            [_normalizer],
-            inboxStore,
-            _timeProvider,
-            NullLogger<WeatherAlertInboxProcessor>.Instance,
-            departureFinder: finder);
-
-        await processor.ProcessInboxItemAsync(
-            WeatherAlertInboxItem.CreatePending("TomorrowIo",
-                StormPayload("2026-11-02T09:00:00Z", "Rủi ro thiên tai cấp 3."), "notif-103-a", null, now),
-            CancellationToken.None);
-        WeatherSafetyReview review = await context.WeatherSafetyReviews.SingleAsync();
-        review.Acknowledge(2L, now);
-        await context.SaveChangesAsync();
-
-        await processor.ProcessInboxItemAsync(
-            WeatherAlertInboxItem.CreatePending("TomorrowIo",
-                StormPayload("2026-11-02T10:30:00Z", "Rủi ro thiên tai cấp 4. Yêu cầu cấm biển."), "notif-103-b", null, now),
-            CancellationToken.None);
-
-        (await context.WeatherSafetyReviews.CountAsync()).Should().Be(1, "the unique index allows one review per departure and event");
-        WeatherEventEvaluation evaluation = await context.WeatherEventEvaluations.SingleAsync();
-        evaluation.ReasonCode.Should().Be("weather.verified_directive_operator_review");
-    }
-
-    [Fact]
-    public async Task ProcessInboxItem_WhenPayloadMalformed_MarksInboxItemFailed()
-    {
-        using var context = TestDbContext.Create(Guid.NewGuid().ToString());
-        var inboxStore = new InMemoryInboxStore();
-        var processor = new WeatherAlertInboxProcessor(
-            context,
-            [_normalizer],
-            inboxStore,
-            _timeProvider,
-            NullLogger<WeatherAlertInboxProcessor>.Instance);
-
-        var inboxItem = WeatherAlertInboxItem.CreatePending("TomorrowIo", "this is not json", "notif-105", null, _timeProvider.GetUtcNow());
-        await processor.ProcessInboxItemAsync(inboxItem, CancellationToken.None);
-
-        inboxStore.FailedCalled.Should().BeTrue();
-        inboxStore.LastError.Should().NotBeNullOrEmpty();
+        return context;
     }
 }

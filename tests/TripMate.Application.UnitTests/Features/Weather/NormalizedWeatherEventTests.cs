@@ -55,8 +55,6 @@ public sealed class NormalizedWeatherEventTests
         var weatherEvent = ValidBaseEvent() with
         {
             ProviderSeverity = "Extreme",
-            Certainty = "Observed",
-            Urgency = "Immediate",
         };
 
         var evaluation = WeatherEmergencyDecision.Evaluate(
@@ -131,7 +129,7 @@ public sealed class NormalizedWeatherEventTests
     }
 
     private static NormalizedWeatherEvent ValidHardEvent() => new(
-        WeatherProviders.Tomorrow,
+        WeatherProviders.TomorrowIo,
         "tomorrow-evt-001",
         Start.AddHours(-3),
         Start.AddHours(-2),
@@ -140,14 +138,13 @@ public sealed class NormalizedWeatherEventTests
         Start.AddHours(-2))
     {
         OriginalAuthority = VietnameseWeatherAuthorities.Nchmf,
-        OriginalSourceReference = "https://nchmf.gov.vn/bulletins/20261110-001",
         OfficialVietnamRiskLevel = 4,
         VerifiedDirective = WeatherVerifiedDirective.TravelProhibition,
         Category = "Typhoon",
     };
 
     private static NormalizedWeatherEvent ValidBaseEvent() => new(
-        WeatherProviders.Tomorrow,
+        WeatherProviders.TomorrowIo,
         "tomorrow-evt-002",
         Start.AddHours(-3),
         Start.AddHours(-2),
@@ -156,7 +153,6 @@ public sealed class NormalizedWeatherEventTests
         Start.AddHours(-2))
     {
         OriginalAuthority = VietnameseWeatherAuthorities.Nchmf,
-        OriginalSourceReference = "https://nchmf.gov.vn/bulletins/20261110-002",
         Category = "TropicalStorm",
     };
 

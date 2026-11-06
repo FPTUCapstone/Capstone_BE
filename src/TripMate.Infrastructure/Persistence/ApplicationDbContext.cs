@@ -340,7 +340,6 @@ public class ApplicationDbContext(
 
     public DbSet<WeatherAlertInboxItem> WeatherAlertInboxItems => Set<WeatherAlertInboxItem>();
 
-    public DbSet<WeatherEventEvaluation> WeatherEventEvaluations => Set<WeatherEventEvaluation>();
 
     public DbSet<WeatherSafetyReview> WeatherSafetyReviews => Set<WeatherSafetyReview>();
 

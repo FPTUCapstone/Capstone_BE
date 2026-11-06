@@ -2,7 +2,6 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Weather.Emergency;
-using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Weather.Matching;
@@ -16,6 +15,10 @@ public sealed class WeatherAffectedDepartureFinder(
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(weatherEvent);
+        if (!weatherEvent.HasSpatialScope)
+        {
+            return [];
+        }
 
         var schedules = await context.TourSchedules
             .Include(s => s.Tour)
@@ -27,24 +30,11 @@ public sealed class WeatherAffectedDepartureFinder(
             .ToListAsync(cancellationToken);
 
         var affected = new List<WeatherDepartureCandidate>();
-
         foreach (var schedule in schedules)
         {
             var impact = impactLoader.LoadImpact(schedule);
-
-            bool intersects = false;
-            if (weatherEvent.Areas.Count > 0)
-            {
-                if (impact.MeetingPoint is not null && weatherEvent.Areas.Any(a => a.Contains(impact.MeetingPoint)))
-                {
-                    intersects = true;
-                }
-                else if (impact.RequiredStops.Any(s => weatherEvent.Areas.Any(a => a.Contains(s.Point))))
-                {
-                    intersects = true;
-                }
-            }
-
+            bool intersects = (impact.MeetingPoint is { } meeting && weatherEvent.Covers(meeting))
+                || impact.RequiredStops.Any(stop => weatherEvent.Covers(stop.Point));
             if (intersects)
             {
                 affected.Add(new WeatherDepartureCandidate(schedule, impact));

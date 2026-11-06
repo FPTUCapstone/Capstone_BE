@@ -16,7 +16,7 @@ public sealed class WeatherEventConfiguration : IEntityTypeConfiguration<Weather
         builder.Property(weatherEvent => weatherEvent.RegionName).HasColumnName("region_name").HasMaxLength(150);
         builder.Property(weatherEvent => weatherEvent.Latitude).HasColumnName("latitude").HasPrecision(9, 6);
         builder.Property(weatherEvent => weatherEvent.Longitude).HasColumnName("longitude").HasPrecision(9, 6);
-        builder.Property(weatherEvent => weatherEvent.EventType).HasColumnName("event_type").HasMaxLength(40).IsUnicode(false).IsRequired();
+        builder.Property(weatherEvent => weatherEvent.EventType).HasColumnName("event_type").HasMaxLength(WeatherEvent.EventTypeMaxLength).IsUnicode(false).IsRequired();
         builder.Property(weatherEvent => weatherEvent.Severity).HasColumnName("severity").HasMaxLength(10).IsUnicode(false).IsRequired();
         builder.Property(weatherEvent => weatherEvent.Description).HasColumnName("description")
             .HasMaxLength(WeatherEvent.DescriptionMaxLength);
@@ -30,19 +30,12 @@ public sealed class WeatherEventConfiguration : IEntityTypeConfiguration<Weather
             .HasMaxLength(WeatherEvent.ProviderMaxLength).IsUnicode(false);
         builder.Property(weatherEvent => weatherEvent.ProviderEventId).HasColumnName("provider_event_id")
             .HasMaxLength(WeatherEvent.ProviderEventIdMaxLength).IsUnicode(false);
-        builder.Property(weatherEvent => weatherEvent.Revision).HasColumnName("revision")
-            .HasMaxLength(WeatherEvent.RevisionMaxLength).IsUnicode(false);
         builder.Property(weatherEvent => weatherEvent.OriginalAuthority).HasColumnName("original_authority")
             .HasMaxLength(WeatherEvent.OriginalAuthorityMaxLength);
-        builder.Property(weatherEvent => weatherEvent.OriginalSourceReference).HasColumnName("original_source_reference")
-            .HasMaxLength(WeatherEvent.OriginalSourceReferenceMaxLength);
         builder.Property(weatherEvent => weatherEvent.OfficialVietnamRiskLevel).HasColumnName("official_vietnam_risk_level");
         builder.Property(weatherEvent => weatherEvent.VerifiedDirective).HasColumnName("verified_directive")
             .HasMaxLength(WeatherEvent.VerifiedDirectiveMaxLength).IsUnicode(false);
         builder.Property(weatherEvent => weatherEvent.IsWithdrawn).HasColumnName("is_withdrawn").IsRequired();
-        builder.Property(weatherEvent => weatherEvent.GeometryGeoJson).HasColumnName("geometry_geojson");
-        builder.Property(weatherEvent => weatherEvent.RawPayloadHash).HasColumnName("raw_payload_hash")
-            .HasMaxLength(WeatherEvent.RawPayloadHashMaxLength).IsUnicode(false);
         builder.Property(weatherEvent => weatherEvent.UpdatedAtUtc).HasColumnName("updated_at").AsUtcDateTime2();
 
         builder.HasIndex(weatherEvent => new { weatherEvent.Provider, weatherEvent.ProviderEventId }).IsUnique()

@@ -33,7 +33,7 @@ public sealed class SqlWeatherAlertInboxStoreTests
         using var context = CreateContext();
         var store = new SqlWeatherAlertInboxStore(context, _timeProvider, NullLogger<SqlWeatherAlertInboxStore>.Instance);
 
-        var item = WeatherAlertInboxItem.CreatePending("TomorrowIo", """{"id":"1"}""", "notif-1", null, _timeProvider.GetUtcNow());
+        var item = WeatherAlertInboxItem.CreatePending("TomorrowIo", """{"id":"1"}""", "notif-1", _timeProvider.GetUtcNow());
         context.WeatherAlertInboxItems.Add(item);
         await context.SaveChangesAsync();
 
@@ -56,7 +56,7 @@ public sealed class SqlWeatherAlertInboxStoreTests
         using var context = CreateContext();
         var store = new SqlWeatherAlertInboxStore(context, _timeProvider, NullLogger<SqlWeatherAlertInboxStore>.Instance);
 
-        var item = WeatherAlertInboxItem.CreatePending("TomorrowIo", """{"id":"2"}""", "notif-2", null, _timeProvider.GetUtcNow().AddHours(-1));
+        var item = WeatherAlertInboxItem.CreatePending("TomorrowIo", """{"id":"2"}""", "notif-2", _timeProvider.GetUtcNow().AddHours(-1));
         item.AcquireLease("old-dead-worker", _timeProvider.GetUtcNow().AddMinutes(-10)); // Lease expired 10 minutes ago
         context.WeatherAlertInboxItems.Add(item);
         await context.SaveChangesAsync();
@@ -78,7 +78,7 @@ public sealed class SqlWeatherAlertInboxStoreTests
         using var context = CreateContext();
         var store = new SqlWeatherAlertInboxStore(context, _timeProvider, NullLogger<SqlWeatherAlertInboxStore>.Instance);
 
-        var item = WeatherAlertInboxItem.CreatePending("TomorrowIo", """{"id":"3"}""", "notif-3", null, _timeProvider.GetUtcNow());
+        var item = WeatherAlertInboxItem.CreatePending("TomorrowIo", """{"id":"3"}""", "notif-3", _timeProvider.GetUtcNow());
         item.AcquireLease("active-worker", _timeProvider.GetUtcNow().AddMinutes(5)); // Valid for 5 more minutes
         context.WeatherAlertInboxItems.Add(item);
         await context.SaveChangesAsync();
@@ -98,7 +98,7 @@ public sealed class SqlWeatherAlertInboxStoreTests
         using var context = CreateContext();
         var store = new SqlWeatherAlertInboxStore(context, _timeProvider, NullLogger<SqlWeatherAlertInboxStore>.Instance);
 
-        var item = WeatherAlertInboxItem.CreatePending("TomorrowIo", """{"id":"4"}""", "notif-4", null, _timeProvider.GetUtcNow(), maxAttempts: 1);
+        var item = WeatherAlertInboxItem.CreatePending("TomorrowIo", """{"id":"4"}""", "notif-4", _timeProvider.GetUtcNow(), maxAttempts: 1);
         item.AcquireLease("worker-1", _timeProvider.GetUtcNow().AddMinutes(-10)); // Expired but attempt_count is 1 (max is 1)
         context.WeatherAlertInboxItems.Add(item);
         await context.SaveChangesAsync();
@@ -113,77 +113,18 @@ public sealed class SqlWeatherAlertInboxStoreTests
     }
 
     [Fact]
-    public async Task MarkProcessedAsync_SetsStatusProcessedAndClearsLease()
-    {
-        using var context = CreateContext();
-        var store = new SqlWeatherAlertInboxStore(context, _timeProvider, NullLogger<SqlWeatherAlertInboxStore>.Instance);
-
-        var item = WeatherAlertInboxItem.CreatePending("TomorrowIo", """{"id":"5"}""", "notif-5", null, _timeProvider.GetUtcNow());
-        item.AcquireLease("worker-1", _timeProvider.GetUtcNow().AddMinutes(2));
-        context.WeatherAlertInboxItems.Add(item);
-        await context.SaveChangesAsync();
-
-        await store.MarkProcessedAsync(item.Id, CancellationToken.None);
-
-        var updated = await context.WeatherAlertInboxItems.FindAsync(item.Id);
-        updated!.Status.Should().Be(WeatherAlertInboxItem.StatusProcessed);
-        updated.ProcessedAtUtc.Should().NotBeNull();
-        updated.LeasedBy.Should().BeNull();
-        updated.LeaseExpiresAtUtc.Should().BeNull();
-    }
-
-    [Fact]
-    public async Task MarkFailedAsync_ResetsToPendingIfAttemptsRemain()
-    {
-        using var context = CreateContext();
-        var store = new SqlWeatherAlertInboxStore(context, _timeProvider, NullLogger<SqlWeatherAlertInboxStore>.Instance);
-
-        var item = WeatherAlertInboxItem.CreatePending("TomorrowIo", """{"id":"6"}""", "notif-6", null, _timeProvider.GetUtcNow(), maxAttempts: 3);
-        item.AcquireLease("worker-1", _timeProvider.GetUtcNow().AddMinutes(2)); // AttemptCount = 1
-        context.WeatherAlertInboxItems.Add(item);
-        await context.SaveChangesAsync();
-
-        await store.MarkFailedAsync(item.Id, "Transient network timeout", CancellationToken.None);
-
-        var updated = await context.WeatherAlertInboxItems.FindAsync(item.Id);
-        updated!.Status.Should().Be(WeatherAlertInboxItem.StatusPending);
-        updated.LastError.Should().Be("Transient network timeout");
-        updated.LeasedBy.Should().BeNull();
-    }
-
-    [Fact]
-    public async Task MarkFailedAsync_SetsFailedIfMaxAttemptsReached()
-    {
-        using var context = CreateContext();
-        var store = new SqlWeatherAlertInboxStore(context, _timeProvider, NullLogger<SqlWeatherAlertInboxStore>.Instance);
-
-        var item = WeatherAlertInboxItem.CreatePending("TomorrowIo", """{"id":"7"}""", "notif-7", null, _timeProvider.GetUtcNow(), maxAttempts: 1);
-        item.AcquireLease("worker-1", _timeProvider.GetUtcNow().AddMinutes(2)); // AttemptCount = 1 == MaxAttempts
-        context.WeatherAlertInboxItems.Add(item);
-        await context.SaveChangesAsync();
-
-        await store.MarkFailedAsync(item.Id, "Permanent schema error", CancellationToken.None);
-
-        var updated = await context.WeatherAlertInboxItems.FindAsync(item.Id);
-        updated!.Status.Should().Be(WeatherAlertInboxItem.StatusFailed);
-        updated.LastError.Should().Be("Permanent schema error");
-        updated.LeasedBy.Should().BeNull();
-        updated.LeaseExpiresAtUtc.Should().BeNull();
-    }
-
-    [Fact]
     public async Task EnqueueIfNotExistsAsync_InsertsNewItemAndRejectsDuplicate()
     {
         using var context = CreateContext();
         var store = new SqlWeatherAlertInboxStore(context, _timeProvider, NullLogger<SqlWeatherAlertInboxStore>.Instance);
 
         var firstResult = await store.EnqueueIfNotExistsAsync(
-            "TomorrowIo", "notif-unique-1", """{"hello":"world"}""", "sig-1", CancellationToken.None);
+            "TomorrowIo", "notif-unique-1", """{"hello":"world"}""", CancellationToken.None);
 
         firstResult.Should().BeTrue();
 
         var secondResult = await store.EnqueueIfNotExistsAsync(
-            "TomorrowIo", "notif-unique-1", """{"hello":"world"}""", "sig-1", CancellationToken.None);
+            "TomorrowIo", "notif-unique-1", """{"hello":"world"}""", CancellationToken.None);
 
         secondResult.Should().BeFalse();
 

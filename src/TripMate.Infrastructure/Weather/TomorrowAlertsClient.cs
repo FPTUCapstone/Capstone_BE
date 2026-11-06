@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -9,12 +10,22 @@ using TripMate.Application.Common.Interfaces;
 
 namespace TripMate.Infrastructure.Weather;
 
+/// <summary>
+/// Tomorrow.io v4 Locations, Alert links and Notifications. The key travels in the documented
+/// <c>apikey</c> header (https://docs.tomorrow.io/reference/api-authentication), never in a URL,
+/// so request logs cannot carry it.
+/// </summary>
 public sealed class TomorrowAlertsClient(
     HttpClient httpClient,
     IOptions<TomorrowIoOptions> options,
     ILogger<TomorrowAlertsClient> logger) : ITomorrowAlertsClient
 {
+    private const string NotificationsPath = "/v4/notifications";
+
     private readonly TomorrowIoOptions _options = options.Value;
+
+    private bool IsConfigured =>
+        _options.Enabled && !string.IsNullOrWhiteSpace(_options.ApiKey) && !string.IsNullOrWhiteSpace(_options.AlertId);
 
     public async Task<TomorrowNotificationsResponse> GetNotificationsAsync(
         DateTimeOffset startTime,
@@ -22,213 +33,272 @@ public sealed class TomorrowAlertsClient(
         string? pageToken,
         CancellationToken cancellationToken = default)
     {
-        if (!_options.Enabled)
+        if (!IsConfigured)
         {
-            logger.LogDebug("Tomorrow.io alert processing is disabled. Skipping GetNotificationsAsync call.");
+            logger.LogDebug("Tomorrow.io alerts are disabled or not configured. Skipping notification reconciliation.");
             return new TomorrowNotificationsResponse([], null);
         }
 
-        if (string.IsNullOrWhiteSpace(_options.ApiKey))
+        var query = new Dictionary<string, string?>
         {
-            logger.LogWarning("Tomorrow.io ApiKey is not configured. Skipping GetNotificationsAsync call.");
-            return new TomorrowNotificationsResponse([], null);
-        }
-
-        var baseUrl = _options.BaseUrl.TrimEnd('/');
-        var queryParams = new List<string>
-        {
-            $"startTime={Uri.EscapeDataString(startTime.ToString("yyyy-MM-ddTHH:mm:ssZ"))}",
-            $"endTime={Uri.EscapeDataString(endTime.ToString("yyyy-MM-ddTHH:mm:ssZ"))}",
-            $"apikey={Uri.EscapeDataString(_options.ApiKey)}"
+            ["startTime"] = startTime.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+            ["endTime"] = endTime.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+            ["alertIds"] = _options.AlertId,
         };
 
+        // pageToken is the documented links.next path; only its paging cursor is reused so the
+        // request always stays on this endpoint and keeps TripMate's own filters.
         if (!string.IsNullOrWhiteSpace(pageToken))
         {
-            queryParams.Add($"pageToken={Uri.EscapeDataString(pageToken)}");
+            if (!TryReadPagingCursor(pageToken, query))
+            {
+                logger.LogWarning("Tomorrow.io returned an unexpected notifications next link; stopping pagination.");
+                return new TomorrowNotificationsResponse([], null, ProviderUnavailable: true);
+            }
         }
 
-        var requestUrl = $"{baseUrl}/v4/notifications?{string.Join("&", queryParams)}";
+        using var request = CreateRequest(HttpMethod.Get, QueryHelpers.AddQueryString(NotificationsPath, query));
+        var (outcome, body) = await SendAsync(request, "ListNotifications", cancellationToken);
+        if (outcome != TomorrowCallOutcome.Success)
+        {
+            return new TomorrowNotificationsResponse([], null, ProviderUnavailable: true);
+        }
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, requestUrl);
-            using var response = await httpClient.SendAsync(request, cancellationToken);
-
-            if (response.StatusCode == HttpStatusCode.TooManyRequests)
+            using var doc = JsonDocument.Parse(body);
+            if (!doc.RootElement.TryGetProperty("data", out var data)
+                || data.ValueKind != JsonValueKind.Object
+                || !data.TryGetProperty("notifications", out var notifications)
+                || notifications.ValueKind != JsonValueKind.Array)
             {
-                logger.LogWarning("Tomorrow.io API rate limit (429) encountered during notification reconciliation.");
+                logger.LogWarning("Tomorrow.io notifications response does not carry data.notifications.");
                 return new TomorrowNotificationsResponse([], null, ProviderUnavailable: true);
             }
-
-            if ((int)response.StatusCode >= 500)
-            {
-                logger.LogWarning("Tomorrow.io API server error ({StatusCode}) during notification reconciliation.", (int)response.StatusCode);
-                return new TomorrowNotificationsResponse([], null, ProviderUnavailable: true);
-            }
-
-            if (!response.IsSuccessStatusCode)
-            {
-                logger.LogWarning("Tomorrow.io API returned unexpected status {StatusCode} during notification reconciliation.", (int)response.StatusCode);
-                return new TomorrowNotificationsResponse([], null, ProviderUnavailable: true);
-            }
-
-            var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
-            using var doc = await JsonDocument.ParseAsync(contentStream, cancellationToken: cancellationToken);
-            var root = doc.RootElement;
 
             var items = new List<TomorrowNotificationItem>();
-            string? nextPageToken = null;
-
-            if (root.TryGetProperty("nextPageToken", out var nextProp) && nextProp.ValueKind == JsonValueKind.String)
+            foreach (var element in notifications.EnumerateArray())
             {
-                nextPageToken = nextProp.GetString();
-            }
-
-            JsonElement notifArray = default;
-            if (root.TryGetProperty("notifications", out var notifProp) && notifProp.ValueKind == JsonValueKind.Array)
-            {
-                notifArray = notifProp;
-            }
-            else if (root.TryGetProperty("data", out var dataProp) && dataProp.ValueKind == JsonValueKind.Array)
-            {
-                notifArray = dataProp;
-            }
-
-            if (notifArray.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var el in notifArray.EnumerateArray())
+                string? id = GetString(element, "id");
+                if (string.IsNullOrWhiteSpace(id))
                 {
-                    string id = el.TryGetProperty("id", out var idProp) && idProp.ValueKind == JsonValueKind.String
-                        ? idProp.GetString()!
-                        : Guid.NewGuid().ToString("N");
-
-                    string? eventId = el.TryGetProperty("eventId", out var evtProp) && evtProp.ValueKind == JsonValueKind.String
-                        ? evtProp.GetString()
-                        : null;
-
-                    string? alertId = el.TryGetProperty("alertId", out var altProp) && altProp.ValueKind == JsonValueKind.String
-                        ? altProp.GetString()
-                        : null;
-
-                    string? type = el.TryGetProperty("type", out var typeProp) && typeProp.ValueKind == JsonValueKind.String
-                        ? typeProp.GetString()
-                        : null;
-
-                    DateTimeOffset? updateTime = null;
-                    if (el.TryGetProperty("updateTime", out var timeProp) && timeProp.TryGetDateTimeOffset(out var parsedTime))
-                    {
-                        updateTime = parsedTime;
-                    }
-
-                    items.Add(new TomorrowNotificationItem(
-                        Id: id,
-                        EventId: eventId,
-                        AlertId: alertId,
-                        Type: type,
-                        UpdateTime: updateTime,
-                        RawJson: el.GetRawText()));
+                    continue;
                 }
+
+                string? alertId = element.TryGetProperty("alert", out var alert) ? GetString(alert, "id") : null;
+                items.Add(new TomorrowNotificationItem(id, alertId, element.GetRawText()));
             }
 
-            return new TomorrowNotificationsResponse(items, nextPageToken);
+            string? next = doc.RootElement.TryGetProperty("links", out var links) ? GetString(links, "next") : null;
+            return new TomorrowNotificationsResponse(items, items.Count == 0 ? null : next);
         }
-        catch (JsonException ex)
+        catch (JsonException)
         {
-            logger.LogWarning(ex, "Failed to parse Tomorrow.io notifications JSON response.");
-            return new TomorrowNotificationsResponse([], null, ProviderUnavailable: true);
-        }
-        catch (HttpRequestException ex)
-        {
-            logger.LogWarning(ex, "Network error occurred when querying Tomorrow.io notifications.");
+            logger.LogWarning("Tomorrow.io notifications response is not valid JSON.");
             return new TomorrowNotificationsResponse([], null, ProviderUnavailable: true);
         }
     }
 
-    public async Task<string> CreateLocationAsync(
+    public async Task<TomorrowCreatedLocation> CreateLocationAsync(
         string name,
         double latitude,
         double longitude,
         CancellationToken cancellationToken = default)
     {
-        if (!_options.Enabled ||
-            string.IsNullOrWhiteSpace(_options.ApiKey))
+        if (!IsConfigured)
         {
-            return string.Empty;
+            return new TomorrowCreatedLocation(TomorrowCallOutcome.Skipped, null);
         }
 
-        var baseUrl = _options.BaseUrl.TrimEnd('/');
-        var requestUrl = $"{baseUrl}/v4/locations?apikey={Uri.EscapeDataString(_options.ApiKey)}";
-
-        var payload = new
+        using var request = CreateRequest(HttpMethod.Post, "/v4/locations", new
         {
             name,
-            location = new { lat = latitude, lon = longitude }
-        };
-
-        var json = JsonSerializer.Serialize(payload);
-        using var request = new HttpRequestMessage(HttpMethod.Post, requestUrl)
+            geometry = new { type = "Point", coordinates = new[] { longitude, latitude } },
+        });
+        var (outcome, body) = await SendAsync(request, "CreateLocation", cancellationToken);
+        if (outcome != TomorrowCallOutcome.Success)
         {
-            Content = new StringContent(json, Encoding.UTF8, "application/json")
-        };
+            return new TomorrowCreatedLocation(outcome, null);
+        }
 
         try
         {
-            using var response = await httpClient.SendAsync(request, cancellationToken);
-            if (!response.IsSuccessStatusCode)
+            using var doc = JsonDocument.Parse(body);
+            string? id = doc.RootElement.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Object
+                && data.TryGetProperty("location", out var location)
+                ? GetString(location, "id")
+                : null;
+            if (string.IsNullOrWhiteSpace(id))
             {
-                logger.LogWarning("Tomorrow.io CreateLocation returned status {StatusCode}.", (int)response.StatusCode);
-                return string.Empty;
+                logger.LogWarning("Tomorrow.io CreateLocation answered without data.location.id.");
+                return new TomorrowCreatedLocation(TomorrowCallOutcome.InvalidResponse, null);
             }
 
-            var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken);
-            using var doc = await JsonDocument.ParseAsync(contentStream, cancellationToken: cancellationToken);
-            var root = doc.RootElement;
-
-            if (root.TryGetProperty("id", out var idProp) && idProp.ValueKind == JsonValueKind.String)
-            {
-                return idProp.GetString()!;
-            }
-
-            if (root.TryGetProperty("data", out var dataProp) && dataProp.TryGetProperty("id", out var dataIdProp) && dataIdProp.ValueKind == JsonValueKind.String)
-            {
-                return dataIdProp.GetString()!;
-            }
-
-            return string.Empty;
+            return new TomorrowCreatedLocation(TomorrowCallOutcome.Success, id);
         }
-        catch (Exception ex)
+        catch (JsonException)
         {
-            logger.LogWarning(ex, "Failed to create location '{Name}' in Tomorrow.io.", name);
-            return string.Empty;
+            logger.LogWarning("Tomorrow.io CreateLocation response is not valid JSON.");
+            return new TomorrowCreatedLocation(TomorrowCallOutcome.InvalidResponse, null);
         }
     }
 
-    public async Task DeleteLocationAsync(
+    public async Task<TomorrowCallOutcome> DeleteLocationAsync(
         string locationId,
         CancellationToken cancellationToken = default)
     {
-        if (!_options.Enabled ||
-            string.IsNullOrWhiteSpace(_options.ApiKey) ||
-            string.IsNullOrWhiteSpace(locationId))
+        if (!IsConfigured || string.IsNullOrWhiteSpace(locationId))
         {
-            return;
+            return TomorrowCallOutcome.Skipped;
         }
 
-        var baseUrl = _options.BaseUrl.TrimEnd('/');
-        var requestUrl = $"{baseUrl}/v4/locations/{Uri.EscapeDataString(locationId)}?apikey={Uri.EscapeDataString(_options.ApiKey)}";
+        using var request = CreateRequest(HttpMethod.Delete, $"/v4/locations/{Uri.EscapeDataString(locationId)}");
+        return (await SendAsync(request, "DeleteLocation", cancellationToken)).Outcome;
+    }
 
-        using var request = new HttpRequestMessage(HttpMethod.Delete, requestUrl);
+    public async Task<TomorrowLinkedLocations> GetLinkedLocationIdsAsync(CancellationToken cancellationToken = default)
+    {
+        if (!IsConfigured)
+        {
+            return new TomorrowLinkedLocations(TomorrowCallOutcome.Skipped, new HashSet<string>());
+        }
+
+        using var request = CreateRequest(HttpMethod.Get, $"{AlertPath()}/locations");
+        var (outcome, body) = await SendAsync(request, "ListLinkedLocations", cancellationToken);
+        if (outcome != TomorrowCallOutcome.Success)
+        {
+            return new TomorrowLinkedLocations(outcome, new HashSet<string>());
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (!doc.RootElement.TryGetProperty("data", out var data)
+                || data.ValueKind != JsonValueKind.Object
+                || !data.TryGetProperty("locations", out var locations)
+                || locations.ValueKind != JsonValueKind.Array)
+            {
+                logger.LogWarning("Tomorrow.io linked locations response does not carry data.locations.");
+                return new TomorrowLinkedLocations(TomorrowCallOutcome.InvalidResponse, new HashSet<string>());
+            }
+
+            var ids = locations.EnumerateArray()
+                .Where(location => location.ValueKind == JsonValueKind.String)
+                .Select(location => location.GetString()!)
+                .ToHashSet(StringComparer.Ordinal);
+            return new TomorrowLinkedLocations(TomorrowCallOutcome.Success, ids);
+        }
+        catch (JsonException)
+        {
+            logger.LogWarning("Tomorrow.io linked locations response is not valid JSON.");
+            return new TomorrowLinkedLocations(TomorrowCallOutcome.InvalidResponse, new HashSet<string>());
+        }
+    }
+
+    public Task<TomorrowCallOutcome> LinkLocationsAsync(
+        IReadOnlyCollection<string> locationIds,
+        CancellationToken cancellationToken = default) =>
+        ChangeLinksAsync("link", "LinkLocations", locationIds, cancellationToken);
+
+    public Task<TomorrowCallOutcome> UnlinkLocationsAsync(
+        IReadOnlyCollection<string> locationIds,
+        CancellationToken cancellationToken = default) =>
+        ChangeLinksAsync("unlink", "UnlinkLocations", locationIds, cancellationToken);
+
+    private async Task<TomorrowCallOutcome> ChangeLinksAsync(
+        string pathSegment,
+        string operation,
+        IReadOnlyCollection<string> locationIds,
+        CancellationToken cancellationToken)
+    {
+        if (!IsConfigured || locationIds.Count == 0)
+        {
+            return TomorrowCallOutcome.Skipped;
+        }
+
+        using var request = CreateRequest(HttpMethod.Post, $"{AlertPath()}/locations/{pathSegment}",
+            new { locations = locationIds });
+        return (await SendAsync(request, operation, cancellationToken)).Outcome;
+    }
+
+    private string AlertPath() => $"/v4/alerts/{Uri.EscapeDataString(_options.AlertId)}";
+
+    private HttpRequestMessage CreateRequest(HttpMethod method, string pathAndQuery, object? body = null)
+    {
+        var request = new HttpRequestMessage(method, $"{_options.BaseUrl.TrimEnd('/')}{pathAndQuery}");
+        request.Headers.Add("apikey", _options.ApiKey);
+        if (body is not null)
+        {
+            request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+        }
+
+        return request;
+    }
+
+    private async Task<(TomorrowCallOutcome Outcome, string Body)> SendAsync(
+        HttpRequestMessage request,
+        string operation,
+        CancellationToken cancellationToken)
+    {
         try
         {
             using var response = await httpClient.SendAsync(request, cancellationToken);
-            if (!response.IsSuccessStatusCode && response.StatusCode != HttpStatusCode.NotFound)
+            var outcome = Classify(response.StatusCode);
+            if (outcome != TomorrowCallOutcome.Success)
             {
-                logger.LogWarning("Tomorrow.io DeleteLocation returned status {StatusCode}.", (int)response.StatusCode);
+                // Status only: provider bodies and request URLs stay out of logs.
+                logger.LogWarning("Tomorrow.io {Operation} returned {StatusCode} ({Outcome}).",
+                    operation, (int)response.StatusCode, outcome);
+                return (outcome, string.Empty);
             }
+
+            return (outcome, await response.Content.ReadAsStringAsync(cancellationToken));
         }
-        catch (Exception ex)
+        catch (HttpRequestException exception)
         {
-            logger.LogWarning(ex, "Failed to delete location '{LocationId}' from Tomorrow.io.", locationId);
+            logger.LogWarning("Tomorrow.io {Operation} failed on the network: {Error}.", operation, exception.HttpRequestError);
+            return (TomorrowCallOutcome.Unavailable, string.Empty);
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning("Tomorrow.io {Operation} timed out.", operation);
+            return (TomorrowCallOutcome.Unavailable, string.Empty);
         }
     }
+
+    private static TomorrowCallOutcome Classify(HttpStatusCode statusCode) => statusCode switch
+    {
+        HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => TomorrowCallOutcome.NotAuthorized,
+        HttpStatusCode.NotFound => TomorrowCallOutcome.NotFound,
+        HttpStatusCode.TooManyRequests => TomorrowCallOutcome.Unavailable,
+        >= HttpStatusCode.InternalServerError => TomorrowCallOutcome.Unavailable,
+        >= HttpStatusCode.OK and < HttpStatusCode.MultipleChoices => TomorrowCallOutcome.Success,
+        _ => TomorrowCallOutcome.InvalidResponse,
+    };
+
+    private static bool TryReadPagingCursor(string nextLink, Dictionary<string, string?> query)
+    {
+        if (!nextLink.StartsWith(NotificationsPath + "?", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var parameters = QueryHelpers.ParseQuery(nextLink[NotificationsPath.Length..]);
+        foreach (string key in new[] { "limit", "marker", "offset" })
+        {
+            if (parameters.TryGetValue(key, out var value))
+            {
+                query[key] = value.ToString();
+            }
+        }
+
+        return parameters.ContainsKey("offset") || parameters.ContainsKey("marker");
+    }
+
+    private static string? GetString(JsonElement element, string propertyName) =>
+        element.ValueKind == JsonValueKind.Object
+        && element.TryGetProperty(propertyName, out var property)
+        && property.ValueKind == JsonValueKind.String
+            ? property.GetString()
+            : null;
 }

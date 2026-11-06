@@ -46,11 +46,8 @@ public sealed class WeatherSafetyReviewDtoMapperTests
             validToUtc: now.AddHours(10),
             description: "Extreme coastal weather.",
             originalAuthority: "NCHMF",
-            originalSourceReference: "Official bulletin",
             officialVietnamRiskLevel: 4,
             verifiedDirective: "TravelProhibition",
-            geometryGeoJson: "sensitive geometry omitted from DTO",
-            rawPayloadHash: new string('a', 64),
             ingestedAtUtc: now);
 
         var dto = WeatherSafetyReviewDtoMapper.ToDto(review, weatherEvent);

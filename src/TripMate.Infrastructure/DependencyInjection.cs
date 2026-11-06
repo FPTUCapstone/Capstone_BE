@@ -409,7 +409,8 @@ public static class DependencyInjection
             {
                 if (string.IsNullOrWhiteSpace(options.ApiKey))
                     options.ApiKey = configuration["Tomorrow:ApiKey"] ?? string.Empty;
-            });
+            })
+            .ValidateOnStart();
         services.Configure<WeatherAlertProcessingOptions>(configuration.GetSection(TomorrowIoOptions.SectionName));
         services.AddSingleton<IValidateOptions<TomorrowIoOptions>, TomorrowIoOptionsValidator>();
         services.AddSingleton<ITomorrowWebhookAuthenticator, TomorrowWebhookAuthenticator>();

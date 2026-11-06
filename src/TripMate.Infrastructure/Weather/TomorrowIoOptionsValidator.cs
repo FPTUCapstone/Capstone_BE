@@ -8,30 +8,46 @@ public sealed class TomorrowIoOptionsValidator : IValidateOptions<TomorrowIoOpti
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        if (options.WebhookToleranceSeconds <= 0)
+        var failures = new List<string>();
+        RequirePositive(failures, options.WebhookToleranceSeconds, nameof(options.WebhookToleranceSeconds));
+        RequirePositive(failures, options.MaxPayloadSizeBytes, nameof(options.MaxPayloadSizeBytes));
+        RequirePositive(failures, options.ReconciliationIntervalMinutes, nameof(options.ReconciliationIntervalMinutes));
+        RequirePositive(failures, options.ReconciliationLookbackMinutes, nameof(options.ReconciliationLookbackMinutes));
+        RequirePositive(failures, options.LocationSyncIntervalHours, nameof(options.LocationSyncIntervalHours));
+        RequirePositive(failures, options.LocationMonitoringLookaheadDays, nameof(options.LocationMonitoringLookaheadDays));
+        RequirePositive(failures, options.SafetyReviewAcknowledgementSlaMinutes, nameof(options.SafetyReviewAcknowledgementSlaMinutes));
+
+        // A disabled integration needs no credentials; an enabled one cannot run without them.
+        if (options.Enabled)
         {
-            return ValidateOptionsResult.Fail(
-                $"{nameof(options.WebhookToleranceSeconds)} must be greater than zero.");
+            // ApiKey is already resolved here: it falls back to Tomorrow:ApiKey in PostConfigure.
+            RequireValue(failures, options.ApiKey, nameof(options.ApiKey));
+            RequireValue(failures, options.WebhookSecret, nameof(options.WebhookSecret));
+            RequireValue(failures, options.AlertId, nameof(options.AlertId));
+            if (!Uri.TryCreate(options.BaseUrl, UriKind.Absolute, out var baseUrl)
+                || baseUrl.Scheme != Uri.UriSchemeHttps)
+            {
+                failures.Add($"{nameof(options.BaseUrl)} must be an absolute https URL.");
+            }
         }
 
-        if (options.MaxPayloadSizeBytes <= 0)
-        {
-            return ValidateOptionsResult.Fail(
-                $"{nameof(options.MaxPayloadSizeBytes)} must be greater than zero.");
-        }
+        return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
+    }
 
-        if (options.ReconciliationIntervalMinutes <= 0)
+    private static void RequirePositive(List<string> failures, int value, string name)
+    {
+        if (value <= 0)
         {
-            return ValidateOptionsResult.Fail(
-                $"{nameof(options.ReconciliationIntervalMinutes)} must be greater than zero.");
+            failures.Add($"{name} must be greater than zero.");
         }
+    }
 
-        if (options.LocationSyncIntervalHours <= 0)
+    // Names the setting only; a secret value is never echoed.
+    private static void RequireValue(List<string> failures, string value, string name)
+    {
+        if (string.IsNullOrWhiteSpace(value))
         {
-            return ValidateOptionsResult.Fail(
-                $"{nameof(options.LocationSyncIntervalHours)} must be greater than zero.");
+            failures.Add($"{name} is required when Tomorrow.io alerts are enabled.");
         }
-
-        return ValidateOptionsResult.Success;
     }
 }
