@@ -82,8 +82,17 @@ public sealed class EmergencyTourMigrationSqlServerTests
         await db.WeatherSafetyReviews.ToListAsync();
         await db.WeatherLocationMappings.ToListAsync();
         await db.EmergencyTourCancellationOperations.ToListAsync();
-        await db.WeatherEvents.Select(e => new { e.Id, e.Provider, e.ProviderEventId, e.OriginalAuthority,
-            e.OfficialVietnamRiskLevel, e.VerifiedDirective, e.IsWithdrawn, e.UpdatedAtUtc }).ToListAsync();
+        await db.WeatherEvents.Select(e => new
+        {
+            e.Id,
+            e.Provider,
+            e.ProviderEventId,
+            e.OriginalAuthority,
+            e.OfficialVietnamRiskLevel,
+            e.VerifiedDirective,
+            e.IsWithdrawn,
+            e.UpdatedAtUtc
+        }).ToListAsync();
     }
 
     [SqlServerFact]

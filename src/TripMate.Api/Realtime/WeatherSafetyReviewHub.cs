@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
+
 using TripMate.Domain.Enums;
 
 namespace TripMate.Api.Realtime;

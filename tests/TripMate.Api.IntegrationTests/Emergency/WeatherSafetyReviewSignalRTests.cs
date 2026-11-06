@@ -1,12 +1,16 @@
 using System.Collections.Concurrent;
 using System.Net;
+
 using FluentAssertions;
+
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
-using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+
 using Serilog.Core;
 using Serilog.Events;
+
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Api.Realtime;
 using TripMate.Application.Common.Interfaces;

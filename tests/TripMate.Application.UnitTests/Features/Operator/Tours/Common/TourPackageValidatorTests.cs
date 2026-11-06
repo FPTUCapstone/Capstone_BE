@@ -51,10 +51,16 @@ public sealed class TourPackageValidatorTests
     {
         var original = Create();
         var partial = original with { Schedules = [original.Schedules[0] with { MeetingLatitude = 16m }] };
-        var invalid = original with { Schedules = [original.Schedules[0] with
-            { MeetingLatitude = 91m, MeetingLongitude = 108m }] };
-        var valid = original with { Schedules = [original.Schedules[0] with
-            { MeetingLatitude = 16m, MeetingLongitude = 108m }] };
+        var invalid = original with
+        {
+            Schedules = [original.Schedules[0] with
+            { MeetingLatitude = 91m, MeetingLongitude = 108m }]
+        };
+        var valid = original with
+        {
+            Schedules = [original.Schedules[0] with
+            { MeetingLatitude = 16m, MeetingLongitude = 108m }]
+        };
 
         CreateValidator.Validate(partial).IsValid.Should().BeFalse();
         UpdateValidator.Validate(Update(partial)).IsValid.Should().BeFalse();

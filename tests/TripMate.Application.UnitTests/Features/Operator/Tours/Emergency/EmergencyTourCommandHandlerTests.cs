@@ -169,7 +169,8 @@ public sealed class EmergencyTourCommandHandlerTests
     }
 
     [Fact]
-    public async Task CancelBeforeDeparture_PendingPaymentBookingIsCancelledAndReleasesCapacity()    {
+    public async Task CancelBeforeDeparture_PendingPaymentBookingIsCancelledAndReleasesCapacity()
+    {
         await using var db = TestDbContext.Create();
         var schedule = SeedSchedule(db, Now.AddDays(4));
         var booking = SeedBooking(db, schedule, 10, 3, BookingStatus.PendingPayment,

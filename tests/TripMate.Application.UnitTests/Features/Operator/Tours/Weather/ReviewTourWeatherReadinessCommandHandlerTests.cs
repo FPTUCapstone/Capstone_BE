@@ -85,11 +85,24 @@ public sealed class ReviewTourWeatherReadinessCommandHandlerTests
 
     private static async Task<User> SeedOperatorAsync(TestDbContext db, long id)
     {
-        var user = new User { Id = id, Email = "operator@test.local", FullName = "Operator",
-            Role = UserRole.TourOperator, Status = AccountStatus.Active };
+        var user = new User
+        {
+            Id = id,
+            Email = "operator@test.local",
+            FullName = "Operator",
+            Role = UserRole.TourOperator,
+            Status = AccountStatus.Active
+        };
         db.Users.Add(user);
-        db.OperatorProfiles.Add(new OperatorProfile { UserId = id, User = user, CompanyName = "Tour Co",
-            TaxCode = "Tax7", BusinessLicenseNo = "Lic7", ApprovalStatus = OperatorApprovalStatus.Approved });
+        db.OperatorProfiles.Add(new OperatorProfile
+        {
+            UserId = id,
+            User = user,
+            CompanyName = "Tour Co",
+            TaxCode = "Tax7",
+            BusinessLicenseNo = "Lic7",
+            ApprovalStatus = OperatorApprovalStatus.Approved
+        });
         await db.SaveChangesAsync();
         return user;
     }

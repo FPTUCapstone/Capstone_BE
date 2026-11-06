@@ -120,141 +120,141 @@ public sealed class EmergencyTourCommandHandler(
             {
                 Result<EmergencyTourActionResponse> result = await dbContext.ExecuteInSerializableTransactionAsync(async token =>
                 {
-            closedReviewIds = [];
-            bool operatorIsEligible = await EmergencyOperatorAccess.IsEligibleOperatorAsync(
-                dbContext, operatorId, token);
-            if (!operatorIsEligible)
-                return Failure(EmergencyTourErrorCodes.Forbidden,
-                    "Cần tài khoản đơn vị điều hành đang hoạt động và đã được duyệt.");
+                    closedReviewIds = [];
+                    bool operatorIsEligible = await EmergencyOperatorAccess.IsEligibleOperatorAsync(
+                        dbContext, operatorId, token);
+                    if (!operatorIsEligible)
+                        return Failure(EmergencyTourErrorCodes.Forbidden,
+                            "Cần tài khoản đơn vị điều hành đang hoạt động và đã được duyệt.");
 
-            TourSchedule? schedule = await dbContext.TourSchedules
-                .Include(candidate => candidate.Tour)
-                .SingleOrDefaultAsync(candidate => candidate.Id == scheduleId
-                    && candidate.TourId == tourId
-                    && candidate.Tour.OperatorUserId == operatorId, token);
-            if (schedule is null)
-                return Failure(EmergencyTourErrorCodes.NotFound, "Không tìm thấy lịch khởi hành.");
-            DateTimeOffset now = clock.UtcNow;
+                    TourSchedule? schedule = await dbContext.TourSchedules
+                        .Include(candidate => candidate.Tour)
+                        .SingleOrDefaultAsync(candidate => candidate.Id == scheduleId
+                            && candidate.TourId == tourId
+                            && candidate.Tour.OperatorUserId == operatorId, token);
+                    if (schedule is null)
+                        return Failure(EmergencyTourErrorCodes.NotFound, "Không tìm thấy lịch khởi hành.");
+                    DateTimeOffset now = clock.UtcNow;
 
-            string requestHash = ComputeRequestHash(tourId, scheduleId, commandId, impactVersion,
-                action, reason, reasonDetails, immediateInstructions, emergencyContact,
-                evidenceReference, evidenceUrl, authorityReference, addEvidenceLater);
-            EmergencyTourCancellationOperation? replay = await dbContext
-                .EmergencyTourCancellationOperations.AsNoTracking()
-                .SingleOrDefaultAsync(operation => operation.ActorUserId == operatorId
-                    && operation.CommandId == commandId, token);
-            if (replay is not null)
-                return replay.RequestHash == requestHash
-                    ? Result.Success(ToResponse(replay))
-                    : Failure(EmergencyTourErrorCodes.IdempotencyPayloadMismatch,
-                        "Yêu cầu này đã được gửi trước đó với nội dung khác.");
+                    string requestHash = ComputeRequestHash(tourId, scheduleId, commandId, impactVersion,
+                        action, reason, reasonDetails, immediateInstructions, emergencyContact,
+                        evidenceReference, evidenceUrl, authorityReference, addEvidenceLater);
+                    EmergencyTourCancellationOperation? replay = await dbContext
+                        .EmergencyTourCancellationOperations.AsNoTracking()
+                        .SingleOrDefaultAsync(operation => operation.ActorUserId == operatorId
+                            && operation.CommandId == commandId, token);
+                    if (replay is not null)
+                        return replay.RequestHash == requestHash
+                            ? Result.Success(ToResponse(replay))
+                            : Failure(EmergencyTourErrorCodes.IdempotencyPayloadMismatch,
+                                "Yêu cầu này đã được gửi trước đó với nội dung khác.");
 
-            EmergencyTourCancellationOperation? prior = await dbContext
-                .EmergencyTourCancellationOperations.AsNoTracking()
-                .SingleOrDefaultAsync(operation => operation.TourScheduleId == scheduleId, token);
-            if (prior is not null)
-                return Failure(EmergencyTourErrorCodes.AlreadyTerminal,
-                    "Lịch khởi hành này đã có quyết định cuối cùng.");
-            if (schedule.Status == TourScheduleStatus.Completed || clock.UtcNow >= schedule.EndAtUtc)
-                return Failure(EmergencyTourErrorCodes.AlreadyCompleted,
-                    "Lịch khởi hành đã hoàn thành nên không thể hủy hoặc dừng.");
-            if (schedule.Status != TourScheduleStatus.Scheduled)
-                return Failure(EmergencyTourErrorCodes.AlreadyTerminal,
-                    "Lịch khởi hành này đã có quyết định cuối cùng.");
+                    EmergencyTourCancellationOperation? prior = await dbContext
+                        .EmergencyTourCancellationOperations.AsNoTracking()
+                        .SingleOrDefaultAsync(operation => operation.TourScheduleId == scheduleId, token);
+                    if (prior is not null)
+                        return Failure(EmergencyTourErrorCodes.AlreadyTerminal,
+                            "Lịch khởi hành này đã có quyết định cuối cùng.");
+                    if (schedule.Status == TourScheduleStatus.Completed || clock.UtcNow >= schedule.EndAtUtc)
+                        return Failure(EmergencyTourErrorCodes.AlreadyCompleted,
+                            "Lịch khởi hành đã hoàn thành nên không thể hủy hoặc dừng.");
+                    if (schedule.Status != TourScheduleStatus.Scheduled)
+                        return Failure(EmergencyTourErrorCodes.AlreadyTerminal,
+                            "Lịch khởi hành này đã có quyết định cuối cùng.");
 
-            EmergencyTourImpactSnapshot impact = await EmergencyTourImpact.LoadAsync(
-                dbContext, schedule, token);
+                    EmergencyTourImpactSnapshot impact = await EmergencyTourImpact.LoadAsync(
+                        dbContext, schedule, token);
 
-            if (impact.HasUnverifiedSessions)
-                return Failure(EmergencyTourErrorCodes.TripSessionLinkUnverified,
-                    "Có phiên đi tour chưa xác minh nên không thể thực hiện thao tác này.");
+                    if (impact.HasUnverifiedSessions)
+                        return Failure(EmergencyTourErrorCodes.TripSessionLinkUnverified,
+                            "Có phiên đi tour chưa xác minh nên không thể thực hiện thao tác này.");
 
-            if (!CryptographicOperations.FixedTimeEquals(
-                    Encoding.UTF8.GetBytes(impact.Version), Encoding.UTF8.GetBytes(impactVersion)))
-                return Failure(EmergencyTourErrorCodes.ConcurrentStateChanged,
-                    "Tác động của lịch khởi hành đã thay đổi. Vui lòng xem lại trước khi xác nhận.");
+                    if (!CryptographicOperations.FixedTimeEquals(
+                            Encoding.UTF8.GetBytes(impact.Version), Encoding.UTF8.GetBytes(impactVersion)))
+                        return Failure(EmergencyTourErrorCodes.ConcurrentStateChanged,
+                            "Tác động của lịch khởi hành đã thay đổi. Vui lòng xem lại trước khi xác nhận.");
 
-            string beforeData = JsonSerializer.Serialize(new
-            {
-                PermissionPath = EmergencyTourAuditValues.OwningActiveApprovedTourOperator,
-                CorrelationId = commandId,
-                Schedule = new { schedule.Id, Status = schedule.Status.ToString() },
-                Bookings = impact.Bookings.Select(booking => new
-                {
-                    booking.Id,
-                    Status = booking.Status.ToString(),
-                    PaymentStatus = booking.PaymentStatus.ToString(),
-                    booking.CancellationPolicySnapshot,
-                }),
-                Sessions = impact.ActiveSessions.Select(session => new
-                {
-                    session.Id,
-                    session.FsmState,
-                }),
-            });
-            string composedReason = $"{reason}: {reasonDetails.Trim()}";
-            string bookingReason = composedReason.Length <= Booking.CancelReasonMaxLength
-                ? composedReason
-                : composedReason[..Booking.CancelReasonMaxLength];
-            string auditReason = composedReason.Length <= AuditLog.ReasonMaxLength
-                ? composedReason
-                : composedReason[..AuditLog.ReasonMaxLength];
-
-            bool stateChanged = await EmergencyDepartureStateMutator.MutateAsync(
-                dbContext, schedule, impact.Bookings, impact.ActiveSessions,
-                isPreStart, now, bookingReason, reason.ToString(), token);
-            if (!stateChanged)
-                return Failure(EmergencyTourErrorCodes.WrongActionWindow,
-                    "Thao tác đã chọn không còn phù hợp với thời gian của lịch khởi hành.");
-
-            var operation = EmergencyTourCancellationOperation.Create(
-                schedule.Id, operatorId, commandId, requestHash, action, reason.ToString(),
-                reasonDetails, immediateInstructions, emergencyContact, evidenceReference,
-                impact.Bookings.Length, now,
-                evidenceUrl: evidenceUrl,
-                authorityReference: authorityReference,
-                evidenceProvenance: EmergencyEvidenceProvenance.OperatorProvided,
-                evidenceAddedLater: addEvidenceLater);
-            dbContext.EmergencyTourCancellationOperations.Add(operation);
-
-            AddNotifications(schedule, impact.Bookings, action, now);
-
-            List<WeatherSafetyReview> openReviews = await dbContext.WeatherSafetyReviews
-                .Where(review => review.TourScheduleId == schedule.Id
-                    && review.Status != WeatherSafetyReview.StatusClosed)
-                .ToListAsync(token);
-            openReviews.ForEach(review => review.Close());
-            closedReviewIds = [.. openReviews.Select(review => review.Id)];
-
-            dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(operatorId,
-                isPreStart ? AuditActionTypes.TourEmergencyCancelled : AuditActionTypes.TourEmergencyStopped,
-                AuditEntityTypes.TourSchedule, schedule.Id, now, AuditOutcome.Success,
-                auditReason,
-                beforeData: beforeData,
-                afterData: JsonSerializer.Serialize(new
-                {
-                    PermissionPath = EmergencyTourAuditValues.OwningActiveApprovedTourOperator,
-                    CorrelationId = operation.CommandId,
-                    Schedule = new { schedule.Id, Status = schedule.Status.ToString() },
-                    Bookings = impact.Bookings.Select(booking => new
+                    string beforeData = JsonSerializer.Serialize(new
                     {
-                        booking.Id,
-                        Status = booking.Status.ToString(),
-                    }),
-                    Sessions = impact.ActiveSessions.Select(session => new
-                    {
-                        session.Id,
-                        session.FsmState,
-                    }),
-                    operation.AffectedBookingCount,
-                    ClosedReviewIds = closedReviewIds,
-                    EvidenceProvenance = operation.EvidenceProvenance,
-                    operation.EvidenceAddedLater,
-                    EvidenceReferenceHash = Hash(operation.EvidenceReference),
-                    EvidenceUrlHash = Hash(operation.EvidenceUrl),
-                    AuthorityReferenceHash = Hash(operation.AuthorityReference),
-                })));
-            await dbContext.SaveChangesAsync(token);
+                        PermissionPath = EmergencyTourAuditValues.OwningActiveApprovedTourOperator,
+                        CorrelationId = commandId,
+                        Schedule = new { schedule.Id, Status = schedule.Status.ToString() },
+                        Bookings = impact.Bookings.Select(booking => new
+                        {
+                            booking.Id,
+                            Status = booking.Status.ToString(),
+                            PaymentStatus = booking.PaymentStatus.ToString(),
+                            booking.CancellationPolicySnapshot,
+                        }),
+                        Sessions = impact.ActiveSessions.Select(session => new
+                        {
+                            session.Id,
+                            session.FsmState,
+                        }),
+                    });
+                    string composedReason = $"{reason}: {reasonDetails.Trim()}";
+                    string bookingReason = composedReason.Length <= Booking.CancelReasonMaxLength
+                        ? composedReason
+                        : composedReason[..Booking.CancelReasonMaxLength];
+                    string auditReason = composedReason.Length <= AuditLog.ReasonMaxLength
+                        ? composedReason
+                        : composedReason[..AuditLog.ReasonMaxLength];
+
+                    bool stateChanged = await EmergencyDepartureStateMutator.MutateAsync(
+                        dbContext, schedule, impact.Bookings, impact.ActiveSessions,
+                        isPreStart, now, bookingReason, reason.ToString(), token);
+                    if (!stateChanged)
+                        return Failure(EmergencyTourErrorCodes.WrongActionWindow,
+                            "Thao tác đã chọn không còn phù hợp với thời gian của lịch khởi hành.");
+
+                    var operation = EmergencyTourCancellationOperation.Create(
+                        schedule.Id, operatorId, commandId, requestHash, action, reason.ToString(),
+                        reasonDetails, immediateInstructions, emergencyContact, evidenceReference,
+                        impact.Bookings.Length, now,
+                        evidenceUrl: evidenceUrl,
+                        authorityReference: authorityReference,
+                        evidenceProvenance: EmergencyEvidenceProvenance.OperatorProvided,
+                        evidenceAddedLater: addEvidenceLater);
+                    dbContext.EmergencyTourCancellationOperations.Add(operation);
+
+                    AddNotifications(schedule, impact.Bookings, action, now);
+
+                    List<WeatherSafetyReview> openReviews = await dbContext.WeatherSafetyReviews
+                        .Where(review => review.TourScheduleId == schedule.Id
+                            && review.Status != WeatherSafetyReview.StatusClosed)
+                        .ToListAsync(token);
+                    openReviews.ForEach(review => review.Close());
+                    closedReviewIds = [.. openReviews.Select(review => review.Id)];
+
+                    dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(operatorId,
+                        isPreStart ? AuditActionTypes.TourEmergencyCancelled : AuditActionTypes.TourEmergencyStopped,
+                        AuditEntityTypes.TourSchedule, schedule.Id, now, AuditOutcome.Success,
+                        auditReason,
+                        beforeData: beforeData,
+                        afterData: JsonSerializer.Serialize(new
+                        {
+                            PermissionPath = EmergencyTourAuditValues.OwningActiveApprovedTourOperator,
+                            CorrelationId = operation.CommandId,
+                            Schedule = new { schedule.Id, Status = schedule.Status.ToString() },
+                            Bookings = impact.Bookings.Select(booking => new
+                            {
+                                booking.Id,
+                                Status = booking.Status.ToString(),
+                            }),
+                            Sessions = impact.ActiveSessions.Select(session => new
+                            {
+                                session.Id,
+                                session.FsmState,
+                            }),
+                            operation.AffectedBookingCount,
+                            ClosedReviewIds = closedReviewIds,
+                            EvidenceProvenance = operation.EvidenceProvenance,
+                            operation.EvidenceAddedLater,
+                            EvidenceReferenceHash = Hash(operation.EvidenceReference),
+                            EvidenceUrlHash = Hash(operation.EvidenceUrl),
+                            AuthorityReferenceHash = Hash(operation.AuthorityReference),
+                        })));
+                    await dbContext.SaveChangesAsync(token);
                     return Result.Success(ToResponse(operation));
                 }, cancellationToken);
 

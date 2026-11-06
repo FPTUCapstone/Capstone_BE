@@ -29,7 +29,8 @@ public sealed record NavigationSessionResponse(
             session,
             itinerary.Version,
             itinerary.SchedulingRequest?.TransportMode,
-            TransportModesFromPrevious(itinerary)) with { BookingId = itinerary.SourceBookingId };
+            TransportModesFromPrevious(itinerary)) with
+        { BookingId = itinerary.SourceBookingId };
 
     public static NavigationSessionResponse From(
         TripSession session,
