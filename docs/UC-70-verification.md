@@ -77,6 +77,8 @@ scenarios and real FCM. The database showed no Refund or payout change after any
 
 `UC70-MOBILE-UX` and `UC70-TEST-FLAKE` are tracked separately and do not block the merge.
 
-`BLOCKED_UC42_HANDOFF_CONTRACT`: UC-42's `RefundProcessor` only processes existing `Refund` rows, so no
-contract yet picks up a booking cancelled or interrupted by UC-70. `Booking.ApplyRefund` also still
-accepts only `Cancelled`. UC-70 does not invent this contract; UC-42 owns it.
+UC-70 has no refund handoff by design: refunds follow the booking cancellation policy outside UC-70.
+
+The Tomorrow.io production webhook is verified locally only (`LOCAL_PASS`: documented signature vector,
+documented payloads, signed endpoint to review end to end on SQL Server). A real delivery has not been
+received yet; the staging gate in `docs/UC-70-tomorrow-webhook-runbook.md` must pass before production.

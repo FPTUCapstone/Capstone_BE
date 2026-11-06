@@ -532,6 +532,28 @@ public sealed class PaymentTests
         audit.Reason.Should().NotContain(" at ");
     }
 
+    [Fact]
+    public async Task MaterializationFailure_WhenTheDepartureIsMissing_IsNotRecordedAsNoStops()
+    {
+        await using var db = CreateDbContext();
+        var (_, booking) = await SeedBookingAsync(db, BookingStatus.PendingPayment, PaymentStatus.Unpaid,
+            paymentExpiresAtUtc: Now.AddMinutes(15));
+        var tx = PaymentTransaction.Create(booking.Id, PaymentGateway.Mock, booking.TotalAmount, 9997, Now);
+        db.PaymentTransactions.Add(tx);
+        await db.SaveChangesAsync();
+
+        var result = await new PaymentCompletionProcessor(db, new FixedClock(Now))
+            .CompleteAsync(tx.Id, null, PaymentTransactionStatus.Success,
+                "gateway-ref", "{}", null, null, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var audit = await db.AuditLogs
+            .SingleAsync(entry => entry.ActionType == AuditActionTypes.BookingItineraryMaterializationFailed);
+        audit.Reason.Should().Be(
+            $"Booked-tour itinerary materialization failed: {BookedTourItineraryMaterializer.DepartureNotFoundFailureCode}.");
+        audit.Reason.Should().NotContain(BookedTourItineraryMaterializer.NoStopsFailureCode);
+    }
+
     private static async Task<(long TravelerId, long BookingId, long TransactionId)> SeedPendingPaymentAsync(
         string databaseName, bool bookable)
     {

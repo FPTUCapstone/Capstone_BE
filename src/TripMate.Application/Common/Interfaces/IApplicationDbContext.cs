@@ -236,6 +236,13 @@ public interface IApplicationDbContext
     bool IsSourceBookingUniqueConflict(DbUpdateException exception) => false;
 
     /// <summary>
+    /// True when the exception is the SQL Server unique violation (2601/2627) on the UC-70 decision
+    /// table: one decision per departure, or one per Operator command id. A concurrent winner has
+    /// committed, so re-running the command replays it or reports the departure as terminal.
+    /// </summary>
+    bool IsEmergencyDecisionUniqueConflict(DbUpdateException exception) => false;
+
+    /// <summary>
     /// Removes durable document-cleanup reservations while the caller's database transaction
     /// is still open. SQL Server implementations serialize this operation with the cleanup
     /// worker by public ID, so a committed document can never reference an asset the worker

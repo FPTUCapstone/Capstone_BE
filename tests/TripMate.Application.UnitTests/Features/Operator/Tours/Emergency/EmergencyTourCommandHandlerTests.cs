@@ -46,6 +46,11 @@ public sealed class EmergencyTourCommandHandlerTests
         first.IsSuccess.Should().BeTrue();
         replay.IsSuccess.Should().BeTrue();
         schedule.Status.Should().Be(TourScheduleStatus.Cancelled);
+        first.Value.AffectedBookingCount.Should().Be(2);
+        replay.Value.Should().Be(first.Value, "a replay answers with the committed decision");
+        var stored = await db.EmergencyTourCancellationOperations.SingleAsync();
+        stored.AffectedBookingCount.Should().Be(2);
+        stored.ReasonCategory.Should().Be(nameof(EmergencyTourReason.WeatherEmergency));
         db.Bookings.Should().OnlyContain(booking => booking.Status == BookingStatus.Cancelled);
         db.Refunds.Should().BeEmpty();
         paid.PaymentStatus.Should().Be(PaymentStatus.Paid);
@@ -321,6 +326,100 @@ public sealed class EmergencyTourCommandHandlerTests
         audit.AffectedEntityId.Should().Be(schedule.Id);
         string stored = System.Text.Json.JsonSerializer.Serialize(new { audit.Reason, audit.BeforeData, audit.AfterData });
         stored.Should().NotContain(wrongPassword);
+    }
+
+    [Theory]
+    [InlineData("NotTheRightPassword1!")]
+    [InlineData(ValidOperatorPassword)]
+    public async Task EmergencyStop_ByAnotherOperator_ReturnsNotFoundBeforeCheckingThePassword(string password)
+    {
+        await using var db = TestDbContext.Create();
+        var schedule = SeedSchedule(db, Now.AddHours(-1));
+        SeedApprovedOperator(db, 99, "other-operator@example.test");
+        await db.SaveChangesAsync();
+        var currentUser = new FakeCurrentUserService { UserId = 99, Role = nameof(UserRole.TourOperator) };
+        var clock = new FakeDateTimeProvider { UtcNow = Now };
+
+        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
+            .Handle(new EmergencyStopActiveCommand(1, schedule.Id, Guid.NewGuid(),
+                new string('a', 64), password, EmergencyTourReason.SafetyIncident,
+                "Road access is unsafe and the trip must stop.",
+                "Stay with the guide at the verified meeting point.", "0900000000", null),
+                CancellationToken.None);
+
+        // The same safe 404 whether the password is right or wrong: nothing is learned about
+        // the password and no audit row points at another Operator's departure.
+        result.ErrorCode.Should().Be(EmergencyTourErrorCodes.NotFound);
+        (await db.AuditLogs.CountAsync()).Should().Be(0);
+        schedule.Status.Should().Be(TourScheduleStatus.Scheduled);
+    }
+
+    [Fact]
+    public async Task CancelBeforeDeparture_WhenTheSaveFailsForAnUnclassifiedReason_DoesNotRetry()
+    {
+        // A FK or CHECK violation is a real defect; replaying the decision cannot fix it.
+        await using var db = TestDbContext.Create();
+        var schedule = SeedSchedule(db, Now.AddDays(1));
+        await db.SaveChangesAsync();
+        var currentUser = new FakeCurrentUserService { UserId = 2, Role = nameof(UserRole.TourOperator) };
+        var clock = new FakeDateTimeProvider { UtcNow = Now };
+        var preview = await new GetEmergencyTourImpactQueryHandler(db, currentUser, clock)
+            .Handle(new GetEmergencyTourImpactQuery(1, schedule.Id), CancellationToken.None);
+        int savesBefore = db.SaveChangesAsyncCallCount;
+        db.SaveChangesFailureFactory = () => new DbUpdateException("Simulated CHECK constraint violation.");
+
+        var act = () => new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
+            .Handle(new CancelBeforeDepartureCommand(1, schedule.Id, Guid.NewGuid(), preview.Value.ImpactVersion,
+                EmergencyTourReason.WeatherEmergency, "Unsafe weather prevents departure.", "0900000000", "bulletin-123"),
+                CancellationToken.None);
+
+        await act.Should().ThrowAsync<DbUpdateException>();
+        (db.SaveChangesAsyncCallCount - savesBefore).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task CancelBeforeDeparture_WhenItLosesTheOneDecisionRace_RetriesSoTheReplayPathAnswers()
+    {
+        await using var db = TestDbContext.Create();
+        var schedule = SeedSchedule(db, Now.AddDays(1));
+        await db.SaveChangesAsync();
+        var currentUser = new FakeCurrentUserService { UserId = 2, Role = nameof(UserRole.TourOperator) };
+        var clock = new FakeDateTimeProvider { UtcNow = Now };
+        var preview = await new GetEmergencyTourImpactQueryHandler(db, currentUser, clock)
+            .Handle(new GetEmergencyTourImpactQuery(1, schedule.Id), CancellationToken.None);
+        int failures = 0;
+        db.SaveChangesFailureFactory = () => failures++ == 0
+            ? new DbUpdateException("duplicate", new SimulatedEmergencyDecisionUniqueConflictException())
+            : null;
+
+        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
+            .Handle(new CancelBeforeDepartureCommand(1, schedule.Id, Guid.NewGuid(), preview.Value.ImpactVersion,
+                EmergencyTourReason.WeatherEmergency, "Unsafe weather prevents departure.", "0900000000", "bulletin-123"),
+                CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        failures.Should().BeGreaterThan(1);
+    }
+
+    [Fact]
+    public async Task CancelBeforeDeparture_WhenChosenAsADeadlockVictim_RetriesAndCommits()
+    {
+        await using var db = TestDbContext.Create();
+        var schedule = SeedSchedule(db, Now.AddDays(1));
+        await db.SaveChangesAsync();
+        var currentUser = new FakeCurrentUserService { UserId = 2, Role = nameof(UserRole.TourOperator) };
+        var clock = new FakeDateTimeProvider { UtcNow = Now };
+        var preview = await new GetEmergencyTourImpactQueryHandler(db, currentUser, clock)
+            .Handle(new GetEmergencyTourImpactQuery(1, schedule.Id), CancellationToken.None);
+        int failures = 0;
+        db.SaveChangesFailureFactory = () => failures++ == 0 ? new DbUpdateException("deadlock", new SimulatedDeadlockException()) : null;
+
+        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
+            .Handle(new CancelBeforeDepartureCommand(1, schedule.Id, Guid.NewGuid(), preview.Value.ImpactVersion,
+                EmergencyTourReason.WeatherEmergency, "Unsafe weather prevents departure.", "0900000000", "bulletin-123"),
+                CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
     }
 
     [Fact]

@@ -102,6 +102,12 @@ public sealed class WeatherSafetyReviewSqlServerTests
         reviews[0].AffectedAreaSummary.Should().BeNull();
         reviews[0].IsWithdrawn.Should().BeFalse();
 
+        // An unknown status is a client error, not an empty list.
+        using var invalidFilterResponse = await owningClient.GetAsync("/api/v1/operator/weather-safety-reviews?status=Bogus");
+        invalidFilterResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        using var wrongCaseResponse = await owningClient.GetAsync("/api/v1/operator/weather-safety-reviews?status=pendingacknowledgement");
+        wrongCaseResponse.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
         // Invariant: Departure remains scheduled, NEVER automatically EmergencyStopped!
         (await database.ExecuteScalarAsync<string>($"""
             SELECT status FROM commerce.TourSchedules WHERE schedule_id = {seed.ScheduleId};

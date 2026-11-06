@@ -334,6 +334,9 @@ public class TestDbContext(
     public bool IsSourceBookingUniqueConflict(DbUpdateException exception) =>
         WalkChain<SimulatedSourceBookingUniqueConflictException>(exception);
 
+    public bool IsEmergencyDecisionUniqueConflict(DbUpdateException exception) =>
+        WalkChain<SimulatedEmergencyDecisionUniqueConflictException>(exception);
+
     private static bool WalkChain<TException>(Exception exception)
         where TException : Exception
     {

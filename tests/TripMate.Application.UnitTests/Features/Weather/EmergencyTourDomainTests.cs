@@ -129,17 +129,17 @@ public sealed class EmergencyTourDomainTests
     }
 
     [Fact]
-    public void WeatherInterruption_StopsNavigationAndRecordsSystemReason()
+    public void EmergencyInterruption_StopsNavigationAndRecordsTheOperatorReason()
     {
         var item = TripSessionItem.Snapshot(10, 1, 20, "City Hall", 16m, 108m,
             Start, Start.AddHours(1), true);
         var session = TripSession.Start(1, 1, 3, Guid.NewGuid(),
             Start.AddMinutes(-30), End, [item]);
 
-        Assert.True(session.InterruptForWeather(Start.AddMinutes(10)));
-        Assert.False(session.InterruptForWeather(Start.AddMinutes(11)));
+        Assert.True(session.InterruptForEmergency(Start.AddMinutes(10), nameof(EmergencyTourReason.WeatherEmergency)));
+        Assert.False(session.InterruptForEmergency(Start.AddMinutes(11), nameof(EmergencyTourReason.WeatherEmergency)));
         Assert.Equal(TripSession.InterruptedState, session.FsmState);
-        Assert.Equal(TripSession.WeatherEmergencyReason, session.CompletionReason);
+        Assert.Equal(nameof(EmergencyTourReason.WeatherEmergency), session.CompletionReason);
         Assert.Equal(Start.AddMinutes(10), session.EndedAtUtc);
         Assert.Equal(TripStateHistory.TriggeredBySystem,
             session.StateHistory.Last().TriggeredBy);

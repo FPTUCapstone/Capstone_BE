@@ -214,7 +214,7 @@ public sealed class PaymentCompletionProcessor(
                 cancellationToken);
         if (departure?.Tour is null)
         {
-            AuditMaterializationFailure(booking, BookedTourItineraryMaterializer.NoStopsFailureCode, now);
+            AuditMaterializationFailure(booking, BookedTourItineraryMaterializer.DepartureNotFoundFailureCode, now);
             return;
         }
 

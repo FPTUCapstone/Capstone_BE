@@ -16,6 +16,7 @@ internal static class BookedTourItineraryMaterializer
 {
     // Failure codes live on the shared timeline policy; aliases keep existing call sites stable.
     public const string NoStopsFailureCode = BookedTourItineraryTimeline.NoStopsFailureCode;
+    public const string DepartureNotFoundFailureCode = BookedTourItineraryTimeline.DepartureNotFoundFailureCode;
     public const string MissingPlannedTimeFailureCode = BookedTourItineraryTimeline.MissingPlannedTimeFailureCode;
     public const string UnknownTimeZoneFailureCode = BookedTourItineraryTimeline.UnknownTimeZoneFailureCode;
     public const string InvalidLocalTimeFailureCode = BookedTourItineraryTimeline.InvalidLocalTimeFailureCode;

@@ -17,7 +17,6 @@ Canonical cross-module plan: `../../plan.md`.
 - [x] Add application/domain/persistence tests and build verification.
 - [x] Execute the SQL migration against a disposable SQL Server test database.
 - [x] Add SQL Server endpoint/concurrency integration tests when the test database is available.
-- [ ] Agree the UC-42 handoff contract for bookings cancelled by UC-70 (owned by UC-42, not implemented here).
 - [x] Implement current-password step-up for active emergency stop without persisting, logging or
   hashing the supplied password into idempotency data.
 - [x] Add `Itinerary.SourceBookingId`, derive the exact departure through Booking, and remove the
@@ -25,6 +24,10 @@ Canonical cross-module plan: `../../plan.md`.
   `trip_session.link_unverified`.
 - [x] Add Operator-provided evidence URL/reference, provenance, safe URL validation and an add-later
   audit path. Do not fetch arbitrary URLs or add an Admin approval/registry dependency in the MVP.
-- [ ] Implement FE Operator confirmation and Mobile Traveler safety-first presentation.
+- [x] Implement FE Operator confirmation and Mobile Traveler safety-first presentation.
+- [x] Tomorrow.io: timestamp-only webhook signature, AlertId filter, Location create/link/re-link/unlink,
+  documented payload and notification-list parsing, lease compare-and-set completion.
+- [x] Remove unused weather persistence (evaluations table and seven columns); canonical schema parity.
+- [ ] Real-webhook gate on staging (human, after merge): `docs/UC-70-tomorrow-webhook-runbook.md`.
 
 No commit, push, migration execution or deployment without a separate request.

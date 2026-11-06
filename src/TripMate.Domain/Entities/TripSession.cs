@@ -13,7 +13,6 @@ public sealed class TripSession : BaseEntity
     public const string TravelerStoppedReason = "TravelerStopped";
     public const string ExpiredReason = "Expired";
     public const string GroupAccessRevokedReason = "GroupAccessRevoked";
-    public const string WeatherEmergencyReason = "WeatherEmergency";
 
     private readonly List<TripSessionItem> _items = [];
     private readonly List<TripStateHistory> _stateHistory = [];
@@ -276,9 +275,6 @@ public sealed class TripSession : BaseEntity
             TripStateHistory.TriggeredBySystem, interruptedAtUtc);
         return true;
     }
-
-    public bool InterruptForWeather(DateTimeOffset interruptedAtUtc) =>
-        InterruptForEmergency(interruptedAtUtc, WeatherEmergencyReason);
 
     /// <summary>
     /// Resolves the time of a Traveler action: a device-observed time is kept only when it is not
