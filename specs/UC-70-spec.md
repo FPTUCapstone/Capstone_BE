@@ -11,13 +11,14 @@ UC-70 affects one owned `TourSchedule`; it never cancels every departure of a To
 | Before start | `Cancelled` | `Cancelled` | linked open session `Interrupted` (a session can start before departure) |
 | Active trip | `EmergencyStopped` | `Interrupted` | linked open session `Interrupted` |
 
-UC-70 records the decision and its cancellation context only. Việc thanh toán và hoàn tiền được xử lý
-riêng theo chính sách hủy booking áp dụng: UC-42 owns refund eligibility, amounts, cases and settlement,
-and UC-71 owns payout, reading booking state on its own schedule. UC-70 creates no `Refund`, calculates
-no amount, and neither calls nor mutates either module.
+UC-70 records the decision and its cancellation context only. It has no refund handoff: it creates no
+`Refund`, calculates no amount, adds no payment, refund or payout schema, and neither calls nor mutates
+those modules. Việc thanh toán và hoàn tiền được xử lý riêng theo chính sách hủy booking áp dụng
+(UC-42 owns refunds, UC-71 owns payout).
 
-Only the owning active, approved Tour Operator may preview or confirm the action. UC-14/Tomorrow.io/NCHMF
-alerts can request review but never invoke these commands automatically. TripMate Admin is not a pre-approval
+Only the owning active, approved Tour Operator may preview or confirm the action. Tomorrow.io alerts only
+create a `WeatherSafetyReview`; the Operator decides manually and nothing cancels or stops a departure
+automatically. TripMate Admin is not a pre-approval
 step; Admin/Ops may audit or reconcile a committed decision afterward.
 
 ## API
@@ -67,8 +68,13 @@ instructions and emergency contact from `emergency-status`.
 - An open session without that exact link blocks both decisions with `TripSessionLinkUnverified`.
 - Late payment and payment reconciliation after an emergency cancellation
   are owned by the Payment module and are outside UC-70.
+- Emergency Stop first checks that the departure exists and belongs to the Operator, then the password:
+  another Operator gets the same safe 404 whether its password is right or wrong, and no audit row.
 - Emergency Stop is limited per Operator (10 attempts in 5 minutes, then HTTP 429), and each wrong password
-  leaves a failed audit entry without the password.
+  leaves a failed audit entry without the password. The limiter is in-process: it is exact with one Backend
+  replica only; several replicas need a distributed limiter.
+- Only a deadlock victim or a lost race on the decision table's unique keys (one decision per departure,
+  one per Operator command) is retried; FK, CHECK and schema failures surface at once.
 - Traveler acknowledgment records receipt idempotently; it never infers that the Traveler is safe
   and changes nothing else.
 - Operator-supplied evidence is stored as `OperatorProvided`, never presented as independently verified.
@@ -88,7 +94,29 @@ instructions and emergency contact from `emergency-status`.
   Backend verifies it but never persists, logs or includes it in the idempotency hash. Preview does
   not require step-up; an account without a usable password must use password recovery first.
 
-## Release blockers still open
-- UC-42 has no contract yet that picks up a booking cancelled by UC-70: its worker only processes
-  existing `Refund` rows (BLOCKED_UC42_HANDOFF_CONTRACT). UC-70 does not invent one.
-- SQL Server migration rerun and rollback tests must pass in the release environment before deploy.
+## Weather review (Tomorrow.io)
+
+- `POST /api/v1/webhooks/tomorrow/alerts` verifies `X-Signature: t={timestamp},sig={hex}` where `sig` is
+  HMAC-SHA256 of the raw timestamp string with the webhook secret (the body is not signed), within
+  `WebhookToleranceSeconds`. 401 bad/missing signature, 400 malformed JSON, 413 too large, 415 not JSON,
+  202 stored (a re-delivered body is stored once).
+- Only notifications of `TomorrowIo:AlertId` become evidence; other Alerts, `END` (all-clear) and
+  Locations TripMate does not monitor are processed as no-ops. Matching uses the Location id, resolved to
+  the meeting point or weather-required stop it monitors.
+- Monitored points are the meeting point and stops with `IsRequiredForWeather = true` of departures that
+  have not ended and start within `LocationMonitoringLookaheadDays`. Each Location is created, linked to
+  the Alert, re-linked when missing, and unlinked before it is deleted once it expires. Any provider
+  failure ends that cycle's remote calls; the next cycle retries.
+- Inbox completion is a compare-and-set on the lease (owner and attempt), so a reclaimed item can be
+  completed only by its new owner.
+
+## Deployment prerequisites
+
+- An active Custom Insight and Alert approved on the Tomorrow.io dashboard; its id in `TomorrowIo__AlertId`.
+- `TomorrowIo__Enabled=true` with `TomorrowIo__ApiKey` (or `Tomorrow__ApiKey`), `TomorrowIo__WebhookSecret`
+  and an https `TomorrowIo__BaseUrl`; startup validation refuses a partial configuration.
+- An Alerts webhook on a public HTTPS URL `/api/v1/webhooks/tomorrow/alerts`; its secret in the secret store.
+- Linked Locations confirmed with `GET /v4/alerts/{alertId}/locations` after the first location sync.
+- FCM credentials for push and `NEXT_PUBLIC_SIGNALR_URL` for the Operator Web hub.
+- Migrations applied with `database/apply-schema.sh` (it reruns every migration; all are idempotent).
+- Runbook and the real-webhook gate: `docs/UC-70-tomorrow-webhook-runbook.md`.

@@ -19,7 +19,7 @@ public static class EmergencyDepartureStateMutator
         bool isPreStart,
         DateTimeOffset now,
         string bookingReason,
-        string? sessionReason,
+        string sessionReason,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(dbContext);
@@ -57,7 +57,7 @@ public static class EmergencyDepartureStateMutator
 
         foreach (TripSession session in activeSessions)
         {
-            session.InterruptForEmergency(now, sessionReason ?? "Emergency");
+            session.InterruptForEmergency(now, sessionReason);
         }
 
         return true;

@@ -34,6 +34,7 @@ public sealed record BookedTourPlanResult(
 public static class BookedTourItineraryTimeline
 {
     public const string NoStopsFailureCode = "booked_tour.no_stops";
+    public const string DepartureNotFoundFailureCode = "booked_tour.departure_not_found";
     public const string MissingPlannedTimeFailureCode = "booked_tour.stop_missing_planned_time";
     public const string UnknownTimeZoneFailureCode = "booked_tour.unknown_timezone";
     public const string InvalidLocalTimeFailureCode = "booked_tour.invalid_local_time";

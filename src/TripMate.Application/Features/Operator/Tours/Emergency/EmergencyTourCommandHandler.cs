@@ -77,10 +77,22 @@ public sealed class EmergencyTourCommandHandler(
 
         bool isPreStart = action == EmergencyTourCancellationOperation.CancelBeforeDepartureAction;
 
-        // Step-up authentication for active stop: verify password before entering transaction.
-        // Password is never logged, persisted, or included in idempotency hash.
+        // Step-up authentication for active stop, after ownership: another Operator gets the same
+        // safe 404 whatever password it sends, and no audit row names a departure it does not own.
+        // The password is never logged, persisted, or included in the idempotency hash.
         if (!isPreStart)
         {
+            if (!await EmergencyOperatorAccess.IsEligibleOperatorAsync(dbContext, operatorId, cancellationToken))
+                return Failure(EmergencyTourErrorCodes.Forbidden,
+                    "Cần tài khoản đơn vị điều hành đang hoạt động và đã được duyệt.");
+
+            bool ownsDeparture = await dbContext.TourSchedules.AsNoTracking()
+                .AnyAsync(candidate => candidate.Id == scheduleId
+                    && candidate.TourId == tourId
+                    && candidate.Tour.OperatorUserId == operatorId, cancellationToken);
+            if (!ownsDeparture)
+                return Failure(EmergencyTourErrorCodes.NotFound, "Không tìm thấy lịch khởi hành.");
+
             if (string.IsNullOrWhiteSpace(currentPassword))
                 return Failure(EmergencyTourErrorCodes.InvalidPassword, "Vui lòng nhập mật khẩu hiện tại.");
 
@@ -257,8 +269,11 @@ public sealed class EmergencyTourCommandHandler(
                 }
                 return result;
             }
+            // Only a deadlock victim or a lost race on the one-decision-per-departure / per-command
+            // unique keys is replay-safe. FK, CHECK and schema failures are defects and surface at once.
             catch (Exception exception) when (attempt < 3
-                && (exception is DbUpdateException || dbContext.IsDeadlock(exception)))
+                && (dbContext.IsDeadlock(exception)
+                    || (exception is DbUpdateException update && dbContext.IsEmergencyDecisionUniqueConflict(update))))
             {
                 dbContext.ClearTrackedEntities();
             }

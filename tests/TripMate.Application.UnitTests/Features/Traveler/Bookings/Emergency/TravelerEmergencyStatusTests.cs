@@ -44,6 +44,8 @@ public sealed class TravelerEmergencyStatusTests
         result.Value.ImmediateInstructions.Should().Be(
             "Stay with the guide at the verified meeting point.");
         result.Value.EmergencyContact.Should().Be("0900000000");
+        result.Value.ReasonCategory.Should().Be(nameof(EmergencyTourReason.SafetyIncident));
+        result.Value.Action.Should().Be(EmergencyTourCancellationOperation.EmergencyStopActiveAction);
         result.Value.BookingStatus.Should().Be(nameof(BookingStatus.Interrupted));
         result.Value.TotalTicketCount.Should().Be(2);
         result.Value.CancelledTicketCount.Should().Be(1);

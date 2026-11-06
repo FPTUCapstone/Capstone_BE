@@ -8,7 +8,17 @@ using TripMate.Domain.Enums;
 namespace TripMate.Application.Features.Operator.WeatherSafetyReviews;
 
 public sealed record GetWeatherSafetyReviewsQuery(string? Status = null)
-    : IRequest<Result<IReadOnlyList<WeatherSafetyReviewDto>>>;
+    : IRequest<Result<IReadOnlyList<WeatherSafetyReviewDto>>>
+{
+    // The filter names a status exactly as the API returns it.
+    public static readonly string[] AllowedStatuses =
+    [
+        WeatherSafetyReview.StatusPendingAcknowledgement,
+        WeatherSafetyReview.StatusAcknowledged,
+        WeatherSafetyReview.StatusEscalated,
+        WeatherSafetyReview.StatusClosed,
+    ];
+}
 
 public sealed class GetWeatherSafetyReviewsQueryHandler(
     IApplicationDbContext dbContext,

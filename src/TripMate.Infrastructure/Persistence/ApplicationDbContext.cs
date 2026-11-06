@@ -205,16 +205,20 @@ public class ApplicationDbContext(
         return false;
     }
 
-    public bool IsSourceBookingUniqueConflict(DbUpdateException exception)
+    public bool IsSourceBookingUniqueConflict(DbUpdateException exception) =>
+        IsUniqueViolationOn(exception, ItineraryConfiguration.SourceBookingIndexName);
+
+    public bool IsEmergencyDecisionUniqueConflict(DbUpdateException exception) =>
+        IsUniqueViolationOn(exception,
+            EmergencyTourCancellationOperationConfiguration.ScheduleIndexName,
+            EmergencyTourCancellationOperationConfiguration.ActorCommandIndexName);
+
+    private static bool IsUniqueViolationOn(Exception exception, params string[] indexNames)
     {
         for (Exception? current = exception; current is not null; current = current.InnerException)
         {
-            if (current is SqlException
-                {
-                    Number: SqlServerUniqueIndexError or SqlServerUniqueConstraintError
-                } sqlException
-                && sqlException.Message.Contains(
-                    $"'{ItineraryConfiguration.SourceBookingIndexName}'", StringComparison.Ordinal))
+            if (current is SqlException { Number: SqlServerUniqueIndexError or SqlServerUniqueConstraintError } sqlException
+                && indexNames.Any(name => sqlException.Message.Contains($"'{name}'", StringComparison.Ordinal)))
             {
                 return true;
             }
