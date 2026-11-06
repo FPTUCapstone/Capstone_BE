@@ -724,6 +724,7 @@ CREATE TABLE commerce.TourItineraryItems (
     planned_time                 TIME NULL,
     stay_duration_minutes       INT NOT NULL DEFAULT 60 CHECK (stay_duration_minutes > 0),
     notes                         NVARCHAR(500) NULL,
+    is_required_for_weather       BIT NULL,   -- UC-70: Operator-classified weather-critical stop; NULL = not yet reviewed
     CONSTRAINT UQ_TourItineraryItems UNIQUE (tour_id, day_no, sequence_no)
 );
 GO
@@ -740,8 +741,15 @@ CREATE TABLE commerce.TourSchedules (
     status                               VARCHAR(20) NOT NULL DEFAULT 'Scheduled'
         CONSTRAINT CK_TourSchedules_Status CHECK (status IN ('Scheduled','Cancelled','Completed','EmergencyStopped')),
     created_at                              DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    meeting_latitude                        DECIMAL(9,6) NULL,   -- UC-70: verified meeting coordinates for weather monitoring
+    meeting_longitude                       DECIMAL(9,6) NULL,
     CONSTRAINT CK_TourSchedules_CapacityWithinLimit CHECK (reserved_capacity <= total_capacity),
-    CONSTRAINT CK_TourSchedules_DateOrder CHECK (end_datetime > start_datetime)
+    CONSTRAINT CK_TourSchedules_DateOrder CHECK (end_datetime > start_datetime),
+    CONSTRAINT CK_TourSchedules_WeatherMeetingCoordinates CHECK (
+        (meeting_latitude IS NULL AND meeting_longitude IS NULL)
+        OR (meeting_latitude IS NOT NULL AND meeting_longitude IS NOT NULL
+            AND meeting_latitude BETWEEN -90 AND 90
+            AND meeting_longitude BETWEEN -180 AND 180))
 );
 GO
 CREATE INDEX IX_TourSchedules_Tour ON commerce.TourSchedules(tour_id, start_datetime);
@@ -948,15 +956,11 @@ CREATE TABLE trip.WeatherEvents (
     ingested_at                             DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
     provider                              VARCHAR(50) NULL,
     provider_event_id                     VARCHAR(150) NULL,
-    revision                              VARCHAR(50) NULL,
     original_authority                    NVARCHAR(200) NULL,
-    original_source_reference             NVARCHAR(500) NULL,
     official_vietnam_risk_level           INT NULL
         CONSTRAINT CK_WeatherEvents_RiskLevel CHECK (official_vietnam_risk_level IS NULL OR (official_vietnam_risk_level BETWEEN 1 AND 5)),
     verified_directive                    VARCHAR(50) NULL,
     is_withdrawn                          BIT NOT NULL CONSTRAINT DF_WeatherEvents_IsWithdrawn DEFAULT 0,
-    geometry_geojson                      NVARCHAR(MAX) NULL,
-    raw_payload_hash                      VARCHAR(64) NULL,
     updated_at                            DATETIME2 NULL
 );
 GO
@@ -973,7 +977,6 @@ CREATE TABLE trip.WeatherAlertInboxItems (
     provider VARCHAR(50) NOT NULL,
     provider_notification_id VARCHAR(150) NULL,
     payload NVARCHAR(MAX) NOT NULL,
-    signature VARCHAR(200) NULL,
     status VARCHAR(30) NOT NULL
         CONSTRAINT DF_WeatherAlertInboxItems_Status DEFAULT 'Pending',
     attempt_count INT NOT NULL
@@ -1007,17 +1010,13 @@ CREATE TABLE trip.WeatherLocationMappings (
     latitude DECIMAL(9,6) NOT NULL,
     longitude DECIMAL(9,6) NOT NULL,
     name NVARCHAR(200) NULL,
-    linked_departures_count INT NOT NULL
-        CONSTRAINT DF_WeatherLocationMappings_LinkedCount DEFAULT 0,
     last_departure_end_at DATETIME2 NULL,
     is_active BIT NOT NULL
         CONSTRAINT DF_WeatherLocationMappings_IsActive DEFAULT 1,
     created_at DATETIME2 NOT NULL,
     updated_at DATETIME2 NOT NULL,
     CONSTRAINT CK_WeatherLocationMappings_Coordinates CHECK (
-        latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180),
-    CONSTRAINT CK_WeatherLocationMappings_Count CHECK (
-        linked_departures_count >= 0)
+        latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180)
 );
 GO
 CREATE UNIQUE NONCLUSTERED INDEX UX_WeatherLocationMappings_Key
@@ -1251,7 +1250,6 @@ CREATE TABLE commerce.EmergencyTourCancellationOperations (
         CONSTRAINT DF_EmergencyTourCancellationOperations_Provenance DEFAULT 'OperatorProvided',
     evidence_added_later BIT NOT NULL
         CONSTRAINT DF_EmergencyTourCancellationOperations_AddedLater DEFAULT 0,
-    contract_policy_snapshot NVARCHAR(500) NOT NULL,
     affected_booking_count INT NOT NULL,
     committed_at DATETIME2 NOT NULL,
     CONSTRAINT FK_EmergencyTourCancellationOperations_Schedule
@@ -1260,29 +1258,9 @@ CREATE TABLE commerce.EmergencyTourCancellationOperations (
         FOREIGN KEY (actor_user_id) REFERENCES dbo.Users(user_id),
     CONSTRAINT CK_EmergencyTourCancellationOperations_Counts CHECK (
         affected_booking_count >= 0),
-    CONSTRAINT UX_EmergencyTourCancellationOperations_Schedule UNIQUE (tour_schedule_id)
+    CONSTRAINT UX_EmergencyTourCancellationOperations_Schedule UNIQUE (tour_schedule_id),
+    CONSTRAINT UX_EmergencyTourCancellationOperations_ActorCommand UNIQUE (actor_user_id, command_id)
 );
-GO
-CREATE UNIQUE NONCLUSTERED INDEX UX_EmergencyTourCancellationOperations_ActorCommand
-ON commerce.EmergencyTourCancellationOperations (actor_user_id, command_id);
-GO
-
-CREATE TABLE trip.WeatherEventEvaluations (
-    evaluation_id BIGINT IDENTITY(1,1) NOT NULL
-        CONSTRAINT PK_WeatherEventEvaluations PRIMARY KEY,
-    provider VARCHAR(50) NOT NULL,
-    provider_event_id VARCHAR(150) NOT NULL,
-    tour_schedule_id BIGINT NOT NULL
-        CONSTRAINT FK_WeatherEventEvaluations_TourSchedule
-        REFERENCES commerce.TourSchedules(schedule_id),
-    decision_outcome VARCHAR(30) NOT NULL,
-    reason_code VARCHAR(100) NOT NULL,
-    reason_details NVARCHAR(1000) NULL,
-    evaluated_at DATETIME2 NOT NULL
-);
-GO
-CREATE UNIQUE NONCLUSTERED INDEX UX_WeatherEventEvaluations_ProviderEventSchedule
-ON trip.WeatherEventEvaluations (provider, provider_event_id, tour_schedule_id);
 GO
 
 CREATE TABLE trip.WeatherSafetyReviews (
@@ -1311,6 +1289,10 @@ CREATE TABLE trip.WeatherSafetyReviews (
 GO
 CREATE UNIQUE NONCLUSTERED INDEX UX_WeatherSafetyReviews_ScheduleEvent
 ON trip.WeatherSafetyReviews (tour_schedule_id, provider, provider_event_id);
+GO
+-- The escalation sweep: status = 'PendingAcknowledgement' AND acknowledgement_deadline <= now.
+CREATE NONCLUSTERED INDEX IX_WeatherSafetyReviews_StatusDeadline
+ON trip.WeatherSafetyReviews (status, acknowledgement_deadline);
 GO
 
 -- NEW in v2 — named ticket-holders per booking, required to issue individual Tickets

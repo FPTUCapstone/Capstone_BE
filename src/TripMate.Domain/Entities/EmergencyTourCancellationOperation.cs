@@ -17,7 +17,6 @@ public sealed class EmergencyTourCancellationOperation : BaseEntity
     public const int AuthorityReferenceMaxLength = 200;
     public const int EvidenceProvenanceMaxLength = 20;
     public const int HashMaxLength = 64;
-    public const int ContractPolicySnapshotMaxLength = 500;
 
     public const string DefaultProvenance = EmergencyEvidenceProvenance.OperatorProvided;
 
@@ -38,7 +37,6 @@ public sealed class EmergencyTourCancellationOperation : BaseEntity
     public string? AuthorityReference { get; private set; }
     public string EvidenceProvenance { get; private set; } = DefaultProvenance;
     public bool EvidenceAddedLater { get; private set; }
-    public string ContractPolicySnapshot { get; private set; } = string.Empty;
     public int AffectedBookingCount { get; private set; }
     public DateTimeOffset CommittedAtUtc { get; private set; }
 
@@ -46,7 +44,7 @@ public sealed class EmergencyTourCancellationOperation : BaseEntity
         long tourScheduleId, long actorUserId, Guid commandId, string requestHash,
         string action, string reasonCategory, string reasonDetails,
         string? immediateInstructions, string? emergencyContact, string? evidenceReference,
-        string contractPolicySnapshot, int affectedBookingCount,
+        int affectedBookingCount,
         DateTimeOffset committedAtUtc,
         string? evidenceUrl = null,
         string? authorityReference = null,
@@ -66,7 +64,6 @@ public sealed class EmergencyTourCancellationOperation : BaseEntity
             ValidateRequired(emergencyContact ?? string.Empty, ContactMaxLength, nameof(emergencyContact));
         else
             ValidateOptional(emergencyContact, ContactMaxLength, nameof(emergencyContact));
-        ValidateRequired(contractPolicySnapshot, ContractPolicySnapshotMaxLength, nameof(contractPolicySnapshot));
         ValidateOptional(immediateInstructions, InstructionsMaxLength, nameof(immediateInstructions));
         ValidateOptional(evidenceReference, EvidenceMaxLength, nameof(evidenceReference));
         ValidateOptional(evidenceUrl, EvidenceUrlMaxLength, nameof(evidenceUrl));
@@ -91,7 +88,6 @@ public sealed class EmergencyTourCancellationOperation : BaseEntity
             AuthorityReference = Normalize(authorityReference),
             EvidenceProvenance = Normalize(evidenceProvenance) ?? DefaultProvenance,
             EvidenceAddedLater = evidenceAddedLater,
-            ContractPolicySnapshot = contractPolicySnapshot.Trim(),
             AffectedBookingCount = affectedBookingCount,
             CommittedAtUtc = committedAtUtc.ToUniversalTime(),
         };

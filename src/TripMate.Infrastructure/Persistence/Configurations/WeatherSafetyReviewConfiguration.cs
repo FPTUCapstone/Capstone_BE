@@ -42,5 +42,9 @@ public sealed class WeatherSafetyReviewConfiguration : IEntityTypeConfiguration<
 
         builder.HasIndex(review => new { review.TourScheduleId, review.Provider, review.ProviderEventId }).IsUnique()
             .HasDatabaseName("UX_WeatherSafetyReviews_ScheduleEvent");
+
+        // The escalation sweep: status = PendingAcknowledgement AND acknowledgement_deadline <= now.
+        builder.HasIndex(review => new { review.Status, review.AcknowledgementDeadlineUtc })
+            .HasDatabaseName("IX_WeatherSafetyReviews_StatusDeadline");
     }
 }

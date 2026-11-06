@@ -77,7 +77,7 @@ public sealed class EmergencyTourDomainTests
         var operation = EmergencyTourCancellationOperation.Create(42, 7, Guid.NewGuid(),
             new string('a', 64), "CancelBeforeDeparture", "WeatherEmergency",
             "Unsafe weather prevents departure.", null, null, "bulletin-1",
-            Booking.DefaultCancellationPolicySnapshot, 1, Start);
+            1, Start);
 
         Assert.Null(operation.EmergencyContact);
     }
@@ -89,7 +89,7 @@ public sealed class EmergencyTourDomainTests
             EmergencyTourCancellationOperation.Create(42, 7, Guid.NewGuid(),
                 new string('a', 64), "EmergencyStopActive", "SafetyIncident",
                 "Road blocked by landslide.", "Move to high ground.", null, null,
-                Booking.DefaultCancellationPolicySnapshot, 1, Start));
+                1, Start));
     }
 
     [Fact]
@@ -98,7 +98,7 @@ public sealed class EmergencyTourDomainTests
         var operation = EmergencyTourCancellationOperation.Create(42, 7, Guid.NewGuid(),
             new string('a', 64), "CancelBeforeDeparture", "WeatherEmergency",
             "Unsafe weather prevents departure.", null, null, "bulletin-1",
-            Booking.DefaultCancellationPolicySnapshot, 1, Start,
+            1, Start,
             evidenceUrl: "https://authority.example.test/a");
 
         bool changed = operation.AddOperatorEvidence("bulletin-2",
@@ -117,7 +117,7 @@ public sealed class EmergencyTourDomainTests
         var operation = EmergencyTourCancellationOperation.Create(42, 7, Guid.NewGuid(),
             new string('a', 64), "CancelBeforeDeparture", "WeatherEmergency",
             "Unsafe weather prevents departure.", null, null, "bulletin-1",
-            Booking.DefaultCancellationPolicySnapshot, 1, Start,
+            1, Start,
             evidenceUrl: "https://authority.example.test/a");
 
         Assert.True(operation.WithdrawOperatorEvidence());
