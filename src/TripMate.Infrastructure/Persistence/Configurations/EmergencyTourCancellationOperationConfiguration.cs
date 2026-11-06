@@ -9,6 +9,9 @@ namespace TripMate.Infrastructure.Persistence.Configurations;
 public sealed class EmergencyTourCancellationOperationConfiguration
     : IEntityTypeConfiguration<EmergencyTourCancellationOperation>
 {
+    public const string ScheduleIndexName = "UX_EmergencyTourCancellationOperations_Schedule";
+    public const string ActorCommandIndexName = "UX_EmergencyTourCancellationOperations_ActorCommand";
+
     public void Configure(EntityTypeBuilder<EmergencyTourCancellationOperation> builder)
     {
         builder.ToTable("EmergencyTourCancellationOperations", "commerce");
@@ -40,8 +43,6 @@ public sealed class EmergencyTourCancellationOperationConfiguration
             .IsUnicode(false).IsRequired();
         builder.Property(operation => operation.EvidenceAddedLater).HasColumnName("evidence_added_later")
             .IsRequired();
-        builder.Property(operation => operation.ContractPolicySnapshot).HasColumnName("contract_policy_snapshot")
-            .HasMaxLength(EmergencyTourCancellationOperation.ContractPolicySnapshotMaxLength).IsRequired();
         builder.Property(operation => operation.AffectedBookingCount).HasColumnName("affected_booking_count").IsRequired();
         builder.Property(operation => operation.CommittedAtUtc).HasColumnName("committed_at")
             .AsUtcDateTime2().IsRequired();
@@ -50,8 +51,8 @@ public sealed class EmergencyTourCancellationOperationConfiguration
         builder.HasOne<User>().WithMany().HasForeignKey(operation => operation.ActorUserId)
             .IsRequired().OnDelete(DeleteBehavior.Restrict);
         builder.HasIndex(operation => operation.TourScheduleId).IsUnique()
-            .HasDatabaseName("UX_EmergencyTourCancellationOperations_Schedule");
+            .HasDatabaseName(ScheduleIndexName);
         builder.HasIndex(operation => new { operation.ActorUserId, operation.CommandId }).IsUnique()
-            .HasDatabaseName("UX_EmergencyTourCancellationOperations_ActorCommand");
+            .HasDatabaseName(ActorCommandIndexName);
     }
 }

@@ -145,14 +145,17 @@ BEGIN TRY
                 FOREIGN KEY (requested_itinerary_id)
                 REFERENCES planning.Itineraries(itinerary_id);';
 
-    -- Revision 1 allowed AllItemsReached. UC-21 later added GroupAccessRevoked. This script is
-    -- reapplied by apply-schema.sh, so recognize that later valid reason without rewriting data.
+    -- Revision 1 allowed AllItemsReached. UC-21 later added GroupAccessRevoked and UC-70 the
+    -- emergency reasons. This script is reapplied by apply-schema.sh, so recognize those later
+    -- valid reasons without rewriting data.
     EXEC sys.sp_executesql N'
         IF EXISTS (
             SELECT 1
             FROM trip.TripSessions
             WHERE completion_reason IS NOT NULL
-              AND completion_reason NOT IN (''RouteFinished'', ''TravelerStopped'', ''Expired'', ''GroupAccessRevoked''))
+              AND completion_reason NOT IN (''RouteFinished'', ''TravelerStopped'', ''Expired'', ''GroupAccessRevoked'',
+                  ''WeatherEmergency'', ''AuthorityDirective'', ''DestinationUnavailable'', ''TransportFailure'',
+                  ''SafetyIncident'', ''Other''))
             THROW 51013, ''UC-13 migration blocked: trip.TripSessions contains an unknown completion reason (for example the retired AllItemsReached).'', 1;';
 
     IF EXISTS (

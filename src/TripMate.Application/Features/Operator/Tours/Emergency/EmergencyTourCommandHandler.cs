@@ -195,18 +195,10 @@ public sealed class EmergencyTourCommandHandler(
                 return Failure(EmergencyTourErrorCodes.WrongActionWindow,
                     "Thao tác đã chọn không còn phù hợp với thời gian của lịch khởi hành.");
 
-            string policyEvidence = JsonSerializer.Serialize(impact.Bookings.Select(booking => new
-            {
-                booking.Id,
-                booking.CancellationPolicySnapshot,
-            }));
-            string policySnapshot = policyEvidence.Length <= EmergencyTourCancellationOperation.ContractPolicySnapshotMaxLength
-                ? policyEvidence
-                : $"sha256:{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(policyEvidence))).ToLowerInvariant()}";
             var operation = EmergencyTourCancellationOperation.Create(
                 schedule.Id, operatorId, commandId, requestHash, action, reason.ToString(),
                 reasonDetails, immediateInstructions, emergencyContact, evidenceReference,
-                policySnapshot, impact.Bookings.Length, now,
+                impact.Bookings.Length, now,
                 evidenceUrl: evidenceUrl,
                 authorityReference: authorityReference,
                 evidenceProvenance: EmergencyEvidenceProvenance.OperatorProvided,

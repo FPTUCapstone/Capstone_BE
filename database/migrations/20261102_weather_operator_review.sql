@@ -1,7 +1,8 @@
-/* Weather ingestion for Operator review only.
-   This migration removes the retired UC-70 automatic-cancellation schema and
-   keeps weather inbox, normalized evidence, evaluations, reviews, and locations.
-   It refuses to discard existing automatic-cancellation data silently. */
+/* UC-70 weather ingestion for Operator review only: the durable webhook inbox, provider
+   evidence on trip.WeatherEvents, the Operator's WeatherSafetyReviews and the Tomorrow.io
+   Location mappings. Nothing here cancels or stops a departure.
+   Idempotent: objects are created only when missing, every shape is checked, and all
+   constraints end enabled and trusted; any mismatch raises and the script rolls back. */
 SET XACT_ABORT ON;
 GO
 
@@ -10,72 +11,16 @@ BEGIN TRY
 
     IF OBJECT_ID(N'commerce.TourSchedules', N'U') IS NULL
         THROW 51000, 'Weather Operator review requires commerce.TourSchedules.', 1;
-
-    IF SCHEMA_ID(N'trip') IS NULL
-        EXEC sys.sp_executesql N'CREATE SCHEMA trip;';
-
-    IF OBJECT_ID(N'trip.WeatherEventEvaluations', N'U') IS NOT NULL
-    BEGIN
-        IF EXISTS (SELECT 1 FROM sys.foreign_keys WHERE parent_object_id = OBJECT_ID(N'trip.WeatherEventEvaluations') AND name = N'FK_WeatherEventEvaluations_Operation')
-            ALTER TABLE trip.WeatherEventEvaluations DROP CONSTRAINT FK_WeatherEventEvaluations_Operation;
-        IF COL_LENGTH(N'trip.WeatherEventEvaluations', N'emergency_cancellation_operation_id') IS NOT NULL
-            EXEC sys.sp_executesql N'ALTER TABLE trip.WeatherEventEvaluations DROP COLUMN emergency_cancellation_operation_id;';
-        IF COL_LENGTH(N'trip.WeatherEventEvaluations', N'mode') IS NOT NULL
-            EXEC sys.sp_executesql N'ALTER TABLE trip.WeatherEventEvaluations DROP COLUMN mode;';
-    END;
-
-    IF OBJECT_ID(N'commerce.EmergencyTourCancellationOperations', N'U') IS NOT NULL
-       AND COL_LENGTH(N'commerce.EmergencyTourCancellationOperations', N'initiated_by_type') IS NOT NULL
-    BEGIN
-        EXEC sys.sp_executesql N'
-            IF EXISTS (SELECT 1 FROM commerce.EmergencyTourCancellationOperations WHERE actor_user_id IS NULL OR initiated_by_type <> ''Operator'')
-                THROW 51000, ''System-initiated UC-70 operations exist; reconcile them before removing automatic cancellation.'', 1;
-
-            IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE parent_object_id = OBJECT_ID(N''commerce.EmergencyTourCancellationOperations'') AND name = N''CK_EmergencyTourCancellationOperations_Initiator'')
-                ALTER TABLE commerce.EmergencyTourCancellationOperations DROP CONSTRAINT CK_EmergencyTourCancellationOperations_Initiator;
-            IF EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N''commerce.EmergencyTourCancellationOperations'') AND name = N''UX_EmergencyTourCancellationOperations_WeatherEventCommand'')
-                DROP INDEX UX_EmergencyTourCancellationOperations_WeatherEventCommand ON commerce.EmergencyTourCancellationOperations;
-            IF EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N''commerce.EmergencyTourCancellationOperations'') AND name = N''UX_EmergencyTourCancellationOperations_ActorCommand'')
-                DROP INDEX UX_EmergencyTourCancellationOperations_ActorCommand ON commerce.EmergencyTourCancellationOperations;
-            IF EXISTS (SELECT 1 FROM sys.default_constraints WHERE parent_object_id = OBJECT_ID(N''commerce.EmergencyTourCancellationOperations'') AND name = N''DF_EmergencyTourCancellationOperations_Initiator'')
-                ALTER TABLE commerce.EmergencyTourCancellationOperations DROP CONSTRAINT DF_EmergencyTourCancellationOperations_Initiator;
-            IF EXISTS (SELECT 1 FROM sys.default_constraints WHERE parent_object_id = OBJECT_ID(N''commerce.EmergencyTourCancellationOperations'') AND name = N''DF_EmergencyTourCancellationOperations_Trigger'')
-                ALTER TABLE commerce.EmergencyTourCancellationOperations DROP CONSTRAINT DF_EmergencyTourCancellationOperations_Trigger;
-
-            ALTER TABLE commerce.EmergencyTourCancellationOperations DROP COLUMN
-                initiated_by_type, trigger_type, weather_provider, weather_event_id,
-                weather_revision, policy_version, decision_reason, evaluated_at;
-            ALTER TABLE commerce.EmergencyTourCancellationOperations ALTER COLUMN actor_user_id BIGINT NOT NULL;
-            CREATE UNIQUE NONCLUSTERED INDEX UX_EmergencyTourCancellationOperations_ActorCommand
-                ON commerce.EmergencyTourCancellationOperations (actor_user_id, command_id);
-        ';
-    END;
-
     IF OBJECT_ID(N'trip.WeatherEvents', N'U') IS NULL
-    BEGIN
-        CREATE TABLE trip.WeatherEvents (
-            weather_event_id BIGINT IDENTITY(1,1) PRIMARY KEY,
-            region_name NVARCHAR(150) NULL,
-            latitude DECIMAL(9,6) NULL,
-            longitude DECIMAL(9,6) NULL,
-            event_type VARCHAR(40) NOT NULL,
-            severity VARCHAR(10) NOT NULL CHECK (severity IN ('Low','Moderate','Severe','Extreme')),
-            description NVARCHAR(1000) NULL,
-            valid_from DATETIME2 NOT NULL,
-            valid_to DATETIME2 NULL,
-            source VARCHAR(50) NOT NULL DEFAULT 'WeatherAPI',
-            ingested_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
-        );
-    END;
+        THROW 51000, 'Weather Operator review requires trip.WeatherEvents.', 1;
 
+    /* 1. Durable inbox for authenticated deliveries and reconciled notifications. */
     IF OBJECT_ID(N'trip.WeatherAlertInboxItems', N'U') IS NULL
-    BEGIN
         CREATE TABLE trip.WeatherAlertInboxItems (
             inbox_id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_WeatherAlertInboxItems PRIMARY KEY,
             provider VARCHAR(50) NOT NULL,
             provider_notification_id VARCHAR(150) NULL,
             payload NVARCHAR(MAX) NOT NULL,
-            signature VARCHAR(200) NULL,
             status VARCHAR(30) NOT NULL CONSTRAINT DF_WeatherAlertInboxItems_Status DEFAULT 'Pending',
             attempt_count INT NOT NULL CONSTRAINT DF_WeatherAlertInboxItems_Attempts DEFAULT 0,
             max_attempts INT NOT NULL CONSTRAINT DF_WeatherAlertInboxItems_MaxAttempts DEFAULT 3,
@@ -87,7 +32,6 @@ BEGIN TRY
             CONSTRAINT CK_WeatherAlertInboxItems_Status CHECK (status IN ('Pending','Processing','Processed','Failed','Discarded')),
             CONSTRAINT CK_WeatherAlertInboxItems_Attempts CHECK (attempt_count >= 0 AND max_attempts > 0)
         );
-    END;
 
     IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'trip.WeatherAlertInboxItems') AND name = N'UX_WeatherAlertInboxItems_ProviderNotification')
         CREATE UNIQUE NONCLUSTERED INDEX UX_WeatherAlertInboxItems_ProviderNotification
@@ -96,16 +40,13 @@ BEGIN TRY
         CREATE NONCLUSTERED INDEX IX_WeatherAlertInboxItems_StatusLease
             ON trip.WeatherAlertInboxItems (status, lease_expires_at);
 
+    /* 2. Provider evidence on the existing UC-59 weather table. */
     IF COL_LENGTH(N'trip.WeatherEvents', N'provider') IS NULL ALTER TABLE trip.WeatherEvents ADD provider VARCHAR(50) NULL;
     IF COL_LENGTH(N'trip.WeatherEvents', N'provider_event_id') IS NULL ALTER TABLE trip.WeatherEvents ADD provider_event_id VARCHAR(150) NULL;
-    IF COL_LENGTH(N'trip.WeatherEvents', N'revision') IS NULL ALTER TABLE trip.WeatherEvents ADD revision VARCHAR(50) NULL;
     IF COL_LENGTH(N'trip.WeatherEvents', N'original_authority') IS NULL ALTER TABLE trip.WeatherEvents ADD original_authority NVARCHAR(200) NULL;
-    IF COL_LENGTH(N'trip.WeatherEvents', N'original_source_reference') IS NULL ALTER TABLE trip.WeatherEvents ADD original_source_reference NVARCHAR(500) NULL;
     IF COL_LENGTH(N'trip.WeatherEvents', N'official_vietnam_risk_level') IS NULL ALTER TABLE trip.WeatherEvents ADD official_vietnam_risk_level INT NULL;
     IF COL_LENGTH(N'trip.WeatherEvents', N'verified_directive') IS NULL ALTER TABLE trip.WeatherEvents ADD verified_directive VARCHAR(50) NULL;
     IF COL_LENGTH(N'trip.WeatherEvents', N'is_withdrawn') IS NULL ALTER TABLE trip.WeatherEvents ADD is_withdrawn BIT NOT NULL CONSTRAINT DF_WeatherEvents_IsWithdrawn DEFAULT 0;
-    IF COL_LENGTH(N'trip.WeatherEvents', N'geometry_geojson') IS NULL ALTER TABLE trip.WeatherEvents ADD geometry_geojson NVARCHAR(MAX) NULL;
-    IF COL_LENGTH(N'trip.WeatherEvents', N'raw_payload_hash') IS NULL ALTER TABLE trip.WeatherEvents ADD raw_payload_hash VARCHAR(64) NULL;
     IF COL_LENGTH(N'trip.WeatherEvents', N'updated_at') IS NULL ALTER TABLE trip.WeatherEvents ADD updated_at DATETIME2 NULL;
 
     IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'trip.WeatherEvents') AND name = N'UX_WeatherEvents_ProviderEvent')
@@ -115,25 +56,8 @@ BEGIN TRY
         EXEC sys.sp_executesql N'ALTER TABLE trip.WeatherEvents WITH CHECK ADD CONSTRAINT CK_WeatherEvents_RiskLevel
             CHECK (official_vietnam_risk_level IS NULL OR official_vietnam_risk_level BETWEEN 1 AND 5);';
 
-    IF OBJECT_ID(N'trip.WeatherEventEvaluations', N'U') IS NULL
-    BEGIN
-        CREATE TABLE trip.WeatherEventEvaluations (
-            evaluation_id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_WeatherEventEvaluations PRIMARY KEY,
-            provider VARCHAR(50) NOT NULL,
-            provider_event_id VARCHAR(150) NOT NULL,
-            tour_schedule_id BIGINT NOT NULL CONSTRAINT FK_WeatherEventEvaluations_TourSchedule REFERENCES commerce.TourSchedules(schedule_id),
-            decision_outcome VARCHAR(30) NOT NULL,
-            reason_code VARCHAR(100) NOT NULL,
-            reason_details NVARCHAR(1000) NULL,
-            evaluated_at DATETIME2 NOT NULL
-        );
-    END;
-    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'trip.WeatherEventEvaluations') AND name = N'UX_WeatherEventEvaluations_ProviderEventSchedule')
-        CREATE UNIQUE NONCLUSTERED INDEX UX_WeatherEventEvaluations_ProviderEventSchedule
-            ON trip.WeatherEventEvaluations (provider, provider_event_id, tour_schedule_id);
-
+    /* 3. One Operator review per departure and provider event. */
     IF OBJECT_ID(N'trip.WeatherSafetyReviews', N'U') IS NULL
-    BEGIN
         CREATE TABLE trip.WeatherSafetyReviews (
             review_id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_WeatherSafetyReviews PRIMARY KEY,
             tour_schedule_id BIGINT NOT NULL CONSTRAINT FK_WeatherSafetyReviews_TourSchedule REFERENCES commerce.TourSchedules(schedule_id),
@@ -150,13 +74,17 @@ BEGIN TRY
             created_at DATETIME2 NOT NULL,
             CONSTRAINT CK_WeatherSafetyReviews_Status CHECK (status IN ('PendingAcknowledgement','Acknowledged','Escalated','Closed'))
         );
-    END;
+
     IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'trip.WeatherSafetyReviews') AND name = N'UX_WeatherSafetyReviews_ScheduleEvent')
         CREATE UNIQUE NONCLUSTERED INDEX UX_WeatherSafetyReviews_ScheduleEvent
             ON trip.WeatherSafetyReviews (tour_schedule_id, provider, provider_event_id);
+    -- The escalation sweep: status = 'PendingAcknowledgement' AND acknowledgement_deadline <= now.
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'trip.WeatherSafetyReviews') AND name = N'IX_WeatherSafetyReviews_StatusDeadline')
+        CREATE NONCLUSTERED INDEX IX_WeatherSafetyReviews_StatusDeadline
+            ON trip.WeatherSafetyReviews (status, acknowledgement_deadline);
 
+    /* 4. TripMate points registered as Tomorrow.io Locations. */
     IF OBJECT_ID(N'trip.WeatherLocationMappings', N'U') IS NULL
-    BEGIN
         CREATE TABLE trip.WeatherLocationMappings (
             location_mapping_id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_WeatherLocationMappings PRIMARY KEY,
             trip_mate_location_key VARCHAR(100) NOT NULL,
@@ -164,23 +92,86 @@ BEGIN TRY
             latitude DECIMAL(9,6) NOT NULL,
             longitude DECIMAL(9,6) NOT NULL,
             name NVARCHAR(200) NULL,
-            linked_departures_count INT NOT NULL CONSTRAINT DF_WeatherLocationMappings_LinkedCount DEFAULT 0,
             last_departure_end_at DATETIME2 NULL,
             is_active BIT NOT NULL CONSTRAINT DF_WeatherLocationMappings_IsActive DEFAULT 1,
             created_at DATETIME2 NOT NULL,
             updated_at DATETIME2 NOT NULL,
-            CONSTRAINT CK_WeatherLocationMappings_Coordinates CHECK (latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180),
-            CONSTRAINT CK_WeatherLocationMappings_Count CHECK (linked_departures_count >= 0)
+            CONSTRAINT CK_WeatherLocationMappings_Coordinates CHECK (latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180)
         );
-    END;
+
     IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'trip.WeatherLocationMappings') AND name = N'UX_WeatherLocationMappings_Key')
         CREATE UNIQUE NONCLUSTERED INDEX UX_WeatherLocationMappings_Key ON trip.WeatherLocationMappings (trip_mate_location_key);
     IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'trip.WeatherLocationMappings') AND name = N'UX_WeatherLocationMappings_TomorrowId')
         CREATE UNIQUE NONCLUSTERED INDEX UX_WeatherLocationMappings_TomorrowId ON trip.WeatherLocationMappings (tomorrow_location_id);
 
+    /* 5. Shape guard: a rerun over a table with another shape fails instead of drifting. */
+    DECLARE @expected TABLE (table_name sysname, column_name sysname, type_name sysname, max_length SMALLINT, is_nullable BIT);
+    INSERT INTO @expected VALUES
+        (N'trip.WeatherAlertInboxItems', N'inbox_id', N'bigint', 8, 0),
+        (N'trip.WeatherAlertInboxItems', N'provider', N'varchar', 50, 0),
+        (N'trip.WeatherAlertInboxItems', N'provider_notification_id', N'varchar', 150, 1),
+        (N'trip.WeatherAlertInboxItems', N'payload', N'nvarchar', -1, 0),
+        (N'trip.WeatherAlertInboxItems', N'status', N'varchar', 30, 0),
+        (N'trip.WeatherAlertInboxItems', N'attempt_count', N'int', 4, 0),
+        (N'trip.WeatherAlertInboxItems', N'max_attempts', N'int', 4, 0),
+        (N'trip.WeatherAlertInboxItems', N'lease_expires_at', N'datetime2', 8, 1),
+        (N'trip.WeatherAlertInboxItems', N'leased_by', N'varchar', 100, 1),
+        (N'trip.WeatherAlertInboxItems', N'last_error', N'nvarchar', 2000, 1),
+        (N'trip.WeatherAlertInboxItems', N'received_at', N'datetime2', 8, 0),
+        (N'trip.WeatherAlertInboxItems', N'processed_at', N'datetime2', 8, 1),
+        (N'trip.WeatherSafetyReviews', N'review_id', N'bigint', 8, 0),
+        (N'trip.WeatherSafetyReviews', N'tour_schedule_id', N'bigint', 8, 0),
+        (N'trip.WeatherSafetyReviews', N'provider', N'varchar', 50, 0),
+        (N'trip.WeatherSafetyReviews', N'provider_event_id', N'varchar', 150, 0),
+        (N'trip.WeatherSafetyReviews', N'status', N'varchar', 30, 0),
+        (N'trip.WeatherSafetyReviews', N'urgent_notice_sent_at', N'datetime2', 8, 0),
+        (N'trip.WeatherSafetyReviews', N'acknowledgement_deadline', N'datetime2', 8, 0),
+        (N'trip.WeatherSafetyReviews', N'acknowledged_at', N'datetime2', 8, 1),
+        (N'trip.WeatherSafetyReviews', N'acknowledged_by_operator_id', N'bigint', 8, 1),
+        (N'trip.WeatherSafetyReviews', N'escalated_at', N'datetime2', 8, 1),
+        (N'trip.WeatherSafetyReviews', N'escalation_contact', N'nvarchar', 400, 1),
+        (N'trip.WeatherSafetyReviews', N'immediate_instructions', N'nvarchar', 2000, 1),
+        (N'trip.WeatherSafetyReviews', N'created_at', N'datetime2', 8, 0),
+        (N'trip.WeatherLocationMappings', N'location_mapping_id', N'bigint', 8, 0),
+        (N'trip.WeatherLocationMappings', N'trip_mate_location_key', N'varchar', 100, 0),
+        (N'trip.WeatherLocationMappings', N'tomorrow_location_id', N'varchar', 100, 0),
+        (N'trip.WeatherLocationMappings', N'latitude', N'decimal', 5, 0),
+        (N'trip.WeatherLocationMappings', N'longitude', N'decimal', 5, 0),
+        (N'trip.WeatherLocationMappings', N'name', N'nvarchar', 400, 1),
+        (N'trip.WeatherLocationMappings', N'last_departure_end_at', N'datetime2', 8, 1),
+        (N'trip.WeatherLocationMappings', N'is_active', N'bit', 1, 0),
+        (N'trip.WeatherLocationMappings', N'created_at', N'datetime2', 8, 0),
+        (N'trip.WeatherLocationMappings', N'updated_at', N'datetime2', 8, 0),
+        (N'trip.WeatherEvents', N'provider', N'varchar', 50, 1),
+        (N'trip.WeatherEvents', N'provider_event_id', N'varchar', 150, 1),
+        (N'trip.WeatherEvents', N'original_authority', N'nvarchar', 400, 1),
+        (N'trip.WeatherEvents', N'official_vietnam_risk_level', N'int', 4, 1),
+        (N'trip.WeatherEvents', N'verified_directive', N'varchar', 50, 1),
+        (N'trip.WeatherEvents', N'is_withdrawn', N'bit', 1, 0),
+        (N'trip.WeatherEvents', N'updated_at', N'datetime2', 8, 1);
+
+    IF EXISTS (
+        SELECT expected.table_name, expected.column_name, expected.type_name, expected.max_length, expected.is_nullable
+        FROM @expected AS expected
+        EXCEPT
+        SELECT OBJECT_SCHEMA_NAME(column_info.object_id) + N'.' + OBJECT_NAME(column_info.object_id),
+            column_info.name, type_info.name, column_info.max_length, column_info.is_nullable
+        FROM sys.columns AS column_info
+        INNER JOIN sys.types AS type_info ON type_info.user_type_id = column_info.user_type_id
+        WHERE column_info.object_id IN (OBJECT_ID(N'trip.WeatherAlertInboxItems'), OBJECT_ID(N'trip.WeatherSafetyReviews'),
+            OBJECT_ID(N'trip.WeatherLocationMappings'), OBJECT_ID(N'trip.WeatherEvents')))
+        THROW 51000, 'UC-70 weather tables have an incompatible column shape.', 1;
+
+    -- The three UC-70 tables carry exactly the columns above; WeatherEvents also keeps its UC-59 columns.
+    IF EXISTS (
+        SELECT 1
+        FROM (VALUES (N'trip.WeatherAlertInboxItems', 12), (N'trip.WeatherSafetyReviews', 13),
+            (N'trip.WeatherLocationMappings', 10)) AS expected(table_name, column_count)
+        WHERE (SELECT COUNT(*) FROM sys.columns WHERE object_id = OBJECT_ID(expected.table_name)) <> expected.column_count)
+        THROW 51000, 'UC-70 weather tables have unexpected columns.', 1;
+
     ALTER TABLE trip.WeatherAlertInboxItems WITH CHECK CHECK CONSTRAINT ALL;
     ALTER TABLE trip.WeatherEvents WITH CHECK CHECK CONSTRAINT ALL;
-    ALTER TABLE trip.WeatherEventEvaluations WITH CHECK CHECK CONSTRAINT ALL;
     ALTER TABLE trip.WeatherSafetyReviews WITH CHECK CHECK CONSTRAINT ALL;
     ALTER TABLE trip.WeatherLocationMappings WITH CHECK CHECK CONSTRAINT ALL;
 
