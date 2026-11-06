@@ -1,137 +1,254 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 using TripMate.Application.Common.Interfaces;
+using TripMate.Application.Features.Weather.Emergency;
+using TripMate.Application.Features.Weather.Processing;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Weather.Locations;
 
+/// <summary>
+/// Keeps Tomorrow.io monitoring exactly the points UC-70 needs: the meeting point and the
+/// weather-required stops of every departure that has not ended within the lookahead window.
+/// A Location only produces notifications once it is linked to the configured Alert, so every
+/// cycle re-checks the links. A refused credential or an unavailable provider ends the cycle's
+/// remote calls; the next cycle retries, which bounds traffic to one attempt per interval.
+/// </summary>
 public sealed class WeatherLocationSyncService(
     IApplicationDbContext context,
     ITomorrowAlertsClient alertsClient,
+    IOptions<WeatherAlertProcessingOptions> options,
     TimeProvider timeProvider,
     ILogger<WeatherLocationSyncService> logger) : IWeatherLocationSyncService
 {
-    private const int LookaheadDays = 7;
     private static readonly TimeSpan GracePeriod = TimeSpan.FromHours(24);
 
     public async Task<WeatherLocationSyncResult> SyncUpcomingLocationsAsync(CancellationToken cancellationToken)
     {
         var nowUtc = timeProvider.GetUtcNow();
-        var lookaheadEndUtc = nowUtc.AddDays(LookaheadDays);
+        var required = await LoadRequiredPointsAsync(nowUtc, cancellationToken);
 
-        var upcomingSchedules = await context.TourSchedules
-            .AsNoTracking()
-            .Include(s => s.Tour)
-                .ThenInclude(t => t.ItineraryItems)
-                    .ThenInclude(i => i.Poi)
-            .Where(s => s.Status == TourScheduleStatus.Scheduled &&
-                        s.StartAtUtc >= nowUtc &&
-                        s.StartAtUtc <= lookaheadEndUtc)
+        var requiredKeys = required.Keys.ToList();
+        var mappings = await context.WeatherLocationMappings
+            .Where(mapping => mapping.IsActive || requiredKeys.Contains(mapping.TripMateLocationKey))
             .ToListAsync(cancellationToken);
+        var byKey = mappings.ToDictionary(mapping => mapping.TripMateLocationKey, StringComparer.OrdinalIgnoreCase);
 
-        var requiredLocations = new Dictionary<string, (string Key, string Name, decimal Lat, decimal Lon, DateTimeOffset MaxEndUtc)>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var schedule in upcomingSchedules)
-        {
-            if (schedule.MeetingLatitude.HasValue && schedule.MeetingLongitude.HasValue)
-            {
-                var key = $"meeting-{schedule.MeetingLatitude.Value:F4}_{schedule.MeetingLongitude.Value:F4}";
-                var name = $"Meeting Point {schedule.MeetingLatitude.Value:F4},{schedule.MeetingLongitude.Value:F4}";
-                if (!requiredLocations.TryGetValue(key, out var existing) || schedule.EndAtUtc > existing.MaxEndUtc)
-                {
-                    requiredLocations[key] = (key, name, schedule.MeetingLatitude.Value, schedule.MeetingLongitude.Value, schedule.EndAtUtc);
-                }
-            }
-
-            if (schedule.Tour?.ItineraryItems is not null)
-            {
-                foreach (var item in schedule.Tour.ItineraryItems)
-                {
-                    if (item.Poi is not null)
-                    {
-                        var key = $"poi-{item.Poi.Id}";
-                        var name = item.Poi.Name ?? $"POI {item.Poi.Id}";
-                        if (!requiredLocations.TryGetValue(key, out var existing) || schedule.EndAtUtc > existing.MaxEndUtc)
-                        {
-                            requiredLocations[key] = (key, name, item.Poi.Latitude, item.Poi.Longitude, schedule.EndAtUtc);
-                        }
-                    }
-                }
-            }
-        }
-
-        var existingKeys = requiredLocations.Keys.ToList();
-        var existingMappings = await context.WeatherLocationMappings
-            .Where(m => existingKeys.Contains(m.TripMateLocationKey))
-            .ToListAsync(cancellationToken);
-
-        var existingByKey = existingMappings.ToDictionary(m => m.TripMateLocationKey, StringComparer.OrdinalIgnoreCase);
-
+        bool providerAvailable = true;
+        bool creating = true;
         int created = 0;
         int updated = 0;
 
-        foreach (var (key, loc) in requiredLocations)
+        foreach (var point in required.Values)
         {
-            if (existingByKey.TryGetValue(key, out var mapping))
+            if (byKey.TryGetValue(point.Key, out var mapping) && mapping.IsActive)
             {
-                mapping.LinkDeparture(loc.MaxEndUtc, nowUtc);
+                mapping.ExtendMonitoring(point.LastDepartureEndUtc, nowUtc);
                 updated++;
+                continue;
             }
-            else
-            {
-                var tomorrowLocId = await alertsClient.CreateLocationAsync(loc.Name, (double)loc.Lat, (double)loc.Lon, cancellationToken);
-                if (string.IsNullOrWhiteSpace(tomorrowLocId))
-                {
-                    logger.LogWarning("Weather provider returned no location id for {LocationKey}; retrying on the next sync.", loc.Key);
-                    continue;
-                }
 
-                var newMapping = WeatherLocationMapping.Create(
-                    tripMateLocationKey: loc.Key,
-                    tomorrowLocationId: tomorrowLocId,
-                    latitude: loc.Lat,
-                    longitude: loc.Lon,
-                    name: loc.Name,
-                    nowUtc: nowUtc);
-
-                newMapping.LinkDeparture(loc.MaxEndUtc, nowUtc);
-                context.WeatherLocationMappings.Add(newMapping);
-                created++;
-            }
-        }
-
-        // Cleanup expired locations (past last departure + grace period and not needed)
-        var graceCutoffUtc = nowUtc.Subtract(GracePeriod);
-        var activeMappings = await context.WeatherLocationMappings
-            .Where(m => m.IsActive)
-            .ToListAsync(cancellationToken);
-
-        int deactivated = 0;
-        foreach (var mapping in activeMappings)
-        {
-            if (requiredLocations.ContainsKey(mapping.TripMateLocationKey))
+            if (!creating)
             {
                 continue;
             }
 
-            if (mapping.LastDepartureEndAtUtc.HasValue && mapping.LastDepartureEndAtUtc.Value < graceCutoffUtc)
+            var location = await alertsClient.CreateLocationAsync(
+                point.Name, (double)point.Latitude, (double)point.Longitude, cancellationToken);
+            if (location.Outcome != TomorrowCallOutcome.Success || string.IsNullOrWhiteSpace(location.LocationId))
             {
-                await alertsClient.DeleteLocationAsync(mapping.TomorrowLocationId, cancellationToken);
+                LogRefusal("create a Location", location.Outcome);
+                creating = false;
+                providerAvailable = !IsProviderDown(location.Outcome);
+                continue;
+            }
 
-                mapping.Deactivate(nowUtc);
-                deactivated++;
+            if (mapping is null)
+            {
+                mapping = WeatherLocationMapping.Create(point.Key, location.LocationId, point.Latitude,
+                    point.Longitude, point.Name, point.LastDepartureEndUtc, nowUtc);
+                context.WeatherLocationMappings.Add(mapping);
+                byKey[point.Key] = mapping;
+            }
+            else
+            {
+                mapping.Reactivate(location.LocationId, point.LastDepartureEndUtc, nowUtc);
+            }
+
+            created++;
+        }
+
+        // A created Location is saved before linking so a failed link never creates it twice.
+        await context.SaveChangesAsync(cancellationToken);
+
+        int linked = 0;
+        if (providerAvailable)
+        {
+            (var outcome, linked) = await LinkMissingAsync(required, byKey, cancellationToken);
+            // A local link failure (404, bad body) must not block retiring expired Locations.
+            providerAvailable = !IsProviderDown(outcome);
+        }
+
+        int deactivated = providerAvailable ? await RetireExpiredAsync(required, byKey, nowUtc, cancellationToken) : 0;
+        await context.SaveChangesAsync(cancellationToken);
+
+        logger.LogInformation(
+            "Weather location sync: {Created} created, {Updated} kept, {Linked} linked, {Deactivated} retired.",
+            created, updated, linked, deactivated);
+        return new WeatherLocationSyncResult(created, updated, deactivated, linked);
+    }
+
+    private async Task<(TomorrowCallOutcome Outcome, int Linked)> LinkMissingAsync(
+        IReadOnlyDictionary<string, RequiredPoint> required,
+        IReadOnlyDictionary<string, WeatherLocationMapping> byKey,
+        CancellationToken cancellationToken)
+    {
+        var monitored = required.Keys
+            .Select(key => byKey.TryGetValue(key, out var mapping) && mapping.IsActive ? mapping.TomorrowLocationId : null)
+            .OfType<string>()
+            .ToList();
+        if (monitored.Count == 0)
+        {
+            return (TomorrowCallOutcome.Success, 0);
+        }
+
+        var linked = await alertsClient.GetLinkedLocationIdsAsync(cancellationToken);
+        if (linked.Outcome != TomorrowCallOutcome.Success)
+        {
+            LogRefusal("read the Alert's linked Locations", linked.Outcome);
+            return (linked.Outcome, 0);
+        }
+
+        var missing = monitored.Where(id => !linked.LocationIds.Contains(id)).ToList();
+        if (missing.Count == 0)
+        {
+            return (TomorrowCallOutcome.Success, 0);
+        }
+
+        var outcome = await alertsClient.LinkLocationsAsync(missing, cancellationToken);
+        if (outcome != TomorrowCallOutcome.Success)
+        {
+            LogRefusal("link Locations to the Alert", outcome);
+            return (outcome, 0);
+        }
+
+        return (outcome, missing.Count);
+    }
+
+    private async Task<int> RetireExpiredAsync(
+        IReadOnlyDictionary<string, RequiredPoint> required,
+        IReadOnlyDictionary<string, WeatherLocationMapping> byKey,
+        DateTimeOffset nowUtc,
+        CancellationToken cancellationToken)
+    {
+        var cutoffUtc = nowUtc - GracePeriod;
+        var expired = byKey.Values
+            .Where(mapping => mapping.IsActive
+                && !required.ContainsKey(mapping.TripMateLocationKey)
+                && mapping.LastDepartureEndAtUtc < cutoffUtc)
+            .ToList();
+        if (expired.Count == 0)
+        {
+            return 0;
+        }
+
+        // Unlink first so the Alert never points at a deleted Location. 404 means already gone.
+        var unlink = await alertsClient.UnlinkLocationsAsync(
+            expired.Select(mapping => mapping.TomorrowLocationId).ToList(), cancellationToken);
+        if (unlink is not (TomorrowCallOutcome.Success or TomorrowCallOutcome.NotFound))
+        {
+            LogRefusal("unlink expired Locations", unlink);
+            return 0;
+        }
+
+        int deactivated = 0;
+        foreach (var mapping in expired)
+        {
+            var delete = await alertsClient.DeleteLocationAsync(mapping.TomorrowLocationId, cancellationToken);
+            if (delete is not (TomorrowCallOutcome.Success or TomorrowCallOutcome.NotFound))
+            {
+                // Kept active: the next cycle unlinks (idempotent) and deletes it again.
+                LogRefusal("delete an expired Location", delete);
+                break;
+            }
+
+            mapping.Deactivate(nowUtc);
+            deactivated++;
+        }
+
+        return deactivated;
+    }
+
+    private async Task<Dictionary<string, RequiredPoint>> LoadRequiredPointsAsync(
+        DateTimeOffset nowUtc,
+        CancellationToken cancellationToken)
+    {
+        var lookaheadEndUtc = nowUtc.AddDays(Math.Max(1, options.Value.LocationMonitoringLookaheadDays));
+
+        // Departures still running stay monitored: an active tour is exactly when a stop decision matters.
+        var schedules = await context.TourSchedules
+            .AsNoTracking()
+            .Include(s => s.Tour)
+                .ThenInclude(t => t.ItineraryItems)
+                    .ThenInclude(i => i.Poi)
+            .Where(s => s.Status == TourScheduleStatus.Scheduled
+                && s.EndAtUtc > nowUtc
+                && s.StartAtUtc <= lookaheadEndUtc)
+            .ToListAsync(cancellationToken);
+
+        var required = new Dictionary<string, RequiredPoint>(StringComparer.OrdinalIgnoreCase);
+        void Need(string key, string name, decimal latitude, decimal longitude, DateTimeOffset endUtc)
+        {
+            if (!required.TryGetValue(key, out var existing) || endUtc > existing.LastDepartureEndUtc)
+            {
+                required[key] = new RequiredPoint(key, name, latitude, longitude, endUtc);
             }
         }
 
-        if (created > 0 || updated > 0 || deactivated > 0)
+        foreach (var schedule in schedules)
         {
-            await context.SaveChangesAsync(cancellationToken);
-            logger.LogInformation("Weather location sync complete: {Created} created, {Updated} updated, {Deactivated} deactivated.",
-                created, updated, deactivated);
+            if (schedule.MeetingLatitude is { } latitude && schedule.MeetingLongitude is { } longitude)
+            {
+                // Meeting points share a Location per cell; the processor matches on the same cell.
+                var cell = new WeatherPoint(latitude, longitude).MonitoringCell;
+                Need($"meeting-{cell.Latitude:F4}_{cell.Longitude:F4}", $"Meeting Point {cell.Latitude:F4},{cell.Longitude:F4}",
+                    latitude, longitude, schedule.EndAtUtc);
+            }
+
+            // Only stops the Operator marked as weather-critical are sent to the provider.
+            foreach (var item in schedule.Tour.ItineraryItems.Where(item => item.IsRequiredForWeather == true && item.Poi is not null))
+            {
+                Need($"poi-{item.Poi.Id}", item.Poi.Name ?? $"POI {item.Poi.Id}",
+                    item.Poi.Latitude, item.Poi.Longitude, schedule.EndAtUtc);
+            }
         }
 
-        return new WeatherLocationSyncResult(created, updated, deactivated);
+        return required;
     }
+
+    // 401/403 or 429/5xx/network: nothing else this cycle can succeed.
+    private static bool IsProviderDown(TomorrowCallOutcome outcome) =>
+        outcome is TomorrowCallOutcome.NotAuthorized or TomorrowCallOutcome.Unavailable;
+
+    private void LogRefusal(string action, TomorrowCallOutcome outcome)
+    {
+        if (outcome == TomorrowCallOutcome.NotAuthorized)
+        {
+            logger.LogError("Tomorrow.io refused to {Action}: check the API key, AlertId and plan entitlement.", action);
+        }
+        else
+        {
+            logger.LogWarning("Tomorrow.io could not {Action} ({Outcome}); retrying on the next sync.", action, outcome);
+        }
+    }
+
+    private sealed record RequiredPoint(
+        string Key,
+        string Name,
+        decimal Latitude,
+        decimal Longitude,
+        DateTimeOffset LastDepartureEndUtc);
 }

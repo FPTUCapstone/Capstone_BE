@@ -27,9 +27,7 @@ public sealed class WeatherLocationSyncBackgroundService(
             var syncService = scope.ServiceProvider.GetRequiredService<IWeatherLocationSyncService>();
 
             logger.LogInformation("Starting periodic weather location synchronization.");
-            var result = await syncService.SyncUpcomingLocationsAsync(cancellationToken);
-            logger.LogInformation("Completed weather location synchronization: {Created} created, {Updated} updated, {Deactivated} deactivated.",
-                result.LocationsCreated, result.LocationsUpdated, result.LocationsDeactivated);
+            await syncService.SyncUpcomingLocationsAsync(cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

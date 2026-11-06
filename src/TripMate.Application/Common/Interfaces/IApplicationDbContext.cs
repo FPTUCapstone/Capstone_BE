@@ -160,7 +160,6 @@ public interface IApplicationDbContext
 
     DbSet<WeatherAlertInboxItem> WeatherAlertInboxItems { get; }
 
-    DbSet<WeatherEventEvaluation> WeatherEventEvaluations { get; }
 
     DbSet<WeatherSafetyReview> WeatherSafetyReviews { get; }
 

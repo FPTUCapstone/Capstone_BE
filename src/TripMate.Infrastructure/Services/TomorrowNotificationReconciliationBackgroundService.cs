@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 using TripMate.Application.Common.Interfaces;
+using TripMate.Application.Features.Weather.Emergency;
 using TripMate.Infrastructure.Weather;
 
 namespace TripMate.Infrastructure.Services;
@@ -65,13 +66,12 @@ public sealed class TomorrowNotificationReconciliationBackgroundService(
                     break;
                 }
 
-                foreach (var notif in response.Notifications)
+                foreach (var notif in response.Notifications.Where(item => item.AlertId == options.Value.AlertId))
                 {
                     bool enqueued = await inboxStore.EnqueueIfNotExistsAsync(
-                        provider: "TomorrowIo",
+                        provider: WeatherProviders.TomorrowIo,
                         providerNotificationId: notif.Id,
                         payload: notif.RawJson,
-                        signature: null,
                         cancellationToken: cancellationToken);
 
                     if (enqueued) enqueuedCount++;

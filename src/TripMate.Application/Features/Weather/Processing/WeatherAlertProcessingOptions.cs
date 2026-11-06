@@ -6,4 +6,5 @@ public class WeatherAlertProcessingOptions
 
     public bool Enabled { get; set; }
     public int SafetyReviewAcknowledgementSlaMinutes { get; set; } = 30;
+    public int LocationMonitoringLookaheadDays { get; set; } = 7;
 }

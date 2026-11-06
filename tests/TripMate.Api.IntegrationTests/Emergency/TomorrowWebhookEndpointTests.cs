@@ -17,6 +17,7 @@ using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Domain.Entities;
 using TripMate.Infrastructure.Weather;
+using TripMate.Tests.Shared;
 
 namespace TripMate.Api.IntegrationTests.Emergency;
 
@@ -40,14 +41,74 @@ public sealed class TomorrowWebhookEndpointTests
     }
 
     [Fact]
+    public async Task ReceiveAlert_SignedExactlyAsTheTomorrowDocsSample_Returns202()
+    {
+        using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+        string payload = TomorrowAlertFixtures.Webhook();
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/webhooks/tomorrow/alerts")
+        {
+            Content = new StringContent(payload, Encoding.UTF8, "application/json")
+        };
+        request.Headers.Add("X-Signature",
+            TomorrowAlertFixtures.SignatureHeader(Secret, DateTimeOffset.UtcNow));
+
+        using var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+    }
+
+    [Fact]
+    public async Task ReceiveAlert_WithTheRetiredTimestampDotBodySignature_Returns401()
+    {
+        using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+        string payload = TomorrowAlertFixtures.Webhook();
+        string timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(System.Globalization.CultureInfo.InvariantCulture);
+        using var hmac = new System.Security.Cryptography.HMACSHA256(Encoding.UTF8.GetBytes(Secret));
+        string legacy = Convert.ToHexString(hmac.ComputeHash(Encoding.UTF8.GetBytes($"{timestamp}.{payload}"))).ToLowerInvariant();
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/webhooks/tomorrow/alerts")
+        {
+            Content = new StringContent(payload, Encoding.UTF8, "application/json")
+        };
+        request.Headers.Add("X-Signature", $"t={timestamp},sig={legacy}");
+
+        using var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await factory.WithDbContextAsync(db => db.WeatherAlertInboxItems.CountAsync())).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task ReceiveAlert_TheSignatureCoversTheTimestampOnly_SoAnotherBodyIsAcceptedWithTheSameHeader()
+    {
+        using var factory = CreateFactory();
+        using var client = factory.CreateClient();
+        string header = TomorrowAlertFixtures.SignatureHeader(Secret, DateTimeOffset.UtcNow);
+
+        foreach (string payload in new[] { TomorrowAlertFixtures.Webhook("PRIOR"), TomorrowAlertFixtures.Webhook("START") })
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/webhooks/tomorrow/alerts")
+            {
+                Content = new StringContent(payload, Encoding.UTF8, "application/json")
+            };
+            request.Headers.Add("X-Signature", header);
+            using var response = await client.SendAsync(request);
+            response.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        }
+
+        (await factory.WithDbContextAsync(db => db.WeatherAlertInboxItems.CountAsync())).Should().Be(2);
+    }
+
+    [Fact]
     public async Task ReceiveAlert_WithValidSignature_Returns202AndPersistsInboxItem()
     {
         using var factory = CreateFactory();
         using var client = factory.CreateClient();
 
-        string payload = """{"id":"notif-1001","event":{"type":"Typhoon","severity":"Extreme"}}""";
-        var authenticator = factory.Services.GetRequiredService<ITomorrowWebhookAuthenticator>();
-        string signatureHeader = authenticator.GenerateSignatureHeader(payload, DateTimeOffset.UtcNow);
+        string payload = TomorrowAlertFixtures.Webhook("START");
+        string signatureHeader = TomorrowAlertFixtures.SignatureHeader(Secret, DateTimeOffset.UtcNow);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/webhooks/tomorrow/alerts")
         {
@@ -69,7 +130,7 @@ public sealed class TomorrowWebhookEndpointTests
         {
             var db = scope.ServiceProvider.GetRequiredService<IApplicationDbContext>();
             var item = await db.WeatherAlertInboxItems
-                .FirstOrDefaultAsync(x => x.ProviderNotificationId == "notif-1001");
+                .SingleOrDefaultAsync();
             item.Should().NotBeNull();
             item!.Payload.Should().Be(payload);
             item.Status.Should().Be("Pending");
@@ -83,9 +144,8 @@ public sealed class TomorrowWebhookEndpointTests
         using var factory = CreateFactory();
         using var client = factory.CreateClient();
 
-        string payload = """{"id":"notif-dup-999","event":{"type":"Flood"}}""";
-        var authenticator = factory.Services.GetRequiredService<ITomorrowWebhookAuthenticator>();
-        string signatureHeader = authenticator.GenerateSignatureHeader(payload, DateTimeOffset.UtcNow);
+        string payload = TomorrowAlertFixtures.Webhook("PRIOR");
+        string signatureHeader = TomorrowAlertFixtures.SignatureHeader(Secret, DateTimeOffset.UtcNow);
 
         // First delivery
         using var req1 = new HttpRequestMessage(HttpMethod.Post, "/api/v1/webhooks/tomorrow/alerts")
@@ -114,7 +174,7 @@ public sealed class TomorrowWebhookEndpointTests
         {
             var db = scope.ServiceProvider.GetRequiredService<IApplicationDbContext>();
             int count = await db.WeatherAlertInboxItems
-                .CountAsync(x => x.ProviderNotificationId == "notif-dup-999");
+                .CountAsync();
             count.Should().Be(1);
         }
     }
@@ -161,9 +221,7 @@ public sealed class TomorrowWebhookEndpointTests
         using var client = factory.CreateClient();
 
         string payload = """{"id":"notif-1004"}""";
-        var authenticator = factory.Services.GetRequiredService<ITomorrowWebhookAuthenticator>();
-        var expiredTime = DateTimeOffset.UtcNow.AddMinutes(-10);
-        string signatureHeader = authenticator.GenerateSignatureHeader(payload, expiredTime);
+        string signatureHeader = TomorrowAlertFixtures.SignatureHeader(Secret, DateTimeOffset.UtcNow.AddMinutes(-10));
 
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/webhooks/tomorrow/alerts")
         {
@@ -276,8 +334,7 @@ public sealed class TomorrowWebhookEndpointTests
     {
         using var factory = CreateFactory();
         using var client = factory.CreateClient();
-        var authenticator = factory.Services.GetRequiredService<ITomorrowWebhookAuthenticator>();
-        string signatureHeader = authenticator.GenerateSignatureHeader(payload, DateTimeOffset.UtcNow);
+        string signatureHeader = TomorrowAlertFixtures.SignatureHeader(Secret, DateTimeOffset.UtcNow);
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/webhooks/tomorrow/alerts")
         {
             Content = new StringContent(payload, Encoding.UTF8, "application/json"),
@@ -312,8 +369,7 @@ public sealed class TomorrowWebhookEndpointTests
         using var client = factory.CreateClient();
 
         string bigPayload = """{"id":"notif-1005","data":"this payload is definitely much longer than 50 bytes"}""";
-        var authenticator = factory.Services.GetRequiredService<ITomorrowWebhookAuthenticator>();
-        string signatureHeader = authenticator.GenerateSignatureHeader(bigPayload, DateTimeOffset.UtcNow);
+        string signatureHeader = TomorrowAlertFixtures.SignatureHeader(Secret, DateTimeOffset.UtcNow);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/webhooks/tomorrow/alerts")
         {

@@ -518,7 +518,6 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
 
     public DbSet<WeatherEvent> WeatherEvents => Set<WeatherEvent>();
     public DbSet<WeatherAlertInboxItem> WeatherAlertInboxItems => Set<WeatherAlertInboxItem>();
-    public DbSet<WeatherEventEvaluation> WeatherEventEvaluations => Set<WeatherEventEvaluation>();
     public DbSet<WeatherSafetyReview> WeatherSafetyReviews => Set<WeatherSafetyReview>();
     public DbSet<WeatherLocationMapping> WeatherLocationMappings => Set<WeatherLocationMapping>();
 

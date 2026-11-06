@@ -17,7 +17,16 @@ public enum WeatherAlertSource
     OfficialVietnam,
 }
 
-public sealed record WeatherPoint(decimal Latitude, decimal Longitude);
+public sealed record WeatherPoint(decimal Latitude, decimal Longitude)
+{
+    /// <summary>
+    /// The point rounded to 4 decimals (about 11 m). One monitored Tomorrow.io Location stands for
+    /// every TripMate point in its cell, so matching and the location key use the same rounding.
+    /// </summary>
+    public WeatherPoint MonitoringCell => new(
+        Math.Round(Latitude, 4, MidpointRounding.AwayFromZero),
+        Math.Round(Longitude, 4, MidpointRounding.AwayFromZero));
+}
 
 public sealed record WeatherPolygon(IReadOnlyList<WeatherPoint> Outer)
 {
@@ -155,7 +164,7 @@ public static class WeatherEmergencyDecision
                 "Weather event valid interval is invalid.");
         }
 
-        if (weatherEvent.Areas == null || weatherEvent.Areas.Count == 0)
+        if (!weatherEvent.HasSpatialScope)
         {
             return new WeatherDecisionEvaluation(
                 WeatherDecisionOutcome.NoAction,
@@ -206,7 +215,7 @@ public static class WeatherEmergencyDecision
         {
             if (isActive && stop.Passed) continue;
 
-            bool inArea = weatherEvent.Areas.Any(area => area.Contains(stop.Point));
+            bool inArea = weatherEvent.Covers(stop.Point);
             bool inTime = stop.PlannedVisitAtUtc is { } visit
                 ? weatherEvent.ValidFromUtc <= visit && visit <= weatherEvent.ValidToUtc
                 : weatherEvent.ValidFromUtc < departure.EndAtUtc && weatherEvent.ValidToUtc > (isActive ? nowUtc : departure.StartAtUtc);
@@ -305,7 +314,7 @@ public static class WeatherEmergencyDecision
         DateTimeOffset visitAtUtc,
         NormalizedWeatherEvent weatherEvent) =>
         weatherEvent.ValidFromUtc <= visitAtUtc && visitAtUtc <= weatherEvent.ValidToUtc
-        && weatherEvent.Areas.Any(area => area.Contains(point));
+        && weatherEvent.Covers(point);
 
     private static bool AtPoint(WeatherPoint point, DateTimeOffset visitAtUtc,
         WeatherAlertEvidence alert) =>

@@ -18,7 +18,6 @@ namespace TripMate.Api.Controllers.V1;
 /// Authenticated ingress controller for Tomorrow.io weather alerts.
 /// </summary>
 [AllowAnonymous]
-[ApiController]
 [Route("api/v1/webhooks/tomorrow")]
 [Route("api/v1/weather/webhooks/tomorrow")]
 public sealed class TomorrowWebhooksController(
@@ -26,7 +25,7 @@ public sealed class TomorrowWebhooksController(
     ITomorrowWebhookAuthenticator authenticator,
     IOptions<TomorrowIoOptions> options,
     ILogger<TomorrowWebhooksController> logger)
-    : ControllerBase
+    : ApiControllerBase(sender)
 {
     private readonly TomorrowIoOptions _options = options.Value;
 
@@ -37,7 +36,6 @@ public sealed class TomorrowWebhooksController(
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status413PayloadTooLarge)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status415UnsupportedMediaType)]
-    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
     public async Task<IActionResult> ReceiveAlertAsync(CancellationToken cancellationToken)
     {
         // 1. Content-Type check
@@ -65,17 +63,17 @@ public sealed class TomorrowWebhooksController(
         }
 
         // 3. Signature verification
-        string? signatureHeader = Request.Headers["X-Signature"].FirstOrDefault()
-            ?? Request.Headers["Tomorrow-Signature"].FirstOrDefault();
+        string? signatureHeader = Request.Headers["X-Signature"].FirstOrDefault();
 
-        if (!authenticator.ValidateSignature(rawBody, signatureHeader, null, out string? failureReason))
+        if (!authenticator.ValidateSignature(signatureHeader, null, out string? failureReason))
         {
             logger.LogWarning("Tomorrow.io webhook authentication rejected: {Reason}", failureReason);
             return StatusCode(StatusCodes.Status401Unauthorized, new ProblemDetails
             {
                 Status = StatusCodes.Status401Unauthorized,
                 Title = "Webhook Authentication Failed",
-                Detail = failureReason
+                // The reason stays in the log; an unauthenticated caller learns nothing about why.
+                Detail = "The webhook signature could not be verified."
             });
         }
 
@@ -91,18 +89,10 @@ public sealed class TomorrowWebhooksController(
         }
 
         // 5. Enqueue into durable inbox
-        var command = new ReceiveTomorrowAlertCommand(rawBody, signatureHeader);
-        var result = await sender.Send(command, cancellationToken);
-
+        var result = await Sender.Send(new ReceiveTomorrowAlertCommand(rawBody), cancellationToken);
         if (result.IsFailure)
         {
-            logger.LogError("Failed to persist Tomorrow.io alert into inbox: {ErrorCode} - {ErrorMessage}", result.ErrorCode, result.ErrorMessage);
-            return StatusCode(StatusCodes.Status500InternalServerError, new ProblemDetails
-            {
-                Status = StatusCodes.Status500InternalServerError,
-                Title = "Alert Ingestion Failed",
-                Detail = result.ErrorMessage ?? "Failed to persist alert into durable inbox."
-            });
+            return HandleFailure(result);
         }
 
         return StatusCode(StatusCodes.Status202Accepted, new

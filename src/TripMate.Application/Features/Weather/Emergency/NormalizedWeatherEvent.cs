@@ -10,9 +10,13 @@ public enum WeatherVerifiedDirective
 
 public static class WeatherProviders
 {
-    public const string Tomorrow = "Tomorrow";
-    public const string OpenWeather = "OpenWeather";
-    public const string TestFixture = "TestFixture";
+    public const string TomorrowIo = "TomorrowIo";
+}
+
+public static class WeatherAlertErrorCodes
+{
+    public const string PayloadEmpty = "Weather.PayloadEmpty";
+    public const string PayloadMalformed = "Weather.PayloadMalformed";
 }
 
 public static class VietnameseWeatherAuthorities
@@ -56,19 +60,31 @@ public sealed record NormalizedWeatherEvent(
     DateTimeOffset ReceivedAtUtc)
 {
     public string? ProviderNotificationId { get; init; }
-    public string? Revision { get; init; }
     public string? OriginalAuthority { get; init; }
-    public string? OriginalSourceReference { get; init; }
     public string? Description { get; init; }
     public string? Category { get; init; }
     public int? OfficialVietnamRiskLevel { get; init; }
     public WeatherVerifiedDirective VerifiedDirective { get; init; } = WeatherVerifiedDirective.None;
     public bool IsWithdrawn { get; init; }
     public string? ProviderSeverity { get; init; }
-    public string? Certainty { get; init; }
-    public string? Urgency { get; init; }
     public bool IsCustomEvent { get; init; }
     public bool IsSamplePayload { get; init; }
+
+    /// <summary>Tomorrow.io Location ids the notification was raised for (data.locations[].id).</summary>
+    public IReadOnlyList<string> ProviderLocationIds { get; init; } = [];
+
+    /// <summary>TripMate points behind <see cref="ProviderLocationIds"/>, resolved from the location mappings.</summary>
+    public IReadOnlyList<WeatherPoint> MonitoredPoints { get; init; } = [];
+
+    public bool HasSpatialScope => Areas.Count > 0 || MonitoredPoints.Count > 0;
+
+    /// <summary>
+    /// A point is covered when it lies in a published area or is itself a monitored Location
+    /// the provider reported. Location alerts carry ids, not geometry.
+    /// </summary>
+    public bool Covers(WeatherPoint point) =>
+        MonitoredPoints.Any(monitored => monitored.MonitoringCell == point.MonitoringCell)
+        || Areas.Any(area => area.Contains(point));
 }
 
 public sealed record WeatherDecisionEvaluation(

@@ -14,10 +14,14 @@ public interface IWeatherAlertInboxStore
         string provider,
         string providerNotificationId,
         string payload,
-        string? signature,
         CancellationToken cancellationToken);
 
-    Task MarkProcessedAsync(long inboxId, CancellationToken cancellationToken);
+    /// <summary>
+    /// Completes the item only while the caller still holds the lease it was handed
+    /// (same lease owner and attempt). Returns false when another worker reclaimed it.
+    /// </summary>
+    Task<bool> MarkProcessedAsync(WeatherAlertInboxItem leasedItem, CancellationToken cancellationToken);
 
-    Task MarkFailedAsync(long inboxId, string errorMessage, CancellationToken cancellationToken);
+    /// <summary>Records the failure under the same lease guard as <see cref="MarkProcessedAsync"/>.</summary>
+    Task<bool> MarkFailedAsync(WeatherAlertInboxItem leasedItem, string errorMessage, CancellationToken cancellationToken);
 }

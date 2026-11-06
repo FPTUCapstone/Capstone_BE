@@ -6,132 +6,159 @@ using TripMate.Infrastructure.Weather;
 
 namespace TripMate.Infrastructure.UnitTests.Weather;
 
+/// <summary>
+/// Tomorrow.io signs only the raw timestamp string: HMAC-SHA256(secret, timestamp), sent as
+/// <c>X-Signature: t={timestamp},sig={hex}</c> (https://docs.tomorrow.io/reference/api-webhooks).
+/// The expected digests below were computed outside this code base with
+/// <c>openssl dgst -sha256 -hmac</c> and Node's <c>crypto.createHmac</c>, never by the class under test.
+/// </summary>
 public sealed class TomorrowWebhookAuthenticatorTests
 {
-    private const string Secret = "super-secret-tomorrow-key-12345";
-    private readonly TomorrowIoOptions _options = new()
+    private const string Secret = "tm-test-secret-not-real";
+    private const string Timestamp = "1793966400"; // 2026-11-06T12:00:00Z
+    private const string TimestampOnlySignature = "769723001fb99cb1dc581a99a3de81b04950449225b143410b4eeb09f8fdf7de";
+    private const string LegacyTimestampDotBodySignature = "c0c5ebf478329c8d8657371781218a4bc6b831b18d5683dffc473bedd17a7bbb";
+    private const string TimestampMilliseconds = "1793966400000";
+    private const string TimestampMillisecondsSignature = "6b268655b070d6babb447c6f970d2c8a91dd0019287bab7c25b7983292099b11";
+    private const string Body = """{"data":{}}""";
+
+    private static readonly DateTimeOffset SignedAt = DateTimeOffset.FromUnixTimeSeconds(1793966400);
+
+    private static TomorrowWebhookAuthenticator Create(string secret = Secret) => new(Options.Create(
+        new TomorrowIoOptions { WebhookSecret = secret, WebhookToleranceSeconds = 300 }));
+
+    private static (bool Valid, string? Reason) Validate(
+        string? header, DateTimeOffset now, string secret = Secret)
     {
-        WebhookSecret = Secret,
-        WebhookToleranceSeconds = 300,
-        MaxPayloadSizeBytes = 1_048_576
-    };
-
-    [Fact]
-    public void ValidateSignature_WithValidSignatureAndFreshTimestamp_ReturnsTrue()
-    {
-        var authenticator = new TomorrowWebhookAuthenticator(Options.Create(_options));
-        string payload = """{"event":{"id":"evt-123","type":"warning"}}""";
-        var now = DateTimeOffset.UtcNow;
-        string header = authenticator.GenerateSignatureHeader(payload, now);
-
-        bool isValid = authenticator.ValidateSignature(payload, header, now, out string? failureReason);
-
-        isValid.Should().BeTrue();
-        failureReason.Should().BeNull();
+        bool valid = Create(secret).ValidateSignature(header, now, out string? reason);
+        return (valid, reason);
     }
 
     [Fact]
-    public void ValidateSignature_WithMissingOrEmptyHeader_ReturnsFalse()
+    public void TimestampOnlySignature_IsAccepted()
     {
-        var authenticator = new TomorrowWebhookAuthenticator(Options.Create(_options));
-        string payload = """{"event":{"id":"evt-123"}}""";
+        var (valid, reason) = Validate($"t={Timestamp},sig={TimestampOnlySignature}", SignedAt);
 
-        bool isValid = authenticator.ValidateSignature(payload, null, DateTimeOffset.UtcNow, out string? failureReason);
+        valid.Should().BeTrue();
+        reason.Should().BeNull();
+    }
 
-        isValid.Should().BeFalse();
-        failureReason.Should().Contain("missing");
+    [Fact]
+    public void LegacyTimestampDotBodySignature_IsRejected()
+    {
+        var (valid, reason) = Validate($"t={Timestamp},sig={LegacyTimestampDotBodySignature}", SignedAt);
+
+        valid.Should().BeFalse();
+        reason.Should().Contain("mismatch");
+    }
+
+    [Fact]
+    public void SignatureDoesNotCoverTheBody_SoAnyBodyVerifiesWithTheSameHeader()
+    {
+        // The contract signs the timestamp only; the authenticator therefore takes no body at
+        // all, and the same header verifies whatever JSON arrives with it.
+        Body.Should().NotBeNullOrEmpty();
+        Validate($"t={Timestamp},sig={TimestampOnlySignature}", SignedAt).Valid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void WrongSecret_IsRejected()
+    {
+        var (valid, reason) = Validate(
+            $"t={Timestamp},sig={TimestampOnlySignature}", SignedAt, secret: "another-secret");
+
+        valid.Should().BeFalse();
+        reason.Should().Contain("mismatch");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void MissingHeader_IsRejected(string? header)
+    {
+        var (valid, reason) = Validate(header, SignedAt);
+
+        valid.Should().BeFalse();
+        reason.Should().Contain("missing");
     }
 
     [Theory]
     [InlineData("invalid-header-without-equal")]
-    [InlineData("t=12345")]
-    [InlineData("sig=abcdef")]
-    [InlineData("t=abc,sig=123")]
-    public void ValidateSignature_WithMalformedHeader_ReturnsFalse(string malformedHeader)
+    [InlineData("t=1793966400")]
+    [InlineData("sig=769723001fb99cb1dc581a99a3de81b04950449225b143410b4eeb09f8fdf7de")]
+    [InlineData("t=abc,sig=769723001fb99cb1dc581a99a3de81b04950449225b143410b4eeb09f8fdf7de")]
+    [InlineData("t=1793966400,v1=769723001fb99cb1dc581a99a3de81b04950449225b143410b4eeb09f8fdf7de")]
+    [InlineData("t=1793966400,sig=not-hex")]
+    [InlineData("t=1793966400,sig=7697")]
+    public void MalformedHeader_IsRejected(string header)
     {
-        var authenticator = new TomorrowWebhookAuthenticator(Options.Create(_options));
-        string payload = """{"event":{"id":"evt-123"}}""";
+        var (valid, reason) = Validate(header, SignedAt);
 
-        bool isValid = authenticator.ValidateSignature(payload, malformedHeader, DateTimeOffset.UtcNow, out string? failureReason);
-
-        isValid.Should().BeFalse();
-        failureReason.Should().NotBeNullOrEmpty();
+        valid.Should().BeFalse();
+        reason.Should().NotBeNullOrEmpty();
     }
 
     [Fact]
-    public void ValidateSignature_WithExpiredTimestamp_ReturnsFalse()
+    public void StaleTimestamp_IsRejected()
     {
-        var authenticator = new TomorrowWebhookAuthenticator(Options.Create(_options));
-        string payload = """{"event":{"id":"evt-123"}}""";
-        var now = DateTimeOffset.UtcNow;
-        var staleTime = now.AddSeconds(-301); // 1s beyond 300s tolerance
-        string header = authenticator.GenerateSignatureHeader(payload, staleTime);
+        var (valid, reason) = Validate(
+            $"t={Timestamp},sig={TimestampOnlySignature}", SignedAt.AddSeconds(301));
 
-        bool isValid = authenticator.ValidateSignature(payload, header, now, out string? failureReason);
-
-        isValid.Should().BeFalse();
-        failureReason.Should().Contain("stale");
+        valid.Should().BeFalse();
+        reason.Should().Contain("stale");
     }
 
     [Fact]
-    public void ValidateSignature_WithFutureTimestampBeyondTolerance_ReturnsFalse()
+    public void FutureTimestampBeyondTolerance_IsRejected()
     {
-        var authenticator = new TomorrowWebhookAuthenticator(Options.Create(_options));
-        string payload = """{"event":{"id":"evt-123"}}""";
-        var now = DateTimeOffset.UtcNow;
-        var futureTime = now.AddSeconds(305);
-        string header = authenticator.GenerateSignatureHeader(payload, futureTime);
+        var (valid, reason) = Validate(
+            $"t={Timestamp},sig={TimestampOnlySignature}", SignedAt.AddSeconds(-301));
 
-        bool isValid = authenticator.ValidateSignature(payload, header, now, out string? failureReason);
-
-        isValid.Should().BeFalse();
-        failureReason.Should().Contain("future");
+        valid.Should().BeFalse();
+        reason.Should().Contain("future");
     }
 
     [Fact]
-    public void ValidateSignature_WithTamperedPayload_ReturnsFalse()
+    public void TimestampWithinTolerance_IsAccepted()
     {
-        var authenticator = new TomorrowWebhookAuthenticator(Options.Create(_options));
-        string originalPayload = """{"event":{"id":"evt-123","risk":2}}""";
-        string tamperedPayload = """{"event":{"id":"evt-123","risk":5}}""";
-        var now = DateTimeOffset.UtcNow;
-        string header = authenticator.GenerateSignatureHeader(originalPayload, now);
-
-        bool isValid = authenticator.ValidateSignature(tamperedPayload, header, now, out string? failureReason);
-
-        isValid.Should().BeFalse();
-        failureReason.Should().Contain("mismatch");
+        Validate($"t={Timestamp},sig={TimestampOnlySignature}", SignedAt.AddSeconds(299))
+            .Valid.Should().BeTrue();
     }
 
     [Fact]
-    public void ValidateSignature_WithWrongSecret_ReturnsFalse()
+    public void MillisecondTimestamp_IsSignedAsSentAndCheckedForFreshness()
     {
-        var authenticatorValid = new TomorrowWebhookAuthenticator(Options.Create(_options));
-        var badOptions = new TomorrowIoOptions { WebhookSecret = "wrong-secret-key" };
-        var authenticatorBad = new TomorrowWebhookAuthenticator(Options.Create(badOptions));
-
-        string payload = """{"event":{"id":"evt-123"}}""";
-        var now = DateTimeOffset.UtcNow;
-        string header = authenticatorValid.GenerateSignatureHeader(payload, now);
-
-        bool isValid = authenticatorBad.ValidateSignature(payload, header, now, out string? failureReason);
-
-        isValid.Should().BeFalse();
-        failureReason.Should().Contain("mismatch");
+        // The public contract does not state the unit of t. The raw string is signed as
+        // received either way; only the freshness check needs to read the unit.
+        Validate($"t={TimestampMilliseconds},sig={TimestampMillisecondsSignature}", SignedAt)
+            .Valid.Should().BeTrue();
+        Validate($"t={TimestampMilliseconds},sig={TimestampMillisecondsSignature}", SignedAt.AddMinutes(10))
+            .Valid.Should().BeFalse();
     }
 
     [Fact]
-    public void ValidateSignature_WhenSecretNotConfigured_ReturnsFalse()
+    public void ComparisonIsByteWise_SoUppercaseHexIsTheSameSignature()
     {
-        var unconfiguredOptions = new TomorrowIoOptions { WebhookSecret = "" };
-        var authenticator = new TomorrowWebhookAuthenticator(Options.Create(unconfiguredOptions));
+        Validate($"t={Timestamp},sig={TimestampOnlySignature.ToUpperInvariant()}", SignedAt)
+            .Valid.Should().BeTrue();
+    }
 
-        string payload = """{"event":{"id":"evt-123"}}""";
-        string header = "t=1730512800,sig=abcdef";
+    [Fact]
+    public void MissingSecretConfiguration_IsRejected()
+    {
+        var (valid, reason) = Validate(
+            $"t={Timestamp},sig={TimestampOnlySignature}", SignedAt, secret: "");
 
-        bool isValid = authenticator.ValidateSignature(payload, header, DateTimeOffset.UtcNow, out string? failureReason);
+        valid.Should().BeFalse();
+        reason.Should().Contain("not configured");
+    }
 
-        isValid.Should().BeFalse();
-        failureReason.Should().Contain("not configured");
+    [Fact]
+    public void FailureReasonNeverContainsTheSignatureOrSecret()
+    {
+        var (_, reason) = Validate($"t={Timestamp},sig={LegacyTimestampDotBodySignature}", SignedAt);
+
+        reason.Should().NotContain(LegacyTimestampDotBodySignature).And.NotContain(Secret);
     }
 }

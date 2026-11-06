@@ -9,9 +9,8 @@ public sealed class TomorrowIoOptionsValidatorTests
     private readonly TomorrowIoOptionsValidator _validator = new();
 
     [Theory]
-    [InlineData(true)]
     [InlineData(false)]
-    public void Validate_EnabledFlag_ReturnsSuccess(bool enabled)
+    public void Validate_DisabledWithoutCredentials_ReturnsSuccess(bool enabled)
     {
         var options = new TomorrowIoOptions
         {
@@ -93,5 +92,68 @@ public sealed class TomorrowIoOptionsValidatorTests
 
         result.Failed.Should().BeTrue();
         result.FailureMessage.Should().Contain(nameof(TomorrowIoOptions.LocationSyncIntervalHours));
+    }
+}
+
+public sealed class TomorrowIoEnabledOptionsValidatorTests
+{
+    private static TomorrowIoOptions Enabled() => new()
+    {
+        Enabled = true,
+        ApiKey = "test-api-key",
+        WebhookSecret = "test-webhook-secret",
+        AlertId = "alert-123",
+        BaseUrl = "https://api.tomorrow.io",
+    };
+
+    [Fact]
+    public void CompleteEnabledConfiguration_IsValid()
+    {
+        new TomorrowIoOptionsValidator().Validate(null, Enabled()).Succeeded.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(nameof(TomorrowIoOptions.ApiKey))]
+    [InlineData(nameof(TomorrowIoOptions.WebhookSecret))]
+    [InlineData(nameof(TomorrowIoOptions.AlertId))]
+    public void EnabledWithoutARequiredSetting_FailsAndNamesOnlyTheSetting(string missing)
+    {
+        var options = Enabled();
+        typeof(TomorrowIoOptions).GetProperty(missing)!.SetValue(options, " ");
+
+        var result = new TomorrowIoOptionsValidator().Validate(null, options);
+
+        result.Failed.Should().BeTrue();
+        result.FailureMessage.Should().Contain(missing).And.NotContain("test-api-key").And.NotContain("test-webhook-secret");
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("api.tomorrow.io")]
+    [InlineData("http://api.tomorrow.io")]
+    public void EnabledWithAnInvalidBaseUrl_Fails(string baseUrl)
+    {
+        var options = Enabled();
+        options.BaseUrl = baseUrl;
+
+        new TomorrowIoOptionsValidator().Validate(null, options).FailureMessage.Should().Contain(nameof(TomorrowIoOptions.BaseUrl));
+    }
+
+    [Theory]
+    [InlineData(nameof(TomorrowIoOptions.ReconciliationLookbackMinutes))]
+    [InlineData(nameof(TomorrowIoOptions.LocationMonitoringLookaheadDays))]
+    [InlineData(nameof(TomorrowIoOptions.SafetyReviewAcknowledgementSlaMinutes))]
+    public void NonPositiveInterval_Fails(string setting)
+    {
+        var options = Enabled();
+        typeof(TomorrowIoOptions).GetProperty(setting)!.SetValue(options, 0);
+
+        new TomorrowIoOptionsValidator().Validate(null, options).FailureMessage.Should().Contain(setting);
+    }
+
+    [Fact]
+    public void DisabledIntegration_NeedsNoCredentials()
+    {
+        new TomorrowIoOptionsValidator().Validate(null, new TomorrowIoOptions { Enabled = false }).Succeeded.Should().BeTrue();
     }
 }

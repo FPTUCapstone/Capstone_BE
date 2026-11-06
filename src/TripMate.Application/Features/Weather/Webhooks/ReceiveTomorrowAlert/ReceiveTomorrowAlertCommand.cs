@@ -4,10 +4,7 @@ using TripMate.Application.Common.Models;
 
 namespace TripMate.Application.Features.Weather.Webhooks.ReceiveTomorrowAlert;
 
-public sealed record ReceiveTomorrowAlertCommand(
-    string RawPayload,
-    string? SignatureHeader,
-    string? ProviderNotificationId = null) : IRequest<Result<ReceiveTomorrowAlertResult>>;
+public sealed record ReceiveTomorrowAlertCommand(string RawPayload) : IRequest<Result<ReceiveTomorrowAlertResult>>;
 
 public sealed record ReceiveTomorrowAlertResult(
     long InboxId,

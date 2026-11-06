@@ -49,14 +49,12 @@ public sealed class WeatherPersistenceModelTests
         entity.Should().NotBeNull();
         entity!.FindProperty(nameof(WeatherEvent.Provider))!.GetColumnName().Should().Be("provider");
         entity.FindProperty(nameof(WeatherEvent.ProviderEventId))!.GetColumnName().Should().Be("provider_event_id");
-        entity.FindProperty(nameof(WeatherEvent.Revision))!.GetColumnName().Should().Be("revision");
         entity.FindProperty(nameof(WeatherEvent.OriginalAuthority))!.GetColumnName().Should().Be("original_authority");
-        entity.FindProperty(nameof(WeatherEvent.OriginalSourceReference))!.GetColumnName().Should().Be("original_source_reference");
         entity.FindProperty(nameof(WeatherEvent.OfficialVietnamRiskLevel))!.GetColumnName().Should().Be("official_vietnam_risk_level");
         entity.FindProperty(nameof(WeatherEvent.VerifiedDirective))!.GetColumnName().Should().Be("verified_directive");
         entity.FindProperty(nameof(WeatherEvent.IsWithdrawn))!.GetColumnName().Should().Be("is_withdrawn");
-        entity.FindProperty(nameof(WeatherEvent.GeometryGeoJson))!.GetColumnName().Should().Be("geometry_geojson");
-        entity.FindProperty(nameof(WeatherEvent.RawPayloadHash))!.GetColumnName().Should().Be("raw_payload_hash");
+        entity.GetProperties().Select(property => property.GetColumnName()).Should().NotContain(
+            ["revision", "original_source_reference", "geometry_geojson", "raw_payload_hash"]);
         entity.FindProperty(nameof(WeatherEvent.UpdatedAtUtc))!.GetValueConverter().Should().NotBeNull();
 
         entity.GetIndexes().Should().Contain(i =>
@@ -65,25 +63,18 @@ public sealed class WeatherPersistenceModelTests
     }
 
     [Fact]
-    public void WeatherEventEvaluation_IsConfiguredWithSchemaAndForeignKeys()
+    public void RemovedWeatherPersistence_IsNotMapped()
     {
         using var context = CreateContext();
-        var entity = context.Model.FindEntityType(typeof(WeatherEventEvaluation));
 
-        entity.Should().NotBeNull();
-        entity!.GetSchema().Should().Be("trip");
-        entity.GetTableName().Should().Be("WeatherEventEvaluations");
-
-        entity.FindProperty(nameof(WeatherEventEvaluation.EvaluatedAtUtc))!.GetValueConverter().Should().NotBeNull();
-
-        entity.GetIndexes().Should().Contain(i =>
-            i.Properties.Select(p => p.Name).SequenceEqual(new[] {
-                nameof(WeatherEventEvaluation.Provider),
-                nameof(WeatherEventEvaluation.ProviderEventId),
-                nameof(WeatherEventEvaluation.TourScheduleId)
-            }) && i.IsUnique);
-
-        entity.FindNavigation(nameof(WeatherEventEvaluation.TourSchedule)).Should().NotBeNull();
+        context.Model.GetEntityTypes().Select(entity => entity.GetTableName())
+            .Should().NotContain("WeatherEventEvaluations");
+        context.Model.FindEntityType(typeof(WeatherAlertInboxItem))!.GetProperties()
+            .Select(property => property.GetColumnName()).Should().NotContain("signature");
+        context.Model.FindEntityType(typeof(WeatherLocationMapping))!.GetProperties()
+            .Select(property => property.GetColumnName()).Should().NotContain("linked_departures_count");
+        context.Model.FindEntityType(typeof(EmergencyTourCancellationOperation))!.GetProperties()
+            .Select(property => property.GetColumnName()).Should().NotContain("contract_policy_snapshot");
     }
 
     [Fact]
@@ -110,6 +101,9 @@ public sealed class WeatherPersistenceModelTests
             }) && i.IsUnique);
 
         entity.FindNavigation(nameof(WeatherSafetyReview.TourSchedule)).Should().NotBeNull();
+        entity.GetIndexes().Should().Contain(i => i.GetDatabaseName() == "IX_WeatherSafetyReviews_StatusDeadline"
+            && i.Properties.Select(p => p.Name).SequenceEqual(new[] {
+                nameof(WeatherSafetyReview.Status), nameof(WeatherSafetyReview.AcknowledgementDeadlineUtc) }));
     }
 
     [Fact]
