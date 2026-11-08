@@ -169,13 +169,19 @@ Bước chuyển tiền thật chưa làm. Lượt chạy vẫn đầy đủ m�
 
 Phát hiện khi rà lại code so với spec; ghi lại để theo dõi, không thuộc phạm vi thay đổi lần này:
 
-- **Quyết định 6 không đúng như mô tả khi lượt chạy đúng 10:00.** `IsPastRetryCutoffFor` dùng
-  `Hour >= 13`, nên lần thử lại thứ 3 (dự kiến đúng lúc 13:00) bị cửa sổ chặn trước khi gửi — chỉ
-  2 lần thử lại thực sự diễn ra, không phải 3. Có bằng chứng bằng unit test
-  `SweepAsync_NaturalHourlySequenceFromTenAm_HitsCutoffBeforeAThirdRetryIsSent`.
 - **`payment.PayoutReconciliationItem` (PD-17) chưa được tạo.** Tra cứu PD-7a trong
   `DailyPayoutRetrySweepProcessor` chuyển đúng trạng thái khi phát hiện chênh lệch, nhưng không
   ghi bản ghi đối soát riêng, không ghi audit log, không gửi cảnh báo như Task 7A yêu cầu.
+
+## Điểm lệch đã sửa
+
+- **Quyết định 6 không đúng như mô tả khi lượt chạy đúng 10:00 (đã sửa).** `IsPastRetryCutoffFor`
+  dùng `Hour >= 13`, nên lần thử lại thứ 3 (dự kiến đúng lúc 13:00) bị cửa sổ chặn trước khi gửi —
+  chỉ 2 lần thử lại thực sự diễn ra, không phải 3. Sửa bằng cách so sánh
+  `TimeOfDay > TimeSpan.FromHours(13)` thay vì `Hour >= 13`: lần thử đúng lúc 13:00:00 được phép
+  gửi (không còn bị chặn), còn mọi thời điểm sau đó trong giờ 13 (ví dụ 13:30) vẫn bị chặn như cũ.
+  Unit test `SweepAsync_NaturalHourlySequenceFromTenAm_SendsAllThreeRetriesThenFailsOnBudget` và
+  test tích hợp SQL Server tương ứng xác nhận đúng 3 lần thử lại rồi mới `SettlementFailed`.
 
 ## Kiểm thử
 
