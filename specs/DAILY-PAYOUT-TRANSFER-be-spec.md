@@ -167,13 +167,22 @@ Bước chuyển tiền thật chưa làm. Lượt chạy vẫn đầy đủ m�
 
 ## Điểm lệch đã biết (chưa sửa trong v3)
 
-Phát hiện khi rà lại code so với spec; ghi lại để theo dõi, không thuộc phạm vi thay đổi lần này:
-
-- **`payment.PayoutReconciliationItem` (PD-17) chưa được tạo.** Tra cứu PD-7a trong
-  `DailyPayoutRetrySweepProcessor` chuyển đúng trạng thái khi phát hiện chênh lệch, nhưng không
-  ghi bản ghi đối soát riêng, không ghi audit log, không gửi cảnh báo như Task 7A yêu cầu.
+Không còn điểm lệch nào chưa sửa — xem "Điểm lệch đã sửa" bên dưới.
 
 ## Điểm lệch đã sửa
+
+- **`payment.PayoutReconciliationItem` (PD-17) đã được tạo.** Trước đây, tra cứu PD-7a trong
+  `DailyPayoutRetrySweepProcessor` chuyển đúng trạng thái khi phát hiện chênh lệch, nhưng không
+  ghi bản ghi đối soát riêng, không ghi audit log, không gửi cảnh báo như Task 7A yêu cầu. Nay khi
+  tra cứu phát hiện gateway báo `Succeeded` hoặc `Rejected` cho một lệnh TripMate vẫn đang coi là
+  `Processing` — đây chính là "chênh lệch" PD-17 nói tới — `DailyPayoutRetrySweepProcessor` ghi
+  một `PayoutReconciliationItem` (migration `20261109_add_payout_reconciliation_item.sql`), một
+  audit log (`PAYOUT_RECONCILIATION_DISCREPANCY_DETECTED`), và một `Notification` cho mỗi
+  Administrator đang Active (cùng kiểu fan-out với `RefundProcessor`). Một tra cứu `Failed`/
+  `Timeout` (vẫn chưa rõ ràng, khớp với giả định `Processing`) không phải chênh lệch và không ghi
+  gì. Chênh lệch số tiền/mã tham chiếu (phần còn lại PD-17 nêu) chưa áp dụng được vì
+  `IPayoutTransferGateway`/`PayoutTransferResult` (chế độ giả lập) không trả về số tiền hay mã
+  tham chiếu quan sát được để so sánh — chỉ có `Outcome`.
 
 - **Quyết định 6 không đúng như mô tả khi lượt chạy đúng 10:00 (đã sửa).** `IsPastRetryCutoffFor`
   dùng `Hour >= 13`, nên lần thử lại thứ 3 (dự kiến đúng lúc 13:00) bị cửa sổ chặn trước khi gửi —

@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
+using TripMate.Domain.Common;
 using TripMate.Domain.Entities;
+using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Payouts.DailySettlement;
 
@@ -60,13 +62,20 @@ public sealed class DailyPayoutRetrySweepProcessor(
 
         if (lookup.Outcome == PayoutTransferOutcome.Succeeded)
         {
+            await RecordDiscrepancyAsync(batch, nowUtc, PayoutReconciliationItem.ObservedOutcomeSucceeded, reference, ct);
             batch.MarkSettled(reference, nowUtc);
             return true;
         }
 
         var pastRetryBudget = batch.AttemptCount > MaxRetries; // attempt 1 is the initial send
         var pastCutoff = DailyPayoutClock.IsPastRetryCutoffFor(batch.RunDate, nowUtc);
-        if (lookup.Outcome == PayoutTransferOutcome.Rejected || pastRetryBudget || pastCutoff)
+        if (lookup.Outcome == PayoutTransferOutcome.Rejected)
+        {
+            await RecordDiscrepancyAsync(batch, nowUtc, PayoutReconciliationItem.ObservedOutcomeRejected, reference, ct);
+            batch.MarkFailed(nowUtc);
+            return true;
+        }
+        if (pastRetryBudget || pastCutoff)
         {
             batch.MarkFailed(nowUtc);
             return true;
@@ -85,5 +94,48 @@ public sealed class DailyPayoutRetrySweepProcessor(
         // Failed/Timeout: stays Processing, picked up again next hour by this sweep.
 
         return true;
+    }
+
+    /// <summary>Task 7A (PD-17): the PD-7a lookup just revealed the batch's real outcome differs
+    /// from what TripMate still believed (<see cref="PayoutSettlementStatus.Processing"/>) — a
+    /// plain Failed/Timeout lookup is unresolved, not a discrepancy, and never reaches here.
+    /// Records a <see cref="PayoutReconciliationItem"/>, an audit log entry, and a push
+    /// notification to every active Administrator (same fan-out pattern as
+    /// <c>RefundProcessor.AddManualReviewNotificationsAsync</c>).</summary>
+    private async Task RecordDiscrepancyAsync(
+        PayoutBatch batch, DateTimeOffset nowUtc, string observedOutcome, string observedReference, CancellationToken ct)
+    {
+        db.PayoutReconciliationItems.Add(PayoutReconciliationItem.Create(
+            batch.Id, nowUtc, PayoutSettlementStatus.Processing, observedOutcome, observedReference,
+            note: $"Gateway lookup reported {observedOutcome} for batch {batch.Id}, still Processing in TripMate."));
+
+        db.AuditLogs.Add(AuditLog.CreateRecordedOutcome(
+            actorUserId: null,
+            actionType: AuditActionTypes.PayoutReconciliationDiscrepancyDetected,
+            affectedEntity: AuditEntityTypes.PayoutBatch,
+            affectedEntityId: batch.Id,
+            createdAtUtc: nowUtc,
+            result: AuditOutcome.Success,
+            reason: $"Gateway lookup reported {observedOutcome}"));
+
+        var administratorIds = await db.Users.AsNoTracking()
+            .Where(u => u.Role == UserRole.Administrator && u.Status == AccountStatus.Active)
+            .Select(u => u.Id)
+            .ToListAsync(ct);
+        foreach (var administratorId in administratorIds)
+        {
+            db.Notifications.Add(new Notification
+            {
+                UserId = administratorId,
+                Channel = NotificationChannel.Push,
+                Type = "PayoutReconciliationDiscrepancyDetected",
+                Title = "Payout reconciliation discrepancy",
+                Body = $"Batch {batch.Id} (Tour Operator {batch.TourOperatorUserId}): gateway reports {observedOutcome}, review required.",
+                RelatedEntityType = AuditEntityTypes.PayoutBatch,
+                RelatedEntityId = batch.Id,
+                Status = NotificationStatus.Pending,
+                CreatedAtUtc = nowUtc,
+            });
+        }
     }
 }

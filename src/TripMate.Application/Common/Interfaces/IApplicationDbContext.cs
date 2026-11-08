@@ -180,6 +180,8 @@ public interface IApplicationDbContext
 
     DbSet<PayoutSettlementAdjustment> PayoutSettlementAdjustments { get; }
 
+    DbSet<PayoutReconciliationItem> PayoutReconciliationItems { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 
     Task<int> RevokeRefreshTokenAsync(
