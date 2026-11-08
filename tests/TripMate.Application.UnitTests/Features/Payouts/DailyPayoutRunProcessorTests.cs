@@ -36,7 +36,7 @@ public sealed class DailyPayoutRunProcessorTests
         await using var db = TestDbContext.Create();
         var operatorUser = await DailyPayoutTestFixture.SeedOperatorAsync(db, 7);
         await DailyPayoutTestFixture.SeedTourScheduleAsync(db, tourId: 1, scheduleId: 1, operatorId: 7, endAtUtc: AtRunTime.AddDays(-1));
-        await DailyPayoutTestFixture.SeedConfirmedBookingAsync(db, bookingId: 1, scheduleId: 1, totalAmount: 2_000_000m, succeededAtUtc: AtRunTime.AddHours(-2));
+        await DailyPayoutTestFixture.SeedConfirmedBookingAsync(db, bookingId: 1, scheduleId: 1, totalAmount: 2_000_000m, succeededAtUtc: AtRunTime.AddHours(-25));
 
         var processor = CreateProcessor(db, new SimulatedPayoutTransferGateway(new FixedOutcomeScenario(PayoutTransferOutcome.Succeeded)), AtRunTime);
         var outcome = await processor.RunIfDueAsync(CancellationToken.None);
@@ -62,7 +62,7 @@ public sealed class DailyPayoutRunProcessorTests
         await using var db = TestDbContext.Create();
         await DailyPayoutTestFixture.SeedOperatorAsync(db, 7);
         await DailyPayoutTestFixture.SeedTourScheduleAsync(db, 1, 1, 7, AtRunTime.AddDays(-1));
-        await DailyPayoutTestFixture.SeedConfirmedBookingAsync(db, 1, 1, 2_000_000m, AtRunTime.AddHours(-2));
+        await DailyPayoutTestFixture.SeedConfirmedBookingAsync(db, 1, 1, 2_000_000m, AtRunTime.AddHours(-25));
 
         var gateway = new SimulatedPayoutTransferGateway(new FixedOutcomeScenario(PayoutTransferOutcome.Succeeded));
         var processor = CreateProcessor(db, gateway, AtRunTime);
@@ -82,7 +82,7 @@ public sealed class DailyPayoutRunProcessorTests
         await using var db = TestDbContext.Create();
         await DailyPayoutTestFixture.SeedOperatorAsync(db, 7, AccountStatus.Locked);
         await DailyPayoutTestFixture.SeedTourScheduleAsync(db, 1, 1, 7, AtRunTime.AddDays(-1));
-        await DailyPayoutTestFixture.SeedConfirmedBookingAsync(db, 1, 1, 2_000_000m, AtRunTime.AddHours(-2));
+        await DailyPayoutTestFixture.SeedConfirmedBookingAsync(db, 1, 1, 2_000_000m, AtRunTime.AddHours(-25));
 
         var processor = CreateProcessor(db, new SimulatedPayoutTransferGateway(new FixedOutcomeScenario(PayoutTransferOutcome.Succeeded)), AtRunTime);
         await processor.RunIfDueAsync(CancellationToken.None);
@@ -134,7 +134,7 @@ public sealed class DailyPayoutRunProcessorTests
         await using var db = TestDbContext.Create();
         await DailyPayoutTestFixture.SeedOperatorAsync(db, 7);
         await DailyPayoutTestFixture.SeedTourScheduleAsync(db, 1, 1, 7, AtRunTime.AddDays(-1));
-        await DailyPayoutTestFixture.SeedConfirmedBookingAsync(db, 1, 1, 2_000_000m, AtRunTime.AddHours(-2));
+        await DailyPayoutTestFixture.SeedConfirmedBookingAsync(db, 1, 1, 2_000_000m, AtRunTime.AddHours(-25));
 
         var processor = CreateProcessor(db, new SimulatedPayoutTransferGateway(new FixedOutcomeScenario(PayoutTransferOutcome.Rejected)), AtRunTime);
         await processor.RunIfDueAsync(CancellationToken.None);
@@ -149,7 +149,7 @@ public sealed class DailyPayoutRunProcessorTests
         await using var db = TestDbContext.Create();
         var operatorUser = await DailyPayoutTestFixture.SeedOperatorAsync(db, 7, AccountStatus.Locked);
         await DailyPayoutTestFixture.SeedTourScheduleAsync(db, 1, 1, 7, AtRunTime.AddDays(-1));
-        await DailyPayoutTestFixture.SeedConfirmedBookingAsync(db, 1, 1, 2_000_000m, AtRunTime.AddHours(-2));
+        await DailyPayoutTestFixture.SeedConfirmedBookingAsync(db, 1, 1, 2_000_000m, AtRunTime.AddHours(-25));
         var gateway = new SimulatedPayoutTransferGateway(new FixedOutcomeScenario(PayoutTransferOutcome.Succeeded));
 
         await CreateProcessor(db, gateway, AtRunTime).RunIfDueAsync(CancellationToken.None);
@@ -171,7 +171,7 @@ public sealed class DailyPayoutRunProcessorTests
         await using var db = TestDbContext.Create();
         await DailyPayoutTestFixture.SeedOperatorAsync(db, 7);
         await DailyPayoutTestFixture.SeedTourScheduleAsync(db, 1, 1, 7, AtRunTime.AddDays(-1));
-        await DailyPayoutTestFixture.SeedConfirmedBookingAsync(db, 1, 1, 2_000_000m, AtRunTime.AddHours(-2));
+        await DailyPayoutTestFixture.SeedConfirmedBookingAsync(db, 1, 1, 2_000_000m, AtRunTime.AddHours(-25));
 
         var processor = CreateProcessor(db, new SimulatedPayoutTransferGateway(new FixedOutcomeScenario(PayoutTransferOutcome.Timeout)), AtRunTime);
         await processor.RunIfDueAsync(CancellationToken.None);
@@ -179,5 +179,46 @@ public sealed class DailyPayoutRunProcessorTests
         var batch = db.PayoutBatches.Should().ContainSingle().Subject;
         batch.Status.Should().Be(PayoutSettlementStatus.Processing);
         batch.AttemptCount.Should().Be(1);
+    }
+
+    // DAILY-PAYOUT-TRANSFER, BR-141 (SRS v12): every paid booking enters a 24-hour Awaiting
+    // Window before it is eligible for any run, regardless of how long ago the run itself last
+    // fired. This protects BR-157's 24-hour full-refund guarantee: a cancellation inside the
+    // window is always refunded from the still-collected payment (BR-142), never clawed back
+    // from a Tour Operator who already received it.
+    [Fact]
+    public async Task RunIfDueAsync_BookingPaidLessThanTwentyFourHoursAgo_IsExcludedFromThisRun()
+    {
+        await using var db = TestDbContext.Create();
+        await DailyPayoutTestFixture.SeedOperatorAsync(db, 7);
+        await DailyPayoutTestFixture.SeedTourScheduleAsync(db, 1, 1, 7, AtRunTime.AddDays(-1));
+        await DailyPayoutTestFixture.SeedConfirmedBookingAsync(db, 1, 1, 2_000_000m, AtRunTime.AddHours(-2));
+
+        var processor = CreateProcessor(db, new SimulatedPayoutTransferGateway(new FixedOutcomeScenario(PayoutTransferOutcome.Succeeded)), AtRunTime);
+        var outcome = await processor.RunIfDueAsync(CancellationToken.None);
+
+        outcome.Should().Be(DailyPayoutRunOutcome.Ran, "the run itself still happens — it simply has nothing eligible yet");
+        db.PayoutBatches.Should().BeEmpty("BR-141: the booking is still inside its 24-hour Awaiting Window");
+        db.PayoutSettlements.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task RunIfDueAsync_BookingBecomesEligibleOnceItsWindowEnds_IncludedInTheFirstRunAfter()
+    {
+        await using var db = TestDbContext.Create();
+        await DailyPayoutTestFixture.SeedOperatorAsync(db, 7);
+        await DailyPayoutTestFixture.SeedTourScheduleAsync(db, 1, 1, 7, AtRunTime.AddDays(1));
+        await DailyPayoutTestFixture.SeedConfirmedBookingAsync(db, 1, 1, 2_000_000m, AtRunTime.AddHours(-23));
+        var gateway = new SimulatedPayoutTransferGateway(new FixedOutcomeScenario(PayoutTransferOutcome.Succeeded));
+
+        await CreateProcessor(db, gateway, AtRunTime).RunIfDueAsync(CancellationToken.None);
+        db.PayoutSettlements.Should().BeEmpty("still inside the 24-hour window on day 1");
+
+        var nextDay = AtRunTime.AddDays(1); // now 24h + 1h since payment — the window has ended
+        await CreateProcessor(db, gateway, nextDay).RunIfDueAsync(CancellationToken.None);
+
+        var settlement = db.PayoutSettlements.Should().ContainSingle().Subject;
+        settlement.BookingId.Should().Be(1);
+        settlement.Status.Should().Be(PayoutSettlementStatus.Settled);
     }
 }

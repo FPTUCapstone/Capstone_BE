@@ -9,6 +9,12 @@ public static class DailyPayoutClock
     /// <summary>End of the same-day retry window (spec decision: 10:00 + 3 hourly retries = 13:00).</summary>
     public const int RetryCutoffHour = 13;
 
+    /// <summary>BR-141 (SRS v12): every paid booking is held this long after its payment
+    /// confirmation timestamp before it is eligible for any run, regardless of when the run
+    /// itself fires. A cancellation inside the window is refunded from the still-collected
+    /// payment (BR-142), never clawed back from a Tour Operator who already received it.</summary>
+    public static readonly TimeSpan AwaitingWindowDuration = TimeSpan.FromHours(24);
+
     public static readonly TimeZoneInfo VietnamTimeZone = FindVietnamTimeZone();
 
     public static DateTimeOffset ToVietnamTime(DateTimeOffset utc) => TimeZoneInfo.ConvertTime(utc, VietnamTimeZone);
