@@ -25,13 +25,18 @@ public static class DailyPayoutClock
 
     /// <summary>True once Vietnam-local time has passed 13:00 on <paramref name="runDate"/>'s own
     /// day (or any later day) — the retry window belongs to the run that created the batch, not
-    /// to whichever day the sweep happens to run on.</summary>
+    /// to whichever day the sweep happens to run on. Strictly after 13:00:00, not at-or-after: a
+    /// retry whose hourly schedule lands it exactly on the cutoff (a run starting exactly at
+    /// 10:00 puts its 3rd retry exactly at 13:00) must still be allowed to send, or "3 retries,
+    /// last one at 13:00" only ever delivers 2. Comparing by <see cref="DateTimeOffset.TimeOfDay"/>
+    /// rather than <see cref="DateTimeOffset.Hour"/> keeps this precise at any other minute of the
+    /// 13 o'clock hour (e.g. 13:30) still counting as past the cutoff.</summary>
     public static bool IsPastRetryCutoffFor(DateOnly runDate, DateTimeOffset utc)
     {
         var local = ToVietnamTime(utc);
         var localDate = DateOnly.FromDateTime(local.Date);
         if (localDate > runDate) return true;
-        return localDate == runDate && local.Hour >= RetryCutoffHour;
+        return localDate == runDate && local.TimeOfDay > TimeSpan.FromHours(RetryCutoffHour);
     }
 
     private static TimeZoneInfo FindVietnamTimeZone()

@@ -208,13 +208,12 @@ public sealed class DailyPayoutSettlementRunSqlServerTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
-    public async Task RetrySweep_NaturalHourlySequenceFromTenAm_HitsTheSameDayCutoffBeforeAThirdRetry()
+    public async Task RetrySweep_NaturalHourlySequenceFromTenAm_SendsAllThreeRetriesThenFailsOnBudget()
     {
-        // Documents the actual boundary behaviour of a run that starts exactly at 10:00 VN,
-        // swept hourly by a real scheduler rather than by seeding AttemptCount directly: the
-        // 13:00 VN cutoff check in DailyPayoutRetrySweepProcessor fires with `>=`, so the sweep
-        // due AT 13:00 is blocked before it can send what would be the natural 3rd retry. Only 2
-        // retries (not the 3 the plan's own comment and Task 11's DoD describe) ever go out.
+        // A run starting exactly at 10:00 VN, swept hourly by a real scheduler rather than by
+        // seeding AttemptCount directly: the 13:00 VN sweep is exactly on IsPastRetryCutoffFor's
+        // boundary, not past it, so it still sends the 3rd (last) retry; only the 14:00 sweep,
+        // once the budget of 3 retries is exhausted, fails the batch.
         await using var database = await SqlServerTestDatabase.CreateAsync();
         var operatorUserId = await SeedOperatorAsync(database, "run-cutoff");
         var scheduleId = await SeedScheduleAsync(database, operatorUserId);
@@ -229,7 +228,7 @@ public sealed class DailyPayoutSettlementRunSqlServerTests
             await processor.RunIfDueAsync(CancellationToken.None); // attempt 1 @ 10:00 VN
         }
 
-        foreach (var hour in new[] { 1, 2, 3 }) // sweeps @ 11:00, 12:00, 13:00 VN
+        foreach (var hour in new[] { 1, 2, 3 }) // sweeps @ 11:00, 12:00, 13:00 VN -> retries 2, 3, 4
         {
             clock.UtcNow = RunTimeUtc.AddHours(hour);
             await using var context = database.CreateDbContext();
@@ -237,14 +236,25 @@ public sealed class DailyPayoutSettlementRunSqlServerTests
             await sweep.SweepAsync(CancellationToken.None);
         }
 
+        await using (var afterThirdRetry = database.CreateDbContext())
+        {
+            var batch = await afterThirdRetry.PayoutBatches.AsNoTracking().SingleAsync();
+            batch.Status.Should().Be(PayoutSettlementStatus.Processing, "the 13:00 retry is exactly on the cutoff, not past it");
+            batch.AttemptCount.Should().Be(4);
+        }
+
+        clock.UtcNow = RunTimeUtc.AddHours(4); // sweep @ 14:00 VN -> budget exhausted
+        await using (var context = database.CreateDbContext())
+        {
+            var sweep = new DailyPayoutRetrySweepProcessor(context, gateway, clock);
+            await sweep.SweepAsync(CancellationToken.None);
+        }
+
         await using var verify = database.CreateDbContext();
-        var batch = await verify.PayoutBatches.AsNoTracking().SingleAsync();
-        batch.Status.Should().Be(PayoutSettlementStatus.SettlementFailed);
-        batch.AttemptCount.Should().Be(3,
-            "only the 11:00 and 12:00 sweeps could send a retry (attempts 2 and 3) — the 13:00 " +
-            "sweep is already past IsPastRetryCutoffFor's >= 13 boundary and fails the batch " +
-            "without a 3rd retry send, one fewer than MaxRetries describes");
-        (await verify.PayoutSettlementAttempts.CountAsync()).Should().Be(3);
+        var finalBatch = await verify.PayoutBatches.AsNoTracking().SingleAsync();
+        finalBatch.Status.Should().Be(PayoutSettlementStatus.SettlementFailed);
+        finalBatch.AttemptCount.Should().Be(4, "exhausting the budget must not count as another attempt");
+        (await verify.PayoutSettlementAttempts.CountAsync()).Should().Be(4);
     }
 
     [SqlServerFact]
