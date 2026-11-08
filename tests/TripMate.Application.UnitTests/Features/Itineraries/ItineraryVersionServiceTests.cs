@@ -197,6 +197,37 @@ public sealed class ItineraryVersionServiceTests
     }
 
     [Fact]
+    public async Task CreateRegeneratedVersion_InWeightedUtilityMode_WhenOnlyTheVisitOrderWouldChange_ReturnsNoAlternative()
+    {
+        // Both places have been suggested, so they share one tier and the solver may swap their order.
+        // The same places in another order are not an alternative for the traveler.
+        await using var dbContext = TestDbContext.Create();
+        var request = await AddRequestAsync(dbContext, travelerUserId: 42);
+        var previous = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Previous museum", visitMinutes: 60);
+        var newPoi = await AddPlanningReadyPoiAsync(dbContext, "Nature", "New park", visitMinutes: 60);
+        var original = await AddItineraryAsync(dbContext, request, previous.Id);
+        var options = new SchedulingGenerationOptions
+        {
+            SolverMode = SchedulingSolverMode.Csp,
+            Csp = new CspOptions { Mode = ObjectiveMode.WeightedUtility },
+        };
+        ItineraryVersionService Service() => new(
+            dbContext,
+            new FixedRouteDurationProvider(),
+            options,
+            new TimeOfDayOptions { Enabled = false });
+
+        var first = await Service().CreateRegeneratedVersionAsync(original, request, CancellationToken.None);
+        await dbContext.SaveChangesAsync();
+        var second = await Service().CreateRegeneratedVersionAsync(first.Value, request, CancellationToken.None);
+
+        first.IsSuccess.Should().BeTrue();
+        VisitIds(first.Value).Should().BeEquivalentTo(new[] { previous.Id, newPoi.Id });
+        second.IsFailure.Should().BeTrue();
+        second.ErrorCode.Should().Be(ItineraryErrorCodes.NoAlternative);
+    }
+
+    [Fact]
     public async Task CreateRegeneratedVersion_PrefersAPlaceNeverSuggestedOverOneFromAnEarlierVersion()
     {
         // v1 showed the museum, v2 (current) the park: v3 must not bounce back to the museum

@@ -155,10 +155,11 @@ public sealed class ItineraryVersionService(
             .RefineAsync(input, plan.Value, TimeOfDayTraitsFactory.From(pois), cancellationToken));
 
         // Nothing else fits: keep the current version instead of saving an identical copy.
+        // The same places in another visit order are not an alternative for the traveler.
         if (plan.Value.Items
-            .OrderBy(item => item.SequenceNo)
             .Select(item => (item.Kind, item.PointOfInterestId))
-            .SequenceEqual(currentStops.Select(stop => (stop.Kind, stop.PointOfInterestId))))
+            .ToHashSet()
+            .SetEquals(currentStops.Select(stop => (stop.Kind, stop.PointOfInterestId))))
         {
             return Result.Failure<Itinerary>(
                 ItineraryErrorCodes.NoAlternative,

@@ -105,6 +105,12 @@ as a regression check that the mode switch does not affect them.
 - A regeneration returns a new itinerary version or an existing business failure such as
   `itinerary.no_alternative` / `itinerary.constraints_infeasible`; missing weighted inputs or tier
   penalties must not escape as an unhandled exception.
+- A regeneration that selects the same places as the current version, in any visit order, returns
+  `itinerary.no_alternative` instead of saving a copy (the places are compared as a set). This applies
+  to both objective modes. Once every candidate has been suggested they share one tier, so a second
+  Regenerate in `WeightedUtility` could otherwise save a version that only swaps the visit order.
+  Behavior change in `Lexicographic`: a current itinerary whose order differs from the solver's order
+  for the same places (for example `[B, A]` against `[A, B]`) now also returns `no_alternative`.
 
 ### Regeneration score floor (issue #121, updated after PR #133 review on 2026-10-28)
 
@@ -123,8 +129,9 @@ as a regression check that the mode switch does not affect them.
   defaults are Relaxed `0.018`, Moderate `0.012`, Fast `0.008`; at the default Relaxed pace,
   that leg costs `0.18`, below the conservative same-group gain. More travel, poor time fit, or other
   penalties can still make a POI undesirable; filling every minute is not guaranteed.
-- The unseen POI must come first when both fit; a previously suggested POI remains eligible if
-  its marginal utility exceeds its travel and soft costs. Lexicographic behavior is unchanged.
+- The unseen POI is selected first when places are scarce; the visit order is decided by the route,
+  so an unseen POI is not guaranteed to be visited first. A previously suggested POI remains eligible
+  if its marginal utility exceeds its travel and soft costs. Lexicographic scoring is unchanged.
 
 ## Invariants that must hold in every solver mode
 
