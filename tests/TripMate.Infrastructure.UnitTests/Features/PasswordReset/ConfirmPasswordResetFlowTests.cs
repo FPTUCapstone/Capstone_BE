@@ -336,6 +336,16 @@ public class ConfirmPasswordResetFlowTests
 
         DbSet<Domain.Entities.PayoutPeriodBreakdown> IApplicationDbContext.PayoutPeriodBreakdowns => throw new NotSupportedException();
 
+        DbSet<Domain.Entities.PayoutRun> IApplicationDbContext.PayoutRuns => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.PayoutBatch> IApplicationDbContext.PayoutBatches => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.PayoutSettlement> IApplicationDbContext.PayoutSettlements => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.PayoutSettlementAttempt> IApplicationDbContext.PayoutSettlementAttempts => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.PayoutSettlementAdjustment> IApplicationDbContext.PayoutSettlementAdjustments => throw new NotSupportedException();
+
         public Task<int> RevokeRefreshTokenAsync(
             string tokenHash,
             DateTimeOffset revokedAtUtc,

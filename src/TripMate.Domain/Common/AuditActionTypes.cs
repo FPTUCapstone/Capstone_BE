@@ -54,6 +54,11 @@ public static class AuditActionTypes
     public const string PayoutApproved = "ApprovePayoutRequest";
     public const string PayoutRejected = "RejectPayoutRequest";
 
+    // DAILY-PAYOUT-TRANSFER, UC-73 (Task 9)
+    public const string PayoutSettlementRetried = "PAYOUT_SETTLEMENT_RETRIED";
+    public const string PayoutSettlementCarriedOver = "PAYOUT_SETTLEMENT_CARRIED_OVER";
+    public const string PayoutSettlementManuallySettled = "PAYOUT_SETTLEMENT_MANUALLY_SETTLED";
+
     // UC-43 Check-in scan verification rejected
     public const string CheckInScanRejected = "CheckInScanRejected";
 }

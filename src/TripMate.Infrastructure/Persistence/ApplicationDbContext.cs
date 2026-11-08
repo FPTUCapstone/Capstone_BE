@@ -361,6 +361,17 @@ public class ApplicationDbContext(
 
     public DbSet<PayoutPeriodBreakdown> PayoutPeriodBreakdowns => Set<PayoutPeriodBreakdown>();
 
+    // DAILY-PAYOUT-TRANSFER (Task 2)
+    public DbSet<PayoutRun> PayoutRuns => Set<PayoutRun>();
+
+    public DbSet<PayoutBatch> PayoutBatches => Set<PayoutBatch>();
+
+    public DbSet<PayoutSettlement> PayoutSettlements => Set<PayoutSettlement>();
+
+    public DbSet<PayoutSettlementAttempt> PayoutSettlementAttempts => Set<PayoutSettlementAttempt>();
+
+    public DbSet<PayoutSettlementAdjustment> PayoutSettlementAdjustments => Set<PayoutSettlementAdjustment>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(
