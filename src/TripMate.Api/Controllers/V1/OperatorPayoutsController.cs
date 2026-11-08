@@ -5,7 +5,6 @@ using Microsoft.AspNetCore.Mvc;
 
 using TripMate.Api.Common;
 using TripMate.Application.Features.Operator.Payouts.BankAccount;
-using TripMate.Application.Features.Operator.Payouts.GetHistory;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Api.Controllers.V1;
@@ -14,17 +13,6 @@ namespace TripMate.Api.Controllers.V1;
 [Route("api/v1/operator/payouts")]
 public sealed class OperatorPayoutsController(ISender sender) : ApiControllerBase(sender)
 {
-
-
-
-    [HttpGet]
-    public async Task<IActionResult> History([FromQuery] int page = 1, [FromQuery] int pageSize = 20, CancellationToken cancellationToken = default)
-    {
-        var result = await Sender.Send(new GetOperatorPayoutHistoryQuery(page, pageSize), cancellationToken);
-        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
-    }
-
-
     [HttpGet("bank-account")]
     public async Task<IActionResult> GetBankAccount(CancellationToken cancellationToken)
     {

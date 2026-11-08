@@ -167,15 +167,7 @@ public interface IApplicationDbContext
 
     DbSet<ReroutingEvent> ReroutingEvents { get; }
 
-    DbSet<Payout> Payouts { get; }
-
-    DbSet<PayoutItem> PayoutItems { get; }
-
-    DbSet<PayoutRefundItem> PayoutRefundItems { get; }
-
     DbSet<PayoutAdjustment> PayoutAdjustments { get; }
-
-    DbSet<PayoutPeriodBreakdown> PayoutPeriodBreakdowns { get; }
 
     // DAILY-PAYOUT-TRANSFER (Task 2)
     DbSet<PayoutRun> PayoutRuns { get; }

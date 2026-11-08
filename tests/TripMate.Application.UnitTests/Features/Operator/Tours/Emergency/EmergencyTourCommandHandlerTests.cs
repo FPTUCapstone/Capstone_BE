@@ -84,8 +84,6 @@ public sealed class EmergencyTourCommandHandlerTests
         db.Refunds.Should().BeEmpty();
         db.PaymentTransactions.Should().ContainSingle()
             .Which.TransactionType.Should().Be(PaymentTransaction.TypePayment);
-        db.Payouts.Should().BeEmpty();
-        db.PayoutItems.Should().BeEmpty();
     }
 
     [Fact]
