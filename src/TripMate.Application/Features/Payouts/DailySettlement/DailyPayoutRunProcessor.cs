@@ -67,7 +67,7 @@ public sealed class DailyPayoutRunProcessor(
     /// skipped entirely by <see cref="DailyPayoutEligibilityReader"/> and are not considered here.</summary>
     private async Task<List<PayoutBatch>> CreateBatchesAsync(DateOnly runDate, DateTimeOffset nowUtc, CancellationToken ct)
     {
-        var eligible = await reader.LoadEligibleBookingsAsync(ct);
+        var eligible = await reader.LoadEligibleBookingsAsync(nowUtc, ct);
         var debtByOperator = await reader.LoadOutstandingDebtByOperatorAsync(ct);
         var batchesByOperator = new Dictionary<long, PayoutBatch>();
 

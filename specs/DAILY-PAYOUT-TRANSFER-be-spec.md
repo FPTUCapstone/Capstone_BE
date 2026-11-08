@@ -1,9 +1,20 @@
-# DAILY-PAYOUT-TRANSFER — Chuyển tiền tự động cho Tour Operator mỗi ngày (Backend Spec, v2)
+# DAILY-PAYOUT-TRANSFER — Chuyển tiền tự động cho Tour Operator mỗi ngày (Backend Spec, v3)
 
 ## Trạng thái
 
-Draft v2, chờ developer duyệt. Thay thế v1 sau khi rà soát (xem mục "Thay đổi so với v1").
-Nguồn: SRS Report3 v11 (mục 3.9.9, 3.10.4, 3.10.5; UC-71 đến UC-74; BR-139 đến BR-146, BR-154, BR-160).
+Draft v3, chờ developer duyệt. Cập nhật theo SRS v12 (xem mục "Thay đổi so với v2").
+Nguồn: SRS Report3 v12 (mục 3.9.9, 3.10.4, 3.10.5; UC-71 đến UC-74; BR-139 đến BR-146, BR-154,
+BR-157, BR-160, BR-164).
+
+## Thay đổi so với v2
+
+- **BR-141 có thêm Awaiting Window.** v11 chuyển tiền ở lượt 10:00 gần nhất sau khi thanh toán,
+  không có thời gian chờ. v12 thêm quy tắc mới: mọi booking đã thanh toán phải chờ **24 giờ**
+  tính từ thời điểm xác nhận thanh toán rồi mới đủ điều kiện vào bất kỳ lượt chạy nào — bất kể
+  lượt chạy đó diễn ra lúc nào. Mục đích: khớp với "cửa sổ hoàn 100%" của BR-157 (hủy trong 24
+  giờ sau thanh toán được hoàn 100%), để phần lớn các hủy thuộc diện này được hoàn trực tiếp từ
+  tiền TripMate đang giữ (BR-142), không phải đòi lại tiền đã chuyển cho TO (BR-143/BR-144).
+  Đã triển khai ở `DailyPayoutEligibilityReader` (PD-2 cập nhật bên dưới).
 
 Thay thế luồng payout cũ (yêu cầu rút tiền của TO, Staff duyệt, tính theo tháng, carry-forward). Luồng cũ đã bị bỏ trong SRS và không có trong spec này.
 
@@ -28,7 +39,13 @@ Ngoài phạm vi (nhánh khác):
 
 **PD-1. Lượt chạy.** Hệ thống chạy một lần mỗi ngày lúc 10:00 theo giờ Việt Nam, kể cả cuối tuần và ngày lễ (BR-141). Thời gian lưu và so sánh bằng UTC, quy đổi sang giờ Việt Nam khi xác định lượt.
 
-**PD-2. Booking được đưa vào lượt chạy.** Booking được chọn nếu khi lượt chạy bắt đầu: đã thanh toán và xác nhận, và không bị hủy toàn bộ. Xử lý theo BR-142 và BR-143:
+**PD-1A. Awaiting Window (BR-141, mới ở v12).** Mỗi booking đã thanh toán phải chờ đủ 24 giờ
+tính từ thời điểm xác nhận thanh toán (không phải từ lượt chạy trước) rồi mới đủ điều kiện vào
+lượt chạy. Booking được chọn vào lượt chạy đầu tiên diễn ra sau khi cửa sổ 24 giờ của nó kết
+thúc. Hủy trong lúc còn trong cửa sổ đi theo luồng hoàn trước chuyển (BR-142) như bình thường —
+cửa sổ không tạo trạng thái booking mới, chỉ trì hoãn việc đưa booking vào lệnh gom.
+
+**PD-2. Booking được đưa vào lượt chạy.** Booking được chọn nếu khi lượt chạy bắt đầu: đã thanh toán và xác nhận, cửa sổ Awaiting Window (PD-1A) đã kết thúc, và không bị hủy toàn bộ. Xử lý theo BR-142 và BR-143:
 - Hủy 100% trước lượt chạy: không tạo settlement cho TO; toàn bộ tiền hoàn từ tiền đã thu (BR-142).
 - Hủy một phần trước lượt chạy: tạo settlement loại `Retained` cho phần giữ lại. Phần giữ lại = tổng tiền của phần không hoàn. TripMate giữ hoa hồng 10% của phần giữ lại, TO nhận phần còn lại (BR-142).
 - Hủy sau khi lượt chạy bắt đầu: booking đã được chuyển, đi theo luồng sau chuyển (BR-143, nhánh hoàn tiền).
@@ -135,6 +152,26 @@ Bước chuyển tiền thật chưa làm. Lượt chạy vẫn đầy đủ m�
 5. Gom lệnh theo TO mỗi ngày (PD-14).
 
 6. Cửa sổ thử lại trong ngày kết thúc lúc 13:00 (10:00 cộng 3 lần thử lại, mỗi giờ). Lần thử sau 13:00 không thực hiện, settlement chuyển `SettlementFailed` nếu chưa thành công.
+7. Awaiting Window (BR-141, v12): 24 giờ cố định từ thời điểm xác nhận thanh toán, áp dụng cho
+   mọi booking (cả `Main` và `Retained`), không phân biệt ngày lễ/cuối tuần. Đã triển khai ở
+   `DailyPayoutEligibilityReader`.
+
+## Điểm lệch đã biết (chưa sửa trong v3)
+
+Phát hiện khi rà lại code so với spec; ghi lại để theo dõi, không thuộc phạm vi thay đổi lần này:
+
+- **Quyết định 6 không đúng như mô tả khi lượt chạy đúng 10:00.** `IsPastRetryCutoffFor` dùng
+  `Hour >= 13`, nên lần thử lại thứ 3 (dự kiến đúng lúc 13:00) bị cửa sổ chặn trước khi gửi — chỉ
+  2 lần thử lại thực sự diễn ra, không phải 3. Có bằng chứng bằng unit test
+  `SweepAsync_NaturalHourlySequenceFromTenAm_HitsCutoffBeforeAThirdRetryIsSent`.
+- **`payment.PayoutReconciliationItem` (PD-17) chưa được tạo.** Tra cứu PD-7a trong
+  `DailyPayoutRetrySweepProcessor` chuyển đúng trạng thái khi phát hiện chênh lệch, nhưng không
+  ghi bản ghi đối soát riêng, không ghi audit log, không gửi cảnh báo như Task 7A yêu cầu.
+- **UC-72 chưa hiển thị trạng thái "Awaiting Window".** `GetPayoutSettlementsQuery` chỉ đọc từ
+  bảng `PayoutSettlements`, mà bảng này chưa có dòng nào cho một booking còn trong Awaiting
+  Window (PD-1A) — settlement chỉ được tạo sau khi cửa sổ kết thúc. Cần một model đọc gộp
+  (booking đã thanh toán, chưa có settlement, chưa hết cửa sổ) để UC-72 hiển thị đúng trạng thái
+  này như SRS §3.9.9.1 mô tả.
 
 ## Kiểm thử
 
@@ -142,6 +179,7 @@ Bước chuyển tiền thật chưa làm. Lượt chạy vẫn đầy đủ m�
 - Đơn vị: chuyển trạng thái hợp lệ và từ chối không hợp lệ.
 - Đơn vị: hủy một phần tạo settlement `Retained` đúng số tiền (PD-2).
 - Tích hợp: lượt 10:00 tạo đúng một settlement mỗi booking và một lệnh gom mỗi TO; chạy lại không trùng (PD-11).
+- Tích hợp: booking thanh toán chưa đủ 24 giờ bị loại khỏi lượt chạy; đủ 24 giờ thì được đưa vào lượt kế tiếp (PD-1A).
 - Tích hợp: timeout được tra cứu trước khi thử lại, không chuyển trùng (PD-7a).
 - Tích hợp: TO bị khóa thì giữ `Scheduled`, mở khóa thì chuyển ở lượt kế tiếp (PD-9).
 - Tích hợp: lượt bị lỡ được chạy bù trong ngày, không chạy bù ngày trước (PD-16).

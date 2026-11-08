@@ -31,7 +31,11 @@ public sealed record EligibleBookingForSettlement(
 /// </summary>
 public sealed class DailyPayoutEligibilityReader(IApplicationDbContext db)
 {
-    public async Task<IReadOnlyList<EligibleBookingForSettlement>> LoadEligibleBookingsAsync(CancellationToken cancellationToken)
+    /// <summary>Selects the bookings whose Awaiting Window (BR-141) has already ended as of
+    /// <paramref name="nowUtc"/> — the moment the run itself is executing, not necessarily the
+    /// booking's own payment time plus a fixed offset against wall-clock "now".</summary>
+    public async Task<IReadOnlyList<EligibleBookingForSettlement>> LoadEligibleBookingsAsync(
+        DateTimeOffset nowUtc, CancellationToken cancellationToken)
     {
         var alreadySettled = await db.PayoutSettlements.AsNoTracking()
             .Select(s => new { s.BookingId, s.Kind })
@@ -93,12 +97,14 @@ public sealed class DailyPayoutEligibilityReader(IApplicationDbContext db)
             })
             .ToListAsync(cancellationToken);
 
+        var windowEndCutoff = nowUtc - DailyPayoutClock.AwaitingWindowDuration;
         var results = new List<EligibleBookingForSettlement>();
 
         foreach (var row in mainCandidates)
         {
             if (lockedOperators.Contains(row.OperatorUserId)) continue;
             if (settledKeys.Contains((row.Id, PayoutSettlementKind.Main))) continue;
+            if (row.OrderKey > windowEndCutoff) continue; // BR-141: still inside its Awaiting Window
 
             results.Add(new EligibleBookingForSettlement(
                 row.Id, row.OperatorUserId, PayoutSettlementKind.Main, row.Gross,
@@ -109,6 +115,7 @@ public sealed class DailyPayoutEligibilityReader(IApplicationDbContext db)
         {
             if (lockedOperators.Contains(row.OperatorUserId)) continue;
             if (settledKeys.Contains((row.Id, PayoutSettlementKind.Retained))) continue;
+            if (row.OrderKey > windowEndCutoff) continue; // BR-141: still inside its Awaiting Window
 
             var retainedGross = row.TotalPaid - row.RefundedSoFar;
             if (retainedGross <= 0) continue; // fully refunded in substance, nothing retained

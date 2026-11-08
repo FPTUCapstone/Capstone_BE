@@ -1,9 +1,14 @@
-# DAILY-PAYOUT-TRANSFER — Plan triển khai (BE), v2
+# DAILY-PAYOUT-TRANSFER — Plan triển khai (BE), v3
 
-Nguồn sự thật: `specs/DAILY-PAYOUT-TRANSFER-be-spec.md` (v2). SRS Report3 v11 mục 3.9.9, 3.10.4, 3.10.5.
+Nguồn sự thật: `specs/DAILY-PAYOUT-TRANSFER-be-spec.md` (v3). SRS Report3 v12 mục 3.9.9, 3.10.4, 3.10.5.
 Nhánh: `feature/linhnv-daily-payout-transfer` (từ `origin/develop`).
 
 Thay đổi so với v1: thêm Task 0 kiểm kê bảng sẵn có; thêm clock abstraction (Task 2A); thêm dòng điều chỉnh và đối soát (Task 2B, Task 7A); thêm quyền đọc cho TO (Task 10); thêm lượt bị lỡ (Task 6A); thêm audit log (Task 2C).
+
+Thay đổi so với v2 (SRS v12): thêm Task 6B — Awaiting Window 24 giờ (BR-141, đã triển khai); thêm
+Task 10A — hiển thị trạng thái "Awaiting Window" ở UC-72 (chưa triển khai, theo dõi ở mục "Điểm
+lệch đã biết" của spec v3 cùng với 2 điểm lệch khác không liên quan tới SRS v12 (cutoff thử lại,
+`PayoutReconciliationItem`).
 
 ## Quy tắc làm việc
 
@@ -87,6 +92,17 @@ Lệnh kiểm tra:
 - **Green:** job nền kích hoạt lúc 10:00 mỗi ngày theo scheduler đã xác nhận ở Task 0. Ghi `PayoutRun` trước khi tạo settlement, trong cùng transaction DB (để lượt chạy không tạo nửa vời khi lỗi giữa chừng).
 - **DoD:** test lượt chạy xanh.
 
+## Task 6B — Awaiting Window 24 giờ (BR-141, PD-1A) — done
+
+- **Red:** test booking thanh toán 2 giờ trước lượt chạy bị loại khỏi lượt đó; booking thanh toán
+  23 giờ trước, chạy lại ngày hôm sau (hơn 24 giờ), được đưa vào lượt kế tiếp.
+- **Green:** `DailyPayoutEligibilityReader.LoadEligibleBookingsAsync` nhận `nowUtc`, loại các
+  booking (cả `Main` và `Retained`) có `OrderKey` (thời điểm thanh toán) chưa quá
+  `DailyPayoutClock.AwaitingWindowDuration` (24 giờ) so với `nowUtc`.
+- **DoD:** test xanh (`DailyPayoutRunProcessorTests`); test tích hợp SQL Server tương ứng
+  (`DailyRun_BookingStillInsideItsAwaitingWindow_IsExcludedUntilTheWindowEnds`) biên dịch sạch,
+  chạy thật khi có `TRIPMATE_SQLSERVER_TEST_CONNECTION`.
+
 ## Task 6A — Lượt bị lỡ (PD-16)
 
 - **Red:** test khởi động lại trong cùng ngày sau 10:00 thì chạy bù đúng một lần; khởi động lại ngày hôm sau không chạy bù ngày trước.
@@ -123,10 +139,27 @@ Lệnh kiểm tra:
 - **Green:** endpoint đọc có phân trang, và endpoint cho TO với kiểm tra quyền sở hữu.
 - **DoD:** test xanh.
 
+## Task 10A — Hiển thị trạng thái "Awaiting Window" ở UC-72 (chưa làm)
+
+SRS v12 §3.9.9.1 liệt kê "Awaiting Window" là một trong các trạng thái UC-72 phải hiển thị, cùng
+`Scheduled, Processing, Settled, SettlementFailed, Carried Over`. Hiện `GetPayoutSettlementsQuery`
+chỉ đọc bảng `PayoutSettlements`, không có dòng nào cho booking còn trong cửa sổ (Task 6B) vì
+settlement chỉ được tạo sau khi cửa sổ kết thúc.
+
+- **Red:** test UC-72 trả về một dòng trạng thái `Awaiting Window` cho booking đã thanh toán,
+  chưa hết 24 giờ, chưa có settlement; dòng này biến mất (nhường cho dòng settlement thật) ngay
+  khi lượt chạy tạo settlement cho nó.
+- **Green:** mở rộng handler đọc để gộp (a) các dòng `PayoutSettlements` hiện có và (b) các
+  booking đã thanh toán, chưa hủy, chưa hết cửa sổ Awaiting Window và chưa có settlement — hiển
+  thị dòng loại (b) với trạng thái `Awaiting Window`, không có `SettlementId`/`TransferReference`.
+  Áp dụng filter trạng thái và khoảng ngày của UC-72 trên tập gộp này.
+- **DoD:** test xanh; không phá vỡ các test UC-72 hiện có (`DailyPayoutReadQueryTests`).
+
 ## Task 11 — Kiểm thử tích hợp
 
 - Lượt 10:00 end-to-end trên SQL Server: tạo settlement và lệnh gom, gửi lệnh giả lập, `Settled`.
 - Chạy lại cùng ngày không tạo trùng.
+- Booking còn trong Awaiting Window bị loại khỏi lượt; hết cửa sổ thì vào lượt kế tiếp (Task 6B) — done.
 - Timeout được tra cứu trước khi thử lại, không chuyển trùng.
 - Lỗi giả lập được thử lại đúng 3 lần, rồi `SettlementFailed`.
 - TO bị khóa rồi mở khóa.
