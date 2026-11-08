@@ -2,6 +2,7 @@ using FluentAssertions;
 
 using TripMate.Application.Features.Payouts.DailySettlement;
 using TripMate.Application.Features.Payouts.DailySettlement.Reads;
+using TripMate.Application.UnitTests.Features.Payouts;
 using TripMate.Application.UnitTests.TestUtilities;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
@@ -32,7 +33,7 @@ public sealed class DailyPayoutReadQueryTests
         await SeedSettledBatchAsync(db, operatorId: 7, bookingId: 1);
         await SeedSettledBatchAsync(db, operatorId: 8, bookingId: 2);
         var staff = new FakeCurrentUserService { UserId = 3, Role = nameof(UserRole.Staff) };
-        var handler = new GetPayoutSettlementsQueryHandler(db, staff);
+        var handler = new GetPayoutSettlementsQueryHandler(db, staff, new DailyPayoutEligibilityReader(db));
 
         var result = await handler.Handle(new GetPayoutSettlementsQuery(), CancellationToken.None);
 
@@ -45,7 +46,7 @@ public sealed class DailyPayoutReadQueryTests
     {
         await using var db = TestDbContext.Create();
         var operatorUser = new FakeCurrentUserService { UserId = 7, Role = nameof(UserRole.TourOperator) };
-        var handler = new GetPayoutSettlementsQueryHandler(db, operatorUser);
+        var handler = new GetPayoutSettlementsQueryHandler(db, operatorUser, new DailyPayoutEligibilityReader(db));
 
         var result = await handler.Handle(new GetPayoutSettlementsQuery(), CancellationToken.None);
 
@@ -92,5 +93,66 @@ public sealed class DailyPayoutReadQueryTests
         result.IsSuccess.Should().BeTrue();
         result.Value.Status.Should().Be(PayoutSettlementStatus.SettlementFailed);
         result.Value.Attempts.Should().ContainSingle(a => a.FailureReason == "bank_down");
+    }
+
+    // DAILY-PAYOUT-TRANSFER Task 10A (SRS v12 §3.9.9.1): UC-72 must also show a paid booking
+    // that has no settlement row yet (still inside its Awaiting Window, or its operator is
+    // locked under BR-160) as a synthetic "Awaiting Window" row, never created or persisted.
+    [Fact]
+    public async Task GetPayoutSettlements_WithNoStatusFilter_IncludesAwaitingWindowBookingWithNoSettlementYet()
+    {
+        await using var db = TestDbContext.Create();
+        await SeedSettledBatchAsync(db, operatorId: 7, bookingId: 1);
+        await DailyPayoutTestFixture.SeedOperatorAsync(db, 8);
+        await DailyPayoutTestFixture.SeedTourScheduleAsync(db, tourId: 2, scheduleId: 2, operatorId: 8, endAtUtc: DateTimeOffset.UtcNow.AddDays(1));
+        await DailyPayoutTestFixture.SeedConfirmedBookingAsync(db, bookingId: 2, scheduleId: 2, totalAmount: 1_000_000m, succeededAtUtc: DateTimeOffset.UtcNow.AddHours(-2));
+        var staff = new FakeCurrentUserService { UserId = 3, Role = nameof(UserRole.Staff) };
+        var handler = new GetPayoutSettlementsQueryHandler(db, staff, new DailyPayoutEligibilityReader(db));
+
+        var result = await handler.Handle(new GetPayoutSettlementsQuery(), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.TotalCount.Should().Be(2);
+        var awaiting = result.Value.Items.Should().ContainSingle(i => i.Status == "Awaiting Window").Subject;
+        awaiting.BookingId.Should().Be(2);
+        awaiting.TourOperatorUserId.Should().Be(8);
+        awaiting.SettlementId.Should().BeNull();
+        awaiting.RunDate.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetPayoutSettlements_FilteredByAwaitingWindowStatus_ReturnsOnlyThoseRows()
+    {
+        await using var db = TestDbContext.Create();
+        await SeedSettledBatchAsync(db, operatorId: 7, bookingId: 1);
+        await DailyPayoutTestFixture.SeedOperatorAsync(db, 8);
+        await DailyPayoutTestFixture.SeedTourScheduleAsync(db, tourId: 2, scheduleId: 2, operatorId: 8, endAtUtc: DateTimeOffset.UtcNow.AddDays(1));
+        await DailyPayoutTestFixture.SeedConfirmedBookingAsync(db, bookingId: 2, scheduleId: 2, totalAmount: 1_000_000m, succeededAtUtc: DateTimeOffset.UtcNow.AddHours(-2));
+        var staff = new FakeCurrentUserService { UserId = 3, Role = nameof(UserRole.Staff) };
+        var handler = new GetPayoutSettlementsQueryHandler(db, staff, new DailyPayoutEligibilityReader(db));
+
+        var result = await handler.Handle(new GetPayoutSettlementsQuery(Status: "Awaiting Window"), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.TotalCount.Should().Be(1);
+        result.Value.Items.Should().ContainSingle(i => i.BookingId == 2 && i.Status == "Awaiting Window");
+    }
+
+    [Fact]
+    public async Task GetPayoutSettlements_WithRunDateFilter_ExcludesAwaitingWindowRows()
+    {
+        await using var db = TestDbContext.Create();
+        await SeedSettledBatchAsync(db, operatorId: 7, bookingId: 1);
+        await DailyPayoutTestFixture.SeedOperatorAsync(db, 8);
+        await DailyPayoutTestFixture.SeedTourScheduleAsync(db, tourId: 2, scheduleId: 2, operatorId: 8, endAtUtc: DateTimeOffset.UtcNow.AddDays(1));
+        await DailyPayoutTestFixture.SeedConfirmedBookingAsync(db, bookingId: 2, scheduleId: 2, totalAmount: 1_000_000m, succeededAtUtc: DateTimeOffset.UtcNow.AddHours(-2));
+        var staff = new FakeCurrentUserService { UserId = 3, Role = nameof(UserRole.Staff) };
+        var handler = new GetPayoutSettlementsQueryHandler(db, staff, new DailyPayoutEligibilityReader(db));
+
+        var result = await handler.Handle(
+            new GetPayoutSettlementsQuery(RunDateFrom: new DateOnly(2026, 1, 1)), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Items.Should().NotContain(i => i.Status == "Awaiting Window");
     }
 }

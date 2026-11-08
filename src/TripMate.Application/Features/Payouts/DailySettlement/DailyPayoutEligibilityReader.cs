@@ -37,16 +37,49 @@ public sealed class DailyPayoutEligibilityReader(IApplicationDbContext db)
     public async Task<IReadOnlyList<EligibleBookingForSettlement>> LoadEligibleBookingsAsync(
         DateTimeOffset nowUtc, CancellationToken cancellationToken)
     {
-        var alreadySettled = await db.PayoutSettlements.AsNoTracking()
-            .Select(s => new { s.BookingId, s.Kind })
-            .ToListAsync(cancellationToken);
-        var settledKeys = alreadySettled.Select(x => (x.BookingId, x.Kind)).ToHashSet();
+        var (candidates, settledKeys) = await LoadCandidatesAsync(cancellationToken);
 
         var lockedOperatorIds = await db.Users.AsNoTracking()
             .Where(u => u.Role == UserRole.TourOperator && u.Status == AccountStatus.Locked)
             .Select(u => u.Id)
             .ToListAsync(cancellationToken);
         var lockedOperators = lockedOperatorIds.ToHashSet();
+
+        var windowEndCutoff = nowUtc - DailyPayoutClock.AwaitingWindowDuration;
+
+        return candidates
+            .Where(c => !settledKeys.Contains((c.BookingId, c.Kind)))
+            .Where(c => !lockedOperators.Contains(c.TourOperatorUserId))
+            .Where(c => c.OrderKey <= windowEndCutoff) // BR-141: window must have ended
+            .OrderBy(r => r.TourOperatorUserId)
+            .ThenBy(r => r.OrderKey) // PD-15: debt consumed oldest booking first
+            .ToList();
+    }
+
+    /// <summary>UC-72 (SRS v12 §3.9.9.1): the bookings that should display as "Awaiting Window" —
+    /// paid, not fully refunded, and with no settlement row yet, for any reason (still inside its
+    /// 24-hour window, or its operator is locked under BR-160). Unlike
+    /// <see cref="LoadEligibleBookingsAsync"/>, this is read-only display, never used to create a
+    /// settlement — a run decides eligibility on its own, independently of this list.</summary>
+    public async Task<IReadOnlyList<EligibleBookingForSettlement>> LoadAwaitingWindowBookingsAsync(
+        CancellationToken cancellationToken)
+    {
+        var (candidates, settledKeys) = await LoadCandidatesAsync(cancellationToken);
+
+        return candidates
+            .Where(c => !settledKeys.Contains((c.BookingId, c.Kind)))
+            .OrderBy(r => r.TourOperatorUserId)
+            .ThenBy(r => r.OrderKey)
+            .ToList();
+    }
+
+    private async Task<(List<EligibleBookingForSettlement> Candidates, HashSet<(long BookingId, string Kind)> SettledKeys)>
+        LoadCandidatesAsync(CancellationToken cancellationToken)
+    {
+        var alreadySettled = await db.PayoutSettlements.AsNoTracking()
+            .Select(s => new { s.BookingId, s.Kind })
+            .ToListAsync(cancellationToken);
+        var settledKeys = alreadySettled.Select(x => (x.BookingId, x.Kind)).ToHashSet();
 
         // Main: a Confirmed, Paid booking that was never cancelled.
         var mainCandidates = await db.Bookings.AsNoTracking()
@@ -97,15 +130,10 @@ public sealed class DailyPayoutEligibilityReader(IApplicationDbContext db)
             })
             .ToListAsync(cancellationToken);
 
-        var windowEndCutoff = nowUtc - DailyPayoutClock.AwaitingWindowDuration;
         var results = new List<EligibleBookingForSettlement>();
 
         foreach (var row in mainCandidates)
         {
-            if (lockedOperators.Contains(row.OperatorUserId)) continue;
-            if (settledKeys.Contains((row.Id, PayoutSettlementKind.Main))) continue;
-            if (row.OrderKey > windowEndCutoff) continue; // BR-141: still inside its Awaiting Window
-
             results.Add(new EligibleBookingForSettlement(
                 row.Id, row.OperatorUserId, PayoutSettlementKind.Main, row.Gross,
                 row.Rate ?? 0m, row.OrderKey));
@@ -113,10 +141,6 @@ public sealed class DailyPayoutEligibilityReader(IApplicationDbContext db)
 
         foreach (var row in retainedCandidates)
         {
-            if (lockedOperators.Contains(row.OperatorUserId)) continue;
-            if (settledKeys.Contains((row.Id, PayoutSettlementKind.Retained))) continue;
-            if (row.OrderKey > windowEndCutoff) continue; // BR-141: still inside its Awaiting Window
-
             var retainedGross = row.TotalPaid - row.RefundedSoFar;
             if (retainedGross <= 0) continue; // fully refunded in substance, nothing retained
 
@@ -125,10 +149,7 @@ public sealed class DailyPayoutEligibilityReader(IApplicationDbContext db)
                 row.Rate ?? 0m, row.OrderKey));
         }
 
-        return results
-            .OrderBy(r => r.TourOperatorUserId)
-            .ThenBy(r => r.OrderKey) // PD-15: debt consumed oldest booking first
-            .ToList();
+        return (results, settledKeys);
     }
 
     /// <summary>

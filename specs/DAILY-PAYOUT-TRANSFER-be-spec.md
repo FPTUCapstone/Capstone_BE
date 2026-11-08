@@ -155,6 +155,15 @@ Bước chuyển tiền thật chưa làm. Lượt chạy vẫn đầy đủ m�
 7. Awaiting Window (BR-141, v12): 24 giờ cố định từ thời điểm xác nhận thanh toán, áp dụng cho
    mọi booking (cả `Main` và `Retained`), không phân biệt ngày lễ/cuối tuần. Đã triển khai ở
    `DailyPayoutEligibilityReader`.
+8. UC-72 hiển thị "Awaiting Window" (Task 10A, v12): `GetPayoutSettlementsQueryHandler` gộp thêm
+   các booking đã thanh toán, chưa hủy toàn phần, chưa có settlement (`DailyPayoutEligibilityReader
+   .LoadAwaitingWindowBookingsAsync`) — cả do còn trong cửa sổ 24 giờ, cả do TO bị khóa (BR-160) —
+   thành dòng trạng thái ảo `Awaiting Window` (`SettlementId`/`RunDate` = null, `PayoutAmount` là
+   số xem trước = gross trừ hoa hồng, chưa trừ nợ treo). Lọc theo khoảng ngày (`RunDateFrom/To`)
+   luôn loại các dòng này vì chúng chưa có ngày chạy. `PayoutSettlementListItemDto.SettlementId`
+   và `.RunDate` đổi thành nullable cho cả UC-72 và lịch sử settlement của TO (PD-13) dùng chung
+   DTO này — PD-13 không chủ động tạo dòng ảo (SRS Table 4.2 không yêu cầu), nhưng kiểu dữ liệu
+   dùng chung nên vẫn đổi theo.
 
 ## Điểm lệch đã biết (chưa sửa trong v3)
 
@@ -167,11 +176,6 @@ Phát hiện khi rà lại code so với spec; ghi lại để theo dõi, không
 - **`payment.PayoutReconciliationItem` (PD-17) chưa được tạo.** Tra cứu PD-7a trong
   `DailyPayoutRetrySweepProcessor` chuyển đúng trạng thái khi phát hiện chênh lệch, nhưng không
   ghi bản ghi đối soát riêng, không ghi audit log, không gửi cảnh báo như Task 7A yêu cầu.
-- **UC-72 chưa hiển thị trạng thái "Awaiting Window".** `GetPayoutSettlementsQuery` chỉ đọc từ
-  bảng `PayoutSettlements`, mà bảng này chưa có dòng nào cho một booking còn trong Awaiting
-  Window (PD-1A) — settlement chỉ được tạo sau khi cửa sổ kết thúc. Cần một model đọc gộp
-  (booking đã thanh toán, chưa có settlement, chưa hết cửa sổ) để UC-72 hiển thị đúng trạng thái
-  này như SRS §3.9.9.1 mô tả.
 
 ## Kiểm thử
 

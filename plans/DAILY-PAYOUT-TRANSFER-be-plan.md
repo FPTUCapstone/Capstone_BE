@@ -6,9 +6,9 @@ Nhánh: `feature/linhnv-daily-payout-transfer` (từ `origin/develop`).
 Thay đổi so với v1: thêm Task 0 kiểm kê bảng sẵn có; thêm clock abstraction (Task 2A); thêm dòng điều chỉnh và đối soát (Task 2B, Task 7A); thêm quyền đọc cho TO (Task 10); thêm lượt bị lỡ (Task 6A); thêm audit log (Task 2C).
 
 Thay đổi so với v2 (SRS v12): thêm Task 6B — Awaiting Window 24 giờ (BR-141, đã triển khai); thêm
-Task 10A — hiển thị trạng thái "Awaiting Window" ở UC-72 (chưa triển khai, theo dõi ở mục "Điểm
-lệch đã biết" của spec v3 cùng với 2 điểm lệch khác không liên quan tới SRS v12 (cutoff thử lại,
-`PayoutReconciliationItem`).
+Task 10A — hiển thị trạng thái "Awaiting Window" ở UC-72 (đã triển khai). Còn 2 điểm lệch khác,
+không liên quan tới SRS v12, vẫn chưa sửa — theo dõi ở mục "Điểm lệch đã biết" của spec v3
+(cutoff thử lại, `PayoutReconciliationItem`).
 
 ## Quy tắc làm việc
 
@@ -139,7 +139,7 @@ Lệnh kiểm tra:
 - **Green:** endpoint đọc có phân trang, và endpoint cho TO với kiểm tra quyền sở hữu.
 - **DoD:** test xanh.
 
-## Task 10A — Hiển thị trạng thái "Awaiting Window" ở UC-72 (chưa làm)
+## Task 10A — Hiển thị trạng thái "Awaiting Window" ở UC-72 — done
 
 SRS v12 §3.9.9.1 liệt kê "Awaiting Window" là một trong các trạng thái UC-72 phải hiển thị, cùng
 `Scheduled, Processing, Settled, SettlementFailed, Carried Over`. Hiện `GetPayoutSettlementsQuery`

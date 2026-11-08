@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Payouts.DailySettlement;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Payouts.DailySettlement.Reads;
@@ -23,10 +24,10 @@ public sealed record GetPayoutSettlementsQuery(
 }
 
 public sealed record PayoutSettlementListItemDto(
-    long SettlementId,
+    long? SettlementId,
     long BookingId,
     long TourOperatorUserId,
-    DateOnly RunDate,
+    DateOnly? RunDate,
     string Kind,
     decimal PayoutAmount,
     string Status,
@@ -35,7 +36,16 @@ public sealed record PayoutSettlementListItemDto(
 public sealed record PayoutSettlementsResponseDto(
     int PageNumber, int PageSize, int TotalCount, IReadOnlyList<PayoutSettlementListItemDto> Items);
 
-public sealed class GetPayoutSettlementsQueryHandler(IApplicationDbContext dbContext, ICurrentUserService currentUserService)
+/// <summary>UC-72 (SRS v12 §3.9.9.1): a status this query synthesizes for display — never a real
+/// <see cref="TripMate.Domain.Entities.PayoutSettlementStatus"/> persisted on any batch or
+/// settlement, since no such row exists yet for a booking still Awaiting its Window.</summary>
+public static class PayoutSettlementDisplayStatus
+{
+    public const string AwaitingWindow = "Awaiting Window";
+}
+
+public sealed class GetPayoutSettlementsQueryHandler(
+    IApplicationDbContext dbContext, ICurrentUserService currentUserService, DailyPayoutEligibilityReader eligibilityReader)
     : IRequestHandler<GetPayoutSettlementsQuery, Result<PayoutSettlementsResponseDto>>
 {
     public async Task<Result<PayoutSettlementsResponseDto>> Handle(GetPayoutSettlementsQuery request, CancellationToken cancellationToken)
@@ -46,22 +56,42 @@ public sealed class GetPayoutSettlementsQueryHandler(IApplicationDbContext dbCon
         var pageSize = Math.Clamp(request.PageSize, 1, GetPayoutSettlementsQuery.MaximumPageSize);
         var pageNumber = Math.Max(request.PageNumber, 1);
 
-        var query = dbContext.PayoutSettlements.AsNoTracking().AsQueryable();
-        if (!string.IsNullOrWhiteSpace(request.Status))
-            query = query.Where(s => s.Status == request.Status);
-        if (request.RunDateFrom is { } from)
-            query = query.Where(s => s.RunDate >= from);
-        if (request.RunDateTo is { } to)
-            query = query.Where(s => s.RunDate <= to);
+        var statusFilter = string.IsNullOrWhiteSpace(request.Status) ? null : request.Status;
+        var hasDateFilter = request.RunDateFrom is not null || request.RunDateTo is not null;
 
-        var totalCount = await query.CountAsync(cancellationToken);
-        var items = await query
-            .OrderByDescending(s => s.RunDate).ThenBy(s => s.Id)
-            .Skip((pageNumber - 1) * pageSize)
-            .Take(pageSize)
-            .Select(s => new PayoutSettlementListItemDto(
-                s.Id, s.BookingId, s.TourOperatorUserId, s.RunDate, s.Kind, s.PayoutAmount, s.Status, s.TransferReference))
-            .ToListAsync(cancellationToken);
+        var combined = new List<PayoutSettlementListItemDto>();
+
+        // Awaiting Window rows have no RunDate, so a date-range filter can never match one —
+        // and asking for a status other than Awaiting Window excludes them anyway.
+        if (!hasDateFilter && (statusFilter is null || statusFilter == PayoutSettlementDisplayStatus.AwaitingWindow))
+        {
+            var awaitingBookings = await eligibilityReader.LoadAwaitingWindowBookingsAsync(cancellationToken);
+            combined.AddRange(awaitingBookings.Select(b => new PayoutSettlementListItemDto(
+                SettlementId: null, b.BookingId, b.TourOperatorUserId, RunDate: null, b.Kind,
+                PayoutAmount: Math.Max(0m, b.GrossAmount - DailyPayoutAmountCalculator.CalculateCommission(b.GrossAmount, b.CommissionRatePercent)),
+                PayoutSettlementDisplayStatus.AwaitingWindow, TransferReference: null)));
+        }
+
+        if (statusFilter != PayoutSettlementDisplayStatus.AwaitingWindow)
+        {
+            var query = dbContext.PayoutSettlements.AsNoTracking().AsQueryable();
+            if (statusFilter is not null)
+                query = query.Where(s => s.Status == statusFilter);
+            if (request.RunDateFrom is { } from)
+                query = query.Where(s => s.RunDate >= from);
+            if (request.RunDateTo is { } to)
+                query = query.Where(s => s.RunDate <= to);
+
+            var settlements = await query
+                .OrderByDescending(s => s.RunDate).ThenBy(s => s.Id)
+                .Select(s => new PayoutSettlementListItemDto(
+                    s.Id, s.BookingId, s.TourOperatorUserId, s.RunDate, s.Kind, s.PayoutAmount, s.Status, s.TransferReference))
+                .ToListAsync(cancellationToken);
+            combined.AddRange(settlements);
+        }
+
+        var totalCount = combined.Count;
+        var items = combined.Skip((pageNumber - 1) * pageSize).Take(pageSize).ToList();
 
         return Result.Success(new PayoutSettlementsResponseDto(pageNumber, pageSize, totalCount, items));
     }
