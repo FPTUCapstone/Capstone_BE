@@ -399,7 +399,7 @@ public sealed class CreateSchedulingRequestEndpointTests
             TransportMode transportMode,
             CancellationToken cancellationToken) =>
             Task.FromException<RouteDurationMatrix>(new RouteDurationProviderException(
-                "OpenRouteService",
+                "Mapbox",
                 RouteDurationProviderFailureKind.Timeout,
                 "safe provider failure",
                 new TaskCanceledException("sensitive transport detail")));

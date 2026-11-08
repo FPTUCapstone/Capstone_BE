@@ -533,7 +533,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         dbContext.ChangeTracker.Entries().Should().BeEmpty();
         LogEntry log = logger.Entries.Should().ContainSingle().Subject;
         log.Level.Should().Be(LogLevel.Warning);
-        log.Properties["Provider"].Should().Be("OpenRouteService");
+        log.Properties["Provider"].Should().Be("Mapbox");
         log.Properties["Operation"].Should().Be("duration-matrix");
         log.Properties["Category"].Should().Be(failureKind);
     }
@@ -2754,7 +2754,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
             TransportMode transportMode,
             CancellationToken cancellationToken) =>
             Task.FromException<RouteDurationMatrix>(new RouteDurationProviderException(
-                "OpenRouteService",
+                "Mapbox",
                 failureKind,
                 "safe provider failure",
                 new HttpRequestException("sensitive transport detail")));
@@ -2770,7 +2770,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         {
             callerCancellation.Cancel();
             return Task.FromException<RouteDurationMatrix>(new RouteDurationProviderException(
-                "OpenRouteService",
+                "Mapbox",
                 RouteDurationProviderFailureKind.Timeout,
                 "safe provider failure",
                 new TaskCanceledException("transient timeout")));
@@ -2813,7 +2813,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
             if (CallCount == 1)
             {
                 return Task.FromException<RouteDurationMatrix>(new RouteDurationProviderException(
-                    "OpenRouteService",
+                    "Mapbox",
                     RouteDurationProviderFailureKind.Timeout,
                     "safe provider failure",
                     new TaskCanceledException("transient timeout")));

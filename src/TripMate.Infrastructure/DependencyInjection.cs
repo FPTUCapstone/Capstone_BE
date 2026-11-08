@@ -175,10 +175,10 @@ public static class DependencyInjection
         services.AddHostedService<RevenueExportExpiryBackgroundService>();
 
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
-        services.AddOptions<OpenRouteServiceOptions>()
-            .Bind(configuration.GetSection(OpenRouteServiceOptions.SectionName))
+        services.AddOptions<MapboxRoutingOptions>()
+            .Bind(configuration.GetSection(MapboxRoutingOptions.SectionName))
             .ValidateOnStart();
-        services.AddSingleton<IValidateOptions<OpenRouteServiceOptions>, OpenRouteServiceOptionsValidator>();
+        services.AddSingleton<IValidateOptions<MapboxRoutingOptions>, MapboxRoutingOptionsValidator>();
         services.AddOptions<SchedulingGenerationOptions>()
             .Bind(configuration.GetSection(SchedulingGenerationOptions.SectionName))
             .ValidateOnStart();
@@ -373,17 +373,17 @@ public static class DependencyInjection
             serviceProvider.GetRequiredService<IOptions<PersonalizationRankingOptions>>().Value,
             serviceProvider.GetRequiredService<IOptions<PoiRankingProviderOptions>>().Value.Enabled,
             serviceProvider.GetRequiredService<ILogger<PoiRankingOrchestrator>>()));
-        services.AddHttpClient<OpenRouteServiceRouteDurationProvider>(
+        services.AddHttpClient<MapboxRouteDurationProvider>(
             (serviceProvider, client) =>
             {
                 var routingOptions = serviceProvider
-                    .GetRequiredService<Microsoft.Extensions.Options.IOptions<OpenRouteServiceOptions>>()
+                    .GetRequiredService<Microsoft.Extensions.Options.IOptions<MapboxRoutingOptions>>()
                     .Value;
                 client.BaseAddress = new Uri(routingOptions.BaseUrl, UriKind.Absolute);
                 client.Timeout = SchedulingReservationOptions.RouteProviderTimeout;
             });
         services.AddScoped<IRouteDurationProvider>(serviceProvider =>
-            serviceProvider.GetRequiredService<OpenRouteServiceRouteDurationProvider>());
+            serviceProvider.GetRequiredService<MapboxRouteDurationProvider>());
 
         // REVIEW2: Tripadvisor (Terra) ratings/reviews and on-demand review translation (Gemini).
         services.Configure<TripadvisorOptions>(configuration.GetSection(TripadvisorOptions.SectionName));
