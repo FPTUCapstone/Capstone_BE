@@ -4,7 +4,9 @@ using FluentAssertions;
 
 using TripMate.Application.Features.Payouts.DailySettlement;
 using TripMate.Application.UnitTests.TestUtilities;
+using TripMate.Domain.Common;
 using TripMate.Domain.Entities;
+using TripMate.Domain.Enums;
 
 namespace TripMate.Application.UnitTests.Features.Payouts;
 
@@ -65,6 +67,31 @@ public sealed class DailyPayoutRetrySweepProcessorTests
         batch.AttemptCount.Should().Be(1, "a confirmatory lookup is not counted as a transfer attempt");
     }
 
+    // DAILY-PAYOUT-TRANSFER Task 7A (PD-17): the lookup revealing Succeeded for a batch TripMate
+    // still thought Processing is itself the discrepancy — record it, audit it, alert Administrators.
+    [Fact]
+    public async Task SweepAsync_LookupShowsSucceeded_RecordsReconciliationItemAuditLogAndAdministratorAlert()
+    {
+        await using var db = TestDbContext.Create();
+        var admin = new User { Id = 99, Email = "admin@test.local", FullName = "Admin", Role = UserRole.Administrator, Status = AccountStatus.Active };
+        db.Users.Add(admin);
+        await db.SaveChangesAsync();
+        var batch = await SeedProcessingBatchAsync(db, lastAttemptAtUtc: RunTime);
+        var gateway = new SimulatedPayoutTransferGateway(new FixedOutcomeScenario(PayoutTransferOutcome.Succeeded));
+        var nowUtc = RunTime.AddHours(1);
+
+        await CreateSweeper(db, gateway, nowUtc).SweepAsync(CancellationToken.None);
+
+        var item = db.PayoutReconciliationItems.Should().ContainSingle(i => i.BatchId == batch.Id).Subject;
+        item.ExpectedStatus.Should().Be(PayoutSettlementStatus.Processing);
+        item.ObservedOutcome.Should().Be(PayoutReconciliationItem.ObservedOutcomeSucceeded);
+        item.DetectedAtUtc.Should().Be(nowUtc);
+
+        db.AuditLogs.Should().ContainSingle(a =>
+            a.ActionType == AuditActionTypes.PayoutReconciliationDiscrepancyDetected && a.AffectedEntityId == batch.Id);
+        db.Notifications.Should().ContainSingle(n => n.UserId == admin.Id);
+    }
+
     [Fact]
     public async Task SweepAsync_StillFailingWithinBudget_Resends()
     {
@@ -79,6 +106,7 @@ public sealed class DailyPayoutRetrySweepProcessorTests
         batch.AttemptCount.Should().Be(2);
         batch.Status.Should().Be(PayoutSettlementStatus.Settled);
         db.PayoutSettlementAttempts.Should().ContainSingle(a => a.BatchId == batch.Id && a.AttemptNumber == 2);
+        db.PayoutReconciliationItems.Should().BeEmpty("an unresolved lookup followed by a normal resend is not a discrepancy");
     }
 
     [Fact]
@@ -94,6 +122,7 @@ public sealed class DailyPayoutRetrySweepProcessorTests
         acted.Should().Be(1);
         batch.Status.Should().Be(PayoutSettlementStatus.SettlementFailed);
         batch.AttemptCount.Should().Be(4, "exhausting the budget must not count as another attempt");
+        db.PayoutReconciliationItems.Should().BeEmpty("a Timeout lookup is unresolved, not a discrepancy with what TripMate believed");
     }
 
     [Fact]
@@ -122,6 +151,29 @@ public sealed class DailyPayoutRetrySweepProcessorTests
 
         batch.Status.Should().Be(PayoutSettlementStatus.SettlementFailed);
         batch.AttemptCount.Should().Be(1, "a permanent rejection from the lookup stops retries without another send");
+    }
+
+    [Fact]
+    public async Task SweepAsync_LookupShowsRejected_RecordsReconciliationItemAuditLogAndAdministratorAlert()
+    {
+        await using var db = TestDbContext.Create();
+        var admin = new User { Id = 99, Email = "admin@test.local", FullName = "Admin", Role = UserRole.Administrator, Status = AccountStatus.Active };
+        db.Users.Add(admin);
+        await db.SaveChangesAsync();
+        var batch = await SeedProcessingBatchAsync(db, lastAttemptAtUtc: RunTime);
+        var gateway = new SimulatedPayoutTransferGateway(new FixedOutcomeScenario(PayoutTransferOutcome.Rejected));
+        var nowUtc = RunTime.AddHours(1);
+
+        await CreateSweeper(db, gateway, nowUtc).SweepAsync(CancellationToken.None);
+
+        var item = db.PayoutReconciliationItems.Should().ContainSingle(i => i.BatchId == batch.Id).Subject;
+        item.ExpectedStatus.Should().Be(PayoutSettlementStatus.Processing);
+        item.ObservedOutcome.Should().Be(PayoutReconciliationItem.ObservedOutcomeRejected);
+        item.DetectedAtUtc.Should().Be(nowUtc);
+
+        db.AuditLogs.Should().ContainSingle(a =>
+            a.ActionType == AuditActionTypes.PayoutReconciliationDiscrepancyDetected && a.AffectedEntityId == batch.Id);
+        db.Notifications.Should().ContainSingle(n => n.UserId == admin.Id);
     }
 
     /// <summary>

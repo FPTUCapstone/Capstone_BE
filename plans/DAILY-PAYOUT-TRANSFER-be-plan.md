@@ -115,11 +115,11 @@ Lệnh kiểm tra:
 - **Green:** xử lý trong lượt chạy. Thử lại được lên lịch bằng cơ chế hẹn giờ của job (dùng `IClock`), không ngủ trong thread.
 - **DoD:** test xanh; số lần gọi gateway đúng; không gọi gửi lại khi tra cứu cho thấy đã chuyển.
 
-## Task 7A — Đối soát sau lượt (PD-17)
+## Task 7A — Đối soát sau lượt (PD-17) — done
 
-- **Red:** test lệnh `Processing` được tra cứu sau lượt; gateway xác nhận đã chuyển thì giữ `Settled`; gateway báo từ chối sau khi gửi thì chuyển về `SettlementFailed`; chênh lệch số tiền, mã tham chiếu hoặc trạng thái được ghi `PayoutReconciliationItem`, ghi audit log và gửi cảnh báo.
-- **Green:** job đối soát chạy sau mỗi lượt, dùng adapter.
-- **DoD:** test xanh.
+- **Red:** test lệnh `Processing` được tra cứu sau lượt; gateway xác nhận đã chuyển thì giữ `Settled`; gateway báo từ chối sau khi gửi thì chuyển về `SettlementFailed`; chênh lệch trạng thái được ghi `PayoutReconciliationItem`, ghi audit log và gửi cảnh báo cho mỗi Administrator Active.
+- **Green:** job đối soát chạy trong chính lượt thử lại (không phải job riêng) — tra cứu PD-7a tự nó là bước đối soát; khi tra cứu lộ ra `Succeeded`/`Rejected` khác với `Processing` đang ghi nhận, `DailyPayoutRetrySweepProcessor` ghi `PayoutReconciliationItem` + `AuditLog` (`PAYOUT_RECONCILIATION_DISCREPANCY_DETECTED`) + `Notification` fan-out tới Administrator, trước khi chuyển trạng thái. Tra cứu `Failed`/`Timeout` không ghi gì (không phải chênh lệch).
+- **DoD:** test xanh. Chênh lệch số tiền/mã tham chiếu không áp dụng được ở nhánh này vì chế độ giả lập (`PayoutTransferResult`) không trả về số tiền/mã quan sát được để so sánh — chỉ `Outcome`; xem spec v3 "Điểm lệch đã sửa".
 
 ## Task 8 — TO bị khóa tạm dừng chuyển (BR-160, PD-9)
 

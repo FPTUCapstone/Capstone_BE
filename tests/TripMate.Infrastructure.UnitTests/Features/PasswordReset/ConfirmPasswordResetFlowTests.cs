@@ -338,6 +338,8 @@ public class ConfirmPasswordResetFlowTests
 
         DbSet<Domain.Entities.PayoutSettlementAdjustment> IApplicationDbContext.PayoutSettlementAdjustments => throw new NotSupportedException();
 
+        DbSet<Domain.Entities.PayoutReconciliationItem> IApplicationDbContext.PayoutReconciliationItems => throw new NotSupportedException();
+
         public Task<int> RevokeRefreshTokenAsync(
             string tokenHash,
             DateTimeOffset revokedAtUtc,
