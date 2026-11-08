@@ -351,15 +351,7 @@ public class ApplicationDbContext(
 
     public DbSet<ReroutingEvent> ReroutingEvents => Set<ReroutingEvent>();
 
-    public DbSet<Payout> Payouts => Set<Payout>();
-
-    public DbSet<PayoutItem> PayoutItems => Set<PayoutItem>();
-
-    public DbSet<PayoutRefundItem> PayoutRefundItems => Set<PayoutRefundItem>();
-
     public DbSet<PayoutAdjustment> PayoutAdjustments => Set<PayoutAdjustment>();
-
-    public DbSet<PayoutPeriodBreakdown> PayoutPeriodBreakdowns => Set<PayoutPeriodBreakdown>();
 
     // DAILY-PAYOUT-TRANSFER (Task 2)
     public DbSet<PayoutRun> PayoutRuns => Set<PayoutRun>();

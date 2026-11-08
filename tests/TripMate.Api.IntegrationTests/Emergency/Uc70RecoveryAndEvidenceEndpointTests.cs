@@ -381,9 +381,6 @@ public sealed class Uc70RecoveryAndEvidenceEndpointTests
             (await db.RefundManualCompletionOperations.CountAsync()).Should().Be(0);
             var payments = await db.PaymentTransactions.Where(item => item.BookingId == bookingId).ToListAsync();
             payments.Should().ContainSingle().Which.TransactionType.Should().Be(PaymentTransaction.TypePayment);
-            (await db.Payouts.CountAsync()).Should().Be(0);
-            (await db.PayoutItems.CountAsync()).Should().Be(0);
-            (await db.PayoutRefundItems.CountAsync()).Should().Be(0);
             (await db.PayoutAdjustments.CountAsync()).Should().Be(0);
             var audit = await db.AuditLogs.Where(item => item.AffectedEntityId == scheduleId).ToListAsync();
             audit.Should().NotBeEmpty();

@@ -14,6 +14,11 @@ namespace TripMate.Api.IntegrationTests.Payouts;
 // Task 1 (DAILY-PAYOUT-TRANSFER): the operator payout request flow and the staff/admin
 // approve/reject flow are removed from SRS v11. The OpenAPI contract must not expose them.
 // Checking the contract avoids false passes from 404s on non-existent payout identifiers.
+//
+// The old request-model read side (Admin list/detail, Operator history) was left in place when
+// Task 1 ran and only removed afterwards, once the FE's UC-46 screens calling them were deleted
+// (see the FE branch's Task 0) and nothing else in the new daily-settlement code read them —
+// replaced by AdminPayoutSettlementsController/OperatorPayoutSettlementsController.
 [Collection(nameof(TripMateApiFactory))]
 public sealed class DailyPayoutRequestRoutesRemovedTests
 {
@@ -25,6 +30,9 @@ public sealed class DailyPayoutRequestRoutesRemovedTests
         "/api/v1/operator/payouts/settlement-months:get",
         "/api/v1/admin/payouts/{payoutId}/approve:post",
         "/api/v1/admin/payouts/{payoutId}/reject:post",
+        "/api/v1/admin/payouts:get",
+        "/api/v1/admin/payouts/{payoutId}:get",
+        "/api/v1/operator/payouts:get",
     };
 
     [Fact]

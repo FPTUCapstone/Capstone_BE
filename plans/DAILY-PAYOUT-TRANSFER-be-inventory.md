@@ -100,3 +100,27 @@ Ký hiệu: **Giữ** = dùng lại nguyên; **Sửa** = giữ nhưng đổi; **
 ## 4. Việc tiếp theo
 
 Sau khi developer xác nhận các điểm trên và bảng phân loại, mình sẽ cập nhật plan (Task 1 và Task 2 theo tên đã chốt) và bắt đầu Task 1 với test đỏ trước.
+
+## 5. Dọn phần còn lại sau Task 12 (2026-11-08)
+
+Task 1 chỉ gỡ phần ghi (request/cancel/approve/reject). Phần đọc cũ (Admin GetList/GetDetail,
+Operator GetHistory) và các entity `Payout`/`PayoutItem`/`PayoutRefundItem`/`PayoutPeriodBreakdown`
+bị để lại "Chờ". Sau khi nhánh FE gỡ toàn bộ màn hình UC-46 (Task 0 của FE), không còn gì gọi
+các endpoint đọc này và không có code mới nào đọc các entity này — developer xác nhận bỏ hoàn
+toàn (mục 3, quyết định 1):
+
+- Gỡ `Payout.cs`, `PayoutItem.cs`, `PayoutRefundItem.cs`, `PayoutPeriodBreakdown.cs`; **giữ**
+  `PayoutAdjustment.cs` (thuộc nhánh hoàn tiền thủ công, không liên quan).
+- Gỡ `Admin/Payouts/GetList`, `Admin/Payouts/GetDetail`, `Admin/Payouts/Common/PayoutErrorCodes`,
+  `Operator/Payouts/GetHistory`, `Operator/Payouts/Common/{OperatorPayoutCalculator,
+  OperatorPayoutEligibilityReader,PayoutConfigKeys}` (không còn nơi gọi).
+- Gỡ `AdminPayoutsController` (toàn bộ); gỡ action `History` trong `OperatorPayoutsController`
+  (giữ `bank-account`).
+- Gỡ luôn `PayoutReviewConcurrencySqlServerTests.cs` — test này lẽ ra phải gỡ ở Task 1 (test
+  approve/reject đã bị xóa) nhưng bị bỏ sót.
+- Migration mới `20261108_remove_legacy_payout_request_tables.sql`: xóa FK từ
+  `PayoutAdjustments.applied_payout_id` sang `Payouts`, xóa bảng `payment.Payouts`,
+  `PayoutItems`, `PayoutRefundItems`, `PayoutPeriodBreakdowns`, và hai dòng cấu hình
+  `payout.minimum_amount_vnd`/`payout.refund_hold_days` không còn ai đọc. Đã áp dụng và kiểm tra
+  idempotent (chạy lại lần 2 không lỗi) trên DB dev; `payment.PayoutAdjustments` không bị đụng.
+- `dotnet build` và `dotnet test` toàn bộ solution xanh sau khi gỡ.
