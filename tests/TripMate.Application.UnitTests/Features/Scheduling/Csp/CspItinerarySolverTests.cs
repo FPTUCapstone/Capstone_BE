@@ -620,8 +620,8 @@ public class CspItinerarySolverTests
     }
 
     /// <summary>
-    /// Review Phase 3 (blocker 2): evaluator nhận token của mốc thời gian, nên một lần chấm đang chạy dừng ngay khi tới mốc
-    /// thay vì chạy hết (ở đây là chờ tới 3 giây).
+    /// Deadline signal and evaluator interruption are deterministic here: the manual source signals while evaluation is
+    /// in flight, independently of wall-clock timer dispatch.
     /// </summary>
     [Fact]
     public void Solve_InterruptsARunningEvaluation_AtTheTimeLimit()
@@ -629,27 +629,19 @@ public class CspItinerarySolverTests
         var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(8, 0, 1);
         var (candidates, indices) = Index(input);
 
+        ManualSolveDeadlineSource? deadlineSource = null;
         var evaluationStarted = false;
         var cancellationObserved = false;
         var threwOperationCanceled = false;
 
         var solver = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, new CspOptions { TimeLimitMilliseconds = 200 })
         {
+            DeadlineSourceFactoryForTest = (_, _, callerToken) =>
+                deadlineSource = new ManualSolveDeadlineSource(callerToken),
             BeforeEvaluation = token =>
             {
                 evaluationStarted = true;
-
-                // Wait for the deadline cancellation signal up to 3 seconds.
-                // Using small wait slices (50ms) ensures prompt response when the token is signaled
-                // and avoids waiting out the full 3 seconds while cooperatively yielding between slices.
-                var waitWatch = Stopwatch.StartNew();
-                while (!token.IsCancellationRequested && waitWatch.Elapsed < TimeSpan.FromSeconds(3))
-                {
-                    if (token.WaitHandle.WaitOne(50))
-                    {
-                        break;
-                    }
-                }
+                deadlineSource!.SignalDeadline();
 
                 if (token.IsCancellationRequested)
                 {
@@ -668,16 +660,111 @@ public class CspItinerarySolverTests
             },
         };
 
-        var watch = Stopwatch.StartNew();
         var result = solver.Solve(input, matrix, candidates, indices, HeuristicSchedule(input, matrix));
-        watch.Stop();
 
         evaluationStarted.Should().BeTrue();
         cancellationObserved.Should().BeTrue();
         threwOperationCanceled.Should().BeTrue();
         result.Statistics.TimeLimitReached.Should().BeTrue();
         result.Schedule.Should().BeNull();
-        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(2));
+        deadlineSource.Should().NotBeNull();
+        deadlineSource!.Disposed.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Solve_DiscardsTheResult_WhenElapsedDeadlinePrecedesTheTimerSignal()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(8, 0, 1);
+        var (candidates, indices) = Index(input);
+
+        ManualSolveDeadlineSource? deadlineSource = null;
+        var cancellationObserved = false;
+        var solver = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, new CspOptions { TimeLimitMilliseconds = 200 })
+        {
+            DeadlineSourceFactoryForTest = (_, _, callerToken) =>
+                deadlineSource = new ManualSolveDeadlineSource(callerToken),
+            BeforeEvaluation = token =>
+            {
+                deadlineSource!.AdvanceTo(200);
+                cancellationObserved = token.IsCancellationRequested;
+            },
+        };
+
+        var result = solver.Solve(input, matrix, candidates, indices, HeuristicSchedule(input, matrix));
+
+        cancellationObserved.Should().BeFalse("the simulated timer callback is deliberately delayed");
+        result.Statistics.TimeLimitReached.Should().BeTrue();
+        result.Schedule.Should().BeNull("elapsed deadline checks must reject partial or stale CSP results");
+        deadlineSource.Should().NotBeNull();
+        deadlineSource!.Disposed.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Solve_PropagatesCallerCancellation_WhenCallerAndDeadlineRace()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(8, 0, 1);
+        var (candidates, indices) = Index(input);
+        using var caller = new CancellationTokenSource();
+
+        ManualSolveDeadlineSource? deadlineSource = null;
+        var solver = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, new CspOptions { TimeLimitMilliseconds = 200 })
+        {
+            DeadlineSourceFactoryForTest = (_, _, callerToken) =>
+                deadlineSource = new ManualSolveDeadlineSource(callerToken),
+            BeforeEvaluation = token =>
+            {
+                deadlineSource!.SignalDeadline();
+                caller.Cancel();
+                token.ThrowIfCancellationRequested();
+            },
+        };
+
+        var act = () => solver.Solve(input, matrix, candidates, indices, HeuristicSchedule(input, matrix), caller.Token);
+
+        act.Should().Throw<OperationCanceledException>();
+        deadlineSource.Should().NotBeNull();
+        deadlineSource!.Disposed.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Solve_DoesNotEvaluate_WhenTheDeadlineIsAlreadyExpired()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(8, 0, 1);
+        var (candidates, indices) = Index(input);
+
+        ManualSolveDeadlineSource? deadlineSource = null;
+        var evaluationStarted = false;
+        var solver = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, new CspOptions { TimeLimitMilliseconds = 200 })
+        {
+            DeadlineSourceFactoryForTest = (_, limitMilliseconds, callerToken) =>
+            {
+                deadlineSource = new ManualSolveDeadlineSource(callerToken);
+                deadlineSource.AdvanceTo(limitMilliseconds);
+                return deadlineSource;
+            },
+            BeforeEvaluation = _ => evaluationStarted = true,
+        };
+
+        var result = solver.Solve(input, matrix, candidates, indices, HeuristicSchedule(input, matrix));
+
+        evaluationStarted.Should().BeFalse();
+        result.Statistics.TimeLimitReached.Should().BeTrue();
+        result.Schedule.Should().BeNull();
+        deadlineSource.Should().NotBeNull();
+        deadlineSource!.Disposed.Should().BeTrue();
+    }
+
+    [Fact]
+    public void SolveDeadline_ExpiresAtTheExactBoundary_NotBeforeIt()
+    {
+        using var source = new ManualSolveDeadlineSource();
+        using var deadline = new CspItinerarySolver.SolveDeadline(source, limitMilliseconds: 200);
+
+        source.AdvanceTo(199);
+        deadline.Expired.Should().BeFalse();
+
+        source.AdvanceTo(200);
+        deadline.Expired.Should().BeTrue();
     }
 
     /// <summary>
