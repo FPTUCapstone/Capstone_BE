@@ -177,6 +177,17 @@ public interface IApplicationDbContext
 
     DbSet<PayoutPeriodBreakdown> PayoutPeriodBreakdowns { get; }
 
+    // DAILY-PAYOUT-TRANSFER (Task 2)
+    DbSet<PayoutRun> PayoutRuns { get; }
+
+    DbSet<PayoutBatch> PayoutBatches { get; }
+
+    DbSet<PayoutSettlement> PayoutSettlements { get; }
+
+    DbSet<PayoutSettlementAttempt> PayoutSettlementAttempts { get; }
+
+    DbSet<PayoutSettlementAdjustment> PayoutSettlementAdjustments { get; }
+
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 
     Task<int> RevokeRefreshTokenAsync(
