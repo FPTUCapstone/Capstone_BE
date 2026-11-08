@@ -238,6 +238,18 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.ValidationRequiredField =>
                 StatusCodes.Status400BadRequest,
 
+            // DAILY-PAYOUT-TRANSFER (UC-72/UC-73). Previously unmapped, falling through to the
+            // generic 400 default below for every one of these codes, including Forbidden and
+            // BatchNotFound — this is the gap FE spec Open question 5 was asking about.
+            TripMate.Application.Features.Payouts.DailySettlement.DailyPayoutErrorCodes.Forbidden =>
+                StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.Payouts.DailySettlement.DailyPayoutErrorCodes.BatchNotFound =>
+                StatusCodes.Status404NotFound,
+            TripMate.Application.Features.Payouts.DailySettlement.DailyPayoutErrorCodes.NotFailed =>
+                StatusCodes.Status409Conflict,
+            TripMate.Application.Features.Payouts.DailySettlement.DailyPayoutErrorCodes.ManualReferenceRequired =>
+                StatusCodes.Status400BadRequest,
+
             TripMate.Application.Features.Operator.Revenue.Exports.Common.RevenueExportErrorCodes.ValidationFailed =>
                 StatusCodes.Status400BadRequest,
             TripMate.Application.Features.Operator.Revenue.Exports.Common.RevenueExportErrorCodes.AccessRequired =>
