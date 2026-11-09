@@ -19,6 +19,7 @@ public sealed class TourItineraryItemConfiguration : IEntityTypeConfiguration<To
         builder.Property(item => item.PlannedTime).HasColumnName("planned_time");
         builder.Property(item => item.StayDurationMinutes).HasColumnName("stay_duration_minutes").IsRequired();
         builder.Property(item => item.Notes).HasColumnName("notes").HasMaxLength(TourItineraryItem.NotesMaxLength);
+        builder.Property(item => item.IsRequiredForWeather).HasColumnName("is_required_for_weather");
         builder.HasOne(item => item.Tour).WithMany(tour => tour.ItineraryItems).HasForeignKey(item => item.TourId).OnDelete(DeleteBehavior.Cascade);
         builder.HasOne(item => item.Poi).WithMany().HasForeignKey(item => item.PoiId).OnDelete(DeleteBehavior.NoAction);
         builder.HasIndex(item => new { item.TourId, item.DayNo, item.SequenceNo }).IsUnique().HasDatabaseName("UQ_TourItineraryItems");

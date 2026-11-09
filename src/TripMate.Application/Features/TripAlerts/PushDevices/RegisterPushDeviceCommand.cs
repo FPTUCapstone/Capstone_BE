@@ -5,6 +5,6 @@ using TripMate.Application.Common.Models;
 namespace TripMate.Application.Features.TripAlerts.PushDevices;
 
 public sealed record RegisterPushDeviceCommand(
-    long TravelerUserId,
+    long UserId,
     Guid InstallationId,
     string Token) : IRequest<Result>;

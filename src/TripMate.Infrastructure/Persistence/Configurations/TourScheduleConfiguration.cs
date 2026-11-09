@@ -33,6 +33,12 @@ public class TourScheduleConfiguration : IEntityTypeConfiguration<TourSchedule>
         builder.Property(schedule => schedule.MeetingPoint)
             .HasColumnName("meeting_point")
             .HasMaxLength(TourSchedule.MeetingPointMaxLength);
+        builder.Property(schedule => schedule.MeetingLatitude)
+            .HasColumnName("meeting_latitude")
+            .HasPrecision(9, 6);
+        builder.Property(schedule => schedule.MeetingLongitude)
+            .HasColumnName("meeting_longitude")
+            .HasPrecision(9, 6);
         builder.Property(schedule => schedule.TotalCapacity)
             .HasColumnName("total_capacity")
             .IsRequired();
@@ -59,7 +65,7 @@ public class TourScheduleConfiguration : IEntityTypeConfiguration<TourSchedule>
         builder.Property(schedule => schedule.Status)
             .HasColumnName("status")
             .HasConversion<string>()
-            .HasMaxLength(12)
+            .HasMaxLength(20)
             .IsUnicode(false)
             .HasDefaultValueSql("'Scheduled'")
             .IsRequired();

@@ -81,6 +81,9 @@ public sealed class BookingConfiguration : IEntityTypeConfiguration<Booking>
             .HasMaxLength(Booking.PolicySnapshotMaxLength)
             .HasDefaultValue(Booking.DefaultCancellationPolicySnapshot)
             .IsRequired();
+        builder.Property(booking => booking.EmergencyNoticeAcknowledgedAtUtc)
+            .HasColumnName("emergency_notice_acknowledged_at")
+            .AsUtcDateTime2();
 
         builder.Ignore(booking => booking.SubtotalAmount);
 
