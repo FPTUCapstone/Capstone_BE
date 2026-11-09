@@ -270,17 +270,18 @@ public sealed class CspItinerarySolver(
             return new CspResult(null, search.Statistics, []);
         }
 
-        var incumbent = search.AcceptIncumbent(initialIncumbent);
         var scheduleComparer = search.ScheduleComparer;
         var candidates = new List<(EvaluatedItinerarySchedule Schedule, bool Relaxed)>();
-        if (incumbent is not null && search.AcceptedSchedule is not null)
-        {
-            candidates.Add((search.AcceptedSchedule, false));
-        }
-
         SearchRun? relaxed = null;
         try
         {
+            // Nằm trong try: ở chế độ Weighted, incumbent tham lam gọi evaluator nên có thể chạm mốc thời gian (R5).
+            var incumbent = search.AcceptIncumbent(initialIncumbent);
+            if (incumbent is not null && search.AcceptedSchedule is not null)
+            {
+                candidates.Add((search.AcceptedSchedule, false));
+            }
+
             search.Run(incumbent);
             if (search.Statistics.TimeLimitReached)
             {
