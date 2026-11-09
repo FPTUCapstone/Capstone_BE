@@ -8,8 +8,11 @@ IF OBJECT_ID(N'trip.TripSessions', N'U') IS NULL
 IF EXISTS (
     SELECT 1 FROM trip.TripSessions
     WHERE completion_reason IS NOT NULL
+      -- UC-70 emergency reasons are valid once its migration has run; apply-schema.sh reruns this.
       AND completion_reason NOT IN
-          ('RouteFinished', 'TravelerStopped', 'Expired', 'GroupAccessRevoked'))
+          ('RouteFinished', 'TravelerStopped', 'Expired', 'GroupAccessRevoked',
+           'WeatherEmergency', 'AuthorityDirective', 'DestinationUnavailable', 'TransportFailure',
+           'SafetyIncident', 'Other'))
     THROW 51027, 'UC-21 found an unknown navigation completion reason.', 1;
 
 DECLARE @reasonDefinition nvarchar(max);

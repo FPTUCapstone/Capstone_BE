@@ -5,7 +5,9 @@
 **Approved by user on 2026-10-28 for UC-14 implementation.** The previously approved specification is preserved at
 [`../../Capstone_BE/specs/UC-14-receive-real-time-alerts-spec.md`](../../Capstone_BE/specs/UC-14-receive-real-time-alerts-spec.md).
 Companion proposed [Mobile specification](./mobile-spec.md) and [implementation plan](./plan.md).
-Implementation is authorized; commit and push are not authorized.
+Implemented and verified on 2026-11-08: Application unit, Infrastructure unit and SQL Server integration suites pass,
+and a smoke run against a freshly migrated database with the live Tomorrow.io provider created a schedule-delay alert.
+Production steps are in [`../docs/UC-14-production-runbook.md`](../docs/UC-14-production-runbook.md).
 
 ## Purpose and boundary
 

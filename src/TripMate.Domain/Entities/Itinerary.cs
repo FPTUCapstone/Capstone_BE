@@ -104,6 +104,41 @@ public class Itinerary : BaseEntity
         return itinerary;
     }
 
+    public static Itinerary CreateBookedTour(
+        long travelerUserId,
+        string? title,
+        long sourceBookingId,
+        long sourceTourId,
+        DateTimeOffset createdAtUtc,
+        DateTimeOffset? validFromUtc = null,
+        DateTimeOffset? validToUtc = null)
+    {
+        if (sourceBookingId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(sourceBookingId));
+        }
+
+        if (sourceTourId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(sourceTourId));
+        }
+
+        return new Itinerary(
+            travelerUserId,
+            title,
+            ActiveStatus,
+            createdAtUtc,
+            createdAtUtc,
+            version: 1)
+        {
+            SourceType = BookedTourSourceType,
+            SourceBookingId = sourceBookingId,
+            SourceTourId = sourceTourId,
+            ValidFromUtc = validFromUtc,
+            ValidToUtc = validToUtc,
+        };
+    }
+
     public long TravelerUserId { get; private set; }
 
     public User TravelerUser { get; private set; } = null!;
@@ -121,6 +156,10 @@ public class Itinerary : BaseEntity
     public long? SourceTourId { get; private set; }
 
     public Tour? SourceTour { get; private set; }
+
+    public long? SourceBookingId { get; private set; }
+
+    public Booking? SourceBooking { get; private set; }
 
     public DateTimeOffset? ValidFromUtc { get; private set; }
 

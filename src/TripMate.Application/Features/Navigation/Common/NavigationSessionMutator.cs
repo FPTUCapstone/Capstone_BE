@@ -124,6 +124,10 @@ internal sealed class NavigationSessionMutator(
                 NavigationErrorCodes.SessionCompleted,
                 "The navigation session is already completed.",
                 expired),
+            TripSessionProgressOutcome.SessionInterrupted => Failure(
+                NavigationErrorCodes.SessionInterrupted,
+                "The navigation session was interrupted because the departure was stopped.",
+                expired),
             _ => throw new InvalidOperationException($"Unsupported navigation progress outcome '{progress}'."),
         };
     }

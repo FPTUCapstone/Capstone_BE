@@ -45,7 +45,9 @@ public sealed class TourSearchV2IndependentReader(IApplicationDbContext context,
             if (destination is not null) tours = tours.Where(tour => tour.Destinations.Any(link =>
                 EF.Functions.Collate(link.Destination.Name, DestinationSearchCollation).Contains(destination)));
             if (hasDates) tours = tours.Where(tour => tour.Schedules.Any(schedule =>
-                schedule.Status != TourScheduleStatus.Cancelled && schedule.EndAtUtc > schedule.StartAtUtc
+                schedule.Status != TourScheduleStatus.Cancelled
+                && schedule.Status != TourScheduleStatus.EmergencyStopped
+                && schedule.EndAtUtc > schedule.StartAtUtc
                 && schedule.StartAtUtc >= lower && schedule.StartAtUtc < upper));
 
             var count = await tours.LongCountAsync(token);
@@ -55,7 +57,9 @@ public sealed class TourSearchV2IndependentReader(IApplicationDbContext context,
                 return new IndependentTourSearchPage(request.Page, request.PageSize, count, pages, asOfUtc.UtcDateTime, []);
 
             var candidates = tours.SelectMany(tour => tour.Schedules.Where(schedule =>
-                    schedule.Status != TourScheduleStatus.Cancelled && schedule.EndAtUtc > schedule.StartAtUtc
+                    schedule.Status != TourScheduleStatus.Cancelled
+                    && schedule.Status != TourScheduleStatus.EmergencyStopped
+                    && schedule.EndAtUtc > schedule.StartAtUtc
                     && (hasDates ? schedule.StartAtUtc >= lower && schedule.StartAtUtc < upper : schedule.StartAtUtc >= asOfUtc))
                 .OrderBy(schedule => schedule.StartAtUtc).ThenBy(schedule => schedule.Id).Take(1).DefaultIfEmpty(),
                 (tour, schedule) => new
