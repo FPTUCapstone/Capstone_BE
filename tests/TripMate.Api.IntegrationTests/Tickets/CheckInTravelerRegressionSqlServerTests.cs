@@ -9,6 +9,7 @@ using Microsoft.Extensions.Options;
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Operator.CheckIn.Audit;
 using TripMate.Application.Features.Operator.CheckIn.Common;
 using TripMate.Application.Features.Operator.CheckIn.Scan;
 using TripMate.Application.Features.Tickets.Common;
@@ -24,6 +25,26 @@ namespace TripMate.Api.IntegrationTests.Tickets;
 public sealed class CheckInTravelerRegressionSqlServerTests
 {
     private static readonly DateTimeOffset Departure = new(2026, 10, 30, 1, 0, 0, TimeSpan.Zero);
+
+    [SqlServerFact]
+    public async Task AdmissionFailure_ReturnsMsg127_AndLeavesTicketAndQrUnchanged()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var (seed, ticketId, qr) = await SeedAsync(database);
+        await using var context = database.CreateDbContext();
+        var handler = Handler(context, seed, new StubAuditJournal(CheckInAuditWriteResult.Unavailable));
+
+        var result = await handler.Handle(
+            new CheckInTravelerCommand(seed.ScheduleId,
+                QrContent: Codec().ContentFor(qr.QrToken, qr.Signature)),
+            CancellationToken.None);
+
+        result.ErrorCode.Should().Be(CheckInErrorCodes.Unavailable);
+        result.ErrorCode.Should().NotBe(CheckInErrorCodes.InvalidQr);
+        await AssertUnusedAsync(database, ticketId);
+        (await context.TicketQrCodes.SingleAsync(q => q.Id == qr.Id)).Status
+            .Should().Be(TicketQrCodeStatus.Active);
+    }
 
     [SqlServerFact]
     public async Task ActiveQr_ConsumesExactCredential_ReturnsQuantityProgress_AndRejectsRepeat()
@@ -100,11 +121,15 @@ public sealed class CheckInTravelerRegressionSqlServerTests
         }
 
         await using var context = database.CreateDbContext();
-        var result = await Handler(context, seed).Handle(new CheckInTravelerCommand(seed.ScheduleId, QrContent: content), CancellationToken.None);
+        var journal = new StubAuditJournal();
+        var result = await Handler(context, seed, journal).Handle(
+            new CheckInTravelerCommand(seed.ScheduleId, QrContent: content), CancellationToken.None);
 
         result.ErrorCode.Should().Be(CheckInErrorCodes.InvalidQr);
         await AssertUnusedAsync(database, ticketId);
-        (await context.AuditLogs.CountAsync(a => a.ActionType == AuditActionTypes.CheckInScanRejected)).Should().Be(1);
+        journal.Events.Should().ContainSingle(auditEvent =>
+            auditEvent.EventType == CheckInAuditEventType.Rejected
+            && auditEvent.ReasonCode == CheckInErrorCodes.InvalidQr);
     }
 
     [SqlServerFact]
@@ -270,8 +295,11 @@ public sealed class CheckInTravelerRegressionSqlServerTests
         log.QrCodeId.Should().Be(qrId);
     }
 
-    private static CheckInTravelerCommandHandler Handler(ApplicationDbContext context, TicketSqlServerSeed seed) =>
-        new(context, new OperatorIdentity(seed.OperatorId), Codec(), new Clock());
+    private static CheckInTravelerCommandHandler Handler(
+        ApplicationDbContext context,
+        TicketSqlServerSeed seed,
+        ICheckInAuditJournal? auditJournal = null) =>
+        new(context, new OperatorIdentity(seed.OperatorId), auditJournal ?? new StubAuditJournal(), Codec(), new Clock());
 
     private static TicketQrIssuer Issuer(ApplicationDbContext context) =>
         new(context, Codec(), new SqlServerTicketQrPersistenceErrorClassifier());
@@ -292,6 +320,20 @@ public sealed class CheckInTravelerRegressionSqlServerTests
     private sealed class Clock : IDateTimeProvider
     {
         public DateTimeOffset UtcNow => Departure;
+    }
+
+    private sealed class StubAuditJournal(
+        CheckInAuditWriteResult result = CheckInAuditWriteResult.Confirmed) : ICheckInAuditJournal
+    {
+        public List<CheckInAuditEvent> Events { get; } = [];
+
+        public Task<CheckInAuditWriteResult> AppendAsync(
+            CheckInAuditEvent auditEvent,
+            CancellationToken cancellationToken)
+        {
+            Events.Add(auditEvent);
+            return Task.FromResult(result);
+        }
     }
 
     private sealed class InjectedFailure : Exception;

@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Operator.Bookings.Common;
+using TripMate.Application.Features.Operator.CheckIn.Audit;
 using TripMate.Application.Features.Operator.CheckIn.Common;
 using TripMate.Application.Features.Tickets.Common;
 using TripMate.Domain.Common;
@@ -22,6 +23,7 @@ namespace TripMate.Application.Features.Operator.CheckIn.Scan;
 public sealed class CheckInTravelerCommandHandler(
     IApplicationDbContext dbContext,
     ICurrentUserService currentUserService,
+    ICheckInAuditJournal auditJournal,
     ITicketQrCodec ticketQrCodec,
     IDateTimeProvider clock,
     ILogger<CheckInTravelerCommandHandler>? logger = null)
@@ -35,16 +37,34 @@ public sealed class CheckInTravelerCommandHandler(
         CheckInTravelerCommand request,
         CancellationToken cancellationToken)
     {
-        // 1. Verify operator access (BR-108)
+        if (currentUserService.UserId is not long claimedOperatorId || claimedOperatorId <= 0
+            || currentUserService.Role != nameof(UserRole.TourOperator))
+        {
+            return Result.Failure<CheckInResultDto>(
+                TripMate.Application.Features.Operator.Tours.Common.OperatorTourErrorCodes.AccessRequired,
+                OperatorBookingAccess.AccessRequiredMessage);
+        }
+
+        var nowUtc = clock.UtcNow;
+        var scanAttemptId = Guid.NewGuid();
+        var admission = CheckInAuditEvent.Admission(
+            Guid.NewGuid(), scanAttemptId, nowUtc, claimedOperatorId, request.ScheduleId);
+        if (!await IsDurablyConfirmedAsync(admission, cancellationToken))
+        {
+            return JournalUnavailable();
+        }
+
+        // 1. Verify operator access (BR-108) only after durable admission.
         var access = await OperatorBookingAccess.ResolveOperatorIdAsync(
             dbContext, currentUserService, cancellationToken);
         if (access.IsFailure)
         {
-            return Result.Failure<CheckInResultDto>(access.ErrorCode!, access.ErrorMessage!);
+            return await RejectAsync(
+                scanAttemptId, claimedOperatorId, request.ScheduleId, null, nowUtc,
+                access.ErrorCode!, access.ErrorMessage!);
         }
 
         var operatorId = access.Value;
-        var nowUtc = clock.UtcNow;
 
         // 2. Validate schedule existence and operator tour ownership (BR-108)
         var schedule = await dbContext.TourSchedules.AsNoTracking()
@@ -63,23 +83,25 @@ public sealed class CheckInTravelerCommandHandler(
 
         if (schedule is null)
         {
-            return Result.Failure<CheckInResultDto>(
+            return await RejectAsync(
+                scanAttemptId, operatorId, request.ScheduleId, null, nowUtc,
                 CheckInErrorCodes.ScheduleNotFound, "The departure schedule could not be found.");
         }
 
         if (schedule.OperatorUserId != operatorId)
         {
-            await RecordAuditRejectionAsync(operatorId, null, "Operator does not own this tour departure schedule.", nowUtc);
-            return Result.Failure<CheckInResultDto>(
-                CheckInErrorCodes.ScheduleForbidden, "You do not have permission to check in for this tour departure.");
+            return await RejectAsync(
+                scanAttemptId, operatorId, request.ScheduleId, null, nowUtc,
+                CheckInErrorCodes.ScheduleForbidden,
+                "You do not have permission to check in for this tour departure.");
         }
 
         // 3. Validate departure date window in Asia/Ho_Chi_Minh (BR-84, BR-108)
         var validityWindow = TicketValidityWindow.For(schedule.StartAtUtc);
         if (nowUtc < validityWindow.ValidFromUtc || nowUtc > validityWindow.ValidUntilUtc)
         {
-            await RecordAuditRejectionAsync(operatorId, null, "Check-in attempted outside the departure date window.", nowUtc);
-            return Result.Failure<CheckInResultDto>(
+            return await RejectAsync(
+                scanAttemptId, operatorId, request.ScheduleId, null, nowUtc,
                 CheckInErrorCodes.DepartureNotToday,
                 "Check-in is only permitted on the departure date.");
         }
@@ -93,8 +115,8 @@ public sealed class CheckInTravelerCommandHandler(
         {
             if (!ticketQrCodec.TryVerify(request.QrContent, out var verification) || verification is null)
             {
-                await RecordAuditRejectionAsync(operatorId, null, "Invalid or forged QR code cryptographic payload.", nowUtc);
-                return Result.Failure<CheckInResultDto>(
+                return await RejectAsync(
+                    scanAttemptId, operatorId, request.ScheduleId, null, nowUtc,
                     CheckInErrorCodes.InvalidQr,
                     "Invalid or forged QR code.");
             }
@@ -112,8 +134,8 @@ public sealed class CheckInTravelerCommandHandler(
 
             if (matchedTicketId is null)
             {
-                await RecordAuditRejectionAsync(operatorId, null, "No ticket found matching the submitted booking code.", nowUtc);
-                return Result.Failure<CheckInResultDto>(
+                return await RejectAsync(
+                    scanAttemptId, operatorId, request.ScheduleId, null, nowUtc,
                     CheckInErrorCodes.TicketNotFound,
                     "The ticket could not be found.");
             }
@@ -122,7 +144,8 @@ public sealed class CheckInTravelerCommandHandler(
         }
         else
         {
-            return Result.Failure<CheckInResultDto>(
+            return await RejectAsync(
+                scanAttemptId, operatorId, request.ScheduleId, null, nowUtc,
                 CheckInErrorCodes.InvalidInput,
                 "Either QR code content or a booking code is required.");
         }
@@ -148,8 +171,8 @@ public sealed class CheckInTravelerCommandHandler(
 
         if (ticketData is null)
         {
-            await RecordAuditRejectionAsync(operatorId, null, "Ticket not found.", nowUtc);
-            return Result.Failure<CheckInResultDto>(
+            return await RejectAsync(
+                scanAttemptId, operatorId, request.ScheduleId, null, nowUtc,
                 CheckInErrorCodes.TicketNotFound,
                 "The ticket could not be found.");
         }
@@ -157,8 +180,8 @@ public sealed class CheckInTravelerCommandHandler(
         // 6. Validate schedule match (Normal Flow step 5, Abnormal Case 5.a2)
         if (ticketData.TourScheduleId != request.ScheduleId)
         {
-            await RecordAuditRejectionAsync(operatorId, ticketId, "Ticket is for a different departure schedule.", nowUtc);
-            return Result.Failure<CheckInResultDto>(
+            return await RejectAsync(
+                scanAttemptId, operatorId, request.ScheduleId, ticketId, nowUtc,
                 CheckInErrorCodes.WrongSchedule,
                 "The ticket is for a different departure schedule.");
         }
@@ -166,16 +189,16 @@ public sealed class CheckInTravelerCommandHandler(
         // 7. Validate booking status (BR-82 verified payment, BR-86 cancellation invalidates ticket)
         if (ticketData.BookingStatus == BookingStatus.Cancelled)
         {
-            await RecordAuditRejectionAsync(operatorId, ticketId, "Booking was cancelled.", nowUtc);
-            return Result.Failure<CheckInResultDto>(
+            return await RejectAsync(
+                scanAttemptId, operatorId, request.ScheduleId, ticketId, nowUtc,
                 CheckInErrorCodes.BookingCancelled,
                 "The booking for this ticket has been cancelled.");
         }
 
         if (ticketData.BookingStatus != BookingStatus.Confirmed || ticketData.BookingPaymentStatus != PaymentStatus.Paid)
         {
-            await RecordAuditRejectionAsync(operatorId, ticketId, "Booking is not confirmed or paid.", nowUtc);
-            return Result.Failure<CheckInResultDto>(
+            return await RejectAsync(
+                scanAttemptId, operatorId, request.ScheduleId, ticketId, nowUtc,
                 CheckInErrorCodes.BookingNotConfirmed,
                 "The booking is not confirmed and paid.");
         }
@@ -185,9 +208,6 @@ public sealed class CheckInTravelerCommandHandler(
         // 8. Strict single-use ticket check under D3 / BR-85
         if (ticketData.Status == TicketStatus.Used)
         {
-            await RecordCheckInLogAsync(ticketId, qrCodeIdFromPayload, operatorId, CheckInScanResult.AlreadyUsed, nowUtc, request.Latitude, request.Longitude);
-            await RecordAuditRejectionAsync(operatorId, ticketId, $"Ticket {ticketData.TicketCode} was already checked in.", nowUtc);
-
             var metadata = new Dictionary<string, object?>
             {
                 ["checkedInAt"] = ticketData.CheckedInAtUtc,
@@ -196,16 +216,24 @@ public sealed class CheckInTravelerCommandHandler(
                 ["passengerName"] = passengerName,
             };
 
-            return Result.Failure<CheckInResultDto>(
+            var rejected = await RejectAsync(
+                scanAttemptId, operatorId, request.ScheduleId, ticketId, nowUtc,
                 CheckInErrorCodes.AlreadyUsed,
                 $"Ticket {ticketData.TicketCode} was already checked in at {ticketData.CheckedInAtUtc:O}.",
                 metadata);
+            if (rejected.ErrorCode == CheckInErrorCodes.AlreadyUsed)
+            {
+                await RecordCheckInLogAsync(ticketId, qrCodeIdFromPayload, operatorId,
+                    CheckInScanResult.AlreadyUsed, nowUtc, request.Latitude, request.Longitude);
+            }
+
+            return rejected;
         }
 
         if (ticketData.Status != TicketStatus.Valid)
         {
-            await RecordAuditRejectionAsync(operatorId, ticketId, $"Ticket status is {ticketData.Status}.", nowUtc);
-            return Result.Failure<CheckInResultDto>(
+            return await RejectAsync(
+                scanAttemptId, operatorId, request.ScheduleId, ticketId, nowUtc,
                 CheckInErrorCodes.TicketInvalid,
                 $"Ticket is not valid for check-in (Status: {ticketData.Status}).");
         }
@@ -282,15 +310,13 @@ public sealed class CheckInTravelerCommandHandler(
 
                 if (checkInResult.InvalidQr)
                 {
-                    await RecordAuditRejectionAsync(operatorId, ticketId, "QR credential is not active or its issuance metadata does not match.", nowUtc);
-                    return Result.Failure<CheckInResultDto>(CheckInErrorCodes.InvalidQr, "Invalid or revoked QR code.");
+                    return await RejectAsync(
+                        scanAttemptId, operatorId, request.ScheduleId, ticketId, nowUtc,
+                        CheckInErrorCodes.InvalidQr, "Invalid or revoked QR code.");
                 }
 
                 if (checkInResult.AlreadyUsed)
                 {
-                    await RecordCheckInLogAsync(ticketId, qrCodeIdFromPayload, operatorId, CheckInScanResult.AlreadyUsed, nowUtc, request.Latitude, request.Longitude);
-                    await RecordAuditRejectionAsync(operatorId, ticketId, $"Ticket {ticketData.TicketCode} was already checked in.", nowUtc);
-
                     var metadata = new Dictionary<string, object?>
                     {
                         ["checkedInAt"] = checkInResult.CheckedInAt ?? ticketData.CheckedInAtUtc,
@@ -299,16 +325,24 @@ public sealed class CheckInTravelerCommandHandler(
                         ["passengerName"] = passengerName,
                     };
 
-                    return Result.Failure<CheckInResultDto>(
+                    var rejected = await RejectAsync(
+                        scanAttemptId, operatorId, request.ScheduleId, ticketId, nowUtc,
                         CheckInErrorCodes.AlreadyUsed,
                         $"Ticket {ticketData.TicketCode} was already checked in.",
                         metadata);
+                    if (rejected.ErrorCode == CheckInErrorCodes.AlreadyUsed)
+                    {
+                        await RecordCheckInLogAsync(ticketId, qrCodeIdFromPayload, operatorId,
+                            CheckInScanResult.AlreadyUsed, nowUtc, request.Latitude, request.Longitude);
+                    }
+
+                    return rejected;
                 }
 
                 if (checkInResult.Result is null)
                 {
-                    await RecordAuditRejectionAsync(operatorId, ticketId, "Ticket could not be checked in.", nowUtc);
-                    return Result.Failure<CheckInResultDto>(
+                    return await RejectAsync(
+                        scanAttemptId, operatorId, request.ScheduleId, ticketId, nowUtc,
                         CheckInErrorCodes.TicketInvalid,
                         "Ticket could not be checked in.");
                 }
@@ -414,31 +448,51 @@ public sealed class CheckInTravelerCommandHandler(
         }
     }
 
-    private async Task RecordAuditRejectionAsync(
+    private async Task<Result<CheckInResultDto>> RejectAsync(
+        Guid scanAttemptId,
         long operatorId,
+        long scheduleId,
         long? ticketId,
-        string reason,
-        DateTimeOffset nowUtc)
+        DateTimeOffset nowUtc,
+        string errorCode,
+        string errorMessage,
+        IReadOnlyDictionary<string, object?>? metadata = null)
+    {
+        var outcome = CheckInAuditEvent.Rejected(
+            CheckInAuditEvent.DeriveRejectionEventId(scanAttemptId),
+            scanAttemptId, nowUtc, operatorId, scheduleId, ticketId, errorCode);
+        if (!await IsDurablyConfirmedAsync(outcome, CancellationToken.None))
+        {
+            return JournalUnavailable();
+        }
+
+        return Result.Failure<CheckInResultDto>(errorCode, errorMessage, metadata);
+    }
+
+    private async Task<bool> IsDurablyConfirmedAsync(
+        CheckInAuditEvent auditEvent,
+        CancellationToken cancellationToken)
     {
         try
         {
-            var audit = AuditLog.CreateRecordedOutcome(
-                operatorId,
-                AuditActionTypes.CheckInScanRejected,
-                AuditEntityTypes.CheckIn,
-                ticketId,
-                nowUtc,
-                AuditOutcome.Failure,
-                reason: reason);
-            dbContext.AuditLogs.Add(audit);
-            await dbContext.SaveChangesAsync(CancellationToken.None);
+            return await auditJournal.AppendAsync(auditEvent, cancellationToken)
+                == CheckInAuditWriteResult.Confirmed;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return false;
         }
         catch (Exception ex)
         {
-            // Database-outage limitation: rejection audit log failure is suppressed from disrupting response,
-            // but logged for structured diagnostic observability.
-            _logger.LogError(ex, "Failed to persist rejection audit log: operatorId={OperatorId}, ticketId={TicketId}, reason={Reason}",
-                operatorId, ticketId, reason);
+            _logger.LogError(ex,
+                "Check-in audit journal append failed: eventId={EventId}, attemptId={AttemptId}, eventType={EventType}",
+                auditEvent.EventId, auditEvent.ScanAttemptId, auditEvent.EventType);
+            return false;
         }
     }
+
+    private static Result<CheckInResultDto> JournalUnavailable() =>
+        Result.Failure<CheckInResultDto>(
+            CheckInErrorCodes.Unavailable,
+            CheckInErrorCodes.UnavailableMessage);
 }
