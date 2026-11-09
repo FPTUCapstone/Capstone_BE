@@ -22,7 +22,7 @@ BEGIN
     CREATE TABLE payment.PayoutReconciliationItem (
         id                          BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_PayoutReconciliationItem PRIMARY KEY,
         batch_id                    BIGINT NOT NULL CONSTRAINT FK_PayoutReconciliationItem_Batch REFERENCES payment.PayoutBatch (id),
-        detected_at_utc             DATETIMEOFFSET(0) NOT NULL,
+        detected_at_utc             DATETIME2 NOT NULL,
         expected_status             NVARCHAR(24) NOT NULL,
         observed_outcome            NVARCHAR(24) NOT NULL,
         observed_reference          NVARCHAR(100) NULL,

@@ -155,7 +155,7 @@ settlement chỉ được tạo sau khi cửa sổ kết thúc.
   Áp dụng filter trạng thái và khoảng ngày của UC-72 trên tập gộp này.
 - **DoD:** test xanh; không phá vỡ các test UC-72 hiện có (`DailyPayoutReadQueryTests`).
 
-## Task 11 — Kiểm thử tích hợp
+## Task 11 — Kiểm thử tích hợp — done
 
 - Lượt 10:00 end-to-end trên SQL Server: tạo settlement và lệnh gom, gửi lệnh giả lập, `Settled`.
 - Chạy lại cùng ngày không tạo trùng.
@@ -165,7 +165,25 @@ settlement chỉ được tạo sau khi cửa sổ kết thúc.
 - TO bị khóa rồi mở khóa.
 - Đối soát phát hiện lệnh bị từ chối sau khi gửi.
 - Lượt bị lỡ được chạy bù trong ngày.
-- **DoD:** test tích hợp xanh.
+- **Bug thật phát hiện khi chạy `DailyPayoutSettlementRunSqlServerTests` lần đầu trên SQL Server
+  thật (trước đó chỉ chạy được trên InMemory provider, vốn không phân biệt kiểu cột)**: migration
+  `20261108_daily_payout_settlement_foundation.sql` và `20261109_add_payout_reconciliation_item.sql`
+  tạo toàn bộ cột mốc thời gian (`started_at_utc`, `completed_at_utc`, `last_attempt_at_utc`,
+  `created_at_utc`, `updated_at_utc`, `sent_at_utc`, `applied_at_utc`, `detected_at_utc`) kiểu
+  `DATETIMEOFFSET(0)`, trái với quy ước toàn project (mọi cột mốc thời gian là `DATETIME2`, xem
+  comment của `PropertyBuilderExtensions.AsUtcDateTime2`) — khiến EF ném
+  `InvalidCastException: Unable to cast object of type 'System.DateTimeOffset' to type
+  'System.DateTime'` khi đọc lại bất kỳ dòng nào có cột đó khác NULL. Nếu không bắt ở đây, toàn bộ
+  luồng chuyển tiền sẽ crash ngay khi chạy thật (dev/staging/production), vì unit test InMemory
+  không bao giờ phát hiện được sai lệch kiểu cột. Đã sửa: đổi toàn bộ sang `DATETIME2` +
+  `DEFAULT SYSUTCDATETIME()` (đúng quy ước) trong cả 2 file migration.
+- **DoD:** test tích hợp xanh — `DailyPayoutSettlementRunSqlServerTests` 7/7,
+  `DailyPayoutSettlementActionsEndpointTests` + `DailyPayoutRequestRoutesRemovedTests` +
+  `PayoutLifecycleMigrationSqlServerTests` cùng chạy lại: tổng 19/19 test SQL Server liên quan
+  Payout xanh sau khi sửa (chạy với `TRIPMATE_SQLSERVER_TEST_CONNECTION` trỏ vào SQLEXPRESS local).
+  Phát hiện ngoài lề (không thuộc phạm vi task này, không sửa): `ManagedPoiListSqlServerTests`
+  (3 test, miền POI/JWT, không liên quan Payout) fail sẵn từ trước, lặp lại giống nhau khi chạy
+  riêng lẻ — không phải do thay đổi ở đây.
 
 ## Task 12 — Báo cáo và kết thúc
 

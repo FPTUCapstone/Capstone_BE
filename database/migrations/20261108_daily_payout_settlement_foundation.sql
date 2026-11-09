@@ -37,9 +37,9 @@ BEGIN
         id                  BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_PayoutRun PRIMARY KEY,
         run_date            DATE NOT NULL,
         status              NVARCHAR(24) NOT NULL,
-        started_at_utc      DATETIMEOFFSET(0) NOT NULL,
-        completed_at_utc    DATETIMEOFFSET(0) NULL,
-        created_at_utc      DATETIMEOFFSET(0) NOT NULL CONSTRAINT DF_PayoutRun_created DEFAULT SYSDATETIMEOFFSET(),
+        started_at_utc      DATETIME2 NOT NULL,
+        completed_at_utc    DATETIME2 NULL,
+        created_at_utc      DATETIME2 NOT NULL CONSTRAINT DF_PayoutRun_created DEFAULT SYSUTCDATETIME(),
         CONSTRAINT CK_PayoutRun_status CHECK (status IN (N'Running', N'Completed', N'Failed'))
     );
     CREATE UNIQUE INDEX UX_PayoutRun_RunDate ON payment.PayoutRun (run_date);
@@ -56,9 +56,9 @@ BEGIN
         status                      NVARCHAR(24) NOT NULL,
         transfer_reference          NVARCHAR(100) NULL,
         attempt_count               INT NOT NULL CONSTRAINT DF_PayoutBatch_attempts DEFAULT 0,
-        last_attempt_at_utc         DATETIMEOFFSET(0) NULL,
-        created_at_utc              DATETIMEOFFSET(0) NOT NULL CONSTRAINT DF_PayoutBatch_created DEFAULT SYSDATETIMEOFFSET(),
-        updated_at_utc              DATETIMEOFFSET(0) NOT NULL CONSTRAINT DF_PayoutBatch_updated DEFAULT SYSDATETIMEOFFSET(),
+        last_attempt_at_utc         DATETIME2 NULL,
+        created_at_utc              DATETIME2 NOT NULL CONSTRAINT DF_PayoutBatch_created DEFAULT SYSUTCDATETIME(),
+        updated_at_utc              DATETIME2 NOT NULL CONSTRAINT DF_PayoutBatch_updated DEFAULT SYSUTCDATETIME(),
         CONSTRAINT CK_PayoutBatch_total CHECK (total_amount >= 0),
         CONSTRAINT CK_PayoutBatch_status CHECK (status IN (N'Scheduled', N'Processing', N'Settled', N'SettlementFailed', N'Carried Over'))
     );
@@ -85,9 +85,9 @@ BEGIN
         status                      NVARCHAR(24) NOT NULL,
         transfer_reference          NVARCHAR(100) NULL,
         attempt_count               INT NOT NULL CONSTRAINT DF_PayoutSettlement_attempts DEFAULT 0,
-        last_attempt_at_utc         DATETIMEOFFSET(0) NULL,
-        created_at_utc              DATETIMEOFFSET(0) NOT NULL CONSTRAINT DF_PayoutSettlement_created DEFAULT SYSDATETIMEOFFSET(),
-        updated_at_utc              DATETIMEOFFSET(0) NOT NULL CONSTRAINT DF_PayoutSettlement_updated DEFAULT SYSDATETIMEOFFSET(),
+        last_attempt_at_utc         DATETIME2 NULL,
+        created_at_utc              DATETIME2 NOT NULL CONSTRAINT DF_PayoutSettlement_created DEFAULT SYSUTCDATETIME(),
+        updated_at_utc              DATETIME2 NOT NULL CONSTRAINT DF_PayoutSettlement_updated DEFAULT SYSUTCDATETIME(),
         CONSTRAINT CK_PayoutSettlement_kind CHECK (kind IN (N'Main', N'Retained')),
         CONSTRAINT CK_PayoutSettlement_status CHECK (status IN (N'Scheduled', N'Processing', N'Settled', N'SettlementFailed', N'Carried Over')),
         CONSTRAINT CK_PayoutSettlement_rate CHECK (commission_rate >= 0 AND commission_rate <= 100),
@@ -113,7 +113,7 @@ BEGIN
         id                          BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_PayoutSettlementAttempt PRIMARY KEY,
         batch_id                    BIGINT NOT NULL CONSTRAINT FK_PayoutSettlementAttempt_Batch REFERENCES payment.PayoutBatch (id),
         attempt_number              INT NOT NULL,
-        sent_at_utc                 DATETIMEOFFSET(0) NOT NULL,
+        sent_at_utc                 DATETIME2 NOT NULL,
         gateway_reference           NVARCHAR(100) NOT NULL,
         outcome                     NVARCHAR(24) NOT NULL,
         failure_reason              NVARCHAR(500) NULL,
@@ -133,9 +133,9 @@ BEGIN
         tour_operator_user_id       BIGINT NOT NULL CONSTRAINT FK_PayoutSettlementAdjustment_Operator REFERENCES dbo.Users (user_id),
         amount                      DECIMAL(18,2) NOT NULL,
         reason                      NVARCHAR(200) NOT NULL,
-        created_at_utc              DATETIMEOFFSET(0) NOT NULL CONSTRAINT DF_PayoutSettlementAdjustment_created DEFAULT SYSDATETIMEOFFSET(),
+        created_at_utc              DATETIME2 NOT NULL CONSTRAINT DF_PayoutSettlementAdjustment_created DEFAULT SYSUTCDATETIME(),
         applied_batch_id            BIGINT NULL CONSTRAINT FK_PayoutSettlementAdjustment_Batch REFERENCES payment.PayoutBatch (id),
-        applied_at_utc              DATETIMEOFFSET(0) NULL,
+        applied_at_utc              DATETIME2 NULL,
         CONSTRAINT CK_PayoutSettlementAdjustment_amount CHECK (amount > 0),
         CONSTRAINT UX_PayoutSettlementAdjustment_Source UNIQUE (source_settlement_id)
     );
