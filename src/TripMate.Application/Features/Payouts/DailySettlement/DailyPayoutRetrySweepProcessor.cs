@@ -35,6 +35,7 @@ public sealed class DailyPayoutRetrySweepProcessor(
     {
         var nowUtc = clock.UtcNow;
         var processingBatches = await db.PayoutBatches
+            .Include(b => b.Settlements)
             .Where(b => b.Status == PayoutSettlementStatus.Processing)
             .ToListAsync(cancellationToken);
 
