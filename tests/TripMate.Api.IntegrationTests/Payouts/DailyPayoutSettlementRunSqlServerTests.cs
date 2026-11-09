@@ -170,6 +170,11 @@ public sealed class DailyPayoutSettlementRunSqlServerTests
         batch.Status.Should().Be(PayoutSettlementStatus.Settled);
         batch.AttemptCount.Should().Be(1, "the lookup alone settled it — no second transfer was ever sent");
         (await verify.PayoutSettlementAttempts.CountAsync()).Should().Be(1);
+        // Regression: the sweep's own PayoutBatches query must include Settlements, or
+        // PayoutBatch.MarkSettled's cascade (PD-10) silently no-ops on an empty navigation
+        // collection and the per-booking row stays stuck at Processing forever (UC-72 would
+        // never reflect the real outcome).
+        (await verify.PayoutSettlements.AsNoTracking().SingleAsync()).Status.Should().Be(PayoutSettlementStatus.Settled);
     }
 
     [SqlServerFact]
@@ -204,6 +209,8 @@ public sealed class DailyPayoutSettlementRunSqlServerTests
         var batch = await verify.PayoutBatches.AsNoTracking().SingleAsync();
         batch.Status.Should().Be(PayoutSettlementStatus.SettlementFailed);
         batch.AttemptCount.Should().Be(1, "a permanent rejection from the lookup stops retries without another send");
+        // Regression (see the sibling test above): the settlement must observe the same failure.
+        (await verify.PayoutSettlements.AsNoTracking().SingleAsync()).Status.Should().Be(PayoutSettlementStatus.SettlementFailed);
     }
 
     [SqlServerFact]
@@ -255,6 +262,9 @@ public sealed class DailyPayoutSettlementRunSqlServerTests
         finalBatch.Status.Should().Be(PayoutSettlementStatus.SettlementFailed);
         finalBatch.AttemptCount.Should().Be(4, "exhausting the budget must not count as another attempt");
         (await verify.PayoutSettlementAttempts.CountAsync()).Should().Be(4);
+        // Regression: budget-exhaustion also goes through MarkFailed's cascade (PD-10) — must not
+        // leave the settlement stuck at Processing (see the two sibling tests above).
+        (await verify.PayoutSettlements.AsNoTracking().SingleAsync()).Status.Should().Be(PayoutSettlementStatus.SettlementFailed);
     }
 
     [SqlServerFact]
