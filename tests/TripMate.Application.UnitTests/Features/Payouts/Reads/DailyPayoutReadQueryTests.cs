@@ -41,6 +41,24 @@ public sealed class DailyPayoutReadQueryTests
         result.Value.TotalCount.Should().Be(2);
     }
 
+    // Regression: the FE's "View Details" link (UC-73) needs the row's BatchId — a batch gathers
+    // multiple bookings per Tour Operator per run (PD-14), so SettlementId is never a substitute
+    // for it except by coincidence in a single-booking batch.
+    [Fact]
+    public async Task GetPayoutSettlements_RealSettlementRow_IncludesItsBatchId()
+    {
+        await using var db = TestDbContext.Create();
+        var batch = await SeedSettledBatchAsync(db, operatorId: 7, bookingId: 1);
+        var staff = new FakeCurrentUserService { UserId = 3, Role = nameof(UserRole.Staff) };
+        var handler = new GetPayoutSettlementsQueryHandler(db, staff, new DailyPayoutEligibilityReader(db));
+
+        var result = await handler.Handle(new GetPayoutSettlementsQuery(), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var item = result.Value.Items.Should().ContainSingle(i => i.BookingId == 1).Subject;
+        item.BatchId.Should().Be(batch.Id);
+    }
+
     [Fact]
     public async Task GetPayoutSettlements_AsTourOperator_IsForbidden()
     {
@@ -117,6 +135,7 @@ public sealed class DailyPayoutReadQueryTests
         awaiting.BookingId.Should().Be(2);
         awaiting.TourOperatorUserId.Should().Be(8);
         awaiting.SettlementId.Should().BeNull();
+        awaiting.BatchId.Should().BeNull();
         awaiting.RunDate.Should().BeNull();
     }
 
