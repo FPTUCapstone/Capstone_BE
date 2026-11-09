@@ -36,7 +36,7 @@ public sealed class GetOperatorPayoutSettlementHistoryQueryHandler(
             .Skip((pageNumber - 1) * pageSize)
             .Take(pageSize)
             .Select(s => new PayoutSettlementListItemDto(
-                s.Id, s.BookingId, s.TourOperatorUserId, s.RunDate, s.Kind, s.PayoutAmount, s.Status, s.TransferReference))
+                s.Id, s.BatchId, s.BookingId, s.TourOperatorUserId, s.RunDate, s.Kind, s.PayoutAmount, s.Status, s.TransferReference))
             .ToListAsync(cancellationToken);
 
         return Result.Success(new PayoutSettlementsResponseDto(pageNumber, pageSize, totalCount, items));

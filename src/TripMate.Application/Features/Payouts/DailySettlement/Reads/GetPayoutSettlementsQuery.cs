@@ -25,6 +25,7 @@ public sealed record GetPayoutSettlementsQuery(
 
 public sealed record PayoutSettlementListItemDto(
     long? SettlementId,
+    long? BatchId,
     long BookingId,
     long TourOperatorUserId,
     DateOnly? RunDate,
@@ -67,7 +68,7 @@ public sealed class GetPayoutSettlementsQueryHandler(
         {
             var awaitingBookings = await eligibilityReader.LoadAwaitingWindowBookingsAsync(cancellationToken);
             combined.AddRange(awaitingBookings.Select(b => new PayoutSettlementListItemDto(
-                SettlementId: null, b.BookingId, b.TourOperatorUserId, RunDate: null, b.Kind,
+                SettlementId: null, BatchId: null, b.BookingId, b.TourOperatorUserId, RunDate: null, b.Kind,
                 PayoutAmount: Math.Max(0m, b.GrossAmount - DailyPayoutAmountCalculator.CalculateCommission(b.GrossAmount, b.CommissionRatePercent)),
                 PayoutSettlementDisplayStatus.AwaitingWindow, TransferReference: null)));
         }
@@ -85,7 +86,7 @@ public sealed class GetPayoutSettlementsQueryHandler(
             var settlements = await query
                 .OrderByDescending(s => s.RunDate).ThenBy(s => s.Id)
                 .Select(s => new PayoutSettlementListItemDto(
-                    s.Id, s.BookingId, s.TourOperatorUserId, s.RunDate, s.Kind, s.PayoutAmount, s.Status, s.TransferReference))
+                    s.Id, s.BatchId, s.BookingId, s.TourOperatorUserId, s.RunDate, s.Kind, s.PayoutAmount, s.Status, s.TransferReference))
                 .ToListAsync(cancellationToken);
             combined.AddRange(settlements);
         }
