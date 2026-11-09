@@ -65,7 +65,7 @@ public sealed class WeightedRequestInputsFactory(
         // Bắt buộc: Mọi ứng viên có thể trở thành node (mọi ứng viên trừ rest candidate) phải có giá trị trong BaseByPoiId.
         foreach (var c in candidates)
         {
-            if (!ItineraryScheduleEvaluator.IsQualifiedRestCandidate(c))
+            if (!ItineraryScheduleEvaluator.IsRestOnlyCandidate(c))
             {
                 Invariant.Check(
                     baseByPoiId.ContainsKey(c.Id),

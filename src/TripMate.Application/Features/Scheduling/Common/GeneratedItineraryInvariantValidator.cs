@@ -211,7 +211,8 @@ public sealed class GeneratedItineraryInvariantValidator(SchedulingGenerationOpt
                     previousIndex,
                     nextIndex,
                     currentTime,
-                    matrix);
+                    matrix,
+                    itemsList.GetRange(0, i));
 
                 if (item.PointOfInterestId is { } restPoiId)
                 {
@@ -344,12 +345,14 @@ public sealed class GeneratedItineraryInvariantValidator(SchedulingGenerationOpt
         int previousIndex,
         int nextIndex,
         DateTimeOffset currentTime,
-        RouteDurationMatrix matrix)
+        RouteDurationMatrix matrix,
+        IReadOnlyList<GeneratedItineraryItem> itemsSoFar)
     {
         return candidates
             .Where(candidate =>
                 !input.MandatoryPoiIds.Contains(candidate.Id)
                 && ItineraryScheduleEvaluator.IsQualifiedRestCandidate(candidate)
+                && !ItineraryScheduleEvaluator.WasVisited(itemsSoFar, candidate.Id)
                 && ItineraryScheduleEvaluator.RestDetourMinutes(
                         matrix, previousIndex, candidateMatrixIndices[candidate.Id], nextIndex)
                     <= ItineraryScheduleEvaluator.MaxRestDetourMinutes)

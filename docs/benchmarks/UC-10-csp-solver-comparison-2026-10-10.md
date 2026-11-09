@@ -136,7 +136,7 @@ pXX is the sample at index floor(n × XX / 100) of the segment's measured runs s
 
 ## Limitations
 
-- Synthetic, generator-only evidence: the matrix comes from memory, so no OpenRouteService, ranking or database
+- Synthetic, generator-only evidence: the matrix comes from memory, so no routing-service, ranking or database
   latency is included, and conclusions generalize only to the tested synthetic distribution.
 - One developer machine, no CPU pinning or isolation, a single process run sequentially. Sub-millisecond samples are
   dominated by timer and JIT noise, and with few measured iterations per scenario, p95 and max are sensitive to

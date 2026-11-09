@@ -516,7 +516,7 @@ public sealed class OptionalRouteOptimizer(
         RouteDurationMatrix matrix)
     {
         return candidates
-            .Where(c => !mandatoryPoiIds.Contains(c.Id) && !ItineraryScheduleEvaluator.IsQualifiedRestCandidate(c))
+            .Where(c => !mandatoryPoiIds.Contains(c.Id) && !ItineraryScheduleEvaluator.IsRestOnlyCandidate(c))
             .OrderByDescending(c => c.EffectiveDesirabilityScore ?? decimal.MinValue)
             .ThenByDescending(c => c.ScenicScoreForRanking ?? decimal.MinValue)
             .ThenByDescending(c => c.PhotoRatingForRanking ?? decimal.MinValue)
@@ -587,7 +587,8 @@ public sealed class OptionalRouteOptimizer(
                     previousIndex,
                     nextIndex,
                     currentTime,
-                    matrix);
+                    matrix,
+                    items);
                 if (restCandidate is not null)
                 {
                     var restIndex = candidateMatrixIndices[restCandidate.Id];
@@ -650,7 +651,16 @@ public sealed class OptionalRouteOptimizer(
 
             var needsRest = ItineraryScheduleEvaluator.NeedsRest(input, continuousMinutesAfterVisit, items.Count(item => item.Kind == ItineraryItemKind.Rest));
             var restCandidate = needsRest
-                ? _evaluator.FindQualifiedRestCandidate(matrixCandidates, candidateMatrixIndices, input, candidateIndex, nextIndex, departureTime, matrix)
+                ? _evaluator.FindQualifiedRestCandidate(
+                    matrixCandidates,
+                    candidateMatrixIndices,
+                    input,
+                    candidateIndex,
+                    nextIndex,
+                    departureTime,
+                    matrix,
+                    items,
+                    visitingPoiId: candidate.Id)
                 : null;
 
             GeneratedItineraryItem? restItem = null;

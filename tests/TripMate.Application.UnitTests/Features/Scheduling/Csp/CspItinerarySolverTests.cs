@@ -766,6 +766,81 @@ public class CspItinerarySolverTests
     }
 
     /// <summary>
+    /// Audit 2026-11-09, mục 8: điểm ngoài trời có mái che (ví dụ khu vui chơi) phải được gợi ý làm điểm tham quan.
+    /// Chỉ quán ăn, cafe và trạm nghỉ mới là điểm nghỉ (từ 2026-11-11 điểm có mái che không còn làm điểm nghỉ).
+    /// </summary>
+    [Theory]
+    [InlineData(SchedulingSolverMode.Csp)]
+    [InlineData(SchedulingSolverMode.Heuristic)]
+    public async Task GenerationService_SuggestsAShelteredThemePark_AsAVisit(SchedulingSolverMode mode)
+    {
+        var themePark = OptionalRouteOptimizationScenarios.CreateCandidate(1, "Sheltered theme park", 120, 50_000m, 0.9m) with
+        {
+            CategoryName = "Theme park",
+            HasShelter = true,
+        };
+        var museum = OptionalRouteOptimizationScenarios.CreateCandidate(2, "Museum", 60, 30_000m, 0.5m);
+        var input = OptionalRouteOptimizationScenarios.CreateInput(300, [themePark, museum], []);
+        var minutes = new int[4, 4];
+        for (var from = 0; from < 4; from++)
+        {
+            for (var to = 0; to < 4; to++)
+            {
+                minutes[from, to] = from == to ? 0 : 10;
+            }
+        }
+
+        var service = new ItineraryGenerationService(
+            new StaticMatrixProvider(RouteDurationMatrix.Create(minutes)),
+            new SchedulingGenerationOptions { SolverMode = mode, Csp = new CspOptions { TimeLimitMilliseconds = 600_000 } });
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Items.Where(item => item.Kind == ItineraryItemKind.Visit).Select(item => item.PointOfInterestId)
+            .Should().Contain(1L);
+    }
+
+    /// <summary>
+    /// R5 ở chế độ Weighted, đi qua service (issue #147): chạm mốc thời gian, kể cả lúc dựng incumbent tham lam, phải
+    /// trả đúng lịch heuristic (kèm ModelObjective của chế độ Weighted) thay vì để exception lọt ra thành HTTP 500.
+    /// </summary>
+    [Fact]
+    public async Task GenerationService_InWeightedUtilityMode_ReturnsTheHeuristicPlan_WhenTheWallClockSafetyLimitFires()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(40, 0, 1);
+        var heuristic = await new ItineraryGenerationService(new StaticMatrixProvider(matrix))
+            .GenerateAsync(input, CancellationToken.None);
+        var weightedInputs = new WeightedRequestInputs(
+            input.Candidates.ToDictionary(c => c.Id, _ => 0.5),
+            new PersonalParams(0.012, 0.005, 5, 300, 120, 3, 0.6, 0.7, 0.9, new HashSet<string>(), 0.25, 0.0, 0.30, 0.05, "2026.2"),
+            new ConstantTimeFitFactory());
+        var service = new ItineraryGenerationService(
+            new StaticMatrixProvider(matrix),
+            new SchedulingGenerationOptions
+            {
+                SolverMode = SchedulingSolverMode.Csp,
+                Csp = new CspOptions { Mode = ObjectiveMode.WeightedUtility, TimeLimitMilliseconds = 0 },
+            });
+
+        Result<GeneratedItineraryPlan>? result = null;
+        var activity = await RecordSolverOutcome(async () =>
+            result = await service.GenerateAsync(input, weightedInputs, CancellationToken.None));
+
+        result!.IsSuccess.Should().BeTrue();
+        // Same schedule as the heuristic. The Weighted path adds its objective, its provenance and personalized
+        // reasons (G2, G5); the plain heuristic run has neither.
+        result.Value.Should().BeEquivalentTo(heuristic.Value, options => options
+            .Excluding(plan => plan.ModelObjective)
+            .Excluding(plan => plan.Provenance)
+            .For(plan => plan.Items).Exclude(item => item.RecommendationReason));
+        result.Value.ModelObjective.Should().NotBeNull();
+        result.Value.Provenance!.SolverOutcome.Should().Be(SchedulingSolverOutcomes.HeuristicFallbackCspTimeLimit);
+        activity.GetTagItem("solver.outcome").Should().Be(SchedulingSolverOutcomes.HeuristicFallbackCspTimeLimit);
+        activity.GetTagItem("csp.time_limit_reached").Should().Be(true);
+    }
+
+    /// <summary>
     /// R2: ở các scenario này heuristic xếp 11 điểm, còn CSP với giới hạn cũ 10 điểm dừng chỉ xếp được 10 (benchmark
     /// 2026-10-11). Không còn giới hạn cứng thì CSP xếp được ít nhất bằng heuristic.
     /// </summary>

@@ -357,7 +357,9 @@ public class ItineraryGenerationServiceTests
             ],
             mandatoryPoiIds: [12]);
 
-        var result = await service.GenerateAsync(input, CancellationToken.None);
+        // A sheltered outdoor place is also a visit candidate (audit 2026-11-09), so generation may visit it instead.
+        // A fixed order without that visit pins the rest behavior this test is about.
+        var result = await service.GenerateFixedOrderAsync(input, [12], CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
         result.Value.Items.Should().NotContain(item =>
