@@ -16,6 +16,8 @@ internal sealed class CheckInAuditProjectionBackgroundService(
     IServiceScopeFactory scopeFactory, CheckInAuditJournalMetrics metrics,
     ILogger<CheckInAuditProjectionBackgroundService> logger) : BackgroundService
 {
+    private RedisValue _pendingRecoveryCursor = "0-0";
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         bool groupReady = false;
@@ -71,7 +73,17 @@ internal sealed class CheckInAuditProjectionBackgroundService(
                 logger.LogError("Conflicting projection for {EventId}; leaving {StreamEntryId} pending.", auditEvent.EventId, entry.Id);
                 continue;
             }
-            await connection.Database.StreamAcknowledgeAsync(options.RejectionStreamKey, options.ConsumerGroup, entry.Id, CommandFlags.DemandMaster);
+            long acknowledged = await connection.Database.StreamAcknowledgeAsync(
+                options.RejectionStreamKey, options.ConsumerGroup, entry.Id, CommandFlags.DemandMaster);
+            if (!RecordAcknowledgement(acknowledged, metrics))
+            {
+                logger.LogWarning(
+                    "SQL projection completed but Redis acknowledged {AcknowledgedCount} entries for {StreamEntryId}; " +
+                    "the outcome is not reported as processed.",
+                    acknowledged,
+                    entry.Id);
+                continue;
+            }
             if (result == CheckInAuditProjectionResult.Projected) metrics.RecordProjected(); else metrics.RecordDuplicate();
             processed++;
         }
@@ -80,13 +92,36 @@ internal sealed class CheckInAuditProjectionBackgroundService(
 
     private async Task<StreamEntry[]> ReadEntriesAsync()
     {
+        // Recovery receives at most half the configured capacity. A fresh read is performed on
+        // every sweep so a large poison/conflict PEL cannot prevent newly appended outcomes from
+        // being projected. The cursor advances across the PEL instead of rescanning from 0-0.
+        int pendingLimit = Math.Max(1, options.ProjectionBatchSize / 2);
         StreamAutoClaimResult claimed = await connection.Database.StreamAutoClaimAsync(
             options.RejectionStreamKey, options.ConsumerGroup, options.ConsumerName,
-            checked((long)options.PendingLease.TotalMilliseconds), "0-0", options.ProjectionBatchSize, CommandFlags.DemandMaster);
-        if (claimed.ClaimedEntries.Length > 0) return claimed.ClaimedEntries;
-        return await connection.Database.StreamReadGroupAsync(
+            checked((long)options.PendingLease.TotalMilliseconds), _pendingRecoveryCursor,
+            pendingLimit, CommandFlags.DemandMaster);
+        _pendingRecoveryCursor = claimed.NextStartId.IsNullOrEmpty
+            ? "0-0"
+            : claimed.NextStartId;
+
+        int freshLimit = Math.Max(1, options.ProjectionBatchSize - claimed.ClaimedEntries.Length);
+        StreamEntry[] fresh = await connection.Database.StreamReadGroupAsync(
             options.RejectionStreamKey, options.ConsumerGroup, options.ConsumerName, ">",
-            options.ProjectionBatchSize, noAck: false, CommandFlags.DemandMaster);
+            freshLimit, noAck: false, CommandFlags.DemandMaster);
+        return claimed.ClaimedEntries.Length == 0
+            ? fresh
+            : [.. claimed.ClaimedEntries, .. fresh];
+    }
+
+    internal static bool RecordAcknowledgement(long acknowledged, CheckInAuditJournalMetrics metrics)
+    {
+        if (acknowledged == 1)
+        {
+            return true;
+        }
+
+        metrics.RecordAcknowledgementMiss();
+        return false;
     }
 
     private async Task EnsureGroupAsync()

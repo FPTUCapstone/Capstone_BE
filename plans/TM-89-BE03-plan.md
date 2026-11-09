@@ -122,3 +122,11 @@ Definition of Done: restart evidence is reproducible; results and residual durab
 
 - Official audit-record definition, retention/access policy, projection/availability SLA, and business resolution of admission-only attempts remain PENDING.
 - These do not block building the approved preservation/replay foundation, but they block any claim that PC-05 is fully accepted in production.
+
+## Pre-human-approval remediation (approved 2026-11-09)
+
+- Bound pending recovery, advance the `XAUTOCLAIM` cursor, and reserve capacity for fresh events.
+- Keep poison/conflicting events pending without ACK, delete, trim, expiry, or silent discard.
+- Treat ACK=0 as an observed acknowledgement miss rather than a processed event.
+- Maintain the production gate in `docs/operations/tm89-be03-production-readiness.md`. Railway production
+  auto-deploys `develop`, so merge remains blocked until an activation/rollout plan is approved.
