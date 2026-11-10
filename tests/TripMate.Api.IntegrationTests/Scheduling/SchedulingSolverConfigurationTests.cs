@@ -31,11 +31,11 @@ public sealed class SchedulingSolverConfigurationTests
     }
 
     /// <summary>
-    /// ADR-002: WeightedUtility becomes the objective only after the shadow gates pass. Until then the shipped objective
-    /// stays Lexicographic, and changing it must also change this test.
+    /// ADR-002 §8: the gates passed on local verification (2026-11-11), so WeightedUtility is the shipped objective.
+    /// Rollback is the setting <c>SchedulingGeneration__Csp__Mode=Lexicographic</c>, which must also change this test.
     /// </summary>
     [Fact]
-    public async Task ShippedConfiguration_KeepsTheLexicographicObjectiveUntilTheShadowGatesPass()
+    public async Task ShippedConfiguration_UsesTheWeightedUtilityObjective()
     {
         await using var factory = new TripMateApiFactory();
 
@@ -43,7 +43,7 @@ public sealed class SchedulingSolverConfigurationTests
         var options = factory.Services.GetRequiredService<SchedulingGenerationOptions>();
 
         configuration[$"{SchedulingGenerationOptions.SectionName}:Csp:{nameof(CspOptions.Mode)}"]
-            .Should().Be(nameof(ObjectiveMode.Lexicographic));
-        options.Csp.Mode.Should().Be(ObjectiveMode.Lexicographic);
+            .Should().Be(nameof(ObjectiveMode.WeightedUtility));
+        options.Csp.Mode.Should().Be(ObjectiveMode.WeightedUtility);
     }
 }

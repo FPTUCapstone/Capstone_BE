@@ -6,6 +6,7 @@ using System.Text.Json.Serialization;
 using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -167,7 +168,7 @@ public sealed class CreateSchedulingRequestEndpointTests
         var provenance = payload.RootElement.GetProperty("provenance");
         provenance.GetProperty("solverOutcome").GetString().Should().Be(SchedulingSolverOutcomes.Csp);
         provenance.GetProperty("solverKind").GetString().Should().Be(SchedulingSolverKinds.Csp);
-        provenance.GetProperty("objectiveMode").GetString().Should().Be("Lexicographic");
+        provenance.GetProperty("objectiveMode").GetString().Should().Be("WeightedUtility", "ADR-002 §8: the shipped objective");
         provenance.GetProperty("searchCompleted").GetBoolean().Should().BeTrue();
         provenance.GetProperty("timeOfDayRefined").GetBoolean().Should().BeFalse();
     }
@@ -364,6 +365,10 @@ public sealed class CreateSchedulingRequestEndpointTests
 
         using var factory = CreateFactory(configureTestServices: services =>
         {
+            // ADR-002 §8: shadow runs WeightedUtility only beside a Lexicographic primary, which is no longer shipped.
+            services.Configure<SchedulingGenerationOptions>(new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?> { ["Csp:Mode"] = "Lexicographic" })
+                .Build());
             services.RemoveAll<IShadowSchedulingRunner>();
             services.AddSingleton<IShadowSchedulingRunner>(mockShadowRunner);
             services.RemoveAll<Microsoft.Extensions.Options.IOptions<ShadowOptions>>();

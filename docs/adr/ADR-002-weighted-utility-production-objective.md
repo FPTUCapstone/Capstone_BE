@@ -1,6 +1,6 @@
 # ADR-002: WeightedUtility là hàm mục tiêu production của UC-10
 
-- **Trạng thái:** Được developer chấp thuận (Accepted), sửa đổi ngày 2026-11-11 (mục 8). `Csp.Mode` chưa được chuyển.
+- **Trạng thái:** Được developer chấp thuận (Accepted), sửa đổi ngày 2026-11-11 (mục 8). `Csp.Mode=WeightedUtility` được phát hành từ ngày 2026-11-11, shadow tắt.
 - **Ngày:** 2026-11-10
 - **Tác giả:** UC-10 scheduling (phuctv)
 - **Liên quan:** [ADR-001](ADR-001-objective-kernel-interface.md),
