@@ -29,9 +29,10 @@ public class ShadowConfigurationStartupTests
         using var provider = services.BuildServiceProvider();
         var options = provider.GetRequiredService<IOptions<ShadowOptions>>().Value;
 
+        // ADR-002: WeightedUtility runs in shadow on a fifth of fresh generations before it becomes the objective.
         options.Should().NotBeNull();
-        options.Enabled.Should().BeFalse();
-        options.SampleRate.Should().Be(1.0);
+        options.Enabled.Should().BeTrue();
+        options.SampleRate.Should().Be(0.2);
         options.TimeoutMs.Should().Be(5000);
     }
 

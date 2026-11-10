@@ -156,6 +156,12 @@ riêng phần database, đúng với việc bạn chỉ muốn chạy SQL trên 
    CSP và việc có chạm giới hạn thời gian hay không. Thời gian của cả request nằm ở dòng
    `Request finished ... POST .../api/v1/scheduling-requests`.
 
+   Hàm mục tiêu phát hành vẫn là `Lexicographic`. Theo `docs/adr/ADR-002-weighted-utility-production-objective.md`,
+   `WeightedUtility` chạy shadow trên 20% lần tạo lịch mới (`SchedulingGeneration:Shadow`): chạy nền, không đổi
+   lịch trả về. Mỗi lần có một dòng `Shadow run finished for Request ...` (thời gian, số điểm của hai lịch, Jaccard).
+   - Tắt shadow: `SchedulingGeneration__Shadow__Enabled=false`.
+   - Đổi tỷ lệ: `SchedulingGeneration__Shadow__SampleRate`, từ `0` đến `1`.
+
 5. Swagger UI ở `https://localhost:<port>/swagger` (môi trường Development).
 
 ## 6. Chạy test
