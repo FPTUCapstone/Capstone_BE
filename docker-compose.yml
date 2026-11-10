@@ -89,8 +89,8 @@ services:
       Payment__PayOs__ChecksumKey: ${Payment__PayOs__ChecksumKey:-}
       Payment__PayOs__ReturnUrl: ${Payment__PayOs__ReturnUrl:-http://localhost:3001/checkout/result}
       Payment__PayOs__CancelUrl: ${Payment__PayOs__CancelUrl:-http://localhost:3001/checkout/result}
-      OPENROUTESERVICE__APIKEY: ${OPENROUTESERVICE__APIKEY:?OPENROUTESERVICE__APIKEY must be set in .env}
-      OPENROUTESERVICE__BASEURL: ${OPENROUTESERVICE__BASEURL:-https://api.heigit.org/openrouteservice/}
+      MAPBOXROUTING__ACCESSTOKEN: ${MAPBOXROUTING__ACCESSTOKEN:?MAPBOXROUTING__ACCESSTOKEN must be set in .env}
+      MAPBOXROUTING__BASEURL: ${MAPBOXROUTING__BASEURL:-https://api.mapbox.com/}
       SchedulingRateLimit__MaxFreshGenerationsPerMinute: ${SchedulingRateLimit__MaxFreshGenerationsPerMinute:-3}
       SchedulingRateLimit__CooldownSeconds: ${SchedulingRateLimit__CooldownSeconds:-15}
       SchedulingRateLimit__Provider: Redis
