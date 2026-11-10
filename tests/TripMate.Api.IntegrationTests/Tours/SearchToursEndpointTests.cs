@@ -4,7 +4,11 @@ using System.Text.Json;
 
 using FluentAssertions;
 
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+
 using TripMate.Api.IntegrationTests.Infrastructure;
+using TripMate.Application.Features.Tours.Search;
 
 namespace TripMate.Api.IntegrationTests.Tours;
 
@@ -157,6 +161,24 @@ public sealed class SearchToursEndpointTests
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
+    [Fact]
+    public async Task Search_WhenAvailabilityProviderFails_ReturnsGlobalSystemError()
+    {
+        await using var factory = new TripMateApiFactory(
+            configureTestServices: services =>
+            {
+                services.RemoveAll<ITourAvailabilityReader>();
+                services.AddScoped<ITourAvailabilityReader, ThrowingAvailabilityReader>();
+            });
+        using var client = factory.CreateClient();
+
+        using var response = await client.GetAsync("/api/v1/tours");
+
+        response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
+        response.Content.Headers.ContentType!.MediaType.Should().Be("application/problem+json");
+        response.Headers.CacheControl!.NoStore.Should().BeTrue();
+    }
+
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
     public async Task Search_EndToEnd_UsesRealSqlDataAndPreservesBigIntIdsAsStrings()
@@ -240,5 +262,13 @@ public sealed class SearchToursEndpointTests
             await withoutPrimary.Content.ReadAsStringAsync());
         withoutPrimaryBody.RootElement.GetProperty("items").EnumerateArray()
             .Single().GetProperty("thumbnailUrl").ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    private sealed class ThrowingAvailabilityReader : ITourAvailabilityReader
+    {
+        public Task<IReadOnlyDictionary<long, TourAvailabilityReadResult>> ReadAsync(
+            IReadOnlyCollection<long> scheduleIds,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("Simulated global availability failure.");
     }
 }
