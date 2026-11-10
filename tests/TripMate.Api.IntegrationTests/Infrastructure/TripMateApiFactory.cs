@@ -163,7 +163,9 @@ public sealed class TripMateApiFactory(
                             or "TripMate.Infrastructure.Services.WeatherAlertInboxBackgroundService"
                             or "TripMate.Infrastructure.Services.WeatherSafetyReviewEscalationBackgroundService"
                             or "TripMate.Infrastructure.Services.TomorrowNotificationReconciliationBackgroundService"
-                            or "TripMate.Infrastructure.Services.WeatherLocationSyncBackgroundService"))
+                            or "TripMate.Infrastructure.Services.WeatherLocationSyncBackgroundService"
+                            or "TripMate.Infrastructure.Services.DailyPayoutRunBackgroundService"
+                            or "TripMate.Infrastructure.Services.DailyPayoutRetrySweepBackgroundService"))
                 {
                     services.RemoveAt(index);
                 }
