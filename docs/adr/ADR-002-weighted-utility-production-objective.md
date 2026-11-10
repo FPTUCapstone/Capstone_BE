@@ -103,8 +103,8 @@ Audit read-only UC-10 trên `origin/develop` `f6cd480e` có các kết luận sa
 | Giai đoạn | Nội dung |
 |---|---|
 | G0 | ADR này; bật shadow 20%; ghim `Csp.Mode=Lexicographic` trong test cấu hình phát hành cho đến khi đạt gate |
-| G1 | Test đối chứng ở handler; gỡ bốn chỗ `?? new PersonalParamsFactory()` (bảng Pace rỗng làm pace bị bỏ qua mà không báo); ghi pace vào log shadow |
-| G2 | Lưu và trả nguồn gốc lịch (migration `Itineraries`); trả mã lỗi riêng khi CSP hết giờ mà heuristic không có lịch, thay cho báo vô nghiệm |
+| G1 | Test đối chứng end-to-end qua DI thật. Giữ fallback `?? new PersonalParamsFactory()`, vì test của ADR-001 §5.5.1 dùng nó; production được chặn bằng chính bộ test đối chứng. Ghi pace vào log shadow. Bỏ giá trị sở thích khỏi log khi parse lỗi. |
+| G2 | Lưu và trả nguồn gốc lịch (migration `Itineraries`); trả mã lỗi riêng khi CSP hết giờ mà heuristic không có lịch, thay cho báo vô nghiệm; sửa comment `CspOptions` và tạo lại report benchmark |
 | G3 | Web và Mobile: badge CSP có điều kiện, MSG35, hiển thị `detail` của lỗi 422 |
 | G4 | Hiệu chỉnh tham số; lịch dự phòng cá nhân hóa; benchmark `WeightedUtility`; PR chuyển mode |
 | G5 | Khoảng cách tới tối ưu; lý do chọn từng điểm theo sở thích |
