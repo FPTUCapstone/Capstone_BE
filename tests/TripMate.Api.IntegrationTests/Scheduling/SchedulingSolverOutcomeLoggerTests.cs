@@ -43,6 +43,26 @@ public sealed class SchedulingSolverOutcomeLoggerTests
     }
 
     /// <summary>
+    /// ADR-002 (G2): operators need the objective mode and whether the CSP proved its result, to track the share of
+    /// proven-optimal plans before and after the WeightedUtility switch.
+    /// </summary>
+    [Fact]
+    public async Task LogsTheObjectiveModeAndWhetherTheSearchCompleted()
+    {
+        var logger = new RecordingLogger<SchedulingSolverOutcomeLogger>();
+        using var service = new SchedulingSolverOutcomeLogger(logger);
+        await service.StartAsync(CancellationToken.None);
+
+        SchedulingSolverDiagnostics.RecordOutcome(
+            SchedulingSolverMode.Csp, SchedulingSolverOutcomes.Csp, new CspStatistics(), "WeightedUtility");
+        await service.StopAsync(CancellationToken.None);
+
+        var entry = logger.Entries.Should().ContainSingle().Subject;
+        entry.Values["ObjectiveMode"].Should().Be("WeightedUtility");
+        entry.Values["CspSearchCompleted"].Should().Be(false);
+    }
+
+    /// <summary>
     /// Review Phase 3: the search-limit signals are operationally relevant (a rising share means the node budget or the
     /// evaluator caps are too small for production inputs), so the log line must carry them, not only the Activity.
     /// </summary>

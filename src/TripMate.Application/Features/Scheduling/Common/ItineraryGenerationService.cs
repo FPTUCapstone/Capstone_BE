@@ -78,6 +78,7 @@ public sealed class ItineraryGenerationService(
 
         // R4: tắt tối ưu tuyến thì bỏ qua SolverMode, chạy đúng đường không tối ưu của OptionalRouteOptimizer.
         var solverMode = _options.EnableOptionalRouteOptimization ? _options.SolverMode : SchedulingSolverMode.Heuristic;
+        var objectiveMode = solverMode == SchedulingSolverMode.Csp ? _options.Csp.Mode.ToString() : null;
         if (solverMode == SchedulingSolverMode.Csp)
         {
             // R1a: lịch heuristic là incumbent ban đầu của CSP, nên kết quả CSP không bao giờ kém nó theo product rule.
@@ -106,8 +107,11 @@ public sealed class ItineraryGenerationService(
                 // quả không phụ thuộc vào lúc dừng.
                 if (heuristic is null)
                 {
-                    SchedulingSolverDiagnostics.RecordOutcome(solverMode, SchedulingSolverOutcomes.Infeasible, cspStatistics);
-                    return Infeasible("The mandatory locations cannot fit within the selected time, hours, budget, and end point.");
+                    // The discarded CSP result may have held a plan, so this is not proof of infeasibility (ADR-002, G2).
+                    SchedulingSolverDiagnostics.RecordOutcome(solverMode, SchedulingSolverOutcomes.CspTimeLimitWithoutPlan, cspStatistics, objectiveMode);
+                    return Result.Failure<GeneratedItineraryPlan>(
+                        SchedulingErrorCodes.GenerationTimedOut,
+                        "The itinerary could not be generated in time. Please try again.");
                 }
 
                 alternativeResult = heuristic;
@@ -129,7 +133,7 @@ public sealed class ItineraryGenerationService(
             }
             else
             {
-                SchedulingSolverDiagnostics.RecordOutcome(solverMode, SchedulingSolverOutcomes.Infeasible, cspStatistics);
+                SchedulingSolverDiagnostics.RecordOutcome(solverMode, SchedulingSolverOutcomes.Infeasible, cspStatistics, objectiveMode);
                 return Infeasible(csp.ProvedInfeasible
                     ? DescribeCspInfeasibility(csp, candidatesById)
                     : "The mandatory locations cannot fit within the selected time, hours, budget, and end point.");
@@ -159,16 +163,19 @@ public sealed class ItineraryGenerationService(
 
         if (optimizationResult is null)
         {
-            SchedulingSolverDiagnostics.RecordOutcome(solverMode, SchedulingSolverOutcomes.Infeasible, cspStatistics);
+            SchedulingSolverDiagnostics.RecordOutcome(solverMode, SchedulingSolverOutcomes.Infeasible, cspStatistics, objectiveMode);
             return Infeasible("The mandatory locations cannot fit within the selected time, hours, budget, and end point.");
         }
 
         OnOptimizationCompleted?.Invoke(optimizationResult);
 
         _validator.Validate(input, matrix, matrixCandidates, optimizationResult.Schedule.Plan);
-        SchedulingSolverDiagnostics.RecordOutcome(solverMode, outcome, cspStatistics);
+        SchedulingSolverDiagnostics.RecordOutcome(solverMode, outcome, cspStatistics, objectiveMode);
 
-        var finalPlan = optimizationResult.Schedule.Plan;
+        var finalPlan = optimizationResult.Schedule.Plan with
+        {
+            Provenance = new SchedulingProvenance(outcome, objectiveMode, cspStatistics?.SearchCompleted),
+        };
         if (_options.Csp.Mode == ObjectiveMode.WeightedUtility && weighted is not null && !finalPlan.ModelObjective.HasValue)
         {
             var ctx = RoutingContext.Create(input, matrix, matrixCandidates, candidateMatrixIndices, _options, _options.MiniRouting);

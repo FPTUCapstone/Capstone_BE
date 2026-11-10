@@ -9,8 +9,9 @@ phase ships as its own PR.
 | Phase | State |
 |---|---|
 | G0 | Committed (`67e5bb1f`) |
-| G1 | Implemented on `feature/phuctv-uc10-weighted-personalization` |
-| G2–G6 | Planned |
+| G1 | Committed (`26038562`) |
+| G2 | Implemented on the same branch |
+| G3–G6 | Planned |
 
 ## Problem
 
@@ -55,18 +56,33 @@ The UC-10 audit of 2026-11-10 (`origin/develop` `f6cd480e`) found three problems
   - Keep them. They give the documented no-DI Moderate fallback that ADR-001 §5.5.1 tests rely on.
   - Production resolves the configured factory through DI. AC1.1 guards this, because the pace and risk pairs fail if the Pace table is not bound.
 
-### G2: provenance and correctness (planned)
+### G2: provenance and correctness (implemented)
 
-- AC2.1: Persist and return `SchedulingProvenance`:
-  - `SolverOutcome`, `ObjectiveMode`, `SearchCompleted`, `NodeLimitReached`, `TimeOfDayRefined`;
-  - stored in new `Itineraries` columns, added by a migration in `database/migrations` and in `tripmate_schema_v7.sql`;
-  - exposed in `SchedulingResponseDto` and the itinerary detail;
-  - additive, so existing clients are unaffected.
-- AC2.2: Regenerate records its own provenance. Adjust records `manual_order`.
-- AC2.3: When the CSP hits its time limit and the heuristic has no plan, return `planning.generation_timeout` instead of `planning.constraints_infeasible`. Today the infeasible answer comes from `ItineraryGenerationService.cs:107-111`.
-- AC2.4: The solver outcome log line carries `search_completed` and the objective mode.
-- AC2.5: Fix the `CspOptions.WeightedMaxNodes` comment, which cites ADR-001 figures that ADR-001 does not contain.
-  - `Csp/` and `Common/` are hashed by `SolverComparisonReport.SourceInputs`. Regenerate the solver-comparison report in the same change.
+- AC2.1: Every generated plan carries `SchedulingProvenance`. The handler saves it on the itinerary and both the create response and the itinerary detail return it as a `provenance` object:
+
+  | Field | Meaning |
+  |---|---|
+  | `solverOutcome` | A `SchedulingSolverOutcomes` value, or `manual_order` |
+  | `solverKind` | Derived from `solverOutcome`: `Csp`, `CspFallback`, `Heuristic` or `MiniRouting`; null for `manual_order` |
+  | `objectiveMode` | The CSP objective; null when the CSP did not run |
+  | `searchCompleted` | True when the CSP explored the whole tree; null when the CSP did not run |
+  | `timeOfDayRefined` | True when `TimeOfDayRefiner` changed the solver's visit order |
+
+  - `NodeLimitReached` was dropped from the planned field list. A `csp` outcome with `searchCompleted=false` already means the node limit was reached, because a time limit always produces a fallback outcome.
+  - Storage: four nullable `planning.Itineraries` columns (`solver_outcome VARCHAR(64)`, `objective_mode VARCHAR(20)`, `search_completed BIT`, `time_of_day_refined BIT`).
+  - They are added only by the idempotent migration `database/migrations/20261110_uc10_itinerary_solver_provenance.sql`. Like other recent column additions (for example `friendly_explanation`), the migration does not edit `tripmate_schema_v7.sql`.
+  - Itineraries saved before the migration keep NULL and return `provenance: null`.
+- **Deployment order (required):** run the migration on the target database first, using the `DB migrate (Azure SQL)` workflow (dry run, then apply). Deploy the API only after that.
+  - EF reads the new columns on every itinerary query, so deploying the API first makes itinerary reads fail.
+  - Migrating first is safe, because the current API never touches these columns.
+- AC2.2: Regenerate saves the provenance of its new plan. Adjust saves `manual_order`.
+- AC2.3: When the CSP reaches its time limit and the heuristic has no plan, the CSP result is discarded and nothing proves the request infeasible. In that case:
+  - Create returns `planning.generation_timeout` with HTTP 503. The request is released (`Pending`) instead of failed, so the same idempotency key generates again.
+  - Regenerate returns `itinerary.generation_timeout` with HTTP 503.
+  - The solver outcome is `csp_time_limit_without_plan`, and the funnel outcome is `generation_timeout`.
+- AC2.4: The solver outcome activity carries `solver.objective_mode`, which is added to the allowed aggregate tags. The log line carries `ObjectiveMode` and `CspSearchCompleted`.
+- AC2.5: The `CspOptions.WeightedMaxNodes` comment no longer cites ADR-001 figures that do not exist.
+  - The solver-comparison report is regenerated in the same change, because `Csp/` and `Common/` are hashed by `SolverComparisonReport.SourceInputs`.
 
 ### G3: honest clients (planned; Web and Mobile repos)
 

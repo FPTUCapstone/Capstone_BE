@@ -467,7 +467,9 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
 
             SchedulingErrorCodes.RoutingProviderUnavailable
                 or SchedulingErrorCodes.GenerationTemporarilyUnavailable
-                or SchedulingErrorCodes.GenerationRateLimiterUnavailable =>
+                or SchedulingErrorCodes.GenerationRateLimiterUnavailable
+                or SchedulingErrorCodes.GenerationTimedOut
+                or TripMate.Application.Features.Itineraries.Common.ItineraryErrorCodes.GenerationTimedOut =>
                 StatusCodes.Status503ServiceUnavailable,
 
             FeedbackErrorCodes.PoiNotFound or FeedbackErrorCodes.ItineraryNotFound =>

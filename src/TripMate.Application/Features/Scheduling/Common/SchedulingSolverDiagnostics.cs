@@ -31,6 +31,12 @@ public static class SchedulingSolverOutcomes
 
     /// <summary>Không bộ giải nào tìm được lịch trình.</summary>
     public const string Infeasible = "infeasible";
+
+    /// <summary>
+    /// CSP chạm lưới an toàn thời gian và heuristic không có lịch: không có lịch, nhưng cũng chưa chứng minh vô nghiệm
+    /// (ADR-002, G2), nên bên gọi trả lỗi có thể thử lại.
+    /// </summary>
+    public const string CspTimeLimitWithoutPlan = "csp_time_limit_without_plan";
 }
 
 /// <summary>
@@ -71,7 +77,11 @@ public static class SchedulingSolverDiagnostics
     public const string OutcomeActivityName = "SchedulingSolverOutcome";
     public static readonly ActivitySource Source = new(ActivitySourceName, "1.0.0");
 
-    public static void RecordOutcome(SchedulingSolverMode mode, string outcome, CspStatistics? csp)
+    public static void RecordOutcome(
+        SchedulingSolverMode mode,
+        string outcome,
+        CspStatistics? csp,
+        string? objectiveMode = null)
     {
         using var activity = Source.StartActivity(OutcomeActivityName);
         if (activity is null) return;
@@ -81,6 +91,11 @@ public static class SchedulingSolverDiagnostics
         if (SchedulingSolverKinds.Of(outcome) is { } kind)
         {
             activity.SetTag("solver.kind", kind);
+        }
+
+        if (objectiveMode is not null)
+        {
+            activity.SetTag("solver.objective_mode", objectiveMode);
         }
 
         if (csp is null) return;

@@ -38,6 +38,31 @@ public sealed class TimeOfDayRefinerTests
             .Should().Be("Xếp vào buổi trưa để tránh nắng");
     }
 
+    /// <summary>ADR-002 (G2): a reordered plan keeps the solver's provenance and says it was reordered.</summary>
+    [Fact]
+    public async Task RefineAsync_MarksTheProvenanceAsRefined_OnlyWhenItReordersTheSolverPlan()
+    {
+        var provenance = new SchedulingProvenance(SchedulingSolverOutcomes.Csp, "Lexicographic", SearchCompleted: true);
+
+        // Input() sets the shared SkewedProvider matrix, so build each input right before refining it.
+        var reorderInput = Input(museumToMountainMinutes: 15, extraForMorningOrder: 10);
+        var reordered = await Refiner().RefineAsync(
+            reorderInput,
+            (await PlanAsync(reorderInput, MuseumId, MountainId)) with { Provenance = provenance },
+            Traits,
+            CancellationToken.None);
+        var keepInput = Input(museumToMountainMinutes: 15, extraForMorningOrder: 60);
+        var kept = await Refiner().RefineAsync(
+            keepInput,
+            (await PlanAsync(keepInput, MuseumId, MountainId)) with { Provenance = provenance },
+            Traits,
+            CancellationToken.None);
+
+        VisitIds(reordered).Should().Equal(MountainId, MuseumId);
+        reordered.Provenance.Should().Be(provenance with { TimeOfDayRefined = true });
+        kept.Provenance.Should().Be(provenance);
+    }
+
     [Fact]
     public async Task RefineAsync_WhenPlanHasModelObjective_PreservesSolverResultAndAddsReasons()
     {

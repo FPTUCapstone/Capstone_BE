@@ -2,6 +2,7 @@ using FluentAssertions;
 
 using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Itineraries.GetDetail;
+using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.UnitTests.TestUtilities;
 using TripMate.Domain.Constants;
 using TripMate.Domain.Entities;
@@ -39,6 +40,26 @@ public sealed class GetItineraryDetailQueryHandlerTests
 
         response.Items.ElementAt(0).TravelDurationFromPreviousMinutes.Should().BeNull();
         response.Items.ElementAt(1).TravelDurationFromPreviousMinutes.Should().Be(15);
+    }
+
+    /// <summary>ADR-002 (G2): the detail says how the schedule was produced, and nothing for older itineraries.</summary>
+    [Fact]
+    public void ToResponse_ReturnsTheSavedScheduleProvenance_AndNullWhenNoneWasSaved()
+    {
+        var recorded = Itinerary.CreateManual(1, "Recorded", Itinerary.ActiveStatus, StartAtUtc);
+        recorded.RecordGenerationProvenance("heuristic_fallback_csp_time_limit", "Lexicographic", false, true);
+        var legacy = Itinerary.CreateManual(1, "Legacy", Itinerary.ActiveStatus, StartAtUtc);
+
+        var recordedResponse = GetItineraryDetailQueryHandler.ToResponse(recorded, true, 1);
+        var legacyResponse = GetItineraryDetailQueryHandler.ToResponse(legacy, true, 1);
+
+        recordedResponse.Provenance.Should().Be(new SchedulingProvenanceDto(
+            "heuristic_fallback_csp_time_limit",
+            SchedulingSolverKinds.CspFallback,
+            "Lexicographic",
+            SearchCompleted: false,
+            TimeOfDayRefined: true));
+        legacyResponse.Provenance.Should().BeNull();
     }
 
     [Fact]

@@ -164,6 +164,9 @@
     <None Include="..\..\database\migrations\20261102_weather_operator_review.sql"
           Link="Database\migrations\20261102_weather_operator_review.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261110_uc10_itinerary_solver_provenance.sql"
+          Link="Database\migrations\20261110_uc10_itinerary_solver_provenance.sql"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

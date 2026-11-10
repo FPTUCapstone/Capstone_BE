@@ -327,7 +327,7 @@ public class CspItinerarySolverTests
     {
         string[] allowed =
         [
-            "solver.mode", "solver.outcome", "solver.kind",
+            "solver.mode", "solver.outcome", "solver.kind", "solver.objective_mode",
             "csp.nodes_expanded", "csp.solutions_found", "csp.search_completed", "csp.node_limit_reached",
             "csp.time_limit_reached", "csp.used_relaxed_rest_model", "csp.chose_relaxed_rest_model", "csp.evaluator_calls",
             "csp.in_search_evaluation_limit_reached", "csp.tie_evaluation_limit_reached", "csp.returned_heuristic_plan",
@@ -756,7 +756,9 @@ public class CspItinerarySolverTests
         var activity = await RecordSolverOutcome(async () => result = await service.GenerateAsync(input, CancellationToken.None));
 
         result!.IsSuccess.Should().BeTrue();
-        result.Value.Should().BeEquivalentTo(heuristic.Value);
+        // The schedule is the heuristic one; only its provenance says it came from a CSP fallback (ADR-002, G2).
+        result.Value.Should().BeEquivalentTo(heuristic.Value, options => options.Excluding(plan => plan.Provenance));
+        result.Value.Provenance!.SolverOutcome.Should().Be(SchedulingSolverOutcomes.HeuristicFallbackCspTimeLimit);
         activity.GetTagItem("solver.outcome").Should().Be(SchedulingSolverOutcomes.HeuristicFallbackCspTimeLimit);
         activity.GetTagItem("solver.kind").Should().Be(SchedulingSolverKinds.CspFallback, "acceptance criterion 7");
         activity.GetTagItem("csp.time_limit_reached").Should().Be(true);

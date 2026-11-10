@@ -10,7 +10,7 @@ This plan implements [UC-10-weighted-personalization-spec.md](../specs/UC-10-wei
 | G0.2 Pin `Csp.Mode=Lexicographic` | `SchedulingSolverConfigurationTests.cs` | `--filter SchedulingSolverConfigurationTests` |
 | G0.3 ADR-002, README operations note | `docs/adr/ADR-002-…`, `README.md` | Review |
 
-## G1 (implemented)
+## G1 (done, `26038562`)
 
 | Task | Files | Verification |
 |---|---|---|
@@ -21,15 +21,17 @@ This plan implements [UC-10-weighted-personalization-spec.md](../specs/UC-10-wei
 | G1.5 Spec, this plan, ADR-002 G1 row | `specs/`, `plans/`, `docs/adr/` | Review |
 | G1.6 Full CI suite and format check | — | Exit 0. Application 4643/4643, Infrastructure 1125 (3 skipped), Api 825 (150 skipped), Replay 13/13. `dotnet format --verify-no-changes` on the changed files: exit 0 |
 
-## G2 (next)
+## G2 (implemented)
+
+Every task was test-first, with the failure observed before the implementation. Most failures were compile errors (CS0246, CS1061, CS0117).
 
 | Task | Files | Verification |
 |---|---|---|
-| G2.1 `SchedulingProvenance` record, produced by `ItineraryGenerationService` (outcome, mode, search completed, node limit) | `Scheduling/Common/*` | Unit: each outcome maps to provenance |
-| G2.2 `TimeOfDayRefined` flag set by `TimeOfDayRefiner` when the order changes | `TimeOfDay/TimeOfDayRefiner.cs` | Unit: reorder sets the flag, keep does not |
-| G2.3 Migration and schema for `Itineraries` provenance columns; EF configuration; entity | `database/migrations/…`, `tripmate_schema_v7.sql`, `ItineraryConfiguration.cs`, `Itinerary.cs` | SqlServer integration: migration applies to empty and seeded DBs |
-| G2.4 DTO fields on create and detail responses | `SchedulingResponseDto.cs`, detail DTO | API test: `TimeLimitMilliseconds=0` returns the fallback outcome |
-| G2.5 Regenerate and Adjust provenance (`manual_order`) | `ItineraryVersionService.cs` | Unit |
-| G2.6 `planning.generation_timeout` when the CSP times out and there is no heuristic plan | `ItineraryGenerationService.cs`, `SchedulingErrorCodes` | Unit with `BeforeEvaluation` delay and an infeasible heuristic |
-| G2.7 Outcome log fields | `SchedulingSolverOutcomeLogger.cs`, `SchedulingSolverDiagnostics.cs` | `SchedulingSolverOutcomeLoggerTests` |
-| G2.8 `CspOptions` comment fix; regenerate the solver-comparison report (about 20 min, after `dotnet format`) | `Csp/CspOptions.cs`, `docs/benchmarks/` | `LatestCommittedReport_MeasuredTheCurrentSource` |
+| G2.1 `SchedulingProvenance` and `SchedulingProvenanceDto`; `GeneratedItineraryPlan.Provenance`, set by `ItineraryGenerationService` | `Scheduling/Common/SchedulingProvenance.cs`, `GenerationInput.cs`, `ItineraryGenerationService.cs` | `GenerationProvenanceTests` (CSP complete, CSP time limit fallback, heuristic mode) |
+| G2.2 `TimeOfDayRefined` set only when the refiner changes the order | `TimeOfDay/TimeOfDayRefiner.cs` | `TimeOfDayRefinerTests.RefineAsync_MarksTheProvenanceAsRefined_OnlyWhenItReordersTheSolverPlan`. The fixture's static `SkewedProvider` is set per input. |
+| G2.3 `Itinerary.RecordGenerationProvenance`; EF mapping; idempotent migration (not added to schema v7) | `Itinerary.cs`, `ItineraryConfiguration.cs`, `database/migrations/20261110_uc10_itinerary_solver_provenance.sql`, test csproj link | `ItineraryTests` (3 tests); `ItinerarySolverProvenanceMigrationSqlServerTests` (fresh schema, legacy row with a rerun); `CreateSchedulingRequestSqlServerTests.Success_PersistsTheScheduleProvenanceOnTheItineraryRow` |
+| G2.4 `provenance` in the create response (fresh and replay) and in the itinerary detail | `SchedulingResponseDto.cs`, `CreateSchedulingRequestCommandHandler.cs`, `ItineraryDetailResponse.cs`, `GetItineraryDetailQueryHandler.cs` | `Handle_CspMode_ReturnsAndPersistsTheScheduleProvenance`, `ToResponse_ReturnsTheSavedScheduleProvenance_AndNullWhenNoneWasSaved`, API `Post_ReturnsTheScheduleProvenance` |
+| G2.5 Regenerate and Adjust provenance | `ItineraryVersionService.cs` | `CreateRegeneratedVersion_RecordsHowTheNewScheduleWasProduced`, `CreateAdjustedVersion_RecordsTheTravelersOwnOrder` |
+| G2.6 Retryable timeout: `planning.generation_timeout` (request released) and `itinerary.generation_timeout`, both 503 | `ItineraryGenerationService.cs`, `SchedulingErrorCodes.cs`, `ItineraryErrorCodes.cs`, the handler, `CandidatePoolFunnel*`, `ApiControllerBase.cs` | `CspTimeLimit_WithoutAHeuristicPlan_ReportsARetryableTimeout_NotAnInfeasibleRequest`, `Handle_WhenTheCspTimesOutWithoutAPlan_ReleasesTheRequestSoTheSameKeyCanRetry`, `CreateRegeneratedVersion_WhenTheCspTimesOutWithoutAPlan_ReportsARetryableTimeout`, API `Post_WhenTheCspTimesOutWithoutAPlan_ReturnsRetryableServiceUnavailable` |
+| G2.7 `solver.objective_mode` tag; log fields `ObjectiveMode`, `CspSearchCompleted` | `SchedulingSolverDiagnostics.cs`, `SchedulingSolverOutcomeLogger.cs`, allow-list in `CspItinerarySolverTests` | `CspOutcome_IsRecordedWithTheObjectiveMode`, `LogsTheObjectiveModeAndWhetherTheSearchCompleted` |
+| G2.8 `CspOptions` comment fix; `dotnet format`, then the regenerated report `2026-11-10-g2provenance` | `Csp/CspOptions.cs`, `docs/benchmarks/` | `LatestCommittedReport_MeasuredTheCurrentSource` |

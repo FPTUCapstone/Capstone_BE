@@ -2407,6 +2407,73 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         (await dbContext.Itineraries.CountAsync()).Should().Be(0);
     }
 
+    /// <summary>ADR-002 (G2): the response and the saved itinerary say how the schedule was produced; a replay says the same.</summary>
+    [Fact]
+    public async Task Handle_CspMode_ReturnsAndPersistsTheScheduleProvenance()
+    {
+        await using var dbContext = TestDbContext.Create();
+        await SeedPreferenceRankingPoisAsync(dbContext);
+        var handler = CreateHandler(
+            dbContext,
+            generationOptions: new SchedulingGenerationOptions { SolverMode = SchedulingSolverMode.Csp });
+        var command = CreateCommand(Guid.NewGuid()) with { AvailableMinutes = 150 };
+        var expected = new SchedulingProvenanceDto(
+            SchedulingSolverOutcomes.Csp,
+            SchedulingSolverKinds.Csp,
+            nameof(ObjectiveMode.Lexicographic),
+            SearchCompleted: true,
+            TimeOfDayRefined: false);
+
+        var created = await handler.Handle(command, CancellationToken.None);
+        var replayed = await handler.Handle(command, CancellationToken.None);
+
+        created.IsSuccess.Should().BeTrue();
+        created.Value.Provenance.Should().Be(expected);
+        replayed.Value.Provenance.Should().Be(expected);
+        var saved = await dbContext.Itineraries.AsNoTracking().SingleAsync();
+        saved.SolverOutcome.Should().Be(SchedulingSolverOutcomes.Csp);
+        saved.ObjectiveMode.Should().Be(nameof(ObjectiveMode.Lexicographic));
+        saved.SearchCompleted.Should().BeTrue();
+        saved.TimeOfDayRefined.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// ADR-002 (G2): a CSP timeout without a heuristic plan proves nothing about the request, so the request is released
+    /// instead of failed, and the same idempotency key generates again.
+    /// </summary>
+    [Fact]
+    public async Task Handle_WhenTheCspTimesOutWithoutAPlan_ReleasesTheRequestSoTheSameKeyCanRetry()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var (first, second) = await SeedPreferenceRankingPoisAsync(dbContext);
+        var command = CreateCommand(Guid.NewGuid()) with
+        {
+            AvailableMinutes = 150,
+            MandatoryPoiIds = [first.Id, second.Id],
+        };
+
+        var timedOut = await CreateHandler(
+                dbContext,
+                generationOptions: new SchedulingGenerationOptions
+                {
+                    SolverMode = SchedulingSolverMode.Csp,
+                    Csp = new CspOptions { TimeLimitMilliseconds = 0 },
+                })
+            .Handle(command, CancellationToken.None);
+
+        timedOut.IsFailure.Should().BeTrue();
+        timedOut.ErrorCode.Should().Be(SchedulingErrorCodes.GenerationTimedOut);
+        (await dbContext.SchedulingRequests.AsNoTracking().SingleAsync()).Status
+            .Should().Be(SchedulingRequestStatus.Pending);
+
+        var retried = await CreateHandler(
+                dbContext,
+                generationOptions: new SchedulingGenerationOptions { SolverMode = SchedulingSolverMode.Csp })
+            .Handle(command, CancellationToken.None);
+
+        retried.ErrorCode.Should().Be(SchedulingErrorCodes.ConstraintsInfeasible, "the retry generated again instead of replaying the timeout");
+    }
+
     [Fact]
     public async Task Handle_WhenCspModeIsWeightedUtility_GeneratesValidItineraryWithWeightedInputs()
     {

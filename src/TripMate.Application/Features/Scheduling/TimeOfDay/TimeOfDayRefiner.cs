@@ -90,6 +90,12 @@ public sealed class TimeOfDayRefiner(
             }
         }
 
+        if (!ReferenceEquals(best, plan))
+        {
+            // The solver's provenance still describes the places; record that the order is no longer the solver's.
+            best = best with { Provenance = plan.Provenance is { } provenance ? provenance with { TimeOfDayRefined = true } : null };
+        }
+
         return WithReasons(best, input.TimeZone, traits);
     }
 

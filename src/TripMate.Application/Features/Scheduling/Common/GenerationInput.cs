@@ -55,4 +55,5 @@ public sealed record GeneratedItineraryPlan(
     DateTimeOffset EndAtUtc,
     int TotalDurationMinutes,
     decimal TotalEstimatedCost,
-    long? ModelObjective = null);
+    long? ModelObjective = null,
+    SchedulingProvenance? Provenance = null);

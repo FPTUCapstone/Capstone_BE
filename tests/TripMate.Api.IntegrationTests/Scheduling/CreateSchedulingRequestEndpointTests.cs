@@ -152,6 +152,73 @@ public sealed class CreateSchedulingRequestEndpointTests
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
+    /// <summary>ADR-002 (G2): the shipped CSP configuration tells clients how the schedule was produced.</summary>
+    [Fact]
+    public async Task Post_ReturnsTheScheduleProvenance()
+    {
+        using var factory = CreateFactory();
+        await SeedSelectablePoiAsync(factory);
+        using var client = factory.CreateAuthenticatedClient(42, UserRole.Traveler);
+
+        using var response = await SendValidRequestAsync(client, Guid.NewGuid());
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        using JsonDocument payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var provenance = payload.RootElement.GetProperty("provenance");
+        provenance.GetProperty("solverOutcome").GetString().Should().Be(SchedulingSolverOutcomes.Csp);
+        provenance.GetProperty("solverKind").GetString().Should().Be(SchedulingSolverKinds.Csp);
+        provenance.GetProperty("objectiveMode").GetString().Should().Be("Lexicographic");
+        provenance.GetProperty("searchCompleted").GetBoolean().Should().BeTrue();
+        provenance.GetProperty("timeOfDayRefined").GetBoolean().Should().BeFalse();
+    }
+
+    /// <summary>
+    /// ADR-002 (G2): a CSP timeout without a heuristic plan is retryable, not a request the traveler must change.
+    /// </summary>
+    [Fact]
+    public async Task Post_WhenTheCspTimesOutWithoutAPlan_ReturnsRetryableServiceUnavailable()
+    {
+        using var factory = CreateFactory(services =>
+        {
+            services.RemoveAll<SchedulingGenerationOptions>();
+            services.AddSingleton(new SchedulingGenerationOptions
+            {
+                SolverMode = SchedulingSolverMode.Csp,
+                Csp = new CspOptions { TimeLimitMilliseconds = 0 },
+            });
+        });
+        await SeedSelectablePoiAsync(factory);
+        var museumId = await factory.WithDbContextAsync(dbContext => dbContext.PointsOfInterest.Select(poi => poi.Id).SingleAsync());
+        using var client = factory.CreateAuthenticatedClient(42, UserRole.Traveler);
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/scheduling-requests")
+        {
+            Content = JsonContent.Create(new
+            {
+                startAt = "2026-10-20T08:00:00+07:00",
+                timeZoneId = "Asia/Ho_Chi_Minh",
+                startLatitude = 16.0544m,
+                startLongitude = 108.2022m,
+                explorationLatitude = 16.0471m,
+                explorationLongitude = 108.2068m,
+                endPoiId = (long?)null,
+                returnToStart = true,
+                availableMinutes = 60,
+                transportMode = "Motorbike",
+                searchRadiusKm = 10m,
+                budgetVnd = 800000m,
+                mandatoryPoiIds = new[] { museumId },
+                restPreference = "None",
+            }),
+        };
+        request.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
+
+        using var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        using JsonDocument problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        problem.RootElement.GetProperty("errorCode").GetString().Should().Be(SchedulingErrorCodes.GenerationTimedOut);
+    }
+
     [Fact]
     public async Task Post_WhenRoutingProviderTimesOut_ReturnsSafeServiceUnavailableWithoutPartialRows()
     {
