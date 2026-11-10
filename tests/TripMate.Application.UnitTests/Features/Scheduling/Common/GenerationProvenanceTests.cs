@@ -4,6 +4,8 @@ using FluentAssertions;
 
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Csp;
+using TripMate.Application.Features.Scheduling.Csp.Objectives;
+using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Application.UnitTests.Features.Scheduling.Fixtures;
 using TripMate.Domain.Enums;
 
@@ -93,6 +95,54 @@ public sealed class GenerationProvenanceTests
         result.IsFailure.Should().BeTrue();
         result.ErrorCode.Should().Be(SchedulingErrorCodes.GenerationTimedOut);
         outcome.Should().Be(SchedulingSolverOutcomes.CspTimeLimitWithoutPlan);
+    }
+
+    /// <summary>
+    /// ADR-002 (G4a): when the WeightedUtility CSP hits its time limit, the traveler gets the personalized greedy plan,
+    /// not the rank-order heuristic that ignores pace. Base strongly prefers the two POIs the heuristic ranks last.
+    /// The greedy plan makes the first CSP evaluator call; the next one sleeps past the limit.
+    /// </summary>
+    [Fact]
+    public async Task WeightedTimeLimit_ServesThePersonalizedGreedyPlan_InsteadOfTheRankOrderHeuristic()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(8, 0, 1);
+        var favourites = input.Candidates
+            .OrderBy(candidate => candidate.EffectiveDesirabilityScore)
+            .ThenBy(candidate => candidate.Id)
+            .Take(2)
+            .Select(candidate => candidate.Id)
+            .ToHashSet();
+        var weighted = new WeightedRequestInputs(
+            input.Candidates.ToDictionary(candidate => candidate.Id, candidate => favourites.Contains(candidate.Id) ? 1.0 : 0.0),
+            new PersonalParams(0.012, 0.005, 5, 300, 120, 3, 0.6, 0.7, 0.9, new HashSet<string>(), 0.25, 0.0, 0.30, 0.05, "2026.2"),
+            new ConstantTimeFitFactory());
+        var calls = 0;
+        var service = new ItineraryGenerationService(
+            new StaticMatrixProvider(matrix),
+            new SchedulingGenerationOptions
+            {
+                SolverMode = SchedulingSolverMode.Csp,
+                Csp = new CspOptions { Mode = ObjectiveMode.WeightedUtility, TimeLimitMilliseconds = 200 },
+            })
+        {
+            CspBeforeEvaluation = _ =>
+            {
+                if (Interlocked.Increment(ref calls) > 1)
+                {
+                    Thread.Sleep(300);
+                }
+            },
+        };
+
+        var result = await service.GenerateAsync(input, weighted, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Provenance!.SolverOutcome.Should().Be(SchedulingSolverOutcomes.WeightedGreedyFallbackCspTimeLimit);
+        result.Value.Provenance.SolverKind.Should().Be(SchedulingSolverKinds.CspFallback);
+        result.Value.Items
+            .Where(item => item.Kind == ItineraryItemKind.Visit)
+            .Select(item => item.PointOfInterestId!.Value)
+            .Should().BeEquivalentTo(favourites);
     }
 
     [Fact]

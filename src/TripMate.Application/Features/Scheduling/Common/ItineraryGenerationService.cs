@@ -22,6 +22,9 @@ public sealed class ItineraryGenerationService(
 
     internal Action<OptimizationResult>? OnOptimizationCompleted { get; init; }
 
+    /// <summary>Test seam passed to <see cref="CspItinerarySolver.BeforeEvaluation"/>. Production does not set it.</summary>
+    internal Action<CancellationToken>? CspBeforeEvaluation { get; init; }
+
     public Task<Result<GeneratedItineraryPlan>> GenerateAsync(
         GenerationInput input,
         CancellationToken cancellationToken = default) =>
@@ -91,7 +94,7 @@ public sealed class ItineraryGenerationService(
                 matrixCandidates,
                 candidateMatrixIndices,
                 cancellationToken);
-            var csp = new CspItinerarySolver(_evaluator, _options).Solve(
+            var csp = new CspItinerarySolver(_evaluator, _options) { BeforeEvaluation = CspBeforeEvaluation }.Solve(
                 input,
                 matrix,
                 matrixCandidates,
@@ -103,9 +106,11 @@ public sealed class ItineraryGenerationService(
 
             if (csp.Statistics.TimeLimitReached)
             {
-                // R5: lưới an toàn thời gian bị chạm thì CSP đã bỏ kết quả dở dang; trả lịch heuristic nguyên vẹn để kết
-                // quả không phụ thuộc vào lúc dừng.
-                if (heuristic is null)
+                // R5: lưới an toàn thời gian bị chạm thì CSP đã bỏ kết quả dở dang. Trả lịch ban đầu của lần tìm kiếm,
+                // dựng trước khi tìm kiếm nên không phụ thuộc lúc dừng: lịch heuristic, hoặc ở chế độ Weighted là lịch tốt
+                // hơn theo J giữa heuristic và lịch tham lam (ADR-002, G4a).
+                var fallback = csp.TimeLimitFallback ?? heuristic?.Schedule;
+                if (fallback is null)
                 {
                     // The discarded CSP result may have held a plan, so this is not proof of infeasibility (ADR-002, G2).
                     SchedulingSolverDiagnostics.RecordOutcome(solverMode, SchedulingSolverOutcomes.CspTimeLimitWithoutPlan, cspStatistics, objectiveMode);
@@ -114,8 +119,25 @@ public sealed class ItineraryGenerationService(
                         "The itinerary could not be generated in time. Please try again.");
                 }
 
-                alternativeResult = heuristic;
-                outcome = SchedulingSolverOutcomes.HeuristicFallbackCspTimeLimit;
+                if (heuristic is not null && ReferenceEquals(fallback, heuristic.Schedule))
+                {
+                    alternativeResult = heuristic;
+                    outcome = SchedulingSolverOutcomes.HeuristicFallbackCspTimeLimit;
+                }
+                else
+                {
+                    alternativeResult = new OptimizationResult(
+                        fallback,
+                        heuristic?.Schedule ?? fallback,
+                        EvaluationsCount: csp.Statistics.EvaluatorCalls,
+                        SeedCount: 1,
+                        ReconsideredAdmissionsCount: 0,
+                        TwoOptMovesCount: 0,
+                        RelocateMovesCount: 0,
+                        BudgetExhausted: true,
+                        ElapsedOptimization: csp.Statistics.Elapsed);
+                    outcome = SchedulingSolverOutcomes.WeightedGreedyFallbackCspTimeLimit;
+                }
             }
             else if (csp.Schedule is not null)
             {

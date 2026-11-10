@@ -26,6 +26,12 @@ public static class SchedulingSolverOutcomes
     /// </summary>
     public const string HeuristicFallbackCspTimeLimit = "heuristic_fallback_csp_time_limit";
 
+    /// <summary>
+    /// ADR-002 (G4a), chế độ WeightedUtility: lưới an toàn thời gian bị chạm và lịch tham lam theo J tốt hơn lịch heuristic,
+    /// nên lịch trả về vẫn tính pace và rủi ro của traveler.
+    /// </summary>
+    public const string WeightedGreedyFallbackCspTimeLimit = "weighted_greedy_fallback_csp_time_limit";
+
     /// <summary>MiniRouting không trả về lời giải hợp lệ.</summary>
     public const string HeuristicFallbackMiniRouting = "heuristic_fallback_mini_routing";
 
@@ -59,7 +65,8 @@ public static class SchedulingSolverKinds
         SchedulingSolverOutcomes.HeuristicFallbackCspProvedInfeasible
             or SchedulingSolverOutcomes.HeuristicFallbackCspNoValidCandidate
             or SchedulingSolverOutcomes.HeuristicFallbackCspSearchLimit
-            or SchedulingSolverOutcomes.HeuristicFallbackCspTimeLimit => CspFallback,
+            or SchedulingSolverOutcomes.HeuristicFallbackCspTimeLimit
+            or SchedulingSolverOutcomes.WeightedGreedyFallbackCspTimeLimit => CspFallback,
         SchedulingSolverOutcomes.MiniRouting => MiniRouting,
         _ => null,
     };

@@ -1151,6 +1151,66 @@ public class CspItinerarySolverTests
     }
 
     /// <summary>
+    /// ADR-002 (G4a): ở chế độ Weighted, lịch heuristic bỏ qua pace và rủi ro. Vì vậy khi chạm mốc thời gian, lịch dự
+    /// phòng là lịch tốt hơn theo J giữa lịch heuristic và lịch tham lam. Cả hai đều dựng xong trước khi tìm kiếm, nên kết
+    /// quả không phụ thuộc lúc chạm mốc. Lịch tham lam gọi evaluator đúng một lần; lần gọi thứ hai (sau khi tìm kiếm) chờ
+    /// quá mốc.
+    /// </summary>
+    [Fact]
+    public void Solve_InWeightedUtilityMode_KeepsTheBestInitialPlanByJ_WhenTheTimeLimitFiresAfterIt()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(8, 0, 1);
+        var (candidates, indices) = Index(input);
+        var calls = 0;
+        var solver = new CspItinerarySolver(
+            new ItineraryScheduleEvaluator(Options),
+            Options,
+            new CspOptions { Mode = ObjectiveMode.WeightedUtility, TimeLimitMilliseconds = 200 })
+        {
+            BeforeEvaluation = _ =>
+            {
+                if (Interlocked.Increment(ref calls) > 1)
+                {
+                    Thread.Sleep(300);
+                }
+            },
+        };
+
+        var result = solver.Solve(
+            input, matrix, candidates, indices, HeuristicSchedule(input, matrix), WeightedInputs(candidates, _ => 0.5));
+
+        result.Statistics.TimeLimitReached.Should().BeTrue();
+        result.Schedule.Should().BeNull();
+        result.TimeLimitFallback.Should().NotBeNull("the plans built before the search are independent of the time limit");
+    }
+
+    /// <summary>ADR-002 (G4a): ở chế độ Lexicographic, lịch dự phòng khi chạm mốc vẫn đúng là lịch heuristic.</summary>
+    [Fact]
+    public void Solve_InLexicographicMode_FallsBackToTheHeuristicPlanItself_AtTheTimeLimit()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(8, 0, 1);
+        var (candidates, indices) = Index(input);
+        var heuristic = HeuristicSchedule(input, matrix);
+        var solver = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, new CspOptions { TimeLimitMilliseconds = 200 })
+        {
+            BeforeEvaluation = _ => Thread.Sleep(300),
+        };
+
+        var result = solver.Solve(input, matrix, candidates, indices, heuristic);
+
+        result.Statistics.TimeLimitReached.Should().BeTrue();
+        result.TimeLimitFallback.Should().BeSameAs(heuristic);
+    }
+
+    private static WeightedRequestInputs WeightedInputs(
+        IEnumerable<GenerationCandidate> candidates,
+        Func<GenerationCandidate, double> baseOf) =>
+        new(
+            candidates.ToDictionary(c => c.Id, baseOf),
+            new PersonalParams(0.012, 0.005, 5, 300, 120, 3, 0.6, 0.7, 0.9, new HashSet<string>(), 0.25, 0.0, 0.30, 0.05, "2026.2"),
+            new ConstantTimeFitFactory());
+
+    /// <summary>
     /// Bắt activity kết quả bộ giải của đúng lần sinh này: listener là toàn cục và test chạy song song,
     /// nên chỉ nhận activity cùng TraceId với activity cha của test.
     /// </summary>

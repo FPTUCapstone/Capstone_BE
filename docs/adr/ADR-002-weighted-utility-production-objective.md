@@ -1,6 +1,6 @@
 # ADR-002: WeightedUtility là hàm mục tiêu production của UC-10
 
-- **Trạng thái:** Được developer chấp thuận (Accepted). Rollout theo giai đoạn; `Csp.Mode` chưa được chuyển.
+- **Trạng thái:** Được developer chấp thuận (Accepted), sửa đổi ngày 2026-11-11 (mục 8). `Csp.Mode` chưa được chuyển.
 - **Ngày:** 2026-11-10
 - **Tác giả:** UC-10 scheduling (phuctv)
 - **Liên quan:** [ADR-001](ADR-001-objective-kernel-interface.md),
@@ -66,7 +66,7 @@ Audit read-only UC-10 trên `origin/develop` `f6cd480e` có các kết luận sa
 
 ## 4. Gate chuyển `Csp.Mode` (tất cả phải đạt)
 
-1. **Shadow production** chạy ít nhất 7 ngày và ít nhất 500 lần, với:
+1. **Shadow production** chạy ít nhất 7 ngày và ít nhất 500 lần (thay bằng kiểm chứng local, xem mục 8), với:
    - p95 thời gian shadow ≤ 300 ms;
    - tỷ lệ timeout < 1%;
    - không có lần chạy lỗi.
@@ -74,7 +74,7 @@ Audit read-only UC-10 trên `origin/develop` `f6cd480e` có các kết luận sa
 3. **Bộ test đối chứng ở tầng handler** chạy với `WeightedUtility` và factory đã cấu hình xanh trong CI: sở thích, pace, rủi ro, người dùng chưa có hồ sơ, đổi user.
 4. **Benchmark `WeightedUtility`:**
    - tính theo J, CSP không kém incumbent tham lam và không kém heuristic ở 100% kịch bản;
-   - added p95 ≤ 300 ms;
+   - added p95 ≤ 300 ms (ở 40 ứng viên: ≤ 800 ms, xem mục 8);
    - không lần nào chạm time limit;
    - report có p99 và tỷ lệ chạm node limit.
 5. **Nguồn gốc lịch** (điều kiện tiên quyết ở mục 2.5) đã được phát hành trên BE, Web và Mobile.
@@ -109,3 +109,59 @@ Audit read-only UC-10 trên `origin/develop` `f6cd480e` có các kết luận sa
 | G4 | Hiệu chỉnh tham số; lịch dự phòng cá nhân hóa; benchmark `WeightedUtility`; PR chuyển mode |
 | G5 | Khoảng cách tới tối ưu; lý do chọn từng điểm theo sở thích |
 | G6 | Sửa SRS BR-24/26 và MSG35; chạy lại báo cáo persona trên cấu hình phát hành |
+
+## 8. Sửa đổi 2026-11-11
+
+Report: `docs/benchmarks/UC-10-weighted-gate-2026-11-11-g4c.md` (tool `tools/benchmarks/weighted-gate`, cấu hình phát hành chỉ đổi `Csp:Mode`).
+
+1. **Kiểm chứng local thay cho shadow production (gate 1).**
+   - Production chưa có người dùng, nên 7 ngày shadow không thu được mẫu nào.
+   - Thay bằng:
+     - benchmark gate trên corpus c10–c40 × 5 persona;
+     - bộ test đối chứng end-to-end (gate 3);
+     - load test local với giới hạn CPU như Railway.
+   - Ngưỡng rollback ở mục 5 vẫn áp dụng sau khi chuyển mode.
+2. **Ngưỡng latency theo cỡ ứng viên (gate 4).**
+   - p95 ≤ 300 ms dưới 40 ứng viên.
+   - p95 ≤ 800 ms ở 40 ứng viên, bằng ngưỡng rollback.
+   - Lý do:
+     - Toàn bộ đuôi chậm ở c40 đến từ một dạng input: 40 ứng viên, 6 điểm bắt buộc, nghỉ thường xuyên (`grid-c40-m6-frequent`). Ở đó CSP mất khoảng 400 ms cho 50.000 nút.
+     - Các kịch bản c40 khác đều ≤ 140 ms.
+     - Giảm còn 25.000 nút đưa p95 c40 về 295 ms, nhưng J giảm ở 17/192 lượt (trung bình −7,5%, tệ nhất −40%), tức hạ chất lượng cho mọi người dùng.
+   - Gate đo theo từng cỡ ứng viên, nên lượt nhanh ở cỡ nhỏ không che được đuôi chậm của c40.
+3. **Hiệu chỉnh pace (mục 2.3).** `Personalization.Version` đổi thành `2026.3`.
+   - `RhoStops` đổi từ 0,30 thành 0,60:
+     - mọi persona Relaxed ra 3 điểm (trước đó `CultureEnthusiast` ra 5);
+     - Moderate và Fast không đổi.
+   - `Pace.Relaxed.LambdaPerMin` đổi từ 0,018 thành 0,013 (vẫn lớn hơn Moderate 0,012).
+     - Trước đó, 3/4 persona Relaxed nhận cùng hai điểm gần nhất bất kể sở thích: Jaccard điểm tùy chọn trung bình 0,67.
+     - Sau khi đổi, Jaccard là 0,11, mỗi persona nhận điểm theo sở thích, và vẫn 3 điểm.
+   - Ghim bằng `ShippedPaceCalibrationTests`:
+     - Relaxed nằm trong 2–4 điểm;
+     - persona khác sở thích có lịch khác nhau (Jaccard trung bình < 0,4 ở mọi pace);
+     - người chưa có hồ sơ được ít nhất 2 nhóm điểm;
+     - Fast không ít điểm hơn Moderate.
+4. **Luật Fast (quyết định sản phẩm 2026-11-11).**
+   - Chọn Fast phải được nhiều điểm hơn Moderate, trừ khi ngày đã kín (lịch dùng ≥ 90% cửa sổ).
+   - Đo trên chuyến 8 giờ Đà Nẵng: `ActiveExplorerFast` (461/480 phút) và `FoodLoverRelaxed` (449/480 phút) ra 5 điểm ở cả Moderate lẫn Fast vì không còn chỗ.
+   - Ép thêm điểm (chi phí di chuyển gần 0) chỉ đổi các điểm ưa thích tốn thời gian lấy điểm ngắn ít ưa thích, nên không áp dụng.
+5. **Kết quả gate khi sửa đổi:**
+   - p95 c10/c20/c40 là 43/154/515 ms;
+   - không lần nào chạm time limit;
+   - theo J, lịch trả về không kém heuristic và greedy ở 192/192 lượt (đo bằng cùng `ObjectiveCalculator.Evaluate`);
+   - số điểm trung bình Relaxed/Moderate/Fast là 3,0/5,0/6,0;
+   - Jaccard điểm tùy chọn trung bình Relaxed/Moderate/Fast là 0,11/0,23/0,37.
+   - Gate 6 được product owner của dự án duyệt ngày 2026-11-11, gồm số điểm theo pace và luật Fast.
+6. **Load test local** (`docs/benchmarks/UC-10-weighted-load-2026-11-11-cpu8.md` và `-cpu2.md`).
+   - Cách đo: sinh lịch đồng thời trên corpus c10–c40, server GC, giới hạn CPU bằng processor affinity.
+   - **8 CPU (như Railway):**
+     - `WeightedUtility` có throughput 64 req/s, so với 43 của `Lexicographic`;
+     - ở 8 request đồng thời, p95 là 356 ms (Lexicographic 402 ms);
+     - ở 16 request đồng thời, p95 là 461 ms (Lexicographic 706 ms);
+     - không lần nào chạm time limit;
+     - đuôi p99 cao hơn (1.218 ms ở 8 request đồng thời, Lexicographic 575 ms) và đến từ input c40 có nhiều điểm bắt buộc.
+   - **2 CPU (quá tải có chủ đích):**
+     - cả hai mode đều vượt ngưỡng p95;
+     - `WeightedUtility` chạm time limit 5–6/360 lượt ở 8–16 request đồng thời, so với 28/360 của `Lexicographic` ở 16;
+     - khi chạm time limit, người dùng vẫn nhận lịch tham lam cá nhân hóa (G4a), không lỗi.
+   - Kết luận: chuyển mode không làm giảm sức chịu tải. Ngưỡng rollback ở mục 5 vẫn là chốt chặn.

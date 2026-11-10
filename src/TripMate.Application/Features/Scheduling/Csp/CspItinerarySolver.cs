@@ -106,6 +106,14 @@ public sealed record CspResult(
     /// </summary>
     public bool ProvedInfeasible => Schedule is null && Statistics.SearchCompleted && Statistics.SolutionsFound == 0;
 
+    /// <summary>
+    /// ADR-002 (G4a): the plan to serve when the time limit discarded the CSP result. It is the initial plan the search
+    /// started from, built before the search and therefore independent of when the limit fired: the heuristic plan in
+    /// Lexicographic mode, and the better of the heuristic and the greedy plan by J in WeightedUtility mode. Null when the
+    /// limit fired before that plan was built.
+    /// </summary>
+    public EvaluatedItinerarySchedule? TimeLimitFallback { get; init; }
+
     internal IReadOnlyList<IReadOnlyList<long>> EliteVisitIds { get; init; } = [];
 }
 
@@ -285,7 +293,7 @@ public sealed class CspItinerarySolver(
             search.Run(incumbent);
             if (search.Statistics.TimeLimitReached)
             {
-                return DiscardTimedOutResult(search, clock);
+                return DiscardTimedOutResult(search, clock, search.AcceptedSchedule);
             }
 
             Polish(search, clock, cancellationToken);
@@ -320,7 +328,7 @@ public sealed class CspItinerarySolver(
                 if (relaxed.Statistics.TimeLimitReached)
                 {
                     relaxed.Statistics.AddEarlierRun(search.Statistics);
-                    return DiscardTimedOutResult(relaxed, clock);
+                    return DiscardTimedOutResult(relaxed, clock, search.AcceptedSchedule);
                 }
 
                 Polish(relaxed, clock, cancellationToken);
@@ -340,7 +348,7 @@ public sealed class CspItinerarySolver(
                 relaxed.Statistics.AddEarlierRun(search.Statistics);
             }
 
-            return DiscardTimedOutResult(timedOut, clock);
+            return DiscardTimedOutResult(timedOut, clock, search.AcceptedSchedule);
         }
 
         if (relaxed is not null)
@@ -394,15 +402,15 @@ public sealed class CspItinerarySolver(
         inputs is null ? null : WeightedKernelFactoryForTest?.Invoke(inputs, _cspOptions);
 
     /// <summary>
-    /// R5: lưới an toàn thời gian bị chạm thì kết quả CSP dở dang phụ thuộc tốc độ máy, nên bị bỏ hẳn, kể cả lịch heuristic
-    /// đang là incumbent. Bên gọi trả lịch heuristic nguyên vẹn (<see cref="CspStatistics.TimeLimitReached"/>), nên lịch trả
-    /// về không bao giờ là kết quả dở dang. Mốc có bị chạm hay không vẫn phụ thuộc máy (xem
+    /// R5: lưới an toàn thời gian bị chạm thì kết quả CSP dở dang phụ thuộc tốc độ máy, nên bị bỏ hẳn. Bên gọi trả lịch ban
+    /// đầu của lần tìm kiếm (<paramref name="fallback"/>, xem <see cref="CspResult.TimeLimitFallback"/>), nên lịch trả về
+    /// không bao giờ là kết quả dở dang. Mốc có bị chạm hay không vẫn phụ thuộc máy (xem
     /// <see cref="CspOptions.TimeLimitMilliseconds"/>).
     /// </summary>
-    private static CspResult DiscardTimedOutResult(SearchRun search, Stopwatch clock)
+    private static CspResult DiscardTimedOutResult(SearchRun search, Stopwatch clock, EvaluatedItinerarySchedule? fallback)
     {
         search.Statistics.Elapsed = clock.Elapsed;
-        return new CspResult(null, search.Statistics, []);
+        return new CspResult(null, search.Statistics, []) { TimeLimitFallback = fallback };
     }
 
     private void Polish(SearchRun search, Stopwatch clock, CancellationToken cancellationToken)
