@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
 
 using TripMate.Application.Common.Interfaces;
+using TripMate.Application.Common.Locks;
 using TripMate.Application.Common.Media;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
@@ -147,6 +148,57 @@ public class ApplicationDbContext(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken)
         => await ExecuteInTransactionAsync(operation, IsolationLevel.ReadCommitted, cancellationToken);
+
+    public async Task<T> ExecuteInNonRetryingTransactionAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+
+        var executionStrategy = Database.CreateExecutionStrategy();
+        if (executionStrategy.RetriesOnFailure)
+        {
+            throw new InvalidOperationException(
+                "The non-retrying transaction boundary cannot use a retry-enabled execution strategy.");
+        }
+
+        await using var transaction = await Database.BeginTransactionAsync(
+            IsolationLevel.ReadCommitted,
+            cancellationToken);
+
+        T result;
+        try
+        {
+            result = await operation(cancellationToken);
+        }
+        catch (Exception operationException)
+        {
+            try
+            {
+                await transaction.RollbackAsync(CancellationToken.None);
+            }
+            catch (Exception rollbackException)
+            {
+                operationException.Data["RollbackException"] = rollbackException;
+            }
+
+            throw;
+        }
+
+        try
+        {
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch (Exception commitException)
+        {
+            throw new TransactionLockAcquisitionException(
+                TransactionLockFailureKind.CommitOutcomeUnknown,
+                "TransactionCommit",
+                commitException);
+        }
+
+        return result;
+    }
 
     /// <summary>UC-04 BR-02 race recovery: drop all tracked entities so a failed save's
     /// leftover Added entries are never re-saved on a retry.</summary>

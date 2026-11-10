@@ -197,6 +197,11 @@ public interface IApplicationDbContext
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken);
 
+    Task<T> ExecuteInNonRetryingTransactionAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Non-retrying transactions are unavailable in this context.");
+
     Task<T> ExecuteInSerializableTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken);
