@@ -80,8 +80,11 @@ internal static class DailyPayoutTestFixture
         var travelerId = 900_000 + bookingId;
         db.Users.Add(new User
         {
-            Id = travelerId, Email = $"traveler{travelerId}@test.local",
-            FullName = "Traveler", Role = UserRole.Traveler, Status = AccountStatus.Active,
+            Id = travelerId,
+            Email = $"traveler{travelerId}@test.local",
+            FullName = "Traveler",
+            Role = UserRole.Traveler,
+            Status = AccountStatus.Active,
         });
 
         var bookedAt = succeededAtUtc.AddMinutes(-60);
