@@ -73,6 +73,30 @@ foreach (var persona in personas.Where(persona => SchedulingBenchmarkScenarioFac
     }
 }
 
+// --reference-nodes N (G5): solve every latency request once more with N nodes and no practical time limit, outside the timed
+// runs, and report how much J the shipped node budget leaves on the table.
+int? referenceNodes = arguments.TryGetValue("reference-nodes", out var referenceText)
+    ? int.Parse(referenceText, CultureInfo.InvariantCulture)
+    : null;
+if (referenceNodes is { } nodes)
+{
+    var reference = WeightedGateConfiguration.LoadShipped(
+        root,
+        new Dictionary<string, string?>(overrides ?? new Dictionary<string, string?>())
+        {
+            ["SchedulingGeneration:Csp:WeightedMaxNodes"] = nodes.ToString(CultureInfo.InvariantCulture),
+            ["SchedulingGeneration:Csp:TimeLimitMilliseconds"] = "600000",
+        });
+    var scenarios = GoldenScenarioFactory.CreateAllScenarios().ToDictionary(scenario => scenario.Id);
+    for (var index = 0; index < latencyRuns.Count; index++)
+    {
+        var run = latencyRuns[index];
+        var best = await WeightedGateExecutor.RunAsync(
+            scenarios[run.ScenarioId], personas.Single(persona => persona.Id == run.PersonaId), reference, 0, 1);
+        latencyRuns[index] = run with { ReferenceObjective = best.ModelObjective };
+    }
+}
+
 var summary = WeightedGateSummary.Create(latencyRuns, paceRuns);
 var runDate = DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 var markdown = WeightedGateMarkdownRenderer.Render(
@@ -83,12 +107,13 @@ var markdown = WeightedGateMarkdownRenderer.Render(
     Environment.GetEnvironmentVariable("PROCESSOR_IDENTIFIER") ?? Environment.MachineName,
     Environment.ProcessorCount,
     warmup,
-    samples);
+    samples,
+    referenceNodes);
 var output = Path.Combine(root, "docs", "benchmarks", $"UC-10-weighted-gate-{runDate}{(label is null ? string.Empty : "-" + label)}.md");
 await File.WriteAllTextAsync(output, markdown);
 await File.WriteAllLinesAsync(
     Path.ChangeExtension(output, ".csv"),
-    new[] { "group,scenario,candidates,persona,pace,feasible,stops,model_objective,heuristic_objective,greedy_objective,outcome,search_completed,node_limit,time_limit,nodes,evaluator_calls,csp_ms,p95_ms,visits,categories" }
+    new[] { "group,scenario,candidates,persona,pace,feasible,stops,model_objective,heuristic_objective,greedy_objective,outcome,search_completed,node_limit,time_limit,nodes,evaluator_calls,csp_ms,p95_ms,visits,categories,reference_objective" }
         .Concat(latencyRuns.Select(run => Row("latency", run)))
         .Concat(paceRuns.Select(run => Row("pace", run))));
 Console.WriteLine(output);
@@ -115,7 +140,8 @@ static string Row(string group, WeightedGateRun run) => string.Join(',',
     run.CspElapsedMs.ToString("F1", CultureInfo.InvariantCulture),
     SolverComparisonReport.Percentile(run.SamplesMs, 0.95).ToString("F1", CultureInfo.InvariantCulture),
     string.Join(";", run.VisitPoiIds),
-    string.Join(";", run.VisitCategories).Replace(",", " ", StringComparison.Ordinal));
+    string.Join(";", run.VisitCategories).Replace(",", " ", StringComparison.Ordinal),
+    run.ReferenceObjective?.ToString(CultureInfo.InvariantCulture) ?? string.Empty);
 
 static Dictionary<string, string> ParseArguments(string[] values)
 {

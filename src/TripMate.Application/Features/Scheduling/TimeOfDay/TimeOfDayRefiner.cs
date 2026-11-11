@@ -120,7 +120,13 @@ public sealed class TimeOfDayRefiner(
                     && item.PointOfInterestId is { } poiId
                     && traits.TryGetValue(poiId, out var placeTraits)
                     && TimeOfDayScorer.Reason(Middle(item, timeZone), placeTraits) is { } reason
-                        ? item with { RecommendationReason = reason }
+                        ? item with
+                        {
+                            // G5: a WeightedUtility plan already says why the place was chosen; keep that in front.
+                            RecommendationReason = plan.ModelObjective.HasValue
+                                ? PersonalizedVisitReasons.WithTimeOfDay(item.RecommendationReason, reason)
+                                : reason,
+                        }
                         : item)
                 .ToArray(),
         };

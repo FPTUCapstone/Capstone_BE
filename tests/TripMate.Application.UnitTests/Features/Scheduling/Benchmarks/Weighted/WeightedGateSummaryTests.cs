@@ -133,6 +133,30 @@ public sealed class WeightedGateSummaryTests
         shared.Passed.Should().BeFalse();
     }
 
+    /// <summary>G5: how much J the shipped node budget leaves below a much larger search, per candidate size.</summary>
+    [Fact]
+    public void Create_SummarizesTheLossAgainstTheReferenceSearchPerCandidateSize()
+    {
+        var summary = WeightedGateSummary.Create(
+            [
+                Latency(10, 10, 10, 10) with { ModelObjective = 100, ReferenceObjective = 100 },
+                Latency(10, 10, 10, 10) with { ModelObjective = 90, ReferenceObjective = 100 },
+                Latency(40, 10, 10, 10) with { ModelObjective = -120, ReferenceObjective = -100 },
+                Latency(40, 10, 10, 10) with { ModelObjective = 50 },
+            ],
+            [Pace(TravelerPace.Moderate, 5)]);
+
+        summary.ReferenceGapBySize.Should().HaveCount(2);
+        var c10 = summary.ReferenceGapBySize.Single(size => size.CandidateCount == 10);
+        c10.Runs.Should().Be(2);
+        c10.BelowReference.Should().Be(1);
+        c10.MeanLossPercent.Should().BeApproximately(5, 1e-9, "losses are 0% and 10%");
+        c10.MaxLossPercent.Should().BeApproximately(10, 1e-9);
+        var c40 = summary.ReferenceGapBySize.Single(size => size.CandidateCount == 40);
+        c40.Runs.Should().Be(1, "a run without a reference is not counted");
+        c40.MaxLossPercent.Should().BeApproximately(20, 1e-9, "the loss is relative to |reference J|");
+    }
+
     [Fact]
     public void Create_AveragesStopsPerPaceOverFeasibleRunsOnly()
     {

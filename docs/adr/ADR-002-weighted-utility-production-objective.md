@@ -165,3 +165,25 @@ Report: `docs/benchmarks/UC-10-weighted-gate-2026-11-11-g4c.md` (tool `tools/ben
      - `WeightedUtility` chạm time limit 5–6/360 lượt ở 8–16 request đồng thời, so với 28/360 của `Lexicographic` ở 16;
      - khi chạm time limit, người dùng vẫn nhận lịch tham lam cá nhân hóa (G4a), không lỗi.
    - Kết luận: chuyển mode không làm giảm sức chịu tải. Ngưỡng rollback ở mục 5 vẫn là chốt chặn.
+
+## 9. G5 (2026-11-11): lý do từng điểm và mức mất do giới hạn nút
+
+1. **Lý do từng điểm** (`PersonalizedVisitReasons`, chỉ ở `WeightedUtility`).
+   - Lý do viết bằng tiếng Việt, lấy từ các thành phần của J:
+     - điểm bắt buộc: "Điểm bạn đã chọn";
+     - điểm khớp sở thích: "Hợp sở thích của bạn (category)";
+     - hệ số giờ trong ngày ≥ 1,05: "Đi vào khung giờ đẹp";
+     - chặng đi ≤ 15 phút: "Gần lộ trình";
+     - còn lại: "Vừa thời gian chuyến đi".
+   - Lý do được gán sau bước kiểm tra bất biến; `Lexicographic` giữ nguyên mã cũ.
+   - Web và Mobile hiển thị nguyên chuỗi, nên không phải sửa client.
+   - Giải thích lịch trình (AI và fallback) nhận ra "sở thích" và "gần" để chọn mẫu câu.
+   - Bước giờ trong ngày (`TimeOfDayRefiner`) thay phần "Đi vào khung giờ đẹp" bằng câu cụ thể hơn, ví dụ "Xếp vào buổi sáng khi trời mát, ít đông". Các phần "Điểm bạn đã chọn", "Hợp sở thích", "Gần lộ trình" vẫn được giữ ở trước (`PersonalizedVisitReasons.WithTimeOfDay`).
+2. **Không công bố khoảng cách tới tối ưu theo cận trên ở gốc.**
+   - Trên corpus, cận này cho khoảng cách trung bình 80–108%, và 88% ngay cả khi không có điểm bắt buộc.
+   - Khi có điểm bắt buộc, J thường âm. Vì vậy phần trăm so với cận này không có nghĩa với người dùng.
+3. **Mức mất do giới hạn 50.000 nút** (`docs/benchmarks/UC-10-weighted-gate-2026-11-11-g5.md`, `--reference-nodes 1000000`).
+   - Giải lại mọi request với 1.000.000 nút: J tăng ở 10/180 lượt.
+   - Mức mất trung bình là 0% ở c10, 2,0% ở c20 và 0,8% ở c40.
+   - Mức mất lớn nhất là 40% (một lượt c20) và 32% (một lượt c40).
+   - Tăng node budget không đáng: c40 đã ở 515/800 ms.

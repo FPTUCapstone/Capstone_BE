@@ -36,6 +36,9 @@ public sealed record WeightedGateRun(
     public int PlanMinutes { get; init; }
 
     public int AvailableMinutes { get; init; }
+
+    /// <summary>G5: J of the same request with a much larger node budget (<c>--reference-nodes</c>); null when not measured.</summary>
+    public long? ReferenceObjective { get; init; }
 }
 
 public sealed record WeightedGateLatency(
@@ -51,6 +54,9 @@ public sealed record WeightedGateLatency(
 
 /// <summary>Pairwise Jaccard of optional stops between personas at one pace.</summary>
 public sealed record WeightedGatePaceOverlap(TravelerPace Pace, int Pairs, double MeanJaccard, double MaxJaccard);
+
+/// <summary>J lost against the reference search (much larger node budget), in percent of |reference J| (G5).</summary>
+public sealed record WeightedGateReferenceGap(int CandidateCount, int Runs, int BelowReference, double MeanLossPercent, double MaxLossPercent);
 
 public sealed record WeightedGatePaceStops(
     TravelerPace Pace,
@@ -78,7 +84,8 @@ public sealed record WeightedGateSummary(
     IReadOnlyList<WeightedGatePaceStops> StopsByPace,
     int DominanceRuns,
     int DominanceViolations,
-    IReadOnlyList<WeightedGatePaceOverlap> OverlapByPace)
+    IReadOnlyList<WeightedGatePaceOverlap> OverlapByPace,
+    IReadOnlyList<WeightedGateReferenceGap> ReferenceGapBySize)
 {
     public const double MaxMeanJaccard = 0.4;
 
@@ -173,7 +180,8 @@ public sealed record WeightedGateSummary(
             stops,
             dominance.Length,
             dominance.Count(run => run.ModelObjective < run.HeuristicObjective || run.ModelObjective < run.GreedyObjective),
-            Overlap(paceRuns));
+            Overlap(paceRuns),
+            ReferenceGap(latencyRuns));
     }
 
     private static WeightedGatePaceOverlap[] Overlap(IReadOnlyList<WeightedGateRun> paceRuns) =>
@@ -198,6 +206,22 @@ public sealed record WeightedGateSummary(
                     jaccards.Count,
                     jaccards.Count == 0 ? 0 : jaccards.Average(),
                     jaccards.Count == 0 ? 0 : jaccards.Max());
+            })
+            .ToArray();
+
+    private static WeightedGateReferenceGap[] ReferenceGap(IReadOnlyList<WeightedGateRun> latencyRuns) =>
+        latencyRuns
+            .Where(run => run.ModelObjective.HasValue && run.ReferenceObjective is { } reference && reference != 0)
+            .GroupBy(run => run.CandidateCount)
+            .OrderBy(group => group.Key)
+            .Select(group =>
+            {
+                var losses = group
+                    .Select(run => Math.Max(0, run.ReferenceObjective!.Value - run.ModelObjective!.Value) * 100.0
+                        / Math.Abs(run.ReferenceObjective.Value))
+                    .ToArray();
+                return new WeightedGateReferenceGap(
+                    group.Key, losses.Length, losses.Count(loss => loss > 0), losses.Average(), losses.Max());
             })
             .ToArray();
 

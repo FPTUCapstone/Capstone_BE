@@ -91,16 +91,28 @@ The UC-10 audit of 2026-11-10 (`origin/develop` `f6cd480e`) found three problems
 - Drop the fake progress text shown before the POST.
 - Show the backend 422 `detail`.
 
-### G4: calibrated personalized objective (planned)
+### G4: calibrated personalized objective (done 2026-11-11, switched in `d9048435`)
 
 - Calibrate λ, `RhoStops` and `MaxStopsPerDay` to D2 on Da Nang POIs with a recorded Mapbox matrix, plus the synthetic corpus. Then bump `Personalization.Version`.
 - Fallback for `WeightedUtility` on time limit: serve `GreedyWeightedIncumbent` if it was built and validated. The new outcome is `weighted_greedy_fallback_csp_time_limit`.
 - Add a `WeightedUtility` benchmark gate (ADR-002 §4.4), with p99 and the node-limit rate.
 - A separate config PR switches `Csp.Mode`. It flips the pin test, and pins `Lexicographic` explicitly in the shadow endpoint test.
 
-### G5 and G6 (planned)
+### G5: per-visit reasons and the node-budget loss
 
-- G5: report the optimality gap from the root upper bound; give per-POI preference reasons.
+- In `WeightedUtility`, each visit `RecommendationReason` is Vietnamese and comes from the parts of J (`PersonalizedVisitReasons`):
+  - "Điểm bạn đã chọn" for a mandatory stop;
+  - "Hợp sở thích của bạn (category)" when the POI matches an interest (`PreferenceScore > 0`);
+  - "Đi vào khung giờ đẹp" when the time-of-day factor is at least 1.05;
+  - "Gần lộ trình" when the leg is at most 15 minutes;
+  - otherwise "Vừa thời gian chuyến đi".
+- The reasons are written after validation, because the invariant validator pins the solver reason codes. The time-of-day step then replaces the generic time part with its slot reason and keeps the other parts in front (`WithTimeOfDay`). `Lexicographic` keeps the English codes, so a rollback changes nothing for clients.
+- Web and Mobile show the text as-is, so no client change is needed. The itinerary explanation picks its preference template from "sở thích" and its nearby template from "gần".
+- **No optimality gap from the root upper bound.** Measured on the corpus, the bound left a gap of 80–108% on average, and 88% even without mandatory stops. Because J is often negative with mandatory stops, a percentage of that bound is meaningless to travelers.
+- Instead, `weighted-gate --reference-nodes N` solves every latency request again with N nodes and reports the J the shipped budget loses against it.
+
+### G6 (planned)
+
 - G6: SRS BR-24/26 and MSG35 amendment; rerun the persona report on the shipped configuration.
 
 ## Out of scope

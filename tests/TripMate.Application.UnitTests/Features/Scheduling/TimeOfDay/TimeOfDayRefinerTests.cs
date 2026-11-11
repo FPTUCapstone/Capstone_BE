@@ -81,6 +81,28 @@ public sealed class TimeOfDayRefinerTests
             .Should().Be("Điểm ngoài trời vào giữa trưa, nên mang nón và nước");
     }
 
+    /// <summary>G5: a WeightedUtility reason keeps its interest and detour parts when the slot reason is added.</summary>
+    [Fact]
+    public async Task RefineAsync_WhenPlanHasModelObjective_KeepsThePersonalReasonInFrontOfTheSlotReason()
+    {
+        var input = Input(museumToMountainMinutes: 15, extraForMorningOrder: 10);
+        var solved = await PlanAsync(input, MuseumId, MountainId);
+        var original = solved with
+        {
+            ModelObjective = 9_500L,
+            Items = solved.Items
+                .Select(item => item.PointOfInterestId == MountainId
+                    ? item with { RecommendationReason = "Hợp sở thích của bạn (Nature) · Gần lộ trình" }
+                    : item)
+                .ToArray(),
+        };
+
+        var refined = await Refiner().RefineAsync(input, original, Traits, CancellationToken.None);
+
+        refined.Items.Single(item => item.PointOfInterestId == MountainId).RecommendationReason
+            .Should().Be("Hợp sở thích của bạn (Nature) · Gần lộ trình · Điểm ngoài trời vào giữa trưa, nên mang nón và nước");
+    }
+
     [Fact]
     public async Task RefineAsync_KeepsTheSolverOrder_WhenTheBetterOrderCostsMoreThanTheLimit()
     {

@@ -282,7 +282,8 @@ public static class WeightedGateMarkdownRenderer
         string machine,
         int logicalProcessors,
         int warmupIterations,
-        int measuredIterations)
+        int measuredIterations,
+        int? referenceNodes = null)
     {
         var text = new StringBuilder();
         var invariant = CultureInfo.InvariantCulture;
@@ -350,6 +351,23 @@ public static class WeightedGateMarkdownRenderer
         }
 
         text.AppendLine();
+        if (summary.ReferenceGapBySize.Count > 0)
+        {
+            text.AppendLine(invariant, $"## Loss against a larger search (G5; reference node budget {referenceNodes:N0})");
+            text.AppendLine();
+            text.AppendLine("The root upper bound of the CSP is too loose to report a useful optimality gap, so the shipped plan is compared");
+            text.AppendLine("with the same request solved under a much larger node budget. Loss is (reference J − J) / |reference J|.");
+            text.AppendLine();
+            text.AppendLine("| Candidates | Runs | Below reference | Mean loss % | Max loss % |");
+            text.AppendLine("|---:|---:|---:|---:|---:|");
+            foreach (var size in summary.ReferenceGapBySize)
+            {
+                text.AppendLine(invariant, $"| {size.CandidateCount} | {size.Runs} | {size.BelowReference} | {size.MeanLossPercent:F1} | {size.MaxLossPercent:F1} |");
+            }
+
+            text.AppendLine();
+        }
+
         text.AppendLine("## Gate status");
         text.AppendLine();
         text.AppendLine(invariant, $"- p95 ≤ 300 ms below 40 candidates and ≤ 800 ms at 40 (ADR-002 §4, amended 2026-11-11): {Pass(summary.LatencyPassed)}");

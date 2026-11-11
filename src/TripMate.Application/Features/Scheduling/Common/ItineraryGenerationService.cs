@@ -198,12 +198,17 @@ public sealed class ItineraryGenerationService(
         {
             Provenance = new SchedulingProvenance(outcome, objectiveMode, cspStatistics?.SearchCompleted),
         };
-        if (_options.Csp.Mode == ObjectiveMode.WeightedUtility && weighted is not null && !finalPlan.ModelObjective.HasValue)
+        if (_options.Csp.Mode == ObjectiveMode.WeightedUtility && weighted is not null)
         {
             var ctx = RoutingContext.Create(input, matrix, matrixCandidates, candidateMatrixIndices, _options, _options.MiniRouting);
             var objInputs = ObjectiveKernelFactory.BuildWeightedInputs(ctx, weighted);
-            var modelObjective = ObjectiveCalculator.Evaluate(objInputs, ctx, optimizationResult.Schedule);
-            finalPlan = finalPlan with { ModelObjective = modelObjective };
+            if (!finalPlan.ModelObjective.HasValue)
+            {
+                finalPlan = finalPlan with { ModelObjective = ObjectiveCalculator.Evaluate(objInputs, ctx, optimizationResult.Schedule) };
+            }
+
+            // G5: after validation, because the invariant validator pins the solver's reason codes.
+            finalPlan = PersonalizedVisitReasons.Apply(finalPlan, ctx, objInputs);
         }
 
         // CSP không có lịch gốc để so sánh và không có bước "cải thiện": số liệu của nó nằm trong
