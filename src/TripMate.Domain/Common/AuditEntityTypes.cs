@@ -33,6 +33,9 @@ public static class AuditEntityTypes
     // UC-64/73/74 Staff Payout Request Review
     public const string Payout = "Payout";
 
+    // DAILY-PAYOUT-TRANSFER (UC-72/73)
+    public const string PayoutBatch = "PayoutBatch";
+
     // UC-43 Check-In
     public const string CheckIn = "CheckIn";
 }

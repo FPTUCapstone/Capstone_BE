@@ -159,15 +159,19 @@ public class TestDbContext(
 
     public DbSet<ReroutingEvent> ReroutingEvents => Set<ReroutingEvent>();
 
-    public DbSet<Payout> Payouts => Set<Payout>();
-
-    public DbSet<PayoutItem> PayoutItems => Set<PayoutItem>();
-
-    public DbSet<PayoutRefundItem> PayoutRefundItems => Set<PayoutRefundItem>();
-
     public DbSet<PayoutAdjustment> PayoutAdjustments => Set<PayoutAdjustment>();
 
-    public DbSet<PayoutPeriodBreakdown> PayoutPeriodBreakdowns => Set<PayoutPeriodBreakdown>();
+    public DbSet<PayoutRun> PayoutRuns => Set<PayoutRun>();
+
+    public DbSet<PayoutBatch> PayoutBatches => Set<PayoutBatch>();
+
+    public DbSet<PayoutSettlement> PayoutSettlements => Set<PayoutSettlement>();
+
+    public DbSet<PayoutSettlementAttempt> PayoutSettlementAttempts => Set<PayoutSettlementAttempt>();
+
+    public DbSet<PayoutSettlementAdjustment> PayoutSettlementAdjustments => Set<PayoutSettlementAdjustment>();
+
+    public DbSet<PayoutReconciliationItem> PayoutReconciliationItems => Set<PayoutReconciliationItem>();
 
     public int TransactionExecutionCount { get; private set; }
 

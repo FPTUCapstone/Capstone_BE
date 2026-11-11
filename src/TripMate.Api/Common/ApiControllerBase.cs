@@ -169,21 +169,6 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripMate.Application.Features.Admin.ActiveTrips.GetList.ActiveTripErrorCodes.NotFound =>
                 StatusCodes.Status404NotFound,
 
-            TripMate.Application.Features.Admin.Payouts.Common.PayoutErrorCodes.Forbidden =>
-                StatusCodes.Status403Forbidden,
-
-            TripMate.Application.Features.Admin.Payouts.Common.PayoutErrorCodes.InvalidPeriodRange =>
-                StatusCodes.Status400BadRequest,
-
-            TripMate.Application.Features.Admin.Payouts.Common.PayoutErrorCodes.NotFound =>
-                StatusCodes.Status404NotFound,
-
-            TripMate.Application.Features.Admin.Payouts.Common.PayoutErrorCodes.NotPendingReview =>
-                StatusCodes.Status409Conflict,
-
-            TripMate.Application.Features.Admin.Payouts.Common.PayoutErrorCodes.RejectionReasonInvalid =>
-                StatusCodes.Status400BadRequest,
-
             TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.Forbidden =>
                 StatusCodes.Status403Forbidden,
 
@@ -250,21 +235,20 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
 
             TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.OperatorNotApproved =>
                 StatusCodes.Status403Forbidden,
-            TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.ValidationRequiredField or
-                TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.InvalidSettlementMonth =>
+            TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.ValidationRequiredField =>
                 StatusCodes.Status400BadRequest,
-            TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.MonthNotClosed or
-                TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.NoEligibleBooking or
-                TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.PayoutNotRequestable or
-                TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.BelowMinimumPayout =>
-                StatusCodes.Status422UnprocessableEntity,
-            TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.ActivePayoutExists or
-                TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.PayoutNotCancellable =>
-                StatusCodes.Status409Conflict,
-            TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.PayoutNotFound =>
+
+            // DAILY-PAYOUT-TRANSFER (UC-72/UC-73). Previously unmapped, falling through to the
+            // generic 400 default below for every one of these codes, including Forbidden and
+            // BatchNotFound — this is the gap FE spec Open question 5 was asking about.
+            TripMate.Application.Features.Payouts.DailySettlement.DailyPayoutErrorCodes.Forbidden =>
+                StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.Payouts.DailySettlement.DailyPayoutErrorCodes.BatchNotFound =>
                 StatusCodes.Status404NotFound,
-            TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.SystemError =>
-                StatusCodes.Status500InternalServerError,
+            TripMate.Application.Features.Payouts.DailySettlement.DailyPayoutErrorCodes.NotFailed =>
+                StatusCodes.Status409Conflict,
+            TripMate.Application.Features.Payouts.DailySettlement.DailyPayoutErrorCodes.ManualReferenceRequired =>
+                StatusCodes.Status400BadRequest,
 
             TripMate.Application.Features.Operator.Revenue.Exports.Common.RevenueExportErrorCodes.ValidationFailed =>
                 StatusCodes.Status400BadRequest,
@@ -337,6 +321,7 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
                 BookingCancellationErrorCodes.RefundManualReviewRequired => StatusCodes.Status409Conflict,
             BookingCancellationErrorCodes.WindowClosed => StatusCodes.Status422UnprocessableEntity,
             BookingCancellationErrorCodes.ReasonRequired => StatusCodes.Status422UnprocessableEntity,
+            BookingCancellationErrorCodes.ConfirmationRequired => StatusCodes.Status422UnprocessableEntity,
             BookingCancellationErrorCodes.PolicyUnavailable => StatusCodes.Status503ServiceUnavailable,
             BookingCancellationErrorCodes.ConcurrentRetryExhausted => StatusCodes.Status503ServiceUnavailable,
 

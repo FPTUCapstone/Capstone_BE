@@ -155,10 +155,11 @@ public sealed class ItineraryVersionService(
             .RefineAsync(input, plan.Value, TimeOfDayTraitsFactory.From(pois), cancellationToken));
 
         // Nothing else fits: keep the current version instead of saving an identical copy.
+        // The same places in another visit order are not an alternative for the traveler.
         if (plan.Value.Items
-            .OrderBy(item => item.SequenceNo)
             .Select(item => (item.Kind, item.PointOfInterestId))
-            .SequenceEqual(currentStops.Select(stop => (stop.Kind, stop.PointOfInterestId))))
+            .ToHashSet()
+            .SetEquals(currentStops.Select(stop => (stop.Kind, stop.PointOfInterestId))))
         {
             return Result.Failure<Itinerary>(
                 ItineraryErrorCodes.NoAlternative,
@@ -497,7 +498,10 @@ public sealed class ItineraryVersionService(
             .ToArray();
         var minimum = scores.Min();
         var maximum = scores.Max();
-        if (minimum >= 0m && maximum <= 1m)
+        // Keep the lowest regeneration tier eligible rather than assigning it zero utility.
+        // This is a neutral objective baseline, not a ranking-pipeline score.
+        const decimal neutralRegenerationScore = 0.5m;
+        if (minimum >= neutralRegenerationScore && maximum <= 1m)
         {
             return candidates;
         }
@@ -507,8 +511,8 @@ public sealed class ItineraryVersionService(
             .Select((candidate, index) => candidate with
             {
                 EffectiveDesirabilityScore = range == 0m
-                    ? Math.Clamp(scores[index], 0m, 1m)
-                    : (scores[index] - minimum) / range,
+                    ? neutralRegenerationScore
+                    : neutralRegenerationScore + (scores[index] - minimum) / range * (1m - neutralRegenerationScore),
             })
             .ToArray();
     }

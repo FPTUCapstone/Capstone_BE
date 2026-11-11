@@ -16,7 +16,7 @@ public class Booking : BaseEntity
     public const int CancelReasonMaxLength = 300;
     public const int PolicySnapshotMaxLength = 500;
     public const string DefaultCancellationPolicySnapshot =
-        "{\"atLeastSevenDaysPercent\":100,\"threeToSevenDaysPercent\":70,\"oneToThreeDaysPercent\":30}";
+        "{\"version\":2,\"atLeastSevenDaysPercent\":100,\"threeToSevenDaysPercent\":50,\"oneToThreeDaysPercent\":30}";
 
     private readonly List<BookingParticipant> _participants = [];
     private readonly List<Ticket> _tickets = [];

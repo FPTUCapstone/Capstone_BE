@@ -18,6 +18,7 @@ using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Navigation.Common;
 using TripMate.Application.Features.Operator.Payouts.Common;
 using TripMate.Application.Features.Operator.Revenue.Exports.Common;
+using TripMate.Application.Features.Payouts.DailySettlement;
 using TripMate.Application.Features.PointsOfInterest.ExternalReviews;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Explanation;
@@ -251,6 +252,18 @@ public static class DependencyInjection
         services.AddSingleton(serviceProvider => serviceProvider.GetRequiredService<IOptions<RefundProcessingOptions>>().Value);
         services.AddScoped<RefundProcessor>();
         services.AddHostedService<RefundProcessingBackgroundService>();
+
+        // DAILY-PAYOUT-TRANSFER (SRS v11 UC-71 to UC-74): the simulated transfer gateway is the
+        // production binding until a real one (VNPay/PayOS/banking) is implemented — see spec
+        // "Chế độ giả lập". Swapping it out later does not change anything registered below.
+        services.AddSingleton<IPayoutTransferScenario, AlwaysSucceedPayoutTransferScenario>();
+        services.AddSingleton<IPayoutTransferGateway, SimulatedPayoutTransferGateway>();
+        services.AddScoped<DailyPayoutEligibilityReader>();
+        services.AddScoped<DailyPayoutRunProcessor>();
+        services.AddScoped<DailyPayoutRetrySweepProcessor>();
+        services.AddSingleton(new DailyPayoutOptions());
+        services.AddHostedService<DailyPayoutRunBackgroundService>();
+        services.AddHostedService<DailyPayoutRetrySweepBackgroundService>();
 
         services.AddOptions<PaymentOptions>()
             .Bind(configuration.GetSection(PaymentOptions.SectionName));

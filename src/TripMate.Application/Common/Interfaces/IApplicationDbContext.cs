@@ -167,15 +167,20 @@ public interface IApplicationDbContext
 
     DbSet<ReroutingEvent> ReroutingEvents { get; }
 
-    DbSet<Payout> Payouts { get; }
-
-    DbSet<PayoutItem> PayoutItems { get; }
-
-    DbSet<PayoutRefundItem> PayoutRefundItems { get; }
-
     DbSet<PayoutAdjustment> PayoutAdjustments { get; }
 
-    DbSet<PayoutPeriodBreakdown> PayoutPeriodBreakdowns { get; }
+    // DAILY-PAYOUT-TRANSFER (Task 2)
+    DbSet<PayoutRun> PayoutRuns { get; }
+
+    DbSet<PayoutBatch> PayoutBatches { get; }
+
+    DbSet<PayoutSettlement> PayoutSettlements { get; }
+
+    DbSet<PayoutSettlementAttempt> PayoutSettlementAttempts { get; }
+
+    DbSet<PayoutSettlementAdjustment> PayoutSettlementAdjustments { get; }
+
+    DbSet<PayoutReconciliationItem> PayoutReconciliationItems { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 
