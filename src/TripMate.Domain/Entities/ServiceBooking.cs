@@ -3,7 +3,7 @@ using TripMate.Domain.Common;
 namespace TripMate.Domain.Entities;
 
 /// <summary>
-/// Read model for commercial.ServiceBookings. UC-67 uses the persisted commission amount as the
+/// Read model for commercial.ServiceBookings. UC-63 uses the persisted commission amount as the
 /// platform-recognized amount for a fulfilled partner service booking.
 /// </summary>
 public sealed class ServiceBooking : BaseEntity

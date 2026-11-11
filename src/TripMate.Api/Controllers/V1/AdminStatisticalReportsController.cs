@@ -1,10 +1,13 @@
-using MediatR;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+
+using MediatR;
+
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+
 using TripMate.Api.Common;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Admin.StatisticalReports.Common;
@@ -73,16 +76,19 @@ public sealed class AdminStatisticalReportsController(
         if (!result.IsSuccess) return HandleFailure(result);
         if (exportOperationId is not Guid operationId || operationId == Guid.Empty || currentUser.UserId is not long userId)
             return BadRequest(new ProblemDetails { Title = "A valid exportOperationId is required." });
+        string normalizedFormat = format.Trim().ToLowerInvariant();
+        if (normalizedFormat is not ("csv" or "xlsx"))
+            return BadRequest(new ProblemDetails { Title = "Only csv and xlsx exports are supported." });
 
         string criteriaKey = CriteriaKey(reportType, periodKey, bookingType, operatorUserId, destinationId);
         var existing = await db.StatisticalReportExportOperations.AsNoTracking()
             .SingleOrDefaultAsync(x => x.OperationId == operationId, cancellationToken);
-        if (existing is not null && (existing.CriteriaKey != criteriaKey || !string.Equals(existing.Format, format, StringComparison.OrdinalIgnoreCase)))
+        if (existing is not null && (existing.CriteriaKey != criteriaKey || !string.Equals(existing.Format, normalizedFormat, StringComparison.Ordinal)))
             return Conflict(new ProblemDetails { Title = "The export operation id was already used with different criteria." });
         long exportOperationRowId;
         if (existing is null)
         {
-            var operation = StatisticalReportExportOperation.Create(operationId, criteriaKey, format.Trim().ToLowerInvariant(), userId, clock.UtcNow);
+            var operation = StatisticalReportExportOperation.Create(operationId, criteriaKey, normalizedFormat, userId, clock.UtcNow);
             db.StatisticalReportExportOperations.Add(operation);
             try
             {
@@ -97,7 +103,7 @@ public sealed class AdminStatisticalReportsController(
                 existing = await db.StatisticalReportExportOperations.AsNoTracking()
                     .SingleOrDefaultAsync(x => x.OperationId == operationId, cancellationToken);
                 if (existing is null || existing.CriteriaKey != criteriaKey ||
-                    !string.Equals(existing.Format, format, StringComparison.OrdinalIgnoreCase))
+                    !string.Equals(existing.Format, normalizedFormat, StringComparison.Ordinal))
                 {
                     return Conflict(new ProblemDetails { Title = "The export operation id was already used with different criteria." });
                 }
@@ -109,32 +115,25 @@ public sealed class AdminStatisticalReportsController(
             exportOperationRowId = existing.Id;
         }
 
-        try
-        {
-            var file = exporter.Render(result.Value, format);
+        var file = exporter.Render(result.Value, normalizedFormat);
 
-            // BR-130: one audit row per successful export response (fresh or idempotent replay),
-            // written before the file is returned so a failure here withholds the file (fail-closed),
-            // matching UC-59's precedent for privacy/audit-sensitive admin exports. Only the report
-            // type, period, and filters are recorded — never the generated figures or file bytes.
-            string auditPayload = JsonSerializer.Serialize(new
-            {
-                ReportType = reportType,
-                PeriodKey = periodKey,
-                BookingType = bookingType,
-                OperatorUserId = operatorUserId,
-                DestinationId = destinationId,
-                Format = format,
-            });
-            db.AuditLogs.Add(AuditLog.CreateStatisticalReportExportRequested(userId, exportOperationRowId, auditPayload, clock.UtcNow));
-            await db.SaveChangesAsync(cancellationToken);
-
-            return File(file.Content, file.ContentType, file.FileName);
-        }
-        catch (ArgumentOutOfRangeException)
+        // BR-130: one audit row per successful export response (fresh or idempotent replay),
+        // written before the file is returned so a failure here withholds the file (fail-closed),
+        // matching UC-59's precedent for privacy/audit-sensitive admin exports. Only the report
+        // type, period, and filters are recorded — never the generated figures or file bytes.
+        string auditPayload = JsonSerializer.Serialize(new
         {
-            return BadRequest(new ProblemDetails { Title = "Only csv and xlsx exports are supported." });
-        }
+            ReportType = reportType,
+            PeriodKey = periodKey,
+            BookingType = bookingType,
+            OperatorUserId = operatorUserId,
+            DestinationId = destinationId,
+            Format = normalizedFormat,
+        });
+        db.AuditLogs.Add(AuditLog.CreateStatisticalReportExportRequested(userId, exportOperationRowId, auditPayload, clock.UtcNow));
+        await db.SaveChangesAsync(cancellationToken);
+
+        return File(file.Content, file.ContentType, file.FileName);
     }
 
     private static string CriteriaKey(string reportType, string periodKey, string bookingType, long? operatorUserId, long? destinationId)

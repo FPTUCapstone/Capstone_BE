@@ -2,7 +2,7 @@ using TripMate.Domain.Common;
 
 namespace TripMate.Domain.Entities;
 
-/// <summary>Idempotency and audit record for an administrator's UC-67 file export request.</summary>
+/// <summary>Idempotency and audit record for an administrator's UC-63 file export request.</summary>
 public sealed class StatisticalReportExportOperation : BaseEntity
 {
     public Guid OperationId { get; private set; }

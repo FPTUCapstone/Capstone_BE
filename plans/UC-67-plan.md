@@ -1,6 +1,6 @@
 # UC 67 Backend Plan
 
-1. Apply the UC-67 migration through `database/apply-schema.sh` and verify the three reporting tables plus the unique indexes. Register the daily Vietnam-local period-close worker so later completed periods become eligible without a new migration.
+1. Apply the UC-63 migration through `database/apply-schema.sh` and verify the three reporting tables plus the unique indexes. Register the daily Vietnam-local period-close worker so later completed periods become eligible without a new migration.
 2. Map `ServiceBooking`, closed periods, report snapshots, and export operations in EF Core; do not remap existing Booking or Refund entities.
 3. Build Administrator-only period discovery and report generation. Validate the report/filter matrix before querying data, then create or retrieve the immutable criteria snapshot.
 4. Calculate financial values from the UC-44 payment-rate snapshot and processed refund events. Keep ServiceBooking commission separate because it has no operator/destination ownership.

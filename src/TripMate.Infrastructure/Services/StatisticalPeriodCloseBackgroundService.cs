@@ -8,7 +8,7 @@ using TripMate.Domain.Entities;
 
 namespace TripMate.Infrastructure.Services;
 
-/// <summary>Closes completed Vietnam-local calendar periods once per day so UC-67 never reports an open period.</summary>
+/// <summary>Closes completed Vietnam-local calendar periods once per day so UC-63 never reports an open period.</summary>
 internal sealed class StatisticalPeriodCloseBackgroundService(
     IServiceScopeFactory scopeFactory,
     ILogger<StatisticalPeriodCloseBackgroundService> logger) : BackgroundService
@@ -29,7 +29,7 @@ internal sealed class StatisticalPeriodCloseBackgroundService(
             }
             catch (Exception exception)
             {
-                logger.LogError("UC-67 reporting-period close sweep failed with {ExceptionType}.", exception.GetType().Name);
+                logger.LogError("UC-63 reporting-period close sweep failed with {ExceptionType}.", exception.GetType().Name);
             }
 
             try { await Task.Delay(SweepInterval, stoppingToken); }
@@ -76,7 +76,7 @@ internal sealed class StatisticalPeriodCloseBackgroundService(
         int added = candidates.Count - existingKeys.Count;
         if (added <= 0) return;
         await db.SaveChangesAsync(ct);
-        logger.LogInformation("Closed {Count} completed UC-67 reporting period(s).", added);
+        logger.LogInformation("Closed {Count} completed UC-63 reporting period(s).", added);
     }
 
     private static TimeZoneInfo VietnamTimeZone()

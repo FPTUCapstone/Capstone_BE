@@ -2,7 +2,7 @@
 
 ## Status and scope
 
-Approved implementation baseline for Administrator-only platform reporting. UC-67 exposes `GET /api/v1/admin/statistical-reports`, `GET /periods`, and `GET /export`. It is separate from UC-44 operator revenue and UC-45 operator export: UC-67 reports TripMate platform commission across the platform.
+Approved implementation baseline for Administrator-only platform reporting. UC-63 exposes `GET /api/v1/admin/statistical-reports`, `GET /periods`, and `GET /export`. It is separate from UC-44 operator revenue and UC-45 operator export: UC-63 reports TripMate platform commission across the platform.
 
 ## Financial definition
 
@@ -32,7 +32,7 @@ CSV and XLSX are supported. The caller supplies a UUID `exportOperationId`; `rep
 
 ## Error catalogue
 
-The API uses feature error codes such as `statistical_report.period_not_closed` rather than reusing unrelated message identifiers. Existing MSG29, MSG117, MSG136–MSG138, and MSG149 are not valid UC-67 messages. Any displayed catalogue message must be selected by semantic meaning; a new catalogue record is required when no matching message exists.
+The API uses feature error codes such as `statistical_report.period_not_closed` rather than reusing unrelated message identifiers. Existing MSG29, MSG117, MSG136–MSG138, and MSG149 are not valid UC-63 messages. Any displayed catalogue message must be selected by semantic meaning; a new catalogue record is required when no matching message exists.
 
 ## Migration
 
