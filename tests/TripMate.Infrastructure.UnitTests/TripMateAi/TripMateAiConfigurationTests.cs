@@ -52,6 +52,25 @@ public sealed class TripMateAiConfigurationTests
             .Should().BeOfType<TripMateAiExplanationProvider>();
     }
 
+    [Fact]
+    public void ShippedAppSettings_SizeTheRankingBudgetForTheTeamAiService_NotForGemini()
+    {
+        // Decision 2026-11-11: 4 calls a minute was Gemini's budget; above it the AI was silently skipped. The team
+        // service answered 16 concurrent ranking requests locally (p95 384 ms), so the shipped budget is 60 a minute
+        // and 4 at once. Lower it again if AiRanking:Provider is ever set back to Gemini.
+        IConfiguration configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(BaselineConfiguration())
+            .AddJsonFile(FindRepositoryFile("src", "TripMate.Api", "appsettings.json"), optional: false)
+            .Build();
+
+        using ServiceProvider provider = BuildProvider(configuration);
+        PoiRankingProviderOptions ranking = provider.GetRequiredService<IOptions<PoiRankingProviderOptions>>().Value;
+
+        ranking.Provider.Should().Be(AiProviderKind.TripMateAi);
+        ranking.RateLimitPerMinute.Should().Be(60);
+        ranking.MaxConcurrency.Should().Be(4);
+    }
+
     // C2
     [Fact]
     public void AddInfrastructure_BothFeaturesOnTripMateAi_ValidatesAndResolvesTripMateAiProviders()
