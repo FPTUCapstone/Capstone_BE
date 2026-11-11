@@ -54,6 +54,22 @@ public sealed class ActiveTripsEndpointTests
     }
 
     [Fact]
+    public async Task Get_StaffWithNoTrips_ReturnsEmptySuccessfulPage()
+    {
+        await using var factory = new TripMateApiFactory();
+        using var client = factory.CreateAuthenticatedClient(3, UserRole.Staff);
+
+        var response = await client.GetAsync("/api/v1/admin/trips/active");
+        var body = await response.Content.ReadFromJsonAsync<ActiveTripsResponseDto>();
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        body.Should().NotBeNull();
+        body!.Items.Should().BeEmpty();
+        body.TotalCount.Should().Be(0);
+        body.Summary.Should().Be(new ActiveTripSummaryDto(0, 0, 0));
+    }
+
+    [Fact]
     public async Task Get_InvertedDateRange_ReturnsBadRequest()
     {
         await using var factory = new TripMateApiFactory();

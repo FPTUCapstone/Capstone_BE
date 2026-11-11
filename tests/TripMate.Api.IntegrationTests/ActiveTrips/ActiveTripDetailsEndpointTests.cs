@@ -44,6 +44,17 @@ public sealed class ActiveTripDetailsEndpointTests
     }
 
     [Fact]
+    public async Task GetDetails_StaffWithUnknownSession_ReturnsNotFound()
+    {
+        await using var factory = new TripMateApiFactory();
+        using var client = factory.CreateAuthenticatedClient(3, UserRole.Staff);
+
+        var response = await client.GetAsync("/api/v1/admin/trips/active/999");
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
     public async Task GetDetails_NonPositiveSessionId_ReturnsBadRequest()
     {
         await using var factory = new TripMateApiFactory();

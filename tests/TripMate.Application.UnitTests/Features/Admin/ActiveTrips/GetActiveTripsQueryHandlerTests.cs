@@ -9,7 +9,7 @@ namespace TripMate.Application.UnitTests.Features.Admin.ActiveTrips;
 public sealed class GetActiveTripsQueryHandlerTests
 {
     [Fact]
-    public async Task Handle_NonAdministrator_ReturnsForbidden()
+    public async Task Handle_RoleWithoutAccess_ReturnsForbidden()
     {
         await using var db = TestDbContext.Create();
         var handler = new GetActiveTripsQueryHandler(db, new CurrentUser(4, "Traveler"), new Clock());
@@ -25,6 +25,21 @@ public sealed class GetActiveTripsQueryHandlerTests
     {
         await using var db = TestDbContext.Create();
         var handler = new GetActiveTripsQueryHandler(db, new CurrentUser(1, "Administrator"), new Clock());
+
+        var result = await handler.Handle(new GetActiveTripsQuery(), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Items.Should().BeEmpty();
+        result.Value.TotalCount.Should().Be(0);
+        result.Value.TotalPages.Should().Be(0);
+        result.Value.Summary.Should().Be(new ActiveTripSummaryDto(0, 0, 0));
+    }
+
+    [Fact]
+    public async Task Handle_Staff_ReturnsSuccessfulEmptyPage()
+    {
+        await using var db = TestDbContext.Create();
+        var handler = new GetActiveTripsQueryHandler(db, new CurrentUser(2, "Staff"), new Clock());
 
         var result = await handler.Handle(new GetActiveTripsQuery(), CancellationToken.None);
 

@@ -25,7 +25,7 @@ public sealed class GetActiveTripDetailsQueryHandler(
         GetActiveTripDetailsQuery request,
         CancellationToken cancellationToken)
     {
-        if (currentUserService.UserId is null || currentUserService.Role != "Administrator")
+        if (currentUserService.UserId is null || currentUserService.Role is not ("Staff" or "Administrator"))
         {
             return Result.Failure<ActiveTripDetailDto>(
                 ActiveTripErrorCodes.Forbidden,
