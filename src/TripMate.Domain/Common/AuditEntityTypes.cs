@@ -39,6 +39,6 @@ public static class AuditEntityTypes
     // UC-43 Check-In
     public const string CheckIn = "CheckIn";
 
-    // UC-67 Export Statistical Reports
+    // UC-63 Export Statistical Reports
     public const string StatisticalReportExport = "StatisticalReportExport";
 }

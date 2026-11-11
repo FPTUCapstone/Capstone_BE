@@ -15,7 +15,7 @@ using TripMate.Domain.Enums;
 namespace TripMate.Application.Features.Admin.StatisticalReports.GetReport;
 
 /// <summary>
-/// UC-67 statistical report generator. A request is accepted only for an already closed calendar
+/// UC-63 statistical report generator. A request is accepted only for an already closed calendar
 /// period. The first successful result for its exact criteria is persisted as a snapshot; later
 /// views and exports read that same payload rather than recalculating mutable booking data.
 /// </summary>

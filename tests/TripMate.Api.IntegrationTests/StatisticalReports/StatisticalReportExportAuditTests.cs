@@ -66,6 +66,28 @@ public sealed class StatisticalReportExportAuditTests
         });
     }
 
+    [Fact]
+    public async Task Export_UnsupportedFormat_IsRejectedBeforeAnIdempotencyRowIsStored()
+    {
+        const string periodKey = "2099-03";
+        await using var factory = new TripMateApiFactory();
+        await SeedClosedPeriodAsync(factory, periodKey, 3);
+        using var client = factory.CreateAuthenticatedClient(1, UserRole.Administrator);
+        var operationId = Guid.NewGuid();
+
+        var response = await client.GetAsync(
+            $"/api/v1/admin/statistical-reports/export?reportType=USER_GROWTH&periodKey={periodKey}&bookingType=ALL&format=pdf&exportOperationId={operationId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        await factory.WithDbContextAsync(async db =>
+        {
+            int count = await db.StatisticalReportExportOperations.AsNoTracking()
+                .CountAsync(x => x.OperationId == operationId);
+            count.Should().Be(0);
+            return 0;
+        });
+    }
+
     private static async Task SeedClosedPeriodAsync(TripMateApiFactory factory, string periodKey, int month)
     {
         await factory.WithDbContextAsync(async db =>

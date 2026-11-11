@@ -310,7 +310,7 @@ public class AuditLog : BaseEntity
     }
 
     /// <summary>
-    /// UC-67 BR-130: one row per successful export response (fresh or idempotent replay).
+    /// UC-63 BR-130: one row per successful export response (fresh or idempotent replay).
     /// Records only the report type, period, and filters — never the generated figures or file bytes.
     /// </summary>
     public static AuditLog CreateStatisticalReportExportRequested(

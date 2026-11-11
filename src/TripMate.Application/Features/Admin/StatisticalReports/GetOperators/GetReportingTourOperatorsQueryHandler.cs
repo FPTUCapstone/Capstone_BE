@@ -1,5 +1,7 @@
 using MediatR;
+
 using Microsoft.EntityFrameworkCore;
+
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Admin.StatisticalReports.Common;
@@ -8,7 +10,7 @@ using TripMate.Domain.Enums;
 namespace TripMate.Application.Features.Admin.StatisticalReports.GetOperators;
 
 /// <summary>
-/// UC-67 reporting filter options: Approved Tour Operators only, so a report can never be scoped
+/// UC-63 reporting filter options: Approved Tour Operators only, so a report can never be scoped
 /// to an operator that has no legitimate booking or revenue activity.
 /// </summary>
 public sealed class GetReportingTourOperatorsQueryHandler(IApplicationDbContext db, ICurrentUserService currentUser)
