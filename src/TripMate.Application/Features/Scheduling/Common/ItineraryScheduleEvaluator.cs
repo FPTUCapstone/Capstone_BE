@@ -242,7 +242,9 @@ public sealed class ItineraryScheduleEvaluator(SchedulingGenerationOptions? opti
         return candidates
             .Where(candidate =>
                 !input.MandatoryPoiIds.Contains(candidate.Id)
-                && IsQualifiedRestCandidate(candidate))
+                && IsQualifiedRestCandidate(candidate)
+                && RestDetourMinutes(matrix, previousIndex, candidateMatrixIndices[candidate.Id], nextIndex)
+                    <= MaxRestDetourMinutes)
             .OrderBy(candidate => matrix.GetMinutes(
                 previousIndex,
                 candidateMatrixIndices[candidate.Id]))
@@ -270,9 +272,14 @@ public sealed class ItineraryScheduleEvaluator(SchedulingGenerationOptions? opti
 
     public static bool IsQualifiedRestCandidate(GenerationCandidate candidate) =>
         candidate.CategoryName is not null
-        && IsRestCategory(candidate.CategoryName, candidate.HasShelter);
+        && IsRestCategory(candidate.CategoryName);
 
-    public static bool IsRestCategory(string categoryName, bool hasShelter)
+    /// <summary>
+    /// Real rest places only: food and drink, cafe, restaurant, rest area or stop. Sheltered beaches, natural
+    /// attractions, parks and theme or water parks are places to visit: counting them as rest places made a cave the
+    /// 30-minute rest stop and hid them from every itinerary as visits (2026-11-11).
+    /// </summary>
+    public static bool IsRestCategory(string categoryName)
     {
         if (PoiCategoryNames.IsFoodAndDrink(categoryName))
         {
@@ -287,18 +294,17 @@ public sealed class ItineraryScheduleEvaluator(SchedulingGenerationOptions? opti
             .ToArray())
             .ToLowerInvariant();
 
-        if (normalizedCategory is "food & drink" or "cafe" or "coffee shop" or "restaurant" or "rest area" or "rest stop")
-        {
-            return true;
-        }
-
-        return hasShelter
-            && normalizedCategory is ("beach"
-                or "natural attraction"
-                or "park"
-                or "theme park"
-                or "water park");
+        return normalizedCategory is "food & drink" or "cafe" or "coffee shop" or "restaurant" or "rest area" or "rest stop";
     }
+
+    /// <summary>A rest stop may add at most this many minutes over going straight to the next stop.</summary>
+    public const int MaxRestDetourMinutes = 10;
+
+    /// <summary>Extra travel minutes of going previous → rest → next instead of previous → next.</summary>
+    public static int RestDetourMinutes(RouteDurationMatrix matrix, int previousIndex, int restIndex, int nextIndex) =>
+        matrix.GetMinutes(previousIndex, restIndex)
+        + matrix.GetMinutes(restIndex, nextIndex)
+        - matrix.GetMinutes(previousIndex, nextIndex);
 
     public static DateTimeOffset AlignToOpeningHours(
         DateTimeOffset arrivalUtc,

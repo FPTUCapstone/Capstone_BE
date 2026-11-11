@@ -287,7 +287,7 @@ public static class WeightedGateMarkdownRenderer
     {
         var text = new StringBuilder();
         var invariant = CultureInfo.InvariantCulture;
-        string Pass(bool value) => value ? "passed" : "**failed**";
+        static string Pass(bool value) => value ? "passed" : "**failed**";
 
         text.AppendLine("# UC-10 WeightedUtility switch gate (ADR-002 G4b)");
         text.AppendLine();

@@ -105,7 +105,7 @@ public sealed class ItineraryScheduleEvaluatorTests
     [InlineData("coffee shop")]
     public void IsRestCategory_WithFoodAndDrinkOrLegacyAliases_ReturnsTrue(string category)
     {
-        ItineraryScheduleEvaluator.IsRestCategory(category, hasShelter: false).Should().BeTrue();
+        ItineraryScheduleEvaluator.IsRestCategory(category).Should().BeTrue();
     }
 
     [Fact]

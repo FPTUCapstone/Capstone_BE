@@ -349,7 +349,10 @@ public sealed class GeneratedItineraryInvariantValidator(SchedulingGenerationOpt
         return candidates
             .Where(candidate =>
                 !input.MandatoryPoiIds.Contains(candidate.Id)
-                && ItineraryScheduleEvaluator.IsQualifiedRestCandidate(candidate))
+                && ItineraryScheduleEvaluator.IsQualifiedRestCandidate(candidate)
+                && ItineraryScheduleEvaluator.RestDetourMinutes(
+                        matrix, previousIndex, candidateMatrixIndices[candidate.Id], nextIndex)
+                    <= ItineraryScheduleEvaluator.MaxRestDetourMinutes)
             .OrderBy(candidate => matrix.GetMinutes(
                 previousIndex,
                 candidateMatrixIndices[candidate.Id]))
