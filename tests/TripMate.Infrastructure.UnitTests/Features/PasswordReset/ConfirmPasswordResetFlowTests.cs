@@ -340,6 +340,14 @@ public class ConfirmPasswordResetFlowTests
 
         DbSet<Domain.Entities.PayoutReconciliationItem> IApplicationDbContext.PayoutReconciliationItems => throw new NotSupportedException();
 
+        DbSet<Domain.Entities.ServiceBooking> IApplicationDbContext.ServiceBookings => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.ClosedStatisticalPeriod> IApplicationDbContext.ClosedStatisticalPeriods => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.StatisticalReportSnapshot> IApplicationDbContext.StatisticalReportSnapshots => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.StatisticalReportExportOperation> IApplicationDbContext.StatisticalReportExportOperations => throw new NotSupportedException();
+
         public Task<int> RevokeRefreshTokenAsync(
             string tokenHash,
             DateTimeOffset revokedAtUtc,

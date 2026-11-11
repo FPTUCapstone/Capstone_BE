@@ -1,6 +1,7 @@
 using MediatR;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -8,8 +9,10 @@ using TripMate.Api.Common;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Admin.StatisticalReports.Common;
 using TripMate.Application.Features.Admin.StatisticalReports.Exports;
+using TripMate.Application.Features.Admin.StatisticalReports.GetOperators;
 using TripMate.Application.Features.Admin.StatisticalReports.GetPeriods;
 using TripMate.Application.Features.Admin.StatisticalReports.GetReport;
+using TripMate.Domain.Entities;
 
 namespace TripMate.Api.Controllers.V1;
 
@@ -27,6 +30,14 @@ public sealed class AdminStatisticalReportsController(
     public async Task<IActionResult> GetPeriods(CancellationToken cancellationToken)
     {
         var result = await Sender.Send(new GetClosedStatisticalPeriodsQuery(), cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    [HttpGet("operators")]
+    [ProducesResponseType(typeof(IReadOnlyList<StatisticalReportOperatorDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetOperators(CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(new GetReportingTourOperatorsQuery(), cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 
@@ -68,10 +79,16 @@ public sealed class AdminStatisticalReportsController(
             .SingleOrDefaultAsync(x => x.OperationId == operationId, cancellationToken);
         if (existing is not null && (existing.CriteriaKey != criteriaKey || !string.Equals(existing.Format, format, StringComparison.OrdinalIgnoreCase)))
             return Conflict(new ProblemDetails { Title = "The export operation id was already used with different criteria." });
+        long exportOperationRowId;
         if (existing is null)
         {
-            db.StatisticalReportExportOperations.Add(TripMate.Domain.Entities.StatisticalReportExportOperation.Create(operationId, criteriaKey, format.Trim().ToLowerInvariant(), userId, clock.UtcNow));
-            try { await db.SaveChangesAsync(cancellationToken); }
+            var operation = StatisticalReportExportOperation.Create(operationId, criteriaKey, format.Trim().ToLowerInvariant(), userId, clock.UtcNow);
+            db.StatisticalReportExportOperations.Add(operation);
+            try
+            {
+                await db.SaveChangesAsync(cancellationToken);
+                exportOperationRowId = operation.Id;
+            }
             catch (DbUpdateException)
             {
                 // The unique operation id is the idempotency boundary. Verify the competing
@@ -84,11 +101,34 @@ public sealed class AdminStatisticalReportsController(
                 {
                     return Conflict(new ProblemDetails { Title = "The export operation id was already used with different criteria." });
                 }
+                exportOperationRowId = existing.Id;
             }
         }
+        else
+        {
+            exportOperationRowId = existing.Id;
+        }
+
         try
         {
             var file = exporter.Render(result.Value, format);
+
+            // BR-130: one audit row per successful export response (fresh or idempotent replay),
+            // written before the file is returned so a failure here withholds the file (fail-closed),
+            // matching UC-59's precedent for privacy/audit-sensitive admin exports. Only the report
+            // type, period, and filters are recorded — never the generated figures or file bytes.
+            string auditPayload = JsonSerializer.Serialize(new
+            {
+                ReportType = reportType,
+                PeriodKey = periodKey,
+                BookingType = bookingType,
+                OperatorUserId = operatorUserId,
+                DestinationId = destinationId,
+                Format = format,
+            });
+            db.AuditLogs.Add(AuditLog.CreateStatisticalReportExportRequested(userId, exportOperationRowId, auditPayload, clock.UtcNow));
+            await db.SaveChangesAsync(cancellationToken);
+
             return File(file.Content, file.ContentType, file.FileName);
         }
         catch (ArgumentOutOfRangeException)

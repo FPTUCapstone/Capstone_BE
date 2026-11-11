@@ -16,6 +16,7 @@ public static class StatisticalReportValues
 }
 
 public sealed record StatisticalPeriodDto(string PeriodKey, DateOnly StartDate, DateOnly EndDate, DateTimeOffset ClosedAtUtc);
+public sealed record StatisticalReportOperatorDto(long Id, string Name);
 public sealed record StatisticalMetricDto(string Key, string Label, decimal Value, bool IsCurrency);
 public sealed record StatisticalFormulaDto(decimal TourCommission, decimal ServiceCommission, decimal RefundCommissionReversal, decimal NetPlatformRevenue);
 public sealed record StatisticalBreakdownDto(string Key, string Label, decimal PrimaryValue, decimal SecondaryValue, decimal TertiaryValue, bool IsCurrency);

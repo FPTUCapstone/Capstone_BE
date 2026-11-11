@@ -63,4 +63,7 @@ public static class AuditActionTypes
 
     // UC-43 Check-in scan verification rejected
     public const string CheckInScanRejected = "CheckInScanRejected";
+
+    // UC-67 Export Statistical Reports, BR-130
+    public const string StatisticalReportExportRequested = "STATISTICAL_REPORT_EXPORT_REQUESTED";
 }
