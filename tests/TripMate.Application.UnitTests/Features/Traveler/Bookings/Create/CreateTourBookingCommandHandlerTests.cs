@@ -287,9 +287,247 @@ public sealed class CreateTourBookingCommandHandlerTests
         persisted.IdDocumentNumber.Length.Should().BeLessThanOrEqualTo(BookingParticipant.IdDocumentNumberCiphertextMaxLength);
     }
 
-    private static CreateTourBookingCommandHandler NewHandler(TestDbContext db, long travelerId) =>
+    [Fact]
+    public async Task Handle_TourWithStopMissingPlannedTime_RejectsBeforeBooking()
+    {
+        // UC-70 bookability: a sellable departure needs every commercial stop scheduled;
+        // otherwise payment could confirm an unmaterializable itinerary.
+        await using var db = TestDbContext.Create();
+        var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
+        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        var itemsField = typeof(Tour).GetField("_itineraryItems",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        ((List<TourItineraryItem>)itemsField.GetValue(tour)!).Add(
+            TourItineraryItem.Create(1, 3, 9003, plannedTime: null, 30, null));
+        db.Tours.Add(tour);
+        await db.SaveChangesAsync();
+        var schedule = TourBookingTestData.SeedSchedule(tour, Now.AddDays(5), 10, 0);
+        db.TourSchedules.Add(schedule);
+        await db.SaveChangesAsync();
+
+        var result = await NewHandler(db, traveler.Id)
+            .Handle(Command(schedule.Id, [Participant("Nguyen Van A")]), CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be(TourBookingErrorCodes.TourItineraryNotBookable);
+        (await db.Bookings.CountAsync()).Should().Be(0);
+        (await db.TourSchedules.AsNoTracking().SingleAsync(s => s.Id == schedule.Id))
+            .ReservedCapacity.Should().Be(0, "rejection must not reserve capacity");
+    }
+
+    [Fact]
+    public async Task CreateBooking_UnknownTourTimeZone_ReturnsItineraryNotBookable()
+    {
+        await using var db = TestDbContext.Create();
+        var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
+        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        typeof(Tour).GetProperty(nameof(Tour.TimeZoneId))!.SetValue(tour, "Mars/Olympus_Mons");
+        db.Tours.Add(tour);
+        await db.SaveChangesAsync();
+        var schedule = TourBookingTestData.SeedSchedule(tour, Now.AddDays(5), 10, 0);
+        db.TourSchedules.Add(schedule);
+        await db.SaveChangesAsync();
+
+        var result = await NewHandler(db, traveler.Id)
+            .Handle(Command(schedule.Id, [Participant("Nguyen Van A")]), CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be(TourBookingErrorCodes.TourItineraryNotBookable);
+        (await db.Bookings.CountAsync()).Should().Be(0);
+        (await db.TourSchedules.AsNoTracking().SingleAsync(s => s.Id == schedule.Id))
+            .ReservedCapacity.Should().Be(0, "rejection must not reserve capacity");
+    }
+
+    [Fact]
+    public async Task CreateBooking_InvalidDstLocalTime_ReturnsItineraryNotBookable()
+    {
+        await using var db = TestDbContext.Create();
+        var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
+        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        ReplaceStops(tour, "America/New_York", (1, 1, 9001L, new TimeOnly(2, 30), 60));
+        db.Tours.Add(tour);
+        await db.SaveChangesAsync();
+        // 07:00Z is the 2026 spring-forward instant; the local departure date is March 8,
+        // whose 02:30 does not exist.
+        var schedule = TourBookingTestData.SeedSchedule(tour,
+            new DateTimeOffset(2026, 3, 8, 7, 0, 0, TimeSpan.Zero), 10, 0);
+        typeof(TourSchedule).GetProperty(nameof(TourSchedule.EndAtUtc))!.SetValue(schedule,
+            new DateTimeOffset(2026, 3, 8, 21, 0, 0, TimeSpan.Zero));
+        db.TourSchedules.Add(schedule);
+        await db.SaveChangesAsync();
+
+        // The booking clock must sit before the spring-forward departure.
+        var result = await NewHandler(db, traveler.Id,
+                utcNow: new DateTimeOffset(2026, 2, 1, 0, 0, 0, TimeSpan.Zero))
+            .Handle(Command(schedule.Id, [Participant("Nguyen Van A")]), CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be(TourBookingErrorCodes.TourItineraryNotBookable);
+        (await db.Bookings.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task CreateBooking_AmbiguousDstLocalTime_ReturnsItineraryNotBookable()
+    {
+        await using var db = TestDbContext.Create();
+        var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
+        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        ReplaceStops(tour, "America/New_York", (1, 1, 9001L, new TimeOnly(1, 30), 60));
+        db.Tours.Add(tour);
+        await db.SaveChangesAsync();
+        // 05:00Z is 01:00 EDT on the 2026 fall-back morning; 01:30 local occurs twice.
+        var schedule = TourBookingTestData.SeedSchedule(tour,
+            new DateTimeOffset(2026, 11, 1, 5, 0, 0, TimeSpan.Zero), 10, 0);
+        typeof(TourSchedule).GetProperty(nameof(TourSchedule.EndAtUtc))!.SetValue(schedule,
+            new DateTimeOffset(2026, 11, 1, 21, 0, 0, TimeSpan.Zero));
+        db.TourSchedules.Add(schedule);
+        await db.SaveChangesAsync();
+
+        var result = await NewHandler(db, traveler.Id)
+            .Handle(Command(schedule.Id, [Participant("Nguyen Van A")]), CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be(TourBookingErrorCodes.TourItineraryNotBookable);
+        (await db.Bookings.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task CreateBooking_OverlappingStops_ReturnsItineraryNotBookable()
+    {
+        await using var db = TestDbContext.Create();
+        var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
+        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        // The second stop starts (11:00) before the first one leaves (10:30 + 60 min).
+        ReplaceStops(tour, "Asia/Ho_Chi_Minh",
+            (1, 1, 9001L, new TimeOnly(10, 30), 60),
+            (1, 2, 9002L, new TimeOnly(11, 0), 30));
+        db.Tours.Add(tour);
+        await db.SaveChangesAsync();
+        var schedule = TourBookingTestData.SeedSchedule(tour, Now.AddDays(5), 10, 0);
+        db.TourSchedules.Add(schedule);
+        await db.SaveChangesAsync();
+
+        var result = await NewHandler(db, traveler.Id)
+            .Handle(Command(schedule.Id, [Participant("Nguyen Van A")]), CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be(TourBookingErrorCodes.TourItineraryNotBookable);
+        (await db.Bookings.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task CreateBooking_StopOutsideDepartureWindow_ReturnsItineraryNotBookable()
+    {
+        await using var db = TestDbContext.Create();
+        var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
+        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        // Day 2 stop but the departure only lasts eight hours.
+        ReplaceStops(tour, "Asia/Ho_Chi_Minh", (2, 1, 9001L, new TimeOnly(10, 30), 60));
+        db.Tours.Add(tour);
+        await db.SaveChangesAsync();
+        var schedule = TourBookingTestData.SeedSchedule(tour, Now.AddDays(5), 10, 0);
+        db.TourSchedules.Add(schedule);
+        await db.SaveChangesAsync();
+
+        var result = await NewHandler(db, traveler.Id)
+            .Handle(Command(schedule.Id, [Participant("Nguyen Van A")]), CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be(TourBookingErrorCodes.TourItineraryNotBookable);
+        (await db.Bookings.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task CreateBooking_InvalidItinerary_DoesNotExpireExistingDueBooking()
+    {
+        await using var db = TestDbContext.Create();
+        var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
+        // The traveler already holds an expired payment hold with reserved capacity.
+        var oldTour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        db.Tours.Add(oldTour);
+        await db.SaveChangesAsync();
+        var oldSchedule = TourBookingTestData.SeedSchedule(oldTour, Now.AddDays(5), 10, reservedCapacity: 1);
+        db.TourSchedules.Add(oldSchedule);
+        await db.SaveChangesAsync();
+        var oldParticipant = BookingParticipant.Create("Nguyen Van A", ParticipantType.Adult,
+            null, null, null, null, null);
+        var oldBooking = Booking.Create("BK-UC70-OLD-0001", traveler.Id, oldSchedule.Id, null,
+            1_000_000m, 0m, 1_000_000m, [oldParticipant], Now.AddDays(-1), Now.AddMinutes(-15));
+        db.Bookings.Add(oldBooking);
+        await db.SaveChangesAsync();
+
+        // The target departure carries an unmaterializable template (unknown time zone).
+        var targetTour = TourBookingTestData.SeedTour(3, 1_000_000m);
+        typeof(Tour).GetProperty(nameof(Tour.TimeZoneId))!.SetValue(targetTour, "Mars/Olympus_Mons");
+        db.Tours.Add(targetTour);
+        await db.SaveChangesAsync();
+        var targetSchedule = TourBookingTestData.SeedSchedule(targetTour, Now.AddDays(7), 10, 0);
+        db.TourSchedules.Add(targetSchedule);
+        await db.SaveChangesAsync();
+
+        var result = await NewHandler(db, traveler.Id)
+            .Handle(Command(targetSchedule.Id, [Participant("Nguyen Van B")]), CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be(TourBookingErrorCodes.TourItineraryNotBookable);
+        (await db.Bookings.AsNoTracking().SingleAsync(b => b.Id == oldBooking.Id)).Status
+            .Should().Be(BookingStatus.PendingPayment, "rejection must not run expiry housekeeping");
+        (await db.TourSchedules.AsNoTracking().SingleAsync(s => s.Id == oldSchedule.Id)).ReservedCapacity
+            .Should().Be(1, "the stale hold keeps its capacity until a valid request runs housekeeping");
+        (await db.Bookings.CountAsync()).Should().Be(1);
+        (await db.TourBookingCreateOperations.CountAsync()).Should().Be(0);
+        (await db.PaymentTransactions.CountAsync()).Should().Be(0);
+        (await db.TourSchedules.AsNoTracking().SingleAsync(s => s.Id == targetSchedule.Id)).ReservedCapacity
+            .Should().Be(0);
+    }
+
+    [Fact]
+    public async Task CreateBooking_IdempotentReplay_DoesNotRequireCurrentItineraryToRemainBookable()
+    {
+        await using var db = TestDbContext.Create();
+        var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
+        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        db.Tours.Add(tour);
+        await db.SaveChangesAsync();
+        var schedule = TourBookingTestData.SeedSchedule(tour, Now.AddDays(5), 10, 0);
+        db.TourSchedules.Add(schedule);
+        await db.SaveChangesAsync();
+        var key = Guid.NewGuid();
+        var command = Command(schedule.Id, [Participant("Nguyen Van A")]) with { IdempotencyKey = key };
+
+        var first = await NewHandler(db, traveler.Id).Handle(command, CancellationToken.None);
+        first.IsSuccess.Should().BeTrue();
+
+        // The operator later breaks the template; the committed operation must still replay.
+        typeof(Tour).GetProperty(nameof(Tour.TimeZoneId))!.SetValue(tour, "Mars/Olympus_Mons");
+        await db.SaveChangesAsync();
+
+        var replay = await NewHandler(db, traveler.Id).Handle(command, CancellationToken.None);
+
+        replay.IsSuccess.Should().BeTrue("a committed operation replays regardless of the current template");
+        replay.Value.IsReplay.Should().BeTrue();
+        replay.Value.BookingId.Should().Be(first.Value.BookingId);
+        (await db.Bookings.CountAsync()).Should().Be(1);
+        (await db.TourSchedules.AsNoTracking().SingleAsync(s => s.Id == schedule.Id)).ReservedCapacity
+            .Should().Be(1, "replay must not double-reserve capacity");
+    }
+
+    private static void ReplaceStops(Tour tour, string timeZoneId,
+        params (int DayNo, int SequenceNo, long PoiId, TimeOnly PlannedTime, int StayMinutes)[] stops)
+    {
+        typeof(Tour).GetProperty(nameof(Tour.TimeZoneId))!.SetValue(tour, timeZoneId);
+        var itemsField = typeof(Tour).GetField("_itineraryItems",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        var list = (List<TourItineraryItem>)itemsField.GetValue(tour)!;
+        list.Clear();
+        list.AddRange(stops.Select(stop => TourItineraryItem.Create(
+            stop.DayNo, stop.SequenceNo, stop.PoiId, stop.PlannedTime, stop.StayMinutes, null)));
+    }
+
+    private static CreateTourBookingCommandHandler NewHandler(TestDbContext db, long travelerId,
+        DateTimeOffset? utcNow = null) =>
         new(db, new FakeCurrentUserService { UserId = travelerId, Role = nameof(UserRole.Traveler) },
-            new FakeDateTimeProvider { UtcNow = Now },
+            new FakeDateTimeProvider { UtcNow = utcNow ?? Now },
             new PendingBookingExpiryProcessor(db, new FakeDateTimeProvider { UtcNow = Now }, Options),
             Options, new FakePiiProtector());
 

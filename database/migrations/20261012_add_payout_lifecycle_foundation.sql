@@ -14,12 +14,12 @@ GO
 BEGIN TRY
     BEGIN TRANSACTION;
 
-    IF OBJECT_ID(N'payment.Payouts', N'U') IS NULL
-        THROW 51000, 'TM-208 requires payment.Payouts.', 1;
     IF OBJECT_ID(N'dbo.Users', N'U') IS NULL
         THROW 51000, 'TM-208 requires dbo.Users.', 1;
 
-    DECLARE @alreadyApplied BIT = CASE WHEN EXISTS (
+    -- payment.Payouts is dropped by 20261108_remove_legacy_payout_request_tables.sql, which
+    -- reruns after this script on every deploy; a missing table means this step is already superseded.
+    DECLARE @alreadyApplied BIT = CASE WHEN OBJECT_ID(N'payment.Payouts', N'U') IS NULL OR EXISTS (
         SELECT 1 FROM sys.check_constraints
         WHERE parent_object_id = OBJECT_ID(N'payment.Payouts')
           AND name = N'CK_Payouts_LifecycleState'

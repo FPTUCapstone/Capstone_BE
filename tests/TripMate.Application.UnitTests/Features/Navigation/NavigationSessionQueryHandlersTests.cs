@@ -37,6 +37,35 @@ public sealed class NavigationSessionQueryHandlersTests
     }
 
     [Fact]
+    public async Task Get_NamesTheBookingASessionFollows()
+    {
+        await using var db = CreateDbContext();
+        var sessionId = await SeedAsync(db);
+        var itinerary = await db.Itineraries.SingleAsync();
+        db.Entry(itinerary).Property(item => item.SourceBookingId).CurrentValue = 42L;
+        await db.SaveChangesAsync();
+
+        var result = await new GetNavigationSessionQueryHandler(
+                db, new ItineraryAccessService(db), Clock(StartedAtUtc.AddHours(1)))
+            .Handle(new GetNavigationSessionQuery(sessionId, TravelerId), CancellationToken.None);
+
+        result.Value.BookingId.Should().Be(42L);
+    }
+
+    [Fact]
+    public async Task Get_ASelfPlannedSessionNamesNoBooking()
+    {
+        await using var db = CreateDbContext();
+        var sessionId = await SeedAsync(db);
+
+        var result = await new GetNavigationSessionQueryHandler(
+                db, new ItineraryAccessService(db), Clock(StartedAtUtc.AddHours(1)))
+            .Handle(new GetNavigationSessionQuery(sessionId, TravelerId), CancellationToken.None);
+
+        result.Value.BookingId.Should().BeNull();
+    }
+
+    [Fact]
     public async Task List_DeadlockDuringProtectedReadRetriesWithoutReturningAnUncommittedSnapshot()
     {
         await using var db = CreateDbContext();

@@ -163,11 +163,20 @@ public sealed class TravelerTourBookingExpirySqlServerTests
         Set(tour, nameof(Tour.BasePrice), 1_000_000m);
         Set(tour, nameof(Tour.DurationDays), 1);
         Set(tour, nameof(Tour.Status), TourStatus.Published);
+        // UC-70 bookability: a sellable tour template carries fully scheduled stops.
+        var (stopOneId, stopTwoId) = await SeedBookableStopsAsync(context);
+        var itemsField = typeof(Tour).GetField("_itineraryItems", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        ((List<TourItineraryItem>)itemsField.GetValue(tour)!).AddRange(
+        [
+            TourItineraryItem.Create(1, 1, stopOneId, new TimeOnly(9, 0), 60, null),
+            TourItineraryItem.Create(1, 2, stopTwoId, new TimeOnly(11, 0), 45, null),
+        ]);
         context.Tours.Add(tour);
         await context.SaveChangesAsync();
 
         var schedule = TourSchedule.Create(
-            Now.AddDays(7), Now.AddDays(8), null, totalCapacity: totalCapacity, createdAtUtc: Now,
+            // Schedule opens before the first stop (09:00 +07 = 02:00Z) per the UC-70 timeline.
+            Now.Date.AddDays(7).AddHours(1), Now.Date.AddDays(8).AddHours(1), null, totalCapacity: totalCapacity, createdAtUtc: Now,
             adultPrice: 1_000_000m);
         Set(schedule, nameof(TourSchedule.TourId), tour.Id);
         Set(schedule, nameof(TourSchedule.Tour), tour);
@@ -210,11 +219,20 @@ public sealed class TravelerTourBookingExpirySqlServerTests
         Set(tour, nameof(Tour.BasePrice), 1_000_000m);
         Set(tour, nameof(Tour.DurationDays), 1);
         Set(tour, nameof(Tour.Status), TourStatus.Published);
+        // UC-70 bookability: a sellable tour template carries fully scheduled stops.
+        var (stopOneId, stopTwoId) = await SeedBookableStopsAsync(context);
+        var itemsField = typeof(Tour).GetField("_itineraryItems", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        ((List<TourItineraryItem>)itemsField.GetValue(tour)!).AddRange(
+        [
+            TourItineraryItem.Create(1, 1, stopOneId, new TimeOnly(9, 0), 60, null),
+            TourItineraryItem.Create(1, 2, stopTwoId, new TimeOnly(11, 0), 45, null),
+        ]);
         context.Tours.Add(tour);
         await context.SaveChangesAsync();
 
+        // Schedule opens before the first stop (09:00 +07 = 02:00Z) per the UC-70 timeline.
         var schedule = TourSchedule.Create(
-            Now.AddDays(7), Now.AddDays(8), null, totalCapacity: 5, createdAtUtc: Now,
+            Now.Date.AddDays(7).AddHours(1), Now.Date.AddDays(8).AddHours(1), null, totalCapacity: 5, createdAtUtc: Now,
             registrationDeadlineAtUtc: Now,
             adultPrice: 1_000_000m);
         Set(schedule, nameof(TourSchedule.TourId), tour.Id);
@@ -235,6 +253,28 @@ public sealed class TravelerTourBookingExpirySqlServerTests
     private static void Set<T>(object instance, string property, T value) =>
         instance.GetType().GetProperty(property, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!
             .SetValue(instance, value);
+
+    // UC-70 bookability: sellable tours need real POI-backed stops (the SQL FK enforces them).
+    private static async Task<(long StopOneId, long StopTwoId)> SeedBookableStopsAsync(
+        TripMate.Infrastructure.Persistence.ApplicationDbContext context)
+    {
+        var category = PoiCategory.Create("Beach", null);
+        context.PoiCategories.Add(category);
+        await context.SaveChangesAsync();
+        var poiOne = (PointOfInterest)Activator.CreateInstance(typeof(PointOfInterest), nonPublic: true)!;
+        Set(poiOne, nameof(PointOfInterest.Name), "Stop One");
+        Set(poiOne, nameof(PointOfInterest.Latitude), 16.0m);
+        Set(poiOne, nameof(PointOfInterest.Longitude), 108.0m);
+        Set(poiOne, nameof(PointOfInterest.CategoryId), category.Id);
+        var poiTwo = (PointOfInterest)Activator.CreateInstance(typeof(PointOfInterest), nonPublic: true)!;
+        Set(poiTwo, nameof(PointOfInterest.Name), "Stop Two");
+        Set(poiTwo, nameof(PointOfInterest.Latitude), 16.0m);
+        Set(poiTwo, nameof(PointOfInterest.Longitude), 108.2m);
+        Set(poiTwo, nameof(PointOfInterest.CategoryId), category.Id);
+        context.PointsOfInterest.AddRange(poiOne, poiTwo);
+        await context.SaveChangesAsync();
+        return (poiOne.Id, poiTwo.Id);
+    }
 
     private static OperatorProfile CreateApprovedOperatorProfile(User operatorUser) => new()
     {

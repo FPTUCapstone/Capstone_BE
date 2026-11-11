@@ -114,8 +114,8 @@ tests. These are the files and commands of the 2026-10-12 smoke test (spec §13,
    SchedulingRateLimit__CooldownSeconds=0
    ```
    A random secret: `docker run --rm python:3.12-slim python -c "import secrets; print(secrets.token_urlsafe(32))"`.
-   `git check-ignore .env` must print `.env`. A real `OPENROUTESERVICE__APIKEY` is required: every
-   generation asks OpenRouteService for travel times.
+   `git check-ignore .env` must print `.env`. A real `MAPBOXROUTING__ACCESSTOKEN` is required: every
+   generation asks the Mapbox Matrix API for travel times.
 2. Save `compose.fake-ollama.yml` outside the repository, for example in `$env:TEMP\tripmate-ai-smoke\`:
    ```yaml
    services:
@@ -338,4 +338,4 @@ Rollback (spec §7.6):
 | Ranking still `success` while Ollama is down | Expected: the service caches embeddings in memory; only new POIs or preferences need Ollama. |
 | Port 11434 or 8000 already in use | A native Ollama and the Compose `ollama` both want 11434; use one. Another service on 8000: set `AI_HOST_PORT`. |
 | `Conflict. The container name "/tripmate-…" is already in use` | Another stack uses the fixed names; see §2. |
-| Backend request 503 `planning.routing_provider_unavailable` | OpenRouteService could not route between some POIs (seen with a 30 km radius). Not an AI issue; use a smaller radius. |
+| Backend request 503 `planning.routing_provider_unavailable` | Mapbox could not route between some POIs, or its Matrix rate limit (60 requests/minute per token) was hit (seen with a 30 km radius). Not an AI issue; use a smaller radius. |

@@ -118,6 +118,61 @@ public sealed class ItineraryVersionServiceTests
     }
 
     [Fact]
+    public async Task CreateRegeneratedVersion_InWeightedUtilityMode_ColdStartUsesPreviousStopToFillAvailableTime()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var request = await AddRequestAsync(dbContext, travelerUserId: 42);
+        var previous = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Previous museum", visitMinutes: 60);
+        var newPoi = await AddPlanningReadyPoiAsync(dbContext, "Nature", "New park", visitMinutes: 60);
+        var original = await AddItineraryAsync(dbContext, request, previous.Id);
+        var options = new SchedulingGenerationOptions
+        {
+            SolverMode = SchedulingSolverMode.Csp,
+            Csp = new CspOptions { Mode = ObjectiveMode.WeightedUtility },
+        };
+
+        var result = await new ItineraryVersionService(
+                dbContext,
+                new FixedRouteDurationProvider(),
+                options,
+                new TimeOfDayOptions { Enabled = false })
+            .CreateRegeneratedVersionAsync(original, request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        VisitIds(result.Value).Should().Equal(newPoi.Id, previous.Id);
+    }
+
+    [Theory]
+    [InlineData("nature")]
+    [InlineData("culture")]
+    public async Task CreateRegeneratedVersion_InWeightedUtilityMode_WithPreferencesUsesPreviousStopToFillAvailableTime(
+        string interestTag)
+    {
+        await using var dbContext = TestDbContext.Create();
+        const long travelerUserId = 42;
+        var request = await AddRequestAsync(dbContext, travelerUserId);
+        var previous = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Previous museum", visitMinutes: 60);
+        var newPoi = await AddPlanningReadyPoiAsync(dbContext, "Nature", "New park", visitMinutes: 60);
+        dbContext.TravelerProfiles.Add(TravelerProfile.Create(travelerUserId, $"[\"{interestTag}\"]", Now));
+        var original = await AddItineraryAsync(dbContext, request, previous.Id);
+        var options = new SchedulingGenerationOptions
+        {
+            SolverMode = SchedulingSolverMode.Csp,
+            Csp = new CspOptions { Mode = ObjectiveMode.WeightedUtility },
+        };
+
+        var result = await new ItineraryVersionService(
+                dbContext,
+                new FixedRouteDurationProvider(),
+                options,
+                new TimeOfDayOptions { Enabled = false })
+            .CreateRegeneratedVersionAsync(original, request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        VisitIds(result.Value).Should().Equal(newPoi.Id, previous.Id);
+    }
+
+    [Fact]
     public async Task CreateRegeneratedVersion_InWeightedUtilityMode_WhenNoOtherPlaceFits_ReturnsNoAlternative()
     {
         await using var dbContext = TestDbContext.Create();
@@ -139,6 +194,37 @@ public sealed class ItineraryVersionServiceTests
 
         result.IsFailure.Should().BeTrue();
         result.ErrorCode.Should().Be(ItineraryErrorCodes.NoAlternative);
+    }
+
+    [Fact]
+    public async Task CreateRegeneratedVersion_InWeightedUtilityMode_WhenOnlyTheVisitOrderWouldChange_ReturnsNoAlternative()
+    {
+        // Both places have been suggested, so they share one tier and the solver may swap their order.
+        // The same places in another order are not an alternative for the traveler.
+        await using var dbContext = TestDbContext.Create();
+        var request = await AddRequestAsync(dbContext, travelerUserId: 42);
+        var previous = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Previous museum", visitMinutes: 60);
+        var newPoi = await AddPlanningReadyPoiAsync(dbContext, "Nature", "New park", visitMinutes: 60);
+        var original = await AddItineraryAsync(dbContext, request, previous.Id);
+        var options = new SchedulingGenerationOptions
+        {
+            SolverMode = SchedulingSolverMode.Csp,
+            Csp = new CspOptions { Mode = ObjectiveMode.WeightedUtility },
+        };
+        ItineraryVersionService Service() => new(
+            dbContext,
+            new FixedRouteDurationProvider(),
+            options,
+            new TimeOfDayOptions { Enabled = false });
+
+        var first = await Service().CreateRegeneratedVersionAsync(original, request, CancellationToken.None);
+        await dbContext.SaveChangesAsync();
+        var second = await Service().CreateRegeneratedVersionAsync(first.Value, request, CancellationToken.None);
+
+        first.IsSuccess.Should().BeTrue();
+        VisitIds(first.Value).Should().BeEquivalentTo(new[] { previous.Id, newPoi.Id });
+        second.IsFailure.Should().BeTrue();
+        second.ErrorCode.Should().Be(ItineraryErrorCodes.NoAlternative);
     }
 
     [Fact]
