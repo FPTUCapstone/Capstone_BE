@@ -321,6 +321,7 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
                 BookingCancellationErrorCodes.RefundManualReviewRequired => StatusCodes.Status409Conflict,
             BookingCancellationErrorCodes.WindowClosed => StatusCodes.Status422UnprocessableEntity,
             BookingCancellationErrorCodes.ReasonRequired => StatusCodes.Status422UnprocessableEntity,
+            BookingCancellationErrorCodes.ConfirmationRequired => StatusCodes.Status422UnprocessableEntity,
             BookingCancellationErrorCodes.PolicyUnavailable => StatusCodes.Status503ServiceUnavailable,
             BookingCancellationErrorCodes.ConcurrentRetryExhausted => StatusCodes.Status503ServiceUnavailable,
 
