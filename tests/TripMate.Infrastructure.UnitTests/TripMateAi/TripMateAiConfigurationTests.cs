@@ -27,28 +27,29 @@ public sealed class TripMateAiConfigurationTests
 
     // C1
     [Fact]
-    public void ShippedAppSettings_SelectGeminiExplicitlyForBothFeatures()
+    public void ShippedAppSettings_SelectTripMateAiForBothFeatures_NeverGemini()
     {
         IConfiguration configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(BaselineConfiguration())
             .AddJsonFile(FindRepositoryFile("src", "TripMate.Api", "appsettings.json"), optional: false)
             .Build();
 
-        configuration["AiRanking:Provider"].Should().Be("Gemini");
-        configuration["AiExplanation:Provider"].Should().Be("Gemini");
+        // 2026-11-11: the team AI service (Capstone_AI) is the only provider; an enabled flag alone must never reach Gemini.
+        configuration["AiRanking:Provider"].Should().Be("TripMateAi");
+        configuration["AiExplanation:Provider"].Should().Be("TripMateAi");
 
         using ServiceProvider provider = BuildProvider(configuration);
         provider.GetRequiredService<IStartupValidator>().Validate();
         using IServiceScope scope = provider.CreateScope();
 
         provider.GetRequiredService<IOptions<PoiRankingProviderOptions>>()
-            .Value.Provider.Should().Be(AiProviderKind.Gemini);
+            .Value.Provider.Should().Be(AiProviderKind.TripMateAi);
         provider.GetRequiredService<IOptions<ExplanationProviderOptions>>()
-            .Value.Provider.Should().Be(AiProviderKind.Gemini);
+            .Value.Provider.Should().Be(AiProviderKind.TripMateAi);
         scope.ServiceProvider.GetRequiredService<IPoiRankingProvider>()
-            .Should().BeOfType<HttpPoiRankingProvider>();
+            .Should().BeOfType<TripMateAiPoiRankingProvider>();
         scope.ServiceProvider.GetRequiredService<IItineraryExplanationProvider>()
-            .Should().BeOfType<HttpItineraryExplanationProvider>();
+            .Should().BeOfType<TripMateAiExplanationProvider>();
     }
 
     // C2
