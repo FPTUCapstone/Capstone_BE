@@ -173,6 +173,15 @@ public class TestDbContext(
 
     public DbSet<PayoutReconciliationItem> PayoutReconciliationItems => Set<PayoutReconciliationItem>();
 
+    public DbSet<ServiceBooking> ServiceBookings => Set<ServiceBooking>();
+
+    public DbSet<ClosedStatisticalPeriod> ClosedStatisticalPeriods => Set<ClosedStatisticalPeriod>();
+
+    public DbSet<StatisticalReportSnapshot> StatisticalReportSnapshots => Set<StatisticalReportSnapshot>();
+
+    public DbSet<StatisticalReportExportOperation> StatisticalReportExportOperations =>
+        Set<StatisticalReportExportOperation>();
+
     public int TransactionExecutionCount { get; private set; }
 
     public bool IsExecutingSerializableTransaction { get; private set; }
