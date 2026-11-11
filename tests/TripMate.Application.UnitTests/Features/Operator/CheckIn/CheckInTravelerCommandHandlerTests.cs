@@ -64,7 +64,8 @@ public sealed class CheckInTravelerCommandHandlerTests
             currentUserService,
             auditJournal,
             ticketQrCodec,
-            clock);
+            clock,
+            new NeverUnavailablePersistenceErrorClassifier());
     }
 
     [Fact]
@@ -98,6 +99,21 @@ public sealed class CheckInTravelerCommandHandlerTests
         result.ErrorMessage.Should().Be(CheckInErrorCodes.UnavailableMessage);
         auditJournal.Events.Should().ContainSingle(e => e.EventType == CheckInAuditEventType.Admission);
         dbContext.ChangeTracker.Entries().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Handle_WhenRequestIsCancelledAfterAdmission_DoesNotMapCancellationToMsg127()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        Func<Task> act = () => handler.Handle(
+            new CheckInTravelerCommand(123, QrContent: "TM1.any.signature"),
+            cancellation.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        auditJournal.Events.Should().ContainSingle(e => e.EventType == CheckInAuditEventType.Admission);
+        auditJournal.Events.Should().NotContain(e => e.EventType == CheckInAuditEventType.Rejected);
     }
 
     [Fact]
@@ -146,7 +162,8 @@ public sealed class CheckInTravelerCommandHandlerTests
             currentUserService,
             auditJournal,
             ticketQrCodec,
-            clock);
+            clock,
+            new NeverUnavailablePersistenceErrorClassifier());
 
         var result = await testHandler.Handle(
             new CheckInTravelerCommand(schedule.Id, QrContent: "TM1.any.signature"),
@@ -567,6 +584,11 @@ public sealed class CheckInTravelerCommandHandlerTests
                     ? result
                     : CheckInAuditWriteResult.Confirmed);
         }
+    }
+
+    private sealed class NeverUnavailablePersistenceErrorClassifier : ICheckInPersistenceErrorClassifier
+    {
+        public bool IsTemporarilyUnavailable(Exception exception) => false;
     }
 
     private sealed class TestLogger<T> : ILogger<T>

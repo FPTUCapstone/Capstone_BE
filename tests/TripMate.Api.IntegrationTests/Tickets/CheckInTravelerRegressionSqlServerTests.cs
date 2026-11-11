@@ -299,7 +299,8 @@ public sealed class CheckInTravelerRegressionSqlServerTests
         ApplicationDbContext context,
         TicketSqlServerSeed seed,
         ICheckInAuditJournal? auditJournal = null) =>
-        new(context, new OperatorIdentity(seed.OperatorId), auditJournal ?? new StubAuditJournal(), Codec(), new Clock());
+        new(context, new OperatorIdentity(seed.OperatorId), auditJournal ?? new StubAuditJournal(), Codec(), new Clock(),
+            new SqlServerCheckInPersistenceErrorClassifier());
 
     private static TicketQrIssuer Issuer(ApplicationDbContext context) =>
         new(context, Codec(), new SqlServerTicketQrPersistenceErrorClassifier());

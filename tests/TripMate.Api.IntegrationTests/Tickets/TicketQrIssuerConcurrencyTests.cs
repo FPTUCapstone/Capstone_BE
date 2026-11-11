@@ -297,7 +297,8 @@ public sealed class TicketQrIssuerConcurrencyTests
         {
             var currentUserService = new FakeOperatorUserService(seed.OperatorId);
             var handler = new CheckInTravelerCommandHandler(
-                context, currentUserService, auditJournal, Codec(), new TestClock(Departure));
+                context, currentUserService, auditJournal, Codec(), new TestClock(Departure),
+                new SqlServerCheckInPersistenceErrorClassifier());
             var bookingCode = await context.Bookings.Where(b => b.Id == bookingId).Select(b => b.BookingCode).SingleAsync();
 
             var checkInResult = await handler.Handle(
@@ -329,7 +330,8 @@ public sealed class TicketQrIssuerConcurrencyTests
         {
             var currentUserService = new FakeOperatorUserService(seed.OperatorId);
             var handler = new CheckInTravelerCommandHandler(
-                context, currentUserService, auditJournal, Codec(), new TestClock(Departure.AddMinutes(5)));
+                context, currentUserService, auditJournal, Codec(), new TestClock(Departure.AddMinutes(5)),
+                new SqlServerCheckInPersistenceErrorClassifier());
             var bookingCode = await context.Bookings.Where(b => b.Id == bookingId).Select(b => b.BookingCode).SingleAsync();
 
             var repeatResult = await handler.Handle(
