@@ -42,6 +42,12 @@ public sealed class DeleteOperatorTourCommandHandler(
         // Schedules deliberately use a database NO ACTION relation because a sold schedule must
         // never disappear. Draft/rejected schedules have no bookings and are removed explicitly.
         dbContext.TourSchedules.RemoveRange(dbContext.TourSchedules.Where(schedule => schedule.TourId == tour.Id));
+
+        // A create-operation is retained for idempotent tour creation and has a NO ACTION foreign
+        // key to its tour. Once the operator explicitly deletes a draft, retaining that operation
+        // would both prevent this delete and make a future retry point at a deleted tour.
+        dbContext.TourPackageCreateOperations.RemoveRange(
+            dbContext.TourPackageCreateOperations.Where(operation => operation.TourId == tour.Id));
         dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(
             operatorId, AuditActionTypes.TourDeleted, AuditEntityTypes.Tour, tour.Id, clock.UtcNow,
             AuditOutcome.Success,

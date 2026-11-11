@@ -59,7 +59,7 @@ public class ExceptionHandlingMiddleware(
 
             var problem = new ProblemDetails
             {
-                Title = "An unexpected error occurred.",
+                Title = "Hệ thống chưa thể hoàn tất yêu cầu. Vui lòng thử lại.",
                 Status = (int)HttpStatusCode.InternalServerError,
             };
 

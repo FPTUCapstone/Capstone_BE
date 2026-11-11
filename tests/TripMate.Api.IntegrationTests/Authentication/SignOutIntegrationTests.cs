@@ -285,7 +285,7 @@ public class SignOutIntegrationTests
         response.Content.Headers.ContentType?.MediaType.Should().Be("application/problem+json");
         var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
         problem.GetProperty("status").GetInt32().Should().Be(500);
-        problem.GetProperty("title").GetString().Should().Be("An unexpected error occurred.");
+        problem.GetProperty("title").GetString().Should().Be("Hệ thống chưa thể hoàn tất yêu cầu. Vui lòng thử lại.");
         response.Headers.TryGetValues("Set-Cookie", out _)
             .Should()
             .BeFalse("a persistence failure must preserve the refresh cookie for retry");
