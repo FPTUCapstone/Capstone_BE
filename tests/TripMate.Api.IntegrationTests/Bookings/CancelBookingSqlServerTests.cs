@@ -4,10 +4,10 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Api.IntegrationTests.Tickets;
-using TripMate.Application.Features.Bookings.Cancel;
-using TripMate.Application.Features.Bookings.Common;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Bookings.Cancel;
+using TripMate.Application.Features.Bookings.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 using TripMate.Infrastructure.Persistence;
