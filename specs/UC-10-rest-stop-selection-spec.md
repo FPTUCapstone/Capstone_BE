@@ -57,3 +57,11 @@ The same predicate (`IsQualifiedRestCandidate`) has two effects:
   |---|---|---|
   | Culture | rest at Am Phu Cave (16-minute leg); 48 travel minutes in total | free rest with no detour; 15 travel minutes |
   | Nature and beach | rest at Am Phu Cave (24-minute leg); 59 travel minutes in total | free rest with no detour; 22 travel minutes |
+
+## Rest reason wording (developer decision, 2026-11-11)
+
+- **Problem:** Web and Mobile show a stop's `recommendationReason` as-is. Visit reasons are Vietnamese since G5 ("Hợp sở thích của bạn", "Gần lộ trình"), but a rest item still showed the solver's English code: "Free/rest time" or "Suggested rest stop".
+- **Decision:** show the two rest reasons in Vietnamese: "Nghỉ tự do" and "Điểm nghỉ gợi ý".
+- **Change:** `RestStopReasons.ForTraveler` translates the two codes where a plan leaves the solver: when it is saved (`GeneratedItineraryItemMapper`, used by create, regenerate and adjust) and in the fresh create response. The solver, the invariant validator and the explanation input keep the English codes, so no solver source and no golden file changes.
+- **Not changed:** itineraries saved before this change keep their English text. After a manual adjust the *visit* reasons are still the solver's English codes ("Mandatory location", "Suggested nearby location"); G5 only rewrites visit reasons of generated plans. Mobile's own label "Suggested break" on the result page is a Mobile string.
+- **Tests:** `RestStopReasonsTests` (translation, saved rest item, visit untouched) and `Handle_RestStop_ShowsItsReasonInVietnamese_InTheResponseAndTheSavedItinerary`.
