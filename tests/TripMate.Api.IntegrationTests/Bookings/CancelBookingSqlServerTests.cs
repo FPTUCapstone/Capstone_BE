@@ -24,8 +24,12 @@ public sealed class CancelBookingSqlServerTests
     private static readonly DateTimeOffset Departure = new(2026, 10, 30, 1, 0, 0, TimeSpan.Zero);
 
     [SqlServerFact]
-    public async Task Cancel_WithinTwentyFourHoursOfPayment_CommitsCancellationRefundAndSeatReleaseTogether()
+    public async Task Cancel_WithinTwentyFourHoursOfPayment_CommitsCancellationAndSeatReleaseWithNoRefund()
     {
+        // BR-157 retired 11/11/2026: a recent payment no longer grants a full refund regardless
+        // of the BR-135 tier — 24h before departure is inside the under-10-days 0% tier, so this
+        // now proves the same one-transaction commit (cancel + seat release + audit) at a 0%
+        // outcome that requires MSG170 confirmation, rather than a full-refund outcome.
         await using var database = await SqlServerTestDatabase.CreateAsync();
         var seed = await TicketSqlServerSeed.CreateAsync(database, Departure);
         var bookingId = await seed.AddBookingAsync(BookingStatus.Confirmed, PaymentStatus.Paid);
@@ -34,14 +38,14 @@ public sealed class CancelBookingSqlServerTests
         var reservedBefore = await ReservedCapacityAsync(database, seed.ScheduleId);
 
         var result = await HandleAsync(database, seed.TravelerId, nameof(UserRole.Traveler), now,
-            new CancelBookingCommand(bookingId, Guid.NewGuid(), "ChangeOfPlans", "Cannot travel"));
+            new CancelBookingCommand(bookingId, Guid.NewGuid(), "ChangeOfPlans", "Cannot travel", Confirmed: true));
 
         result.IsSuccess.Should().BeTrue();
-        result.Value.RefundAmount.Should().Be(1_000_000m);
+        result.Value.RefundAmount.Should().Be(0m);
         await using var context = database.CreateDbContext();
         (await context.Bookings.AsNoTracking().SingleAsync(booking => booking.Id == bookingId)).Status
             .Should().Be(BookingStatus.Cancelled);
-        (await context.Refunds.AsNoTracking().CountAsync(refund => refund.BookingId == bookingId)).Should().Be(1);
+        (await context.Refunds.AsNoTracking().CountAsync(refund => refund.BookingId == bookingId)).Should().Be(0);
         (await context.BookingCancellationOperations.AsNoTracking().CountAsync(operation => operation.BookingId == bookingId))
             .Should().Be(1);
         (await ReservedCapacityAsync(database, seed.ScheduleId)).Should().Be(reservedBefore - 1);
@@ -50,11 +54,13 @@ public sealed class CancelBookingSqlServerTests
     [SqlServerFact]
     public async Task Cancel_RepeatedIdempotencyKey_ReplaysOriginalAndRejectsChangedPayload()
     {
+        // More than 14 days before departure (BR-135 v3: 100%) so this stays focused on the
+        // idempotency-key replay behavior, independent of the 0%-tier confirmation requirement.
         await using var database = await SqlServerTestDatabase.CreateAsync();
         var seed = await TicketSqlServerSeed.CreateAsync(database, Departure);
         var bookingId = await seed.AddBookingAsync(BookingStatus.Confirmed, PaymentStatus.Paid);
-        var now = Departure.AddHours(-24);
-        await AddSuccessfulPaymentAsync(database, bookingId, paidAtUtc: now.AddHours(-2));
+        var now = Departure.AddDays(-20);
+        await AddSuccessfulPaymentAsync(database, bookingId, paidAtUtc: now.AddDays(-2));
         var key = Guid.NewGuid();
 
         var first = await HandleAsync(database, seed.TravelerId, nameof(UserRole.Traveler), now,
@@ -76,6 +82,8 @@ public sealed class CancelBookingSqlServerTests
     [SqlServerFact]
     public async Task Cancel_InsideSeventyTwoHoursWithoutConfirmation_LeavesBookingUnchanged()
     {
+        // 24h before departure lands in the under-10-days 0% tier under BR-135 v3 too (it was
+        // inside 72h under v2), so this still needs — and still requires — MSG170 confirmation.
         await using var database = await SqlServerTestDatabase.CreateAsync();
         var seed = await TicketSqlServerSeed.CreateAsync(database, Departure);
         var bookingId = await seed.AddBookingAsync(BookingStatus.Confirmed, PaymentStatus.Paid);
