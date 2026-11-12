@@ -2,7 +2,6 @@ using FluentAssertions;
 
 using TripMate.Application.Features.Operator.Payouts.BankAccount;
 using TripMate.Application.Features.Operator.Payouts.Common;
-using TripMate.Application.UnitTests.Features.Operator.Payouts.RequestPayout;
 using TripMate.Application.UnitTests.TestUtilities;
 
 namespace TripMate.Application.UnitTests.Features.Operator.Payouts.BankAccount;
@@ -17,7 +16,7 @@ public sealed class BankAccountHandlerTests
         await using var db = TestDbContext.Create();
         var operatorUser = await PayoutTestFixture.SeedApprovedOperatorAsync(db, withBankAccount: false);
 
-        var handler = new GetBeneficiaryBankAccountQueryHandler(db, RequestPayoutCommandHandlerTests.CurrentUser(operatorUser.Id));
+        var handler = new GetBeneficiaryBankAccountQueryHandler(db, PayoutTestHelpers.CurrentUser(operatorUser.Id));
         var result = await handler.Handle(new GetBeneficiaryBankAccountQuery(), CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
@@ -32,8 +31,8 @@ public sealed class BankAccountHandlerTests
         var operatorUser = await PayoutTestFixture.SeedApprovedOperatorAsync(db, withBankAccount: false);
 
         var upsertHandler = new UpsertBeneficiaryBankAccountCommandHandler(
-            db, RequestPayoutCommandHandlerTests.CurrentUser(operatorUser.Id),
-            new RequestPayoutCommandHandlerTests.FixedClock(Now), new FakePiiProtector());
+            db, PayoutTestHelpers.CurrentUser(operatorUser.Id),
+            new PayoutTestHelpers.FixedClock(Now), new FakePiiProtector());
         var upserted = await upsertHandler.Handle(
             new UpsertBeneficiaryBankAccountCommand("Vietcombank", "Nguyen Van A", "1029384756"), CancellationToken.None);
 
@@ -41,7 +40,7 @@ public sealed class BankAccountHandlerTests
         upserted.Value.MaskedAccountNumber.Should().Be("******4756");
         upserted.Value.MaskedAccountNumber.Should().NotContain("1029384756");
 
-        var getHandler = new GetBeneficiaryBankAccountQueryHandler(db, RequestPayoutCommandHandlerTests.CurrentUser(operatorUser.Id));
+        var getHandler = new GetBeneficiaryBankAccountQueryHandler(db, PayoutTestHelpers.CurrentUser(operatorUser.Id));
         var result = await getHandler.Handle(new GetBeneficiaryBankAccountQuery(), CancellationToken.None);
 
         result.Value.BankName.Should().Be("Vietcombank");
@@ -59,8 +58,8 @@ public sealed class BankAccountHandlerTests
         var operatorUser = await PayoutTestFixture.SeedApprovedOperatorAsync(db, withBankAccount: false);
 
         var handler = new UpsertBeneficiaryBankAccountCommandHandler(
-            db, RequestPayoutCommandHandlerTests.CurrentUser(operatorUser.Id),
-            new RequestPayoutCommandHandlerTests.FixedClock(Now), new FakePiiProtector());
+            db, PayoutTestHelpers.CurrentUser(operatorUser.Id),
+            new PayoutTestHelpers.FixedClock(Now), new FakePiiProtector());
 
         var result = await handler.Handle(
             new UpsertBeneficiaryBankAccountCommand(bankName, accountHolderName, accountNumber), CancellationToken.None);

@@ -7,6 +7,7 @@ using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Navigation.Common;
 using TripMate.Domain.Entities;
+using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Navigation.Start;
 
@@ -94,6 +95,22 @@ public sealed class StartNavigationSessionCommandHandler(
             return Result.Failure<NavigationSessionResponse>(
                 NavigationErrorCodes.ItineraryNotActive,
                 "Navigation requires an Active itinerary.");
+        }
+
+        // Held until the commit, so a stop cannot slip in between this check and the new session.
+        var tourEnded = itinerary.SourceBookingId is { } bookingId
+            && await dbContext.ExecuteWithSerializableReadsAsync(
+                readCancellationToken => dbContext.Bookings.AsNoTracking().AnyAsync(
+                    booking => booking.Id == bookingId
+                        && (booking.Status == BookingStatus.Interrupted
+                            || booking.Status == BookingStatus.Cancelled),
+                    readCancellationToken),
+                cancellationToken);
+        if (tourEnded)
+        {
+            return Result.Failure<NavigationSessionResponse>(
+                NavigationErrorCodes.SessionInterrupted,
+                "This tour was stopped or cancelled, so navigation cannot start.");
         }
 
         var navigableItems = itinerary.Items

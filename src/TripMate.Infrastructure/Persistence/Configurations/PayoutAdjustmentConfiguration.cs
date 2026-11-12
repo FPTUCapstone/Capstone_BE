@@ -24,7 +24,9 @@ public sealed class PayoutAdjustmentConfiguration : IEntityTypeConfiguration<Pay
 
         builder.HasOne<OperatorProfile>().WithMany().HasForeignKey(adjustment => adjustment.OperatorUserId).OnDelete(DeleteBehavior.Restrict);
         builder.HasOne<Refund>().WithMany().HasForeignKey(adjustment => adjustment.SourceRefundId).OnDelete(DeleteBehavior.Restrict);
-        builder.HasOne<Payout>().WithMany().HasForeignKey(adjustment => adjustment.AppliedPayoutId).OnDelete(DeleteBehavior.Restrict);
+        // AppliedPayoutId has no FK: the legacy payment.Payouts table it referenced (the
+        // request-based payout flow) was removed by DAILY-PAYOUT-TRANSFER; the column is now a
+        // plain historical value, no longer a live relationship.
         builder.HasIndex(adjustment => adjustment.SourceRefundId).IsUnique().HasDatabaseName("UQ_PayoutAdjustments_SourceRefund");
         builder.HasIndex(adjustment => adjustment.OperatorUserId)
             .HasDatabaseName("IX_PayoutAdjustments_Operator_Outstanding")

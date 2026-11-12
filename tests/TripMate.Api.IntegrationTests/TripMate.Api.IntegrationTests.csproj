@@ -8,6 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\Shared\TomorrowAlertFixtures.cs" Link="Shared\TomorrowAlertFixtures.cs" />
     <PackageReference Include="FluentAssertions" Version="7.2.0" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.0" />
@@ -159,6 +160,15 @@
     <None Include="..\..\database\migrations\20261027_uc20_group_member_removal_operations.sql"
           Link="Database\migrations\20261027_uc20_group_member_removal_operations.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261028_weather_readiness.sql"
+          Link="Database\migrations\20261028_weather_readiness.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261028_uc70_emergency_cancellation.sql"
+          Link="Database\migrations\20261028_uc70_emergency_cancellation.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261102_weather_operator_review.sql"
+          Link="Database\migrations\20261102_weather_operator_review.sql"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
@@ -168,6 +178,7 @@
 
   <ItemGroup>
     <None Include="Fixtures\Database\tm79_pre_migration_schema.sql" Link="Database\Fixtures\tm79_pre_migration_schema.sql" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures\Database\uc70_pre_migration_develop_schema_v7.sql" Link="Database\Fixtures\uc70_pre_migration_develop_schema_v7.sql" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Fixtures\Database\tm79_pre_nullable_policy_parent.sql" Link="Database\Fixtures\tm79_pre_nullable_policy_parent.sql" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Fixtures\Database\tm79_pre_media_schema.sql" Link="Database\Fixtures\tm79_pre_media_schema.sql" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\database\migrations\20260929_add_trip_review_media.sql" Condition="Exists('..\..\database\migrations\20260929_add_trip_review_media.sql')" Link="Database\migrations\20260929_add_trip_review_media.sql" CopyToOutputDirectory="PreserveNewest" />

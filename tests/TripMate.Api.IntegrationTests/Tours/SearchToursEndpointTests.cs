@@ -4,7 +4,11 @@ using System.Text.Json;
 
 using FluentAssertions;
 
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+
 using TripMate.Api.IntegrationTests.Infrastructure;
+using TripMate.Application.Features.Tours.Search;
 
 namespace TripMate.Api.IntegrationTests.Tours;
 
@@ -39,7 +43,9 @@ public sealed class SearchToursEndpointTests
     [InlineData("minPrice=1.5", "minPrice")]
     [InlineData("page=1&page=2", "page")]
     [InlineData("pageSize=%20", "pageSize")]
-    [InlineData("sort=price", "query")]
+    [InlineData("sort=price", "sort")]
+    [InlineData("keyword=Hue&Keyword=DaNang", "keyword")]
+    [InlineData("departureDate=2026-09-20&startDate=2026-09-20", "departureDate")]
     public async Task Search_InvalidRawQuery_ReturnsFieldLevelProblemDetails(
         string rawQuery,
         string expectedField)
@@ -52,6 +58,41 @@ public sealed class SearchToursEndpointTests
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         response.Content.Headers.ContentType!.MediaType.Should().Be("application/problem+json");
         response.Headers.CacheControl!.NoStore.Should().BeTrue();
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("errors").TryGetProperty(expectedField, out _)
+            .Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Search_PublicLexicalContract_AcceptsAllCanonicalCriteria()
+    {
+        await using var factory = new TripMateApiFactory();
+        using var client = factory.CreateClient();
+
+        using var response = await client.GetAsync(
+            "/api/v1/tours?keyword=Hue&destination=Hue&startDate=2026-09-20"
+            + "&endDate=2026-09-21&minPrice=0&maxPrice=9999999999"
+            + "&durationDays=2&minimumRating=4.5&sort=rating&page=1&pageSize=20");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Headers.CacheControl!.NoStore.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("minPrice=2&maxPrice=1", "maxPrice")]
+    [InlineData("startDate=2026-09-21&endDate=2026-09-20", "endDate")]
+    [InlineData("minimumRating=5.1", "minimumRating")]
+    [InlineData("sort=unknown", "sort")]
+    public async Task Search_InvalidPublicCriteria_ReturnsValidationProblem(
+        string rawQuery,
+        string expectedField)
+    {
+        await using var factory = new TripMateApiFactory();
+        using var client = factory.CreateClient();
+
+        using var response = await client.GetAsync($"/api/v1/tours?{rawQuery}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         body.RootElement.GetProperty("errors").TryGetProperty(expectedField, out _)
             .Should().BeTrue();
@@ -118,6 +159,24 @@ public sealed class SearchToursEndpointTests
         using var response = await client.GetAsync("/api/v1/tours");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Search_WhenAvailabilityProviderFails_ReturnsGlobalSystemError()
+    {
+        await using var factory = new TripMateApiFactory(
+            configureTestServices: services =>
+            {
+                services.RemoveAll<ITourAvailabilityReader>();
+                services.AddScoped<ITourAvailabilityReader, ThrowingAvailabilityReader>();
+            });
+        using var client = factory.CreateClient();
+
+        using var response = await client.GetAsync("/api/v1/tours");
+
+        response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
+        response.Content.Headers.ContentType!.MediaType.Should().Be("application/problem+json");
+        response.Headers.CacheControl!.NoStore.Should().BeTrue();
     }
 
     [SqlServerFact]
@@ -188,6 +247,7 @@ public sealed class SearchToursEndpointTests
         item.GetProperty("remainingSlots").GetInt32().Should().Be(11);
         item.GetProperty("thumbnailUrl").GetString().Should().Be(
             "https://res.cloudinary.com/test/image/upload/endpoint-cover.jpg");
+        item.GetProperty("aggregateRating").ValueKind.Should().Be(JsonValueKind.Null);
         body.RootElement.GetProperty("asOfUtc").GetString().Should().EndWith("Z");
 
         await database.ExecuteNonQueryAsync("""
@@ -202,5 +262,13 @@ public sealed class SearchToursEndpointTests
             await withoutPrimary.Content.ReadAsStringAsync());
         withoutPrimaryBody.RootElement.GetProperty("items").EnumerateArray()
             .Single().GetProperty("thumbnailUrl").ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    private sealed class ThrowingAvailabilityReader : ITourAvailabilityReader
+    {
+        public Task<IReadOnlyDictionary<long, TourAvailabilityReadResult>> ReadAsync(
+            IReadOnlyCollection<long> scheduleIds,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("Simulated global availability failure.");
     }
 }

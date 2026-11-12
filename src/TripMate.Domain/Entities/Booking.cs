@@ -16,7 +16,7 @@ public class Booking : BaseEntity
     public const int CancelReasonMaxLength = 300;
     public const int PolicySnapshotMaxLength = 500;
     public const string DefaultCancellationPolicySnapshot =
-        "{\"atLeastSevenDaysPercent\":100,\"threeToSevenDaysPercent\":70,\"oneToThreeDaysPercent\":30}";
+        "{\"version\":2,\"atLeastSevenDaysPercent\":100,\"threeToSevenDaysPercent\":50,\"oneToThreeDaysPercent\":30}";
 
     private readonly List<BookingParticipant> _participants = [];
     private readonly List<Ticket> _tickets = [];
@@ -56,6 +56,8 @@ public class Booking : BaseEntity
     public string? CancelReason { get; private set; }
 
     public string CancellationPolicySnapshot { get; private set; } = DefaultCancellationPolicySnapshot;
+
+    public DateTimeOffset? EmergencyNoticeAcknowledgedAtUtc { get; private set; }
 
     public IReadOnlyCollection<BookingParticipant> Participants => _participants.AsReadOnly();
 
@@ -229,6 +231,19 @@ public class Booking : BaseEntity
         CancelReason = reason;
     }
 
+    public void Interrupt(DateTimeOffset interruptedAtUtc, string reason)
+    {
+        if (Status is not (BookingStatus.PendingPayment or BookingStatus.Confirmed))
+            throw new InvalidOperationException("Only a pending or confirmed booking can be interrupted.");
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        if (reason.Trim().Length > CancelReasonMaxLength)
+            throw new ArgumentOutOfRangeException(nameof(reason));
+
+        Status = BookingStatus.Interrupted;
+        CancelledAtUtc = interruptedAtUtc.ToUniversalTime();
+        CancelReason = reason.Trim();
+    }
+
     public void ApplyRefund(decimal cumulativeRefundAmount)
     {
         if (Status != BookingStatus.Cancelled)
@@ -241,6 +256,17 @@ public class Booking : BaseEntity
             : cumulativeRefundAmount == TotalAmount
                 ? PaymentStatus.Refunded
                 : PaymentStatus.PartiallyRefunded;
+    }
+
+    public bool AcknowledgeEmergencyNotice(DateTimeOffset acknowledgedAtUtc)
+    {
+        if (EmergencyNoticeAcknowledgedAtUtc.HasValue)
+        {
+            return false;
+        }
+
+        EmergencyNoticeAcknowledgedAtUtc = acknowledgedAtUtc.ToUniversalTime();
+        return true;
     }
 
     /// <summary>BK-yyyyMMdd-NNNNN, e.g. BK-20261017-00001. Sequence is per-day, assigned by the caller.</summary>

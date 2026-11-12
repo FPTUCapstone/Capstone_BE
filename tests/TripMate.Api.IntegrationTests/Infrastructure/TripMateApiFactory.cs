@@ -65,6 +65,7 @@ public sealed class TripMateApiFactory(
     private readonly string _logDirectory = Path.Combine(
         Path.GetTempPath(), "TripMate.Api.IntegrationTests", Guid.NewGuid().ToString("N"));
     private const string LogPathConfigurationKey = "Serilog:WriteTo:0:Args:path";
+    private const int LogCleanupMaxAttempts = 5;
 
     public string LogFilePath => Services.GetRequiredService<IConfiguration>()[LogPathConfigurationKey]
         ?? throw new InvalidOperationException("This factory has no configured test file sink.");
@@ -166,7 +167,13 @@ public sealed class TripMateApiFactory(
                             or "TripMate.Infrastructure.Services.RevenueExportWorkerBackgroundService"
                             or "TripMate.Infrastructure.Services.RevenueExportExpiryBackgroundService"
                             or "TripMate.Infrastructure.TripAlerts.TripAlertScanBackgroundService"
-                            or "TripMate.Infrastructure.TripAlerts.TripAlertDeliveryBackgroundService"))
+                            or "TripMate.Infrastructure.TripAlerts.TripAlertDeliveryBackgroundService"
+                            or "TripMate.Infrastructure.Services.WeatherAlertInboxBackgroundService"
+                            or "TripMate.Infrastructure.Services.WeatherSafetyReviewEscalationBackgroundService"
+                            or "TripMate.Infrastructure.Services.TomorrowNotificationReconciliationBackgroundService"
+                            or "TripMate.Infrastructure.Services.WeatherLocationSyncBackgroundService"
+                            or "TripMate.Infrastructure.Services.DailyPayoutRunBackgroundService"
+                            or "TripMate.Infrastructure.Services.DailyPayoutRetrySweepBackgroundService"))
                 {
                     services.RemoveAt(index);
                 }
@@ -364,28 +371,22 @@ public sealed class TripMateApiFactory(
 
     private void DeleteTestLogs()
     {
-        for (var attempt = 1; attempt <= 10 && Directory.Exists(_logDirectory); attempt++)
+        for (var attempt = 1; attempt <= LogCleanupMaxAttempts; attempt++)
         {
+            if (!Directory.Exists(_logDirectory))
+            {
+                return;
+            }
+
             try
             {
                 Directory.Delete(_logDirectory, recursive: true);
+                return;
             }
-            catch (IOException) when (attempt < 10)
+            catch (IOException) when (attempt < LogCleanupMaxAttempts)
             {
-                Thread.Sleep(50);
-            }
-            catch (UnauthorizedAccessException) when (attempt < 10)
-            {
-                Thread.Sleep(50);
-            }
-            catch (IOException)
-            {
-                // A process-wide Serilog sink can briefly retain this test-only file on Windows.
-                // Log cleanup must not change the HTTP test outcome; the OS temp directory owns it.
-            }
-            catch (UnauthorizedAccessException)
-            {
-                // See the IOException case above.
+                // Windows can retain the Serilog file handle briefly after host disposal.
+                Thread.Sleep(TimeSpan.FromMilliseconds(25 * attempt));
             }
         }
     }
@@ -434,6 +435,7 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     : DbContext(options), IApplicationDbContext
 {
     public DbSet<User> Users => Set<User>();
+    public DbSet<PushDeviceToken> PushDeviceTokens => Set<PushDeviceToken>();
     public DbSet<TravelerProfile> TravelerProfiles => Set<TravelerProfile>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<PoiCategory> PoiCategories => Set<PoiCategory>();
@@ -479,6 +481,8 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
         Set<TourBookingCreateOperation>();
     public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
     public DbSet<Refund> Refunds => Set<Refund>();
+    public DbSet<EmergencyTourCancellationOperation> EmergencyTourCancellationOperations =>
+        Set<EmergencyTourCancellationOperation>();
     public DbSet<RefundManualCompletionOperation> RefundManualCompletionOperations =>
         Set<RefundManualCompletionOperation>();
     public DbSet<RevenueExport> RevenueExports => Set<RevenueExport>();
@@ -523,18 +527,25 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<TripLocationLog> TripLocationLogs => Set<TripLocationLog>();
 
     public DbSet<WeatherEvent> WeatherEvents => Set<WeatherEvent>();
+    public DbSet<WeatherAlertInboxItem> WeatherAlertInboxItems => Set<WeatherAlertInboxItem>();
+    public DbSet<WeatherSafetyReview> WeatherSafetyReviews => Set<WeatherSafetyReview>();
+    public DbSet<WeatherLocationMapping> WeatherLocationMappings => Set<WeatherLocationMapping>();
 
     public DbSet<ReroutingEvent> ReroutingEvents => Set<ReroutingEvent>();
 
-    public DbSet<Payout> Payouts => Set<Payout>();
-
-    public DbSet<PayoutItem> PayoutItems => Set<PayoutItem>();
-
-    public DbSet<PayoutRefundItem> PayoutRefundItems => Set<PayoutRefundItem>();
-
     public DbSet<PayoutAdjustment> PayoutAdjustments => Set<PayoutAdjustment>();
 
-    public DbSet<PayoutPeriodBreakdown> PayoutPeriodBreakdowns => Set<PayoutPeriodBreakdown>();
+    public DbSet<PayoutRun> PayoutRuns => Set<PayoutRun>();
+
+    public DbSet<PayoutBatch> PayoutBatches => Set<PayoutBatch>();
+
+    public DbSet<PayoutSettlement> PayoutSettlements => Set<PayoutSettlement>();
+
+    public DbSet<PayoutSettlementAttempt> PayoutSettlementAttempts => Set<PayoutSettlementAttempt>();
+
+    public DbSet<PayoutSettlementAdjustment> PayoutSettlementAdjustments => Set<PayoutSettlementAdjustment>();
+
+    public DbSet<PayoutReconciliationItem> PayoutReconciliationItems => Set<PayoutReconciliationItem>();
 
     public async Task<int> RevokeRefreshTokenAsync(
         string tokenHash,

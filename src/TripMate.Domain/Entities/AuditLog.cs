@@ -8,6 +8,8 @@ namespace TripMate.Domain.Entities;
 /// </summary>
 public class AuditLog : BaseEntity
 {
+    public const int ReasonMaxLength = 1000;
+
     private AuditLog()
     {
     }
@@ -102,7 +104,7 @@ public class AuditLog : BaseEntity
             throw new ArgumentOutOfRangeException(nameof(result));
         }
 
-        if (reason?.Length > 1000)
+        if (reason?.Length > ReasonMaxLength)
         {
             throw new ArgumentException("Audit reason cannot exceed 1000 characters.", nameof(reason));
         }
