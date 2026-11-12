@@ -309,6 +309,38 @@ public class AuditLog : BaseEntity
             result: AuditOutcome.Success);
     }
 
+    /// <summary>
+    /// UC-63 BR-130: one row per successful export response (fresh or idempotent replay).
+    /// Records only the report type, period, and filters — never the generated figures or file bytes.
+    /// </summary>
+    public static AuditLog CreateStatisticalReportExportRequested(
+        long actorUserId,
+        long exportOperationId,
+        string afterData,
+        DateTimeOffset createdAtUtc)
+    {
+        if (actorUserId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(actorUserId));
+        }
+
+        if (exportOperationId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(exportOperationId));
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(afterData);
+
+        return CreateRecordedOutcome(
+            actorUserId: actorUserId,
+            actionType: AuditActionTypes.StatisticalReportExportRequested,
+            affectedEntity: AuditEntityTypes.StatisticalReportExport,
+            affectedEntityId: exportOperationId,
+            createdAtUtc: createdAtUtc,
+            afterData: afterData,
+            result: AuditOutcome.Success);
+    }
+
     // ========== UC-07 Change Password Factory Method ==========
 
     /// <summary>

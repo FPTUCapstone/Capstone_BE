@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Itineraries.Common;
+using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Domain.Common;
 using TripMate.Domain.Enums;
 
@@ -154,6 +155,7 @@ public sealed class GetItineraryDetailQueryHandler(
                 ? (int)Math.Ceiling((itinerary.ValidToUtc.Value - itinerary.ValidFromUtc.Value).TotalMinutes)
                 : orderedItems.Sum(item => item.StayDurationMinutes),
             items,
-            isNavigationInProgress);
+            isNavigationInProgress,
+            Provenance: SchedulingProvenanceDto.From(itinerary));
     }
 }

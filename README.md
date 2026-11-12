@@ -156,6 +156,13 @@ riêng phần database, đúng với việc bạn chỉ muốn chạy SQL trên 
    CSP và việc có chạm giới hạn thời gian hay không. Thời gian của cả request nằm ở dòng
    `Request finished ... POST .../api/v1/scheduling-requests`.
 
+   Hàm mục tiêu phát hành là `WeightedUtility` (lịch cá nhân hóa theo sở thích, nhịp độ, rủi ro), theo
+   `docs/adr/ADR-002-weighted-utility-production-objective.md`. Dòng outcome có `ObjectiveMode`.
+   - Rollback: `SchedulingGeneration__Csp__Mode=Lexicographic` (không cần deploy lại code). Ngưỡng rollback ở ADR-002 mục 5.
+   - Shadow (`SchedulingGeneration:Shadow`) tắt mặc định, vì nó chỉ chạy `WeightedUtility` bên cạnh lịch chính
+     `Lexicographic`. Sau khi rollback có thể bật lại: `SchedulingGeneration__Shadow__Enabled=true`, tỷ lệ
+     `SchedulingGeneration__Shadow__SampleRate` từ `0` đến `1`. Mỗi lần chạy có dòng `Shadow run finished for Request ...`.
+
 5. Swagger UI ở `https://localhost:<port>/swagger` (môi trường Development).
 
 ## 6. Chạy test

@@ -179,7 +179,7 @@ public class ItineraryGenerationServiceWeightedUtilityTests
             planItems[i].PlannedDepartureUtc.Should().Be(internalItems[i].PlannedDepartureUtc);
             planItems[i].IsMandatory.Should().Be(internalItems[i].IsMandatory);
             planItems[i].EstimatedCost.Should().Be(internalItems[i].EstimatedCost);
-            planItems[i].RecommendationReason.Should().Be(internalItems[i].RecommendationReason);
+            // G5: WeightedUtility rewrites visit reasons from J after validation; PersonalizedVisitReasonsTests covers them.
             planItems[i].TravelDurationToNextMinutes.Should().Be(internalItems[i].TravelDurationToNextMinutes);
             planItems[i].TravelDistanceToNextMeters.Should().Be(internalItems[i].TravelDistanceToNextMeters);
             planItems[i].TransportModeToNext.Should().Be(internalItems[i].TransportModeToNext);
@@ -345,6 +345,37 @@ public class ItineraryGenerationServiceWeightedUtilityTests
         plan.ModelObjective.Should().NotBeNull("Fallback plan in WeightedUtility mode with physical rest POI must compute ModelObjective");
         plan.ModelObjective.Value.Should().Be(ExpectedPhysicalRestJ);
         plan.ModelObjective.Value.Should().Be(authoritativeJ);
+    }
+
+    /// <summary>G5: WeightedUtility visits carry Vietnamese reasons built from J; Lexicographic keeps its reason codes.</summary>
+    [Theory]
+    [InlineData(ObjectiveMode.WeightedUtility, "Điểm bạn đã chọn", "Hợp sở thích của bạn (Nature)")]
+    [InlineData(ObjectiveMode.Lexicographic, "Mandatory location", "Suggested nearby location")]
+    public async Task GenerationService_DescribesEachVisitByItsObjectiveParts_OnlyInWeightedUtility(
+        ObjectiveMode mode,
+        string mandatoryReason,
+        string optionalReasonPrefix)
+    {
+        var (fixtureInput, weightedInputs, routeProvider) = CreateFixture();
+        var input = fixtureInput with
+        {
+            MandatoryPoiIds = [1],
+            Candidates = [fixtureInput.Candidates.First(), fixtureInput.Candidates.ElementAt(1) with { PreferenceScore = 100 }],
+        };
+        var options = new SchedulingGenerationOptions
+        {
+            EnableOptionalRouteOptimization = true,
+            SolverMode = SchedulingSolverMode.Csp,
+            Csp = new CspOptions { Mode = mode, MaxNodes = 50_000, TimeLimitMilliseconds = 5000 },
+        };
+
+        var result = await new ItineraryGenerationService(routeProvider, options)
+            .GenerateAsync(input, weightedInputs, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var visits = result.Value.Items.Where(item => item.Kind == ItineraryItemKind.Visit).ToArray();
+        visits.Single(item => item.PointOfInterestId == 1).RecommendationReason.Should().StartWith(mandatoryReason);
+        visits.Single(item => item.PointOfInterestId == 2).RecommendationReason.Should().StartWith(optionalReasonPrefix);
     }
 
     private sealed class FixedRouteDurationProvider(int minutes) : IRouteDurationProvider
