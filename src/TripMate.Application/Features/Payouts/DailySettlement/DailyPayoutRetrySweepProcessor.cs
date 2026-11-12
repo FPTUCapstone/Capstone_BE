@@ -7,6 +7,17 @@ using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Payouts.DailySettlement;
 
+/// <summary>Outcome of <see cref="DailyPayoutRetrySweepProcessor.ManualRetryAsync"/> (UC-73
+/// [Retry Transfer]) — distinguishes a refused attempt (precondition failed, batch untouched,
+/// surfaced to the Administrator as a 409) from an attempt that was actually sent.</summary>
+public enum ManualRetryOutcome
+{
+    Settled,
+    FailedAfterRetry,
+    RefusedOperatorLocked,
+    RefusedMissingBankAccount,
+}
+
 /// <summary>
 /// DAILY-PAYOUT-TRANSFER spec v7 (SRS rev10-6, 3.10.5 UC-74): attempts every <see cref="PayoutBatch"/>
 /// that is due for a gateway attempt — a batch stays <c>Scheduled</c> between attempts (BR-145's
@@ -24,7 +35,8 @@ namespace TripMate.Application.Features.Payouts.DailySettlement;
 public sealed class DailyPayoutRetrySweepProcessor(
     IApplicationDbContext db,
     IPayoutTransferGateway gateway,
-    IDateTimeProvider clock)
+    IDateTimeProvider clock,
+    DailyPayoutEligibilityReader eligibilityReader)
 {
     /// <summary>1 initial send + up to this many retries (BR-145: N = 3).</summary>
     public const int MaxRetries = 3;
@@ -70,17 +82,13 @@ public sealed class DailyPayoutRetrySweepProcessor(
         if (batch.Status != PayoutSettlementStatus.Scheduled)
             throw new InvalidOperationException($"Cannot attempt a batch in status {batch.Status}.");
 
-        var operatorUser = await db.Users.AsNoTracking()
-            .FirstOrDefaultAsync(u => u.Id == batch.TourOperatorUserId, ct);
-        if (operatorUser?.Status == AccountStatus.Locked)
+        if (await eligibilityReader.IsOperatorLockedAsync(batch.TourOperatorUserId, ct))
             return false; // BR-160: stays Scheduled; the next sweep after unlock retries it.
 
-        var operatorProfile = await db.OperatorProfiles.AsNoTracking()
-            .FirstOrDefaultAsync(p => p.UserId == batch.TourOperatorUserId, ct);
-        if (operatorProfile is null || !operatorProfile.HasBeneficiaryBankAccount)
+        if (!await HasBeneficiaryBankAccountAsync(batch.TourOperatorUserId, ct))
         {
             batch.MarkFailedWithoutAttempt(nowUtc); // SRS 3.10.5, 1.b1
-            await NotifyAsync(operatorUser?.Id, "PayoutMissingBankAccount", "Payout transfer could not be sent",
+            await NotifyAsync(batch.TourOperatorUserId, "PayoutMissingBankAccount", "Payout transfer could not be sent",
                 $"Batch {batch.Id}: no beneficiary bank account on file. Please add one in your profile.", batch, nowUtc); // MSG146
             return true;
         }
@@ -144,19 +152,50 @@ public sealed class DailyPayoutRetrySweepProcessor(
         return true;
     }
 
-    /// <summary>UC-73 [Retry Transfer] (SRS 3.10.6): a one-shot Administrator-triggered resend of
-    /// a <c>SettlementFailed</c> batch, with the same amount (idempotent reference). Unlike the
-    /// automatic budget in <see cref="AttemptAsync"/>, a failure here goes straight back to
+    /// <summary>UC-73 [Retry Transfer] (SRS 3.10.6, Normal Flow: "the system submits the transfer
+    /// once ... (UC-74 rules apply)") — a one-shot Administrator-triggered resend of a
+    /// <c>SettlementFailed</c> batch, with the same amount (idempotent reference). "UC-74 rules
+    /// apply" means this inherits <see cref="AttemptAsync"/>'s own preconditions: still refuse
+    /// while the Tour Operator is Locked (BR-160) or missing a bank account (MSG146), and still do
+    /// the PD-7a lookup before ever resending (the batch already has at least one prior attempt by
+    /// definition, having reached SettlementFailed). Unlike the automatic budget in
+    /// <see cref="AttemptAsync"/>, a failure after an actual resend goes straight back to
     /// <c>SettlementFailed</c> (MSG176) rather than waiting for another hourly attempt — this is
     /// the Administrator's own single retry, not a step of the automatic 3-retry sequence. Does
     /// not call <c>SaveChangesAsync</c>; the caller controls the transaction.</summary>
-    public async Task<bool> ManualRetryAsync(PayoutBatch batch, DateTimeOffset nowUtc, CancellationToken ct)
+    public async Task<ManualRetryOutcome> ManualRetryAsync(PayoutBatch batch, DateTimeOffset nowUtc, CancellationToken ct)
     {
         if (batch.Status != PayoutSettlementStatus.SettlementFailed)
             throw new InvalidOperationException($"Cannot retry a batch in status {batch.Status}.");
 
-        batch.Retry(nowUtc); // SettlementFailed -> Processing
+        if (await eligibilityReader.IsOperatorLockedAsync(batch.TourOperatorUserId, ct))
+            return ManualRetryOutcome.RefusedOperatorLocked; // BR-160; batch stays SettlementFailed untouched.
+
+        if (!await HasBeneficiaryBankAccountAsync(batch.TourOperatorUserId, ct))
+            return ManualRetryOutcome.RefusedMissingBankAccount; // MSG146; batch stays SettlementFailed untouched.
+
         var reference = PayoutGatewayReference.Create(batch.RunDate, batch.TourOperatorUserId, batch.Id);
+
+        // PD-7a: the batch already has at least one attempt (it reached SettlementFailed) — look
+        // up the real outcome before ever resending, exactly as AttemptAsync does for any retry
+        // beyond the first (PayoutBatch.Retry's own doc comment calls this out as the caller's
+        // responsibility).
+        var lookup = await gateway.LookupAsync(reference, ct);
+        if (lookup.Outcome == PayoutTransferOutcome.Succeeded)
+        {
+            await RecordDiscrepancyAsync(batch, nowUtc, PayoutReconciliationItem.ObservedOutcomeSucceeded, reference, ct);
+            batch.MarkSettled(reference, nowUtc); // no fresh attempt consumed — the past send already succeeded.
+            return ManualRetryOutcome.Settled;
+        }
+        if (lookup.Outcome == PayoutTransferOutcome.Rejected)
+        {
+            await RecordDiscrepancyAsync(batch, nowUtc, PayoutReconciliationItem.ObservedOutcomeRejected, reference, ct);
+            batch.MarkFailed(nowUtc); // confirms the already-failed state; no fresh attempt consumed.
+            return ManualRetryOutcome.FailedAfterRetry;
+        }
+        // Otherwise (Failed/Timeout): unresolved, fall through to resend.
+
+        batch.Retry(nowUtc); // SettlementFailed -> Processing
         var sendResult = await gateway.SendAsync(reference, batch.TourOperatorUserId, batch.TotalAmount, ct);
         db.PayoutSettlementAttempts.Add(PayoutSettlementAttempt.Create(
             batch.Id, batch.AttemptCount, nowUtc, reference,
@@ -165,14 +204,21 @@ public sealed class DailyPayoutRetrySweepProcessor(
         if (sendResult.Outcome == PayoutTransferOutcome.Succeeded)
         {
             batch.MarkSettled(reference, nowUtc);
-            return true;
+            return ManualRetryOutcome.Settled;
         }
 
         batch.MarkFailed(nowUtc); // SRS 3.10.6, 4.a1
         await NotifyAdministratorsAsync(batch, nowUtc,
             "PayoutSettlementFailed", "Payout retry failed",
             $"The retried transfer for batch {batch.Id} (Tour Operator {batch.TourOperatorUserId}) failed again."); // MSG176
-        return false;
+        return ManualRetryOutcome.FailedAfterRetry;
+    }
+
+    private async Task<bool> HasBeneficiaryBankAccountAsync(long tourOperatorUserId, CancellationToken ct)
+    {
+        var operatorProfile = await db.OperatorProfiles.AsNoTracking()
+            .FirstOrDefaultAsync(p => p.UserId == tourOperatorUserId, ct);
+        return operatorProfile is not null && operatorProfile.HasBeneficiaryBankAccount;
     }
 
     /// <summary>BR-172, MSG176/MSG175: notifies every active Administrator.</summary>

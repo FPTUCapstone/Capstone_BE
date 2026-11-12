@@ -70,7 +70,7 @@ public sealed class DailyPayoutRetrySweepProcessorTests
     }
 
     private static DailyPayoutRetrySweepProcessor CreateSweeper(TestDbContext db, IPayoutTransferGateway gateway, DateTimeOffset nowUtc) =>
-        new(db, gateway, new PayoutTestHelpers.FixedClock(nowUtc));
+        new(db, gateway, new PayoutTestHelpers.FixedClock(nowUtc), new DailyPayoutEligibilityReader(db));
 
     [Fact]
     public async Task SweepAsync_BeforeOneHourElapsed_DoesNothing()

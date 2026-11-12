@@ -29,7 +29,7 @@ public sealed class DailyPayoutSettlementRunSqlServerTests
     private static DailyPayoutRunProcessor CreateProcessor(
         ApplicationDbContext context, IPayoutTransferGateway gateway, IDateTimeProvider clock) =>
         new(context, new DailyPayoutEligibilityReader(context),
-            new DailyPayoutRetrySweepProcessor(context, gateway, clock), clock);
+            new DailyPayoutRetrySweepProcessor(context, gateway, clock, new DailyPayoutEligibilityReader(context)), clock);
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
@@ -165,7 +165,7 @@ public sealed class DailyPayoutSettlementRunSqlServerTests
         var succeededGateway = new SimulatedPayoutTransferGateway(new FixedOutcomeScenario(PayoutTransferOutcome.Succeeded));
         await using (var context = database.CreateDbContext())
         {
-            var sweep = new DailyPayoutRetrySweepProcessor(context, succeededGateway, clock);
+            var sweep = new DailyPayoutRetrySweepProcessor(context, succeededGateway, clock, new DailyPayoutEligibilityReader(context));
             (await sweep.SweepAsync(CancellationToken.None)).Should().Be(1);
         }
 
@@ -205,7 +205,7 @@ public sealed class DailyPayoutSettlementRunSqlServerTests
         var rejectedGateway = new SimulatedPayoutTransferGateway(new FixedOutcomeScenario(PayoutTransferOutcome.Rejected));
         await using (var context = database.CreateDbContext())
         {
-            var sweep = new DailyPayoutRetrySweepProcessor(context, rejectedGateway, clock);
+            var sweep = new DailyPayoutRetrySweepProcessor(context, rejectedGateway, clock, new DailyPayoutEligibilityReader(context));
             await sweep.SweepAsync(CancellationToken.None);
         }
 
@@ -251,7 +251,7 @@ public sealed class DailyPayoutSettlementRunSqlServerTests
         {
             clock.UtcNow = RunTimeUtc.AddHours(hour);
             await using var context = database.CreateDbContext();
-            var sweep = new DailyPayoutRetrySweepProcessor(context, gateway, clock);
+            var sweep = new DailyPayoutRetrySweepProcessor(context, gateway, clock, new DailyPayoutEligibilityReader(context));
             await sweep.SweepAsync(CancellationToken.None);
         }
 
@@ -265,7 +265,7 @@ public sealed class DailyPayoutSettlementRunSqlServerTests
         clock.UtcNow = RunTimeUtc.AddHours(3); // sweep @ 13:00 VN -> 4th (last allowed) attempt, fails
         await using (var context = database.CreateDbContext())
         {
-            var sweep = new DailyPayoutRetrySweepProcessor(context, gateway, clock);
+            var sweep = new DailyPayoutRetrySweepProcessor(context, gateway, clock, new DailyPayoutEligibilityReader(context));
             await sweep.SweepAsync(CancellationToken.None);
         }
 
@@ -328,7 +328,7 @@ public sealed class DailyPayoutSettlementRunSqlServerTests
         var nextDay = RunTimeUtc.AddDays(1);
         await using (var context = database.CreateDbContext())
         {
-            var sweep = new DailyPayoutRetrySweepProcessor(context, gateway, new MutableClock { UtcNow = nextDay });
+            var sweep = new DailyPayoutRetrySweepProcessor(context, gateway, new MutableClock { UtcNow = nextDay }, new DailyPayoutEligibilityReader(context));
             (await sweep.SweepAsync(CancellationToken.None)).Should().Be(1);
         }
 

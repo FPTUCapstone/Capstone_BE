@@ -72,11 +72,13 @@ public class PayoutBatch : BaseEntity
     }
 
     /// <summary>Settles a batch after a successful transfer. Valid from <c>Processing</c> (a
-    /// send just succeeded) or <c>Scheduled</c> (a PD-7a lookup revealed a past, unconfirmed send
-    /// actually succeeded — no fresh attempt was made, so no attempt is consumed either).</summary>
+    /// send just succeeded), <c>Scheduled</c> or <c>SettlementFailed</c> (a PD-7a lookup revealed
+    /// a past, unconfirmed send actually succeeded — no fresh attempt was made, so no attempt is
+    /// consumed either; the latter covers UC-73 [Retry Transfer]'s own PD-7a check before it ever
+    /// calls <see cref="Retry"/>).</summary>
     public void MarkSettled(string transferReference, DateTimeOffset nowUtc)
     {
-        if (Status is not (PayoutSettlementStatus.Processing or PayoutSettlementStatus.Scheduled))
+        if (Status is not (PayoutSettlementStatus.Processing or PayoutSettlementStatus.Scheduled or PayoutSettlementStatus.SettlementFailed))
             throw new InvalidOperationException($"Cannot settle a batch in status {Status}.");
         ArgumentException.ThrowIfNullOrWhiteSpace(transferReference);
 
@@ -88,10 +90,12 @@ public class PayoutBatch : BaseEntity
 
     /// <summary>Fails a batch after a send or a PD-7a lookup came back permanently rejected.
     /// Valid from <c>Processing</c> (a send just came back Rejected, or the retry budget was
-    /// just exhausted) or <c>Scheduled</c> (a lookup revealed a past send was Rejected).</summary>
+    /// just exhausted), <c>Scheduled</c> or <c>SettlementFailed</c> (a lookup revealed a past send
+    /// was Rejected — the latter covers UC-73 [Retry Transfer]'s own PD-7a check, confirming the
+    /// batch's already-failed state without consuming a fresh attempt).</summary>
     public void MarkFailed(DateTimeOffset nowUtc)
     {
-        if (Status is not (PayoutSettlementStatus.Processing or PayoutSettlementStatus.Scheduled))
+        if (Status is not (PayoutSettlementStatus.Processing or PayoutSettlementStatus.Scheduled or PayoutSettlementStatus.SettlementFailed))
             throw new InvalidOperationException($"Cannot fail a batch in status {Status}.");
 
         Status = PayoutSettlementStatus.SettlementFailed;

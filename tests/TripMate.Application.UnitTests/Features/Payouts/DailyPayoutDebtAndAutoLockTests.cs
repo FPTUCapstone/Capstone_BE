@@ -19,7 +19,7 @@ public sealed class DailyPayoutDebtAndAutoLockTests
         TestDbContext db, IPayoutTransferGateway gateway, DateTimeOffset nowUtc)
     {
         var clock = new PayoutTestHelpers.FixedClock(nowUtc);
-        var retryProcessor = new DailyPayoutRetrySweepProcessor(db, gateway, clock);
+        var retryProcessor = new DailyPayoutRetrySweepProcessor(db, gateway, clock, new DailyPayoutEligibilityReader(db));
         return new(db, new DailyPayoutEligibilityReader(db), retryProcessor, clock);
     }
 

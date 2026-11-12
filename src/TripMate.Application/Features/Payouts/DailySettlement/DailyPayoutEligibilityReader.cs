@@ -139,6 +139,19 @@ public sealed class DailyPayoutEligibilityReader(IApplicationDbContext db)
             })
             .ToListAsync(cancellationToken);
 
+        // BR-142: the Final (20%) share is computed on (PaidAmount − already-processed refunds)
+        // for that booking — a partial refund issued before the tour ends must not inflate the
+        // operator's Final payout. Advance never applies this: it is paid 24h after payment,
+        // almost always before any refund exists, and PD-3's 70% rate is fixed regardless.
+        var bookingIds = rows.Select(r => r.Id).ToList();
+        var refundedByBooking = bookingIds.Count == 0
+            ? new Dictionary<long, decimal>()
+            : await db.Refunds.AsNoTracking()
+                .Where(r => r.Status == RefundStatus.Processed && bookingIds.Contains(r.BookingId))
+                .GroupBy(r => r.BookingId)
+                .Select(g => new { BookingId = g.Key, Amount = g.Sum(x => x.Amount) })
+                .ToDictionaryAsync(x => x.BookingId, x => x.Amount, cancellationToken);
+
         var results = new List<EligibleBookingForSettlement>();
 
         foreach (var row in rows)
@@ -153,9 +166,10 @@ public sealed class DailyPayoutEligibilityReader(IApplicationDbContext db)
             // Final (Q6): at the first 10:00 run strictly after the tour's own end.
             if (row.TourEndAtUtc <= nowUtc)
             {
+                var refunded = refundedByBooking.GetValueOrDefault(row.Id, 0m);
                 results.Add(new EligibleBookingForSettlement(
                     row.Id, row.OperatorUserId, PayoutSettlementKind.Final,
-                    row.PaidAmount, RefundAmount: 0m, row.Rate ?? 0m, row.TourEndAtUtc));
+                    row.PaidAmount, RefundAmount: refunded, row.Rate ?? 0m, row.TourEndAtUtc));
             }
         }
 

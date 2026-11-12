@@ -3,10 +3,9 @@ using TripMate.Domain.Entities;
 namespace TripMate.Application.Features.Payouts.DailySettlement;
 
 /// <summary>One booking's input for a single settlement line, as selected by the daily run for
-/// one Tour Operator (DAILY-PAYOUT-TRANSFER spec v6 PD-2, PD-3). <see cref="RefundAmount"/> is
-/// always 0 in this branch's scope (refund is handled by a separate branch) but is kept as an
-/// explicit parameter so <see cref="DailyPayoutAmountCalculator.CalculateFinalAmount"/> matches
-/// the spec formula exactly and needs no signature change once refund wiring lands.</summary>
+/// one Tour Operator (DAILY-PAYOUT-TRANSFER spec v7 PD-2, PD-3, BR-142). <see cref="RefundAmount"/>
+/// is the sum of that booking's already-<c>Processed</c> refunds (0 for Advance, which never
+/// applies it — see <see cref="DailyPayoutEligibilityReader"/>).</summary>
 public sealed record DailySettlementInput(
     long BookingId,
     string Kind,

@@ -19,7 +19,7 @@ public sealed class DailyPayoutRunProcessorTests
         TestDbContext db, IPayoutTransferGateway gateway, DateTimeOffset nowUtc)
     {
         var clock = new PayoutTestHelpers.FixedClock(nowUtc);
-        var retryProcessor = new DailyPayoutRetrySweepProcessor(db, gateway, clock);
+        var retryProcessor = new DailyPayoutRetrySweepProcessor(db, gateway, clock, new DailyPayoutEligibilityReader(db));
         return new(db, new DailyPayoutEligibilityReader(db), retryProcessor, clock);
     }
 
@@ -78,6 +78,27 @@ public sealed class DailyPayoutRunProcessorTests
         db.PayoutSettlements.Should().HaveCount(2);
         db.PayoutSettlements.Should().ContainSingle(s => s.Kind == PayoutSettlementKind.Advance && s.PayoutAmount == 1_400_000m);
         db.PayoutSettlements.Should().ContainSingle(s => s.Kind == PayoutSettlementKind.Final && s.PayoutAmount == 400_000m);
+    }
+
+    [Fact]
+    public async Task RunIfDueAsync_BookingHasAProcessedPartialRefund_FinalExcludesTheRefundedAmount()
+    {
+        // BR-142: the Final (20%) share is computed on (PaidAmount - processed refunds) for that
+        // booking. Advance (already settled by the time of this run) is never reduced by a later
+        // refund — only Final, which has not been created yet, reflects it.
+        await using var db = TestDbContext.Create();
+        await DailyPayoutTestFixture.SeedOperatorAsync(db, 7);
+        await DailyPayoutTestFixture.SeedTourScheduleAsync(db, 1, 1, 7, endAtUtc: AtRunTime.AddDays(-1));
+        await DailyPayoutTestFixture.SeedConfirmedBookingAsync(db, 1, 1, totalAmount: 2_000_000m, succeededAtUtc: AtRunTime.AddHours(-25));
+        await DailyPayoutTestFixture.SeedProcessedRefundAsync(db, bookingId: 1, amount: 500_000m, processedAtUtc: AtRunTime.AddHours(-10));
+
+        var processor = CreateProcessor(db, new SimulatedPayoutTransferGateway(new FixedOutcomeScenario(PayoutTransferOutcome.Succeeded)), AtRunTime);
+        await processor.RunIfDueAsync(CancellationToken.None);
+
+        db.PayoutSettlements.Should().ContainSingle(s => s.Kind == PayoutSettlementKind.Advance && s.PayoutAmount == 1_400_000m,
+            "Advance is 70% of the full PaidAmount, unaffected by a later refund");
+        db.PayoutSettlements.Should().ContainSingle(s => s.Kind == PayoutSettlementKind.Final && s.PayoutAmount == 300_000m,
+            "Final is 20% of (2,000,000 - 500,000 refunded) = 300,000");
     }
 
     [Fact]
@@ -188,7 +209,7 @@ public sealed class DailyPayoutRunProcessorTests
         operatorUser.Status = AccountStatus.Active;
         await db.SaveChangesAsync();
         var nextDay = AtRunTime.AddDays(1);
-        var sweep = new DailyPayoutRetrySweepProcessor(db, gateway, new PayoutTestHelpers.FixedClock(nextDay));
+        var sweep = new DailyPayoutRetrySweepProcessor(db, gateway, new PayoutTestHelpers.FixedClock(nextDay), new DailyPayoutEligibilityReader(db));
         var acted = await sweep.SweepAsync(CancellationToken.None);
 
         acted.Should().Be(1);

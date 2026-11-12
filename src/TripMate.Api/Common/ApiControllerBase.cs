@@ -263,6 +263,10 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
                 StatusCodes.Status404NotFound,
             TripMate.Application.Features.Payouts.DailySettlement.DailyPayoutErrorCodes.OperatorNotLocked =>
                 StatusCodes.Status409Conflict,
+            TripMate.Application.Features.Payouts.DailySettlement.DailyPayoutErrorCodes.RetryBlockedOperatorLocked =>
+                StatusCodes.Status409Conflict,
+            TripMate.Application.Features.Payouts.DailySettlement.DailyPayoutErrorCodes.RetryBlockedMissingBankAccount =>
+                StatusCodes.Status409Conflict,
 
             TripMate.Application.Features.Operator.Revenue.Exports.Common.RevenueExportErrorCodes.ValidationFailed =>
                 StatusCodes.Status400BadRequest,
