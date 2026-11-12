@@ -8,11 +8,10 @@ Quy ước: mỗi task một commit, Conventional Commits (`fix(refund): ...`, `
 
 ---
 
-## Task 0 — Chuẩn bị (không đổi hành vi)
-- Tạo nhánh `fix/linhnv-confirm-booking-refund` từ develop mới nhất (`999e6af6` trở lên), không từ nhánh payout.
-- Đã xác nhận: `TourOperatorDebt`, settlement Advance/Final, `DailyPayoutAutoLock` có trên develop qua PR #155 (spec §8).
-- Chạy baseline: build + toàn bộ unit test + SQL Server test refund hiện có. Ghi lại số pass/fail làm mốc.
-- Gate: baseline xanh, nếu không phải lỗi có sẵn thì dừng.
+## Task 0 — Chuẩn bị (không đổi hành vi) — XONG
+- Nhánh `fix/linhnv-confirm-booking-refund` tạo từ develop `999e6af6` (worktree `Capstone_BE-confirm-booking-refund`).
+- `TourOperatorDebt`, settlement Advance/Final, `DailyPayoutAutoLock` đã có trên develop qua PR #155 (spec §8).
+- Baseline tại `999e6af6`: `dotnet build` 0 lỗi. Unit test filter Refund/Cancel: 146/146 pass. SQL Server integration test filter Refund/Cancel: 43/43 pass.
 
 ## Task 1 — Bậc hoàn Traveler theo BR-135 mới (G5)
 Red:
