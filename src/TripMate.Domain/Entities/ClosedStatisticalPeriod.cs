@@ -16,10 +16,10 @@ public sealed class ClosedStatisticalPeriod : BaseEntity
         DateOnly startDate,
         DateOnly endDate,
         DateTimeOffset closedAtUtc) => new()
-    {
-        PeriodKey = periodKey,
-        StartDate = startDate,
-        EndDate = endDate,
-        ClosedAtUtc = closedAtUtc,
-    };
+        {
+            PeriodKey = periodKey,
+            StartDate = startDate,
+            EndDate = endDate,
+            ClosedAtUtc = closedAtUtc,
+        };
 }
