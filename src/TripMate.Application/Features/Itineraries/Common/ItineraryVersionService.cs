@@ -147,7 +147,9 @@ public sealed class ItineraryVersionService(
         if (plan.IsFailure)
         {
             return Result.Failure<Itinerary>(
-                ItineraryErrorCodes.ConstraintsInfeasible,
+                plan.ErrorCode == SchedulingErrorCodes.GenerationTimedOut
+                    ? ItineraryErrorCodes.GenerationTimedOut
+                    : ItineraryErrorCodes.ConstraintsInfeasible,
                 plan.ErrorMessage ?? "The saved constraints cannot produce an itinerary.");
         }
 
@@ -178,6 +180,7 @@ public sealed class ItineraryVersionService(
             request.StartAtUtc,
             plan.Value.EndAtUtc,
             source.Version + 1);
+        plan.Value.Provenance?.ApplyTo(successor);
         foreach (var item in plan.Value.Items)
         {
             successor.AddItem(GeneratedItineraryItemMapper.ToEntity(item, item.IsMandatory));
@@ -258,6 +261,7 @@ public sealed class ItineraryVersionService(
             request.StartAtUtc,
             plan.EndAtUtc,
             source.Version + 1);
+        SchedulingProvenance.ForManualOrder().ApplyTo(successor);
         foreach (var item in plan.Items)
         {
             successor.AddItem(GeneratedItineraryItemMapper.ToEntity(

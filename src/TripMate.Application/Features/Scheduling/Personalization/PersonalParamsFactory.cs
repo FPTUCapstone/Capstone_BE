@@ -17,10 +17,13 @@ public sealed class PersonalParamsFactory(
 {
     private readonly PersonalizationOptions _options = options?.Value ?? new PersonalizationOptions();
 
+    /// <summary>Pace the objective uses for this traveler: the saved one, or Moderate when none is saved.</summary>
+    public static TravelerPace EffectivePace(TravelerProfile? profile) => profile?.TravelPace ?? TravelerPace.Moderate;
+
     public PersonalParams Create(TravelerProfile? profile)
     {
         var o = _options;
-        var pace = profile?.TravelPace ?? TravelerPace.Moderate;
+        var pace = EffectivePace(profile);
         if (!o.Pace.TryGetValue(pace, out var p))
         {
             p = o.Pace.TryGetValue(TravelerPace.Moderate, out var mod)
@@ -95,7 +98,8 @@ public sealed class PersonalParamsFactory(
         }
         catch (JsonException ex)
         {
-            logger?.LogWarning(ex, "Failed to parse InterestTagsJson: {Json}", interestTagsJson);
+            // The saved interests are traveler preferences: log the failure, never the value.
+            logger?.LogWarning("Failed to parse InterestTagsJson ({Length} characters): {Reason}", interestTagsJson.Length, ex.GetType().Name);
             return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         }
     }

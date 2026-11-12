@@ -26,8 +26,8 @@ public sealed class CspOptions
     public int MaxNodes { get; init; } = 200_000;
 
     /// <summary>
-    /// Giới hạn số nút của cây tìm kiếm cho chế độ WeightedUtility (cá nhân hóa).
-    /// Mặc định 50.000 nút dựa trên đường cong chất lượng (J suy giảm TB 0.36%, p95 &lt; 300ms theo ADR-001).
+    /// Giới hạn số nút của cây tìm kiếm cho chế độ WeightedUtility (cá nhân hóa); appsettings đặt 50.000.
+    /// Repo chưa có số liệu đường cong chất lượng cho mức này: benchmark WeightedUtility của ADR-002 (G4) đo lại.
     /// Null: dùng chung <see cref="MaxNodes"/>.
     /// </summary>
     public int? WeightedMaxNodes { get; init; }

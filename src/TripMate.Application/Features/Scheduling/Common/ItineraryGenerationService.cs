@@ -22,6 +22,9 @@ public sealed class ItineraryGenerationService(
 
     internal Action<OptimizationResult>? OnOptimizationCompleted { get; init; }
 
+    /// <summary>Test seam passed to <see cref="CspItinerarySolver.BeforeEvaluation"/>. Production does not set it.</summary>
+    internal Action<CancellationToken>? CspBeforeEvaluation { get; init; }
+
     public Task<Result<GeneratedItineraryPlan>> GenerateAsync(
         GenerationInput input,
         CancellationToken cancellationToken = default) =>
@@ -78,6 +81,7 @@ public sealed class ItineraryGenerationService(
 
         // R4: tắt tối ưu tuyến thì bỏ qua SolverMode, chạy đúng đường không tối ưu của OptionalRouteOptimizer.
         var solverMode = _options.EnableOptionalRouteOptimization ? _options.SolverMode : SchedulingSolverMode.Heuristic;
+        var objectiveMode = solverMode == SchedulingSolverMode.Csp ? _options.Csp.Mode.ToString() : null;
         if (solverMode == SchedulingSolverMode.Csp)
         {
             // R1a: lịch heuristic là incumbent ban đầu của CSP, nên kết quả CSP không bao giờ kém nó theo product rule.
@@ -90,7 +94,7 @@ public sealed class ItineraryGenerationService(
                 matrixCandidates,
                 candidateMatrixIndices,
                 cancellationToken);
-            var csp = new CspItinerarySolver(_evaluator, _options).Solve(
+            var csp = new CspItinerarySolver(_evaluator, _options) { BeforeEvaluation = CspBeforeEvaluation }.Solve(
                 input,
                 matrix,
                 matrixCandidates,
@@ -102,16 +106,38 @@ public sealed class ItineraryGenerationService(
 
             if (csp.Statistics.TimeLimitReached)
             {
-                // R5: lưới an toàn thời gian bị chạm thì CSP đã bỏ kết quả dở dang; trả lịch heuristic nguyên vẹn để kết
-                // quả không phụ thuộc vào lúc dừng.
-                if (heuristic is null)
+                // R5: lưới an toàn thời gian bị chạm thì CSP đã bỏ kết quả dở dang. Trả lịch ban đầu của lần tìm kiếm,
+                // dựng trước khi tìm kiếm nên không phụ thuộc lúc dừng: lịch heuristic, hoặc ở chế độ Weighted là lịch tốt
+                // hơn theo J giữa heuristic và lịch tham lam (ADR-002, G4a).
+                var fallback = csp.TimeLimitFallback ?? heuristic?.Schedule;
+                if (fallback is null)
                 {
-                    SchedulingSolverDiagnostics.RecordOutcome(solverMode, SchedulingSolverOutcomes.Infeasible, cspStatistics);
-                    return Infeasible("The mandatory locations cannot fit within the selected time, hours, budget, and end point.");
+                    // The discarded CSP result may have held a plan, so this is not proof of infeasibility (ADR-002, G2).
+                    SchedulingSolverDiagnostics.RecordOutcome(solverMode, SchedulingSolverOutcomes.CspTimeLimitWithoutPlan, cspStatistics, objectiveMode);
+                    return Result.Failure<GeneratedItineraryPlan>(
+                        SchedulingErrorCodes.GenerationTimedOut,
+                        "The itinerary could not be generated in time. Please try again.");
                 }
 
-                alternativeResult = heuristic;
-                outcome = SchedulingSolverOutcomes.HeuristicFallbackCspTimeLimit;
+                if (heuristic is not null && ReferenceEquals(fallback, heuristic.Schedule))
+                {
+                    alternativeResult = heuristic;
+                    outcome = SchedulingSolverOutcomes.HeuristicFallbackCspTimeLimit;
+                }
+                else
+                {
+                    alternativeResult = new OptimizationResult(
+                        fallback,
+                        heuristic?.Schedule ?? fallback,
+                        EvaluationsCount: csp.Statistics.EvaluatorCalls,
+                        SeedCount: 1,
+                        ReconsideredAdmissionsCount: 0,
+                        TwoOptMovesCount: 0,
+                        RelocateMovesCount: 0,
+                        BudgetExhausted: true,
+                        ElapsedOptimization: csp.Statistics.Elapsed);
+                    outcome = SchedulingSolverOutcomes.WeightedGreedyFallbackCspTimeLimit;
+                }
             }
             else if (csp.Schedule is not null)
             {
@@ -129,7 +155,7 @@ public sealed class ItineraryGenerationService(
             }
             else
             {
-                SchedulingSolverDiagnostics.RecordOutcome(solverMode, SchedulingSolverOutcomes.Infeasible, cspStatistics);
+                SchedulingSolverDiagnostics.RecordOutcome(solverMode, SchedulingSolverOutcomes.Infeasible, cspStatistics, objectiveMode);
                 return Infeasible(csp.ProvedInfeasible
                     ? DescribeCspInfeasibility(csp, candidatesById)
                     : "The mandatory locations cannot fit within the selected time, hours, budget, and end point.");
@@ -159,22 +185,30 @@ public sealed class ItineraryGenerationService(
 
         if (optimizationResult is null)
         {
-            SchedulingSolverDiagnostics.RecordOutcome(solverMode, SchedulingSolverOutcomes.Infeasible, cspStatistics);
+            SchedulingSolverDiagnostics.RecordOutcome(solverMode, SchedulingSolverOutcomes.Infeasible, cspStatistics, objectiveMode);
             return Infeasible("The mandatory locations cannot fit within the selected time, hours, budget, and end point.");
         }
 
         OnOptimizationCompleted?.Invoke(optimizationResult);
 
         _validator.Validate(input, matrix, matrixCandidates, optimizationResult.Schedule.Plan);
-        SchedulingSolverDiagnostics.RecordOutcome(solverMode, outcome, cspStatistics);
+        SchedulingSolverDiagnostics.RecordOutcome(solverMode, outcome, cspStatistics, objectiveMode);
 
-        var finalPlan = optimizationResult.Schedule.Plan;
-        if (_options.Csp.Mode == ObjectiveMode.WeightedUtility && weighted is not null && !finalPlan.ModelObjective.HasValue)
+        var finalPlan = optimizationResult.Schedule.Plan with
+        {
+            Provenance = new SchedulingProvenance(outcome, objectiveMode, cspStatistics?.SearchCompleted),
+        };
+        if (_options.Csp.Mode == ObjectiveMode.WeightedUtility && weighted is not null)
         {
             var ctx = RoutingContext.Create(input, matrix, matrixCandidates, candidateMatrixIndices, _options, _options.MiniRouting);
             var objInputs = ObjectiveKernelFactory.BuildWeightedInputs(ctx, weighted);
-            var modelObjective = ObjectiveCalculator.Evaluate(objInputs, ctx, optimizationResult.Schedule);
-            finalPlan = finalPlan with { ModelObjective = modelObjective };
+            if (!finalPlan.ModelObjective.HasValue)
+            {
+                finalPlan = finalPlan with { ModelObjective = ObjectiveCalculator.Evaluate(objInputs, ctx, optimizationResult.Schedule) };
+            }
+
+            // G5: after validation, because the invariant validator pins the solver's reason codes.
+            finalPlan = PersonalizedVisitReasons.Apply(finalPlan, ctx, objInputs);
         }
 
         // CSP không có lịch gốc để so sánh và không có bước "cải thiện": số liệu của nó nằm trong
