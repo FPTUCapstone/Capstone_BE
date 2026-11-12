@@ -23,7 +23,38 @@ public sealed class DailyPayoutSettlementActionsEndpointTests
     {
         return await factory.WithDbContextAsync(async db =>
         {
-            var batch = PayoutBatch.Create(new DateOnly(2026, 11, 9), tourOperatorUserId: 7, DateTimeOffset.UtcNow);
+            // A retry must not be blocked by BR-160/MSG146 — the operator needs to be Active with
+            // a complete beneficiary bank account for the happy-path retry tests in this file.
+            var operatorUser = new User
+            {
+                Email = $"payout-actions-{Guid.NewGuid():N}@test.local",
+                FullName = "Payout Actions Test Operator",
+                Role = UserRole.TourOperator,
+                Status = AccountStatus.Active,
+                CreatedAtUtc = DateTimeOffset.UtcNow,
+                UpdatedAtUtc = DateTimeOffset.UtcNow,
+            };
+            db.Users.Add(operatorUser);
+            await db.SaveChangesAsync(CancellationToken.None);
+
+            db.OperatorProfiles.Add(new OperatorProfile
+            {
+                UserId = operatorUser.Id,
+                User = operatorUser,
+                CompanyName = "Payout Actions Test Co",
+                TaxCode = $"PAYOUT-ACTIONS-TAX-{operatorUser.Id}",
+                BusinessLicenseNo = $"PAYOUT-ACTIONS-LIC-{operatorUser.Id}",
+                ApprovalStatus = OperatorApprovalStatus.Approved,
+                CommissionRate = 10m,
+                BankName = "Test Bank",
+                AccountHolderName = "Operator Holder",
+                AccountNumberMasked = "****1234",
+                AccountNumberProtected = "protected-test-value",
+                BankAccountUpdatedAtUtc = DateTimeOffset.UtcNow,
+            });
+            await db.SaveChangesAsync(CancellationToken.None);
+
+            var batch = PayoutBatch.Create(new DateOnly(2026, 11, 9), tourOperatorUserId: operatorUser.Id, DateTimeOffset.UtcNow);
             db.PayoutBatches.Add(batch);
             await db.SaveChangesAsync(CancellationToken.None);
 
