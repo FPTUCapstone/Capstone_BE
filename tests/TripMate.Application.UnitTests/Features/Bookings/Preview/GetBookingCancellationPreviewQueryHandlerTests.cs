@@ -114,8 +114,10 @@ public sealed class GetBookingCancellationPreviewQueryHandlerTests
     }
 
     [Fact]
-    public async Task Handle_TravelerWithinTwentyFourHoursOfPaymentPreviewsFullRefund()
+    public async Task Handle_TravelerWithinTwentyFourHoursOfPayment_NoLongerPreviewsFullRefund()
     {
+        // BR-157 retired 11/11/2026: a recent payment no longer grants a full refund regardless
+        // of the BR-135 tier — only days-before-departure decides the amount now.
         await using var db = TestDbContext.Create();
         var departure = new DateTimeOffset(2026, 11, 15, 8, 0, 0, TimeSpan.Zero);
         var now = departure.AddHours(-24);
@@ -130,7 +132,8 @@ public sealed class GetBookingCancellationPreviewQueryHandlerTests
         result.Value.Should().BeEquivalentTo(new
         {
             CanCancel = true,
-            EstimatedRefundAmount = 1_000_000m,
+            BlockingReasonCode = BookingCancellationErrorCodes.ConfirmationRequired,
+            EstimatedRefundAmount = 0m,
         }, options => options.ExcludingMissingMembers());
     }
 

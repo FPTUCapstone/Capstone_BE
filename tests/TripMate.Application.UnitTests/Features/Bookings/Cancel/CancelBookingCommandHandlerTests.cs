@@ -307,8 +307,11 @@ public sealed class CancelBookingCommandHandlerTests
     }
 
     [Fact]
-    public async Task Handle_TravelerCancelWithinTwentyFourHoursOfPaymentRefundsFully_EvenInsideSeventyTwoHours()
+    public async Task Handle_TravelerCancelWithinTwentyFourHoursOfPayment_NoLongerBypassesTheRefundTier()
     {
+        // BR-157 retired 11/11/2026: a recent payment no longer grants a full refund regardless
+        // of the BR-135 tier. Paid 2 hours ago, but 24h before departure is still inside the
+        // under-10-days 0% tier — only the tier (days before departure) decides the amount now.
         await using var db = TestDbContext.Create();
         var departure = new DateTimeOffset(2026, 11, 15, 8, 0, 0, TimeSpan.Zero);
         var now = departure.AddHours(-24);
@@ -326,12 +329,13 @@ public sealed class CancelBookingCommandHandlerTests
             new FakeCurrentUserService { UserId = 7, Role = nameof(UserRole.Traveler) },
             new FakeDateTimeProvider { UtcNow = now }, new NoIdempotencyConflict());
 
-        var result = await handler.Handle(new CancelBookingCommand(booking.Id, Guid.NewGuid(), null, null),
+        var result = await handler.Handle(
+            new CancelBookingCommand(booking.Id, Guid.NewGuid(), null, null, Confirmed: true), // 0% tier needs MSG170 confirmation
             CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
-        result.Value.RefundAmount.Should().Be(800_000m);
-        (await db.Refunds.SingleAsync()).Amount.Should().Be(800_000m);
+        result.Value.RefundAmount.Should().Be(0m);
+        (await db.Refunds.CountAsync()).Should().Be(0, "a 0% refund creates no RefundRequest");
     }
 
     [Fact]
