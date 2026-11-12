@@ -78,7 +78,7 @@ Green:
 Red: `OperatorReturnShareTests`: 0 trước Advance; 70% sau Advance; 90% sau Final; làm tròn xuống VND; phần chia 0 kích hoạt UC-67 ngay; refund một phần (partial cancel BR-158 nếu có) dùng số tiền của người bị hủy.
 Green: thêm `RefundShareCalculator` thuần (không đọc DB, như `DailyPayoutAmountCalculator`). Nguồn "đã chuyển cho TO" lấy từ `PayoutSettlement` trạng thái Settled (đã có trên develop).
 
-## Task 8 — Endpoint UC-42 cho TO và Staff (G2)
+## Task 8 — Endpoint ghi UC-42 cho TO và Staff (G2)
 Red: integration test (SQL Server, không dùng InMemory):
 - TO khác chủ tour → 403 (MSG126); refund không ở `PendingOperatorConfirmation` → 409 (MSG171).
 - Báo chuyển thiếu mã → 400 (MSG172).
@@ -89,6 +89,16 @@ Green:
 - Controller: `OperatorRefundsController` (route `api/v1/operator/refunds`), `AdminRefundsController` (thêm route, đã có `complete-manual`).
 - `ApiControllerBase`: ánh xạ mã lỗi mới sang 403/404/409/400 (không để rơi vào 400 mặc định).
 - Lịch quét `OperatorConfirmationDeadlineService` (BR-187) và `ReturnDeadlineService` (BR-144 — đặt nợ; bù trừ đã có trên develop).
+
+## Task 8b — Endpoint đọc cho FE (Q-FE2, spec §3.3)
+Red: integration test (SQL Server):
+- `GET /api/v1/operator/refunds?status=PendingOperatorConfirmation` chỉ trả refund thuộc tour của TO đăng nhập, phân trang đúng.
+- `GET /api/v1/operator/refunds/{refundId}` của TO khác → 403; không tồn tại → 404.
+- `GET /api/v1/admin/refunds?status=Escalated` và `?status=ReturnReported` lọc đúng theo trạng thái, nhiều trạng thái cùng lúc.
+- `GET /api/v1/admin/refunds/{refundId}` không tồn tại → 404.
+Green:
+- `GetOperatorRefundsQuery`/`GetOperatorRefundDetailQuery`, `GetAdminRefundsQuery`/`GetAdminRefundDetailQuery` (+ handler), theo đúng pattern phân trang của `GetPayoutSettlementsQuery`.
+- Thêm route `GET` tương ứng vào `OperatorRefundsController`/`AdminRefundsController`.
 
 ## Task 9 — Thử lại 1 giờ × 3 và Escalated (G6, G7)
 Red: `RefundRetryPolicyTests`:
