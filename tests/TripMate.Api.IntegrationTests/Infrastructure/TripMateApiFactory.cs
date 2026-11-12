@@ -49,7 +49,8 @@ public sealed class TripMateApiFactory(
     Action<IServiceCollection>? configureTestServices = null,
     IInterceptor? dbInterceptor = null,
     Func<IServiceProvider, IItineraryExplanationProvider>? explanationProviderFactory = null,
-    bool? explanationProviderEnabled = null) : WebApplicationFactory<Program>
+    bool? explanationProviderEnabled = null,
+    IReadOnlyDictionary<string, string?>? configurationOverrides = null) : WebApplicationFactory<Program>
 {
     internal const string JwtIssuer = "TripMate.Tests";
     internal const string JwtAudience = "TripMate.Tests";
@@ -72,6 +73,13 @@ public sealed class TripMateApiFactory(
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(environmentName);
+        if (configurationOverrides is not null)
+        {
+            foreach ((string key, string? value) in configurationOverrides)
+            {
+                builder.UseSetting(key, value);
+            }
+        }
         // Derived WithWebHostBuilder hosts need distinct files while their parent
         // host is alive. This factory owns all files through its disposal lifetime.
         string logPath = Path.Combine(_logDirectory, Guid.NewGuid().ToString("N"), "requests.log");

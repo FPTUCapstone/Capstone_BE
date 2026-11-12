@@ -9,6 +9,7 @@ using Microsoft.Extensions.Options;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Operator.Bookings.Common;
+using TripMate.Application.Features.Operator.CheckIn.Audit;
 using TripMate.Application.Features.Operator.CheckIn.Common;
 using TripMate.Application.Features.Operator.CheckIn.Scan;
 using TripMate.Application.Features.Tickets.Common;
@@ -34,6 +35,7 @@ public sealed class CheckInTravelerCommandHandlerTests
     private readonly TestDbContext dbContext;
     private readonly FakeCurrentUserService currentUserService;
     private readonly ITicketQrCodec ticketQrCodec;
+    private readonly FakeCheckInAuditJournal auditJournal;
     private readonly TestClock clock;
     private readonly CheckInTravelerCommandHandler handler;
 
@@ -55,12 +57,15 @@ public sealed class CheckInTravelerCommandHandlerTests
             SigningKey = "ISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0A=",
         }));
         clock = new TestClock { UtcNow = InWindowUtc };
+        auditJournal = new FakeCheckInAuditJournal();
 
         handler = new CheckInTravelerCommandHandler(
             dbContext,
             currentUserService,
+            auditJournal,
             ticketQrCodec,
-            clock);
+            clock,
+            new NeverUnavailablePersistenceErrorClassifier());
     }
 
     [Fact]
@@ -74,6 +79,41 @@ public sealed class CheckInTravelerCommandHandlerTests
 
         result.IsFailure.Should().BeTrue();
         result.ErrorCode.Should().Be(TripMate.Application.Features.Operator.Tours.Common.OperatorTourErrorCodes.AccessRequired);
+        auditJournal.Events.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(CheckInAuditWriteResult.Unavailable)]
+    [InlineData(CheckInAuditWriteResult.Uncertain)]
+    [InlineData(CheckInAuditWriteResult.Conflict)]
+    public async Task Handle_WhenAdmissionIsNotDurablyConfirmed_FailsClosedBeforeSqlOrQrVerification(
+        CheckInAuditWriteResult writeResult)
+    {
+        auditJournal.Results.Enqueue(writeResult);
+
+        var result = await handler.Handle(
+            new CheckInTravelerCommand(123, QrContent: "invalid.forged.content"),
+            CancellationToken.None);
+
+        result.ErrorCode.Should().Be(CheckInErrorCodes.Unavailable);
+        result.ErrorMessage.Should().Be(CheckInErrorCodes.UnavailableMessage);
+        auditJournal.Events.Should().ContainSingle(e => e.EventType == CheckInAuditEventType.Admission);
+        dbContext.ChangeTracker.Entries().Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Handle_WhenRequestIsCancelledAfterAdmission_DoesNotMapCancellationToMsg127()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        Func<Task> act = () => handler.Handle(
+            new CheckInTravelerCommand(123, QrContent: "TM1.any.signature"),
+            cancellation.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        auditJournal.Events.Should().ContainSingle(e => e.EventType == CheckInAuditEventType.Admission);
+        auditJournal.Events.Should().NotContain(e => e.EventType == CheckInAuditEventType.Rejected);
     }
 
     [Fact]
@@ -102,40 +142,37 @@ public sealed class CheckInTravelerCommandHandlerTests
         result.IsFailure.Should().BeTrue();
         result.ErrorCode.Should().Be(CheckInErrorCodes.ScheduleForbidden);
 
-        var audit = await dbContext.AuditLogs.FirstOrDefaultAsync(a => a.ActionType == "CheckInScanRejected");
-        audit.Should().NotBeNull();
-        audit!.ActorUserId.Should().Be(OperatorUserId);
-        audit.Reason.Should().Be("Operator does not own this tour departure schedule.");
+        auditJournal.Events.Should().HaveCount(2);
+        auditJournal.Events[0].EventType.Should().Be(CheckInAuditEventType.Admission);
+        auditJournal.Events[1].EventType.Should().Be(CheckInAuditEventType.Rejected);
+        auditJournal.Events[1].ActorUserId.Should().Be(OperatorUserId);
+        auditJournal.Events[1].ReasonCode.Should().Be(CheckInErrorCodes.ScheduleForbidden);
     }
 
     [Fact]
-    public async Task Handle_WhenAuditPersistenceFails_LogsStructuredDiagnosticAndReturnsFailureGracefully()
+    public async Task Handle_WhenRejectionOutcomeCannotBeConfirmed_ReturnsMsg127InsteadOfBusinessRejection()
     {
         await SeedOperatorProfileAsync(OperatorUserId);
         var schedule = await SeedTourScheduleAsync(OtherOperatorUserId, DepartureStartUtc);
 
-        var testLogger = new TestLogger<CheckInTravelerCommandHandler>();
+        auditJournal.Results.Enqueue(CheckInAuditWriteResult.Confirmed);
+        auditJournal.Results.Enqueue(CheckInAuditWriteResult.Uncertain);
         var testHandler = new CheckInTravelerCommandHandler(
             dbContext,
             currentUserService,
+            auditJournal,
             ticketQrCodec,
             clock,
-            testLogger);
-
-        // Simulate database failure during audit save
-        dbContext.SaveChangesFailureFactory = () => new InvalidOperationException("Simulated database outage");
+            new NeverUnavailablePersistenceErrorClassifier());
 
         var result = await testHandler.Handle(
             new CheckInTravelerCommand(schedule.Id, QrContent: "TM1.any.signature"),
             CancellationToken.None);
 
         result.IsFailure.Should().BeTrue();
-        result.ErrorCode.Should().Be(CheckInErrorCodes.ScheduleForbidden);
-
-        testLogger.Logs.Should().ContainSingle(l =>
-            l.Level == LogLevel.Error &&
-            l.Message.Contains("Failed to persist rejection audit log") &&
-            l.Message.Contains(OperatorUserId.ToString()));
+        result.ErrorCode.Should().Be(CheckInErrorCodes.Unavailable);
+        result.ErrorMessage.Should().Be(CheckInErrorCodes.UnavailableMessage);
+        (await dbContext.AuditLogs.CountAsync()).Should().Be(0);
     }
 
     [Fact]
@@ -152,9 +189,9 @@ public sealed class CheckInTravelerCommandHandlerTests
         result.IsFailure.Should().BeTrue();
         result.ErrorCode.Should().Be(CheckInErrorCodes.DepartureNotToday);
 
-        var audit = await dbContext.AuditLogs.FirstOrDefaultAsync(a => a.ActionType == "CheckInScanRejected");
-        audit.Should().NotBeNull();
-        audit!.ActorUserId.Should().Be(OperatorUserId);
+        auditJournal.Events.Should().ContainSingle(e =>
+            e.EventType == CheckInAuditEventType.Rejected
+            && e.ReasonCode == CheckInErrorCodes.DepartureNotToday);
     }
 
     [Fact]
@@ -170,8 +207,9 @@ public sealed class CheckInTravelerCommandHandlerTests
         result.IsFailure.Should().BeTrue();
         result.ErrorCode.Should().Be(CheckInErrorCodes.InvalidQr);
 
-        var audit = await dbContext.AuditLogs.FirstOrDefaultAsync(a => a.ActionType == "CheckInScanRejected");
-        audit.Should().NotBeNull();
+        auditJournal.Events.Should().ContainSingle(e =>
+            e.EventType == CheckInAuditEventType.Rejected
+            && e.ReasonCode == CheckInErrorCodes.InvalidQr);
     }
 
     [Fact]
@@ -298,12 +336,36 @@ public sealed class CheckInTravelerCommandHandlerTests
         alreadyUsedLog.Should().NotBeNull();
         alreadyUsedLog!.CheckedInAtUtc.Should().Be(InWindowUtc.AddMinutes(5));
 
-        // Check that AlreadyUsed was also persisted to dbo.AuditLogs per PC-05
-        var auditLog = await dbContext.AuditLogs
-            .FirstOrDefaultAsync(a => a.ActionType == "CheckInScanRejected" && a.AffectedEntityId == ticket.Id);
-        auditLog.Should().NotBeNull();
-        auditLog!.ActorUserId.Should().Be(OperatorUserId);
-        auditLog.Reason.Should().Contain("already checked in");
+        auditJournal.Events.Should().Contain(e =>
+            e.EventType == CheckInAuditEventType.Rejected
+            && e.TicketId == ticket.Id
+            && e.ReasonCode == CheckInErrorCodes.AlreadyUsed);
+    }
+
+    [Fact]
+    public async Task Handle_WhenAlreadyUsedOutcomeIsUncertain_ReturnsMsg127BeforeOptionalCheckInLog()
+    {
+        await SeedOperatorProfileAsync(OperatorUserId);
+        var schedule = await SeedTourScheduleAsync(OperatorUserId, DepartureStartUtc);
+        var (_, _, qr) = await SeedBookingAndTicketAsync(
+            schedule.Id, BookingStatus.Confirmed, PaymentStatus.Paid);
+        var qrContent = ticketQrCodec.ContentFor(qr.QrToken, qr.Signature);
+
+        (await handler.Handle(
+            new CheckInTravelerCommand(schedule.Id, QrContent: qrContent),
+            CancellationToken.None)).IsSuccess.Should().BeTrue();
+
+        clock.UtcNow = InWindowUtc.AddMinutes(1);
+        auditJournal.Results.Enqueue(CheckInAuditWriteResult.Confirmed);
+        auditJournal.Results.Enqueue(CheckInAuditWriteResult.Uncertain);
+
+        var result = await handler.Handle(
+            new CheckInTravelerCommand(schedule.Id, QrContent: qrContent),
+            CancellationToken.None);
+
+        result.ErrorCode.Should().Be(CheckInErrorCodes.Unavailable);
+        (await dbContext.CheckInLogs.CountAsync(log => log.ScanResult == CheckInScanResult.AlreadyUsed))
+            .Should().Be(0);
     }
 
     [Fact]
@@ -362,7 +424,9 @@ public sealed class CheckInTravelerCommandHandlerTests
         ticket.Status.Should().Be(TicketStatus.Valid);
         if (replacement is not null) replacement.Status.Should().Be(TicketQrCodeStatus.Active);
         (await dbContext.CheckInLogs.CountAsync(l => l.ScanResult == CheckInScanResult.Success)).Should().Be(0);
-        (await dbContext.AuditLogs.CountAsync(a => a.ActionType == "CheckInScanRejected")).Should().Be(1);
+        auditJournal.Events.Should().ContainSingle(e =>
+            e.EventType == CheckInAuditEventType.Rejected
+            && e.ReasonCode == CheckInErrorCodes.InvalidQr);
     }
 
     [Fact]
@@ -503,6 +567,28 @@ public sealed class CheckInTravelerCommandHandlerTests
     private sealed class TestClock : IDateTimeProvider
     {
         public DateTimeOffset UtcNow { get; set; }
+    }
+
+    private sealed class FakeCheckInAuditJournal : ICheckInAuditJournal
+    {
+        public List<CheckInAuditEvent> Events { get; } = [];
+        public Queue<CheckInAuditWriteResult> Results { get; } = [];
+
+        public Task<CheckInAuditWriteResult> AppendAsync(
+            CheckInAuditEvent auditEvent,
+            CancellationToken cancellationToken)
+        {
+            Events.Add(auditEvent);
+            return Task.FromResult(
+                Results.TryDequeue(out var result)
+                    ? result
+                    : CheckInAuditWriteResult.Confirmed);
+        }
+    }
+
+    private sealed class NeverUnavailablePersistenceErrorClassifier : ICheckInPersistenceErrorClassifier
+    {
+        public bool IsTemporarilyUnavailable(Exception exception) => false;
     }
 
     private sealed class TestLogger<T> : ILogger<T>

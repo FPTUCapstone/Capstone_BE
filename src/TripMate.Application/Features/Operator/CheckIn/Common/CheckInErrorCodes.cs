@@ -18,4 +18,7 @@ public static class CheckInErrorCodes
     public const string BookingNotConfirmed = "checkin.booking_not_confirmed";
     public const string AlreadyUsed = "checkin.already_used";
     public const string TicketInvalid = "checkin.ticket_invalid";
+    public const string Unavailable = "MSG127";
+    public const string UnavailableMessage =
+        "TripMate is temporarily unable to process your request. Please check your connection and try again.";
 }
