@@ -55,7 +55,10 @@ public sealed class DailyPayoutDebtAndAutoLockTests
         db.Users.Add(staff);
         db.RefreshTokens.Add(new RefreshToken
         {
-            UserId = 7, TokenHash = "hash-1", ExpiresAtUtc = AtRunTime.AddDays(30), CreatedAtUtc = AtRunTime.AddDays(-20),
+            UserId = 7,
+            TokenHash = "hash-1",
+            ExpiresAtUtc = AtRunTime.AddDays(30),
+            CreatedAtUtc = AtRunTime.AddDays(-20),
         });
         await db.SaveChangesAsync();
         await SeedDebtAsync(db, 7, amount: 500_000m, incurredAtUtc: AtRunTime.AddDays(-15).AddMinutes(-1));

@@ -23,14 +23,24 @@ public sealed class DailyPayoutRetrySweepProcessorTests
     {
         db.Users.Add(new User
         {
-            Id = operatorId, Email = $"operator{operatorId}@test.local", FullName = "Operator",
-            Role = UserRole.TourOperator, Status = AccountStatus.Active,
+            Id = operatorId,
+            Email = $"operator{operatorId}@test.local",
+            FullName = "Operator",
+            Role = UserRole.TourOperator,
+            Status = AccountStatus.Active,
         });
         db.OperatorProfiles.Add(new OperatorProfile
         {
-            UserId = operatorId, CompanyName = "Company", TaxCode = $"TAX-{operatorId}", BusinessLicenseNo = $"LIC-{operatorId}",
-            ApprovalStatus = OperatorApprovalStatus.Approved, CommissionRate = 10m,
-            BankName = "Test Bank", AccountHolderName = "Holder", AccountNumberMasked = "****1234", AccountNumberProtected = "protected",
+            UserId = operatorId,
+            CompanyName = "Company",
+            TaxCode = $"TAX-{operatorId}",
+            BusinessLicenseNo = $"LIC-{operatorId}",
+            ApprovalStatus = OperatorApprovalStatus.Approved,
+            CommissionRate = 10m,
+            BankName = "Test Bank",
+            AccountHolderName = "Holder",
+            AccountNumberMasked = "****1234",
+            AccountNumberProtected = "protected",
         });
         await db.SaveChangesAsync();
     }
@@ -118,8 +128,12 @@ public sealed class DailyPayoutRetrySweepProcessorTests
         db.Users.Add(new User { Id = 7, Email = "op7@test.local", FullName = "Operator", Role = UserRole.TourOperator, Status = AccountStatus.Active });
         db.OperatorProfiles.Add(new OperatorProfile
         {
-            UserId = 7, CompanyName = "Company", TaxCode = "TAX-7", BusinessLicenseNo = "LIC-7",
-            ApprovalStatus = OperatorApprovalStatus.Approved, CommissionRate = 10m,
+            UserId = 7,
+            CompanyName = "Company",
+            TaxCode = "TAX-7",
+            BusinessLicenseNo = "LIC-7",
+            ApprovalStatus = OperatorApprovalStatus.Approved,
+            CommissionRate = 10m,
         });
         await db.SaveChangesAsync();
         var batch = await SeedScheduledBatchAsync(db, lastAttemptAtUtc: null, attemptCount: 0);
