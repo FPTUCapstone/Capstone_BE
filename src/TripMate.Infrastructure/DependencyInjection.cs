@@ -17,6 +17,7 @@ using TripMate.Application.Features.Bookings.Common;
 using TripMate.Application.Features.Bookings.Refunds;
 using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Navigation.Common;
+using TripMate.Application.Features.Operator.CheckIn.Common;
 using TripMate.Application.Features.Operator.Payouts.Common;
 using TripMate.Application.Features.Operator.Revenue.Exports.Common;
 using TripMate.Application.Features.Payouts.DailySettlement;
@@ -50,6 +51,7 @@ using TripMate.Infrastructure.Reviews.Moderation;
 using TripMate.Infrastructure.Routing;
 using TripMate.Infrastructure.Security;
 using TripMate.Infrastructure.Services;
+using TripMate.Infrastructure.Services.Audit;
 using TripMate.Infrastructure.Services.Payment;
 using TripMate.Infrastructure.Services.Redis;
 using TripMate.Infrastructure.TripAlerts;
@@ -117,6 +119,8 @@ public static class DependencyInjection
         services.AddSingleton<ITripReviewPersistenceErrorClassifier, SqlServerTripReviewPersistenceErrorClassifier>();
         services.AddSingleton<IBookingCancellationPersistenceErrorClassifier,
             SqlServerBookingCancellationPersistenceErrorClassifier>();
+        services.AddSingleton<ICheckInPersistenceErrorClassifier,
+            SqlServerCheckInPersistenceErrorClassifier>();
         services.AddSingleton<IPayoutPersistenceErrorClassifier, SqlServerPayoutPersistenceErrorClassifier>();
         services.AddScoped<IRefundManualCompletionLock, SqlServerRefundManualCompletionLock>();
         services.AddSingleton<IReviewContentModerator, LocalReviewContentModerator>();
@@ -304,6 +308,39 @@ public static class DependencyInjection
         services.AddSingleton(serviceProvider =>
             serviceProvider.GetRequiredService<IOptions<SchedulingRateLimitOptions>>().Value);
         services.AddSingleton<GenerateRateLimiterMetrics>();
+
+        services.AddOptions<CheckInAuditJournalOptions>()
+            .Bind(configuration.GetSection(CheckInAuditJournalOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<CheckInAuditJournalOptions>, CheckInAuditJournalOptionsValidator>();
+        services.AddSingleton(serviceProvider => serviceProvider
+            .GetRequiredService<IOptions<CheckInAuditJournalOptions>>().Value);
+
+        var checkInAuditOptions = configuration.GetSection(CheckInAuditJournalOptions.SectionName)
+            .Get<CheckInAuditJournalOptions>() ?? new CheckInAuditJournalOptions();
+        if (checkInAuditOptions.Enabled)
+        {
+            services.AddSingleton(serviceProvider =>
+            {
+                var options = serviceProvider.GetRequiredService<CheckInAuditJournalOptions>();
+                string? connectionString = configuration.GetConnectionString(options.RedisConnectionStringName);
+                if (string.IsNullOrWhiteSpace(connectionString))
+                    throw new InvalidOperationException(
+                        $"Check-in audit journal requires ConnectionStrings:{options.RedisConnectionStringName}.");
+                return CheckInAuditRedisConnection.ConnectAsync(connectionString, options.CommandTimeout)
+                    .GetAwaiter().GetResult();
+            });
+            services.AddSingleton<ICheckInAuditJournal, RedisCheckInAuditJournal>();
+            services.AddSingleton<CheckInAuditJournalMetrics>();
+            services.AddScoped<CheckInAuditProjector>();
+            services.AddHostedService<CheckInAuditProjectionBackgroundService>();
+        }
+        else
+        {
+            // Disabled is deliberately fail-closed for check-in. Production rollout must enable
+            // the journal only after AOF durability is proven; there is no silent legacy bypass.
+            services.AddSingleton<ICheckInAuditJournal, UnavailableCheckInAuditJournal>();
+        }
 
         var rateLimitOptions = configuration.GetSection(SchedulingRateLimitOptions.SectionName)
             .Get<SchedulingRateLimitOptions>() ?? new SchedulingRateLimitOptions();
