@@ -10,6 +10,7 @@ using TripMate.Application.Common.Locks;
 using TripMate.Application.Common.Media;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
+using TripMate.Infrastructure.Persistence.Configurations;
 
 namespace TripMate.Infrastructure.Persistence;
 
@@ -18,6 +19,8 @@ public class ApplicationDbContext(
     : DbContext(options), IApplicationDbContext
 {
     private const int SqlServerDeadlockVictimError = 1205;
+    private const int SqlServerUniqueIndexError = 2601;
+    private const int SqlServerUniqueConstraintError = 2627;
 
     public DbSet<User> Users => Set<User>();
 
@@ -99,6 +102,8 @@ public class ApplicationDbContext(
     public DbSet<TourBookingCreateOperation> TourBookingCreateOperations => Set<TourBookingCreateOperation>();
     public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
     public DbSet<Refund> Refunds => Set<Refund>();
+    public DbSet<EmergencyTourCancellationOperation> EmergencyTourCancellationOperations =>
+        Set<EmergencyTourCancellationOperation>();
     public DbSet<RefundManualCompletionOperation> RefundManualCompletionOperations =>
         Set<RefundManualCompletionOperation>();
     public DbSet<RevenueExport> RevenueExports => Set<RevenueExport>();
@@ -252,6 +257,28 @@ public class ApplicationDbContext(
         return false;
     }
 
+    public bool IsSourceBookingUniqueConflict(DbUpdateException exception) =>
+        IsUniqueViolationOn(exception, ItineraryConfiguration.SourceBookingIndexName);
+
+    public bool IsEmergencyDecisionUniqueConflict(DbUpdateException exception) =>
+        IsUniqueViolationOn(exception,
+            EmergencyTourCancellationOperationConfiguration.ScheduleIndexName,
+            EmergencyTourCancellationOperationConfiguration.ActorCommandIndexName);
+
+    private static bool IsUniqueViolationOn(Exception exception, params string[] indexNames)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is SqlException { Number: SqlServerUniqueIndexError or SqlServerUniqueConstraintError } sqlException
+                && indexNames.Any(name => sqlException.Message.Contains($"'{name}'", StringComparison.Ordinal)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public async Task FinalizeOperatorDocumentCleanupReservationsAsync(
         IReadOnlyCollection<string> publicIds,
         CancellationToken cancellationToken)
@@ -367,17 +394,29 @@ public class ApplicationDbContext(
 
     public DbSet<WeatherEvent> WeatherEvents => Set<WeatherEvent>();
 
+    public DbSet<WeatherAlertInboxItem> WeatherAlertInboxItems => Set<WeatherAlertInboxItem>();
+
+
+    public DbSet<WeatherSafetyReview> WeatherSafetyReviews => Set<WeatherSafetyReview>();
+
+    public DbSet<WeatherLocationMapping> WeatherLocationMappings => Set<WeatherLocationMapping>();
+
     public DbSet<ReroutingEvent> ReroutingEvents => Set<ReroutingEvent>();
-
-    public DbSet<Payout> Payouts => Set<Payout>();
-
-    public DbSet<PayoutItem> PayoutItems => Set<PayoutItem>();
-
-    public DbSet<PayoutRefundItem> PayoutRefundItems => Set<PayoutRefundItem>();
 
     public DbSet<PayoutAdjustment> PayoutAdjustments => Set<PayoutAdjustment>();
 
-    public DbSet<PayoutPeriodBreakdown> PayoutPeriodBreakdowns => Set<PayoutPeriodBreakdown>();
+    // DAILY-PAYOUT-TRANSFER (Task 2)
+    public DbSet<PayoutRun> PayoutRuns => Set<PayoutRun>();
+
+    public DbSet<PayoutBatch> PayoutBatches => Set<PayoutBatch>();
+
+    public DbSet<PayoutSettlement> PayoutSettlements => Set<PayoutSettlement>();
+
+    public DbSet<PayoutSettlementAttempt> PayoutSettlementAttempts => Set<PayoutSettlementAttempt>();
+
+    public DbSet<PayoutSettlementAdjustment> PayoutSettlementAdjustments => Set<PayoutSettlementAdjustment>();
+
+    public DbSet<PayoutReconciliationItem> PayoutReconciliationItems => Set<PayoutReconciliationItem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

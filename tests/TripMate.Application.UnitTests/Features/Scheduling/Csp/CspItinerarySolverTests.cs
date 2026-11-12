@@ -1210,6 +1210,32 @@ public class CspItinerarySolverTests
     }
 
     /// <summary>
+    /// R5 ở chế độ Weighted: incumbent tham lam gọi evaluator trước khi tìm kiếm bắt đầu. Chạm mốc thời gian ở bước đó
+    /// phải được báo như mọi lần chạm mốc khác (bỏ kết quả, để bên gọi dùng lịch heuristic), không được ném exception.
+    /// Giới hạn 0 ms làm lần chấm đầu tiên của incumbent tham lam chạm mốc, nên test không phụ thuộc tốc độ máy.
+    /// </summary>
+    [Fact]
+    public void Solve_InWeightedUtilityMode_ReportsTheTimeLimit_WhenItFiresWhileBuildingTheGreedyIncumbent()
+    {
+        var (input, matrix) = SmallScenario(1);
+        var (candidates, indices) = Index(input);
+        var weightedInputs = new WeightedRequestInputs(
+            candidates.ToDictionary(c => c.Id, _ => 0.5),
+            new PersonalParams(0.012, 0.005, 5, 300, 120, 3, 0.6, 0.7, 0.9, new HashSet<string>(), 0.25, 0.0, 0.30, 0.05, "2026.2"),
+            new ConstantTimeFitFactory());
+        var solver = new CspItinerarySolver(
+            new ItineraryScheduleEvaluator(Options),
+            Options,
+            new CspOptions { Mode = ObjectiveMode.WeightedUtility, TimeLimitMilliseconds = 0 });
+
+        var result = solver.Solve(input, matrix, candidates, indices, initialIncumbent: null, weighted: weightedInputs);
+
+        result.Statistics.TimeLimitReached.Should().BeTrue();
+        result.Schedule.Should().BeNull();
+        result.ProvedInfeasible.Should().BeFalse();
+    }
+
+    /// <summary>
     /// Bắt activity kết quả bộ giải của đúng lần sinh này: listener là toàn cục và test chạy song song,
     /// nên chỉ nhận activity cùng TraceId với activity cha của test.
     /// </summary>

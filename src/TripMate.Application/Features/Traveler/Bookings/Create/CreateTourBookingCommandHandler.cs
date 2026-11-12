@@ -69,8 +69,6 @@ public sealed class CreateTourBookingCommandHandler(
             if (!isActiveTraveler) return AccessDenied();
 
             var now = clock.UtcNow;
-            await expiryProcessor.ExpireDueBookingsForTravelerInCurrentTransactionAsync(
-                travelerId, transactionCancellationToken);
             var fingerprint = ComputeFingerprint(request);
             var existingOperation = await dbContext.TourBookingCreateOperations
                 .Include(operation => operation.Booking)
@@ -89,6 +87,28 @@ public sealed class CreateTourBookingCommandHandler(
             if (!schedule.IsOpenForBooking(now))
                 return Result.Failure<CreateTourBookingResponse>(
                     TourBookingErrorCodes.ScheduleNotOpen, "This tour departure is no longer open for booking.");
+
+            // UC-70 bookability: the same canonical timeline policy that payment-time
+            // materialization uses must accept the tour template before any mutation, so a
+            // paid booking can always become a navigable BookedTour itinerary.
+            List<BookedTourStopInput> templateStops = await dbContext.TourItineraryItems
+                .Where(stop => stop.TourId == schedule.TourId)
+                .Select(stop => new BookedTourStopInput(
+                    stop.DayNo, stop.SequenceNo, stop.PoiId,
+                    stop.PlannedTime, stop.StayDurationMinutes, stop.Notes))
+                .ToListAsync(transactionCancellationToken);
+            if (BookedTourItineraryTimeline.Plan(
+                    templateStops, schedule.Tour.TimeZoneId,
+                    schedule.StartAtUtc, schedule.EndAtUtc).Stops is null)
+                return Result.Failure<CreateTourBookingResponse>(
+                    TourBookingErrorCodes.TourItineraryNotBookable,
+                    "The tour program is not fully scheduled yet; this departure cannot be booked.");
+
+            // Reject an invalid commercial itinerary before housekeeping mutates any existing
+            // booking or releases its capacity. Valid requests still expire stale holds before
+            // capacity and unpaid-booking checks below.
+            await expiryProcessor.ExpireDueBookingsForTravelerInCurrentTransactionAsync(
+                travelerId, transactionCancellationToken);
 
             var unpaidCount = await dbContext.Bookings.AsNoTracking().CountAsync(booking =>
                 booking.TravelerUserId == travelerId && booking.Status == BookingStatus.PendingPayment,

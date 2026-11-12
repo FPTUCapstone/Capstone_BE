@@ -55,7 +55,7 @@ public sealed class GetBookingCancellationPreviewQueryHandlerTests
             Quantity = 1,
             TotalAmount = 1_000_000m,
             CanCancel = true,
-            EstimatedRefundAmount = 700_000m,
+            EstimatedRefundAmount = 300_000m,
             RefundStatus = nameof(RefundStatus.Pending),
         });
     }
@@ -88,6 +88,63 @@ public sealed class GetBookingCancellationPreviewQueryHandlerTests
             EstimatedRefundAmount = 0m,
             RefundStatus = "NotRequired",
         });
+    }
+
+    [Fact]
+    public async Task Handle_TravelerInsideSeventyTwoHours_PreviewsZeroRefundAndRequiresConfirmation()
+    {
+        await using var db = TestDbContext.Create();
+        var departure = new DateTimeOffset(2026, 11, 15, 8, 0, 0, TimeSpan.Zero);
+        var booking = await SeedConfirmedBookingAsync(db, departure, paidAtUtc: departure.AddDays(-10));
+
+        var handler = new GetBookingCancellationPreviewQueryHandler(db,
+            new FakeCurrentUserService { UserId = 7, Role = nameof(UserRole.Traveler) },
+            new FakeDateTimeProvider { UtcNow = departure.AddHours(-24) });
+
+        var result = await handler.Handle(new GetBookingCancellationPreviewQuery(booking.Id), CancellationToken.None);
+
+        result.Value.Should().BeEquivalentTo(new
+        {
+            CanCancel = true,
+            BlockingReasonCode = BookingCancellationErrorCodes.ConfirmationRequired,
+            EstimatedRefundAmount = 0m,
+        }, options => options.ExcludingMissingMembers());
+    }
+
+    [Fact]
+    public async Task Handle_TravelerWithinTwentyFourHoursOfPaymentPreviewsFullRefund()
+    {
+        await using var db = TestDbContext.Create();
+        var departure = new DateTimeOffset(2026, 11, 15, 8, 0, 0, TimeSpan.Zero);
+        var now = departure.AddHours(-24);
+        var booking = await SeedConfirmedBookingAsync(db, departure, paidAtUtc: now.AddHours(-2));
+
+        var handler = new GetBookingCancellationPreviewQueryHandler(db,
+            new FakeCurrentUserService { UserId = 7, Role = nameof(UserRole.Traveler) },
+            new FakeDateTimeProvider { UtcNow = now });
+
+        var result = await handler.Handle(new GetBookingCancellationPreviewQuery(booking.Id), CancellationToken.None);
+
+        result.Value.Should().BeEquivalentTo(new
+        {
+            CanCancel = true,
+            EstimatedRefundAmount = 1_000_000m,
+        }, options => options.ExcludingMissingMembers());
+    }
+
+    private static async Task<Booking> SeedConfirmedBookingAsync(TestDbContext db, DateTimeOffset departure,
+        DateTimeOffset paidAtUtc)
+    {
+        var tour = CreateTour(21, 8);
+        var schedule = CreateSchedule(31, tour, departure);
+        var booking = Booking.Restore(41, 7, schedule.Id, 1, 1_000_000m, BookingStatus.Confirmed,
+            PaymentStatus.Paid, Booking.DefaultCancellationPolicySnapshot);
+        db.Tours.Add(tour);
+        db.TourSchedules.Add(schedule);
+        db.Bookings.Add(booking);
+        db.PaymentTransactions.Add(CreateSuccessfulPayment(51, booking.Id, booking.TotalAmount, paidAtUtc));
+        await db.SaveChangesAsync();
+        return booking;
     }
 
     private static Tour CreateTour(long id, long operatorUserId)
@@ -126,6 +183,7 @@ public sealed class GetBookingCancellationPreviewQueryHandlerTests
         Set(transaction, nameof(PaymentTransaction.TransactionType), PaymentTransaction.TypePayment);
         Set(transaction, nameof(PaymentTransaction.Status), PaymentTransactionStatus.Success);
         Set(transaction, nameof(PaymentTransaction.CreatedAtUtc), createdAtUtc);
+        Set(transaction, nameof(PaymentTransaction.SucceededAtUtc), createdAtUtc);
         return transaction;
     }
 

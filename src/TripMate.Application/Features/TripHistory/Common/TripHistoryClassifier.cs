@@ -14,12 +14,22 @@ public static class TripHistoryClassifier
     /// P1: by stored status only. A Confirmed booking whose schedule already ended stays Upcoming
     /// until something marks it Completed; dates are never used to guess.
     /// </summary>
-    public static string TabForBooking(BookingStatus status) => status switch
+    public static string TabForBooking(BookingStatus status) =>
+        TryTabForBooking(status)
+        ?? throw new ArgumentOutOfRangeException(nameof(status), status, "The booking status is not supported.");
+
+    /// <summary>
+    /// The tab of a status, or null for one not mapped yet, so a new status can only hide its own
+    /// records and never break the whole list. An emergency-stopped booking did not complete, so
+    /// it lists with the cancelled trips.
+    /// </summary>
+    public static string? TryTabForBooking(BookingStatus status) => status switch
     {
         BookingStatus.PendingPayment or BookingStatus.Confirmed => ListTravelerTripsQuery.TabUpcoming,
         BookingStatus.Completed => ListTravelerTripsQuery.TabCompleted,
-        BookingStatus.Cancelled or BookingStatus.Expired => ListTravelerTripsQuery.TabCancelled,
-        _ => throw new ArgumentOutOfRangeException(nameof(status), status, "The booking status is not supported."),
+        BookingStatus.Cancelled or BookingStatus.Expired or BookingStatus.Interrupted =>
+            ListTravelerTripsQuery.TabCancelled,
+        _ => null,
     };
 
     /// <summary>

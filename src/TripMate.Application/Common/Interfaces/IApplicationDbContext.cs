@@ -89,6 +89,9 @@ public interface IApplicationDbContext
 
     DbSet<Refund> Refunds { get; }
 
+    DbSet<EmergencyTourCancellationOperation> EmergencyTourCancellationOperations =>
+        throw new NotSupportedException("Emergency tour cancellation is unavailable in this context.");
+
     DbSet<RefundManualCompletionOperation> RefundManualCompletionOperations =>
         throw new NotSupportedException("Manual refund completion idempotency is unavailable in this context.");
 
@@ -155,17 +158,29 @@ public interface IApplicationDbContext
 
     DbSet<WeatherEvent> WeatherEvents { get; }
 
+    DbSet<WeatherAlertInboxItem> WeatherAlertInboxItems { get; }
+
+
+    DbSet<WeatherSafetyReview> WeatherSafetyReviews { get; }
+
+    DbSet<WeatherLocationMapping> WeatherLocationMappings { get; }
+
     DbSet<ReroutingEvent> ReroutingEvents { get; }
-
-    DbSet<Payout> Payouts { get; }
-
-    DbSet<PayoutItem> PayoutItems { get; }
-
-    DbSet<PayoutRefundItem> PayoutRefundItems { get; }
 
     DbSet<PayoutAdjustment> PayoutAdjustments { get; }
 
-    DbSet<PayoutPeriodBreakdown> PayoutPeriodBreakdowns { get; }
+    // DAILY-PAYOUT-TRANSFER (Task 2)
+    DbSet<PayoutRun> PayoutRuns { get; }
+
+    DbSet<PayoutBatch> PayoutBatches { get; }
+
+    DbSet<PayoutSettlement> PayoutSettlements { get; }
+
+    DbSet<PayoutSettlementAttempt> PayoutSettlementAttempts { get; }
+
+    DbSet<PayoutSettlementAdjustment> PayoutSettlementAdjustments { get; }
+
+    DbSet<PayoutReconciliationItem> PayoutReconciliationItems { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 
@@ -222,6 +237,20 @@ public interface IApplicationDbContext
     /// chosen as a deadlock victim. The transaction is rolled back and can be retried.
     /// </summary>
     bool IsDeadlock(Exception exception) => false;
+
+    /// <summary>
+    /// True when the exception, or one of its inner exceptions, is the SQL Server unique-index
+    /// violation (2601/2627) on Itineraries.source_booking_id — meaning a concurrent payment
+    /// completion already materialized that booking's itinerary and the caller may replay.
+    /// </summary>
+    bool IsSourceBookingUniqueConflict(DbUpdateException exception) => false;
+
+    /// <summary>
+    /// True when the exception is the SQL Server unique violation (2601/2627) on the UC-70 decision
+    /// table: one decision per departure, or one per Operator command id. A concurrent winner has
+    /// committed, so re-running the command replays it or reports the departure as terminal.
+    /// </summary>
+    bool IsEmergencyDecisionUniqueConflict(DbUpdateException exception) => false;
 
     /// <summary>
     /// Removes durable document-cleanup reservations while the caller's database transaction

@@ -13,6 +13,18 @@ public class Notification : BaseEntity
     public const string TravelGroupHostTransferredType = "TravelGroupHostTransferred";
     public const string TravelGroupMemberRemovedType = "TravelGroupMemberRemoved";
     public const string TravelGroupRelatedEntityType = "TravelGroup";
+    public const string EmergencyDepartureCancelledType = "EmergencyDepartureCancelled";
+    public const string EmergencyDepartureStoppedType = "EmergencyDepartureStopped";
+    public const string BookingRelatedEntityType = "Booking";
+    public const string WeatherSafetyReviewCreatedType = "WeatherSafetyReviewCreated";
+    public const string WeatherSafetyReviewEscalatedType = "WeatherSafetyReviewEscalated";
+
+    // Shown on the lock screen: never a tour, place, reason, contact, refund or identifier.
+    public const string SafetyAlertTitle = "TripMate: cảnh báo an toàn";
+    public const string SafetyAlertBody = "Có cảnh báo an toàn của tour cần bạn xem.";
+    public const string TripUpdateTitle = "TripMate: cập nhật chuyến đi";
+    public const string TripUpdateBody =
+        "Tour bạn đã đặt có cập nhật quan trọng. Mở TripMate để xem chi tiết.";
 
     public long UserId { get; set; }
 

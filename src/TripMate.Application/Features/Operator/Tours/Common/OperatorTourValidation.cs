@@ -1,3 +1,4 @@
+using TripMate.Application.Features.Operator.Tours.Create;
 using TripMate.Domain.Entities;
 
 namespace TripMate.Application.Features.Operator.Tours.Common;
@@ -16,6 +17,15 @@ public static class OperatorTourValidation
 
     public static bool IsWithinTermsLimit(string? value) =>
         value is null || value.Trim().Length <= Tour.TermsMaxLength;
+
+    public static bool HasValidMeetingCoordinates(CreateTourScheduleRequest schedule)
+    {
+        if (!schedule.MeetingLatitude.HasValue && !schedule.MeetingLongitude.HasValue)
+            return true;
+        return !string.IsNullOrWhiteSpace(schedule.MeetingPoint)
+            && schedule.MeetingLatitude is >= -90 and <= 90
+            && schedule.MeetingLongitude is >= -180 and <= 180;
+    }
 
     /// <summary>
     /// Human readable destination text derived from the selected catalogue names, in the order chosen.

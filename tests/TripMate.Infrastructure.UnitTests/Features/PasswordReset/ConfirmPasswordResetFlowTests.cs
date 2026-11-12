@@ -317,17 +317,28 @@ public class ConfirmPasswordResetFlowTests
 
         DbSet<Domain.Entities.WeatherEvent> IApplicationDbContext.WeatherEvents => throw new NotSupportedException();
 
+        DbSet<Domain.Entities.WeatherAlertInboxItem> IApplicationDbContext.WeatherAlertInboxItems => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.WeatherSafetyReview> IApplicationDbContext.WeatherSafetyReviews => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.WeatherLocationMapping> IApplicationDbContext.WeatherLocationMappings => throw new NotSupportedException();
+
+
         DbSet<Domain.Entities.ReroutingEvent> IApplicationDbContext.ReroutingEvents => throw new NotSupportedException();
-
-        DbSet<Domain.Entities.Payout> IApplicationDbContext.Payouts => throw new NotSupportedException();
-
-        DbSet<Domain.Entities.PayoutItem> IApplicationDbContext.PayoutItems => throw new NotSupportedException();
-
-        DbSet<Domain.Entities.PayoutRefundItem> IApplicationDbContext.PayoutRefundItems => throw new NotSupportedException();
 
         DbSet<Domain.Entities.PayoutAdjustment> IApplicationDbContext.PayoutAdjustments => throw new NotSupportedException();
 
-        DbSet<Domain.Entities.PayoutPeriodBreakdown> IApplicationDbContext.PayoutPeriodBreakdowns => throw new NotSupportedException();
+        DbSet<Domain.Entities.PayoutRun> IApplicationDbContext.PayoutRuns => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.PayoutBatch> IApplicationDbContext.PayoutBatches => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.PayoutSettlement> IApplicationDbContext.PayoutSettlements => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.PayoutSettlementAttempt> IApplicationDbContext.PayoutSettlementAttempts => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.PayoutSettlementAdjustment> IApplicationDbContext.PayoutSettlementAdjustments => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.PayoutReconciliationItem> IApplicationDbContext.PayoutReconciliationItems => throw new NotSupportedException();
 
         public Task<int> RevokeRefreshTokenAsync(
             string tokenHash,
