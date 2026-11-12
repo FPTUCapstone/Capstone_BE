@@ -597,7 +597,10 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 preferenceTokens,
                 explanationMetadata,
                 plan.ErrorMessage ?? "The selected constraints cannot produce an itinerary.",
-                ranking)
+                ranking,
+                plan.ErrorCode == SchedulingErrorCodes.GenerationTimedOut
+                    ? SchedulingErrorCodes.GenerationTimedOut
+                    : SchedulingErrorCodes.ConstraintsInfeasible)
             : PreparedGeneration.Successful(
                 snapshot.Hash,
                 preferenceTokens,
@@ -699,6 +702,19 @@ public sealed class CreateSchedulingRequestCommandHandler(
                     CandidatePoolFunnelDimensions.OutcomeSnapshotMismatchTerminal);
             }
 
+            if (prepared.Plan is null
+                && string.Equals(prepared.FailureCode, SchedulingErrorCodes.GenerationTimedOut, StringComparison.Ordinal))
+            {
+                // A timeout is not a result: release the request so the same idempotency key generates again (ADR-002, G2).
+                request.ReleaseGeneration(ownerId, now);
+                await dbContext.SaveChangesAsync(transactionCancellationToken);
+                return FinalizeDecision.Completed(
+                    Result.Failure<SchedulingResponseDto>(
+                        SchedulingErrorCodes.GenerationTimedOut,
+                        prepared.FailureMessage!),
+                    CandidatePoolFunnelDimensions.OutcomeGenerationTimeout);
+            }
+
             if (prepared.Plan is null)
             {
                 request.FailGeneration(
@@ -719,6 +735,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 $"Generated itinerary - {TimeZoneInfo.ConvertTime(canonical.StartAtUtc, timeZone):dd MMM yyyy}",
                 canonical.StartAtUtc,
                 prepared.Plan.EndAtUtc);
+            prepared.Plan.Provenance?.ApplyTo(itinerary);
             foreach (var item in prepared.Plan.Items)
             {
                 itinerary.AddItem(GeneratedItineraryItemMapper.ToEntity(item, item.IsMandatory));
@@ -1186,7 +1203,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
                         ? metadata.CategoryName
                         : null),
                 item.TravelDistanceToNextMeters,
-                item.TransportModeToNext)).ToArray());
+                item.TransportModeToNext)).ToArray(),
+            SchedulingProvenanceDto.From(plan.Provenance));
 
     private static SchedulingResponseDto ToResponse(SchedulingRequest schedulingRequest, Itinerary itinerary)
     {
@@ -1216,7 +1234,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 item.FriendlyExplanation,
                 CostKindPolicy.FromCategory(item.PointOfInterest?.Category?.Name),
                 item.TravelDistanceToNextMeters,
-                item.TransportModeToNext)).ToArray());
+                item.TransportModeToNext)).ToArray(),
+            SchedulingProvenanceDto.From(itinerary));
     }
 
     private static string ComputeRequestHash(CanonicalSchedulingRequest command)

@@ -1,5 +1,6 @@
 using FluentAssertions;
 
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 using TripMate.Application.Features.Scheduling.Personalization;
@@ -256,5 +257,42 @@ public class PersonalParamsFactoryTests
 
         result.Failed.Should().BeTrue();
         result.FailureMessage.Should().Contain("RhoEffortPerHour");
+    }
+
+    [Fact]
+    public void Create_WithMalformedInterestTags_LogsTheFailureWithoutTheTravelerValue()
+    {
+        var logger = new RecordingLogger();
+        var factory = new PersonalParamsFactory(Options.Create(CreateStandardOptions()), logger);
+        var profile = TravelerProfile.Create(42, "[\"private-interest-marker\"", DateTimeOffset.UtcNow);
+
+        var result = factory.Create(profile);
+
+        result.LovedCategories.Should().BeEmpty();
+        logger.Entries.Should().ContainSingle(entry => entry.Level == LogLevel.Warning);
+        logger.Entries.Should().NotContain(entry => entry.Text.Contains("private-interest-marker"));
+    }
+
+    private sealed class RecordingLogger : ILogger<PersonalParamsFactory>
+    {
+        public List<(LogLevel Level, string Text)> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            var values = state is IEnumerable<KeyValuePair<string, object?>> pairs
+                ? string.Join(" ", pairs.Select(pair => $"{pair.Key}={pair.Value}"))
+                : string.Empty;
+            Entries.Add((logLevel, $"{formatter(state, exception)} {values}"));
+        }
     }
 }

@@ -144,6 +144,38 @@ public class ShadowSchedulingRunnerTests
         metrics.JaccardSimilarity.Should().BeInRange(0.0, 1.0);
     }
 
+    /// <summary>
+    /// ADR-002 gate 2 compares shadow stop counts per pace, so every shadow run reports the pace its objective used:
+    /// the saved one, or Moderate when the traveler saved none.
+    /// </summary>
+    [Theory]
+    [InlineData(TravelerPace.Relaxed, TravelerPace.Relaxed)]
+    [InlineData(TravelerPace.Fast, TravelerPace.Fast)]
+    [InlineData(null, TravelerPace.Moderate)]
+    public async Task ProcessItemAsync_ReportsThePaceTheShadowObjectiveUsed(
+        TravelerPace? savedPace,
+        TravelerPace expectedPace)
+    {
+        var options = Microsoft.Extensions.Options.Options.Create(new ShadowOptions
+        {
+            Enabled = true,
+            SampleRate = 1.0,
+            TimeoutMs = 5000
+        });
+        var runner = new ShadowSchedulingRunner(
+            options,
+            new WeightedRequestInputsFactory(new PersonalParamsFactory()),
+            NullLogger<ShadowSchedulingRunner>.Instance);
+        var profile = TravelerProfile.CreateEmpty(42, DateTimeOffset.UtcNow);
+        profile.ReplacePreferences(null, null, savedPace, null, null, DateTimeOffset.UtcNow);
+
+        var metrics = await runner.ProcessItemAsync(
+            CreateWorkItem() with { TravelerProfile = profile },
+            CancellationToken.None);
+
+        metrics.Pace.Should().Be(expectedPace);
+    }
+
     [Fact]
     public void Enqueue_WhenDisabled_DoesNotEnqueueToChannel()
     {
