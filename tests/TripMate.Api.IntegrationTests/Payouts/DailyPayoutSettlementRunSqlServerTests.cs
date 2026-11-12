@@ -22,9 +22,14 @@ namespace TripMate.Api.IntegrationTests.Payouts;
 public sealed class DailyPayoutSettlementRunSqlServerTests
 {
     // 2026-11-09 10:00 Vietnam time (UTC+7) = 03:00 UTC. Chosen to land exactly on the run's
-    // own start hour so the hourly retry grid (11:00/12:00/13:00 VN) lines up with
-    // DailyPayoutClock's RunStartHour/RetryCutoffHour boundaries without rounding surprises.
+    // own start hour (DailyPayoutClock.RunStartHour) so the hourly retry grid (11:00/12:00/13:00
+    // VN) lines up without rounding surprises.
     private static readonly DateTimeOffset RunTimeUtc = new(2026, 11, 9, 3, 0, 0, TimeSpan.Zero);
+
+    private static DailyPayoutRunProcessor CreateProcessor(
+        ApplicationDbContext context, IPayoutTransferGateway gateway, IDateTimeProvider clock) =>
+        new(context, new DailyPayoutEligibilityReader(context),
+            new DailyPayoutRetrySweepProcessor(context, gateway, clock, new DailyPayoutEligibilityReader(context)), clock);
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
@@ -41,7 +46,7 @@ public sealed class DailyPayoutSettlementRunSqlServerTests
 
         await using (var context = database.CreateDbContext())
         {
-            var processor = new DailyPayoutRunProcessor(context, new DailyPayoutEligibilityReader(context), gateway, clock);
+            var processor = CreateProcessor(context, gateway, clock);
             (await processor.RunIfDueAsync(CancellationToken.None)).Should().Be(DailyPayoutRunOutcome.Ran);
         }
 
@@ -50,10 +55,11 @@ public sealed class DailyPayoutSettlementRunSqlServerTests
         var batch = await verify.PayoutBatches.AsNoTracking().SingleAsync();
         batch.TourOperatorUserId.Should().Be(operatorUserId);
         batch.Status.Should().Be(PayoutSettlementStatus.Settled);
-        batch.TotalAmount.Should().Be(900_000m); // 1,000,000 gross - 10% commission (BR-140)
+        batch.TotalAmount.Should().Be(700_000m); // Advance = 70% of 1,000,000 PaidAmount (PD-3)
         var settlement = await verify.PayoutSettlements.AsNoTracking().SingleAsync();
         settlement.BookingId.Should().Be(bookingId);
-        settlement.PayoutAmount.Should().Be(900_000m);
+        settlement.Kind.Should().Be(PayoutSettlementKind.Advance);
+        settlement.PayoutAmount.Should().Be(700_000m);
         settlement.Status.Should().Be(PayoutSettlementStatus.Settled);
         (await verify.PayoutSettlementAttempts.CountAsync()).Should().Be(1);
     }
@@ -72,8 +78,7 @@ public sealed class DailyPayoutSettlementRunSqlServerTests
 
         await using (var context = database.CreateDbContext())
         {
-            var processor = new DailyPayoutRunProcessor(context, new DailyPayoutEligibilityReader(context), gateway,
-                new MutableClock { UtcNow = RunTimeUtc });
+            var processor = CreateProcessor(context, gateway, new MutableClock { UtcNow = RunTimeUtc });
             (await processor.RunIfDueAsync(CancellationToken.None)).Should().Be(DailyPayoutRunOutcome.Ran);
         }
 
@@ -86,8 +91,7 @@ public sealed class DailyPayoutSettlementRunSqlServerTests
         // The next day's run: the window has now ended, so the booking is settled normally.
         await using (var context = database.CreateDbContext())
         {
-            var processor = new DailyPayoutRunProcessor(context, new DailyPayoutEligibilityReader(context), gateway,
-                new MutableClock { UtcNow = RunTimeUtc.AddDays(1) });
+            var processor = CreateProcessor(context, gateway, new MutableClock { UtcNow = RunTimeUtc.AddDays(1) });
             (await processor.RunIfDueAsync(CancellationToken.None)).Should().Be(DailyPayoutRunOutcome.Ran);
         }
 
@@ -113,7 +117,7 @@ public sealed class DailyPayoutSettlementRunSqlServerTests
 
         await using (var context = database.CreateDbContext())
         {
-            var processor = new DailyPayoutRunProcessor(context, new DailyPayoutEligibilityReader(context), gateway, clock);
+            var processor = CreateProcessor(context, gateway, clock);
             (await processor.RunIfDueAsync(CancellationToken.None)).Should().Be(DailyPayoutRunOutcome.Ran);
         }
 
@@ -122,7 +126,7 @@ public sealed class DailyPayoutSettlementRunSqlServerTests
         clock.UtcNow = RunTimeUtc.AddHours(6);
         await using (var context = database.CreateDbContext())
         {
-            var processor = new DailyPayoutRunProcessor(context, new DailyPayoutEligibilityReader(context), gateway, clock);
+            var processor = CreateProcessor(context, gateway, clock);
             (await processor.RunIfDueAsync(CancellationToken.None)).Should().Be(DailyPayoutRunOutcome.AlreadyRan);
         }
 
@@ -146,13 +150,13 @@ public sealed class DailyPayoutSettlementRunSqlServerTests
 
         await using (var context = database.CreateDbContext())
         {
-            var processor = new DailyPayoutRunProcessor(context, new DailyPayoutEligibilityReader(context), timeoutGateway, clock);
+            var processor = CreateProcessor(context, timeoutGateway, clock);
             await processor.RunIfDueAsync(CancellationToken.None);
         }
 
         await using (var afterRun = database.CreateDbContext())
         {
-            (await afterRun.PayoutBatches.AsNoTracking().SingleAsync()).Status.Should().Be(PayoutSettlementStatus.Processing);
+            (await afterRun.PayoutBatches.AsNoTracking().SingleAsync()).Status.Should().Be(PayoutSettlementStatus.Scheduled);
         }
 
         // One hour later, the sweep is due. The gateway now reports the earlier transfer actually
@@ -161,7 +165,7 @@ public sealed class DailyPayoutSettlementRunSqlServerTests
         var succeededGateway = new SimulatedPayoutTransferGateway(new FixedOutcomeScenario(PayoutTransferOutcome.Succeeded));
         await using (var context = database.CreateDbContext())
         {
-            var sweep = new DailyPayoutRetrySweepProcessor(context, succeededGateway, clock);
+            var sweep = new DailyPayoutRetrySweepProcessor(context, succeededGateway, clock, new DailyPayoutEligibilityReader(context));
             (await sweep.SweepAsync(CancellationToken.None)).Should().Be(1);
         }
 
@@ -191,7 +195,7 @@ public sealed class DailyPayoutSettlementRunSqlServerTests
 
         await using (var context = database.CreateDbContext())
         {
-            var processor = new DailyPayoutRunProcessor(context, new DailyPayoutEligibilityReader(context), timeoutGateway, clock);
+            var processor = CreateProcessor(context, timeoutGateway, clock);
             await processor.RunIfDueAsync(CancellationToken.None);
         }
 
@@ -201,7 +205,7 @@ public sealed class DailyPayoutSettlementRunSqlServerTests
         var rejectedGateway = new SimulatedPayoutTransferGateway(new FixedOutcomeScenario(PayoutTransferOutcome.Rejected));
         await using (var context = database.CreateDbContext())
         {
-            var sweep = new DailyPayoutRetrySweepProcessor(context, rejectedGateway, clock);
+            var sweep = new DailyPayoutRetrySweepProcessor(context, rejectedGateway, clock, new DailyPayoutEligibilityReader(context));
             await sweep.SweepAsync(CancellationToken.None);
         }
 
@@ -215,12 +219,13 @@ public sealed class DailyPayoutSettlementRunSqlServerTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
-    public async Task RetrySweep_NaturalHourlySequenceFromTenAm_SendsAllThreeRetriesThenFailsOnBudget()
+    public async Task RetrySweep_NaturalHourlySequenceFromTenAm_SendsAllFourAttemptsThenFailsOnTheLastOne()
     {
         // A run starting exactly at 10:00 VN, swept hourly by a real scheduler rather than by
-        // seeding AttemptCount directly: the 13:00 VN sweep is exactly on IsPastRetryCutoffFor's
-        // boundary, not past it, so it still sends the 3rd (last) retry; only the 14:00 sweep,
-        // once the budget of 3 retries is exhausted, fails the batch.
+        // seeding AttemptCount directly. No same-day cutoff in v7: only the 3-retry budget
+        // (BR-145) bounds this. The 4th (last allowed) attempt, at the 13:00 VN sweep, resolves
+        // to SettlementFailed immediately within that same sweep (SRS 3.10.5, 3.b1) — no further
+        // waiting cycle is needed.
         await using var database = await SqlServerTestDatabase.CreateAsync();
         var operatorUserId = await SeedOperatorAsync(database, "run-cutoff");
         var scheduleId = await SeedScheduleAsync(database, operatorUserId);
@@ -231,46 +236,56 @@ public sealed class DailyPayoutSettlementRunSqlServerTests
 
         await using (var context = database.CreateDbContext())
         {
-            var processor = new DailyPayoutRunProcessor(context, new DailyPayoutEligibilityReader(context), gateway, clock);
+            var processor = CreateProcessor(context, gateway, clock);
             await processor.RunIfDueAsync(CancellationToken.None); // attempt 1 @ 10:00 VN
         }
 
-        foreach (var hour in new[] { 1, 2, 3 }) // sweeps @ 11:00, 12:00, 13:00 VN -> retries 2, 3, 4
+        await using (var afterFirstAttempt = database.CreateDbContext())
+        {
+            var batch = await afterFirstAttempt.PayoutBatches.AsNoTracking().SingleAsync();
+            batch.Status.Should().Be(PayoutSettlementStatus.Scheduled, "rests as Scheduled between attempts, not Processing");
+            batch.AttemptCount.Should().Be(1);
+        }
+
+        foreach (var hour in new[] { 1, 2 }) // sweeps @ 11:00, 12:00 VN -> attempts 2, 3
         {
             clock.UtcNow = RunTimeUtc.AddHours(hour);
             await using var context = database.CreateDbContext();
-            var sweep = new DailyPayoutRetrySweepProcessor(context, gateway, clock);
+            var sweep = new DailyPayoutRetrySweepProcessor(context, gateway, clock, new DailyPayoutEligibilityReader(context));
             await sweep.SweepAsync(CancellationToken.None);
         }
 
-        await using (var afterThirdRetry = database.CreateDbContext())
+        await using (var afterThirdAttempt = database.CreateDbContext())
         {
-            var batch = await afterThirdRetry.PayoutBatches.AsNoTracking().SingleAsync();
-            batch.Status.Should().Be(PayoutSettlementStatus.Processing, "the 13:00 retry is exactly on the cutoff, not past it");
-            batch.AttemptCount.Should().Be(4);
+            var batch = await afterThirdAttempt.PayoutBatches.AsNoTracking().SingleAsync();
+            batch.Status.Should().Be(PayoutSettlementStatus.Scheduled, "the 3-retry budget (BR-145) is not yet exhausted");
+            batch.AttemptCount.Should().Be(3);
         }
 
-        clock.UtcNow = RunTimeUtc.AddHours(4); // sweep @ 14:00 VN -> budget exhausted
+        clock.UtcNow = RunTimeUtc.AddHours(3); // sweep @ 13:00 VN -> 4th (last allowed) attempt, fails
         await using (var context = database.CreateDbContext())
         {
-            var sweep = new DailyPayoutRetrySweepProcessor(context, gateway, clock);
+            var sweep = new DailyPayoutRetrySweepProcessor(context, gateway, clock, new DailyPayoutEligibilityReader(context));
             await sweep.SweepAsync(CancellationToken.None);
         }
 
         await using var verify = database.CreateDbContext();
         var finalBatch = await verify.PayoutBatches.AsNoTracking().SingleAsync();
         finalBatch.Status.Should().Be(PayoutSettlementStatus.SettlementFailed);
-        finalBatch.AttemptCount.Should().Be(4, "exhausting the budget must not count as another attempt");
+        finalBatch.AttemptCount.Should().Be(4, "1 initial + 3 retries, BR-145");
         (await verify.PayoutSettlementAttempts.CountAsync()).Should().Be(4);
         // Regression: budget-exhaustion also goes through MarkFailed's cascade (PD-10) — must not
-        // leave the settlement stuck at Processing (see the two sibling tests above).
+        // leave the settlement stuck at Scheduled (see the two sibling tests above).
         (await verify.PayoutSettlements.AsNoTracking().SingleAsync()).Status.Should().Be(PayoutSettlementStatus.SettlementFailed);
     }
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
-    public async Task DailyRun_WithTourOperatorLocked_ExcludesItsBookingUntilUnlocked()
+    public async Task DailyRun_WithTourOperatorLocked_SchedulesTheBatchButDefersItsTransferUntilUnlocked()
     {
+        // SRS 3.10.5 (BR-160): scheduling does not check the lock — the batch/settlement is
+        // still created on time; only the transfer is deferred, and the SAME batch (never
+        // recreated, PD-11) is transferred once the operator is unlocked and swept again.
         await using var database = await SqlServerTestDatabase.CreateAsync();
         var operatorUserId = await SeedOperatorAsync(database, "run-locked");
         var scheduleId = await SeedScheduleAsync(database, operatorUserId);
@@ -288,14 +303,18 @@ public sealed class DailyPayoutSettlementRunSqlServerTests
 
         await using (var context = database.CreateDbContext())
         {
-            var processor = new DailyPayoutRunProcessor(context, new DailyPayoutEligibilityReader(context), gateway, clock);
+            var processor = CreateProcessor(context, gateway, clock);
             await processor.RunIfDueAsync(CancellationToken.None);
         }
 
+        long scheduledBatchId;
         await using (var whileLocked = database.CreateDbContext())
         {
-            (await whileLocked.PayoutBatches.CountAsync()).Should().Be(0, "BR-160: a locked operator's booking is not settled");
-            (await whileLocked.PayoutSettlements.CountAsync()).Should().Be(0);
+            var batch = await whileLocked.PayoutBatches.AsNoTracking().SingleAsync();
+            batch.Status.Should().Be(PayoutSettlementStatus.Scheduled, "BR-160: scheduled on time, but not transferred while Locked");
+            batch.AttemptCount.Should().Be(0);
+            scheduledBatchId = batch.Id;
+            (await whileLocked.PayoutSettlements.AsNoTracking().SingleAsync()).Status.Should().Be(PayoutSettlementStatus.Scheduled);
         }
 
         await using (var unlockContext = database.CreateDbContext())
@@ -305,18 +324,19 @@ public sealed class DailyPayoutSettlementRunSqlServerTests
             await unlockContext.SaveChangesAsync();
         }
 
-        // Next day's run: the booking is now eligible and settles normally.
-        clock.UtcNow = RunTimeUtc.AddDays(1);
+        // The sweep after the account is unlocked transfers the same Scheduled batch.
+        var nextDay = RunTimeUtc.AddDays(1);
         await using (var context = database.CreateDbContext())
         {
-            var processor = new DailyPayoutRunProcessor(context, new DailyPayoutEligibilityReader(context), gateway, clock);
-            (await processor.RunIfDueAsync(CancellationToken.None)).Should().Be(DailyPayoutRunOutcome.Ran);
+            var sweep = new DailyPayoutRetrySweepProcessor(context, gateway, new MutableClock { UtcNow = nextDay }, new DailyPayoutEligibilityReader(context));
+            (await sweep.SweepAsync(CancellationToken.None)).Should().Be(1);
         }
 
         await using var verify = database.CreateDbContext();
-        var batch = await verify.PayoutBatches.AsNoTracking().SingleAsync();
-        batch.TourOperatorUserId.Should().Be(operatorUserId);
-        batch.Status.Should().Be(PayoutSettlementStatus.Settled);
+        var finalBatch = await verify.PayoutBatches.AsNoTracking().SingleAsync();
+        finalBatch.Id.Should().Be(scheduledBatchId, "the same batch, never recreated (PD-11)");
+        finalBatch.TourOperatorUserId.Should().Be(operatorUserId);
+        finalBatch.Status.Should().Be(PayoutSettlementStatus.Settled);
     }
 
     private static async Task<long> SeedOperatorAsync(SqlServerTestDatabase database, string tag)
@@ -343,6 +363,13 @@ public sealed class DailyPayoutSettlementRunSqlServerTests
             BusinessLicenseNo = $"PAYOUT-LIC-{operatorUser.Id}",
             ApprovalStatus = OperatorApprovalStatus.Approved,
             CommissionRate = 10m,
+            // SRS 3.10.5 step 1: a transfer requires a complete beneficiary bank account (MSG146
+            // otherwise) — set by default so these tests exercise a real simulated transfer.
+            BankName = "Test Bank",
+            AccountHolderName = "Operator Holder",
+            AccountNumberMasked = "****1234",
+            AccountNumberProtected = "protected-test-value",
+            BankAccountUpdatedAtUtc = RunTimeUtc,
         });
         await context.SaveChangesAsync();
 

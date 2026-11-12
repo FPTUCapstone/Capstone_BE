@@ -10,9 +10,10 @@ using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Payouts.DailySettlement.Admin;
 
-/// <summary>UC-73 (PD-10): Administrator retries a failed batch. The PD-7a lookup-before-resend
-/// still applies — this command only flips the batch back to Processing; the next retry sweep
-/// pass picks it up and does the actual lookup/resend.</summary>
+/// <summary>UC-73 [Retry Transfer] (SRS 3.10.6, spec v7): Administrator resends a failed batch
+/// once, with the same amount (idempotent reference). Performed synchronously — the result
+/// (Settled, or back to SettlementFailed with MSG176) is reflected in the response at once; see
+/// <see cref="DailyPayoutRetrySweepProcessor.ManualRetryAsync"/>.</summary>
 public sealed record RetryFailedPayoutBatchCommand(long BatchId) : IRequest<Result<DailyPayoutBatchActionResponseDto>>;
 
 public sealed record DailyPayoutBatchActionResponseDto(long BatchId, string Status, DateTimeOffset UpdatedAtUtc);
@@ -20,7 +21,8 @@ public sealed record DailyPayoutBatchActionResponseDto(long BatchId, string Stat
 public sealed class RetryFailedPayoutBatchCommandHandler(
     IApplicationDbContext dbContext,
     ICurrentUserService currentUserService,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    DailyPayoutRetrySweepProcessor retryProcessor)
     : IRequestHandler<RetryFailedPayoutBatchCommand, Result<DailyPayoutBatchActionResponseDto>>
 {
     public async Task<Result<DailyPayoutBatchActionResponseDto>> Handle(
@@ -39,14 +41,26 @@ public sealed class RetryFailedPayoutBatchCommandHandler(
             return Result.Failure<DailyPayoutBatchActionResponseDto>(DailyPayoutErrorCodes.NotFailed, DailyPayoutErrorCodes.NotFailedMessage);
 
         var now = dateTimeProvider.UtcNow;
-        batch.Retry(now);
+        var outcome = await retryProcessor.ManualRetryAsync(batch, now, cancellationToken);
 
+        // UC-73 inherits UC-74's preconditions ("UC-74 rules apply") — a refusal makes no change
+        // to the batch and is not itself a retry attempt, so the audit outcome reflects that.
+        var auditOutcome = outcome == ManualRetryOutcome.Settled ? AuditOutcome.Success : AuditOutcome.Failure;
         dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(
             currentUserService.UserId, AuditActionTypes.PayoutSettlementRetried,
-            AuditEntityTypes.PayoutBatch, batch.Id, now, AuditOutcome.Success));
+            AuditEntityTypes.PayoutBatch, batch.Id, now, auditOutcome,
+            reason: outcome.ToString(),
+            afterData: System.Text.Json.JsonSerializer.Serialize(new { Outcome = outcome.ToString(), ResultingStatus = batch.Status })));
 
         await dbContext.SaveChangesAsync(cancellationToken);
 
-        return Result.Success(new DailyPayoutBatchActionResponseDto(batch.Id, batch.Status, now));
+        return outcome switch
+        {
+            ManualRetryOutcome.RefusedOperatorLocked =>
+                Result.Failure<DailyPayoutBatchActionResponseDto>(DailyPayoutErrorCodes.RetryBlockedOperatorLocked, DailyPayoutErrorCodes.RetryBlockedOperatorLockedMessage),
+            ManualRetryOutcome.RefusedMissingBankAccount =>
+                Result.Failure<DailyPayoutBatchActionResponseDto>(DailyPayoutErrorCodes.RetryBlockedMissingBankAccount, DailyPayoutErrorCodes.RetryBlockedMissingBankAccountMessage),
+            _ => Result.Success(new DailyPayoutBatchActionResponseDto(batch.Id, batch.Status, now)),
+        };
     }
 }
