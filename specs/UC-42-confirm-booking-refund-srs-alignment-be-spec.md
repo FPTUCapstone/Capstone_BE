@@ -1,4 +1,4 @@
-# UC-41 / UC-42 / UC-67 — Căn chỉnh luồng hoàn tiền theo SRS (BE) — Spec v1.1 (đã chốt Q1–Q4)
+# UC-41 / UC-42 / UC-67 — Căn chỉnh luồng hoàn tiền theo SRS (BE) — Spec v1.2 (đã chốt Q1–Q4; bổ sung endpoint đọc theo Q-FE2 từ spec FE)
 
 - Nguồn chuẩn: `SRS_rev10 (5).docx` (12/11/2026). Các quyết định chủ sở hữu được áp dụng: 10/11 (BR-187, BR-188, BR-189 bản đầu), 11/11 (BR-135 bậc hoàn mới, BR-157 bị bãi bỏ, chia 70/30 + 20, BR-143 không còn đường hoàn trực tiếp, BR-189 khóa tự động 15 ngày), 12/11.
 - Phạm vi: luồng hoàn tiền khi hủy booking (UC-41), xác nhận hoàn tiền của Tour Operator (UC-42), và hoàn tiền cho Traveler (UC-67) — chỉ phần BE.
@@ -89,12 +89,20 @@ PendingOperatorConfirmation ──TO xác nhận──▶ AwaitingPartnerReturn 
 - Mã lỗi mới: `refund.request_not_pending` (MSG171), `refund.operator_not_owner` (MSG126), `refund.return_reference_required` (MSG172), `refund.status_persist_failed` (MSG127).
 
 ### 3.3 API
+
+Ghi (TO/Staff/Admin hành động):
 - `POST /api/v1/operator/refunds/{refundId}/confirm` — TO xác nhận (UC-42 bước 3).
 - `POST /api/v1/operator/refunds/{refundId}/return` — TO báo đã chuyển (body: `returnReference`).
 - `POST /api/v1/admin/refunds/{refundId}/return-received` — Staff ghi nhận đủ phần chia (UC-42 bước 6).
 - `POST /api/v1/admin/refunds/{refundId}/resolve` — Administrator xử lý `Escalated` / `Reconciliation`.
-- Trả về `ProblemDetails` qua `HandleFailure`, không dùng envelope mới (TEAM_ENGINEERING_RULES §9).
-- Mọi endpoint xác định người dùng từ session, không nhận `operatorId` từ body (§10).
+
+Đọc (bổ sung theo Q-FE2, FE cần cho 3 màn hình mới):
+- `GET /api/v1/operator/refunds?status=PendingOperatorConfirmation&page=&pageSize=` — danh sách refund TO cần xử lý (trang "Confirm Booking Refund"). Chỉ trả refund của booking thuộc tour của TO đang đăng nhập.
+- `GET /api/v1/operator/refunds/{refundId}` — chi tiết 1 refund cho TO (booking, số tiền, phần chia, hạn, trạng thái).
+- `GET /api/v1/admin/refunds?status=ReturnReported&status=Escalated&status=Reconciliation&page=&pageSize=` — danh sách cho Staff (Reconciliation screen 100, lọc `ReturnReported`) và Administrator (Escalated Refunds Monitor screen 101, lọc `Escalated`/`Reconciliation`); cùng endpoint, khác filter, theo đúng pattern GET list/detail của `AdminPayoutSettlementsController`.
+- `GET /api/v1/admin/refunds/{refundId}` — chi tiết 1 refund cho Staff/Admin.
+
+Chung: trả về `ProblemDetails` qua `HandleFailure`, không dùng envelope mới (TEAM_ENGINEERING_RULES §9). Mọi endpoint xác định người dùng từ session, không nhận `operatorId` từ body (§10). Danh sách phân trang theo cùng convention `page`/`pageSize` đã dùng ở `AdminPayoutSettlementsController`.
 
 ### 3.4 Dữ liệu
 - Script SQL mới trong `database/migrations/`, không dùng EF migration: nới `payment.Refund.status` lên ≥ 30 ký tự (G13), thêm cột trường mới (mục 3.1). Kèm kiểm tra: DB rỗng, DB có dữ liệu cũ (refund `Pending` đang tồn tại — xử lý theo Q3), và chạy lại không lỗi.
