@@ -169,6 +169,14 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripMate.Application.Features.Admin.ActiveTrips.GetList.ActiveTripErrorCodes.NotFound =>
                 StatusCodes.Status404NotFound,
 
+            TripMate.Application.Features.Admin.StatisticalReports.Common.StatisticalReportErrorCodes.Forbidden =>
+                StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.Admin.StatisticalReports.Common.StatisticalReportErrorCodes.PeriodNotClosed =>
+                StatusCodes.Status422UnprocessableEntity,
+            TripMate.Application.Features.Admin.StatisticalReports.Common.StatisticalReportErrorCodes.InvalidCriteria or
+                TripMate.Application.Features.Admin.StatisticalReports.Common.StatisticalReportErrorCodes.UnsupportedScope =>
+                StatusCodes.Status400BadRequest,
+
             TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.Forbidden =>
                 StatusCodes.Status403Forbidden,
 
@@ -468,7 +476,9 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
 
             SchedulingErrorCodes.RoutingProviderUnavailable
                 or SchedulingErrorCodes.GenerationTemporarilyUnavailable
-                or SchedulingErrorCodes.GenerationRateLimiterUnavailable =>
+                or SchedulingErrorCodes.GenerationRateLimiterUnavailable
+                or SchedulingErrorCodes.GenerationTimedOut
+                or TripMate.Application.Features.Itineraries.Common.ItineraryErrorCodes.GenerationTimedOut =>
                 StatusCodes.Status503ServiceUnavailable,
 
             FeedbackErrorCodes.PoiNotFound or FeedbackErrorCodes.ItineraryNotFound =>

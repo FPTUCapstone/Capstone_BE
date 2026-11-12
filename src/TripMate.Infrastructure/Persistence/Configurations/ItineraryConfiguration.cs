@@ -33,6 +33,16 @@ public class ItineraryConfiguration : IEntityTypeConfiguration<Itinerary>
         builder.Property(i => i.CreatedAtUtc).HasColumnName("created_at").AsUtcDateTime2().IsRequired();
         builder.Property(i => i.UpdatedAtUtc).HasColumnName("updated_at").AsUtcDateTime2().IsRequired();
         builder.Property(i => i.Version).HasColumnName("version").IsRequired();
+        builder.Property(i => i.SolverOutcome)
+            .HasColumnName("solver_outcome")
+            .HasMaxLength(Itinerary.SolverOutcomeMaxLength)
+            .IsUnicode(false);
+        builder.Property(i => i.ObjectiveMode)
+            .HasColumnName("objective_mode")
+            .HasMaxLength(Itinerary.ObjectiveModeMaxLength)
+            .IsUnicode(false);
+        builder.Property(i => i.SearchCompleted).HasColumnName("search_completed");
+        builder.Property(i => i.TimeOfDayRefined).HasColumnName("time_of_day_refined");
 
         builder.HasOne(i => i.TravelerUser)
             .WithMany()

@@ -322,6 +322,71 @@ public sealed class ItineraryVersionServiceTests
         result.Value.Items.Select(item => item.PointOfInterestId).Should().NotContain(restaurant.Id);
     }
 
+    /// <summary>ADR-002 (G2): a regenerated version records the solver that produced it.</summary>
+    [Fact]
+    public async Task CreateRegeneratedVersion_RecordsHowTheNewScheduleWasProduced()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var request = await AddRequestAsync(dbContext, travelerUserId: 42);
+        var current = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Current museum", visitMinutes: 300);
+        await AddPlanningReadyPoiAsync(dbContext, "Nature", "Other park", visitMinutes: 300);
+        dbContext.TravelerProfiles.Add(TravelerProfile.Create(42, "[\"culture\"]", Now));
+        var original = await AddItineraryAsync(dbContext, request, 1, current.Id);
+
+        var result = await new ItineraryVersionService(
+                dbContext,
+                new FixedRouteDurationProvider(),
+                new SchedulingGenerationOptions { SolverMode = SchedulingSolverMode.Csp })
+            .CreateRegeneratedVersionAsync(original, request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.SolverOutcome.Should().Be(SchedulingSolverOutcomes.Csp);
+        result.Value.ObjectiveMode.Should().Be(nameof(ObjectiveMode.Lexicographic));
+        result.Value.SearchCompleted.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task CreateRegeneratedVersion_WhenTheCspTimesOutWithoutAPlan_ReportsARetryableTimeout()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var request = await AddRequestAsync(dbContext, travelerUserId: 42);
+        var current = await AddPlanningReadyPoiAsync(dbContext, "Culture", "All-day museum", visitMinutes: 480);
+        var original = await AddItineraryAsync(dbContext, request, 1, current.Id);
+
+        var result = await new ItineraryVersionService(
+                dbContext,
+                new FixedRouteDurationProvider(),
+                new SchedulingGenerationOptions
+                {
+                    SolverMode = SchedulingSolverMode.Csp,
+                    Csp = new CspOptions { TimeLimitMilliseconds = 0 },
+                })
+            .CreateRegeneratedVersionAsync(original, request, CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(ItineraryErrorCodes.GenerationTimedOut);
+    }
+
+    /// <summary>ADR-002 (G2): a version saved from the traveler's own order is not presented as a solver result.</summary>
+    [Fact]
+    public async Task CreateAdjustedVersion_RecordsTheTravelersOwnOrder()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var museum = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Cham Museum");
+        var bridge = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Dragon Bridge", 16.0612m, 108.2277m);
+        var request = await AddRequestAsync(dbContext, travelerUserId: 42);
+        var original = await AddItineraryAsync(dbContext, request, 1, museum.Id);
+
+        var result = await new ItineraryVersionService(dbContext, new FixedRouteDurationProvider())
+            .CreateAdjustedVersionAsync(original, request, [new ItineraryStop(bridge.Id), new ItineraryStop(museum.Id)], CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.SolverOutcome.Should().Be(SchedulingProvenance.ManualOrder);
+        result.Value.ObjectiveMode.Should().BeNull();
+        result.Value.SearchCompleted.Should().BeNull();
+        result.Value.TimeOfDayRefined.Should().BeFalse();
+    }
+
     [Fact]
     public async Task CreateAdjustedVersion_AcceptsAPlaceThatWasNotInTheItinerary()
     {

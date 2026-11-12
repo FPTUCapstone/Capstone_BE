@@ -11,6 +11,7 @@ using StackExchange.Redis;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Media;
+using TripMate.Application.Features.Admin.StatisticalReports.Exports;
 using TripMate.Application.Features.Authentication.PasswordReset;
 using TripMate.Application.Features.Bookings.Common;
 using TripMate.Application.Features.Bookings.Refunds;
@@ -170,6 +171,7 @@ public static class DependencyInjection
         services.AddSingleton<IOperatorDocumentStorage, CloudinaryOperatorDocumentStorage>();
         services.AddSingleton<IRevenueExportStorage, CloudinaryRevenueExportStorage>();
         services.AddSingleton<IRevenueExportRenderer, XlsxRevenueExportRenderer>();
+        services.AddSingleton<IStatisticalReportExportRenderer, StatisticalReportExportRenderer>();
 
         services.AddOptions<RevenueExportOptions>()
             .Bind(configuration.GetSection(RevenueExportOptions.SectionName));
@@ -178,6 +180,7 @@ public static class DependencyInjection
         services.AddScoped<TripMate.Application.Features.Operator.Revenue.Exports.Worker.RevenueExportExpiryProcessor>();
         services.AddHostedService<RevenueExportWorkerBackgroundService>();
         services.AddHostedService<RevenueExportExpiryBackgroundService>();
+        services.AddHostedService<StatisticalPeriodCloseBackgroundService>();
 
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
         services.AddOptions<MapboxRoutingOptions>()
