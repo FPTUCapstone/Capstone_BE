@@ -10,9 +10,10 @@ using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Payouts.DailySettlement.Admin;
 
-/// <summary>UC-73 (PD-10): Administrator retries a failed batch. The PD-7a lookup-before-resend
-/// still applies — this command only flips the batch back to Processing; the next retry sweep
-/// pass picks it up and does the actual lookup/resend.</summary>
+/// <summary>UC-73 [Retry Transfer] (SRS 3.10.6, spec v7): Administrator resends a failed batch
+/// once, with the same amount (idempotent reference). Performed synchronously — the result
+/// (Settled, or back to SettlementFailed with MSG176) is reflected in the response at once; see
+/// <see cref="DailyPayoutRetrySweepProcessor.ManualRetryAsync"/>.</summary>
 public sealed record RetryFailedPayoutBatchCommand(long BatchId) : IRequest<Result<DailyPayoutBatchActionResponseDto>>;
 
 public sealed record DailyPayoutBatchActionResponseDto(long BatchId, string Status, DateTimeOffset UpdatedAtUtc);
@@ -20,7 +21,8 @@ public sealed record DailyPayoutBatchActionResponseDto(long BatchId, string Stat
 public sealed class RetryFailedPayoutBatchCommandHandler(
     IApplicationDbContext dbContext,
     ICurrentUserService currentUserService,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    DailyPayoutRetrySweepProcessor retryProcessor)
     : IRequestHandler<RetryFailedPayoutBatchCommand, Result<DailyPayoutBatchActionResponseDto>>
 {
     public async Task<Result<DailyPayoutBatchActionResponseDto>> Handle(
@@ -39,11 +41,12 @@ public sealed class RetryFailedPayoutBatchCommandHandler(
             return Result.Failure<DailyPayoutBatchActionResponseDto>(DailyPayoutErrorCodes.NotFailed, DailyPayoutErrorCodes.NotFailedMessage);
 
         var now = dateTimeProvider.UtcNow;
-        batch.Retry(now);
+        await retryProcessor.ManualRetryAsync(batch, now, cancellationToken);
 
         dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(
             currentUserService.UserId, AuditActionTypes.PayoutSettlementRetried,
-            AuditEntityTypes.PayoutBatch, batch.Id, now, AuditOutcome.Success));
+            AuditEntityTypes.PayoutBatch, batch.Id, now, AuditOutcome.Success,
+            afterData: System.Text.Json.JsonSerializer.Serialize(new { ResultingStatus = batch.Status })));
 
         await dbContext.SaveChangesAsync(cancellationToken);
 

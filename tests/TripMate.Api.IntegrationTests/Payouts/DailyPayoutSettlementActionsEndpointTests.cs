@@ -96,16 +96,32 @@ public sealed class DailyPayoutSettlementActionsEndpointTests
     }
 
     [Fact]
-    public async Task ManualSettlement_BlankReference_ReturnsBadRequest()
+    public async Task MarkResolved_BlankReason_ReturnsBadRequest()
     {
         await using var factory = new TripMateApiFactory();
         var batchId = await SeedBatchAsync(factory, PayoutSettlementStatus.SettlementFailed);
         using var client = factory.CreateAuthenticatedClient(1, UserRole.Administrator);
 
         var response = await client.PostAsJsonAsync(
-            $"/api/v1/admin/payout-settlements/{batchId}/manual-settlement", new { transferReference = "   " });
+            $"/api/v1/admin/payout-settlements/{batchId}/resolve", new { reason = "   " });
 
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest); // MSG178
+    }
+
+    [Fact]
+    public async Task MarkResolved_WithReason_ReturnsOkAndResolvesWithoutATransfer()
+    {
+        await using var factory = new TripMateApiFactory();
+        var batchId = await SeedBatchAsync(factory, PayoutSettlementStatus.SettlementFailed);
+        using var client = factory.CreateAuthenticatedClient(1, UserRole.Administrator);
+
+        var response = await client.PostAsJsonAsync(
+            $"/api/v1/admin/payout-settlements/{batchId}/resolve", new { reason = "Operator confirmed receipt out of band" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var resolved = await factory.WithDbContextAsync(async db =>
+            (await db.PayoutBatches.FindAsync(batchId))!.Status);
+        resolved.Should().Be(PayoutSettlementStatus.Resolved);
     }
 
     [Fact]

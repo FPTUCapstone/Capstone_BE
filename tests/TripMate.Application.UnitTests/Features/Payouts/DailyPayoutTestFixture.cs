@@ -32,6 +32,15 @@ internal static class DailyPayoutTestFixture
             BusinessLicenseNo = $"LIC-{id}",
             ApprovalStatus = OperatorApprovalStatus.Approved,
             CommissionRate = 10m,
+            // SRS 3.10.5 step 1: a payout transfer requires a complete beneficiary bank account
+            // (MSG146 otherwise) — set by default so existing payout-run tests still exercise a
+            // real simulated transfer; DailyPayoutDebtAndAutoLockTests seeds its own operator
+            // without one where that absence is the point of the test.
+            BankName = "Test Bank",
+            AccountHolderName = "Operator Holder",
+            AccountNumberMasked = "****1234",
+            AccountNumberProtected = "protected-test-value",
+            BankAccountUpdatedAtUtc = DateTimeOffset.UtcNow,
         });
 
         await db.SaveChangesAsync();

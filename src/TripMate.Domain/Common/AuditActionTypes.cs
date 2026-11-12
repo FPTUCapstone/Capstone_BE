@@ -54,12 +54,19 @@ public static class AuditActionTypes
     public const string PayoutApproved = "ApprovePayoutRequest";
     public const string PayoutRejected = "RejectPayoutRequest";
 
-    // DAILY-PAYOUT-TRANSFER, UC-73 (Task 9)
+    // DAILY-PAYOUT-TRANSFER, UC-73 (Task 9, spec v6): [Retry Transfer] and [Mark as Resolved].
+    // Carry over and manual settlement are removed in v6 (not in SRS rev10-5).
     public const string PayoutSettlementRetried = "PAYOUT_SETTLEMENT_RETRIED";
-    public const string PayoutSettlementCarriedOver = "PAYOUT_SETTLEMENT_CARRIED_OVER";
-    public const string PayoutSettlementManuallySettled = "PAYOUT_SETTLEMENT_MANUALLY_SETTLED";
+    public const string PayoutSettlementResolved = "PAYOUT_SETTLEMENT_RESOLVED";
     // DAILY-PAYOUT-TRANSFER, Task 7A (PD-17): a reconciliation lookup found a discrepancy
     public const string PayoutReconciliationDiscrepancyDetected = "PAYOUT_RECONCILIATION_DISCREPANCY_DETECTED";
+    // DAILY-PAYOUT-TRANSFER, Task 7 (BR-189): automatic lock of a Tour Operator with unrecovered
+    // pending debt, and its Staff-only unlock.
+    public const string TourOperatorAutoLocked = "TOUR_OPERATOR_AUTO_LOCKED";
+    public const string TourOperatorUnlocked = "TOUR_OPERATOR_UNLOCKED";
+    // DAILY-PAYOUT-TRANSFER, Task 4 (PD-2A): a Cancelled booking that a run excludes without
+    // creating any settlement for it.
+    public const string PayoutExclusionCancelledBeforeRun = "PAYOUT_EXCLUSION_CANCELLED_BEFORE_RUN";
 
     // UC-43 Check-in scan verification rejected
     public const string CheckInScanRejected = "CheckInScanRejected";

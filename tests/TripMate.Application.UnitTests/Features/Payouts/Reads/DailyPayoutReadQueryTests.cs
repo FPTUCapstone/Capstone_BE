@@ -15,8 +15,8 @@ public sealed class DailyPayoutReadQueryTests
     private static async Task<PayoutBatch> SeedSettledBatchAsync(TestDbContext db, long operatorId, long bookingId)
     {
         var batch = PayoutBatch.Create(new DateOnly(2026, 11, 9), operatorId, DateTimeOffset.UtcNow);
-        var settlement = PayoutSettlement.Create(1, bookingId, operatorId, new DateOnly(2026, 11, 9), PayoutSettlementKind.Main,
-            2_000_000m, 10m, 200_000m, 1_800_000m, 0m, 1_800_000m, DateTimeOffset.UtcNow);
+        var settlement = PayoutSettlement.Create(1, bookingId, operatorId, new DateOnly(2026, 11, 9), PayoutSettlementKind.Advance,
+            1_400_000m, 10m, 0m, 1_400_000m, 0m, 1_400_000m, DateTimeOffset.UtcNow);
         batch.AddSettlement(settlement);
         db.PayoutBatches.Add(batch);
         await db.SaveChangesAsync();
@@ -33,7 +33,7 @@ public sealed class DailyPayoutReadQueryTests
         await SeedSettledBatchAsync(db, operatorId: 7, bookingId: 1);
         await SeedSettledBatchAsync(db, operatorId: 8, bookingId: 2);
         var staff = new FakeCurrentUserService { UserId = 3, Role = nameof(UserRole.Staff) };
-        var handler = new GetPayoutSettlementsQueryHandler(db, staff, new DailyPayoutEligibilityReader(db));
+        var handler = new GetPayoutSettlementsQueryHandler(db, staff, new DailyPayoutEligibilityReader(db), new PayoutTestHelpers.FixedClock(DateTimeOffset.UtcNow));
 
         var result = await handler.Handle(new GetPayoutSettlementsQuery(), CancellationToken.None);
 
@@ -50,7 +50,7 @@ public sealed class DailyPayoutReadQueryTests
         await using var db = TestDbContext.Create();
         var batch = await SeedSettledBatchAsync(db, operatorId: 7, bookingId: 1);
         var staff = new FakeCurrentUserService { UserId = 3, Role = nameof(UserRole.Staff) };
-        var handler = new GetPayoutSettlementsQueryHandler(db, staff, new DailyPayoutEligibilityReader(db));
+        var handler = new GetPayoutSettlementsQueryHandler(db, staff, new DailyPayoutEligibilityReader(db), new PayoutTestHelpers.FixedClock(DateTimeOffset.UtcNow));
 
         var result = await handler.Handle(new GetPayoutSettlementsQuery(), CancellationToken.None);
 
@@ -64,7 +64,7 @@ public sealed class DailyPayoutReadQueryTests
     {
         await using var db = TestDbContext.Create();
         var operatorUser = new FakeCurrentUserService { UserId = 7, Role = nameof(UserRole.TourOperator) };
-        var handler = new GetPayoutSettlementsQueryHandler(db, operatorUser, new DailyPayoutEligibilityReader(db));
+        var handler = new GetPayoutSettlementsQueryHandler(db, operatorUser, new DailyPayoutEligibilityReader(db), new PayoutTestHelpers.FixedClock(DateTimeOffset.UtcNow));
 
         var result = await handler.Handle(new GetPayoutSettlementsQuery(), CancellationToken.None);
 
@@ -92,8 +92,8 @@ public sealed class DailyPayoutReadQueryTests
     {
         await using var db = TestDbContext.Create();
         var batch = PayoutBatch.Create(new DateOnly(2026, 11, 9), 7, DateTimeOffset.UtcNow);
-        var settlement = PayoutSettlement.Create(1, 1, 7, new DateOnly(2026, 11, 9), PayoutSettlementKind.Main,
-            2_000_000m, 10m, 200_000m, 1_800_000m, 0m, 1_800_000m, DateTimeOffset.UtcNow);
+        var settlement = PayoutSettlement.Create(1, 1, 7, new DateOnly(2026, 11, 9), PayoutSettlementKind.Advance,
+            1_400_000m, 10m, 0m, 1_400_000m, 0m, 1_400_000m, DateTimeOffset.UtcNow);
         batch.AddSettlement(settlement);
         db.PayoutBatches.Add(batch);
         await db.SaveChangesAsync();
@@ -125,7 +125,7 @@ public sealed class DailyPayoutReadQueryTests
         await DailyPayoutTestFixture.SeedTourScheduleAsync(db, tourId: 2, scheduleId: 2, operatorId: 8, endAtUtc: DateTimeOffset.UtcNow.AddDays(1));
         await DailyPayoutTestFixture.SeedConfirmedBookingAsync(db, bookingId: 2, scheduleId: 2, totalAmount: 1_000_000m, succeededAtUtc: DateTimeOffset.UtcNow.AddHours(-2));
         var staff = new FakeCurrentUserService { UserId = 3, Role = nameof(UserRole.Staff) };
-        var handler = new GetPayoutSettlementsQueryHandler(db, staff, new DailyPayoutEligibilityReader(db));
+        var handler = new GetPayoutSettlementsQueryHandler(db, staff, new DailyPayoutEligibilityReader(db), new PayoutTestHelpers.FixedClock(DateTimeOffset.UtcNow));
 
         var result = await handler.Handle(new GetPayoutSettlementsQuery(), CancellationToken.None);
 
@@ -148,7 +148,7 @@ public sealed class DailyPayoutReadQueryTests
         await DailyPayoutTestFixture.SeedTourScheduleAsync(db, tourId: 2, scheduleId: 2, operatorId: 8, endAtUtc: DateTimeOffset.UtcNow.AddDays(1));
         await DailyPayoutTestFixture.SeedConfirmedBookingAsync(db, bookingId: 2, scheduleId: 2, totalAmount: 1_000_000m, succeededAtUtc: DateTimeOffset.UtcNow.AddHours(-2));
         var staff = new FakeCurrentUserService { UserId = 3, Role = nameof(UserRole.Staff) };
-        var handler = new GetPayoutSettlementsQueryHandler(db, staff, new DailyPayoutEligibilityReader(db));
+        var handler = new GetPayoutSettlementsQueryHandler(db, staff, new DailyPayoutEligibilityReader(db), new PayoutTestHelpers.FixedClock(DateTimeOffset.UtcNow));
 
         var result = await handler.Handle(new GetPayoutSettlementsQuery(Status: "Awaiting Window"), CancellationToken.None);
 
@@ -166,7 +166,7 @@ public sealed class DailyPayoutReadQueryTests
         await DailyPayoutTestFixture.SeedTourScheduleAsync(db, tourId: 2, scheduleId: 2, operatorId: 8, endAtUtc: DateTimeOffset.UtcNow.AddDays(1));
         await DailyPayoutTestFixture.SeedConfirmedBookingAsync(db, bookingId: 2, scheduleId: 2, totalAmount: 1_000_000m, succeededAtUtc: DateTimeOffset.UtcNow.AddHours(-2));
         var staff = new FakeCurrentUserService { UserId = 3, Role = nameof(UserRole.Staff) };
-        var handler = new GetPayoutSettlementsQueryHandler(db, staff, new DailyPayoutEligibilityReader(db));
+        var handler = new GetPayoutSettlementsQueryHandler(db, staff, new DailyPayoutEligibilityReader(db), new PayoutTestHelpers.FixedClock(DateTimeOffset.UtcNow));
 
         var result = await handler.Handle(
             new GetPayoutSettlementsQuery(RunDateFrom: new DateOnly(2026, 1, 1)), CancellationToken.None);

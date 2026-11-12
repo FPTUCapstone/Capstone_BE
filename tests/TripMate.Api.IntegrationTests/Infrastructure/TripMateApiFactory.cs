@@ -535,7 +535,8 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
 
     public DbSet<PayoutSettlementAttempt> PayoutSettlementAttempts => Set<PayoutSettlementAttempt>();
 
-    public DbSet<PayoutSettlementAdjustment> PayoutSettlementAdjustments => Set<PayoutSettlementAdjustment>();
+    public DbSet<TourOperatorDebt> TourOperatorDebts => Set<TourOperatorDebt>();
+
 
     public DbSet<PayoutReconciliationItem> PayoutReconciliationItems => Set<PayoutReconciliationItem>();
 
@@ -563,6 +564,22 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
 
         token.RevokedAtUtc = revokedAtUtc;
         return 1;
+    }
+
+    public async Task<int> RevokeAllRefreshTokensForUserAsync(
+        long userId,
+        DateTimeOffset revokedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var tokens = await RefreshTokens
+            .Where(candidate => candidate.UserId == userId && candidate.RevokedAtUtc == null)
+            .ToListAsync(cancellationToken);
+        foreach (var token in tokens)
+        {
+            token.RevokedAtUtc = revokedAtUtc;
+        }
+
+        return tokens.Count;
     }
 
     public async Task<int> DeleteSignOutAuditEventsBeforeAsync(
