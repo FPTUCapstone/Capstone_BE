@@ -15,8 +15,12 @@ public class Booking : BaseEntity
     public const int BookingCodeMaxLength = 30;
     public const int CancelReasonMaxLength = 300;
     public const int PolicySnapshotMaxLength = 500;
+    // BR-135 (owner decision 11/11/2026): >14 days 100%, 10-14 days 50%, under 10 days 0% (fixed,
+    // not configurable — see TravelerCancellationPolicy's v3 handling). Applies to bookings
+    // created from the cutover date onward; existing bookings keep their own stored v1/v2
+    // snapshot untouched (BR-107).
     public const string DefaultCancellationPolicySnapshot =
-        "{\"version\":2,\"atLeastSevenDaysPercent\":100,\"threeToSevenDaysPercent\":50,\"oneToThreeDaysPercent\":30}";
+        "{\"version\":3,\"atLeastSevenDaysPercent\":100,\"threeToSevenDaysPercent\":50,\"oneToThreeDaysPercent\":0}";
 
     private readonly List<BookingParticipant> _participants = [];
     private readonly List<Ticket> _tickets = [];

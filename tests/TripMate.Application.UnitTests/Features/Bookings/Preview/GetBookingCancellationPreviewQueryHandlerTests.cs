@@ -38,12 +38,14 @@ public sealed class GetBookingCancellationPreviewQueryHandlerTests
         db.Tours.Add(tour);
         db.TourSchedules.Add(schedule);
         db.Bookings.Add(booking);
-        db.PaymentTransactions.Add(CreateSuccessfulPayment(51, booking.Id, booking.TotalAmount, departure.AddDays(-10)));
+        // Paid well before "now" (and more than 24h ahead of it), so the 24h-since-payment
+        // full-refund rule never interferes with the BR-135 v3 tier being tested.
+        db.PaymentTransactions.Add(CreateSuccessfulPayment(51, booking.Id, booking.TotalAmount, departure.AddDays(-25)));
         await db.SaveChangesAsync();
 
         var handler = new GetBookingCancellationPreviewQueryHandler(db,
             new FakeCurrentUserService { UserId = 7, Role = nameof(UserRole.Traveler) },
-            new FakeDateTimeProvider { UtcNow = departure.AddDays(-3) });
+            new FakeDateTimeProvider { UtcNow = departure.AddDays(-12) });
 
         var result = await handler.Handle(new GetBookingCancellationPreviewQuery(booking.Id), CancellationToken.None);
 
@@ -55,7 +57,7 @@ public sealed class GetBookingCancellationPreviewQueryHandlerTests
             Quantity = 1,
             TotalAmount = 1_000_000m,
             CanCancel = true,
-            EstimatedRefundAmount = 300_000m,
+            EstimatedRefundAmount = 500_000m, // BR-135 v3: 10-14 days before departure = 50%.
             RefundStatus = nameof(RefundStatus.Pending),
         });
     }
@@ -76,7 +78,7 @@ public sealed class GetBookingCancellationPreviewQueryHandlerTests
 
         var handler = new GetBookingCancellationPreviewQueryHandler(db,
             new FakeCurrentUserService { UserId = 7, Role = nameof(UserRole.Traveler) },
-            new FakeDateTimeProvider { UtcNow = departure.AddDays(-3) });
+            new FakeDateTimeProvider { UtcNow = departure.AddDays(-20) }); // BR-135 v3: >14 days = 100%, so a non-zero refund is actually at stake here.
 
         var result = await handler.Handle(new GetBookingCancellationPreviewQuery(booking.Id), CancellationToken.None);
 
