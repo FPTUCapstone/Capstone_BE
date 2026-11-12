@@ -20,14 +20,14 @@ public sealed class StatisticalReportSnapshot : BaseEntity
     public static StatisticalReportSnapshot Create(
         string criteriaKey, string periodKey, string reportType, string bookingType,
         long? operatorUserId, long? destinationId, string payloadJson, DateTimeOffset generatedAtUtc) => new()
-    {
-        CriteriaKey = criteriaKey,
-        PeriodKey = periodKey,
-        ReportType = reportType,
-        BookingType = bookingType,
-        OperatorUserId = operatorUserId,
-        DestinationId = destinationId,
-        PayloadJson = payloadJson,
-        GeneratedAtUtc = generatedAtUtc.ToUniversalTime(),
-    };
+        {
+            CriteriaKey = criteriaKey,
+            PeriodKey = periodKey,
+            ReportType = reportType,
+            BookingType = bookingType,
+            OperatorUserId = operatorUserId,
+            DestinationId = destinationId,
+            PayloadJson = payloadJson,
+            GeneratedAtUtc = generatedAtUtc.ToUniversalTime(),
+        };
 }

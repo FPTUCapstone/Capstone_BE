@@ -84,14 +84,14 @@ public sealed class GetStatisticalReportQueryHandler(
 
     private async Task<StatisticalReportDto> BuildAsync(string reportType, string bookingType,
         long? operatorUserId, long? destinationId, StatisticalPeriodDto period, CancellationToken ct) => reportType switch
-    {
-        "PLATFORM_REVENUE" => await BuildRevenueAsync(bookingType, operatorUserId, destinationId, period, ct),
-        "BOOKING_VOLUME" => await BuildBookingVolumeAsync(bookingType, operatorUserId, destinationId, period, ct),
-        "USER_GROWTH" => await BuildUserGrowthAsync(period, ct),
-        "OPERATOR_PERFORMANCE" => await BuildOperatorPerformanceAsync(operatorUserId, destinationId, period, ct),
-        "DESTINATION_POPULARITY" => await BuildDestinationPopularityAsync(operatorUserId, destinationId, period, ct),
-        _ => throw new InvalidOperationException("Validated report type is unavailable."),
-    };
+        {
+            "PLATFORM_REVENUE" => await BuildRevenueAsync(bookingType, operatorUserId, destinationId, period, ct),
+            "BOOKING_VOLUME" => await BuildBookingVolumeAsync(bookingType, operatorUserId, destinationId, period, ct),
+            "USER_GROWTH" => await BuildUserGrowthAsync(period, ct),
+            "OPERATOR_PERFORMANCE" => await BuildOperatorPerformanceAsync(operatorUserId, destinationId, period, ct),
+            "DESTINATION_POPULARITY" => await BuildDestinationPopularityAsync(operatorUserId, destinationId, period, ct),
+            _ => throw new InvalidOperationException("Validated report type is unavailable."),
+        };
 
     private async Task<StatisticalReportDto> BuildRevenueAsync(string bookingType, long? operatorUserId,
         long? destinationId, StatisticalPeriodDto period, CancellationToken ct)
