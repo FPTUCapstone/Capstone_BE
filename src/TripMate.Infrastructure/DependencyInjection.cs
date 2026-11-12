@@ -70,6 +70,10 @@ public static class DependencyInjection
 
         services.AddScoped<IApplicationDbContext>(sp =>
             sp.GetRequiredService<ApplicationDbContext>());
+        services.AddScoped<IAccountStatusMutationLock>(serviceProvider =>
+            new SqlServerAccountStatusMutationLock(
+                new SqlServerTransactionApplicationLockExecutor(
+                    serviceProvider.GetRequiredService<ApplicationDbContext>())));
         services.AddOptions<TripAlertOptions>()
             .Bind(configuration.GetSection(TripAlertOptions.SectionName))
             .Validate(options => options.ScanInterval > TimeSpan.Zero, "Trip alert scan interval must be positive.")
