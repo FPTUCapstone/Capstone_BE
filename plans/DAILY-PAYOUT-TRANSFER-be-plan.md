@@ -1,201 +1,188 @@
-# DAILY-PAYOUT-TRANSFER — Plan triển khai (BE), v3
+# DAILY-PAYOUT-TRANSFER — Plan triển khai (BE), v7
 
-Nguồn sự thật: `specs/DAILY-PAYOUT-TRANSFER-be-spec.md` (v3). SRS Report3 v12 mục 3.9.9, 3.10.4, 3.10.5.
-Nhánh: `feature/linhnv-daily-payout-transfer` (từ `origin/develop`).
+Nguồn sự thật: `specs/DAILY-PAYOUT-TRANSFER-be-spec.md` (v7). SRS mới `SRS_rev10 (5).docx` mục 3.10.4–3.10.6.
+Nhánh: `fix/linhnv-daily-payout-transfer` (từ `origin/develop` `35868374`).
 
-Thay đổi so với v1: thêm Task 0 kiểm kê bảng sẵn có; thêm clock abstraction (Task 2A); thêm dòng điều chỉnh và đối soát (Task 2B, Task 7A); thêm quyền đọc cho TO (Task 10); thêm lượt bị lỡ (Task 6A); thêm audit log (Task 2C).
+## Tiến độ (chưa commit)
 
-Thay đổi so với v2 (SRS v12): thêm Task 6B — Awaiting Window 24 giờ (BR-141, đã triển khai); thêm
-Task 10A — hiển thị trạng thái "Awaiting Window" ở UC-72 (đã triển khai). Còn 2 điểm lệch khác,
-không liên quan tới SRS v12, vẫn chưa sửa — theo dõi ở mục "Điểm lệch đã biết" của spec v3
-(cutoff thử lại, `PayoutReconciliationItem`).
+- **Xong (v6), có test xanh:** Task 0–10 (xem lịch sử v6 bên dưới); Task 11 (524 test SQL Server, toàn solution, không hồi quy); Task 12 một phần (1064 test tích hợp ngoài SQL Server xanh).
+- **Task 13 (mới, đối chiếu SRS mới 12/11 và sửa) — đã code, test xanh:**
+  - Bỏ lọc TO bị khóa khỏi *eligibility* (`DailyPayoutEligibilityReader`); đợt vẫn tạo đúng lượt kể cả khi khóa (BR-160).
+  - Gộp lần gửi đầu (`DailyPayoutRunProcessor`) và các lần thử lại (`DailyPayoutRetrySweepProcessor`) thành một luồng `AttemptAsync` dùng chung, quét theo `Status == Scheduled` (không còn `Processing` là trạng thái nghỉ giữa các lần thử — SRS 3.10.5, 3.a1).
+  - Thêm kiểm tra tài khoản ngân hàng TO (`OperatorProfile.HasBeneficiaryBankAccount`) trước khi gửi — thiếu thì `SettlementFailed` ngay, MSG146 (2 method mới trên `PayoutBatch`: `MarkFailedWithoutAttempt`, `ReturnToScheduledAfterFailedAttempt`).
+  - Thêm thông báo MSG175 mỗi lần một lượt thử lại được lên lịch.
+  - `UC-73 [Retry Transfer]` chuyển sang đồng bộ (`DailyPayoutRetrySweepProcessor.ManualRetryAsync`), không còn dùng `PayoutBatch.RecordRetryAttempt` (đã gỡ).
+  - Test đã cập nhật: `PayoutBatchTests`, `DailyPayoutRetrySweepProcessorTests`, `DailyPayoutRunProcessorTests`, `DailyPayoutFailureHandlerTests`, `DailyPayoutSettlementRunSqlServerTests`. `dotnet test tests/TripMate.Application.UnitTests` toàn bộ: 4684/4685 xanh (1 fail là test đo thời gian thực thi không liên quan, `GreedyWeightedIncumbentTests`, xanh lại khi chạy riêng — máy bận lúc chạy song song, không phải hồi quy từ thay đổi này).
+  - Test payout SQL Server (19/19) và test HTTP endpoint UC-73 (9/9) đã chạy lại trên SQL Server thật — xanh. **Task 13 xong.**
+- **Còn lại:** Task 12 — hỏi developer merge/PR/giữ nhánh/huỷ.
+- **Chưa làm:** chạy migration Task 2B trên DB dev (chờ developer duyệt bản sao lưu 24 dòng Main), spec/plan FE, biên bản phê duyệt Owner cho BR-177/188/189.
+- Chưa commit, chưa push, chưa mở PR.
+
+## Thay đổi so với v5
+
+- Q3–Q6 và các quy tắc tự thêm đã được developer duyệt theo đề xuất; spec v6 ghi lại.
+- Task 2: bỏ cột tỷ lệ (Q5). Thêm archive dữ liệu `Main` tách thành migration riêng, chạy sau khi developer duyệt bản sao lưu (Q3).
+- Task 2: thêm `payment.TourOperatorDebt` và cột khóa trên `dbo.Users` (Q4).
+- Task 4: `Final` theo lượt 10:00 đầu tiên sau `EndAtUtc` (Q6).
+- Task 6: đọc nợ từ `payment.TourOperatorDebt` thay vì danh sách rỗng.
+- Task 7: khóa tối thiểu (`Lock`/`Unlock` trên `User`), thu hồi toàn bộ refresh token (BR-175) bằng phương thức mới.
+- Task 8: bỏ cửa sổ 13:00 và chạy bù trong ngày (PD-7, PD-16).
+- Giữ PD-7a và PD-17 như yêu cầu kỹ thuật, ghi rõ không có trong SRS.
 
 ## Quy tắc làm việc
 
-- Theo `AGENTS.md` và `CLAUDE.md`: TDD cho mọi thay đổi có logic (test đỏ trước, xác nhận đỏ đúng lý do, code tối thiểu, xanh, refactor).
-- Một task một lần. Sau mỗi task: chạy kiểm tra, rà diff với spec. Finding Critical chặn task tiếp theo.
-- Database-first: không dùng `dotnet ef migrations add`. Schema qua SQL idempotent trong `database/migrations/` (mẫu `IF OBJECT_ID(...) IS NULL`).
-- Không magic string: status, action, mã lỗi là `public const string` trên type sở hữu.
-- `Result<T>` và `HandleFailure` cho lỗi nghiệp vụ, theo `AGENTS.md`.
-- Không commit, push hay mở PR cho đến khi developer chọn (Task 12).
+- Theo `AGENTS.md` và `CLAUDE.md`. TDD cho mọi thay đổi có logic: đỏ (xác nhận đỏ đúng lý do), code tối thiểu, xanh, refactor.
+- Một task một lần. Finding Critical chặn task tiếp theo.
+- Database-first: SQL idempotent trong `database/migrations/`, cột thời gian `DATETIME2`. Không dùng `dotnet ef migrations add`.
+- Không magic string: status, kind, action, lý do là `public const string`.
+- `Result<T>` và `HandleFailure` cho lỗi nghiệp vụ.
+- Không commit, push, hay mở PR cho đến khi developer chọn (Task 12).
+- Không chạy migration archive hay xoá dữ liệu dev trước khi developer duyệt bản sao lưu.
 
 Lệnh kiểm tra:
 `dotnet build` và `dotnet test tests/TripMate.Application.UnitTests --nologo --filter "FullyQualifiedName~DailyPayout"`
+Tích hợp SQL Server: `TRIPMATE_SQLSERVER_TEST_CONNECTION` trỏ vào SQLEXPRESS local.
 
-## Task 0 — Kiểm kê code và DB payout hiện có (chỉ đọc)
+## Task 0 — Kiểm kê hiện trạng (chỉ đọc, đã làm)
 
-- Liệt kê trên nhánh: handler, controller, entity, migration, test liên quan đến payout (UC-44, UC-46, `RequestPayoutCommandHandler`, `PayoutConfigKeys`, `OperatorPayoutEligibilityReader`).
-- Liệt kê bảng payout đã có trong DB và trong migration (ví dụ `payout_settlement_request`, `payout_available_balance`, và bất kỳ bảng settlement nào đã tạo). Đối chiếu với bảng mới trong spec để tránh trùng.
-- Tìm cơ chế scheduler/job nền đang có trong repo (để dùng cho Task 6).
-- Tìm cơ chế audit log hiện có (PD-10).
-- Xác nhận cách lưu `CommissionRate` trên booking hiện có.
-- **DoD:** file kiểm kê trong `plans/` hoặc `specs/`. Developer xác nhận trước khi xóa bất kỳ thứ gì.
+Kết quả đã xác nhận:
+- `DailyPayoutEligibilityReader.cs`: nhánh `Main` (dòng ~138), `Retained` (dòng ~148), đọc `AccountStatus.Locked` (dòng ~43, ~177), `LoadOutstandingDebtByOperatorAsync` trả dictionary rỗng (dòng ~163, điểm tích hợp nhánh hoàn tiền), `LoadOutstandingAdjustmentsAsync` (carry over, sẽ gỡ).
+- `PayoutSettlement.cs`: `PayoutSettlementKind` có `Main` và `Retained` (dòng ~27, ~32).
+- `PayoutSettlementStatus.cs`: có `Scheduled`, `Processing`, `Settled`, `SettlementFailed`, `CarriedOver`; chưa có `Resolved`.
+- `DailyPayoutAmountCalculator.cs`: `CalculateCommission` = floor(gross × rate / 100).
+- Carry over: `PayoutAdjustment.cs`, `PayoutSettlementAdjustment.cs`, các handler/endpoint liên quan (7 file tham chiếu `CarriedOver`/`Carried Over`). Cần liệt kê lại trước khi xoá.
+- Migration: `20261108_daily_payout_settlement_foundation.sql` tạo `payment.PayoutRun` (~dòng 72 là PayoutSettlement, ~112 Attempt, ~130 Adjustment); `20261022_uc46_payout_settlement_request.sql` tạo `payment.PayoutAdjustments` (~265).
+- Khóa tài khoản: chưa có lệnh hay endpoint khóa/mở khóa. `AccountStatus`: Active = 2, Locked = 3. Thu hồi refresh token chỉ theo hash (`RevokeRefreshTokenAsync`).
+- Dữ liệu dev (chỉ đọc): `payment.PayoutSettlement` 24 dòng, tất cả `Main`, `Settled`, ngày chạy 10/11–13/11/2026; `PayoutBatch` 4 dòng `Settled`; `PayoutSettlementAttempt` 4 dòng; `PayoutSettlementAdjustment` 0 dòng; `PayoutAdjustments` 0 dòng; 0 TO bị `Locked`.
 
-## Task 1 — Gỡ luồng yêu cầu rút tiền (UC-46) và duyệt của Staff
+**DoD:** đạt. Danh sách file và bảng trên được dùng làm đầu vào cho Task 2–9.
 
-- **Red:** test rằng route và handler yêu cầu rút tiền không còn (404 hoặc không đăng ký).
-- **Green:** xóa handler, command, validator, controller action và test liên quan, theo kết quả Task 0 đã được xác nhận.
-- Nếu migration `payout_settlement_request` và `payout_available_balance` đã chạy trên DB dev, tạo migration gỡ cột/bảng thay vì sửa file cũ.
-- **DoD:** `dotnet build` xanh, không còn tham chiếu đến yêu cầu rút tiền. Các test UC-44 còn lại vẫn xanh.
+## Task 1 — Cổng duyệt (chặn)
 
-## Task 2 — Migration schema settlement
+- Developer đã duyệt hướng và các đề xuất Q3–Q6 (chat: "duyệt theo đề xuất của bạn").
+- Chờ developer duyệt văn bản spec v6 và plan v6 trước khi viết code.
+- Điều kiện trước khi merge (không chặn TDD các task không liên quan):
+  - Biên bản phê duyệt của Owner cho BR-177, BR-188, BR-189 và quyết định 10/11, 11/11 được ghi vào SRS (Approver và Evidence). Hiện SRS ghi "PENDING".
+  - Owner xác nhận quy tắc làm tròn (PD-3): TO nhận phần làm tròn xuống, TripMate giữ phần dư.
+  - Lead/PO gán mã MSG cho thử lại theo lịch và chênh lệch đối soát.
+- Developer duyệt bản sao lưu dữ liệu dev trước Task 2 (migration archive).
+- **DoD:** biên bản duyệt ghi trong spec (mục "Quyết định đã chốt"). Không có code trước khi xong task này.
 
-- File SQL idempotent: `payment.PayoutRun`, `payment.PayoutBatch`, `payment.PayoutSettlement`, `payment.PayoutSettlementAttempt`.
-- `PayoutRun`: `RunDate` là khóa duy nhất (PD-11).
-- `PayoutBatch`: ràng buộc duy nhất `(RunDate, TourOperatorId)`.
-- `PayoutSettlement`: ràng buộc duy nhất `(BookingId, Kind)`; `Kind` là `Main` hoặc `Retained` (PD-2, PD-5); index theo `TourOperatorId` và `RunDate`.
-- Thêm cột `CommissionRate` trên booking nếu chưa có. Backfill cho booking cũ bằng 10%, là giá trị cố định toàn hệ thống theo BR-140. Ghi rõ trong migration rằng đây là giá trị mặc định cho booking cũ, không đọc từ hồ sơ TO.
-- Chạy hai lần qua `database/apply-schema.sh` để kiểm tra idempotent.
-- **DoD:** script chạy hai lần không lỗi, schema khớp spec.
+## Task 2 — Migration schema (database-first)
 
-## Task 2A — Clock abstraction
+Chia thành hai file để tách rủi ro dữ liệu:
 
-- **Red:** test lượt chạy và thử lại phụ thuộc thời gian dùng `IClock` giả, không dùng `DateTime.UtcNow` trực tiếp.
-- **Green:** interface `IClock` (UTC và giờ Việt Nam), triển khai thật và giả lập cho test.
-- **DoD:** test xanh; không còn `DateTime.UtcNow` trong code payout mới.
+**2A. Schema idempotent** (`database/migrations/20261112_daily_payout_v6_schema.sql`)
+- **Red:** migration chạy hai lần không lỗi; `Kind` chỉ nhận `Advance` hoặc `Final`; trạng thái `Resolved` hợp lệ; cột khóa tồn tại với kiểu đúng; bảng `TourOperatorDebt` tồn tại; ràng buộc `(BookingId, Kind)` là duy nhất.
+- **Green:**
+  - Đổi CHECK `Kind` sang `Advance`, `Final`.
+  - Thêm `Resolved` vào CHECK trạng thái.
+  - Thêm `dbo.Users.lock_reason NVARCHAR(200) NULL`, `dbo.Users.locked_at_utc DATETIME2 NULL` (Q4, Q5).
+  - Tạo `payment.TourOperatorDebt` (`Id`, `TourOperatorUserId`, `Amount`, `RecoveredAmount`, `IncurredAtUtc DATETIME2`, `CreatedAtUtc DATETIME2`).
+  - Không thêm cột tỷ lệ.
+  - Không xoá bảng `PayoutAdjustments`, `PayoutSettlementAdjustment`.
+- **DoD:** script chạy hai lần không lỗi qua `database/apply-schema.sh`.
 
-## Task 2B — Dòng điều chỉnh (`PayoutAdjustment`)
+**2B. Archive và gỡ đợt `Main`** (`database/migrations/20261112_daily_payout_v6_archive_main_rows.sql`)
+- Chỉ chạy sau khi developer duyệt bản sao lưu (Task 1).
+- Tạo `payment.PayoutSettlement_Archive_v3` và `payment.PayoutSettlementAttempt_Archive_v3` (cùng cấu trúc, cột thời gian `DATETIME2`).
+- Sao chép toàn bộ dòng `Main` và attempt liên quan, kiểm tra số dòng khớp (24 dòng, 4 attempt) trước khi xoá.
+- Xoá dòng `Main` và attempt tham chiếu, trong một transaction, idempotent (chạy lại không lỗi và không xoá thêm).
+- **Red:** archive có đủ 24 dòng; sau khi chạy, không còn dòng `Kind = 'Main'`.
+- **DoD:** developer xác nhận số dòng và bản sao lưu trước khi chạy trên DB dev.
 
-- **Red:** test tạo điều chỉnh từ settlement thất bại vào settlement kế tiếp của cùng TO; settlement gốc giữ số tiền (PC-02); điều chỉnh không được là settlement mới.
-- **Green:** entity `PayoutAdjustment`, migration idempotent cho bảng này.
-- **DoD:** test xanh; migration chạy hai lần không lỗi.
+## Task 3 — Calculator: `Advance`/`Final` (PD-3, PD-4)
 
-## Task 2C — Audit log cho settlement
+- **Red:** `Advance = floor(PaidAmount × 70%)`; `Final = floor((PaidAmount − RefundAmount) × 20%)` với `RefundAmount = 0` trong phạm vi này; hoa hồng `floor(PaidAmount × CommissionRate)`; làm tròn: TO nhận floor, phần dư thuộc TripMate (ví dụ `PaidAmount = 1.000.001`: Advance 700.000, Final 200.000, phần dư 1 VND thuộc TripMate); trừ nợ và `Payout ≤ 0` không tạo lệnh; số tiền không đổi sau khi tạo (BR-146). Bỏ test cũ cho `Main`/`Retained`.
+- **Green:** sửa `DailyPayoutAmountCalculator`, bỏ đường `Retained`, giữ `CalculateCommission` floor.
+- **DoD:** test calculator xanh, gồm ca biên: nợ lớn hơn đợt, làm tròn, `Payout ≤ 0`.
 
-- **Red:** test mỗi thay đổi trạng thái settlement và mỗi lần gửi lệnh ghi một bản ghi audit (PD-10).
-- **Green:** dùng cơ chế audit log hiện có (xác nhận ở Task 0). Nếu chưa có, thêm bảng và helper tối thiểu.
-- **DoD:** test xanh.
+## Task 4 — Điều kiện vào đợt (PD-1A, PD-2, PD-2A)
 
-## Task 3 — Entity, trạng thái và state machine
+- **Red:**
+  - `Advance` chỉ khi Awaiting Window 24 giờ đã kết thúc và booking không Cancelled.
+  - `Final` chỉ ở lượt 10:00 (giờ VN) đầu tiên sau `TourSchedule.EndAtUtc` (Q6), và chưa có `Final`. Ví dụ: kết thúc 20/11 18:00 VN thì `Final` ở lượt 10:00 ngày 21/11.
+  - Booking Cancelled trước lượt không tạo đợt và có audit log "cancelled before run".
+- **Green:** sửa `DailyPayoutEligibilityReader`: thay nhánh `Retained` bằng điều kiện `Final`; thêm nhánh loại booking Cancelled có audit log; gỡ `LoadOutstandingAdjustmentsAsync`.
+- **DoD:** test eligibility xanh; test `DailyRun_BookingStillInsideItsAwaitingWindow_IsExcludedUntilTheWindowEnds` vẫn xanh.
 
-- **Red:** test chuyển trạng thái hợp lệ và từ chối các chuyển không hợp lệ (PD-10).
-- **Green:** `PayoutSettlementStatus` và `PayoutBatchStatus` là các `public const string`. Entity có hành vi chuyển trạng thái, từ chối bằng `Result`.
-- Navigation property được gán cho entity mới (theo `AGENTS.md`).
-- **DoD:** test state machine xanh.
+## Task 5 — Lượt chạy tạo đợt (PD-1, PD-5, PD-11, PD-14)
 
-## Task 4 — Tính số tiền settlement (PD-3, PD-4)
-
-- **Red:** test `Gross`, `Commission = floor(Gross × CommissionRate)`, `Net`, trừ nợ theo TO (PD-15), `Payout ≤ 0` (loại khỏi lệnh gom, giữ nợ), số tiền không đổi sau khi tạo (BR-146), settlement `Retained` (PD-2).
-- **Green:** `PayoutAmountCalculator` thuần, không phụ thuộc DB.
-- **DoD:** test calculator xanh, gồm ca biên: nợ lớn hơn `Net`, làm tròn, hủy một phần.
-
-## Task 5 — Gateway chuyển tiền giả lập (adapter)
-
-- **Red:** test `SimulatedPayoutTransferGateway`: thành công, lỗi tạm thời, lỗi vĩnh viễn (tài khoản sai), bị từ chối sau khi gửi, timeout không rõ kết quả, tra cứu theo mã tham chiếu; mã tham chiếu ổn định `SIM-{RunDate}-{TourOperatorId}-{BatchId}`.
-- **Green:** interface `IPayoutTransferGateway` (gửi lệnh, tra cứu kết quả). Triển khai giả lập cấu hình được kịch bản.
-- Đăng ký trong DI, mặc định là giả lập. Không có triển khai thật ở nhánh này.
-- **DoD:** test adapter xanh.
-
-## Task 6 — Lượt chạy 10:00 và gom lệnh theo TO (UC-71, PD-14)
-
-- **Red:** test lượt chạy tạo đúng một settlement `Main` cho mỗi booking đã thanh toán và chưa hủy toàn bộ; tạo settlement `Retained` cho hủy một phần trước lượt (PD-2); bỏ qua booking hủy 100% trước lượt (BR-142); gom một lệnh cho mỗi TO; chạy lại cùng `RunDate` không tạo trùng (PD-11); lượt chạy cả cuối tuần và ngày lễ (BR-141).
-- **Green:** job nền kích hoạt lúc 10:00 mỗi ngày theo scheduler đã xác nhận ở Task 0. Ghi `PayoutRun` trước khi tạo settlement, trong cùng transaction DB (để lượt chạy không tạo nửa vời khi lỗi giữa chừng).
+- **Red:** lượt chạy tạo đúng một `Advance` và đúng một `Final` cho booking đủ điều kiện; chạy lại cùng `RunDate` không tạo trùng (ràng buộc `(BookingId, Kind)`); gom một lệnh cho mỗi TO mỗi ngày; lượt chạy chỉ ở 10:00 (giờ VN), kể cả cuối tuần và ngày lễ.
+- **Green:** sửa `DailyPayoutRunProcessor` để tạo hai loại đợt; giữ `PayoutRun` trong cùng transaction.
 - **DoD:** test lượt chạy xanh.
 
-## Task 6B — Awaiting Window 24 giờ (BR-141, PD-1A) — done
+## Task 6 — Bù trừ nợ treo theo TO (PD-15, BR-144, BR-188)
 
-- **Red:** test booking thanh toán 2 giờ trước lượt chạy bị loại khỏi lượt đó; booking thanh toán
-  23 giờ trước, chạy lại ngày hôm sau (hơn 24 giờ), được đưa vào lượt kế tiếp.
-- **Green:** `DailyPayoutEligibilityReader.LoadEligibleBookingsAsync` nhận `nowUtc`, loại các
-  booking (cả `Main` và `Retained`) có `OrderKey` (thời điểm thanh toán) chưa quá
-  `DailyPayoutClock.AwaitingWindowDuration` (24 giờ) so với `nowUtc`.
-- **DoD:** test xanh (`DailyPayoutRunProcessorTests`); test tích hợp SQL Server tương ứng
-  (`DailyRun_BookingStillInsideItsAwaitingWindow_IsExcludedUntilTheWindowEnds`) biên dịch sạch,
-  chạy thật khi có `TRIPMATE_SQLSERVER_TEST_CONNECTION`.
+- **Red:**
+  - Nợ trừ lần lượt theo thứ tự `IncurredAtUtc`.
+  - Phần vượt nợ mới được chuyển.
+  - Khi nợ lớn hơn đợt thì `Payout ≤ 0`, không tạo lệnh, nợ giữ cho lượt sau.
+  - Đọc đúng từ `payment.TourOperatorDebt` (số còn lại = `Amount − RecoveredAmount`).
+- **Green:** triển khai `LoadOutstandingDebtByOperatorAsync` đọc `TourOperatorDebt` (thay dictionary rỗng); giữ `remainingDebt` trong `DailyPayoutAmountCalculator`.
+- **Ghi chú:** nhánh hoàn tiền sẽ ghi vào `TourOperatorDebt`. Ngoài phạm vi, không triển khai ghi nợ ở đây.
+- **DoD:** test bù trừ xanh.
 
-## Task 6A — Lượt bị lỡ (PD-16)
+## Task 7 — Khóa tự động TO (BR-189, BR-169, BR-175, PD-9, PD-9A)
 
-- **Red:** test khởi động lại trong cùng ngày sau 10:00 thì chạy bù đúng một lần; khởi động lại ngày hôm sau không chạy bù ngày trước.
-- **Green:** kiểm tra `PayoutRun` của ngày hiện tại khi khởi động.
-- **DoD:** test xanh.
+- **Red:**
+  - Nợ chưa thu hồi sau 15 ngày thì TO bị khóa với lý do `Unrecovered pending debt (BR-189)` (hằng số `public const string`).
+  - Khóa gọi `User.Lock(lý do)`; thu hồi toàn bộ refresh token của user (BR-175), qua phương thức mới theo user (hiện chỉ có thu hồi theo hash).
+  - Ghi audit log bất biến (BR-169).
+  - MSG198 gửi TO và Staff.
+  - Đợt của TO giữ `Scheduled`.
+  - Endpoint Staff mở khóa chỉ cho TO: từ chối với MSG199 khi nợ còn lại lớn hơn 0; mở khi nợ đã thu hồi đủ; `User.Unlock` xoá `lock_reason` và `locked_at_utc`.
+- **Green:** bước trong lượt chạy kiểm tra nợ quá hạn và gọi `User.Lock`; thêm `RevokeAllRefreshTokensAsync(userId)`; endpoint mở khóa.
+- **Phạm vi:** khóa thủ công của Staff (BR-168) và UC-48 đầy đủ để sau. Không tạo cơ chế khóa thứ hai.
+- **DoD:** test khóa xanh; kiểm tra không còn đường đăng nhập sau khi bị khóa.
 
-## Task 7 — Gửi lệnh, thử lại và tra cứu trước khi thử lại (UC-74, PD-6, PD-7, PD-7a, PD-8)
+## Task 8 — Gửi, thử lại, đối soát (PD-6, PD-7, PD-7a, PD-8, PD-17)
 
-- **Red:** test lệnh gom chuyển sang `Processing` khi gửi; `Settled` khi thành công kèm mã tham chiếu; thử lại mỗi giờ, tối đa 3 lần thử lại (tổng tối đa 4 lần gửi); trước mỗi lần thử lại phải gọi tra cứu theo mã tham chiếu, nếu gateway báo đã chuyển thì `Settled` và không gửi lại (PD-7a); timeout không được coi là thất bại chắc chắn; hết số lần thử thì `SettlementFailed` và thông báo Administrator; thiếu tài khoản TO thì `SettlementFailed` ngay (PD-8, MSG146); mỗi lần gửi ghi `PayoutSettlementAttempt` (PC-03).
-- **Green:** xử lý trong lượt chạy. Thử lại được lên lịch bằng cơ chế hẹn giờ của job (dùng `IClock`), không ngủ trong thread.
-- **DoD:** test xanh; số lần gọi gateway đúng; không gọi gửi lại khi tra cứu cho thấy đã chuyển.
+- Giữ logic hiện có, chạy lại toàn bộ test trên kind mới.
+- **Thử lại (PD-7):** lỗi thì thử lại sau 1 giờ, 2 giờ, 3 giờ; tối đa 3 lần. Bỏ cửa sổ 13:00 khỏi code và test.
+- **Bỏ chạy bù trong ngày (PD-16):** gỡ test cũ về chạy bù; booking bị lỡ xử lý ở lượt kế tiếp.
+- **Red:** lịch thử đúng 1, 2, 3 giờ; hết số lần thì `SettlementFailed` và thông báo Administrator trong 24 giờ (BR-172); PD-7a tra cứu trước khi thử lại, nếu đã `Settled` thì không gửi lại; PD-17 ghi `PayoutReconciliationItem` khi lệch.
+- **Green:** sửa scheduler thử lại, thêm thông báo BR-172.
+- **DoD:** test xanh; số lần gọi gateway đúng; thông báo BR-172 có test.
 
-## Task 7A — Đối soát sau lượt (PD-17) — done
+## Task 9 — Thao tác của Administrator (UC-73, PD-10)
 
-- **Red:** test lệnh `Processing` được tra cứu sau lượt; gateway xác nhận đã chuyển thì giữ `Settled`; gateway báo từ chối sau khi gửi thì chuyển về `SettlementFailed`; chênh lệch trạng thái được ghi `PayoutReconciliationItem`, ghi audit log và gửi cảnh báo cho mỗi Administrator Active.
-- **Green:** job đối soát chạy trong chính lượt thử lại (không phải job riêng) — tra cứu PD-7a tự nó là bước đối soát; khi tra cứu lộ ra `Succeeded`/`Rejected` khác với `Processing` đang ghi nhận, `DailyPayoutRetrySweepProcessor` ghi `PayoutReconciliationItem` + `AuditLog` (`PAYOUT_RECONCILIATION_DISCREPANCY_DETECTED`) + `Notification` fan-out tới Administrator, trước khi chuyển trạng thái. Tra cứu `Failed`/`Timeout` không ghi gì (không phải chênh lệch).
-- **DoD:** test xanh. Chênh lệch số tiền/mã tham chiếu không áp dụng được ở nhánh này vì chế độ giả lập (`PayoutTransferResult`) không trả về số tiền/mã quan sát được để so sánh — chỉ `Outcome`; xem spec v3 "Điểm lệch đã sửa".
-
-## Task 8 — TO bị khóa tạm dừng chuyển (BR-160, PD-9)
-
-- **Red:** test settlement của TO bị khóa giữ `Scheduled`, không đưa vào lệnh; mở khóa thì được chuyển ở lượt đầu tiên; hoàn tiền đã thu (BR-142) không bị ảnh hưởng.
-- **Green:** kiểm tra trạng thái khóa TO khi chọn settlement cho lượt.
-- **DoD:** test xanh.
-
-## Task 9 — Xử lý thất bại, carry over và chuyển thủ công (UC-73, PD-10)
-
-- **Red:** test Administrator thử lại: qua tra cứu PD-7a, số tiền không đổi; carry over tạo `PayoutAdjustment` vào settlement kế tiếp của cùng TO; ghi nhận chuyển thủ công bắt buộc có mã tham chiếu; mọi thay đổi có audit log.
-- **Green:** endpoint cho Administrator, handler, validator.
-- **DoD:** test xanh.
+- **Red:**
+  - `[Retry Transfer]` chỉ cho `SettlementFailed` (MSG177 nếu sai trạng thái); gửi lại cùng số tiền; đi qua PD-7a; thất bại lại thì `SettlementFailed` và MSG176.
+  - `[Mark as Resolved]` bắt buộc lý do (MSG178), chuyển sang `Resolved`, không chuyển tiền.
+  - Mọi thao tác ghi audit log.
+  - Không có thao tác chuyển thủ công và carry over.
+- **Green:** endpoint và handler cho hai thao tác. Gỡ endpoint, handler và test carry over hiện có (theo kết quả Task 0 và Q3).
+- **DoD:** test xanh; không còn tham chiếu `CarriedOver` trong code nghiệp vụ.
 
 ## Task 10 — API đọc (UC-72, PD-13)
 
-- **Red:** test Staff và Administrator xem được toàn bộ settlement có lọc theo trạng thái và khoảng ngày, chỉ đọc; TO chỉ xem được settlement của chính mình, theo booking; TO không xem được của TO khác (trả 403 hoặc 404).
-- **Green:** endpoint đọc có phân trang, và endpoint cho TO với kiểm tra quyền sở hữu.
-- **DoD:** test xanh.
+- **Red:** UC-72 hiển thị đợt `Advance` và `Final` riêng; `Resolved` hiển thị đúng; dòng ảo `Awaiting Window` vẫn đúng; TO chỉ thấy đợt của chính mình (lịch sử theo booking, screen 94).
+- **Green:** sửa handler đọc và DTO cho kind và trạng thái mới.
+- **DoD:** test xanh; không phá `DailyPayoutReadQueryTests`.
 
-## Task 10A — Hiển thị trạng thái "Awaiting Window" ở UC-72 — done
+## Task 11 — Kiểm thử tích hợp SQL Server
 
-SRS v12 §3.9.9.1 liệt kê "Awaiting Window" là một trong các trạng thái UC-72 phải hiển thị, cùng
-`Scheduled, Processing, Settled, SettlementFailed, Carried Over`. Hiện `GetPayoutSettlementsQuery`
-chỉ đọc bảng `PayoutSettlements`, không có dòng nào cho booking còn trong cửa sổ (Task 6B) vì
-settlement chỉ được tạo sau khi cửa sổ kết thúc.
-
-- **Red:** test UC-72 trả về một dòng trạng thái `Awaiting Window` cho booking đã thanh toán,
-  chưa hết 24 giờ, chưa có settlement; dòng này biến mất (nhường cho dòng settlement thật) ngay
-  khi lượt chạy tạo settlement cho nó.
-- **Green:** mở rộng handler đọc để gộp (a) các dòng `PayoutSettlements` hiện có và (b) các
-  booking đã thanh toán, chưa hủy, chưa hết cửa sổ Awaiting Window và chưa có settlement — hiển
-  thị dòng loại (b) với trạng thái `Awaiting Window`, không có `SettlementId`/`TransferReference`.
-  Áp dụng filter trạng thái và khoảng ngày của UC-72 trên tập gộp này.
-- **DoD:** test xanh; không phá vỡ các test UC-72 hiện có (`DailyPayoutReadQueryTests`).
-
-## Task 11 — Kiểm thử tích hợp — done
-
-- Lượt 10:00 end-to-end trên SQL Server: tạo settlement và lệnh gom, gửi lệnh giả lập, `Settled`.
-- Chạy lại cùng ngày không tạo trùng.
-- Booking còn trong Awaiting Window bị loại khỏi lượt; hết cửa sổ thì vào lượt kế tiếp (Task 6B) — done.
-- Timeout được tra cứu trước khi thử lại, không chuyển trùng.
-- Lỗi giả lập được thử lại đúng 3 lần, rồi `SettlementFailed`.
-- TO bị khóa rồi mở khóa.
-- Đối soát phát hiện lệnh bị từ chối sau khi gửi.
-- Lượt bị lỡ được chạy bù trong ngày.
-- **Bug thật phát hiện khi chạy `DailyPayoutSettlementRunSqlServerTests` lần đầu trên SQL Server
-  thật (trước đó chỉ chạy được trên InMemory provider, vốn không phân biệt kiểu cột)**: migration
-  `20261108_daily_payout_settlement_foundation.sql` và `20261109_add_payout_reconciliation_item.sql`
-  tạo toàn bộ cột mốc thời gian (`started_at_utc`, `completed_at_utc`, `last_attempt_at_utc`,
-  `created_at_utc`, `updated_at_utc`, `sent_at_utc`, `applied_at_utc`, `detected_at_utc`) kiểu
-  `DATETIMEOFFSET(0)`, trái với quy ước toàn project (mọi cột mốc thời gian là `DATETIME2`, xem
-  comment của `PropertyBuilderExtensions.AsUtcDateTime2`) — khiến EF ném
-  `InvalidCastException: Unable to cast object of type 'System.DateTimeOffset' to type
-  'System.DateTime'` khi đọc lại bất kỳ dòng nào có cột đó khác NULL. Nếu không bắt ở đây, toàn bộ
-  luồng chuyển tiền sẽ crash ngay khi chạy thật (dev/staging/production), vì unit test InMemory
-  không bao giờ phát hiện được sai lệch kiểu cột. Đã sửa: đổi toàn bộ sang `DATETIME2` +
-  `DEFAULT SYSUTCDATETIME()` (đúng quy ước) trong cả 2 file migration.
-- **DoD:** test tích hợp xanh — `DailyPayoutSettlementRunSqlServerTests` 7/7,
-  `DailyPayoutSettlementActionsEndpointTests` + `DailyPayoutRequestRoutesRemovedTests` +
-  `PayoutLifecycleMigrationSqlServerTests` cùng chạy lại: tổng 19/19 test SQL Server liên quan
-  Payout xanh sau khi sửa (chạy với `TRIPMATE_SQLSERVER_TEST_CONNECTION` trỏ vào SQLEXPRESS local).
-  Phát hiện ngoài lề (không thuộc phạm vi task này, không sửa): `ManagedPoiListSqlServerTests`
-  (3 test, miền POI/JWT, không liên quan Payout) fail sẵn từ trước, lặp lại giống nhau khi chạy
-  riêng lẻ — không phải do thay đổi ở đây.
+- Lượt 10:00 end-to-end: `Advance` đúng sau 24 giờ; `Final` đúng ở lượt đầu tiên sau kết thúc tour; chạy lại không trùng.
+- Khóa tự động BR-189 end-to-end, gồm audit, thu hồi token và MSG198.
+- Mở khóa bị từ chối khi còn nợ (MSG199).
+- Archive 24 dòng `Main` khớp trước khi xoá (Task 2B).
+- Các test SQL Server v3 vẫn xanh (`DailyPayoutSettlementRunSqlServerTests`, `DailyPayoutSettlementActionsEndpointTests`, `PayoutLifecycleMigrationSqlServerTests`).
+- Lưu ý: kiểu cột thời gian phải là `DATETIME2`; unit test InMemory không bắt được lỗi này.
+- **DoD:** tổng test SQL Server liên quan payout xanh. Ghi pass/fail/skip và exit code.
 
 ## Task 12 — Báo cáo và kết thúc
 
-- Chạy `dotnet build` và `dotnet test` toàn bộ solution.
-- Rà diff với spec, liệt kê các điểm lệch (nếu có).
+- `dotnet build` và `dotnet test` toàn bộ solution.
+- Rà diff với spec v6, liệt kê điểm lệch.
+- Kiểm tra định dạng file C# đã thay đổi (`dotnet format --verify-no-changes --include <files>`), chuẩn hóa CRLF → LF theo develop.
 - Hỏi developer: merge, mở PR, giữ nhánh, hay hủy.
 
-## Rủi ro
+## Phụ thuộc và rủi ro
 
-- **Gỡ luồng UC-46 chạm nhiều code và test có sẵn.** Chạy test toàn bộ sau mỗi task gỡ.
-- **Chuyển trùng khi timeout.** Được chặn bằng PD-7a và Task 7. Đây là rủi ro tiền thật nếu triển khai thật, cần kiểm thử kỹ.
-- **Xung đột với nhánh `feature/linhnv-post-trip-refund`.** Cả hai đụng `OperatorPayoutEligibilityReader` và cùng nhóm migration. Thống nhất thứ tự merge trước khi merge.
-- **Trùng bảng sẵn có.** Kiểm kê ở Task 0 phải xong trước Task 2.
-- **Hoa hồng đổi.** Chụp `CommissionRate` trên booking (Task 2) để booking cũ không bị tính lại.
-- **Phần FE chưa có plan.** Màn hình UC-72, UC-73 và lịch sử TO cần nhánh hoặc spec FE riêng.
+- **Nhánh hoàn tiền** dùng `payment.TourOperatorDebt` và số tiền đã chuyển cho TO (BR-139). Thứ tự merge: payout trước.
+- **Báo cáo doanh thu** (UC-44, UC-45, BR-173) bị ảnh hưởng khi hoa hồng và doanh thu thuần thay đổi. Theo dõi riêng, ngoài phạm vi.
+- **Spec FE** (`specs/DAILY-PAYOUT-TRANSFER-fe-spec.md`) cần cập nhật theo v6 sau khi BE được duyệt, ở `Capstone_FE-fix-daily-payout`.
+- **Số tiền thật.** Dù chế độ giả lập, công thức và khóa tự động ảnh hưởng tiền thật khi triển khai. Test công thức và nợ phải đầy đủ trước khi merge.
+- **Dữ liệu dev.** 24 đợt `Main` xử lý theo Task 2B sau khi developer duyệt bản sao lưu.
+- **Gate Owner.** BR-177, BR-188, BR-189 chỉ merge sau biên bản Owner trong SRS.

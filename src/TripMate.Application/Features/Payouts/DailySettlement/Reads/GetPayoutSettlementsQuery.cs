@@ -46,7 +46,8 @@ public static class PayoutSettlementDisplayStatus
 }
 
 public sealed class GetPayoutSettlementsQueryHandler(
-    IApplicationDbContext dbContext, ICurrentUserService currentUserService, DailyPayoutEligibilityReader eligibilityReader)
+    IApplicationDbContext dbContext, ICurrentUserService currentUserService,
+    DailyPayoutEligibilityReader eligibilityReader, IDateTimeProvider dateTimeProvider)
     : IRequestHandler<GetPayoutSettlementsQuery, Result<PayoutSettlementsResponseDto>>
 {
     public async Task<Result<PayoutSettlementsResponseDto>> Handle(GetPayoutSettlementsQuery request, CancellationToken cancellationToken)
@@ -66,10 +67,10 @@ public sealed class GetPayoutSettlementsQueryHandler(
         // and asking for a status other than Awaiting Window excludes them anyway.
         if (!hasDateFilter && (statusFilter is null || statusFilter == PayoutSettlementDisplayStatus.AwaitingWindow))
         {
-            var awaitingBookings = await eligibilityReader.LoadAwaitingWindowBookingsAsync(cancellationToken);
+            var awaitingBookings = await eligibilityReader.LoadAwaitingWindowBookingsAsync(dateTimeProvider.UtcNow, cancellationToken);
             combined.AddRange(awaitingBookings.Select(b => new PayoutSettlementListItemDto(
                 SettlementId: null, BatchId: null, b.BookingId, b.TourOperatorUserId, RunDate: null, b.Kind,
-                PayoutAmount: Math.Max(0m, b.GrossAmount - DailyPayoutAmountCalculator.CalculateCommission(b.GrossAmount, b.CommissionRatePercent)),
+                PayoutAmount: DailyPayoutAmountCalculator.CalculateAdvanceAmount(b.PaidAmount),
                 PayoutSettlementDisplayStatus.AwaitingWindow, TransferReference: null)));
         }
 

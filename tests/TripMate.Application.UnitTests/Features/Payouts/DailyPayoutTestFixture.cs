@@ -32,6 +32,15 @@ internal static class DailyPayoutTestFixture
             BusinessLicenseNo = $"LIC-{id}",
             ApprovalStatus = OperatorApprovalStatus.Approved,
             CommissionRate = 10m,
+            // SRS 3.10.5 step 1: a payout transfer requires a complete beneficiary bank account
+            // (MSG146 otherwise) — set by default so existing payout-run tests still exercise a
+            // real simulated transfer; DailyPayoutDebtAndAutoLockTests seeds its own operator
+            // without one where that absence is the point of the test.
+            BankName = "Test Bank",
+            AccountHolderName = "Operator Holder",
+            AccountNumberMasked = "****1234",
+            AccountNumberProtected = "protected-test-value",
+            BankAccountUpdatedAtUtc = DateTimeOffset.UtcNow,
         });
 
         await db.SaveChangesAsync();
@@ -134,6 +143,21 @@ internal static class DailyPayoutTestFixture
 
         await db.SaveChangesAsync();
         return booking;
+    }
+
+    /// <summary>Seeds a <c>Processed</c> refund against a still-Confirmed booking (e.g. UC-42
+    /// partial refund) — does not cancel the booking, unlike <see cref="SeedCancelledPartiallyRefundedBookingAsync"/>.
+    /// Used to verify BR-142: the Final settlement is computed on (PaidAmount − processed refunds).</summary>
+    public static async Task SeedProcessedRefundAsync(TestDbContext db, long bookingId, decimal amount, DateTimeOffset processedAtUtc)
+    {
+        var refund = (Refund)Activator.CreateInstance(typeof(Refund), nonPublic: true)!;
+        Set(refund, nameof(Refund.Id), 600_000 + bookingId);
+        Set(refund, nameof(Refund.BookingId), bookingId);
+        Set(refund, nameof(Refund.Amount), amount);
+        Set(refund, nameof(Refund.Status), RefundStatus.Processed);
+        Set(refund, nameof(Refund.ProcessedAtUtc), processedAtUtc);
+        db.Refunds.Add(refund);
+        await db.SaveChangesAsync();
     }
 
     private static void Set(object target, string propertyName, object? value)

@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
+using TripMate.Domain.Common;
 using TripMate.Domain.Entities;
+using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Payouts.DailySettlement;
 
@@ -11,7 +13,8 @@ public enum DailyPayoutRunOutcome
     NotDueYet,
 
     /// <summary>A <see cref="PayoutRun"/> already exists for today's Vietnam-local date — this
-    /// run already happened, including as a catch-up after a restart (PD-11, PD-16).</summary>
+    /// run already happened. There is no same-day catch-up in v6 (PD-16 removed); a booking
+    /// missed by today's run is simply picked up by tomorrow's.</summary>
     AlreadyRan,
 
     /// <summary>The run was performed just now.</summary>
@@ -19,18 +22,16 @@ public enum DailyPayoutRunOutcome
 }
 
 /// <summary>
-/// DAILY-PAYOUT-TRANSFER Task 6/6A: creates and dispatches the daily settlement run (SRS v11
-/// UC-71, UC-74; spec PD-1, PD-2, PD-11, PD-14, PD-16). Intended to be invoked by a background
-/// service polling at a short interval (e.g. every few minutes) — <see cref="RunIfDueAsync"/>
-/// itself decides whether it is time, and whether today's run already happened, so polling more
-/// often than once a day is always safe (idempotent) and is exactly what gives PD-16's
-/// restart-catch-up behaviour: whichever poll first notices "past 10:00, no run yet today" does
-/// the run, whether that is the scheduled poll or the first poll after a crash/restart.
+/// DAILY-PAYOUT-TRANSFER spec v7 (SRS rev10-6 UC-71, UC-72, UC-74; BR-141, BR-142, BR-144,
+/// BR-146, BR-160, BR-177, BR-188, BR-189, PD-9A, PD-11, PD-14, PD-15). Intended to be invoked by
+/// a background service polling at a short interval — <see cref="RunIfDueAsync"/> itself decides
+/// whether it is time, and whether today's run already happened, so polling more often than once
+/// a day is always safe (idempotent, PD-11).
 /// </summary>
 public sealed class DailyPayoutRunProcessor(
     IApplicationDbContext db,
     DailyPayoutEligibilityReader reader,
-    IPayoutTransferGateway gateway,
+    DailyPayoutRetrySweepProcessor retryProcessor,
     IDateTimeProvider clock)
 {
     public async Task<DailyPayoutRunOutcome> RunIfDueAsync(CancellationToken cancellationToken)
@@ -50,8 +51,11 @@ public sealed class DailyPayoutRunProcessor(
             db.PayoutRuns.Add(run);
             await db.SaveChangesAsync(ct);
 
+            await reader.LogCancelledExclusionsAsync(nowUtc, ct); // PD-2A
+
             var batches = await CreateBatchesAsync(runDate, nowUtc, ct);
             await DispatchAsync(batches, nowUtc, ct);
+            await ApplyAutomaticLocksAsync(nowUtc, ct); // BR-189, PD-9A
 
             run.Complete(clock.UtcNow);
             await db.SaveChangesAsync(ct);
@@ -61,10 +65,11 @@ public sealed class DailyPayoutRunProcessor(
         return DailyPayoutRunOutcome.Ran;
     }
 
-    /// <summary>Creates one <see cref="PayoutBatch"/> per Tour Operator that has either a newly
-    /// eligible booking (PD-2) or an outstanding carried-over amount (PD-10) this run, and one
-    /// <see cref="PayoutSettlement"/> per booking (PD-5). Operators currently locked (BR-160) are
-    /// skipped entirely by <see cref="DailyPayoutEligibilityReader"/> and are not considered here.</summary>
+    /// <summary>Creates one <see cref="PayoutBatch"/> per Tour Operator that has at least one
+    /// eligible Advance or Final settlement this run (PD-2), and one <see cref="PayoutSettlement"/>
+    /// per such booking (PD-5). Scheduling does not check the operator's lock status (BR-160) —
+    /// a Locked operator's bookings are still scheduled on time; only the transfer, in
+    /// <see cref="DispatchAsync"/>, is deferred while locked.</summary>
     private async Task<List<PayoutBatch>> CreateBatchesAsync(DateOnly runDate, DateTimeOffset nowUtc, CancellationToken ct)
     {
         var eligible = await reader.LoadEligibleBookingsAsync(nowUtc, ct);
@@ -77,7 +82,7 @@ public sealed class DailyPayoutRunProcessor(
             var ordered = group.OrderBy(e => e.OrderKey).ToList();
             var debt = debtByOperator.TryGetValue(operatorId, out var d) ? d : 0m;
             var inputs = ordered
-                .Select(e => new DailySettlementInput(e.BookingId, e.Kind, e.GrossAmount, e.CommissionRatePercent))
+                .Select(e => new DailySettlementInput(e.BookingId, e.Kind, e.PaidAmount, e.RefundAmount, e.CommissionRatePercent))
                 .ToList();
             var calculation = DailyPayoutAmountCalculator.Calculate(inputs, debt);
 
@@ -98,46 +103,70 @@ public sealed class DailyPayoutRunProcessor(
             batchesByOperator[operatorId] = batch;
         }
 
-        await FoldCarriedOverAdjustmentsAsync(runDate, nowUtc, batchesByOperator, ct);
         await db.SaveChangesAsync(ct);
 
         return batchesByOperator.Values.ToList();
     }
 
-    /// <summary>Adds any outstanding carried-over amount (PD-10) to the operator's batch for this
-    /// run, creating one if the operator had no newly eligible booking — otherwise a carried-over
-    /// amount could be stuck indefinitely waiting for the operator's next booking.</summary>
-    private async Task FoldCarriedOverAdjustmentsAsync(
-        DateOnly runDate, DateTimeOffset nowUtc, Dictionary<long, PayoutBatch> batchesByOperator, CancellationToken ct)
+    /// <summary>BR-189, PD-9A: locks every Tour Operator whose oldest unrecovered debt has been
+    /// outstanding for at least 15 days, revokes every active session (BR-175), and notifies the
+    /// operator and Staff (MSG198).</summary>
+    private async Task ApplyAutomaticLocksAsync(DateTimeOffset nowUtc, CancellationToken ct)
     {
-        var operatorsWithAdjustments = await db.PayoutSettlementAdjustments.AsNoTracking()
-            .Where(a => a.AppliedBatchId == null)
-            .Select(a => a.TourOperatorUserId)
-            .Distinct()
+        var overdueOperatorIds = await reader.LoadOperatorsOverdueForAutoLockAsync(nowUtc, ct);
+        if (overdueOperatorIds.Count == 0)
+            return;
+
+        var operators = await db.Users
+            .Where(u => overdueOperatorIds.Contains(u.Id))
             .ToListAsync(ct);
 
-        foreach (var operatorId in operatorsWithAdjustments)
-        {
-            if (!batchesByOperator.TryGetValue(operatorId, out var batch))
-            {
-                batch = PayoutBatch.Create(runDate, operatorId, nowUtc);
-                db.PayoutBatches.Add(batch);
-                await db.SaveChangesAsync(ct);
-                batchesByOperator[operatorId] = batch;
-            }
+        var staffIds = await db.Users.AsNoTracking()
+            .Where(u => u.Role == UserRole.Staff && u.Status == AccountStatus.Active)
+            .Select(u => u.Id)
+            .ToListAsync(ct);
 
-            var adjustments = await reader.LoadOutstandingAdjustmentsAsync(operatorId, ct);
-            foreach (var adjustment in adjustments)
-            {
-                batch.IncludeCarriedOverAmount(adjustment.Amount);
-                adjustment.Apply(batch.Id, nowUtc);
-            }
+        foreach (var operatorUser in operators)
+        {
+            operatorUser.Lock(DailyPayoutAutoLock.UnrecoveredDebtLockReason, nowUtc);
+            await db.RevokeAllRefreshTokensForUserAsync(operatorUser.Id, nowUtc, ct);
+
+            db.AuditLogs.Add(AuditLog.CreateRecordedOutcome(
+                actorUserId: null,
+                AuditActionTypes.TourOperatorAutoLocked,
+                AuditEntityTypes.User,
+                operatorUser.Id,
+                nowUtc,
+                AuditOutcome.Success,
+                reason: DailyPayoutAutoLock.UnrecoveredDebtLockReason));
+
+            NotifyLocked(operatorUser.Id, nowUtc); // MSG198 to the operator
+            foreach (var staffId in staffIds)
+                NotifyLocked(staffId, nowUtc); // MSG198 to Staff
         }
+
+        await db.SaveChangesAsync(ct);
     }
 
-    /// <summary>Sends the first transfer attempt for every batch just created (PD-6, PD-7). A
-    /// zero-total batch (every settlement fully absorbed by debt, PD-3) never calls the gateway.
-    /// Retries beyond this first attempt are the retry sweep's job (PD-7).</summary>
+    private void NotifyLocked(long userId, DateTimeOffset nowUtc) =>
+        db.Notifications.Add(new Notification
+        {
+            UserId = userId,
+            Channel = NotificationChannel.Push,
+            Type = "TourOperatorAutoLocked",
+            Title = "Tour Operator account locked",
+            Body = $"{DailyPayoutAutoLock.UnrecoveredDebtLockReason}.",
+            RelatedEntityType = AuditEntityTypes.User,
+            RelatedEntityId = userId,
+            Status = NotificationStatus.Pending,
+            CreatedAtUtc = nowUtc,
+        });
+
+    /// <summary>Sends the first transfer attempt for every batch just created (PD-6, PD-7),
+    /// through the same <see cref="DailyPayoutRetrySweepProcessor.AttemptAsync"/> that the hourly
+    /// sweep later uses for retries — so a Locked operator (BR-160) or a missing bank account is
+    /// handled identically whether this is the first attempt or the hundredth. A zero-total batch
+    /// (every settlement fully absorbed by debt, PD-3) never calls the gateway at all.</summary>
     private async Task DispatchAsync(List<PayoutBatch> batches, DateTimeOffset nowUtc, CancellationToken ct)
     {
         foreach (var batch in batches)
@@ -148,21 +177,7 @@ public sealed class DailyPayoutRunProcessor(
                 continue;
             }
 
-            batch.MarkProcessing(nowUtc);
-            var reference = PayoutGatewayReference.Create(batch.RunDate, batch.TourOperatorUserId, batch.Id);
-            var result = await gateway.SendAsync(reference, batch.TourOperatorUserId, batch.TotalAmount, ct);
-
-            db.PayoutSettlementAttempts.Add(PayoutSettlementAttempt.Create(
-                batch.Id, batch.AttemptCount, nowUtc, reference,
-                MapOutcome(result.Outcome), result.FailureReason));
-
-            // Rejected is treated as a permanent failure (e.g. a bad bank account, PD-8): no
-            // point retrying automatically. Failed/Timeout stay Processing for the retry sweep
-            // (Task 7), which looks the reference up (PD-7a) before ever resending.
-            if (result.Outcome == PayoutTransferOutcome.Succeeded)
-                batch.MarkSettled(reference, nowUtc);
-            else if (result.Outcome == PayoutTransferOutcome.Rejected)
-                batch.MarkFailed(nowUtc);
+            await retryProcessor.AttemptAsync(batch, nowUtc, ct);
         }
 
         await db.SaveChangesAsync(ct);
