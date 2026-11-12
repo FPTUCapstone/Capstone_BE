@@ -9,6 +9,7 @@ public class Refund : BaseEntity
     public const int GatewayReferenceMaxLength = 150;
     public const int ErrorCodeMaxLength = 100;
     public const int ErrorMessageMaxLength = 1000;
+    public const int ReturnReferenceMaxLength = 150;
 
     private Refund()
     {
@@ -30,6 +31,156 @@ public class Refund : BaseEntity
     public DateTimeOffset? NextAttemptAtUtc { get; private set; }
     public string? LastErrorCode { get; private set; }
     public string? LastErrorMessage { get; private set; }
+
+    // UC-42 (SRS 3.8.4.3, BR-139, BR-144): set only while the refund is going through the
+    // operator-confirmation / partner-return path (PendingOperatorConfirmation onward).
+    public decimal? OperatorReturnShare { get; private set; }
+    public DateTimeOffset? OperatorConfirmedAtUtc { get; private set; }
+    public DateTimeOffset? ReturnDeadlineAtUtc { get; private set; }
+    public string? ReturnReference { get; private set; }
+    public DateTimeOffset? ReturnReportedAtUtc { get; private set; }
+    public DateTimeOffset? ReturnReceivedAtUtc { get; private set; }
+
+    /// <summary>
+    /// UC-41 creates a refund in this status when a verified payment exists and its amount
+    /// matches the booking's paid amount (3.8.4.2 step 6, BR-143) — the refund is not yet
+    /// eligible for the automatic gateway sweep (<see cref="TryStartAttempt"/>); it only becomes
+    /// so via <see cref="Confirm"/> (directly, when the operator's share is zero) or via
+    /// <see cref="RecordReturnReceived"/> after the operator's share has been returned.
+    /// </summary>
+    public static Refund CreatePendingOperatorConfirmation(long bookingId, long transactionId,
+        long cancellationOperationId, decimal amount, string? reason, RefundInitiator initiatedBy,
+        DateTimeOffset requestedAtUtc)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(bookingId);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(transactionId);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(cancellationOperationId);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(amount);
+        if (reason?.Length > ReasonMaxLength)
+            throw new ArgumentOutOfRangeException(nameof(reason));
+
+        return new Refund
+        {
+            BookingId = bookingId,
+            TransactionId = transactionId,
+            CancellationOperationId = cancellationOperationId,
+            Amount = amount,
+            Reason = reason,
+            InitiatedBy = initiatedBy,
+            Status = RefundStatus.PendingOperatorConfirmation,
+            RequestedAtUtc = requestedAtUtc.ToUniversalTime(),
+        };
+    }
+
+    /// <summary>
+    /// UC-41 6.b1: the verified transaction's amount does not match the booking's paid amount —
+    /// created directly in this terminal review status (never goes through operator confirmation
+    /// or the automatic gateway sweep) for an Administrator to resolve.
+    /// </summary>
+    public static Refund CreateReconciliation(long bookingId, long transactionId, long cancellationOperationId,
+        decimal amount, string? reason, RefundInitiator initiatedBy, DateTimeOffset requestedAtUtc)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(bookingId);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(transactionId);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(cancellationOperationId);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(amount);
+        if (reason?.Length > ReasonMaxLength)
+            throw new ArgumentOutOfRangeException(nameof(reason));
+
+        return new Refund
+        {
+            BookingId = bookingId,
+            TransactionId = transactionId,
+            CancellationOperationId = cancellationOperationId,
+            Amount = amount,
+            Reason = reason,
+            InitiatedBy = initiatedBy,
+            Status = RefundStatus.Reconciliation,
+            RequestedAtUtc = requestedAtUtc.ToUniversalTime(),
+        };
+    }
+
+    /// <summary>
+    /// UC-42 step 3/3.a1 (SRS 3.8.4.3): the Tour Operator confirms the refund (or the system
+    /// auto-confirms it after 3 working days unanswered, BR-187 — the caller is responsible for
+    /// that distinction; this method's effect on the refund's own state is identical either way).
+    /// A zero <paramref name="operatorReturnShare"/> (BR-139: no settlement transferred yet) skips
+    /// straight to <see cref="RefundStatus.Pending"/>, ready for the automatic gateway sweep
+    /// (abnormal case 4.b1); any other share moves to <see cref="RefundStatus.AwaitingPartnerReturn"/>
+    /// with the given return deadline.
+    /// </summary>
+    public void Confirm(decimal operatorReturnShare, DateTimeOffset? returnDeadlineAtUtc, DateTimeOffset nowUtc)
+    {
+        if (Status != RefundStatus.PendingOperatorConfirmation)
+            throw new InvalidOperationException($"Cannot confirm a refund in status {Status}.");
+        if (operatorReturnShare < 0m)
+            throw new ArgumentOutOfRangeException(nameof(operatorReturnShare), "The operator's return share cannot be negative.");
+        if (operatorReturnShare > 0m && returnDeadlineAtUtc is null)
+            throw new ArgumentException("A non-zero operator return share requires a return deadline.", nameof(returnDeadlineAtUtc));
+
+        var now = nowUtc.ToUniversalTime();
+        OperatorReturnShare = operatorReturnShare;
+        OperatorConfirmedAtUtc = now;
+
+        if (operatorReturnShare == 0m)
+        {
+            Status = RefundStatus.Pending;
+            NextAttemptAtUtc = now;
+        }
+        else
+        {
+            Status = RefundStatus.AwaitingPartnerReturn;
+            ReturnDeadlineAtUtc = returnDeadlineAtUtc!.Value.ToUniversalTime();
+        }
+    }
+
+    /// <summary>UC-42 step 5 (SRS 3.8.4.3): the Tour Operator reports having transferred its
+    /// share by bank transfer, with the transfer reference to reconcile against (MSG172 if
+    /// missing).</summary>
+    public void ReportReturn(string returnReference, DateTimeOffset nowUtc)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(returnReference);
+        if (returnReference.Trim().Length > ReturnReferenceMaxLength)
+            throw new ArgumentOutOfRangeException(nameof(returnReference));
+        if (Status != RefundStatus.AwaitingPartnerReturn)
+            throw new InvalidOperationException($"Cannot report a return for a refund in status {Status}.");
+
+        Status = RefundStatus.ReturnReported;
+        ReturnReference = returnReference.Trim();
+        ReturnReportedAtUtc = nowUtc.ToUniversalTime();
+    }
+
+    /// <summary>UC-42 step 7-8 (SRS 3.8.4.3): a Staff member has reconciled the TripMate bank
+    /// statement and confirms the full operator share has been credited — the refund becomes
+    /// eligible for the automatic gateway sweep (UC-67, BR-143), with the amount fixed at
+    /// creation (never recalculated).</summary>
+    public void RecordReturnReceived(DateTimeOffset nowUtc)
+    {
+        if (Status != RefundStatus.ReturnReported)
+            throw new InvalidOperationException($"Cannot record a return received for a refund in status {Status}.");
+
+        var now = nowUtc.ToUniversalTime();
+        Status = RefundStatus.Pending;
+        ReturnReceivedAtUtc = now;
+        NextAttemptAtUtc = now;
+    }
+
+    /// <summary>BR-161: the configured number of gateway retries has been exhausted — the refund
+    /// is published to the Escalated Refunds Monitor for an Administrator to resolve. The amount
+    /// is never recalculated.</summary>
+    public void Escalate(string errorCode, string? errorMessage)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(errorCode);
+        if (errorCode.Trim().Length > ErrorCodeMaxLength || errorMessage?.Trim().Length > ErrorMessageMaxLength)
+            throw new ArgumentOutOfRangeException(nameof(errorCode));
+        if (Status != RefundStatus.Processing)
+            throw new InvalidOperationException("Only an in-progress refund can be escalated.");
+
+        Status = RefundStatus.Escalated;
+        LastErrorCode = errorCode.Trim();
+        LastErrorMessage = string.IsNullOrWhiteSpace(errorMessage) ? null : errorMessage.Trim();
+        NextAttemptAtUtc = null;
+    }
 
     public static Refund CreatePending(long bookingId, long transactionId, long cancellationOperationId,
         decimal amount, string? reason, RefundInitiator initiatedBy, DateTimeOffset requestedAtUtc)
