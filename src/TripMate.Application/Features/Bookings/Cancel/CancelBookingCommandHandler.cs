@@ -90,15 +90,31 @@ public sealed class CancelBookingCommandHandler(
                         return Result.Failure<CancelBookingResponse>(decision.ErrorCode, decision.ErrorMessage!);
                     }
 
-                    decimal refundAmount = decision.RefundAmount;
-                    if (refundAmount > 0m && successfulPayment is null)
+                    // UC-41 6.a1/6.b1 (SRS 3.8.4.2): a missing or amount-mismatched payment never
+                    // blocks the cancellation itself (BR-137 covers only the atomicity of the
+                    // cancellation + capacity release + refund-request creation, not whether a
+                    // refund exists at all) — it only changes what, if anything, gets created.
+                    PaymentTransaction? anyPaymentIfMismatched = null;
+                    if (decision.RefundAmount > 0m && successfulPayment is null)
                     {
-                        return Result.Failure<CancelBookingResponse>(BookingCancellationErrorCodes.PaymentNotRefundable,
-                            "This booking has no verified payment eligible for a refund.");
+                        anyPaymentIfMismatched = await BookingCancellationPaymentVerifier
+                            .FindAnySuccessfulPaymentAsync(dbContext, booking, transactionCancellationToken);
                     }
 
+                    decimal refundAmount = successfulPayment is null && anyPaymentIfMismatched is null
+                        ? 0m // 6.a1: no verified payment at all — nothing to refund, MSG136.
+                        : decision.RefundAmount;
+                    // A zero-percent tier still creates no RefundRequest even when a matching
+                    // payment exists (nothing to confirm with the operator) — "refundAmount > 0"
+                    // alone decides whether a Refund is created at all, below.
+                    string refundStatus = refundAmount <= 0m
+                        ? "NotRequired"
+                        : successfulPayment is not null
+                            ? nameof(RefundStatus.PendingOperatorConfirmation)
+                            : nameof(RefundStatus.Reconciliation); // 6.b1: amount mismatch, escalated.
+
                     var operation = BookingCancellationOperation.Create(booking.Id, actorUserId, actor,
-                        request.IdempotencyKey, requestHash, refundAmount, nowUtc);
+                        request.IdempotencyKey, requestHash, refundAmount, refundStatus, nowUtc);
                     dbContext.BookingCancellationOperations.Add(operation);
                     await dbContext.SaveChangesAsync(transactionCancellationToken);
 
@@ -113,17 +129,24 @@ public sealed class CancelBookingCommandHandler(
                     foreach (var ticket in booking.Tickets) ticket.Cancel();
                     await dbContext.RevokeActiveTicketQrCodesAsync(booking.Id, nowUtc, transactionCancellationToken);
 
-                    if (refundAmount > 0m)
+                    var initiator = actor == BookingCancellationActor.TourOperator
+                        ? RefundInitiator.TourOperator : RefundInitiator.System;
+                    if (refundAmount > 0m && successfulPayment is not null)
                     {
-                        dbContext.Refunds.Add(Refund.CreatePending(booking.Id, successfulPayment!.Id, operation.Id,
-                            refundAmount, reason, actor == BookingCancellationActor.TourOperator
-                                ? RefundInitiator.TourOperator : RefundInitiator.System, nowUtc));
+                        dbContext.Refunds.Add(Refund.CreatePendingOperatorConfirmation(booking.Id, successfulPayment.Id,
+                            operation.Id, refundAmount, reason, initiator, nowUtc));
+                    }
+                    else if (refundAmount > 0m && anyPaymentIfMismatched is not null)
+                    {
+                        dbContext.Refunds.Add(Refund.CreateReconciliation(booking.Id, anyPaymentIfMismatched.Id,
+                            operation.Id, refundAmount, reason, initiator, nowUtc));
+                        await NotifyAdministratorsOfReconciliationAsync(booking.Id, nowUtc, transactionCancellationToken);
                     }
 
                     dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(actorUserId, AuditActionTypes.BookingCancel,
                         AuditEntityTypes.Booking, booking.Id, nowUtc, AuditOutcome.Success, reason,
                         beforeData: JsonSerializer.Serialize(beforeState),
-                        afterData: JsonSerializer.Serialize(new { status = BookingStatus.Cancelled.ToString(), refundAmount, actor })));
+                        afterData: JsonSerializer.Serialize(new { status = BookingStatus.Cancelled.ToString(), refundAmount, refundStatus, actor })));
                     await dbContext.SaveChangesAsync(transactionCancellationToken);
                     return Result.Success(ToResponse(operation));
                 }, cancellationToken);
@@ -191,6 +214,32 @@ public sealed class CancelBookingCommandHandler(
 
     private static CancelBookingResponse ToResponse(BookingCancellationOperation operation) =>
         new(operation.BookingId, nameof(BookingStatus.Cancelled), operation.RefundAmount,
-            operation.RefundAmount > 0m ? nameof(RefundStatus.Pending) : "NotRequired",
-            operation.CancelledAtUtc);
+            operation.RefundStatus, operation.CancelledAtUtc);
+
+    /// <summary>UC-41 6.b1 (SRS 3.8.4.2, MSG136): "the system marks the refund request for
+    /// reconciliation by the Administrator" — notifies every active Administrator.</summary>
+    private async Task NotifyAdministratorsOfReconciliationAsync(long bookingId, DateTimeOffset nowUtc,
+        CancellationToken cancellationToken)
+    {
+        var administratorIds = await dbContext.Users.AsNoTracking()
+            .Where(user => user.Role == UserRole.Administrator && user.Status == AccountStatus.Active)
+            .Select(user => user.Id)
+            .ToListAsync(cancellationToken);
+
+        foreach (var administratorId in administratorIds)
+        {
+            dbContext.Notifications.Add(new Notification
+            {
+                UserId = administratorId,
+                Channel = NotificationChannel.Push,
+                Type = "BookingRefundReconciliationRequired",
+                Title = "Refund needs reconciliation",
+                Body = $"Booking {bookingId}: the verified payment amount does not match the refund amount. Review required.",
+                RelatedEntityType = Notification.BookingRelatedEntityType,
+                RelatedEntityId = bookingId,
+                Status = NotificationStatus.Pending,
+                CreatedAtUtc = nowUtc,
+            });
+        }
+    }
 }
