@@ -67,9 +67,10 @@ public sealed class CompleteManualRefundCommandHandler(
             if (refund is null)
                 return Result.Failure<ManualRefundCompletionResponse>(BookingCancellationErrorCodes.NotFound,
                     "The refund could not be found.");
-            if (refund.Status != RefundStatus.ManualReview)
+            if (refund.Status is not (RefundStatus.ManualReview or RefundStatus.Escalated or RefundStatus.Reconciliation))
                 return Result.Failure<ManualRefundCompletionResponse>(BookingCancellationErrorCodes.RefundInvalidState,
-                    "Only a refund awaiting manual review can be completed.");
+                    "Only a refund awaiting administrator review can be completed.");
+            RefundStatus statusBefore = refund.Status;
 
             Booking? booking = await dbContext.Bookings.Include(item => item.TourSchedule).ThenInclude(item => item.Tour)
                 .SingleOrDefaultAsync(item => item.Id == refund.BookingId, token);
@@ -96,7 +97,7 @@ public sealed class CompleteManualRefundCommandHandler(
             AddCompletionNotifications(booking, refund, now);
             dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(administratorId, "ManualRefundCompleted", "Refund",
                 refund.Id, now, AuditOutcome.Success,
-                beforeData: JsonSerializer.Serialize(new { Status = RefundStatus.ManualReview.ToString() }),
+                beforeData: JsonSerializer.Serialize(new { Status = statusBefore.ToString() }),
                 afterData: JsonSerializer.Serialize(new { Status = refund.Status.ToString(), GatewayReference = reference })));
             await dbContext.SaveChangesAsync(token);
             return Result.Success(new ManualRefundCompletionResponse(refund.Id, refund.Status.ToString(), reference,
