@@ -9,6 +9,7 @@ using Microsoft.Extensions.Options;
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Operator.CheckIn.Audit;
 using TripMate.Application.Features.Operator.CheckIn.Common;
 using TripMate.Application.Features.Operator.CheckIn.Scan;
 using TripMate.Application.Features.Tickets.Common;
@@ -291,10 +292,13 @@ public sealed class TicketQrIssuerConcurrencyTests
         activeBefore.Should().Be(1);
 
         // Execute CheckInTravelerCommand on departure day
+        var auditJournal = new ConfirmedAuditJournal();
         await using (var context = database.CreateDbContext())
         {
             var currentUserService = new FakeOperatorUserService(seed.OperatorId);
-            var handler = new CheckInTravelerCommandHandler(context, currentUserService, Codec(), new TestClock(Departure));
+            var handler = new CheckInTravelerCommandHandler(
+                context, currentUserService, auditJournal, Codec(), new TestClock(Departure),
+                new SqlServerCheckInPersistenceErrorClassifier());
             var bookingCode = await context.Bookings.Where(b => b.Id == bookingId).Select(b => b.BookingCode).SingleAsync();
 
             var checkInResult = await handler.Handle(
@@ -325,7 +329,9 @@ public sealed class TicketQrIssuerConcurrencyTests
         await using (var context = database.CreateDbContext())
         {
             var currentUserService = new FakeOperatorUserService(seed.OperatorId);
-            var handler = new CheckInTravelerCommandHandler(context, currentUserService, Codec(), new TestClock(Departure.AddMinutes(5)));
+            var handler = new CheckInTravelerCommandHandler(
+                context, currentUserService, auditJournal, Codec(), new TestClock(Departure.AddMinutes(5)),
+                new SqlServerCheckInPersistenceErrorClassifier());
             var bookingCode = await context.Bookings.Where(b => b.Id == bookingId).Select(b => b.BookingCode).SingleAsync();
 
             var repeatResult = await handler.Handle(
@@ -344,9 +350,10 @@ public sealed class TicketQrIssuerConcurrencyTests
             $"SELECT COUNT(*) FROM commerce.CheckInLogs WHERE ticket_id = {ticketId} AND scan_result = 'AlreadyUsed';");
         alreadyUsedCount.Should().Be(1, "Repeat scan must be recorded in commerce.CheckInLogs.");
 
-        var auditLogCount = await database.ExecuteScalarAsync<int>(
-            $"SELECT COUNT(*) FROM dbo.AuditLogs WHERE action_type = 'CheckInScanRejected' AND affected_entity_id = {ticketId};");
-        auditLogCount.Should().Be(1, "Rejected repeat scan must be persisted to dbo.AuditLogs per PC-05.");
+        auditJournal.Events.Should().ContainSingle(e =>
+            e.EventType == CheckInAuditEventType.Rejected
+            && e.TicketId == ticketId
+            && e.ReasonCode == CheckInErrorCodes.AlreadyUsed);
     }
 
     private sealed class FakeOperatorUserService(long operatorUserId) : ICurrentUserService
@@ -359,6 +366,19 @@ public sealed class TicketQrIssuerConcurrencyTests
     private sealed class TestClock(DateTimeOffset now) : IDateTimeProvider
     {
         public DateTimeOffset UtcNow => now;
+    }
+
+    private sealed class ConfirmedAuditJournal : ICheckInAuditJournal
+    {
+        public List<CheckInAuditEvent> Events { get; } = [];
+
+        public Task<CheckInAuditWriteResult> AppendAsync(
+            CheckInAuditEvent auditEvent,
+            CancellationToken cancellationToken)
+        {
+            Events.Add(auditEvent);
+            return Task.FromResult(CheckInAuditWriteResult.Confirmed);
+        }
     }
 
     private static AesGcmHmacTicketQrCodec Codec() => new(Options.Create(new TicketQrOptions

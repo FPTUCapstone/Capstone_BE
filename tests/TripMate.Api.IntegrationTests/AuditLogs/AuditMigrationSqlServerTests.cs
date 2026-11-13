@@ -78,6 +78,76 @@ public sealed class AuditMigrationSqlServerTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
+    public async Task CheckInJournalMigration_LegacyUpgradeTwice_PreservesRowsAndEnforcesEventUniqueness()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var migration = await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory,
+            "Database", "migrations", "20261105_add_checkin_audit_journal_identity.sql"));
+
+        await database.ExecuteNonQueryAsync("""
+            DROP INDEX UX_AuditLogs_JournalEventId ON dbo.AuditLogs;
+            ALTER TABLE dbo.AuditLogs DROP COLUMN scan_attempt_id, journal_event_id;
+            INSERT dbo.AuditLogs(action_type, affected_entity, affected_entity_id, created_at)
+            VALUES ('Legacy', 'POI', 42, '2026-11-05T00:00:00');
+            """);
+
+        await database.ExecuteNonQueryAsync(migration);
+        await database.ExecuteNonQueryAsync(migration);
+
+        var columns = await ReadColumnInventory(database);
+        columns.Should().Contain("scan_attempt_id:uniqueidentifier:16:1");
+        columns.Should().Contain("journal_event_id:uniqueidentifier:16:1");
+        (await ReadJournalIndexInventory(database)).Should().Be(
+            "UX_AuditLogs_JournalEventId:1:[journal_event_id] IS NOT NULL");
+
+        await using (var db = database.CreateDbContext())
+        {
+            var legacy = await db.AuditLogs.AsNoTracking().SingleAsync();
+            legacy.ScanAttemptId.Should().BeNull();
+            legacy.JournalEventId.Should().BeNull();
+        }
+
+        Guid attemptId = Guid.NewGuid();
+        Guid eventId = Guid.NewGuid();
+        string insert = $"""
+            INSERT dbo.AuditLogs(action_type, affected_entity, created_at, scan_attempt_id, journal_event_id)
+            VALUES ('CheckInScanRejected', 'CheckIn', SYSUTCDATETIME(), '{attemptId:D}', '{eventId:D}');
+            """;
+        await database.ExecuteNonQueryAsync(insert);
+        var duplicate = () => database.ExecuteNonQueryAsync(insert);
+        (await duplicate.Should().ThrowAsync<SqlException>()).Which.Number.Should().BeOneOf(2601, 2627);
+
+        await database.ExecuteNonQueryAsync("""
+            INSERT dbo.AuditLogs(action_type, affected_entity, created_at, scan_attempt_id, journal_event_id)
+            VALUES ('LegacyNullOne', 'CheckIn', SYSUTCDATETIME(), NULL, NULL),
+                   ('LegacyNullTwo', 'CheckIn', SYSUTCDATETIME(), NULL, NULL);
+            """);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task CheckInJournalMigration_IncompatibleExistingColumn_RollsBackWithoutPartialSchema()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var migration = await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory,
+            "Database", "migrations", "20261105_add_checkin_audit_journal_identity.sql"));
+
+        await database.ExecuteNonQueryAsync("""
+            DROP INDEX UX_AuditLogs_JournalEventId ON dbo.AuditLogs;
+            ALTER TABLE dbo.AuditLogs DROP COLUMN scan_attempt_id, journal_event_id;
+            ALTER TABLE dbo.AuditLogs ADD scan_attempt_id bigint NULL;
+            """);
+
+        var apply = () => database.ExecuteNonQueryAsync(migration);
+        await apply.Should().ThrowAsync<SqlException>();
+        var columns = await ReadColumnInventory(database);
+        columns.Should().Contain("scan_attempt_id:bigint:8:1");
+        columns.Should().NotContain(item => item.StartsWith("journal_event_id:", StringComparison.Ordinal));
+        (await ReadJournalIndexInventory(database)).Should().BeNull();
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
     public async Task Query_OnSqlServer_PreservesInclusiveBoundaryNullActorsExactIdsAndStablePages()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
@@ -171,6 +241,21 @@ public sealed class AuditMigrationSqlServerTests
         var columns = new List<string>();
         while (await reader.ReadAsync()) columns.Add(reader.GetString(0));
         return columns.ToArray();
+    }
+
+    private static async Task<string?> ReadJournalIndexInventory(SqlServerTestDatabase database)
+    {
+        await using var connection = new SqlConnection(database.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT i.name + ':' + CONVERT(varchar(1), i.is_unique) + ':'
+                + REPLACE(REPLACE(ISNULL(i.filter_definition, ''), '(', ''), ')', '')
+            FROM sys.indexes i
+            WHERE i.object_id = OBJECT_ID(N'dbo.AuditLogs')
+              AND i.name = N'UX_AuditLogs_JournalEventId';
+            """;
+        return (string?)await command.ExecuteScalarAsync();
     }
 
     private sealed class Administrator : ICurrentUserService

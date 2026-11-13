@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
@@ -14,8 +15,15 @@ internal static class TourSearchQueryParser
     [
         "destination",
         "departureDate",
+        "keyword",
+        "startDate",
+        "endDate",
         "minPrice",
         "maxPrice",
+        "durationDays",
+        "category",
+        "minimumRating",
+        "sort",
         "page",
         "pageSize",
     ],
@@ -40,21 +48,70 @@ internal static class TourSearchQueryParser
             }
         }
 
-        TryReadSingle(source, modelState, "destination", out var destination);
+        var destination = ParseText(source, modelState, "destination");
+        var keyword = ParseText(source, modelState, "keyword");
         var departureDate = ParseDate(source, modelState, "departureDate");
+        var startDate = ParseDate(source, modelState, "startDate");
+        var endDate = ParseDate(source, modelState, "endDate");
         var minPrice = ParseInt64(source, modelState, "minPrice");
         var maxPrice = ParseInt64(source, modelState, "maxPrice");
+        var durationDays = ParseInt32(source, modelState, "durationDays");
+        var category = ParseText(source, modelState, "category", normalize: false);
+        var minimumRating = ParseDecimal(source, modelState, "minimumRating");
+        TryReadSingle(source, modelState, "sort", out var sort);
         var page = ParseInt32(source, modelState, "page") ?? 1;
         var pageSize = ParseInt32(source, modelState, "pageSize") ?? 20;
 
+        if (departureDate.HasValue && (startDate.HasValue || endDate.HasValue))
+        {
+            modelState.AddModelError(
+                "departureDate",
+                "Legacy departureDate cannot be combined with startDate or endDate.");
+        }
+
+        sort = string.IsNullOrEmpty(sort)
+            ? keyword is null ? SearchToursQuery.SortDepartureDate : SearchToursQuery.SortRelevance
+            : sort;
+
         query = new SearchToursQuery(
-            destination,
-            departureDate,
-            minPrice,
-            maxPrice,
-            page,
-            pageSize);
+            Destination: destination,
+            DepartureDate: departureDate,
+            MinPrice: minPrice,
+            MaxPrice: maxPrice,
+            Page: page,
+            PageSize: pageSize,
+            Keyword: keyword,
+            StartDate: startDate,
+            EndDate: endDate,
+            DurationDays: durationDays,
+            Category: category,
+            MinimumRating: minimumRating,
+            Sort: sort);
         return modelState.IsValid;
+    }
+
+    private static string? ParseText(
+        IQueryCollection source,
+        ModelStateDictionary modelState,
+        string key,
+        bool normalize = true)
+    {
+        if (!TryReadSingle(source, modelState, key, out var value)
+            || string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var trimmed = value.Trim();
+        try
+        {
+            return normalize ? trimmed.Normalize(NormalizationForm.FormC) : trimmed;
+        }
+        catch (ArgumentException)
+        {
+            modelState.AddModelError(key, "Invalid Unicode text.");
+            return null;
+        }
     }
 
     private static DateOnly? ParseDate(
@@ -133,6 +190,32 @@ internal static class TourSearchQueryParser
                 out var parsed))
         {
             modelState.AddModelError(key, $"{key} must contain only decimal digits.");
+            return null;
+        }
+
+        return parsed;
+    }
+
+    private static decimal? ParseDecimal(
+        IQueryCollection source,
+        ModelStateDictionary modelState,
+        string key)
+    {
+        if (!TryReadSingle(source, modelState, key, out var value) || value is null)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrEmpty(value)
+            || value.Count(character => character == '.') > 1
+            || value.Any(character => !char.IsAsciiDigit(character) && character != '.')
+            || !decimal.TryParse(
+                value,
+                NumberStyles.AllowDecimalPoint,
+                CultureInfo.InvariantCulture,
+                out var parsed))
+        {
+            modelState.AddModelError(key, $"{key} must be a decimal number.");
             return null;
         }
 
