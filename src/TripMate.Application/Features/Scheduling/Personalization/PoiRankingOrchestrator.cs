@@ -55,6 +55,9 @@ public sealed class PoiRankingOrchestrator
 {
     private const int MaximumReasonLength = 500;
 
+    // About a day's worth of stops: with fewer other places left, recently visited ones are suggested again (D20).
+    private const int MinimumSuggestionsBeforeRevisit = 5;
+
     private readonly PersonalBehaviorFeatureAggregator _behaviorAggregator;
     private readonly IPoiRankingProvider _provider;
     private readonly PersonalizationRankingOptions _options;
@@ -121,15 +124,28 @@ public sealed class PoiRankingOrchestrator
         // Decision D8: a stop the traveler removed or skipped recently is not suggested again while it cools
         // down. The counts above still cover every candidate, because the generation snapshot hash is rebuilt
         // from all of them. With nothing else to offer the cooldown gives way: an empty day helps nobody.
+        // Decision D20: a place the traveler has just been to rests too, but it is no dislike, so it comes back
+        // first, as soon as fewer than a day's worth of other places would be left.
         PoiRankingInputCandidate[] suggestible = candidates;
         if (_behaviorProfileBuilder is not null)
         {
             IReadOnlySet<long> removedRecently = await _behaviorProfileBuilder.RemovedRecentlyAsync(
                 input.TravelerUserId,
                 cancellationToken);
-            PoiRankingInputCandidate[] remaining = candidates
+            IReadOnlySet<long> visitedRecently = await _behaviorProfileBuilder.VisitedRecentlyAsync(
+                input.TravelerUserId,
+                cancellationToken);
+            PoiRankingInputCandidate[] notRemoved = candidates
                 .Where(candidate => !removedRecently.Contains(candidate.PoiId))
                 .ToArray();
+            PoiRankingInputCandidate[] remaining = notRemoved
+                .Where(candidate => !visitedRecently.Contains(candidate.PoiId))
+                .ToArray();
+            if (remaining.Length < MinimumSuggestionsBeforeRevisit)
+            {
+                remaining = notRemoved;
+            }
+
             if (remaining.Length > 0)
             {
                 suggestible = remaining;

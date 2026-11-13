@@ -383,7 +383,8 @@ public static class DependencyInjection
         services.AddScoped(serviceProvider => new BehaviorProfileBuilder(
             serviceProvider.GetRequiredService<IApplicationDbContext>(),
             serviceProvider.GetRequiredService<IDateTimeProvider>(),
-            serviceProvider.GetRequiredService<IOptions<PersonalizationRankingOptions>>().Value));
+            serviceProvider.GetRequiredService<IOptions<PersonalizationRankingOptions>>().Value,
+            serviceProvider.GetRequiredService<ILogger<BehaviorProfileBuilder>>()));
         services.AddScoped(serviceProvider => new PoiRankingOrchestrator(
             serviceProvider.GetRequiredService<PersonalBehaviorFeatureAggregator>(),
             serviceProvider.GetRequiredService<IPoiRankingProvider>(),

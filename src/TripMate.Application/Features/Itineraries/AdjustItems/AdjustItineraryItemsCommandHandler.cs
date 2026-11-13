@@ -136,11 +136,13 @@ public sealed class AdjustItineraryItemsCommandHandler(
                 operationRecord.Complete(successorResult.Value.Id);
                 await dbContext.SaveChangesAsync(transactionCancellationToken);
 
-                // UC-10 item 6: a removed stop is a Dislike and an added stop a Like for the behavior profile.
+                // UC-10 item 6: a removed stop is a Dislike and an added stop a Like for the behavior profile,
+                // unless the traveler said the removal is not about taste (traveler feedback, D10).
                 await new DerivedBehaviorSignalRecorder(dbContext).RecordItineraryEditAsync(
                     command.TravelerUserId,
                     access.CurrentItinerary.Id,
                     command.EffectiveStops.Select(stop => stop.PoiId).ToArray(),
+                    command.RemovedStops?.ToDictionary(removed => removed.PoiId, removed => removed.Reason),
                     command.IdempotencyKey,
                     dateTimeProvider.UtcNow,
                     transactionCancellationToken);

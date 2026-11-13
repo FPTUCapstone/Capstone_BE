@@ -208,13 +208,20 @@ public sealed class ItinerariesController(
             return ValidationProblem(ModelState);
         }
 
+        if (request.RemovedStops?.Any(stop => stop is null) == true)
+        {
+            ModelState.AddModelError(nameof(request.RemovedStops), "A removed stop cannot be null.");
+            return ValidationProblem(ModelState);
+        }
+
         var result = await Sender.Send(
             new AdjustItineraryItemsCommand(
                 itineraryId,
                 currentUserService.UserId.Value,
                 idempotencyKey,
                 request.Stops?.Select(stop => stop.PoiId).ToArray() ?? request.OrderedVisitPoiIds ?? [],
-                request.Stops?.Select(stop => new ItineraryStop(stop.PoiId, stop.TransportModeToNext)).ToArray()),
+                request.Stops?.Select(stop => new ItineraryStop(stop.PoiId, stop.TransportModeToNext)).ToArray(),
+                request.RemovedStops?.Select(stop => new RemovedItineraryStop(stop.PoiId, stop.Reason)).ToArray()),
             cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }

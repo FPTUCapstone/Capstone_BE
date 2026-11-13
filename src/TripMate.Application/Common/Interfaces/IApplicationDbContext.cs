@@ -124,6 +124,12 @@ public interface IApplicationDbContext
     DbSet<RecommendationBehaviorEvent> RecommendationBehaviorEvents =>
         throw new NotSupportedException("Recommendation behavior events are unavailable in this context.");
 
+    DbSet<PoiFavorite> PoiFavorites =>
+        throw new NotSupportedException("POI favorites are unavailable in this context.");
+
+    DbSet<PoiVisitedMark> PoiVisitedMarks =>
+        throw new NotSupportedException("POI visited marks are unavailable in this context.");
+
     DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests { get; }
 
     DbSet<GroupInvitation> GroupInvitations { get; }
