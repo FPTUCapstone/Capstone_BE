@@ -260,6 +260,23 @@ public static class DependencyInjection
         services.AddScoped<RefundProcessor>();
         services.AddHostedService<RefundProcessingBackgroundService>();
 
+        services.AddOptions<OperatorConfirmationDeadlineOptions>()
+            .Bind(configuration.GetSection(OperatorConfirmationDeadlineOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<OperatorConfirmationDeadlineOptions>, OperatorConfirmationDeadlineOptionsValidator>();
+        services.AddSingleton(serviceProvider =>
+            serviceProvider.GetRequiredService<IOptions<OperatorConfirmationDeadlineOptions>>().Value);
+        services.AddScoped<OperatorConfirmationDeadlineProcessor>();
+        services.AddHostedService<OperatorConfirmationDeadlineBackgroundService>();
+
+        services.AddOptions<ReturnDeadlineOptions>()
+            .Bind(configuration.GetSection(ReturnDeadlineOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<ReturnDeadlineOptions>, ReturnDeadlineOptionsValidator>();
+        services.AddSingleton(serviceProvider => serviceProvider.GetRequiredService<IOptions<ReturnDeadlineOptions>>().Value);
+        services.AddScoped<ReturnDeadlineProcessor>();
+        services.AddHostedService<ReturnDeadlineBackgroundService>();
+
         // DAILY-PAYOUT-TRANSFER (SRS v11 UC-71 to UC-74): the simulated transfer gateway is the
         // production binding until a real one (VNPay/PayOS/banking) is implemented — see spec
         // "Chế độ giả lập". Swapping it out later does not change anything registered below.

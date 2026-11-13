@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Authentication.Common;
 using TripMate.Application.Features.Bookings.Common;
+using TripMate.Application.Features.Bookings.Refunds;
 using TripMate.Application.Features.CommercialServices.Common;
 using TripMate.Application.Features.Coupons.Common;
 using TripMate.Application.Features.Navigation.Common;
@@ -342,6 +343,11 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             BookingCancellationErrorCodes.ConfirmationRequired => StatusCodes.Status422UnprocessableEntity,
             BookingCancellationErrorCodes.PolicyUnavailable => StatusCodes.Status503ServiceUnavailable,
             BookingCancellationErrorCodes.ConcurrentRetryExhausted => StatusCodes.Status503ServiceUnavailable,
+
+            RefundConfirmationErrorCodes.OperatorNotOwner => StatusCodes.Status403Forbidden,
+            RefundConfirmationErrorCodes.RequestNotPending or
+                RefundConfirmationErrorCodes.StatusPersistFailed => StatusCodes.Status409Conflict,
+            RefundConfirmationErrorCodes.ReturnReferenceRequired => StatusCodes.Status400BadRequest,
 
             TripMate.Application.Features.Admin.Bookings.Common.PlatformBookingErrorCodes.Forbidden =>
                 StatusCodes.Status403Forbidden,

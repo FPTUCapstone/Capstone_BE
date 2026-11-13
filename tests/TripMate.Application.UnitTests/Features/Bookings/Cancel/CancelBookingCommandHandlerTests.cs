@@ -62,10 +62,11 @@ public sealed class CancelBookingCommandHandlerTests
         (await db.BookingCancellationOperations.CountAsync()).Should().Be(1);
     }
 
+    // BR-135 v3 (owner decision 11/11/2026): >14 days 100%; 10-14 days 50%; under 10 days 0%.
     [Theory]
-    [InlineData(7, 50)]
-    [InlineData(3, 30)]
-    [InlineData(1, 0)]
+    [InlineData(20, 100)]
+    [InlineData(12, 50)]
+    [InlineData(7, 0)]
     public async Task Handle_NewBookingPersistsPolicySnapshotAndAppliesItsTier(int daysBeforeDeparture,
         decimal expectedPercent)
     {
@@ -80,7 +81,9 @@ public sealed class CancelBookingCommandHandlerTests
         db.Bookings.Add(booking);
         db.Users.Add(new User { Id = 7, Email = "traveler@test.local", FullName = "Traveler", Role = UserRole.Traveler });
         await db.SaveChangesAsync();
-        db.PaymentTransactions.Add(CreateSuccessfulPayment(51, booking.Id, booking.TotalAmount, departure.AddDays(-10)));
+        // Paid well before every tested "now" below (and more than 24h ahead of it), so the
+        // 24h-since-payment full-refund rule never interferes with the BR-135 v3 tier being tested.
+        db.PaymentTransactions.Add(CreateSuccessfulPayment(51, booking.Id, booking.TotalAmount, departure.AddDays(-25)));
         await db.SaveChangesAsync();
         db.ClearTrackedEntities();
 
@@ -99,8 +102,9 @@ public sealed class CancelBookingCommandHandlerTests
     }
 
     [Fact]
-    public async Task Handle_TravelerCancellationSevenDaysBeforeDeparture_CancelsAndCreatesPendingRefund()
+    public async Task Handle_TravelerCancellationTwelveDaysBeforeDeparture_CancelsAndCreatesPendingRefund()
     {
+        // BR-135 v3: 10-14 days before departure = 50%.
         await using var db = TestDbContext.Create();
         var departure = new DateTimeOffset(2026, 11, 15, 8, 0, 0, TimeSpan.Zero);
         var tour = CreateTour(21, 8);
@@ -111,9 +115,9 @@ public sealed class CancelBookingCommandHandlerTests
         db.TourSchedules.Add(schedule);
         db.Bookings.Add(booking);
         db.Users.Add(new User { Id = 7, Email = "traveler@test.local", FullName = "Traveler", Role = UserRole.Traveler });
-        db.PaymentTransactions.Add(CreateSuccessfulPayment(51, booking.Id, booking.TotalAmount, departure.AddDays(-10)));
+        db.PaymentTransactions.Add(CreateSuccessfulPayment(51, booking.Id, booking.TotalAmount, departure.AddDays(-20)));
         await db.SaveChangesAsync();
-        var clock = new FakeDateTimeProvider { UtcNow = departure.AddDays(-7) };
+        var clock = new FakeDateTimeProvider { UtcNow = departure.AddDays(-12) };
         var command = new CancelBookingCommand(booking.Id, Guid.NewGuid(), "ChangeOfPlans", "Cannot travel");
         var handler = new CancelBookingCommandHandler(db,
             new FakeCurrentUserService { UserId = 7, Role = nameof(UserRole.Traveler) }, clock, new NoIdempotencyConflict());
@@ -127,7 +131,7 @@ public sealed class CancelBookingCommandHandlerTests
         {
             BookingId = booking.Id,
             Amount = 400_000m,
-            Status = RefundStatus.Pending,
+            Status = RefundStatus.PendingOperatorConfirmation,
             InitiatedBy = RefundInitiator.System,
         });
         (await db.TourSchedules.SingleAsync()).ReservedCapacity.Should().Be(0);
@@ -150,7 +154,7 @@ public sealed class CancelBookingCommandHandlerTests
         await db.SaveChangesAsync();
         var handler = new CancelBookingCommandHandler(db,
             new FakeCurrentUserService { UserId = 7, Role = nameof(UserRole.Traveler) },
-            new FakeDateTimeProvider { UtcNow = departure.AddDays(-7) }, new NoIdempotencyConflict());
+            new FakeDateTimeProvider { UtcNow = departure.AddDays(-20) }, new NoIdempotencyConflict()); // BR-135 v3: >14 days = 100%, a non-zero refund.
         var command = new CancelBookingCommand(booking.Id, Guid.NewGuid(), null, null);
 
         var first = await handler.Handle(command, CancellationToken.None);
@@ -163,8 +167,10 @@ public sealed class CancelBookingCommandHandlerTests
     }
 
     [Fact]
-    public async Task Handle_ConfirmedBookingWithoutVerifiedPayment_DoesNotCancelOrCreateRefund()
+    public async Task Handle_ConfirmedBookingWithoutVerifiedPayment_StillCancelsButCreatesNoRefund()
     {
+        // UC-41 6.a1 (SRS 3.8.4.2): no verified successful payment exists — the cancellation
+        // proceeds (not rolled back), no RefundRequest is created, MSG136.
         await using var db = TestDbContext.Create();
         var departure = new DateTimeOffset(2026, 11, 15, 8, 0, 0, TimeSpan.Zero);
         var tour = CreateTour(21, 8);
@@ -175,14 +181,52 @@ public sealed class CancelBookingCommandHandlerTests
         await db.SaveChangesAsync();
         var handler = new CancelBookingCommandHandler(db,
             new FakeCurrentUserService { UserId = 7, Role = nameof(UserRole.Traveler) },
-            new FakeDateTimeProvider { UtcNow = departure.AddDays(-7) }, new NoIdempotencyConflict());
+            new FakeDateTimeProvider { UtcNow = departure.AddDays(-20) }, new NoIdempotencyConflict()); // BR-135 v3: >14 days = 100%, a non-zero refund is actually at stake here.
 
         var result = await handler.Handle(new CancelBookingCommand(booking.Id, Guid.NewGuid(), null, null),
             CancellationToken.None);
 
-        result.ErrorCode.Should().Be(BookingCancellationErrorCodes.PaymentNotRefundable);
-        (await db.Bookings.SingleAsync()).Status.Should().Be(BookingStatus.Confirmed);
+        result.IsSuccess.Should().BeTrue();
+        result.Value.RefundAmount.Should().Be(0m);
+        result.Value.RefundStatus.Should().Be("NotRequired");
+        (await db.Bookings.SingleAsync()).Status.Should().Be(BookingStatus.Cancelled);
         (await db.Refunds.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Handle_PaymentAmountMismatch_StillCancelsAndCreatesReconciliationRefund_AndNotifiesAdministrators()
+    {
+        // UC-41 6.b1 (SRS 3.8.4.2): a successful payment exists but its amount does not match the
+        // booking's paid amount — the cancellation proceeds, a Reconciliation refund is created
+        // and escalated to the Administrator, MSG136.
+        await using var db = TestDbContext.Create();
+        var departure = new DateTimeOffset(2026, 11, 15, 8, 0, 0, TimeSpan.Zero);
+        var tour = CreateTour(21, 8);
+        var schedule = CreateSchedule(31, tour, departure, reservedCapacity: 1);
+        var booking = Booking.Restore(41, 7, schedule.Id, 1, 500_000m, BookingStatus.Confirmed,
+            PaymentStatus.Paid, TravelerCancellationPolicy.DefaultSnapshot);
+        db.Tours.Add(tour); db.TourSchedules.Add(schedule); db.Bookings.Add(booking);
+        var admin = new User { Id = 99, Email = "admin@test.local", FullName = "Admin", Role = UserRole.Administrator, Status = AccountStatus.Active };
+        db.Users.Add(admin);
+        // A successful payment exists, but its amount (400_000) does not match the booking's
+        // total amount (500_000) — FindSuccessfulPaymentAsync's amount-matched lookup finds
+        // nothing, but FindAnySuccessfulPaymentAsync does.
+        db.PaymentTransactions.Add(CreateSuccessfulPayment(51, booking.Id, 400_000m, departure.AddDays(-25)));
+        await db.SaveChangesAsync();
+        var handler = new CancelBookingCommandHandler(db,
+            new FakeCurrentUserService { UserId = 7, Role = nameof(UserRole.Traveler) },
+            new FakeDateTimeProvider { UtcNow = departure.AddDays(-20) }, new NoIdempotencyConflict());
+
+        var result = await handler.Handle(new CancelBookingCommand(booking.Id, Guid.NewGuid(), null, null),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.RefundStatus.Should().Be(nameof(RefundStatus.Reconciliation));
+        (await db.Bookings.SingleAsync()).Status.Should().Be(BookingStatus.Cancelled);
+        var refund = await db.Refunds.SingleAsync();
+        refund.Status.Should().Be(RefundStatus.Reconciliation);
+        refund.TransactionId.Should().Be(51);
+        (await db.Notifications.CountAsync(n => n.UserId == admin.Id)).Should().Be(1);
     }
 
     [Fact]
@@ -218,13 +262,13 @@ public sealed class CancelBookingCommandHandlerTests
             PaymentStatus.Paid, TravelerCancellationPolicy.DefaultSnapshot);
         db.Tours.Add(tour); db.TourSchedules.Add(schedule); db.Bookings.Add(booking);
         db.Users.Add(new User { Id = 7, Email = "traveler@test.local", FullName = "Traveler", Role = UserRole.Traveler });
-        db.PaymentTransactions.Add(CreateSuccessfulPayment(51, booking.Id, booking.TotalAmount, departure.AddDays(-10)));
+        db.PaymentTransactions.Add(CreateSuccessfulPayment(51, booking.Id, booking.TotalAmount, departure.AddDays(-20)));
         await db.SaveChangesAsync();
         db.SerializableTransactionCompletionFailureFactory = attempt =>
             attempt == 1 ? new SimulatedDeadlockException() : null;
         var handler = new CancelBookingCommandHandler(db,
             new FakeCurrentUserService { UserId = 7, Role = nameof(UserRole.Traveler) },
-            new FakeDateTimeProvider { UtcNow = departure.AddDays(-7) }, new NoIdempotencyConflict());
+            new FakeDateTimeProvider { UtcNow = departure.AddDays(-12) }, new NoIdempotencyConflict()); // BR-135 v3: 10-14 days = 50%, a non-zero refund.
 
         var result = await handler.Handle(new CancelBookingCommand(booking.Id, Guid.NewGuid(), null, null),
             CancellationToken.None);
@@ -303,8 +347,11 @@ public sealed class CancelBookingCommandHandlerTests
     }
 
     [Fact]
-    public async Task Handle_TravelerCancelWithinTwentyFourHoursOfPaymentRefundsFully_EvenInsideSeventyTwoHours()
+    public async Task Handle_TravelerCancelWithinTwentyFourHoursOfPayment_NoLongerBypassesTheRefundTier()
     {
+        // BR-157 retired 11/11/2026: a recent payment no longer grants a full refund regardless
+        // of the BR-135 tier. Paid 2 hours ago, but 24h before departure is still inside the
+        // under-10-days 0% tier — only the tier (days before departure) decides the amount now.
         await using var db = TestDbContext.Create();
         var departure = new DateTimeOffset(2026, 11, 15, 8, 0, 0, TimeSpan.Zero);
         var now = departure.AddHours(-24);
@@ -322,12 +369,13 @@ public sealed class CancelBookingCommandHandlerTests
             new FakeCurrentUserService { UserId = 7, Role = nameof(UserRole.Traveler) },
             new FakeDateTimeProvider { UtcNow = now }, new NoIdempotencyConflict());
 
-        var result = await handler.Handle(new CancelBookingCommand(booking.Id, Guid.NewGuid(), null, null),
+        var result = await handler.Handle(
+            new CancelBookingCommand(booking.Id, Guid.NewGuid(), null, null, Confirmed: true), // 0% tier needs MSG170 confirmation
             CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
-        result.Value.RefundAmount.Should().Be(800_000m);
-        (await db.Refunds.SingleAsync()).Amount.Should().Be(800_000m);
+        result.Value.RefundAmount.Should().Be(0m);
+        (await db.Refunds.CountAsync()).Should().Be(0, "a 0% refund creates no RefundRequest");
     }
 
     [Fact]

@@ -19,11 +19,9 @@ public static class BookingCancellationRefundRules
                 "The booking cancellation policy is unavailable.");
         }
 
-        if (successfulPayment?.SucceededAtUtc is { } paidAtUtc && nowUtc - paidAtUtc <= TimeSpan.FromHours(24))
-        {
-            return new(booking.TotalAmount, null, null);
-        }
-
+        // BR-157 (the "paid within the last 24h always refunds in full" rule) was retired by the
+        // owner decision of 11/11/2026 — only the BR-135 tier (days before departure) decides the
+        // refund amount now, regardless of how recently the booking was paid.
         decimal? percent = policy!.RefundPercent(nowUtc, booking.TourSchedule!.StartAtUtc);
         if (percent is null)
         {
@@ -34,7 +32,7 @@ public static class BookingCancellationRefundRules
         if (percent == 0m && !confirmed)
         {
             return new(0m, BookingCancellationErrorCodes.ConfirmationRequired,
-                "Cancelling within 72 hours of departure refunds nothing. Confirm the cancellation to continue.");
+                "Cancelling this close to departure refunds nothing. Confirm the cancellation to continue.");
         }
 
         return new(decimal.Round(booking.TotalAmount * percent.Value / 100m, 2, MidpointRounding.AwayFromZero), null, null);

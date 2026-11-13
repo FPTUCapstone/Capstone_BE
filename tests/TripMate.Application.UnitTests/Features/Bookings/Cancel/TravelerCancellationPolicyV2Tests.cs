@@ -48,9 +48,12 @@ public sealed class TravelerCancellationPolicyV2Tests
     }
 
     [Fact]
-    public void DefaultSnapshot_IsVersionTwo()
+    public void TryParse_V2SnapshotStillReadsCorrectly()
     {
-        Assert.True(TravelerCancellationPolicy.TryParse(TravelerCancellationPolicy.DefaultSnapshot, out var policy));
+        // BR-135 (11/11/2026) moved the default snapshot to v3 (TravelerCancellationPolicyV3Tests);
+        // this only re-confirms that a v2 snapshot still stored on an existing booking still
+        // parses and computes as v2 (BR-107 — a booking's own snapshot never changes underneath it).
+        Assert.True(TravelerCancellationPolicy.TryParse(V2Snapshot, out var policy));
 
         Assert.Equal(2, policy!.Version);
     }

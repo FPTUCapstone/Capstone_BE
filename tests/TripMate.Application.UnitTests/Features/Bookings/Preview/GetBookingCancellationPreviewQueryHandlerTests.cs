@@ -38,12 +38,14 @@ public sealed class GetBookingCancellationPreviewQueryHandlerTests
         db.Tours.Add(tour);
         db.TourSchedules.Add(schedule);
         db.Bookings.Add(booking);
-        db.PaymentTransactions.Add(CreateSuccessfulPayment(51, booking.Id, booking.TotalAmount, departure.AddDays(-10)));
+        // Paid well before "now" (and more than 24h ahead of it), so the 24h-since-payment
+        // full-refund rule never interferes with the BR-135 v3 tier being tested.
+        db.PaymentTransactions.Add(CreateSuccessfulPayment(51, booking.Id, booking.TotalAmount, departure.AddDays(-25)));
         await db.SaveChangesAsync();
 
         var handler = new GetBookingCancellationPreviewQueryHandler(db,
             new FakeCurrentUserService { UserId = 7, Role = nameof(UserRole.Traveler) },
-            new FakeDateTimeProvider { UtcNow = departure.AddDays(-3) });
+            new FakeDateTimeProvider { UtcNow = departure.AddDays(-12) });
 
         var result = await handler.Handle(new GetBookingCancellationPreviewQuery(booking.Id), CancellationToken.None);
 
@@ -55,14 +57,16 @@ public sealed class GetBookingCancellationPreviewQueryHandlerTests
             Quantity = 1,
             TotalAmount = 1_000_000m,
             CanCancel = true,
-            EstimatedRefundAmount = 300_000m,
-            RefundStatus = nameof(RefundStatus.Pending),
+            EstimatedRefundAmount = 500_000m, // BR-135 v3: 10-14 days before departure = 50%.
+            RefundStatus = nameof(RefundStatus.PendingOperatorConfirmation),
         });
     }
 
     [Fact]
-    public async Task Handle_ConfirmedBookingWithoutMatchingSuccessfulPayment_ReturnsSameRefundFailureAsCancellation()
+    public async Task Handle_ConfirmedBookingWithoutAnySuccessfulPayment_StillAllowsCancellationWithNoRefundPreview()
     {
+        // UC-41 6.a1 (SRS 3.8.4.2): no verified successful payment at all — the preview still
+        // allows the cancellation; only the refund preview itself becomes "nothing to refund".
         await using var db = TestDbContext.Create();
         var departure = new DateTimeOffset(2026, 11, 15, 8, 0, 0, TimeSpan.Zero);
         var tour = CreateTour(21, 8);
@@ -76,18 +80,49 @@ public sealed class GetBookingCancellationPreviewQueryHandlerTests
 
         var handler = new GetBookingCancellationPreviewQueryHandler(db,
             new FakeCurrentUserService { UserId = 7, Role = nameof(UserRole.Traveler) },
-            new FakeDateTimeProvider { UtcNow = departure.AddDays(-3) });
+            new FakeDateTimeProvider { UtcNow = departure.AddDays(-20) }); // BR-135 v3: >14 days = 100%, so a non-zero refund would otherwise be at stake here.
 
         var result = await handler.Handle(new GetBookingCancellationPreviewQuery(booking.Id), CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
         result.Value.Should().BeEquivalentTo(new
         {
-            CanCancel = false,
-            BlockingReasonCode = BookingCancellationErrorCodes.PaymentNotRefundable,
+            CanCancel = true,
+            BlockingReasonCode = (string?)null,
             EstimatedRefundAmount = 0m,
             RefundStatus = "NotRequired",
         });
+    }
+
+    [Fact]
+    public async Task Handle_PaymentAmountMismatch_PreviewsReconciliationOutcome()
+    {
+        // UC-41 6.b1 (SRS 3.8.4.2): a successful payment exists but its amount does not match.
+        await using var db = TestDbContext.Create();
+        var departure = new DateTimeOffset(2026, 11, 15, 8, 0, 0, TimeSpan.Zero);
+        var tour = CreateTour(21, 8);
+        var schedule = CreateSchedule(31, tour, departure);
+        var booking = Booking.Restore(41, 7, schedule.Id, 1, 1_000_000m, BookingStatus.Confirmed,
+            PaymentStatus.Paid, Booking.DefaultCancellationPolicySnapshot);
+        db.Tours.Add(tour);
+        db.TourSchedules.Add(schedule);
+        db.Bookings.Add(booking);
+        db.PaymentTransactions.Add(CreateSuccessfulPayment(51, booking.Id, 900_000m, departure.AddDays(-25)));
+        await db.SaveChangesAsync();
+
+        var handler = new GetBookingCancellationPreviewQueryHandler(db,
+            new FakeCurrentUserService { UserId = 7, Role = nameof(UserRole.Traveler) },
+            new FakeDateTimeProvider { UtcNow = departure.AddDays(-20) });
+
+        var result = await handler.Handle(new GetBookingCancellationPreviewQuery(booking.Id), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Should().BeEquivalentTo(new
+        {
+            CanCancel = true,
+            EstimatedRefundAmount = 1_000_000m,
+            RefundStatus = nameof(RefundStatus.Reconciliation),
+        }, options => options.ExcludingMissingMembers());
     }
 
     [Fact]
@@ -112,8 +147,10 @@ public sealed class GetBookingCancellationPreviewQueryHandlerTests
     }
 
     [Fact]
-    public async Task Handle_TravelerWithinTwentyFourHoursOfPaymentPreviewsFullRefund()
+    public async Task Handle_TravelerWithinTwentyFourHoursOfPayment_NoLongerPreviewsFullRefund()
     {
+        // BR-157 retired 11/11/2026: a recent payment no longer grants a full refund regardless
+        // of the BR-135 tier — only days-before-departure decides the amount now.
         await using var db = TestDbContext.Create();
         var departure = new DateTimeOffset(2026, 11, 15, 8, 0, 0, TimeSpan.Zero);
         var now = departure.AddHours(-24);
@@ -128,7 +165,8 @@ public sealed class GetBookingCancellationPreviewQueryHandlerTests
         result.Value.Should().BeEquivalentTo(new
         {
             CanCancel = true,
-            EstimatedRefundAmount = 1_000_000m,
+            BlockingReasonCode = BookingCancellationErrorCodes.ConfirmationRequired,
+            EstimatedRefundAmount = 0m,
         }, options => options.ExcludingMissingMembers());
     }
 
