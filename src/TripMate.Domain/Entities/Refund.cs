@@ -253,8 +253,11 @@ public class Refund : BaseEntity
         ArgumentException.ThrowIfNullOrWhiteSpace(gatewayReference);
         if (gatewayReference.Trim().Length > GatewayReferenceMaxLength)
             throw new ArgumentOutOfRangeException(nameof(gatewayReference));
-        if (Status is not (RefundStatus.Processing or RefundStatus.ManualReview))
-            throw new InvalidOperationException("Only an in-progress or manually reviewed refund can be completed.");
+        if (Status is not (RefundStatus.Processing or RefundStatus.ManualReview or RefundStatus.Escalated
+            or RefundStatus.Reconciliation))
+        {
+            throw new InvalidOperationException("Only an in-progress or administrator-reviewed refund can be completed.");
+        }
 
         Status = RefundStatus.Processed;
         GatewayReference = gatewayReference.Trim();

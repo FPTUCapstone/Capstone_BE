@@ -43,6 +43,39 @@ public sealed class AdminRefundsController(ISender sender) : ApiControllerBase(s
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 
+    /// <summary>Settles (<see cref="RefundResolutionActions.Complete"/>, with a settlement reference
+    /// and an Idempotency-Key) or closes without payment (<see cref="RefundResolutionActions.Reject"/>,
+    /// with a reason) a refund that is Escalated or under Reconciliation.</summary>
+    [HttpPost("{refundId:long}/resolve")]
+    [Authorize(Roles = nameof(UserRole.Administrator))]
+    [Produces("application/json")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> Resolve(long refundId, [FromBody] ResolveRefundRequest request,
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey, CancellationToken cancellationToken)
+    {
+        if (string.Equals(request?.Action, RefundResolutionActions.Reject, StringComparison.OrdinalIgnoreCase))
+        {
+            var rejected = await Sender.Send(new RejectReviewedRefundCommand(refundId, request!.Reason), cancellationToken);
+            return rejected.IsSuccess ? Ok(rejected.Value) : HandleFailure(rejected);
+        }
+
+        if (!string.Equals(request?.Action, RefundResolutionActions.Complete, StringComparison.OrdinalIgnoreCase))
+            return Problem(title: $"Action must be '{RefundResolutionActions.Complete}' or '{RefundResolutionActions.Reject}'.",
+                statusCode: StatusCodes.Status400BadRequest);
+        if (!Guid.TryParse(idempotencyKey, out Guid parsedKey))
+            return Problem(title: "A valid Idempotency-Key header is required.",
+                statusCode: StatusCodes.Status400BadRequest);
+
+        var completed = await Sender.Send(
+            new CompleteManualRefundCommand(refundId, parsedKey, request!.GatewayReference), cancellationToken);
+        return completed.IsSuccess ? Ok(completed.Value) : HandleFailure(completed);
+    }
+
     [HttpPost("{refundId:long}/return-received")]
     [Authorize(Roles = nameof(UserRole.Staff))]
     [Produces("application/json")]
