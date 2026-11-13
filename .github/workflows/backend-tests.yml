@@ -30,7 +30,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
       redis:
-        image: redis:7-alpine
+        image: redis:8.2-alpine
         ports:
           - 6379:6379
         options: >-
@@ -61,6 +61,20 @@ jobs:
       - name: Require Redis integration-test configuration
         shell: bash
         run: test -n "$TRIPMATE_REDIS_TEST_CONNECTION"
+
+      - name: Configure Redis 8.2 durability for audit tests
+        shell: bash
+        run: |
+          redis_container="${{ job.services.redis.id }}"
+          test -n "$redis_container"
+          docker exec "$redis_container" redis-cli --raw INFO server \
+            | tr -d '\r' | grep -Eq '^redis_version:8\.2\.'
+          docker exec "$redis_container" redis-cli CONFIG SET appendonly yes
+          docker exec "$redis_container" redis-cli CONFIG SET appendfsync always
+          docker exec "$redis_container" redis-cli --raw CONFIG GET appendonly \
+            | grep -qx 'yes'
+          docker exec "$redis_container" redis-cli --raw CONFIG GET appendfsync \
+            | grep -qx 'always'
 
       - name: Verify formatting of changed C# files
         shell: bash

@@ -4,8 +4,8 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
-using TripMate.Application.Features.Bookings.Cancel;
 using TripMate.Application.Features.Bookings.Common;
+using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Bookings.Preview;
@@ -44,38 +44,26 @@ public sealed class GetBookingCancellationPreviewQueryHandler(
                 "You are not permitted to view this booking cancellation preview.");
         }
 
-        var decision = BookingCancellationPreviewPolicy.Evaluate(booking, isTraveler, clock.UtcNow);
-        if (decision.CanCancel && decision.RefundAmount > 0m
-            && await BookingCancellationPaymentVerifier.FindSuccessfulPaymentAsync(dbContext, booking, cancellationToken)
-                is null)
+        PaymentTransaction? successfulPayment = await BookingCancellationPaymentVerifier
+            .FindSuccessfulPaymentAsync(dbContext, booking, cancellationToken);
+        var decision = BookingCancellationRefundRules.Evaluate(booking, isTraveler, clock.UtcNow,
+            confirmed: false, successfulPayment);
+
+        bool canCancel = decision.ErrorCode is null
+            || decision.ErrorCode == BookingCancellationErrorCodes.ConfirmationRequired;
+        string? code = decision.ErrorCode;
+        string? message = decision.ErrorMessage;
+        if (canCancel && decision.RefundAmount > 0m && successfulPayment is null)
         {
-            decision = (false, 0m, BookingCancellationErrorCodes.PaymentNotRefundable,
-                "This booking has no verified payment eligible for a refund.");
+            canCancel = false;
+            code = BookingCancellationErrorCodes.PaymentNotRefundable;
+            message = "This booking has no verified payment eligible for a refund.";
         }
+
+        decimal refundAmount = canCancel ? decision.RefundAmount : 0m;
         return Result.Success(new BookingCancellationPreviewResponse(booking.Id, booking.TourSchedule.Tour.Title,
             booking.TourSchedule.StartAtUtc, booking.Quantity, booking.TotalAmount, booking.Status.ToString(),
-            booking.PaymentStatus.ToString(), decision.CanCancel, decision.Code, decision.Message,
-            decision.RefundAmount, decision.RefundAmount > 0m ? nameof(RefundStatus.Pending) : "NotRequired"));
-    }
-}
-
-internal static class BookingCancellationPreviewPolicy
-{
-    internal static (bool CanCancel, decimal RefundAmount, string? Code, string? Message) Evaluate(
-        Domain.Entities.Booking booking, bool isTraveler, DateTimeOffset nowUtc)
-    {
-        if (!BookingCancelEligibility.Evaluate(booking.Status,
-                booking.Tickets.Any(ticket => ticket.Status == TicketStatus.Used)).CanCancel)
-            return (false, 0m, BookingCancellationErrorCodes.InvalidState, "This booking can no longer be cancelled.");
-        if (booking.Status == BookingStatus.PendingPayment) return (true, 0m, null, null);
-        if (!isTraveler) return (true, booking.TotalAmount, null, null);
-        if (!TravelerCancellationPolicy.TryParse(booking.CancellationPolicySnapshot, out var policy))
-            return (false, 0m, BookingCancellationErrorCodes.PolicyUnavailable,
-                "The booking cancellation policy is unavailable.");
-        var percent = policy!.RefundPercent(nowUtc, booking.TourSchedule!.StartAtUtc);
-        if (percent is null)
-            return (false, 0m, BookingCancellationErrorCodes.WindowClosed,
-                "Bookings cannot be cancelled less than 24 hours before departure.");
-        return (true, decimal.Round(booking.TotalAmount * percent.Value / 100m, 2, MidpointRounding.AwayFromZero), null, null);
+            booking.PaymentStatus.ToString(), canCancel, code, message,
+            refundAmount, refundAmount > 0m ? nameof(RefundStatus.Pending) : "NotRequired"));
     }
 }

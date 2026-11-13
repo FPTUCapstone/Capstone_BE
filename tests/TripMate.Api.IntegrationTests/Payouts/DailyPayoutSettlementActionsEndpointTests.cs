@@ -23,7 +23,38 @@ public sealed class DailyPayoutSettlementActionsEndpointTests
     {
         return await factory.WithDbContextAsync(async db =>
         {
-            var batch = PayoutBatch.Create(new DateOnly(2026, 11, 9), tourOperatorUserId: 7, DateTimeOffset.UtcNow);
+            // A retry must not be blocked by BR-160/MSG146 — the operator needs to be Active with
+            // a complete beneficiary bank account for the happy-path retry tests in this file.
+            var operatorUser = new User
+            {
+                Email = $"payout-actions-{Guid.NewGuid():N}@test.local",
+                FullName = "Payout Actions Test Operator",
+                Role = UserRole.TourOperator,
+                Status = AccountStatus.Active,
+                CreatedAtUtc = DateTimeOffset.UtcNow,
+                UpdatedAtUtc = DateTimeOffset.UtcNow,
+            };
+            db.Users.Add(operatorUser);
+            await db.SaveChangesAsync(CancellationToken.None);
+
+            db.OperatorProfiles.Add(new OperatorProfile
+            {
+                UserId = operatorUser.Id,
+                User = operatorUser,
+                CompanyName = "Payout Actions Test Co",
+                TaxCode = $"PAYOUT-ACTIONS-TAX-{operatorUser.Id}",
+                BusinessLicenseNo = $"PAYOUT-ACTIONS-LIC-{operatorUser.Id}",
+                ApprovalStatus = OperatorApprovalStatus.Approved,
+                CommissionRate = 10m,
+                BankName = "Test Bank",
+                AccountHolderName = "Operator Holder",
+                AccountNumberMasked = "****1234",
+                AccountNumberProtected = "protected-test-value",
+                BankAccountUpdatedAtUtc = DateTimeOffset.UtcNow,
+            });
+            await db.SaveChangesAsync(CancellationToken.None);
+
+            var batch = PayoutBatch.Create(new DateOnly(2026, 11, 9), tourOperatorUserId: operatorUser.Id, DateTimeOffset.UtcNow);
             db.PayoutBatches.Add(batch);
             await db.SaveChangesAsync(CancellationToken.None);
 
@@ -96,16 +127,32 @@ public sealed class DailyPayoutSettlementActionsEndpointTests
     }
 
     [Fact]
-    public async Task ManualSettlement_BlankReference_ReturnsBadRequest()
+    public async Task MarkResolved_BlankReason_ReturnsBadRequest()
     {
         await using var factory = new TripMateApiFactory();
         var batchId = await SeedBatchAsync(factory, PayoutSettlementStatus.SettlementFailed);
         using var client = factory.CreateAuthenticatedClient(1, UserRole.Administrator);
 
         var response = await client.PostAsJsonAsync(
-            $"/api/v1/admin/payout-settlements/{batchId}/manual-settlement", new { transferReference = "   " });
+            $"/api/v1/admin/payout-settlements/{batchId}/resolve", new { reason = "   " });
 
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest); // MSG178
+    }
+
+    [Fact]
+    public async Task MarkResolved_WithReason_ReturnsOkAndResolvesWithoutATransfer()
+    {
+        await using var factory = new TripMateApiFactory();
+        var batchId = await SeedBatchAsync(factory, PayoutSettlementStatus.SettlementFailed);
+        using var client = factory.CreateAuthenticatedClient(1, UserRole.Administrator);
+
+        var response = await client.PostAsJsonAsync(
+            $"/api/v1/admin/payout-settlements/{batchId}/resolve", new { reason = "Operator confirmed receipt out of band" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var resolved = await factory.WithDbContextAsync(async db =>
+            (await db.PayoutBatches.FindAsync(batchId))!.Status);
+        resolved.Should().Be(PayoutSettlementStatus.Resolved);
     }
 
     [Fact]

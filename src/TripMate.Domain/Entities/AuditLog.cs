@@ -74,6 +74,17 @@ public class AuditLog : BaseEntity
 
     public string? Reason { get; private set; }
 
+    /// <summary>
+    /// Correlates the durable admission and outcome events for one UC-43 verification attempt.
+    /// Null is reserved for audit records that did not originate in the check-in journal.
+    /// </summary>
+    public Guid? ScanAttemptId { get; private set; }
+
+    /// <summary>
+    /// Idempotency identity of the immutable journal event projected into this row.
+    /// </summary>
+    public Guid? JournalEventId { get; private set; }
+
     public DateTimeOffset CreatedAtUtc { get; private set; }
 
     public static AuditLog CreateRecordedOutcome(
@@ -104,6 +115,45 @@ public class AuditLog : BaseEntity
             Result = result,
             Reason = string.IsNullOrWhiteSpace(reason) ? null : reason.Trim()
         };
+    }
+
+    public static AuditLog CreateCheckInJournalProjection(
+        long actorUserId,
+        long scheduleId,
+        long? ticketId,
+        Guid scanAttemptId,
+        Guid journalEventId,
+        string reasonCode,
+        DateTimeOffset occurredAtUtc)
+    {
+        if (scanAttemptId == Guid.Empty)
+        {
+            throw new ArgumentException("Scan attempt identity must not be empty.", nameof(scanAttemptId));
+        }
+
+        if (journalEventId == Guid.Empty)
+        {
+            throw new ArgumentException("Journal event identity must not be empty.", nameof(journalEventId));
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(reasonCode);
+        if (scheduleId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(scheduleId));
+        }
+
+        var audit = CreateRecordedOutcome(
+            actorUserId,
+            AuditActionTypes.CheckInScanRejected,
+            AuditEntityTypes.CheckIn,
+            ticketId,
+            occurredAtUtc,
+            AuditOutcome.Failure,
+            reasonCode,
+            afterData: System.Text.Json.JsonSerializer.Serialize(new { scheduleId }));
+        audit.ScanAttemptId = scanAttemptId;
+        audit.JournalEventId = journalEventId;
+        return audit;
     }
 
     public static AuditLog CreatePoiCreated(
@@ -304,6 +354,38 @@ public class AuditLog : BaseEntity
             actionType: AuditActionTypes.RevenueExportRequested,
             affectedEntity: AuditEntityTypes.RevenueExport,
             affectedEntityId: exportId,
+            createdAtUtc: createdAtUtc,
+            afterData: afterData,
+            result: AuditOutcome.Success);
+    }
+
+    /// <summary>
+    /// UC-63 BR-130: one row per successful export response (fresh or idempotent replay).
+    /// Records only the report type, period, and filters — never the generated figures or file bytes.
+    /// </summary>
+    public static AuditLog CreateStatisticalReportExportRequested(
+        long actorUserId,
+        long exportOperationId,
+        string afterData,
+        DateTimeOffset createdAtUtc)
+    {
+        if (actorUserId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(actorUserId));
+        }
+
+        if (exportOperationId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(exportOperationId));
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(afterData);
+
+        return CreateRecordedOutcome(
+            actorUserId: actorUserId,
+            actionType: AuditActionTypes.StatisticalReportExportRequested,
+            affectedEntity: AuditEntityTypes.StatisticalReportExport,
+            affectedEntityId: exportOperationId,
             createdAtUtc: createdAtUtc,
             afterData: afterData,
             result: AuditOutcome.Success);

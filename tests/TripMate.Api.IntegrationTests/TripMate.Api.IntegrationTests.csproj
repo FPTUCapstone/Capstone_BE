@@ -32,6 +32,11 @@
     <None Include="..\..\database\migrations\20260918_add_audit_result_reason.sql"
           Link="Database\migrations\20260918_add_audit_result_reason.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261105_add_checkin_audit_journal_identity.sql"
+          Link="Database\migrations\20261105_add_checkin_audit_journal_identity.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures\Redis\tm89-aof-always.conf"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\database\migrations\20260923_add_tour_media.sql"
           Link="Database\migrations\20260923_add_tour_media.sql"
           CopyToOutputDirectory="PreserveNewest" />

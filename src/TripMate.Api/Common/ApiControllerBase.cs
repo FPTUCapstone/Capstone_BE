@@ -169,6 +169,14 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripMate.Application.Features.Admin.ActiveTrips.GetList.ActiveTripErrorCodes.NotFound =>
                 StatusCodes.Status404NotFound,
 
+            TripMate.Application.Features.Admin.StatisticalReports.Common.StatisticalReportErrorCodes.Forbidden =>
+                StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.Admin.StatisticalReports.Common.StatisticalReportErrorCodes.PeriodNotClosed =>
+                StatusCodes.Status422UnprocessableEntity,
+            TripMate.Application.Features.Admin.StatisticalReports.Common.StatisticalReportErrorCodes.InvalidCriteria or
+                TripMate.Application.Features.Admin.StatisticalReports.Common.StatisticalReportErrorCodes.UnsupportedScope =>
+                StatusCodes.Status400BadRequest,
+
             TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.Forbidden =>
                 StatusCodes.Status403Forbidden,
 
@@ -247,8 +255,18 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
                 StatusCodes.Status404NotFound,
             TripMate.Application.Features.Payouts.DailySettlement.DailyPayoutErrorCodes.NotFailed =>
                 StatusCodes.Status409Conflict,
-            TripMate.Application.Features.Payouts.DailySettlement.DailyPayoutErrorCodes.ManualReferenceRequired =>
+            TripMate.Application.Features.Payouts.DailySettlement.DailyPayoutErrorCodes.ResolutionReasonRequired =>
                 StatusCodes.Status400BadRequest,
+            TripMate.Application.Features.Payouts.DailySettlement.DailyPayoutErrorCodes.OperatorHasOutstandingDebt =>
+                StatusCodes.Status409Conflict,
+            TripMate.Application.Features.Payouts.DailySettlement.DailyPayoutErrorCodes.OperatorNotFound =>
+                StatusCodes.Status404NotFound,
+            TripMate.Application.Features.Payouts.DailySettlement.DailyPayoutErrorCodes.OperatorNotLocked =>
+                StatusCodes.Status409Conflict,
+            TripMate.Application.Features.Payouts.DailySettlement.DailyPayoutErrorCodes.RetryBlockedOperatorLocked =>
+                StatusCodes.Status409Conflict,
+            TripMate.Application.Features.Payouts.DailySettlement.DailyPayoutErrorCodes.RetryBlockedMissingBankAccount =>
+                StatusCodes.Status409Conflict,
 
             TripMate.Application.Features.Operator.Revenue.Exports.Common.RevenueExportErrorCodes.ValidationFailed =>
                 StatusCodes.Status400BadRequest,
@@ -321,6 +339,7 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
                 BookingCancellationErrorCodes.RefundManualReviewRequired => StatusCodes.Status409Conflict,
             BookingCancellationErrorCodes.WindowClosed => StatusCodes.Status422UnprocessableEntity,
             BookingCancellationErrorCodes.ReasonRequired => StatusCodes.Status422UnprocessableEntity,
+            BookingCancellationErrorCodes.ConfirmationRequired => StatusCodes.Status422UnprocessableEntity,
             BookingCancellationErrorCodes.PolicyUnavailable => StatusCodes.Status503ServiceUnavailable,
             BookingCancellationErrorCodes.ConcurrentRetryExhausted => StatusCodes.Status503ServiceUnavailable,
 

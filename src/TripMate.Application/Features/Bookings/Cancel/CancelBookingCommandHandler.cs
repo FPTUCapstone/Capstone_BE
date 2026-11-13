@@ -36,7 +36,8 @@ public sealed class CancelBookingCommandHandler(
                 "An authenticated Traveler or Tour Operator account is required.");
         }
 
-        string requestHash = ComputeRequestHash(request.BookingId, actor, request.ReasonCategory, request.ReasonDetail);
+        string requestHash = ComputeRequestHash(request.BookingId, actor, request.ReasonCategory, request.ReasonDetail,
+            request.Confirmed);
         for (var attempt = 1; ; attempt++)
         {
             try
@@ -80,10 +81,16 @@ public sealed class CancelBookingCommandHandler(
                     }
 
                     var nowUtc = clock.UtcNow;
-                    decimal refundAmount = DetermineRefundAmount(booking, actor, nowUtc, out var failure);
-                    if (failure is not null) return failure;
                     PaymentTransaction? successfulPayment = await BookingCancellationPaymentVerifier
                         .FindSuccessfulPaymentAsync(dbContext, booking, transactionCancellationToken);
+                    var decision = BookingCancellationRefundRules.Evaluate(booking,
+                        actor == BookingCancellationActor.Traveler, nowUtc, request.Confirmed, successfulPayment);
+                    if (decision.ErrorCode is not null)
+                    {
+                        return Result.Failure<CancelBookingResponse>(decision.ErrorCode, decision.ErrorMessage!);
+                    }
+
+                    decimal refundAmount = decision.RefundAmount;
                     if (refundAmount > 0m && successfulPayment is null)
                     {
                         return Result.Failure<CancelBookingResponse>(BookingCancellationErrorCodes.PaymentNotRefundable,
@@ -169,38 +176,16 @@ public sealed class CancelBookingCommandHandler(
         : Result.Failure<CancelBookingResponse>(BookingCancellationErrorCodes.IdempotencyPayloadMismatch,
             "This idempotency key has already been used with a different cancellation request.");
 
-    private static decimal DetermineRefundAmount(Booking booking, BookingCancellationActor actor,
-        DateTimeOffset nowUtc, out Result<CancelBookingResponse>? failure)
-    {
-        failure = null;
-        if (booking.Status == BookingStatus.PendingPayment) return 0m;
-        if (actor == BookingCancellationActor.TourOperator) return booking.TotalAmount;
-        if (!TravelerCancellationPolicy.TryParse(booking.CancellationPolicySnapshot, out var policy))
-        {
-            failure = Result.Failure<CancelBookingResponse>(BookingCancellationErrorCodes.PolicyUnavailable,
-                "The booking cancellation policy is unavailable.");
-            return 0m;
-        }
-
-        decimal? percent = policy!.RefundPercent(nowUtc, booking.TourSchedule!.StartAtUtc);
-        if (percent is null)
-        {
-            failure = Result.Failure<CancelBookingResponse>(BookingCancellationErrorCodes.WindowClosed,
-                "Bookings cannot be cancelled less than 24 hours before departure.");
-            return 0m;
-        }
-
-        return decimal.Round(booking.TotalAmount * percent.Value / 100m, 2, MidpointRounding.AwayFromZero);
-    }
-
     private static string? ComposeReason(string? category, string? detail) =>
         string.IsNullOrWhiteSpace(category)
             ? string.IsNullOrWhiteSpace(detail) ? null : detail.Trim()
             : string.IsNullOrWhiteSpace(detail) ? category.Trim() : $"{category.Trim()}: {detail.Trim()}";
 
-    private static string ComputeRequestHash(long bookingId, BookingCancellationActor actor, string? category, string? detail)
+    private static string ComputeRequestHash(long bookingId, BookingCancellationActor actor, string? category, string? detail,
+        bool confirmed)
     {
-        string canonical = $"{bookingId}\n{actor}\n{category?.Trim() ?? string.Empty}\n{detail?.Trim() ?? string.Empty}";
+        string canonical = $"{bookingId}\n{actor}\n{category?.Trim() ?? string.Empty}\n{detail?.Trim() ?? string.Empty}"
+            + (confirmed ? "\nconfirmed" : string.Empty);
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical))).ToLowerInvariant();
     }
 

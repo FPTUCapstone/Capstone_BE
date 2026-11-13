@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace TripMate.Application.Features.Tours.Search;
 
 public sealed record TourSearchItemDto(
@@ -8,8 +10,9 @@ public sealed record TourSearchItemDto(
     int DurationDays,
     long BasePrice,
     string Currency,
-    string? RepresentativeScheduleId,
-    DateTime? DepartureAtUtc,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? RepresentativeScheduleId,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] DateTime? DepartureAtUtc,
     string AvailabilityStatus,
-    int? RemainingSlots,
-    string? ThumbnailUrl);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] int? RemainingSlots,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? ThumbnailUrl,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] decimal? AggregateRating);
