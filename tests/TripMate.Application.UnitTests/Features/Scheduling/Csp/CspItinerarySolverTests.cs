@@ -13,6 +13,7 @@ using TripMate.Domain.Enums;
 
 namespace TripMate.Application.UnitTests.Features.Scheduling.Csp;
 
+[Collection(nameof(CspItinerarySolverTestsCollection))]
 public class CspItinerarySolverTests
 {
     private static readonly SchedulingGenerationOptions Options = new();
@@ -1265,3 +1266,6 @@ public class CspItinerarySolverTests
             CancellationToken cancellationToken) => Task.FromResult(matrix);
     }
 }
+
+[CollectionDefinition(nameof(CspItinerarySolverTestsCollection), DisableParallelization = true)]
+public sealed class CspItinerarySolverTestsCollection;
