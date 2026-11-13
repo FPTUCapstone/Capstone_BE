@@ -179,9 +179,16 @@ public sealed class RefundProcessor(
             transaction.MarkFailed(JsonSerializer.Serialize(submission), now);
             string code = submission.FailureCode ?? "payment.refund.gateway_rejected";
             if (submission.IsRetryable && refund.AttemptCount < options.MaxAttempts)
+            {
                 refund.ScheduleRetry(code, submission.FailureMessage, now.Add(options.RetryDelay));
+            }
             else
-                refund.MarkFailed(code, submission.FailureMessage);
+            {
+                // BR-161 (Q2): the retry budget (1 initial send + 3 retries) is exhausted —
+                // publish to the Escalated Refunds Monitor rather than silently failing.
+                refund.Escalate(code, submission.FailureMessage);
+                await AddEscalationNotificationsAsync(booking, refund, now, cancellationToken);
+            }
         }
 
         dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(null, "RefundGatewaySubmission", "Refund",
@@ -261,6 +268,32 @@ public sealed class RefundProcessor(
                 Type = "BookingRefundManualReviewRequired",
                 Title = "Manual refund required",
                 Body = $"Refund {refund.Id} for booking {booking.BookingCode} requires PayOS settlement.",
+                RelatedEntityType = "Refund",
+                RelatedEntityId = refund.Id,
+                Status = NotificationStatus.Pending,
+                CreatedAtUtc = now,
+            });
+        }
+    }
+
+    /// <summary>BR-161: every active Administrator is notified once a refund's gateway retries
+    /// are exhausted and it reaches the Escalated Refunds Monitor.</summary>
+    private async Task AddEscalationNotificationsAsync(Booking booking, Refund refund, DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        List<long> administratorIds = await dbContext.Users.AsNoTracking()
+            .Where(user => user.Role == UserRole.Administrator && user.Status == AccountStatus.Active)
+            .Select(user => user.Id)
+            .ToListAsync(cancellationToken);
+        foreach (long administratorId in administratorIds)
+        {
+            dbContext.Notifications.Add(new Notification
+            {
+                UserId = administratorId,
+                Channel = NotificationChannel.Push,
+                Type = "RefundEscalated",
+                Title = "Refund escalated",
+                Body = $"Refund {refund.Id} for booking {booking.BookingCode} failed after its retry budget and needs resolution.",
                 RelatedEntityType = "Refund",
                 RelatedEntityId = refund.Id,
                 Status = NotificationStatus.Pending,
