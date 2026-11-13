@@ -10,6 +10,7 @@
     tables.
 
     Dropped (children before parents):
+    - payment.PayoutSettlementWorkItems
     - payment.PayoutRefundItems
     - payment.PayoutPeriodBreakdowns
     - payment.PayoutItems
@@ -55,6 +56,9 @@ BEGIN TRY
     END;
 
     /* ---------- drop the old request-model tables, children first ---------- */
+
+    IF OBJECT_ID(N'payment.PayoutSettlementWorkItems', N'U') IS NOT NULL
+        DROP TABLE payment.PayoutSettlementWorkItems;
 
     IF OBJECT_ID(N'payment.PayoutRefundItems', N'U') IS NOT NULL
         DROP TABLE payment.PayoutRefundItems;
