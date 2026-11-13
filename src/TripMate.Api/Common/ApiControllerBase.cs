@@ -59,6 +59,10 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
     {
         var statusCode = result.ErrorCode switch
         {
+            TripMate.Application.Features.SupportChat.SupportChatErrors.Unauthorized => StatusCodes.Status401Unauthorized,
+            TripMate.Application.Features.SupportChat.SupportChatErrors.Forbidden => StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.SupportChat.SupportChatErrors.Unavailable => StatusCodes.Status503ServiceUnavailable,
+            TripMate.Application.Features.SupportChat.SupportChatErrors.InvalidRequest => StatusCodes.Status400BadRequest,
             AuthErrorCodes.InvalidCredentials =>
                 StatusCodes.Status401Unauthorized,
 
