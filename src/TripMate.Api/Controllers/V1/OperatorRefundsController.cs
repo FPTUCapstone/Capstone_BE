@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 using TripMate.Api.Common;
+using TripMate.Api.Controllers.V1.Requests;
 using TripMate.Application.Features.Bookings.Refunds;
 using TripMate.Domain.Enums;
 
@@ -26,6 +27,22 @@ public sealed class OperatorRefundsController(ISender sender) : ApiControllerBas
     public async Task<IActionResult> Confirm(long refundId, CancellationToken cancellationToken)
     {
         var result = await Sender.Send(new ConfirmBookingRefundCommand(refundId), cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    [HttpPost("{refundId:long}/return")]
+    [Produces("application/json")]
+    [ProducesResponseType(typeof(ReportBookingRefundReturnResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> ReportReturn(long refundId, [FromBody] ReportBookingRefundReturnRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(new ReportBookingRefundReturnCommand(refundId, request?.ReturnReference),
+            cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 }
