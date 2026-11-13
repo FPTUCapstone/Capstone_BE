@@ -52,10 +52,24 @@ public sealed class RecordBookingRefundReturnReceivedCommandHandler(
             RefundStatus statusBefore = refund.Status;
             refund.RecordReturnReceived(now);
 
+            // BR-144: the share arrived by bank transfer after its deadline had already turned
+            // it into a debt — close what is still outstanding so it is not collected twice.
+            decimal closedDebtAmount = 0m;
+            if (refund.DebtRecordedAtUtc is not null)
+            {
+                List<TourOperatorDebt> debts = await dbContext.TourOperatorDebts
+                    .Where(debt => debt.RefundId == refund.Id).ToListAsync(token);
+                foreach (TourOperatorDebt debt in debts.Where(debt => debt.OutstandingAmount > 0m))
+                {
+                    closedDebtAmount += debt.OutstandingAmount;
+                    debt.Recover(debt.OutstandingAmount);
+                }
+            }
+
             dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(staffUserId, "RefundReturnReceived", "Refund",
                 refund.Id, now, AuditOutcome.Success,
                 beforeData: JsonSerializer.Serialize(new { Status = statusBefore.ToString() }),
-                afterData: JsonSerializer.Serialize(new { Status = refund.Status.ToString() })));
+                afterData: JsonSerializer.Serialize(new { Status = refund.Status.ToString(), ClosedDebtAmount = closedDebtAmount })));
             await dbContext.SaveChangesAsync(token);
 
             return Result.Success(new RecordBookingRefundReturnReceivedResponse(refund.Id, refund.Status.ToString(),
