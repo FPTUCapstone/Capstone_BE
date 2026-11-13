@@ -31,6 +31,10 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(u => u.CreatedAtUtc).HasColumnName("created_at").AsUtcDateTime2();
         builder.Property(u => u.UpdatedAtUtc).HasColumnName("updated_at").AsUtcDateTime2();
         builder.Property(u => u.LastLoginAtUtc).HasColumnName("last_login_at").AsUtcDateTime2();
+        // DAILY-PAYOUT-TRANSFER spec v6 (BR-189, PD-9A): added by
+        // database/migrations/20261112_daily_payout_v6_schema.sql, not part of tripmate_schema_v7.sql.
+        builder.Property(u => u.LockReason).HasColumnName("lock_reason").HasMaxLength(200);
+        builder.Property(u => u.LockedAtUtc).HasColumnName("locked_at_utc").AsUtcDateTime2();
 
         builder.HasIndex(u => u.Email).IsUnique().HasFilter("[email] IS NOT NULL")
             .HasDatabaseName("UX_Users_Email");

@@ -169,9 +169,19 @@ public class TestDbContext(
 
     public DbSet<PayoutSettlementAttempt> PayoutSettlementAttempts => Set<PayoutSettlementAttempt>();
 
-    public DbSet<PayoutSettlementAdjustment> PayoutSettlementAdjustments => Set<PayoutSettlementAdjustment>();
+    public DbSet<TourOperatorDebt> TourOperatorDebts => Set<TourOperatorDebt>();
+
 
     public DbSet<PayoutReconciliationItem> PayoutReconciliationItems => Set<PayoutReconciliationItem>();
+
+    public DbSet<ServiceBooking> ServiceBookings => Set<ServiceBooking>();
+
+    public DbSet<ClosedStatisticalPeriod> ClosedStatisticalPeriods => Set<ClosedStatisticalPeriod>();
+
+    public DbSet<StatisticalReportSnapshot> StatisticalReportSnapshots => Set<StatisticalReportSnapshot>();
+
+    public DbSet<StatisticalReportExportOperation> StatisticalReportExportOperations =>
+        Set<StatisticalReportExportOperation>();
 
     public int TransactionExecutionCount { get; private set; }
 
@@ -236,6 +246,22 @@ public class TestDbContext(
 
         token.RevokedAtUtc = revokedAtUtc;
         return 1;
+    }
+
+    public async Task<int> RevokeAllRefreshTokensForUserAsync(
+        long userId,
+        DateTimeOffset revokedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var tokens = await RefreshTokens
+            .Where(candidate => candidate.UserId == userId && candidate.RevokedAtUtc == null)
+            .ToListAsync(cancellationToken);
+        foreach (var token in tokens)
+        {
+            token.RevokedAtUtc = revokedAtUtc;
+        }
+
+        return tokens.Count;
     }
 
     public async Task<int> DeleteSignOutAuditEventsBeforeAsync(

@@ -2,9 +2,9 @@ namespace TripMate.Domain.Entities;
 
 /// <summary>
 /// Shared status vocabulary for <see cref="PayoutBatch"/> and <see cref="PayoutSettlement"/>
-/// (DAILY-PAYOUT-TRANSFER spec PD-10). A settlement mirrors the status of the batch that
-/// carries its transfer, except "Carried Over" which a settlement can reach on its own while
-/// its batch (the NEXT run's batch for the same operator) is a different, later record.
+/// (DAILY-PAYOUT-TRANSFER spec v6 PD-10). A settlement mirrors the status of the batch that
+/// carries its transfer. "Carried Over" is removed in v6 (not in SRS rev10-5); "Resolved" is
+/// added for UC-73's [Mark as Resolved] administrator action on a permanently failed batch.
 /// </summary>
 public static class PayoutSettlementStatus
 {
@@ -12,24 +12,23 @@ public static class PayoutSettlementStatus
     public const string Processing = "Processing";
     public const string Settled = "Settled";
     public const string SettlementFailed = "SettlementFailed";
-    public const string CarriedOver = "Carried Over";
+    public const string Resolved = "Resolved";
 
     public static readonly string[] All =
     [
-        Scheduled, Processing, Settled, SettlementFailed, CarriedOver,
+        Scheduled, Processing, Settled, SettlementFailed, Resolved,
     ];
 }
 
 public static class PayoutSettlementKind
 {
-    /// <summary>The settlement for a booking that was not cancelled, or not cancelled before the
-    /// run started (PD-2).</summary>
-    public const string Main = "Main";
+    /// <summary>70% of PaidAmount, created once the booking's 24-hour Awaiting Window has ended
+    /// (BR-141, PD-1A, PD-2, PD-3).</summary>
+    public const string Advance = "Advance";
 
-    /// <summary>The settlement for the amount retained by TripMate/the Tour Operator out of a
-    /// booking that was partially refunded before the run started (PD-2, BR-142). Never created
-    /// for a booking refunded 100%.</summary>
-    public const string Retained = "Retained";
+    /// <summary>20% of (PaidAmount − RefundAmount), created at the first 10:00 (Vietnam time) run
+    /// after the tour ends (BR-141, PD-2, PD-3, Q6).</summary>
+    public const string Final = "Final";
 
-    public static readonly string[] All = [Main, Retained];
+    public static readonly string[] All = [Advance, Final];
 }

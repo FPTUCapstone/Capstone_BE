@@ -41,22 +41,24 @@ public sealed class AdminPayoutSettlementsController(ISender sender) : ApiContro
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 
-    [HttpPost("{batchId:long}/carry-over")]
+    public sealed record MarkResolvedRequest(string? Reason);
+
+    [HttpPost("{batchId:long}/resolve")]
     [Authorize(Roles = "Administrator")]
-    public async Task<IActionResult> CarryOver(long batchId, CancellationToken cancellationToken)
+    public async Task<IActionResult> MarkResolved(
+        long batchId, [FromBody] MarkResolvedRequest request, CancellationToken cancellationToken)
     {
-        var result = await Sender.Send(new CarryOverFailedPayoutBatchCommand(batchId), cancellationToken);
+        var result = await Sender.Send(new MarkPayoutBatchResolvedCommand(batchId, request.Reason), cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 
-    public sealed record RecordManualSettlementRequest(string? TransferReference);
-
-    [HttpPost("{batchId:long}/manual-settlement")]
-    [Authorize(Roles = "Administrator")]
-    public async Task<IActionResult> RecordManualSettlement(
-        long batchId, [FromBody] RecordManualSettlementRequest request, CancellationToken cancellationToken)
+    /// <summary>Part of UC-48 (BR-189, PD-9A, Q4): Staff-only unlock of a Tour Operator the daily
+    /// run locked for unrecovered pending debt. Refused with MSG199 while debt remains.</summary>
+    [HttpPost("tour-operators/{tourOperatorUserId:long}/unlock")]
+    [Authorize(Roles = "Staff")]
+    public async Task<IActionResult> UnlockTourOperator(long tourOperatorUserId, CancellationToken cancellationToken)
     {
-        var result = await Sender.Send(new RecordManualPayoutSettlementCommand(batchId, request.TransferReference), cancellationToken);
+        var result = await Sender.Send(new UnlockTourOperatorCommand(tourOperatorUserId), cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 }
