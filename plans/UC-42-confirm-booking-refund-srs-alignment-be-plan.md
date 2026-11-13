@@ -109,10 +109,10 @@ Green:
 - `RefundProcessingOptions.cs:9,12`: `RetryDelay = 1 giờ`; `MaxAttempts = 4` (1 lần gửi đầu + 3 lần thử lại).
 - `Refund.cs`: `Escalated` thay vì `Failed` khi hết lượt (nhánh đã có `MarkFailed`).
 
-## Task 10 — Refund dữ liệu cũ và rà soát (G1–G10)
-- Chạy script xử lý dữ liệu cũ (Q3) trên DB dev, kiểm tra số lượng từng trạng thái trước/sau.
-- Rà soát: không còn đường nào từ `Pending` chưa xác nhận sang gateway (grep `SubmitRefundAsync`, `TryStartAttempt`).
-- Cập nhật `TEAM` docs: PR description theo template (Summary, Affected endpoints, Validation performed có head SHA + số pass/fail/skip, Database changes, Known limitations ghi rõ các phần còn hoãn: UC-66, UC-68/69/75, BR-158, và việc hoàn tiền dùng cổng giả lập (Q4)).
+## Task 10 — Refund dữ liệu cũ và rà soát (G1–G10) — XONG
+- DB dev (`TripMateDb`) tại thời điểm rà soát chỉ có 11 dòng `payment.Refunds`, cả 11 đều `Processed` (terminal). Không có dòng nào ở `Pending`/`Processing`/`RetryPending`/`ManualReview` — không có dữ liệu cũ nào cần chuyển theo Q3 (đã chốt: refund đã gửi giữ trạng thái, refund chưa gửi chuyển `PendingOperatorConfirmation`). Không cần script migrate dữ liệu.
+- Rà soát `grep -rn "SubmitRefundAsync\|TryStartAttempt" src/`: đúng một nơi gọi mỗi hàm trong code sản xuất, cả hai đều trong `RefundProcessor.cs` (gọi gateway tại dòng ~58 chỉ sau khi `ClaimAsync`→`TryStartAttempt` đã xác nhận refund ở `Pending`/`RetryPending`). `Refund.CreatePending` (đường cũ, không qua UC-42) không còn được gọi ở `src/`, chỉ còn dùng làm fixture trong test. Không có đường nào đi vòng qua xác nhận TO.
+- PR description soạn theo `.github/pull_request_template.md`, đính kèm khi mở PR (Task 11).
 
 ## Task 11 — Verify cuối và PR
 - `dotnet restore`, `dotnet format TripMate.slnx --verify-no-changes --no-restore`, `dotnet build TripMate.slnx -c Release --no-restore`, `dotnet test TripMate.slnx -c Release --no-build` (kể cả Category=SqlServer với `TRIPMATE_SQLSERVER_TEST_CONNECTION`).
