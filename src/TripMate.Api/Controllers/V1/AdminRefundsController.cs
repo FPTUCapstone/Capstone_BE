@@ -94,10 +94,10 @@ public sealed class AdminRefundsController(ISender sender) : ApiControllerBase(s
     [Produces("application/json")]
     [ProducesResponseType(typeof(AdminRefundsResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
-    public async Task<IActionResult> GetRefunds([FromQuery] string[]? status, [FromQuery] int page = 1,
+    public async Task<IActionResult> GetRefunds([FromQuery] string[]? status, [FromQuery] int pageNumber = 1,
         [FromQuery] int pageSize = 20, CancellationToken cancellationToken = default)
     {
-        var result = await Sender.Send(new GetAdminRefundsQuery(status, page, pageSize), cancellationToken);
+        var result = await Sender.Send(new GetAdminRefundsQuery(status, pageNumber, pageSize), cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 
