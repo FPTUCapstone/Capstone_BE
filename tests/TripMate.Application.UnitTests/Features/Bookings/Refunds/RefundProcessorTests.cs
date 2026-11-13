@@ -150,6 +150,103 @@ public sealed class RefundProcessorTests
         (await db.RefundManualCompletionOperations.CountAsync()).Should().Be(1);
     }
 
+    // G1 (spec v1.2): a refund on the UC-42 operator-confirmation / partner-return path must
+    // never be picked up by the automatic sweep before it reaches Pending — proven directly
+    // against ProcessDueRefundsAsync's own query (not just inspected), so a future change to the
+    // filter is caught here regardless of how it's expressed.
+    [Theory]
+    [InlineData(RefundOperatorConfirmationStage.PendingOperatorConfirmation)]
+    [InlineData(RefundOperatorConfirmationStage.AwaitingPartnerReturn)]
+    [InlineData(RefundOperatorConfirmationStage.ReturnReported)]
+    public async Task ProcessDueRefunds_OnTheUc42OperatorConfirmationPath_NeverPicksItUp(RefundOperatorConfirmationStage stage)
+    {
+        await using TestDbContext db = CreateDbContext();
+        Refund refund = await SeedOperatorConfirmationRefundAsync(db, stage);
+        var gateway = new FakeRefundGateway(new RefundSubmissionResult(true, GatewayReference: "should-not-be-called"));
+        var processor = new RefundProcessor(db, new FixedClock(Now), new FakeRefundGatewayResolver(gateway),
+            new RefundProcessingOptions());
+
+        RefundSweepResult result = await processor.ProcessDueRefundsAsync(CancellationToken.None);
+
+        result.ProcessedCount.Should().Be(0);
+        result.DeferredCount.Should().Be(0);
+        gateway.LastRequest.Should().BeNull("the gateway must never be called before UC-42 confirms the refund");
+        (await db.Refunds.SingleAsync()).Status.Should().Be(refund.Status, "the sweep must leave it untouched");
+    }
+
+    [Fact]
+    public async Task ProcessDueRefunds_AfterZeroShareConfirmation_PicksItUpExactlyOnce()
+    {
+        // BR-139 case 4.b1: Confirm(0m, ...) skips straight to Pending — this proves that path
+        // actually feeds the sweep, not just that the entity's own Status looks right.
+        await using TestDbContext db = CreateDbContext();
+        Refund refund = await SeedOperatorConfirmationRefundAsync(db, RefundOperatorConfirmationStage.PendingOperatorConfirmation);
+        refund.Confirm(operatorReturnShare: 0m, returnDeadlineAtUtc: null, nowUtc: Now);
+        await db.SaveChangesAsync();
+        var gateway = new FakeRefundGateway(new RefundSubmissionResult(true, GatewayReference: "gw-refund-confirmed"));
+        var processor = new RefundProcessor(db, new FixedClock(Now), new FakeRefundGatewayResolver(gateway),
+            new RefundProcessingOptions());
+
+        RefundSweepResult result = await processor.ProcessDueRefundsAsync(CancellationToken.None);
+
+        result.ProcessedCount.Should().Be(1);
+        gateway.LastRequest.Should().NotBeNull();
+        gateway.LastRequest!.IdempotencyKey.Should().Be($"tripmate-refund-{refund.Id}");
+        (await db.Refunds.SingleAsync()).Status.Should().Be(RefundStatus.Processed);
+    }
+
+    public enum RefundOperatorConfirmationStage { PendingOperatorConfirmation, AwaitingPartnerReturn, ReturnReported }
+
+    private static async Task<Refund> SeedOperatorConfirmationRefundAsync(TestDbContext db, RefundOperatorConfirmationStage stage)
+    {
+        var tour = (Tour)Activator.CreateInstance(typeof(Tour), nonPublic: true)!;
+        Set(tour, nameof(Tour.OperatorUserId), 22L);
+        Set(tour, nameof(Tour.Title), "Refund processor tour (UC-42)");
+        Set(tour, nameof(Tour.BasePrice), 500_000m);
+        Set(tour, nameof(Tour.DurationDays), 1);
+        Set(tour, nameof(Tour.Status), TourStatus.Approved);
+        db.Tours.Add(tour);
+        await db.SaveChangesAsync();
+
+        var schedule = (TourSchedule)Activator.CreateInstance(typeof(TourSchedule), nonPublic: true)!;
+        Set(schedule, nameof(TourSchedule.TourId), tour.Id);
+        Set(schedule, nameof(TourSchedule.Tour), tour);
+        Set(schedule, nameof(TourSchedule.StartAtUtc), Now.AddDays(10));
+        Set(schedule, nameof(TourSchedule.EndAtUtc), Now.AddDays(10).AddHours(8));
+        Set(schedule, nameof(TourSchedule.TotalCapacity), 10);
+        Set(schedule, nameof(TourSchedule.Status), TourScheduleStatus.Scheduled);
+        db.TourSchedules.Add(schedule);
+        await db.SaveChangesAsync();
+
+        Booking booking = Booking.Create(travelerUserId: 11, tourScheduleId: schedule.Id, quantity: 1,
+            totalAmount: 500_000m, BookingStatus.Cancelled, PaymentStatus.Paid);
+        Set(booking, nameof(Booking.BookingCode), "BK-REFUND-UC42");
+        Set(booking, nameof(Booking.TourSchedule), schedule);
+        db.Bookings.Add(booking);
+        await db.SaveChangesAsync();
+
+        PaymentTransaction payment = PaymentTransaction.Create(booking.Id, PaymentGateway.Mock, 500_000m,
+            orderCode: 2, createdAtUtc: Now);
+        payment.MarkSuccess("payment-ref-uc42", "{}", Now, 0m);
+        db.PaymentTransactions.Add(payment);
+        await db.SaveChangesAsync();
+
+        Refund refund = Refund.CreatePendingOperatorConfirmation(booking.Id, payment.Id, cancellationOperationId: 1,
+            500_000m, "Traveler request", RefundInitiator.System, Now);
+        if (stage is RefundOperatorConfirmationStage.AwaitingPartnerReturn or RefundOperatorConfirmationStage.ReturnReported)
+        {
+            refund.Confirm(operatorReturnShare: 350_000m, returnDeadlineAtUtc: Now.AddDays(3), nowUtc: Now);
+        }
+        if (stage is RefundOperatorConfirmationStage.ReturnReported)
+        {
+            refund.ReportReturn("VCB-UC42-1", Now.AddHours(1));
+        }
+
+        db.Refunds.Add(refund);
+        await db.SaveChangesAsync();
+        return refund;
+    }
+
     private static TestDbContext CreateDbContext() => new(new DbContextOptionsBuilder<TestDbContext>()
         .UseInMemoryDatabase(Guid.NewGuid().ToString())
         .Options);
