@@ -45,4 +45,27 @@ public sealed class OperatorRefundsController(ISender sender) : ApiControllerBas
             cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
+
+    [HttpGet]
+    [Produces("application/json")]
+    [ProducesResponseType(typeof(OperatorRefundsResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> GetRefunds([FromQuery] string? status, [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20, CancellationToken cancellationToken = default)
+    {
+        var result = await Sender.Send(new GetOperatorRefundsQuery(status, page, pageSize), cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    [HttpGet("{refundId:long}")]
+    [Produces("application/json")]
+    [ProducesResponseType(typeof(OperatorRefundDetailDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetRefundDetail(long refundId, CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(new GetOperatorRefundDetailQuery(refundId), cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
 }
