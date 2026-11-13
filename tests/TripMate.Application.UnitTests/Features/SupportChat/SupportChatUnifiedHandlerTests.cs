@@ -1,7 +1,7 @@
-using MediatR;
-
 using System.Data.Common;
 using System.Text.Json;
+
+using MediatR;
 
 using Moq;
 

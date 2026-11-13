@@ -115,14 +115,14 @@ public sealed class SupportChatTests
         Assert.Equal(CorpusBatchCount, batches.Length);
         foreach (var batch in batches)
         {
-        Assert.DoesNotContain("private", batch.Body);
-        using var batchJson = JsonDocument.Parse(batch.Body);
-        foreach (var request in batchJson.RootElement.GetProperty("requests").EnumerateArray())
-        {
-            Assert.Equal("models/gemini-embedding-001", request.GetProperty("model").GetString());
-            Assert.Equal("RETRIEVAL_DOCUMENT", request.GetProperty("taskType").GetString());
-            Assert.False(string.IsNullOrWhiteSpace(request.GetProperty("title").GetString()));
-        }
+            Assert.DoesNotContain("private", batch.Body);
+            using var batchJson = JsonDocument.Parse(batch.Body);
+            foreach (var request in batchJson.RootElement.GetProperty("requests").EnumerateArray())
+            {
+                Assert.Equal("models/gemini-embedding-001", request.GetProperty("model").GetString());
+                Assert.Equal("RETRIEVAL_DOCUMENT", request.GetProperty("taskType").GetString());
+                Assert.False(string.IsNullOrWhiteSpace(request.GetProperty("title").GetString()));
+            }
         }
         var queries = handler.Requests.Where(r => r.Url.EndsWith(":embedContent")).ToArray();
         Assert.Equal(2, queries.Length);

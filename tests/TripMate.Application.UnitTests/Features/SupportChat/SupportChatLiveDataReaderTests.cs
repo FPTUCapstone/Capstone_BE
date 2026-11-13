@@ -121,7 +121,7 @@ public sealed class SupportChatLiveDataReaderTests
                 [new("7", "Tour Huế", ["Huế"], "Operator", 1, 100000, "VND", null, null,
                     "noUpcomingSchedule", null, null, null)])));
         var result = await Read(new(ChatIntents.SearchTours));
-        var action = Assert.Single(result.Value.Actions.Where(action => action.Type == "selectContext"));
+        var action = Assert.Single(result.Value.Actions, action => action.Type == "selectContext");
         Assert.Contains("Chưa có lịch khởi hành", action.Description);
         Assert.Contains("100.000 VND", action.Description);
     }
