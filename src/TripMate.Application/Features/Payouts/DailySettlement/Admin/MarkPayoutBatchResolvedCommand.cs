@@ -10,26 +10,28 @@ using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Payouts.DailySettlement.Admin;
 
-/// <summary>UC-73 (PD-10): Administrator records a transfer made outside the system for a failed
-/// batch. The amount is never recalculated (BR-146) — only the status and the reference change.</summary>
-public sealed record RecordManualPayoutSettlementCommand(long BatchId, string? TransferReference)
+/// <summary>UC-73 (spec v6, PD-10): Administrator [Mark as Resolved] action on a permanently
+/// failed batch (SettlementFailed, out of automatic retries). No money moves; the amount is
+/// never recalculated (BR-146). A reason is required (MSG178) and is recorded on the audit log,
+/// not on the batch itself.</summary>
+public sealed record MarkPayoutBatchResolvedCommand(long BatchId, string? Reason)
     : IRequest<Result<DailyPayoutBatchActionResponseDto>>;
 
-public sealed class RecordManualPayoutSettlementCommandHandler(
+public sealed class MarkPayoutBatchResolvedCommandHandler(
     IApplicationDbContext dbContext,
     ICurrentUserService currentUserService,
     IDateTimeProvider dateTimeProvider)
-    : IRequestHandler<RecordManualPayoutSettlementCommand, Result<DailyPayoutBatchActionResponseDto>>
+    : IRequestHandler<MarkPayoutBatchResolvedCommand, Result<DailyPayoutBatchActionResponseDto>>
 {
     public async Task<Result<DailyPayoutBatchActionResponseDto>> Handle(
-        RecordManualPayoutSettlementCommand request, CancellationToken cancellationToken)
+        MarkPayoutBatchResolvedCommand request, CancellationToken cancellationToken)
     {
         if (currentUserService.UserId is null || currentUserService.Role != nameof(UserRole.Administrator))
             return Result.Failure<DailyPayoutBatchActionResponseDto>(DailyPayoutErrorCodes.Forbidden, DailyPayoutErrorCodes.ForbiddenMessage);
 
-        if (string.IsNullOrWhiteSpace(request.TransferReference))
+        if (string.IsNullOrWhiteSpace(request.Reason))
             return Result.Failure<DailyPayoutBatchActionResponseDto>(
-                DailyPayoutErrorCodes.ManualReferenceRequired, DailyPayoutErrorCodes.ManualReferenceRequiredMessage);
+                DailyPayoutErrorCodes.ResolutionReasonRequired, DailyPayoutErrorCodes.ResolutionReasonRequiredMessage);
 
         var batch = await dbContext.PayoutBatches
             .Include(b => b.Settlements)
@@ -41,12 +43,13 @@ public sealed class RecordManualPayoutSettlementCommandHandler(
             return Result.Failure<DailyPayoutBatchActionResponseDto>(DailyPayoutErrorCodes.NotFailed, DailyPayoutErrorCodes.NotFailedMessage);
 
         var now = dateTimeProvider.UtcNow;
-        batch.MarkSettledManually(request.TransferReference.Trim(), now);
+        var reason = request.Reason.Trim();
+        batch.MarkResolved(reason, now);
 
         dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(
-            currentUserService.UserId, AuditActionTypes.PayoutSettlementManuallySettled,
+            currentUserService.UserId, AuditActionTypes.PayoutSettlementResolved,
             AuditEntityTypes.PayoutBatch, batch.Id, now, AuditOutcome.Success,
-            afterData: System.Text.Json.JsonSerializer.Serialize(new { TransferReference = request.TransferReference.Trim() })));
+            afterData: System.Text.Json.JsonSerializer.Serialize(new { Reason = reason })));
 
         await dbContext.SaveChangesAsync(cancellationToken);
 

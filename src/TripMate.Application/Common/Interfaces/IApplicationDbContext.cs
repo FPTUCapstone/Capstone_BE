@@ -75,6 +75,14 @@ public interface IApplicationDbContext
 
     DbSet<CommercialService> CommercialServices { get; }
 
+    DbSet<ServiceBooking> ServiceBookings { get; }
+
+    DbSet<ClosedStatisticalPeriod> ClosedStatisticalPeriods { get; }
+
+    DbSet<StatisticalReportSnapshot> StatisticalReportSnapshots { get; }
+
+    DbSet<StatisticalReportExportOperation> StatisticalReportExportOperations { get; }
+
     DbSet<Voucher> Vouchers { get; }
 
     DbSet<Booking> Bookings { get; }
@@ -184,7 +192,8 @@ public interface IApplicationDbContext
 
     DbSet<PayoutSettlementAttempt> PayoutSettlementAttempts { get; }
 
-    DbSet<PayoutSettlementAdjustment> PayoutSettlementAdjustments { get; }
+    DbSet<TourOperatorDebt> TourOperatorDebts { get; }
+
 
     DbSet<PayoutReconciliationItem> PayoutReconciliationItems { get; }
 
@@ -192,6 +201,14 @@ public interface IApplicationDbContext
 
     Task<int> RevokeRefreshTokenAsync(
         string tokenHash,
+        DateTimeOffset revokedAtUtc,
+        CancellationToken cancellationToken);
+
+    /// <summary>BR-175: revokes every still-active refresh token belonging to a user, used when
+    /// their account is locked (DAILY-PAYOUT-TRANSFER spec v6, BR-189, PD-9A) — unlike
+    /// <see cref="RevokeRefreshTokenAsync"/>, this is not limited to one token hash.</summary>
+    Task<int> RevokeAllRefreshTokensForUserAsync(
+        long userId,
         DateTimeOffset revokedAtUtc,
         CancellationToken cancellationToken);
 
