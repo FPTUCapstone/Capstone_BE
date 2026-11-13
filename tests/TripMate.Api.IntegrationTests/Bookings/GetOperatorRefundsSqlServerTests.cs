@@ -95,7 +95,12 @@ public sealed class GetOperatorRefundsSqlServerTests
 
         result.IsSuccess.Should().BeTrue();
         result.Value.RefundId.Should().Be(refundId);
-        result.Value.Amount.Should().Be(500_000m);
+        result.Value.RefundAmount.Should().Be(500_000m);
+        result.Value.PaidAmount.Should().Be(1_000_000m);
+        result.Value.TourName.Should().Be("Hoi An Lantern Tour");
+        result.Value.DepartureDate.Should().Be(new DateOnly(2026, 10, 30));
+        result.Value.ReferenceCode.Should().Be($"TM-REFUND-{refundId}");
+        result.Value.OperatorReturnShare.Should().Be(0m, "no settlement has been transferred yet");
         result.Value.Status.Should().Be(nameof(RefundStatus.PendingOperatorConfirmation));
     }
 

@@ -15,8 +15,10 @@ namespace TripMate.Application.Features.Bookings.Refunds;
 public sealed record GetAdminRefundsQuery(IReadOnlyList<string>? Status = null, int PageNumber = 1, int PageSize = 20)
     : IRequest<Result<AdminRefundsResponseDto>>;
 
-public sealed record AdminRefundListItemDto(long RefundId, long BookingId, string BookingCode, decimal Amount,
-    string Status, DateTimeOffset? ReturnDeadlineAtUtc, DateTimeOffset RequestedAtUtc);
+public sealed record AdminRefundListItemDto(long RefundId, long BookingId, string BookingCode,
+    long TourOperatorUserId, decimal Amount, string Status, DateTimeOffset? ReturnDeadlineAtUtc,
+    string? ReturnReference, DateTimeOffset? ReturnReportedAtUtc, int AttemptCount, string? LastErrorCode,
+    DateTimeOffset RequestedAtUtc);
 
 public sealed record AdminRefundsResponseDto(
     int PageNumber, int PageSize, int TotalCount, IReadOnlyList<AdminRefundListItemDto> Items);
@@ -52,7 +54,9 @@ public sealed class GetAdminRefundsQueryHandler(IApplicationDbContext dbContext,
             .OrderByDescending(refund => refund.RequestedAtUtc).ThenBy(refund => refund.Id)
             .Skip((pageNumber - 1) * pageSize).Take(pageSize)
             .Select(refund => new AdminRefundListItemDto(refund.Id, refund.BookingId, refund.Booking.BookingCode,
-                refund.Amount, refund.Status.ToString(), refund.ReturnDeadlineAtUtc, refund.RequestedAtUtc))
+                refund.Booking.TourSchedule.Tour.OperatorUserId, refund.Amount, refund.Status.ToString(),
+                refund.ReturnDeadlineAtUtc, refund.ReturnReference, refund.ReturnReportedAtUtc, refund.AttemptCount,
+                refund.LastErrorCode, refund.RequestedAtUtc))
             .ToListAsync(cancellationToken);
 
         return Result.Success(new AdminRefundsResponseDto(pageNumber, pageSize, totalCount, items));

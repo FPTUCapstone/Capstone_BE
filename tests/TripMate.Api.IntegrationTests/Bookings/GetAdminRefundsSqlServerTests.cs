@@ -38,7 +38,8 @@ public sealed class GetAdminRefundsSqlServerTests
             new GetAdminRefundsQuery(Status: [nameof(RefundStatus.Reconciliation), nameof(RefundStatus.Escalated)]));
 
         result.IsSuccess.Should().BeTrue();
-        result.Value.Items.Should().ContainSingle(item => item.RefundId == reconciliationRefundId);
+        result.Value.Items.Should().ContainSingle(item => item.RefundId == reconciliationRefundId)
+            .Which.TourOperatorUserId.Should().Be(seed.OperatorId);
     }
 
     [SqlServerFact]
