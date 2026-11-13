@@ -58,7 +58,7 @@ public sealed class ReturnDeadlineProcessor(
         // positive here — the invariant RecordOverdueDebtsAsync's own filter already relies on.
         decimal debtAmount = refund.OperatorReturnShare!.Value;
         long operatorUserId = booking.TourSchedule.Tour.OperatorUserId;
-        dbContext.TourOperatorDebts.Add(TourOperatorDebt.Create(operatorUserId, debtAmount, now, now));
+        dbContext.TourOperatorDebts.Add(TourOperatorDebt.Create(operatorUserId, debtAmount, now, now, refund.Id));
         refund.RecordOperatorDebt(now);
 
         dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(null, "RefundOperatorDebtRecorded", "Refund", refund.Id,
