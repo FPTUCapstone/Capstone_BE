@@ -40,6 +40,7 @@ public sealed class RefundConfiguration : IEntityTypeConfiguration<Refund>
             .HasMaxLength(Refund.ReturnReferenceMaxLength);
         builder.Property(refund => refund.ReturnReportedAtUtc).HasColumnName("return_reported_at").AsUtcDateTime2();
         builder.Property(refund => refund.ReturnReceivedAtUtc).HasColumnName("return_received_at").AsUtcDateTime2();
+        builder.Property(refund => refund.DebtRecordedAtUtc).HasColumnName("debt_recorded_at").AsUtcDateTime2();
 
         builder.HasIndex(refund => new { refund.Status, refund.NextAttemptAtUtc })
             .HasDatabaseName("IX_Refunds_Due");

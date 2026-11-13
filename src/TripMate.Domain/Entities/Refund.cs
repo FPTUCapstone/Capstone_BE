@@ -41,6 +41,12 @@ public class Refund : BaseEntity
     public DateTimeOffset? ReturnReportedAtUtc { get; private set; }
     public DateTimeOffset? ReturnReceivedAtUtc { get; private set; }
 
+    /// <summary>BR-144: set once the return-deadline scan has recorded a <see cref="TourOperatorDebt"/>
+    /// for this refund's unreturned share, so a later scan never records it twice. The refund's
+    /// own status is unaffected — it still becomes eligible for UC-67 only when the operator's
+    /// full share is actually received (<see cref="RecordReturnReceived"/>).</summary>
+    public DateTimeOffset? DebtRecordedAtUtc { get; private set; }
+
     /// <summary>
     /// UC-41 creates a refund in this status when a verified payment exists and its amount
     /// matches the booking's paid amount (3.8.4.2 step 6, BR-143) — the refund is not yet
@@ -180,6 +186,20 @@ public class Refund : BaseEntity
         LastErrorCode = errorCode.Trim();
         LastErrorMessage = string.IsNullOrWhiteSpace(errorMessage) ? null : errorMessage.Trim();
         NextAttemptAtUtc = null;
+    }
+
+    /// <summary>BR-144: the Tour Operator's return deadline has passed with its share not fully
+    /// received — a <see cref="TourOperatorDebt"/> was just recorded for it. This does not change
+    /// <see cref="Status"/>; the refund still waits for <see cref="ReportReturn"/>/<see cref="RecordReturnReceived"/>
+    /// (or eventual debt recovery, out of scope here) before it can reach UC-67.</summary>
+    public void RecordOperatorDebt(DateTimeOffset nowUtc)
+    {
+        if (Status is not (RefundStatus.AwaitingPartnerReturn or RefundStatus.ReturnReported))
+            throw new InvalidOperationException($"Cannot record an operator debt for a refund in status {Status}.");
+        if (DebtRecordedAtUtc is not null)
+            throw new InvalidOperationException("An operator debt has already been recorded for this refund.");
+
+        DebtRecordedAtUtc = nowUtc.ToUniversalTime();
     }
 
     public static Refund CreatePending(long bookingId, long transactionId, long cancellationOperationId,

@@ -163,4 +163,48 @@ public sealed class RefundStateMachineTests
         Assert.Equal(RefundStatus.Reconciliation, refund.Status);
         Assert.Null(refund.NextAttemptAtUtc);
     }
+
+    [Fact]
+    public void RecordOperatorDebt_FromAwaitingPartnerReturn_SetsDebtRecordedAtWithoutChangingStatus() // BR-144
+    {
+        var refund = CreatePendingConfirmation();
+        refund.Confirm(70_000m, Now.AddDays(3), Now);
+        var debtRecordedAt = Now.AddDays(4);
+
+        refund.RecordOperatorDebt(debtRecordedAt);
+
+        Assert.Equal(RefundStatus.AwaitingPartnerReturn, refund.Status); // unchanged — still waits for the return
+        Assert.Equal(debtRecordedAt, refund.DebtRecordedAtUtc);
+    }
+
+    [Fact]
+    public void RecordOperatorDebt_FromReturnReported_SetsDebtRecordedAtWithoutChangingStatus() // BR-144, 7.a1
+    {
+        var refund = CreatePendingConfirmation();
+        refund.Confirm(70_000m, Now.AddDays(3), Now);
+        refund.ReportReturn("VCB-PARTIAL", Now.AddHours(1));
+
+        refund.RecordOperatorDebt(Now.AddDays(4));
+
+        Assert.Equal(RefundStatus.ReturnReported, refund.Status);
+        Assert.Equal(Now.AddDays(4), refund.DebtRecordedAtUtc);
+    }
+
+    [Fact]
+    public void RecordOperatorDebt_WhenNotAwaitingReturn_Throws()
+    {
+        var refund = CreatePendingConfirmation();
+
+        Assert.Throws<InvalidOperationException>(() => refund.RecordOperatorDebt(Now));
+    }
+
+    [Fact]
+    public void RecordOperatorDebt_WhenAlreadyRecorded_Throws()
+    {
+        var refund = CreatePendingConfirmation();
+        refund.Confirm(70_000m, Now.AddDays(3), Now);
+        refund.RecordOperatorDebt(Now.AddDays(4));
+
+        Assert.Throws<InvalidOperationException>(() => refund.RecordOperatorDebt(Now.AddDays(5)));
+    }
 }
