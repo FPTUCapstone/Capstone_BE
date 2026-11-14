@@ -71,18 +71,26 @@ public sealed record WeightedGateConfiguration(
 /// </summary>
 public static class WeightedGateExecutor
 {
+    /// <summary>Production interest-token normalization, for tools outside the test assembly.</summary>
+    public static string NormalizeInterest(string value) => TravelerPreferenceScoring.NormalizePreferenceToken(value);
+
     public static async Task<WeightedGateRun> RunAsync(
         GoldenScenario scenario,
         BenchmarkPersonaData persona,
         WeightedGateConfiguration configuration,
         int warmupIterations,
         int measuredIterations,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyDictionary<long, decimal>? aiScores = null)
     {
         var baseScorer = new PersonalizationBaseScorer(configuration.Ranking);
-        var hasPreferences = persona.Tags.Count > 0;
         var candidates = scenario.Candidates
-            .Select(candidate => Personalize(candidate, persona, baseScorer, configuration.Ranking, hasPreferences))
+            .Select(candidate => Personalize(
+                candidate,
+                persona,
+                baseScorer,
+                configuration.Ranking,
+                aiScores is not null && aiScores.TryGetValue(candidate.Id, out var aiScore) ? aiScore : null))
             .ToArray();
         var input = scenario.Input with { Candidates = candidates };
         var weighted = new WeightedRequestInputsFactory(
@@ -193,12 +201,13 @@ public static class WeightedGateExecutor
     }
 
     /// <summary>Production ranking: base score blended with the AI fallback score, because AI ranking ships disabled.</summary>
-    private static GenerationCandidate Personalize(
+    /// <param name="aiScore">The provider AI score for this POI; null falls back like production (no AI answer).</param>
+    internal static GenerationCandidate Personalize(
         GenerationCandidate candidate,
         BenchmarkPersonaData persona,
         PersonalizationBaseScorer baseScorer,
         PersonalizationRankingOptions ranking,
-        bool hasPreferences)
+        decimal? aiScore)
     {
         var category = candidate.CategoryName ?? "Culture";
         var features = PersonalizationFeatureBuilder.Build(
@@ -208,12 +217,12 @@ public static class WeightedGateExecutor
             candidate.ScenicScore,
             candidate.PhotoRating);
         var baseScore = baseScorer.Score(features, 0.5m);
-        var aiFallback = hasPreferences ? ranking.PersonalizedAiFallbackScore : ranking.DefaultAiFallbackScore;
+        var ai = aiScore ?? (persona.Tags.Count > 0 ? ranking.PersonalizedAiFallbackScore : ranking.DefaultAiFallbackScore);
         return candidate with
         {
             CategoryName = category,
             TripMateBaseScore = baseScore,
-            EffectiveDesirabilityScore = (ranking.BaseWeight * baseScore) + (ranking.AiWeight * aiFallback),
+            EffectiveDesirabilityScore = (ranking.BaseWeight * baseScore) + (ranking.AiWeight * ai),
         };
     }
 
