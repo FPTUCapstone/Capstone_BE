@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Operator.Tours.Emergency.Common;
 using TripMate.Application.Features.Traveler.Bookings.Common;
 using TripMate.Application.Features.Traveler.Bookings.Emergency.Common;
 using TripMate.Domain.Enums;
@@ -12,6 +13,19 @@ namespace TripMate.Application.Features.Traveler.Bookings.Emergency;
 
 public sealed record GetTourBookingEmergencyStatusQuery(long BookingId)
     : IRequest<Result<TourBookingEmergencyStatusResponse>>;
+
+/// <summary>How the emergency decision handled the booking's payment (SRS UC-66).</summary>
+public static class EmergencyRefundHandling
+{
+    /// <summary>The decision submitted a refund for this booking; progress is on the refund endpoint.</summary>
+    public const string RefundSubmitted = "RefundSubmitted";
+
+    /// <summary>The booking was paid and TripMate reviews the refund case by case.</summary>
+    public const string UnderReview = "UnderReview";
+
+    /// <summary>Nothing was paid, so nothing is refunded.</summary>
+    public const string NotApplicable = "NotApplicable";
+}
 
 public sealed record TourBookingEmergencyStatusResponse(
     long BookingId,
@@ -27,7 +41,9 @@ public sealed record TourBookingEmergencyStatusResponse(
     string? ImmediateInstructions,
     string? EmergencyContact,
     DateTimeOffset CommittedAtUtc,
-    DateTimeOffset? AcknowledgedAtUtc = null);
+    DateTimeOffset? AcknowledgedAtUtc = null,
+    string RefundHandling = EmergencyRefundHandling.NotApplicable,
+    long? TourId = null);
 
 public sealed class GetTourBookingEmergencyStatusQueryHandler(
     IApplicationDbContext dbContext,
@@ -56,12 +72,14 @@ public sealed class GetTourBookingEmergencyStatusQueryHandler(
             {
                 booking.Id,
                 booking.TourScheduleId,
+                booking.TourSchedule.TourId,
                 BookingStatus = booking.Status,
                 ScheduleStatus = booking.TourSchedule.Status,
                 TotalTicketCount = booking.Tickets.Count,
                 CancelledTicketCount = booking.Tickets.Count(ticket => ticket.Status == TicketStatus.Cancelled),
                 UsedTicketCount = booking.Tickets.Count(ticket => ticket.Status == TicketStatus.Used),
                 booking.EmergencyNoticeAcknowledgedAtUtc,
+                booking.PaymentStatus,
             })
             .SingleOrDefaultAsync(cancellationToken);
         if (result is null)
@@ -78,6 +96,13 @@ public sealed class GetTourBookingEmergencyStatusQueryHandler(
             return Failure(TourBookingErrorCodes.EmergencyStatusNotFound,
                 "Đơn đặt tour này chưa có quyết định khẩn cấp nào.");
 
+        string refundHandling = await EmergencyRefundHandoff.HasSubmittedRefundAsync(
+                dbContext, operation, result.Id, cancellationToken)
+            ? EmergencyRefundHandling.RefundSubmitted
+            : result.PaymentStatus == PaymentStatus.Unpaid
+                ? EmergencyRefundHandling.NotApplicable
+                : EmergencyRefundHandling.UnderReview;
+
         return Result.Success(new TourBookingEmergencyStatusResponse(
             result.Id,
             operation.TourScheduleId,
@@ -92,7 +117,9 @@ public sealed class GetTourBookingEmergencyStatusQueryHandler(
             operation.ImmediateInstructions,
             operation.EmergencyContact,
             operation.CommittedAtUtc,
-            result.EmergencyNoticeAcknowledgedAtUtc));
+            result.EmergencyNoticeAcknowledgedAtUtc,
+            refundHandling,
+            result.TourId));
     }
 
     private static Result<TourBookingEmergencyStatusResponse> Failure(string code, string message) =>

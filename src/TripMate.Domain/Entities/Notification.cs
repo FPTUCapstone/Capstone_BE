@@ -19,6 +19,16 @@ public class Notification : BaseEntity
     public const string WeatherSafetyReviewCreatedType = "WeatherSafetyReviewCreated";
     public const string WeatherSafetyReviewEscalatedType = "WeatherSafetyReviewEscalated";
 
+    // UC-70 in-app notices (SRS UC-66). In-app only: they never reach a lock screen.
+    public const string EmergencyRefundReviewRequiredType = "EmergencyRefundReviewRequired";
+    public const string WeatherWarningType = "WeatherWarning";
+    public const string WeatherSafetyReviewAdminEscalatedType = "WeatherSafetyReviewAdminEscalated";
+    public const string EmergencyRefundReviewTitle = "Cần xem xét hoàn tiền tour khẩn cấp";
+    public const string WeatherWarningTitle = "TripMate: cảnh báo thời tiết";
+    public const string WeatherWarningBody =
+        "Tour bạn đã đặt có cảnh báo thời tiết. Mở TripMate để xem chi tiết.";
+    public const string WeatherSafetyReviewAdminEscalatedTitle = "Cảnh báo thời tiết chưa được xác nhận";
+
     // Shown on the lock screen: never a tour, place, reason, contact, refund or identifier.
     public const string SafetyAlertTitle = "TripMate: cảnh báo an toàn";
     public const string SafetyAlertBody = "Có cảnh báo an toàn của tour cần bạn xem.";

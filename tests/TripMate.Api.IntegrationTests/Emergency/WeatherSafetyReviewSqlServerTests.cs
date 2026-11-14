@@ -211,6 +211,56 @@ public sealed class WeatherSafetyReviewSqlServerTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
+    public async Task MissedSla_AlsoTellsEveryActiveAdministrator_InAppOnce()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database);
+        using var factory = new TripMateApiFactory(
+            sqlServerConnectionString: database.ConnectionString,
+            dateTimeProviderFactory: _ => new FixedDateTimeProvider(Now),
+            configureTestServices: services =>
+            {
+                services.RemoveAll<IWeatherSafetyReviewNotifier>();
+                services.AddSingleton<IWeatherSafetyReviewNotifier>(new RecordingWeatherSafetyReviewNotifier());
+            });
+
+        await using var db = database.CreateDbContext();
+        static User NewAdministrator(string email, AccountStatus status) => new()
+        {
+            Email = email,
+            FullName = "Escalation Administrator",
+            Role = UserRole.Administrator,
+            Status = status,
+            CreatedAtUtc = Now,
+            UpdatedAtUtc = Now,
+        };
+        var administrator = NewAdministrator($"admin-{Guid.NewGuid():N}@test.local", AccountStatus.Active);
+        var lockedAdministrator = NewAdministrator($"locked-{Guid.NewGuid():N}@test.local", AccountStatus.Locked);
+        db.Users.AddRange(administrator, lockedAdministrator);
+        var expiredReview = WeatherSafetyReview.CreateHold(
+            seed.ScheduleId, "TomorrowIo", "evt-admin-escalate", Now.AddMinutes(-40), Now.AddMinutes(-10));
+        db.WeatherSafetyReviews.Add(expiredReview);
+        await db.SaveChangesAsync();
+        var escalationService = new WeatherSafetyReviewEscalationBackgroundService(
+            factory.Services.GetRequiredService<IServiceScopeFactory>(),
+            NullLogger<WeatherSafetyReviewEscalationBackgroundService>.Instance);
+
+        (await escalationService.ProcessEscalationsAsync(CancellationToken.None)).Should().BeGreaterThan(0);
+        (await escalationService.ProcessEscalationsAsync(CancellationToken.None)).Should().Be(0);
+
+        await using var verify = database.CreateDbContext();
+        var notices = await verify.Notifications.AsNoTracking()
+            .Where(notice => notice.Type == Notification.WeatherSafetyReviewAdminEscalatedType
+                && notice.RelatedEntityId == expiredReview.Id)
+            .ToListAsync();
+        notices.Should().ContainSingle(notice => notice.UserId == administrator.Id);
+        notices.Should().NotContain(notice => notice.UserId == lockedAdministrator.Id);
+        notices.Should().OnlyContain(notice => notice.Channel == NotificationChannel.InApp
+            && notice.RelatedEntityType == AuditEntityTypes.WeatherSafetyReview);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
     public async Task LocalRealtime_TomorrowAlert_ToWeatherSafetyReview_PreservesManualOnlyInvariants()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();

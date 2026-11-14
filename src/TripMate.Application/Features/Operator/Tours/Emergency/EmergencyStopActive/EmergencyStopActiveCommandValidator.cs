@@ -23,7 +23,7 @@ public sealed class EmergencyStopActiveCommandValidator
             .MaximumLength(200).WithMessage("Mật khẩu tối đa 200 ký tự.");
         RuleFor(command => command.Reason).IsInEnum().WithMessage("Lý do không hợp lệ.");
         RuleFor(command => command.ReasonDetails)
-            .NotEmpty().WithMessage("Vui lòng nhập lý do hiển thị cho du khách.")
+            .NotEmpty().WithMessage(EmergencyTourMessages.ReasonRequired)
             .MaximumLength(EmergencyTourCancellationOperation.ReasonDetailsMaxLength)
             .WithMessage("Lý do hiển thị cho du khách tối đa 1000 ký tự.");
         RuleFor(command => command.ImmediateInstructions)

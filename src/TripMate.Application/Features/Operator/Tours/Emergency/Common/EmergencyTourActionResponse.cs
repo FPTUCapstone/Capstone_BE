@@ -6,4 +6,5 @@ public sealed record EmergencyTourActionResponse(
     string Action,
     string ScheduleStatus,
     int AffectedBookingCount,
-    DateTimeOffset CommittedAtUtc);
+    DateTimeOffset CommittedAtUtc,
+    int RefundsSubmitted);

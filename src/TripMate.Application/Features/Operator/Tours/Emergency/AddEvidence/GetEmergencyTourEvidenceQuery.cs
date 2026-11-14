@@ -34,14 +34,14 @@ public sealed class GetEmergencyTourEvidenceQueryHandler(
             || currentUser.Role != nameof(UserRole.TourOperator))
         {
             return Result.Failure<EmergencyTourEvidenceResponse>(
-                EmergencyTourErrorCodes.Forbidden, "Cần quyền đơn vị điều hành tour.");
+                EmergencyTourErrorCodes.Forbidden, EmergencyTourMessages.PermissionDenied);
         }
 
         if (!await EmergencyOperatorAccess.IsEligibleOperatorAsync(dbContext, operatorId, cancellationToken))
         {
             return Result.Failure<EmergencyTourEvidenceResponse>(
                 EmergencyTourErrorCodes.Forbidden,
-                "Cần tài khoản đơn vị điều hành đang hoạt động và đã được duyệt.");
+                EmergencyTourMessages.PermissionDenied);
         }
 
         var operation = await dbContext.EmergencyTourCancellationOperations.AsNoTracking()

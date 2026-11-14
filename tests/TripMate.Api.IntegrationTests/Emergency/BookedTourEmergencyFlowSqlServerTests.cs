@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
+using TripMate.Application.Features.Admin.ActiveTrips.GetList;
 using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Navigation.Common;
 using TripMate.Application.Features.Navigation.Start;
@@ -93,6 +94,13 @@ public sealed class BookedTourEmergencyFlowSqlServerTests
         reloadedBooking.Status.Should().Be(BookingStatus.Interrupted);
         (await db.TourSchedules.AsNoTracking().SingleAsync(s => s.Id == booking.TourScheduleId))
             .Status.Should().Be(TourScheduleStatus.EmergencyStopped);
+
+        // The paid booking now waits for Administrator refund review, visible on Active Trips.
+        var activeTrips = await new GetActiveTripsQueryHandler(db, new AdministratorUser(), new FixedClock(Now))
+            .Handle(new GetActiveTripsQuery(), CancellationToken.None);
+        activeTrips.IsSuccess.Should().BeTrue("{0}", activeTrips.ErrorMessage);
+        activeTrips.Value.Items.Should().ContainSingle(item => item.TripId == session.Id.ToString())
+            .Which.RefundReviewRequired.Should().BeTrue();
 
         // The itinerary stays Active, so the stop must also keep a new session from starting.
         db.ChangeTracker.Clear();
@@ -291,6 +299,12 @@ public sealed class BookedTourEmergencyFlowSqlServerTests
     {
         public long? UserId => userId;
         public string? Role => nameof(UserRole.TourOperator);
+    }
+
+    private sealed class AdministratorUser : ICurrentUserService
+    {
+        public long? UserId => 1;
+        public string? Role => nameof(UserRole.Administrator);
     }
 
     private sealed class FixedClock(DateTimeOffset utcNow) : IDateTimeProvider

@@ -93,6 +93,40 @@ public sealed class WeatherAlertInboxProcessorTests
     }
 
     [Fact]
+    public async Task NewReview_WarnsEveryTravelerHoldingAnOpenBooking_InAppOnly_AndChangesNoBooking()
+    {
+        using var context = await SeedAsync();
+        context.Bookings.AddRange(
+            Booking.Restore(10, 3, 5, 2, 200_000m, BookingStatus.Confirmed, PaymentStatus.Paid,
+                Booking.DefaultCancellationPolicySnapshot),
+            Booking.Restore(11, 4, 5, 1, 100_000m, BookingStatus.PendingPayment, PaymentStatus.Unpaid,
+                Booking.DefaultCancellationPolicySnapshot),
+            Booking.Restore(12, 6, 5, 1, 100_000m, BookingStatus.Cancelled, PaymentStatus.Paid,
+                Booking.DefaultCancellationPolicySnapshot));
+        await context.SaveChangesAsync();
+        var (processor, _) = Create(context);
+        string payload = TomorrowAlertFixtures.Webhook("START", locationId: MeetingLocationId, startTime: Departure);
+
+        await Process(processor, payload, "d-1");
+        await Process(processor, payload, "d-2");
+
+        List<Notification> warnings = await context.Notifications
+            .Where(notice => notice.Type == Notification.WeatherWarningType)
+            .OrderBy(notice => notice.UserId)
+            .ToListAsync();
+        warnings.Select(notice => (notice.UserId, notice.RelatedEntityId))
+            .Should().Equal((3L, (long?)10L), (4L, (long?)11L));
+        warnings.Should().OnlyContain(notice => notice.Channel == NotificationChannel.InApp
+            && notice.RelatedEntityType == Notification.BookingRelatedEntityType
+            && notice.Title == Notification.WeatherWarningTitle
+            && notice.Body == Notification.WeatherWarningBody);
+        context.AlertDeliveryWork.Should().NotContain(work =>
+            warnings.Select(notice => notice.Id).Contains(work.NotificationId));
+        (await context.Bookings.OrderBy(booking => booking.Id).Select(booking => booking.Status).ToListAsync())
+            .Should().Equal(BookingStatus.Confirmed, BookingStatus.PendingPayment, BookingStatus.Cancelled);
+    }
+
+    [Fact]
     public async Task DepartureSharingTheMonitoredMeetingPointCell_GetsAReview_EvenWithSlightlyDifferentCoordinates()
     {
         // The Location is keyed by the meeting point rounded to 4 decimals (about 11 m). Another

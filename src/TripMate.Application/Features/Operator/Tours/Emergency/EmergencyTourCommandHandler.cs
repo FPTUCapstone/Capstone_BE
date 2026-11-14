@@ -73,7 +73,7 @@ public sealed class EmergencyTourCommandHandler(
     {
         if (currentUser.UserId is not long operatorId
             || currentUser.Role != nameof(UserRole.TourOperator))
-            return Failure(EmergencyTourErrorCodes.Forbidden, "Cần quyền đơn vị điều hành tour.");
+            return Failure(EmergencyTourErrorCodes.Forbidden, EmergencyTourMessages.PermissionDenied);
 
         bool isPreStart = action == EmergencyTourCancellationOperation.CancelBeforeDepartureAction;
 
@@ -84,7 +84,7 @@ public sealed class EmergencyTourCommandHandler(
         {
             if (!await EmergencyOperatorAccess.IsEligibleOperatorAsync(dbContext, operatorId, cancellationToken))
                 return Failure(EmergencyTourErrorCodes.Forbidden,
-                    "Cần tài khoản đơn vị điều hành đang hoạt động và đã được duyệt.");
+                    EmergencyTourMessages.PermissionDenied);
 
             bool ownsDeparture = await dbContext.TourSchedules.AsNoTracking()
                 .AnyAsync(candidate => candidate.Id == scheduleId
@@ -125,7 +125,7 @@ public sealed class EmergencyTourCommandHandler(
                         dbContext, operatorId, token);
                     if (!operatorIsEligible)
                         return Failure(EmergencyTourErrorCodes.Forbidden,
-                            "Cần tài khoản đơn vị điều hành đang hoạt động và đã được duyệt.");
+                            EmergencyTourMessages.PermissionDenied);
 
                     TourSchedule? schedule = await dbContext.TourSchedules
                         .Include(candidate => candidate.Tour)
@@ -145,7 +145,8 @@ public sealed class EmergencyTourCommandHandler(
                             && operation.CommandId == commandId, token);
                     if (replay is not null)
                         return replay.RequestHash == requestHash
-                            ? Result.Success(ToResponse(replay))
+                            ? Result.Success(ToResponse(replay,
+                                await EmergencyRefundHandoff.CountSubmittedAsync(dbContext, replay, token)))
                             : Failure(EmergencyTourErrorCodes.IdempotencyPayloadMismatch,
                                 "Yêu cầu này đã được gửi trước đó với nội dung khác.");
 
@@ -154,13 +155,13 @@ public sealed class EmergencyTourCommandHandler(
                         .SingleOrDefaultAsync(operation => operation.TourScheduleId == scheduleId, token);
                     if (prior is not null)
                         return Failure(EmergencyTourErrorCodes.AlreadyTerminal,
-                            "Lịch khởi hành này đã có quyết định cuối cùng.");
+                            EmergencyTourMessages.StatusNotAllowed);
                     if (schedule.Status == TourScheduleStatus.Completed || clock.UtcNow >= schedule.EndAtUtc)
                         return Failure(EmergencyTourErrorCodes.AlreadyCompleted,
-                            "Lịch khởi hành đã hoàn thành nên không thể hủy hoặc dừng.");
+                            EmergencyTourMessages.StatusNotAllowed);
                     if (schedule.Status != TourScheduleStatus.Scheduled)
                         return Failure(EmergencyTourErrorCodes.AlreadyTerminal,
-                            "Lịch khởi hành này đã có quyết định cuối cùng.");
+                            EmergencyTourMessages.StatusNotAllowed);
 
                     EmergencyTourImpactSnapshot impact = await EmergencyTourImpact.LoadAsync(
                         dbContext, schedule, token);
@@ -219,6 +220,10 @@ public sealed class EmergencyTourCommandHandler(
 
                     AddNotifications(schedule, impact.Bookings, action, now);
 
+                    EmergencyRefundHandoffResult refundHandoff = await EmergencyRefundHandoff.ApplyAsync(
+                        dbContext, operatorId, commandId, schedule, impact.Bookings, isPreStart, reason,
+                        now, token);
+
                     List<WeatherSafetyReview> openReviews = await dbContext.WeatherSafetyReviews
                         .Where(review => review.TourScheduleId == schedule.Id
                             && review.Status != WeatherSafetyReview.StatusClosed)
@@ -253,9 +258,14 @@ public sealed class EmergencyTourCommandHandler(
                             EvidenceReferenceHash = Hash(operation.EvidenceReference),
                             EvidenceUrlHash = Hash(operation.EvidenceUrl),
                             AuthorityReferenceHash = Hash(operation.AuthorityReference),
+                            RefundHandoff = new
+                            {
+                                refundHandoff.SubmittedRefunds,
+                                refundHandoff.AdminReviewBookingIds,
+                            },
                         })));
                     await dbContext.SaveChangesAsync(token);
-                    return Result.Success(ToResponse(operation));
+                    return Result.Success(ToResponse(operation, refundHandoff.SubmittedRefunds.Count));
                 }, cancellationToken);
 
                 // Only a committed decision reaches this point, and a replay closes nothing.
@@ -317,7 +327,7 @@ public sealed class EmergencyTourCommandHandler(
     }
 
     private static EmergencyTourActionResponse ToResponse(
-        EmergencyTourCancellationOperation operation) => new(
+        EmergencyTourCancellationOperation operation, int refundsSubmitted) => new(
             operation.Id,
             operation.TourScheduleId,
             operation.Action,
@@ -325,7 +335,8 @@ public sealed class EmergencyTourCommandHandler(
                 ? TourScheduleStatus.Cancelled.ToString()
                 : TourScheduleStatus.EmergencyStopped.ToString(),
             operation.AffectedBookingCount,
-            operation.CommittedAtUtc);
+            operation.CommittedAtUtc,
+            refundsSubmitted);
 
     private static Result<EmergencyTourActionResponse> Failure(string code, string message) =>
         Result.Failure<EmergencyTourActionResponse>(code, message);
