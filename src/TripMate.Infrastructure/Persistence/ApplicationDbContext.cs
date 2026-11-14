@@ -326,6 +326,10 @@ public class ApplicationDbContext(
     public DbSet<RecommendationBehaviorEvent> RecommendationBehaviorEvents =>
         Set<RecommendationBehaviorEvent>();
 
+    public DbSet<PoiFavorite> PoiFavorites => Set<PoiFavorite>();
+
+    public DbSet<PoiVisitedMark> PoiVisitedMarks => Set<PoiVisitedMark>();
+
     public DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests => Set<TravelGroupCreationRequest>();
 
     public DbSet<GroupInvitation> GroupInvitations => Set<GroupInvitation>();

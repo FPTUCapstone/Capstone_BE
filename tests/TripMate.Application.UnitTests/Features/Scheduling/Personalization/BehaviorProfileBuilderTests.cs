@@ -210,6 +210,150 @@ public sealed class BehaviorProfileBuilderTests
         removed.Should().BeEmpty();
     }
 
+    // Traveler feedback UI (feedback-ui-spec.md D17): a favorite is a like that does not fade while the heart is
+    // on, and in the cooldown rule it is a like dated when the heart was tapped.
+
+    [Fact]
+    public async Task AFavorite_IsAFullLike_HoweverLongAgoItWasMarked()
+    {
+        await using var db = CreateDb();
+        var pois = await SeedPois(db, 3);
+        await AddFavorites(db, Favorite(pois[0], daysAgo: 300), Favorite(pois[2], daysAgo: 1, travelerId: TravelerId + 1));
+        await AddEvents(db, Like(pois[1], daysAgo: 90));
+
+        PoiRankingBehavior profile = (await Build(db))!;
+
+        Weights(profile.Liked).Should().Equal(new Dictionary<long, decimal>
+        {
+            [pois[0].Id] = 1.0m,
+            [pois[1].Id] = 0.5m,
+        });
+        profile.Disliked.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task AFavoriteAlone_IsEnoughForAProfile()
+    {
+        await using var db = CreateDb();
+        var pois = await SeedPois(db, 1);
+        await AddFavorites(db, Favorite(pois[0], daysAgo: 20));
+
+        PoiRankingBehavior profile = (await Build(db))!;
+
+        profile.Liked.Select(poi => poi.PoiId).Should().Equal(pois[0].Id);
+    }
+
+    [Fact]
+    public async Task RemovedRecently_AFavoriteMarkedAfterTheRemoval_LiftsTheCooldown()
+    {
+        await using var db = CreateDb();
+        var pois = await SeedPois(db, 2);
+        await AddEvents(
+            db,
+            Event(pois[0], RecommendationEventType.Dislike, RecommendationCaptureSource.ItineraryEdit, daysAgo: 5),
+            Event(pois[1], RecommendationEventType.Dislike, RecommendationCaptureSource.ItineraryEdit, daysAgo: 2));
+        // The first heart came after the removal; the second was already on when the traveler removed the stop.
+        await AddFavorites(db, Favorite(pois[0], daysAgo: 3), Favorite(pois[1], daysAgo: 10));
+
+        var removed = await Builder(db).RemovedRecentlyAsync(TravelerId, CancellationToken.None);
+
+        removed.Should().BeEquivalentTo([pois[1].Id]);
+    }
+
+    // D19/D20: a place the traveler has just been to (reached while navigating, or removed as "already visited")
+    // rests for 14 days. It is not a dislike, and choosing the place again ends the rest.
+
+    [Fact]
+    public async Task VisitedRecently_ListsStopsReachedOrMarkedVisitedInTheLastFourteenDays()
+    {
+        await using var db = CreateDb();
+        var pois = await SeedPois(db, 5);
+        await AddEvents(
+            db,
+            Event(pois[0], RecommendationEventType.Like, RecommendationCaptureSource.Navigation, daysAgo: 3),
+            Event(pois[1], RecommendationEventType.Like, RecommendationCaptureSource.Navigation, daysAgo: 15),
+            // A like that is not a visit.
+            Like(pois[2], daysAgo: 1),
+            RecommendationBehaviorEvent.Create(
+                TravelerId + 1, pois[4].Id, ItineraryId, RecommendationEventType.Like, null, null, false,
+                RecommendationCaptureSource.Navigation, Now, Guid.NewGuid()));
+        await AddVisitedMarks(db, Visited(pois[3], daysAgo: 14), Visited(pois[4], daysAgo: 1, travelerId: TravelerId + 1));
+
+        var visited = await Builder(db).VisitedRecentlyAsync(TravelerId, CancellationToken.None);
+
+        visited.Should().BeEquivalentTo([pois[0].Id, pois[3].Id]);
+        (await Builder(db).RemovedRecentlyAsync(TravelerId, CancellationToken.None)).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task VisitedRecently_ChoosingThePlaceAgain_EndsTheRest_ButAThumbsUpDoesNot()
+    {
+        await using var db = CreateDb();
+        var pois = await SeedPois(db, 5);
+        await AddEvents(
+            db,
+            // Reached, then added to another itinerary by hand.
+            Event(pois[0], RecommendationEventType.Like, RecommendationCaptureSource.Navigation, daysAgo: 5),
+            Event(pois[0], RecommendationEventType.Like, RecommendationCaptureSource.ItineraryEdit, daysAgo: 2),
+            // Reached, then marked mandatory in a new request.
+            Event(pois[1], RecommendationEventType.Like, RecommendationCaptureSource.Navigation, daysAgo: 5),
+            Event(pois[1], RecommendationEventType.Like, RecommendationCaptureSource.SchedulingRequest, daysAgo: 1),
+            // Reached, then thumbs up at the end of the trip: the traveler liked it, and has still just been there.
+            Event(pois[3], RecommendationEventType.Like, RecommendationCaptureSource.Navigation, daysAgo: 5),
+            Event(pois[3], RecommendationEventType.Like, RecommendationCaptureSource.Itinerary, daysAgo: 5),
+            // Added by hand first, reached afterwards: visited.
+            Event(pois[4], RecommendationEventType.Like, RecommendationCaptureSource.ItineraryEdit, daysAgo: 6),
+            Event(pois[4], RecommendationEventType.Like, RecommendationCaptureSource.Navigation, daysAgo: 5));
+        // Marked visited, then the heart was tapped.
+        await AddVisitedMarks(db, Visited(pois[2], daysAgo: 5));
+        await AddFavorites(db, Favorite(pois[2], daysAgo: 1));
+
+        var visited = await Builder(db).VisitedRecentlyAsync(TravelerId, CancellationToken.None);
+
+        visited.Should().BeEquivalentTo([pois[3].Id, pois[4].Id]);
+    }
+
+    [Fact]
+    public async Task VisitedRecently_WithTheRestTurnedOff_ListsNothing()
+    {
+        await using var db = CreateDb();
+        var pois = await SeedPois(db, 1);
+        await AddEvents(db, Event(pois[0], RecommendationEventType.Like, RecommendationCaptureSource.Navigation));
+
+        var visited = await Builder(db, new PersonalizationRankingOptions { VisitedStopCooldownDays = 0 })
+            .VisitedRecentlyAsync(TravelerId, CancellationToken.None);
+
+        visited.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task AVisitedMark_SaysNothingAboutTaste()
+    {
+        await using var db = CreateDb();
+        var pois = await SeedPois(db, 1);
+        await AddVisitedMarks(db, Visited(pois[0], daysAgo: 1));
+
+        (await Build(db)).Should().BeNull();
+    }
+
+    private static PoiVisitedMark Visited(PointOfInterest poi, int daysAgo, long travelerId = TravelerId) =>
+        PoiVisitedMark.Create(travelerId, poi.Id, Now.AddDays(-daysAgo));
+
+    private static async Task AddVisitedMarks(ApplicationDbContext db, params PoiVisitedMark[] marks)
+    {
+        db.PoiVisitedMarks.AddRange(marks);
+        await db.SaveChangesAsync();
+    }
+
+    private static PoiFavorite Favorite(PointOfInterest poi, int daysAgo, long travelerId = TravelerId) =>
+        PoiFavorite.Create(travelerId, poi.Id, Now.AddDays(-daysAgo));
+
+    private static async Task AddFavorites(ApplicationDbContext db, params PoiFavorite[] favorites)
+    {
+        db.PoiFavorites.AddRange(favorites);
+        await db.SaveChangesAsync();
+    }
+
     private static BehaviorProfileBuilder Builder(
         ApplicationDbContext db,
         PersonalizationRankingOptions? options = null) =>

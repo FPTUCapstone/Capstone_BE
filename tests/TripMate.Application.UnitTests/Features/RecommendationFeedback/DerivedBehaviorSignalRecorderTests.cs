@@ -94,6 +94,119 @@ public sealed class DerivedBehaviorSignalRecorderTests
         (await db.RecommendationBehaviorEvents.CountAsync()).Should().Be(1);
     }
 
+    // Traveler feedback UI (spec .scratch/uc10-behavior-learning/feedback-ui-spec.md, D10/D15/D16): the traveler
+    // says why a stop is removed, and only "not interested" is a dislike.
+
+    [Theory]
+    [InlineData(StopRemovalReason.NoTime)]
+    [InlineData(StopRemovalReason.AlreadyVisited)]
+    public async Task ItineraryEdit_AStopRemovedForAReasonOtherThanTaste_RecordsNothing(StopRemovalReason reason)
+    {
+        await using var db = CreateDb();
+        var (a, b, _, _) = await SeedPois(db);
+        var source = await SeedItinerary(db, (a.Id, 1, false), (b.Id, 2, false));
+
+        var written = await Recorder(db).RecordItineraryEditAsync(
+            TravelerId, source.Id, [a.Id], Reasons((b.Id, reason)), Operation, Now, CancellationToken.None);
+
+        written.Should().Be(0);
+        (await db.RecommendationBehaviorEvents.CountAsync()).Should().Be(0);
+    }
+
+    // D19: "already visited" is no dislike, but the place is marked as visited so it can rest for a while.
+
+    [Fact]
+    public async Task ItineraryEdit_AStopRemovedBecauseAlreadyVisited_IsMarkedAsVisited()
+    {
+        await using var db = CreateDb();
+        var (a, b, c, _) = await SeedPois(db);
+        var source = await SeedItinerary(db, (a.Id, 1, false), (b.Id, 2, false), (c.Id, 3, false));
+
+        await Recorder(db).RecordItineraryEditAsync(
+            TravelerId, source.Id, [a.Id],
+            Reasons((b.Id, StopRemovalReason.AlreadyVisited), (c.Id, StopRemovalReason.NoTime)), Operation, Now,
+            CancellationToken.None);
+
+        var mark = await db.PoiVisitedMarks.SingleAsync();
+        mark.TravelerUserId.Should().Be(TravelerId);
+        mark.PointOfInterestId.Should().Be(b.Id);
+        mark.MarkedAtUtc.Should().Be(Now);
+        (await db.RecommendationBehaviorEvents.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task ItineraryEdit_MarkingTheSamePlaceVisitedAgain_KeepsOneMarkWithTheLatestDate()
+    {
+        await using var db = CreateDb();
+        var (a, b, _, _) = await SeedPois(db);
+        var first = await SeedItinerary(db, (a.Id, 1, false), (b.Id, 2, false));
+        var second = await SeedItinerary(db, (a.Id, 1, false), (b.Id, 2, false));
+        var recorder = Recorder(db);
+
+        await recorder.RecordItineraryEditAsync(
+            TravelerId, first.Id, [a.Id], Reasons((b.Id, StopRemovalReason.AlreadyVisited)), Operation, Now,
+            CancellationToken.None);
+        await recorder.RecordItineraryEditAsync(
+            TravelerId, second.Id, [a.Id], Reasons((b.Id, StopRemovalReason.AlreadyVisited)), Guid.NewGuid(),
+            Now.AddDays(5), CancellationToken.None);
+
+        (await db.PoiVisitedMarks.SingleAsync()).MarkedAtUtc.Should().Be(Now.AddDays(5));
+    }
+
+    [Fact]
+    public async Task ItineraryEdit_AnAlreadyVisitedReasonForAPlaceThatWasNotRemoved_MarksNothing()
+    {
+        await using var db = CreateDb();
+        var (a, b, _, d) = await SeedPois(db);
+        var source = await SeedItinerary(db, (a.Id, 1, false), (b.Id, 2, false));
+
+        // a stays in the itinerary; d was never in it.
+        await Recorder(db).RecordItineraryEditAsync(
+            TravelerId, source.Id, [a.Id, b.Id],
+            Reasons((a.Id, StopRemovalReason.AlreadyVisited), (d.Id, StopRemovalReason.AlreadyVisited)), Operation, Now,
+            CancellationToken.None);
+
+        (await db.PoiVisitedMarks.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task ItineraryEdit_AStopRemovedBecauseNotInterested_IsADislike()
+    {
+        await using var db = CreateDb();
+        var (a, b, _, _) = await SeedPois(db);
+        var source = await SeedItinerary(db, (a.Id, 1, false), (b.Id, 2, false));
+
+        await Recorder(db).RecordItineraryEditAsync(
+            TravelerId, source.Id, [a.Id], Reasons((b.Id, StopRemovalReason.NotInterested)), Operation, Now,
+            CancellationToken.None);
+
+        var removed = await db.RecommendationBehaviorEvents.SingleAsync();
+        removed.PointOfInterestId.Should().Be(b.Id);
+        removed.EventType.Should().Be(RecommendationEventType.Dislike);
+        removed.Source.Should().Be(RecommendationCaptureSource.ItineraryEdit);
+    }
+
+    [Fact]
+    public async Task ItineraryEdit_AReasonForOneStop_SaysNothingAboutAnotherRemovedStop()
+    {
+        await using var db = CreateDb();
+        var (a, b, c, d) = await SeedPois(db);
+        var source = await SeedItinerary(db, (a.Id, 1, false), (b.Id, 2, false), (c.Id, 3, false));
+
+        // b has a reason, c has none (an older app): c stays a dislike. d was never in the itinerary.
+        await Recorder(db).RecordItineraryEditAsync(
+            TravelerId, source.Id, [a.Id],
+            Reasons((b.Id, StopRemovalReason.NoTime), (d.Id, StopRemovalReason.NotInterested)), Operation, Now,
+            CancellationToken.None);
+
+        var removed = await db.RecommendationBehaviorEvents.SingleAsync();
+        removed.PointOfInterestId.Should().Be(c.Id);
+        removed.EventType.Should().Be(RecommendationEventType.Dislike);
+    }
+
+    private static Dictionary<long, StopRemovalReason> Reasons(params (long PoiId, StopRemovalReason Reason)[] reasons) =>
+        reasons.ToDictionary(entry => entry.PoiId, entry => entry.Reason);
+
     // Found by the local E2E on 2026-11-11: the system places rest stops itself (sometimes at a POI) and recomputes
     // them on every adjust. They are not the traveler's choice, so they must never become behavior signals.
 
