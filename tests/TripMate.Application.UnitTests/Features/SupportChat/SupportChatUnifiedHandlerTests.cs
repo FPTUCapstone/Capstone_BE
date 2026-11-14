@@ -55,6 +55,26 @@ public sealed class SupportChatUnifiedHandlerTests
     }
 
     [Fact]
+    public async Task PlannerNavigationReplacesActionsFromEarlierTourContext()
+    {
+        var context = new ChatResourceContext("tour", "101");
+        live.Setup(value => value.ReadAsync(It.Is<ChatQueryPlan>(plan => plan.Intent == ChatIntents.TourDetail),
+            42, "Traveler", context, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result.Success(new ChatLiveData("Tour details", [new("navigate", "Xem tour", "/tours/101")])));
+        planner.Setup(value => value.PlanAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<ChatHistoryMessage>>(),
+            context, It.IsAny<CancellationToken>())).ReturnsAsync(new ChatQueryPlan(ChatIntents.OpenPlanner));
+        live.Setup(value => value.ReadAsync(It.Is<ChatQueryPlan>(plan => plan.Intent == ChatIntents.OpenPlanner),
+            42, "Traveler", context, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result.Success(new ChatLiveData("Planner page /plan", [new("navigate", "Lập lịch trình", "/plan")])));
+        var result = await Handler().Handle(new("Dẫn tôi tới trang lập tình trình", Context: context), default);
+        Assert.True(result.IsSuccess);
+        Assert.Equal("/plan", Assert.Single(result.Value.Actions!).Url);
+        Assert.Contains("Lập lịch trình", result.Value.Answer);
+        model.VerifyNoOtherCalls();
+        knowledge.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task PrivateContextIsAuthorizedBeforePlanningOrAnyLiveQuery()
     {
         sender.Setup(value => value.Send(It.IsAny<GetBookingRefundProgressQuery>(), It.IsAny<CancellationToken>()))
@@ -90,6 +110,42 @@ public sealed class SupportChatUnifiedHandlerTests
         Assert.True(result.IsSuccess);
         Assert.Contains("adults=2", Assert.Single(result.Value.Actions!).Url);
         sender.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData(ChatIntents.SearchTours)]
+    [InlineData(ChatIntents.MyBookings)]
+    [InlineData(ChatIntents.MyItineraries)]
+    public async Task AuthorizedLiveQueriesDoNotDependOnDocumentEmbeddingAvailability(string intent)
+    {
+        planner.Setup(value => value.PlanAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<ChatHistoryMessage>>(),
+            null, It.IsAny<CancellationToken>())).ReturnsAsync(new ChatQueryPlan(intent));
+        live.Setup(value => value.ReadAsync(It.IsAny<ChatQueryPlan>(), 42, "Traveler", null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result.Success(new ChatLiveData("Authorized current records", [new("navigate", "Records", "/account/trips")])));
+        knowledge.Setup(value => value.SearchAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new SupportChatUnavailableException());
+        var result = await Handler().Handle(new("Xem dữ liệu của tôi"), default);
+        Assert.True(result.IsSuccess);
+        Assert.Single(result.Value.Actions!);
+        knowledge.Verify(value => value.SearchAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GeneralPolicyOnTourPageDoesNotReuseTourBookingActions()
+    {
+        var context = new ChatResourceContext("tour", "101");
+        live.Setup(value => value.ReadAsync(It.IsAny<ChatQueryPlan>(), 42, "Traveler", context, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Result.Success(new ChatLiveData("Tour details", [new("navigate", "Xem tour", "/tours/101")])));
+        planner.Setup(value => value.PlanAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<ChatHistoryMessage>>(),
+            context, It.IsAny<CancellationToken>())).ReturnsAsync(new ChatQueryPlan(ChatIntents.General));
+        knowledge.Setup(value => value.SearchAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { new KnowledgePassage(new("policy", "Cancellation policy", "/account/trips"), "Verified policy") });
+        model.Setup(value => value.AnswerAsync(It.IsAny<ChatGrounding>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ChatModelAnswer("Verified policy", ["policy"]));
+        var result = await Handler().Handle(new("Chính sách hoàn tiền chung thế nào?", Context: context), default);
+        Assert.True(result.IsSuccess);
+        Assert.Empty(result.Value.Actions!);
+        Assert.Single(result.Value.Sources);
     }
 
     [Fact]
