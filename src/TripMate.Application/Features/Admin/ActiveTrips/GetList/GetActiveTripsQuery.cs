@@ -38,7 +38,8 @@ public sealed record ActiveTripListItemDto(
     DateTimeOffset? StartedAtUtc,
     int? CurrentDay,
     int Members,
-    int OpenAlerts);
+    int OpenAlerts,
+    bool RefundReviewRequired = false);
 
 public sealed record ActiveTripSummaryDto(
     int ActiveTrips,

@@ -24,8 +24,10 @@ public sealed class Uc70RecoveryAndEvidenceEndpointTests
     private const long ForeignOperatorId = 802;
     private const long TravelerId = 803;
     private const long ForeignTravelerId = 804;
-    private static readonly Regex MoneyWords = new(
-        "refund|settlement|payout|commission|manualreview",
+    // UC-70 hands paid bookings to the refund pipeline (SRS UC-66), but never settles, pays out,
+    // takes commission or completes a refund itself.
+    private static readonly Regex SettlementWords = new(
+        "settlement|payout|commission|manualreview",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     private static readonly DateTimeOffset Now = new(2026, 11, 3, 0, 0, 0, TimeSpan.Zero);
 
@@ -287,7 +289,7 @@ public sealed class Uc70RecoveryAndEvidenceEndpointTests
     }
 
     [Fact]
-    public async Task Cancel_OfAPaidBooking_ChangesOnlyStatesAndTouchesNoMoney()
+    public async Task Cancel_OfAPaidBooking_HandsOffOneFullRefundAndSettlesNothing()
     {
         using var factory = CreateFactory();
         var seed = await SeedAsync(factory);
@@ -305,13 +307,15 @@ public sealed class Uc70RecoveryAndEvidenceEndpointTests
             emergencyContact = "0900000000",
         });
 
-        AssertNoMoneyFields(await ReadAsync(response));
+        var body = await ReadAsync(response);
+        AssertNoMoneyFields(body);
+        body.GetProperty("refundsSubmitted").GetInt32().Should().Be(1);
         await AssertStatesAsync(factory, seed.ScheduleId, seed.BookingId,
-            TourScheduleStatus.Cancelled, BookingStatus.Cancelled);
+            TourScheduleStatus.Cancelled, BookingStatus.Cancelled, expectedPendingRefund: 100_000m);
     }
 
     [Fact]
-    public async Task Stop_OfAPaidBooking_ChangesOnlyStatesAndTouchesNoMoney()
+    public async Task Stop_OfAPaidBooking_CreatesNoRefundAndSettlesNothing()
     {
         using var factory = CreateFactory();
         var seed = await SeedAsync(factory);
@@ -333,13 +337,15 @@ public sealed class Uc70RecoveryAndEvidenceEndpointTests
             emergencyContact = "0900000000",
         });
 
-        AssertNoMoneyFields(await ReadAsync(response));
+        var body = await ReadAsync(response);
+        AssertNoMoneyFields(body);
+        body.GetProperty("refundsSubmitted").GetInt32().Should().Be(0);
         await AssertStatesAsync(factory, active.ScheduleId, active.BookingId,
-            TourScheduleStatus.EmergencyStopped, BookingStatus.Interrupted);
+            TourScheduleStatus.EmergencyStopped, BookingStatus.Interrupted, expectedPendingRefund: null);
     }
 
     [Fact]
-    public async Task TravelerStatus_CarriesNoRefundResult()
+    public async Task TravelerStatus_SaysTheRefundWasSubmitted_WithoutAnySettlementResult()
     {
         using var factory = CreateFactory();
         var seed = await SeedAsync(factory);
@@ -351,6 +357,7 @@ public sealed class Uc70RecoveryAndEvidenceEndpointTests
             $"/api/v1/traveler/tour-bookings/{seed.BookingId}/emergency-status"));
 
         AssertNoMoneyFields(status);
+        status.GetProperty("refundHandling").GetString().Should().Be("RefundSubmitted");
     }
 
     private static Task PayAsync(TripMateApiFactory factory, long bookingId) =>
@@ -370,27 +377,39 @@ public sealed class Uc70RecoveryAndEvidenceEndpointTests
         long scheduleId,
         long bookingId,
         TourScheduleStatus scheduleStatus,
-        BookingStatus bookingStatus) =>
+        BookingStatus bookingStatus,
+        decimal? expectedPendingRefund) =>
         factory.WithDbContextAsync(async db =>
         {
             (await db.TourSchedules.SingleAsync(item => item.Id == scheduleId)).Status.Should().Be(scheduleStatus);
             var booking = await db.Bookings.SingleAsync(item => item.Id == bookingId);
             booking.Status.Should().Be(bookingStatus);
             booking.PaymentStatus.Should().Be(PaymentStatus.Paid, "payment state belongs to the refund workflow");
-            (await db.Refunds.CountAsync()).Should().Be(0);
+            var refunds = await db.Refunds.ToListAsync();
+            if (expectedPendingRefund is decimal amount)
+            {
+                refunds.Should().ContainSingle().Which.Should().Match<Refund>(refund =>
+                    refund.BookingId == bookingId && refund.Amount == amount
+                    && refund.Status == RefundStatus.Pending && refund.GatewayReference == null);
+            }
+            else
+            {
+                refunds.Should().BeEmpty();
+            }
+
             (await db.RefundManualCompletionOperations.CountAsync()).Should().Be(0);
             var payments = await db.PaymentTransactions.Where(item => item.BookingId == bookingId).ToListAsync();
             payments.Should().ContainSingle().Which.TransactionType.Should().Be(PaymentTransaction.TypePayment);
             (await db.PayoutAdjustments.CountAsync()).Should().Be(0);
             var audit = await db.AuditLogs.Where(item => item.AffectedEntityId == scheduleId).ToListAsync();
             audit.Should().NotBeEmpty();
-            audit.Should().OnlyContain(item => !MoneyWords.IsMatch(item.AfterData ?? string.Empty));
+            audit.Should().OnlyContain(item => !SettlementWords.IsMatch(item.AfterData ?? string.Empty));
             return true;
         });
 
     private static void AssertNoMoneyFields(JsonElement json)
     {
-        MoneyWords.IsMatch(json.GetRawText()).Should().BeFalse("UC-70 returns no refund, payout or commission result");
+        SettlementWords.IsMatch(json.GetRawText()).Should().BeFalse("UC-70 returns no settlement, payout or commission result");
     }
 
     private static async Task CancelAsync(

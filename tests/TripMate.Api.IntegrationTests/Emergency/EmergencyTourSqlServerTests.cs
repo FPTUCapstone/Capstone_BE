@@ -68,7 +68,7 @@ public sealed class EmergencyTourSqlServerTests
         (await database.ExecuteScalarAsync<int>($"""
             SELECT COUNT(*) FROM payment.Refunds
             WHERE booking_id = {seed.BookingId};
-            """)).Should().Be(0);
+            """)).Should().Be(1, "a replay of the same command adds no second refund");
 
         (await database.ExecuteScalarAsync<int>("""
             SELECT COUNT(*) FROM dbo.AuditLogs
@@ -166,7 +166,7 @@ public sealed class EmergencyTourSqlServerTests
         (await database.ExecuteScalarAsync<int>($"""
             SELECT COUNT(*) FROM payment.Refunds
             WHERE booking_id = {seed.BookingId};
-            """)).Should().Be(0, "a decision creates no refund");
+            """)).Should().Be(1, "only the winning decision hands off a refund");
 
         (await database.ExecuteScalarAsync<int>("""
             SELECT COUNT(*) FROM dbo.Notifications;
@@ -550,7 +550,7 @@ public sealed class EmergencyTourSqlServerTests
         (await ReviewStatusAsync(database, otherReview)).Should().Be(WeatherSafetyReview.StatusPendingAcknowledgement);
         (await database.ExecuteScalarAsync<int>($"""
             SELECT COUNT(*) FROM payment.Refunds WHERE booking_id = {seed.BookingId};
-            """)).Should().Be(0);
+            """)).Should().Be(1, "the paid booking is refunded in full");
 
         notifier.Closed.Select(call => call.ReviewId).Should().BeEquivalentTo(
             [reviews.Pending, reviews.Acknowledged, reviews.Escalated],

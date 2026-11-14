@@ -85,6 +85,18 @@ public sealed class WeatherSafetyReviewEscalationBackgroundService(
                 Notification.WeatherSafetyReviewEscalatedType,
                 now);
 
+            // The Operator missed the deadline, so the warning must also reach someone else.
+            await AdministratorInAppNotices.AddAsync(
+                dbContext,
+                Notification.WeatherSafetyReviewAdminEscalatedType,
+                Notification.WeatherSafetyReviewAdminEscalatedTitle,
+                $"Đơn vị điều hành chưa xác nhận cảnh báo thời tiết #{review.Id} của lịch khởi hành "
+                    + $"#{review.TourScheduleId} trong thời hạn. Vui lòng liên hệ đơn vị điều hành.",
+                AuditEntityTypes.WeatherSafetyReview,
+                review.Id,
+                now,
+                cancellationToken);
+
             var auditLog = AuditLog.CreateRecordedOutcome(
                 actorUserId: null,
                 actionType: AuditActionTypes.WeatherSafetyReviewEscalated,

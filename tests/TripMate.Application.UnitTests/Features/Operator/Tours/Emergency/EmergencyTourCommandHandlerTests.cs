@@ -21,7 +21,7 @@ public sealed class EmergencyTourCommandHandlerTests
     private const string ValidOperatorPassword = "OperatorPass123!";
 
     [Fact]
-    public async Task CancelBeforeDeparture_CancelsOnlyTargetOnceAndCreatesNoRefund()
+    public async Task CancelBeforeDeparture_CancelsOnlyTargetOnceAndRefundsThePaidBookingOnce()
     {
         await using var db = TestDbContext.Create();
         var schedule = SeedSchedule(db, Now.AddDays(1));
@@ -52,14 +52,14 @@ public sealed class EmergencyTourCommandHandlerTests
         stored.AffectedBookingCount.Should().Be(2);
         stored.ReasonCategory.Should().Be(nameof(EmergencyTourReason.WeatherEmergency));
         db.Bookings.Should().OnlyContain(booking => booking.Status == BookingStatus.Cancelled);
-        db.Refunds.Should().BeEmpty();
-        paid.PaymentStatus.Should().Be(PaymentStatus.Paid);
+        db.Refunds.Should().ContainSingle().Which.Amount.Should().Be(100_000m);
+        paid.PaymentStatus.Should().Be(PaymentStatus.Paid, "the refund processor, not UC-70, settles payment state");
         db.EmergencyTourCancellationOperations.Should().ContainSingle();
         db.Notifications.Should().HaveCount(2); // One per booking.
     }
 
     [Fact]
-    public async Task CancelBeforeDeparture_OfAPaidBooking_LeavesPaymentsAndPayoutsUntouched()
+    public async Task CancelBeforeDeparture_OfAPaidBooking_QueuesARefundButLeavesPaymentsUntouched()
     {
         await using var db = TestDbContext.Create();
         var schedule = SeedSchedule(db, Now.AddDays(4));
@@ -81,7 +81,7 @@ public sealed class EmergencyTourCommandHandlerTests
         result.IsSuccess.Should().BeTrue();
         booking.Status.Should().Be(BookingStatus.Cancelled);
         booking.PaymentStatus.Should().Be(PaymentStatus.Paid);
-        db.Refunds.Should().BeEmpty();
+        db.Refunds.Should().ContainSingle().Which.Status.Should().Be(RefundStatus.Pending);
         db.PaymentTransactions.Should().ContainSingle()
             .Which.TransactionType.Should().Be(PaymentTransaction.TypePayment);
     }
@@ -215,7 +215,7 @@ public sealed class EmergencyTourCommandHandlerTests
     }
 
     [Fact]
-    public async Task CancelBeforeDeparture_OfMixedBookings_CancelsBothAndCreatesNoRefund()
+    public async Task CancelBeforeDeparture_OfMixedBookings_CancelsBothAndRefundsOnlyThePaidOne()
     {
         await using var db = TestDbContext.Create();
         var schedule = SeedSchedule(db, Now.AddDays(4));
@@ -239,7 +239,7 @@ public sealed class EmergencyTourCommandHandlerTests
         result.IsSuccess.Should().BeTrue();
         paidBooking.Status.Should().Be(BookingStatus.Cancelled);
         unpaidBooking.Status.Should().Be(BookingStatus.Cancelled);
-        db.Refunds.Should().BeEmpty();
+        db.Refunds.Should().ContainSingle().Which.BookingId.Should().Be(paidBooking.Id);
     }
 
     [Fact]
@@ -558,6 +558,32 @@ public sealed class EmergencyTourCommandHandlerTests
 
         result.IsFailure.Should().BeTrue();
         result.ErrorCode.Should().Be(EmergencyTourErrorCodes.Forbidden);
+        result.ErrorMessage.Should().Be(EmergencyTourMessages.PermissionDenied, "SRS MSG126");
+    }
+
+    [Fact]
+    public async Task CancelBeforeDeparture_OfAnAlreadyCancelledDeparture_UsesSrsMsg133()
+    {
+        await using var db = TestDbContext.Create();
+        var schedule = SeedSchedule(db, Now.AddDays(4));
+        SeedBooking(db, schedule, 10, 3, BookingStatus.PendingPayment, PaymentStatus.Unpaid, 50_000m);
+        schedule.ReserveCapacity(1);
+        await db.SaveChangesAsync();
+        var currentUser = new FakeCurrentUserService { UserId = 2, Role = nameof(UserRole.TourOperator) };
+        var clock = new FakeDateTimeProvider { UtcNow = Now };
+        var handler = new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier);
+        var preview = await new GetEmergencyTourImpactQueryHandler(db, currentUser, clock)
+            .Handle(new GetEmergencyTourImpactQuery(1, schedule.Id), CancellationToken.None);
+        (await handler.Handle(new CancelBeforeDepartureCommand(1, schedule.Id, Guid.NewGuid(),
+            preview.Value.ImpactVersion, EmergencyTourReason.WeatherEmergency,
+            "Typhoon makes the departure unsafe."), CancellationToken.None)).IsSuccess.Should().BeTrue();
+
+        var second = await handler.Handle(new CancelBeforeDepartureCommand(1, schedule.Id, Guid.NewGuid(),
+            preview.Value.ImpactVersion, EmergencyTourReason.WeatherEmergency,
+            "Typhoon makes the departure unsafe."), CancellationToken.None);
+
+        second.ErrorCode.Should().Be(EmergencyTourErrorCodes.AlreadyTerminal);
+        second.ErrorMessage.Should().Be(EmergencyTourMessages.StatusNotAllowed, "SRS MSG133");
     }
 
     [Fact]
@@ -1035,6 +1061,278 @@ public sealed class EmergencyTourCommandHandlerTests
             audit.ActionType == AuditActionTypes.TourEmergencyEvidenceWithdrawn);
     }
 
+    [Fact]
+    public async Task CancelBeforeDeparture_RefundsEveryVerifiedPaidBookingInFull_AndSendsTheRestToAdmin()
+    {
+        await using var db = TestDbContext.Create();
+        var schedule = SeedSchedule(db, Now.AddDays(4));
+        SeedAdministrator(db, 50, AccountStatus.Active);
+        SeedAdministrator(db, 51, AccountStatus.Locked);
+        var paidA = SeedBooking(db, schedule, 10, 3, BookingStatus.Confirmed, PaymentStatus.Paid,
+            12_000_000m, quantity: 4, code: "TM-A");
+        var paidB = SeedBooking(db, schedule, 11, 4, BookingStatus.Confirmed, PaymentStatus.Paid,
+            9_000_000m, quantity: 3, code: "TM-B");
+        SeedBooking(db, schedule, 12, 6, BookingStatus.PendingPayment, PaymentStatus.Unpaid,
+            6_000_000m, quantity: 2, code: "TM-C");
+        SeedBooking(db, schedule, 13, 7, BookingStatus.Confirmed, PaymentStatus.Paid,
+            3_000_000m, quantity: 1, code: "TM-D");
+        schedule.ReserveCapacity(10);
+        var paymentA = SeedSuccessfulPayment(db, paidA, 12_000_000m);
+        var paymentB = SeedSuccessfulPayment(db, paidB, 9_000_000m);
+        await db.SaveChangesAsync();
+        var currentUser = new FakeCurrentUserService { UserId = 2, Role = nameof(UserRole.TourOperator) };
+        var clock = new FakeDateTimeProvider { UtcNow = Now };
+        var preview = await new GetEmergencyTourImpactQueryHandler(db, currentUser, clock)
+            .Handle(new GetEmergencyTourImpactQuery(1, schedule.Id), CancellationToken.None);
+        var command = new CancelBeforeDepartureCommand(1, schedule.Id, Guid.NewGuid(),
+            preview.Value.ImpactVersion, EmergencyTourReason.TransportFailure,
+            "The contracted vehicle is unavailable.", "0900000000");
+        var handler = new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier);
+
+        var first = await handler.Handle(command, CancellationToken.None);
+        var replay = await handler.Handle(command, CancellationToken.None);
+
+        first.IsSuccess.Should().BeTrue();
+        first.Value.RefundsSubmitted.Should().Be(2);
+        replay.Value.Should().Be(first.Value, "a replay answers with the committed decision");
+
+        List<Refund> refunds = await db.Refunds.OrderBy(refund => refund.BookingId).ToListAsync();
+        refunds.Should().HaveCount(2, "the replay creates no second refund");
+        refunds.Select(refund => (refund.BookingId, refund.Amount, refund.TransactionId)).Should().Equal(
+            (paidA.Id, 12_000_000m, (long?)paymentA.Id),
+            (paidB.Id, 9_000_000m, (long?)paymentB.Id));
+        refunds.Should().OnlyContain(refund => refund.Status == RefundStatus.Pending
+            && refund.InitiatedBy == RefundInitiator.TourOperator
+            && refund.Reason == EmergencyRefundHandoff.OperatorCancellationRefundReason);
+
+        List<BookingCancellationOperation> handoffs = await db.BookingCancellationOperations
+            .OrderBy(operation => operation.BookingId).ToListAsync();
+        handoffs.Should().HaveCount(2);
+        handoffs.Should().OnlyContain(operation => operation.Actor == BookingCancellationActor.TourOperator
+            && operation.ActorUserId == 2);
+        handoffs.Select(operation => operation.RefundAmount).Should().Equal(12_000_000m, 9_000_000m);
+        refunds.Select(refund => refund.CancellationOperationId)
+            .Should().Equal(handoffs.Select(operation => (long?)operation.Id));
+
+        Notification adminNotice = await db.Notifications
+            .SingleAsync(notice => notice.Type == Notification.EmergencyRefundReviewRequiredType);
+        adminNotice.UserId.Should().Be(50, "only active Administrators are told");
+        adminNotice.Channel.Should().Be(NotificationChannel.InApp);
+        adminNotice.RelatedEntityType.Should().Be(AuditEntityTypes.TourSchedule);
+        adminNotice.RelatedEntityId.Should().Be(schedule.Id);
+        adminNotice.Body.Should().Contain("TM-D").And.Contain("3.000.000")
+            .And.NotContain("TM-A").And.NotContain("TM-B").And.NotContain("TM-C");
+    }
+
+    [Theory]
+    [InlineData(EmergencyTourReason.WeatherEmergency, true)]
+    [InlineData(EmergencyTourReason.DestinationUnavailable, false)]
+    [InlineData(EmergencyTourReason.Other, false)]
+    public async Task CancelBeforeDeparture_RefundReasonSaysWhetherWeatherCausedIt(
+        EmergencyTourReason reason, bool weather)
+    {
+        await using var db = TestDbContext.Create();
+        var schedule = SeedSchedule(db, Now.AddDays(4));
+        var booking = SeedBooking(db, schedule, 10, 3, BookingStatus.Confirmed, PaymentStatus.Paid, 100_000m);
+        schedule.ReserveCapacity(1);
+        SeedSuccessfulPayment(db, booking, 100_000m);
+        await db.SaveChangesAsync();
+        var currentUser = new FakeCurrentUserService { UserId = 2, Role = nameof(UserRole.TourOperator) };
+        var clock = new FakeDateTimeProvider { UtcNow = Now };
+        var preview = await new GetEmergencyTourImpactQueryHandler(db, currentUser, clock)
+            .Handle(new GetEmergencyTourImpactQuery(1, schedule.Id), CancellationToken.None);
+
+        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
+            .Handle(new CancelBeforeDepartureCommand(1, schedule.Id, Guid.NewGuid(),
+                preview.Value.ImpactVersion, reason, "The departure cannot go ahead safely.",
+                "0900000000"), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        (await db.Refunds.SingleAsync()).Reason.Should().Be(weather
+            ? EmergencyRefundHandoff.WeatherCancellationRefundReason
+            : EmergencyRefundHandoff.OperatorCancellationRefundReason);
+    }
+
+    [Fact]
+    public async Task CancelBeforeDeparture_WhenEveryPaidBookingIsRefunded_TellsNoAdministrator()
+    {
+        await using var db = TestDbContext.Create();
+        var schedule = SeedSchedule(db, Now.AddDays(4));
+        SeedAdministrator(db, 50, AccountStatus.Active);
+        var booking = SeedBooking(db, schedule, 10, 3, BookingStatus.Confirmed, PaymentStatus.Paid, 100_000m);
+        SeedBooking(db, schedule, 11, 4, BookingStatus.PendingPayment, PaymentStatus.Unpaid, 50_000m);
+        schedule.ReserveCapacity(2);
+        SeedSuccessfulPayment(db, booking, 100_000m);
+        await db.SaveChangesAsync();
+        var currentUser = new FakeCurrentUserService { UserId = 2, Role = nameof(UserRole.TourOperator) };
+        var clock = new FakeDateTimeProvider { UtcNow = Now };
+        var preview = await new GetEmergencyTourImpactQueryHandler(db, currentUser, clock)
+            .Handle(new GetEmergencyTourImpactQuery(1, schedule.Id), CancellationToken.None);
+
+        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
+            .Handle(new CancelBeforeDepartureCommand(1, schedule.Id, Guid.NewGuid(),
+                preview.Value.ImpactVersion, EmergencyTourReason.WeatherEmergency,
+                "Typhoon makes the departure unsafe."), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.RefundsSubmitted.Should().Be(1);
+        db.Notifications.Should().NotContain(notice =>
+            notice.Type == Notification.EmergencyRefundReviewRequiredType);
+    }
+
+    [Fact]
+    public async Task CancelBeforeDeparture_WithAnEarlierRefundOnAFullyPaidBooking_SendsItToAdminInstead()
+    {
+        await using var db = TestDbContext.Create();
+        var schedule = SeedSchedule(db, Now.AddDays(4));
+        SeedAdministrator(db, 50, AccountStatus.Active);
+        var booking = SeedBooking(db, schedule, 10, 3, BookingStatus.Confirmed, PaymentStatus.Paid,
+            100_000m, code: "TM-PRIOR");
+        schedule.ReserveCapacity(1);
+        PaymentTransaction payment = SeedSuccessfulPayment(db, booking, 100_000m);
+        await db.SaveChangesAsync();
+        db.Refunds.Add(Refund.CreatePending(booking.Id, payment.Id, 999, 20_000m, "Earlier refund",
+            RefundInitiator.Administrator, Now.AddDays(-1)));
+        await db.SaveChangesAsync();
+        var currentUser = new FakeCurrentUserService { UserId = 2, Role = nameof(UserRole.TourOperator) };
+        var clock = new FakeDateTimeProvider { UtcNow = Now };
+        var preview = await new GetEmergencyTourImpactQueryHandler(db, currentUser, clock)
+            .Handle(new GetEmergencyTourImpactQuery(1, schedule.Id), CancellationToken.None);
+
+        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
+            .Handle(new CancelBeforeDepartureCommand(1, schedule.Id, Guid.NewGuid(),
+                preview.Value.ImpactVersion, EmergencyTourReason.WeatherEmergency,
+                "Typhoon makes the departure unsafe."), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.RefundsSubmitted.Should().Be(0);
+        db.Refunds.Should().ContainSingle("the earlier refund stays the only one");
+        db.BookingCancellationOperations.Should().BeEmpty();
+        (await db.Notifications.SingleAsync(notice =>
+                notice.Type == Notification.EmergencyRefundReviewRequiredType))
+            .Body.Should().Contain("TM-PRIOR");
+    }
+
+    [Fact]
+    public async Task EmergencyStopActive_CreatesNoRefund_AndSendsEveryPaidBookingToAdmin()
+    {
+        await using var db = TestDbContext.Create();
+        var schedule = SeedSchedule(db, Now.AddHours(-1));
+        SeedAdministrator(db, 50, AccountStatus.Active);
+        SeedAdministrator(db, 52, AccountStatus.Active);
+        var paid = SeedBooking(db, schedule, 10, 3, BookingStatus.Confirmed, PaymentStatus.Paid,
+            12_000_000m, quantity: 4, code: "TM-PAID");
+        SeedBooking(db, schedule, 11, 4, BookingStatus.PendingPayment, PaymentStatus.Unpaid,
+            6_000_000m, quantity: 2, code: "TM-UNPAID");
+        schedule.ReserveCapacity(6);
+        SeedSuccessfulPayment(db, paid, 12_000_000m);
+        await db.SaveChangesAsync();
+        var currentUser = new FakeCurrentUserService { UserId = 2, Role = nameof(UserRole.TourOperator) };
+        var clock = new FakeDateTimeProvider { UtcNow = Now };
+        var preview = await new GetEmergencyTourImpactQueryHandler(db, currentUser, clock)
+            .Handle(new GetEmergencyTourImpactQuery(1, schedule.Id), CancellationToken.None);
+
+        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
+            .Handle(new EmergencyStopActiveCommand(1, schedule.Id, Guid.NewGuid(),
+                preview.Value.ImpactVersion, ValidOperatorPassword, EmergencyTourReason.WeatherEmergency,
+                "Flash flood closes the remaining route.",
+                "Stay with the guide at the verified meeting point.", "0900000000"),
+                CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.RefundsSubmitted.Should().Be(0);
+        db.Refunds.Should().BeEmpty();
+        db.BookingCancellationOperations.Should().BeEmpty();
+        List<Notification> adminNotices = await db.Notifications
+            .Where(notice => notice.Type == Notification.EmergencyRefundReviewRequiredType)
+            .ToListAsync();
+        adminNotices.Select(notice => notice.UserId).Should().BeEquivalentTo([50L, 52L]);
+        adminNotices.Should().OnlyContain(notice => notice.Body!.Contains("TM-PAID")
+            && notice.Body.Contains("12.000.000") && !notice.Body.Contains("TM-UNPAID"));
+    }
+
+    [Fact]
+    public async Task EmergencyStopActive_OfALargeGroup_KeepsTheAdminNoticeWithinTheBodyLimit()
+    {
+        await using var db = TestDbContext.Create();
+        var schedule = SeedSchedule(db, Now.AddHours(-1));
+        SeedAdministrator(db, 50, AccountStatus.Active);
+        for (int index = 0; index < 40; index++)
+        {
+            var booking = SeedBooking(db, schedule, 100 + index, 3, BookingStatus.Confirmed, PaymentStatus.Paid,
+                1_500_000m, code: $"BK-LARGE-GROUP-{index:D4}");
+            SeedSuccessfulPayment(db, booking, 1_500_000m);
+        }
+        schedule.ReserveCapacity(20);
+        await db.SaveChangesAsync();
+        var currentUser = new FakeCurrentUserService { UserId = 2, Role = nameof(UserRole.TourOperator) };
+        var clock = new FakeDateTimeProvider { UtcNow = Now };
+        var preview = await new GetEmergencyTourImpactQueryHandler(db, currentUser, clock)
+            .Handle(new GetEmergencyTourImpactQuery(1, schedule.Id), CancellationToken.None);
+
+        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
+            .Handle(new EmergencyStopActiveCommand(1, schedule.Id, Guid.NewGuid(),
+                preview.Value.ImpactVersion, ValidOperatorPassword, EmergencyTourReason.SafetyIncident,
+                "Road access is unsafe and the trip must stop.",
+                "Stay with the guide at the verified meeting point.", "0900000000"),
+                CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        string body = (await db.Notifications.SingleAsync(notice =>
+            notice.Type == Notification.EmergencyRefundReviewRequiredType)).Body!;
+        body.Length.Should().BeLessThanOrEqualTo(1000);
+        body.Should().StartWith($"Lịch khởi hành #{schedule.Id} đã dừng khẩn cấp")
+            .And.Contain("40 booking đã thanh toán").And.Contain("BK-LARGE-GROUP-0000")
+            .And.MatchRegex(@"và \d+ booking khác\.$");
+    }
+
+    [Fact]
+    public async Task EmergencyDecision_AuditRecordsTheRefundHandoff()
+    {
+        await using var db = TestDbContext.Create();
+        var schedule = SeedSchedule(db, Now.AddDays(4));
+        var paid = SeedBooking(db, schedule, 10, 3, BookingStatus.Confirmed, PaymentStatus.Paid, 100_000m);
+        SeedBooking(db, schedule, 11, 4, BookingStatus.Confirmed, PaymentStatus.Paid, 80_000m);
+        schedule.ReserveCapacity(2);
+        SeedSuccessfulPayment(db, paid, 100_000m);
+        await db.SaveChangesAsync();
+        var currentUser = new FakeCurrentUserService { UserId = 2, Role = nameof(UserRole.TourOperator) };
+        var clock = new FakeDateTimeProvider { UtcNow = Now };
+        var preview = await new GetEmergencyTourImpactQueryHandler(db, currentUser, clock)
+            .Handle(new GetEmergencyTourImpactQuery(1, schedule.Id), CancellationToken.None);
+
+        var result = await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher, Notifier)
+            .Handle(new CancelBeforeDepartureCommand(1, schedule.Id, Guid.NewGuid(),
+                preview.Value.ImpactVersion, EmergencyTourReason.WeatherEmergency,
+                "Typhoon makes the departure unsafe."), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        AuditLog audit = await db.AuditLogs.SingleAsync(log =>
+            log.ActionType == AuditActionTypes.TourEmergencyCancelled);
+        using var afterData = System.Text.Json.JsonDocument.Parse(audit.AfterData!);
+        var handoff = afterData.RootElement.GetProperty("RefundHandoff");
+        handoff.GetProperty("SubmittedRefunds").EnumerateArray()
+            .Select(item => (item.GetProperty("BookingId").GetInt64(), item.GetProperty("Amount").GetDecimal()))
+            .Should().Equal((10L, 100_000m));
+        handoff.GetProperty("AdminReviewBookingIds").EnumerateArray()
+            .Select(item => item.GetInt64()).Should().Equal(11L);
+    }
+
+    private static void SeedAdministrator(TestDbContext db, long userId, AccountStatus status)
+    {
+        var administrator = new User
+        {
+            Role = UserRole.Administrator,
+            Status = status,
+            Email = $"admin-{userId}@example.test",
+            FullName = "UC70 Administrator",
+            CreatedAtUtc = Now,
+            UpdatedAtUtc = Now,
+        };
+        typeof(User).GetProperty(nameof(User.Id))!.SetValue(administrator, userId);
+        db.Users.Add(administrator);
+    }
+
     private static TourSchedule SeedSchedule(TestDbContext db, DateTimeOffset start)
     {
         SeedApprovedOperator(db, 2, "operator@example.test");
@@ -1096,11 +1394,13 @@ public sealed class EmergencyTourCommandHandlerTests
 
     private static Booking SeedBooking(TestDbContext db, TourSchedule schedule, long id,
         long travelerId, BookingStatus status, PaymentStatus paymentStatus, decimal amount,
-        int quantity = 1)
+        int quantity = 1, string? code = null)
     {
         var booking = Booking.Restore(id, travelerId, schedule.Id, quantity, amount, status,
             paymentStatus, Booking.DefaultCancellationPolicySnapshot);
         typeof(Booking).GetProperty(nameof(Booking.TourSchedule))!.SetValue(booking, schedule);
+        if (code is not null)
+            typeof(Booking).GetProperty(nameof(Booking.BookingCode))!.SetValue(booking, code);
         db.Bookings.Add(booking);
         return booking;
     }

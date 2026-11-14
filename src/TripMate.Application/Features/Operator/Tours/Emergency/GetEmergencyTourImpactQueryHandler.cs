@@ -23,13 +23,13 @@ public sealed class GetEmergencyTourImpactQueryHandler(
         if (currentUser.UserId is not long operatorId
             || currentUser.Role != nameof(UserRole.TourOperator))
             return Result.Failure<EmergencyTourImpactResponse>(EmergencyTourErrorCodes.Forbidden,
-                "Cần quyền đơn vị điều hành tour.");
+                EmergencyTourMessages.PermissionDenied);
 
         bool operatorIsEligible = await EmergencyOperatorAccess.IsEligibleOperatorAsync(
             dbContext, operatorId, cancellationToken);
         if (!operatorIsEligible)
             return Result.Failure<EmergencyTourImpactResponse>(EmergencyTourErrorCodes.Forbidden,
-                "Cần tài khoản đơn vị điều hành đang hoạt động và đã được duyệt.");
+                EmergencyTourMessages.PermissionDenied);
 
         var schedule = await dbContext.TourSchedules
             .Include(candidate => candidate.Tour)
@@ -41,10 +41,10 @@ public sealed class GetEmergencyTourImpactQueryHandler(
                 "Không tìm thấy lịch khởi hành.");
         if (schedule.Status == TourScheduleStatus.Completed || clock.UtcNow >= schedule.EndAtUtc)
             return Result.Failure<EmergencyTourImpactResponse>(EmergencyTourErrorCodes.AlreadyCompleted,
-                "Lịch khởi hành đã hoàn thành nên không thể hủy hoặc dừng.");
+                EmergencyTourMessages.StatusNotAllowed);
         if (schedule.Status != TourScheduleStatus.Scheduled)
             return Result.Failure<EmergencyTourImpactResponse>(EmergencyTourErrorCodes.AlreadyTerminal,
-                "Lịch khởi hành này đã có quyết định cuối cùng.");
+                EmergencyTourMessages.StatusNotAllowed);
 
         var impact = await EmergencyTourImpact.LoadAsync(dbContext, schedule, cancellationToken);
         bool active = clock.UtcNow >= schedule.StartAtUtc;

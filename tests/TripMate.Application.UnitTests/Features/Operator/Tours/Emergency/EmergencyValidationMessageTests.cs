@@ -40,6 +40,30 @@ public sealed class EmergencyValidationMessageTests
         "Phiên bản tác động không hợp lệ.");
 
     [Fact]
+    public void Cancel_WithAnEmptyReason_UsesSrsMsg123() => Rejects(
+        new CancelBeforeDepartureCommandValidator(),
+        new CancelBeforeDepartureCommand(
+            1, 1, Guid.NewGuid(), ImpactVersion, EmergencyTourReason.WeatherEmergency, " "),
+        EmergencyTourMessages.ReasonRequired);
+
+    [Fact]
+    public void Stop_WithAnEmptyReason_UsesSrsMsg123() => Rejects(
+        new EmergencyStopActiveCommandValidator(),
+        new EmergencyStopActiveCommand(
+            1, 1, Guid.NewGuid(), ImpactVersion, "password", EmergencyTourReason.WeatherEmergency,
+            "", "Tập trung tại sảnh", "0905123456"),
+        EmergencyTourMessages.ReasonRequired);
+
+    [Fact]
+    public void SrsMessages_MatchTheirMessageTableMeaning()
+    {
+        EmergencyTourMessages.ReasonRequired.Should().Be("Vui lòng nhập lý do.");
+        EmergencyTourMessages.PermissionDenied.Should().Be("Bạn không có quyền truy cập chức năng này.");
+        EmergencyTourMessages.StatusNotAllowed.Should()
+            .Be("Thao tác này không khả dụng với trạng thái hiện tại của lịch khởi hành.");
+    }
+
+    [Fact]
     public void Impact_WithInvalidIds()
     {
         var query = new GetEmergencyTourImpactQuery(0, 0);
