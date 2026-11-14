@@ -14,7 +14,8 @@ public static class GeneratedItineraryItemMapper
                 item.PointOfInterestId,
                 item.PlannedArrivalUtc,
                 item.PlannedDepartureUtc,
-                item.RecommendationReason,
+                // Saved in the wording travelers read; the plan keeps the solver's code.
+                RestStopReasons.ForTraveler(item.Kind, item.RecommendationReason)!,
                 item.TravelDurationToNextMinutes,
                 travelDistanceToNextMeters: item.TravelDistanceToNextMeters,
                 transportModeToNext: item.TransportModeToNext)

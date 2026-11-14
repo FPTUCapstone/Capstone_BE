@@ -1193,7 +1193,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 item.TravelDurationToNextMinutes,
                 item.EstimatedCost,
                 item.IsMandatory,
-                item.RecommendationReason,
+                // The same wording as the saved itinerary (GeneratedItineraryItemMapper).
+                RestStopReasons.ForTraveler(item.Kind, item.RecommendationReason),
                 explanations is not null
                     ? explanations[item.SequenceNo]
                     : null,

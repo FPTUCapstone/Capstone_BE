@@ -328,7 +328,11 @@ public class ItineraryGenerationServiceTests
     }
 
     [Fact]
-    public async Task Generate_AutoRestAcceptsShelteredOutdoorRestCategory()
+    /// <summary>
+    /// 2026-11-11: a sheltered natural attraction is a place to visit, not a rest stop (it once made a cave the 30-minute
+    /// rest). The break still happens, as free rest time when no real rest place is close.
+    /// </summary>
+    public async Task Generate_AutoRestNeverUsesAShelteredAttraction_AndStillRests()
     {
         var service = new ItineraryGenerationService(new FixedRouteDurationProvider(
             RouteDurationMatrix.Create(
@@ -353,12 +357,18 @@ public class ItineraryGenerationServiceTests
             ],
             mandatoryPoiIds: [12]);
 
-        var result = await service.GenerateAsync(input, CancellationToken.None);
+        // A sheltered outdoor place is also a visit candidate (audit 2026-11-09), so generation may visit it instead.
+        // A fixed order without that visit pins the rest behavior this test is about.
+        var result = await service.GenerateFixedOrderAsync(input, [12], CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
-        result.Value.Items.Should().Contain(item =>
+        result.Value.Items.Should().NotContain(item =>
             item.Kind == ItineraryItemKind.Rest
             && item.PointOfInterestId == 28);
+        result.Value.Items.Should().Contain(item =>
+            item.Kind == ItineraryItemKind.Rest
+            && item.PointOfInterestId == null
+            && item.RecommendationReason == "Free/rest time");
     }
 
     [Fact]

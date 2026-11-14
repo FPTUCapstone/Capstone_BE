@@ -105,7 +105,7 @@ public sealed class ItineraryScheduleEvaluatorTests
     [InlineData("coffee shop")]
     public void IsRestCategory_WithFoodAndDrinkOrLegacyAliases_ReturnsTrue(string category)
     {
-        ItineraryScheduleEvaluator.IsRestCategory(category, hasShelter: false).Should().BeTrue();
+        ItineraryScheduleEvaluator.IsRestCategory(category).Should().BeTrue();
     }
 
     [Fact]
@@ -176,5 +176,73 @@ public sealed class ItineraryScheduleEvaluatorTests
 
         evaluated.Should().NotBeNull();
         evaluated!.Plan.Items.Should().Contain(it => it.Kind == ItineraryItemKind.Rest && it.PointOfInterestId == 888L);
+    }
+
+    [Theory]
+    [InlineData("Theme park")]
+    [InlineData("Park")]
+    [InlineData("Beach")]
+    [InlineData("Natural attraction")]
+    [InlineData("Water park")]
+    public void RoutingContext_WhenShelteredOutdoorPoiIsOptional_IncludesItInNodes(string category)
+    {
+        var (input, _) = OptionalRouteOptimizationScenarios.CreateZigzagScenario();
+        var sheltered = OptionalRouteOptimizationScenarios.CreateCandidate(999, "Sheltered", 90, 50_000m, 0.9m) with
+        {
+            CategoryName = category,
+            HasShelter = true,
+        };
+        var candidates = input.Candidates.Append(sheltered).ToArray();
+        var indexMap = candidates.Select((c, i) => new { c.Id, Index = i + 1 }).ToDictionary(x => x.Id, x => x.Index);
+        var matrix = RouteDurationMatrix.Create(new int[candidates.Length + 2, candidates.Length + 2]);
+
+        var options = new SchedulingGenerationOptions();
+        var ctx = RoutingContext.Create(input, matrix, candidates, indexMap, options, options.MiniRouting);
+
+        ctx.Nodes.Select(n => n.Candidate.Id).Should().Contain(999L);
+        ItineraryScheduleEvaluator.IsQualifiedRestCandidate(sheltered).Should().BeFalse("a sheltered attraction is a place to visit, not a rest stop");
+        ItineraryScheduleEvaluator.IsRestOnlyCandidate(sheltered).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Evaluate_WhenTheNearestRestCandidateWasAlreadyVisited_PicksAnotherRestStop()
+    {
+        var (baseInput, _) = OptionalRouteOptimizationScenarios.CreateZigzagScenario();
+        var visitedCafe = OptionalRouteOptimizationScenarios.CreateCandidate(1, "Cafe the traveler added", visitDurationMinutes: 160, cost: 20_000m, effectiveDesirabilityScore: 1.0m) with
+        {
+            CategoryName = PoiCategoryNames.FoodAndDrink,
+        };
+        var museum = OptionalRouteOptimizationScenarios.CreateCandidate(2, "Museum", visitDurationMinutes: 60, cost: 20_000m, effectiveDesirabilityScore: 1.0m);
+        var cafe = OptionalRouteOptimizationScenarios.CreateCandidate(3, "Cafe", visitDurationMinutes: 30, cost: 20_000m, effectiveDesirabilityScore: 0.5m) with
+        {
+            CategoryName = PoiCategoryNames.FoodAndDrink,
+        };
+        var candidates = new[] { visitedCafe, museum, cafe };
+        var indexMap = candidates.Select((c, i) => new { c.Id, Index = i + 1 }).ToDictionary(x => x.Id, x => x.Index);
+        var minutes = new int[5, 5];
+        for (var from = 0; from < 5; from++)
+        {
+            for (var to = 0; to < 5; to++)
+            {
+                minutes[from, to] = from == to ? 0 : 10;
+            }
+        }
+
+        var matrix = RouteDurationMatrix.Create(minutes);
+        var input = baseInput with
+        {
+            AvailableMinutes = 600,
+            Candidates = candidates,
+            MandatoryPoiIds = [2L],
+            RestPreference = RestPreference.Auto,
+        };
+
+        // A cafe the traveler added as a visit is still a rest place, and it is the nearest one right after its own visit.
+        var evaluated = _evaluator.Evaluate(input, [visitedCafe, museum], matrix, candidates, indexMap);
+
+        evaluated.Should().NotBeNull();
+        evaluated!.Plan.Items.Single(it => it.Kind == ItineraryItemKind.Rest).PointOfInterestId.Should().Be(3L);
+        var validate = () => new GeneratedItineraryInvariantValidator().Validate(input, matrix, candidates, evaluated.Plan);
+        validate.Should().NotThrow();
     }
 }

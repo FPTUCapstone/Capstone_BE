@@ -107,7 +107,8 @@ public sealed class ItineraryScheduleEvaluator(SchedulingGenerationOptions? opti
                     previousIndex,
                     nextIndex,
                     currentTime,
-                    matrix);
+                    matrix,
+                    items);
 
                 if (restCandidate is not null)
                 {
@@ -230,6 +231,25 @@ public sealed class ItineraryScheduleEvaluator(SchedulingGenerationOptions? opti
             _ => false,
         };
 
+    /// <summary>True when <paramref name="poiId"/> is a visit among <paramref name="items"/> (a short list; no allocation).</summary>
+    public static bool WasVisited(IReadOnlyList<GeneratedItineraryItem> items, long poiId)
+    {
+        for (var i = 0; i < items.Count; i++)
+        {
+            if (items[i].Kind == ItineraryItemKind.Visit && items[i].PointOfInterestId == poiId)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <param name="itemsSoFar">
+    /// Items already scheduled. A sheltered outdoor place can be both a visit and a rest candidate; once visited it is
+    /// not suggested again as the rest stop.
+    /// </param>
+    /// <param name="visitingPoiId">A visit just placed but not yet in <paramref name="itemsSoFar"/>.</param>
     public GenerationCandidate? FindQualifiedRestCandidate(
         IReadOnlyList<GenerationCandidate> candidates,
         IReadOnlyDictionary<long, int> candidateMatrixIndices,
@@ -237,12 +257,18 @@ public sealed class ItineraryScheduleEvaluator(SchedulingGenerationOptions? opti
         int previousIndex,
         int nextIndex,
         DateTimeOffset currentTime,
-        RouteDurationMatrix matrix)
+        RouteDurationMatrix matrix,
+        IReadOnlyList<GeneratedItineraryItem> itemsSoFar,
+        long? visitingPoiId = null)
     {
         return candidates
             .Where(candidate =>
                 !input.MandatoryPoiIds.Contains(candidate.Id)
-                && IsQualifiedRestCandidate(candidate))
+                && IsQualifiedRestCandidate(candidate)
+                && candidate.Id != visitingPoiId
+                && !WasVisited(itemsSoFar, candidate.Id)
+                && RestDetourMinutes(matrix, previousIndex, candidateMatrixIndices[candidate.Id], nextIndex)
+                    <= MaxRestDetourMinutes)
             .OrderBy(candidate => matrix.GetMinutes(
                 previousIndex,
                 candidateMatrixIndices[candidate.Id]))
@@ -268,18 +294,29 @@ public sealed class ItineraryScheduleEvaluator(SchedulingGenerationOptions? opti
             });
     }
 
+    /// <summary>A place that may host a rest stop: food and drink, cafe, restaurant, rest area or rest stop.</summary>
     public static bool IsQualifiedRestCandidate(GenerationCandidate candidate) =>
         candidate.CategoryName is not null
-        && IsRestCategory(candidate.CategoryName, candidate.HasShelter);
+        && IsRestCategory(candidate.CategoryName);
 
-    public static bool IsRestCategory(string categoryName, bool hasShelter)
-    {
-        if (PoiCategoryNames.IsFoodAndDrink(categoryName))
-        {
-            return true;
-        }
+    /// <summary>
+    /// A place used only as a rest stop and never suggested as a visit (REVIEW2 D2: travelers add restaurants
+    /// themselves). Rest places are real rest places only (2026-11-11), so this is the same set as
+    /// <see cref="IsQualifiedRestCandidate"/>; the solvers use this name where they split visits from rest places.
+    /// </summary>
+    public static bool IsRestOnlyCandidate(GenerationCandidate candidate) => IsQualifiedRestCandidate(candidate);
 
-        var normalizedCategory = new string(categoryName
+    /// <summary>
+    /// Real rest places only: food and drink, cafe, restaurant, rest area or stop. Sheltered beaches, natural
+    /// attractions, parks and theme or water parks are places to visit: counting them as rest places made a cave the
+    /// 30-minute rest stop and hid them from every itinerary as visits (2026-11-11).
+    /// </summary>
+    public static bool IsRestCategory(string categoryName) =>
+        PoiCategoryNames.IsFoodAndDrink(categoryName)
+        || Normalize(categoryName) is "food & drink" or "cafe" or "coffee shop" or "restaurant" or "rest area" or "rest stop";
+
+    private static string Normalize(string categoryName) =>
+        new string(categoryName
             .Trim()
             .Normalize(NormalizationForm.FormD)
             .Where(character => CharUnicodeInfo.GetUnicodeCategory(character)
@@ -287,18 +324,14 @@ public sealed class ItineraryScheduleEvaluator(SchedulingGenerationOptions? opti
             .ToArray())
             .ToLowerInvariant();
 
-        if (normalizedCategory is "food & drink" or "cafe" or "coffee shop" or "restaurant" or "rest area" or "rest stop")
-        {
-            return true;
-        }
+    /// <summary>A rest stop may add at most this many minutes over going straight to the next stop.</summary>
+    public const int MaxRestDetourMinutes = 10;
 
-        return hasShelter
-            && normalizedCategory is ("beach"
-                or "natural attraction"
-                or "park"
-                or "theme park"
-                or "water park");
-    }
+    /// <summary>Extra travel minutes of going previous → rest → next instead of previous → next.</summary>
+    public static int RestDetourMinutes(RouteDurationMatrix matrix, int previousIndex, int restIndex, int nextIndex) =>
+        matrix.GetMinutes(previousIndex, restIndex)
+        + matrix.GetMinutes(restIndex, nextIndex)
+        - matrix.GetMinutes(previousIndex, nextIndex);
 
     public static DateTimeOffset AlignToOpeningHours(
         DateTimeOffset arrivalUtc,
