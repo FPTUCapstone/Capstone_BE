@@ -608,6 +608,10 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
 
     public DbSet<SystemConfig> SystemConfigs => Set<SystemConfig>();
 
+    public DbSet<TourSearchRequest> TourSearchRequests => Set<TourSearchRequest>();
+
+    public DbSet<TourRecommendationLog> TourRecommendationLogs => Set<TourRecommendationLog>();
+
     public Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken) =>
