@@ -2,9 +2,9 @@ using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
 
-using TripMate.Application.Features.Scheduling.Common;
-using TripMate.Application.Features.Navigation.Common;
 using TripMate.Application.Features.Itineraries.Common;
+using TripMate.Application.Features.Navigation.Common;
+using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 using TripMate.Infrastructure.Persistence;

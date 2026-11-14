@@ -3,18 +3,18 @@ using System.Text;
 
 using FluentAssertions;
 
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Microsoft.EntityFrameworkCore;
 
-using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Common.Interfaces;
+using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Domain.Enums;
-using TripMate.Infrastructure.Routing;
 using TripMate.Infrastructure.Persistence;
+using TripMate.Infrastructure.Routing;
 using TripMate.Infrastructure.UnitTests.Security;
 
 namespace TripMate.Infrastructure.UnitTests.Routing;
