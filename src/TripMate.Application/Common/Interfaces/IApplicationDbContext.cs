@@ -54,6 +54,12 @@ public interface IApplicationDbContext
 
     DbSet<TourMediaCleanupOutboxItem> TourMediaCleanupOutbox { get; }
 
+    DbSet<TourSearchRequest> TourSearchRequests =>
+        throw new NotSupportedException("Tour recommendation snapshots are unavailable in this context.");
+
+    DbSet<TourRecommendationLog> TourRecommendationLogs =>
+        throw new NotSupportedException("Tour recommendation logs are unavailable in this context.");
+
     DbSet<AuditLog> AuditLogs { get; }
 
     DbSet<Notification> Notifications { get; }
