@@ -27,6 +27,36 @@ var overrides = arguments.GetValueOrDefault("set")?
     .Select(pair => pair.Split('=', 2))
     .ToDictionary(pair => pair[0], pair => (string?)pair[1]);
 var root = WeightedGateConfiguration.FindRepositoryRoot(Directory.GetCurrentDirectory());
+// --ai-ranking http://localhost:8000/v1/rank-pois: AI ranking on vs off with the team AI service (bge-m3). The API key is
+// read from TRIPMATE_AI_API_KEY and never printed.
+if (arguments.TryGetValue("ai-ranking", out var aiEndpoint))
+{
+    var aiDate = DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+    var aiReport = await AiRankingComparison.RunAsync(root, aiEndpoint, aiDate);
+    var aiOutput = Path.Combine(root, "docs", "benchmarks", $"UC-10-ai-ranking-{aiDate}{(label is null ? string.Empty : "-" + label)}.md");
+    await File.WriteAllTextAsync(aiOutput, aiReport);
+    Console.WriteLine(aiOutput);
+    return 0;
+}
+
+// --behavior-learning http://localhost:8000/v1/rank-pois [--rounds 5]: UC-10 item 6 acceptance. Simulated travelers with a
+// hidden taste take several trips; the report shows how well each trip fits that taste, with and without behavior learning.
+// Exits 1 when the acceptance criteria fail. The API key is read from TRIPMATE_AI_API_KEY and never printed.
+if (arguments.TryGetValue("behavior-learning", out var learningEndpoint))
+{
+    var learningDate = DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+    var (learningReport, learningPassed) = await BehaviorLearningBenchmark.RunAsync(
+        root,
+        learningEndpoint,
+        int.Parse(arguments.GetValueOrDefault("rounds", "5"), CultureInfo.InvariantCulture),
+        learningDate);
+    var learningOutput = Path.Combine(root, "docs", "benchmarks", $"UC-10-behavior-learning-{learningDate}{(label is null ? string.Empty : "-" + label)}.md");
+    await File.WriteAllTextAsync(learningOutput, learningReport);
+    Console.WriteLine(learningOutput);
+    Console.WriteLine(learningPassed ? "Behavior learning PASSED" : "Behavior learning FAILED");
+    return learningPassed ? 0 : 1;
+}
+
 // --load "1,4,8" [--rounds 2] [--cpus 2]: local load test (ADR-002 §8) instead of the gate. Start the process with
 // DOTNET_gcServer=1 (ASP.NET default) and DOTNET_PROCESSOR_COUNT matching --cpus so the thread pool sees the same limit.
 if (arguments.TryGetValue("load", out var load))

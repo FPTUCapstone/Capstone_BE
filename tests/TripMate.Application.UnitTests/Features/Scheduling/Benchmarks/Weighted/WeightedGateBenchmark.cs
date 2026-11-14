@@ -5,6 +5,7 @@ using System.Text;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 
+using TripMate.Application.Common.Geo;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Csp;
@@ -71,18 +72,72 @@ public sealed record WeightedGateConfiguration(
 /// </summary>
 public static class WeightedGateExecutor
 {
+    /// <summary>The behavior affinity production uses when a traveler has no evidence for a POI or its category.</summary>
+    internal const decimal NoBehaviorAffinity = 0.5m;
+
+    /// <summary>Production interest-token normalization, for tools outside the test assembly.</summary>
+    public static string NormalizeInterest(string value) => TravelerPreferenceScoring.NormalizePreferenceToken(value);
+
     public static async Task<WeightedGateRun> RunAsync(
         GoldenScenario scenario,
         BenchmarkPersonaData persona,
         WeightedGateConfiguration configuration,
         int warmupIterations,
         int measuredIterations,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IReadOnlyDictionary<long, decimal>? aiScores = null,
+        IReadOnlyDictionary<long, decimal>? behaviorAffinities = null,
+        IReadOnlySet<long>? excludedPoiIds = null,
+        int? matrixCandidateCap = null)
     {
         var baseScorer = new PersonalizationBaseScorer(configuration.Ranking);
-        var hasPreferences = persona.Tags.Count > 0;
-        var candidates = scenario.Candidates
-            .Select(candidate => Personalize(candidate, persona, baseScorer, configuration.Ranking, hasPreferences))
+        var personalized = scenario.Candidates
+            .Select(candidate => Personalize(
+                candidate,
+                persona,
+                baseScorer,
+                configuration.Ranking,
+                aiScores is not null && aiScores.TryGetValue(candidate.Id, out var aiScore) ? aiScore : null,
+                behaviorAffinities is not null && behaviorAffinities.TryGetValue(candidate.Id, out var affinity)
+                    ? affinity
+                    : NoBehaviorAffinity))
+            .ToArray();
+
+        // Production drops two kinds of optional candidates before routing: excluded ones (the removed-stop
+        // cooldown) and, in a large city, the ones below the matrix cap (the solver only gets the best-ranked).
+        var dropped = new HashSet<long>(excludedPoiIds ?? new HashSet<long>());
+        if (matrixCandidateCap is { } cap)
+        {
+            var mandatory = scenario.Input.MandatoryPoiIds;
+            var kept = MatrixCandidateSelector.Select(
+                    mandatory,
+                    personalized
+                        .Where(candidate => !mandatory.Contains(candidate.Id) && !dropped.Contains(candidate.Id))
+                        .Select(candidate => new PoiRankingSnapshotEntry(
+                            candidate.Id,
+                            candidate.TripMateBaseScore ?? 0m,
+                            candidate.EffectiveDesirabilityScore ?? 0m,
+                            candidate.ScenicScore,
+                            candidate.PhotoRating,
+                            GeoDistance.EquirectangularKilometers(
+                                scenario.Input.Start.Latitude,
+                                scenario.Input.Start.Longitude,
+                                candidate.Location.Latitude,
+                                candidate.Location.Longitude),
+                            candidate.EstimatedVisitCost))
+                        .ToArray(),
+                    cap)
+                .OrderedPoiIds
+                .ToHashSet();
+            dropped.UnionWith(personalized.Select(candidate => candidate.Id).Where(id => !kept.Contains(id)));
+        }
+
+        // The scenario's route matrix is indexed by candidate position, so a dropped candidate stays in place
+        // with a visit that cannot fit the day instead of being removed.
+        var candidates = personalized
+            .Select(candidate => dropped.Contains(candidate.Id)
+                ? candidate with { VisitDurationMinutes = scenario.Input.AvailableMinutes + 1 }
+                : candidate)
             .ToArray();
         var input = scenario.Input with { Candidates = candidates };
         var weighted = new WeightedRequestInputsFactory(
@@ -193,12 +248,15 @@ public static class WeightedGateExecutor
     }
 
     /// <summary>Production ranking: base score blended with the AI fallback score, because AI ranking ships disabled.</summary>
-    private static GenerationCandidate Personalize(
+    /// <param name="aiScore">The provider AI score for this POI; null falls back like production (no AI answer).</param>
+    /// <param name="behaviorAffinity">The count-based behavior affinity; 0.5 is production's "no evidence".</param>
+    internal static GenerationCandidate Personalize(
         GenerationCandidate candidate,
         BenchmarkPersonaData persona,
         PersonalizationBaseScorer baseScorer,
         PersonalizationRankingOptions ranking,
-        bool hasPreferences)
+        decimal? aiScore,
+        decimal behaviorAffinity = NoBehaviorAffinity)
     {
         var category = candidate.CategoryName ?? "Culture";
         var features = PersonalizationFeatureBuilder.Build(
@@ -207,13 +265,13 @@ public static class WeightedGateExecutor
             candidate.Tags ?? [],
             candidate.ScenicScore,
             candidate.PhotoRating);
-        var baseScore = baseScorer.Score(features, 0.5m);
-        var aiFallback = hasPreferences ? ranking.PersonalizedAiFallbackScore : ranking.DefaultAiFallbackScore;
+        var baseScore = baseScorer.Score(features, behaviorAffinity);
+        var ai = aiScore ?? (persona.Tags.Count > 0 ? ranking.PersonalizedAiFallbackScore : ranking.DefaultAiFallbackScore);
         return candidate with
         {
             CategoryName = category,
             TripMateBaseScore = baseScore,
-            EffectiveDesirabilityScore = (ranking.BaseWeight * baseScore) + (ranking.AiWeight * aiFallback),
+            EffectiveDesirabilityScore = (ranking.BaseWeight * baseScore) + (ranking.AiWeight * ai),
         };
     }
 

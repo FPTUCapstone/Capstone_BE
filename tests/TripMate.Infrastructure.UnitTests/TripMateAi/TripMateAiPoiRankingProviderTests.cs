@@ -96,6 +96,36 @@ public sealed class TripMateAiPoiRankingProviderTests
             .Which.Should().Be(SharedKey);
     }
 
+    // UC-10 item 6: the behavior profile uses the field names Capstone_AI /v1/rank-pois reads.
+    [Fact]
+    public async Task RankAsync_WithABehaviorProfile_SendsLikedAndDislikedPoisWithTheirWeights()
+    {
+        using var handler = new StubHttpMessageHandler(_ => Json("""{"ranked":[]}"""));
+        var provider = CreateProvider(new HttpClient(handler));
+        PoiRankingRequest request = Request() with
+        {
+            Context = new PoiRankingContext(
+                ["van hoa"],
+                new PoiRankingBehavior(
+                    [new PoiRankingBehaviorPoi(101L, "Bảo tàng Đà Nẵng", "Bảo tàng", ["lịch sử"], 0.75m)],
+                    [new PoiRankingBehaviorPoi(102L, "Chùa Quán Thế Âm", "Chùa", [], 0.7m)])),
+        };
+
+        await provider.RankAsync(request, CancellationToken.None);
+
+        using JsonDocument body = JsonDocument.Parse(handler.RequestBody!);
+        PropertyNames(body.RootElement).Should().BeEquivalentTo(["preferenceTokens", "candidates", "behavior"]);
+        JsonElement behavior = body.RootElement.GetProperty("behavior");
+        PropertyNames(behavior).Should().BeEquivalentTo(["liked", "disliked"]);
+        JsonElement liked = behavior.GetProperty("liked").EnumerateArray().Single();
+        PropertyNames(liked).Should().BeEquivalentTo(["poiId", "name", "categoryName", "tagNames", "weight"]);
+        liked.GetProperty("poiId").GetInt64().Should().Be(101L);
+        liked.GetProperty("name").GetString().Should().Be("Bảo tàng Đà Nẵng");
+        liked.GetProperty("tagNames").EnumerateArray().Single().GetString().Should().Be("lịch sử");
+        liked.GetProperty("weight").GetDecimal().Should().Be(0.75m);
+        behavior.GetProperty("disliked").EnumerateArray().Single().GetProperty("weight").GetDecimal().Should().Be(0.7m);
+    }
+
     // RT4
     [Fact]
     public async Task RankAsync_PassesReasonsThroughUnchanged()

@@ -53,10 +53,15 @@ public sealed class RecommendationBehaviorEvent : BaseEntity
     {
         var hasValidSourceContext = source switch
         {
-            RecommendationCaptureSource.Itinerary =>
+            RecommendationCaptureSource.Itinerary
+                or RecommendationCaptureSource.ItineraryEdit
+                or RecommendationCaptureSource.Navigation =>
                 itineraryId.HasValue && wasMandatory.HasValue,
             RecommendationCaptureSource.Explore or RecommendationCaptureSource.PoiDetail =>
                 itineraryId is null && wasMandatory is null,
+            // The itinerary does not exist yet when the request is created; the POI is mandatory by definition.
+            RecommendationCaptureSource.SchedulingRequest =>
+                itineraryId is null && wasMandatory == true,
             _ => false,
         };
         if (!hasValidSourceContext)
@@ -66,11 +71,17 @@ public sealed class RecommendationBehaviorEvent : BaseEntity
                 nameof(source));
         }
 
-        if (eventType is RecommendationEventType.Skip or RecommendationEventType.Reorder
-            && source != RecommendationCaptureSource.Itinerary)
+        var hasValidTypeSource = eventType switch
+        {
+            RecommendationEventType.Skip =>
+                source is RecommendationCaptureSource.Itinerary or RecommendationCaptureSource.Navigation,
+            RecommendationEventType.Reorder => source == RecommendationCaptureSource.Itinerary,
+            _ => true,
+        };
+        if (!hasValidTypeSource)
         {
             throw new ArgumentException(
-                "Skip and reorder events require an itinerary source.",
+                "Skip events require an itinerary or navigation source; reorder events require an itinerary source.",
                 nameof(source));
         }
 

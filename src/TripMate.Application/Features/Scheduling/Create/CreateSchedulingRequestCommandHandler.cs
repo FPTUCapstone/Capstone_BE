@@ -14,6 +14,7 @@ using TripMate.Application.Common.Geo;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Itineraries.Common;
+using TripMate.Application.Features.RecommendationFeedback.Derived;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Csp;
 using TripMate.Application.Features.Scheduling.Csp.Objectives;
@@ -467,20 +468,10 @@ public sealed class CreateSchedulingRequestCommandHandler(
         var mandatoryIds = canonical.MandatoryPoiIds.ToHashSet();
         var optionalCandidates = selectablePois
             .Where(poi => !mandatoryIds.Contains(poi.Id))
-            .Select(poi => new PoiRankingInputCandidate(
-                poi.Id,
-                poi.CategoryId,
-                poi.Name,
-                poi.Category.Name,
-                poi.PoiTags.Select(mapping => mapping.Tag.Name).ToArray(),
-                poi.ScenicScore,
-                poi.PhotoRating,
-                GeoDistance.EquirectangularKilometers(
-                    canonical.ExplorationLatitude,
-                    canonical.ExplorationLongitude,
-                    poi.Latitude,
-                    poi.Longitude),
-                poi.EstimatedVisitCost))
+            .Select(poi => PoiRankingInputCandidate.From(
+                poi,
+                canonical.ExplorationLatitude,
+                canonical.ExplorationLongitude))
             .ToArray();
         funnel.SetEligibleOptional(optionalCandidates.Length);
         long rankingStartedAt = Stopwatch.GetTimestamp();
@@ -744,6 +735,14 @@ public sealed class CreateSchedulingRequestCommandHandler(
             request.CompleteGeneration(ownerId, now);
             dbContext.Itineraries.Add(itinerary);
             await dbContext.SaveChangesAsync(transactionCancellationToken);
+            // UC-10 item 6 (D6): a POI the traveler insisted on is a weak Like; recorded after the mandatory POIs
+            // were validated, so the signal never blocks the generation.
+            await new DerivedBehaviorSignalRecorder(dbContext, logger).RecordMandatoryAsync(
+                canonical.TravelerUserId,
+                request.Id,
+                canonical.MandatoryPoiIds,
+                now,
+                transactionCancellationToken);
             var fresh = new FreshGenerationContext(
                 request,
                 itinerary,

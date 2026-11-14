@@ -3,7 +3,9 @@ using System.Diagnostics;
 
 using Microsoft.Extensions.Logging;
 
+using TripMate.Application.Common.Geo;
 using TripMate.Application.Common.Models;
+using TripMate.Domain.Entities;
 
 namespace TripMate.Application.Features.Scheduling.Personalization;
 
@@ -21,7 +23,28 @@ internal sealed record PoiRankingInputCandidate(
     decimal? ScenicScore,
     decimal? PhotoRating,
     decimal ExplorationDistanceForRanking,
-    decimal? EstimatedVisitCostForRanking);
+    decimal? EstimatedVisitCostForRanking)
+{
+    /// <summary>The ranking view of a POI, shared by create and regenerate so both rank the same way.</summary>
+    internal static PoiRankingInputCandidate From(
+        PointOfInterest poi,
+        decimal explorationLatitude,
+        decimal explorationLongitude) =>
+        new(
+            poi.Id,
+            poi.CategoryId,
+            poi.Name,
+            poi.Category.Name,
+            poi.PoiTags.Select(mapping => mapping.Tag.Name).ToArray(),
+            poi.ScenicScore,
+            poi.PhotoRating,
+            GeoDistance.EquirectangularKilometers(
+                explorationLatitude,
+                explorationLongitude,
+                poi.Latitude,
+                poi.Longitude),
+            poi.EstimatedVisitCost);
+}
 
 internal sealed record ValidatedPoiRankingItem(
     long PoiId,
@@ -32,6 +55,9 @@ public sealed class PoiRankingOrchestrator
 {
     private const int MaximumReasonLength = 500;
 
+    // About a day's worth of stops: with fewer other places left, recently visited ones are suggested again (D20).
+    private const int MinimumSuggestionsBeforeRevisit = 5;
+
     private readonly PersonalBehaviorFeatureAggregator _behaviorAggregator;
     private readonly IPoiRankingProvider _provider;
     private readonly PersonalizationRankingOptions _options;
@@ -39,13 +65,19 @@ public sealed class PoiRankingOrchestrator
     private readonly ILogger<PoiRankingOrchestrator> _logger;
     private readonly PersonalBehaviorAffinityScorer _behaviorScorer;
     private readonly PersonalizationBaseScorer _baseScorer;
+    private readonly BehaviorProfileBuilder? _behaviorProfileBuilder;
 
+    /// <param name="behaviorProfileBuilder">
+    /// UC-10 item 6: builds the liked/disliked profile sent to the provider. Without it the provider only gets
+    /// the declared interests, as before.
+    /// </param>
     public PoiRankingOrchestrator(
         PersonalBehaviorFeatureAggregator behaviorAggregator,
         IPoiRankingProvider provider,
         PersonalizationRankingOptions options,
         bool providerEnabled,
-        ILogger<PoiRankingOrchestrator> logger)
+        ILogger<PoiRankingOrchestrator> logger,
+        BehaviorProfileBuilder? behaviorProfileBuilder = null)
     {
         _behaviorAggregator = behaviorAggregator
             ?? throw new ArgumentNullException(nameof(behaviorAggregator));
@@ -55,6 +87,7 @@ public sealed class PoiRankingOrchestrator
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _behaviorScorer = new PersonalBehaviorAffinityScorer(options);
         _baseScorer = new PersonalizationBaseScorer(options);
+        _behaviorProfileBuilder = behaviorProfileBuilder;
     }
 
     internal async Task<PoiRankingSnapshot> BuildRankingAsync(
@@ -87,8 +120,40 @@ public sealed class PoiRankingOrchestrator
             candidates.Select(candidate => candidate.PoiId).Distinct().ToArray(),
             candidates.Select(candidate => candidate.CategoryId).Distinct().ToArray(),
             cancellationToken);
+
+        // Decision D8: a stop the traveler removed or skipped recently is not suggested again while it cools
+        // down. The counts above still cover every candidate, because the generation snapshot hash is rebuilt
+        // from all of them. With nothing else to offer the cooldown gives way: an empty day helps nobody.
+        // Decision D20: a place the traveler has just been to rests too, but it is no dislike, so it comes back
+        // first, as soon as fewer than a day's worth of other places would be left.
+        PoiRankingInputCandidate[] suggestible = candidates;
+        if (_behaviorProfileBuilder is not null)
+        {
+            IReadOnlySet<long> removedRecently = await _behaviorProfileBuilder.RemovedRecentlyAsync(
+                input.TravelerUserId,
+                cancellationToken);
+            IReadOnlySet<long> visitedRecently = await _behaviorProfileBuilder.VisitedRecentlyAsync(
+                input.TravelerUserId,
+                cancellationToken);
+            PoiRankingInputCandidate[] notRemoved = candidates
+                .Where(candidate => !removedRecently.Contains(candidate.PoiId))
+                .ToArray();
+            PoiRankingInputCandidate[] remaining = notRemoved
+                .Where(candidate => !visitedRecently.Contains(candidate.PoiId))
+                .ToArray();
+            if (remaining.Length < MinimumSuggestionsBeforeRevisit)
+            {
+                remaining = notRemoved;
+            }
+
+            if (remaining.Length > 0)
+            {
+                suggestible = remaining;
+            }
+        }
+
         ProviderPoolSelection poolSelection = ProviderPoolSelector.Select(
-            candidates
+            suggestible
                 .Select(candidate => ScoreCandidate(candidate, preferenceTokens, aggregation))
                 .ToArray(),
             _options.MaxProviderCandidates);
@@ -101,8 +166,14 @@ public sealed class PoiRankingOrchestrator
             ? _options.PersonalizedAiFallbackScore
             : _options.DefaultAiFallbackScore;
 
-        // When provider is disabled or there are no preference tokens, skip the provider and apply fallback score.
-        if (!_providerEnabled || preferenceTokens.Length == 0)
+        // UC-10 item 6: what the traveler liked and disliked so far. Only read when the provider can use it.
+        PoiRankingBehavior? behavior = _providerEnabled && _behaviorProfileBuilder is not null
+            ? await _behaviorProfileBuilder.BuildAsync(input.TravelerUserId, cancellationToken)
+            : null;
+
+        // The provider needs something to rank by: declared interests or a behavior profile. Without either,
+        // or when it is disabled, skip it and apply the fallback score.
+        if (!_providerEnabled || (preferenceTokens.Length == 0 && behavior is null))
         {
             LogOutcome(
                 LogLevel.Information,
@@ -128,7 +199,7 @@ public sealed class PoiRankingOrchestrator
                     candidate.Candidate.CategoryName,
                     candidate.Candidate.TagNames.ToArray()))
                 .ToArray(),
-            new PoiRankingContext(preferenceTokens.ToArray()));
+            new PoiRankingContext(preferenceTokens.ToArray(), behavior));
 
         Result<PoiRankingResult> providerResult;
         Stopwatch providerLatency = Stopwatch.StartNew();

@@ -11,6 +11,9 @@ using Moq;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Scheduling.Personalization;
+using TripMate.Application.UnitTests.TestUtilities;
+using TripMate.Domain.Entities;
+using TripMate.Domain.Enums;
 using TripMate.Infrastructure.Persistence;
 
 namespace TripMate.Application.UnitTests.Features.Scheduling.Personalization;
@@ -266,9 +269,15 @@ public sealed class PoiRankingOrchestratorTests
         request.Candidates.Should().ContainSingle().Which.Should().BeEquivalentTo(
             new PoiRankingCandidate(2L, "Museum", "Culture", ["heritage"]));
         PublicPropertyNames<PoiRankingRequest>().Should().BeEquivalentTo("Candidates", "Context");
-        PublicPropertyNames<PoiRankingContext>().Should().BeEquivalentTo("PreferenceTokens");
+        // UC-10 item 6 added the behavior profile. It stays semantic: POI descriptions and a weight, never the
+        // traveler's identity, scores, costs or coordinates.
+        PublicPropertyNames<PoiRankingContext>().Should().BeEquivalentTo("PreferenceTokens", "Behavior");
+        PublicPropertyNames<PoiRankingBehavior>().Should().BeEquivalentTo("Liked", "Disliked");
+        PublicPropertyNames<PoiRankingBehaviorPoi>().Should().BeEquivalentTo(
+            "PoiId", "Name", "CategoryName", "TagNames", "Weight");
         PublicPropertyNames<PoiRankingCandidate>().Should().BeEquivalentTo(
             "PoiId", "Name", "CategoryName", "TagNames");
+        request.Context.Behavior.Should().BeNull("this orchestrator has no behavior profile builder");
         provider.CallCount.Should().Be(1);
     }
 
@@ -862,18 +871,238 @@ public sealed class PoiRankingOrchestratorTests
             _ => throw new ArgumentOutOfRangeException(nameof(scenario)),
         };
 
+    // UC-10 item 6 (spec .scratch/uc10-behavior-learning §3.3): the behavior profile reaches the provider.
+
+    [Fact]
+    public async Task BuildRankingAsync_SendsTheBehaviorProfileWithTheDeclaredInterests()
+    {
+        await using var dbContext = CreateDbContext();
+        PointOfInterest liked = await SeedPoiWithLikeAsync(dbContext, travelerUserId: 123L, "Cham Museum");
+        var provider = new RecordingProvider();
+        var orchestrator = CreateOrchestrator(dbContext, provider, providerEnabled: true, withBehaviorProfile: true);
+
+        await orchestrator.BuildRankingAsync(
+            new PoiRankingInput(123L, ["culture"], [Candidate(900L)]),
+            CancellationToken.None);
+
+        PoiRankingContext context = provider.LastRequest!.Context;
+        context.PreferenceTokens.Should().Equal("culture");
+        PoiRankingBehaviorPoi sent = context.Behavior!.Liked.Should().ContainSingle().Subject;
+        sent.PoiId.Should().Be(liked.Id);
+        sent.Name.Should().Be("Cham Museum");
+        sent.Weight.Should().Be(1.0m);
+        context.Behavior.Disliked.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task BuildRankingAsync_WithBehaviorButNoDeclaredInterests_StillCallsTheProvider()
+    {
+        await using var dbContext = CreateDbContext();
+        await SeedPoiWithLikeAsync(dbContext, travelerUserId: 123L, "Cham Museum");
+        var provider = new RecordingProvider();
+        var orchestrator = CreateOrchestrator(dbContext, provider, providerEnabled: true, withBehaviorProfile: true);
+
+        PoiRankingSnapshot snapshot = await orchestrator.BuildRankingAsync(
+            new PoiRankingInput(123L, [], [Candidate(900L)]),
+            CancellationToken.None);
+
+        provider.CallCount.Should().Be(1);
+        provider.LastRequest!.Context.PreferenceTokens.Should().BeEmpty();
+        provider.LastRequest.Context.Behavior!.Liked.Should().ContainSingle();
+        snapshot.OutcomeCategory.Should().Be(PoiRankingOutcomeCategory.Success);
+    }
+
+    [Fact]
+    public async Task BuildRankingAsync_WithNeitherInterestsNorBehavior_SkipsTheProvider()
+    {
+        await using var dbContext = CreateDbContext();
+        await SeedPoiWithLikeAsync(dbContext, travelerUserId: 999L, "Someone else's museum");
+        var provider = new RecordingProvider();
+        var orchestrator = CreateOrchestrator(dbContext, provider, providerEnabled: true, withBehaviorProfile: true);
+
+        PoiRankingSnapshot snapshot = await orchestrator.BuildRankingAsync(
+            new PoiRankingInput(123L, [], [Candidate(900L)]),
+            CancellationToken.None);
+
+        provider.CallCount.Should().Be(0);
+        snapshot.OutcomeCategory.Should().Be(PoiRankingOutcomeCategory.ProviderSkipped);
+    }
+
+    [Fact]
+    public async Task BuildRankingAsync_WithoutBehavior_SendsNoProfile()
+    {
+        await using var dbContext = CreateDbContext();
+        var provider = new RecordingProvider();
+        var orchestrator = CreateOrchestrator(dbContext, provider, providerEnabled: true, withBehaviorProfile: true);
+
+        await orchestrator.BuildRankingAsync(
+            new PoiRankingInput(123L, ["culture"], [Candidate(900L)]),
+            CancellationToken.None);
+
+        provider.LastRequest!.Context.Behavior.Should().BeNull();
+    }
+
+    // Decision D8 (2026-11-11): a stop the traveler removed is not suggested again for 14 days.
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task BuildRankingAsync_LeavesOutAStopTheTravelerRemovedRecently_WhateverTheProviderState(
+        bool providerEnabled)
+    {
+        await using var dbContext = CreateDbContext();
+        await AddRemovalAsync(dbContext, travelerUserId: 123L, poiId: 1L, daysAgo: 3);
+        var provider = new RecordingProvider();
+        var orchestrator = CreateOrchestrator(dbContext, provider, providerEnabled, withBehaviorProfile: true);
+
+        PoiRankingSnapshot snapshot = await orchestrator.BuildRankingAsync(
+            new PoiRankingInput(123L, ["culture"], [Candidate(1L), Candidate(2L)]),
+            CancellationToken.None);
+
+        snapshot.ProviderPoolPoiIds.Should().BeEquivalentTo([2L]);
+        snapshot.Entries.Keys.Should().BeEquivalentTo([2L]);
+        if (providerEnabled)
+        {
+            provider.LastRequest!.Candidates.Select(candidate => candidate.PoiId).Should().Equal(2L);
+        }
+
+        // The generation snapshot hash is rebuilt from every candidate at finalize, so the counts must cover the
+        // removed stop too; otherwise the request would be rejected as "planning data changed".
+        snapshot.BehaviorAggregation.PoiCounts.Should().ContainKey(1L);
+    }
+
+    [Fact]
+    public async Task BuildRankingAsync_SuggestsARemovedStopAgainAfterTheCooldown()
+    {
+        await using var dbContext = CreateDbContext();
+        await AddRemovalAsync(dbContext, travelerUserId: 123L, poiId: 1L, daysAgo: 15);
+        var orchestrator = CreateOrchestrator(
+            dbContext, new RecordingProvider(), providerEnabled: true, withBehaviorProfile: true);
+
+        PoiRankingSnapshot snapshot = await orchestrator.BuildRankingAsync(
+            new PoiRankingInput(123L, ["culture"], [Candidate(1L), Candidate(2L)]),
+            CancellationToken.None);
+
+        snapshot.Entries.Keys.Should().BeEquivalentTo([1L, 2L]);
+    }
+
+    [Fact]
+    public async Task BuildRankingAsync_WhenEveryCandidateWasRemovedRecently_StillSuggestsThem()
+    {
+        // An empty day helps nobody: with nothing else to offer, the cooldown gives way.
+        await using var dbContext = CreateDbContext();
+        await AddRemovalAsync(dbContext, travelerUserId: 123L, poiId: 1L, daysAgo: 1);
+        await AddRemovalAsync(dbContext, travelerUserId: 123L, poiId: 2L, daysAgo: 1);
+        var orchestrator = CreateOrchestrator(
+            dbContext, new RecordingProvider(), providerEnabled: true, withBehaviorProfile: true);
+
+        PoiRankingSnapshot snapshot = await orchestrator.BuildRankingAsync(
+            new PoiRankingInput(123L, ["culture"], [Candidate(1L), Candidate(2L)]),
+            CancellationToken.None);
+
+        snapshot.Entries.Keys.Should().BeEquivalentTo([1L, 2L]);
+    }
+
+    // D20 (2026-11-11): a place the traveler has just been to rests for 14 days, as long as enough other places
+    // are left to fill a day.
+
+    [Fact]
+    public async Task BuildRankingAsync_LeavesOutAStopTheTravelerVisitedRecently()
+    {
+        await using var dbContext = CreateDbContext();
+        await AddVisitAsync(dbContext, travelerUserId: 123L, poiId: 1L, daysAgo: 3);
+        var orchestrator = CreateOrchestrator(
+            dbContext, new RecordingProvider(), providerEnabled: true, withBehaviorProfile: true);
+
+        PoiRankingSnapshot snapshot = await orchestrator.BuildRankingAsync(
+            new PoiRankingInput(123L, ["culture"], Candidates(1L, 7L)),
+            CancellationToken.None);
+
+        snapshot.Entries.Keys.Should().BeEquivalentTo([2L, 3L, 4L, 5L, 6L, 7L]);
+        snapshot.BehaviorAggregation.PoiCounts.Should().ContainKey(1L);
+    }
+
+    [Fact]
+    public async Task BuildRankingAsync_WhenFewPlacesAreLeft_VisitedStopsComeBackButRemovedOnesDoNot()
+    {
+        // Hiding the removed stop and both visited stops would leave 3 places, too few for a day.
+        await using var dbContext = CreateDbContext();
+        await AddRemovalAsync(dbContext, travelerUserId: 123L, poiId: 1L, daysAgo: 1);
+        await AddVisitAsync(dbContext, travelerUserId: 123L, poiId: 2L, daysAgo: 1);
+        await AddVisitAsync(dbContext, travelerUserId: 123L, poiId: 3L, daysAgo: 1);
+        var orchestrator = CreateOrchestrator(
+            dbContext, new RecordingProvider(), providerEnabled: true, withBehaviorProfile: true);
+
+        PoiRankingSnapshot snapshot = await orchestrator.BuildRankingAsync(
+            new PoiRankingInput(123L, ["culture"], Candidates(1L, 6L)),
+            CancellationToken.None);
+
+        snapshot.Entries.Keys.Should().BeEquivalentTo([2L, 3L, 4L, 5L, 6L]);
+    }
+
+    private static PoiRankingInputCandidate[] Candidates(long first, long last) =>
+        Enumerable.Range((int)first, (int)(last - first + 1)).Select(id => Candidate(id)).ToArray();
+
+    private static async Task AddVisitAsync(
+        ApplicationDbContext dbContext,
+        long travelerUserId,
+        long poiId,
+        int daysAgo)
+    {
+        dbContext.RecommendationBehaviorEvents.Add(RecommendationBehaviorEvent.Create(
+            travelerUserId, poiId, 30L, RecommendationEventType.Like, null, null, false,
+            RecommendationCaptureSource.Navigation, BehaviorNow.AddDays(-daysAgo), Guid.NewGuid()));
+        await dbContext.SaveChangesAsync();
+    }
+
+    private static async Task AddRemovalAsync(
+        ApplicationDbContext dbContext,
+        long travelerUserId,
+        long poiId,
+        int daysAgo)
+    {
+        dbContext.RecommendationBehaviorEvents.Add(RecommendationBehaviorEvent.Create(
+            travelerUserId, poiId, 30L, RecommendationEventType.Dislike, null, null, false,
+            RecommendationCaptureSource.ItineraryEdit, BehaviorNow.AddDays(-daysAgo), Guid.NewGuid()));
+        await dbContext.SaveChangesAsync();
+    }
+
+    private static async Task<PointOfInterest> SeedPoiWithLikeAsync(
+        ApplicationDbContext dbContext,
+        long travelerUserId,
+        string name)
+    {
+        var poi = PointOfInterest.Create(PoiCategory.Create($"Category-{Guid.NewGuid():N}", null), name, 16m, 108m, 1, BehaviorNow);
+        dbContext.PointsOfInterest.Add(poi);
+        await dbContext.SaveChangesAsync();
+        dbContext.RecommendationBehaviorEvents.Add(RecommendationBehaviorEvent.Create(
+            travelerUserId, poi.Id, null, RecommendationEventType.Like, null, null, null,
+            RecommendationCaptureSource.Explore, BehaviorNow, Guid.NewGuid()));
+        await dbContext.SaveChangesAsync();
+        return poi;
+    }
+
+    private static readonly DateTimeOffset BehaviorNow = new(2026, 11, 11, 4, 0, 0, TimeSpan.Zero);
+
     private static PoiRankingOrchestrator CreateOrchestrator(
         IApplicationDbContext dbContext,
         IPoiRankingProvider provider,
         bool providerEnabled,
         PersonalizationRankingOptions? options = null,
-        ILogger<PoiRankingOrchestrator>? logger = null) =>
+        ILogger<PoiRankingOrchestrator>? logger = null,
+        bool withBehaviorProfile = false) =>
         new(
             new PersonalBehaviorFeatureAggregator(dbContext),
             provider,
             options ?? Options(),
             providerEnabled,
-            logger ?? new RecordingLogger<PoiRankingOrchestrator>());
+            logger ?? new RecordingLogger<PoiRankingOrchestrator>(),
+            withBehaviorProfile
+                ? new BehaviorProfileBuilder(
+                    dbContext,
+                    new FakeDateTimeProvider { UtcNow = BehaviorNow },
+                    options ?? Options())
+                : null);
 
     private static ApplicationDbContext CreateDbContext()
     {
