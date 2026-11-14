@@ -22,6 +22,8 @@ public class TestDbContext(
 
     public DbSet<PointOfInterest> PointsOfInterest => Set<PointOfInterest>();
 
+    public DbSet<RouteSegment> RouteSegments => Set<RouteSegment>();
+
     public DbSet<PoiOpeningHour> PoiOpeningHours => Set<PoiOpeningHour>();
 
     public DbSet<Tag> Tags => Set<Tag>();

@@ -8,10 +8,13 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Features.Scheduling.Common;
+using TripMate.Application.Common.Interfaces;
 using TripMate.Domain.Enums;
 using TripMate.Infrastructure.Routing;
+using TripMate.Infrastructure.Persistence;
 using TripMate.Infrastructure.UnitTests.Security;
 
 namespace TripMate.Infrastructure.UnitTests.Routing;
@@ -30,7 +33,7 @@ public sealed class MapboxRoutingDependencyInjectionTests
         validate.Should().NotThrow();
         using var scope = provider.CreateScope();
         scope.ServiceProvider.GetRequiredService<IRouteDurationProvider>()
-            .Should().BeOfType<MapboxRouteDurationProvider>();
+            .Should().BeOfType<CatalogRouteDurationProvider>();
         provider.GetRequiredService<IOptions<MapboxRoutingOptions>>().Value.AccessToken.Should().Be(Token);
     }
 
@@ -81,6 +84,9 @@ public sealed class MapboxRoutingDependencyInjectionTests
 
         var services = new ServiceCollection();
         services.AddInfrastructure(new ConfigurationBuilder().AddInMemoryCollection(values).Build());
+        services.AddScoped<IApplicationDbContext>(_ => new ApplicationDbContext(
+            new DbContextOptionsBuilder<ApplicationDbContext>()
+                .UseInMemoryDatabase(Guid.NewGuid().ToString()).Options));
         if (logs is not null)
         {
             services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Trace).AddProvider(logs));

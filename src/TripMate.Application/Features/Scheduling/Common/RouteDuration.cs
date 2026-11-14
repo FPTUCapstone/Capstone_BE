@@ -2,7 +2,7 @@ namespace TripMate.Application.Features.Scheduling.Common;
 
 public sealed record RoutePoint
 {
-    public RoutePoint(decimal latitude, decimal longitude)
+    public RoutePoint(decimal latitude, decimal longitude, long? poiId = null)
     {
         if (latitude is < -90m or > 90m)
         {
@@ -14,13 +14,22 @@ public sealed record RoutePoint
             throw new ArgumentOutOfRangeException(nameof(longitude));
         }
 
+        if (poiId is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(poiId));
+        }
+
         Latitude = latitude;
         Longitude = longitude;
+        PoiId = poiId;
     }
 
     public decimal Latitude { get; }
 
     public decimal Longitude { get; }
+
+    /// <summary>Known POI identity; null for a free GPS/start location.</summary>
+    public long? PoiId { get; }
 }
 
 public sealed class RouteDurationMatrix

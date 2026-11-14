@@ -13,6 +13,8 @@ public sealed class LegModeRouteDurationProvider(
     IReadOnlyCollection<LegModeOverride> overrides,
     IReadOnlyCollection<RoutePoint>? stopLocations = null) : IRouteDurationProvider
 {
+    public bool SupportsTransportMode(TransportMode transportMode) => inner.SupportsTransportMode(transportMode);
+
     public async Task<RouteDurationMatrix> GetMatrixAsync(
         IReadOnlyList<RoutePoint> points,
         TransportMode transportMode,
@@ -128,6 +130,8 @@ public sealed record LegModeOverride(RoutePoint From, RoutePoint To, TransportMo
 /// <summary>Remembers matrices so repeated evaluations of the same itinerary call the routing service once.</summary>
 public sealed class MemoizingRouteDurationProvider(IRouteDurationProvider inner) : IRouteDurationProvider
 {
+    public bool SupportsTransportMode(TransportMode transportMode) => inner.SupportsTransportMode(transportMode);
+
     private readonly Dictionary<string, RouteDurationMatrix> _matrices = [];
 
     public async Task<RouteDurationMatrix> GetMatrixAsync(
@@ -135,7 +139,8 @@ public sealed class MemoizingRouteDurationProvider(IRouteDurationProvider inner)
         TransportMode transportMode,
         CancellationToken cancellationToken)
     {
-        var key = transportMode + "|" + string.Join(';', points.Select(point => $"{point.Latitude},{point.Longitude}"));
+        var key = transportMode + "|" + string.Join(';', points.Select(point =>
+            FormattableString.Invariant($"{point.Latitude},{point.Longitude},{point.PoiId}")));
         if (!_matrices.TryGetValue(key, out var matrix))
         {
             matrix = await inner.GetMatrixAsync(points, transportMode, cancellationToken);
