@@ -135,6 +135,10 @@ public class TestDbContext(
 
     public DbSet<SystemConfig> SystemConfigs => Set<SystemConfig>();
 
+    public DbSet<TourSearchRequest> TourSearchRequests => Set<TourSearchRequest>();
+
+    public DbSet<TourRecommendationLog> TourRecommendationLogs => Set<TourRecommendationLog>();
+
     public DbSet<TripSession> TripSessions => Set<TripSession>();
 
     public DbSet<TripSessionItem> TripSessionItems => Set<TripSessionItem>();
