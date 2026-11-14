@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
 using TripMate.Application.Features.Scheduling.Explanation;
+using TripMate.Infrastructure.Ai;
 using TripMate.Infrastructure.AiExplanation;
 using TripMate.Infrastructure.UnitTests.Security;
 
@@ -53,9 +54,9 @@ public sealed class ExplanationDependencyInjectionTests
         action.Should().NotThrow();
         var options = provider.GetRequiredService<IOptions<ExplanationProviderOptions>>().Value;
         options.Enabled.Should().BeFalse();
-        options.Endpoint.Should().Be(
-            "https://generativelanguage.googleapis.com/v1/interactions");
-        options.ModelName.Should().Be("gemini-3.5-flash-lite");
+        options.Provider.Should().Be(AiProviderKind.TripMateAi);
+        options.Endpoint.Should().Be("http://tripmate-ai:8000/v1/explain-itinerary");
+        options.ModelName.Should().Be("tripmate-explainer");
         options.ApiKey.Should().BeNull();
         options.TimeoutSeconds.Should().Be(10);
         options.OverallTimeoutSeconds.Should().Be(20);

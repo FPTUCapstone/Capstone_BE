@@ -9,6 +9,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\tests\TripMate.Application.UnitTests\TripMate.Application.UnitTests.csproj" />
+    <ProjectReference Include="..\..\..\src\TripMate.Infrastructure\TripMate.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

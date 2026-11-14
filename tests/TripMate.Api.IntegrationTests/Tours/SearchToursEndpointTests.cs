@@ -1,11 +1,11 @@
+using System.Data.Common;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 
 using FluentAssertions;
 
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Features.Tours.Search;
@@ -161,15 +161,15 @@ public sealed class SearchToursEndpointTests
         response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
-    [Fact]
-    public async Task Search_WhenAvailabilityProviderFails_ReturnsGlobalSystemError()
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Search_WhenSqlProviderFails_ReturnsGlobalSystemError()
     {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var interceptor = new ThrowingAvailabilityQueryInterceptor();
         await using var factory = new TripMateApiFactory(
-            configureTestServices: services =>
-            {
-                services.RemoveAll<ITourAvailabilityReader>();
-                services.AddScoped<ITourAvailabilityReader, ThrowingAvailabilityReader>();
-            });
+            sqlServerConnectionString: database.ConnectionString,
+            dbInterceptor: interceptor);
         using var client = factory.CreateClient();
 
         using var response = await client.GetAsync("/api/v1/tours");
@@ -177,6 +177,7 @@ public sealed class SearchToursEndpointTests
         response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
         response.Content.Headers.ContentType!.MediaType.Should().Be("application/problem+json");
         response.Headers.CacheControl!.NoStore.Should().BeTrue();
+        interceptor.FailureCount.Should().Be(1);
     }
 
     [SqlServerFact]
@@ -264,11 +265,27 @@ public sealed class SearchToursEndpointTests
             .Single().GetProperty("thumbnailUrl").ValueKind.Should().Be(JsonValueKind.Null);
     }
 
-    private sealed class ThrowingAvailabilityReader : ITourAvailabilityReader
+    private sealed class ThrowingAvailabilityQueryInterceptor : DbCommandInterceptor
     {
-        public Task<IReadOnlyDictionary<long, TourAvailabilityReadResult>> ReadAsync(
-            IReadOnlyCollection<long> scheduleIds,
-            CancellationToken cancellationToken) =>
-            throw new InvalidOperationException("Simulated global availability failure.");
+        private int _failureCount;
+
+        public int FailureCount => Volatile.Read(ref _failureCount);
+
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains(
+                    "COUNT_BIG",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                Interlocked.Increment(ref _failureCount);
+                throw new InvalidOperationException("Simulated global availability failure.");
+            }
+
+            return new ValueTask<InterceptionResult<DbDataReader>>(result);
+        }
     }
 }
