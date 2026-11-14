@@ -11,10 +11,12 @@ UC-70 affects one owned `TourSchedule`; it never cancels every departure of a To
 | Before start | `Cancelled` | `Cancelled` | linked open session `Interrupted` (a session can start before departure) |
 | Active trip | `EmergencyStopped` | `Interrupted` | linked open session `Interrupted` |
 
-UC-70 records the decision and its cancellation context only. It has no refund handoff: it creates no
-`Refund`, calculates no amount, adds no payment, refund or payout schema, and neither calls nor mutates
-those modules. Việc thanh toán và hoàn tiền được xử lý riêng theo chính sách hủy booking áp dụng
-(UC-42 owns refunds, UC-71 owns payout).
+Code UC-70 is SRS **UC-66 "Handle Weather Warning and Operator Cancellation"** (the SRS renumbered
+UC-70 to "Synchronize Offline Trip Data").
+
+UC-70 records the decision and hands paid bookings over to the existing refund pipeline (see
+**Refund handoff**). It never calls a payment gateway, never changes payment or payout state and adds no
+schema; the refund processor, Admin manual completion (UC-42/UC-67) and payout (UC-71) stay where they are.
 
 Only the owning active, approved Tour Operator may preview or confirm the action. Tomorrow.io alerts only
 create a `WeatherSafetyReview`; the Operator decides manually and nothing cancels or stops a departure
@@ -39,6 +41,63 @@ Both POST endpoints require `Idempotency-Key` and the latest `impactVersion` ret
 the preview. A changed impact returns `tour_schedule.concurrent_state_changed`.
 Push payload copy is generic. The authenticated, active booking owner loads reason, safety
 instructions and emergency contact from `emergency-status`.
+
+## Refund handoff (SRS UC-66, BR-136, BR-143, BR-186)
+
+Decided 2026-11-14. Applied inside the same serializable transaction as the decision.
+
+| Booking at decision time | Cancel before departure | Emergency stop (active trip) |
+| --- | --- | --- |
+| `PaymentStatus = Unpaid` | No refund (BR-136) | No refund |
+| Paid, one verified `Payment` transaction equal to `TotalAmount`, no earlier `Refund` | **`Refund` Pending for 100% of `TotalAmount`** | Admin review |
+| Paid but payment not verifiable, or an earlier `Refund` exists | Admin review | Admin review |
+
+- Every cancellation reason refunds 100% (BR-136: the Operator cancelled). The refund reason text says
+  whether the cause was weather (`WeatherEmergency`, BR-186: refunded at once, TripMate recovers the
+  Operator's share later) or another Operator reason (BR-143).
+- Each refund gets a `BookingCancellationOperation` (actor `TourOperator`, the deciding Operator) because
+  `Refund` requires one. Its `Idempotency-Key` is derived from the UC-70 command id and the booking id, so a
+  replay or a retried transaction can never create a second refund.
+- `InitiatedBy = TourOperator`. The existing refund processor and Admin manual completion take it from there.
+- An emergency stop creates no refund: the unused part of an interrupted trip is reviewed by Admin case by
+  case, refunding the services not yet delivered after reasonable costs already incurred (Civil Code 2015,
+  Art. 427(2)); no extra compensation for force majeure (Art. 351(2)).
+- "Admin review" = one in-app notice (`EmergencyRefundReviewRequired`, related `TourSchedule`) to every
+  active Administrator per decision, listing each booking code, paid amount and why it needs review.
+  Nothing is sent when no booking needs review.
+- The decision audit `afterData.RefundHandoff` lists `SubmittedRefunds` (booking id, amount) and
+  `AdminReviewBookingIds`.
+- The Operator response adds `refundsSubmitted` (replays recompute it from the derived keys).
+- Traveler `emergency-status` adds `refundHandling`: `RefundSubmitted` (a UC-70 refund exists for the
+  booking), `UnderReview` (paid booking without one) or `NotApplicable` (unpaid), and `tourId` for
+  booking another departure of the same tour.
+- Admin Active Trips items add `refundReviewRequired`: the trip was interrupted by an emergency stop and
+  its paid booking has no refund yet.
+
+## Weather warnings and escalation
+
+- When a `WeatherSafetyReview` is created, every Traveler holding a `PendingPayment` or `Confirmed` booking
+  of that departure gets one in-app notice (`WeatherWarning`, SRS MSG185) with generic copy; no departure,
+  booking or session state changes. It is in-app only: a push would need a new FCM contract on Mobile.
+- When a review escalates after the Operator's acknowledgement deadline, every active Administrator also
+  gets an in-app notice (`WeatherSafetyReviewAdminEscalated`, related `WeatherSafetyReview`).
+
+## Differences from SRS UC-66 (documented decisions)
+
+| SRS UC-66 says | TripMate does | Why |
+| --- | --- | --- |
+| Weather data from OpenWeatherMap | Tomorrow.io alerts by webhook, plus a reconciliation sweep | Push alerts on monitored Locations; no polling quota |
+| Per-booking failure handling, result panel shows "Failed Items" (4.b1) | All bookings of the departure change in one serializable transaction; any failure rolls everything back and the Operator retries the same command | A departure is never half cancelled; idempotent retry is safe |
+| Result panel: Bookings Cancelled, Refunds Submitted, Notifications Sent | `affectedBookingCount` and `refundsSubmitted`; push delivery is asynchronous, so no "sent" count | Push is sent after commit by the delivery queue |
+| MSG151 push names the tour, date, amount and "has been refunded" | Generic push copy; details load from `emergency-status` after sign-in | Nothing personal on the lock screen; at decision time the refund is submitted, not yet credited |
+| Refund "immediately" through UC-67 | The refund request is created immediately; the refund processor submits it, and PayOS refunds are completed by Admin (`complete-manual`) | PayOS has no refund API |
+| Rebooking link inside MSG151 | Mobile "Đặt chuyến khác" button from `emergency-status.tourId` | Same outcome without a link in the push |
+| MSG185 weather warning to Travelers | In-app notice | A push would need a new FCM contract on Mobile |
+| MSG153 when a refund cannot reach the gateway | Raised by the refund processor (UC-67), not by UC-70 | UC-70 never calls a gateway |
+| Cancellation only | Also an emergency stop of an active trip, Operator evidence, password step-up for the stop, Traveler acknowledgement, 30-minute review deadline with escalation | Safety during a running tour |
+
+Error copy follows the SRS message table: MSG123 (empty reason), MSG126 (not the owning active approved
+Operator), MSG133 (departure already cancelled, stopped or completed).
 
 ## Invariants
 
@@ -85,7 +144,8 @@ instructions and emergency contact from `emergency-status`.
 ## Explicitly excluded
 
 - Weather auto-cancel, evidence registry/Admin approval UI, reschedule, SMS/voice and shelter/evacuation routing.
-- Refund eligibility, amounts, cases and settlement (UC-42); payout (UC-71); commission.
+- Refund processing, Operator recovery and debt (UC-42), refund transfer (UC-67), payout (UC-71), commission.
+- An Admin screen for the review notices (the Web has no notification inbox yet).
 - Production migration execution, deployment, commit or push.
 
 ## Confirmed authentication decision
