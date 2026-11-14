@@ -17,6 +17,7 @@ using TripMate.Application.Features.RecommendationFeedback.Common;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Tickets.Common;
 using TripMate.Application.Features.TourMedia.Common;
+using TripMate.Application.Features.TourRecommendations.Common;
 using TripMate.Application.Features.Tours.Shared;
 using TripMate.Application.Features.Traveler.Payments.Common;
 using TripMate.Application.Features.TripAlerts.Common;
@@ -60,6 +61,10 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
     {
         var statusCode = result.ErrorCode switch
         {
+            TripMate.Application.Features.SupportChat.SupportChatErrors.Unauthorized => StatusCodes.Status401Unauthorized,
+            TripMate.Application.Features.SupportChat.SupportChatErrors.Forbidden => StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.SupportChat.SupportChatErrors.Unavailable => StatusCodes.Status503ServiceUnavailable,
+            TripMate.Application.Features.SupportChat.SupportChatErrors.InvalidRequest => StatusCodes.Status400BadRequest,
             AuthErrorCodes.InvalidCredentials =>
                 StatusCodes.Status401Unauthorized,
 
@@ -572,6 +577,9 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
                 or PaymentErrorCodes.PaymentBookingExpired => StatusCodes.Status409Conflict,
             PaymentErrorCodes.PaymentGatewayUnavailable => StatusCodes.Status503ServiceUnavailable,
             PaymentErrorCodes.PaymentCallbackInvalid => StatusCodes.Status400BadRequest,
+
+            TourRecommendationErrorCodes.InterestTagsRequired =>
+                StatusCodes.Status422UnprocessableEntity,
 
             _ => StatusCodes.Status400BadRequest,
         };

@@ -1,6 +1,7 @@
 /*
     TM-214: append-only recommendation feedback and behavioral signals.
-    Additive and idempotent. Captured events are not consumed by scheduling.
+    Additive and idempotent. Since UC-10 the events feed the ranking, and since UC-10 item 6
+    (20261111_uc10_behavior_event_sources.sql) the backend also appends signals it derives itself.
 */
 SET XACT_ABORT ON;
 GO
@@ -180,8 +181,11 @@ BEGIN TRY
         N'[', N''), N']', N''), N'(', N''), N')', N''));
     SET @sourceContextCheck = REPLACE(REPLACE(REPLACE(
         @sourceContextCheck, N' ', N''), CHAR(13), N''), CHAR(10), N'');
-    IF @sourceContextCheck IS NULL OR @sourceContextCheck <>
-        N'source=''itinerary''anditinerary_idisnotnullandwas_mandatoryisnotnullorsource=''poidetail''orsource=''explore''anditinerary_idisnullandwas_mandatoryisnull'
+    -- The second shape is the one 20261111_uc10_behavior_event_sources.sql leaves behind (derived sources);
+    -- apply-schema.sh reruns this script on a database that already has it.
+    IF @sourceContextCheck IS NULL OR @sourceContextCheck NOT IN (
+        N'source=''itinerary''anditinerary_idisnotnullandwas_mandatoryisnotnullorsource=''poidetail''orsource=''explore''anditinerary_idisnullandwas_mandatoryisnull',
+        N'source=''navigation''orsource=''itineraryedit''orsource=''itinerary''anditinerary_idisnotnullandwas_mandatoryisnotnullorsource=''poidetail''orsource=''explore''anditinerary_idisnullandwas_mandatoryisnullorsource=''schedulingrequest''anditinerary_idisnullandwas_mandatory=1')
         THROW 51000, 'TM-214 source/context check mismatch.', 1;
 
     DECLARE @typeSourceCheck NVARCHAR(MAX) = LOWER(REPLACE(REPLACE(REPLACE(REPLACE(
@@ -189,8 +193,9 @@ BEGIN TRY
         N'[', N''), N']', N''), N'(', N''), N')', N''));
     SET @typeSourceCheck = REPLACE(REPLACE(REPLACE(
         @typeSourceCheck, N' ', N''), CHAR(13), N''), CHAR(10), N'');
-    IF @typeSourceCheck IS NULL OR @typeSourceCheck <>
-        N'event_type=''dislike''orevent_type=''like''orevent_type=''reorder''orevent_type=''skip''andsource=''itinerary''anditinerary_idisnotnull'
+    IF @typeSourceCheck IS NULL OR @typeSourceCheck NOT IN (
+        N'event_type=''dislike''orevent_type=''like''orevent_type=''reorder''orevent_type=''skip''andsource=''itinerary''anditinerary_idisnotnull',
+        N'event_type=''dislike''orevent_type=''like''orevent_type=''skip''andsource=''navigation''orsource=''itinerary''anditinerary_idisnotnullorevent_type=''reorder''andsource=''itinerary''anditinerary_idisnotnull')
         THROW 51000, 'TM-214 type/source check mismatch.', 1;
 
     DECLARE @typePositionsCheck NVARCHAR(MAX) = LOWER(REPLACE(REPLACE(REPLACE(REPLACE(

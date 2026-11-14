@@ -62,7 +62,15 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
 
         result.IsSuccess.Should().BeTrue();
         explanationProvider.CallCount.Should().Be(1);
-        dbContext.SaveChangesAsyncCallCount.Should().Be(savesBeforeHandle + 3);
+        // Reservation, itinerary, the mandatory-POI behavior signal (UC-10 item 6), then the explanations.
+        dbContext.SaveChangesAsyncCallCount.Should().Be(savesBeforeHandle + 4);
+        RecommendationBehaviorEvent signal = await dbContext.RecommendationBehaviorEvents.AsNoTracking().SingleAsync();
+        signal.EventType.Should().Be(RecommendationEventType.Like);
+        signal.Source.Should().Be(RecommendationCaptureSource.SchedulingRequest);
+        signal.PointOfInterestId.Should().Be(mandatoryPoi.Id);
+        signal.TravelerUserId.Should().Be(command.TravelerUserId);
+        signal.ItineraryId.Should().BeNull();
+        signal.WasMandatory.Should().BeTrue();
         result.Value.Items.Should().OnlyContain(item =>
             item.FriendlyExplanation == $"Giải thích cho mục {item.SequenceNo}.");
         ItineraryItem persisted = await dbContext.ItineraryItems.SingleAsync();
@@ -300,7 +308,8 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
 
         // FriendlyExplanation remains NULL; no fallback persistence occurred
         persistedItinerary.Items.Single().FriendlyExplanation.Should().BeNull();
-        dbContext.SaveChangesAsyncCallCount.Should().Be(savesBeforeHandle + 2);
+        // Reservation, itinerary and the mandatory-POI behavior signal (UC-10 item 6); nothing after the cancel.
+        dbContext.SaveChangesAsyncCallCount.Should().Be(savesBeforeHandle + 3);
     }
 
     [Fact]
@@ -332,8 +341,9 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
 
         // 1 & 2. T1 SaveChanges succeeded and transaction committed
         dbContext.TransactionExecutionCount.Should().Be(2);
-        // 11 & 12. Exactly one T2 persistence attempt occurred; NO retry (T1 = 1 save, T2 = 1 failed save)
-        dbContext.SaveChangesAsyncCallCount.Should().Be(savesBeforeHandle + 3);
+        // 11 & 12. Exactly one T2 persistence attempt occurred; NO retry (reservation = 1 save; T1 = the itinerary
+        // and the mandatory-POI behavior signal of UC-10 item 6 = 2 saves; T2 = 1 failed save)
+        dbContext.SaveChangesAsyncCallCount.Should().Be(savesBeforeHandle + 4);
 
         // 4. Handler still preserves the successful scheduling result
         result.IsSuccess.Should().BeTrue();
@@ -481,6 +491,41 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         freeRest.TagNames.Should().BeEmpty();
         result.Value.Items.Select(item => item.PoiId)
             .Should().Contain([availablePoi.Id, missingMetadataPoi.Id]);
+    }
+
+    [Fact]
+    public async Task Handle_RestStop_ShowsItsReasonInVietnamese_InTheResponseAndTheSavedItinerary()
+    {
+        // Decision 2026-11-11: visit reasons are Vietnamese, so the rest reason must not be the solver's English code.
+        await using var dbContext = TestDbContext.Create();
+        var first = CreateSelectablePoi(
+            PoiCategory.Create("Nature", null), "Riverside park", 16.0471m, 108.2068m, "https://example.com/riverside");
+        var second = CreateSelectablePoi(
+            PoiCategory.Create("Culture", null), "Old quarter", 16.0472m, 108.2069m, "https://example.com/quarter");
+        dbContext.PointsOfInterest.AddRange(first, second);
+        await dbContext.SaveChangesAsync();
+        dbContext.Entry(first).Property(poi => poi.AverageVisitDurationMinutes).CurrentValue = 120;
+        dbContext.Entry(second).Property(poi => poi.AverageVisitDurationMinutes).CurrentValue = 120;
+        await dbContext.SaveChangesAsync();
+
+        var result = await CreateHandler(dbContext)
+            .Handle(CreateCommand(Guid.NewGuid()) with
+            {
+                AvailableMinutes = 480,
+                MandatoryPoiIds = [first.Id, second.Id],
+                RestPreference = RestPreference.Frequent,
+            }, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var shownRests = result.Value.Items.Where(item => item.ItemKind == ItineraryItemKind.Rest).ToArray();
+        shownRests.Should().NotBeEmpty();
+        shownRests.Should().OnlyContain(item => item.RecommendationReason == "Nghỉ tự do");
+        var savedRests = await dbContext.ItineraryItems
+            .AsNoTracking()
+            .Where(item => item.Kind == ItineraryItemKind.Rest)
+            .ToListAsync();
+        savedRests.Should().HaveSameCount(shownRests);
+        savedRests.Should().OnlyContain(item => item.RecommendationReason == "Nghỉ tự do");
     }
 
     [Fact]

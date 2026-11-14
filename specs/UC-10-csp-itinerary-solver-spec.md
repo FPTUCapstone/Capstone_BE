@@ -153,6 +153,34 @@ as a regression check that the mode switch does not affect them.
   - Phase 3 measures how often the limit fires on production-like hardware (review of PR #62,
     Low 3).
 - **Validation.** Every plan passes `GeneratedItineraryInvariantValidator`.
+- **Scope of the optimality claims (audit 2026-11-09).** "The CSP plan is never worse than the
+  heuristic plan" and every benchmark gate describe the solver output, before
+  `TimeOfDayRefiner`.
+  - For a plan without `ModelObjective` (every `Lexicographic` plan), the refiner may reorder the
+    same visits. It does so only when the time-of-day score is strictly higher and the trip ends at
+    most `NormalExtraMinutes` (15) later, or `SunriseExtraMinutes` (60) for an early trip with a
+    sunrise spot.
+  - The refiner bounds the end time, not the travel minutes. A reorder can add travel, and more
+    than the 15 minutes when it removes a wait for opening hours. On the synthetic corpus,
+    reordered plans added 11–14% travel (for example 105 → 120 minutes with 11 visits).
+  - Documents describe the final itinerary as "the CSP selects the visits and the fewest travel
+    minutes; the order is then adjusted for the time of day, ending at most 15 minutes later".
+    They do not describe it as minimizing travel.
+  - A travel cap on the refiner is deferred until real-data evidence shows a material increase
+    (developer decision, 2026-11-09). `WeightedUtility` plans are not reordered, because their
+    objective already contains TimeFit (acceptance criterion 10).
+- **Rest places versus places to visit (audit 2026-11-09, rest-stop selection 2026-11-11).**
+  - Food & Drink places (restaurant, café, coffee shop, rest area or rest stop) are rest-only. Generation
+    never suggests them as visits; a traveler adds them, or makes them mandatory (REVIEW2 D2).
+  - Sheltered beach, park, theme park, water park and natural attraction places are visit candidates in
+    both solvers and in the weighted inputs, and never host a rest stop
+    (`specs/UC-10-rest-stop-selection-spec.md`). `ItineraryScheduleEvaluator.IsRestOnlyCandidate` (visit
+    eligibility) and `IsQualifiedRestCandidate` (rest eligibility) therefore select the same set.
+  - A rest place adds at most `MaxRestDetourMinutes` (10) of travel; otherwise the plan gets free rest time.
+  - A place visited earlier in the same itinerary, for example a café the traveler added, is not chosen as a
+    later rest stop. The evaluator, the legacy baseline and the invariant validator apply the same rule to the
+    visits made so far.
+  - In `WeightedUtility`, only a rest-only visit resets the fatigue counter (`IsRestStop`).
 
 ## Evaluation that motivates this specification
 

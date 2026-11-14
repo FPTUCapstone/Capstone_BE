@@ -16,7 +16,12 @@ public sealed class CaptureRecommendationFeedbackCommandValidator
         RuleFor(command => command.ItineraryId)
             .GreaterThan(0)
             .When(command => command.ItineraryId.HasValue);
-        RuleFor(command => command.Source).IsInEnum();
+        RuleFor(command => command.Source)
+            .IsInEnum()
+            .Must(source => source is RecommendationCaptureSource.Itinerary
+                or RecommendationCaptureSource.Explore
+                or RecommendationCaptureSource.PoiDetail)
+            .WithMessage("This capture source is recorded by the backend only.");
         RuleFor(command => command)
             .Must(HaveValidSourceContext)
             .WithMessage("Itinerary context must match the capture source.");

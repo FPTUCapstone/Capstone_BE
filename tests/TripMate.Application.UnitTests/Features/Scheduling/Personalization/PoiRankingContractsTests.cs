@@ -57,11 +57,31 @@ public sealed class PoiRankingContractsTests
             nameof(PoiRankingCandidate.Name),
             nameof(PoiRankingCandidate.CategoryName),
             nameof(PoiRankingCandidate.TagNames));
+        // UC-10 item 6 approved one addition: the behavior profile. It describes POIs (the same semantic fields
+        // as a candidate) with a weight; it never carries the traveler's identity, events, dates or scores.
         PublicPropertyNames<PoiRankingContext>().Should().BeEquivalentTo(
-            nameof(PoiRankingContext.PreferenceTokens));
+            nameof(PoiRankingContext.PreferenceTokens),
+            nameof(PoiRankingContext.Behavior));
+        PublicPropertyNames<PoiRankingBehavior>().Should().BeEquivalentTo(
+            nameof(PoiRankingBehavior.Liked),
+            nameof(PoiRankingBehavior.Disliked));
+        PublicPropertyNames<PoiRankingBehaviorPoi>().Should().BeEquivalentTo(
+            nameof(PoiRankingBehaviorPoi.PoiId),
+            nameof(PoiRankingBehaviorPoi.Name),
+            nameof(PoiRankingBehaviorPoi.CategoryName),
+            nameof(PoiRankingBehaviorPoi.TagNames),
+            nameof(PoiRankingBehaviorPoi.Weight));
         PublicPropertyNames<PoiRankingRequest>().Should().BeEquivalentTo(
             nameof(PoiRankingRequest.Candidates),
             nameof(PoiRankingRequest.Context));
+    }
+
+    [Fact]
+    public void Context_WithoutABehaviorProfile_IsTheContractFromBeforeItem6()
+    {
+        var context = new PoiRankingContext(["culture"]);
+
+        context.Behavior.Should().BeNull();
     }
 
     private static string[] PublicPropertyNames<T>() =>

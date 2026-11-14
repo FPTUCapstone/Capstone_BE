@@ -1,5 +1,36 @@
 # TripMate Backend
 
+## Support chatbot
+
+`POST /api/v1/support-chat/messages` supports authenticated Traveler and TourOperator accounts.
+The module uses Gemini semantic retrieval over versioned, curated TripMate help passages and
+generates answers with validated source IDs. An optional explicit `context` (`refund`, `tour` or
+`itinerary`, with the resource ID as a decimal string) loads current data through existing
+authorized queries. Itinerary context requires a Traveler account. The module performs read-only
+support operations and keeps conversation history in the client session. Personal resource data
+is sent to the configured Gemini provider only for the requested conversation and is excluded
+from the knowledge index.
+
+Set `SupportChat__Enabled=true`, `SupportChat__ApiKey`, and `SupportChat__Model` in environment
+variables or user secrets. Choose a generation model available to your Gemini account.
+`SupportChat__EmbeddingModel` defaults to `gemini-embedding-001`. The independent settings are
+documented in `.env.example`. Provider availability and model quality require live testing with
+your configured credentials. The default disabled state returns HTTP 503.
+
+The knowledge corpus is stored under `Infrastructure/SupportChat`, reviewed and versioned with
+code. `Knowledge/srs-business-rules-20261112.json` retains the Report 3 source URL and revision,
+186 active business rules, 15 common rules, scoped Section 3 definitions and four retirement
+notices. Topic-sized passages and a cross-rule refund-policy passage support general questions.
+Exact BR/CR references participate in retrieval. Document embeddings initialize in batches of
+at most eight and the complete validated index is cached in process memory until restart. Update
+the reviewed snapshot when the SRS changes. Live tour and authorized personal data are read
+through application queries at question time. Specific booking refunds use the stored policy
+version and authorized preview. Documented requirements can differ from currently implemented
+features, which the assistant must state accurately. Compact retrieval text retains full scoped
+rules for answer grounding. Provider HTTP 503 receives one retry within the original deadline;
+diagnostics contain status/action metadata only. Per-instance chat throttling is
+10 requests per user per minute, with provider concurrency and timeouts configured separately.
+
 ASP.NET Core Web API cho TripMate, viết theo Clean Architecture. Phục vụ Next.js Admin Web
 (`Capstone_FE`) và app Flutter cho Traveler/Tour Operator (`Capstone_Mobile`). Tài liệu sản phẩm
 và yêu cầu (SRS, use case, business rules...) nằm ở repo riêng `Capstone_Docs`.
