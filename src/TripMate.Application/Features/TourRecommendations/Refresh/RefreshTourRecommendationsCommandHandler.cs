@@ -7,10 +7,10 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
-using TripMate.Application.Features.TripReviews.Common;
 using TripMate.Application.Features.TourRecommendations.Common;
 using TripMate.Application.Features.Tours.Search;
 using TripMate.Application.Features.Tours.Shared;
+using TripMate.Application.Features.TripReviews.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 

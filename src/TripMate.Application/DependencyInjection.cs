@@ -9,12 +9,12 @@ using Microsoft.Extensions.DependencyInjection;
 using TripMate.Application.Common.Behaviours;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Operator.Revenue.Common;
+using TripMate.Application.Features.TourRecommendations.Refresh;
 using TripMate.Application.Features.Tours.Search;
 using TripMate.Application.Features.Traveler.Bookings.Expiry;
 using TripMate.Application.Features.TripAlerts.Common;
 using TripMate.Application.Features.TripAlerts.Scanning;
 using TripMate.Application.Features.TripAlerts.Weather;
-using TripMate.Application.Features.TourRecommendations.Refresh;
 using TripMate.Application.Features.Weather.Locations;
 using TripMate.Application.Features.Weather.Matching;
 
