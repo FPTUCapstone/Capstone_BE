@@ -1,0 +1,3596 @@
+{
+  "sourceUrl": "https://docs.google.com/document/d/1VwPkqRyC6ZlbXBQC0ztdektt0vAyE3qt/edit",
+  "sourceModifiedAtUtc": "2026-11-12T12:32:53.377Z",
+  "sourceSections": "Section 3 and Section 5.1 Business Rules",
+  "rules": [
+    {
+      "id": "BR-01",
+      "definition": "An email address may be registered to at most one TripMate account.",
+      "usedIn": "3.2.1, 3.2.2, 3.2.8",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.2.1",
+          "title": "Register Traveler Account",
+          "definition": "An email address may be registered to at most one TripMate account."
+        },
+        {
+          "section": "3.2.2",
+          "title": "Register Tour Operator Account",
+          "definition": "An email address may be registered to at most one TripMate account."
+        }
+      ]
+    },
+    {
+      "id": "BR-02",
+      "definition": "The new password must contain at least 8 characters and include at least one uppercase letter, one digit and one special character.",
+      "usedIn": "3.2.1, 3.2.2, 3.2.6, 3.2.7",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.2.1",
+          "title": "Register Traveler Account",
+          "definition": "A password must contain at least 8 characters and include at least one uppercase letter, one digit and one special character."
+        },
+        {
+          "section": "3.2.2",
+          "title": "Register Tour Operator Account",
+          "definition": "A password must contain at least 8 characters and include at least one uppercase letter, one digit and one special character."
+        },
+        {
+          "section": "3.2.6",
+          "title": "Reset Password",
+          "definition": "The new password must contain at least 8 characters and include at least one uppercase letter, one digit and one special character."
+        },
+        {
+          "section": "3.2.7",
+          "title": "Change Password",
+          "definition": "The new password must contain at least 8 characters and include at least one uppercase letter, one digit and one special character."
+        }
+      ]
+    },
+    {
+      "id": "BR-03",
+      "definition": "Credentials are never exposed: passwords are stored only as hashes and verified against the stored hash; plain passwords, token values and payment credentials are never stored, logged, displayed, returned by any function or written to an audit log, and such fields are presented as masked.",
+      "usedIn": "3.2.1, 3.2.2, 3.2.4, 3.2.6, 3.2.7, 3.9.1.1, 3.9.1.4, 3.9.1.5, 3.9.12.1, 3.9.12.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.2.1",
+          "title": "Register Traveler Account",
+          "definition": "Passwords are always stored in hashed form; the plain password is never stored, logged or returned."
+        },
+        {
+          "section": "3.2.2",
+          "title": "Register Tour Operator Account",
+          "definition": "Passwords are always stored in hashed form."
+        },
+        {
+          "section": "3.2.4",
+          "title": "Sign In",
+          "definition": "The submitted password is verified against the stored hash; the plain password is never stored or logged."
+        },
+        {
+          "section": "3.2.6",
+          "title": "Reset Password",
+          "definition": "The new password is stored in hashed form only."
+        },
+        {
+          "section": "3.2.7",
+          "title": "Change Password",
+          "definition": "Passwords are always stored in hashed form."
+        },
+        {
+          "section": "3.9.1.1",
+          "title": "View User Accounts",
+          "definition": "The stored password is never presented and never retrievable through any administration function."
+        },
+        {
+          "section": "3.9.1.4",
+          "title": "Create Staff Account",
+          "definition": "The temporary password is stored only as a hash and is never displayed or logged."
+        },
+        {
+          "section": "3.9.1.5",
+          "title": "Create Service Provider Account",
+          "definition": "The temporary password is stored only as a hash and is never displayed or logged."
+        },
+        {
+          "section": "3.9.12.1",
+          "title": "View Audit Logs",
+          "definition": "A password value, a token value and a payment credential are never present in an audit log entry."
+        },
+        {
+          "section": "3.9.12.2",
+          "title": "View Audit Log Details",
+          "definition": "A password value, a token value and a payment credential are never present in the recorded values; such a field is presented as masked."
+        }
+      ]
+    },
+    {
+      "id": "BR-04",
+      "definition": "The Traveler role is assigned automatically by the system on registration; a user cannot self-select a role.",
+      "usedIn": "3.2.1",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.2.1",
+          "title": "Register Traveler Account",
+          "definition": "The Traveler role is assigned automatically by the system on registration; a user cannot self-select a role."
+        }
+      ]
+    },
+    {
+      "id": "BR-05",
+      "definition": "A newly created account remains in Pending Verification status and cannot access protected functions until the account identifier is verified.",
+      "usedIn": "3.2.1, 3.2.4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.2.1",
+          "title": "Register Traveler Account",
+          "definition": "A newly created account remains in Pending Verification status and cannot access protected functions until the account identifier is verified."
+        },
+        {
+          "section": "3.2.4",
+          "title": "Sign In",
+          "definition": "An account in Pending Verification status cannot authenticate until the account identifier is verified."
+        }
+      ]
+    },
+    {
+      "id": "BR-06",
+      "definition": "Where Google Social Login is used, the account is created in Active status, and the uniqueness rule in BR-01 still applies to the Google account email address.",
+      "usedIn": "3.2.1",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.2.1",
+          "title": "Register Traveler Account",
+          "definition": "Where Google Social Login is used, the account is created in Active status, and the uniqueness rule in BR-01 still applies to the Google account email address."
+        }
+      ]
+    },
+    {
+      "id": "BR-07",
+      "definition": "A Tour Operator account obtains access to the Tour Operator Workspace only after a Staff member approves its application; until then (Pending Approval or Rejected) the account may sign in but the workspace functions remain locked.",
+      "usedIn": "3.2.2, 3.2.3, 3.2.4, 3.8.1, 3.9.2.1",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.2.2",
+          "title": "Register Tour Operator Account",
+          "definition": "A Tour Operator account requires the submission of the mandatory business documents and remains locked until a Staff approves the application."
+        },
+        {
+          "section": "3.2.3",
+          "title": "Resubmit Tour Operator Application",
+          "definition": "A Tour Operator account requires the mandatory business documents and remains locked until a Staff member approves the application."
+        },
+        {
+          "section": "3.2.4",
+          "title": "Sign In",
+          "definition": "An account in Pending Approval status may authenticate but the Tour Operator Workspace functions remain locked until the application is approved."
+        },
+        {
+          "section": "3.8.1",
+          "title": "Update Tour Operator Profile",
+          "definition": "Only an account whose Tour Operator application has been approved by a Staff member may access the operator workspace."
+        },
+        {
+          "section": "3.9.2.1",
+          "title": "Approve Tour Operator Application",
+          "definition": "An account obtains the Tour Operator role only through the approval of its application by a Staff member."
+        }
+      ]
+    },
+    {
+      "id": "BR-08",
+      "definition": "A business licence number and a tax code may each be associated with at most one Tour Operator account across the platform; they are not editable through the profile function.",
+      "usedIn": "3.2.2, 3.2.3, 3.8.1, 3.9.2.1",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.2.2",
+          "title": "Register Tour Operator Account",
+          "definition": "A business licence number and a tax code may each be associated with at most one Tour Operator account."
+        },
+        {
+          "section": "3.2.3",
+          "title": "Resubmit Tour Operator Application",
+          "definition": "A business licence number and a tax code may each be associated with at most one Tour Operator account."
+        },
+        {
+          "section": "3.8.1",
+          "title": "Update Tour Operator Profile",
+          "definition": "The business licence number and the tax code are unique across the platform and are not editable through this function."
+        },
+        {
+          "section": "3.9.2.1",
+          "title": "Approve Tour Operator Application",
+          "definition": "The business licence number and the tax code of an approved operator are unique across the platform."
+        }
+      ]
+    },
+    {
+      "id": "BR-09",
+      "definition": "An application may be resubmitted only when the status of the latest application is Rejected; a pending or an approved application cannot be resubmitted. The resubmission is performed under UC-03.",
+      "usedIn": "3.2.3, 3.9.2.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.2.3",
+          "title": "Resubmit Tour Operator Application",
+          "definition": "An application may be resubmitted only when the status of the latest application is Rejected; a pending or an approved application cannot be resubmitted."
+        },
+        {
+          "section": "3.9.2.2",
+          "title": "Reject Tour Operator Application",
+          "definition": "An application may be resubmitted only when the status of the latest application is Rejected; a pending or an approved application cannot be resubmitted. The resubmission is performed under UC-03."
+        }
+      ]
+    },
+    {
+      "id": "BR-10",
+      "definition": "Only an account whose status is Active or Pending Approval may obtain an authenticated session; a Locked account is refused.",
+      "usedIn": "3.2.4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.2.4",
+          "title": "Sign In",
+          "definition": "Only an account whose status is Active or Pending Approval may obtain an authenticated session; a Locked account is refused."
+        }
+      ]
+    },
+    {
+      "id": "BR-11",
+      "definition": "After five consecutive failed sign-in attempts the account is temporarily locked for 15 minutes; a successful sign-in resets the counter.",
+      "usedIn": "3.2.4, 4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.2.4",
+          "title": "Sign In",
+          "definition": "After five consecutive failed sign-in attempts the account is temporarily locked for 15 minutes; a successful sign-in resets the counter."
+        }
+      ]
+    },
+    {
+      "id": "BR-12",
+      "definition": "Session tokens: a successful sign-in issues one access token carrying the assigned role and one refresh token; a sign-out invalidates the refresh token of the session and blacklists the current access token until its natural expiry.",
+      "usedIn": "3.2.4, 3.2.5",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.2.4",
+          "title": "Sign In",
+          "definition": "A successful sign-in issues one access token and one refresh token; the access token carries the assigned role used for authorisation."
+        },
+        {
+          "section": "3.2.5",
+          "title": "Sign Out",
+          "definition": "A sign-out invalidates the refresh token of the current session and blacklists the current access token until its natural expiry."
+        }
+      ]
+    },
+    {
+      "id": "BR-13",
+      "definition": "The local session data and the stored tokens must always be cleared on the client, even when the server-side invalidation cannot be completed.",
+      "usedIn": "3.2.5",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.2.5",
+          "title": "Sign Out",
+          "definition": "The local session data and the stored tokens must always be cleared on the client, even when the server-side invalidation cannot be completed."
+        }
+      ]
+    },
+    {
+      "id": "BR-14",
+      "definition": "A password reset code is single-use and expires 15 minutes after it is issued; a consumed or expired code is always refused.",
+      "usedIn": "3.2.6, 4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.2.6",
+          "title": "Reset Password",
+          "definition": "A password reset code is single-use and expires 15 minutes after it is issued; a consumed or expired code is always refused."
+        }
+      ]
+    },
+    {
+      "id": "BR-15",
+      "definition": "A password change requires successful verification of the current password and invalidates the other sessions of the account.",
+      "usedIn": "3.2.6, 3.2.7",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.2.6",
+          "title": "Reset Password",
+          "definition": "A completed password reset invalidates the existing sessions of the account."
+        },
+        {
+          "section": "3.2.7",
+          "title": "Change Password",
+          "definition": "A password change requires successful verification of the current password and invalidates the other sessions of the account."
+        }
+      ]
+    },
+    {
+      "id": "BR-16",
+      "definition": "Every uploaded image must not exceed 5 MB and must be of a supported image type.",
+      "usedIn": "3.2.8, 3.7.2, 3.8.1, 3.9.10",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.2.8",
+          "title": "Update Traveler Profile",
+          "definition": "An avatar file must be an image of a supported type and must not exceed 5 MB."
+        },
+        {
+          "section": "3.7.2",
+          "title": "Submit Trip Review",
+          "definition": "An attached photo must be an image file whose size does not exceed 5 MB."
+        },
+        {
+          "section": "3.8.1",
+          "title": "Update Tour Operator Profile",
+          "definition": "The uploaded logo must be an image file whose size does not exceed 5 MB."
+        },
+        {
+          "section": "3.9.10",
+          "title": "Update Landing Page Content",
+          "definition": "Every uploaded image must not exceed 5 MB and must be of a supported image type."
+        }
+      ]
+    },
+    {
+      "id": "BR-17",
+      "definition": "The account email address is not editable through the profile function; it identifies the account and is subject to the uniqueness rule BR-01.",
+      "usedIn": "3.2.8, 3.8.1",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.2.8",
+          "title": "Update Traveler Profile",
+          "definition": "The account email address is not editable through the profile function; it identifies the account and is subject to the uniqueness rule BR-01."
+        },
+        {
+          "section": "3.8.1",
+          "title": "Update Tour Operator Profile",
+          "definition": "The account email used for the authentication is not editable through the profile function."
+        }
+      ]
+    },
+    {
+      "id": "BR-18",
+      "definition": "The date of birth, where provided, must be a past date and the Traveler must be at least 16 years old.",
+      "usedIn": "3.2.8",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.2.8",
+          "title": "Update Traveler Profile",
+          "definition": "The date of birth, where provided, must be a past date and the Traveler must be at least 16 years old."
+        }
+      ]
+    },
+    {
+      "id": "BR-19",
+      "definition": "Travel preference values must belong to the option sets defined in the system configuration; a free-text preference value is not accepted.",
+      "usedIn": "3.2.9",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.2.9",
+          "title": "Update Travel Preferences",
+          "definition": "Travel preference values must belong to the option sets defined in the system configuration; a free-text preference value is not accepted."
+        }
+      ]
+    },
+    {
+      "id": "BR-20",
+      "definition": "Travel preferences are optional, but the personalised recommendation function of UC-25 requires at least one interest tag to produce a personalised result.",
+      "usedIn": "3.2.9, 3.5.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.2.9",
+          "title": "Update Travel Preferences",
+          "definition": "Travel preferences are optional, but the personalised recommendation function of UC-25 requires at least one interest tag to produce a personalised result."
+        },
+        {
+          "section": "3.5.2",
+          "title": "Receive Tour Recommendations",
+          "definition": "The travel preferences are optional in general, but at least one interest tag must be configured before the tour recommendations can be produced."
+        }
+      ]
+    },
+    {
+      "id": "BR-181",
+      "definition": "A rejected applicant resubmits with the same account; a new account must not be created for a resubmission.",
+      "usedIn": "3.2.3",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.2.3",
+          "title": "Resubmit Tour Operator Application",
+          "definition": "A rejected applicant resubmits with the same account; a new account must not be created for a resubmission."
+        }
+      ]
+    },
+    {
+      "id": "BR-183",
+      "definition": "The supported sign-in methods are email address with password, and Google Sign-In. Sign-in by phone number and OTP is not provided in this version.",
+      "usedIn": "2.2, 3.2.4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.2.4",
+          "title": "Sign In",
+          "definition": "The supported sign-in methods are email address with password, and Google Sign-In. Sign-in by phone number and OTP is not provided in this version."
+        }
+      ]
+    },
+    {
+      "id": "BR-21",
+      "definition": "A scheduling request requires a destination, a travel date range and at least one interest tag.",
+      "usedIn": "3.3.1",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.3.1",
+          "title": "Create Scheduling Request",
+          "definition": "A scheduling request requires a destination, a travel date range and at least one interest tag."
+        }
+      ]
+    },
+    {
+      "id": "BR-22",
+      "definition": "A trip or departure date must not be earlier than the current date, and a return or end date must not be earlier than its start date.",
+      "usedIn": "3.3.1, 3.8.2.1, 3.8.2.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.3.1",
+          "title": "Create Scheduling Request",
+          "definition": "The trip date must not be earlier than the current date."
+        },
+        {
+          "section": "3.8.2.1",
+          "title": "Create Tour Package",
+          "definition": "The departure date of a schedule must not be earlier than the current date, and the return date must not be earlier than the departure date."
+        },
+        {
+          "section": "3.8.2.2",
+          "title": "Update Tour Package",
+          "definition": "The departure date must not be earlier than the current date and the return date must not be earlier than the departure date."
+        }
+      ]
+    },
+    {
+      "id": "BR-23",
+      "definition": "The trip duration of a single scheduling request must not exceed 30 days.",
+      "usedIn": "3.3.1",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.3.1",
+          "title": "Create Scheduling Request",
+          "definition": "The trip duration of a single scheduling request must not exceed 30 days."
+        }
+      ]
+    },
+    {
+      "id": "BR-24",
+      "definition": "Only points of interest and routes with the status Active in the centralized catalogue maintained by Staff are used by itinerary planning, navigation, exploration and commercial booking; Inactive records are excluded from any new use.",
+      "usedIn": "3.3.1, 3.3.2, 3.3.3, 3.9.3.1, 3.9.3.3, 3.9.4.1, 3.9.4.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.3.1",
+          "title": "Create Scheduling Request",
+          "definition": "The Smart Scheduling Algorithm uses only points of interest and routes that are Active in the centralized catalogue maintained by Staff."
+        },
+        {
+          "section": "3.3.2",
+          "title": "View Suggested Itinerary",
+          "definition": "Only Active points of interest and Active routes are presented in an itinerary."
+        },
+        {
+          "section": "3.3.3",
+          "title": "Explore Points of Interest",
+          "definition": "Only Active points of interest of the centralized catalogue are returned."
+        },
+        {
+          "section": "3.9.3.1",
+          "title": "Create Point of Interest",
+          "definition": "Only a point of interest with the status Active is used by the itinerary planning and by the exploration functions."
+        },
+        {
+          "section": "3.9.3.3",
+          "title": "Remove Point of Interest",
+          "definition": "A point of interest with the status Inactive is no longer used by the itinerary planning, by the exploration and by the commercial booking functions."
+        },
+        {
+          "section": "3.9.4.1",
+          "title": "Create Route",
+          "definition": "Only a route with the status Active is used by the itinerary planning and by the navigation."
+        },
+        {
+          "section": "3.9.4.2",
+          "title": "Update Route",
+          "definition": "A route with the status Inactive is no longer used by the itinerary planning and by the navigation."
+        }
+      ]
+    },
+    {
+      "id": "BR-25",
+      "definition": "A generated itinerary must respect the opening hours of every scheduled point of interest and the estimated travel time between consecutive locations.",
+      "usedIn": "3.3.1, 3.3.2, 3.3.6",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.3.1",
+          "title": "Create Scheduling Request",
+          "definition": "A generated itinerary must respect the opening hours of every scheduled point of interest and the estimated travel time between consecutive locations."
+        },
+        {
+          "section": "3.3.2",
+          "title": "View Suggested Itinerary",
+          "definition": "A displayed itinerary must remain consistent with the opening hours and the estimated travel time of the scheduled locations."
+        },
+        {
+          "section": "3.3.6",
+          "title": "Confirm Re-routing",
+          "definition": "A proposed plan must respect the opening hours of the affected points of interest and the estimated travel time."
+        }
+      ]
+    },
+    {
+      "id": "BR-26",
+      "definition": "Itinerary versioning: every generated itinerary is stored with a version number starting at 1; each regeneration or manual adjustment creates a new version and only the Active version is the current plan. Parameter changes and offline synchronisation never create or alter versions.",
+      "usedIn": "3.3.1, 3.3.2, 3.3.6, 3.9.5, 3.9.6.2, 3.10.3",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.3.1",
+          "title": "Create Scheduling Request",
+          "definition": "Every generated itinerary is stored with a version number; the first generated itinerary of a scheduling request is version 1."
+        },
+        {
+          "section": "3.3.2",
+          "title": "View Suggested Itinerary",
+          "definition": "A regeneration or a manual adjustment creates a new itinerary version; the version number is incremented."
+        },
+        {
+          "section": "3.3.6",
+          "title": "Confirm Re-routing",
+          "definition": "An accepted re-routing creates a new itinerary version with an incremented version number."
+        },
+        {
+          "section": "3.9.5",
+          "title": "Configure Algorithm Parameters",
+          "definition": "A change of the scheduling parameters never alters the already generated itinerary versions; it applies to the subsequent generations only."
+        },
+        {
+          "section": "3.9.6.2",
+          "title": "View Active Trip Details",
+          "definition": "Only the Active itinerary version is presented as the current plan; the superseded versions are listed as history only."
+        },
+        {
+          "section": "3.10.3",
+          "title": "Synchronize Offline Trip Data",
+          "definition": "The synchronisation never creates a new itinerary version; it applies the captured execution data to the existing Active version."
+        }
+      ]
+    },
+    {
+      "id": "BR-27",
+      "definition": "Superseded versions are retained as history and a previously published version may be restored; a later change to routes or other master data does not modify existing itinerary versions.",
+      "usedIn": "3.3.2, 3.3.6, 3.9.4.2, 3.9.10",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.3.2",
+          "title": "View Suggested Itinerary",
+          "definition": "A previous itinerary version is retained and is never overwritten."
+        },
+        {
+          "section": "3.3.6",
+          "title": "Confirm Re-routing",
+          "definition": "The itinerary version in force before the re-routing is retained and is never overwritten."
+        },
+        {
+          "section": "3.9.4.2",
+          "title": "Update Route",
+          "definition": "The existing itinerary versions that already reference the route remain unchanged; the change affects the subsequent planning only."
+        },
+        {
+          "section": "3.9.10",
+          "title": "Update Landing Page Content",
+          "definition": "A previously published version is retained as history and may be restored as the published version."
+        }
+      ]
+    },
+    {
+      "id": "BR-28",
+      "definition": "Navigation requires an itinerary in the Active status and a granted device location permission.",
+      "usedIn": "3.3.4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.3.4",
+          "title": "Navigate Route",
+          "definition": "Navigation requires an itinerary in the Active status and a granted device location permission."
+        }
+      ]
+    },
+    {
+      "id": "BR-29",
+      "definition": "An alert belongs to exactly one of the supported alert types: weather, traffic, point of interest closure and safety notice.",
+      "usedIn": "3.3.5",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.3.5",
+          "title": "Receive Real-Time Alerts",
+          "definition": "An alert belongs to exactly one of the supported alert types: weather, traffic, point of interest closure and safety notice."
+        }
+      ]
+    },
+    {
+      "id": "BR-30",
+      "definition": "An alert is delivered only to a Traveler whose Active itinerary or current position is affected by the detected condition.",
+      "usedIn": "3.3.5",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.3.5",
+          "title": "Receive Real-Time Alerts",
+          "definition": "An alert is delivered only to a Traveler whose Active itinerary or current position is affected by the detected condition."
+        }
+      ]
+    },
+    {
+      "id": "BR-31",
+      "definition": "A deviation beyond the configured threshold raises a re-routing suggestion; the suggestion is handled by UC-15 and is never applied automatically.",
+      "usedIn": "3.3.4, 3.3.5, 3.3.6",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.3.4",
+          "title": "Navigate Route",
+          "definition": "A deviation beyond the configured threshold raises a re-routing suggestion; the suggestion is handled by UC-15 and is never applied automatically."
+        },
+        {
+          "section": "3.3.5",
+          "title": "Receive Real-Time Alerts",
+          "definition": "An alert that affects the planned route raises a re-routing suggestion; the suggestion is never applied automatically."
+        },
+        {
+          "section": "3.3.6",
+          "title": "Confirm Re-routing",
+          "definition": "A re-routing suggestion is raised by a route deviation beyond the configured threshold or by an alert that affects the planned route."
+        }
+      ]
+    },
+    {
+      "id": "BR-32",
+      "definition": "Alerts raised during a trip are retained on the trip until it is completed, even after being dismissed from the banner, and open alerts are counted for monitoring.",
+      "usedIn": "3.3.5, 3.9.6.1, 3.9.6.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.3.5",
+          "title": "Receive Real-Time Alerts",
+          "definition": "An alert is retained in the Alerts list of the trip until the trip is completed, even after it has been dismissed from the banner."
+        },
+        {
+          "section": "3.9.6.1",
+          "title": "View Active Trips",
+          "definition": "The alerts raised during a trip remain retained on the trip and are counted in the Open Alerts column."
+        },
+        {
+          "section": "3.9.6.2",
+          "title": "View Active Trip Details",
+          "definition": "The alerts raised during the trip are presented with their type and their timestamp."
+        }
+      ]
+    },
+    {
+      "id": "BR-33",
+      "definition": "A re-routing is applied only after the explicit confirmation of the Traveler; a declined or an expired suggestion never changes the itinerary.",
+      "usedIn": "3.3.6",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.3.6",
+          "title": "Confirm Re-routing",
+          "definition": "A re-routing is applied only after the explicit confirmation of the Traveler; a declined or an expired suggestion never changes the itinerary."
+        }
+      ]
+    },
+    {
+      "id": "BR-34",
+      "definition": "The detailed information of a point of interest is displayed only while the point of interest has the status Active.",
+      "usedIn": "3.3.3, 3.6.1",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.3.3",
+          "title": "Explore Points of Interest",
+          "definition": "The details of a point of interest are presented only while the point of interest remains Active."
+        },
+        {
+          "section": "3.6.1",
+          "title": "View Commercial Service",
+          "definition": "The detailed information of a point of interest is displayed only while the point of interest has the status Active."
+        }
+      ]
+    },
+    {
+      "id": "BR-35",
+      "definition": "The turn-by-turn guidance of a route is obtained from the integrated map service; the stored route holds the distance, the estimated travel time and the transport mode.",
+      "usedIn": "3.3.4, 3.9.4.1",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.3.4",
+          "title": "Navigate Route",
+          "definition": "The turn-by-turn instructions are obtained from the integrated map service; TripMate does not compute road-level guidance itself."
+        },
+        {
+          "section": "3.9.4.1",
+          "title": "Create Route",
+          "definition": "The turn-by-turn guidance of a route is obtained from the integrated map service; the stored route holds the distance, the estimated travel time and the transport mode."
+        }
+      ]
+    },
+    {
+      "id": "BR-36",
+      "definition": "The offline data of an itinerary covers the itinerary items, the related points of interest, the route information and the map data of the itinerary area only.",
+      "usedIn": "3.3.7",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.3.7",
+          "title": "Download Offline Map & Itinerary",
+          "definition": "The offline data of an itinerary covers the itinerary items, the related points of interest, the route information and the map data of the itinerary area only."
+        }
+      ]
+    },
+    {
+      "id": "BR-37",
+      "definition": "The offline package of an itinerary must not exceed the configured storage limit of 150 MB; storage released after a successful synchronisation returns to this budget.",
+      "usedIn": "3.3.7, 3.10.3",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.3.7",
+          "title": "Download Offline Map & Itinerary",
+          "definition": "The downloaded offline package must not exceed the configured storage limit of 150 MB."
+        },
+        {
+          "section": "3.10.3",
+          "title": "Synchronize Offline Trip Data",
+          "definition": "The local storage released after a successful synchronisation is returned to the 150 MB offline budget."
+        }
+      ]
+    },
+    {
+      "id": "BR-38",
+      "definition": "Offline data is handled as complete units: an itinerary is available offline only after every component has been stored, and a local record is uploaded only as a complete unit; partial data is never treated as complete.",
+      "usedIn": "3.3.7, 3.10.3",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.3.7",
+          "title": "Download Offline Map & Itinerary",
+          "definition": "An itinerary is marked as available offline only after every required component has been stored successfully; an incomplete download is never treated as a completed offline package."
+        },
+        {
+          "section": "3.10.3",
+          "title": "Synchronize Offline Trip Data",
+          "definition": "A local record is uploaded only as a complete unit; a partially captured record is rejected and reported."
+        }
+      ]
+    },
+    {
+      "id": "BR-39",
+      "definition": "Every offline itinerary copy and local record carries its version and capture timestamp, which are used to detect superseded copies and synchronisation conflicts.",
+      "usedIn": "3.3.7, 3.10.3",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.3.7",
+          "title": "Download Offline Map & Itinerary",
+          "definition": "The downloaded itinerary version is tracked locally, so that a superseded offline copy can be identified when the connectivity returns."
+        },
+        {
+          "section": "3.10.3",
+          "title": "Synchronize Offline Trip Data",
+          "definition": "Every local record carries its local version and its capture timestamp, which are the basis of the conflict detection."
+        }
+      ]
+    },
+    {
+      "id": "BR-40",
+      "definition": "Functions that require server confirmation (booking, payment, check-in) are never executed offline; offline navigation uses the data downloaded under UC-16.",
+      "usedIn": "3.3.4, 3.3.7, 3.10.3",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.3.4",
+          "title": "Navigate Route",
+          "definition": "While the device is offline, navigation uses the downloaded offline data of UC-16 and the functions that require server confirmation remain unavailable."
+        },
+        {
+          "section": "3.3.7",
+          "title": "Download Offline Map & Itinerary",
+          "definition": "The offline availability does not extend to the functions that require server confirmation, such as booking, payment and check-in."
+        },
+        {
+          "section": "3.10.3",
+          "title": "Synchronize Offline Trip Data",
+          "definition": "A function that requires a server confirmation, such as a booking or a payment, is never executed offline, therefore no such operation is part of the synchronised data."
+        }
+      ]
+    },
+    {
+      "id": "BR-51",
+      "definition": "Group information and shared locations are visible only to the active members of the same travel group within the group privacy rules; a removed or departed member loses access immediately. Staff monitoring shows a precise location only for members who enabled sharing (BR-50), otherwise only aggregated trip progress.",
+      "usedIn": "3.3.2, 3.4.3, 3.4.4, 3.4.5, 3.4.6, 3.4.7, 3.9.6.1, 3.9.6.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.3.2",
+          "title": "View Suggested Itinerary",
+          "definition": "An itinerary is accessible to its owner and to the active members of the associated travel group only."
+        },
+        {
+          "section": "3.4.3",
+          "title": "View Group Members",
+          "definition": "The group membership information is visible only to the active members of the same travel group, and only the information permitted by the group privacy rules is returned."
+        },
+        {
+          "section": "3.4.4",
+          "title": "Remove Group Member",
+          "definition": "A removed member immediately loses the access to the member-only group information and to the shared location information."
+        },
+        {
+          "section": "3.4.5",
+          "title": "Leave Travel Group",
+          "definition": "A Traveler who has left the group immediately loses the access to the member-only group information."
+        },
+        {
+          "section": "3.4.6",
+          "title": "Configure Group Location Sharing",
+          "definition": "The shared location information is visible only to the permitted active members of the same travel group."
+        },
+        {
+          "section": "3.4.7",
+          "title": "Join Shared Group Trip",
+          "definition": "The group information, including the shared itinerary and the member list, is visible only to the active members of that group."
+        },
+        {
+          "section": "3.9.6.1",
+          "title": "View Active Trips",
+          "definition": "The precise shared location of a Traveler is not exposed by this function; only the aggregated trip progress is shown."
+        },
+        {
+          "section": "3.9.6.2",
+          "title": "View Active Trip Details",
+          "definition": "The precise shared location of a member is presented only when that member has enabled the location sharing according to BR-50."
+        }
+      ]
+    },
+    {
+      "id": "BR-180",
+      "definition": "A point of interest may be added only to an itinerary that is accessible to the current Traveler and that is still editable.",
+      "usedIn": "3.3.3",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.3.3",
+          "title": "Explore Points of Interest",
+          "definition": "A point of interest may be added only to an itinerary that is accessible to the current Traveler and that is still editable."
+        }
+      ]
+    },
+    {
+      "id": "BR-41",
+      "definition": "A travel group must be associated with exactly one existing itinerary owned by the authenticated Traveler. A group cannot be created without a valid itinerary owned by that Traveler.",
+      "usedIn": "3.4.1",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.4.1",
+          "title": "Create Travel Group",
+          "definition": "A travel group must be associated with exactly one existing itinerary owned by the authenticated Traveler. A group cannot be created without a valid itinerary owned by that Traveler."
+        }
+      ]
+    },
+    {
+      "id": "BR-42",
+      "definition": "The Traveler who creates a travel group is automatically assigned as the Group Host.",
+      "usedIn": "3.4.1",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.4.1",
+          "title": "Create Travel Group",
+          "definition": "The Traveler who creates a travel group is automatically assigned as the Group Host."
+        }
+      ]
+    },
+    {
+      "id": "BR-43",
+      "definition": "Only the Group Host may generate or regenerate an invitation for the travel group.",
+      "usedIn": "3.4.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.4.2",
+          "title": "Invite Group Members",
+          "definition": "Only the Group Host may generate or regenerate an invitation for the travel group."
+        }
+      ]
+    },
+    {
+      "id": "BR-44",
+      "definition": "An invitation code must be unique across the system and must reference exactly one travel group.",
+      "usedIn": "3.4.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.4.2",
+          "title": "Invite Group Members",
+          "definition": "An invitation code must be unique across the system and must reference exactly one travel group."
+        }
+      ]
+    },
+    {
+      "id": "BR-45",
+      "definition": "Only the Group Host may remove an active member from the travel group; the Group Host cannot remove itself through this function.",
+      "usedIn": "3.4.4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.4.4",
+          "title": "Remove Group Member",
+          "definition": "Only the Group Host may remove an active member from the travel group; the Group Host cannot remove itself through this function."
+        }
+      ]
+    },
+    {
+      "id": "BR-46",
+      "definition": "An invitation may be used only while it is valid, unexpired and its travel group is available; generating or sharing an invitation never creates a membership.",
+      "usedIn": "3.4.2, 3.4.7",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.4.2",
+          "title": "Invite Group Members",
+          "definition": "An invitation may be used only while it is valid, unexpired and its travel group is available; generating or sharing an invitation never creates a membership."
+        },
+        {
+          "section": "3.4.7",
+          "title": "Join Shared Group Trip",
+          "definition": "A Traveler may join a travel group only through an invitation that is valid, has not expired and references a group that is still available to be joined."
+        }
+      ]
+    },
+    {
+      "id": "BR-47",
+      "definition": "A Traveler may hold at most one active membership in the same travel group at any time.",
+      "usedIn": "3.4.7",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.4.7",
+          "title": "Join Shared Group Trip",
+          "definition": "A Traveler may hold at most one active membership in the same travel group at any time."
+        }
+      ]
+    },
+    {
+      "id": "BR-48",
+      "definition": "A travel group containing active members always has exactly one Group Host; the removal must never leave the group without a Group Host.",
+      "usedIn": "3.4.1, 3.4.3, 3.4.4, 3.4.5, 3.4.7",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.4.1",
+          "title": "Create Travel Group",
+          "definition": "A travel group containing active members must always have exactly one Group Host."
+        },
+        {
+          "section": "3.4.3",
+          "title": "View Group Members",
+          "definition": "A travel group containing active members always has exactly one Group Host, who is identified in the member list."
+        },
+        {
+          "section": "3.4.4",
+          "title": "Remove Group Member",
+          "definition": "A travel group containing active members always has exactly one Group Host; the removal must never leave the group without a Group Host."
+        },
+        {
+          "section": "3.4.5",
+          "title": "Leave Travel Group",
+          "definition": "A travel group containing active members must always have exactly one Group Host."
+        },
+        {
+          "section": "3.4.7",
+          "title": "Join Shared Group Trip",
+          "definition": "Every travel group that has at least one active member has exactly one Group Host."
+        }
+      ]
+    },
+    {
+      "id": "BR-49",
+      "definition": "When the Group Host leaves a group that still has other active members, the host privileges are transferred to the remaining active member with the earliest Joined Timestamp, and the transfer must complete before the current host membership changes to Left; when the Group Host is the final active member, the group is closed.",
+      "usedIn": "3.4.3, 3.4.5",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.4.5",
+          "title": "Leave Travel Group",
+          "definition": "When the Group Host leaves a group that still has other active members, the host privileges are transferred to the remaining active member with the earliest Joined Timestamp, and the transfer must complete before the current host membership changes to Left; when the Group Host is the final active member, the group is closed."
+        }
+      ]
+    },
+    {
+      "id": "BR-50",
+      "definition": "The GPS location of a group member is shared only when the member has explicitly opted in and the device location permission is granted; either condition alone is not sufficient.",
+      "usedIn": "3.4.6, 3.9.6.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.4.6",
+          "title": "Configure Group Location Sharing",
+          "definition": "The GPS location of a group member is shared only when the member has explicitly opted in and the device location permission is granted; either condition alone is not sufficient."
+        }
+      ]
+    },
+    {
+      "id": "BR-52",
+      "definition": "List searches run when the user submits the keyword or applies the filters, not on each keystroke, and results are paginated according to CR-01.",
+      "usedIn": "3.5.1, 3.6.3, 3.7.1, 3.8.4.1, 3.9.1.1, 3.9.6.1, 3.9.8, 3.9.9.1, 3.9.12.1",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.1",
+          "title": "Search Tours",
+          "definition": "The search is executed when the user submits the keyword or applies the filters, and the result list is paginated according to CR-01."
+        },
+        {
+          "section": "3.6.3",
+          "title": "View Service Booking Requests",
+          "definition": "List searches run when the user submits the keyword or applies the filters, and results are paginated according to CR-01."
+        },
+        {
+          "section": "3.7.1",
+          "title": "View Trip History",
+          "definition": "The record list is paginated according to CR-01."
+        },
+        {
+          "section": "3.8.4.1",
+          "title": "View Customer Bookings",
+          "definition": "The booking list is paginated according to CR-01."
+        },
+        {
+          "section": "3.9.1.1",
+          "title": "View User Accounts",
+          "definition": "The account list is paginated according to CR-01."
+        },
+        {
+          "section": "3.9.6.1",
+          "title": "View Active Trips",
+          "definition": "The list is retrieved when the Staff submits the search and is presented with the pagination defined in CR-01."
+        },
+        {
+          "section": "3.9.8",
+          "title": "View Platform Bookings",
+          "definition": "The list is retrieved when the Staff submits the search and is presented with the pagination defined in CR-01."
+        },
+        {
+          "section": "3.9.9.1",
+          "title": "View Payout Records",
+          "definition": "The list is retrieved on submit and is presented with the pagination defined in CR-01."
+        },
+        {
+          "section": "3.9.12.1",
+          "title": "View Audit Logs",
+          "definition": "The list is retrieved when the Administrator submits the search and is presented with the pagination defined in CR-01."
+        }
+      ]
+    },
+    {
+      "id": "BR-53",
+      "definition": "A filter range is accepted only when it is logically valid; the minimum value must not be greater than the maximum value and the start date must not be later than the end date.",
+      "usedIn": "3.5.1",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.1",
+          "title": "Search Tours",
+          "definition": "A filter range is accepted only when it is logically valid; the minimum value must not be greater than the maximum value and the start date must not be later than the end date."
+        }
+      ]
+    },
+    {
+      "id": "BR-54",
+      "definition": "A Guest may browse and search the tour packages, but the authentication is required before a booking can be created.",
+      "usedIn": "3.5.1, 3.5.3",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.1",
+          "title": "Search Tours",
+          "definition": "A Guest may browse and search the tour packages, but the authentication is required before a booking can be created."
+        },
+        {
+          "section": "3.5.3",
+          "title": "View Tour Details",
+          "definition": "A Guest may view the details of a tour package, but the authentication is required before a booking can be created."
+        }
+      ]
+    },
+    {
+      "id": "BR-55",
+      "definition": "The availability information of a tour package is retrieved at display time and is not cached beyond the current result rendering.",
+      "usedIn": "3.5.1, 3.6.1",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.1",
+          "title": "Search Tours",
+          "definition": "The availability information of a tour package is retrieved at display time and is not cached beyond the current result rendering."
+        },
+        {
+          "section": "3.6.1",
+          "title": "View Commercial Service",
+          "definition": "The availability information of a commercial service is retrieved at display time and is not a reservation."
+        }
+      ]
+    },
+    {
+      "id": "BR-56",
+      "definition": "Only tour packages approved by a Staff member and published are discoverable, bookable or featured on the landing page; Draft, Pending Approval and Rejected packages are never shown to Travelers or Guests.",
+      "usedIn": "3.5.1, 3.5.2, 3.5.3, 3.8.2.1, 3.8.2.3, 3.9.7.1, 3.9.7.2, 3.9.10",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.1",
+          "title": "Search Tours",
+          "definition": "Only the tour packages that have been approved by a Staff member and are publicly published are discoverable through the search."
+        },
+        {
+          "section": "3.5.2",
+          "title": "Receive Tour Recommendations",
+          "definition": "Only the tour packages that have been approved by a Staff member and are publicly published may appear in the recommendation list."
+        },
+        {
+          "section": "3.5.3",
+          "title": "View Tour Details",
+          "definition": "Only the tour packages that have been approved by a Staff member and are publicly published may be displayed to a Traveler or to a Guest."
+        },
+        {
+          "section": "3.8.2.1",
+          "title": "Create Tour Package",
+          "definition": "A tour package becomes discoverable by the Travelers only after it has been approved and published; a draft is never discoverable."
+        },
+        {
+          "section": "3.8.2.3",
+          "title": "Submit Tour Package for Approval",
+          "definition": "The tour package remains not discoverable by the Travelers while it is pending approval."
+        },
+        {
+          "section": "3.9.7.1",
+          "title": "Approve Tour Post",
+          "definition": "Only an approved tour package is discoverable and bookable by a Traveler."
+        },
+        {
+          "section": "3.9.7.2",
+          "title": "Reject Tour Post",
+          "definition": "A rejected package remains not discoverable and not bookable."
+        },
+        {
+          "section": "3.9.10",
+          "title": "Update Landing Page Content",
+          "definition": "Only an approved tour package may be referenced in the featured tour block."
+        }
+      ]
+    },
+    {
+      "id": "BR-57",
+      "definition": "The matching algorithm uses the travel preferences, the interest tags, the destination and the date range of the current planning criteria, the budget range and the trip history of the Traveler as its inputs.",
+      "usedIn": "3.5.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.2",
+          "title": "Receive Tour Recommendations",
+          "definition": "The matching algorithm uses the travel preferences, the interest tags, the destination and the date range of the current planning criteria, the budget range and the trip history of the Traveler as its inputs."
+        }
+      ]
+    },
+    {
+      "id": "BR-58",
+      "definition": "A tour package is recommended only when its similarity score with the Traveler profile is greater than 80%; the configurable threshold can never be set below 80%.",
+      "usedIn": "3.5.2, 3.9.5",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.2",
+          "title": "Receive Tour Recommendations",
+          "definition": "A tour package is recommended only when its similarity score with the Traveler profile is greater than 80%."
+        },
+        {
+          "section": "3.9.5",
+          "title": "Configure Algorithm Parameters",
+          "definition": "The similarity threshold of the tour recommendation remains at least 80%, which is its lower bound."
+        }
+      ]
+    },
+    {
+      "id": "BR-59",
+      "definition": "The availability of each departure schedule presented on this screen is retrieved at display time, and the presented availability is not a reservation.",
+      "usedIn": "3.5.3",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.3",
+          "title": "View Tour Details",
+          "definition": "The availability of each departure schedule presented on this screen is retrieved at display time, and the presented availability is not a reservation."
+        }
+      ]
+    },
+    {
+      "id": "BR-60",
+      "definition": "A tour package that is unavailable, sold out or whose departure date has passed is never recommended and is never bookable.",
+      "usedIn": "3.5.2, 3.5.3",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.2",
+          "title": "Receive Tour Recommendations",
+          "definition": "A tour package that is unavailable, sold out or whose departure date has passed is never recommended and is never bookable."
+        },
+        {
+          "section": "3.5.3",
+          "title": "View Tour Details",
+          "definition": "A tour package that is unavailable, sold out or whose departure date has passed cannot be booked from this screen."
+        }
+      ]
+    },
+    {
+      "id": "BR-61",
+      "definition": "Capacity integrity: the remaining capacity of a departure is revalidated when a booking is confirmed (displayed availability is not a reservation), and the capacity of a departure can never be reduced below the slots already sold.",
+      "usedIn": "3.5.4, 3.8.2.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.4",
+          "title": "Book Tour",
+          "definition": "The remaining capacity of the selected departure schedule is revalidated at the moment the booking is confirmed; the availability presented earlier is not a reservation."
+        },
+        {
+          "section": "3.8.2.2",
+          "title": "Update Tour Package",
+          "definition": "The capacity of a departure schedule must not be reduced below the number of the slots already sold for that schedule."
+        }
+      ]
+    },
+    {
+      "id": "BR-62",
+      "definition": "A booking is created only when the mandatory information of every participant and the contact information are complete and valid.",
+      "usedIn": "3.5.4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.4",
+          "title": "Book Tour",
+          "definition": "A booking is created only when the mandatory information of every participant and the contact information are complete and valid."
+        }
+      ]
+    },
+    {
+      "id": "BR-63",
+      "definition": "The estimated amount of the request is computed by TripMate from the price information of the service; an amount submitted by the client application is ignored.",
+      "usedIn": "3.5.4, 3.6.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.4",
+          "title": "Book Tour",
+          "definition": "The unit price, the discount and the total amount are computed by TripMate; any amount submitted by the client application is ignored."
+        },
+        {
+          "section": "3.6.2",
+          "title": "Book Commercial Service",
+          "definition": "The estimated amount of the request is computed by TripMate from the price information of the service; an amount submitted by the client application is ignored."
+        }
+      ]
+    },
+    {
+      "id": "BR-64",
+      "definition": "The booking and the payment are separate operations; the creation of a booking does not confirm it.",
+      "usedIn": "3.5.4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.4",
+          "title": "Book Tour",
+          "definition": "The booking and the payment are separate operations; the creation of a booking does not confirm it."
+        }
+      ]
+    },
+    {
+      "id": "BR-65",
+      "definition": "A newly created booking has the status Pending Payment.",
+      "usedIn": "3.5.4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.4",
+          "title": "Book Tour",
+          "definition": "A newly created booking has the status Pending Payment."
+        }
+      ]
+    },
+    {
+      "id": "BR-66",
+      "definition": "The held slots are released when the booking expires without a verified payment or when the booking is cancelled.",
+      "usedIn": "3.5.4, 3.8.4.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.4",
+          "title": "Book Tour",
+          "definition": "The held slots are released when the booking expires without a verified payment or when the booking is cancelled."
+        },
+        {
+          "section": "3.8.4.2",
+          "title": "Cancel Tour Booking",
+          "definition": "The held slots of a cancelled booking are released and become available again for the departure schedule."
+        }
+      ]
+    },
+    {
+      "id": "BR-67",
+      "definition": "A Traveler may hold at most the configured maximum number of concurrent unpaid bookings.",
+      "usedIn": "3.5.4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.4",
+          "title": "Book Tour",
+          "definition": "A Traveler may hold at most the configured maximum number of concurrent unpaid bookings."
+        }
+      ]
+    },
+    {
+      "id": "BR-68",
+      "definition": "A Pending Payment booking expires at the earlier of 15 minutes after its creation and the 72-hour cutoff before departure (BR-154) if no verified payment has been recorded; a payment may be started only before this expiry.",
+      "usedIn": "3.1.4, 3.5.4, 3.5.5",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.4",
+          "title": "Book Tour",
+          "definition": "A Pending Payment booking expires at the earlier of 15 minutes after its creation and the 72-hour cutoff before departure (BR-154) if no verified payment has been recorded; a payment may be started only before this expiry."
+        },
+        {
+          "section": "3.5.5",
+          "title": "Make Electronic Payment",
+          "definition": "A Pending Payment booking expires at the earlier of 15 minutes after its creation and the 72-hour cutoff before departure (BR-154) if no verified payment has been recorded; a payment may be started only before this expiry."
+        }
+      ]
+    },
+    {
+      "id": "BR-69",
+      "definition": "The amount sent to the payment gateway is the total amount stored on the booking and computed by TripMate; an amount submitted by the client application is never used.",
+      "usedIn": "3.5.5",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.5",
+          "title": "Make Electronic Payment",
+          "definition": "The amount sent to the payment gateway is the total amount stored on the booking and computed by TripMate; an amount submitted by the client application is never used."
+        }
+      ]
+    },
+    {
+      "id": "BR-70",
+      "definition": "A new payment attempt is blocked when a verified successful payment already exists for the booking.",
+      "usedIn": "3.5.5",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.5",
+          "title": "Make Electronic Payment",
+          "definition": "A new payment attempt is blocked when a verified successful payment already exists for the booking."
+        }
+      ]
+    },
+    {
+      "id": "BR-71",
+      "definition": "Exactly one Transaction record is created for each payment attempt and stores the gateway reference identifier; every attempt remains visible on the booking.",
+      "usedIn": "3.5.5, 3.9.8",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.5",
+          "title": "Make Electronic Payment",
+          "definition": "Exactly one Transaction record is created for each payment attempt, and it stores the gateway reference identifier."
+        },
+        {
+          "section": "3.9.8",
+          "title": "View Platform Bookings",
+          "definition": "A booking is presented with every transaction attempt recorded against it, so that a duplicate attempt remains visible."
+        }
+      ]
+    },
+    {
+      "id": "BR-72",
+      "definition": "The gateway notification is accepted only after its signature or its checksum has been verified with the credentials of the gateway.",
+      "usedIn": "3.5.5",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.5",
+          "title": "Make Electronic Payment",
+          "definition": "The gateway notification is accepted only after its signature or its checksum has been verified with the credentials of the gateway."
+        }
+      ]
+    },
+    {
+      "id": "BR-73",
+      "definition": "The redirect or the deep-link return from the gateway to the application is not authoritative; only the verified server-side result determines the outcome of the payment.",
+      "usedIn": "3.5.5",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.5",
+          "title": "Make Electronic Payment",
+          "definition": "The redirect or the deep-link return from the gateway to the application is not authoritative; only the verified server-side result determines the outcome of the payment."
+        }
+      ]
+    },
+    {
+      "id": "BR-74",
+      "definition": "The update of the transaction status is idempotent; a repeated notification for the same transaction does not change the already recorded final result and does not create a second confirmation.",
+      "usedIn": "3.5.5, 3.10.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.5",
+          "title": "Make Electronic Payment",
+          "definition": "The update of the transaction status is idempotent; a repeated notification for the same transaction does not change the already recorded final result and does not create a second confirmation."
+        },
+        {
+          "section": "3.10.2",
+          "title": "Process Refund to Traveler",
+          "definition": "The refund result update is idempotent."
+        }
+      ]
+    },
+    {
+      "id": "BR-75",
+      "definition": "When the verified result cannot be persisted, the transaction is marked for reconciliation and the booking is not confirmed.",
+      "usedIn": "3.5.5",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.5",
+          "title": "Make Electronic Payment",
+          "definition": "When the verified result cannot be persisted, the transaction is marked for reconciliation and the booking is not confirmed."
+        }
+      ]
+    },
+    {
+      "id": "BR-79",
+      "definition": "Monetary values are expressed, displayed and exported in Vietnamese Dong (CR-08); a price must be greater than zero.",
+      "usedIn": "3.5.5, 3.8.2.1, 3.9.8, 3.9.9.1, 3.9.11",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.5",
+          "title": "Make Electronic Payment",
+          "definition": "All the amounts are processed in Vietnamese Dong."
+        },
+        {
+          "section": "3.8.2.1",
+          "title": "Create Tour Package",
+          "definition": "The price is expressed in Vietnamese Dong and must be greater than zero."
+        },
+        {
+          "section": "3.9.8",
+          "title": "View Platform Bookings",
+          "definition": "Every monetary value is presented in VND."
+        },
+        {
+          "section": "3.9.9.1",
+          "title": "View Payout Records",
+          "definition": "Every monetary value is presented in VND."
+        },
+        {
+          "section": "3.9.11",
+          "title": "Export Statistical Reports",
+          "definition": "Every monetary value is presented and exported in VND."
+        }
+      ]
+    },
+    {
+      "id": "BR-80",
+      "definition": "The booking becomes Confirmed and the QR e-ticket is issued only when a verified successful payment has been recorded.",
+      "usedIn": "3.5.5",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.5",
+          "title": "Make Electronic Payment",
+          "definition": "The booking becomes Confirmed and the QR e-ticket is issued only when a verified successful payment has been recorded."
+        }
+      ]
+    },
+    {
+      "id": "BR-81",
+      "definition": "A payment result notification is sent to the Traveler and to the owning Tour Operator.",
+      "usedIn": "3.5.5",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.5",
+          "title": "Make Electronic Payment",
+          "definition": "A payment result notification is sent to the Traveler and to the owning Tour Operator."
+        }
+      ]
+    },
+    {
+      "id": "BR-82",
+      "definition": "A QR e-ticket is issued and can be displayed only for a booking that has been confirmed by a verified payment.",
+      "usedIn": "3.5.6, 3.8.4.4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.6",
+          "title": "View QR E-ticket",
+          "definition": "A QR e-ticket is issued and can be displayed only for a booking that has been confirmed by a verified payment."
+        },
+        {
+          "section": "3.8.4.4",
+          "title": "Check In Traveler by QR Code",
+          "definition": "Only a booking confirmed by a verified payment holds a valid e-ticket."
+        }
+      ]
+    },
+    {
+      "id": "BR-83",
+      "definition": "QR e-ticket payloads are encrypted, time-stamped and cryptographically signed; a scanned payload is accepted only after its signature and timestamp have been verified.",
+      "usedIn": "3.5.6, 3.8.4.4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.6",
+          "title": "View QR E-ticket",
+          "definition": "The QR payload is encrypted, carries a timestamp and is cryptographically signed, so that it cannot be forged or altered by the client application."
+        },
+        {
+          "section": "3.8.4.4",
+          "title": "Check In Traveler by QR Code",
+          "definition": "The scanned payload is accepted only when its signature and its timestamp have been verified; a forged or altered payload is rejected."
+        }
+      ]
+    },
+    {
+      "id": "BR-84",
+      "definition": "The QR e-ticket is accepted for the check-in only within the departure window of the associated tour schedule.",
+      "usedIn": "3.5.6, 3.8.4.4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.6",
+          "title": "View QR E-ticket",
+          "definition": "The QR e-ticket is accepted for the check-in only within the departure window of the associated tour schedule."
+        },
+        {
+          "section": "3.8.4.4",
+          "title": "Check In Traveler by QR Code",
+          "definition": "A QR e-ticket is accepted only within the departure window of the associated tour schedule."
+        }
+      ]
+    },
+    {
+      "id": "BR-85",
+      "definition": "A QR e-ticket may be used for the check-in only once.",
+      "usedIn": "3.5.6, 3.8.4.4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.6",
+          "title": "View QR E-ticket",
+          "definition": "A QR e-ticket may be used for the check-in only once."
+        },
+        {
+          "section": "3.8.4.4",
+          "title": "Check In Traveler by QR Code",
+          "definition": "A QR e-ticket may be used for the check-in only once."
+        }
+      ]
+    },
+    {
+      "id": "BR-86",
+      "definition": "Cancelling a booking immediately invalidates its unused QR e-tickets; an invalidated e-ticket is never accepted at check-in.",
+      "usedIn": "3.5.6, 3.8.4.2, 3.8.4.4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.6",
+          "title": "View QR E-ticket",
+          "definition": "The cancellation of a booking invalidates its QR e-ticket immediately."
+        },
+        {
+          "section": "3.8.4.2",
+          "title": "Cancel Tour Booking",
+          "definition": "Cancelling a booking invalidates any unused QR e-ticket immediately."
+        },
+        {
+          "section": "3.8.4.4",
+          "title": "Check In Traveler by QR Code",
+          "definition": "A cancelled booking has an invalidated e-ticket that is never accepted for a check-in."
+        }
+      ]
+    },
+    {
+      "id": "BR-90",
+      "definition": "A Traveler may view only the bookings and the itineraries that belong to that Traveler.",
+      "usedIn": "3.5.6, 3.7.1",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.6",
+          "title": "View QR E-ticket",
+          "definition": "A Traveler may access only the e-tickets of the bookings that belong to that Traveler."
+        },
+        {
+          "section": "3.7.1",
+          "title": "View Trip History",
+          "definition": "A Traveler may view only the bookings and the itineraries that belong to that Traveler."
+        }
+      ]
+    },
+    {
+      "id": "BR-96",
+      "definition": "The aggregate rating of the reviewed tour package or point of interest is recalculated from its published reviews whenever a review is published or edited.",
+      "usedIn": "3.5.3, 3.7.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.3",
+          "title": "View Tour Details",
+          "definition": "The aggregate rating displayed for a tour package is the value recalculated from its published reviews."
+        },
+        {
+          "section": "3.7.2",
+          "title": "Submit Trip Review",
+          "definition": "The aggregate rating of the reviewed tour package or point of interest is recalculated from its published reviews whenever a review is published or edited."
+        }
+      ]
+    },
+    {
+      "id": "BR-97",
+      "definition": "The coupon code is unique and is not editable after the creation; a coupon remains applicable only while it is active, within its validity period and with remaining usages.",
+      "usedIn": "3.5.4, 3.8.3.1, 3.8.3.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.4",
+          "title": "Book Tour",
+          "definition": "A voucher is applied only when it is active, is within its validity period and has remaining usages."
+        },
+        {
+          "section": "3.8.3.1",
+          "title": "Create Coupon",
+          "definition": "A coupon code is unique across the platform and a coupon is applicable only while it is active, within its validity period and with remaining usages."
+        },
+        {
+          "section": "3.8.3.2",
+          "title": "Update Coupon",
+          "definition": "The coupon code is unique and is not editable after the creation; a coupon remains applicable only while it is active, within its validity period and with remaining usages."
+        }
+      ]
+    },
+    {
+      "id": "BR-98",
+      "definition": "A voucher is applied only when the booking satisfies its minimum spend condition and its scope, which may be limited to a specific Tour Operator or to specific tour packages.",
+      "usedIn": "3.5.4, 3.8.3.1, 3.8.3.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.4",
+          "title": "Book Tour",
+          "definition": "A voucher is applied only when the booking satisfies its minimum spend condition and its scope, which may be limited to a specific Tour Operator or to specific tour packages."
+        },
+        {
+          "section": "3.8.3.1",
+          "title": "Create Coupon",
+          "definition": "The scope of a coupon is limited to the tour packages owned by the issuing Tour Operator, and its minimum spend condition must be satisfied by the booking."
+        },
+        {
+          "section": "3.8.3.2",
+          "title": "Update Coupon",
+          "definition": "The scope of the coupon remains limited to the tour packages owned by the issuing Tour Operator."
+        }
+      ]
+    },
+    {
+      "id": "BR-99",
+      "definition": "At most one voucher may be applied to a booking.",
+      "usedIn": "3.5.4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.4",
+          "title": "Book Tour",
+          "definition": "At most one voucher may be applied to a booking."
+        }
+      ]
+    },
+    {
+      "id": "BR-100",
+      "definition": "A voucher discount never exceeds the booking subtotal and never produces a negative total; changed discount conditions apply only to bookings created after the change.",
+      "usedIn": "3.5.4, 3.8.3.1, 3.8.3.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.4",
+          "title": "Book Tour",
+          "definition": "The discount computed from a voucher never exceeds the subtotal of the booking, and the total amount is never negative."
+        },
+        {
+          "section": "3.8.3.1",
+          "title": "Create Coupon",
+          "definition": "The discount computed from a coupon never exceeds the subtotal of the booking and never produces a negative total amount."
+        },
+        {
+          "section": "3.8.3.2",
+          "title": "Update Coupon",
+          "definition": "The changed discount conditions apply only to the bookings created after the change; the discounts already applied to the existing bookings remain unchanged."
+        }
+      ]
+    },
+    {
+      "id": "BR-154",
+      "definition": "No new booking may be created within 72 hours before departure. A payment may be started only while the departure is more than 72 hours away; a payment started after the cutoff is refused before the gateway is called, the booking is released, and the Traveler is shown MSG169. The payment expiry of a booking is the earlier of 15 minutes after its creation and the 72-hour cutoff.",
+      "usedIn": "3.5.4, 3.5.5",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.4",
+          "title": "Book Tour",
+          "definition": "No new booking may be created within 72 hours before departure. A payment may be started only while the departure is more than 72 hours away; a payment started after the cutoff is refused before the gateway is called, the booking is released, and the Traveler is shown MSG169. The payment expiry of a booking is the earlier of 15 minutes after its creation and the 72-hour cutoff."
+        }
+      ]
+    },
+    {
+      "id": "BR-156",
+      "definition": "A booking is created only after the Traveler has ticked the agreement to the Booking and Cancellation Policy. The policy version and the agreement timestamp are stored with the booking, and refund percentages under UC-41 are those of the stored policy version (BR-135).",
+      "usedIn": "3.5.4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.4",
+          "title": "Book Tour",
+          "definition": "A booking is created only after the Traveler has ticked the agreement to the Booking and Cancellation Policy. The policy version and the agreement timestamp are stored with the booking, and refund percentages under UC-41 are those of the stored policy version (BR-135)."
+        }
+      ]
+    },
+    {
+      "id": "BR-159",
+      "definition": "A gateway notification received after the payment window has expired is recorded for reconciliation and does not confirm the booking. Any verified successful amount is refunded in full under UC-67 through the original payment channel; UC-42 does not apply because no settlement exists for the booking.",
+      "usedIn": "3.5.5, 3.10.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.5",
+          "title": "Make Electronic Payment",
+          "definition": "A gateway notification received after the payment window has expired is recorded for reconciliation and does not confirm the booking. Any verified successful amount is refunded in full under UC-67 through the original payment channel; UC-42 does not apply because no settlement exists for the booking."
+        },
+        {
+          "section": "3.10.2",
+          "title": "Process Refund to Traveler",
+          "definition": "A gateway notification received after the payment window has expired is recorded for reconciliation and does not confirm the booking. Any verified successful amount is refunded in full under UC-67 through the original payment channel; UC-42 does not apply because no settlement exists for the booking."
+        }
+      ]
+    },
+    {
+      "id": "BR-179",
+      "definition": "The amount reported by the payment gateway must equal the amount stored on the transaction; a mismatch is treated as a verification failure.",
+      "usedIn": "3.5.5",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.5.5",
+          "title": "Make Electronic Payment",
+          "definition": "The amount reported by the gateway must be equal to the amount stored on the transaction; a mismatch is treated as a verification failure."
+        }
+      ]
+    },
+    {
+      "id": "BR-87",
+      "definition": "A commercial point of interest belongs to exactly one of the three supported categories (Hotel, Vehicle Rental, Restaurant); commercial information is captured and retained only while the category remains one of these.",
+      "usedIn": "3.6.1, 3.6.2, 3.9.3.1, 3.9.3.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.6.1",
+          "title": "View Commercial Service",
+          "definition": "TripMate supports exactly three commercial service categories, namely Hotel, Vehicle Rental and Restaurant; a point of interest of any other category never exposes a commercial booking action."
+        },
+        {
+          "section": "3.6.2",
+          "title": "Book Commercial Service",
+          "definition": "A booking request may be submitted only for a point of interest of one of the three supported commercial categories, namely Hotel, Vehicle Rental and Restaurant."
+        },
+        {
+          "section": "3.9.3.1",
+          "title": "Create Point of Interest",
+          "definition": "A commercial point of interest belongs to exactly one of the three supported categories, namely Hotel, Vehicle Rental and Restaurant; the commercial information is captured only for those categories."
+        },
+        {
+          "section": "3.9.3.2",
+          "title": "Update Point of Interest",
+          "definition": "The category of a point of interest may be changed only within the rules of the supported categories, and the commercial information is retained only while the category remains one of the three commercial categories."
+        }
+      ]
+    },
+    {
+      "id": "BR-88",
+      "definition": "A booking request is accepted only when the requested date, the requested time and the requested quantity are within the availability published by the service.",
+      "usedIn": "3.6.1, 3.6.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.6.1",
+          "title": "View Commercial Service",
+          "definition": "A commercial service is presented as bookable only when the service is marked as open for booking and its availability for the intended date can be retrieved."
+        },
+        {
+          "section": "3.6.2",
+          "title": "Book Commercial Service",
+          "definition": "A booking request is accepted only when the requested date, the requested time and the requested quantity are within the availability published by the service."
+        }
+      ]
+    },
+    {
+      "id": "BR-89",
+      "definition": "A commercial service booking request is created with the status Pending Confirmation and becomes Confirmed only after the Service Provider has confirmed it under UC-79; the submission of a request alone never guarantees the service.",
+      "usedIn": "3.6.2, 3.6.4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.6.2",
+          "title": "Book Commercial Service",
+          "definition": "A commercial service booking request is created with the status Pending Confirmation and becomes Confirmed only after the Service Provider has confirmed it under UC-79; the submission of a request alone never guarantees the service."
+        },
+        {
+          "section": "3.6.4",
+          "title": "Respond to Service Booking Request",
+          "definition": "A commercial service booking request is created with the status Pending Confirmation and becomes Confirmed only after the Service Provider has confirmed it under UC-79; the submission of a request alone never guarantees the service."
+        }
+      ]
+    },
+    {
+      "id": "BR-174",
+      "definition": "The recorded receipt is written to the immutable audit log with the acting account and the timestamp.",
+      "usedIn": "3.6.7, 3.9.1.4, 3.9.1.5",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.6.7",
+          "title": "Confirm Commission Receipt",
+          "definition": "The recorded receipt is written to the immutable audit log with the acting account and the timestamp."
+        },
+        {
+          "section": "3.9.1.4",
+          "title": "Create Staff Account",
+          "definition": "The creation is written to the immutable audit log with the acting account and the timestamp."
+        },
+        {
+          "section": "3.9.1.5",
+          "title": "Create Service Provider Account",
+          "definition": "The creation is written to the immutable audit log with the acting account and the timestamp."
+        }
+      ]
+    },
+    {
+      "id": "BR-193",
+      "definition": "A Service Provider may view and respond only to the booking requests of the commercial points of interest linked to its own account.",
+      "usedIn": "2.2, 3.6.3, 3.6.4, 3.6.5",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.6.3",
+          "title": "View Service Booking Requests",
+          "definition": "A Service Provider may view and respond only to the booking requests of the commercial points of interest linked to its own account."
+        },
+        {
+          "section": "3.6.4",
+          "title": "Respond to Service Booking Request",
+          "definition": "A Service Provider may view and respond only to the booking requests of the commercial points of interest linked to its own account."
+        },
+        {
+          "section": "3.6.5",
+          "title": "Record Service Outcome",
+          "definition": "A Service Provider may view and respond only to the booking requests of the commercial points of interest linked to its own account."
+        }
+      ]
+    },
+    {
+      "id": "BR-194",
+      "definition": "Only a request in Pending Confirmation status may be confirmed or rejected, and a decided request cannot be decided again. A request that receives no response within 24 hours after its submission is set to Expired automatically and no service is reserved.",
+      "usedIn": "2.2, 3.1.4, 3.6.2, 3.6.4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.6.4",
+          "title": "Respond to Service Booking Request",
+          "definition": "Only a request in Pending Confirmation status may be confirmed or rejected, and a decided request cannot be decided again. A request that receives no response within 24 hours after its submission is set to Expired automatically and no service is reserved."
+        }
+      ]
+    },
+    {
+      "id": "BR-195",
+      "definition": "The rejection of a service booking request requires a reason, and that reason is shown to the Traveler.",
+      "usedIn": "2.2, 3.6.4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.6.4",
+          "title": "Respond to Service Booking Request",
+          "definition": "The rejection of a service booking request requires a reason, and that reason is shown to the Traveler."
+        }
+      ]
+    },
+    {
+      "id": "BR-196",
+      "definition": "The Traveler pays for a commercial service directly to the Service Provider when the service is used. TripMate collects no payment for a commercial service booking, shows the estimated amount for information only, and processes no refund for it.",
+      "usedIn": "2.2, 3.6.2, 3.6.5",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.6.2",
+          "title": "Book Commercial Service",
+          "definition": "The Traveler pays for a commercial service directly to the Service Provider when the service is used. TripMate collects no payment for a commercial service booking, shows the estimated amount for information only, and processes no refund for it."
+        },
+        {
+          "section": "3.6.5",
+          "title": "Record Service Outcome",
+          "definition": "The Traveler pays for a commercial service directly to the Service Provider when the service is used. TripMate collects no payment for a commercial service booking, shows the estimated amount for information only, and processes no refund for it."
+        }
+      ]
+    },
+    {
+      "id": "BR-197",
+      "definition": "After the requested service date, the Service Provider records the outcome of each Confirmed request as Completed, with the actual amount charged, or as No-show. A request whose outcome is not recorded within 3 days after the service date is set to Completed at its estimated amount.",
+      "usedIn": "2.2, 3.1.4, 3.6.5, 3.10.7",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.6.5",
+          "title": "Record Service Outcome",
+          "definition": "After the requested service date, the Service Provider records the outcome of each Confirmed request as Completed, with the actual amount charged, or as No-show. A request whose outcome is not recorded within 3 days after the service date is set to Completed at its estimated amount."
+        },
+        {
+          "section": "3.10.7",
+          "title": "Generate Commission Statement",
+          "definition": "After the requested service date, the Service Provider records the outcome of each Confirmed request as Completed, with the actual amount charged, or as No-show. A request whose outcome is not recorded within 3 days after the service date is set to Completed at its estimated amount."
+        }
+      ]
+    },
+    {
+      "id": "BR-198",
+      "definition": "The service commission owed to TripMate is 10% of the actual amount of each Completed request, rounded down to whole VND. A Rejected, Expired, Cancelled or No-show request carries no commission.",
+      "usedIn": "2.2, 3.6.5, 3.6.6, 3.10.7",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.6.5",
+          "title": "Record Service Outcome",
+          "definition": "The service commission owed to TripMate is 10% of the actual amount of each Completed request, rounded down to whole VND. A Rejected, Expired, Cancelled or No-show request carries no commission."
+        },
+        {
+          "section": "3.6.6",
+          "title": "Pay Commission Statement",
+          "definition": "The service commission owed to TripMate is 10% of the actual amount of each Completed request, rounded down to whole VND. A Rejected, Expired, Cancelled or No-show request carries no commission."
+        },
+        {
+          "section": "3.10.7",
+          "title": "Generate Commission Statement",
+          "definition": "The service commission owed to TripMate is 10% of the actual amount of each Completed request, rounded down to whole VND. A Rejected, Expired, Cancelled or No-show request carries no commission."
+        }
+      ]
+    },
+    {
+      "id": "BR-199",
+      "definition": "On the first day of each month the system issues one commission statement per Service Provider for the requests completed in the previous month. The statement is payable by bank transfer to the TripMate account within 7 days of its issue; the Service Provider reports the transfer reference and a Staff member records the receipt after bank reconciliation.",
+      "usedIn": "2.2, 3.1.4, 3.6.6, 3.6.7, 3.10.7",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.6.6",
+          "title": "Pay Commission Statement",
+          "definition": "On the first day of each month the system issues one commission statement per Service Provider for the requests completed in the previous month. The statement is payable by bank transfer to the TripMate account within 7 days of its issue; the Service Provider reports the transfer reference and a Staff member records the receipt after bank reconciliation."
+        },
+        {
+          "section": "3.6.7",
+          "title": "Confirm Commission Receipt",
+          "definition": "On the first day of each month the system issues one commission statement per Service Provider for the requests completed in the previous month. The statement is payable by bank transfer to the TripMate account within 7 days of its issue; the Service Provider reports the transfer reference and a Staff member records the receipt after bank reconciliation."
+        },
+        {
+          "section": "3.10.7",
+          "title": "Generate Commission Statement",
+          "definition": "On the first day of each month the system issues one commission statement per Service Provider for the requests completed in the previous month. The statement is payable by bank transfer to the TripMate account within 7 days of its issue; the Service Provider reports the transfer reference and a Staff member records the receipt after bank reconciliation."
+        }
+      ]
+    },
+    {
+      "id": "BR-200",
+      "definition": "When a commission statement remains unpaid 15 days after its due date, the system locks the Service Provider account automatically and its services are no longer open for booking. The account may be unlocked by Staff only after every overdue statement has been paid.",
+      "usedIn": "2.2, 3.1.4, 3.6.6, 3.6.7, 3.9.1.3, 3.10.7",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.6.6",
+          "title": "Pay Commission Statement",
+          "definition": "When a commission statement remains unpaid 15 days after its due date, the system locks the Service Provider account automatically and its services are no longer open for booking. The account may be unlocked by Staff only after every overdue statement has been paid."
+        },
+        {
+          "section": "3.6.7",
+          "title": "Confirm Commission Receipt",
+          "definition": "When a commission statement remains unpaid 15 days after its due date, the system locks the Service Provider account automatically and its services are no longer open for booking. The account may be unlocked by Staff only after every overdue statement has been paid."
+        },
+        {
+          "section": "3.9.1.3",
+          "title": "Unlock User Account",
+          "definition": "When a commission statement remains unpaid 15 days after its due date, the system locks the Service Provider account automatically and its services are no longer open for booking. The account may be unlocked by Staff only after every overdue statement has been paid."
+        },
+        {
+          "section": "3.10.7",
+          "title": "Generate Commission Statement",
+          "definition": "When a commission statement remains unpaid 15 days after its due date, the system locks the Service Provider account automatically and its services are no longer open for booking. The account may be unlocked by Staff only after every overdue statement has been paid."
+        }
+      ]
+    },
+    {
+      "id": "BR-91",
+      "definition": "A review may be submitted only for a booking that belongs to the Traveler and whose trip has been completed.",
+      "usedIn": "3.7.1, 3.7.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.7.1",
+          "title": "View Trip History",
+          "definition": "The review action is offered only for a trip that has been completed."
+        },
+        {
+          "section": "3.7.2",
+          "title": "Submit Trip Review",
+          "definition": "A review may be submitted only for a booking that belongs to the Traveler and whose trip has been completed."
+        }
+      ]
+    },
+    {
+      "id": "BR-92",
+      "definition": "At most one review may be submitted for each booking; the review action is offered only for a booking that has not been reviewed yet.",
+      "usedIn": "3.7.1, 3.7.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.7.1",
+          "title": "View Trip History",
+          "definition": "The review action is offered only for a booking that has not been reviewed yet."
+        },
+        {
+          "section": "3.7.2",
+          "title": "Submit Trip Review",
+          "definition": "At most one review may be submitted for each booking."
+        }
+      ]
+    },
+    {
+      "id": "BR-93",
+      "definition": "The rating is an integer value between 1 and 5 and is mandatory.",
+      "usedIn": "3.7.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.7.2",
+          "title": "Submit Trip Review",
+          "definition": "The rating is an integer value between 1 and 5 and is mandatory."
+        }
+      ]
+    },
+    {
+      "id": "BR-94",
+      "definition": "The written content of a review is screened against the content policy, and a review that violates the policy is not published.",
+      "usedIn": "3.7.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.7.2",
+          "title": "Submit Trip Review",
+          "definition": "The written content of a review is screened against the content policy, and a review that violates the policy is not published."
+        }
+      ]
+    },
+    {
+      "id": "BR-95",
+      "definition": "A published review may be edited by its author within seven days after its submission; after that period it becomes read-only.",
+      "usedIn": "3.7.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.7.2",
+          "title": "Submit Trip Review",
+          "definition": "A published review may be edited by its author within seven days after its submission; after that period it becomes read-only."
+        }
+      ]
+    },
+    {
+      "id": "BR-76",
+      "definition": "A refund is returned only through the original payment channel of the verified transaction. UC-41 creates a Pending RefundRequest but does not call the payment gateway; the request is paid under UC-67.",
+      "usedIn": "3.8.4.2, 3.10.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.4.2",
+          "title": "Cancel Tour Booking",
+          "definition": "A refund is returned only through the original payment channel of the verified transaction. UC-41 creates a Pending RefundRequest but does not call the payment gateway; the request is paid under UC-67."
+        },
+        {
+          "section": "3.10.2",
+          "title": "Process Refund to Traveler",
+          "definition": "A refund to the Traveler is returned through the original payment channel of the verified transaction."
+        }
+      ]
+    },
+    {
+      "id": "BR-77",
+      "definition": "Verified transactions are immutable and read-only in every function; a refund is recorded as a separate record.",
+      "usedIn": "3.8.4.1, 3.9.8, 3.10.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.4.1",
+          "title": "View Customer Bookings",
+          "definition": "The verified transaction information displayed with a booking is read-only and is never modified through this function."
+        },
+        {
+          "section": "3.9.8",
+          "title": "View Platform Bookings",
+          "definition": "The verified transactions are immutable and are presented as recorded."
+        },
+        {
+          "section": "3.10.2",
+          "title": "Process Refund to Traveler",
+          "definition": "A verified transaction is immutable; a refund is recorded as a separate record."
+        }
+      ]
+    },
+    {
+      "id": "BR-101",
+      "definition": "A tour package must contain all mandatory fields (tour name, destination, duration, price per participant, maximum capacity, description, cancellation policy, at least one itinerary day and at least one departure schedule) when it is created, updated or submitted for approval.",
+      "usedIn": "3.8.2.1, 3.8.2.2, 3.8.2.3",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.2.1",
+          "title": "Create Tour Package",
+          "definition": "A tour package is stored only when all its mandatory fields are provided, namely the tour name, the destination, the duration, the price per participant, the maximum capacity, the description, the cancellation policy, at least one itinerary day and at least one departure schedule."
+        },
+        {
+          "section": "3.8.2.2",
+          "title": "Update Tour Package",
+          "definition": "The changed tour package must still satisfy the completeness rule of the mandatory fields."
+        },
+        {
+          "section": "3.8.2.3",
+          "title": "Submit Tour Package for Approval",
+          "definition": "A tour package may be submitted only when all its mandatory fields, at least one itinerary day and at least one departure schedule are provided."
+        }
+      ]
+    },
+    {
+      "id": "BR-102",
+      "definition": "Ownership of content: a Tour Operator may create, modify, submit and manage only the tour packages and the coupons owned by that Tour Operator, and may issue a coupon only for its own tour packages.",
+      "usedIn": "3.8.2.1, 3.8.2.2, 3.8.2.3, 3.8.3.1, 3.8.3.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.2.1",
+          "title": "Create Tour Package",
+          "definition": "A Tour Operator may create and manage only the tour packages owned by that Tour Operator."
+        },
+        {
+          "section": "3.8.2.2",
+          "title": "Update Tour Package",
+          "definition": "A Tour Operator may modify only the tour packages owned by that Tour Operator."
+        },
+        {
+          "section": "3.8.2.3",
+          "title": "Submit Tour Package for Approval",
+          "definition": "A Tour Operator may submit only the tour packages owned by that Tour Operator."
+        },
+        {
+          "section": "3.8.3.1",
+          "title": "Create Coupon",
+          "definition": "A Tour Operator may issue a coupon only for the tour packages owned by that Tour Operator."
+        },
+        {
+          "section": "3.8.3.2",
+          "title": "Update Coupon",
+          "definition": "A Tour Operator may modify only the coupons owned by that Tour Operator."
+        }
+      ]
+    },
+    {
+      "id": "BR-103",
+      "definition": "An approved and published tour package is never edited in place; the modification is applied to a new draft version that must be submitted for approval again.",
+      "usedIn": "3.8.2.2, 3.8.2.3, 3.9.7.1",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.2.2",
+          "title": "Update Tour Package",
+          "definition": "An approved and published tour package is never edited in place; the modification is applied to a new draft version that must be submitted for approval again."
+        },
+        {
+          "section": "3.8.2.3",
+          "title": "Submit Tour Package for Approval",
+          "definition": "A modification of an approved tour package reaches the Travelers only through a new draft version that has been submitted and approved again."
+        },
+        {
+          "section": "3.9.7.1",
+          "title": "Approve Tour Post",
+          "definition": "The approval applies to the submitted version; a later change by the operator requires a new draft version and a new approval."
+        }
+      ]
+    },
+    {
+      "id": "BR-105",
+      "definition": "Ownership of bookings: a Traveler may cancel only a booking owned by that Traveler. A Tour Operator may view, cancel, report on and export only the bookings and the revenue of the tour packages owned by that Tour Operator.",
+      "usedIn": "3.8.4.1, 3.8.4.2, 3.8.5.1, 3.8.5.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.4.1",
+          "title": "View Customer Bookings",
+          "definition": "A Tour Operator may view only the bookings placed on the tour packages owned by that Tour Operator."
+        },
+        {
+          "section": "3.8.4.2",
+          "title": "Cancel Tour Booking",
+          "definition": "A Traveler may cancel only a booking owned by that Traveler. A Tour Operator may cancel only a booking placed on a tour package owned by that Tour Operator."
+        },
+        {
+          "section": "3.8.5.1",
+          "title": "View Revenue Report",
+          "definition": "A Tour Operator may view only the revenue of the tour packages owned by that Tour Operator."
+        },
+        {
+          "section": "3.8.5.2",
+          "title": "Export Revenue Report",
+          "definition": "The export contains only the data of the tour packages owned by the signed-in Tour Operator."
+        }
+      ]
+    },
+    {
+      "id": "BR-106",
+      "definition": "Only bookings in PendingPayment or Confirmed status may be cancelled. Cancelled, Completed, checked-in, or used-ticket bookings must not be cancelled. A Tour Operator cancellation requires a reason and description; a Traveler cancellation reason is optional.",
+      "usedIn": "3.8.4.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.4.2",
+          "title": "Cancel Tour Booking",
+          "definition": "Only bookings in PendingPayment or Confirmed status may be cancelled. Cancelled, Completed, checked-in, or used-ticket bookings must not be cancelled. A Tour Operator cancellation requires a reason and description; a Traveler cancellation reason is optional."
+        }
+      ]
+    },
+    {
+      "id": "BR-107",
+      "definition": "The applicable cancellation policy is stored as a CancellationPolicySnapshot when the booking is created. A later change to the tour package cancellation policy must not change the cancellation eligibility or refund amount of an existing booking.",
+      "usedIn": "3.1.5, 3.8.4.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.4.2",
+          "title": "Cancel Tour Booking",
+          "definition": "The applicable cancellation policy is stored as a CancellationPolicySnapshot when the booking is created. A later change to the tour package cancellation policy must not change the cancellation eligibility or refund amount of an existing booking."
+        }
+      ]
+    },
+    {
+      "id": "BR-108",
+      "definition": "The check-in may be performed only on the departure date and only by the Tour Operator that owns the tour package of the departure.",
+      "usedIn": "3.8.4.4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.4.4",
+          "title": "Check In Traveler by QR Code",
+          "definition": "The check-in may be performed only on the departure date and only by the Tour Operator that owns the tour package of the departure."
+        }
+      ]
+    },
+    {
+      "id": "BR-109",
+      "definition": "Tour Operator revenue, displayed or exported, is computed only from bookings in Confirmed or Completed status and from their verified payments.",
+      "usedIn": "3.8.5.1, 3.8.5.2, 3.9.11",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.5.1",
+          "title": "View Revenue Report",
+          "definition": "The revenue of a Tour Operator is computed from the bookings whose status is Confirmed or Completed, and only from the verified payments of those bookings."
+        },
+        {
+          "section": "3.8.5.2",
+          "title": "Export Revenue Report",
+          "definition": "The exported revenue values are computed from the same rule as the displayed report."
+        },
+        {
+          "section": "3.9.11",
+          "title": "Export Statistical Reports",
+          "definition": "The revenue figures are computed from the Confirmed and Completed bookings, net of the recorded refunds."
+        }
+      ]
+    },
+    {
+      "id": "BR-110",
+      "definition": "The exported file reflects exactly the filters applied on the screen at the moment of the export; no additional record is included and no filtered record is omitted.",
+      "usedIn": "3.8.5.2, 3.9.11, 3.9.12.1",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.5.2",
+          "title": "Export Revenue Report",
+          "definition": "The exported file reflects exactly the filters applied on the screen at the moment of the export; no additional record is included and no filtered record is omitted."
+        },
+        {
+          "section": "3.9.11",
+          "title": "Export Statistical Reports",
+          "definition": "The exported file reflects exactly the report type, the period and the filters applied on the screen at the export time."
+        },
+        {
+          "section": "3.9.12.1",
+          "title": "View Audit Logs",
+          "definition": "An exported audit log file reflects the filters applied on the screen at the export time."
+        }
+      ]
+    },
+    {
+      "id": "BR-130",
+      "definition": "The audit log entries are immutable; they can be neither edited nor deleted through the application, and the read access itself is recorded.",
+      "usedIn": "3.8.4.3, 3.9.2.1, 3.9.2.2, 3.9.3.1, 3.9.3.2, 3.9.3.3, 3.9.4.1, 3.9.4.2, 3.9.5, 3.9.6.2, 3.9.7.1, 3.9.7.2, 3.9.8, 3.9.10, 3.9.11, 3.9.12.1, 3.9.12.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.4.3",
+          "title": "Confirm Booking Refund",
+          "definition": "The confirmation, the reported return and the recorded receipt are written to the immutable audit log."
+        },
+        {
+          "section": "3.9.2.1",
+          "title": "Approve Tour Operator Application",
+          "definition": "The decision is written to the immutable audit log."
+        },
+        {
+          "section": "3.9.2.2",
+          "title": "Reject Tour Operator Application",
+          "definition": "The decision is written to the immutable audit log."
+        },
+        {
+          "section": "3.9.3.1",
+          "title": "Create Point of Interest",
+          "definition": "The creation event is written to the immutable audit log."
+        },
+        {
+          "section": "3.9.3.2",
+          "title": "Update Point of Interest",
+          "definition": "The change event is written to the immutable audit log with the changed fields."
+        },
+        {
+          "section": "3.9.3.3",
+          "title": "Remove Point of Interest",
+          "definition": "The removal event and its reason are written to the immutable audit log."
+        },
+        {
+          "section": "3.9.4.1",
+          "title": "Create Route",
+          "definition": "The creation event is written to the immutable audit log."
+        },
+        {
+          "section": "3.9.4.2",
+          "title": "Update Route",
+          "definition": "The change event with the changed fields is written to the immutable audit log."
+        },
+        {
+          "section": "3.9.5",
+          "title": "Configure Algorithm Parameters",
+          "definition": "The change event with the previous and the new values is written to the immutable audit log."
+        },
+        {
+          "section": "3.9.6.2",
+          "title": "View Active Trip Details",
+          "definition": "The access to the trip details by a Staff is written to the audit log."
+        },
+        {
+          "section": "3.9.7.1",
+          "title": "Approve Tour Post",
+          "definition": "The decision event is written to the immutable audit log."
+        },
+        {
+          "section": "3.9.7.2",
+          "title": "Reject Tour Post",
+          "definition": "The decision event is written to the immutable audit log."
+        },
+        {
+          "section": "3.9.8",
+          "title": "View Platform Bookings",
+          "definition": "The access to the platform booking data by a Staff member is written to the audit log."
+        },
+        {
+          "section": "3.9.10",
+          "title": "Update Landing Page Content",
+          "definition": "The publication event is written to the immutable audit log."
+        },
+        {
+          "section": "3.9.11",
+          "title": "Export Statistical Reports",
+          "definition": "The export event with the report type and the period is written to the immutable audit log."
+        },
+        {
+          "section": "3.9.12.1",
+          "title": "View Audit Logs",
+          "definition": "The audit log entries are immutable; they can be neither edited nor deleted through the application, and the read access itself is recorded."
+        },
+        {
+          "section": "3.9.12.2",
+          "title": "View Audit Log Details",
+          "definition": "The audit log entry is immutable; its recorded content is presented exactly as it was written."
+        }
+      ]
+    },
+    {
+      "id": "BR-135",
+      "definition": "Refund percentage for a Traveler’s cancellation, applied to the booking PaidAmount (BR-164) and measured from the time the system confirms the cancellation (BR-155): more than 14 days before departure, 100%; 10 to 14 days, 50%; less than 10 days, 0%, shown with a warning and confirmed separately (MSG170).",
+      "usedIn": "3.1.4, 3.5.4, 3.8.4.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.4.2",
+          "title": "Cancel Tour Booking",
+          "definition": "Refund percentage for a Traveler’s cancellation, applied to the booking PaidAmount (BR-164) and measured from the time the system confirms the cancellation (BR-155): more than 14 days before departure, 100%; 10 to 14 days, 50%; less than 10 days, 0%, shown with a warning and confirmed separately (MSG170)."
+        }
+      ]
+    },
+    {
+      "id": "BR-136",
+      "definition": "A Tour Operator cancellation of an owned tour booking refunds 100% of the verified paid amount to the Traveler. Cancelling a PendingPayment booking releases capacity and creates no RefundRequest. The system never cancels a tour automatically (UC-66).",
+      "usedIn": "2.2, 3.1.4, 3.8.4.2, 3.10.1",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.4.2",
+          "title": "Cancel Tour Booking",
+          "definition": "A Tour Operator cancellation of an owned tour booking refunds 100% of the verified paid amount to the Traveler. Cancelling a PendingPayment booking releases capacity and creates no RefundRequest. The system never cancels a tour automatically (UC-66)."
+        },
+        {
+          "section": "3.10.1",
+          "title": "Handle Weather Warning and Operator Cancellation",
+          "definition": "A Tour Operator cancellation of an owned tour booking refunds 100% of the verified paid amount to the Traveler. Cancelling a PendingPayment booking releases capacity and creates no RefundRequest. The system never cancels a tour automatically (UC-66)."
+        }
+      ]
+    },
+    {
+      "id": "BR-137",
+      "definition": "Booking cancellation, capacity release, unused QR e-ticket invalidation, optional RefundRequest creation, and audit-record creation must be completed in one transaction.",
+      "usedIn": "3.8.4.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.4.2",
+          "title": "Cancel Tour Booking",
+          "definition": "Booking cancellation, capacity release, unused QR e-ticket invalidation, optional RefundRequest creation, and audit-record creation must be completed in one transaction."
+        }
+      ]
+    },
+    {
+      "id": "BR-138",
+      "definition": "The cancellation request requires an Idempotency-Key. A repeated request with the same key and identical payload returns the original result; the same key with a different payload is rejected.",
+      "usedIn": "3.8.4.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.4.2",
+          "title": "Cancel Tour Booking",
+          "definition": "The cancellation request requires an Idempotency-Key. A repeated request with the same key and identical payload returns the original result; the same key with a different payload is rejected."
+        }
+      ]
+    },
+    {
+      "id": "BR-139",
+      "definition": "The Tour Operator return share of a refund is the refund amount multiplied by the amount already transferred to the Tour Operator for the booking and divided by the booking PaidAmount, rounded down to whole VND: 0 before the advance settlement, 70% of the refund after it, 90% after the final settlement. TripMate pays the remainder of the refund from the amount it retains. When the share is 0, the refund is paid as soon as the request is confirmed. For a partial cancellation under BR-158, the amounts are those of the cancelled participants.",
+      "usedIn": "2.2, 3.1.5, 3.8.4.3, 3.10.2, 3.10.4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.4.3",
+          "title": "Confirm Booking Refund",
+          "definition": "The Tour Operator return share of a refund is the refund amount multiplied by the amount already transferred to the Tour Operator for the booking and divided by the booking PaidAmount, rounded down to whole VND: 0 before the advance settlement, 70% of the refund after it, 90% after the final settlement. TripMate pays the remainder of the refund from the amount it retains. When the share is 0, the refund is paid as soon as the request is confirmed. For a partial cancellation under BR-158, the amounts are those of the cancelled participants."
+        },
+        {
+          "section": "3.10.2",
+          "title": "Process Refund to Traveler",
+          "definition": "The Tour Operator return share of a refund is the refund amount multiplied by the amount already transferred to the Tour Operator for the booking and divided by the booking PaidAmount, rounded down to whole VND: 0 before the advance settlement, 70% of the refund after it, 90% after the final settlement. TripMate pays the remainder of the refund from the amount it retains. When the share is 0, the refund is paid as soon as the request is confirmed. For a partial cancellation under BR-158, the amounts are those of the cancelled participants."
+        }
+      ]
+    },
+    {
+      "id": "BR-140",
+      "definition": "The platform commission is a fixed 10% of the booking PaidAmount, locked per booking; for a refunded booking it is 10% of the PaidAmount less the refund amount.",
+      "usedIn": "3.8.5.1, 3.10.4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.5.1",
+          "title": "View Revenue Report",
+          "definition": "The platform commission is a fixed 10% of the booking PaidAmount, locked per booking; for a refunded booking it is 10% of the PaidAmount less the refund amount."
+        }
+      ]
+    },
+    {
+      "id": "BR-143",
+      "definition": "Every refund arising from a cancellation under UC-41 or from an accepted complaint (UC-69, UC-75) is paid to the Traveler under UC-67 only after the Tour Operator has confirmed it under UC-42 and TripMate has received the Tour Operator return share (BR-139); there is no direct refund route. The only exception is a Tour Operator cancellation under UC-66, which is refunded immediately (BR-186).",
+      "usedIn": "2.2, 3.8.4.2, 3.8.4.3, 3.8.6.2, 3.8.6.3, 3.10.1, 3.10.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.4.3",
+          "title": "Confirm Booking Refund",
+          "definition": "Every refund arising from a cancellation under UC-41 or from an accepted complaint (UC-69, UC-75) is paid to the Traveler under UC-67 only after the Tour Operator has confirmed it under UC-42 and TripMate has received the Tour Operator return share (BR-139); there is no direct refund route. The only exception is a Tour Operator cancellation under UC-66, which is refunded immediately (BR-186)."
+        },
+        {
+          "section": "3.10.2",
+          "title": "Process Refund to Traveler",
+          "definition": "Every refund arising from a cancellation under UC-41 or from an accepted complaint (UC-69, UC-75) is paid to the Traveler under UC-67 only after the Tour Operator has confirmed it under UC-42 and TripMate has received the Tour Operator return share (BR-139); there is no direct refund route. The only exception is a Tour Operator cancellation under UC-66, which is refunded immediately (BR-186)."
+        }
+      ]
+    },
+    {
+      "id": "BR-144",
+      "definition": "The Tour Operator must return its refund share within 3 working days after the refund is confirmed under UC-42. An unreturned amount becomes a pending debt, offset against the Tour Operator’s next settlement under UC-71 in order of scheduled run, until the full amount is recovered. The Traveler is refunded under UC-67 only when TripMate has received the full refund share; a partial offset does not trigger a refund. If the debt is not fully recovered within 15 days, the Tour Operator account is locked automatically (BR-189).",
+      "usedIn": "2.2, 3.1.2.2, 3.1.4, 3.1.5, 3.8.4.3, 3.10.1, 3.10.4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.4.3",
+          "title": "Confirm Booking Refund",
+          "definition": "The Tour Operator must return its refund share within 3 working days after the refund is confirmed under UC-42. An unreturned amount becomes a pending debt, offset against the Tour Operator’s next settlement under UC-71 in order of scheduled run, until the full amount is recovered. The Traveler is refunded under UC-67 only when TripMate has received the full refund share; a partial offset does not trigger a refund. If the debt is not fully recovered within 15 days, the Tour Operator account is locked automatically (BR-189)."
+        },
+        {
+          "section": "3.10.4",
+          "title": "Schedule Payout Settlement",
+          "definition": "An unreturned refund share is a pending debt offset against the next settlements, in order of scheduled run, until recovered."
+        }
+      ]
+    },
+    {
+      "id": "BR-147",
+      "definition": "A complaint can be submitted only within 3 days after the tour ends, for a booking in Confirmed or Completed status.",
+      "usedIn": "3.8.6.1",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.6.1",
+          "title": "Submit Post-Trip Complaint",
+          "definition": "A complaint can be submitted only within 3 days after the tour ends, for a booking in Confirmed or Completed status."
+        }
+      ]
+    },
+    {
+      "id": "BR-148",
+      "definition": "One complaint per booking.",
+      "usedIn": "3.8.6.1",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.6.1",
+          "title": "Submit Post-Trip Complaint",
+          "definition": "One complaint per booking."
+        }
+      ]
+    },
+    {
+      "id": "BR-149",
+      "definition": "Evidence limits as listed in the Screen Layout.",
+      "usedIn": "3.8.6.1",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.6.1",
+          "title": "Submit Post-Trip Complaint",
+          "definition": "Evidence limits as listed in the Screen Layout."
+        }
+      ]
+    },
+    {
+      "id": "BR-150",
+      "definition": "A proposed partial refund must not exceed the refundable amount of the booking.",
+      "usedIn": "3.8.6.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.6.2",
+          "title": "Respond to Post-Trip Complaint",
+          "definition": "A proposed partial refund must not exceed the refundable amount of the booking."
+        }
+      ]
+    },
+    {
+      "id": "BR-151",
+      "definition": "The Tour Operator has 7 days to respond.",
+      "usedIn": "3.1.4, 3.8.6.1, 3.8.6.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.6.2",
+          "title": "Respond to Post-Trip Complaint",
+          "definition": "The Tour Operator has 7 days to respond."
+        }
+      ]
+    },
+    {
+      "id": "BR-152",
+      "definition": "A rejection requires a reason.",
+      "usedIn": "3.8.6.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.6.2",
+          "title": "Respond to Post-Trip Complaint",
+          "definition": "A rejection requires a reason."
+        }
+      ]
+    },
+    {
+      "id": "BR-153",
+      "definition": "The Traveler has 3 days to respond. No response within 3 days is treated as Decline.",
+      "usedIn": "3.1.4, 3.8.6.3",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.6.3",
+          "title": "Respond to Partial Refund Proposal",
+          "definition": "The Traveler has 3 days to respond. No response within 3 days is treated as Decline."
+        }
+      ]
+    },
+    {
+      "id": "BR-155",
+      "definition": "The refund percentage is measured from the time the system confirms the cancellation request, not from the time the Traveler submits it.",
+      "usedIn": "3.8.4.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.4.2",
+          "title": "Cancel Tour Booking",
+          "definition": "The refund percentage is measured from the time the system confirms the cancellation request, not from the time the Traveler submits it."
+        }
+      ]
+    },
+    {
+      "id": "BR-158",
+      "definition": "A Traveler may cancel one or more participants of a group booking. For a partial cancellation, the refund percentage (BR-135) and the refund amount are calculated on the PaidAmount of the cancelled participants only; the bookings of the remaining participants are unchanged.",
+      "usedIn": "3.8.4.3, 3.10.2",
+      "retired": false,
+      "details": []
+    },
+    {
+      "id": "BR-164",
+      "definition": "The booking PaidAmount is the amount actually paid by the Traveler, after the discount of any applied voucher, as recorded by the verified payment result.",
+      "usedIn": "3.8.4.2",
+      "retired": false,
+      "details": []
+    },
+    {
+      "id": "BR-173",
+      "definition": "The net amount is the gross revenue reduced by the refunds completed in the period and by the platform commission; the platform commission for each booking is computed on that booking’s payment amount after deducting its own completed refunds, and is never negative.",
+      "usedIn": "3.8.5.1",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.5.1",
+          "title": "View Revenue Report",
+          "definition": "The net amount is the gross revenue reduced by the refunds completed in the period and by the platform commission; the platform commission for each booking is computed on that booking’s payment amount after deducting its own completed refunds, and is never negative."
+        }
+      ]
+    },
+    {
+      "id": "BR-178",
+      "definition": "The usage limit of a coupon must not be reduced below the number of usages already recorded.",
+      "usedIn": "3.8.3.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.3.2",
+          "title": "Update Coupon",
+          "definition": "The usage limit of a coupon must not be reduced below the number of the usages already recorded."
+        }
+      ]
+    },
+    {
+      "id": "BR-184",
+      "definition": "The Valid From date of a coupon must not be later than the Valid To date, and the Valid To date must not be in the past.",
+      "usedIn": "3.8.3.1",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.3.1",
+          "title": "Create Coupon",
+          "definition": "The Valid From date of a coupon must not be later than the Valid To date, and the Valid To date must not be in the past."
+        }
+      ]
+    },
+    {
+      "id": "BR-185",
+      "definition": "A tour package may be submitted for approval only when its current status is Draft or Rejected.",
+      "usedIn": "3.8.2.3",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.2.3",
+          "title": "Submit Tour Package for Approval",
+          "definition": "A tour package may be submitted for approval only when its current status is Draft or Rejected."
+        }
+      ]
+    },
+    {
+      "id": "BR-187",
+      "definition": "The Tour Operator must confirm a refund request within 3 working days after it is created. When this period passes without a confirmation, the system confirms the request automatically and the return deadline of BR-144 starts from that moment.",
+      "usedIn": "2.2, 3.1.4, 3.8.4.3, 3.10.1",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.4.3",
+          "title": "Confirm Booking Refund",
+          "definition": "The Tour Operator must confirm a refund request within 3 working days after it is created. When this period passes without a confirmation, the system confirms the request automatically and the return deadline of BR-144 starts from that moment."
+        }
+      ]
+    },
+    {
+      "id": "BR-188",
+      "definition": "While a Tour Operator has an outstanding pending debt, each of its settlements is first offset against the debt (BR-144); only the part of a settlement that exceeds the remaining debt is transferred, so no amount is paid out while a debt remains.",
+      "usedIn": "3.8.4.3, 3.10.4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.4.3",
+          "title": "Confirm Booking Refund",
+          "definition": "While a Tour Operator has an outstanding pending debt, each of its settlements is first offset against the debt (BR-144); only the part of a settlement that exceeds the remaining debt is transferred, so no amount is paid out while a debt remains."
+        },
+        {
+          "section": "3.10.4",
+          "title": "Schedule Payout Settlement",
+          "definition": "While a Tour Operator has an outstanding pending debt, each of its settlements is first offset against the debt (BR-144); only the part of a settlement that exceeds the remaining debt is transferred, so no amount is paid out while a debt remains."
+        }
+      ]
+    },
+    {
+      "id": "BR-189",
+      "definition": "When any part of the pending debt of a Tour Operator remains unrecovered 15 days after it arose, the system automatically locks the Tour Operator account with the recorded reason “Unrecovered pending debt (BR-189)”, terminates its active sessions (BR-175), and notifies the Tour Operator and Staff with MSG198. This automatic lock is an exception to the manual lock of BR-168. The account may be unlocked by Staff under UC-48 only after the debt has been fully recovered.",
+      "usedIn": "3.1.4, 3.8.4.3, 3.9.1.2, 3.9.1.3, 3.10.1",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.8.4.3",
+          "title": "Confirm Booking Refund",
+          "definition": "When any part of the pending debt of a Tour Operator remains unrecovered 15 days after it arose, the system automatically locks the Tour Operator account with the recorded reason “Unrecovered pending debt (BR-189)”, terminates its active sessions (BR-175), and notifies the Tour Operator and Staff with MSG198. This automatic lock is an exception to the manual lock of BR-168. The account may be unlocked by Staff under UC-48 only after the debt has been fully recovered."
+        },
+        {
+          "section": "3.9.1.3",
+          "title": "Unlock User Account",
+          "definition": "An account locked automatically for an unrecovered pending debt may be unlocked only after the debt has been fully recovered."
+        }
+      ]
+    },
+    {
+      "id": "BR-104",
+      "definition": "Only a package in Pending Approval may receive a decision and a decided package cannot be decided again; a rejected package returns to an editable state from which the operator may correct and resubmit it.",
+      "usedIn": "3.9.7.1, 3.9.7.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.9.7.1",
+          "title": "Approve Tour Post",
+          "definition": "Only a package whose status is Pending Approval may receive a decision; a package already decided cannot be decided again."
+        },
+        {
+          "section": "3.9.7.2",
+          "title": "Reject Tour Post",
+          "definition": "Only a package whose status is Pending Approval may receive a decision."
+        },
+        {
+          "section": "3.9.7.2",
+          "title": "Reject Tour Post",
+          "definition": "The rejected package returns to a state from which the operator may correct it and submit it again."
+        }
+      ]
+    },
+    {
+      "id": "BR-115",
+      "definition": "Role-based access to the web administration workspace: only Staff and Administrator accounts may access it, and each administration function is available only to the role assigned to it in Section 2.2.2 and in the Screen Authorization Matrix (Section 3.1.3).",
+      "usedIn": "3.9.1.1, 3.9.2.1, 3.9.2.2, 3.9.3.1, 3.9.3.2, 3.9.3.3, 3.9.4.1, 3.9.4.2, 3.9.5, 3.9.6.1, 3.9.6.2, 3.9.7.1, 3.9.7.2, 3.9.8, 3.9.9.1, 3.9.10, 3.9.11, 3.9.12.1, 3.9.12.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.9.1.1",
+          "title": "View User Accounts",
+          "definition": "The web administration application is accessible only to accounts holding the Administrator or Staff role."
+        },
+        {
+          "section": "3.9.2.1",
+          "title": "Approve Tour Operator Application",
+          "definition": "Only an account holding the Staff role may decide on a Tour Operator application."
+        },
+        {
+          "section": "3.9.2.2",
+          "title": "Reject Tour Operator Application",
+          "definition": "Only an account holding the Staff role may decide on a Tour Operator application."
+        },
+        {
+          "section": "3.9.3.1",
+          "title": "Create Point of Interest",
+          "definition": "Only an account holding the Staff role may maintain the master data of the points of interest."
+        },
+        {
+          "section": "3.9.3.2",
+          "title": "Update Point of Interest",
+          "definition": "Only an account holding the Administrator or Staff role may modify the master data of a point of interest."
+        },
+        {
+          "section": "3.9.3.3",
+          "title": "Remove Point of Interest",
+          "definition": "Only an account holding the Administrator role may remove a point of interest."
+        },
+        {
+          "section": "3.9.4.1",
+          "title": "Create Route",
+          "definition": "Only an account holding the Staff role may maintain the routes."
+        },
+        {
+          "section": "3.9.4.2",
+          "title": "Update Route",
+          "definition": "Only an account holding the Staff role may modify a route."
+        },
+        {
+          "section": "3.9.5",
+          "title": "Configure Algorithm Parameters",
+          "definition": "Only an account holding the Administrator role may change the algorithm parameters."
+        },
+        {
+          "section": "3.9.6.1",
+          "title": "View Active Trips",
+          "definition": "Only an account holding the Staff role may use this function; the Administrator may open the web administration application but not this function."
+        },
+        {
+          "section": "3.9.6.2",
+          "title": "View Active Trip Details",
+          "definition": "Only an account holding the Staff role may use this function; the Administrator may open the web administration application but not this function."
+        },
+        {
+          "section": "3.9.7.1",
+          "title": "Approve Tour Post",
+          "definition": "Only an account holding the Staff role may moderate a tour package."
+        },
+        {
+          "section": "3.9.7.2",
+          "title": "Reject Tour Post",
+          "definition": "Only an account holding the Staff role may moderate a tour package."
+        },
+        {
+          "section": "3.9.8",
+          "title": "View Platform Bookings",
+          "definition": "Only an account holding the Staff role may use this function; the Administrator may open the web administration application but not this function."
+        },
+        {
+          "section": "3.9.9.1",
+          "title": "View Payout Records",
+          "definition": "Only an account holding the Staff role or the Administrator role may open the Settlement Records List."
+        },
+        {
+          "section": "3.9.10",
+          "title": "Update Landing Page Content",
+          "definition": "Only an account holding the Staff role may change the landing page content."
+        },
+        {
+          "section": "3.9.11",
+          "title": "Export Statistical Reports",
+          "definition": "Only an account holding the Administrator role may generate and export a platform statistical report."
+        },
+        {
+          "section": "3.9.12.1",
+          "title": "View Audit Logs",
+          "definition": "Only an account holding the Administrator role may read the audit log."
+        },
+        {
+          "section": "3.9.12.2",
+          "title": "View Audit Log Details",
+          "definition": "Only an account holding the Administrator role may read an audit log entry."
+        }
+      ]
+    },
+    {
+      "id": "BR-118",
+      "definition": "The decision records the reviewing Staff member and the decision timestamp.",
+      "usedIn": "3.9.2.1, 3.9.2.2, 3.9.7.1, 3.9.7.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.9.2.1",
+          "title": "Approve Tour Operator Application",
+          "definition": "The decision records the reviewing Staff member and the decision timestamp."
+        },
+        {
+          "section": "3.9.2.2",
+          "title": "Reject Tour Operator Application",
+          "definition": "The decision records the reviewing Staff member and the decision timestamp."
+        },
+        {
+          "section": "3.9.7.1",
+          "title": "Approve Tour Post",
+          "definition": "The approval record stores the reviewing Staff and decision timestamp."
+        },
+        {
+          "section": "3.9.7.2",
+          "title": "Reject Tour Post",
+          "definition": "The decision record stores the reviewing Staff and the decision timestamp."
+        }
+      ]
+    },
+    {
+      "id": "BR-119",
+      "definition": "The rejection of an application or of a tour package requires a recorded reason, and that reason is made visible to the applicant or the owning Tour Operator.",
+      "usedIn": "3.9.2.2, 3.9.7.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.9.2.2",
+          "title": "Reject Tour Operator Application",
+          "definition": "The rejection of an application requires a recorded reason, and that reason is made visible to the applicant."
+        },
+        {
+          "section": "3.9.7.2",
+          "title": "Reject Tour Post",
+          "definition": "A rejection requires a reason and the stored reason is visible to the owning Tour Operator."
+        }
+      ]
+    },
+    {
+      "id": "BR-120",
+      "definition": "A point of interest is stored only when its name, its category and valid geographic coordinates are provided.",
+      "usedIn": "3.9.3.1, 3.9.3.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.9.3.1",
+          "title": "Create Point of Interest",
+          "definition": "A point of interest is stored only when its name, its category and valid geographic coordinates are provided."
+        },
+        {
+          "section": "3.9.3.2",
+          "title": "Update Point of Interest",
+          "definition": "The changed point of interest must still provide its name, its category and valid geographic coordinates."
+        }
+      ]
+    },
+    {
+      "id": "BR-121",
+      "definition": "A point of interest is never deleted; it is set to the status Inactive and is no longer used in new itineraries or routes.",
+      "usedIn": "2.2, 3.1.2.1, 3.9.3.2, 3.9.3.3",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.9.3.2",
+          "title": "Update Point of Interest",
+          "definition": "A point of interest is never deleted; it is set to the status Inactive and is no longer used in new itineraries or routes."
+        },
+        {
+          "section": "3.9.3.3",
+          "title": "Remove Point of Interest",
+          "definition": "A point of interest is never deleted; it is set to the status Inactive so that the existing records remain readable."
+        }
+      ]
+    },
+    {
+      "id": "BR-122",
+      "definition": "Both endpoints of an Active route must be distinct Active points of interest; when an endpoint is deactivated, the route is set to Inactive and flagged for Staff review.",
+      "usedIn": "3.9.3.3, 3.9.4.1, 3.9.4.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.9.3.3",
+          "title": "Remove Point of Interest",
+          "definition": "Both endpoints of an Active route must be distinct Active points of interest; when an endpoint is deactivated, the route is set to Inactive and flagged for Staff review."
+        },
+        {
+          "section": "3.9.4.1",
+          "title": "Create Route",
+          "definition": "Both endpoints of a route must be existing points of interest with the status Active, and the origin must differ from the destination."
+        },
+        {
+          "section": "3.9.4.2",
+          "title": "Update Route",
+          "definition": "Both endpoints of an Active route must be Active points of interest and must differ from each other; a route whose endpoint has been deactivated is set to Inactive."
+        }
+      ]
+    },
+    {
+      "id": "BR-123",
+      "definition": "Every parameter value must be within its allowed range; a value outside the range is rejected and no part of the submitted configuration is applied.",
+      "usedIn": "3.9.5",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.9.5",
+          "title": "Configure Algorithm Parameters",
+          "definition": "Every parameter value must be within its allowed range; a value outside the range is rejected and no part of the submitted configuration is applied."
+        }
+      ]
+    },
+    {
+      "id": "BR-124",
+      "definition": "The active trip monitoring is read-only; the Staff can neither modify an itinerary nor change a group membership from this function.",
+      "usedIn": "3.9.6.1, 3.9.6.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.9.6.1",
+          "title": "View Active Trips",
+          "definition": "The active trip monitoring is read-only; the Staff can neither modify an itinerary nor change a group membership from this function."
+        },
+        {
+          "section": "3.9.6.2",
+          "title": "View Active Trip Details",
+          "definition": "The function is read-only; the Staff cannot modify the itinerary, the membership or the booking from this screen."
+        }
+      ]
+    },
+    {
+      "id": "BR-125",
+      "definition": "Every item of the mandatory review checklist must pass before the approval can be confirmed.",
+      "usedIn": "3.9.7.1",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.9.7.1",
+          "title": "Approve Tour Post",
+          "definition": "Every item of the mandatory review checklist must pass before the approval can be confirmed."
+        }
+      ]
+    },
+    {
+      "id": "BR-126",
+      "definition": "The platform booking monitoring is read-only; a booking can be neither created, modified nor cancelled from this function.",
+      "usedIn": "3.9.8",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.9.8",
+          "title": "View Platform Bookings",
+          "definition": "The platform booking monitoring is read-only; a booking can be neither created, modified nor cancelled from this function."
+        }
+      ]
+    },
+    {
+      "id": "BR-128",
+      "definition": "The landing page content is versioned and a change becomes visible to the public only after an explicit publication; saving a draft never changes the public page.",
+      "usedIn": "3.9.10",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.9.10",
+          "title": "Update Landing Page Content",
+          "definition": "The landing page content is versioned and a change becomes visible to the public only after an explicit publication; saving a draft never changes the public page."
+        }
+      ]
+    },
+    {
+      "id": "BR-129",
+      "definition": "A statistical report is produced from a closed period only; the current open period cannot be exported, so that the reported figures cannot change after the export.",
+      "usedIn": "3.9.11",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.9.11",
+          "title": "Export Statistical Reports",
+          "definition": "A statistical report is produced from a closed period only; the current open period cannot be exported, so that the reported figures cannot change after the export."
+        }
+      ]
+    },
+    {
+      "id": "BR-146",
+      "definition": "A payout amount is calculated once, when the daily run starts, and is never recalculated afterwards.",
+      "usedIn": "3.9.9.1, 3.10.4, 3.10.5, 3.10.6",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.9.9.1",
+          "title": "View Payout Records",
+          "definition": "A payout amount is calculated once, when the daily run starts, and is never recalculated afterwards."
+        },
+        {
+          "section": "3.10.4",
+          "title": "Schedule Payout Settlement",
+          "definition": "A payout amount is calculated once, when the daily run starts, and is never recalculated afterwards."
+        },
+        {
+          "section": "3.10.5",
+          "title": "Process Payout Settlement",
+          "definition": "The payout amount is never recalculated."
+        },
+        {
+          "section": "3.10.6",
+          "title": "Review Failed Payout Settlement",
+          "definition": "The payout amount is never recalculated."
+        }
+      ]
+    },
+    {
+      "id": "BR-168",
+      "definition": "A Staff account may view, lock and unlock Traveler, Tour Operator and Service Provider accounts only. An Administrator account may view, lock and unlock Staff accounts only. Locking changes only the access status, not the role.",
+      "usedIn": "3.1.2.1, 3.2.4, 3.8.4.3, 3.9.1, 3.9.1.1, 3.9.1.2, 3.9.1.3",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.9.1.2",
+          "title": "Lock User Account",
+          "definition": "A Staff account may view, lock and unlock Traveler, Tour Operator and Service Provider accounts only. An Administrator account may view, lock and unlock Staff accounts only. Locking changes only the access status, not the role."
+        },
+        {
+          "section": "3.9.1.3",
+          "title": "Unlock User Account",
+          "definition": "A Staff account may view, lock and unlock Traveler, Tour Operator and Service Provider accounts only. An Administrator account may view, lock and unlock Staff accounts only. Locking changes only the access status, not the role."
+        }
+      ]
+    },
+    {
+      "id": "BR-169",
+      "definition": "The lock event is written to the immutable audit log.",
+      "usedIn": "3.9.1.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.9.1.2",
+          "title": "Lock User Account",
+          "definition": "The lock event is written to the immutable audit log."
+        }
+      ]
+    },
+    {
+      "id": "BR-170",
+      "definition": "The unlock event is written to the immutable audit log.",
+      "usedIn": "3.9.1.3",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.9.1.3",
+          "title": "Unlock User Account",
+          "definition": "The unlock event is written to the immutable audit log."
+        }
+      ]
+    },
+    {
+      "id": "BR-171",
+      "definition": "The unlocking of an account requires a recorded reason.",
+      "usedIn": "3.9.1.3",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.9.1.3",
+          "title": "Unlock User Account",
+          "definition": "The unlocking of an account requires a recorded reason."
+        }
+      ]
+    },
+    {
+      "id": "BR-175",
+      "definition": "The locking of an account requires a recorded reason and terminates all the active sessions and refresh tokens of that account.",
+      "usedIn": "3.8.4.3, 3.9.1.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.9.1.2",
+          "title": "Lock User Account",
+          "definition": "The locking of an account requires a recorded reason and terminates all the active sessions and refresh tokens of that account."
+        }
+      ]
+    },
+    {
+      "id": "BR-176",
+      "definition": "A locked account cannot sign in until it has been unlocked by an account authorised under BR-168; an account locked automatically under BR-189 may be unlocked only after its pending debt has been fully recovered.",
+      "usedIn": "3.9.1.2, 3.9.1.3",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.9.1.2",
+          "title": "Lock User Account",
+          "definition": "A locked account cannot sign in until it has been unlocked by an account authorised under BR-168; an account locked automatically under BR-189 may be unlocked only after its pending debt has been fully recovered."
+        },
+        {
+          "section": "3.9.1.3",
+          "title": "Unlock User Account",
+          "definition": "A locked account cannot sign in until it has been unlocked by an account authorised under BR-168; an account locked automatically under BR-189 may be unlocked only after its pending debt has been fully recovered."
+        }
+      ]
+    },
+    {
+      "id": "BR-182",
+      "definition": "Traveler and Tour Operator accounts are created only through self-registration (UC-01, UC-02); no Staff or Administrator function creates them, and no function changes the role of an existing account. Staff accounts are created only by an Administrator (UC-76) and Service Provider accounts only by Staff (UC-77).",
+      "usedIn": "3.9.1.1",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.9.1.1",
+          "title": "View User Accounts",
+          "definition": "Traveler and Tour Operator accounts are created only through self-registration (UC-01, UC-02); no Staff or Administrator function creates them, and no function changes the role of an existing account. Staff accounts are created only by an Administrator (UC-76) and Service Provider accounts only by Staff (UC-77)."
+        }
+      ]
+    },
+    {
+      "id": "BR-190",
+      "definition": "When the recorded action required a reason, that reason is part of the presented audit log entry.",
+      "usedIn": "3.9.12.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.9.12.2",
+          "title": "View Audit Log Details",
+          "definition": "When the recorded action required a reason, that reason is part of the presented audit log entry."
+        }
+      ]
+    },
+    {
+      "id": "BR-191",
+      "definition": "A Staff account is created only by an Administrator, with a unique email address. The system assigns the Staff role, sends a temporary password to the email address and requires a password change at the first sign-in.",
+      "usedIn": "2.2, 3.9.1.4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.9.1.4",
+          "title": "Create Staff Account",
+          "definition": "A Staff account is created only by an Administrator, with a unique email address. The system assigns the Staff role, sends a temporary password to the email address and requires a password change at the first sign-in."
+        }
+      ]
+    },
+    {
+      "id": "BR-192",
+      "definition": "A Service Provider account is created only by Staff, with a unique email address, and is linked to at least one Active commercial point of interest of the categories Hotel, Vehicle Rental or Restaurant. A point of interest is linked to at most one Service Provider account. The system assigns the Service Provider role, sends a temporary password and requires a password change at the first sign-in.",
+      "usedIn": "2.2, 3.9.1.5",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.9.1.5",
+          "title": "Create Service Provider Account",
+          "definition": "A Service Provider account is created only by Staff, with a unique email address, and is linked to at least one Active commercial point of interest of the categories Hotel, Vehicle Rental or Restaurant. A point of interest is linked to at most one Service Provider account. The system assigns the Service Provider role, sends a temporary password and requires a password change at the first sign-in."
+        }
+      ]
+    },
+    {
+      "id": "BR-78",
+      "definition": "Refund requests are sent to the Payment Gateway by TripMate through the original payment channel, and the resulting refund status and transaction reference are recorded whatever the outcome.",
+      "usedIn": "3.10.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.10.2",
+          "title": "Process Refund to Traveler",
+          "definition": "Refund requests are sent to the Payment Gateway by TripMate through the original payment channel, and the resulting refund status and transaction reference are recorded whatever the outcome."
+        }
+      ]
+    },
+    {
+      "id": "BR-134",
+      "definition": "A failed refund is retried and escalated to the Administrator when retries are exhausted.",
+      "usedIn": "3.10.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.10.2",
+          "title": "Process Refund to Traveler",
+          "definition": "A failed refund is retried and escalated to the Administrator when retries are exhausted."
+        }
+      ]
+    },
+    {
+      "id": "BR-141",
+      "definition": "Settlement timing: transfers run once a day at 10:00. Every paid booking enters the Awaiting Window for 24 hours after its payment confirmation timestamp, after which its advance settlement is created; its final settlement is created in the first run after the tour end date.",
+      "usedIn": "3.10.4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.10.4",
+          "title": "Schedule Payout Settlement",
+          "definition": "Settlement timing: transfers run once a day at 10:00. Every paid booking enters the Awaiting Window for 24 hours after its payment confirmation timestamp, after which its advance settlement is created; its final settlement is created in the first run after the tour end date."
+        }
+      ]
+    },
+    {
+      "id": "BR-142",
+      "definition": "Each paid booking is settled in two parts. The advance settlement transfers 70% of the booking PaidAmount to the Tour Operator after the Awaiting Window; TripMate retains 30% (20% owed to the Tour Operator and the 10% commission). The final settlement transfers the remaining 20% after the tour has ended. A booking cancelled before a run is excluded from that run; for a refunded booking the final settlement is calculated on the PaidAmount less the refund amount.",
+      "usedIn": "2.2, 3.10.4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.10.4",
+          "title": "Schedule Payout Settlement",
+          "definition": "Each paid booking is settled in two parts. The advance settlement transfers 70% of the booking PaidAmount to the Tour Operator after the Awaiting Window; TripMate retains 30% (20% owed to the Tour Operator and the 10% commission). The final settlement transfers the remaining 20% after the tour has ended. A booking cancelled before a run is excluded from that run; for a refunded booking the final settlement is calculated on the PaidAmount less the refund amount."
+        }
+      ]
+    },
+    {
+      "id": "BR-145",
+      "definition": "A failed transfer is retried every 1 hour, up to 3 times. After the last failed attempt the settlement becomes SettlementFailed and is escalated to the Administrator.",
+      "usedIn": "3.1.4, 3.10.5, 3.10.6, 4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.10.5",
+          "title": "Process Payout Settlement",
+          "definition": "A failed transfer is retried every 1 hour, up to 3 times. After the last failed attempt the settlement becomes SettlementFailed and is escalated to the Administrator."
+        },
+        {
+          "section": "3.10.6",
+          "title": "Review Failed Payout Settlement",
+          "definition": "Retry limit and retry interval for a failed transfer."
+        }
+      ]
+    },
+    {
+      "id": "BR-160",
+      "definition": "While a Tour Operator account is Locked, its settlements are not transferred; they remain Scheduled and are transferred after the account is unlocked.",
+      "usedIn": "3.10.5",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.10.5",
+          "title": "Process Payout Settlement",
+          "definition": "While a Tour Operator account is Locked, its settlements are not transferred; they remain Scheduled and are transferred after the account is unlocked."
+        }
+      ]
+    },
+    {
+      "id": "BR-161",
+      "definition": "When 3 refund retries, made every 1 hour, have all failed, the refund record is set to Escalated and the Administrator is notified within 24 hours. The amount is not recalculated.",
+      "usedIn": "3.1.2.2, 3.10.2, 4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.10.2",
+          "title": "Process Refund to Traveler",
+          "definition": "When 3 refund retries, made every 1 hour, have all failed, the refund record is set to Escalated and the Administrator is notified within 24 hours. The amount is not recalculated."
+        }
+      ]
+    },
+    {
+      "id": "BR-165",
+      "definition": "When the same field has been changed on the server after the local capture, the server record is authoritative and the local value is retained as a reviewable conflict entry rather than being applied.",
+      "usedIn": "3.10.3",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.10.3",
+          "title": "Synchronize Offline Trip Data",
+          "definition": "When the same field has been changed on the server after the local capture, the server record is authoritative and the local value is retained as a reviewable conflict entry rather than being applied."
+        }
+      ]
+    },
+    {
+      "id": "BR-166",
+      "definition": "The synchronisation is idempotent, so a local record that has already been applied is never applied a second time.",
+      "usedIn": "3.10.3",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.10.3",
+          "title": "Synchronize Offline Trip Data",
+          "definition": "The synchronisation is idempotent, so a local record that has already been applied is never applied a second time."
+        }
+      ]
+    },
+    {
+      "id": "BR-172",
+      "definition": "When all retries of a payout settlement fail, the settlement is set to SettlementFailed and the Administrator is notified within 24 hours. The Administrator handles the case under UC-73; the amount is not recalculated (BR-146).",
+      "usedIn": "3.10.5, 3.10.6",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.10.5",
+          "title": "Process Payout Settlement",
+          "definition": "When all retries fail, the settlement is set to SettlementFailed and the Administrator is notified within 24 hours."
+        },
+        {
+          "section": "3.10.6",
+          "title": "Review Failed Payout Settlement",
+          "definition": "When all retries of a payout settlement fail, the settlement is set to SettlementFailed and the Administrator is notified within 24 hours. The Administrator handles the case under UC-73; the amount is not recalculated (BR-146)."
+        }
+      ]
+    },
+    {
+      "id": "BR-177",
+      "definition": "Payout amounts: the advance settlement is 70% of the booking PaidAmount. The final settlement is 20% × (PaidAmount − RefundAmount), where RefundAmount is the total refunded on the booking; it is never negative because RefundAmount cannot exceed PaidAmount. Any pending debt is offset first (BR-144). Each amount is calculated once when its daily run starts and is fixed under BR-146.",
+      "usedIn": "2.2, 3.10.4",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.10.4",
+          "title": "Schedule Payout Settlement",
+          "definition": "Payout amounts: the advance settlement is 70% of the booking PaidAmount. The final settlement is 20% × (PaidAmount − RefundAmount), where RefundAmount is the total refunded on the booking; it is never negative because RefundAmount cannot exceed PaidAmount. Any pending debt is offset first (BR-144). Each amount is calculated once when its daily run starts and is fixed under BR-146."
+        }
+      ]
+    },
+    {
+      "id": "BR-186",
+      "definition": "When a Tour Operator cancels a departure under UC-66, every affected Traveler is refunded 100% of the paid amount immediately through the original payment channel, whether or not the settlement has been transferred. For a transferred booking, TripMate advances the refund and the Tour Operator share is recovered under UC-42; an unreturned amount becomes a pending debt (BR-144). This rule is an exception to BR-143; the advanced amount is protected by BR-187 to BR-189.",
+      "usedIn": "2.2, 3.8.4.3, 3.10.1, 3.10.2",
+      "retired": false,
+      "details": [
+        {
+          "section": "3.10.1",
+          "title": "Handle Weather Warning and Operator Cancellation",
+          "definition": "When a Tour Operator cancels a departure under UC-66, every affected Traveler is refunded 100% of the paid amount immediately through the original payment channel, whether or not the settlement has been transferred. For a transferred booking, TripMate advances the refund and the Tour Operator share is recovered under UC-42; an unreturned amount becomes a pending debt (BR-144). This rule is an exception to BR-143; the advanced amount is protected by BR-187 to BR-189."
+        }
+      ]
+    },
+    {
+      "id": "BR-112",
+      "definition": "(Retired in rev10 – renumbered to BR-173; no longer used.)",
+      "usedIn": "—",
+      "retired": true,
+      "details": []
+    },
+    {
+      "id": "BR-113",
+      "definition": "(Retired on 12/11/2026: duplicate of BR-91.)",
+      "usedIn": "—",
+      "retired": true,
+      "details": []
+    },
+    {
+      "id": "BR-116",
+      "definition": "(Retired on 12/11/2026: duplicate of BR-130.)",
+      "usedIn": "—",
+      "retired": true,
+      "details": []
+    },
+    {
+      "id": "BR-157",
+      "definition": "(Retired on 11/11/2026: the 24-hour full-refund rule is removed.)",
+      "usedIn": "—",
+      "retired": true,
+      "details": []
+    },
+    {
+      "id": "CR-01",
+      "definition": "Every list screen paginates at 20 records per page by default, states the total record count, and preserves the current page, applied filters and sort order when the user returns from a detail screen.",
+      "usedIn": "CR",
+      "retired": false,
+      "details": []
+    },
+    {
+      "id": "CR-02",
+      "definition": "Every list screen that supports search applies the search on submit, not on each keystroke, and shows an explicit empty-result state using MSG33 for the POI catalogue, MSG64 for the tour catalogue and MSG128 for every other list, rather than an empty table.",
+      "usedIn": "CR",
+      "retired": false,
+      "details": []
+    },
+    {
+      "id": "CR-03",
+      "definition": "Every input field is validated on the client for presence, length and format, and is validated again on the server before the request is accepted. A client-side pass never substitutes for the server-side check.",
+      "usedIn": "CR",
+      "retired": false,
+      "details": []
+    },
+    {
+      "id": "CR-04",
+      "definition": "Required-field, length and format errors are displayed inline beneath the field using MSG01 for a missing required field and the field-specific message otherwise, for example MSG02, MSG04, MSG05, MSG06, MSG29, MSG118 or MSG123; they are never displayed only as a toast.",
+      "usedIn": "CR",
+      "retired": false,
+      "details": []
+    },
+    {
+      "id": "CR-05",
+      "definition": "Every irreversible action — delete, deactivate, cancel, lock, reject — is confirmed through a modal using the confirmation message defined for that action, for example MSG59, MSG61, MSG81, MSG170 or MSG194, or MSG130 where the action has no confirmation message of its own, before the request is sent.",
+      "usedIn": "CR",
+      "retired": false,
+      "details": []
+    },
+    {
+      "id": "CR-06",
+      "definition": "Every create, update and delete action that succeeds reports success through a toast using the success message defined for that action, for example MSG20, MSG54, MSG60, MSG82, MSG109, MSG112 or MSG191, or MSG129 where the action has no success message of its own, and leaves the user on a screen that reflects the new state.",
+      "usedIn": "CR",
+      "retired": false,
+      "details": []
+    },
+    {
+      "id": "CR-07",
+      "definition": "Dates are displayed as dd/MM/yyyy and times as HH:mm in 24-hour form, in the Asia/Ho_Chi_Minh time zone. All timestamps are stored in UTC and converted for display.",
+      "usedIn": "CR",
+      "retired": false,
+      "details": []
+    },
+    {
+      "id": "CR-08",
+      "definition": "Monetary amounts are displayed in Vietnamese dong with a thousands separator and no decimal places, and are stored as an integer number of dong.",
+      "usedIn": "CR",
+      "retired": false,
+      "details": []
+    },
+    {
+      "id": "CR-09",
+      "definition": "The user interface language is English for this version. All user-facing text comes from a resource file so that a Vietnamese locale can be added without code changes.",
+      "usedIn": "CR",
+      "retired": false,
+      "details": []
+    },
+    {
+      "id": "CR-10",
+      "definition": "An expired session redirects the user to sign-in using MSG125, preserves the intended destination, and returns the user there after a successful sign-in.",
+      "usedIn": "CR",
+      "retired": false,
+      "details": []
+    },
+    {
+      "id": "CR-11",
+      "definition": "A request for a screen or action outside the signed-in role’s permission is refused by the server and reported using MSG126, or using MSG84 where a Tour Operator requests booking data belonging to another Tour Operator, regardless of whether the client had hidden the entry point.",
+      "usedIn": "CR",
+      "retired": false,
+      "details": []
+    },
+    {
+      "id": "CR-12",
+      "definition": "A network or server failure is reported using MSG127, using MSG89 where the failure is a payment gateway timeout and MSG106 where it interrupts an offline package download, and leaves the client state unchanged; the client never reports success it has not received.",
+      "usedIn": "CR",
+      "retired": false,
+      "details": []
+    },
+    {
+      "id": "CR-13",
+      "definition": "Every write operation is idempotent against accidental double submission: the submit control is disabled while a request is in flight, and the server rejects a repeated submission of the same operation identifier, as MSG88 does for a repeated payment of the same booking.",
+      "usedIn": "CR",
+      "retired": false,
+      "details": []
+    },
+    {
+      "id": "CR-14",
+      "definition": "Every administrative write action — account lock and unlock, application decision, tour decision, master data change, parameter change, refund-return receipt, failed-payout resolution — writes an audit record per BR-174 and section 3.1.4 item 10, confirmed to the Administrator using MSG119.",
+      "usedIn": "CR",
+      "retired": false,
+      "details": []
+    },
+    {
+      "id": "CR-15",
+      "definition": "No screen displays another user’s personal data beyond what its use case requires, and no screen displays a full payment instrument number, a password or a token value.",
+      "usedIn": "CR",
+      "retired": false,
+      "details": []
+    }
+  ]
+}

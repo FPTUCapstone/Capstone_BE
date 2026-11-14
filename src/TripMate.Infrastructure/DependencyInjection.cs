@@ -54,8 +54,8 @@ using TripMate.Infrastructure.Services;
 using TripMate.Infrastructure.Services.Audit;
 using TripMate.Infrastructure.Services.Payment;
 using TripMate.Infrastructure.Services.Redis;
+using TripMate.Infrastructure.SupportChat;
 using TripMate.Infrastructure.TripAlerts;
-using TripMate.Infrastructure.Weather;
 using TripMate.Infrastructure.Weather;
 
 namespace TripMate.Infrastructure;
@@ -66,6 +66,7 @@ public static class DependencyInjection
         this IServiceCollection services,
         IConfiguration configuration)
     {
+        services.AddSupportChat(configuration);
         // Database-first: the schema is owned by database/tripmate_schema_v7.sql, applied via
         // database/apply-schema.sh. This context only maps to it — no EF Core migrations here.
         services.AddDbContext<ApplicationDbContext>(options =>
