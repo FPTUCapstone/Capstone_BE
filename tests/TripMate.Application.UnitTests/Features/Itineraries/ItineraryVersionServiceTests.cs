@@ -684,7 +684,7 @@ public sealed class ItineraryVersionServiceTests
 
         result.IsSuccess.Should().BeTrue();
         provider.LastPointCount.Should().Be(SchedulingGenerationOptions.DefaultMaxMatrixCandidates + 2);
-        provider.LastPoints.Should().Contain(new RoutePoint(mandatoryPoi.Latitude, mandatoryPoi.Longitude));
+        provider.LastPoints.Should().Contain(new RoutePoint(mandatoryPoi.Latitude, mandatoryPoi.Longitude, mandatoryPoi.Id));
     }
 
     [Fact]

@@ -189,7 +189,8 @@ public sealed class StartNavigationSessionCommandHandler(
             snapshot);
         dbContext.TripSessions.Add(session);
         await dbContext.SaveChangesAsync(cancellationToken);
-        return Result.Success(NavigationSessionResponse.From(session, itinerary));
+        return Result.Success(await ActiveRouteNavigationProjection.EnrichAsync(dbContext,
+            NavigationSessionResponse.From(session, itinerary), cancellationToken));
     }
 
     private async Task<Result<NavigationSessionResponse>> ReplayAsync(
@@ -216,7 +217,8 @@ public sealed class StartNavigationSessionCommandHandler(
 
         // Untracked: shows the effective state without persisting a read-time expiry.
         replay.ExpireIfDue(clock.UtcNow);
-        return Result.Success(NavigationSessionResponse.From(replay, replay.Itinerary));
+        return Result.Success(await ActiveRouteNavigationProjection.EnrichAsync(dbContext,
+            NavigationSessionResponse.From(replay, replay.Itinerary), cancellationToken));
     }
 
     private async Task<TripSession?> LoadByKeyAsync(

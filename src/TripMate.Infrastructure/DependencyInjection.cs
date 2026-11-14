@@ -443,7 +443,9 @@ public static class DependencyInjection
                 client.Timeout = SchedulingReservationOptions.RouteProviderTimeout;
             });
         services.AddScoped<IRouteDurationProvider>(serviceProvider =>
-            serviceProvider.GetRequiredService<MapboxRouteDurationProvider>());
+            new CatalogRouteDurationProvider(
+                serviceProvider.GetRequiredService<IApplicationDbContext>(),
+                serviceProvider.GetRequiredService<MapboxRouteDurationProvider>()));
 
         // REVIEW2: Tripadvisor (Terra) ratings/reviews and on-demand review translation (Gemini).
         services.Configure<TripadvisorOptions>(configuration.GetSection(TripadvisorOptions.SectionName));

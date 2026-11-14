@@ -456,7 +456,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 "No selectable locations were found in the selected area.");
         }
 
-        if (canonical.TransportMode == TransportMode.PublicTransit)
+        if (canonical.TransportMode == TransportMode.PublicTransit
+            && !routeDurationProvider.SupportsTransportMode(canonical.TransportMode))
         {
             return PreparedGeneration.Infeasible(
                 snapshot.Hash,
@@ -505,7 +506,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
             Stopwatch.GetElapsedTime(selectionStartedAt));
         var end = endPoi is null
             ? new RoutePoint(canonical.StartLatitude, canonical.StartLongitude)
-            : new RoutePoint(endPoi.Latitude, endPoi.Longitude);
+            : new RoutePoint(endPoi.Latitude, endPoi.Longitude, endPoi.Id);
         var input = new GenerationInput(
             canonical.StartAtUtc,
             timeZone,
@@ -1138,7 +1139,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
         new(
             poi.Id,
             poi.Name,
-            new RoutePoint(poi.Latitude, poi.Longitude),
+            new RoutePoint(poi.Latitude, poi.Longitude, poi.Id > 0 ? poi.Id : null),
             poi.AverageVisitDurationMinutes,
             poi.EstimatedVisitCost,
             poi.OpeningHours
@@ -1391,6 +1392,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
         IRouteDurationProvider inner,
         CandidatePoolFunnelDiagnostics funnel) : IRouteDurationProvider
     {
+        public bool SupportsTransportMode(TransportMode transportMode) => inner.SupportsTransportMode(transportMode);
+
         public async Task<RouteDurationMatrix> GetMatrixAsync(
             IReadOnlyList<RoutePoint> points,
             TransportMode transportMode,

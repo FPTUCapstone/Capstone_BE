@@ -30,7 +30,8 @@ public sealed class ItineraryVersionService(
         SchedulingRequest request,
         CancellationToken cancellationToken)
     {
-        if (request.TransportMode == TransportMode.PublicTransit)
+        if (request.TransportMode == TransportMode.PublicTransit
+            && !routeDurationProvider.SupportsTransportMode(request.TransportMode))
         {
             return UnsupportedPublicTransit();
         }
@@ -124,7 +125,7 @@ public sealed class ItineraryVersionService(
 
         var end = endPoi is null
             ? new RoutePoint(request.StartLatitude, request.StartLongitude)
-            : new RoutePoint(endPoi.Latitude, endPoi.Longitude);
+            : new RoutePoint(endPoi.Latitude, endPoi.Longitude, endPoi.Id);
         var input = new GenerationInput(
             request.StartAtUtc,
             timeZone,
@@ -306,7 +307,8 @@ public sealed class ItineraryVersionService(
         CancellationToken cancellationToken,
         int? availableMinutesOverride = null)
     {
-        if (request.TransportMode == TransportMode.PublicTransit)
+        if (request.TransportMode == TransportMode.PublicTransit
+            && !routeDurationProvider.SupportsTransportMode(request.TransportMode))
         {
             return Result.Failure<IReadOnlyList<StopsEvaluation>>(
                 ItineraryErrorCodes.ConstraintsInfeasible,
@@ -347,7 +349,7 @@ public sealed class ItineraryVersionService(
             .Select(poi => new GenerationCandidate(
                 poi.Id,
                 poi.Name,
-                new RoutePoint(poi.Latitude, poi.Longitude),
+                new RoutePoint(poi.Latitude, poi.Longitude, poi.Id),
                 poi.AverageVisitDurationMinutes,
                 poi.EstimatedVisitCost,
                 poi.OpeningHours
@@ -379,7 +381,7 @@ public sealed class ItineraryVersionService(
             new RoutePoint(request.StartLatitude, request.StartLongitude),
             endPoi is null
                 ? new RoutePoint(request.StartLatitude, request.StartLongitude)
-                : new RoutePoint(endPoi.Latitude, endPoi.Longitude),
+                : new RoutePoint(endPoi.Latitude, endPoi.Longitude, endPoi.Id),
             effectiveAvailableMinutes,
             request.TransportMode,
             request.RestPreference,
