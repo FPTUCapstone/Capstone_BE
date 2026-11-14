@@ -22,6 +22,12 @@ public class RecommendationBehaviorEventTests
             { RecommendationEventType.Dislike, RecommendationCaptureSource.PoiDetail, null, null, null, null },
             { RecommendationEventType.Skip, RecommendationCaptureSource.Itinerary, 30, 2, null, true },
             { RecommendationEventType.Reorder, RecommendationCaptureSource.Itinerary, 30, 2, 4, false },
+            // UC-10 item 6: signals derived from what the traveler does (spec .scratch/uc10-behavior-learning).
+            { RecommendationEventType.Dislike, RecommendationCaptureSource.ItineraryEdit, 30, null, null, true },
+            { RecommendationEventType.Like, RecommendationCaptureSource.ItineraryEdit, 30, null, null, false },
+            { RecommendationEventType.Like, RecommendationCaptureSource.Navigation, 30, null, null, false },
+            { RecommendationEventType.Skip, RecommendationCaptureSource.Navigation, 30, 2, null, true },
+            { RecommendationEventType.Like, RecommendationCaptureSource.SchedulingRequest, null, null, null, true },
         };
 
     [Theory]
@@ -65,6 +71,13 @@ public class RecommendationBehaviorEventTests
     [InlineData(RecommendationCaptureSource.Itinerary, 30L, null)]
     [InlineData(RecommendationCaptureSource.Explore, 30L, null)]
     [InlineData(RecommendationCaptureSource.PoiDetail, null, false)]
+    [InlineData(RecommendationCaptureSource.ItineraryEdit, null, false)]
+    [InlineData(RecommendationCaptureSource.ItineraryEdit, 30L, null)]
+    [InlineData(RecommendationCaptureSource.Navigation, null, true)]
+    [InlineData(RecommendationCaptureSource.Navigation, 30L, null)]
+    [InlineData(RecommendationCaptureSource.SchedulingRequest, 30L, true)]
+    [InlineData(RecommendationCaptureSource.SchedulingRequest, null, false)]
+    [InlineData(RecommendationCaptureSource.SchedulingRequest, null, null)]
     public void Create_WithInvalidSourceContext_ThrowsArgumentException(
         RecommendationCaptureSource source,
         long? itineraryId,
@@ -97,6 +110,25 @@ public class RecommendationBehaviorEventTests
             originalPosition: 2,
             newPosition: eventType == RecommendationEventType.Reorder ? 4 : null,
             wasMandatory: null);
+
+        action.Should().Throw<ArgumentException>();
+    }
+
+    [Theory]
+    [InlineData(RecommendationEventType.Skip, RecommendationCaptureSource.ItineraryEdit)]
+    [InlineData(RecommendationEventType.Reorder, RecommendationCaptureSource.ItineraryEdit)]
+    [InlineData(RecommendationEventType.Reorder, RecommendationCaptureSource.Navigation)]
+    public void Create_WithPositionalTypeOnDerivedSource_ThrowsArgumentException(
+        RecommendationEventType eventType,
+        RecommendationCaptureSource source)
+    {
+        var action = () => Create(
+            eventType,
+            source,
+            itineraryId: 30,
+            originalPosition: 2,
+            newPosition: eventType == RecommendationEventType.Reorder ? 4 : null,
+            wasMandatory: false);
 
         action.Should().Throw<ArgumentException>();
     }

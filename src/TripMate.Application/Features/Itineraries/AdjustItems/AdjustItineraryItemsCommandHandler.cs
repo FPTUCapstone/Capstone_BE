@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Itineraries.Common;
+using TripMate.Application.Features.RecommendationFeedback.Derived;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
@@ -134,6 +135,15 @@ public sealed class AdjustItineraryItemsCommandHandler(
                 await dbContext.SaveChangesAsync(transactionCancellationToken);
                 operationRecord.Complete(successorResult.Value.Id);
                 await dbContext.SaveChangesAsync(transactionCancellationToken);
+
+                // UC-10 item 6: a removed stop is a Dislike and an added stop a Like for the behavior profile.
+                await new DerivedBehaviorSignalRecorder(dbContext).RecordItineraryEditAsync(
+                    command.TravelerUserId,
+                    access.CurrentItinerary.Id,
+                    command.EffectiveStops.Select(stop => stop.PoiId).ToArray(),
+                    command.IdempotencyKey,
+                    dateTimeProvider.UtcNow,
+                    transactionCancellationToken);
 
                 return await LoadResponseAsync(successorResult.Value.Id, transactionCancellationToken);
             },

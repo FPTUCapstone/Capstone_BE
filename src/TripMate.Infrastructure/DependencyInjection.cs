@@ -421,12 +421,17 @@ public static class DependencyInjection
             .GetRequiredService<IOptions<ItineraryExplanationExecutionOptions>>()
             .Value);
         services.AddScoped<PersonalBehaviorFeatureAggregator>();
+        services.AddScoped(serviceProvider => new BehaviorProfileBuilder(
+            serviceProvider.GetRequiredService<IApplicationDbContext>(),
+            serviceProvider.GetRequiredService<IDateTimeProvider>(),
+            serviceProvider.GetRequiredService<IOptions<PersonalizationRankingOptions>>().Value));
         services.AddScoped(serviceProvider => new PoiRankingOrchestrator(
             serviceProvider.GetRequiredService<PersonalBehaviorFeatureAggregator>(),
             serviceProvider.GetRequiredService<IPoiRankingProvider>(),
             serviceProvider.GetRequiredService<IOptions<PersonalizationRankingOptions>>().Value,
             serviceProvider.GetRequiredService<IOptions<PoiRankingProviderOptions>>().Value.Enabled,
-            serviceProvider.GetRequiredService<ILogger<PoiRankingOrchestrator>>()));
+            serviceProvider.GetRequiredService<ILogger<PoiRankingOrchestrator>>(),
+            serviceProvider.GetRequiredService<BehaviorProfileBuilder>()));
         services.AddHttpClient<MapboxRouteDurationProvider>(
             (serviceProvider, client) =>
             {
