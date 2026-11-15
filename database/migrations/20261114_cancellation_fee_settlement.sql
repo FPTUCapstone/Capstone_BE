@@ -25,7 +25,9 @@ BEGIN
 END
 GO
 
-IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'CK_PayoutSettlement_kind')
+IF EXISTS (SELECT 1 FROM sys.check_constraints
+           WHERE parent_object_id = OBJECT_ID(N'payment.PayoutSettlement')
+             AND name = N'CK_PayoutSettlement_kind')
     ALTER TABLE payment.PayoutSettlement DROP CONSTRAINT CK_PayoutSettlement_kind;
 GO
 
