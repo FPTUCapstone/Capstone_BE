@@ -70,6 +70,7 @@ public sealed class SupportChatEndpointTests
         Assert.Equal(nameof(UserRole.Traveler), reader.Role);
         Assert.Equal("/tours/7", Assert.Single(body!.Actions!).Url);
         Assert.Null(body.Context);
+        Assert.Empty(body.Sources);
     }
 
     [Fact]
@@ -132,7 +133,7 @@ public sealed class SupportChatEndpointTests
     private sealed class TestModel : ISupportChatModel
     {
         public Task<ChatModelAnswer?> AnswerAsync(ChatGrounding grounding, CancellationToken cancellationToken) =>
-            Task.FromResult<ChatModelAnswer?>(new("Mở trang lập kế hoạch.", ["planning-v1"]));
+            Task.FromResult<ChatModelAnswer?>(new("Mở trang lập kế hoạch.", grounding.Knowledge.Select(passage => passage.Source.Id).ToArray()));
     }
 
     private sealed class TestPlanner : ISupportChatPlanner

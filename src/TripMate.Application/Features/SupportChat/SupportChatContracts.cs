@@ -37,6 +37,11 @@ public interface ISupportChatModel
 public static class ChatIntents
 {
     public const string General = "general";
+    public const string OpenPlanner = "openPlanner";
+    public const string BrowsePois = "browsePois";
+    public const string AccountProfile = "accountProfile";
+    public const string TravelPreferences = "travelPreferences";
+    public const string AccountSecurity = "accountSecurity";
     public const string SearchTours = "searchTours";
     public const string TourDetail = "tourDetail";
     public const string PrepareBooking = "prepareBooking";
@@ -44,8 +49,10 @@ public static class ChatIntents
     public const string MyItineraries = "myItineraries";
     public const string Refund = "refund";
     public const string Itinerary = "itinerary";
+    public static readonly string[] Navigation = [OpenPlanner, BrowsePois, AccountProfile,
+        TravelPreferences, AccountSecurity];
     public static readonly string[] All = [General, SearchTours, TourDetail, PrepareBooking,
-        MyBookings, MyItineraries, Refund, Itinerary];
+        MyBookings, MyItineraries, Refund, Itinerary, .. Navigation];
 }
 
 public sealed record ChatQueryPlan(string Intent, string? Search = null, string? Destination = null,

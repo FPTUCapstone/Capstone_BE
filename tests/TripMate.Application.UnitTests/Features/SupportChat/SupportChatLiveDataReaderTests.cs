@@ -26,6 +26,32 @@ public sealed class SupportChatLiveDataReaderTests
         new SupportChatLiveDataReader(sender.Object).ReadAsync(plan, userId, role, context, token);
 
     [Theory]
+    [InlineData("openPlanner", "/plan")]
+    [InlineData("browsePois", "/pois")]
+    [InlineData("accountProfile", "/account/profile")]
+    [InlineData("travelPreferences", "/account/preferences")]
+    [InlineData("accountSecurity", "/account/security")]
+    public async Task FeatureNavigationReturnsMatchingPageWithoutSearchingTours(string intent, string url)
+    {
+        var result = await Read(new(intent));
+        Assert.True(result.IsSuccess);
+        var action = Assert.Single(result.Value.Actions);
+        Assert.Equal("navigate", action.Type);
+        Assert.Equal(url, action.Url);
+        Assert.Contains(url, result.Value.Facts);
+        sender.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData("openPlanner")]
+    [InlineData("travelPreferences")]
+    public async Task TravelerFeatureNavigationRejectsOperator(string intent)
+    {
+        Assert.Equal(SupportChatErrors.Forbidden, (await Read(new(intent), role: "TourOperator")).ErrorCode);
+        sender.VerifyNoOtherCalls();
+    }
+
+    [Theory]
     [InlineData("0")]
     [InlineData("-1")]
     [InlineData("9223372036854775808")]
