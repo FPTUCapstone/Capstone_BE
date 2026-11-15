@@ -20,7 +20,7 @@ public sealed class CancelBeforeDepartureCommandValidator
             .Matches("^[0-9a-fA-F]+$").WithMessage("Phiên bản tác động không hợp lệ.");
         RuleFor(command => command.Reason).IsInEnum().WithMessage("Lý do không hợp lệ.");
         RuleFor(command => command.ReasonDetails)
-            .NotEmpty().WithMessage("Vui lòng nhập lý do hiển thị cho du khách.")
+            .NotEmpty().WithMessage(EmergencyTourMessages.ReasonRequired)
             .MaximumLength(EmergencyTourCancellationOperation.ReasonDetailsMaxLength)
             .WithMessage("Lý do hiển thị cho du khách tối đa 1000 ký tự.");
         RuleFor(command => command.EmergencyContact)

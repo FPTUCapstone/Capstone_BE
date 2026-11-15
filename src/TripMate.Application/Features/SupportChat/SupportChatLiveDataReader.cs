@@ -60,6 +60,20 @@ public sealed class SupportChatLiveDataReader(ISender sender) : ISupportChatLive
         {
             case ChatIntents.General:
                 return Result.Success(new ChatLiveData(string.Empty, []));
+            case ChatIntents.OpenPlanner:
+                return role == nameof(UserRole.Traveler)
+                    ? FeaturePage("Lập lịch trình", "/plan") : Forbidden();
+            case ChatIntents.BrowsePois:
+                return FeaturePage("Khám phá địa điểm", "/pois");
+            case ChatIntents.AccountProfile:
+                return role == nameof(UserRole.Traveler)
+                    ? FeaturePage("Hồ sơ cá nhân", "/account/profile") : Forbidden();
+            case ChatIntents.TravelPreferences:
+                return role == nameof(UserRole.Traveler)
+                    ? FeaturePage("Sở thích du lịch", "/account/preferences") : Forbidden();
+            case ChatIntents.AccountSecurity:
+                return role == nameof(UserRole.Traveler)
+                    ? FeaturePage("Bảo mật tài khoản", "/account/security") : Forbidden();
             case ChatIntents.SearchTours:
                 return await SearchAsync(plan, search, role, cancellationToken);
             case ChatIntents.PrepareBooking:
@@ -93,6 +107,16 @@ public sealed class SupportChatLiveDataReader(ISender sender) : ISupportChatLive
                 return InvalidRequest();
         }
     }
+
+    private static Result<ChatLiveData> FeaturePage(string label, string url) =>
+        Result.Success(new ChatLiveData(
+            JsonSerializer.Serialize(new
+            {
+                kind = "featureNavigation",
+                title = label,
+                url
+            }, JsonOptions),
+            [new ChatAction(Navigate, label, url)]));
 
     private async Task<Result<ChatLiveData>> SearchAsync(ChatQueryPlan plan, SearchToursQuery query,
         string role, CancellationToken token)

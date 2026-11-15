@@ -7,6 +7,7 @@ using TripMate.Application.Features.TripAlerts.Common;
 using TripMate.Application.Features.Weather.Emergency;
 using TripMate.Application.Features.Weather.Matching;
 using TripMate.Domain.Entities;
+using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Weather.Processing;
 
@@ -177,6 +178,7 @@ public sealed class WeatherAlertInboxProcessor(
             {
                 EmergencyPushNotices.AddReviewNotice(
                     context, operatorUserId, review.Id, Notification.WeatherSafetyReviewCreatedType, nowUtc);
+                await AddTravelerWarningsAsync(review.TourScheduleId, nowUtc, token);
             }
 
             await context.SaveChangesAsync(token);
@@ -198,6 +200,34 @@ public sealed class WeatherAlertInboxProcessor(
                     WeatherSafetyReviewChangeTypes.Created,
                     nowUtc),
                 cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// SRS UC-66 MSG185: every Traveler holding an open booking of the departure learns of the warning.
+    /// In-app only, with generic copy; the warning changes no departure, booking or session state.
+    /// </summary>
+    private async Task AddTravelerWarningsAsync(long scheduleId, DateTimeOffset nowUtc, CancellationToken cancellationToken)
+    {
+        var bookings = await context.Bookings.AsNoTracking()
+            .Where(booking => booking.TourScheduleId == scheduleId
+                && (booking.Status == BookingStatus.PendingPayment || booking.Status == BookingStatus.Confirmed))
+            .Select(booking => new { booking.Id, booking.TravelerUserId })
+            .ToListAsync(cancellationToken);
+        foreach (var booking in bookings)
+        {
+            context.Notifications.Add(new Notification
+            {
+                UserId = booking.TravelerUserId,
+                Channel = NotificationChannel.InApp,
+                Type = Notification.WeatherWarningType,
+                Title = Notification.WeatherWarningTitle,
+                Body = Notification.WeatherWarningBody,
+                RelatedEntityType = Notification.BookingRelatedEntityType,
+                RelatedEntityId = booking.Id,
+                Status = NotificationStatus.Pending,
+                CreatedAtUtc = nowUtc.ToUniversalTime(),
+            });
         }
     }
 

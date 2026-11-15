@@ -141,32 +141,38 @@ public sealed class DailyPayoutRunProcessorTests
     }
 
     [Fact]
-    public async Task RunIfDueAsync_CancelledBooking_CreatesNoSettlement_ButLogsTheExclusion()
+    public async Task RunIfDueAsync_CancelledBookingWithProcessedPartialRefund_CreatesCancellationFeeSettlement()
     {
         await using var db = TestDbContext.Create();
         await DailyPayoutTestFixture.SeedOperatorAsync(db, 7);
         await DailyPayoutTestFixture.SeedTourScheduleAsync(db, 1, 1, 7, AtRunTime.AddDays(10));
-        var booking = await DailyPayoutTestFixture.SeedConfirmedBookingAsync(db, 1, 1, 2_000_000m, AtRunTime.AddHours(-25));
-        booking.Cancel(AtRunTime.AddHours(-1), "Traveler requested");
-        await db.SaveChangesAsync();
+        var booking = await DailyPayoutTestFixture.SeedCancelledPartiallyRefundedBookingAsync(
+            db, 1, 1, totalAmount: 30_000m, refundedAmount: 15_000m,
+            succeededAtUtc: AtRunTime.AddHours(-25), cancelledAtUtc: AtRunTime.AddHours(-1));
 
         var processor = CreateProcessor(db, new SimulatedPayoutTransferGateway(new FixedOutcomeScenario(PayoutTransferOutcome.Succeeded)), AtRunTime);
         await processor.RunIfDueAsync(CancellationToken.None);
 
-        db.PayoutSettlements.Should().BeEmpty("PD-2A: a Cancelled booking gets no settlement, this or ever");
-        db.AuditLogs.Should().ContainSingle(a =>
+        var settlement = db.PayoutSettlements.Should().ContainSingle().Subject;
+        settlement.BookingId.Should().Be(booking.Id);
+        settlement.Kind.Should().Be(PayoutSettlementKind.Cancellation);
+        settlement.GrossAmount.Should().Be(15_000m);
+        settlement.CommissionAmount.Should().Be(1_500m);
+        settlement.PayoutAmount.Should().Be(13_500m);
+        settlement.Status.Should().Be(PayoutSettlementStatus.Settled);
+        db.AuditLogs.Should().NotContain(a =>
             a.ActionType == AuditActionTypes.PayoutExclusionCancelledBeforeRun && a.AffectedEntityId == booking.Id);
     }
 
     [Fact]
-    public async Task RunIfDueAsync_CancelledBookingAlreadyLogged_DoesNotLogItAgain()
+    public async Task RunIfDueAsync_FullyRefundedCancelledBookingIsExcludedAndLoggedOnlyOnce()
     {
         await using var db = TestDbContext.Create();
         await DailyPayoutTestFixture.SeedOperatorAsync(db, 7);
         await DailyPayoutTestFixture.SeedTourScheduleAsync(db, 1, 1, 7, AtRunTime.AddDays(10));
-        var booking = await DailyPayoutTestFixture.SeedConfirmedBookingAsync(db, 1, 1, 2_000_000m, AtRunTime.AddHours(-25));
-        booking.Cancel(AtRunTime.AddHours(-1), "Traveler requested");
-        await db.SaveChangesAsync();
+        var booking = await DailyPayoutTestFixture.SeedCancelledPartiallyRefundedBookingAsync(
+            db, 1, 1, totalAmount: 2_000_000m, refundedAmount: 2_000_000m,
+            succeededAtUtc: AtRunTime.AddHours(-25), cancelledAtUtc: AtRunTime.AddHours(-1));
 
         var gateway = new SimulatedPayoutTransferGateway(new FixedOutcomeScenario(PayoutTransferOutcome.Succeeded));
         await CreateProcessor(db, gateway, AtRunTime).RunIfDueAsync(CancellationToken.None);
@@ -174,6 +180,7 @@ public sealed class DailyPayoutRunProcessorTests
 
         db.AuditLogs.Count(a => a.ActionType == AuditActionTypes.PayoutExclusionCancelledBeforeRun && a.AffectedEntityId == booking.Id)
             .Should().Be(1);
+        db.PayoutSettlements.Should().BeEmpty();
     }
 
     [Fact]

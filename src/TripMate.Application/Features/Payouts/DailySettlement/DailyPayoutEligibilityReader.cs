@@ -16,7 +16,9 @@ public sealed record EligibleBookingForSettlement(
     decimal PaidAmount,
     decimal RefundAmount,
     decimal CommissionRatePercent,
-    DateTimeOffset OrderKey);
+    DateTimeOffset OrderKey,
+    decimal SettledToOperatorAmount = 0m,
+    decimal OperatorReturnShare = 0m);
 
 /// <summary>
 /// Selects the bookings a daily run must create settlements for (PD-2). Scheduling does not
@@ -24,11 +26,10 @@ public sealed record EligibleBookingForSettlement(
 /// time; only the transfer (in <see cref="DailyPayoutRunProcessor"/>/<see cref="DailyPayoutRetrySweepProcessor"/>)
 /// is deferred while locked, with the settlement left in <c>Scheduled</c> status.
 ///
-/// At most one Advance and one Final settlement exists per booking (PD-5): Advance once the
-/// 24-hour Awaiting Window has ended (BR-141, PD-1A), Final at the first 10:00 run after the
-/// tour ends (Q6). A booking cancelled before a run gets no settlement for that run at all
-/// (PD-2A) — it simply fails the "not Cancelled" condition below; <see cref="DailyPayoutRunProcessor"/>
-/// logs that exclusion separately.
+/// At most one Advance and one Final settlement exists for a completed booking (PD-5): Advance
+/// once the 24-hour Awaiting Window has ended (BR-141, PD-1A), Final at the first 10:00 run after
+/// the tour ends (Q6). A cancelled booking has instead at most one Cancellation settlement after
+/// its refund has succeeded: 90% of the non-refunded cancellation fee goes to the Tour Operator.
 /// </summary>
 public sealed class DailyPayoutEligibilityReader(IApplicationDbContext db)
 {
@@ -68,9 +69,9 @@ public sealed class DailyPayoutEligibilityReader(IApplicationDbContext db)
             .ToList();
     }
 
-    /// <summary>PD-2A: logs, once per booking, every booking that is Cancelled and was never
-    /// settled (neither Advance nor Final) — a run never creates a settlement for it, but the
-    /// exclusion itself must be auditable. Idempotent: a booking already logged is skipped.</summary>
+    /// <summary>Logs fully-refunded cancellations, which have no cancellation fee and therefore
+    /// no payout. Partially- or non-refunded cancellations are handled by the Cancellation
+    /// settlement candidate instead. Idempotent: a booking already logged is skipped.</summary>
     public async Task LogCancelledExclusionsAsync(DateTimeOffset nowUtc, CancellationToken cancellationToken)
     {
         var alreadyLogged = await db.AuditLogs.AsNoTracking()
@@ -79,32 +80,35 @@ public sealed class DailyPayoutEligibilityReader(IApplicationDbContext db)
             .ToListAsync(cancellationToken);
         var loggedBookingIds = alreadyLogged.Where(id => id is not null).Select(id => id!.Value).ToHashSet();
 
-        var settledBookingIds = await db.PayoutSettlements.AsNoTracking()
-            .Select(s => s.BookingId)
-            .Distinct()
-            .ToListAsync(cancellationToken);
-        var settledIds = settledBookingIds.ToHashSet();
-
-        var cancelledPaidBookingIds = await db.Bookings.AsNoTracking()
+        var cancelledBookings = await db.Bookings.AsNoTracking()
             .Where(b => b.Status == BookingStatus.Cancelled
                 && (b.PaymentStatus == PaymentStatus.Paid || b.PaymentStatus == PaymentStatus.PartiallyRefunded || b.PaymentStatus == PaymentStatus.Refunded)
                 && db.PaymentTransactions.Any(p => p.BookingId == b.Id && p.Status == PaymentTransactionStatus.Success))
-            .Select(b => b.Id)
+            .Select(b => new { b.Id, b.TotalAmount })
             .ToListAsync(cancellationToken);
 
-        foreach (var bookingId in cancelledPaidBookingIds)
+        var cancelledIds = cancelledBookings.Select(b => b.Id).ToList();
+        var processedRefunds = cancelledIds.Count == 0
+            ? new Dictionary<long, decimal>()
+            : await db.Refunds.AsNoTracking()
+                .Where(r => cancelledIds.Contains(r.BookingId) && r.Status == RefundStatus.Processed)
+                .GroupBy(r => r.BookingId)
+                .Select(g => new { BookingId = g.Key, Amount = g.Sum(r => r.Amount) })
+                .ToDictionaryAsync(x => x.BookingId, x => x.Amount, cancellationToken);
+
+        foreach (var booking in cancelledBookings)
         {
-            if (loggedBookingIds.Contains(bookingId) || settledIds.Contains(bookingId))
+            if (loggedBookingIds.Contains(booking.Id) || processedRefunds.GetValueOrDefault(booking.Id) < booking.TotalAmount)
                 continue;
 
             db.AuditLogs.Add(AuditLog.CreateRecordedOutcome(
                 actorUserId: null,
                 AuditActionTypes.PayoutExclusionCancelledBeforeRun,
                 AuditEntityTypes.Booking,
-                bookingId,
+                booking.Id,
                 nowUtc,
                 AuditOutcome.Success,
-                reason: "cancelled before run"));
+                reason: "fully refunded cancellation"));
         }
     }
 
@@ -173,7 +177,74 @@ public sealed class DailyPayoutEligibilityReader(IApplicationDbContext db)
             }
         }
 
+        results.AddRange(await LoadCancellationCandidatesAsync(nowUtc, cancellationToken));
+
         return (results, settledKeys);
+    }
+
+    private async Task<IReadOnlyList<EligibleBookingForSettlement>> LoadCancellationCandidatesAsync(
+        DateTimeOffset nowUtc, CancellationToken cancellationToken)
+    {
+        var cancelled = await db.Bookings.AsNoTracking()
+            .Where(b => b.Status == BookingStatus.Cancelled
+                && db.PaymentTransactions.Any(p => p.BookingId == b.Id && p.Status == PaymentTransactionStatus.Success))
+            .Select(b => new
+            {
+                b.Id,
+                OperatorUserId = b.TourSchedule.Tour.OperatorUserId,
+                PaidAmount = b.TotalAmount,
+                CancelledAtUtc = b.CancelledAtUtc ?? nowUtc,
+                Rate = db.PaymentTransactions
+                    .Where(p => p.BookingId == b.Id && p.Status == PaymentTransactionStatus.Success)
+                    .OrderBy(p => p.SucceededAtUtc ?? p.CreatedAtUtc)
+                    .Select(p => p.CommissionRateApplied)
+                    .FirstOrDefault(),
+            })
+            .ToListAsync(cancellationToken);
+
+        if (cancelled.Count == 0)
+            return [];
+
+        var bookingIds = cancelled.Select(b => b.Id).ToList();
+        var refundRows = await db.Refunds.AsNoTracking()
+            .Where(r => bookingIds.Contains(r.BookingId))
+            .Select(r => new { r.BookingId, r.Amount, r.OperatorReturnShare, r.Status })
+            .ToListAsync(cancellationToken);
+        var settlements = await db.PayoutSettlements.AsNoTracking()
+            .Where(s => bookingIds.Contains(s.BookingId))
+            .Select(s => new { s.BookingId, s.Kind, s.Status, s.PayoutAmount })
+            .ToListAsync(cancellationToken);
+
+        var candidates = new List<EligibleBookingForSettlement>();
+        foreach (var booking in cancelled)
+        {
+            var refunds = refundRows.Where(r => r.BookingId == booking.Id).ToList();
+            // A refund request must finish before its cancellation fee can be settled. A booking
+            // cancelled with a 0% tier has no Refund row and is ready immediately.
+            if (refunds.Count > 0 && refunds.Any(r => r.Status != RefundStatus.Processed))
+                continue;
+
+            decimal refundedAmount = refunds.Sum(r => r.Amount);
+            if (refundedAmount >= booking.PaidAmount)
+                continue;
+
+            var bookingSettlements = settlements.Where(s => s.BookingId == booking.Id).ToList();
+            if (bookingSettlements.Any(s => s.Kind == PayoutSettlementKind.Cancellation)
+                || bookingSettlements.Any(s => s.Status is PayoutSettlementStatus.Scheduled or PayoutSettlementStatus.Processing))
+                continue;
+
+            decimal settledToOperator = bookingSettlements
+                .Where(s => s.Status == PayoutSettlementStatus.Settled)
+                .Sum(s => s.PayoutAmount);
+            decimal operatorReturnShare = refunds.Sum(r => r.OperatorReturnShare ?? 0m);
+
+            candidates.Add(new EligibleBookingForSettlement(
+                booking.Id, booking.OperatorUserId, PayoutSettlementKind.Cancellation,
+                booking.PaidAmount, refundedAmount, booking.Rate ?? 0m, booking.CancelledAtUtc,
+                settledToOperator, operatorReturnShare));
+        }
+
+        return candidates;
     }
 
     /// <summary>

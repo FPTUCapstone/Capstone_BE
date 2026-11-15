@@ -39,6 +39,41 @@ public sealed class DailyPayoutAmountCalculatorTests
     }
 
     [Fact]
+    public void Calculate_Cancellation_SplitsTheUnrefundedFeeNinetyTen()
+    {
+        var input = new DailySettlementInput(1, PayoutSettlementKind.Cancellation,
+            PaidAmount: 30_000m, RefundAmount: 15_000m, CommissionRatePercent: 10m);
+
+        var batch = DailyPayoutAmountCalculator.Calculate([input], 0m);
+
+        var result = batch.Settlements.Should().ContainSingle().Subject;
+        result.GrossAmount.Should().Be(15_000m);
+        result.CommissionRate.Should().Be(10m);
+        result.CommissionAmount.Should().Be(1_500m);
+        result.NetAmount.Should().Be(13_500m);
+        result.PayoutAmount.Should().Be(13_500m);
+    }
+
+    [Fact]
+    public void Calculate_CancellationAfterAnAdvanceReturn_PaysOnlyTheTrueUp()
+    {
+        // The TO received a 21,000 VND advance then returned 10,500 VND with the 15,000 VND
+        // traveler refund. To retain 90% of the 15,000 VND cancellation fee, the TO is due 3,000.
+        var input = new DailySettlementInput(1, PayoutSettlementKind.Cancellation,
+            PaidAmount: 30_000m, RefundAmount: 15_000m, CommissionRatePercent: 10m,
+            SettledToOperatorAmount: 21_000m, OperatorReturnShare: 10_500m);
+
+        var batch = DailyPayoutAmountCalculator.Calculate([input], 0m);
+
+        var result = batch.Settlements.Should().ContainSingle().Subject;
+        result.GrossAmount.Should().Be(3_000m);
+        result.CommissionRate.Should().Be(0m);
+        result.CommissionAmount.Should().Be(0m);
+        result.NetAmount.Should().Be(3_000m);
+        result.PayoutAmount.Should().Be(3_000m);
+    }
+
+    [Fact]
     public void Calculate_AdvanceAndFinalRounding_FloorsToWholeVndAndTripMateKeepsTheRemainder()
     {
         // 1,000,001 * 70% = 700,000.7 -> floored to 700,000; * 20% = 200,000.2 -> floored to

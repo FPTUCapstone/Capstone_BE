@@ -91,7 +91,9 @@ Spec: "`canCancel` … extracted into one shared helper".
 All tests seed two operators (A = caller, B = other) with tours, schedules, bookings, tickets.
 
 - **5a Authorization, isolation, paging, order.** Red: non-operator / unapproved → access error;
-  A sees only A's bookings in `items`, `totalCount` and `summary`; empty result → `200` shape with zero
+  A sees only A's bookings in `items`, `totalCount` and `summary`; `summary.totalSettledPayoutAmount`
+  is settled payout cash minus confirmed operator returns, so a newly confirmed booking contributes zero;
+  empty result → `200` shape with zero
   summary; `pageNumber` past the end → empty `items`; order `BookedAtUtc` desc then `Id` desc.
   Green: handler skeleton using `OperatorBookingAccess`, scope predicate
   `TourSchedule.Tour.OperatorUserId == operatorId` first, `AsNoTracking`, `Select` projection, paging.

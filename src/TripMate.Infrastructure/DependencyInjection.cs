@@ -263,6 +263,23 @@ public static class DependencyInjection
         services.AddScoped<RefundProcessor>();
         services.AddHostedService<RefundProcessingBackgroundService>();
 
+        services.AddOptions<OperatorConfirmationDeadlineOptions>()
+            .Bind(configuration.GetSection(OperatorConfirmationDeadlineOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<OperatorConfirmationDeadlineOptions>, OperatorConfirmationDeadlineOptionsValidator>();
+        services.AddSingleton(serviceProvider =>
+            serviceProvider.GetRequiredService<IOptions<OperatorConfirmationDeadlineOptions>>().Value);
+        services.AddScoped<OperatorConfirmationDeadlineProcessor>();
+        services.AddHostedService<OperatorConfirmationDeadlineBackgroundService>();
+
+        services.AddOptions<ReturnDeadlineOptions>()
+            .Bind(configuration.GetSection(ReturnDeadlineOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<ReturnDeadlineOptions>, ReturnDeadlineOptionsValidator>();
+        services.AddSingleton(serviceProvider => serviceProvider.GetRequiredService<IOptions<ReturnDeadlineOptions>>().Value);
+        services.AddScoped<ReturnDeadlineProcessor>();
+        services.AddHostedService<ReturnDeadlineBackgroundService>();
+
         // UC-75: temporary ports until TM-222 (PostTripComplaint) and TM-88 (UC-42 RefundRequest) land.
         services.AddScoped<IPartialRefundProposalStore, PendingPartialRefundProposalStore>();
         services.AddScoped<IComplaintRefundRequestCreator, PendingComplaintRefundRequestCreator>();
