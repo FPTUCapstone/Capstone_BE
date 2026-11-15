@@ -25,6 +25,21 @@ public sealed class SupportChatPlannerTests
         Assert.Empty(transport.Body);
     }
     [Fact]
+    public async Task PlansFeatureNavigationSeparatelyFromTourSearchDespiteTourHistory()
+    {
+        using var transport = new PlannerTransport("""
+            {"intent":"openPlanner","search":null,"destination":null,"resourceId":null,
+             "departureDate":null,"maxPrice":null,"partySize":null,"childCount":null,"infantCount":null}
+            """);
+        await using var provider = Provider(transport);
+        var plan = await provider.GetRequiredService<ISupportChatPlanner>().PlanAsync(
+            "Dẫn tôi tới trang lập tình trình", [new("user", "Gợi ý tour Đà Nẵng")], new("tour", "101"), default);
+        Assert.Equal("openPlanner", plan.Intent);
+        Assert.Contains("/plan", transport.Body);
+        Assert.Contains("latest", transport.Body);
+    }
+
+    [Fact]
     public async Task PreservesMixedPartyFromLatestRequest()
     {
         using var transport = new PlannerTransport("""

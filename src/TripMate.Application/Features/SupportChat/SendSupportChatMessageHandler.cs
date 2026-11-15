@@ -123,7 +123,17 @@ public sealed class SendSupportChatMessageHandler(
                     return Result.Failure<SupportChatResponse>(live.ErrorCode!, live.ErrorMessage!);
                 resourceData = live.Value.Facts;
                 actions = live.Value.Actions;
+                // Known page navigation needs no document retrieval or generated answer.
+                if (ChatIntents.Navigation.Contains(plan.Intent))
+                {
+                    if (actions.Count != 1) return Unavailable();
+                    return Result.Success(new SupportChatResponse(
+                        $"Bạn có thể mở trang {actions[0].Label} bằng nút bên dưới.", [], request.Context, actions));
+                }
             }
+
+            if (plan.Intent == ChatIntents.General)
+                actions = [];
 
             // History supplies retrieval context. Retrieved passages remain the factual evidence.
             var retrievalQuery = string.Join("\n", new[] { request.Message.Trim() }
@@ -136,7 +146,10 @@ public sealed class SendSupportChatMessageHandler(
                 retrievalQueryLength--;
             }
             retrievalQuery = retrievalQuery[..retrievalQueryLength];
-            var passages = await knowledge.SearchAsync(retrievalQuery, token);
+            // Live query responses are grounded in authorized current records. Embeddings are
+            // required for documented policies and guidance, not for reading these records.
+            IReadOnlyList<KnowledgePassage> passages = plan.Intent == ChatIntents.General
+                ? await knowledge.SearchAsync(retrievalQuery, token) : [];
             if (passages.Count == 0 && resourceData is null)
             {
                 return NoInformation(request.Context);
