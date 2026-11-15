@@ -4,6 +4,7 @@ public enum RouteDurationProviderFailureKind
 {
     Timeout,
     Unavailable,
+    UnsupportedMode,
 }
 
 public sealed class RouteDurationProviderException(
