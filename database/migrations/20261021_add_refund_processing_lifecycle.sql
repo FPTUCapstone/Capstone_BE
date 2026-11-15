@@ -23,9 +23,10 @@ IF COL_LENGTH(N'payment.PaymentTransactions', N'refund_id') IS NULL
 GO
 
 -- The pre-UC-42 schema stores status as VARCHAR(10), which cannot hold RetryPending.
--- Preserve the existing Pending default while widening the legacy column before adding the
--- expanded state-machine constraint below.
-IF COL_LENGTH(N'payment.Refunds', N'status') <> 20
+-- This migration must only widen that legacy shape. A later migration expands the column
+-- to VARCHAR(30); narrowing it again would both lose schema compatibility and fail when
+-- the retry-sweep index already depends on the column.
+IF COL_LENGTH(N'payment.Refunds', N'status') < 20
     ALTER TABLE payment.Refunds ALTER COLUMN status VARCHAR(20) NOT NULL;
 
 UPDATE payment.Refunds
