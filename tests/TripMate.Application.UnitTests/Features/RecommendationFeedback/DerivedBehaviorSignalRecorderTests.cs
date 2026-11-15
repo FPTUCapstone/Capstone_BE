@@ -363,7 +363,258 @@ public sealed class DerivedBehaviorSignalRecorderTests
         (await db.RecommendationBehaviorEvents.CountAsync()).Should().Be(0);
     }
 
+    // Taking an edit back (specs/UC-10-undo-behavior-signal-spec.md, U1-U6): Undo re-sends the previous stops, so a
+    // stop the traveler put back, or an added stop they took back, is no new opinion about the place.
+
+    [Fact]
+    public async Task PutBack_AfterARemovalForLackOfTime_RecordsNothing()
+    {
+        await using var db = CreateDb();
+        var (a, b, _, _) = await SeedPois(db);
+        var (source, _) = await SeedAdjustedAsync(
+            db, previous: [a.Id, b.Id], current: [a.Id], Reasons((b.Id, StopRemovalReason.NoTime)));
+
+        var written = await Recorder(db).RecordItineraryEditAsync(
+            TravelerId, source.Id, [a.Id, b.Id], Operation, Now.AddMinutes(1), CancellationToken.None);
+
+        written.Should().Be(0);
+        (await db.RecommendationBehaviorEvents.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task PutBack_AfterAnAlreadyVisitedRemoval_RecordsNothingAndRemovesThatVisitedMark()
+    {
+        await using var db = CreateDb();
+        var (a, b, _, _) = await SeedPois(db);
+        // The mark is dated exactly when the removal was saved: "at or after" must include the same instant.
+        var (source, _) = await SeedAdjustedAsync(
+            db, previous: [a.Id, b.Id], current: [a.Id], Reasons((b.Id, StopRemovalReason.AlreadyVisited)));
+        (await db.PoiVisitedMarks.SingleAsync()).MarkedAtUtc.Should().Be(Now);
+
+        var written = await Recorder(db).RecordItineraryEditAsync(
+            TravelerId, source.Id, [a.Id, b.Id], Operation, Now.AddMinutes(1), CancellationToken.None);
+
+        written.Should().Be(0);
+        (await db.RecommendationBehaviorEvents.CountAsync()).Should().Be(0);
+        (await db.PoiVisitedMarks.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task PutBack_KeepsAVisitedMarkFromBeforeTheRemoval()
+    {
+        await using var db = CreateDb();
+        var (a, b, _, _) = await SeedPois(db);
+        db.PoiVisitedMarks.Add(PoiVisitedMark.Create(TravelerId, b.Id, Now.AddTicks(-1)));
+        await db.SaveChangesAsync();
+        var (source, _) = await SeedAdjustedAsync(
+            db, previous: [a.Id, b.Id], current: [a.Id], Reasons((b.Id, StopRemovalReason.NoTime)));
+
+        await Recorder(db).RecordItineraryEditAsync(
+            TravelerId, source.Id, [a.Id, b.Id], Operation, Now.AddMinutes(1), CancellationToken.None);
+
+        (await db.PoiVisitedMarks.SingleAsync()).MarkedAtUtc.Should().Be(Now.AddTicks(-1));
+    }
+
+    [Theory]
+    [InlineData(StopRemovalReason.NotInterested)]
+    [InlineData(null)]
+    public async Task PutBack_AfterARemovalRecordedAsADislike_IsALikeThatCancelsIt(StopRemovalReason? reason)
+    {
+        await using var db = CreateDb();
+        var (a, b, _, _) = await SeedPois(db);
+        var (source, previous) = await SeedAdjustedAsync(
+            db, previous: [a.Id, b.Id], current: [a.Id], reason is { } given ? Reasons((b.Id, given)) : null);
+
+        var written = await Recorder(db).RecordItineraryEditAsync(
+            TravelerId, source.Id, [a.Id, b.Id], Operation, Now.AddMinutes(1), CancellationToken.None);
+
+        written.Should().Be(1);
+        var events = await db.RecommendationBehaviorEvents.OrderBy(e => e.OccurredAtUtc).ToListAsync();
+        events.Select(e => (e.PointOfInterestId, e.EventType, e.ItineraryId)).Should().Equal(
+            (b.Id, RecommendationEventType.Dislike, (long?)previous.Id),
+            (b.Id, RecommendationEventType.Like, (long?)source.Id));
+    }
+
+    [Fact]
+    public async Task PutBack_ADislikeFromAnOlderEdit_IsNotTheReasonOfTheLastRemoval()
+    {
+        await using var db = CreateDb();
+        var (a, b, _, _) = await SeedPois(db);
+        // Long ago, in another itinerary, B was removed as a dislike.
+        var old = await SeedItinerary(db, (a.Id, 1, false), (b.Id, 2, false));
+        await Recorder(db).RecordItineraryEditAsync(
+            TravelerId, old.Id, [a.Id], Reasons((b.Id, StopRemovalReason.NotInterested)), Guid.NewGuid(),
+            Now.AddDays(-40), CancellationToken.None);
+        var (source, _) = await SeedAdjustedAsync(
+            db, previous: [a.Id, b.Id], current: [a.Id], Reasons((b.Id, StopRemovalReason.NoTime)));
+
+        var written = await Recorder(db).RecordItineraryEditAsync(
+            TravelerId, source.Id, [a.Id, b.Id], Operation, Now.AddMinutes(1), CancellationToken.None);
+
+        written.Should().Be(0);
+        var only = await db.RecommendationBehaviorEvents.SingleAsync();
+        only.EventType.Should().Be(RecommendationEventType.Dislike);
+        only.ItineraryId.Should().Be(old.Id);
+    }
+
+    [Fact]
+    public async Task TakenBackAdd_WithoutAReason_IsNoDislike()
+    {
+        await using var db = CreateDb();
+        var (a, _, _, d) = await SeedPois(db);
+        var (source, previous) = await SeedAdjustedAsync(db, previous: [a.Id], current: [a.Id, d.Id], reasons: null);
+
+        var written = await Recorder(db).RecordItineraryEditAsync(
+            TravelerId, source.Id, [a.Id], Operation, Now.AddMinutes(1), CancellationToken.None);
+
+        written.Should().Be(0);
+        var only = await db.RecommendationBehaviorEvents.SingleAsync();
+        only.EventType.Should().Be(RecommendationEventType.Like);
+        only.ItineraryId.Should().Be(previous.Id);
+    }
+
+    [Fact]
+    public async Task TakenBackAdd_WithANotInterestedReason_IsADislike()
+    {
+        await using var db = CreateDb();
+        var (a, _, _, d) = await SeedPois(db);
+        var (source, _) = await SeedAdjustedAsync(db, previous: [a.Id], current: [a.Id, d.Id], reasons: null);
+
+        var written = await Recorder(db).RecordItineraryEditAsync(
+            TravelerId, source.Id, [a.Id], Reasons((d.Id, StopRemovalReason.NotInterested)), Operation,
+            Now.AddMinutes(1), CancellationToken.None);
+
+        written.Should().Be(1);
+        (await db.RecommendationBehaviorEvents.CountAsync(e =>
+            e.PointOfInterestId == d.Id && e.EventType == RecommendationEventType.Dislike)).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task AfterAnAdjust_OtherAddsAndRemovalsAreUnchanged()
+    {
+        await using var db = CreateDb();
+        var (a, b, c, d) = await SeedPois(db);
+        // The edit before only added D: B was in both versions and C in neither.
+        var (source, _) = await SeedAdjustedAsync(
+            db, previous: [a.Id, b.Id], current: [a.Id, b.Id, d.Id], reasons: null);
+
+        var written = await Recorder(db).RecordItineraryEditAsync(
+            TravelerId, source.Id, [a.Id, c.Id, d.Id], Operation, Now.AddMinutes(1), CancellationToken.None);
+
+        written.Should().Be(2);
+        var events = await db.RecommendationBehaviorEvents.Where(e => e.ItineraryId == source.Id).ToListAsync();
+        events.Select(e => (e.PointOfInterestId, e.EventType)).Should().BeEquivalentTo(new[]
+        {
+            (b.Id, RecommendationEventType.Dislike),
+            (c.Id, RecommendationEventType.Like),
+        });
+    }
+
+    [Fact]
+    public async Task AfterARegenerate_ThereIsNoPreviousVersionToTakeBack()
+    {
+        await using var db = CreateDb();
+        var (a, b, _, d) = await SeedPois(db);
+        var previous = await SeedItinerary(db, (a.Id, 1, false), (b.Id, 2, false));
+        var source = await SeedItinerary(db, (a.Id, 1, false), (d.Id, 2, false));
+        await LinkAsync(db, previous, source, ItineraryVersionOperationType.Regenerate, Guid.NewGuid());
+
+        var written = await Recorder(db).RecordItineraryEditAsync(
+            TravelerId, source.Id, [a.Id, b.Id], Operation, Now.AddMinutes(1), CancellationToken.None);
+
+        written.Should().Be(2);
+        var events = await db.RecommendationBehaviorEvents.ToListAsync();
+        events.Select(e => (e.PointOfInterestId, e.EventType)).Should().BeEquivalentTo(new[]
+        {
+            (b.Id, RecommendationEventType.Like),
+            (d.Id, RecommendationEventType.Dislike),
+        });
+    }
+
+    [Fact]
+    public async Task WhenThePreviousVersionCannotBeRead_TheEditRecordsWhatItRecordedBefore()
+    {
+        await using var db = new UnreadableOperationsDbContext(Options());
+        var (a, b, _, _) = await SeedPois(db);
+        var (source, _) = await SeedAdjustedAsync(
+            db, previous: [a.Id, b.Id], current: [a.Id], Reasons((b.Id, StopRemovalReason.NoTime)));
+        db.FailOperationReads = true;
+
+        var written = await new DerivedBehaviorSignalRecorder(db).RecordItineraryEditAsync(
+            TravelerId, source.Id, [a.Id, b.Id], Operation, Now.AddMinutes(1), CancellationToken.None);
+
+        written.Should().Be(1);
+        (await db.RecommendationBehaviorEvents.SingleAsync()).EventType.Should().Be(RecommendationEventType.Like);
+    }
+
+    [Fact]
+    public async Task ItineraryEdit_SaveFailure_IsLoggedWhenTheCallerPassesALogger()
+    {
+        await using var db = new FailingSaveDbContext(Options());
+        var (a, b, _, _) = await SeedPois(db);
+        var source = await SeedItinerary(db, (a.Id, 1, false), (b.Id, 2, false));
+        var logger = new RecordingLogger();
+        db.FailNextSave = true;
+
+        var written = await new DerivedBehaviorSignalRecorder(db, logger).RecordItineraryEditAsync(
+            TravelerId, source.Id, [a.Id], Operation, Now, CancellationToken.None);
+
+        written.Should().Be(0);
+        logger.Messages.Should().ContainSingle(message => message.StartsWith("derived_behavior_signal_failed"));
+    }
+
+    private sealed class RecordingLogger : Microsoft.Extensions.Logging.ILogger
+    {
+        public List<string> Messages { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            Microsoft.Extensions.Logging.LogLevel logLevel,
+            Microsoft.Extensions.Logging.EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter) =>
+            Messages.Add(formatter(state, exception));
+    }
+
     private static DerivedBehaviorSignalRecorder Recorder(ApplicationDbContext db) => new(db);
+
+    /// <summary>
+    /// Two versions linked by an adjust saved at <see cref="Now"/>, with the signals that adjust recorded: what the
+    /// database holds once the traveler has edited <paramref name="previous"/> into <paramref name="current"/>.
+    /// </summary>
+    private static async Task<(Itinerary Source, Itinerary Previous)> SeedAdjustedAsync(
+        ApplicationDbContext db,
+        long[] previous,
+        long[] current,
+        Dictionary<long, StopRemovalReason>? reasons)
+    {
+        var before = await SeedItinerary(db, previous.Select((id, index) => (id, index + 1, false)).ToArray());
+        var after = await SeedItinerary(db, current.Select((id, index) => (id, index + 1, false)).ToArray());
+        var key = Guid.NewGuid();
+        await LinkAsync(db, before, after, ItineraryVersionOperationType.Adjust, key);
+        await new DerivedBehaviorSignalRecorder(db).RecordItineraryEditAsync(
+            TravelerId, before.Id, current, reasons, key, Now, CancellationToken.None);
+        return (after, before);
+    }
+
+    private static async Task LinkAsync(
+        ApplicationDbContext db,
+        Itinerary previous,
+        Itinerary result,
+        ItineraryVersionOperationType type,
+        Guid key)
+    {
+        var operation = ItineraryVersionOperation.Create(TravelerId, previous.Id, type, key, "hash", Now);
+        db.ItineraryVersionOperations.Add(operation);
+        await db.SaveChangesAsync();
+        operation.Complete(result.Id);
+        await db.SaveChangesAsync();
+    }
 
     private static DbContextOptions<ApplicationDbContext> Options() =>
         new DbContextOptionsBuilder<ApplicationDbContext>()
@@ -429,6 +680,18 @@ public sealed class DerivedBehaviorSignalRecorderTests
         db.TripSessions.Add(session);
         await db.SaveChangesAsync();
         return session;
+    }
+
+    /// <summary>The version history is unreadable through the application port (for example a storage error).</summary>
+    private sealed class UnreadableOperationsDbContext(DbContextOptions<ApplicationDbContext> options)
+        : ApplicationDbContext(options), TripMate.Application.Common.Interfaces.IApplicationDbContext
+    {
+        public bool FailOperationReads { get; set; }
+
+        DbSet<ItineraryVersionOperation> TripMate.Application.Common.Interfaces.IApplicationDbContext.ItineraryVersionOperations =>
+            FailOperationReads
+                ? throw new NotSupportedException("The version history is not available.")
+                : Set<ItineraryVersionOperation>();
     }
 
     private sealed class FailingSaveDbContext(DbContextOptions<ApplicationDbContext> options)
