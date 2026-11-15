@@ -24,12 +24,27 @@ SET QUOTED_IDENTIFIER ON;
 SET NUMERIC_ROUNDABORT OFF;
 GO
 
--- Status: widen the column before the new CHECK constraint can accept the longer values.
-IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = N'CK_Refunds_Status')
-    ALTER TABLE payment.Refunds DROP CONSTRAINT CK_Refunds_Status;
-GO
-ALTER TABLE payment.Refunds ALTER COLUMN status VARCHAR(30) NOT NULL;
-GO
+-- Status: constraints may have a legacy-generated name.  Find the CHECK that
+-- belongs to payment.Refunds instead of assuming only CK_Refunds_Status exists;
+-- otherwise an upgrade can leave the old CHECK in place and reject this rerun.
+DECLARE @refundStatusConstraint sysname;
+DECLARE @dropRefundStatusConstraintSql nvarchar(max);
+SELECT TOP (1) @refundStatusConstraint = cc.name
+FROM sys.check_constraints AS cc
+WHERE cc.parent_object_id = OBJECT_ID(N'payment.Refunds')
+  AND cc.definition LIKE N'%status%'
+  AND cc.definition LIKE N'%Pending%';
+IF @refundStatusConstraint IS NOT NULL
+BEGIN
+    SET @dropRefundStatusConstraintSql =
+        N'ALTER TABLE payment.Refunds DROP CONSTRAINT ' + QUOTENAME(@refundStatusConstraint) + N';';
+    EXECUTE (@dropRefundStatusConstraintSql);
+END;
+
+IF COL_LENGTH(N'payment.Refunds', N'status') < 30
+    ALTER TABLE payment.Refunds ALTER COLUMN status VARCHAR(30) NOT NULL;
+
+-- The preceding drop makes this add safe both for the old schema and for a rerun.
 ALTER TABLE payment.Refunds ADD CONSTRAINT CK_Refunds_Status
     CHECK (status IN (
         N'PendingOperatorConfirmation', N'AwaitingPartnerReturn', N'ReturnReported', N'ReturnReceived',
