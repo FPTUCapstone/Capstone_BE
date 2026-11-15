@@ -79,7 +79,7 @@ public static class EmergencyRefundHandoff
             var operation = BookingCancellationOperation.Create(booking.Id, operatorUserId,
                 BookingCancellationActor.TourOperator, DeriveIdempotencyKey(commandId, booking.Id),
                 Convert.ToHexString(Digest(commandId, booking.Id)).ToLowerInvariant(),
-                booking.TotalAmount, nowUtc);
+                booking.TotalAmount, nameof(RefundStatus.Pending), nowUtc);
             dbContext.BookingCancellationOperations.Add(operation);
             submitted.Add((booking, payment, operation));
         }
