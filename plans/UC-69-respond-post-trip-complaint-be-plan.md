@@ -25,7 +25,10 @@ UC-69 is done only when the Tour Operator can safely respond to an owned complai
 - Implement owned paged list and detail queries under `Features/Operator/PostTripComplaints`.
 - Load booking/tour/operator ownership server-side.
 - Create time-limited evidence URLs through the storage abstraction; ensure failures do not leak permanent location data.
-- Expire overdue pending complaints in a race-safe read/write boundary and expose allowed actions from authoritative status/deadline.
+- Keep queries read-only: derive displayed allowed actions from authoritative
+  status/deadline without persisting a transition. The deadline processor in
+  Task 4 persists `Expired`/`Declined`; response commands repeat the deadline
+  check in their own transaction.
 
 **DoD:** Foreign ownership, expired records, empty lists and evidence authorization have unit and integration coverage.
 
