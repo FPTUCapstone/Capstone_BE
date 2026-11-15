@@ -180,7 +180,7 @@ public class RegisterOperatorEndpointTests
     }
 
     [Fact]
-    public async Task AdminDetail_IssuesSignedDocumentOnlyAfterAuthorization()
+    public async Task AdminDetail_IssuesSignedDocumentOnlyForStaff()
     {
         var storage = new StorageStub();
         using var factory = Factory(new FirebaseStub(), storage);
@@ -197,10 +197,13 @@ public class RegisterOperatorEndpointTests
         using var travelerClient = factory.CreateAuthenticatedClient(10, UserRole.Traveler);
         using var forbidden = await travelerClient.GetAsync(route);
         forbidden.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        using var adminClient = factory.CreateAuthenticatedClient(11, UserRole.Administrator);
+        using var adminForbidden = await adminClient.GetAsync(route);
+        adminForbidden.StatusCode.Should().Be(HttpStatusCode.Forbidden);
         storage.LastDownloadExpiry.Should().BeNull();
 
-        using var adminClient = factory.CreateAuthenticatedClient(11, UserRole.Administrator);
-        using var allowed = await adminClient.GetAsync(route);
+        using var staffClient = factory.CreateAuthenticatedClient(12, UserRole.Staff);
+        using var allowed = await staffClient.GetAsync(route);
         allowed.StatusCode.Should().Be(HttpStatusCode.OK);
         allowed.Headers.CacheControl!.NoStore.Should().BeTrue();
         var detail = await allowed.Content.ReadFromJsonAsync<JsonElement>();
