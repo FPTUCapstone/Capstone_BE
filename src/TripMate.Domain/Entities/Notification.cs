@@ -18,6 +18,10 @@ public class Notification : BaseEntity
     public const string BookingRelatedEntityType = "Booking";
     public const string WeatherSafetyReviewCreatedType = "WeatherSafetyReviewCreated";
     public const string WeatherSafetyReviewEscalatedType = "WeatherSafetyReviewEscalated";
+    public const string PostTripComplaintRelatedEntityType = "PostTripComplaint";
+    public const string PartialRefundProposalAcceptedType = "PartialRefundProposalAccepted";
+    public const string PartialRefundProposalDeclinedType = "PartialRefundProposalDeclined";
+    public const string PartialRefundProposalExpiredType = "PartialRefundProposalExpired";
 
     // Shown on the lock screen: never a tour, place, reason, contact, refund or identifier.
     public const string SafetyAlertTitle = "TripMate: cảnh báo an toàn";

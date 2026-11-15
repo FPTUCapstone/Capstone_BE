@@ -15,6 +15,7 @@ using TripMate.Application.Features.Admin.StatisticalReports.Exports;
 using TripMate.Application.Features.Authentication.PasswordReset;
 using TripMate.Application.Features.Bookings.Common;
 using TripMate.Application.Features.Bookings.Refunds;
+using TripMate.Application.Features.Complaints.PartialRefundProposals;
 using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Navigation.Common;
 using TripMate.Application.Features.Operator.CheckIn.Common;
@@ -40,6 +41,7 @@ using TripMate.Infrastructure.Ai;
 using TripMate.Infrastructure.AiExplanation;
 using TripMate.Infrastructure.AiRanking;
 using TripMate.Infrastructure.Authentication;
+using TripMate.Infrastructure.Complaints;
 using TripMate.Infrastructure.Email;
 using TripMate.Infrastructure.ExternalReviews;
 using TripMate.Infrastructure.Media;
@@ -260,6 +262,19 @@ public static class DependencyInjection
         services.AddSingleton(serviceProvider => serviceProvider.GetRequiredService<IOptions<RefundProcessingOptions>>().Value);
         services.AddScoped<RefundProcessor>();
         services.AddHostedService<RefundProcessingBackgroundService>();
+
+        // UC-75: temporary ports until TM-222 (PostTripComplaint) and TM-88 (UC-42 RefundRequest) land.
+        services.AddScoped<IPartialRefundProposalStore, PendingPartialRefundProposalStore>();
+        services.AddScoped<IComplaintRefundRequestCreator, PendingComplaintRefundRequestCreator>();
+        services.AddOptions<PartialRefundProposalDeadlineOptions>()
+            .Bind(configuration.GetSection(PartialRefundProposalDeadlineOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<PartialRefundProposalDeadlineOptions>,
+            PartialRefundProposalDeadlineOptionsValidator>();
+        services.AddSingleton(serviceProvider =>
+            serviceProvider.GetRequiredService<IOptions<PartialRefundProposalDeadlineOptions>>().Value);
+        services.AddScoped<PartialRefundProposalDeadlineProcessor>();
+        services.AddHostedService<PartialRefundProposalDeadlineBackgroundService>();
 
         // DAILY-PAYOUT-TRANSFER (SRS v11 UC-71 to UC-74): the simulated transfer gateway is the
         // production binding until a real one (VNPay/PayOS/banking) is implemented — see spec
