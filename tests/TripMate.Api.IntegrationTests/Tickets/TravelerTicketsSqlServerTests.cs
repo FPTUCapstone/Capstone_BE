@@ -110,7 +110,7 @@ public sealed class TravelerTicketsSqlServerTests
 
         client.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
         using var cancelled = await client.PostAsJsonAsync($"/api/v1/bookings/{bookingId}/cancellation",
-            new CancelBookingRequest("ChangeOfPlans", "UC-29 lifecycle test"));
+            new CancelBookingRequest("ChangeOfPlans", "UC-29 lifecycle test", Confirmed: true));
         cancelled.StatusCode.Should().Be(HttpStatusCode.OK, await cancelled.Content.ReadAsStringAsync());
 
         using var afterCancel = await client.GetAsync($"/api/v1/traveler/tickets/{ticketId}");
