@@ -78,7 +78,8 @@ public sealed class ListUserAccountsQueryHandler(IApplicationDbContext db, ICurr
     }
 }
 
-public sealed class GetUserAccountQueryHandler(IApplicationDbContext db, ICurrentUserService current)
+public sealed class GetUserAccountQueryHandler(IApplicationDbContext db, ICurrentUserService current,
+    IAuditFailureRecorder failures)
     : IRequestHandler<GetUserAccountQuery, Result<UserAccountDetailDto>>
 {
     public async Task<Result<UserAccountDetailDto>> Handle(GetUserAccountQuery request, CancellationToken ct)
@@ -87,7 +88,13 @@ public sealed class GetUserAccountQueryHandler(IApplicationDbContext db, ICurren
         if (role is null) return Result.Failure<UserAccountDetailDto>(UserAccountErrors.Forbidden, "Access denied.");
         var account = await UserAccountAccess.Scope(db, role.Value).AsNoTracking()
             .Where(user => user.Id == request.UserId).Select(UserAccountAccess.Projection).SingleOrDefaultAsync(ct);
-        if (account is null) return Result.Failure<UserAccountDetailDto>(UserAccountErrors.NotFound, "The account is unavailable.");
+        if (account is null)
+        {
+            // Record the same event for missing and inaccessible accounts without looking up the target outside the role scope.
+            await failures.RecordAsync(new(current.UserId, AuditActionTypes.AdministrationAccessDenied,
+                AuditEntityTypes.User, null, UserAccountErrors.NotFound));
+            return Result.Failure<UserAccountDetailDto>(UserAccountErrors.NotFound, "The account is unavailable.");
+        }
         var history = await db.AuditLogs.AsNoTracking().Where(row => row.AffectedEntity == AuditEntityTypes.User
                 && row.AffectedEntityId == request.UserId && row.Result == AuditOutcome.Success
                 && (row.ActionType == AuditActionTypes.UserAccountLocked || row.ActionType == AuditActionTypes.UserAccountUnlocked))

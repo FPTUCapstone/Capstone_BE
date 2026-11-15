@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
+using TripMate.Domain.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -126,6 +127,11 @@ public sealed class UserAccountBoundaryTests
         var left = JsonDocument.Parse(await forbidden.Content.ReadAsStringAsync()).RootElement;
         var right = JsonDocument.Parse(await missing.Content.ReadAsStringAsync()).RootElement;
         left.GetProperty("errorCode").GetString().Should().Be(right.GetProperty("errorCode").GetString());
+        var denials = await factory.WithDbContextAsync(db => db.AuditLogs
+            .Where(row => row.ActorUserId == actor && row.ActionType == AuditActionTypes.AdministrationAccessDenied)
+            .ToListAsync());
+        denials.Should().HaveCount(2).And.OnlyContain(row =>
+            row.Result == AuditOutcome.Failure && row.AffectedEntityId == null);
     }
 
     [Theory]
