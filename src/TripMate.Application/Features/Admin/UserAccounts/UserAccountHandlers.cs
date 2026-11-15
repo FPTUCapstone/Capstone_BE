@@ -138,10 +138,16 @@ public sealed class ModerateUserAccountCommandHandler(IApplicationDbContext db, 
                     now, AuditOutcome.Success, reason: request.Reason.Trim(),
                     beforeData: JsonSerializer.Serialize(new { Status = before.ToString() }),
                     afterData: JsonSerializer.Serialize(new { Status = user.Status.ToString(), Role = user.Role.ToString() })));
-                db.Notifications.Add(new Notification { User = user, Channel = NotificationChannel.InApp,
-                    Type = request.Lock ? "AccountLocked" : "AccountUnlocked", Title = "Account access updated",
+                db.Notifications.Add(new Notification
+                {
+                    User = user,
+                    Channel = NotificationChannel.InApp,
+                    Type = request.Lock ? "AccountLocked" : "AccountUnlocked",
+                    Title = "Account access updated",
                     Body = request.Lock ? "Your account has been locked. Contact support for assistance." : "Your account has been unlocked.",
-                    Status = NotificationStatus.Pending, CreatedAtUtc = now });
+                    Status = NotificationStatus.Pending,
+                    CreatedAtUtc = now
+                });
                 await db.SaveChangesAsync(transactionCt);
                 return Result.Success(UserAccountAccess.Map(user));
             }, ct);
