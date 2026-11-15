@@ -4,6 +4,7 @@ using System.Text;
 using MediatR;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
@@ -20,7 +21,8 @@ public sealed class AdjustItineraryItemsCommandHandler(
     IItineraryAccessService accessService,
     IItineraryVersionService versionService,
     IItineraryMutationLock itineraryMutationLock,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    ILogger<AdjustItineraryItemsCommandHandler>? logger = null)
     : IRequestHandler<AdjustItineraryItemsCommand, Result<ItineraryDetailResponse>>
 {
     public async Task<Result<ItineraryDetailResponse>> Handle(
@@ -138,7 +140,7 @@ public sealed class AdjustItineraryItemsCommandHandler(
 
                 // UC-10 item 6: a removed stop is a Dislike and an added stop a Like for the behavior profile,
                 // unless the traveler said the removal is not about taste (traveler feedback, D10).
-                await new DerivedBehaviorSignalRecorder(dbContext).RecordItineraryEditAsync(
+                await new DerivedBehaviorSignalRecorder(dbContext, logger).RecordItineraryEditAsync(
                     command.TravelerUserId,
                     access.CurrentItinerary.Id,
                     command.EffectiveStops.Select(stop => stop.PoiId).ToArray(),

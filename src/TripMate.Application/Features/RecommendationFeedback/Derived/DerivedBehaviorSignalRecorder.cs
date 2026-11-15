@@ -61,13 +61,18 @@ internal sealed class DerivedBehaviorSignalRecorder(IApplicationDbContext dbCont
         var newIds = newVisitPoiIds.ToHashSet();
         var key = operationKey.ToString("N");
 
+        var addedIds = newIds.Where(poiId => !sourceIds.Contains(poiId)).ToArray();
+        var previous = await ReadPreviousVersionAsync(travelerUserId, sourceItineraryId, addedIds, cancellationToken);
+
         var events = new List<RecommendationBehaviorEvent>();
         var alreadyVisited = new List<long>();
         foreach (var removed in sourceVisits.Where(visit => !newIds.Contains(visit.PoiId)))
         {
-            if (removalReasons is not null
-                && removalReasons.TryGetValue(removed.PoiId, out var reason)
-                && reason != StopRemovalReason.NotInterested)
+            StopRemovalReason? reason = removalReasons is not null
+                && removalReasons.TryGetValue(removed.PoiId, out var given)
+                    ? given
+                    : null;
+            if (reason is not null && reason != StopRemovalReason.NotInterested)
             {
                 if (reason == StopRemovalReason.AlreadyVisited)
                 {
@@ -77,14 +82,32 @@ internal sealed class DerivedBehaviorSignalRecorder(IApplicationDbContext dbCont
                 continue;
             }
 
+            // U5: the traveler added this stop in the edit just before and now takes it back without a reason
+            // (Undo sends none). That is no dislike; a reason, when there is one, decides as usual.
+            if (reason is null && previous is not null && !previous.VisitPoiIds.Contains(removed.PoiId))
+            {
+                continue;
+            }
+
             events.Add(Event(
                 travelerUserId, removed.PoiId, sourceItineraryId, RecommendationEventType.Dislike,
                 originalPosition: null, removed.IsMandatory, RecommendationCaptureSource.ItineraryEdit,
                 occurredAtUtc, key));
         }
 
-        foreach (var addedPoiId in newIds.Where(poiId => !sourceIds.Contains(poiId)))
+        var putBackWithoutDislike = new List<long>();
+        foreach (var addedPoiId in addedIds)
         {
+            // U1-U3: a stop the previous version had is put back, not chosen anew. It is a Like only to cancel the
+            // Dislike its removal recorded; a removal that recorded none (NoTime, AlreadyVisited) leaves nothing.
+            if (previous is not null
+                && previous.VisitPoiIds.Contains(addedPoiId)
+                && !previous.DislikedWhenRemoved.Contains(addedPoiId))
+            {
+                putBackWithoutDislike.Add(addedPoiId);
+                continue;
+            }
+
             events.Add(Event(
                 travelerUserId, addedPoiId, sourceItineraryId, RecommendationEventType.Like,
                 originalPosition: null, wasMandatory: false, RecommendationCaptureSource.ItineraryEdit,
@@ -92,8 +115,96 @@ internal sealed class DerivedBehaviorSignalRecorder(IApplicationDbContext dbCont
         }
 
         await MarkVisitedAsync(travelerUserId, alreadyVisited, occurredAtUtc, cancellationToken);
+        if (previous is not null)
+        {
+            await UnmarkVisitedAsync(travelerUserId, putBackWithoutDislike, previous.AdjustedAtUtc, cancellationToken);
+        }
+
         return await AppendAsync(travelerUserId, events, cancellationToken);
     }
+
+    /// <summary>
+    /// The version the source itinerary was adjusted from, reduced to what taking an edit back needs
+    /// (specs/UC-10-undo-behavior-signal-spec.md). Null when no adjust produced the source (first version,
+    /// regenerate) or the history cannot be read; the edit then records what it always did.
+    /// </summary>
+    private async Task<PreviousVersion?> ReadPreviousVersionAsync(
+        long travelerUserId,
+        long sourceItineraryId,
+        IReadOnlyCollection<long> addedPoiIds,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var adjust = await dbContext.ItineraryVersionOperations
+                .AsNoTracking()
+                .Where(operation => operation.TravelerUserId == travelerUserId
+                    && operation.ResultItineraryId == sourceItineraryId
+                    && operation.OperationType == ItineraryVersionOperationType.Adjust)
+                .OrderByDescending(operation => operation.Id)
+                .Select(operation => new
+                {
+                    operation.SourceItineraryId,
+                    operation.IdempotencyKey,
+                    operation.CreatedAtUtc,
+                })
+                .FirstOrDefaultAsync(cancellationToken);
+            if (adjust is null)
+            {
+                return null;
+            }
+
+            var visitIds = await dbContext.ItineraryItems
+                .AsNoTracking()
+                .Where(item => item.ItineraryId == adjust.SourceItineraryId
+                    && item.Kind == ItineraryItemKind.Visit
+                    && item.PointOfInterestId != null)
+                .Select(item => item.PointOfInterestId!.Value)
+                .ToListAsync(cancellationToken);
+            var visits = visitIds.ToHashSet();
+
+            // Only the Dislike that very adjust wrote counts as "the removal was a dislike". Its id is derived from
+            // the adjust's own key, so an older dislike of the same place (another edit, another itinerary) is
+            // never mistaken for the reason of the removal being taken back.
+            var removalKey = adjust.IdempotencyKey.ToString("N");
+            var dislikeIds = addedPoiIds
+                .Where(visits.Contains)
+                .ToDictionary(
+                    poiId => ClientEventIdFor(
+                        RecommendationCaptureSource.ItineraryEdit, removalKey, poiId, RecommendationEventType.Dislike),
+                    poiId => poiId);
+            var disliked = new HashSet<long>();
+            if (dislikeIds.Count > 0)
+            {
+                var ids = dislikeIds.Keys.ToArray();
+                var stored = await dbContext.RecommendationBehaviorEvents
+                    .AsNoTracking()
+                    .Where(signal => signal.TravelerUserId == travelerUserId && ids.Contains(signal.ClientEventId))
+                    .Select(signal => signal.ClientEventId)
+                    .ToListAsync(cancellationToken);
+                disliked = stored.Select(id => dislikeIds[id]).ToHashSet();
+            }
+
+            return new PreviousVersion(visits, disliked, adjust.CreatedAtUtc);
+        }
+        catch (Exception exception) when (IsStorageFailure(exception) && !dbContext.IsDeadlock(exception))
+        {
+            logger?.LogWarning(
+                exception,
+                "derived_previous_version_unavailable traveler={TravelerUserId} itinerary={ItineraryId}",
+                travelerUserId,
+                sourceItineraryId);
+            return null;
+        }
+    }
+
+    /// <param name="VisitPoiIds">The places that version visited.</param>
+    /// <param name="DislikedWhenRemoved">The places whose removal from that version was recorded as a Dislike.</param>
+    /// <param name="AdjustedAtUtc">When that version was adjusted into the source, as stored on the operation.</param>
+    private sealed record PreviousVersion(
+        IReadOnlySet<long> VisitPoiIds,
+        IReadOnlySet<long> DislikedWhenRemoved,
+        DateTimeOffset AdjustedAtUtc);
 
     /// <summary>
     /// Navigation: a reached visit is a Like, a skipped visit is a Skip at its position in the route. A rest
@@ -261,6 +372,55 @@ internal sealed class DerivedBehaviorSignalRecorder(IApplicationDbContext dbCont
         catch (Exception exception) when (IsStorageFailure(exception) && !dbContext.IsDeadlock(exception))
         {
             dbContext.PoiVisitedMarks.RemoveRange(added);
+            logger?.LogWarning(
+                exception,
+                "derived_visited_mark_failed traveler={TravelerUserId} count={Count}",
+                travelerUserId,
+                poiIds.Count);
+        }
+    }
+
+    /// <summary>
+    /// U4: a stop removed as "already visited" and then put back loses the mark that removal set. The removal is
+    /// saved first and its mark is dated by a later read of the same clock, so a mark that removal set is never
+    /// older than <paramref name="removedAtUtc"/> (the operation's own stored timestamp, not a new clock read);
+    /// a mark from before it, an earlier trip, is kept.
+    /// </summary>
+    private async Task UnmarkVisitedAsync(
+        long travelerUserId,
+        IReadOnlyCollection<long> poiIds,
+        DateTimeOffset removedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        if (poiIds.Count == 0)
+        {
+            return;
+        }
+
+        var marks = new List<PoiVisitedMark>();
+        try
+        {
+            marks = await dbContext.PoiVisitedMarks
+                .Where(mark => mark.TravelerUserId == travelerUserId
+                    && poiIds.Contains(mark.PointOfInterestId)
+                    && mark.MarkedAtUtc >= removedAtUtc)
+                .ToListAsync(cancellationToken);
+            if (marks.Count == 0)
+            {
+                return;
+            }
+
+            dbContext.PoiVisitedMarks.RemoveRange(marks);
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception exception) when (IsStorageFailure(exception) && !dbContext.IsDeadlock(exception))
+        {
+            // Back to unchanged, so the caller's later saves do not retry the failed delete.
+            foreach (var mark in marks)
+            {
+                dbContext.PoiVisitedMarks.Entry(mark).State = EntityState.Unchanged;
+            }
+
             logger?.LogWarning(
                 exception,
                 "derived_visited_mark_failed traveler={TravelerUserId} count={Count}",
