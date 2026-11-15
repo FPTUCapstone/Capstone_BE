@@ -13,11 +13,9 @@ using TripMate.Domain.Enums;
 namespace TripMate.Application.Features.Bookings.Refunds;
 
 /// <summary>
-/// UC-42 step 3 (SRS 3.8.4.3, spec v1.2): the Tour Operator confirms a refund UC-41 created in
-/// <see cref="RefundStatus.PendingOperatorConfirmation"/>. Computes the BR-139 operator return
-/// share from the booking's Settled payout settlements and moves the refund onward: straight to
-/// <see cref="RefundStatus.Pending"/> when the share is zero (4.b1), otherwise to
-/// <see cref="RefundStatus.AwaitingPartnerReturn"/> with a 3-working-day return deadline (BR-144).
+/// Handles historical refunds created by the former Tour Operator confirmation workflow.
+/// New cancellation refunds compute the return share and deadline atomically at cancellation;
+/// they never enter <see cref="RefundStatus.PendingOperatorConfirmation"/>.
 /// </summary>
 public sealed record ConfirmBookingRefundCommand(long RefundId) : IRequest<Result<ConfirmBookingRefundResponse>>;
 

@@ -53,7 +53,8 @@ public sealed record OperatorBookingListItemDto(
 public sealed record OperatorBookingSummaryDto(
     int TotalBookings,
     int TotalParticipants,
-    decimal TotalConfirmedAmount);
+    decimal TotalConfirmedAmount,
+    decimal TotalSettledPayoutAmount);
 
 public sealed record OperatorBookingsResponseDto(
     int PageNumber,

@@ -29,6 +29,7 @@ public static class PayoutSettlementKind
     /// <summary>20% of (PaidAmount − RefundAmount), created at the first 10:00 (Vietnam time) run
     /// after the tour ends (BR-141, PD-2, PD-3, Q6).</summary>
     public const string Final = "Final";
+    public const string Cancellation = "Cancellation";
 
-    public static readonly string[] All = [Advance, Final];
+    public static readonly string[] All = [Advance, Final, Cancellation];
 }

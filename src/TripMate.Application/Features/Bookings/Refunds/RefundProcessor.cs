@@ -1,6 +1,7 @@
 using System.Text.Json;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Traveler.Payments.Common;
@@ -18,7 +19,8 @@ public sealed class RefundProcessor(
     IApplicationDbContext dbContext,
     IDateTimeProvider clock,
     IRefundPaymentGatewayResolver gatewayResolver,
-    RefundProcessingOptions options)
+    RefundProcessingOptions options,
+    ILogger<RefundProcessor>? logger = null)
 {
     public async Task<RefundSweepResult> ProcessDueRefundsAsync(CancellationToken cancellationToken)
     {
@@ -74,11 +76,49 @@ public sealed class RefundProcessor(
             catch (Exception exception)
             {
                 dbContext.ClearTrackedEntities();
+                bool deferredNow = await RecordUnexpectedFailureAsync(refundId, clock.UtcNow, cancellationToken);
+                if (deferredNow) deferred++;
+                logger?.LogError(exception,
+                    "Refund {RefundId} failed unexpectedly; it was moved out of Processing for retry or escalation.",
+                    refundId);
                 failures.Add(new RefundSweepFailure(refundId, exception.GetType().Name));
             }
         }
 
         return new RefundSweepResult(completed, deferred, failures);
+    }
+
+    private async Task<bool> RecordUnexpectedFailureAsync(long refundId, DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        return await dbContext.ExecuteInSerializableTransactionAsync(async token =>
+        {
+            Refund? refund = await dbContext.Refunds.SingleOrDefaultAsync(item => item.Id == refundId, token);
+            if (refund is null || refund.Status != RefundStatus.Processing)
+                return false;
+
+            const string errorCode = "payment.refund.processing_failed";
+            const string errorMessage = "The refund could not be processed and will be retried.";
+            if (refund.AttemptCount < options.MaxAttempts)
+            {
+                refund.ScheduleRetry(errorCode, errorMessage, now.Add(options.RetryDelay));
+            }
+            else
+            {
+                refund.Escalate(errorCode, errorMessage);
+                Booking? booking = await dbContext.Bookings
+                    .Include(item => item.TourSchedule).ThenInclude(item => item.Tour)
+                    .SingleOrDefaultAsync(item => item.Id == refund.BookingId, token);
+                if (booking is not null)
+                    await AddEscalationNotificationsAsync(booking, refund, now, token);
+            }
+
+            dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(null, "RefundGatewaySubmission", "Refund",
+                refund.Id, now, AuditOutcome.Failure, errorMessage,
+                afterData: JsonSerializer.Serialize(new { refund.Status, refund.AttemptCount })));
+            await dbContext.SaveChangesAsync(token);
+            return true;
+        }, cancellationToken);
     }
 
     private async Task RecoverExpiredAttemptsAsync(DateTimeOffset now, CancellationToken cancellationToken)

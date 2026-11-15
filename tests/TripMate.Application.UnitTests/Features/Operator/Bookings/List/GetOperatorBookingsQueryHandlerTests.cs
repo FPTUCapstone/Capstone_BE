@@ -79,6 +79,7 @@ public sealed class GetOperatorBookingsQueryHandlerTests
         result.Value.Summary.TotalBookings.Should().Be(1);
         result.Value.Summary.TotalParticipants.Should().Be(2);
         result.Value.Summary.TotalConfirmedAmount.Should().Be(1_000_000m);
+        result.Value.Summary.TotalSettledPayoutAmount.Should().Be(0m);
         result.Value.Items.Should().ContainSingle().Which.BookingId.Should().Be("1");
     }
 
@@ -127,7 +128,7 @@ public sealed class GetOperatorBookingsQueryHandlerTests
         result.Value.TotalCount.Should().Be(0);
         result.Value.TotalPages.Should().Be(0);
         result.Value.Items.Should().BeEmpty();
-        result.Value.Summary.Should().Be(new OperatorBookingSummaryDto(0, 0, 0m));
+        result.Value.Summary.Should().Be(new OperatorBookingSummaryDto(0, 0, 0m, 0m));
     }
 
     [Fact]
@@ -375,7 +376,7 @@ public sealed class GetOperatorBookingsQueryHandlerTests
         var result = await OperatorHandler(db).Handle(
             new GetOperatorBookingsQuery(Status: BookingStatus.Cancelled), CancellationToken.None);
 
-        result.Value.Summary.Should().Be(new OperatorBookingSummaryDto(1, 0, 0m));
+        result.Value.Summary.Should().Be(new OperatorBookingSummaryDto(1, 0, 0m, 0m));
     }
 
     // ---- 5e: check-in ----

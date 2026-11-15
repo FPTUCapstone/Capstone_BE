@@ -5,7 +5,8 @@ namespace TripMate.Domain.Entities;
 /// <summary>
 /// Maps payment.PayoutSettlement (DAILY-PAYOUT-TRANSFER spec v6 PD-3, PD-5). At most one
 /// <see cref="PayoutSettlementKind.Advance"/> (70%) and one <see cref="PayoutSettlementKind.Final"/>
-/// (20%) row per booking. Its amount is fixed at creation and is never recalculated afterwards
+/// (20%) row for a completed booking, or one <see cref="PayoutSettlementKind.Cancellation"/>
+/// row for the Tour Operator's 90% share of a cancellation fee. Its amount is fixed at creation and is never recalculated afterwards
 /// (BR-146). Its status is driven by the <see cref="PayoutBatch"/> that carries its transfer
 /// (PD-14); callers go through the batch, not this entity, to change status.
 /// </summary>

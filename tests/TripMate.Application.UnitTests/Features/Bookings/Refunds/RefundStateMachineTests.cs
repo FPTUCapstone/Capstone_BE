@@ -15,6 +15,33 @@ public sealed class RefundStateMachineTests
         Refund.CreatePendingOperatorConfirmation(41, 51, 61, amount, "Traveler cancelled", RefundInitiator.System, Now);
 
     [Fact]
+    public void CreateAutomatically_WithNonZeroOperatorShare_StartsReturnDeadlineAtCancellation()
+    {
+        var deadline = Now.AddDays(3);
+
+        var refund = Refund.CreateAutomatically(41, 51, 61, 100_000m, "Tour cancelled",
+            RefundInitiator.TourOperator, 70_000m, deadline, Now);
+
+        Assert.Equal(RefundStatus.AwaitingPartnerReturn, refund.Status);
+        Assert.Equal(70_000m, refund.OperatorReturnShare);
+        Assert.Equal(deadline, refund.ReturnDeadlineAtUtc);
+        Assert.Equal(Now, refund.OperatorConfirmedAtUtc);
+        Assert.Null(refund.NextAttemptAtUtc);
+    }
+
+    [Fact]
+    public void CreateAutomatically_WithZeroOperatorShare_IsReadyForGatewayProcessing()
+    {
+        var refund = Refund.CreateAutomatically(41, 51, 61, 100_000m, "Tour cancelled",
+            RefundInitiator.System, 0m, null, Now);
+
+        Assert.Equal(RefundStatus.Pending, refund.Status);
+        Assert.Equal(0m, refund.OperatorReturnShare);
+        Assert.Null(refund.ReturnDeadlineAtUtc);
+        Assert.Equal(Now, refund.NextAttemptAtUtc);
+    }
+
+    [Fact]
     public void CreatePendingOperatorConfirmation_StartsInThatStatus()
     {
         var refund = CreatePendingConfirmation();

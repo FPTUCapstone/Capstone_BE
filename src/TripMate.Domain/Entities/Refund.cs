@@ -32,8 +32,8 @@ public class Refund : BaseEntity
     public string? LastErrorCode { get; private set; }
     public string? LastErrorMessage { get; private set; }
 
-    // UC-42 (SRS 3.8.4.3, BR-139, BR-144): set only while the refund is going through the
-    // operator-confirmation / partner-return path (PendingOperatorConfirmation onward).
+    // UC-42 (BR-139, BR-144): set when the cancellation determines that the Tour Operator
+    // already holds a share which must be returned before the customer refund is sent.
     public decimal? OperatorReturnShare { get; private set; }
     public DateTimeOffset? OperatorConfirmedAtUtc { get; private set; }
     public DateTimeOffset? ReturnDeadlineAtUtc { get; private set; }
@@ -75,6 +75,46 @@ public class Refund : BaseEntity
             InitiatedBy = initiatedBy,
             Status = RefundStatus.PendingOperatorConfirmation,
             RequestedAtUtc = requestedAtUtc.ToUniversalTime(),
+        };
+    }
+
+    /// <summary>
+    /// Creates the normal cancellation refund without asking the Tour Operator to approve an
+    /// obligation that the cancellation policy has already determined. A zero return share can
+    /// enter the automatic gateway queue immediately; a non-zero share waits only for the
+    /// operator's bank-transfer report, with its deadline starting at cancellation time.
+    /// </summary>
+    public static Refund CreateAutomatically(long bookingId, long transactionId, long cancellationOperationId,
+        decimal amount, string? reason, RefundInitiator initiatedBy, decimal operatorReturnShare,
+        DateTimeOffset? returnDeadlineAtUtc, DateTimeOffset requestedAtUtc)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(bookingId);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(transactionId);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(cancellationOperationId);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(amount);
+        if (reason?.Length > ReasonMaxLength)
+            throw new ArgumentOutOfRangeException(nameof(reason));
+        if (operatorReturnShare < 0m)
+            throw new ArgumentOutOfRangeException(nameof(operatorReturnShare));
+        if (operatorReturnShare > 0m && returnDeadlineAtUtc is null)
+            throw new ArgumentException("A non-zero operator return share requires a return deadline.",
+                nameof(returnDeadlineAtUtc));
+
+        var requestedAt = requestedAtUtc.ToUniversalTime();
+        return new Refund
+        {
+            BookingId = bookingId,
+            TransactionId = transactionId,
+            CancellationOperationId = cancellationOperationId,
+            Amount = amount,
+            Reason = reason,
+            InitiatedBy = initiatedBy,
+            Status = operatorReturnShare == 0m ? RefundStatus.Pending : RefundStatus.AwaitingPartnerReturn,
+            RequestedAtUtc = requestedAt,
+            OperatorReturnShare = operatorReturnShare,
+            OperatorConfirmedAtUtc = requestedAt,
+            ReturnDeadlineAtUtc = returnDeadlineAtUtc?.ToUniversalTime(),
+            NextAttemptAtUtc = operatorReturnShare == 0m ? requestedAt : null,
         };
     }
 

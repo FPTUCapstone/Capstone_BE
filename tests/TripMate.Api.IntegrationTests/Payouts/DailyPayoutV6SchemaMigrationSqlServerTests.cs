@@ -17,6 +17,7 @@ public sealed class DailyPayoutV6SchemaMigrationSqlServerTests
 {
     private const string FoundationFileName = "20261108_daily_payout_settlement_foundation.sql";
     private const string SchemaFileName = "20261112_daily_payout_v6_schema.sql";
+    private const string CancellationFeeFileName = "20261114_cancellation_fee_settlement.sql";
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
@@ -48,6 +49,22 @@ public sealed class DailyPayoutV6SchemaMigrationSqlServerTests
 
         await legacyMain.Should().ThrowAsync<SqlException>();
         await legacyRetained.Should().ThrowAsync<SqlException>();
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task CancellationFeeMigration_AcceptsCancellationKindAndIsIdempotent()
+    {
+        await using var database = await CreateBaseDatabaseAsync();
+        await database.ExecuteScriptAsync(MigrationPath(SchemaFileName));
+        await database.ExecuteScriptAsync(MigrationPath(CancellationFeeFileName));
+        await database.ExecuteScriptAsync(MigrationPath(CancellationFeeFileName));
+        await SeedBookingAndOperatorAsync(database);
+
+        Func<Task> insert = () => database.ExecuteNonQueryAsync(
+            SettlementInsertSql(bookingId: 1, kind: "Cancellation", status: "Scheduled"));
+
+        await insert.Should().NotThrowAsync();
     }
 
     [SqlServerFact]

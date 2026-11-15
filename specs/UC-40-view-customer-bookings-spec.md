@@ -104,7 +104,8 @@ Response `200 OK`:
   "summary": {
     "totalBookings": 37,
     "totalParticipants": 112,
-    "totalConfirmedAmount": 98400000.00
+    "totalConfirmedAmount": 98400000.00,
+    "totalSettledPayoutAmount": 73800000.00
   },
   "items": [
     {
@@ -132,6 +133,10 @@ Response `200 OK`:
   `Completed` only.
 - `totalConfirmedAmount` = sum of `Booking.TotalAmount` over matching bookings with status `Confirmed`
   or `Completed` only.
+- `totalSettledPayoutAmount` = sum of `PayoutSettlement.PayoutAmount` for matching bookings whose
+  settlement status is `Settled`, minus `Refund.OperatorReturnShare` only after TripMate has recorded
+  `ReturnReceivedAtUtc`. This is the only summary value shown as the Tour Operator's realised payout;
+  a newly confirmed booking in its 24-hour holding window contributes zero.
 
 `totalParticipants` and `totalConfirmedAmount` share one basis so the operator's headcount reflects the
 people who will actually travel.
