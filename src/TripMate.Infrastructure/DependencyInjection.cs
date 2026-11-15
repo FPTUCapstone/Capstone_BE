@@ -17,6 +17,7 @@ using TripMate.Application.Features.Bookings.Common;
 using TripMate.Application.Features.Bookings.Refunds;
 using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Navigation.Common;
+using TripMate.Application.Features.Operator.CheckIn.Common;
 using TripMate.Application.Features.Operator.Payouts.Common;
 using TripMate.Application.Features.Operator.Revenue.Exports.Common;
 using TripMate.Application.Features.Payouts.DailySettlement;
@@ -50,10 +51,11 @@ using TripMate.Infrastructure.Reviews.Moderation;
 using TripMate.Infrastructure.Routing;
 using TripMate.Infrastructure.Security;
 using TripMate.Infrastructure.Services;
+using TripMate.Infrastructure.Services.Audit;
 using TripMate.Infrastructure.Services.Payment;
 using TripMate.Infrastructure.Services.Redis;
+using TripMate.Infrastructure.SupportChat;
 using TripMate.Infrastructure.TripAlerts;
-using TripMate.Infrastructure.Weather;
 using TripMate.Infrastructure.Weather;
 
 namespace TripMate.Infrastructure;
@@ -64,6 +66,7 @@ public static class DependencyInjection
         this IServiceCollection services,
         IConfiguration configuration)
     {
+        services.AddSupportChat(configuration);
         // Database-first: the schema is owned by database/tripmate_schema_v7.sql, applied via
         // database/apply-schema.sh. This context only maps to it — no EF Core migrations here.
         services.AddDbContext<ApplicationDbContext>(options =>
@@ -117,6 +120,8 @@ public static class DependencyInjection
         services.AddSingleton<ITripReviewPersistenceErrorClassifier, SqlServerTripReviewPersistenceErrorClassifier>();
         services.AddSingleton<IBookingCancellationPersistenceErrorClassifier,
             SqlServerBookingCancellationPersistenceErrorClassifier>();
+        services.AddSingleton<ICheckInPersistenceErrorClassifier,
+            SqlServerCheckInPersistenceErrorClassifier>();
         services.AddSingleton<IPayoutPersistenceErrorClassifier, SqlServerPayoutPersistenceErrorClassifier>();
         services.AddScoped<IRefundManualCompletionLock, SqlServerRefundManualCompletionLock>();
         services.AddSingleton<IReviewContentModerator, LocalReviewContentModerator>();
@@ -305,6 +310,39 @@ public static class DependencyInjection
             serviceProvider.GetRequiredService<IOptions<SchedulingRateLimitOptions>>().Value);
         services.AddSingleton<GenerateRateLimiterMetrics>();
 
+        services.AddOptions<CheckInAuditJournalOptions>()
+            .Bind(configuration.GetSection(CheckInAuditJournalOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<CheckInAuditJournalOptions>, CheckInAuditJournalOptionsValidator>();
+        services.AddSingleton(serviceProvider => serviceProvider
+            .GetRequiredService<IOptions<CheckInAuditJournalOptions>>().Value);
+
+        var checkInAuditOptions = configuration.GetSection(CheckInAuditJournalOptions.SectionName)
+            .Get<CheckInAuditJournalOptions>() ?? new CheckInAuditJournalOptions();
+        if (checkInAuditOptions.Enabled)
+        {
+            services.AddSingleton(serviceProvider =>
+            {
+                var options = serviceProvider.GetRequiredService<CheckInAuditJournalOptions>();
+                string? connectionString = configuration.GetConnectionString(options.RedisConnectionStringName);
+                if (string.IsNullOrWhiteSpace(connectionString))
+                    throw new InvalidOperationException(
+                        $"Check-in audit journal requires ConnectionStrings:{options.RedisConnectionStringName}.");
+                return CheckInAuditRedisConnection.ConnectAsync(connectionString, options.CommandTimeout)
+                    .GetAwaiter().GetResult();
+            });
+            services.AddSingleton<ICheckInAuditJournal, RedisCheckInAuditJournal>();
+            services.AddSingleton<CheckInAuditJournalMetrics>();
+            services.AddScoped<CheckInAuditProjector>();
+            services.AddHostedService<CheckInAuditProjectionBackgroundService>();
+        }
+        else
+        {
+            // Disabled is deliberately fail-closed for check-in. Production rollout must enable
+            // the journal only after AOF durability is proven; there is no silent legacy bypass.
+            services.AddSingleton<ICheckInAuditJournal, UnavailableCheckInAuditJournal>();
+        }
+
         var rateLimitOptions = configuration.GetSection(SchedulingRateLimitOptions.SectionName)
             .Get<SchedulingRateLimitOptions>() ?? new SchedulingRateLimitOptions();
         if (rateLimitOptions.Provider == SchedulingRateLimitProvider.Redis)
@@ -383,12 +421,18 @@ public static class DependencyInjection
             .GetRequiredService<IOptions<ItineraryExplanationExecutionOptions>>()
             .Value);
         services.AddScoped<PersonalBehaviorFeatureAggregator>();
+        services.AddScoped(serviceProvider => new BehaviorProfileBuilder(
+            serviceProvider.GetRequiredService<IApplicationDbContext>(),
+            serviceProvider.GetRequiredService<IDateTimeProvider>(),
+            serviceProvider.GetRequiredService<IOptions<PersonalizationRankingOptions>>().Value,
+            serviceProvider.GetRequiredService<ILogger<BehaviorProfileBuilder>>()));
         services.AddScoped(serviceProvider => new PoiRankingOrchestrator(
             serviceProvider.GetRequiredService<PersonalBehaviorFeatureAggregator>(),
             serviceProvider.GetRequiredService<IPoiRankingProvider>(),
             serviceProvider.GetRequiredService<IOptions<PersonalizationRankingOptions>>().Value,
             serviceProvider.GetRequiredService<IOptions<PoiRankingProviderOptions>>().Value.Enabled,
-            serviceProvider.GetRequiredService<ILogger<PoiRankingOrchestrator>>()));
+            serviceProvider.GetRequiredService<ILogger<PoiRankingOrchestrator>>(),
+            serviceProvider.GetRequiredService<BehaviorProfileBuilder>()));
         services.AddHttpClient<MapboxRouteDurationProvider>(
             (serviceProvider, client) =>
             {

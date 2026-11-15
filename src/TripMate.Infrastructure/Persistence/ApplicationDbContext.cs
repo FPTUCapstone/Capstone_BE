@@ -70,6 +70,10 @@ public class ApplicationDbContext(
     public DbSet<TourMediaCleanupOutboxItem> TourMediaCleanupOutbox =>
         Set<TourMediaCleanupOutboxItem>();
 
+    public DbSet<TourSearchRequest> TourSearchRequests => Set<TourSearchRequest>();
+
+    public DbSet<TourRecommendationLog> TourRecommendationLogs => Set<TourRecommendationLog>();
+
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
     public DbSet<Notification> Notifications => Set<Notification>();
@@ -325,6 +329,10 @@ public class ApplicationDbContext(
 
     public DbSet<RecommendationBehaviorEvent> RecommendationBehaviorEvents =>
         Set<RecommendationBehaviorEvent>();
+
+    public DbSet<PoiFavorite> PoiFavorites => Set<PoiFavorite>();
+
+    public DbSet<PoiVisitedMark> PoiVisitedMarks => Set<PoiVisitedMark>();
 
     public DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests => Set<TravelGroupCreationRequest>();
 

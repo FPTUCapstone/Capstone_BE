@@ -30,6 +30,7 @@ public sealed class OperatorCheckInController(ISender sender) : ApiControllerBas
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> Scan(
         [FromBody] CheckInTravelerCommand command,
         CancellationToken cancellationToken)

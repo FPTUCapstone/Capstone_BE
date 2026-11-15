@@ -220,6 +220,16 @@ try
     builder.Services.AddRateLimiter(options =>
     {
         options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+        options.AddPolicy(SupportChatRateLimiter.PolicyName, context =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                context.User.FindFirstValue(ClaimTypes.NameIdentifier)
+                    ?? context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = SupportChatRateLimiter.PermitLimit,
+                    Window = SupportChatRateLimiter.Window,
+                    QueueLimit = 0,
+                }));
         options.OnRejected = static async (context, cancellationToken) =>
         {
             // The 429 payload matches the documented ProblemDetails contract and carries no

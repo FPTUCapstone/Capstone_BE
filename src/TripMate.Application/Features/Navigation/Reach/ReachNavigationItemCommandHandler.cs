@@ -4,6 +4,7 @@ using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Navigation.Common;
+using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Navigation.Reach;
 
@@ -27,5 +28,6 @@ public sealed class ReachNavigationItemCommandHandler(
                 request.ItemId,
                 session.ResolveEventTime(request.OccurredAtUtc, now, _options.ClientClockSkewTolerance)),
             NavigationSessionMetrics.RecordReach,
-            cancellationToken);
+            cancellationToken,
+            new NavigationBehaviorSignal(request.ItemId, RecommendationEventType.Like));
 }

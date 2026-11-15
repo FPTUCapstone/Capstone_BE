@@ -17,11 +17,11 @@ namespace TripMate.Application.Features.Tours.Search;
 
 public sealed class SearchToursQueryHandler(
     IApplicationDbContext dbContext,
-    ITourAvailabilityReader availabilityReader,
     IDateTimeProvider dateTimeProvider,
     ILogger<SearchToursQueryHandler> logger)
     : IRequestHandler<SearchToursQuery, Result<PagedToursResponseDto>>
 {
+    public const string AvailabilitySnapshotQueryTag = "TM70_UC24_AVAILABILITY_SNAPSHOT";
     private const string Currency = "VND";
     private const string SearchCollation = "Latin1_General_100_CI_AI";
 
@@ -136,7 +136,7 @@ public sealed class SearchToursQueryHandler(
                 }
 
                 var totalCount = await tours.LongCountAsync(transactionCancellationToken);
-                var candidates =
+                var candidates = (
                     from tour in tours
                     join rating in publishedRatings
                         on tour.Id equals rating.TourId
@@ -161,10 +161,22 @@ public sealed class SearchToursQueryHandler(
                         BasePrice = tour.BasePrice,
                         RawAverage = rating.RawAverage,
                         ScheduleId = schedule == null ? null : (long?)schedule.Id,
-                        DepartureAtUtc = schedule == null
-                            ? null
-                            : (DateTimeOffset?)schedule.StartAtUtc,
-                    };
+                        HasRepresentativeSchedule = schedule != null,
+                        AvailabilityResolved = schedule != null
+                            && schedule.Status == TourScheduleStatus.Scheduled
+                            && schedule.TotalCapacity > 0
+                            && schedule.ReservedCapacity >= 0
+                            && schedule.ReservedCapacity <= schedule.TotalCapacity,
+                        TotalCapacity = schedule == null ? null : (int?)schedule.TotalCapacity,
+                        ReservedCapacity = schedule == null ? null : (int?)schedule.ReservedCapacity,
+                        DepartureAtUtc = schedule != null
+                            && schedule.Status == TourScheduleStatus.Scheduled
+                            && schedule.TotalCapacity > 0
+                            && schedule.ReservedCapacity >= 0
+                            && schedule.ReservedCapacity <= schedule.TotalCapacity
+                            ? (DateTimeOffset?)schedule.StartAtUtc
+                            : null,
+                    }).TagWith(AvailabilitySnapshotQueryTag);
 
                 var ordered = Order(candidates, resolvedSort, tokens);
                 var offset = ((long)request.Page - 1) * request.PageSize;
@@ -210,20 +222,8 @@ public sealed class SearchToursQueryHandler(
             },
             cancellationToken);
 
-        // Availability is intentionally enriched only after the stable search transaction
-        // commits. A schedule that is no longer independently readable degrades only that
-        // Tour, while a provider/batch failure still propagates as the global 7.a1 path.
-        var scheduleIds = snapshot.PageRows
-            .Where(row => row.ScheduleId.HasValue)
-            .Select(row => row.ScheduleId!.Value)
-            .Distinct()
-            .ToArray();
-        var availabilityBySchedule = await availabilityReader.ReadAsync(
-            scheduleIds,
-            cancellationToken);
         var items = snapshot.PageRows.Select(row => MapItem(
                 row,
-                availabilityBySchedule,
                 snapshot.DestinationsByTour.GetValueOrDefault(row.Id) ?? [],
                 snapshot.ThumbnailsByTour.GetValueOrDefault(row.Id)))
             .ToArray();
@@ -345,27 +345,22 @@ public sealed class SearchToursQueryHandler(
 
     private TourSearchItemDto MapItem(
         SearchCandidate row,
-        IReadOnlyDictionary<long, TourAvailabilityReadResult> availabilityBySchedule,
         IReadOnlyList<string> destinations,
         string? thumbnailUrl)
     {
-        TourAvailabilityReadResult snapshot = default;
-        var availabilityResolved = row.ScheduleId.HasValue
-            && availabilityBySchedule.TryGetValue(row.ScheduleId.Value, out snapshot)
-            && snapshot.IsResolved;
-        var availability = row.ScheduleId switch
+        var availability = row.HasRepresentativeSchedule switch
         {
-            null => "noUpcomingSchedule",
-            _ when !availabilityResolved => "unknown",
-            _ when snapshot.ReservedCapacity < snapshot.TotalCapacity => "available",
+            false => "noUpcomingSchedule",
+            _ when !row.AvailabilityResolved => "unknown",
+            _ when row.ReservedCapacity < row.TotalCapacity => "available",
             _ => "soldOut",
         };
-        int? remainingSlots = availabilityResolved
-            ? snapshot.TotalCapacity - snapshot.ReservedCapacity
+        int? remainingSlots = row.AvailabilityResolved
+            ? row.TotalCapacity - row.ReservedCapacity
             : null;
-        var exposesBookableSchedule = row.ScheduleId.HasValue && availabilityResolved;
+        var exposesBookableSchedule = row.ScheduleId.HasValue && row.AvailabilityResolved;
 
-        if (row.ScheduleId.HasValue && !availabilityResolved)
+        if (row.HasRepresentativeSchedule && !row.AvailabilityResolved)
         {
             logger.LogWarning(
                 "TM-70 availability unavailable for tour {TourId}; returning a non-bookable result.",
@@ -406,6 +401,10 @@ public sealed class SearchToursQueryHandler(
         public decimal BasePrice { get; init; }
         public decimal? RawAverage { get; init; }
         public long? ScheduleId { get; init; }
+        public bool HasRepresentativeSchedule { get; init; }
+        public bool AvailabilityResolved { get; init; }
+        public int? TotalCapacity { get; init; }
+        public int? ReservedCapacity { get; init; }
         public DateTimeOffset? DepartureAtUtc { get; init; }
     }
 

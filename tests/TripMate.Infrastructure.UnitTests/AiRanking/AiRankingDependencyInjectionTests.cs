@@ -11,6 +11,7 @@ using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Create;
 using TripMate.Application.Features.Scheduling.Personalization;
+using TripMate.Infrastructure.Ai;
 using TripMate.Infrastructure.AiRanking;
 using TripMate.Infrastructure.UnitTests.Security;
 
@@ -124,9 +125,9 @@ public sealed class AiRankingDependencyInjectionTests
         startupAction.Should().NotThrow();
         personalization.Should().BeEquivalentTo(new PersonalizationRankingOptions());
         aiRanking.Enabled.Should().BeFalse();
-        aiRanking.Endpoint.Should().Be(
-            "https://generativelanguage.googleapis.com/v1/interactions");
-        aiRanking.ModelName.Should().Be("gemini-3.5-flash-lite");
+        aiRanking.Provider.Should().Be(AiProviderKind.TripMateAi);
+        aiRanking.Endpoint.Should().Be("http://tripmate-ai:8000/v1/rank-pois");
+        aiRanking.ModelName.Should().Be("bge-m3");
         aiRanking.ApiKey.Should().BeNull();
         configuration["AiRanking:ApiKey"].Should().BeNull();
     }

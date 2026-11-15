@@ -49,7 +49,8 @@ public sealed class TripMateApiFactory(
     Action<IServiceCollection>? configureTestServices = null,
     IInterceptor? dbInterceptor = null,
     Func<IServiceProvider, IItineraryExplanationProvider>? explanationProviderFactory = null,
-    bool? explanationProviderEnabled = null) : WebApplicationFactory<Program>
+    bool? explanationProviderEnabled = null,
+    IReadOnlyDictionary<string, string?>? configurationOverrides = null) : WebApplicationFactory<Program>
 {
     internal const string JwtIssuer = "TripMate.Tests";
     internal const string JwtAudience = "TripMate.Tests";
@@ -72,6 +73,13 @@ public sealed class TripMateApiFactory(
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(environmentName);
+        if (configurationOverrides is not null)
+        {
+            foreach ((string key, string? value) in configurationOverrides)
+            {
+                builder.UseSetting(key, value);
+            }
+        }
         // Derived WithWebHostBuilder hosts need distinct files while their parent
         // host is alive. This factory owns all files through its disposal lifetime.
         string logPath = Path.Combine(_logDirectory, Guid.NewGuid().ToString("N"), "requests.log");
@@ -491,6 +499,8 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<SchedulingRequest> SchedulingRequests => Set<SchedulingRequest>();
     public DbSet<RecommendationBehaviorEvent> RecommendationBehaviorEvents =>
         Set<RecommendationBehaviorEvent>();
+    public DbSet<PoiFavorite> PoiFavorites => Set<PoiFavorite>();
+    public DbSet<PoiVisitedMark> PoiVisitedMarks => Set<PoiVisitedMark>();
     public DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests =>
         Set<TravelGroupCreationRequest>();
     public DbSet<GroupInvitation> GroupInvitations => Set<GroupInvitation>();
@@ -597,6 +607,10 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     }
 
     public DbSet<SystemConfig> SystemConfigs => Set<SystemConfig>();
+
+    public DbSet<TourSearchRequest> TourSearchRequests => Set<TourSearchRequest>();
+
+    public DbSet<TourRecommendationLog> TourRecommendationLogs => Set<TourRecommendationLog>();
 
     public Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,

@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Options;
 
 using TripMate.Application.Features.Scheduling.Common;
+using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Scheduling.Personalization;
 
@@ -35,6 +36,77 @@ public sealed class PersonalizationRankingOptions
     public decimal PersonalizedAiFallbackScore { get; init; } = 0.60m;
 
     public decimal DefaultAiFallbackScore { get; init; } = 0.50m;
+
+    // UC-10 item 6: the behavior profile sent to the AI ranking (spec .scratch/uc10-behavior-learning §3.3).
+
+    /// <summary>A signal weighs half as much after this many days (decision D3).</summary>
+    public int BehaviorHalfLifeDays { get; init; } = 90;
+
+    /// <summary>Older signals are ignored: after a year a signal weighs under 6% of a fresh one.</summary>
+    public int BehaviorLookbackDays { get; init; } = 365;
+
+    /// <summary>Most recent signals read per traveler.</summary>
+    public int MaxBehaviorEvents { get; init; } = 500;
+
+    /// <summary>Liked (and disliked) POIs sent to the AI; the AI service keeps at most 50 per side.</summary>
+    public int MaxBehaviorPoisPerSide { get; init; } = 50;
+
+    /// <summary>
+    /// Decision D8: a stop the traveler removed from an itinerary or skipped during navigation is not suggested
+    /// automatically again for this many days, unless they choose it again. 0 turns the rule off.
+    /// </summary>
+    public int RemovedStopCooldownDays { get; init; } = 14;
+
+    /// <summary>
+    /// Decision D20: a place the traveler has just been to (reached while navigating, or removed as "already
+    /// visited") is not suggested automatically again for this many days, unless they choose it again or too few
+    /// other places are left. It is not a dislike. 0 turns the rule off.
+    /// </summary>
+    public int VisitedStopCooldownDays { get; init; } = 14;
+
+    public BehaviorSignalWeights BehaviorSignalWeights { get; init; } = new();
+}
+
+/// <summary>
+/// How much one behavior signal counts before time decay (decisions D1 and D6). A Like-type signal adds to a
+/// POI, a Dislike or Skip subtracts; the per-POI net decides whether it is sent as liked or disliked.
+/// </summary>
+public sealed class BehaviorSignalWeights
+{
+    public decimal ExplicitLike { get; init; } = 1.0m;
+
+    public decimal ExplicitDislike { get; init; } = 1.0m;
+
+    public decimal ExplicitSkip { get; init; } = 0.5m;
+
+    /// <summary>The traveler added the stop while adjusting an itinerary.</summary>
+    public decimal StopAdded { get; init; } = 1.0m;
+
+    /// <summary>The traveler removed the stop while adjusting an itinerary.</summary>
+    public decimal StopRemoved { get; init; } = 1.0m;
+
+    /// <summary>Reached during navigation: weak, the traveler may simply have followed the plan.</summary>
+    public decimal StopReached { get; init; } = 0.3m;
+
+    public decimal StopSkipped { get; init; } = 0.7m;
+
+    /// <summary>Marked mandatory when creating the request (decision D6).</summary>
+    public decimal MandatoryChosen { get; init; } = 0.5m;
+
+    /// <summary>Positive for a like, negative for a dislike or skip, zero for a signal that says nothing.</summary>
+    public decimal SignedWeight(RecommendationEventType eventType, RecommendationCaptureSource source) =>
+        (eventType, source) switch
+        {
+            (RecommendationEventType.Like, RecommendationCaptureSource.Navigation) => StopReached,
+            (RecommendationEventType.Like, RecommendationCaptureSource.SchedulingRequest) => MandatoryChosen,
+            (RecommendationEventType.Like, RecommendationCaptureSource.ItineraryEdit) => StopAdded,
+            (RecommendationEventType.Like, _) => ExplicitLike,
+            (RecommendationEventType.Dislike, RecommendationCaptureSource.ItineraryEdit) => -StopRemoved,
+            (RecommendationEventType.Dislike, _) => -ExplicitDislike,
+            (RecommendationEventType.Skip, RecommendationCaptureSource.Navigation) => -StopSkipped,
+            (RecommendationEventType.Skip, _) => -ExplicitSkip,
+            _ => 0m,
+        };
 }
 
 public sealed class PersonalizationRankingOptionsValidator(
@@ -128,6 +200,40 @@ public sealed class PersonalizationRankingOptionsValidator(
             nameof(options.DefaultAiFallbackScore),
             failures);
 
+        AddPositiveFailure(options.BehaviorHalfLifeDays, nameof(options.BehaviorHalfLifeDays), failures);
+        AddPositiveFailure(options.BehaviorLookbackDays, nameof(options.BehaviorLookbackDays), failures);
+        AddPositiveFailure(options.MaxBehaviorEvents, nameof(options.MaxBehaviorEvents), failures);
+        if (options.MaxBehaviorPoisPerSide is < 0 or > 50)
+        {
+            failures.Add($"{nameof(options.MaxBehaviorPoisPerSide)} must be between 0 and 50.");
+        }
+
+        if (options.RemovedStopCooldownDays < 0)
+        {
+            failures.Add($"{nameof(options.RemovedStopCooldownDays)} must be greater than or equal to zero.");
+        }
+
+        if (options.VisitedStopCooldownDays < 0)
+        {
+            failures.Add($"{nameof(options.VisitedStopCooldownDays)} must be greater than or equal to zero.");
+        }
+
+        BehaviorSignalWeights signals = options.BehaviorSignalWeights;
+        foreach (var (value, propertyName) in new[]
+                 {
+                     (signals.ExplicitLike, nameof(signals.ExplicitLike)),
+                     (signals.ExplicitDislike, nameof(signals.ExplicitDislike)),
+                     (signals.ExplicitSkip, nameof(signals.ExplicitSkip)),
+                     (signals.StopAdded, nameof(signals.StopAdded)),
+                     (signals.StopRemoved, nameof(signals.StopRemoved)),
+                     (signals.StopReached, nameof(signals.StopReached)),
+                     (signals.StopSkipped, nameof(signals.StopSkipped)),
+                     (signals.MandatoryChosen, nameof(signals.MandatoryChosen)),
+                 })
+        {
+            AddNonNegativeFailure(value, $"{nameof(options.BehaviorSignalWeights)}.{propertyName}", failures);
+        }
+
         return failures.Count == 0
             ? ValidateOptionsResult.Success
             : ValidateOptionsResult.Fail(failures);
@@ -141,6 +247,14 @@ public sealed class PersonalizationRankingOptionsValidator(
         if (value < 0m)
         {
             failures.Add($"{propertyName} must be greater than or equal to zero.");
+        }
+    }
+
+    private static void AddPositiveFailure(int value, string propertyName, ICollection<string> failures)
+    {
+        if (value < 1)
+        {
+            failures.Add($"{propertyName} must be at least 1.");
         }
     }
 

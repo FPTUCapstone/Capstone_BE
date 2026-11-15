@@ -54,6 +54,12 @@ public interface IApplicationDbContext
 
     DbSet<TourMediaCleanupOutboxItem> TourMediaCleanupOutbox { get; }
 
+    DbSet<TourSearchRequest> TourSearchRequests =>
+        throw new NotSupportedException("Tour recommendation snapshots are unavailable in this context.");
+
+    DbSet<TourRecommendationLog> TourRecommendationLogs =>
+        throw new NotSupportedException("Tour recommendation logs are unavailable in this context.");
+
     DbSet<AuditLog> AuditLogs { get; }
 
     DbSet<Notification> Notifications { get; }
@@ -131,6 +137,12 @@ public interface IApplicationDbContext
 
     DbSet<RecommendationBehaviorEvent> RecommendationBehaviorEvents =>
         throw new NotSupportedException("Recommendation behavior events are unavailable in this context.");
+
+    DbSet<PoiFavorite> PoiFavorites =>
+        throw new NotSupportedException("POI favorites are unavailable in this context.");
+
+    DbSet<PoiVisitedMark> PoiVisitedMarks =>
+        throw new NotSupportedException("POI visited marks are unavailable in this context.");
 
     DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests { get; }
 

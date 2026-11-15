@@ -1,7 +1,9 @@
 using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
+using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Itineraries.AdjustItems;
 using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Itineraries.List;
@@ -10,6 +12,7 @@ using TripMate.Application.Features.Itineraries.Suggestions;
 using TripMate.Application.Features.PointsOfInterest.ExternalReviews;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Csp;
+using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Application.Features.Scheduling.TimeOfDay;
 using TripMate.Application.UnitTests.TestUtilities;
 using TripMate.Domain.Constants;
@@ -747,6 +750,157 @@ public sealed class ItineraryVersionServiceTests
         result.ErrorCode.Should().Be(ItineraryErrorCodes.StopInfeasible);
         result.ErrorMetadata["poiId"].Should().Be(distantPoi.Id);
         result.ErrorMetadata["reason"].Should().Be(StopInfeasibilityReasons.OutsideRadius);
+    }
+
+    // UC-10 item 6 (spec .scratch/uc10-behavior-learning §3.5, D4): regenerate ranks like create.
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CreateRegeneratedVersion_WithTheRankingOrchestrator_PicksThePlaceTheAiRanksHigher(
+        bool aiPrefersTheSecondPark)
+    {
+        // Only one five-hour visit fits. Both parks score the same by the rules, so the AI decides.
+        await using var dbContext = TestDbContext.Create();
+        const long travelerUserId = 42;
+        var request = await AddRequestAsync(dbContext, travelerUserId);
+        var current = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Current museum", visitMinutes: 300);
+        var firstPark = await AddPlanningReadyPoiAsync(dbContext, "Nature", "First park", visitMinutes: 300);
+        var secondPark = await AddPlanningReadyPoiAsync(dbContext, "Nature", "Second park", visitMinutes: 300);
+        dbContext.TravelerProfiles.Add(TravelerProfile.Create(travelerUserId, "[\"culture\"]", Now));
+        var original = await AddItineraryAsync(dbContext, request, current.Id);
+        var preferred = aiPrefersTheSecondPark ? secondPark : firstPark;
+        var provider = new StubRankingProvider(poiId => poiId == preferred.Id ? 0.9m : 0.1m);
+
+        var result = await ServiceWithRanking(dbContext, provider)
+            .CreateRegeneratedVersionAsync(original, request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        VisitIds(result.Value).Should().Equal(preferred.Id);
+        provider.LastRequest!.Context.PreferenceTokens.Should().Equal("culture");
+    }
+
+    [Fact]
+    public async Task CreateRegeneratedVersion_WithTheRankingOrchestrator_SendsWhatTheTravelerRemoved()
+    {
+        await using var dbContext = TestDbContext.Create();
+        const long travelerUserId = 42;
+        var request = await AddRequestAsync(dbContext, travelerUserId);
+        var current = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Current museum", visitMinutes: 300);
+        var removed = await AddPlanningReadyPoiAsync(dbContext, "Temple", "Removed pagoda", visitMinutes: 300);
+        _ = await AddPlanningReadyPoiAsync(dbContext, "Nature", "Other park", visitMinutes: 300);
+        var original = await AddItineraryAsync(dbContext, request, current.Id);
+        dbContext.RecommendationBehaviorEvents.Add(RecommendationBehaviorEvent.Create(
+            travelerUserId, removed.Id, original.Id, RecommendationEventType.Dislike, null, null, false,
+            RecommendationCaptureSource.ItineraryEdit, Now, Guid.NewGuid()));
+        await dbContext.SaveChangesAsync();
+        var provider = new StubRankingProvider(_ => 0.5m);
+
+        var result = await ServiceWithRanking(dbContext, provider)
+            .CreateRegeneratedVersionAsync(original, request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        // No declared interests: the behavior profile alone is enough to consult the AI.
+        provider.LastRequest!.Context.PreferenceTokens.Should().BeEmpty();
+        provider.LastRequest.Context.Behavior!.Disliked.Should().ContainSingle()
+            .Which.PoiId.Should().Be(removed.Id);
+    }
+
+    [Fact]
+    public async Task CreateRegeneratedVersion_WithTheRankingOrchestrator_KeepsMandatoryPlacesAndNeverRanksThem()
+    {
+        await using var dbContext = TestDbContext.Create();
+        const long travelerUserId = 42;
+        var mandatory = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Mandatory museum", visitMinutes: 120);
+        var current = await AddPlanningReadyPoiAsync(dbContext, "Nature", "Current park", visitMinutes: 120);
+        var other = await AddPlanningReadyPoiAsync(dbContext, "Nature", "Other park", visitMinutes: 120);
+        var request = await AddRequestAsync(dbContext, travelerUserId, $"[{mandatory.Id}]");
+        dbContext.TravelerProfiles.Add(TravelerProfile.Create(travelerUserId, "[\"nature\"]", Now));
+        var original = await AddItineraryAsync(dbContext, request, mandatory.Id, current.Id);
+        var provider = new StubRankingProvider(_ => 0.5m);
+
+        var result = await ServiceWithRanking(dbContext, provider)
+            .CreateRegeneratedVersionAsync(original, request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        VisitIds(result.Value).Should().Contain([mandatory.Id, other.Id]);
+        provider.LastRequest!.Candidates.Select(candidate => candidate.PoiId).Should().NotContain(mandatory.Id);
+    }
+
+    [Fact]
+    public async Task CreateRegeneratedVersion_WithTheRankingProviderDisabled_StillSuggestsAnotherPlace()
+    {
+        await using var dbContext = TestDbContext.Create();
+        const long travelerUserId = 42;
+        var request = await AddRequestAsync(dbContext, travelerUserId);
+        var current = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Current museum", visitMinutes: 300);
+        var other = await AddPlanningReadyPoiAsync(dbContext, "Nature", "Other park", visitMinutes: 300);
+        dbContext.TravelerProfiles.Add(TravelerProfile.Create(travelerUserId, "[\"culture\"]", Now));
+        var original = await AddItineraryAsync(dbContext, request, current.Id);
+        var provider = new StubRankingProvider(_ => 0.5m);
+
+        var result = await ServiceWithRanking(dbContext, provider, providerEnabled: false)
+            .CreateRegeneratedVersionAsync(original, request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        VisitIds(result.Value).Should().Equal(other.Id);
+        provider.LastRequest.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task CreateRegeneratedVersion_DoesNotSuggestAStopTheTravelerRemovedRecently()
+    {
+        // Decision D8: the pagoda scores best by the rules, but the traveler removed it three days ago.
+        await using var dbContext = TestDbContext.Create();
+        const long travelerUserId = 42;
+        var request = await AddRequestAsync(dbContext, travelerUserId);
+        var current = await AddPlanningReadyPoiAsync(dbContext, "Nature", "Current park", visitMinutes: 300);
+        var removed = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Removed pagoda", visitMinutes: 300);
+        var other = await AddPlanningReadyPoiAsync(dbContext, "Nature", "Other park", visitMinutes: 300);
+        dbContext.TravelerProfiles.Add(TravelerProfile.Create(travelerUserId, "[\"culture\"]", Now));
+        var original = await AddItineraryAsync(dbContext, request, current.Id);
+        dbContext.RecommendationBehaviorEvents.Add(RecommendationBehaviorEvent.Create(
+            travelerUserId, removed.Id, original.Id, RecommendationEventType.Dislike, null, null, false,
+            RecommendationCaptureSource.ItineraryEdit, Now.AddDays(-3), Guid.NewGuid()));
+        await dbContext.SaveChangesAsync();
+
+        var result = await ServiceWithRanking(dbContext, new StubRankingProvider(_ => 0.5m), providerEnabled: false)
+            .CreateRegeneratedVersionAsync(original, request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        VisitIds(result.Value).Should().Equal(other.Id);
+    }
+
+    private static ItineraryVersionService ServiceWithRanking(
+        TestDbContext dbContext,
+        IPoiRankingProvider provider,
+        bool providerEnabled = true)
+    {
+        var rankingOptions = new PersonalizationRankingOptions();
+        return new ItineraryVersionService(
+            dbContext,
+            new FixedRouteDurationProvider(),
+            poiRankingOrchestrator: new PoiRankingOrchestrator(
+                new PersonalBehaviorFeatureAggregator(dbContext),
+                provider,
+                rankingOptions,
+                providerEnabled,
+                NullLogger<PoiRankingOrchestrator>.Instance,
+                new BehaviorProfileBuilder(dbContext, new FakeDateTimeProvider { UtcNow = Now }, rankingOptions)));
+    }
+
+    private sealed class StubRankingProvider(Func<long, decimal> score) : IPoiRankingProvider
+    {
+        public PoiRankingRequest? LastRequest { get; private set; }
+
+        public Task<Result<PoiRankingResult>> RankAsync(PoiRankingRequest request, CancellationToken cancellationToken)
+        {
+            LastRequest = request;
+            return Task.FromResult(Result.Success(new PoiRankingResult(
+                request.Candidates
+                    .Select(candidate => new PoiRankingItem(candidate.PoiId, score(candidate.PoiId), null))
+                    .ToArray())));
+        }
     }
 
     private static async Task<SchedulingRequest> AddRequestAfterTwoUnrelatedRequestsAsync(TestDbContext dbContext)

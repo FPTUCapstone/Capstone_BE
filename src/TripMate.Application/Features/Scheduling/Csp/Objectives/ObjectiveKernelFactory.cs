@@ -145,7 +145,8 @@ internal static class ObjectiveKernelFactory
             var cand = ctx.Nodes[i].Candidate;
             isExposedOutdoor[i] = cand.IndoorOutdoor != IndoorOutdoorType.Indoor && !cand.HasShelter;
             isFood[i] = PoiCategoryNames.IsFoodAndDrink(cand.CategoryName);
-            isRestStop[i] = ItineraryScheduleEvaluator.IsQualifiedRestCandidate(cand);
+            // Visiting a café rests the traveler; visiting a sheltered park does not, although it may host a rest stop.
+            isRestStop[i] = ItineraryScheduleEvaluator.IsRestOnlyCandidate(cand);
             effort[i] = cand.VisitDurationMinutes;
         }
 

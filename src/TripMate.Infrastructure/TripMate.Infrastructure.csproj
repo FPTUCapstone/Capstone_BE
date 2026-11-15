@@ -37,4 +37,9 @@
     <InternalsVisibleTo Include="TripMate.Api.IntegrationTests" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="SupportChat/Knowledge/srs-business-rules-20261112.json"
+                      LogicalName="TripMate.SupportChat.srs-business-rules-20261112.json" />
+  </ItemGroup>
+
 </Project>

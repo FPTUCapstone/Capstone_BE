@@ -255,34 +255,34 @@ public sealed class SearchToursSqlServerTests
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
         await SeedVisibilityScenarioAsync(database);
+        await database.ExecuteNonQueryAsync("""
+            UPDATE commerce.TourSchedules
+            SET status = 'EmergencyStopped'
+            WHERE schedule_id = 7004;
+            """);
         await using var context = database.CreateDbContext();
-        var availability = new TransitionScheduleThenReadAvailabilityReader(
-            database,
-            context,
-            scheduleIdToTransition: 7004);
-        var handler = CreateHandler(context, availability);
+        var handler = CreateHandler(context);
 
         var result = await handler.Handle(new SearchToursQuery(), CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
         result.Value.TotalCount.Should().Be(3);
         result.Value.Items.Select(item => item.Title).Should()
-            .Equal("Alpha public", "Sold out", "No schedule");
+            .Equal("Alpha public", "No schedule", "Sold out");
 
         var healthy = result.Value.Items[0];
         healthy.RepresentativeScheduleId.Should().Be("7001");
         healthy.AvailabilityStatus.Should().Be("soldOut");
         healthy.RemainingSlots.Should().Be(0);
 
-        var failed = result.Value.Items[1];
+        var failed = result.Value.Items[2];
         failed.RepresentativeScheduleId.Should().BeNull();
         failed.DepartureAtUtc.Should().BeNull();
         failed.AvailabilityStatus.Should().Be("unknown");
         failed.RemainingSlots.Should().BeNull();
 
-        var noSchedule = result.Value.Items[2];
+        var noSchedule = result.Value.Items[1];
         noSchedule.AvailabilityStatus.Should().Be("noUpcomingSchedule");
-        availability.RequestedScheduleIds.Should().Equal(7001, 7004);
 
         await database.ExecuteNonQueryAsync("""
             UPDATE commerce.TourSchedules
@@ -296,6 +296,121 @@ public sealed class SearchToursSqlServerTests
         recoveredTour.RepresentativeScheduleId.Should().Be("7004");
         recoveredTour.AvailabilityStatus.Should().Be("soldOut");
         recoveredTour.RemainingSlots.Should().Be(0);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Search_DepartureDate_PagesAvailabilityUnknownAfterDatedTours()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await SeedVisibilityScenarioAsync(database);
+        await database.ExecuteNonQueryAsync("""
+            UPDATE commerce.TourSchedules
+            SET status = 'EmergencyStopped'
+            WHERE schedule_id = 7004;
+            """);
+
+        await using var firstContext = database.CreateDbContext();
+        var first = await CreateHandler(firstContext).Handle(
+            new SearchToursQuery(
+                Sort: SearchToursQuery.SortDepartureDate,
+                Page: 1,
+                PageSize: 1),
+            CancellationToken.None);
+        await using var secondContext = database.CreateDbContext();
+        var second = await CreateHandler(secondContext).Handle(
+            new SearchToursQuery(
+                Sort: SearchToursQuery.SortDepartureDate,
+                Page: 2,
+                PageSize: 1),
+            CancellationToken.None);
+        await using var thirdContext = database.CreateDbContext();
+        var third = await CreateHandler(thirdContext).Handle(
+            new SearchToursQuery(
+                Sort: SearchToursQuery.SortDepartureDate,
+                Page: 3,
+                PageSize: 1),
+            CancellationToken.None);
+
+        first.Value.Items.Should().ContainSingle()
+            .Which.Title.Should().Be("Alpha public");
+        first.Value.Items[0].DepartureAtUtc.Should().NotBeNull();
+        second.Value.Items.Should().ContainSingle()
+            .Which.Title.Should().Be("No schedule");
+        second.Value.Items[0].DepartureAtUtc.Should().BeNull();
+        third.Value.Items.Should().ContainSingle()
+            .Which.Title.Should().Be("Sold out");
+        third.Value.Items[0].AvailabilityStatus.Should().Be("unknown");
+        third.Value.Items[0].RepresentativeScheduleId.Should().BeNull();
+        third.Value.Items[0].DepartureAtUtc.Should().BeNull();
+        third.Value.Items[0].RemainingSlots.Should().BeNull();
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Search_CompletedSnapshot_RemainsConsistentAndNextSnapshotReflectsTransition()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await SeedVisibilityScenarioAsync(database);
+        await using var firstContext = database.CreateDbContext();
+        var completedSnapshot = await CreateHandler(firstContext).Handle(
+            new SearchToursQuery(
+                Sort: SearchToursQuery.SortDepartureDate,
+                Page: 2,
+                PageSize: 1),
+            CancellationToken.None);
+
+        completedSnapshot.Value.Items.Should().ContainSingle()
+            .Which.Title.Should().Be("Sold out");
+        completedSnapshot.Value.Items[0].DepartureAtUtc.Should().NotBeNull();
+
+        await database.ExecuteNonQueryAsync("""
+            UPDATE commerce.TourSchedules
+            SET status = 'EmergencyStopped'
+            WHERE schedule_id = 7004;
+            """);
+
+        completedSnapshot.Value.Items[0].Title.Should().Be("Sold out");
+        completedSnapshot.Value.Items[0].DepartureAtUtc.Should().NotBeNull();
+
+        await using var nextContext = database.CreateDbContext();
+        var nextSnapshot = await CreateHandler(nextContext).Handle(
+            new SearchToursQuery(
+                Sort: SearchToursQuery.SortDepartureDate,
+                Page: 2,
+                PageSize: 1),
+            CancellationToken.None);
+        nextSnapshot.Value.Items.Should().ContainSingle()
+            .Which.Title.Should().Be("No schedule");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Search_HistoricalCompletedSchedule_RemainsDateFilterEligibleAndNonBookable()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await SeedVisibilityScenarioAsync(database);
+        await database.ExecuteNonQueryAsync("""
+            UPDATE commerce.TourSchedules
+            SET status = 'Completed'
+            WHERE schedule_id = 7001;
+            """);
+        await using var context = database.CreateDbContext();
+
+        var result = await CreateHandler(context).Handle(
+            new SearchToursQuery(
+                Destination: "Đà Nẵng",
+                DepartureDate: new DateOnly(2026, 9, 19),
+                Sort: SearchToursQuery.SortDepartureDate),
+            CancellationToken.None);
+
+        result.Value.TotalCount.Should().Be(1);
+        result.Value.Items.Should().ContainSingle();
+        result.Value.Items[0].Title.Should().Be("Alpha public");
+        result.Value.Items[0].AvailabilityStatus.Should().Be("unknown");
+        result.Value.Items[0].RepresentativeScheduleId.Should().BeNull();
+        result.Value.Items[0].DepartureAtUtc.Should().BeNull();
+        result.Value.Items[0].RemainingSlots.Should().BeNull();
     }
 
     [SqlServerFact]
@@ -379,9 +494,9 @@ public sealed class SearchToursSqlServerTests
         var result = await searchTask.WaitAsync(TimeSpan.FromSeconds(10));
         result.Value.TotalCount.Should().Be(3);
         result.Value.Items.Should().HaveCount(3);
-        gate.ReaderCommandCount.Should().Be(5);
+        gate.ReaderCommandCount.Should().Be(4);
         gate.PageSql.Should().Contain("ORDER BY");
-        gate.AvailabilityExecutedInsideTransaction.Should().BeFalse();
+        gate.AvailabilityExecutedInsideTransaction.Should().BeTrue();
 
         await database.ExecuteNonQueryAsync(
             "UPDATE commerce.Tours SET status = 'Inactive' WHERE tour_id = 201;");
@@ -393,12 +508,9 @@ public sealed class SearchToursSqlServerTests
         after.Value.TotalCount.Should().Be(2);
     }
 
-    private static SearchToursQueryHandler CreateHandler(
-        IApplicationDbContext context,
-        ITourAvailabilityReader? availabilityReader = null) =>
+    private static SearchToursQueryHandler CreateHandler(IApplicationDbContext context) =>
         new(
             context,
-            availabilityReader ?? new SqlTourAvailabilityReader(context),
             new FixedClock(Now),
             NullLogger<SearchToursQueryHandler>.Instance);
 
@@ -567,7 +679,7 @@ public sealed class SearchToursSqlServerTests
             Interlocked.Increment(ref _readerCommandCount);
 
             if (command.CommandText.Contains(
-                    SqlTourAvailabilityReader.QueryTag,
+                    SearchToursQueryHandler.AvailabilitySnapshotQueryTag,
                     StringComparison.Ordinal)
                 && command.Transaction is not null)
             {
@@ -626,7 +738,7 @@ public sealed class SearchToursSqlServerTests
             CancellationToken cancellationToken = default)
         {
             if (command.CommandText.Contains(
-                    SqlTourAvailabilityReader.QueryTag,
+                    SearchToursQueryHandler.AvailabilitySnapshotQueryTag,
                     StringComparison.Ordinal))
             {
                 Interlocked.Increment(ref _failureCount);
@@ -635,29 +747,6 @@ public sealed class SearchToursSqlServerTests
             }
 
             return new ValueTask<InterceptionResult<DbDataReader>>(result);
-        }
-    }
-
-    private sealed class TransitionScheduleThenReadAvailabilityReader(
-        SqlServerTestDatabase database,
-        IApplicationDbContext context,
-        long scheduleIdToTransition)
-        : ITourAvailabilityReader
-    {
-        public IReadOnlyList<long> RequestedScheduleIds { get; private set; } = [];
-
-        public async Task<IReadOnlyDictionary<long, TourAvailabilityReadResult>> ReadAsync(
-            IReadOnlyCollection<long> scheduleIds,
-            CancellationToken cancellationToken)
-        {
-            RequestedScheduleIds = scheduleIds.Order().ToArray();
-            await database.ExecuteNonQueryAsync($"""
-                UPDATE commerce.TourSchedules
-                SET status = 'Cancelled'
-                WHERE schedule_id = {scheduleIdToTransition};
-                """);
-            return await new SqlTourAvailabilityReader(context)
-                .ReadAsync(scheduleIds, cancellationToken);
         }
     }
 
