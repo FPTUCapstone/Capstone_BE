@@ -96,7 +96,7 @@ public sealed class BookedTourEmergencyFlowSqlServerTests
             .Status.Should().Be(TourScheduleStatus.EmergencyStopped);
 
         // The paid booking now waits for Administrator refund review, visible on Active Trips.
-        var activeTrips = await new GetActiveTripsQueryHandler(db, new AdministratorUser(), new FixedClock(Now))
+        var activeTrips = await new GetActiveTripsQueryHandler(db, new StaffUser(), new FixedClock(Now))
             .Handle(new GetActiveTripsQuery(), CancellationToken.None);
         activeTrips.IsSuccess.Should().BeTrue("{0}", activeTrips.ErrorMessage);
         activeTrips.Value.Items.Should().ContainSingle(item => item.TripId == session.Id.ToString())
@@ -301,10 +301,10 @@ public sealed class BookedTourEmergencyFlowSqlServerTests
         public string? Role => nameof(UserRole.TourOperator);
     }
 
-    private sealed class AdministratorUser : ICurrentUserService
+    private sealed class StaffUser : ICurrentUserService
     {
         public long? UserId => 1;
-        public string? Role => nameof(UserRole.Administrator);
+        public string? Role => nameof(UserRole.Staff);
     }
 
     private sealed class FixedClock(DateTimeOffset utcNow) : IDateTimeProvider

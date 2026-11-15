@@ -45,7 +45,7 @@ public sealed class GetActiveTripsQueryHandlerTests
         SeedTourSession(db, 2, 4, Booking(db, 11, 4, BookingStatus.Interrupted, PaymentStatus.Paid), interrupted: true);
         SeedTourSession(db, 3, 5, Booking(db, 12, 5, BookingStatus.Interrupted, PaymentStatus.Unpaid), interrupted: true);
         SeedTourSession(db, 4, 6, Booking(db, 13, 6, BookingStatus.Confirmed, PaymentStatus.Paid), interrupted: false);
-        db.Refunds.Add(Refund.CreatePending(11, 1, 1, 100_000m, null, RefundInitiator.Staff, Now));
+        db.Refunds.Add(Refund.CreatePending(11, 1, 1, 100_000m, null, RefundInitiator.Administrator, Now));
         await db.SaveChangesAsync();
         var handler = new GetActiveTripsQueryHandler(db, new CurrentUser(1, "Staff"), new Clock());
 

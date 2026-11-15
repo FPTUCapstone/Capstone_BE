@@ -5,6 +5,7 @@ public static class AuditActionTypes
     public const string UserAccountLocked = "USER_ACCOUNT_LOCKED";
     public const string UserAccountUnlocked = "USER_ACCOUNT_UNLOCKED";
     public const string AdministrationAccessDenied = "ADMINISTRATION_ACCESS_DENIED";
+    public const string RouteCreate = "ROUTE_CREATE";
     public const string PoiCreate = "POI_CREATE";
     public const string PoiDeactivated = "POI_DEACTIVATED";
 

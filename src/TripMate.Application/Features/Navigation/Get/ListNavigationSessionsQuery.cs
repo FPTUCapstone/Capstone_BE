@@ -83,6 +83,7 @@ public sealed class ListNavigationSessionsQueryHandler(
                 NavigationErrorCodes.AccessDenied,
                 "You do not have access to this navigation session.")
             : Result.Success<IReadOnlyCollection<NavigationSessionResponse>>(
-                [NavigationSessionResponse.From(session, session.Itinerary)]);
+                [await ActiveRouteNavigationProjection.EnrichAsync(dbContext,
+                    NavigationSessionResponse.From(session, session.Itinerary), cancellationToken)]);
     }
 }
