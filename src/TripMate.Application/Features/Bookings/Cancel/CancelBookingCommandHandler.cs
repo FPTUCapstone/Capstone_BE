@@ -174,8 +174,12 @@ public sealed class CancelBookingCommandHandler(
                         beforeData: JsonSerializer.Serialize(beforeState),
                         afterData: JsonSerializer.Serialize(new
                         {
-                            status = BookingStatus.Cancelled.ToString(), refundAmount, refundStatus,
-                            operatorReturnShare, returnDeadlineAtUtc, actor,
+                            status = BookingStatus.Cancelled.ToString(),
+                            refundAmount,
+                            refundStatus,
+                            operatorReturnShare,
+                            returnDeadlineAtUtc,
+                            actor,
                         })));
                     await dbContext.SaveChangesAsync(transactionCancellationToken);
                     return Result.Success(ToResponse(operation, createdRefund?.Id));
