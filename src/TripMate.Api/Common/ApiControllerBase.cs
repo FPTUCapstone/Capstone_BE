@@ -7,6 +7,7 @@ using TripMate.Application.Features.Authentication.Common;
 using TripMate.Application.Features.Bookings.Common;
 using TripMate.Application.Features.Bookings.Refunds;
 using TripMate.Application.Features.CommercialServices.Common;
+using TripMate.Application.Features.Complaints.PartialRefundProposals;
 using TripMate.Application.Features.Coupons.Common;
 using TripMate.Application.Features.Navigation.Common;
 using TripMate.Application.Features.Operator.CheckIn.Common;
@@ -336,6 +337,11 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
                 StatusCodes.Status422UnprocessableEntity,
             TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.IdempotencyKeyRequired =>
                 StatusCodes.Status400BadRequest,
+
+            PartialRefundProposalErrorCodes.Unauthorized => StatusCodes.Status401Unauthorized,
+            PartialRefundProposalErrorCodes.NotFound => StatusCodes.Status404NotFound,
+            PartialRefundProposalErrorCodes.Forbidden => StatusCodes.Status403Forbidden,
+            PartialRefundProposalErrorCodes.ResponseClosed => StatusCodes.Status409Conflict,
 
             BookingCancellationErrorCodes.Unauthorized => StatusCodes.Status401Unauthorized,
             BookingCancellationErrorCodes.NotFound => StatusCodes.Status404NotFound,
