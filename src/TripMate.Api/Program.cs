@@ -167,6 +167,7 @@ try
             };
             options.Events = new JwtBearerEvents
             {
+                OnTokenValidated = UserSessionValidation.ValidateAsync,
                 OnMessageReceived = context =>
                 {
                     var accessToken = context.Request.Query["access_token"];
@@ -303,6 +304,7 @@ try
     app.UseHttpsRedirection();
 
     app.UseAuthentication();
+    app.UseMiddleware<AdministrationFailureAuditMiddleware>();
     app.UseAuthorization();
 
     app.UseRateLimiter();

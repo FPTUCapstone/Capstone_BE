@@ -35,6 +35,8 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         // database/migrations/20261112_daily_payout_v6_schema.sql, not part of tripmate_schema_v7.sql.
         builder.Property(u => u.LockReason).HasColumnName("lock_reason").HasMaxLength(200);
         builder.Property(u => u.LockedAtUtc).HasColumnName("locked_at_utc").AsUtcDateTime2();
+        builder.Property(u => u.StatusBeforeLock).HasColumnName("status_before_lock").HasConversion<string>().HasMaxLength(24);
+        builder.Property(u => u.SessionVersion).HasColumnName("session_version").IsConcurrencyToken();
 
         builder.HasIndex(u => u.Email).IsUnique().HasFilter("[email] IS NOT NULL")
             .HasDatabaseName("UX_Users_Email");

@@ -61,6 +61,12 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
     {
         var statusCode = result.ErrorCode switch
         {
+            TripMate.Application.Features.Admin.UserAccounts.UserAccountErrors.Forbidden => StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.Admin.UserAccounts.UserAccountErrors.NotFound => StatusCodes.Status404NotFound,
+            TripMate.Application.Features.Admin.UserAccounts.UserAccountErrors.InvalidRequest => StatusCodes.Status400BadRequest,
+            TripMate.Application.Features.Admin.UserAccounts.UserAccountErrors.Conflict or
+            TripMate.Application.Features.Admin.UserAccounts.UserAccountErrors.OutstandingDebt or
+            TripMate.Application.Features.Admin.UserAccounts.UserAccountErrors.ProviderSettlementUnavailable => StatusCodes.Status409Conflict,
             TripMate.Application.Features.SupportChat.SupportChatErrors.Unauthorized => StatusCodes.Status401Unauthorized,
             TripMate.Application.Features.SupportChat.SupportChatErrors.Forbidden => StatusCodes.Status403Forbidden,
             TripMate.Application.Features.SupportChat.SupportChatErrors.Unavailable => StatusCodes.Status503ServiceUnavailable,

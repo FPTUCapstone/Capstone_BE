@@ -7,7 +7,7 @@ using TripMate.Domain.Entities;
 namespace TripMate.Application.Features.Tours.Search;
 
 /// <summary>
-/// UC-24-only rating source. Canonical Published reviews are authoritative;
+/// Public Tour rating source. Canonical Published reviews are authoritative;
 /// legacy social.Reviews are intentionally excluded because publication provenance is absent.
 /// </summary>
 public static class PublicTourRatingProjection

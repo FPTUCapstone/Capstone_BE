@@ -30,7 +30,7 @@ public sealed class GetTourDetailEndpointTests
         root.EnumerateObject().Select(property => property.Name).Should().BeEquivalentTo(
             "tourId", "title", "description", "destination", "destinations", "durationDays", "basePrice",
             "currency", "operator", "images", "inclusions", "exclusions", "cancellationPolicy", "itinerary",
-            "schedules", "hasBookableSchedule", "rating", "asOfUtc");
+            "schedules", "hasBookableSchedule", "rating", "reviews", "asOfUtc");
         root.GetProperty("tourId").GetString().Should().Be(tourId.ToString());
         root.GetProperty("operator").EnumerateObject().Select(property => property.Name)
             .Should().BeEquivalentTo("name", "contactPhone");

@@ -23,7 +23,7 @@ public class RejectOperatorApplicationCommandHandler(
         CancellationToken cancellationToken)
     {
         // 1. Authorization check
-        if (currentUserService.UserId is null || currentUserService.Role != "Administrator")
+        if (currentUserService.UserId is null || currentUserService.Role != "Staff")
         {
             return Result.Failure<RejectOperatorApplicationResponseDto>(
                 TourOperatorApplicationErrorCodes.Forbidden,

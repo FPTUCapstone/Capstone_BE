@@ -161,7 +161,7 @@ public sealed class SupportChatLiveDataReaderTests
         sender.Setup(x => x.Send(new GetTourDetailQuery(1), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result.Success(new TourDetailDto("1", "Huế", "Description", "Huế", ["Huế"], 2,
                 100000, "VND", new("Operator", null), [], null, null, new([]), [], [Schedule("10", 5)],
-                true, new(null, 0), DateTime.UtcNow)));
+                true, new(null, 0), [], DateTime.UtcNow)));
         var result = await Read(new(intent, Search: "Huế", PartySize: 2));
         Assert.Contains(result.Value.Actions, a => a.Url == "/tours/1/book?scheduleId=10&adults=2");
         Assert.DoesNotContain(result.Value.Actions, a => a.Type == "selectContext");
@@ -439,7 +439,7 @@ public sealed class SupportChatLiveDataReaderTests
         sender.Setup(x => x.Send(new GetTourDetailQuery(7), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result.Success(new TourDetailDto("7", "Huế", description, "Huế", ["Huế"], 2,
                 100000, "VND", new("Operator", "private-phone"), [], "Bao gồm bữa trưa", "Không gồm vé máy bay",
-                new(rules), [new(1, route)], [], false, new(null, 0), DateTime.UtcNow)));
+                new(rules), [new(1, route)], [], false, new(null, 0), [], DateTime.UtcNow)));
         var result = await Read(new(ChatIntents.TourDetail, ResourceId: "7"));
         using var facts = JsonDocument.Parse(result.Value.Facts);
         var root = facts.RootElement;
@@ -480,7 +480,7 @@ public sealed class SupportChatLiveDataReaderTests
         sender.Setup(x => x.Send(new GetTourDetailQuery(7), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Result.Success(new TourDetailDto("7", "Huế", "Description", "Huế", ["Huế"], 2,
                 100000, "VND", new("Operator", "private-phone"), [], null, null, new([]), [], schedules,
-                true, new(null, 0), DateTime.UtcNow)));
+                true, new(null, 0), [], DateTime.UtcNow)));
     }
 
     private void SetupTrips(IReadOnlyCollection<TripHistoryItemResponse> items)

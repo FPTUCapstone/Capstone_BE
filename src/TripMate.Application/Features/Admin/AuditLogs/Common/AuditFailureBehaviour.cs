@@ -24,16 +24,16 @@ public sealed class AuditFailureBehaviour<TRequest, TResponse>(
         CancellationToken cancellationToken)
     {
         // The last element is the role allowed to perform the audited command. Creating a POI is a
-        // Staff action; the other audited commands remain Administrator actions.
+        // Staff action, as are operator application decisions.
         var target = request switch
         {
             CreatePoiCommand => (AuditActionTypes.PoiCreate, AuditEntityTypes.PointOfInterest, (long?)null, "Staff"),
             ApproveOperatorApplicationCommand command =>
                 (AuditActionTypes.OperatorApplicationApprove, AuditEntityTypes.OperatorProfile,
-                    command.UserId > 0 ? (long?)command.UserId : null, "Administrator"),
+                    command.UserId > 0 ? (long?)command.UserId : null, "Staff"),
             RejectOperatorApplicationCommand command =>
                 (AuditActionTypes.OperatorApplicationReject, AuditEntityTypes.OperatorProfile,
-                    command.UserId > 0 ? (long?)command.UserId : null, "Administrator"),
+                    command.UserId > 0 ? (long?)command.UserId : null, "Staff"),
             UpdateAlgorithmParametersCommand =>
                 (AuditActionTypes.AlgorithmParametersUpdate, AuditEntityTypes.SystemConfig, (long?)null, "Administrator"),
             _ => default,

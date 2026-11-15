@@ -14,5 +14,5 @@ public sealed record TourSearchItemDto(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] DateTime? DepartureAtUtc,
     string AvailabilityStatus,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] int? RemainingSlots,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? ThumbnailUrl,
+    [property: JsonRequired, JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? ThumbnailUrl,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] decimal? AggregateRating);
