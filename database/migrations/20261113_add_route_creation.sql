@@ -85,8 +85,11 @@ BEGIN TRY
     IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'catalog.RouteSegments') AND name=N'UX_RouteSegments_ActorOperation')
         EXEC(N'CREATE UNIQUE INDEX UX_RouteSegments_ActorOperation ON catalog.RouteSegments(created_by,idempotency_key) WHERE idempotency_key IS NOT NULL;');
 
-    -- Ask SQL Server to canonicalize the expected expressions using the same parser as the real constraints.
-    CREATE TABLE #TM101ExpectedChecks (
+    -- Canonicalize expected expressions in this database. A tempdb metadata scan can deadlock
+    -- concurrent migrations in independent databases. This helper rolls back with the schema change.
+    IF OBJECT_ID(N'catalog.__TM101ExpectedChecks') IS NOT NULL
+        THROW 51000, 'Unexpected TM-101 validation helper already exists.', 1;
+    CREATE TABLE catalog.__TM101ExpectedChecks (
         status varchar(10), idempotency_key uniqueidentifier, created_by bigint,
         from_poi_id bigint, to_poi_id bigint, distance_km decimal(6,2), est_duration_minutes int, transport_mode varchar(20),
         CHECK (status IN ('Active','Inactive')),
@@ -99,11 +102,11 @@ BEGIN TRY
     -- Validate definitions and enforcement state, including objects that predate this migration.
     IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE parent_object_id=OBJECT_ID(N'catalog.RouteSegments')
         AND name=N'CK_RouteSegments_Status' AND is_disabled=0 AND is_not_trusted=0 AND is_not_for_replication=0
-        AND definition COLLATE Latin1_General_100_BIN2 IN (SELECT e.definition COLLATE Latin1_General_100_BIN2 FROM tempdb.sys.check_constraints e WHERE e.parent_object_id=OBJECT_ID(N'tempdb..#TM101ExpectedChecks') AND e.definition LIKE N'%[[]status]%'))
+        AND definition COLLATE Latin1_General_100_BIN2 IN (SELECT e.definition COLLATE Latin1_General_100_BIN2 FROM sys.check_constraints e WHERE e.parent_object_id=OBJECT_ID(N'catalog.__TM101ExpectedChecks') AND e.definition LIKE N'%[[]status]%'))
         THROW 51000, 'Incompatible CK_RouteSegments_Status definition or enforcement state.', 1;
     IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE parent_object_id=OBJECT_ID(N'catalog.RouteSegments')
         AND name=N'CK_RouteSegments_Operation' AND is_disabled=0 AND is_not_trusted=0 AND is_not_for_replication=0
-        AND definition COLLATE Latin1_General_100_BIN2 IN (SELECT e.definition COLLATE Latin1_General_100_BIN2 FROM tempdb.sys.check_constraints e WHERE e.parent_object_id=OBJECT_ID(N'tempdb..#TM101ExpectedChecks') AND e.definition LIKE N'%[[]idempotency_key]%'))
+        AND definition COLLATE Latin1_General_100_BIN2 IN (SELECT e.definition COLLATE Latin1_General_100_BIN2 FROM sys.check_constraints e WHERE e.parent_object_id=OBJECT_ID(N'catalog.__TM101ExpectedChecks') AND e.definition LIKE N'%[[]idempotency_key]%'))
         THROW 51000, 'Incompatible CK_RouteSegments_Operation definition or enforcement state.', 1;
     IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys f WHERE f.parent_object_id=OBJECT_ID(N'catalog.RouteSegments')
         AND f.name=N'FK_RouteSegments_CreatedBy' AND f.referenced_object_id=OBJECT_ID(N'dbo.Users')
@@ -129,19 +132,19 @@ BEGIN TRY
 
     IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE parent_object_id=OBJECT_ID(N'catalog.RouteSegments')
         AND is_disabled=0 AND is_not_trusted=0 AND is_not_for_replication=0
-        AND definition COLLATE Latin1_General_100_BIN2 IN (SELECT e.definition COLLATE Latin1_General_100_BIN2 FROM tempdb.sys.check_constraints e WHERE e.parent_object_id=OBJECT_ID(N'tempdb..#TM101ExpectedChecks') AND e.definition LIKE N'%[[]from_poi_id]%'))
+        AND definition COLLATE Latin1_General_100_BIN2 IN (SELECT e.definition COLLATE Latin1_General_100_BIN2 FROM sys.check_constraints e WHERE e.parent_object_id=OBJECT_ID(N'catalog.__TM101ExpectedChecks') AND e.definition LIKE N'%[[]from_poi_id]%'))
         THROW 51000, 'Incompatible RouteSegments base CHECK: from_poi_id <> to_poi_id.', 1;
     IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE parent_object_id=OBJECT_ID(N'catalog.RouteSegments')
         AND is_disabled=0 AND is_not_trusted=0 AND is_not_for_replication=0
-        AND definition COLLATE Latin1_General_100_BIN2 IN (SELECT e.definition COLLATE Latin1_General_100_BIN2 FROM tempdb.sys.check_constraints e WHERE e.parent_object_id=OBJECT_ID(N'tempdb..#TM101ExpectedChecks') AND e.definition LIKE N'%[[]distance_km]%'))
+        AND definition COLLATE Latin1_General_100_BIN2 IN (SELECT e.definition COLLATE Latin1_General_100_BIN2 FROM sys.check_constraints e WHERE e.parent_object_id=OBJECT_ID(N'catalog.__TM101ExpectedChecks') AND e.definition LIKE N'%[[]distance_km]%'))
         THROW 51000, 'Incompatible RouteSegments base CHECK: distance_km > 0.', 1;
     IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE parent_object_id=OBJECT_ID(N'catalog.RouteSegments')
         AND is_disabled=0 AND is_not_trusted=0 AND is_not_for_replication=0
-        AND definition COLLATE Latin1_General_100_BIN2 IN (SELECT e.definition COLLATE Latin1_General_100_BIN2 FROM tempdb.sys.check_constraints e WHERE e.parent_object_id=OBJECT_ID(N'tempdb..#TM101ExpectedChecks') AND e.definition LIKE N'%[[]est_duration_minutes]%'))
+        AND definition COLLATE Latin1_General_100_BIN2 IN (SELECT e.definition COLLATE Latin1_General_100_BIN2 FROM sys.check_constraints e WHERE e.parent_object_id=OBJECT_ID(N'catalog.__TM101ExpectedChecks') AND e.definition LIKE N'%[[]est_duration_minutes]%'))
         THROW 51000, 'Incompatible RouteSegments base CHECK: est_duration_minutes > 0.', 1;
     IF NOT EXISTS (SELECT 1 FROM sys.check_constraints WHERE parent_object_id=OBJECT_ID(N'catalog.RouteSegments')
         AND is_disabled=0 AND is_not_trusted=0 AND is_not_for_replication=0
-        AND definition COLLATE Latin1_General_100_BIN2 IN (SELECT e.definition COLLATE Latin1_General_100_BIN2 FROM tempdb.sys.check_constraints e WHERE e.parent_object_id=OBJECT_ID(N'tempdb..#TM101ExpectedChecks') AND e.definition LIKE N'%[[]transport_mode]%'))
+        AND definition COLLATE Latin1_General_100_BIN2 IN (SELECT e.definition COLLATE Latin1_General_100_BIN2 FROM sys.check_constraints e WHERE e.parent_object_id=OBJECT_ID(N'catalog.__TM101ExpectedChecks') AND e.definition LIKE N'%[[]transport_mode]%'))
         THROW 51000, 'Incompatible RouteSegments base CHECK: transport_mode IN (''Walking'',''Motorbike'',''Car'',''PublicTransit'').', 1;
     IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys f WHERE f.parent_object_id=OBJECT_ID(N'catalog.RouteSegments')
         AND f.referenced_object_id=OBJECT_ID(N'catalog.POIs') AND f.is_disabled=0 AND f.is_not_trusted=0
@@ -207,7 +210,7 @@ BEGIN TRY
             THROW 51000, 'Incompatible TR_RouteSegments_ActiveEndpoints definition.', 1;
     END
     ELSE EXEC(@expectedTrigger);
-    DROP TABLE #TM101ExpectedChecks;
+    DROP TABLE catalog.__TM101ExpectedChecks;
     COMMIT TRANSACTION;
 END TRY
 BEGIN CATCH

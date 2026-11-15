@@ -76,7 +76,7 @@ public sealed class CatalogRouteDurationProvider(
         if (!complete && !fallback.SupportsTransportMode(transportMode))
         {
             throw new RouteDurationProviderException(nameof(CatalogRouteDurationProvider),
-                RouteDurationProviderFailureKind.Unavailable,
+                RouteDurationProviderFailureKind.UnsupportedMode,
                 "The stored route network does not cover all required legs for this transport mode.",
                 new NotSupportedException("The map provider does not supply this transport mode's missing metrics."));
         }

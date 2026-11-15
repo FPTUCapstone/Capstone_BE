@@ -1272,7 +1272,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
     }
 
     [Fact]
-    public async Task Handle_IncompleteCatalogTransitNetwork_ReturnsRoutingUnavailableWithoutInventingRoadMetrics()
+    public async Task Handle_IncompleteCatalogTransitNetwork_PreservesInfeasibleReplayWithoutInventingRoadMetrics()
     {
         await using var dbContext = TestDbContext.Create();
         var from = await SeedSelectablePoiAsync(dbContext, "Origin", 16.0471m, 108.2068m);
@@ -1291,13 +1291,40 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
             MandatoryPoiIds = [from.Id, to.Id],
         };
 
-        var result = await CreateHandler(dbContext,
-            routeDurationProvider: new CatalogRouteDurationProvider(dbContext, fallback))
-            .Handle(command, CancellationToken.None);
-
-        result.ErrorCode.Should().Be(SchedulingErrorCodes.RoutingProviderUnavailable);
+        var handler = CreateHandler(dbContext,
+            routeDurationProvider: new CatalogRouteDurationProvider(dbContext, fallback));
+        await AssertInfeasibleReplayAsync(handler, command, dbContext);
+        var request = await dbContext.SchedulingRequests.SingleAsync();
+        request.FailureMessage.Should().Be(
+            "Public transit routing is not available yet. Choose walking, motorbike, or car.");
+        request.GenerationOwnerId.Should().BeNull();
         fallback.CallCount.Should().Be(0);
         (await dbContext.Itineraries.CountAsync()).Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData(RouteDurationProviderFailureKind.Timeout)]
+    [InlineData(RouteDurationProviderFailureKind.Unavailable)]
+    public async Task Handle_CatalogTransitFallbackOutage_ReleasesReservationForRetry(
+        RouteDurationProviderFailureKind failureKind)
+    {
+        await using var dbContext = TestDbContext.Create();
+        var poi = await SeedSelectablePoiAsync(dbContext);
+        var provider = new CatalogRouteDurationProvider(dbContext,
+            new FailingRouteDurationProvider(failureKind, supportsTransit: true));
+        var result = await CreateHandler(dbContext, routeDurationProvider: provider)
+            .Handle(CreateCommand(Guid.NewGuid()) with
+            {
+                TransportMode = TransportMode.PublicTransit,
+                MandatoryPoiIds = [poi.Id],
+            }, CancellationToken.None);
+
+        result.ErrorCode.Should().Be(SchedulingErrorCodes.RoutingProviderUnavailable);
+        var request = await dbContext.SchedulingRequests.SingleAsync();
+        request.Status.Should().Be(SchedulingRequestStatus.Pending);
+        request.GenerationOwnerId.Should().BeNull();
+        (await dbContext.Itineraries.CountAsync()).Should().Be(0);
+        (await dbContext.ItineraryItems.CountAsync()).Should().Be(0);
     }
 
     [Fact]
@@ -3003,8 +3030,9 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
     }
 
     private sealed class FailingRouteDurationProvider(
-        RouteDurationProviderFailureKind failureKind) : IRouteDurationProvider
+        RouteDurationProviderFailureKind failureKind, bool supportsTransit = false) : IRouteDurationProvider
     {
+        public bool SupportsTransportMode(TransportMode mode) => supportsTransit || mode != TransportMode.PublicTransit;
         public Task<RouteDurationMatrix> GetMatrixAsync(
             IReadOnlyList<RoutePoint> points,
             TransportMode transportMode,

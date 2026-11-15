@@ -8,3 +8,5 @@
 6. Docs and corrected Jira description/criteria. Final delivery report distinguishes PASS/FAIL/NOT_VERIFIED/BLOCKED and publication status. Use isolated publication branches and Draft PRs under the publication authorization. Merge and deployment require separate approval.
 
 Exact files may be refined after architecture exploration; document refinements. The user's master prompt authorizes autonomous implementation of defined scope; only substantive missing business decisions are escalated.
+
+PublicTransit remediation follows the Owner-recommended Approach A. Regress incomplete-coverage failure replay first, distinguish unsupported mode from transient outage, retain complete catalog scheduling, and verify provider outages leave the reservation retryable. Run the handler suite, route SQL, format, Release build, solver source-report checks, latest-develop integration and hosted CI before final review.

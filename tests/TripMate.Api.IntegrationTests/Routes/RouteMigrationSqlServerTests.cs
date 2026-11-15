@@ -11,6 +11,44 @@ public sealed class RouteMigrationSqlServerTests
 {
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
+    public async Task Up_ConcurrentIndependentDatabases_ValidateAndReplayWithoutSharedMetadataContention()
+    {
+        await Task.WhenAll(Enumerable.Range(0, 4).Select(async _ =>
+        {
+            await using var database = await SqlServerTestDatabase.CreateEmptyAsync();
+            await database.ExecuteScriptAsync(Path.Combine(
+                AppContext.BaseDirectory, "Database", "tripmate_schema_v7.sql"));
+            for (var iteration = 0; iteration < 10; iteration++)
+            {
+                await database.ExecuteScriptAsync(MigrationPath());
+            }
+
+            (await database.ExecuteScalarAsync<int>(
+                "SELECT COUNT(*) FROM sys.columns WHERE object_id=OBJECT_ID(N'catalog.RouteSegments') " +
+                "AND name IN ('status','route_note','created_by','idempotency_key');")).Should().Be(4);
+            (await database.ExecuteScalarAsync<int>(
+                "SELECT COUNT(*) FROM sys.tables WHERE name='__TM101ExpectedChecks';")).Should().Be(0);
+        }));
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Up_WhenValidationHelperAlreadyExists_PreservesItAndRefusesMigration()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await database.ExecuteNonQueryAsync(
+            "CREATE TABLE catalog.__TM101ExpectedChecks (sentinel int NOT NULL); " +
+            "INSERT INTO catalog.__TM101ExpectedChecks VALUES (42);");
+        var migrate = () => database.ExecuteScriptAsync(MigrationPath());
+
+        (await migrate.Should().ThrowAsync<SqlException>())
+            .Which.Message.Should().Contain("validation helper already exists");
+        (await database.ExecuteScalarAsync<int>(
+            "SELECT sentinel FROM catalog.__TM101ExpectedChecks;")).Should().Be(42);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
     public async Task UpTwice_PreservesAndBackfillsLegacyRoute_AndGuardedDownRestoresLegacySchema()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
@@ -104,6 +142,8 @@ public sealed class RouteMigrationSqlServerTests
 
         var migrate = () => database.ExecuteScriptAsync(MigrationPath());
         (await migrate.Should().ThrowAsync<SqlException>()).Which.Message.Should().Contain(objectName);
+        (await database.ExecuteScalarAsync<int>(
+            "SELECT COUNT(*) FROM sys.tables WHERE name='__TM101ExpectedChecks';")).Should().Be(0);
         (await database.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM catalog.RouteSegments WHERE status='Active' AND distance_km=12.50 AND est_duration_minutes=25;"))
             .Should().Be(1);
     }

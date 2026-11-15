@@ -533,8 +533,23 @@ public sealed class CreateSchedulingRequestCommandHandler(
             weightedInputs = factory.Create(input.Candidates, travelerProfile, input, ranking?.OutcomeCategory);
         }
 
-        var plan = await new ItineraryGenerationService(measuredRouteProvider, _generationOptions)
-            .GenerateAsync(input, weightedInputs, cancellationToken);
+        Result<GeneratedItineraryPlan> plan;
+        try
+        {
+            plan = await new ItineraryGenerationService(measuredRouteProvider, _generationOptions)
+                .GenerateAsync(input, weightedInputs, cancellationToken);
+        }
+        catch (RouteDurationProviderException ex) when (
+            canonical.TransportMode == TransportMode.PublicTransit
+            && ex.FailureKind == RouteDurationProviderFailureKind.UnsupportedMode)
+        {
+            return PreparedGeneration.Infeasible(
+                snapshot.Hash,
+                preferenceTokens,
+                explanationMetadata,
+                "Public transit routing is not available yet. Choose walking, motorbike, or car.",
+                ranking);
+        }
         if (plan.IsSuccess)
         {
             // REVIEW2 D10 option A: reorder for the time of day when the trip stays at most a few minutes longer.

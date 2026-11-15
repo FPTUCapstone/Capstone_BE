@@ -19,3 +19,7 @@ Map preview reuses installed Mapbox GL and existing Directions helper. Walking u
 PC-01 Active route joins two Active POIs. PC-02 planner/navigation can retrieve Active persisted route metrics while guidance remains Mapbox. PC-03 immutable audit exists. PC-04 validation/save/audit failure commits no route. Prove with SQL/API integration tests; skipped tests are not proof.
 
 Acceptance follows all 20 criteria in user master prompt. Trace the UC-specific rules and PC-01 through PC-04 to the current official source.
+
+## PublicTransit compatibility remediation
+
+Approach A preserves the existing scheduling response contract. Complete Active catalog coverage supplies transit metrics. Incomplete coverage with no supporting fallback produces the existing deterministic ConstraintsInfeasible response and durable failure replay. Actual fallback timeout or unavailability keeps the retryable RoutingProviderUnavailable response and releases the reservation. UC-54 PC-02 requires Active routes to be available to planning and navigation, and BR-35 keeps turn-by-turn guidance with the integrated map service. This correction retains both behaviors.
