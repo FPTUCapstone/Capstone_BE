@@ -1,5 +1,7 @@
 using MediatR;
 
+using Microsoft.Extensions.Logging;
+
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Itineraries.Common;
@@ -12,7 +14,8 @@ public sealed class ReachNavigationItemCommandHandler(
     IApplicationDbContext dbContext,
     IItineraryAccessService itineraryAccessService,
     IDateTimeProvider clock,
-    NavigationSessionOptions? options = null)
+    NavigationSessionOptions? options = null,
+    ILogger<ReachNavigationItemCommandHandler>? logger = null)
     : IRequestHandler<ReachNavigationItemCommand, Result<NavigationSessionResponse>>
 {
     private readonly NavigationSessionOptions _options = options ?? new NavigationSessionOptions();
@@ -20,7 +23,7 @@ public sealed class ReachNavigationItemCommandHandler(
     public Task<Result<NavigationSessionResponse>> Handle(
         ReachNavigationItemCommand request,
         CancellationToken cancellationToken) =>
-        new NavigationSessionMutator(dbContext, clock).ExecuteAsync(
+        new NavigationSessionMutator(dbContext, clock, logger).ExecuteAsync(
             request.SessionId,
             request.TravelerUserId,
             itineraryAccessService,
