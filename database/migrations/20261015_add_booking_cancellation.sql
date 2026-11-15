@@ -94,8 +94,23 @@ BEGIN TRY
     )
         THROW 51000, 'UC-41 cancellation operation table has an incompatible shape.', 1;
 
+    /* UC-42's later migration appends refund_status.  The UC-41 migration is
+       rerun by apply-schema.sh, so accept that one known, validated extension
+       while continuing to reject every other unexpected table shape. */
     IF (SELECT COUNT(*) FROM sys.columns
         WHERE object_id = OBJECT_ID(N'commerce.BookingCancellationOperations')) <> 8
+       AND NOT (
+           (SELECT COUNT(*) FROM sys.columns
+            WHERE object_id = OBJECT_ID(N'commerce.BookingCancellationOperations')) = 9
+           AND EXISTS (
+               SELECT 1
+               FROM sys.columns AS column_info
+               INNER JOIN sys.types AS type_info ON type_info.user_type_id = column_info.user_type_id
+               WHERE column_info.object_id = OBJECT_ID(N'commerce.BookingCancellationOperations')
+                 AND column_info.name = N'refund_status'
+                 AND type_info.name = N'varchar'
+                 AND column_info.max_length = 30
+                 AND column_info.is_nullable = 0))
         THROW 51000, 'UC-41 cancellation operation table has unexpected columns.', 1;
 
     IF NOT EXISTS (
