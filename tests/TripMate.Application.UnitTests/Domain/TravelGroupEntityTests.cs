@@ -10,6 +10,88 @@ namespace TripMate.Application.UnitTests.Domain;
 public sealed class TravelGroupEntityTests
 {
     [Fact]
+    public void NewGroup_IsActiveUntilLastHostClosesIt()
+    {
+        var createdAt = new DateTimeOffset(2026, 10, 25, 8, 0, 0, TimeSpan.Zero);
+        var closedAt = createdAt.AddHours(1);
+        var group = TravelGroup.Create(10, 20, "Trip", createdAt);
+
+        group.Status.Should().Be(TravelGroupStatus.Active);
+        group.ClosedAtUtc.Should().BeNull();
+
+        group.Close(closedAt);
+
+        group.Status.Should().Be(TravelGroupStatus.Closed);
+        group.ClosedAtUtc.Should().Be(closedAt);
+        group.HostUserId.Should().Be(20);
+        var closeAgain = () => group.Close(closedAt.AddMinutes(1));
+        closeAgain.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
+    public void Close_RequiresEveryMemberToHaveLeft()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var group = TravelGroup.Create(10, 20, "Trip", now);
+        var host = GroupMember.CreateHost(group, 20, now);
+        group.AddMember(host);
+
+        var closeWithActiveHost = () => group.Close(now.AddMinutes(5));
+        closeWithActiveHost.Should().Throw<InvalidOperationException>();
+        group.Status.Should().Be(TravelGroupStatus.Active);
+
+        host.Leave(now.AddMinutes(5));
+        group.Close(now.AddMinutes(5));
+        group.Status.Should().Be(TravelGroupStatus.Closed);
+    }
+
+    [Fact]
+    public void ActiveHost_CanTransferHostToAnotherActiveMember()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var group = TravelGroup.Create(10, 20, "Trip", now);
+        var successor = GroupMember.CreateMember(group, 21, now);
+        group.AddMember(GroupMember.CreateHost(group, 20, now));
+        group.AddMember(successor);
+
+        group.TransferHostTo(successor);
+
+        group.HostUserId.Should().Be(21);
+        group.Status.Should().Be(TravelGroupStatus.Active);
+    }
+
+    [Fact]
+    public void TransferHost_RejectsMemberNotActuallyAddedToTheGroup()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var group = TravelGroup.Create(10, 20, "Trip", now);
+        group.AddMember(GroupMember.CreateHost(group, 20, now));
+        var unjoinedTraveler = GroupMember.CreateMember(group, 21, now);
+
+        var act = () => group.TransferHostTo(unjoinedTraveler);
+
+        act.Should().Throw<InvalidOperationException>();
+        group.HostUserId.Should().Be(20);
+    }
+
+    [Fact]
+    public void LeavingMember_DisablesLocationSharingAndCannotLeaveTwice()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var group = TravelGroup.Create(10, 20, "Trip", now);
+        var member = GroupMember.CreateMember(group, 21, now);
+        var leftAt = now.AddMinutes(5);
+
+        member.Leave(leftAt);
+
+        member.Status.Should().Be(GroupMemberStatus.Left);
+        member.LeftAtUtc.Should().Be(leftAt);
+        member.LocationSharingEnabled.Should().BeFalse();
+        var leaveAgain = () => member.Leave(leftAt.AddMinutes(1));
+        leaveAgain.Should().Throw<InvalidOperationException>();
+    }
+
+    [Fact]
     public void Create_TrimsNameAndCreatesHostMemberWithMatchingHost()
     {
         var now = DateTimeOffset.UtcNow;

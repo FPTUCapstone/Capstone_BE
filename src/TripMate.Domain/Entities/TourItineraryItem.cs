@@ -18,8 +18,13 @@ public sealed class TourItineraryItem
     public int StayDurationMinutes { get; private set; }
     public string? Notes { get; private set; }
 
+    public bool? IsRequiredForWeather { get; private set; }
+
+    public void ClassifyForWeather(bool required) => IsRequiredForWeather = required;
+
     public static TourItineraryItem Create(int dayNo, int sequenceNo, long poiId,
-        TimeOnly? plannedTime, int stayDurationMinutes, string? notes)
+        TimeOnly? plannedTime, int stayDurationMinutes, string? notes,
+        bool? isRequiredForWeather = null)
     {
         if (dayNo <= 0) throw new ArgumentOutOfRangeException(nameof(dayNo));
         if (sequenceNo <= 0) throw new ArgumentOutOfRangeException(nameof(sequenceNo));
@@ -35,6 +40,7 @@ public sealed class TourItineraryItem
             PlannedTime = plannedTime,
             StayDurationMinutes = stayDurationMinutes,
             Notes = normalizedNotes,
+            IsRequiredForWeather = isRequiredForWeather,
         };
     }
 

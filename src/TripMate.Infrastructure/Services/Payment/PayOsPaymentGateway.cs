@@ -133,6 +133,19 @@ public sealed class PayOsPaymentGateway(
         }
     }
 
+    // The documented PayOS API exposes payment-link operations and payouts, but not an API that
+    // reverses a completed payment to its original payer. A payout requires beneficiary bank
+    // details, which are not payment credentials and must not be invented from a transaction.
+    // Ask operations to settle it manually instead of recording a false automatic refund.
+    public Task<RefundSubmissionResult> SubmitRefundAsync(
+        RefundSubmissionRequest request,
+        CancellationToken cancellationToken) => Task.FromResult(new RefundSubmissionResult(
+        false,
+        FailureCode: "payment.refund.manual_review_required",
+        FailureMessage: "PayOS refunds require manual operations review.",
+        IsRetryable: false,
+        RequiresManualReview: true));
+
     private sealed record PayOsCreateResponse(
         [property: JsonPropertyName("code")] string? Code,
         [property: JsonPropertyName("desc")] string? Desc,

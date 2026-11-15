@@ -9,7 +9,8 @@ public sealed record SchedulingResponseDto(
     string Status,
     decimal TotalEstimatedCost,
     int TotalDurationMinutes,
-    IReadOnlyCollection<SchedulingItemDto> Items);
+    IReadOnlyCollection<SchedulingItemDto> Items,
+    SchedulingProvenanceDto? Provenance = null);
 
 public sealed record SchedulingItemDto(
     int SequenceNo,

@@ -1,0 +1,68 @@
+{
+  "ScenarioId": "incumbent-invalid-rejected-s13",
+  "Source": "GroupC_Incumbent",
+  "Feasible": true,
+  "BestModelObjective": 11032,
+  "BestEvaluatedObjective": 11032,
+  "BestVisitPoiIds": [
+    5,
+    9,
+    4,
+    10,
+    1
+  ],
+  "EliteModelObjectives": [
+    11032,
+    9750,
+    9736,
+    9102,
+    8914
+  ],
+  "EliteVisitIds": [
+    [
+      5,
+      9,
+      4,
+      10,
+      1
+    ],
+    [
+      5,
+      9,
+      1,
+      6
+    ],
+    [
+      5,
+      9,
+      1
+    ],
+    [
+      5,
+      10,
+      1,
+      9
+    ],
+    [
+      5,
+      10,
+      1
+    ]
+  ],
+  "BestTravelMinutes": 87,
+  "BestDurationMinutes": 302,
+  "BestEstimatedCost": 75000,
+  "EndAtUtc": "2026-10-20T06:02:00+00:00",
+  "NodesExpanded": 82705,
+  "PrunedByConstraints": 0,
+  "PrunedByForwardChecking": 0,
+  "PrunedByBound": 67349,
+  "SolutionsFound": 48110,
+  "NodesToFirstSolution": 2,
+  "SearchCompleted": true,
+  "NodeLimitReached": false,
+  "TimeLimitReached": false,
+  "EvaluatorCalls": 2,
+  "UsedRelaxedRestModel": false,
+  "ChoseRelaxedRestModel": false
+}

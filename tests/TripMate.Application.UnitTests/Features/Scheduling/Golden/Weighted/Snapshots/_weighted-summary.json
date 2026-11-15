@@ -1,0 +1,641 @@
+{
+  "TotalScenarios": 67,
+  "FeasibleScenarios": 66,
+  "CompletedSearchScenarios": 29,
+  "CompletedScenarioIds": [
+    "grid-c10-m0-none-s1",
+    "grid-c10-m1-none-s1",
+    "grid-c10-m0-auto-s1",
+    "grid-c10-m0-frequent-s1",
+    "grid-c10-m1-frequent-s1",
+    "named-zigzag",
+    "named-zigzag-240",
+    "named-tail-infeasible",
+    "named-asymmetric",
+    "named-two-opt",
+    "named-relocate",
+    "named-reconsideration",
+    "incumbent-invalid-rejected-s13",
+    "budget-tight-exact-mandatory-s21",
+    "budget-infeasible-pruned-s22",
+    "budget-limited-optional-s23",
+    "tie-c20-m0-frequent-s31",
+    "weighted-small-c4-m0-none-s50",
+    "weighted-small-c4-m1-none-s51",
+    "weighted-small-c5-m0-none-s52",
+    "weighted-small-c5-m1-none-s53",
+    "weighted-small-c5-m2-none-s54",
+    "weighted-small-c6-m0-none-s55",
+    "weighted-small-c6-m1-none-s56",
+    "weighted-small-c6-m2-none-s57",
+    "weighted-small-c6-m3-none-s58",
+    "weighted-small-c7-m2-none-s59",
+    "weighted-small-tight-horizon-s61",
+    "weighted-small-maxstops-3-s62"
+  ],
+  "Details": [
+    {
+      "ScenarioId": "grid-c10-m0-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 36521,
+      "BestModelObjective": 16566,
+      "BestEvaluatedObjective": 16566
+    },
+    {
+      "ScenarioId": "grid-c10-m1-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 158814,
+      "BestModelObjective": 10020,
+      "BestEvaluatedObjective": 10020
+    },
+    {
+      "ScenarioId": "grid-c10-m3-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 7232,
+      "BestEvaluatedObjective": 7232
+    },
+    {
+      "ScenarioId": "grid-c10-m6-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": -1894,
+      "BestEvaluatedObjective": -1894
+    },
+    {
+      "ScenarioId": "grid-c20-m0-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 19790,
+      "BestEvaluatedObjective": 19790
+    },
+    {
+      "ScenarioId": "grid-c20-m1-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 13156,
+      "BestEvaluatedObjective": 13156
+    },
+    {
+      "ScenarioId": "grid-c20-m3-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 5168,
+      "BestEvaluatedObjective": 5168
+    },
+    {
+      "ScenarioId": "grid-c20-m6-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": -808,
+      "BestEvaluatedObjective": -808
+    },
+    {
+      "ScenarioId": "grid-c40-m0-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 26346,
+      "BestEvaluatedObjective": 26346
+    },
+    {
+      "ScenarioId": "grid-c40-m1-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 18714,
+      "BestEvaluatedObjective": 18714
+    },
+    {
+      "ScenarioId": "grid-c40-m3-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 11762,
+      "BestEvaluatedObjective": 11762
+    },
+    {
+      "ScenarioId": "grid-c40-m6-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": -2984,
+      "BestEvaluatedObjective": -2984
+    },
+    {
+      "ScenarioId": "grid-c10-m0-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 70981,
+      "BestModelObjective": 14800,
+      "BestEvaluatedObjective": 18800
+    },
+    {
+      "ScenarioId": "grid-c10-m1-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 8938,
+      "BestEvaluatedObjective": 12938
+    },
+    {
+      "ScenarioId": "grid-c10-m3-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 7232,
+      "BestEvaluatedObjective": 11232
+    },
+    {
+      "ScenarioId": "grid-c10-m6-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": -1894,
+      "BestEvaluatedObjective": 4106
+    },
+    {
+      "ScenarioId": "grid-c20-m0-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 19790,
+      "BestEvaluatedObjective": 23790
+    },
+    {
+      "ScenarioId": "grid-c20-m1-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 13156,
+      "BestEvaluatedObjective": 17156
+    },
+    {
+      "ScenarioId": "grid-c20-m3-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 5168,
+      "BestEvaluatedObjective": 9168
+    },
+    {
+      "ScenarioId": "grid-c20-m6-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": -540,
+      "BestEvaluatedObjective": 3460
+    },
+    {
+      "ScenarioId": "grid-c40-m0-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 26346,
+      "BestEvaluatedObjective": 28346
+    },
+    {
+      "ScenarioId": "grid-c40-m1-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 18714,
+      "BestEvaluatedObjective": 22714
+    },
+    {
+      "ScenarioId": "grid-c40-m3-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 11762,
+      "BestEvaluatedObjective": 15762
+    },
+    {
+      "ScenarioId": "grid-c40-m6-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": -3452,
+      "BestEvaluatedObjective": 2548
+    },
+    {
+      "ScenarioId": "grid-c10-m0-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 53219,
+      "BestModelObjective": 14800,
+      "BestEvaluatedObjective": 18800
+    },
+    {
+      "ScenarioId": "grid-c10-m1-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 182233,
+      "BestModelObjective": 8938,
+      "BestEvaluatedObjective": 12938
+    },
+    {
+      "ScenarioId": "grid-c10-m3-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 4266,
+      "BestEvaluatedObjective": 12266
+    },
+    {
+      "ScenarioId": "grid-c10-m6-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": -1894,
+      "BestEvaluatedObjective": 8106
+    },
+    {
+      "ScenarioId": "grid-c20-m0-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 18850,
+      "BestEvaluatedObjective": 24850
+    },
+    {
+      "ScenarioId": "grid-c20-m1-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 12012,
+      "BestEvaluatedObjective": 18012
+    },
+    {
+      "ScenarioId": "grid-c20-m3-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 5168,
+      "BestEvaluatedObjective": 9168
+    },
+    {
+      "ScenarioId": "grid-c20-m6-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": -540,
+      "BestEvaluatedObjective": 7460
+    },
+    {
+      "ScenarioId": "grid-c40-m0-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 24638,
+      "BestEvaluatedObjective": 30638
+    },
+    {
+      "ScenarioId": "grid-c40-m1-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 17120,
+      "BestEvaluatedObjective": 23120
+    },
+    {
+      "ScenarioId": "grid-c40-m3-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 9130,
+      "BestEvaluatedObjective": 17130
+    },
+    {
+      "ScenarioId": "grid-c40-m6-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": null,
+      "BestEvaluatedObjective": 6446
+    },
+    {
+      "ScenarioId": "named-zigzag",
+      "Source": "GroupB_Named",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 40,
+      "BestModelObjective": 7724,
+      "BestEvaluatedObjective": 7724
+    },
+    {
+      "ScenarioId": "named-zigzag-240",
+      "Source": "GroupB_Named",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 12,
+      "BestModelObjective": 7724,
+      "BestEvaluatedObjective": 7724
+    },
+    {
+      "ScenarioId": "named-tail-infeasible",
+      "Source": "GroupB_Named",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 4,
+      "BestModelObjective": 1378,
+      "BestEvaluatedObjective": 1378
+    },
+    {
+      "ScenarioId": "named-asymmetric",
+      "Source": "GroupB_Named",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 7,
+      "BestModelObjective": 8338,
+      "BestEvaluatedObjective": 8338
+    },
+    {
+      "ScenarioId": "named-two-opt",
+      "Source": "GroupB_Named",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 15,
+      "BestModelObjective": 14214,
+      "BestEvaluatedObjective": 14214
+    },
+    {
+      "ScenarioId": "named-relocate",
+      "Source": "GroupB_Named",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 14,
+      "BestModelObjective": 13910,
+      "BestEvaluatedObjective": 13910
+    },
+    {
+      "ScenarioId": "named-reconsideration",
+      "Source": "GroupB_Named",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 23,
+      "BestModelObjective": 14214,
+      "BestEvaluatedObjective": 14214
+    },
+    {
+      "ScenarioId": "incumbent-valid-c20-m2-none-s10",
+      "Source": "GroupC_Incumbent",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 12410,
+      "BestEvaluatedObjective": 12410
+    },
+    {
+      "ScenarioId": "incumbent-valid-c20-m1-auto-s11",
+      "Source": "GroupC_Incumbent",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 19718,
+      "BestEvaluatedObjective": 23718
+    },
+    {
+      "ScenarioId": "incumbent-valid-c40-m3-frequent-s12",
+      "Source": "GroupC_Incumbent",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 5460,
+      "BestEvaluatedObjective": 15460
+    },
+    {
+      "ScenarioId": "incumbent-invalid-rejected-s13",
+      "Source": "GroupC_Incumbent",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 108930,
+      "BestModelObjective": 12246,
+      "BestEvaluatedObjective": 12246
+    },
+    {
+      "ScenarioId": "budget-tight-exact-mandatory-s21",
+      "Source": "GroupD_Budget",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 5,
+      "BestModelObjective": -1988,
+      "BestEvaluatedObjective": -1988
+    },
+    {
+      "ScenarioId": "budget-infeasible-pruned-s22",
+      "Source": "GroupD_Budget",
+      "Feasible": false,
+      "SearchCompleted": true,
+      "NodesExpanded": 0,
+      "BestModelObjective": null,
+      "BestEvaluatedObjective": null
+    },
+    {
+      "ScenarioId": "budget-limited-optional-s23",
+      "Source": "GroupD_Budget",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 121762,
+      "BestModelObjective": 19692,
+      "BestEvaluatedObjective": 19692
+    },
+    {
+      "ScenarioId": "tie-c20-m0-frequent-s31",
+      "Source": "GroupE_Tie",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 27400,
+      "BestModelObjective": 1760,
+      "BestEvaluatedObjective": 9760
+    },
+    {
+      "ScenarioId": "tie-c30-m0-frequent-s32",
+      "Source": "GroupE_Tie",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 130000,
+      "BestModelObjective": 30956,
+      "BestEvaluatedObjective": 32956
+    },
+    {
+      "ScenarioId": "tie-c40-m1-frequent-s33",
+      "Source": "GroupE_Tie",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 20226,
+      "BestEvaluatedObjective": 30226
+    },
+    {
+      "ScenarioId": "boundary-fractional-seconds-s41",
+      "Source": "GroupF_Boundary",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 12792,
+      "BestEvaluatedObjective": 12792
+    },
+    {
+      "ScenarioId": "boundary-urgent-slack-mrv-s42",
+      "Source": "GroupF_Boundary",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 8532,
+      "BestEvaluatedObjective": 8532
+    },
+    {
+      "ScenarioId": "weighted-small-c4-m0-none-s50",
+      "Source": "GroupG_SmallExhaustive",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 32,
+      "BestModelObjective": 5528,
+      "BestEvaluatedObjective": 5528
+    },
+    {
+      "ScenarioId": "weighted-small-c4-m1-none-s51",
+      "Source": "GroupG_SmallExhaustive",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 37,
+      "BestModelObjective": -180,
+      "BestEvaluatedObjective": -180
+    },
+    {
+      "ScenarioId": "weighted-small-c5-m0-none-s52",
+      "Source": "GroupG_SmallExhaustive",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 108,
+      "BestModelObjective": 9748,
+      "BestEvaluatedObjective": 9748
+    },
+    {
+      "ScenarioId": "weighted-small-c5-m1-none-s53",
+      "Source": "GroupG_SmallExhaustive",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 211,
+      "BestModelObjective": 5806,
+      "BestEvaluatedObjective": 5806
+    },
+    {
+      "ScenarioId": "weighted-small-c5-m2-none-s54",
+      "Source": "GroupG_SmallExhaustive",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 204,
+      "BestModelObjective": 5348,
+      "BestEvaluatedObjective": 5348
+    },
+    {
+      "ScenarioId": "weighted-small-c6-m0-none-s55",
+      "Source": "GroupG_SmallExhaustive",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 374,
+      "BestModelObjective": 5956,
+      "BestEvaluatedObjective": 5956
+    },
+    {
+      "ScenarioId": "weighted-small-c6-m1-none-s56",
+      "Source": "GroupG_SmallExhaustive",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 470,
+      "BestModelObjective": 7456,
+      "BestEvaluatedObjective": 7456
+    },
+    {
+      "ScenarioId": "weighted-small-c6-m2-none-s57",
+      "Source": "GroupG_SmallExhaustive",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 710,
+      "BestModelObjective": 2414,
+      "BestEvaluatedObjective": 2414
+    },
+    {
+      "ScenarioId": "weighted-small-c6-m3-none-s58",
+      "Source": "GroupG_SmallExhaustive",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 1133,
+      "BestModelObjective": -1574,
+      "BestEvaluatedObjective": -1574
+    },
+    {
+      "ScenarioId": "weighted-small-c7-m2-none-s59",
+      "Source": "GroupG_SmallExhaustive",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 1437,
+      "BestModelObjective": 7448,
+      "BestEvaluatedObjective": 7448
+    },
+    {
+      "ScenarioId": "weighted-small-tight-horizon-s61",
+      "Source": "GroupG_SmallExhaustive",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 2,
+      "BestModelObjective": -6096,
+      "BestEvaluatedObjective": -6096
+    },
+    {
+      "ScenarioId": "weighted-small-maxstops-3-s62",
+      "Source": "GroupG_SmallExhaustive",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 86,
+      "BestModelObjective": 11496,
+      "BestEvaluatedObjective": 11496
+    }
+  ]
+}

@@ -25,6 +25,14 @@ public class NotificationConfiguration : IEntityTypeConfiguration<Notification>
         builder.Property(n => n.Status).HasColumnName("status").HasConversion<string>().HasMaxLength(10);
         builder.Property(n => n.CreatedAtUtc).HasColumnName("created_at").AsUtcDateTime2();
         builder.Property(n => n.SentAtUtc).HasColumnName("sent_at").AsUtcDateTime2();
+        builder.Property(n => n.ReadAtUtc).HasColumnName("read_at").AsUtcDateTime2();
+
+        builder.HasIndex(n => new { n.UserId, n.Status }).HasDatabaseName("IX_Notifications_User_Status");
+        builder.HasIndex(n => new { n.UserId, n.RelatedEntityId })
+            .IsUnique()
+            .HasFilter($"[type] = '{Notification.TripAlertType}' AND [related_entity_type] = '{Notification.IncidentRelatedEntityType}' AND [related_entity_id] IS NOT NULL")
+            .HasDatabaseName("UQ_Notifications_TripAlertIncident");
+
         builder.Property(n => n.DeliveryAttemptCount)
             .HasColumnName("delivery_attempt_count")
             .HasDefaultValue(0)
@@ -41,7 +49,6 @@ public class NotificationConfiguration : IEntityTypeConfiguration<Notification>
             .HasMaxLength(Notification.DeliveryLastErrorCodeMaxLength)
             .IsUnicode(false);
 
-        builder.HasIndex(n => new { n.UserId, n.Status }).HasDatabaseName("IX_Notifications_User_Status");
         builder.HasIndex(n => new
         {
             n.Status,

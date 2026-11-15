@@ -68,7 +68,7 @@ public sealed class ActiveTripDetailsSqlServerTests
             INSERT trip.TripSessions(itinerary_id, requested_itinerary_id, traveler_user_id,
                 start_idempotency_key, fsm_state,
                 current_latitude, current_longitude, started_at, last_synced_at)
-            VALUES (@itinerary, @itinerary, @traveler, NEWID(), 'Interrupted', 16.061200, 108.227700,
+            VALUES (@itinerary, @itinerary, @traveler, NEWID(), 'Navigating', 16.061200, 108.227700,
                 '2026-09-25T17:00:00', '2026-09-26T03:12:44');
             SET @session = SCOPE_IDENTITY();
 
@@ -138,6 +138,11 @@ public sealed class ActiveTripDetailsSqlServerTests
                 new Clock())
             .Handle(new SkipNavigationItemCommand(sessionId, itemId, travelerId, null), default);
         skip.IsSuccess.Should().BeTrue();
+
+        // UC-70: an interrupted session is terminal — navigation progress (the skip above)
+        // must happen while the trip is still active, before the severe-weather stop.
+        await database.ExecuteNonQueryAsync(
+            $"UPDATE trip.TripSessions SET fsm_state = 'Interrupted' WHERE session_id = {sessionId};");
 
         var handler = new GetActiveTripDetailsQueryHandler(db, new Administrator(), new Clock());
 

@@ -5,7 +5,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
 using TripMate.Application.Features.Scheduling.Explanation;
+using TripMate.Infrastructure.Ai;
 using TripMate.Infrastructure.AiExplanation;
+using TripMate.Infrastructure.UnitTests.Security;
 
 namespace TripMate.Infrastructure.UnitTests.AiExplanation;
 
@@ -52,9 +54,9 @@ public sealed class ExplanationDependencyInjectionTests
         action.Should().NotThrow();
         var options = provider.GetRequiredService<IOptions<ExplanationProviderOptions>>().Value;
         options.Enabled.Should().BeFalse();
-        options.Endpoint.Should().Be(
-            "https://generativelanguage.googleapis.com/v1/interactions");
-        options.ModelName.Should().Be("gemini-3.5-flash-lite");
+        options.Provider.Should().Be(AiProviderKind.TripMateAi);
+        options.Endpoint.Should().Be("http://tripmate-ai:8000/v1/explain-itinerary");
+        options.ModelName.Should().Be("tripmate-explainer");
         options.ApiKey.Should().BeNull();
         options.TimeoutSeconds.Should().Be(10);
         options.OverallTimeoutSeconds.Should().Be(20);
@@ -106,8 +108,28 @@ public sealed class ExplanationDependencyInjectionTests
         yield return new("Cloudinary:CloudName", "test-cloud");
         yield return new("Cloudinary:ApiKey", "test-key");
         yield return new("Cloudinary:ApiSecret", "test-secret");
+        yield return new(TicketQrTestKeys.EncryptionKeySetting, TicketQrTestKeys.EncryptionKey);
+        yield return new(TicketQrTestKeys.SigningKeySetting, TicketQrTestKeys.SigningKey);
         yield return new("Cloudinary:TourMediaFolderRoot", "tripmate/tests/tours");
         yield return new("Cloudinary:OperatorDocumentsFolderRoot", "tripmate/tests/operator-documents");
+        yield return new("Cloudinary:RevenueExportsFolderRoot", "tripmate/tests/revenue-exports");
+        yield return new("SchedulingGeneration:Personalization:Version", "2026.1");
+        yield return new("SchedulingGeneration:Personalization:Pace:Relaxed:LambdaPerMin", "0.025");
+        yield return new("SchedulingGeneration:Personalization:Pace:Relaxed:MaxStopsPerDay", "3");
+        yield return new("SchedulingGeneration:Personalization:Pace:Relaxed:MaxDailyEffort", "200");
+        yield return new("SchedulingGeneration:Personalization:Pace:Relaxed:RestAfterMin", "90");
+        yield return new("SchedulingGeneration:Personalization:Pace:Moderate:LambdaPerMin", "0.015");
+        yield return new("SchedulingGeneration:Personalization:Pace:Moderate:MaxStopsPerDay", "5");
+        yield return new("SchedulingGeneration:Personalization:Pace:Moderate:MaxDailyEffort", "300");
+        yield return new("SchedulingGeneration:Personalization:Pace:Moderate:RestAfterMin", "120");
+        yield return new("SchedulingGeneration:Personalization:Pace:Fast:LambdaPerMin", "0.008");
+        yield return new("SchedulingGeneration:Personalization:Pace:Fast:MaxStopsPerDay", "8");
+        yield return new("SchedulingGeneration:Personalization:Pace:Fast:MaxDailyEffort", "450");
+        yield return new("SchedulingGeneration:Personalization:Pace:Fast:RestAfterMin", "180");
+        yield return new("SchedulingGeneration:TimeFit:Version", "2026.1");
+        yield return new("SchedulingGeneration:Shadow:Enabled", "false");
+        yield return new("SchedulingGeneration:Shadow:SampleRate", "1.0");
+        yield return new("SchedulingGeneration:Shadow:TimeoutMs", "5000");
     }
 
     private static string FindRepositoryFile(params string[] relativeSegments)

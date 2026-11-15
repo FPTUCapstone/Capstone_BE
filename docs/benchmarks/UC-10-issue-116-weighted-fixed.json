@@ -1,0 +1,215 @@
+﻿{
+  "GeneratedAtUtc": "2026-10-24T22:59:46.2128735\u002B00:00",
+  "Entries": [
+    {
+      "ScenarioId": "const-n12-m0-s81",
+      "Category": "Synthetic-Constant",
+      "Candidates": 12,
+      "Mandatory": 0,
+      "NodesExpanded": 1636,
+      "MedianMs": 1.182,
+      "NsPerNode": 722.2,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "const-n12-m1-s82",
+      "Category": "Synthetic-Constant",
+      "Candidates": 12,
+      "Mandatory": 1,
+      "NodesExpanded": 1030,
+      "MedianMs": 1.158,
+      "NsPerNode": 1124.2,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "const-n13-m0-s83",
+      "Category": "Synthetic-Constant",
+      "Candidates": 13,
+      "Mandatory": 0,
+      "NodesExpanded": 2759,
+      "MedianMs": 1.863,
+      "NsPerNode": 675.1,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "const-n13-m1-s84",
+      "Category": "Synthetic-Constant",
+      "Candidates": 13,
+      "Mandatory": 1,
+      "NodesExpanded": 1225,
+      "MedianMs": 1.268,
+      "NsPerNode": 1034.9,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "const-n14-m0-s85",
+      "Category": "Synthetic-Constant",
+      "Candidates": 14,
+      "Mandatory": 0,
+      "NodesExpanded": 3478,
+      "MedianMs": 2.259,
+      "NsPerNode": 649.5,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "const-n14-m1-s86",
+      "Category": "Synthetic-Constant",
+      "Candidates": 14,
+      "Mandatory": 1,
+      "NodesExpanded": 1225,
+      "MedianMs": 2.31,
+      "NsPerNode": 1886.1,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "const-n15-m0-s87",
+      "Category": "Synthetic-Constant",
+      "Candidates": 15,
+      "Mandatory": 0,
+      "NodesExpanded": 3799,
+      "MedianMs": 2.393,
+      "NsPerNode": 629.9,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "const-n15-m1-s88",
+      "Category": "Synthetic-Constant",
+      "Candidates": 15,
+      "Mandatory": 1,
+      "NodesExpanded": 1866,
+      "MedianMs": 1.863,
+      "NsPerNode": 998.2,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "real-n12-m0-s81",
+      "Category": "Synthetic-RealTimeFit",
+      "Candidates": 12,
+      "Mandatory": 0,
+      "NodesExpanded": 1823,
+      "MedianMs": 1.367,
+      "NsPerNode": 750,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "real-n12-m1-s82",
+      "Category": "Synthetic-RealTimeFit",
+      "Candidates": 12,
+      "Mandatory": 1,
+      "NodesExpanded": 1085,
+      "MedianMs": 2.441,
+      "NsPerNode": 2249.4,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "real-n13-m0-s83",
+      "Category": "Synthetic-RealTimeFit",
+      "Candidates": 13,
+      "Mandatory": 0,
+      "NodesExpanded": 3046,
+      "MedianMs": 1.984,
+      "NsPerNode": 651.4,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "real-n13-m1-s84",
+      "Category": "Synthetic-RealTimeFit",
+      "Candidates": 13,
+      "Mandatory": 1,
+      "NodesExpanded": 1243,
+      "MedianMs": 1.399,
+      "NsPerNode": 1125.8,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "real-n14-m0-s85",
+      "Category": "Synthetic-RealTimeFit",
+      "Candidates": 14,
+      "Mandatory": 0,
+      "NodesExpanded": 3507,
+      "MedianMs": 2.477,
+      "NsPerNode": 706.2,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "real-n14-m1-s86",
+      "Category": "Synthetic-RealTimeFit",
+      "Candidates": 14,
+      "Mandatory": 1,
+      "NodesExpanded": 1227,
+      "MedianMs": 1.667,
+      "NsPerNode": 1358.8,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "real-n15-m0-s87",
+      "Category": "Synthetic-RealTimeFit",
+      "Candidates": 15,
+      "Mandatory": 0,
+      "NodesExpanded": 5227,
+      "MedianMs": 3.57,
+      "NsPerNode": 682.9,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "real-n15-m1-s88",
+      "Category": "Synthetic-RealTimeFit",
+      "Candidates": 15,
+      "Mandatory": 1,
+      "NodesExpanded": 1963,
+      "MedianMs": 2.3,
+      "NsPerNode": 1171.7,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "grid-c40-m0-none-s1",
+      "Category": "Golden-c40",
+      "Candidates": 40,
+      "Mandatory": 0,
+      "NodesExpanded": 200000,
+      "MedianMs": 112.196,
+      "NsPerNode": 561,
+      "SearchCompleted": false
+    },
+    {
+      "ScenarioId": "grid-c40-m1-none-s1",
+      "Category": "Golden-c40",
+      "Candidates": 40,
+      "Mandatory": 1,
+      "NodesExpanded": 200000,
+      "MedianMs": 102.701,
+      "NsPerNode": 513.5,
+      "SearchCompleted": false
+    },
+    {
+      "ScenarioId": "grid-c40-m3-none-s1",
+      "Category": "Golden-c40",
+      "Candidates": 40,
+      "Mandatory": 3,
+      "NodesExpanded": 200000,
+      "MedianMs": 109.669,
+      "NsPerNode": 548.3,
+      "SearchCompleted": false
+    },
+    {
+      "ScenarioId": "grid-c40-m6-none-s1",
+      "Category": "Golden-c40",
+      "Candidates": 40,
+      "Mandatory": 6,
+      "NodesExpanded": 200000,
+      "MedianMs": 203.938,
+      "NsPerNode": 1019.7,
+      "SearchCompleted": false
+    },
+    {
+      "ScenarioId": "incumbent-valid-c40-m3-frequent-s12",
+      "Category": "Golden-c40",
+      "Candidates": 40,
+      "Mandatory": 3,
+      "NodesExpanded": 200000,
+      "MedianMs": 179.972,
+      "NsPerNode": 899.9,
+      "SearchCompleted": false
+    }
+  ]
+}

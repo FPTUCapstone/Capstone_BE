@@ -23,7 +23,28 @@ public sealed class ListNavigationSessionsQueryHandler(
     IDateTimeProvider clock)
     : IRequestHandler<ListNavigationSessionsQuery, Result<IReadOnlyCollection<NavigationSessionResponse>>>
 {
+    private const int MaxAttempts = 3;
+
     public async Task<Result<IReadOnlyCollection<NavigationSessionResponse>>> Handle(
+        ListNavigationSessionsQuery request,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await dbContext.ExecuteInSerializableTransactionAsync(
+                    transactionToken => ReadAsync(request, transactionToken),
+                    cancellationToken);
+            }
+            catch (Exception exception) when (attempt < MaxAttempts && dbContext.IsDeadlock(exception))
+            {
+                dbContext.ClearTrackedEntities();
+            }
+        }
+    }
+
+    private async Task<Result<IReadOnlyCollection<NavigationSessionResponse>>> ReadAsync(
         ListNavigationSessionsQuery request,
         CancellationToken cancellationToken)
     {

@@ -10,6 +10,47 @@ public sealed class UserUnlockMigrationSqlServerTests
 {
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
+    public async Task Migration_WhenUpgradingCurrentPayoutLock_PreservesEvidenceAndWidensReason()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await database.ExecuteNonQueryAsync("""
+            ALTER TABLE dbo.Users DROP CONSTRAINT CK_Users_LockRecoveryState;
+            ALTER TABLE dbo.Users ALTER COLUMN lock_reason NVARCHAR(200) NULL;
+            INSERT dbo.Users(role, email, full_name, status, locked_at_utc, lock_reason)
+            VALUES ('TourOperator', 'payout-lock-upgrade@example.test', 'Payout locked operator',
+                'Locked', '2026-11-12T03:00:00', N'Unrecovered pending debt');
+            """);
+
+        await ApplyMigrationAsync(database);
+        await ApplyMigrationAsync(database);
+
+        (await database.ExecuteScalarAsync<int>("""
+            SELECT COUNT(*) FROM dbo.Users
+            WHERE email = 'payout-lock-upgrade@example.test' AND status = 'Locked'
+                AND status_before_lock IS NULL AND locked_by_user_id IS NULL
+                AND locked_at_utc = '2026-11-12T03:00:00'
+                AND lock_reason = N'Unrecovered pending debt';
+            """)).Should().Be(1);
+        (await database.ExecuteScalarAsync<int>("""
+            SELECT max_length FROM sys.columns
+            WHERE object_id = OBJECT_ID(N'dbo.Users') AND name = N'lock_reason';
+            """)).Should().Be(2000);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task CanonicalSchema_AllowsCurrentAutomaticPayoutLock()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await database.ExecuteNonQueryAsync("""
+            INSERT dbo.Users(role, email, full_name, status, locked_at_utc, lock_reason)
+            VALUES ('TourOperator', 'payout-lock-canonical@example.test', 'Payout locked operator',
+                'Locked', SYSUTCDATETIME(), N'Unrecovered pending debt');
+            """);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
     public async Task Migration_WhenAppliedToLegacyUsers_AddsCanonicalLockAndOperationContractsAndCanRunTwice()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();

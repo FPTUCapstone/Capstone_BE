@@ -210,6 +210,12 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
             return;
         }
 
+        // Workspace policy may require keeping isolated test databases for review.
+        if (Environment.GetEnvironmentVariable("TRIPMATE_SQLSERVER_TEST_PRESERVE") == "1")
+        {
+            return;
+        }
+
         EnsureSafeDatabaseName(DatabaseName);
 
         await using var connection = new SqlConnection(_masterConnectionString);

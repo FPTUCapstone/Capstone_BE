@@ -5,6 +5,7 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Features.Admin.Users.Unlock;
+using TripMate.Application.Features.Payouts.DailySettlement;
 using TripMate.Application.UnitTests.TestUtilities;
 using TripMate.Domain.Common;
 using TripMate.Domain.Entities;
@@ -23,6 +24,45 @@ public sealed class UnlockUserAccountCommandHandlerTests
         Role = nameof(UserRole.Administrator)
     };
     private readonly FakeDateTimeProvider _clock = new() { UtcNow = Now };
+
+    [Fact]
+    public async Task Handle_WhenOperatorDebtIsFullyRecovered_RestoresAdministrativeLock()
+    {
+        User target = CreateLockedUser(20, AccountStatus.Active);
+        target.Role = UserRole.TourOperator;
+        _dbContext.Users.Add(target);
+        var debt = TourOperatorDebt.Create(target.Id, 500_000m, Now.AddDays(-20), Now);
+        debt.Recover(500_000m);
+        _dbContext.TourOperatorDebts.Add(debt);
+        await _dbContext.SaveChangesAsync(CancellationToken.None);
+
+        var result = await CreateHandler().Handle(
+            new UnlockUserAccountCommand(target.Id, "Support checked the account", "recovered-debt-unlock"), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        target.Status.Should().Be(AccountStatus.Active);
+        _dbContext.UserUnlockOperations.Should().ContainSingle();
+        _dbContext.Notifications.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Handle_WhenOperatorHasUnrecoveredDebt_LeavesAccountLocked()
+    {
+        User target = CreateLockedUser(20, AccountStatus.Active);
+        target.Role = UserRole.TourOperator;
+        _dbContext.Users.Add(target);
+        _dbContext.TourOperatorDebts.Add(TourOperatorDebt.Create(target.Id, 500_000m, Now.AddDays(-20), Now));
+        await _dbContext.SaveChangesAsync(CancellationToken.None);
+
+        var result = await CreateHandler().Handle(
+            new UnlockUserAccountCommand(target.Id, "Support checked the account", "debt-unlock"), CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(DailyPayoutErrorCodes.OperatorHasOutstandingDebt);
+        target.Status.Should().Be(AccountStatus.Locked);
+        _dbContext.UserUnlockOperations.Should().BeEmpty();
+        _dbContext.Notifications.Should().BeEmpty();
+    }
 
     [Fact]
     public async Task Handle_WhenCompleteTravelerLock_RestoresSavedStatusRevokesTokensAndWritesOneAudit()

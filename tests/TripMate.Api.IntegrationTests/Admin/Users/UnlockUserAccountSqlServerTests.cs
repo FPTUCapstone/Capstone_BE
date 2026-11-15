@@ -7,6 +7,7 @@ using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Admin.Users.Common;
 using TripMate.Application.Features.Admin.Users.Unlock;
+using TripMate.Application.Features.Payouts.DailySettlement;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 using TripMate.Infrastructure.Persistence;
@@ -16,6 +17,31 @@ namespace TripMate.Api.IntegrationTests.Admin.Users;
 public sealed class UnlockUserAccountSqlServerTests
 {
     private static readonly DateTimeOffset Now = new(2026, 10, 7, 8, 0, 0, TimeSpan.Zero);
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Unlock_WhenOperatorHasOutstandingDebt_PreservesLockAndCreatesNoOperation()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var (administratorId, targetId) = await SeedAsync(database);
+        await using var context = database.CreateDbContext();
+        var target = await context.Users.SingleAsync(user => user.Id == targetId);
+        target.Role = UserRole.TourOperator;
+        context.TourOperatorDebts.Add(TourOperatorDebt.Create(targetId, 500_000m, Now.AddDays(-20), Now));
+        await context.SaveChangesAsync();
+        var handler = new UnlockUserAccountCommandHandler(
+            context, new FixedCurrentUser(administratorId), new FixedClock(), new SqlServerUserUnlockLock(context));
+
+        var result = await handler.Handle(
+            new UnlockUserAccountCommand(targetId, "Verified support case", "sql-debt-unlock"), CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(DailyPayoutErrorCodes.OperatorHasOutstandingDebt);
+        await using var verification = database.CreateDbContext();
+        (await verification.Users.SingleAsync(user => user.Id == targetId)).Status.Should().Be(AccountStatus.Locked);
+        (await verification.UserUnlockOperations.CountAsync()).Should().Be(0);
+        (await verification.Notifications.CountAsync()).Should().Be(0);
+    }
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]

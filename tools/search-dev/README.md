@@ -1,0 +1,22 @@
+# Search V2 dev cục bộ
+
+Chỉ Development/Staging và explicit `DevTourSearch:Enabled=true` + key riêng ít nhất 32 ký tự. Không triển khai public staging bằng cấu hình lab này. Production luôn đóng route. Legacy `/api/v1/tours` không đổi. Endpoint `GET /api/dev/tours/search` dùng canonical V2 + `mode=lexical|semantic|hybrid`; taxonomy `GET /api/dev/tours/categories`, header `X-TM70-Dev-Key` bắt buộc. Các field nullable luôn có trong JSON; `X-TM70-Trace-Id` giúp đối chiếu request.
+
+Tham số: keyword, destination, startDate, endDate, minPrice, maxPrice, durationDays, category (code active từ server), minimumRating, sort, page, pageSize. Sort: relevance/priceAsc/priceDesc/rating/departureDate. Keyword rỗng dùng departureDate khi chọn relevance. Ngày theo Asia/Ho_Chi_Minh, giá nguyên VND, rating raw trước rounding. SQL hiện hành quyết định visibility và mọi business predicate. Corpus public tối đa 256, không phải candidate cap phân trang. Semantic có keyword kiểm tra đủ mọi vector public và fingerprint/model; sai/thiếu/stale trả503, không fallback hay total gần đúng. Semantic không threshold cho functional smoke nên câu không liên quan vẫn có thể nhận neighbors. Hybrid RRF k cấu hình lab60, không quyết định production.
+
+## Chạy an toàn
+
+1. Kiểm RAM/disk/cổng và Docker context; không dừng tài nguyên khác. Compose mới `docker-compose.semantic-dev.yml`, project `tm70-semantic-e2e-dev`, ba volume mới; không overlay Compose cũ. Tổng giới hạn container7GiB. Loopback: embedding8017, Qdrant6337, SQL14337, Backend5077, Web3017.
+2. Sinh password SQL tạm trong process environment `TM70_DEV_SQL_PASSWORD`; không ghi vào repo hoặc terminal output. `docker compose -p tm70-semantic-e2e-dev -f docker-compose.semantic-dev.yml pull`, `build embedding`, `up -d`. Không `down -v`, prune hay reset volume. E5 pinned revision `fd1525a9fd15316a2d503bf26ab031a61d056e98`, 384 chiều, CPU, query/passages prefixes, mean pool+L2.
+3. Đọc full container ID mới và mount/port. `Initialize-LocalFixture.ps1 -ExpectedContainerId <full-id> -OutputDirectory <private-outside-repo>` kiểm exact identity trước tạo DB mới. Nếu đã có DB, script dừng; chỉ chỉ định `ExpectedExistingDatabases` với inventory đã xác minh. Không overwrite/drop DB. Khởi tạo schema/migrations trên DB mới duy nhất, seed6Tour (4public), login SELECT-only. Password/key runtime được bảo vệ DPAPI userWindows. Không in file giải mã. Không commit key hoặc manifest credentials. Hai lần init lỗi cũng để lại database, không tự cleanup.
+4. Build `dotnet build tools/TripMate.SearchDev -c Release`. `Update-LocalIndex.ps1 -RuntimeDirectory <private-dir>` chỉ đọc SQL và ghi collection riêng, manifest ownership trước reindex; upsert stableTourId, content hash/modelVersion. Reconciliation thủ công loại point của Tour đã unpublish, không delete collection. Chưa có outbox, tự động đồng bộ hay freshnessSLA production.
+5. `Start-LocalBackend.ps1 -RuntimeDirectory <private-dir>` bind127.0.0.1:5077. API dùng SELECT-only principal. Placeholder media chỉ để đáp ứng startup validation sẵn có, không có quyền dịch vụ media; background cleanup không có quyền ghi SQL. Không dùng host này để test các feature khác.
+6. `Smoke-Search.ps1 -RuntimeDirectory <private-dir>` chỉ GET; `Test-LocalLifecycle.ps1` chỉ cho chính fixture vừa tạo, có UPDATE row1 và sửa point collection riêng rồi phục hồi. Không chạy lifecycle trên dữ liệu ứng dụng. Không dùng kết quả này thay test SQL Track A/B.
+
+Web có key server-side và listener loopback bắt buộc; Mobile dùng define/dev config riêng, key thử nghiệm không đưa vào build production. Không bật tunnel/reverse proxy để chia sẻ lab.
+
+## Dừng và khởi động lại
+
+Ctrl+C tại terminal Backend/Web do tác vụ khởi chạy. Nếu dùng process ID phải đối chiếu executable/commandline với đúng worktree trước khi dừng. Docker: `docker compose -p tm70-semantic-e2e-dev -f docker-compose.semantic-dev.yml stop`; giữ nguyên volume/database/model cache. Khởi động lại: nạp lại password dev riêng từ nguồn private, `up -d` cùng project/file, kiểm container ID mới rồi kiểm chứng quyền sở hữu trước cập nhật runtime manifest; script mặc định fail khi identity thay đổi. Không sửa manifest chỉ để vượt guard. Khi ID không đổi, chạy lại Start-LocalBackend và client dev config. Reindex chỉ khi collection/manifest đều đúng.
+
+Official E2/provider evaluation và SEM-D1–D5 vẫn chưa được phê duyệt; dữ liệu smoke không phải bộ120Tour đánh giá.

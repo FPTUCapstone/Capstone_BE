@@ -68,7 +68,10 @@ public sealed class QuoteTourBookingQueryHandler(
             : await dbContext.VoucherRedemptions.AsNoTracking()
                 .Include(redemption => redemption.Booking)
                 .CountAsync(redemption => redemption.VoucherId == voucher.Id &&
-                    redemption.Booking.TravelerUserId == travelerId, cancellationToken);
+                    redemption.Booking.TravelerUserId == travelerId &&
+                    redemption.Booking.Status != BookingStatus.Expired &&
+                    (redemption.Booking.Status != BookingStatus.Cancelled ||
+                     redemption.Booking.PaymentStatus != PaymentStatus.Unpaid), cancellationToken);
 
         var pricing = TourBookingPricingCalculator.Calculate(
             schedule, schedule.Tour.BasePrice, participantTypes, voucher, schedule.TourId, redemptionCount, now);

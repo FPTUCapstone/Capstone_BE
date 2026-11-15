@@ -153,6 +153,7 @@ public sealed class GroupInvitationEndpointTests
 
             var group = TravelGroup.Create(1, host.Id, "Invitation Endpoint Group", now);
             context.TravelGroups.Add(group);
+            context.GroupMembers.Add(GroupMember.CreateHost(group, host.Id, now));
             await context.SaveChangesAsync();
             return (host.Id, group.Id);
         });

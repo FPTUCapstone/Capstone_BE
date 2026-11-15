@@ -43,6 +43,38 @@ public sealed class GetOperatorTourQueryHandlerTests
         result.Value.CancellationPolicyRules.Select(rule => rule.DaysBeforeDeparture)
             .Should().Equal(30, 15, 0);
         result.Value.RejectionReason.Should().BeNull();
+        result.Value.Departures.Single().WeatherReady.Should().BeFalse();
+        result.Value.WeatherReadinessIssues.Should().Contain("weather_stop_classification_missing");
+        result.Value.WeatherReadinessIssues.Should().Contain("weather_meeting_coordinates_missing");
+    }
+
+    [Fact]
+    public async Task Handle_WithReviewedWeatherData_ReportsDepartureReady()
+    {
+        await using var db = TestDbContext.Create();
+        var actor = await SeedApprovedOperatorAsync(db, 7);
+        await TourAuthoringTestData.SeedReferenceDataAsync(db);
+        await SeedPoiAsync(db, 88);
+        var clock = new FakeDateTimeProvider { UtcNow = new DateTimeOffset(2026, 10, 15, 0, 0, 0, TimeSpan.Zero) };
+        var command = Command(88, clock.UtcNow) with
+        {
+            ItineraryItems = [new CreateTourItineraryItemRequest(1, 1, 88,
+                new TimeOnly(8, 0), 90, null, IsRequiredForWeather: true)],
+            Schedules = [new CreateTourScheduleRequest(clock.UtcNow.AddDays(2),
+                clock.UtcNow.AddDays(2).AddHours(8), "City center", 20,
+                MeetingLatitude: 16.0471m, MeetingLongitude: 108.2068m)],
+        };
+        var user = new FakeCurrentUserService { UserId = actor.Id };
+        var created = await new CreateTourPackageCommandHandler(db, user, clock)
+            .Handle(command, CancellationToken.None);
+
+        var result = await new GetOperatorTourQueryHandler(db, user, clock)
+            .Handle(new GetOperatorTourQuery(created.Value.TourId), CancellationToken.None);
+
+        result.Value.Departures.Single().WeatherReady.Should().BeTrue();
+        result.Value.WeatherReadinessIssues.Should().BeEmpty();
+        result.Value.ItineraryItems.Single().IsRequiredForWeather.Should().BeTrue();
+        result.Value.Departures.Single().MeetingLatitude.Should().Be(16.0471m);
     }
 
     [Fact]

@@ -1,0 +1,64 @@
+{
+  "ScenarioId": "named-zigzag",
+  "Source": "GroupB_Named",
+  "ExpectedFeasible": true,
+  "Feasible": true,
+  "BestVisitPoiIds": [
+    101,
+    201,
+    102,
+    202
+  ],
+  "EliteVisitIds": [
+    [
+      101,
+      201,
+      102,
+      202
+    ],
+    [
+      201,
+      101,
+      102,
+      202
+    ],
+    [
+      101,
+      102,
+      201,
+      202
+    ],
+    [
+      101,
+      102,
+      202,
+      201
+    ],
+    [
+      101,
+      201,
+      102
+    ]
+  ],
+  "BestTravelMinutes": 81,
+  "BestFinish": 256,
+  "NodesExpanded": 21,
+  "PrunedByConstraints": 0,
+  "PrunedByForwardChecking": 0,
+  "PrunedByBound": 7,
+  "SolutionsFound": 9,
+  "NodesToFirstSolution": 3,
+  "SearchCompleted": true,
+  "NodeLimitReached": false,
+  "TimeLimitReached": false,
+  "InitialIncumbentAccepted": false,
+  "ReturnedInitialIncumbent": false,
+  "EvaluatorCalls": 1,
+  "InSearchEvaluationLimitReached": false,
+  "TieEvaluationLimitReached": false,
+  "UsedRelaxedRestModel": false,
+  "ChoseRelaxedRestModel": false,
+  "DriftMeasured": true,
+  "MaxModelVsEvaluatorDriftMinutes": 0,
+  "TravelMinutesModelVsEvaluatorDiff": 0
+}

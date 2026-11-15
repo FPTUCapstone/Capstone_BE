@@ -4,7 +4,7 @@
 
 Allow an authenticated Administrator to restore a legitimately locked, non-administrative
 account to the exact account state it held before the lock, without creating duplicate
-administrative actions or leaving an old session usable.
+administrative actions. Active refresh tokens are revoked as part of the unlock transaction.
 
 ## Scope
 
@@ -15,12 +15,12 @@ arbitrary user ID is in scope.
 ## SRS_INTERNAL_CONFLICT: Actor Authorization (Staff vs Administrator)
 
 - **Conflict Identification**: Report 3 V2 / SRS contains an explicit internal contradiction between high-level summary `Table 3` (Use Case Catalogue line 118, which lists `Staff / Administrator` for UC-49) and the normative UC-49 specification (`§3.9.1.3`), business rule `BR-115`, and the Screen Authorization matrix (all of which strictly restrict account unlock to `Administrator` only).
-- **Technical Constraint on Develop**: The base branch `origin/develop` currently has no `UserRole.Staff` enum or Staff authorization identity. The Staff role dependency PR has not been merged into `develop`.
+- **Current integration baseline (15 November 2026)**: `develop` includes `UserRole.Staff` and a dedicated Staff-only Tour Operator debt-recovery unlock endpoint. This update retains the Administrator-only policy previously reviewed for the general UC-49 endpoint. The dedicated payout endpoint keeps its existing role and debt-recovery rules.
 - **Approved Resolution Decision**: Per project architecture governance (aligned with PR #61 Staff role baseline and Web Scope Matrix conventions), UC-49 formally resolves this conflict by binding to normative `§3.9.1.3`, `BR-115`, and Screen Authorization:
   - The unlock endpoint requires `Administrator` (`[Authorize(Roles = nameof(UserRole.Administrator))]`).
   - An Administrator target (`user.unlock_protected_administrator`) cannot be unlocked, preserving administrative integrity.
   - Staff callers are rejected with `403 Forbidden` and audited to `dbo.AuditLogs`.
-  - When the Staff role dependency is merged into `develop`, multi-tier authorization (Staff unlocks Traveler/TourOperator; Administrator unlocks all non-Admin) will be integrated in a coordinated cross-role work package.
+  - Any expansion of the general endpoint to Staff requires a coordinated authorization decision. The availability of the Staff role alone does not change this endpoint policy.
 - Unauthorized access attempts (both unauthenticated `401` and forbidden non-Administrator `403` requests) are rejected by `ProblemDetailsAuthorizationMiddlewareResultHandler` and recorded in `dbo.AuditLogs` with `action_type = 'UnlockUserAccount'`, `entity_type = 'User'`, and `is_success = 0` (Report 3 V2 §3.9.1.3 abnormal case 2.a1).
 
 ## Moderation record persistence (Report 3 V2 clarification)
@@ -75,8 +75,10 @@ Success response: `200 OK`
 - `locked_at_utc` — UTC timestamp of the lock.
 - `lock_reason` — nonempty administrative reason, maximum 1,000 characters.
 
-The fields are nullable only to support historical rows. A current lock must contain all four
-values. The future UC-48 command is responsible for creating this complete lock record.
+Administrative locks contain all four values. Existing automatic payout locks retain their
+reason and timestamp with no administrative actor or recovery status. Such rows continue through
+the dedicated debt-recovery workflow. Incomplete historical records remain unavailable to the
+general unlock endpoint.
 
 `admin.UserUnlockOperations` stores idempotency state, keyed uniquely by
 `(administrator_user_id, idempotency_key)`. It retains the request hash and the successful
@@ -97,12 +99,17 @@ contracts to both the canonical schema and an explicit migration; it does not ma
    operation issues no replacement token, so the person must authenticate again.
 6. The operation writes one successful `AuditLog` with action `UnlockUserAccount`, before/after
    status metadata and the administrator-provided reason.
-7. User update, token revocation, audit log, and idempotency result are one transaction. A
+7. A Tour Operator with unrecovered debt is rejected with the existing
+   `daily_payout.operator_has_outstanding_debt` / HTTP 409 contract. This check runs in the
+   same serializable transaction before restoration. Fully recovered debt does not block an
+   otherwise complete administrative lock.
+8. User update, token revocation, audit log, and idempotency result are one transaction. A
    failure rolls back all of them.
-8. The same transaction creates one durable `AccountUnlocked` notification. Accounts with an
+9. The same transaction creates one durable `AccountUnlocked` notification. Accounts with an
    email address are queued for asynchronous email delivery; email transport failure never rolls
    back the unlock and transient outcomes are retried. Accounts without email retain a pending
-   in-app notification for a future notification centre and are never reported as email-delivered.
+   Email notification. The worker waits for a usable address and can claim it after the address
+   is updated.
 
 ## Error contract
 
@@ -112,6 +119,7 @@ contracts to both the canonical schema and an explicit migration; it does not ma
 | 401/403 | standard authorization result | Caller is unauthenticated or not an Administrator. |
 | 403 | `user.unlock_protected_administrator` | The target is an Administrator, including self. |
 | 404 | `user.not_found` | No target user exists. |
+| 409 | `daily_payout.operator_has_outstanding_debt` | Tour Operator debt remains unrecovered. |
 | 409 | `user.not_locked` | Target is not currently locked. |
 | 409 | `user.lock_recovery_state_missing` | Historical/incomplete lock metadata cannot be safely restored. |
 | 409 | `user.unlock_idempotency_key_payload_mismatch` | A key was reused with different request content. |
@@ -137,3 +145,12 @@ successful response without changing state or adding another audit record.
   lock metadata.
 - New roles or permission tables for the proposed System Owner / Platform Administrator model.
 - Push/SMS transport, device-token registration, and notification-centre API/UI.
+
+## Develop integration verification
+
+- Compatible widening of the deployed nullable NVARCHAR(200) lock reason to NVARCHAR(1000).
+- Existing automatic-lock evidence is preserved through migration and safe re-run.
+- Canonical constraints accept the current automatic payout-lock shape.
+- Shared token revocation uses the existing RevokeAllRefreshTokensForUserAsync port.
+- Existing notification read state, inbox indexes and delivery-lease metadata coexist.
+- General Administrator unlock and dedicated Staff payout unlock retain their reviewed roles.

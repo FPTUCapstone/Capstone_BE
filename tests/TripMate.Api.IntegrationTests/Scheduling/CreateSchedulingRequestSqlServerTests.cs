@@ -763,6 +763,28 @@ public sealed class CreateSchedulingRequestSqlServerTests
         (await verification.Itineraries.CountAsync()).Should().Be(1);
     }
 
+    /// <summary>ADR-002 (G2): the saved itinerary row records how its schedule was produced.</summary>
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Success_PersistsTheScheduleProvenanceOnTheItineraryRow()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database);
+        await using var context = database.CreateDbContext();
+
+        var result = await CreateHandler(context).Handle(
+            CreateCommand(seed.UserId, Guid.NewGuid()) with { MandatoryPoiIds = [seed.PoiId] },
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        (await database.ExecuteScalarAsync<string>($"""
+            SELECT CONCAT(solver_outcome, '|', ISNULL(objective_mode, 'null'), '|',
+                          ISNULL(CONVERT(varchar(5), search_completed), 'null'), '|', CONVERT(varchar(5), time_of_day_refined))
+            FROM planning.Itineraries
+            WHERE itinerary_id = {result.Value.ItineraryId};
+            """)).Should().Be($"{SchedulingSolverOutcomes.Heuristic}|null|null|0");
+    }
+
     private static CreateSchedulingRequestCommandHandler CreateHandler(
         ApplicationDbContext context,
         IRouteDurationProvider? routeDurationProvider = null,

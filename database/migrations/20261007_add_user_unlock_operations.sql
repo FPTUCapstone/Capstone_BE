@@ -20,6 +20,13 @@ BEGIN TRY
     IF COL_LENGTH(N'dbo.Users', N'lock_reason') IS NULL
         ALTER TABLE dbo.Users ADD lock_reason NVARCHAR(1000) NULL;
 
+    -- The daily-payout migration already deployed a nullable NVARCHAR(200) reason.
+    -- Widen that compatible contract without changing its evidence.
+    IF EXISTS (SELECT 1 FROM sys.columns
+        WHERE object_id = OBJECT_ID(N'dbo.Users') AND name = N'lock_reason'
+            AND system_type_id = TYPE_ID(N'nvarchar') AND max_length = 400 AND is_nullable = 1)
+        ALTER TABLE dbo.Users ALTER COLUMN lock_reason NVARCHAR(1000) NULL;
+
     IF EXISTS (
         SELECT 1
         FROM sys.columns AS columnDefinition
@@ -40,8 +47,8 @@ BEGIN TRY
           ))
         THROW 51000, 'TM-95 Users lock-recovery column contract mismatch.', 1;
 
-    -- Historical locked accounts cannot be safely restored without all four values. Normalize
-    -- partial legacy metadata to the explicit all-null legacy state rather than inventing Active.
+    -- Preserve automatic payout locks with their existing reason/timestamp. They continue
+    -- through the debt-recovery workflow and have no administrative recovery record.
     EXEC sys.sp_executesql N'
         UPDATE dbo.Users
         SET status_before_lock = NULL,
@@ -53,7 +60,10 @@ BEGIN TRY
                 status_before_lock IS NULL
                 OR status_before_lock NOT IN (''PendingEmailVerification'', ''Active'', ''PendingApproval'', ''Rejected'', ''Inactive'')
                 OR locked_by_user_id IS NULL OR locked_at_utc IS NULL
-                OR lock_reason IS NULL OR LEN(LTRIM(RTRIM(lock_reason))) = 0));';
+                OR lock_reason IS NULL OR LEN(LTRIM(RTRIM(lock_reason))) = 0)
+                AND NOT (status_before_lock IS NULL AND locked_by_user_id IS NULL
+                    AND locked_at_utc IS NOT NULL AND lock_reason IS NOT NULL
+                    AND LEN(LTRIM(RTRIM(lock_reason))) > 0));';
 
     IF OBJECT_ID(N'dbo.CK_Users_LockRecoveryState', N'C') IS NOT NULL
         ALTER TABLE dbo.Users DROP CONSTRAINT CK_Users_LockRecoveryState;
@@ -63,6 +73,9 @@ BEGIN TRY
                 AND locked_at_utc IS NULL AND lock_reason IS NULL)
             OR (status = ''Locked'' AND (
                 (status_before_lock IS NULL AND locked_by_user_id IS NULL AND locked_at_utc IS NULL AND lock_reason IS NULL)
+            OR (status_before_lock IS NULL AND locked_by_user_id IS NULL
+                AND locked_at_utc IS NOT NULL AND lock_reason IS NOT NULL
+                AND LEN(LTRIM(RTRIM(lock_reason))) > 0)
             OR (status_before_lock IN (''PendingEmailVerification'', ''Active'', ''PendingApproval'', ''Rejected'', ''Inactive'')
                 AND locked_by_user_id IS NOT NULL AND locked_at_utc IS NOT NULL
                     AND lock_reason IS NOT NULL AND LEN(LTRIM(RTRIM(lock_reason))) > 0)

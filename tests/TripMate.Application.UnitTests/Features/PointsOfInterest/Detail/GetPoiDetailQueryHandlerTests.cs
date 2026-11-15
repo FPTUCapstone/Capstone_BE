@@ -220,6 +220,7 @@ public class GetPoiDetailQueryHandlerTests
     [InlineData("Museum", 0, CostKind.AdmissionTicket)]
     [InlineData("Museum", 60000, CostKind.AdmissionTicket)]
     [InlineData(PoiCategoryNames.FoodAndDrink, 50000, CostKind.AverageSpend)]
+    [InlineData("Cafe", 50000, CostKind.AverageSpend)]
     public async Task Handle_ReturnsEstimatedVisitCostAsStoredWithItsCostKind(
         string categoryName,
         int? storedCost,

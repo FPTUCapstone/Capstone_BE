@@ -1,0 +1,31 @@
+# UC-14 Tomorrow.io revision â€” review and implementation plan
+
+**Status:** Approved by user on 2026-10-28 for UC-14 implementation. Review [Backend spec](./backend-spec.md) and [Mobile spec](./mobile-spec.md) first. The previously approved UC-14 documents remain unchanged until this revision is approved. Implementation is authorized; commit, push, PR, merge and deployment are not authorized.
+
+## Scope
+
+Change only UC-14's **weather provider and weather alert behavior**. Preserve the approved schedule-delay, POI-closure, route-deviation, device registration, acknowledgement, ownership and FCM retry contracts. UC-14 must never cancel a commercial Tour or Booking; UC-70 remains a separate decision.
+
+## Steps after approval
+
+- [ ] **0. Reconcile approved documents.** Update the colocated Backend/Mobile UC-14 specs and plans, and the cross-repository UC-14 source spec, to remove OpenWeather-specific weather rules and add the approved Tomorrow.io rules. Record the provider and notification-policy version. Do not silently rewrite UC-70.
+- [ ] **1. Baseline and provider verification.** Preserve unrelated dirty work in the original repositories; work in isolated UC-14 branches/worktrees. Record BE/Mobile build/test baselines. Verify the key's forecast fields/units/horizon at representative Vietnam POIs and its commercial quota without logging credentials. Verify a real or provider-sanctioned Vietnam official-event payload, stable event identity, issuer, area/time and delivery path before enabling official-event alerts. The current zero-event response does not satisfy this gate.
+- [ ] **2. Schema, POI readiness and contract.** Extend the explicit idempotent UC-14 SQL migration's `trip.Incidents` check constraint for `WeatherAdvisory` while preserving existing values/rows. Persist nullable weather basis, provider time and structured rain intensity for weather alerts; keep non-weather legacy writers valid. Audit `IndoorOutdoor` for active POIs; add a reviewed marker and require explicit classification for future POIs if current data cannot prove review. Expose an operational readiness report/count of unreviewed active POIs; do not treat the catalog's default Outdoor value as verified. Use the planned Incident/Notification/AlertDeliveryWork pattern for persisted `Info` preparation pushes; keep transient advisories in the existing endpoint. Test migration rerun, legacy writers, unreviewed POI behavior, owner isolation and no duplicate transient/persisted alert.
+- [ ] **3. Tomorrow.io forecast adapter.** Create the UC-14 Application weather port and one Backend client, reading `rainIntensity`, `weatherCode`, forecast/realtime time and coordinates in metric units. Use hourly forecast for a future planned POI visit; if the next Pending stop's planned arrival is past, use realtime at that POI only when its timestamp is at most 10 minutes old and label it as current destination conditions. Cache by coordinates/time bucket for at most one 10-minute scan, isolate API errors, and treat missing/stale data as unknown. No Mobile call to Tomorrow.io. Test with deterministic fake responses; keep live calls outside the normal test suite.
+- [ ] **4. Weather detector and delivery.** Implement `2.5/10/50` mm/hour boundaries, reviewed Outdoor checks, one-hour moderate preparation and three-hour severe-warning windows. Limit moderate pushes to one per session per three hours. Use distinct band source keys so escalation from moderate to heavy and heavy to at least 50 mm/hour produces one new warning, while repeated scans in the same band do not spam. For an overdue next Pending stop, never push based on its old forecast hour; only fresh realtime heavy rain/thunderstorm can warn as current destination conditions. Official event warnings remain behind their separate source gate. Test provider outage, passed/skipped stops, overdue planned time, exact planned hour, escalation, cooldown and FCM replay.
+- [ ] **5. Mobile presentation.** Render persisted `Info` WeatherAdvisory in alert history and suppress the matching transient banner; render `Warning` weather alerts with affected POI/time and distinguish forecast from current destination conditions. For Outdoor heavy rain, offer the existing UC-13 Skip action only for a valid Pending stop and after Traveler confirmation; show UC-15 only when Backend supplies a valid proposal. Keep schedule-delay, POI-closure, route-deviation, permission-denied and reconnect behavior intact. Test duplicate FCM, local banner dismissal, acknowledgement and history recovery.
+- [ ] **6. Review and verification.** Run focused BE and Mobile tests, BE build/full tests, Mobile analyzer/tests and SQL Server migration tests. Exercise one controlled forecast â†’ transient advisory â†’ persisted preparation push â†’ heavy-rain escalation â†’ resolution flow. Verify no UC-14 path mutates TourSchedule, Booking, Refund or UC-70 state. Review the diff against both revised specs and repo rules; report gated official-event coverage separately.
+
+## Evidence and limits
+
+### Execution status (2026-10-28)
+
+UC-14 implementation changes are present only as uncommitted working-tree changes in the isolated
+Backend, Mobile and FE UC-14 worktrees. The implementation and test evidence are recorded in
+[`../../.scratch/uc14-tomorrowio/implementation-report.md`](../../.scratch/uc14-tomorrowio/implementation-report.md).
+SQL Server migration execution, review of existing active POI classifications and provider
+commercial quota remain operational gates.
+
+- On 2026-10-28, the configured Tomorrow.io key returned HTTP 200 for realtime and hourly forecast at a Da Nang point. The hourly result contained 120 entries and the fields needed for this proposed rain contract. Flood/thunderstorm Events queries returned zero active events; official-event coverage, stable identity and webhook delivery for Vietnam are unverified.
+- The original BE source tree has an approved UC-14 spec and plan but no OpenWeather/One Call weather client or UC-14 detector implementation to migrate. The source change is a spec revision, not a code migration.
+- The 2.5/10/50 mm/hour rain bands follow the published [WMO intensity table](https://www.weather.gov/media/epz/mesonet/CWOP-WMO8.pdf). The one-hour/three-hour push windows and three-hour preparation-message limit are proposed TripMate UX policy.

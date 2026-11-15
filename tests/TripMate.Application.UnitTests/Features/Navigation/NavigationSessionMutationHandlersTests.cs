@@ -248,21 +248,18 @@ public sealed class NavigationSessionMutationHandlersTests
     }
 
     [Fact]
-    public async Task Finish_IsAllowedAfterAccessRevocationAndReplayKeepsTheReason()
+    public async Task Finish_AfterAccessRevocationDoesNotDiscloseTheSnapshot()
     {
         await using var db = CreateDbContext();
         var inaccessible = await SeedAsync(db, itineraryOwnerId: OtherTravelerId, travelerId: TravelerId);
         var now = StartedAtUtc.AddHours(1);
 
         var finished = await Finish(db, now, inaccessible.SessionId);
-        var replay = await Finish(db, now.AddMinutes(5), inaccessible.SessionId);
         var foreign = await Finish(db, now, inaccessible.SessionId, OtherTravelerId);
 
-        finished.Value.CompletionReason.Should().Be(TripSession.TravelerStoppedReason);
-        finished.Value.EndedAtUtc.Should().Be(now);
-        replay.Value.EndedAtUtc.Should().Be(now);
+        finished.ErrorCode.Should().Be(NavigationErrorCodes.AccessDenied);
         foreign.ErrorCode.Should().Be(NavigationErrorCodes.AccessDenied);
-        (await LoadAsync(db, inaccessible.SessionId)).StateHistory.Should().HaveCount(2);
+        (await LoadAsync(db, inaccessible.SessionId)).StateHistory.Should().HaveCount(1);
     }
 
     [Fact]
@@ -276,6 +273,43 @@ public sealed class NavigationSessionMutationHandlersTests
         result.IsSuccess.Should().BeTrue();
         result.Value.CompletionReason.Should().Be(TripSession.ExpiredReason);
         result.Value.EndedAtUtc.Should().Be(ExpiresAtUtc);
+    }
+
+    [Fact]
+    public async Task Skip_RecordsANavigationSkipSignalOnce()
+    {
+        await using var db = CreateDbContext();
+        var seed = await SeedAsync(db);
+        var now = StartedAtUtc.AddHours(1);
+
+        await Skip(db, now, seed.SessionId, seed.ItemIds[1], null);
+        await Skip(db, now.AddMinutes(1), seed.SessionId, seed.ItemIds[1], null);
+
+        var stored = await LoadAsync(db, seed.SessionId);
+        var signal = await db.RecommendationBehaviorEvents.AsNoTracking().SingleAsync();
+        signal.EventType.Should().Be(RecommendationEventType.Skip);
+        signal.Source.Should().Be(RecommendationCaptureSource.Navigation);
+        signal.TravelerUserId.Should().Be(TravelerId);
+        signal.ItineraryId.Should().Be(stored.ItineraryId);
+        signal.PointOfInterestId.Should().Be(stored.Items.Single(item => item.ItineraryItemId == seed.ItemIds[1]).PoiId);
+        signal.OriginalPosition.Should().Be(2);
+        signal.WasMandatory.Should().BeFalse();
+        signal.OccurredAtUtc.Should().Be(now);
+    }
+
+    [Fact]
+    public async Task Reach_RecordsAWeakLikeSignal()
+    {
+        await using var db = CreateDbContext();
+        var seed = await SeedAsync(db);
+
+        await Reach(db, StartedAtUtc.AddHours(1), seed.SessionId, seed.ItemIds[0], null);
+
+        var signal = await db.RecommendationBehaviorEvents.AsNoTracking().SingleAsync();
+        signal.EventType.Should().Be(RecommendationEventType.Like);
+        signal.Source.Should().Be(RecommendationCaptureSource.Navigation);
+        signal.WasMandatory.Should().BeTrue();
+        signal.OriginalPosition.Should().BeNull();
     }
 
     [Fact]
@@ -324,7 +358,7 @@ public sealed class NavigationSessionMutationHandlersTests
         DateTimeOffset now,
         long sessionId,
         long travelerId = TravelerId) =>
-        new CompleteNavigationSessionCommandHandler(db, Clock(now))
+        new CompleteNavigationSessionCommandHandler(db, Clock(now), new ItineraryAccessService(db))
             .Handle(new CompleteNavigationSessionCommand(sessionId, travelerId), CancellationToken.None);
 
     private static FakeDateTimeProvider Clock(DateTimeOffset now) => new() { UtcNow = now };

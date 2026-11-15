@@ -1,0 +1,475 @@
+{
+  "TotalScenarios": 55,
+  "FeasibleScenarios": 54,
+  "DriftMeasuredScenarios": 24,
+  "MaxStartDriftOverall": 0,
+  "MaxTravelDiffOverall": 0,
+  "MeasuredScenarioIds": [
+    "grid-c10-m0-none-s1",
+    "grid-c10-m1-none-s1",
+    "grid-c10-m3-none-s1",
+    "grid-c10-m6-none-s1",
+    "grid-c20-m0-none-s1",
+    "grid-c20-m1-none-s1",
+    "grid-c20-m3-none-s1",
+    "grid-c20-m6-none-s1",
+    "grid-c40-m0-none-s1",
+    "grid-c40-m1-none-s1",
+    "grid-c40-m3-none-s1",
+    "grid-c40-m6-none-s1",
+    "named-zigzag",
+    "named-zigzag-240",
+    "named-tail-infeasible",
+    "named-asymmetric",
+    "named-two-opt",
+    "named-relocate",
+    "named-reconsideration",
+    "incumbent-valid-c20-m2-none-s10",
+    "incumbent-invalid-rejected-s13",
+    "budget-tight-exact-mandatory-s21",
+    "boundary-fractional-seconds-s41",
+    "boundary-urgent-slack-mrv-s42"
+  ],
+  "Details": [
+    {
+      "ScenarioId": "grid-c10-m0-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": true,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c10-m1-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": true,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c10-m3-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": true,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c10-m6-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": true,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c20-m0-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": true,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c20-m1-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": true,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c20-m3-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": true,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c20-m6-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": true,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c40-m0-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": true,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c40-m1-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": true,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c40-m3-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": true,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c40-m6-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": true,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c10-m0-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": false,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c10-m1-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": false,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c10-m3-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": false,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c10-m6-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": false,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c20-m0-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": false,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c20-m1-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": false,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c20-m3-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": false,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c20-m6-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": false,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c40-m0-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": false,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c40-m1-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": false,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c40-m3-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": false,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c40-m6-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": false,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c10-m0-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": false,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c10-m1-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": false,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c10-m3-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": false,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c10-m6-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": false,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c20-m0-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": false,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c20-m1-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": false,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c20-m3-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": false,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c20-m6-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": false,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c40-m0-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": false,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c40-m1-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": false,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c40-m3-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": false,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "grid-c40-m6-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "DriftMeasured": false,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "named-zigzag",
+      "Source": "GroupB_Named",
+      "Feasible": true,
+      "DriftMeasured": true,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "named-zigzag-240",
+      "Source": "GroupB_Named",
+      "Feasible": true,
+      "DriftMeasured": true,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "named-tail-infeasible",
+      "Source": "GroupB_Named",
+      "Feasible": true,
+      "DriftMeasured": true,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "named-asymmetric",
+      "Source": "GroupB_Named",
+      "Feasible": true,
+      "DriftMeasured": true,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "named-two-opt",
+      "Source": "GroupB_Named",
+      "Feasible": true,
+      "DriftMeasured": true,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "named-relocate",
+      "Source": "GroupB_Named",
+      "Feasible": true,
+      "DriftMeasured": true,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "named-reconsideration",
+      "Source": "GroupB_Named",
+      "Feasible": true,
+      "DriftMeasured": true,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "incumbent-valid-c20-m2-none-s10",
+      "Source": "GroupC_Incumbent",
+      "Feasible": true,
+      "DriftMeasured": true,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "incumbent-valid-c20-m1-auto-s11",
+      "Source": "GroupC_Incumbent",
+      "Feasible": true,
+      "DriftMeasured": false,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "incumbent-valid-c40-m3-frequent-s12",
+      "Source": "GroupC_Incumbent",
+      "Feasible": true,
+      "DriftMeasured": false,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "incumbent-invalid-rejected-s13",
+      "Source": "GroupC_Incumbent",
+      "Feasible": true,
+      "DriftMeasured": true,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "budget-tight-exact-mandatory-s21",
+      "Source": "GroupD_Budget",
+      "Feasible": true,
+      "DriftMeasured": true,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "budget-infeasible-pruned-s22",
+      "Source": "GroupD_Budget",
+      "Feasible": false,
+      "DriftMeasured": false,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "budget-limited-optional-s23",
+      "Source": "GroupD_Budget",
+      "Feasible": true,
+      "DriftMeasured": false,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "tie-c20-m0-frequent-s31",
+      "Source": "GroupE_Tie",
+      "Feasible": true,
+      "DriftMeasured": false,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "tie-c30-m0-frequent-s32",
+      "Source": "GroupE_Tie",
+      "Feasible": true,
+      "DriftMeasured": false,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "tie-c40-m1-frequent-s33",
+      "Source": "GroupE_Tie",
+      "Feasible": true,
+      "DriftMeasured": false,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "boundary-fractional-seconds-s41",
+      "Source": "GroupF_Boundary",
+      "Feasible": true,
+      "DriftMeasured": true,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    },
+    {
+      "ScenarioId": "boundary-urgent-slack-mrv-s42",
+      "Source": "GroupF_Boundary",
+      "Feasible": true,
+      "DriftMeasured": true,
+      "MaxStartDrift": 0,
+      "TravelDiff": 0
+    }
+  ]
+}

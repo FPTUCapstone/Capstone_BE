@@ -16,6 +16,29 @@ namespace TripMate.Api.IntegrationTests.PointsOfInterest;
 public sealed class PointsOfInterestOpenApiTests
 {
     [Fact]
+    public async Task ManagedPoiList_DocumentsGetOnlyDirectDtoAndRetainsStaffPost()
+    {
+        await using var factory = new TripMateApiFactory();
+        var document = factory.Services.GetRequiredService<ISwaggerProvider>().GetSwagger("v1");
+        using var json = JsonDocument.Parse(await document.SerializeAsJsonAsync(OpenApiSpecVersion.OpenApi3_0));
+        var root = json.RootElement;
+        var path = root.GetProperty("paths").GetProperty("/api/v1/admin/pois");
+        path.TryGetProperty("post", out _).Should().BeTrue();
+        path.TryGetProperty("delete", out _).Should().BeFalse();
+        path.TryGetProperty("patch", out _).Should().BeFalse();
+        var get = path.GetProperty("get");
+        get.GetProperty("parameters").EnumerateArray().Select(p => p.GetProperty("name").GetString())
+            .Should().BeEquivalentTo("page", "pageSize", "search", "categoryId", "status");
+        foreach (var status in new[] { "200", "400", "401", "403", "500" }) get.GetProperty("responses").TryGetProperty(status, out _).Should().BeTrue();
+        get.GetProperty("responses").GetProperty("200").GetProperty("content").GetProperty("application/json")
+            .GetProperty("schema").GetProperty("$ref").GetString().Should().EndWith("/ManagedPoiListDto");
+        var schemas = root.GetProperty("components").GetProperty("schemas");
+        schemas.GetProperty("ManagedPoiListItemDto").GetProperty("properties").GetProperty("id").GetProperty("type").GetString().Should().Be("string");
+        root.GetProperty("security").GetArrayLength().Should().BeGreaterThan(0);
+        if (get.TryGetProperty("security", out var localSecurity)) localSecurity.GetArrayLength().Should().BeGreaterThan(0);
+    }
+
+    [Fact]
     public async Task SearchSelectablePois_DocumentsTravelerSearchContract()
     {
         await using var factory = new TripMateApiFactory();

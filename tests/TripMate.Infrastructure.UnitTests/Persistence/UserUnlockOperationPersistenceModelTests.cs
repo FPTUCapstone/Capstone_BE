@@ -24,6 +24,7 @@ public sealed class UserUnlockOperationPersistenceModelTests
         ColumnName(user, nameof(User.LockedByUserId)).Should().Be("locked_by_user_id");
         ColumnName(user, nameof(User.LockedAtUtc)).Should().Be("locked_at_utc");
         ColumnName(user, nameof(User.LockReason)).Should().Be("lock_reason");
+        user.FindProperty(nameof(User.LockReason))!.GetMaxLength().Should().Be(1000);
 
         var operation = model.FindEntityType(typeof(UserUnlockOperation));
         operation.Should().NotBeNull();

@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Itineraries.Common;
+using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Domain.Common;
 using TripMate.Domain.Enums;
 
@@ -17,6 +18,24 @@ public sealed class GetItineraryDetailQueryHandler(
     : IRequestHandler<GetItineraryDetailQuery, Result<ItineraryDetailResponse>>
 {
     public async Task<Result<ItineraryDetailResponse>> Handle(
+        GetItineraryDetailQuery request,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await dbContext.ExecuteInSerializableTransactionAsync(
+                    token => ReadAsync(request, token), cancellationToken);
+            }
+            catch (Exception exception) when (attempt < 3 && dbContext.IsDeadlock(exception))
+            {
+                dbContext.ClearTrackedEntities();
+            }
+        }
+    }
+
+    private async Task<Result<ItineraryDetailResponse>> ReadAsync(
         GetItineraryDetailQuery request,
         CancellationToken cancellationToken)
     {
@@ -136,6 +155,7 @@ public sealed class GetItineraryDetailQueryHandler(
                 ? (int)Math.Ceiling((itinerary.ValidToUtc.Value - itinerary.ValidFromUtc.Value).TotalMinutes)
                 : orderedItems.Sum(item => item.StayDurationMinutes),
             items,
-            isNavigationInProgress);
+            isNavigationInProgress,
+            Provenance: SchedulingProvenanceDto.From(itinerary));
     }
 }

@@ -8,6 +8,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\Shared\TomorrowAlertFixtures.cs" Link="Shared\TomorrowAlertFixtures.cs" />
     <PackageReference Include="FluentAssertions" Version="7.2.0" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="10.0.0" />
@@ -30,6 +31,11 @@
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\database\migrations\20260918_add_audit_result_reason.sql"
           Link="Database\migrations\20260918_add_audit_result_reason.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261105_add_checkin_audit_journal_identity.sql"
+          Link="Database\migrations\20261105_add_checkin_audit_journal_identity.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures\Redis\tm89-aof-always.conf"
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\database\migrations\20260923_add_tour_media.sql"
           Link="Database\migrations\20260923_add_tour_media.sql"
@@ -133,6 +139,45 @@
     <None Include="..\..\database\migrations\20261013_remove_traveler_profile_default_budget.sql"
           Link="Database\migrations\20261013_remove_traveler_profile_default_budget.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261015_add_booking_cancellation.sql"
+          Link="Database\migrations\20261015_add_booking_cancellation.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261021_add_refund_processing_lifecycle.sql"
+          Link="Database\migrations\20261021_add_refund_processing_lifecycle.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261022_add_refund_manual_completion_operations.sql"
+          Link="Database\migrations\20261022_add_refund_manual_completion_operations.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261024_uc29_1_ticket_issuance.sql"
+          Link="Database\migrations\20261024_uc29_1_ticket_issuance.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261024_uc29_2_backfill_tickets.sql"
+          Link="Database\migrations\20261024_uc29_2_backfill_tickets.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261025_uc21_group_leave_lifecycle.sql"
+          Link="Database\migrations\20261025_uc21_group_leave_lifecycle.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261025_uc21_navigation_access_revoked_reason.sql"
+          Link="Database\migrations\20261025_uc21_navigation_access_revoked_reason.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261025_uc21_notification_inapp.sql"
+          Link="Database\migrations\20261025_uc21_notification_inapp.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261027_uc20_group_member_removal_operations.sql"
+          Link="Database\migrations\20261027_uc20_group_member_removal_operations.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261028_weather_readiness.sql"
+          Link="Database\migrations\20261028_weather_readiness.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261028_uc70_emergency_cancellation.sql"
+          Link="Database\migrations\20261028_uc70_emergency_cancellation.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261102_weather_operator_review.sql"
+          Link="Database\migrations\20261102_weather_operator_review.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261110_uc10_itinerary_solver_provenance.sql"
+          Link="Database\migrations\20261110_uc10_itinerary_solver_provenance.sql"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
@@ -142,6 +187,7 @@
 
   <ItemGroup>
     <None Include="Fixtures\Database\tm79_pre_migration_schema.sql" Link="Database\Fixtures\tm79_pre_migration_schema.sql" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures\Database\uc70_pre_migration_develop_schema_v7.sql" Link="Database\Fixtures\uc70_pre_migration_develop_schema_v7.sql" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Fixtures\Database\tm79_pre_nullable_policy_parent.sql" Link="Database\Fixtures\tm79_pre_nullable_policy_parent.sql" CopyToOutputDirectory="PreserveNewest" />
     <None Include="Fixtures\Database\tm79_pre_media_schema.sql" Link="Database\Fixtures\tm79_pre_media_schema.sql" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\database\migrations\20260929_add_trip_review_media.sql" Condition="Exists('..\..\database\migrations\20260929_add_trip_review_media.sql')" Link="Database\migrations\20260929_add_trip_review_media.sql" CopyToOutputDirectory="PreserveNewest" />

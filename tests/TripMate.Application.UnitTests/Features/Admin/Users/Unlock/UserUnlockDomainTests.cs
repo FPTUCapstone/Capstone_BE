@@ -10,6 +10,18 @@ public sealed class UserUnlockDomainTests
     private static readonly DateTimeOffset LockedAtUtc = new(2026, 10, 7, 1, 30, 0, TimeSpan.Zero);
 
     [Fact]
+    public void Unlock_ClearsAdministrativeRecoveryMetadataForExistingCallers()
+    {
+        var user = new User { Role = UserRole.TourOperator, Status = AccountStatus.Active };
+        user.RecordLock(AccountStatus.Active, 7, LockedAtUtc, "Manual lock");
+
+        user.Unlock(LockedAtUtc.AddHours(1));
+
+        user.StatusBeforeLock.Should().BeNull();
+        user.LockedByUserId.Should().BeNull();
+    }
+
+    [Fact]
     public void RestoreFromLock_WhenCompleteLockRecord_RestoresRecordedStatusAndClearsMetadata()
     {
         var user = new User

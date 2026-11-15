@@ -100,6 +100,7 @@ public sealed class CreatePoiJwtBearerTests
         categoryId,
         latitude = 11.941755m,
         longitude = 108.438278m,
+        indoorOutdoor = "Outdoor",
     };
 
     private static Task<SeedResult> SeedAsync(TripMateApiFactory factory) =>

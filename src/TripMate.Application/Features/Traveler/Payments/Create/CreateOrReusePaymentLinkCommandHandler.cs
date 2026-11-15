@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Traveler.Bookings.Common;
 using TripMate.Application.Features.Traveler.Payments.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
@@ -156,7 +157,7 @@ public sealed class CreateOrReusePaymentLinkCommandHandler(
         {
             if (booking.Status == BookingStatus.PendingPayment)
             {
-                booking.ExpirePendingPayment(now);
+                await BookingExpiryEffects.ExpireAsync(dbContext, booking, now, cancellationToken);
                 var activePending = await dbContext.PaymentTransactions
                     .Where(t => t.BookingId == bookingId && t.Status == PaymentTransactionStatus.Pending)
                     .ToListAsync(cancellationToken);

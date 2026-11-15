@@ -215,3 +215,28 @@ Review the branch against `specs/TM-95-spec.md`, especially the five Review Focu
 git add src tests database
 git commit -m "fix(user): address unlock account review findings"
 ```
+
+## Integration update on 15 November 2026
+
+The user requested updating PR #48 against current develop and self-reviewing the result.
+Synchronize through a merge commit to preserve the shared feature history. Resolve shared
+User/Notification/persistence/test-factory changes with both workflows retained.
+
+Regression cases reproduced before fixes covered deployed 200-character lock reasons,
+automatic payout-lock evidence and constraints, conflicting EF max lengths, existing Unlock
+callers clearing new metadata, and unrecovered debt blocking the general unlock endpoint.
+Validate the general endpoint against Traveler/TourOperator/Staff authorization failures and
+retain the dedicated Staff debt-recovery route. Run unit, HTTP, real SQL, formatting, full
+solution regression and current-head CI before reporting readiness.
+
+### Local verification results
+
+- Release build passed with zero errors and the existing scheduling nullable warning.
+- Changed-file dotnet format verification and git diff checks passed.
+- Full solution passed 5,136 Application, 1,248 Infrastructure, 882 API and 13 replay tests.
+- Three Infrastructure external tests and 729 API SQL/Redis/optional cases were skipped in the
+  full run without external test connections.
+- The separate configured SQL/HTTP unlock and daily-payout regression passed 48 cases with
+  zero failures and zero skips, including migration upgrade/re-run, debt checks, rollback,
+  token revocation, unauthorized audit, idempotency replay and concurrent unlock requests.
+- Live SMTP and manual Swagger smoke checks remain release verification work.

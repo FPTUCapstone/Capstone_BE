@@ -6,12 +6,15 @@ using System.Text.Json.Serialization;
 using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Scheduling.Common;
+using TripMate.Application.Features.Scheduling.Csp;
+using TripMate.Application.Features.Scheduling.Shadow;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -150,6 +153,73 @@ public sealed class CreateSchedulingRequestEndpointTests
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
+    /// <summary>ADR-002 (G2): the shipped CSP configuration tells clients how the schedule was produced.</summary>
+    [Fact]
+    public async Task Post_ReturnsTheScheduleProvenance()
+    {
+        using var factory = CreateFactory();
+        await SeedSelectablePoiAsync(factory);
+        using var client = factory.CreateAuthenticatedClient(42, UserRole.Traveler);
+
+        using var response = await SendValidRequestAsync(client, Guid.NewGuid());
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        using JsonDocument payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var provenance = payload.RootElement.GetProperty("provenance");
+        provenance.GetProperty("solverOutcome").GetString().Should().Be(SchedulingSolverOutcomes.Csp);
+        provenance.GetProperty("solverKind").GetString().Should().Be(SchedulingSolverKinds.Csp);
+        provenance.GetProperty("objectiveMode").GetString().Should().Be("WeightedUtility", "ADR-002 §8: the shipped objective");
+        provenance.GetProperty("searchCompleted").GetBoolean().Should().BeTrue();
+        provenance.GetProperty("timeOfDayRefined").GetBoolean().Should().BeFalse();
+    }
+
+    /// <summary>
+    /// ADR-002 (G2): a CSP timeout without a heuristic plan is retryable, not a request the traveler must change.
+    /// </summary>
+    [Fact]
+    public async Task Post_WhenTheCspTimesOutWithoutAPlan_ReturnsRetryableServiceUnavailable()
+    {
+        using var factory = CreateFactory(services =>
+        {
+            services.RemoveAll<SchedulingGenerationOptions>();
+            services.AddSingleton(new SchedulingGenerationOptions
+            {
+                SolverMode = SchedulingSolverMode.Csp,
+                Csp = new CspOptions { TimeLimitMilliseconds = 0 },
+            });
+        });
+        await SeedSelectablePoiAsync(factory);
+        var museumId = await factory.WithDbContextAsync(dbContext => dbContext.PointsOfInterest.Select(poi => poi.Id).SingleAsync());
+        using var client = factory.CreateAuthenticatedClient(42, UserRole.Traveler);
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/scheduling-requests")
+        {
+            Content = JsonContent.Create(new
+            {
+                startAt = "2026-10-20T08:00:00+07:00",
+                timeZoneId = "Asia/Ho_Chi_Minh",
+                startLatitude = 16.0544m,
+                startLongitude = 108.2022m,
+                explorationLatitude = 16.0471m,
+                explorationLongitude = 108.2068m,
+                endPoiId = (long?)null,
+                returnToStart = true,
+                availableMinutes = 60,
+                transportMode = "Motorbike",
+                searchRadiusKm = 10m,
+                budgetVnd = 800000m,
+                mandatoryPoiIds = new[] { museumId },
+                restPreference = "None",
+            }),
+        };
+        request.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
+
+        using var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        using JsonDocument problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        problem.RootElement.GetProperty("errorCode").GetString().Should().Be(SchedulingErrorCodes.GenerationTimedOut);
+    }
+
     [Fact]
     public async Task Post_WhenRoutingProviderTimesOut_ReturnsSafeServiceUnavailableWithoutPartialRows()
     {
@@ -258,6 +328,70 @@ public sealed class CreateSchedulingRequestEndpointTests
         rowCounts.ItineraryItems.Should().Be(0);
     }
 
+    [Fact]
+    public async Task Post_WhenCspModeIsWeightedUtility_CreatesItinerarySuccessfully()
+    {
+        using var factory = CreateFactory(configureTestServices: services =>
+        {
+            services.RemoveAll<SchedulingGenerationOptions>();
+            services.AddSingleton(new SchedulingGenerationOptions
+            {
+                SolverMode = SchedulingSolverMode.Csp,
+                Csp = new CspOptions
+                {
+                    Mode = ObjectiveMode.WeightedUtility,
+                },
+            });
+        });
+        await SeedSelectablePoiAsync(factory);
+        using var client = factory.CreateAuthenticatedClient(42, UserRole.Traveler);
+
+        using var response = await SendValidRequestAsync(client, Guid.NewGuid());
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var serializerOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        serializerOptions.Converters.Add(new JsonStringEnumConverter());
+        var payload = await response.Content.ReadFromJsonAsync<SchedulingResponseDto>(serializerOptions);
+        payload.Should().NotBeNull();
+        payload!.ItineraryId.Should().BeGreaterThan(0);
+        payload.SchedulingRequestId.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public async Task Post_WhenShadowModeEnabled_ProcessesPrimaryRequestAndInvokesShadowRunner()
+    {
+        var shadowCaptured = new TaskCompletionSource<ShadowWorkItem>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var mockShadowRunner = new CapturingShadowRunner(shadowCaptured);
+
+        using var factory = CreateFactory(configureTestServices: services =>
+        {
+            // ADR-002 §8: shadow runs WeightedUtility only beside a Lexicographic primary, which is no longer shipped.
+            services.Configure<SchedulingGenerationOptions>(new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?> { ["Csp:Mode"] = "Lexicographic" })
+                .Build());
+            services.RemoveAll<IShadowSchedulingRunner>();
+            services.AddSingleton<IShadowSchedulingRunner>(mockShadowRunner);
+            services.RemoveAll<Microsoft.Extensions.Options.IOptions<ShadowOptions>>();
+            services.AddSingleton(Microsoft.Extensions.Options.Options.Create(new ShadowOptions
+            {
+                Enabled = true,
+                SampleRate = 1.0,
+                TimeoutMs = 5000,
+            }));
+        });
+        await SeedSelectablePoiAsync(factory);
+        using var client = factory.CreateAuthenticatedClient(42, UserRole.Traveler);
+
+        using var response = await SendValidRequestAsync(client, Guid.NewGuid());
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        var completed = await Task.WhenAny(shadowCaptured.Task, Task.Delay(3000));
+        completed.Should().Be(shadowCaptured.Task);
+        var workItem = await shadowCaptured.Task;
+        workItem.Should().NotBeNull();
+        workItem.PrimaryPlan.Should().NotBeNull();
+    }
+
     private static TripMateApiFactory CreateFactory(
         Action<IServiceCollection>? configureTestServices = null) =>
         new(
@@ -337,7 +471,7 @@ public sealed class CreateSchedulingRequestEndpointTests
             TransportMode transportMode,
             CancellationToken cancellationToken) =>
             Task.FromException<RouteDurationMatrix>(new RouteDurationProviderException(
-                "OpenRouteService",
+                "Mapbox",
                 RouteDurationProviderFailureKind.Timeout,
                 "safe provider failure",
                 new TaskCanceledException("sensitive transport detail")));
@@ -358,5 +492,13 @@ public sealed class CreateSchedulingRequestEndpointTests
             long userId,
             CancellationToken cancellationToken) =>
             ValueTask.FromResult(decision);
+    }
+
+    private sealed class CapturingShadowRunner(TaskCompletionSource<ShadowWorkItem> captured) : IShadowSchedulingRunner
+    {
+        public void Enqueue(ShadowWorkItem item)
+        {
+            captured.TrySetResult(item);
+        }
     }
 }

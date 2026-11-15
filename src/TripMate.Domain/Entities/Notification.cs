@@ -9,6 +9,33 @@ namespace TripMate.Domain.Entities;
 public class Notification : BaseEntity
 {
     public const int DeliveryLastErrorCodeMaxLength = 100;
+    public const string TripAlertType = "TripAlert";
+    public const string IncidentRelatedEntityType = "Incident";
+    public const string TravelGroupHostTransferredType = "TravelGroupHostTransferred";
+    public const string TravelGroupMemberRemovedType = "TravelGroupMemberRemoved";
+    public const string TravelGroupRelatedEntityType = "TravelGroup";
+    public const string EmergencyDepartureCancelledType = "EmergencyDepartureCancelled";
+    public const string EmergencyDepartureStoppedType = "EmergencyDepartureStopped";
+    public const string BookingRelatedEntityType = "Booking";
+    public const string WeatherSafetyReviewCreatedType = "WeatherSafetyReviewCreated";
+    public const string WeatherSafetyReviewEscalatedType = "WeatherSafetyReviewEscalated";
+
+    // UC-70 in-app notices (SRS UC-66). In-app only: they never reach a lock screen.
+    public const string EmergencyRefundReviewRequiredType = "EmergencyRefundReviewRequired";
+    public const string WeatherWarningType = "WeatherWarning";
+    public const string WeatherSafetyReviewAdminEscalatedType = "WeatherSafetyReviewAdminEscalated";
+    public const string EmergencyRefundReviewTitle = "Cần xem xét hoàn tiền tour khẩn cấp";
+    public const string WeatherWarningTitle = "TripMate: cảnh báo thời tiết";
+    public const string WeatherWarningBody =
+        "Tour bạn đã đặt có cảnh báo thời tiết. Mở TripMate để xem chi tiết.";
+    public const string WeatherSafetyReviewAdminEscalatedTitle = "Cảnh báo thời tiết chưa được xác nhận";
+
+    // Shown on the lock screen: never a tour, place, reason, contact, refund or identifier.
+    public const string SafetyAlertTitle = "TripMate: cảnh báo an toàn";
+    public const string SafetyAlertBody = "Có cảnh báo an toàn của tour cần bạn xem.";
+    public const string TripUpdateTitle = "TripMate: cập nhật chuyến đi";
+    public const string TripUpdateBody =
+        "Tour bạn đã đặt có cập nhật quan trọng. Mở TripMate để xem chi tiết.";
 
     public long UserId { get; set; }
 
@@ -31,6 +58,20 @@ public class Notification : BaseEntity
     public DateTimeOffset CreatedAtUtc { get; set; }
 
     public DateTimeOffset? SentAtUtc { get; set; }
+
+    public DateTimeOffset? ReadAtUtc { get; private set; }
+
+    public bool MarkRead(DateTimeOffset readAtUtc)
+    {
+        if (Status == NotificationStatus.Read)
+        {
+            return false;
+        }
+
+        Status = NotificationStatus.Read;
+        ReadAtUtc = readAtUtc.ToUniversalTime();
+        return true;
+    }
 
     public int DeliveryAttemptCount { get; private set; }
 

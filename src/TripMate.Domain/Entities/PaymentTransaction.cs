@@ -11,12 +11,14 @@ public class PaymentTransaction : BaseEntity
 {
     public const string DefaultCurrency = "VND";
     public const string TypePayment = "Payment";
+    public const string TypeRefund = "Refund";
 
     private PaymentTransaction()
     {
     }
 
     public long BookingId { get; private set; }
+    public long? RefundId { get; private set; }
 
     public Booking Booking { get; private set; } = null!;
 
@@ -82,6 +84,28 @@ public class PaymentTransaction : BaseEntity
             CheckoutUrl = checkoutUrl?.Trim(),
             QrCode = qrCode?.Trim(),
             ExpiresAtUtc = expiresAtUtc?.ToUniversalTime(),
+            CreatedAtUtc = createdAtUtc.ToUniversalTime(),
+        };
+    }
+
+    public static PaymentTransaction CreateRefund(long bookingId, long refundId, PaymentGateway gateway,
+        decimal amount, DateTimeOffset createdAtUtc, string currency = DefaultCurrency)
+    {
+        if (bookingId <= 0 || refundId <= 0 || amount <= 0)
+            throw new ArgumentOutOfRangeException(nameof(amount));
+
+        return new PaymentTransaction
+        {
+            BookingId = bookingId,
+            RefundId = refundId,
+            Gateway = gateway,
+            Amount = amount,
+            Currency = string.IsNullOrWhiteSpace(currency) ? DefaultCurrency : currency.Trim().ToUpperInvariant(),
+            TransactionType = TypeRefund,
+            Status = PaymentTransactionStatus.Pending,
+            // Refunds are gateway-initiated server operations, not checkout orders. 0 keeps
+            // them outside the payment-link order-code unique index.
+            OrderCode = 0,
             CreatedAtUtc = createdAtUtc.ToUniversalTime(),
         };
     }

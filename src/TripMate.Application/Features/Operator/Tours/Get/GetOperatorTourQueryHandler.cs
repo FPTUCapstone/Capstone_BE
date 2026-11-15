@@ -67,7 +67,10 @@ public sealed class GetOperatorTourQueryHandler(
                     .ThenBy(item => item.SequenceNo)
                     .Select(item => new OperatorTourItineraryItemDto(
                         item.DayNo, item.SequenceNo, item.PoiId, item.PlannedTime,
-                        item.StayDurationMinutes, item.Notes))
+                        item.StayDurationMinutes, item.Notes)
+                    {
+                        IsRequiredForWeather = item.IsRequiredForWeather,
+                    })
                     .ToList(),
                 candidate.Schedules
                     .OrderBy(schedule => schedule.StartAtUtc)
@@ -78,7 +81,11 @@ public sealed class GetOperatorTourQueryHandler(
                         schedule.TotalCapacity, schedule.ReservedCapacity,
                         schedule.RegistrationDeadlineAtUtc, schedule.AdultPrice,
                         schedule.ChildPrice, schedule.InfantPrice,
-                        schedule.Status.ToString()))
+                        schedule.Status.ToString())
+                    {
+                        MeetingLatitude = schedule.MeetingLatitude,
+                        MeetingLongitude = schedule.MeetingLongitude,
+                    })
                     .ToList()))
             .SingleOrDefaultAsync(cancellationToken);
 
@@ -97,6 +104,14 @@ public sealed class GetOperatorTourQueryHandler(
         var readiness = await TourReviewReadinessEvaluator.LoadAsync(
             dbContext, tour.Id, tour.CancellationPolicyTemplateId, clock.UtcNow, cancellationToken);
         bool editable = Enum.TryParse(tour.Status, out TourStatus status) && TourReviewReadinessEvaluator.IsEditable(status);
+        bool stopsClassified = tour.ItineraryItems.Count > 0
+            && tour.ItineraryItems.All(item => item.IsRequiredForWeather.HasValue);
+        var weatherIssues = new List<string>();
+        if (!stopsClassified) weatherIssues.Add(WeatherReadinessIssueCodes.StopClassificationMissing);
+        if (tour.Departures.Any(departure => departure.Status == nameof(TourScheduleStatus.Scheduled)
+            && (string.IsNullOrWhiteSpace(departure.MeetingPoint)
+                || !departure.MeetingLatitude.HasValue || !departure.MeetingLongitude.HasValue)))
+            weatherIssues.Add(WeatherReadinessIssueCodes.MeetingCoordinatesMissing);
         return Result.Success(tour with
         {
             MediaCount = readiness.MediaCount,
@@ -107,6 +122,15 @@ public sealed class GetOperatorTourQueryHandler(
             TimeZoneId = timeZoneId,
             Highlights = terms.Highlights,
             TravellerRequirements = terms.TravellerRequirements,
+            WeatherReadinessIssues = weatherIssues,
+            Departures = tour.Departures.Select(departure => departure with
+            {
+                WeatherReady = departure.Status == nameof(TourScheduleStatus.Scheduled)
+                    && stopsClassified
+                    && !string.IsNullOrWhiteSpace(departure.MeetingPoint)
+                    && departure.MeetingLatitude.HasValue
+                    && departure.MeetingLongitude.HasValue,
+            }).ToList(),
         });
     }
 

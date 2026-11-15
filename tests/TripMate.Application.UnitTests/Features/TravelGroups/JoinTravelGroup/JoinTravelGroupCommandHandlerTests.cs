@@ -58,6 +58,32 @@ public sealed class JoinTravelGroupCommandHandlerTests
     }
 
     [Fact]
+    public async Task Join_WhenGroupClosed_RejectsPreviouslyValidInvitation()
+    {
+        await using var db = TestDbContext.Create();
+        var group = await AddGroupAsync(db);
+        var host = GroupMember.CreateHost(group, group.HostUserId, _clock.UtcNow);
+        db.GroupMembers.Add(host);
+        var invitation = GroupInvitation.Create(
+            group.Id, group.HostUserId, "CLOSED01", _clock.UtcNow.AddDays(1),
+            TravelGroupConstants.UnlimitedInvitationUses, _clock.UtcNow);
+        db.GroupInvitations.Add(invitation);
+        await db.SaveChangesAsync();
+
+        host.Leave(_clock.UtcNow);
+        group.Close(_clock.UtcNow);
+        await db.SaveChangesAsync();
+
+        var result = await CreateHandler(db).Handle(
+            new JoinTravelGroupCommand("CLOSED01", 101, Guid.NewGuid()),
+            CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(TravelGroupErrorCodes.InvitationUnavailable);
+        (await db.GroupJoinOperations.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
     public async Task Join_WhenInvitationUsageExhausted_ReturnsInvitationUnavailable()
     {
         await using var db = TestDbContext.Create();

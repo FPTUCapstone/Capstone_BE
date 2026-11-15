@@ -127,9 +127,9 @@ variants when the semantics are identical.
 
 ### UC-32 handoff and client dependency
 
-TM-78 owns the full UC-32 Trip History implementation. Its future record/action
-contract must provide `ReviewableRecordRef`, `canReview`, and existing-review
-state. Mobile and Web navigate using the typed reference and return to Trip
+TM-78 owns the full UC-32 Trip History implementation; its contract is
+`docs/TM-78-api-contract.md` and provides `reviewableRecord` (a
+`ReviewableRecordRef`), `actions.canReview`, and existing-review state (`review`). Mobile and Web navigate using the typed reference and return to Trip
 History after success. R1 and remediation R8 do not authorize TM-79 to build
 the Trip History list/controller/query.
 

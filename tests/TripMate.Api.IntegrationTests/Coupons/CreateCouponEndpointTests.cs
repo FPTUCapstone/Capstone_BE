@@ -145,7 +145,7 @@ public sealed class CreateCouponEndpointTests
             MinOrderAmount = 0m,
             UsageLimit = 10,
             UsageLimitPerUser = 1,
-            ValidFromUtc = DateTimeOffset.UtcNow,
+            ValidFromUtc = read.RootElement.GetProperty("validFromUtc").GetDateTimeOffset(),
             ValidToUtc = DateTimeOffset.UtcNow.AddDays(14),
             ApplicableTourIds = new[] { replacementTourId },
         });

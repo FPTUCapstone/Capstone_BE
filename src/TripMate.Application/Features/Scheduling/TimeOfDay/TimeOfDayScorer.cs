@@ -24,7 +24,7 @@ public static class TimeOfDayScorer
     public const decimal ScenicThreshold = 8m;
 
     private static readonly TimeOnly SunriseStart = new(4, 30);
-    private static readonly TimeOnly SunriseEnd = new(6, 30);
+    private static readonly TimeOnly SunriseEnd = new(7, 30);
     private static readonly TimeOnly MorningStart = new(6, 0);
     private static readonly TimeOnly MorningEnd = new(9, 30);
     private static readonly TimeOnly NoonStart = new(11, 0);
@@ -95,7 +95,7 @@ public static class TimeOfDayScorer
 
     private static bool In(TimeOnly time, TimeOnly start, TimeOnly end) => time >= start && time < end;
 
-    private static bool IsSunriseSpot(TimeOfDayTraits traits) =>
+    public static bool IsSunriseSpot(TimeOfDayTraits traits) =>
         string.Equals(traits.CategoryName, BeachCategory, StringComparison.OrdinalIgnoreCase)
         || traits.Tags.Contains(SunriseTag, StringComparer.OrdinalIgnoreCase);
 

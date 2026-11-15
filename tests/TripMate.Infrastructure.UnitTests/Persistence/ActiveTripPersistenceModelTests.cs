@@ -95,6 +95,52 @@ public sealed class ActiveTripPersistenceModelTests
         history.GetForeignKeys().Single().DeleteBehavior.Should().Be(DeleteBehavior.Cascade);
     }
 
+    [Fact]
+    public void Model_MapsUc14AlertIdentityReadStateDeliveryAndDeviceRegistry()
+    {
+        using var context = CreateContext();
+
+        var incident = context.Model.FindEntityType(typeof(Incident))!;
+        Column(incident, nameof(Incident.AffectedItineraryItemId))
+            .Should().Be("affected_itinerary_item_id");
+        Column(incident, nameof(Incident.SourceKey)).Should().Be("source_key");
+        Column(incident, nameof(Incident.ClientEventId)).Should().Be("client_event_id");
+        var openSource = incident.GetIndexes().Single(index =>
+            index.GetDatabaseName() == "UQ_Incidents_OpenSource");
+        openSource.IsUnique.Should().BeTrue();
+        openSource.GetFilter().Should().Be("[resolved_at] IS NULL AND [source_key] IS NOT NULL");
+        var clientEvent = incident.GetIndexes().Single(index =>
+            index.GetDatabaseName() == "UQ_Incidents_ClientEvent");
+        clientEvent.IsUnique.Should().BeTrue();
+        clientEvent.GetFilter().Should().Be("[client_event_id] IS NOT NULL");
+
+        var notification = context.Model.FindEntityType(typeof(Notification))!;
+        Column(notification, nameof(Notification.ReadAtUtc)).Should().Be("read_at");
+        notification.FindProperty(nameof(Notification.ReadAtUtc))!.GetValueConverter()
+            .Should().NotBeNull();
+        var tripAlert = notification.GetIndexes().Single(index =>
+            index.GetDatabaseName() == "UQ_Notifications_TripAlertIncident");
+        tripAlert.IsUnique.Should().BeTrue();
+        tripAlert.GetFilter().Should().Be(
+            "[type] = 'TripAlert' AND [related_entity_type] = 'Incident' AND [related_entity_id] IS NOT NULL");
+
+        var delivery = context.Model.FindEntityType(typeof(AlertDeliveryWork))!;
+        delivery.GetTableName().Should().Be("AlertDeliveryWork");
+        delivery.GetSchema().Should().Be("trip");
+        delivery.FindPrimaryKey()!.Properties.Should().ContainSingle()
+            .Which.Name.Should().Be(nameof(AlertDeliveryWork.NotificationId));
+        Column(delivery, nameof(AlertDeliveryWork.NextAttemptAtUtc)).Should().Be("next_attempt_at");
+        Column(delivery, nameof(AlertDeliveryWork.ClaimExpiresAtUtc)).Should().Be("claim_expires_at");
+
+        var device = context.Model.FindEntityType(typeof(PushDeviceToken))!;
+        device.GetTableName().Should().Be("PushDeviceTokens");
+        device.GetSchema().Should().Be("dbo");
+        device.GetIndexes().Single(index => index.GetDatabaseName() == "UQ_PushDeviceTokens_Installation")
+            .IsUnique.Should().BeTrue();
+        device.GetIndexes().Single(index => index.GetDatabaseName() == "UQ_PushDeviceTokens_TokenHash")
+            .IsUnique.Should().BeTrue();
+    }
+
     private static ApplicationDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<ApplicationDbContext>()

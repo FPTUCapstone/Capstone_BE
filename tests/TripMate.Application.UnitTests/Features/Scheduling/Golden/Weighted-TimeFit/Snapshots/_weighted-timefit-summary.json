@@ -1,0 +1,1210 @@
+{
+  "TotalScenarios": 67,
+  "FeasibleScenarios": 66,
+  "CompletedSearchScenarios": 32,
+  "CompletedScenarioIds": [
+    "grid-c10-m0-none-s1",
+    "grid-c10-m1-none-s1",
+    "grid-c10-m3-none-s1",
+    "grid-c10-m0-auto-s1",
+    "grid-c10-m1-auto-s1",
+    "grid-c10-m0-frequent-s1",
+    "grid-c10-m1-frequent-s1",
+    "grid-c10-m3-frequent-s1",
+    "named-zigzag",
+    "named-zigzag-240",
+    "named-tail-infeasible",
+    "named-asymmetric",
+    "named-two-opt",
+    "named-relocate",
+    "named-reconsideration",
+    "incumbent-invalid-rejected-s13",
+    "budget-tight-exact-mandatory-s21",
+    "budget-infeasible-pruned-s22",
+    "budget-limited-optional-s23",
+    "tie-c20-m0-frequent-s31",
+    "weighted-small-c4-m0-none-s50",
+    "weighted-small-c4-m1-none-s51",
+    "weighted-small-c5-m0-none-s52",
+    "weighted-small-c5-m1-none-s53",
+    "weighted-small-c5-m2-none-s54",
+    "weighted-small-c6-m0-none-s55",
+    "weighted-small-c6-m1-none-s56",
+    "weighted-small-c6-m2-none-s57",
+    "weighted-small-c6-m3-none-s58",
+    "weighted-small-c7-m2-none-s59",
+    "weighted-small-tight-horizon-s61",
+    "weighted-small-maxstops-3-s62"
+  ],
+  "ScenariosWithNonUnitBestFactor": 66,
+  "ScenariosWithNonUnitBestFactorIds": [
+    "grid-c10-m0-none-s1",
+    "grid-c10-m1-none-s1",
+    "grid-c10-m3-none-s1",
+    "grid-c10-m6-none-s1",
+    "grid-c20-m0-none-s1",
+    "grid-c20-m1-none-s1",
+    "grid-c20-m3-none-s1",
+    "grid-c20-m6-none-s1",
+    "grid-c40-m0-none-s1",
+    "grid-c40-m1-none-s1",
+    "grid-c40-m3-none-s1",
+    "grid-c40-m6-none-s1",
+    "grid-c10-m0-auto-s1",
+    "grid-c10-m1-auto-s1",
+    "grid-c10-m3-auto-s1",
+    "grid-c10-m6-auto-s1",
+    "grid-c20-m0-auto-s1",
+    "grid-c20-m1-auto-s1",
+    "grid-c20-m3-auto-s1",
+    "grid-c20-m6-auto-s1",
+    "grid-c40-m0-auto-s1",
+    "grid-c40-m1-auto-s1",
+    "grid-c40-m3-auto-s1",
+    "grid-c40-m6-auto-s1",
+    "grid-c10-m0-frequent-s1",
+    "grid-c10-m1-frequent-s1",
+    "grid-c10-m3-frequent-s1",
+    "grid-c10-m6-frequent-s1",
+    "grid-c20-m0-frequent-s1",
+    "grid-c20-m1-frequent-s1",
+    "grid-c20-m3-frequent-s1",
+    "grid-c20-m6-frequent-s1",
+    "grid-c40-m0-frequent-s1",
+    "grid-c40-m1-frequent-s1",
+    "grid-c40-m3-frequent-s1",
+    "grid-c40-m6-frequent-s1",
+    "named-zigzag",
+    "named-zigzag-240",
+    "named-tail-infeasible",
+    "named-asymmetric",
+    "named-two-opt",
+    "named-relocate",
+    "named-reconsideration",
+    "incumbent-valid-c20-m2-none-s10",
+    "incumbent-valid-c20-m1-auto-s11",
+    "incumbent-valid-c40-m3-frequent-s12",
+    "incumbent-invalid-rejected-s13",
+    "budget-tight-exact-mandatory-s21",
+    "budget-limited-optional-s23",
+    "tie-c20-m0-frequent-s31",
+    "tie-c30-m0-frequent-s32",
+    "tie-c40-m1-frequent-s33",
+    "boundary-fractional-seconds-s41",
+    "boundary-urgent-slack-mrv-s42",
+    "weighted-small-c4-m0-none-s50",
+    "weighted-small-c4-m1-none-s51",
+    "weighted-small-c5-m0-none-s52",
+    "weighted-small-c5-m1-none-s53",
+    "weighted-small-c5-m2-none-s54",
+    "weighted-small-c6-m0-none-s55",
+    "weighted-small-c6-m1-none-s56",
+    "weighted-small-c6-m2-none-s57",
+    "weighted-small-c6-m3-none-s58",
+    "weighted-small-c7-m2-none-s59",
+    "weighted-small-tight-horizon-s61",
+    "weighted-small-maxstops-3-s62"
+  ],
+  "Details": [
+    {
+      "ScenarioId": "grid-c10-m0-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 17719,
+      "BestModelObjective": 17538,
+      "BestEvaluatedObjective": 17538,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0633,
+        1
+      ]
+    },
+    {
+      "ScenarioId": "grid-c10-m1-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 91554,
+      "BestModelObjective": 10121,
+      "BestEvaluatedObjective": 10121,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0633,
+        1,
+        0.7
+      ]
+    },
+    {
+      "ScenarioId": "grid-c10-m3-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 136705,
+      "BestModelObjective": 6061,
+      "BestEvaluatedObjective": 6061,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0633,
+        1,
+        0.73,
+        0.7
+      ]
+    },
+    {
+      "ScenarioId": "grid-c10-m6-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": -7084,
+      "BestEvaluatedObjective": -7084,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0633,
+        1,
+        0.73,
+        0.7,
+        0.7,
+        0.7,
+        0.93
+      ]
+    },
+    {
+      "ScenarioId": "grid-c20-m0-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 17370,
+      "BestEvaluatedObjective": 17370,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.04,
+        1,
+        0.73
+      ]
+    },
+    {
+      "ScenarioId": "grid-c20-m1-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 10731,
+      "BestEvaluatedObjective": 10731,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0333,
+        1
+      ]
+    },
+    {
+      "ScenarioId": "grid-c20-m3-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 749,
+      "BestEvaluatedObjective": 749,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0133,
+        1,
+        0.7,
+        0.7
+      ]
+    },
+    {
+      "ScenarioId": "grid-c20-m6-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": -4512,
+      "BestEvaluatedObjective": -4512,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0667,
+        1,
+        0.77,
+        0.7,
+        0.7
+      ]
+    },
+    {
+      "ScenarioId": "grid-c40-m0-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 24030,
+      "BestEvaluatedObjective": 24030,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.07,
+        1,
+        0.86,
+        0.7
+      ]
+    },
+    {
+      "ScenarioId": "grid-c40-m1-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 13775,
+      "BestEvaluatedObjective": 13775,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0233,
+        1,
+        0.7,
+        0.7
+      ]
+    },
+    {
+      "ScenarioId": "grid-c40-m3-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 9021,
+      "BestEvaluatedObjective": 9021,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.07,
+        1,
+        0.81,
+        0.7
+      ]
+    },
+    {
+      "ScenarioId": "grid-c40-m6-none-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": -8365,
+      "BestEvaluatedObjective": -8365,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0767,
+        1,
+        0.87,
+        0.7,
+        0.7,
+        0.7,
+        0.92,
+        1,
+        1
+      ]
+    },
+    {
+      "ScenarioId": "grid-c10-m0-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 34814,
+      "BestModelObjective": 17538,
+      "BestEvaluatedObjective": 17538,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0633,
+        1
+      ]
+    },
+    {
+      "ScenarioId": "grid-c10-m1-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 161411,
+      "BestModelObjective": 10121,
+      "BestEvaluatedObjective": 12121,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0633,
+        1,
+        0.7
+      ]
+    },
+    {
+      "ScenarioId": "grid-c10-m3-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 6061,
+      "BestEvaluatedObjective": 9919,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0633,
+        1,
+        0.7,
+        0.7
+      ]
+    },
+    {
+      "ScenarioId": "grid-c10-m6-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": -7084,
+      "BestEvaluatedObjective": -1023,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0633,
+        1,
+        0.7,
+        0.7,
+        0.7,
+        0.7,
+        1
+      ]
+    },
+    {
+      "ScenarioId": "grid-c20-m0-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 15641,
+      "BestEvaluatedObjective": 19641,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0533,
+        1,
+        0.7,
+        0.7
+      ]
+    },
+    {
+      "ScenarioId": "grid-c20-m1-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 8604,
+      "BestEvaluatedObjective": 12604,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0333,
+        1,
+        0.7,
+        0.7
+      ]
+    },
+    {
+      "ScenarioId": "grid-c20-m3-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 749,
+      "BestEvaluatedObjective": 4749,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0133,
+        1,
+        0.7,
+        0.7
+      ]
+    },
+    {
+      "ScenarioId": "grid-c20-m6-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": -4512,
+      "BestEvaluatedObjective": -512,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0667,
+        1,
+        0.77,
+        0.7,
+        0.7
+      ]
+    },
+    {
+      "ScenarioId": "grid-c40-m0-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 24030,
+      "BestEvaluatedObjective": 26030,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.07,
+        1,
+        0.86,
+        0.7
+      ]
+    },
+    {
+      "ScenarioId": "grid-c40-m1-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 13775,
+      "BestEvaluatedObjective": 17775,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0233,
+        1,
+        0.7,
+        0.7
+      ]
+    },
+    {
+      "ScenarioId": "grid-c40-m3-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 9021,
+      "BestEvaluatedObjective": 11021,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.07,
+        1,
+        0.81,
+        0.7
+      ]
+    },
+    {
+      "ScenarioId": "grid-c40-m6-auto-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": -8365,
+      "BestEvaluatedObjective": -3988,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0767,
+        1,
+        0.87,
+        0.7,
+        0.7,
+        0.7,
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "ScenarioId": "grid-c10-m0-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 27034,
+      "BestModelObjective": 17538,
+      "BestEvaluatedObjective": 17538,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0633,
+        1
+      ]
+    },
+    {
+      "ScenarioId": "grid-c10-m1-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 109502,
+      "BestModelObjective": 10121,
+      "BestEvaluatedObjective": 12121,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0633,
+        1,
+        0.7
+      ]
+    },
+    {
+      "ScenarioId": "grid-c10-m3-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 158395,
+      "BestModelObjective": 6061,
+      "BestEvaluatedObjective": 9919,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0633,
+        1,
+        0.7,
+        0.7
+      ]
+    },
+    {
+      "ScenarioId": "grid-c10-m6-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": -7084,
+      "BestEvaluatedObjective": 3627,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0633,
+        1,
+        0.7,
+        0.7,
+        0.7,
+        0.99,
+        1
+      ]
+    },
+    {
+      "ScenarioId": "grid-c20-m0-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 15641,
+      "BestEvaluatedObjective": 19641,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0533,
+        1,
+        0.7,
+        0.7
+      ]
+    },
+    {
+      "ScenarioId": "grid-c20-m1-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 8670,
+      "BestEvaluatedObjective": 12670,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0333,
+        1,
+        0.7,
+        0.7
+      ]
+    },
+    {
+      "ScenarioId": "grid-c20-m3-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 1531,
+      "BestEvaluatedObjective": 5531,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.02,
+        1,
+        0.7,
+        0.7
+      ]
+    },
+    {
+      "ScenarioId": "grid-c20-m6-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": -6509,
+      "BestEvaluatedObjective": 846,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0667,
+        1,
+        0.7,
+        0.7,
+        0.7,
+        1
+      ]
+    },
+    {
+      "ScenarioId": "grid-c40-m0-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 24030,
+      "BestEvaluatedObjective": 26830,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.07,
+        1,
+        0.7,
+        0.7
+      ]
+    },
+    {
+      "ScenarioId": "grid-c40-m1-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 13775,
+      "BestEvaluatedObjective": 17775,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0233,
+        1,
+        0.7,
+        0.7
+      ]
+    },
+    {
+      "ScenarioId": "grid-c40-m3-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 9021,
+      "BestEvaluatedObjective": 12502,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.07,
+        1,
+        0.7,
+        0.7
+      ]
+    },
+    {
+      "ScenarioId": "grid-c40-m6-frequent-s1",
+      "Source": "GroupA_Grid",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": null,
+      "BestEvaluatedObjective": 2127,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1,
+        0.71,
+        0.7,
+        0.7,
+        0.76,
+        1,
+        1,
+        1
+      ]
+    },
+    {
+      "ScenarioId": "named-zigzag",
+      "Source": "GroupB_Named",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 39,
+      "BestModelObjective": 8033,
+      "BestEvaluatedObjective": 8033,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1,
+        0.94
+      ]
+    },
+    {
+      "ScenarioId": "named-zigzag-240",
+      "Source": "GroupB_Named",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 12,
+      "BestModelObjective": 8033,
+      "BestEvaluatedObjective": 8033,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1,
+        0.94
+      ]
+    },
+    {
+      "ScenarioId": "named-tail-infeasible",
+      "Source": "GroupB_Named",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 4,
+      "BestModelObjective": 1784,
+      "BestEvaluatedObjective": 1784,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1
+      ]
+    },
+    {
+      "ScenarioId": "named-asymmetric",
+      "Source": "GroupB_Named",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 7,
+      "BestModelObjective": 9188,
+      "BestEvaluatedObjective": 9188,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.06,
+        1
+      ]
+    },
+    {
+      "ScenarioId": "named-two-opt",
+      "Source": "GroupB_Named",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 15,
+      "BestModelObjective": 15311,
+      "BestEvaluatedObjective": 15311,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.05,
+        1
+      ]
+    },
+    {
+      "ScenarioId": "named-relocate",
+      "Source": "GroupB_Named",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 14,
+      "BestModelObjective": 14787,
+      "BestEvaluatedObjective": 14787,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.1,
+        1,
+        1
+      ]
+    },
+    {
+      "ScenarioId": "named-reconsideration",
+      "Source": "GroupB_Named",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 27,
+      "BestModelObjective": 15311,
+      "BestEvaluatedObjective": 15311,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.05,
+        1
+      ]
+    },
+    {
+      "ScenarioId": "incumbent-valid-c20-m2-none-s10",
+      "Source": "GroupC_Incumbent",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 10217,
+      "BestEvaluatedObjective": 10217,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.08,
+        1,
+        0.81,
+        0.7
+      ]
+    },
+    {
+      "ScenarioId": "incumbent-valid-c20-m1-auto-s11",
+      "Source": "GroupC_Incumbent",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 18038,
+      "BestEvaluatedObjective": 18038,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0667,
+        1,
+        0.8
+      ]
+    },
+    {
+      "ScenarioId": "incumbent-valid-c40-m3-frequent-s12",
+      "Source": "GroupC_Incumbent",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": -637,
+      "BestEvaluatedObjective": 5136,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1,
+        0.7,
+        0.7,
+        0.7,
+        0.7
+      ]
+    },
+    {
+      "ScenarioId": "incumbent-invalid-rejected-s13",
+      "Source": "GroupC_Incumbent",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 82705,
+      "BestModelObjective": 11032,
+      "BestEvaluatedObjective": 11032,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.07,
+        1,
+        0.79,
+        0.7
+      ]
+    },
+    {
+      "ScenarioId": "budget-tight-exact-mandatory-s21",
+      "Source": "GroupD_Budget",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 5,
+      "BestModelObjective": -1698,
+      "BestEvaluatedObjective": -1698,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1
+      ]
+    },
+    {
+      "ScenarioId": "budget-infeasible-pruned-s22",
+      "Source": "GroupD_Budget",
+      "Feasible": false,
+      "SearchCompleted": true,
+      "NodesExpanded": 0,
+      "BestModelObjective": null,
+      "BestEvaluatedObjective": null,
+      "BestHasTimeFitFactorNotOne": false,
+      "BestVisitTimeFitFactors": []
+    },
+    {
+      "ScenarioId": "budget-limited-optional-s23",
+      "Source": "GroupD_Budget",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 121762,
+      "BestModelObjective": 21290,
+      "BestEvaluatedObjective": 21290,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.08,
+        1
+      ]
+    },
+    {
+      "ScenarioId": "tie-c20-m0-frequent-s31",
+      "Source": "GroupE_Tie",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 27400,
+      "BestModelObjective": 770,
+      "BestEvaluatedObjective": 7628,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.1,
+        1,
+        0.7,
+        0.7,
+        0.7,
+        0.7
+      ]
+    },
+    {
+      "ScenarioId": "tie-c30-m0-frequent-s32",
+      "Source": "GroupE_Tie",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 130000,
+      "BestModelObjective": 31143,
+      "BestEvaluatedObjective": 31785,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.1,
+        1,
+        0.88,
+        0.7
+      ]
+    },
+    {
+      "ScenarioId": "tie-c40-m1-frequent-s33",
+      "Source": "GroupE_Tie",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 18273,
+      "BestEvaluatedObjective": 21145,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.08,
+        1,
+        0.7,
+        0.7
+      ]
+    },
+    {
+      "ScenarioId": "boundary-fractional-seconds-s41",
+      "Source": "GroupF_Boundary",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 8915,
+      "BestEvaluatedObjective": 8915,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0467,
+        1,
+        0.74
+      ]
+    },
+    {
+      "ScenarioId": "boundary-urgent-slack-mrv-s42",
+      "Source": "GroupF_Boundary",
+      "Feasible": true,
+      "SearchCompleted": false,
+      "NodesExpanded": 200000,
+      "BestModelObjective": 4460,
+      "BestEvaluatedObjective": 4460,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1,
+        1
+      ]
+    },
+    {
+      "ScenarioId": "weighted-small-c4-m0-none-s50",
+      "Source": "GroupG_SmallExhaustive",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 31,
+      "BestModelObjective": 6280,
+      "BestEvaluatedObjective": 6280,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.05
+      ]
+    },
+    {
+      "ScenarioId": "weighted-small-c4-m1-none-s51",
+      "Source": "GroupG_SmallExhaustive",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 36,
+      "BestModelObjective": 110,
+      "BestEvaluatedObjective": 110,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1
+      ]
+    },
+    {
+      "ScenarioId": "weighted-small-c5-m0-none-s52",
+      "Source": "GroupG_SmallExhaustive",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 97,
+      "BestModelObjective": 10974,
+      "BestEvaluatedObjective": 10974,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0767,
+        1
+      ]
+    },
+    {
+      "ScenarioId": "weighted-small-c5-m1-none-s53",
+      "Source": "GroupG_SmallExhaustive",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 199,
+      "BestModelObjective": 6171,
+      "BestEvaluatedObjective": 6171,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0133,
+        1
+      ]
+    },
+    {
+      "ScenarioId": "weighted-small-c5-m2-none-s54",
+      "Source": "GroupG_SmallExhaustive",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 178,
+      "BestModelObjective": 6167,
+      "BestEvaluatedObjective": 6167,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0567,
+        1
+      ]
+    },
+    {
+      "ScenarioId": "weighted-small-c6-m0-none-s55",
+      "Source": "GroupG_SmallExhaustive",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 308,
+      "BestModelObjective": 7126,
+      "BestEvaluatedObjective": 7126,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.05,
+        1
+      ]
+    },
+    {
+      "ScenarioId": "weighted-small-c6-m1-none-s56",
+      "Source": "GroupG_SmallExhaustive",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 421,
+      "BestModelObjective": 8244,
+      "BestEvaluatedObjective": 8244,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0533,
+        1
+      ]
+    },
+    {
+      "ScenarioId": "weighted-small-c6-m2-none-s57",
+      "Source": "GroupG_SmallExhaustive",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 658,
+      "BestModelObjective": 1946,
+      "BestEvaluatedObjective": 1946,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1,
+        0.85
+      ]
+    },
+    {
+      "ScenarioId": "weighted-small-c6-m3-none-s58",
+      "Source": "GroupG_SmallExhaustive",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 934,
+      "BestModelObjective": -1895,
+      "BestEvaluatedObjective": -1895,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1,
+        1
+      ]
+    },
+    {
+      "ScenarioId": "weighted-small-c7-m2-none-s59",
+      "Source": "GroupG_SmallExhaustive",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 1126,
+      "BestModelObjective": 7916,
+      "BestEvaluatedObjective": 7916,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.0467,
+        1
+      ]
+    },
+    {
+      "ScenarioId": "weighted-small-tight-horizon-s61",
+      "Source": "GroupG_SmallExhaustive",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 2,
+      "BestModelObjective": -5806,
+      "BestEvaluatedObjective": -5806,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1
+      ]
+    },
+    {
+      "ScenarioId": "weighted-small-maxstops-3-s62",
+      "Source": "GroupG_SmallExhaustive",
+      "Feasible": true,
+      "SearchCompleted": true,
+      "NodesExpanded": 81,
+      "BestModelObjective": 12714,
+      "BestEvaluatedObjective": 12714,
+      "BestHasTimeFitFactorNotOne": true,
+      "BestVisitTimeFitFactors": [
+        1.1,
+        1.08,
+        1
+      ]
+    }
+  ]
+}

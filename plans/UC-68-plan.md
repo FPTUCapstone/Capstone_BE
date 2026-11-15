@@ -12,7 +12,7 @@ UC-68 is strictly focused on searching, filtering, paginating, and listing syste
 1. **UC-68 Scope Strictness:**
    - Focuses strictly on Screen #33: System Audit Logs List (`GET /api/v1/admin/audit-logs`).
    - Detail inspection (`GET /{id}`) is owned by **UC-69** (Screen #34).
-   - CSV / Report export is owned by **UC-67**.
+   - CSV / Report export is owned by **UC-63**.
 2. **Database-First Mapping & Null-Safe Left Join:**
    - Uses existing `dbo.AuditLogs` entity (`AuditLog.cs`) and `AuditLogConfiguration.cs`.
    - `.Include(a => a.ActorUser)` performs a `LEFT JOIN` with `dbo.Users`.

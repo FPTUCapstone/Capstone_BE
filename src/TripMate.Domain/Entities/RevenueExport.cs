@@ -1,0 +1,169 @@
+using TripMate.Domain.Common;
+using TripMate.Domain.Enums;
+
+namespace TripMate.Domain.Entities;
+
+/// <summary>
+/// UC-45: a durable record of one Tour Operator revenue export request. The filter snapshot
+/// (StartDate/EndDate/Granularity/TourId/Format/Scope) is immutable once created (BR-110):
+/// retrying or downloading an export never reads the operator's current UI filters.
+/// Maps reporting.RevenueExports.
+/// </summary>
+public class RevenueExport : BaseEntity
+{
+    private RevenueExport()
+    {
+    }
+
+    public long OperatorUserId { get; private set; }
+
+    public DateOnly StartDate { get; private set; }
+
+    public DateOnly EndDate { get; private set; }
+
+    public string Granularity { get; private set; } = string.Empty;
+
+    public long? TourId { get; private set; }
+
+    public RevenueExportFormat Format { get; private set; }
+
+    public RevenueExportScope Scope { get; private set; }
+
+    public RevenueExportStatus Status { get; private set; }
+
+    public DateTimeOffset RequestedAtUtc { get; private set; }
+
+    public DateTimeOffset? CompletedAtUtc { get; private set; }
+
+    public DateTimeOffset? ExpiresAtUtc { get; private set; }
+
+    public int? RowCount { get; private set; }
+
+    public string? FileName { get; private set; }
+
+    /// <summary>Opaque private-storage reference; never a bearer download URL (see spec §Persistence).</summary>
+    public string? StorageKey { get; private set; }
+
+    public string? FailureCode { get; private set; }
+
+    /// <summary>When the current (or most recent) Processing attempt was claimed; null while Queued.</summary>
+    public DateTimeOffset? ProcessingStartedAtUtc { get; private set; }
+
+    /// <summary>How many times this record has been claimed for processing, including the current attempt.</summary>
+    public int AttemptCount { get; private set; }
+
+    /// <summary>Optimistic concurrency token guarding the atomic worker claim (one worker per record).</summary>
+    public byte[] RowVersion { get; private set; } = [];
+
+    public static RevenueExport Create(
+        long operatorUserId,
+        DateOnly startDate,
+        DateOnly endDate,
+        string granularity,
+        long? tourId,
+        RevenueExportFormat format,
+        RevenueExportScope scope,
+        DateTimeOffset requestedAtUtc)
+    {
+        if (operatorUserId <= 0) throw new ArgumentOutOfRangeException(nameof(operatorUserId));
+        if (endDate < startDate) throw new ArgumentException("End date must be on or after start date.", nameof(endDate));
+        ArgumentException.ThrowIfNullOrWhiteSpace(granularity);
+        if (tourId is <= 0) throw new ArgumentOutOfRangeException(nameof(tourId));
+
+        return new RevenueExport
+        {
+            OperatorUserId = operatorUserId,
+            StartDate = startDate,
+            EndDate = endDate,
+            Granularity = granularity,
+            TourId = tourId,
+            Format = format,
+            Scope = scope,
+            Status = RevenueExportStatus.Queued,
+            RequestedAtUtc = requestedAtUtc.ToUniversalTime(),
+        };
+    }
+
+    /// <summary>Atomically claims a Queued record for background processing. False if already claimed.</summary>
+    public bool ClaimForProcessing(DateTimeOffset nowUtc)
+    {
+        if (Status != RevenueExportStatus.Queued) return false;
+        Status = RevenueExportStatus.Processing;
+        ProcessingStartedAtUtc = nowUtc.ToUniversalTime();
+        AttemptCount += 1;
+        return true;
+    }
+
+    /// <summary>
+    /// Recovers a record left in Processing past <paramref name="staleTimeout"/> — the worker
+    /// that claimed it crashed, was redeployed, or was cancelled before reaching MarkReady or
+    /// MarkFailed. Requeues it for another attempt, or gives up as Failed once
+    /// <paramref name="maxAttempts"/> is reached, so a crash never leaves an export stuck in
+    /// Processing forever. Returns false (no-op) if the record is not actually stale.
+    /// A null ProcessingStartedAtUtc (a record claimed by a pre-recovery worker version, before
+    /// this field existed) is treated as immediately stale rather than ignored forever: there is
+    /// no earlier claim timestamp to wait out, and it is exactly the record this recovery exists
+    /// to rescue.
+    /// </summary>
+    public bool ReclaimIfStale(DateTimeOffset nowUtc, TimeSpan staleTimeout, int maxAttempts)
+    {
+        if (Status != RevenueExportStatus.Processing) return false;
+        if (ProcessingStartedAtUtc.HasValue && nowUtc - ProcessingStartedAtUtc.Value < staleTimeout) return false;
+
+        if (AttemptCount >= maxAttempts)
+        {
+            Status = RevenueExportStatus.Failed;
+            FailureCode = "stale_processing_timeout";
+            CompletedAtUtc = nowUtc.ToUniversalTime();
+            return true;
+        }
+
+        Status = RevenueExportStatus.Queued;
+        ProcessingStartedAtUtc = null;
+        return true;
+    }
+
+    /// <summary>Transitions Queued (synchronous path) or Processing (worker path) to Ready.</summary>
+    public bool MarkReady(
+        string fileName,
+        string storageKey,
+        int rowCount,
+        DateTimeOffset expiresAtUtc,
+        DateTimeOffset nowUtc)
+    {
+        if (Status is not (RevenueExportStatus.Queued or RevenueExportStatus.Processing)) return false;
+        ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(storageKey);
+
+        Status = RevenueExportStatus.Ready;
+        FileName = fileName;
+        StorageKey = storageKey;
+        RowCount = rowCount;
+        ExpiresAtUtc = expiresAtUtc.ToUniversalTime();
+        CompletedAtUtc = nowUtc.ToUniversalTime();
+        return true;
+    }
+
+    public bool MarkFailed(string failureCode, DateTimeOffset nowUtc)
+    {
+        if (Status is not (RevenueExportStatus.Queued or RevenueExportStatus.Processing)) return false;
+        ArgumentException.ThrowIfNullOrWhiteSpace(failureCode);
+
+        Status = RevenueExportStatus.Failed;
+        FailureCode = failureCode;
+        CompletedAtUtc = nowUtc.ToUniversalTime();
+        return true;
+    }
+
+    public bool MarkExpired(DateTimeOffset nowUtc)
+    {
+        if (Status != RevenueExportStatus.Ready) return false;
+        Status = RevenueExportStatus.Expired;
+        CompletedAtUtc = nowUtc.ToUniversalTime();
+        return true;
+    }
+
+    public bool IsDownloadable(DateTimeOffset nowUtc) =>
+        Status == RevenueExportStatus.Ready &&
+        (!ExpiresAtUtc.HasValue || ExpiresAtUtc.Value > nowUtc);
+}

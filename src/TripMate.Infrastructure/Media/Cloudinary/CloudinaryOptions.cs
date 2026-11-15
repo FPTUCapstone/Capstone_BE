@@ -15,6 +15,8 @@ public sealed class CloudinaryOptions
     public string TourMediaFolderRoot { get; set; } = string.Empty;
 
     public string OperatorDocumentsFolderRoot { get; set; } = string.Empty;
+
+    public string RevenueExportsFolderRoot { get; set; } = string.Empty;
 }
 
 public sealed class CloudinaryOptionsValidator : IValidateOptions<CloudinaryOptions>
@@ -37,6 +39,11 @@ public sealed class CloudinaryOptionsValidator : IValidateOptions<CloudinaryOpti
             nameof(CloudinaryOptions.OperatorDocumentsFolderRoot),
             failures);
 
+        AddRequiredFailure(
+            options.RevenueExportsFolderRoot,
+            nameof(CloudinaryOptions.RevenueExportsFolderRoot),
+            failures);
+
         if (!string.IsNullOrWhiteSpace(options.TourMediaFolderRoot) &&
             !IsSafeFolderRoot(options.TourMediaFolderRoot))
         {
@@ -50,6 +57,14 @@ public sealed class CloudinaryOptionsValidator : IValidateOptions<CloudinaryOpti
         {
             failures.Add(
                 $"{nameof(CloudinaryOptions.OperatorDocumentsFolderRoot)} must contain only safe " +
+                "slash-separated folder segments without leading or trailing slashes.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.RevenueExportsFolderRoot) &&
+            !IsSafeFolderRoot(options.RevenueExportsFolderRoot))
+        {
+            failures.Add(
+                $"{nameof(CloudinaryOptions.RevenueExportsFolderRoot)} must contain only safe " +
                 "slash-separated folder segments without leading or trailing slashes.");
         }
 

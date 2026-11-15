@@ -70,6 +70,8 @@ public sealed class CreateTourPackageCommandValidator : AbstractValidator<Create
             schedule.RuleFor(value => value.InfantPrice).Must(OperatorTourValidation.IsWholeVnd)
                 .WithMessage("The price must be a whole VND amount.");
             schedule.RuleFor(value => value.MeetingPoint).MaximumLength(TourSchedule.MeetingPointMaxLength);
+            schedule.RuleFor(value => value).Must(OperatorTourValidation.HasValidMeetingCoordinates)
+                .WithMessage("Meeting coordinates require a named point and valid latitude and longitude.");
         });
     }
 }

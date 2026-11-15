@@ -42,11 +42,14 @@ public sealed class UnlockUserAccountEndpointTests
         });
     }
 
-    [Fact]
-    public async Task Unlock_WhenCallerIsNotAdministrator_ReturnsForbidden()
+    [Theory]
+    [InlineData(UserRole.Traveler)]
+    [InlineData(UserRole.TourOperator)]
+    [InlineData(UserRole.Staff)]
+    public async Task Unlock_WhenCallerIsNotAdministrator_ReturnsForbidden(UserRole role)
     {
         await using var factory = new TripMateApiFactory();
-        using var client = factory.CreateAuthenticatedClient(10, UserRole.Traveler);
+        using var client = factory.CreateAuthenticatedClient(10, role);
 
         var response = await SendUnlockAsync(client, 20, "unlock-http-002");
 

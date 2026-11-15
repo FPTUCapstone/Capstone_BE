@@ -69,8 +69,6 @@ public sealed class CreateTourBookingCommandHandler(
             if (!isActiveTraveler) return AccessDenied();
 
             var now = clock.UtcNow;
-            await expiryProcessor.ExpireDueBookingsForTravelerInCurrentTransactionAsync(
-                travelerId, transactionCancellationToken);
             var fingerprint = ComputeFingerprint(request);
             var existingOperation = await dbContext.TourBookingCreateOperations
                 .Include(operation => operation.Booking)
@@ -89,6 +87,28 @@ public sealed class CreateTourBookingCommandHandler(
             if (!schedule.IsOpenForBooking(now))
                 return Result.Failure<CreateTourBookingResponse>(
                     TourBookingErrorCodes.ScheduleNotOpen, "This tour departure is no longer open for booking.");
+
+            // UC-70 bookability: the same canonical timeline policy that payment-time
+            // materialization uses must accept the tour template before any mutation, so a
+            // paid booking can always become a navigable BookedTour itinerary.
+            List<BookedTourStopInput> templateStops = await dbContext.TourItineraryItems
+                .Where(stop => stop.TourId == schedule.TourId)
+                .Select(stop => new BookedTourStopInput(
+                    stop.DayNo, stop.SequenceNo, stop.PoiId,
+                    stop.PlannedTime, stop.StayDurationMinutes, stop.Notes))
+                .ToListAsync(transactionCancellationToken);
+            if (BookedTourItineraryTimeline.Plan(
+                    templateStops, schedule.Tour.TimeZoneId,
+                    schedule.StartAtUtc, schedule.EndAtUtc).Stops is null)
+                return Result.Failure<CreateTourBookingResponse>(
+                    TourBookingErrorCodes.TourItineraryNotBookable,
+                    "The tour program is not fully scheduled yet; this departure cannot be booked.");
+
+            // Reject an invalid commercial itinerary before housekeeping mutates any existing
+            // booking or releases its capacity. Valid requests still expire stale holds before
+            // capacity and unpaid-booking checks below.
+            await expiryProcessor.ExpireDueBookingsForTravelerInCurrentTransactionAsync(
+                travelerId, transactionCancellationToken);
 
             var unpaidCount = await dbContext.Bookings.AsNoTracking().CountAsync(booking =>
                 booking.TravelerUserId == travelerId && booking.Status == BookingStatus.PendingPayment,
@@ -117,7 +137,9 @@ public sealed class CreateTourBookingCommandHandler(
             var redemptionCount = voucher is null
                 ? 0
                 : await dbContext.VoucherRedemptions.AsNoTracking().Include(r => r.Booking)
-                    .CountAsync(r => r.VoucherId == voucher.Id && r.Booking.TravelerUserId == travelerId,
+                    .CountAsync(r => r.VoucherId == voucher.Id && r.Booking.TravelerUserId == travelerId &&
+                        r.Booking.Status != BookingStatus.Expired &&
+                        (r.Booking.Status != BookingStatus.Cancelled || r.Booking.PaymentStatus != PaymentStatus.Unpaid),
                         transactionCancellationToken);
 
             var participantTypes = request.Participants.Select(participant => participant.ParticipantType).ToList();
@@ -126,9 +148,18 @@ public sealed class CreateTourBookingCommandHandler(
             if (pricing.IsFailure)
                 return Result.Failure<CreateTourBookingResponse>(pricing.ErrorCode!, pricing.ErrorMessage!);
 
-            var todayStartUtc = new DateTimeOffset(now.UtcDateTime.Date, TimeSpan.Zero);
-            var dailySequence = await dbContext.Bookings.AsNoTracking().CountAsync(booking =>
-                booking.BookedAtUtc >= todayStartUtc, transactionCancellationToken) + 1;
+            // Booking codes are unique document numbers. Their sequence must be derived from
+            // the code prefix, rather than BookedAtUtc: financial/test backfills may correct a
+            // booking timestamp without changing its already-issued document number.
+            var bookingCodePrefix = $"BK-{now.ToUniversalTime():yyyyMMdd}-";
+            var existingDailyCodes = await dbContext.Bookings.AsNoTracking()
+                .Where(booking => booking.BookingCode.StartsWith(bookingCodePrefix))
+                .Select(booking => booking.BookingCode)
+                .ToListAsync(transactionCancellationToken);
+            var dailySequence = existingDailyCodes
+                .Select(code => int.TryParse(code[bookingCodePrefix.Length..], out var sequence) ? sequence : 0)
+                .DefaultIfEmpty(0)
+                .Max() + 1;
             var bookingCode = Booking.GenerateCode(now, dailySequence);
 
             // BR-33: the document number is PII and must be encrypted before it reaches the entity;

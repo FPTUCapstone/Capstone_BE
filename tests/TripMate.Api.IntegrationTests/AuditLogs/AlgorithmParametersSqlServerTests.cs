@@ -33,7 +33,10 @@ public sealed class AlgorithmParametersSqlServerTests
         await using var database = await SqlServerTestDatabase.CreateAsync();
         var administrator = await SeedAdministratorAsync(database);
         var before = await ReadConfigurationsAsync(database);
-        before.Should().HaveCount(8);
+
+        // Other features can add SystemConfig rows through their own migrations.
+        // This test protects the managed parameters and verifies that every other
+        // configuration remains unchanged, without coupling to the global row count.
         await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer, database.ConnectionString);
         using var client = CreateClient(factory, administrator);
 
@@ -41,7 +44,6 @@ public sealed class AlgorithmParametersSqlServerTests
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var after = await ReadConfigurationsAsync(database);
-        after.Should().HaveCount(8);
         after.Where(row => !ManagedKeys.Contains(row.ConfigKey)).Should().BeEquivalentTo(
             before.Where(row => !ManagedKeys.Contains(row.ConfigKey)));
         var values = after.Where(row => ManagedKeys.Contains(row.ConfigKey))

@@ -12,6 +12,9 @@ public static class ItineraryErrorCodes
     public const string NavigationInProgress = "itinerary.navigation_in_progress";
     public const string NoAlternative = "itinerary.no_alternative";
 
+    /// <summary>Regeneration hit the CSP time limit with no heuristic plan; retryable, not infeasible.</summary>
+    public const string GenerationTimedOut = "itinerary.generation_timeout";
+
     /// <summary>A stop the traveler chose does not fit; metadata names the stop and the reason.</summary>
     public const string StopInfeasible = "itinerary.stop_infeasible";
 }

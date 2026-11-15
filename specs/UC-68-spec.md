@@ -23,7 +23,7 @@ It covers strictly:
 
 > [!NOTE]
 > - **UC-69 Scope Separation:** Deep inspection of a single log entry (`BeforeData`, `AfterData`, technical context) is owned strictly by **UC-69: View Audit Log Details** (Screen #34).
-> - **UC-67 Scope Separation:** Exporting audit logs / statistical reports is owned strictly by **UC-67: Export Statistical Reports**.
+> - **UC-63 Scope Separation:** Exporting audit logs / statistical reports is owned strictly by **UC-63: Export Statistical Reports**.
 
 ---
 

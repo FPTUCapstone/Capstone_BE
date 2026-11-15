@@ -36,7 +36,8 @@ public sealed class ItineraryAccessService(IApplicationDbContext dbContext)
         var isOwner = requested.TravelerUserId == travelerUserId;
         var isGroupMember = requested.SchedulingRequestId.HasValue
             && await dbContext.TravelGroups.AnyAsync(
-                group => group.Itinerary.SchedulingRequestId == requested.SchedulingRequestId
+                group => group.Status == TravelGroupStatus.Active
+                    && group.Itinerary.SchedulingRequestId == requested.SchedulingRequestId
                     && group.GroupMembers.Any(member =>
                         member.UserId == travelerUserId
                         && member.Status == GroupMemberStatus.Active),

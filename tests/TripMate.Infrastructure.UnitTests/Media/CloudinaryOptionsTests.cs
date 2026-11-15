@@ -27,6 +27,7 @@ public sealed class CloudinaryOptionsTests
     [InlineData(nameof(CloudinaryOptions.ApiSecret))]
     [InlineData(nameof(CloudinaryOptions.TourMediaFolderRoot))]
     [InlineData(nameof(CloudinaryOptions.OperatorDocumentsFolderRoot))]
+    [InlineData(nameof(CloudinaryOptions.RevenueExportsFolderRoot))]
     public void Validate_MissingRequiredValue_FailsWithoutEchoingAnyConfiguredValue(
         string propertyName)
     {
@@ -83,6 +84,7 @@ public sealed class CloudinaryOptionsTests
             ["Cloudinary:ApiSecret"] = "cloud-secret-value",
             ["Cloudinary:TourMediaFolderRoot"] = "tripmate/tours",
             ["Cloudinary:OperatorDocumentsFolderRoot"] = "tripmate/operator-documents",
+            ["Cloudinary:RevenueExportsFolderRoot"] = "tripmate/revenue-exports",
         });
         var services = new ServiceCollection();
         services.AddInfrastructure(configuration);
@@ -92,6 +94,7 @@ public sealed class CloudinaryOptionsTests
 
         options.TourMediaFolderRoot.Should().Be("tripmate/tours");
         options.OperatorDocumentsFolderRoot.Should().Be("tripmate/operator-documents");
+        options.RevenueExportsFolderRoot.Should().Be("tripmate/revenue-exports");
     }
 
     [Fact]
@@ -115,6 +118,7 @@ public sealed class CloudinaryOptionsTests
         ApiSecret = "cloud-secret-value",
         TourMediaFolderRoot = "tripmate/tours",
         OperatorDocumentsFolderRoot = "tripmate/operator-documents",
+        RevenueExportsFolderRoot = "tripmate/revenue-exports",
     };
 
     private static IConfiguration BuildConfiguration(

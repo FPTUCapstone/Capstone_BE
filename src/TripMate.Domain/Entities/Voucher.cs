@@ -94,6 +94,12 @@ public sealed class Voucher : BaseEntity
         DateTimeOffset validFromUtc, DateTimeOffset validToUtc, IReadOnlyCollection<Tour> applicableTours,
         DateTimeOffset updatedAtUtc)
     {
+        if (discountType != DiscountType)
+            throw new ArgumentException("Voucher discount type cannot change.", nameof(discountType));
+        if (ValidFromUtc <= updatedAtUtc && validFromUtc != ValidFromUtc)
+            throw new ArgumentException("An elapsed voucher start cannot change.", nameof(validFromUtc));
+
+        var wasExpired = ValidToUtc <= updatedAtUtc || Status == VoucherStatus.Expired;
         var replacement = Create(OwnerOperatorUserId ?? throw new InvalidOperationException("Voucher owner is required."),
             Code, name, discountType, discountValue, maxDiscountAmount, minOrderAmount, usageLimit,
             usageLimitPerUser, validFromUtc, validToUtc, applicableTours, updatedAtUtc);
@@ -101,16 +107,20 @@ public sealed class Voucher : BaseEntity
             throw new ArgumentOutOfRangeException(nameof(usageLimit));
 
         Name = replacement.Name;
-        DiscountType = replacement.DiscountType;
         DiscountValue = replacement.DiscountValue;
         MaxDiscountAmount = replacement.MaxDiscountAmount;
         MinOrderAmount = replacement.MinOrderAmount;
         UsageLimit = replacement.UsageLimit;
         UsageLimitPerUser = replacement.UsageLimitPerUser;
-        ValidFromUtc = replacement.ValidFromUtc;
+        if (ValidFromUtc > updatedAtUtc)
+            ValidFromUtc = replacement.ValidFromUtc;
         ValidToUtc = replacement.ValidToUtc;
-        _applicableTours.Clear();
-        foreach (var tour in applicableTours)
+        if (wasExpired)
+            Status = VoucherStatus.Disabled;
+        var selectedIds = applicableTours.Select(tour => tour.Id).ToHashSet();
+        _applicableTours.RemoveAll(link => !selectedIds.Contains(link.TourId > 0 ? link.TourId : link.Tour.Id));
+        var existingIds = _applicableTours.Select(link => link.TourId > 0 ? link.TourId : link.Tour.Id).ToHashSet();
+        foreach (var tour in applicableTours.Where(tour => !existingIds.Contains(tour.Id)))
             _applicableTours.Add(new VoucherApplicableTour(this, tour));
         UpdatedAtUtc = updatedAtUtc;
     }
@@ -136,6 +146,13 @@ public sealed class Voucher : BaseEntity
         if (UsageLimit.HasValue && UsedCount >= UsageLimit.Value)
             throw new InvalidOperationException("This voucher has reached its usage limit.");
         UsedCount++;
+    }
+
+    public void ReleaseUsage()
+    {
+        if (UsedCount <= 0)
+            throw new InvalidOperationException("This voucher has no occupied usage to release.");
+        UsedCount--;
     }
 
     private static bool IsSupportedMoneyAmount(decimal value) =>

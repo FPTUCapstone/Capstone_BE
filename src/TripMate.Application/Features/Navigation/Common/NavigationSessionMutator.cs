@@ -3,7 +3,9 @@ using Microsoft.EntityFrameworkCore;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Itineraries.Common;
+using TripMate.Application.Features.RecommendationFeedback.Derived;
 using TripMate.Domain.Entities;
+using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Navigation.Common;
 
@@ -27,7 +29,8 @@ internal sealed class NavigationSessionMutator(
         IItineraryAccessService? requiredItineraryAccess,
         Func<TripSession, DateTimeOffset, TripSessionProgressOutcome> mutate,
         Action<string> recordOutcome,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        NavigationBehaviorSignal? behaviorSignal = null)
     {
         for (var attempt = 1; ; attempt++)
         {
@@ -39,6 +42,7 @@ internal sealed class NavigationSessionMutator(
                         travelerUserId,
                         requiredItineraryAccess,
                         mutate,
+                        behaviorSignal,
                         transactionCancellationToken),
                     cancellationToken);
                 if (outcome.Expired)
@@ -62,6 +66,7 @@ internal sealed class NavigationSessionMutator(
         long travelerUserId,
         IItineraryAccessService? requiredItineraryAccess,
         Func<TripSession, DateTimeOffset, TripSessionProgressOutcome> mutate,
+        NavigationBehaviorSignal? behaviorSignal,
         CancellationToken cancellationToken)
     {
         // Split: three collections in one query would multiply into a cartesian product.
@@ -108,6 +113,17 @@ internal sealed class NavigationSessionMutator(
             await dbContext.SaveChangesAsync(cancellationToken);
         }
 
+        // UC-10 item 6: only a real transition is a signal; a replay or a rejected action records nothing.
+        if (progress == TripSessionProgressOutcome.Applied && behaviorSignal is { } signal)
+        {
+            await new DerivedBehaviorSignalRecorder(dbContext).RecordNavigationAsync(
+                session,
+                signal.ItineraryItemId,
+                signal.EventType,
+                now,
+                cancellationToken);
+        }
+
         return progress switch
         {
             TripSessionProgressOutcome.Applied => Success(session, NavigationSessionMetrics.AcceptedOutcome, expired),
@@ -123,6 +139,10 @@ internal sealed class NavigationSessionMutator(
             TripSessionProgressOutcome.SessionCompleted => Failure(
                 NavigationErrorCodes.SessionCompleted,
                 "The navigation session is already completed.",
+                expired),
+            TripSessionProgressOutcome.SessionInterrupted => Failure(
+                NavigationErrorCodes.SessionInterrupted,
+                "The navigation session was interrupted because the departure was stopped.",
                 expired),
             _ => throw new InvalidOperationException($"Unsupported navigation progress outcome '{progress}'."),
         };
@@ -155,3 +175,6 @@ internal sealed class NavigationSessionMutator(
         string MetricOutcome,
         bool Expired);
 }
+
+/// <summary>The behavior signal a navigation mutation stands for once it is applied (reach = Like, skip = Skip).</summary>
+internal sealed record NavigationBehaviorSignal(long ItineraryItemId, RecommendationEventType EventType);

@@ -43,6 +43,52 @@ public sealed class TravelerTourBookingExpirySqlServerTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
+    public async Task ExpireDueBookingWithVoucher_OnSqlServer_ReleasesSlotOnceAndKeepsRedemption()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var (bookingId, scheduleId) = await SeedDueBookingAsync(database);
+        long voucherId;
+
+        await using (var setup = database.CreateDbContext())
+        {
+            var booking = await setup.Bookings.SingleAsync(candidate => candidate.Id == bookingId);
+            var tour = await setup.TourSchedules.Where(candidate => candidate.Id == scheduleId)
+                .Select(candidate => candidate.Tour).SingleAsync();
+            var voucher = Voucher.Create(tour.OperatorUserId, "SQLSAVE10", "SQL expiry coupon",
+                VoucherDiscountType.Percentage, 10m, 500_000m, 0m, 1, 1,
+                Now.AddDays(-1), Now.AddDays(1), [tour], Now.AddDays(-2));
+            setup.Vouchers.Add(voucher);
+            await setup.SaveChangesAsync();
+            voucherId = voucher.Id;
+            Set(booking, nameof(Booking.VoucherId), voucherId);
+            Set(booking, nameof(Booking.DiscountAmount), 100_000m);
+            Set(booking, nameof(Booking.TotalAmount), 900_000m);
+            voucher.IncrementUsage();
+            setup.VoucherRedemptions.Add(VoucherRedemption.Create(voucher, booking, 100_000m,
+                Now.AddMinutes(-20)));
+            await setup.SaveChangesAsync();
+        }
+
+        await using (var context = database.CreateDbContext())
+        {
+            var processor = new PendingBookingExpiryProcessor(context, new FixedClock(), new TourBookingOptions());
+            (await processor.ExpireDueBookingsAsync(CancellationToken.None)).ExpiredCount.Should().Be(1);
+            (await processor.ExpireDueBookingsAsync(CancellationToken.None)).ExpiredCount.Should().Be(0);
+        }
+
+        await using var verify = database.CreateDbContext();
+        (await verify.Vouchers.AsNoTracking().SingleAsync(candidate => candidate.Id == voucherId))
+            .UsedCount.Should().Be(0);
+        (await verify.Bookings.AsNoTracking().SingleAsync(candidate => candidate.Id == bookingId))
+            .DiscountAmount.Should().Be(100_000m);
+        (await verify.TourSchedules.AsNoTracking().SingleAsync(candidate => candidate.Id == scheduleId))
+            .ReservedCapacity.Should().Be(0);
+        (await verify.VoucherRedemptions.CountAsync(candidate => candidate.BookingId == bookingId))
+            .Should().Be(1);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
     public async Task Create_WithTwoSimultaneousRequestsForTheLastSeat_OnSqlServer_OnlyOneSucceeds()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
@@ -117,11 +163,20 @@ public sealed class TravelerTourBookingExpirySqlServerTests
         Set(tour, nameof(Tour.BasePrice), 1_000_000m);
         Set(tour, nameof(Tour.DurationDays), 1);
         Set(tour, nameof(Tour.Status), TourStatus.Published);
+        // UC-70 bookability: a sellable tour template carries fully scheduled stops.
+        var (stopOneId, stopTwoId) = await SeedBookableStopsAsync(context);
+        var itemsField = typeof(Tour).GetField("_itineraryItems", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        ((List<TourItineraryItem>)itemsField.GetValue(tour)!).AddRange(
+        [
+            TourItineraryItem.Create(1, 1, stopOneId, new TimeOnly(9, 0), 60, null),
+            TourItineraryItem.Create(1, 2, stopTwoId, new TimeOnly(11, 0), 45, null),
+        ]);
         context.Tours.Add(tour);
         await context.SaveChangesAsync();
 
         var schedule = TourSchedule.Create(
-            Now.AddDays(7), Now.AddDays(8), null, totalCapacity: totalCapacity, createdAtUtc: Now,
+            // Schedule opens before the first stop (09:00 +07 = 02:00Z) per the UC-70 timeline.
+            Now.Date.AddDays(7).AddHours(1), Now.Date.AddDays(8).AddHours(1), null, totalCapacity: totalCapacity, createdAtUtc: Now,
             adultPrice: 1_000_000m);
         Set(schedule, nameof(TourSchedule.TourId), tour.Id);
         Set(schedule, nameof(TourSchedule.Tour), tour);
@@ -164,11 +219,20 @@ public sealed class TravelerTourBookingExpirySqlServerTests
         Set(tour, nameof(Tour.BasePrice), 1_000_000m);
         Set(tour, nameof(Tour.DurationDays), 1);
         Set(tour, nameof(Tour.Status), TourStatus.Published);
+        // UC-70 bookability: a sellable tour template carries fully scheduled stops.
+        var (stopOneId, stopTwoId) = await SeedBookableStopsAsync(context);
+        var itemsField = typeof(Tour).GetField("_itineraryItems", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        ((List<TourItineraryItem>)itemsField.GetValue(tour)!).AddRange(
+        [
+            TourItineraryItem.Create(1, 1, stopOneId, new TimeOnly(9, 0), 60, null),
+            TourItineraryItem.Create(1, 2, stopTwoId, new TimeOnly(11, 0), 45, null),
+        ]);
         context.Tours.Add(tour);
         await context.SaveChangesAsync();
 
+        // Schedule opens before the first stop (09:00 +07 = 02:00Z) per the UC-70 timeline.
         var schedule = TourSchedule.Create(
-            Now.AddDays(7), Now.AddDays(8), null, totalCapacity: 5, createdAtUtc: Now,
+            Now.Date.AddDays(7).AddHours(1), Now.Date.AddDays(8).AddHours(1), null, totalCapacity: 5, createdAtUtc: Now,
             registrationDeadlineAtUtc: Now,
             adultPrice: 1_000_000m);
         Set(schedule, nameof(TourSchedule.TourId), tour.Id);
@@ -189,6 +253,28 @@ public sealed class TravelerTourBookingExpirySqlServerTests
     private static void Set<T>(object instance, string property, T value) =>
         instance.GetType().GetProperty(property, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!
             .SetValue(instance, value);
+
+    // UC-70 bookability: sellable tours need real POI-backed stops (the SQL FK enforces them).
+    private static async Task<(long StopOneId, long StopTwoId)> SeedBookableStopsAsync(
+        TripMate.Infrastructure.Persistence.ApplicationDbContext context)
+    {
+        var category = PoiCategory.Create("Beach", null);
+        context.PoiCategories.Add(category);
+        await context.SaveChangesAsync();
+        var poiOne = (PointOfInterest)Activator.CreateInstance(typeof(PointOfInterest), nonPublic: true)!;
+        Set(poiOne, nameof(PointOfInterest.Name), "Stop One");
+        Set(poiOne, nameof(PointOfInterest.Latitude), 16.0m);
+        Set(poiOne, nameof(PointOfInterest.Longitude), 108.0m);
+        Set(poiOne, nameof(PointOfInterest.CategoryId), category.Id);
+        var poiTwo = (PointOfInterest)Activator.CreateInstance(typeof(PointOfInterest), nonPublic: true)!;
+        Set(poiTwo, nameof(PointOfInterest.Name), "Stop Two");
+        Set(poiTwo, nameof(PointOfInterest.Latitude), 16.0m);
+        Set(poiTwo, nameof(PointOfInterest.Longitude), 108.2m);
+        Set(poiTwo, nameof(PointOfInterest.CategoryId), category.Id);
+        context.PointsOfInterest.AddRange(poiOne, poiTwo);
+        await context.SaveChangesAsync();
+        return (poiOne.Id, poiTwo.Id);
+    }
 
     private static OperatorProfile CreateApprovedOperatorProfile(User operatorUser) => new()
     {

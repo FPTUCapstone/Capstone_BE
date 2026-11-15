@@ -14,10 +14,14 @@ using TripMate.Application.Common.Geo;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Itineraries.Common;
+using TripMate.Application.Features.RecommendationFeedback.Derived;
 using TripMate.Application.Features.Scheduling.Common;
+using TripMate.Application.Features.Scheduling.Csp;
+using TripMate.Application.Features.Scheduling.Csp.Objectives;
 using TripMate.Application.Features.Scheduling.Diagnostics;
 using TripMate.Application.Features.Scheduling.Explanation;
 using TripMate.Application.Features.Scheduling.Personalization;
+using TripMate.Application.Features.Scheduling.Shadow;
 using TripMate.Application.Features.Scheduling.TimeOfDay;
 using TripMate.Domain.Common;
 using TripMate.Domain.Constants;
@@ -38,7 +42,10 @@ public sealed class CreateSchedulingRequestCommandHandler(
     ILogger<CreateSchedulingRequestCommandHandler>? logger = null,
     IGenerateRateLimiter? generateRateLimiter = null,
     SchedulingReservationOptions? reservationOptions = null,
-    TimeOfDayOptions? timeOfDayOptions = null)
+    TimeOfDayOptions? timeOfDayOptions = null,
+    WeightedRequestInputsFactory? weightedInputsFactory = null,
+    IShadowSchedulingRunner? shadowRunner = null,
+    ShadowOptions? shadowOptions = null)
     : IRequestHandler<CreateSchedulingRequestCommand, Result<SchedulingResponseDto>>
 {
     private readonly SchedulingGenerationOptions _generationOptions =
@@ -47,6 +54,9 @@ public sealed class CreateSchedulingRequestCommandHandler(
         explanationOptions ?? new ItineraryExplanationExecutionOptions();
     private readonly SchedulingReservationOptions _reservationOptions =
         reservationOptions ?? new SchedulingReservationOptions();
+    private readonly ShadowOptions _shadowOptions =
+        shadowOptions ?? new ShadowOptions();
+    private readonly IShadowSchedulingRunner? _shadowRunner = shadowRunner;
 
     public async Task<Result<SchedulingResponseDto>> Handle(
         CreateSchedulingRequestCommand command,
@@ -159,6 +169,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
                         timeZone,
                         frozenRanking,
                         funnel,
+                        reservation.RequestId,
                         cancellationToken);
                     frozenRanking ??= prepared.RankingSnapshot;
                 }
@@ -377,13 +388,13 @@ public sealed class CreateSchedulingRequestCommandHandler(
         TimeZoneInfo timeZone,
         PoiRankingSnapshot? frozenRanking,
         CandidatePoolFunnelDiagnostics funnel,
+        long requestId,
         CancellationToken cancellationToken)
     {
-        var travelerInterestTags = await dbContext.TravelerProfiles
+        var travelerProfile = await dbContext.TravelerProfiles
             .AsNoTracking()
-            .Where(profile => profile.UserId == canonical.TravelerUserId)
-            .Select(profile => profile.InterestTagsJson)
-            .SingleOrDefaultAsync(cancellationToken);
+            .SingleOrDefaultAsync(p => p.UserId == canonical.TravelerUserId, cancellationToken);
+        var travelerInterestTags = travelerProfile?.InterestTagsJson;
         var preferenceTokens = TravelerPreferenceScoring.ParsePreferenceTokens(travelerInterestTags);
         var activePois = await LoadRelevantActivePoisAsync(canonical, cancellationToken);
         var snapshotData = SchedulingGenerationSnapshot.CaptureData(travelerInterestTags, activePois);
@@ -457,20 +468,10 @@ public sealed class CreateSchedulingRequestCommandHandler(
         var mandatoryIds = canonical.MandatoryPoiIds.ToHashSet();
         var optionalCandidates = selectablePois
             .Where(poi => !mandatoryIds.Contains(poi.Id))
-            .Select(poi => new PoiRankingInputCandidate(
-                poi.Id,
-                poi.CategoryId,
-                poi.Name,
-                poi.Category.Name,
-                poi.PoiTags.Select(mapping => mapping.Tag.Name).ToArray(),
-                poi.ScenicScore,
-                poi.PhotoRating,
-                GeoDistance.EquirectangularKilometers(
-                    canonical.ExplorationLatitude,
-                    canonical.ExplorationLongitude,
-                    poi.Latitude,
-                    poi.Longitude),
-                poi.EstimatedVisitCost))
+            .Select(poi => PoiRankingInputCandidate.From(
+                poi,
+                canonical.ExplorationLatitude,
+                canonical.ExplorationLongitude))
             .ToArray();
         funnel.SetEligibleOptional(optionalCandidates.Length);
         long rankingStartedAt = Stopwatch.GetTimestamp();
@@ -523,8 +524,16 @@ public sealed class CreateSchedulingRequestCommandHandler(
         var measuredRouteProvider = new MemoizingRouteDurationProvider(new FunnelMeasuringRouteDurationProvider(
             routeDurationProvider,
             funnel));
+
+        WeightedRequestInputs? weightedInputs = null;
+        if (_generationOptions.Csp.Mode == ObjectiveMode.WeightedUtility)
+        {
+            var factory = weightedInputsFactory ?? new WeightedRequestInputsFactory(new PersonalParamsFactory());
+            weightedInputs = factory.Create(input.Candidates, travelerProfile, input, ranking?.OutcomeCategory);
+        }
+
         var plan = await new ItineraryGenerationService(measuredRouteProvider, _generationOptions)
-            .GenerateAsync(input, cancellationToken);
+            .GenerateAsync(input, weightedInputs, cancellationToken);
         if (plan.IsSuccess)
         {
             // REVIEW2 D10 option A: reorder for the time of day when the trip stays at most a few minutes longer.
@@ -533,6 +542,28 @@ public sealed class CreateSchedulingRequestCommandHandler(
                     _generationOptions,
                     timeOfDayOptions ?? new TimeOfDayOptions())
                 .RefineAsync(input, plan.Value, TimeOfDayTraitsFactory.From(matrixCandidates), cancellationToken));
+
+            if (_generationOptions.Csp.Mode == ObjectiveMode.Lexicographic
+                && _shadowOptions.Enabled
+                && ShouldSampleShadow(requestId, _shadowOptions.SampleRate)
+                && _shadowRunner is not null)
+            {
+                var routePoints = new List<RoutePoint> { input.Start };
+                routePoints.AddRange(input.Candidates.Select(candidate => candidate.Location));
+                routePoints.Add(input.End);
+                var routeMatrix = await measuredRouteProvider.GetMatrixAsync(
+                    routePoints,
+                    input.TransportMode,
+                    cancellationToken);
+                _shadowRunner.Enqueue(new ShadowWorkItem(
+                    requestId,
+                    input,
+                    routeMatrix,
+                    _generationOptions,
+                    travelerProfile,
+                    ranking?.OutcomeCategory,
+                    plan.Value));
+            }
         }
 
         funnel.RecordStageDuration(
@@ -557,7 +588,10 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 preferenceTokens,
                 explanationMetadata,
                 plan.ErrorMessage ?? "The selected constraints cannot produce an itinerary.",
-                ranking)
+                ranking,
+                plan.ErrorCode == SchedulingErrorCodes.GenerationTimedOut
+                    ? SchedulingErrorCodes.GenerationTimedOut
+                    : SchedulingErrorCodes.ConstraintsInfeasible)
             : PreparedGeneration.Successful(
                 snapshot.Hash,
                 preferenceTokens,
@@ -659,6 +693,19 @@ public sealed class CreateSchedulingRequestCommandHandler(
                     CandidatePoolFunnelDimensions.OutcomeSnapshotMismatchTerminal);
             }
 
+            if (prepared.Plan is null
+                && string.Equals(prepared.FailureCode, SchedulingErrorCodes.GenerationTimedOut, StringComparison.Ordinal))
+            {
+                // A timeout is not a result: release the request so the same idempotency key generates again (ADR-002, G2).
+                request.ReleaseGeneration(ownerId, now);
+                await dbContext.SaveChangesAsync(transactionCancellationToken);
+                return FinalizeDecision.Completed(
+                    Result.Failure<SchedulingResponseDto>(
+                        SchedulingErrorCodes.GenerationTimedOut,
+                        prepared.FailureMessage!),
+                    CandidatePoolFunnelDimensions.OutcomeGenerationTimeout);
+            }
+
             if (prepared.Plan is null)
             {
                 request.FailGeneration(
@@ -679,6 +726,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 $"Generated itinerary - {TimeZoneInfo.ConvertTime(canonical.StartAtUtc, timeZone):dd MMM yyyy}",
                 canonical.StartAtUtc,
                 prepared.Plan.EndAtUtc);
+            prepared.Plan.Provenance?.ApplyTo(itinerary);
             foreach (var item in prepared.Plan.Items)
             {
                 itinerary.AddItem(GeneratedItineraryItemMapper.ToEntity(item, item.IsMandatory));
@@ -687,6 +735,14 @@ public sealed class CreateSchedulingRequestCommandHandler(
             request.CompleteGeneration(ownerId, now);
             dbContext.Itineraries.Add(itinerary);
             await dbContext.SaveChangesAsync(transactionCancellationToken);
+            // UC-10 item 6 (D6): a POI the traveler insisted on is a weak Like; recorded after the mandatory POIs
+            // were validated, so the signal never blocks the generation.
+            await new DerivedBehaviorSignalRecorder(dbContext, logger).RecordMandatoryAsync(
+                canonical.TravelerUserId,
+                request.Id,
+                canonical.MandatoryPoiIds,
+                now,
+                transactionCancellationToken);
             var fresh = new FreshGenerationContext(
                 request,
                 itinerary,
@@ -1092,8 +1148,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
                     hours.OpenTime!.Value,
                     hours.CloseTime!.Value))
                 .ToArray(),
-            TripMateBaseScore: rankingEntry?.TripMateBaseScore ?? 0m,
-            EffectiveDesirabilityScore: rankingEntry?.EffectiveDesirabilityScore ?? 0m,
+            TripMateBaseScore: rankingEntry?.TripMateBaseScore,
+            EffectiveDesirabilityScore: rankingEntry?.EffectiveDesirabilityScore,
             ScenicScoreForRanking: rankingEntry?.ScenicScoreForRanking,
             PhotoRatingForRanking: rankingEntry?.PhotoRatingForRanking,
             EstimatedVisitCostForRanking: rankingEntry?.EstimatedVisitCostForRanking,
@@ -1101,7 +1157,9 @@ public sealed class CreateSchedulingRequestCommandHandler(
             ScenicScore: poi.ScenicScore,
             PhotoRating: poi.PhotoRating,
             CategoryName: poi.Category.Name,
-            HasShelter: poi.HasShelter);
+            HasShelter: poi.HasShelter,
+            IndoorOutdoor: poi.IndoorOutdoor,
+            Tags: poi.PoiTags.Select(mapping => mapping.Tag.Name).ToArray());
 
     private static PoiRankingSnapshotEntry GetRequiredRankingEntry(
         PoiRankingSnapshot snapshot,
@@ -1135,7 +1193,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 item.TravelDurationToNextMinutes,
                 item.EstimatedCost,
                 item.IsMandatory,
-                item.RecommendationReason,
+                // The same wording as the saved itinerary (GeneratedItineraryItemMapper).
+                RestStopReasons.ForTraveler(item.Kind, item.RecommendationReason),
                 explanations is not null
                     ? explanations[item.SequenceNo]
                     : null,
@@ -1144,7 +1203,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
                         ? metadata.CategoryName
                         : null),
                 item.TravelDistanceToNextMeters,
-                item.TransportModeToNext)).ToArray());
+                item.TransportModeToNext)).ToArray(),
+            SchedulingProvenanceDto.From(plan.Provenance));
 
     private static SchedulingResponseDto ToResponse(SchedulingRequest schedulingRequest, Itinerary itinerary)
     {
@@ -1174,7 +1234,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 item.FriendlyExplanation,
                 CostKindPolicy.FromCategory(item.PointOfInterest?.Category?.Name),
                 item.TravelDistanceToNextMeters,
-                item.TransportModeToNext)).ToArray());
+                item.TransportModeToNext)).ToArray(),
+            SchedulingProvenanceDto.From(itinerary));
     }
 
     private static string ComputeRequestHash(CanonicalSchedulingRequest command)
@@ -1347,6 +1408,21 @@ public sealed class CreateSchedulingRequestCommandHandler(
                     Stopwatch.GetElapsedTime(startedAt));
             }
         }
+    }
+
+    private static bool ShouldSampleShadow(long requestId, double sampleRate)
+    {
+        if (sampleRate >= 1.0)
+        {
+            return true;
+        }
+
+        if (sampleRate <= 0.0)
+        {
+            return false;
+        }
+
+        return new Random(unchecked((int)requestId)).NextDouble() < sampleRate;
     }
 
     private enum FinalizeDecisionKind

@@ -54,7 +54,8 @@ public sealed class GetActiveTripsQueryHandler(
                     session.TravelerUser.FullName,
                     session.TravelerUser.Email,
                     session.FsmState,
-                    session.StartedAtUtc))
+                    session.StartedAtUtc,
+                    session.Itinerary.SourceBookingId))
                 .ToListAsync(cancellationToken);
 
         var items = await EnrichPageAsync(pageRows, dateTimeProvider.UtcNow, cancellationToken);
@@ -189,6 +190,21 @@ public sealed class GetActiveTripsQueryHandler(
                 .Select(link => new DestinationRow(link.TourId, link.Destination.Name, link.SequenceNo))
                 .ToListAsync(cancellationToken);
 
+        // UC-70 (SRS UC-66): an emergency stop sends each paid booking to Administrator review; the
+        // trip stays flagged until a refund exists for that booking.
+        var interruptedBookingIds = rows
+            .Where(row => row.FsmState == TripSession.InterruptedState && row.SourceBookingId.HasValue)
+            .Select(row => row.SourceBookingId!.Value).Distinct().ToArray();
+        var refundReviewBookingIds = interruptedBookingIds.Length == 0
+            ? []
+            : (await dbContext.Bookings.AsNoTracking()
+                .Where(booking => interruptedBookingIds.Contains(booking.Id)
+                    && booking.Status == BookingStatus.Interrupted
+                    && booking.PaymentStatus != PaymentStatus.Unpaid
+                    && !dbContext.Refunds.Any(refund => refund.BookingId == booking.Id))
+                .Select(booking => booking.Id)
+                .ToListAsync(cancellationToken)).ToHashSet();
+
         return rows.Select(row =>
         {
             var itineraryGroups = groups.Where(group => group.ItineraryId == row.ItineraryId).ToList();
@@ -224,7 +240,8 @@ public sealed class GetActiveTripsQueryHandler(
                 row.StartedAtUtc,
                 row.StartedAtUtc.HasValue ? VietnamCalendar.CurrentDay(row.StartedAtUtc.Value, nowUtc) : null,
                 members,
-                openAlertCounts.GetValueOrDefault(row.SessionId));
+                openAlertCounts.GetValueOrDefault(row.SessionId),
+                row.SourceBookingId is long bookingId && refundReviewBookingIds.Contains(bookingId));
         }).ToList();
     }
 
@@ -242,7 +259,8 @@ public sealed class GetActiveTripsQueryHandler(
         string TravelerName,
         string? TravelerEmail,
         string FsmState,
-        DateTimeOffset? StartedAtUtc);
+        DateTimeOffset? StartedAtUtc,
+        long? SourceBookingId);
 
     private sealed record GroupRow(long GroupId, long ItineraryId, string? Name);
     private sealed record MemberRow(long GroupId, long UserId);

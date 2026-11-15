@@ -32,6 +32,13 @@ internal static class TourBookingTestData
         Set(tour, nameof(Tour.BasePrice), basePrice);
         Set(tour, nameof(Tour.DurationDays), 1);
         Set(tour, nameof(Tour.Status), status);
+        // A sellable tour template carries fully scheduled commercial stops (UC-70 bookability).
+        var itemsField = typeof(Tour).GetField("_itineraryItems", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        ((List<TourItineraryItem>)itemsField.GetValue(tour)!).AddRange(
+        [
+            TourItineraryItem.Create(1, 1, 9001, new TimeOnly(9, 0), 60, null),
+            TourItineraryItem.Create(1, 2, 9002, new TimeOnly(11, 0), 45, null),
+        ]);
         return tour;
     }
 

@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Admin.Users.Common;
+using TripMate.Application.Features.Payouts.DailySettlement;
 using TripMate.Domain.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
@@ -103,6 +104,16 @@ public sealed class UnlockUserAccountCommandHandler(
                 "The user account is not locked.");
         }
 
+        if (target.Role == UserRole.TourOperator
+            && await dbContext.TourOperatorDebts.AnyAsync(
+                debt => debt.TourOperatorUserId == target.Id && debt.RecoveredAmount < debt.Amount,
+                cancellationToken))
+        {
+            return Result.Failure<UnlockUserAccountResponse>(
+                DailyPayoutErrorCodes.OperatorHasOutstandingDebt,
+                DailyPayoutErrorCodes.OperatorHasOutstandingDebtMessage);
+        }
+
         // Capture the lock evidence before restoration clears it. An unlock audit must explain
         // both why/when the account was locked and exactly which status was restored.
         var previousLock = new
@@ -122,7 +133,7 @@ public sealed class UnlockUserAccountCommandHandler(
 
         var now = dateTimeProvider.UtcNow;
         target.UpdatedAtUtc = now;
-        await dbContext.RevokeActiveRefreshTokensForUserAsync(target.Id, now, cancellationToken);
+        await dbContext.RevokeAllRefreshTokensForUserAsync(target.Id, now, cancellationToken);
 
         dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(
             actorUserId: administratorUserId,

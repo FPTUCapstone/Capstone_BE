@@ -22,13 +22,32 @@ public sealed class ListMyItinerariesQueryHandler(
         ListMyItinerariesQuery request,
         CancellationToken cancellationToken)
     {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await dbContext.ExecuteInSerializableTransactionAsync(
+                    token => ReadAsync(request, token), cancellationToken);
+            }
+            catch (Exception exception) when (attempt < 3 && dbContext.IsDeadlock(exception))
+            {
+                dbContext.ClearTrackedEntities();
+            }
+        }
+    }
+
+    private async Task<Result<ItinerarySummaryPage>> ReadAsync(
+        ListMyItinerariesQuery request,
+        CancellationToken cancellationToken)
+    {
         var travelerUserId = request.TravelerUserId;
         var ownedRequestIds = dbContext.Itineraries
             .Where(itinerary => itinerary.TravelerUserId == travelerUserId
                 && itinerary.SchedulingRequestId != null)
             .Select(itinerary => itinerary.SchedulingRequestId);
         var groupRequestIds = dbContext.TravelGroups
-            .Where(group => group.Itinerary.SchedulingRequestId != null
+            .Where(group => group.Status == TravelGroupStatus.Active
+                && group.Itinerary.SchedulingRequestId != null
                 && group.GroupMembers.Any(member =>
                     member.UserId == travelerUserId
                     && member.Status == GroupMemberStatus.Active))
