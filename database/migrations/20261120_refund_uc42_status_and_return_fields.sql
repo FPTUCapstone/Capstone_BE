@@ -29,6 +29,7 @@ GO
 -- otherwise an upgrade can leave the old CHECK in place and reject this rerun.
 DECLARE @refundStatusConstraint sysname;
 DECLARE @dropRefundStatusConstraintSql nvarchar(max);
+DECLARE @refundDueIndexExists bit = 0;
 SELECT TOP (1) @refundStatusConstraint = cc.name
 FROM sys.check_constraints AS cc
 WHERE cc.parent_object_id = OBJECT_ID(N'payment.Refunds')
@@ -42,7 +43,22 @@ BEGIN
 END;
 
 IF COL_LENGTH(N'payment.Refunds', N'status') < 30
+BEGIN
+    -- The existing retry-sweep index includes status, so SQL Server blocks the
+    -- column alteration until the index is removed. Remember it and restore the
+    -- exact standard index after the widened column has been applied.
+    IF EXISTS (
+        SELECT 1
+        FROM sys.indexes
+        WHERE object_id = OBJECT_ID(N'payment.Refunds')
+          AND name = N'IX_Refunds_Due')
+    BEGIN
+        SET @refundDueIndexExists = 1;
+        DROP INDEX IX_Refunds_Due ON payment.Refunds;
+    END;
+
     ALTER TABLE payment.Refunds ALTER COLUMN status VARCHAR(30) NOT NULL;
+END;
 
 -- The preceding drop makes this add safe both for the old schema and for a rerun.
 ALTER TABLE payment.Refunds ADD CONSTRAINT CK_Refunds_Status
@@ -50,6 +66,9 @@ ALTER TABLE payment.Refunds ADD CONSTRAINT CK_Refunds_Status
         N'PendingOperatorConfirmation', N'AwaitingPartnerReturn', N'ReturnReported', N'ReturnReceived',
         N'Pending', N'Processing', N'RetryPending', N'ManualReview', N'Processed', N'Failed', N'Rejected',
         N'Reconciliation', N'Escalated'));
+
+IF @refundDueIndexExists = 1
+    CREATE INDEX IX_Refunds_Due ON payment.Refunds(status, next_attempt_at);
 GO
 
 -- UC-42 operator-confirmation / partner-return fields (SRS 3.8.4.3, BR-139, BR-144).

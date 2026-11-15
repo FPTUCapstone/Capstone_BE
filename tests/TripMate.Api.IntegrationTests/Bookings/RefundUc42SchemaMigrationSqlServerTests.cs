@@ -36,6 +36,23 @@ public sealed class RefundUc42SchemaMigrationSqlServerTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
+    public async Task Migration_WithTheExistingRefundDueIndex_WidensStatusAndRestoresTheIndex()
+    {
+        await using var database = await CreateBaseDatabaseAsync();
+        await database.ExecuteNonQueryAsync(
+            "CREATE INDEX IX_Refunds_Due ON payment.Refunds(status, next_attempt_at);");
+
+        Func<Task> apply = () => database.ExecuteScriptAsync(MigrationPath());
+
+        await apply.Should().NotThrowAsync("the legacy retry-sweep index depends on the status column");
+        (await database.ExecuteScalarAsync<int>("""
+            SELECT COUNT(*) FROM sys.indexes
+            WHERE object_id = OBJECT_ID(N'payment.Refunds') AND name = N'IX_Refunds_Due';
+            """)).Should().Be(1, "the retry-sweep index must be restored after status is widened");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
     public async Task Migration_StatusConstraintAcceptsAllSevenNewUc42ValuesAndTheExistingOnes()
     {
         await using var database = await CreateBaseDatabaseAsync();
