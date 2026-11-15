@@ -150,12 +150,15 @@ public sealed class GetOperatorRevenueReportQueryHandlerTests
         result.Value.Summary.PaymentsReceived.Should().Be(10_000m);
         result.Value.Summary.RefundedAmount.Should().Be(5_000m);
         result.Value.Summary.NetSales.Should().Be(5_000m);
-        result.Value.Summary.PlatformCommission.Should().Be(1_500m);
+        // A cancelled booking keeps only the configured 10% platform fee on its
+        // retained 5,000 VND; the later cancellation settlement changes cash payout,
+        // not the accounting commission.
+        result.Value.Summary.PlatformCommission.Should().Be(500m);
         result.Value.Summary.NetAmount.Should().Be(3_500m);
 
         var detail = result.Value.TourDetails.Should().ContainSingle().Subject;
         detail.RefundedAmount.Should().Be(5_000m);
-        detail.Commission.Should().Be(1_500m);
+        detail.Commission.Should().Be(500m);
         detail.NetAmount.Should().Be(3_500m);
 
         var cancellationSettlement = PayoutSettlement.Create(
