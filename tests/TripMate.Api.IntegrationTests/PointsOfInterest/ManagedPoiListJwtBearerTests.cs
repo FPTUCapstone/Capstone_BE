@@ -1,5 +1,4 @@
 using System.Net;
-using System.Text.Json;
 
 using FluentAssertions;
 
@@ -7,7 +6,6 @@ using Microsoft.Extensions.DependencyInjection;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
-using TripMate.Application.Features.PointsOfInterest.Management;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -63,7 +61,7 @@ public sealed class ManagedPoiListJwtBearerTests
     [InlineData(false, false)]
     [InlineData(true, false)]
     [InlineData(false, true)]
-    public async Task Get_StaleManagerJwt_DeniesInactiveChangedRoleOrMissingCurrentActor(bool roleChanged, bool missingActor)
+    public async Task Get_StaleManagerJwt_Returns401WithBearerChallengeAndNoStore(bool roleChanged, bool missingActor)
     {
         await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
         var actor = await SeedAsync(factory, UserRole.Staff, AccountStatus.Active);
@@ -79,10 +77,10 @@ public sealed class ManagedPoiListJwtBearerTests
         });
         using var client = factory.CreateJwtClient(token);
         var response = await client.GetAsync(Route);
-        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        response.Headers.WwwAuthenticate.Select(v => v.Scheme).Should().Contain("Bearer");
         ManagedPoiListEndpointTests.AssertNoStore(response);
-        using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-        problem.RootElement.GetProperty("errorCode").GetString().Should().Be(ManagedPoiErrors.AccessRequired);
+        (await response.Content.ReadAsStringAsync()).Should().BeEmpty();
     }
 
     private static Task<User> SeedAsync(TripMateApiFactory factory, UserRole role, AccountStatus status) => factory.WithDbContextAsync(async db =>
