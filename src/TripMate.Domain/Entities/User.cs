@@ -16,6 +16,8 @@ public class User : BaseEntity
     /// <summary>Null for a social-login-only account (no password ever set).</summary>
     public string? PasswordHash { get; set; }
 
+    public bool MustChangePassword { get; set; }
+
     public string FullName { get; set; } = string.Empty;
 
     public string? AvatarUrl { get; set; }

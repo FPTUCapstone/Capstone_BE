@@ -16,6 +16,23 @@ public sealed class ServiceProvider : BaseEntity
 
     public string Name { get; private set; } = string.Empty;
 
+    public long? UserId { get; private set; }
+
+    public User? User { get; private set; }
+
+    public ICollection<ProviderPoiLink> PoiLinks { get; private set; } = new List<ProviderPoiLink>();
+
+    public void AssignAccount(User user)
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        if (user.Role != Enums.UserRole.ServiceProvider || User is not null || UserId is not null)
+        {
+            throw new InvalidOperationException("A provider requires one Service Provider account.");
+        }
+
+        User = user;
+    }
+
     public string ServiceCategory { get; private set; } = string.Empty;
 
     public string? ContactEmail { get; private set; }
