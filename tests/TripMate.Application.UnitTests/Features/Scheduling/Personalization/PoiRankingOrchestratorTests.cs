@@ -1003,6 +1003,58 @@ public sealed class PoiRankingOrchestratorTests
         snapshot.Entries.Keys.Should().BeEquivalentTo([1L, 2L]);
     }
 
+    // D20 (2026-11-11): a place the traveler has just been to rests for 14 days, as long as enough other places
+    // are left to fill a day.
+
+    [Fact]
+    public async Task BuildRankingAsync_LeavesOutAStopTheTravelerVisitedRecently()
+    {
+        await using var dbContext = CreateDbContext();
+        await AddVisitAsync(dbContext, travelerUserId: 123L, poiId: 1L, daysAgo: 3);
+        var orchestrator = CreateOrchestrator(
+            dbContext, new RecordingProvider(), providerEnabled: true, withBehaviorProfile: true);
+
+        PoiRankingSnapshot snapshot = await orchestrator.BuildRankingAsync(
+            new PoiRankingInput(123L, ["culture"], Candidates(1L, 7L)),
+            CancellationToken.None);
+
+        snapshot.Entries.Keys.Should().BeEquivalentTo([2L, 3L, 4L, 5L, 6L, 7L]);
+        snapshot.BehaviorAggregation.PoiCounts.Should().ContainKey(1L);
+    }
+
+    [Fact]
+    public async Task BuildRankingAsync_WhenFewPlacesAreLeft_VisitedStopsComeBackButRemovedOnesDoNot()
+    {
+        // Hiding the removed stop and both visited stops would leave 3 places, too few for a day.
+        await using var dbContext = CreateDbContext();
+        await AddRemovalAsync(dbContext, travelerUserId: 123L, poiId: 1L, daysAgo: 1);
+        await AddVisitAsync(dbContext, travelerUserId: 123L, poiId: 2L, daysAgo: 1);
+        await AddVisitAsync(dbContext, travelerUserId: 123L, poiId: 3L, daysAgo: 1);
+        var orchestrator = CreateOrchestrator(
+            dbContext, new RecordingProvider(), providerEnabled: true, withBehaviorProfile: true);
+
+        PoiRankingSnapshot snapshot = await orchestrator.BuildRankingAsync(
+            new PoiRankingInput(123L, ["culture"], Candidates(1L, 6L)),
+            CancellationToken.None);
+
+        snapshot.Entries.Keys.Should().BeEquivalentTo([2L, 3L, 4L, 5L, 6L]);
+    }
+
+    private static PoiRankingInputCandidate[] Candidates(long first, long last) =>
+        Enumerable.Range((int)first, (int)(last - first + 1)).Select(id => Candidate(id)).ToArray();
+
+    private static async Task AddVisitAsync(
+        ApplicationDbContext dbContext,
+        long travelerUserId,
+        long poiId,
+        int daysAgo)
+    {
+        dbContext.RecommendationBehaviorEvents.Add(RecommendationBehaviorEvent.Create(
+            travelerUserId, poiId, 30L, RecommendationEventType.Like, null, null, false,
+            RecommendationCaptureSource.Navigation, BehaviorNow.AddDays(-daysAgo), Guid.NewGuid()));
+        await dbContext.SaveChangesAsync();
+    }
+
     private static async Task AddRemovalAsync(
         ApplicationDbContext dbContext,
         long travelerUserId,

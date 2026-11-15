@@ -132,3 +132,15 @@ nhân hóa. Với kế hoạch này, `TimeOfDayRefiner` chỉ bổ sung `Recomme
 lịch, đổi thứ tự, hoặc thay thế kế hoạch, vì các thao tác đó có thể làm giảm objective và làm mất
 `ModelObjective`. Kế hoạch không có `ModelObjective`, gồm luồng `Lexicographic` hiện tại, vẫn dùng
 cơ chế sắp xếp lại theo thời điểm trong ngày như trước.
+
+### 5.7. Giới hạn đã biết: luôn bắt đầu tham quan sớm nhất (audit CSP, 2026-11-09)
+
+Mô hình CSP gán mỗi điểm một giờ bắt đầu duy nhất: giờ sớm nhất khả thi
+(`RoutingContext.StartAt`). `WeightedUtilityKernel` chấm TimeFit tại đúng giờ đó, nên solver không
+thể chủ động chờ để lấy thưởng TimeFit, ví dụ đến bãi biển sớm rồi đợi hoàng hôn. Với Lexicographic
+không có hệ quả vì hàm mục tiêu không có TimeFit.
+
+- **Quyết định:** chấp nhận cho giai đoạn hiện tại; WeightedUtility vẫn tắt trên production.
+- **Tái đánh giá khi:** shadow mode cho thấy nhiều lịch Weighted có điểm TimeFit thấp vì đến sớm. Khi
+  đó cân nhắc thêm vài giờ bắt đầu ứng viên cho mỗi điểm (giờ sớm nhất và các mốc TimeFit trong khung
+  mở cửa) và đo lại chi phí mỗi node theo Điều kiện 2.

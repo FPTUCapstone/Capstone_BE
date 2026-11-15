@@ -20,14 +20,30 @@ namespace TripMate.Application.Features.RecommendationFeedback.Derived;
 /// </summary>
 internal sealed class DerivedBehaviorSignalRecorder(IApplicationDbContext dbContext, ILogger? logger = null)
 {
+    /// <inheritdoc cref="RecordItineraryEditAsync(long, long, IEnumerable{long}, IReadOnlyDictionary{long, StopRemovalReason}?, Guid, DateTimeOffset, CancellationToken)"/>
+    public Task<int> RecordItineraryEditAsync(
+        long travelerUserId,
+        long sourceItineraryId,
+        IEnumerable<long> newVisitPoiIds,
+        Guid operationKey,
+        DateTimeOffset occurredAtUtc,
+        CancellationToken cancellationToken) =>
+        RecordItineraryEditAsync(
+            travelerUserId, sourceItineraryId, newVisitPoiIds, removalReasons: null, operationKey, occurredAtUtc,
+            cancellationToken);
+
     /// <summary>
     /// Adjust: a visit present in the source version but not in the new stops is a Dislike; a new stop is a Like.
-    /// A reorder of the same stops records nothing.
+    /// A reorder of the same stops records nothing. A removal the traveler explained with a reason other than
+    /// <see cref="StopRemovalReason.NotInterested"/> is no Dislike (traveler feedback, D10/D15), and
+    /// <see cref="StopRemovalReason.AlreadyVisited"/> marks the place as visited so it can rest for a while (D19); a
+    /// removal without a reason, from an older app, stays a Dislike (D16).
     /// </summary>
     public async Task<int> RecordItineraryEditAsync(
         long travelerUserId,
         long sourceItineraryId,
         IEnumerable<long> newVisitPoiIds,
+        IReadOnlyDictionary<long, StopRemovalReason>? removalReasons,
         Guid operationKey,
         DateTimeOffset occurredAtUtc,
         CancellationToken cancellationToken)
@@ -46,8 +62,21 @@ internal sealed class DerivedBehaviorSignalRecorder(IApplicationDbContext dbCont
         var key = operationKey.ToString("N");
 
         var events = new List<RecommendationBehaviorEvent>();
+        var alreadyVisited = new List<long>();
         foreach (var removed in sourceVisits.Where(visit => !newIds.Contains(visit.PoiId)))
         {
+            if (removalReasons is not null
+                && removalReasons.TryGetValue(removed.PoiId, out var reason)
+                && reason != StopRemovalReason.NotInterested)
+            {
+                if (reason == StopRemovalReason.AlreadyVisited)
+                {
+                    alreadyVisited.Add(removed.PoiId);
+                }
+
+                continue;
+            }
+
             events.Add(Event(
                 travelerUserId, removed.PoiId, sourceItineraryId, RecommendationEventType.Dislike,
                 originalPosition: null, removed.IsMandatory, RecommendationCaptureSource.ItineraryEdit,
@@ -62,6 +91,7 @@ internal sealed class DerivedBehaviorSignalRecorder(IApplicationDbContext dbCont
                 occurredAtUtc, key));
         }
 
+        await MarkVisitedAsync(travelerUserId, alreadyVisited, occurredAtUtc, cancellationToken);
         return await AppendAsync(travelerUserId, events, cancellationToken);
     }
 
@@ -192,6 +222,50 @@ internal sealed class DerivedBehaviorSignalRecorder(IApplicationDbContext dbCont
                 events[0].Source,
                 events.Count);
             return 0;
+        }
+    }
+
+    /// <summary>Keeps one visited mark per traveler and place, dated the latest time they said so (D19).</summary>
+    private async Task MarkVisitedAsync(
+        long travelerUserId,
+        IReadOnlyCollection<long> poiIds,
+        DateTimeOffset markedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        if (poiIds.Count == 0)
+        {
+            return;
+        }
+
+        var added = new List<PoiVisitedMark>();
+        try
+        {
+            var existing = await dbContext.PoiVisitedMarks
+                .Where(mark => mark.TravelerUserId == travelerUserId && poiIds.Contains(mark.PointOfInterestId))
+                .ToListAsync(cancellationToken);
+            foreach (long poiId in poiIds.Distinct())
+            {
+                if (existing.FirstOrDefault(mark => mark.PointOfInterestId == poiId) is { } mark)
+                {
+                    mark.MarkAgain(markedAtUtc);
+                }
+                else
+                {
+                    added.Add(PoiVisitedMark.Create(travelerUserId, poiId, markedAtUtc));
+                }
+            }
+
+            dbContext.PoiVisitedMarks.AddRange(added);
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (Exception exception) when (IsStorageFailure(exception) && !dbContext.IsDeadlock(exception))
+        {
+            dbContext.PoiVisitedMarks.RemoveRange(added);
+            logger?.LogWarning(
+                exception,
+                "derived_visited_mark_failed traveler={TravelerUserId} count={Count}",
+                travelerUserId,
+                poiIds.Count);
         }
     }
 

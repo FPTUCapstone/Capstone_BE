@@ -25,12 +25,18 @@ public class TourOperatorDebt : BaseEntity
 
     public DateTimeOffset CreatedAtUtc { get; private set; }
 
+    /// <summary>BR-144: the refund whose unreturned Tour Operator share this debt was recorded
+    /// for, so the debt can be closed if that share is later received in full by bank transfer
+    /// (UC-42 step 7) instead of being collected a second time by settlement offset.</summary>
+    public long? RefundId { get; private set; }
+
     /// <summary>The part of <see cref="Amount"/> not yet recovered — what the daily run can still
     /// offset against (PD-15) and what BR-189's 15-day check looks at.</summary>
     public decimal OutstandingAmount => Amount - RecoveredAmount;
 
     public static TourOperatorDebt Create(
-        long tourOperatorUserId, decimal amount, DateTimeOffset incurredAtUtc, DateTimeOffset createdAtUtc)
+        long tourOperatorUserId, decimal amount, DateTimeOffset incurredAtUtc, DateTimeOffset createdAtUtc,
+        long? refundId = null)
     {
         if (amount <= 0)
             throw new ArgumentOutOfRangeException(nameof(amount));
@@ -42,6 +48,7 @@ public class TourOperatorDebt : BaseEntity
             RecoveredAmount = 0m,
             IncurredAtUtc = incurredAtUtc,
             CreatedAtUtc = createdAtUtc,
+            RefundId = refundId,
         };
     }
 

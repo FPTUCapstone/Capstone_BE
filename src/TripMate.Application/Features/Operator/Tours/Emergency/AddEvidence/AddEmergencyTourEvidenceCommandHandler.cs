@@ -27,7 +27,7 @@ public sealed class AddEmergencyTourEvidenceCommandHandler(
     {
         if (currentUser.UserId is not long operatorId
             || currentUser.Role != nameof(UserRole.TourOperator))
-            return Failure(EmergencyTourErrorCodes.Forbidden, "Cần quyền đơn vị điều hành tour.");
+            return Failure(EmergencyTourErrorCodes.Forbidden, EmergencyTourMessages.PermissionDenied);
 
         return await dbContext.ExecuteInSerializableTransactionAsync(async token =>
         {
@@ -35,7 +35,7 @@ public sealed class AddEmergencyTourEvidenceCommandHandler(
                 dbContext, operatorId, token);
             if (!operatorIsEligible)
                 return Failure(EmergencyTourErrorCodes.Forbidden,
-                    "Cần tài khoản đơn vị điều hành đang hoạt động và đã được duyệt.");
+                    EmergencyTourMessages.PermissionDenied);
 
             var operation = await dbContext.EmergencyTourCancellationOperations
                 .Include(candidate => candidate.TourSchedule)

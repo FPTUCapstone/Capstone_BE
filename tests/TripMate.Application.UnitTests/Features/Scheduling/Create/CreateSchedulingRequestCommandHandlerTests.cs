@@ -494,6 +494,41 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
     }
 
     [Fact]
+    public async Task Handle_RestStop_ShowsItsReasonInVietnamese_InTheResponseAndTheSavedItinerary()
+    {
+        // Decision 2026-11-11: visit reasons are Vietnamese, so the rest reason must not be the solver's English code.
+        await using var dbContext = TestDbContext.Create();
+        var first = CreateSelectablePoi(
+            PoiCategory.Create("Nature", null), "Riverside park", 16.0471m, 108.2068m, "https://example.com/riverside");
+        var second = CreateSelectablePoi(
+            PoiCategory.Create("Culture", null), "Old quarter", 16.0472m, 108.2069m, "https://example.com/quarter");
+        dbContext.PointsOfInterest.AddRange(first, second);
+        await dbContext.SaveChangesAsync();
+        dbContext.Entry(first).Property(poi => poi.AverageVisitDurationMinutes).CurrentValue = 120;
+        dbContext.Entry(second).Property(poi => poi.AverageVisitDurationMinutes).CurrentValue = 120;
+        await dbContext.SaveChangesAsync();
+
+        var result = await CreateHandler(dbContext)
+            .Handle(CreateCommand(Guid.NewGuid()) with
+            {
+                AvailableMinutes = 480,
+                MandatoryPoiIds = [first.Id, second.Id],
+                RestPreference = RestPreference.Frequent,
+            }, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var shownRests = result.Value.Items.Where(item => item.ItemKind == ItineraryItemKind.Rest).ToArray();
+        shownRests.Should().NotBeEmpty();
+        shownRests.Should().OnlyContain(item => item.RecommendationReason == "Nghỉ tự do");
+        var savedRests = await dbContext.ItineraryItems
+            .AsNoTracking()
+            .Where(item => item.Kind == ItineraryItemKind.Rest)
+            .ToListAsync();
+        savedRests.Should().HaveSameCount(shownRests);
+        savedRests.Should().OnlyContain(item => item.RecommendationReason == "Nghỉ tự do");
+    }
+
+    [Fact]
     public async Task Handle_InfeasibleScheduling_DoesNotCallExplanationProvider()
     {
         await using var dbContext = TestDbContext.Create();

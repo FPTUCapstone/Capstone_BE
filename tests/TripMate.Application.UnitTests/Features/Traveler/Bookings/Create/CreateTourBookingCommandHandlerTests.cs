@@ -41,6 +41,33 @@ public sealed class CreateTourBookingCommandHandlerTests
     }
 
     [Fact]
+    public async Task Handle_WhenExistingCodeHasAnEarlierBookedAt_AssignsTheNextUnusedDailyCode()
+    {
+        await using var db = TestDbContext.Create();
+        var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
+        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        db.Tours.Add(tour);
+        await db.SaveChangesAsync();
+        var schedule = TourBookingTestData.SeedSchedule(tour, Now.AddDays(5), totalCapacity: 10, reservedCapacity: 0);
+        db.TourSchedules.Add(schedule);
+        await db.SaveChangesAsync();
+
+        // The document number was issued today but its financial timestamp was later corrected.
+        // Code generation must not reissue this document number.
+        var existing = Booking.Create("BK-20261017-00002", traveler.Id, schedule.Id, null, 1_000_000m,
+            0m, 1_000_000m, [BookingParticipant.Create("Existing", ParticipantType.Adult, null, null, null, null, null)],
+            Now.AddDays(-2), Now.AddDays(1));
+        db.Bookings.Add(existing);
+        await db.SaveChangesAsync();
+
+        var result = await NewHandler(db, traveler.Id)
+            .Handle(Command(schedule.Id, [Participant("Nguyen Van A")]), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.BookingCode.Should().Be("BK-20261017-00003");
+    }
+
+    [Fact]
     public async Task Handle_CalledTwiceWithSameKeyAndPayload_ReplaysWithoutDoubleReservingCapacity()
     {
         await using var db = TestDbContext.Create();

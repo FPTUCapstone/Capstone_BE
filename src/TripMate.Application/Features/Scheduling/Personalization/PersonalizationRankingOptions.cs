@@ -57,6 +57,13 @@ public sealed class PersonalizationRankingOptions
     /// </summary>
     public int RemovedStopCooldownDays { get; init; } = 14;
 
+    /// <summary>
+    /// Decision D20: a place the traveler has just been to (reached while navigating, or removed as "already
+    /// visited") is not suggested automatically again for this many days, unless they choose it again or too few
+    /// other places are left. It is not a dislike. 0 turns the rule off.
+    /// </summary>
+    public int VisitedStopCooldownDays { get; init; } = 14;
+
     public BehaviorSignalWeights BehaviorSignalWeights { get; init; } = new();
 }
 
@@ -204,6 +211,11 @@ public sealed class PersonalizationRankingOptionsValidator(
         if (options.RemovedStopCooldownDays < 0)
         {
             failures.Add($"{nameof(options.RemovedStopCooldownDays)} must be greater than or equal to zero.");
+        }
+
+        if (options.VisitedStopCooldownDays < 0)
+        {
+            failures.Add($"{nameof(options.VisitedStopCooldownDays)} must be greater than or equal to zero.");
         }
 
         BehaviorSignalWeights signals = options.BehaviorSignalWeights;

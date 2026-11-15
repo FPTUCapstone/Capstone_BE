@@ -1,4 +1,7 @@
+using System.Data.Common;
+
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Domain.Enums;
@@ -17,12 +20,14 @@ public sealed record BehaviorSignal(
 /// into the profile the AI ranking learns from. Each signal counts by its kind
 /// (<see cref="BehaviorSignalWeights"/>) and halves every <c>BehaviorHalfLifeDays</c>; opposite signals on one
 /// POI cancel; the heaviest POIs per side are sent with their name, category and tags, because they are often
-/// outside the current candidate pool.
+/// outside the current candidate pool. A favorite (the heart on a place page) is an explicit like that does not
+/// fade while the heart is on (traveler feedback, D17).
 /// </summary>
 public sealed class BehaviorProfileBuilder(
     IApplicationDbContext dbContext,
     IDateTimeProvider clock,
-    PersonalizationRankingOptions options)
+    PersonalizationRankingOptions options,
+    ILogger<BehaviorProfileBuilder>? logger = null)
 {
     // Evidence below this is noise (for example a like and a removal that almost cancel).
     private const decimal MinimumNetWeight = 0.01m;
@@ -109,8 +114,80 @@ public sealed class BehaviorProfileBuilder(
                 signal.Source,
                 signal.OccurredAtUtc))
             .ToListAsync(cancellationToken);
+        // A heart tapped after the removal lifts the cooldown; one that was already on does not.
+        signals.AddRange(await FavoriteSignalsAsync(travelerUserId, since, datedAt: null, cancellationToken));
         return RemovedRecently(signals, now, options.RemovedStopCooldownDays);
     }
+
+    /// <summary>
+    /// Decision D20: the POIs the traveler has just been to. A visit is a stop reached while navigating or a
+    /// place removed as "already visited" (the caller passes those marks as reached signals). The rest ends when
+    /// the traveler chooses the place again afterwards (adds it by hand, marks it mandatory, likes or favorites
+    /// it); a thumbs-up for the visit itself does not end it. Pure, like <see cref="RemovedRecently"/>.
+    /// </summary>
+    public static IReadOnlySet<long> VisitedRecently(
+        IEnumerable<BehaviorSignal> signals,
+        DateTimeOffset now,
+        int cooldownDays)
+    {
+        ArgumentNullException.ThrowIfNull(signals);
+        if (cooldownDays <= 0)
+        {
+            return new HashSet<long>();
+        }
+
+        DateTimeOffset since = now.AddDays(-cooldownDays);
+        return signals
+            .Where(signal => signal.OccurredAtUtc >= since && (IsVisit(signal) || IsChosenAgain(signal)))
+            .Select((signal, index) => (signal, index))
+            .GroupBy(entry => entry.signal.PoiId)
+            .Select(group => group.OrderBy(entry => entry.signal.OccurredAtUtc).ThenBy(entry => entry.index).Last().signal)
+            .Where(IsVisit)
+            .Select(latest => latest.PoiId)
+            .ToHashSet();
+    }
+
+    /// <summary>The places this traveler has just been to and has not chosen again (decision D20).</summary>
+    public async Task<IReadOnlySet<long>> VisitedRecentlyAsync(long travelerUserId, CancellationToken cancellationToken)
+    {
+        if (options.VisitedStopCooldownDays <= 0)
+        {
+            return new HashSet<long>();
+        }
+
+        DateTimeOffset now = clock.UtcNow;
+        DateTimeOffset since = now.AddDays(-options.VisitedStopCooldownDays);
+        var signals = await dbContext.RecommendationBehaviorEvents
+            .AsNoTracking()
+            .Where(signal =>
+                signal.TravelerUserId == travelerUserId
+                && signal.OccurredAtUtc >= since
+                && signal.EventType == RecommendationEventType.Like)
+            .OrderBy(signal => signal.OccurredAtUtc)
+            .ThenBy(signal => signal.Id)
+            .Select(signal => new BehaviorSignal(
+                signal.PointOfInterestId,
+                signal.EventType,
+                signal.Source,
+                signal.OccurredAtUtc))
+            .ToListAsync(cancellationToken);
+        signals.AddRange(await VisitedMarkSignalsAsync(travelerUserId, since, cancellationToken));
+        signals.AddRange(await FavoriteSignalsAsync(travelerUserId, since, datedAt: null, cancellationToken));
+        return VisitedRecently(signals, now, options.VisitedStopCooldownDays);
+    }
+
+    private static bool IsVisit(BehaviorSignal signal) =>
+        signal is { EventType: RecommendationEventType.Like, Source: RecommendationCaptureSource.Navigation };
+
+    private static bool IsChosenAgain(BehaviorSignal signal) =>
+        signal is
+        {
+            EventType: RecommendationEventType.Like,
+            Source: RecommendationCaptureSource.ItineraryEdit
+                or RecommendationCaptureSource.SchedulingRequest
+                or RecommendationCaptureSource.Explore
+                or RecommendationCaptureSource.PoiDetail,
+        };
 
     /// <summary>The traveler's profile, or null when there is no usable evidence.</summary>
     public async Task<PoiRankingBehavior?> BuildAsync(long travelerUserId, CancellationToken cancellationToken)
@@ -139,6 +216,7 @@ public sealed class BehaviorProfileBuilder(
                 signal.Source,
                 signal.OccurredAtUtc))
             .ToListAsync(cancellationToken);
+        signals.AddRange(await FavoriteSignalsAsync(travelerUserId, since: null, datedAt: now, cancellationToken));
         if (signals.Count == 0)
         {
             return null;
@@ -177,5 +255,82 @@ public sealed class BehaviorProfileBuilder(
 
         var profile = new PoiRankingBehavior(Describe(liked), Describe(disliked));
         return profile.Liked.Count == 0 && profile.Disliked.Count == 0 ? null : profile;
+    }
+
+    /// <summary>
+    /// The traveler's favorites as explicit likes. The profile dates them now (<paramref name="datedAt"/>), so they
+    /// do not fade; the cooldown rules date them when the heart was tapped, so the latest signal still wins.
+    /// </summary>
+    private Task<List<BehaviorSignal>> FavoriteSignalsAsync(
+        long travelerUserId,
+        DateTimeOffset? since,
+        DateTimeOffset? datedAt,
+        CancellationToken cancellationToken) =>
+        ReadOptionalTableAsync("PoiFavorites", travelerUserId, async () =>
+        {
+            var favorites = await dbContext.PoiFavorites
+                .AsNoTracking()
+                .Where(favorite =>
+                    favorite.TravelerUserId == travelerUserId
+                    && (since == null || favorite.CreatedAtUtc >= since))
+                .OrderByDescending(favorite => favorite.CreatedAtUtc)
+                .ThenByDescending(favorite => favorite.Id)
+                .Take(options.MaxBehaviorEvents)
+                .Select(favorite => new { favorite.PointOfInterestId, favorite.CreatedAtUtc })
+                .ToListAsync(cancellationToken);
+            return favorites
+                .Select(favorite => new BehaviorSignal(
+                    favorite.PointOfInterestId,
+                    RecommendationEventType.Like,
+                    RecommendationCaptureSource.PoiDetail,
+                    datedAt ?? favorite.CreatedAtUtc))
+                .ToList();
+        });
+
+    /// <summary>Places removed as "already visited" (D19), as visits dated when the traveler said so.</summary>
+    private Task<List<BehaviorSignal>> VisitedMarkSignalsAsync(
+        long travelerUserId,
+        DateTimeOffset since,
+        CancellationToken cancellationToken) =>
+        ReadOptionalTableAsync("PoiVisitedMarks", travelerUserId, async () =>
+        {
+            var marks = await dbContext.PoiVisitedMarks
+                .AsNoTracking()
+                .Where(mark => mark.TravelerUserId == travelerUserId && mark.MarkedAtUtc >= since)
+                .OrderByDescending(mark => mark.MarkedAtUtc)
+                .ThenByDescending(mark => mark.Id)
+                .Take(options.MaxBehaviorEvents)
+                .Select(mark => new { mark.PointOfInterestId, mark.MarkedAtUtc })
+                .ToListAsync(cancellationToken);
+            return marks
+                .Select(mark => new BehaviorSignal(
+                    mark.PointOfInterestId,
+                    RecommendationEventType.Like,
+                    RecommendationCaptureSource.Navigation,
+                    mark.MarkedAtUtc))
+                .ToList();
+        });
+
+    // The traveler-feedback tables may be missing until their migration is applied, or the context may not expose
+    // them: ranking must still work, without what they hold.
+    private async Task<List<BehaviorSignal>> ReadOptionalTableAsync(
+        string table,
+        long travelerUserId,
+        Func<Task<List<BehaviorSignal>>> read)
+    {
+        try
+        {
+            return await read();
+        }
+        catch (Exception exception)
+            when (exception is DbException or NotSupportedException && !dbContext.IsDeadlock(exception))
+        {
+            logger?.LogWarning(
+                exception,
+                "behavior_table_unavailable table={Table} traveler={TravelerUserId}",
+                table,
+                travelerUserId);
+            return [];
+        }
     }
 }
