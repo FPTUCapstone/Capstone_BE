@@ -1109,7 +1109,8 @@ public sealed class EmergencyTourCommandHandlerTests
             .OrderBy(operation => operation.BookingId).ToListAsync();
         handoffs.Should().HaveCount(2);
         handoffs.Should().OnlyContain(operation => operation.Actor == BookingCancellationActor.TourOperator
-            && operation.ActorUserId == 2);
+            && operation.ActorUserId == 2
+            && operation.RefundStatus == nameof(RefundStatus.Pending));
         handoffs.Select(operation => operation.RefundAmount).Should().Equal(12_000_000m, 9_000_000m);
         refunds.Select(refund => refund.CancellationOperationId)
             .Should().Equal(handoffs.Select(operation => (long?)operation.Id));
