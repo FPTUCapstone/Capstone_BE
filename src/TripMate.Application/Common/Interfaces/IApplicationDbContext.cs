@@ -16,6 +16,8 @@ public interface IApplicationDbContext
 
     DbSet<PointOfInterest> PointsOfInterest { get; }
 
+    DbSet<RouteSegment> RouteSegments { get; }
+
     DbSet<PoiOpeningHour> PoiOpeningHours { get; }
 
     DbSet<Tag> Tags { get; }
