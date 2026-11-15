@@ -67,6 +67,26 @@ public sealed class RefundProcessorTests
     }
 
     [Fact]
+    public async Task ProcessDueRefunds_WhenAnUnexpectedSubmissionErrorOccurs_SchedulesRetryImmediately()
+    {
+        await using TestDbContext db = CreateDbContext();
+        await SeedRefundAsync(db);
+        var processor = new RefundProcessor(db, new FixedClock(Now), new ThrowingRefundGatewayResolver(),
+            new RefundProcessingOptions { RetryDelay = TimeSpan.FromMinutes(3) });
+
+        RefundSweepResult result = await processor.ProcessDueRefundsAsync(CancellationToken.None);
+
+        result.ProcessedCount.Should().Be(0);
+        result.DeferredCount.Should().Be(1);
+        result.Failures.Should().ContainSingle(failure => failure.ExceptionType == nameof(InvalidOperationException));
+        Refund refund = await db.Refunds.SingleAsync();
+        refund.Status.Should().Be(RefundStatus.RetryPending);
+        refund.NextAttemptAtUtc.Should().Be(Now.AddMinutes(3));
+        refund.LastErrorCode.Should().Be("payment.refund.processing_failed");
+        refund.AttemptCount.Should().Be(1);
+    }
+
+    [Fact]
     public async Task ProcessDueRefunds_WhenCurrentCheckoutGatewayDiffers_UsesOriginalPaymentGateway()
     {
         await using TestDbContext db = CreateDbContext();
@@ -322,6 +342,22 @@ public sealed class RefundProcessorTests
     {
         public IPaymentGateway? Resolve(PaymentGateway gateway) => gateways.SingleOrDefault(candidate =>
             candidate.Gateway == gateway);
+    }
+
+    private sealed class ThrowingRefundGatewayResolver : IRefundPaymentGatewayResolver
+    {
+        public IPaymentGateway? Resolve(PaymentGateway gateway) => new ThrowingRefundGateway();
+    }
+
+    private sealed class ThrowingRefundGateway : IPaymentGateway
+    {
+        public PaymentGateway Gateway => PaymentGateway.Mock;
+
+        public Task<PaymentLinkResult> CreatePaymentLinkAsync(PaymentLinkRequest request,
+            CancellationToken cancellationToken) => throw new NotSupportedException();
+
+        public Task<RefundSubmissionResult> SubmitRefundAsync(RefundSubmissionRequest request,
+            CancellationToken cancellationToken) => throw new InvalidOperationException("Unexpected gateway failure.");
     }
 
     private sealed class NoOpManualCompletionLock : IRefundManualCompletionLock

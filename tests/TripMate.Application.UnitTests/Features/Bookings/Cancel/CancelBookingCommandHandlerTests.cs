@@ -131,7 +131,7 @@ public sealed class CancelBookingCommandHandlerTests
         {
             BookingId = booking.Id,
             Amount = 400_000m,
-            Status = RefundStatus.PendingOperatorConfirmation,
+            Status = RefundStatus.Pending,
             InitiatedBy = RefundInitiator.System,
         });
         (await db.TourSchedules.SingleAsync()).ReservedCapacity.Should().Be(0);

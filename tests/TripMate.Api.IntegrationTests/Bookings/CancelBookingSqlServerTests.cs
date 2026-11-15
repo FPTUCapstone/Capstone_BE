@@ -52,11 +52,10 @@ public sealed class CancelBookingSqlServerTests
     }
 
     [SqlServerFact]
-    public async Task Cancel_WithVerifiedMatchingPayment_CreatesRefundInPendingOperatorConfirmation()
+    public async Task Cancel_WithVerifiedMatchingPayment_CreatesRefundReadyForAutomaticProcessing()
     {
-        // UC-41 normal flow / G1: no gateway is ever called from cancellation — the refund is
-        // created in PendingOperatorConfirmation, the status the automatic UC-67 sweep (which
-        // only picks up Pending/RetryPending) never queries.
+        // A cancellation fixes the refund obligation immediately. With no prior settlement paid
+        // to the operator, the refund is ready for the automatic gateway sweep.
         await using var database = await SqlServerTestDatabase.CreateAsync();
         var seed = await TicketSqlServerSeed.CreateAsync(database, Departure);
         var bookingId = await seed.AddBookingAsync(BookingStatus.Confirmed, PaymentStatus.Paid);
@@ -67,10 +66,11 @@ public sealed class CancelBookingSqlServerTests
             new CancelBookingCommand(bookingId, Guid.NewGuid(), "ChangeOfPlans", "Cannot travel"));
 
         result.IsSuccess.Should().BeTrue();
-        result.Value.RefundStatus.Should().Be(nameof(RefundStatus.PendingOperatorConfirmation));
+        result.Value.RefundStatus.Should().Be(nameof(RefundStatus.Pending));
         await using var context = database.CreateDbContext();
         var refund = await context.Refunds.AsNoTracking().SingleAsync(r => r.BookingId == bookingId);
-        refund.Status.Should().Be(RefundStatus.PendingOperatorConfirmation);
+        refund.Status.Should().Be(RefundStatus.Pending);
+        result.Value.RefundId.Should().Be(refund.Id);
     }
 
     [SqlServerFact]
@@ -89,6 +89,7 @@ public sealed class CancelBookingSqlServerTests
         result.IsSuccess.Should().BeTrue();
         result.Value.RefundAmount.Should().Be(0m);
         result.Value.RefundStatus.Should().Be("NotRequired");
+        result.Value.RefundId.Should().BeNull();
         await using var context = database.CreateDbContext();
         (await context.Bookings.AsNoTracking().SingleAsync(booking => booking.Id == bookingId)).Status
             .Should().Be(BookingStatus.Cancelled);
@@ -118,6 +119,7 @@ public sealed class CancelBookingSqlServerTests
             .Should().Be(BookingStatus.Cancelled);
         var refund = await context.Refunds.AsNoTracking().SingleAsync(r => r.BookingId == bookingId);
         refund.Status.Should().Be(RefundStatus.Reconciliation);
+        result.Value.RefundId.Should().Be(refund.Id);
         (await context.Notifications.AsNoTracking().CountAsync(n => n.UserId == adminId)).Should().Be(1);
     }
 
@@ -142,6 +144,7 @@ public sealed class CancelBookingSqlServerTests
 
         replay.IsSuccess.Should().BeTrue();
         replay.Value.RefundAmount.Should().Be(first.Value.RefundAmount);
+        replay.Value.RefundId.Should().Be(first.Value.RefundId);
         changed.ErrorCode.Should().Be(BookingCancellationErrorCodes.IdempotencyPayloadMismatch);
         await using var context = database.CreateDbContext();
         (await context.BookingCancellationOperations.AsNoTracking().CountAsync(operation => operation.BookingId == bookingId))

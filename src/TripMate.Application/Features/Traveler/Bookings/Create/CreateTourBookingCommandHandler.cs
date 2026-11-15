@@ -148,9 +148,18 @@ public sealed class CreateTourBookingCommandHandler(
             if (pricing.IsFailure)
                 return Result.Failure<CreateTourBookingResponse>(pricing.ErrorCode!, pricing.ErrorMessage!);
 
-            var todayStartUtc = new DateTimeOffset(now.UtcDateTime.Date, TimeSpan.Zero);
-            var dailySequence = await dbContext.Bookings.AsNoTracking().CountAsync(booking =>
-                booking.BookedAtUtc >= todayStartUtc, transactionCancellationToken) + 1;
+            // Booking codes are unique document numbers. Their sequence must be derived from
+            // the code prefix, rather than BookedAtUtc: financial/test backfills may correct a
+            // booking timestamp without changing its already-issued document number.
+            var bookingCodePrefix = $"BK-{now.ToUniversalTime():yyyyMMdd}-";
+            var existingDailyCodes = await dbContext.Bookings.AsNoTracking()
+                .Where(booking => booking.BookingCode.StartsWith(bookingCodePrefix))
+                .Select(booking => booking.BookingCode)
+                .ToListAsync(transactionCancellationToken);
+            var dailySequence = existingDailyCodes
+                .Select(code => int.TryParse(code[bookingCodePrefix.Length..], out var sequence) ? sequence : 0)
+                .DefaultIfEmpty(0)
+                .Max() + 1;
             var bookingCode = Booking.GenerateCode(now, dailySequence);
 
             // BR-33: the document number is PII and must be encrypted before it reaches the entity;

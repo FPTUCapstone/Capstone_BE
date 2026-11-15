@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Bookings.Common;
+using TripMate.Application.Features.Bookings.Refunds;
 using TripMate.Application.Features.Traveler.Bookings.Common;
 using TripMate.Domain.Common;
 using TripMate.Domain.Entities;
@@ -24,6 +25,7 @@ public sealed class CancelBookingCommandHandler(
     : IRequestHandler<CancelBookingCommand, Result<CancelBookingResponse>>
 {
     private const int MaxDeadlockAttempts = 3;
+    private const int ReturnDeadlineWorkingDays = 3;
 
     public async Task<Result<CancelBookingResponse>> Handle(
         CancelBookingCommand request,
@@ -46,7 +48,9 @@ public sealed class CancelBookingCommandHandler(
                 {
                     var existingOperation = await FindOperationAsync(actorUserId, request.IdempotencyKey,
                         transactionCancellationToken);
-                    if (existingOperation is not null) return ReplayOrMismatch(existingOperation, request.BookingId, requestHash);
+                    if (existingOperation is not null)
+                        return await ReplayOrMismatchAsync(existingOperation, request.BookingId, requestHash,
+                            transactionCancellationToken);
 
                     var booking = await dbContext.Bookings
                         .Include(candidate => candidate.TourSchedule!)
@@ -105,13 +109,32 @@ public sealed class CancelBookingCommandHandler(
                         ? 0m // 6.a1: no verified payment at all — nothing to refund, MSG136.
                         : decision.RefundAmount;
                     // A zero-percent tier still creates no RefundRequest even when a matching
-                    // payment exists (nothing to confirm with the operator) — "refundAmount > 0"
-                    // alone decides whether a Refund is created at all, below.
+                    // payment exists — "refundAmount > 0" alone decides whether a Refund is
+                    // created at all, below.
+                    decimal operatorReturnShare = 0m;
+                    DateTimeOffset? returnDeadlineAtUtc = null;
                     string refundStatus = refundAmount <= 0m
                         ? "NotRequired"
                         : successfulPayment is not null
-                            ? nameof(RefundStatus.PendingOperatorConfirmation)
+                            ? nameof(RefundStatus.Pending)
                             : nameof(RefundStatus.Reconciliation); // 6.b1: amount mismatch, escalated.
+
+                    if (refundAmount > 0m && successfulPayment is not null)
+                    {
+                        decimal transferredToOperator = await dbContext.PayoutSettlements.AsNoTracking()
+                            .Where(settlement => settlement.BookingId == booking.Id &&
+                                settlement.Status == PayoutSettlementStatus.Settled)
+                            .SumAsync(settlement => (decimal?)settlement.PayoutAmount,
+                                transactionCancellationToken) ?? 0m;
+                        operatorReturnShare = RefundShareCalculator.CalculateOperatorReturnShare(refundAmount,
+                            transferredToOperator, booking.TotalAmount);
+                        returnDeadlineAtUtc = operatorReturnShare > 0m
+                            ? WorkingDayCalculator.AddWorkingDays(nowUtc, ReturnDeadlineWorkingDays)
+                            : null;
+                        refundStatus = operatorReturnShare > 0m
+                            ? nameof(RefundStatus.AwaitingPartnerReturn)
+                            : nameof(RefundStatus.Pending);
+                    }
 
                     var operation = BookingCancellationOperation.Create(booking.Id, actorUserId, actor,
                         request.IdempotencyKey, requestHash, refundAmount, refundStatus, nowUtc);
@@ -131,31 +154,39 @@ public sealed class CancelBookingCommandHandler(
 
                     var initiator = actor == BookingCancellationActor.TourOperator
                         ? RefundInitiator.TourOperator : RefundInitiator.System;
+                    Refund? createdRefund = null;
                     if (refundAmount > 0m && successfulPayment is not null)
                     {
-                        dbContext.Refunds.Add(Refund.CreatePendingOperatorConfirmation(booking.Id, successfulPayment.Id,
-                            operation.Id, refundAmount, reason, initiator, nowUtc));
+                        createdRefund = Refund.CreateAutomatically(booking.Id, successfulPayment.Id, operation.Id,
+                            refundAmount, reason, initiator, operatorReturnShare, returnDeadlineAtUtc, nowUtc);
+                        dbContext.Refunds.Add(createdRefund);
                     }
                     else if (refundAmount > 0m && anyPaymentIfMismatched is not null)
                     {
-                        dbContext.Refunds.Add(Refund.CreateReconciliation(booking.Id, anyPaymentIfMismatched.Id,
-                            operation.Id, refundAmount, reason, initiator, nowUtc));
+                        createdRefund = Refund.CreateReconciliation(booking.Id, anyPaymentIfMismatched.Id,
+                            operation.Id, refundAmount, reason, initiator, nowUtc);
+                        dbContext.Refunds.Add(createdRefund);
                         await NotifyAdministratorsOfReconciliationAsync(booking.Id, nowUtc, transactionCancellationToken);
                     }
 
                     dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(actorUserId, AuditActionTypes.BookingCancel,
                         AuditEntityTypes.Booking, booking.Id, nowUtc, AuditOutcome.Success, reason,
                         beforeData: JsonSerializer.Serialize(beforeState),
-                        afterData: JsonSerializer.Serialize(new { status = BookingStatus.Cancelled.ToString(), refundAmount, refundStatus, actor })));
+                        afterData: JsonSerializer.Serialize(new
+                        {
+                            status = BookingStatus.Cancelled.ToString(), refundAmount, refundStatus,
+                            operatorReturnShare, returnDeadlineAtUtc, actor,
+                        })));
                     await dbContext.SaveChangesAsync(transactionCancellationToken);
-                    return Result.Success(ToResponse(operation));
+                    return Result.Success(ToResponse(operation, createdRefund?.Id));
                 }, cancellationToken);
             }
             catch (DbUpdateException exception) when (persistenceErrors.IsIdempotencyKeyConflict(exception))
             {
                 dbContext.ClearTrackedEntities();
                 var operation = await FindOperationAsync(actorUserId, request.IdempotencyKey, cancellationToken);
-                if (operation is not null) return ReplayOrMismatch(operation, request.BookingId, requestHash);
+                if (operation is not null)
+                    return await ReplayOrMismatchAsync(operation, request.BookingId, requestHash, cancellationToken);
                 throw;
             }
             catch (Exception exception) when (dbContext.IsDeadlock(exception))
@@ -193,11 +224,21 @@ public sealed class CancelBookingCommandHandler(
         .SingleOrDefaultAsync(operation => operation.ActorUserId == actorUserId
             && operation.IdempotencyKey == idempotencyKey, cancellationToken);
 
-    private static Result<CancelBookingResponse> ReplayOrMismatch(BookingCancellationOperation operation,
-        long bookingId, string requestHash) => operation.BookingId == bookingId && operation.RequestHash == requestHash
-        ? Result.Success(ToResponse(operation))
-        : Result.Failure<CancelBookingResponse>(BookingCancellationErrorCodes.IdempotencyPayloadMismatch,
-            "This idempotency key has already been used with a different cancellation request.");
+    private async Task<Result<CancelBookingResponse>> ReplayOrMismatchAsync(BookingCancellationOperation operation,
+        long bookingId, string requestHash, CancellationToken cancellationToken)
+    {
+        if (operation.BookingId != bookingId || operation.RequestHash != requestHash)
+        {
+            return Result.Failure<CancelBookingResponse>(BookingCancellationErrorCodes.IdempotencyPayloadMismatch,
+                "This idempotency key has already been used with a different cancellation request.");
+        }
+
+        long? refundId = await dbContext.Refunds.AsNoTracking()
+            .Where(refund => refund.CancellationOperationId == operation.Id)
+            .Select(refund => (long?)refund.Id)
+            .SingleOrDefaultAsync(cancellationToken);
+        return Result.Success(ToResponse(operation, refundId));
+    }
 
     private static string? ComposeReason(string? category, string? detail) =>
         string.IsNullOrWhiteSpace(category)
@@ -212,9 +253,9 @@ public sealed class CancelBookingCommandHandler(
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(canonical))).ToLowerInvariant();
     }
 
-    private static CancelBookingResponse ToResponse(BookingCancellationOperation operation) =>
+    private static CancelBookingResponse ToResponse(BookingCancellationOperation operation, long? refundId) =>
         new(operation.BookingId, nameof(BookingStatus.Cancelled), operation.RefundAmount,
-            operation.RefundStatus, operation.CancelledAtUtc);
+            operation.RefundStatus, operation.CancelledAtUtc, refundId);
 
     /// <summary>UC-41 6.b1 (SRS 3.8.4.2, MSG136): "the system marks the refund request for
     /// reconciliation by the Administrator" — notifies every active Administrator.</summary>

@@ -16,12 +16,12 @@
 ## Task 1 — Data Access & Aggregation Foundation
 
 Define query DTOs and EF Core repository methods to aggregate booking revenue:
-- Query `commerce.Bookings` joined with `commerce.TourSchedules` and `catalog.Tours` where `Tour.OperatorUserId == currentOperatorId` and `Booking.Status IN ('Confirmed', 'Completed')` and `Booking.PaymentStatus == 'Paid'`.
+- Query `commerce.Bookings` joined with `commerce.TourSchedules` and `catalog.Tours` where `Tour.OperatorUserId == currentOperatorId` and either: (a) `Booking.Status IN ('Confirmed', 'Completed')` with `Booking.PaymentStatus == 'Paid'`; (b) `Booking.Status == 'Cancelled'` with `Booking.PaymentStatus IN ('PartiallyRefunded', 'Refunded')`; or (c) a cancelled `Paid` booking with a `Settled` payout, so already-transferred cash remains visible during refund reconciliation.
 - Select sales by successful payment timestamp and refunds by completed refund timestamp, both in the requested Vietnam-time range.
-- Calculate `GrossRevenue`, `DiscountsGiven`, `PaymentsReceived`, `RefundedAmount`, `NetSales`, `CommissionAmount`, `NetAmount`, booking count, and participant count using BR-112. Count one canonical successful payment per booking and apply the rate snapshotted on that payment.
+- Calculate `GrossRevenue`, `DiscountsGiven`, `PaymentsReceived`, `RefundedAmount`, `NetSales`, `CommissionAmount`, `NetAmount`, booking count, and participant count using BR-112. Count one canonical successful payment per booking. `NetAmount` is realised TO cash: sum only `PayoutSettlement.PayoutAmount` rows at `Settled`, less operator return shares after `ReturnReceivedAtUtc`; a new paid booking therefore contributes zero until its Advance payout settles. Gross sales and commission remain contextual/accounting values, not a cash-payout calculation.
 - Implement time-series grouping helper supporting daily, ISO weekly (Monday–Sunday), and monthly buckets aligned with Vietnam timezone (`Asia/Ho_Chi_Minh`); clip edge buckets to the requested date range.
 
-**Done when:** Unit tests verify BR-112 calculations, retry de-duplication, completed-refund date selection, historical commission-rate stability, and Vietnam-time daily/monthly and ISO-week boundaries across mock booking sets.
+**Done when:** Unit tests verify BR-112 calculations, retry de-duplication, completed-refund date selection, historical commission-rate stability, the two-phase 50%-refund cancellation allocation (10,000 VND paid -> 5,000 VND refund -> 3,500 VND provisional operator net; then a settled cancellation payout -> 4,500 VND operator net / 500 VND commission), and Vietnam-time daily/monthly and ISO-week boundaries across mock booking sets.
 
 ## Task 2 — Application Query & Handler
 

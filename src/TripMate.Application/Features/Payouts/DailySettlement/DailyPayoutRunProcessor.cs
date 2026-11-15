@@ -82,7 +82,9 @@ public sealed class DailyPayoutRunProcessor(
             var ordered = group.OrderBy(e => e.OrderKey).ToList();
             var debt = debtByOperator.TryGetValue(operatorId, out var d) ? d : 0m;
             var inputs = ordered
-                .Select(e => new DailySettlementInput(e.BookingId, e.Kind, e.PaidAmount, e.RefundAmount, e.CommissionRatePercent))
+                .Select(e => new DailySettlementInput(
+                    e.BookingId, e.Kind, e.PaidAmount, e.RefundAmount, e.CommissionRatePercent,
+                    e.SettledToOperatorAmount, e.OperatorReturnShare))
                 .ToList();
             var calculation = DailyPayoutAmountCalculator.Calculate(inputs, debt);
 

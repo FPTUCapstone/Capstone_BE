@@ -25,7 +25,7 @@ Phát hiện khi đối chiếu code đã viết (Task 0–11, v6) với SRS m�
 - **Bảng điều chỉnh (Q3):** ngừng dùng `payment.PayoutSettlementAdjustments` và `payment.PayoutAdjustments` trong nghiệp vụ. Giữ nguyên bảng. Xoá code carry over (`LoadOutstandingAdjustmentsAsync` và luồng liên quan).
 - **Khóa tài khoản (Q4):** không tái sử dụng cơ chế khóa vì không tồn tại. Làm tối thiểu: `Lock(lý do)` và `Unlock` trên `User`, cột lý do và thời điểm khóa, endpoint Staff mở khóa chỉ dành cho TO và có kiểm tra nợ. Khóa thủ công (BR-168) để sau.
 - **Sổ nợ TO (mới):** `payment.TourOperatorDebt` do payout tạo ra và đọc. Nhánh hoàn tiền sẽ ghi vào bảng này. Payout có interface để test khi chưa có dữ liệu thật.
-- **Tên cột (Q5):** không thêm cột tỷ lệ. Kind xác định 70% hoặc 20%, `PayoutAmount` lưu số tiền cố định (BR-146).
+- **Tên cột (Q5):** không thêm cột tỷ lệ. `Kind` xác định công thức settlement, `PayoutAmount` lưu số tiền cố định (BR-146).
 - **Thời điểm đợt Final (Q6):** lượt 10:00 (giờ VN) đầu tiên sau `TourSchedule.EndAtUtc`.
 - **Bỏ cửa sổ 13:00 (PD-7).** SRS chỉ nói thử lại mỗi giờ, tối đa 3 lần. Lịch thử là lỗi + 1 giờ, + 2 giờ, + 3 giờ.
 - **Bỏ chạy bù trong ngày (PD-16).** SRS UC-71 mục 1.a1 nói chạy ở lượt kế tiếp. Các booking bị lỡ vẫn đủ điều kiện ở lượt sau.
@@ -37,14 +37,14 @@ Phát hiện khi đối chiếu code đã viết (Task 0–11, v6) với SRS m�
 
 Trong phạm vi:
 - Lượt chạy tự động 10:00 (giờ VN) mỗi ngày, kể cả cuối tuần và ngày lễ.
-- Đợt `Advance` (70%) và `Final` (20%) cho mỗi booking không bị hủy, gom thành một lệnh chuyển cho mỗi TO mỗi ngày.
+- Đợt `Advance` (70%) và `Final` (20%) cho booking hoàn thành, cùng đợt `Cancellation` cho booking đã hủy có phí hủy, gom thành một lệnh chuyển cho mỗi TO mỗi ngày.
 - Bù trừ nợ treo theo TO, và khóa tự động TO khi nợ quá 15 ngày (BR-189).
 - Trạng thái, gửi lệnh, thử lại, đối soát, và hai thao tác của Administrator (UC-73): `[Retry Transfer]` và `[Mark as Resolved]`.
 - API đọc cho Staff/Administrator (UC-72) và lịch sử của TO (PD-13).
 - Endpoint Staff mở khóa TO (phần con của UC-48, chỉ cho TO).
 
 Ngoài phạm vi (nhánh hoàn tiền hoặc báo cáo):
-- Quy trình hoàn tiền UC-41, UC-42, UC-67 và các công thức hoàn (BR-135, BR-139, BR-140, BR-157, BR-158, BR-186, BR-187). Bao gồm cách ghi nợ vào `TourOperatorDebt`.
+- Quy trình khởi tạo, xác nhận và thực hiện hoàn tiền UC-41, UC-42, UC-67; cùng các công thức xác định `RefundAmount`. Daily Payout chỉ đọc refund đã `Processed` để lập đợt `Cancellation` theo quyết định nghiệp vụ ngày 14/11/2026: phần phí hủy còn lại chia 90% cho TO và 10% cho TripMate. Cách ghi nợ vào `TourOperatorDebt` vẫn thuộc nhánh hoàn tiền.
 - Báo cáo doanh thu và hoa hồng (UC-44, UC-45, BR-173).
 - Khóa thủ công của Staff (BR-168) và giao diện.
 - Màn hình FE (spec FE riêng).
@@ -60,11 +60,12 @@ Ngoài phạm vi (nhánh hoàn tiền hoặc báo cáo):
 - `Final`: booking có `EndAtUtc` đã qua và chưa có `Final`. Chọn ở lượt 10:00 đầu tiên sau `EndAtUtc` (Q6), và booking không ở trạng thái Cancelled.
 - Ví dụ: tour kết thúc 20/11 lúc 18:00 (giờ VN) thì `Final` được tạo ở lượt 10:00 ngày 21/11.
 
-**PD-2A. Booking đã hủy trước lượt chạy.** Lượt chạy không tạo đợt nào và ghi audit log với lý do "cancelled before run" (BR-142). Cách xử lý tiền liên quan đến hoàn thuộc nhánh hoàn tiền.
+**PD-2A. Booking đã hủy.** Sau khi refund của Traveler đã `Processed` (hoặc không có Refund vì mức hoàn 0%), hệ thống tạo tối đa một đợt `Cancellation`. Nếu hoàn đủ 100%, không có phí hủy, không tạo đợt và ghi audit `fully refunded cancellation`. Không được tạo `Cancellation` khi refund còn `Processing`, `RetryPending`, `Escalated` hoặc đang chờ phần tiền TO trả về.
 
 **PD-3. Số tiền.**
 - `Advance` = `floor(PaidAmount × 70%)`.
 - `Final` = `floor((PaidAmount − RefundAmount) × 20%)`. Trong phạm vi này `RefundAmount` luôn bằng 0 cho booking không bị hủy.
+- `Cancellation`: `CancellationFee = PaidAmount − ProcessedRefundAmount`; TO nhận `floor(CancellationFee × 90%)`, TripMate ghi `CancellationFee − PayoutAmount` là commission 10%. Nếu TO đã nhận `Advance`/`Final` rồi hoàn lại phần tương ứng theo UC-42, đợt này chỉ trả phần chênh để tổng số tiền TO giữ lại bằng 90% phí hủy.
 - Hoa hồng `Commission` = `floor(PaidAmount × CommissionRate)`, với `CommissionRate` chụp khi xác nhận booking (BR-140).
 - Làm tròn: TO nhận số đã làm tròn xuống đến đồng. Phần dư thuộc TripMate (nhất quán với BR-139).
 - `DebtOffset` = phần nợ TO được trừ vào đợt này (PD-15).
@@ -72,7 +73,7 @@ Ngoài phạm vi (nhánh hoàn tiền hoặc báo cáo):
 
 **PD-4. Số tiền cố định.** Sau khi tạo, số tiền không tính lại (BR-146).
 
-**PD-5. Tối đa một đợt mỗi loại mỗi booking.** Tối đa một `Advance` và một `Final`. Không có `Main`, `Retained`, hay điều chỉnh.
+**PD-5. Tối đa một đợt mỗi loại mỗi booking.** Tối đa một `Advance`, một `Final`, hoặc một `Cancellation` cho phần phí hủy. Không có `Main`, `Retained`, hay điều chỉnh.
 
 **PD-6. Chuyển tiền.** Lệnh gom chuyển sang `Processing` khi gửi. Khi gateway xác nhận, chuyển sang `Settled`, ghi mã tham chiếu cho lệnh và từng đợt. Kênh vẫn là chuyển khoản ngân hàng (SRS 3.10.5).
 
@@ -164,12 +165,13 @@ Lệnh đi qua `IPayoutTransferGateway` giả lập: thành công, lỗi tạm t
 ## Kiểm thử
 
 - Đơn vị: `Advance`, `Final`, làm tròn xuống, hoa hồng, trừ nợ và phần vượt nợ (PD-3, PD-15).
+- Đơn vị: `Cancellation` chia phí hủy 90/10, gồm trường hợp chưa từng payout và trường hợp cần true-up sau Advance/Final.
 - Đơn vị: `Payout ≤ 0` không tạo lệnh, nợ giữ lại.
 - Đơn vị: chuyển trạng thái hợp lệ và từ chối không hợp lệ, gồm `Resolved`.
 - Đơn vị: `[Mark as Resolved]` thiếu lý do bị từ chối (MSG178).
 - Đơn vị: `Lock`/`Unlock` trên `User`; mở khóa bị từ chối khi nợ còn lại.
 - Tích hợp: lượt 10:00 tạo đúng một `Advance` cho booking đủ 24 giờ, một `Final` ở lượt đầu tiên sau `EndAtUtc`.
-- Tích hợp: booking Cancelled trước lượt không tạo đợt và có audit log (PD-2A).
+- Tích hợp: booking hủy sau refund 50% tạo đúng một `Cancellation` (TO 90%, TripMate 10%); booking hoàn 100% không tạo đợt và có audit log (PD-2A).
 - Tích hợp: chạy lại cùng `RunDate` không trùng (PD-11).
 - Tích hợp: nợ lớn hơn đợt thì không chuyển đồng nào (PD-15).
 - Tích hợp: khóa tự động sau 15 ngày, có audit log, thu hồi token, MSG198; mở khóa bị từ chối khi còn nợ (PD-9A).
