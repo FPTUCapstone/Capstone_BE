@@ -37,13 +37,18 @@ internal sealed class NavigationSessionMutator(
             try
             {
                 var outcome = await dbContext.ExecuteInTransactionAsync(
-                    transactionCancellationToken => MutateAsync(
-                        sessionId,
-                        travelerUserId,
-                        requiredItineraryAccess,
-                        mutate,
-                        behaviorSignal,
-                        transactionCancellationToken),
+                    async transactionCancellationToken =>
+                    {
+                        var result = await MutateAsync(sessionId, travelerUserId,
+                            requiredItineraryAccess, mutate, behaviorSignal, transactionCancellationToken);
+                        return result.Result.IsSuccess
+                            ? result with
+                            {
+                                Result = Result.Success(await ActiveRouteNavigationProjection.EnrichAsync(
+                                dbContext, result.Result.Value, transactionCancellationToken))
+                            }
+                            : result;
+                    },
                     cancellationToken);
                 if (outcome.Expired)
                 {
