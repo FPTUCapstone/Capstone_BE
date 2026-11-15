@@ -32,7 +32,7 @@ public static class UserSessionValidation
             .Select(user => new { user.Role, user.Status, user.SessionVersion })
             .SingleOrDefaultAsync(context.HttpContext.RequestAborted);
         if (account is null || account.Role != role || account.SessionVersion != version
-            || account.Status is AccountStatus.Locked or AccountStatus.Inactive
+            || account.Status == AccountStatus.Locked
             || (role.IsAdministrationRole() && account.Status != AccountStatus.Active))
             context.Fail("The session is unavailable.");
     }

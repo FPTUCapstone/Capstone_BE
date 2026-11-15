@@ -153,7 +153,7 @@ public sealed class ModerateUserAccountCommandHandler(IApplicationDbContext db, 
             }, ct);
             return result.IsFailure ? await Fail(result.ErrorCode!, result.ErrorMessage!) : result;
         }
-        catch (DbUpdateConcurrencyException)
+        catch (Exception exception) when (exception is DbUpdateConcurrencyException || db.IsDeadlock(exception))
         {
             return await Fail(UserAccountErrors.Conflict, "The account state has changed.");
         }

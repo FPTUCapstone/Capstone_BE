@@ -17,6 +17,46 @@ namespace TripMate.Api.IntegrationTests.Admin;
 [Collection(nameof(TripMateApiFactory))]
 public sealed class UserAccountBoundaryTests
 {
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task SqlServer_StaffCanManuallyLockAndRestoreProviderButCannotReleaseUnverifiedLegacyLock()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await using var factory = new TripMateApiFactory(sqlServerConnectionString: database.ConnectionString);
+        await using var db = database.CreateDbContext();
+        var staff = new User { Role = UserRole.Staff, Status = AccountStatus.Active, FullName = "Staff", Email = "staff@tm228.test" };
+        var provider = new User { Role = UserRole.ServiceProvider, Status = AccountStatus.Active, FullName = "Provider", Email = "provider@tm228.test" };
+        var legacy = new User { Role = UserRole.ServiceProvider, Status = AccountStatus.Locked, FullName = "Legacy", Email = "legacy@tm228.test" };
+        db.Users.AddRange(staff, provider, legacy);
+        await db.SaveChangesAsync();
+        using var client = factory.CreateAuthenticatedClient(staff.Id, UserRole.Staff);
+        using var directory = await client.GetAsync("/api/v1/admin/users?role=ServiceProvider");
+        directory.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var body = JsonDocument.Parse(await directory.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("totalCount").GetInt32().Should().Be(2);
+
+        using var locked = await client.PostAsJsonAsync($"/api/v1/admin/users/{provider.Id}/lock", new { reason = "Policy" });
+        using var restored = await client.PostAsJsonAsync($"/api/v1/admin/users/{provider.Id}/unlock", new { reason = "Resolved" });
+        using var blocked = await client.PostAsJsonAsync($"/api/v1/admin/users/{legacy.Id}/unlock", new { reason = "Unverified" });
+        locked.StatusCode.Should().Be(HttpStatusCode.OK);
+        restored.StatusCode.Should().Be(HttpStatusCode.OK);
+        blocked.StatusCode.Should().Be(HttpStatusCode.Conflict);
+
+        var lockPath = $"/api/v1/admin/users/{provider.Id}/lock";
+        var results = await Task.WhenAll(
+            client.PostAsJsonAsync(lockPath, new { reason = "Concurrent policy A" }),
+            client.PostAsJsonAsync(lockPath, new { reason = "Concurrent policy B" }));
+        try
+        {
+            results.Select(result => result.StatusCode).Should().BeEquivalentTo(
+                [HttpStatusCode.OK, HttpStatusCode.Conflict]);
+        }
+        finally
+        {
+            foreach (var result in results) result.Dispose();
+        }
+    }
+
     [Theory]
     [InlineData("/api/v1/admin/tour-operator-applications/9999", false)]
     [InlineData("/api/v1/admin/tours/9999/approve", true)]
