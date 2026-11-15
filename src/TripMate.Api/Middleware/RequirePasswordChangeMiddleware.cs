@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.AccountProvisioning;
+using TripMate.Domain.Enums;
 
 namespace TripMate.Api.Middleware;
 
@@ -19,7 +20,10 @@ public sealed class RequirePasswordChangeMiddleware(RequestDelegate next)
                 || string.Equals(path, "/api/v1/auth/web/logout", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(path, "/api/v1/auth/refresh", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(path, "/api/v1/auth/web/refresh", StringComparison.OrdinalIgnoreCase));
-        if (context.User.Identity?.IsAuthenticated == true && currentUser.UserId is { } userId
+        // TM-225 provisions Staff and Service Provider accounts. Other roles retain
+        // their endpoint-owned availability and durable admission ordering.
+        var provisionedRole = currentUser.Role is nameof(UserRole.Staff) or nameof(UserRole.ServiceProvider);
+        if (context.User.Identity?.IsAuthenticated == true && provisionedRole && currentUser.UserId is { } userId
             && !canChangeOrSignOut
             && await db.Users.AsNoTracking().AnyAsync(user => user.Id == userId && user.MustChangePassword,
                 context.RequestAborted))

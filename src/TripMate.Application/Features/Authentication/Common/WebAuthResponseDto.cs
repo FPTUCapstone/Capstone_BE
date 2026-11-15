@@ -40,5 +40,6 @@ public sealed record WebGoogleAuthResponseDto(
     public static WebGoogleAuthResponseDto From(GoogleAuthResponse response) => new(
         response.UserId, response.Email, response.FullName ?? string.Empty,
         response.Role, response.Status, response.ApplicationStatus,
-        response.AccessToken, response.AccessTokenExpiresAtUtc, response.IsNewAccount);
+        response.AccessToken, response.AccessTokenExpiresAtUtc, response.IsNewAccount)
+    { MustChangePassword = response.MustChangePassword };
 }

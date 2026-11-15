@@ -3,9 +3,13 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 
+using Moq;
+
+using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.AccountProvisioning;
 using TripMate.Application.Features.Authentication.ChangePassword;
 using TripMate.Application.Features.Authentication.Common;
+using TripMate.Application.Features.Authentication.GoogleAuth;
 using TripMate.Application.Features.Authentication.Login;
 using TripMate.Application.Features.Authentication.WebRefresh;
 using TripMate.Application.UnitTests.TestUtilities;
@@ -27,6 +31,22 @@ public sealed class ProvisionedAuthenticationTests
         result.IsSuccess.Should().BeTrue();
         result.Value.MustChangePassword.Should().BeTrue();
         WebAuthResponseDto.From(result.Value).MustChangePassword.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task GoogleSignInPreservesRequiredPasswordChangeInWebProjection()
+    {
+        await using var db = TestDbContext.Create();
+        await Seed(db);
+        var firebase = new Mock<IFirebaseAuthService>();
+        firebase.Setup(service => service.VerifyIdTokenAsync("verified-google", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new FirebaseTokenValidationResult("provider-google", "provider@example.test", true, SignInProvider: "google.com"));
+        var handler = new GoogleAuthCommandHandler(db, firebase.Object, new FakeJwtTokenService(),
+            new FakeDateTimeProvider(), NullLogger<GoogleAuthCommandHandler>.Instance);
+        var result = await handler.Handle(new GoogleAuthCommand("verified-google"), default);
+        result.IsSuccess.Should().BeTrue();
+        WebGoogleAuthResponseDto.From(result.Value).MustChangePassword.Should().BeTrue();
+        (await db.Users.SingleAsync()).MustChangePassword.Should().BeTrue();
     }
 
     [Fact]
