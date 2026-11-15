@@ -58,7 +58,7 @@ public sealed class BookingConfiguration : IEntityTypeConfiguration<Booking>
         builder.Property(booking => booking.PaymentStatus)
             .HasColumnName("payment_status")
             .HasConversion<string>()
-            .HasMaxLength(16)
+            .HasMaxLength(nameof(TripMate.Domain.Enums.PaymentStatus.PartiallyRefunded).Length)
             .IsUnicode(false)
             .HasDefaultValueSql("'Unpaid'")
             .IsRequired();

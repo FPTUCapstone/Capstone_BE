@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Authentication.Common;
 using TripMate.Application.Features.Bookings.Common;
+using TripMate.Application.Features.Bookings.Refunds;
 using TripMate.Application.Features.CommercialServices.Common;
 using TripMate.Application.Features.Coupons.Common;
 using TripMate.Application.Features.Navigation.Common;
@@ -16,6 +17,7 @@ using TripMate.Application.Features.RecommendationFeedback.Common;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Tickets.Common;
 using TripMate.Application.Features.TourMedia.Common;
+using TripMate.Application.Features.TourRecommendations.Common;
 using TripMate.Application.Features.Tours.Shared;
 using TripMate.Application.Features.Traveler.Payments.Common;
 using TripMate.Application.Features.TripAlerts.Common;
@@ -349,6 +351,11 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             BookingCancellationErrorCodes.PolicyUnavailable => StatusCodes.Status503ServiceUnavailable,
             BookingCancellationErrorCodes.ConcurrentRetryExhausted => StatusCodes.Status503ServiceUnavailable,
 
+            RefundConfirmationErrorCodes.OperatorNotOwner => StatusCodes.Status403Forbidden,
+            RefundConfirmationErrorCodes.RequestNotPending or
+                RefundConfirmationErrorCodes.StatusPersistFailed => StatusCodes.Status409Conflict,
+            RefundConfirmationErrorCodes.ReturnReferenceRequired => StatusCodes.Status400BadRequest,
+
             TripMate.Application.Features.Admin.Bookings.Common.PlatformBookingErrorCodes.Forbidden =>
                 StatusCodes.Status403Forbidden,
             TripMate.Application.Features.Admin.Bookings.Common.PlatformBookingErrorCodes.InvalidDateRange =>
@@ -572,6 +579,9 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
                 or PaymentErrorCodes.PaymentBookingExpired => StatusCodes.Status409Conflict,
             PaymentErrorCodes.PaymentGatewayUnavailable => StatusCodes.Status503ServiceUnavailable,
             PaymentErrorCodes.PaymentCallbackInvalid => StatusCodes.Status400BadRequest,
+
+            TourRecommendationErrorCodes.InterestTagsRequired =>
+                StatusCodes.Status422UnprocessableEntity,
 
             _ => StatusCodes.Status400BadRequest,
         };

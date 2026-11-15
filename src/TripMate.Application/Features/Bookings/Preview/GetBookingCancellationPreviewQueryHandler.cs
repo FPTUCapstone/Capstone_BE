@@ -49,21 +49,32 @@ public sealed class GetBookingCancellationPreviewQueryHandler(
         var decision = BookingCancellationRefundRules.Evaluate(booking, isTraveler, clock.UtcNow,
             confirmed: false, successfulPayment);
 
+        // UC-41 6.a1/6.b1 (SRS 3.8.4.2): a missing or amount-mismatched payment never blocks the
+        // cancellation itself — it only changes the previewed refund outcome.
         bool canCancel = decision.ErrorCode is null
             || decision.ErrorCode == BookingCancellationErrorCodes.ConfirmationRequired;
         string? code = decision.ErrorCode;
         string? message = decision.ErrorMessage;
-        if (canCancel && decision.RefundAmount > 0m && successfulPayment is null)
+
+        decimal refundAmount = 0m;
+        string refundStatus = "NotRequired";
+        if (canCancel && decision.RefundAmount > 0m)
         {
-            canCancel = false;
-            code = BookingCancellationErrorCodes.PaymentNotRefundable;
-            message = "This booking has no verified payment eligible for a refund.";
+            if (successfulPayment is not null)
+            {
+                refundAmount = decision.RefundAmount;
+                refundStatus = nameof(RefundStatus.PendingOperatorConfirmation);
+            }
+            else if (await BookingCancellationPaymentVerifier.FindAnySuccessfulPaymentAsync(dbContext, booking, cancellationToken) is not null)
+            {
+                refundAmount = decision.RefundAmount;
+                refundStatus = nameof(RefundStatus.Reconciliation);
+            }
         }
 
-        decimal refundAmount = canCancel ? decision.RefundAmount : 0m;
         return Result.Success(new BookingCancellationPreviewResponse(booking.Id, booking.TourSchedule.Tour.Title,
             booking.TourSchedule.StartAtUtc, booking.Quantity, booking.TotalAmount, booking.Status.ToString(),
             booking.PaymentStatus.ToString(), canCancel, code, message,
-            refundAmount, refundAmount > 0m ? nameof(RefundStatus.Pending) : "NotRequired"));
+            refundAmount, refundStatus));
     }
 }

@@ -91,6 +91,66 @@ public sealed class TravelerEmergencyStatusTests
         status.Value.AcknowledgedAtUtc.Should().Be(Now);
     }
 
+    [Fact]
+    public async Task Status_AfterAnEmergencyStopOfAPaidBooking_SaysTheRefundIsUnderReview()
+    {
+        await using var db = TestDbContext.Create();
+        var schedule = SeedSchedule(db);
+        var booking = SeedBooking(db, schedule);
+        SeedTraveler(db, booking.TravelerUserId);
+        schedule.ReserveCapacity(1);
+        SeedSuccessfulPayment(db, booking);
+        await db.SaveChangesAsync();
+        var currentUser = new FakeCurrentUserService { UserId = 2, Role = nameof(UserRole.TourOperator) };
+        var clock = new FakeDateTimeProvider { UtcNow = Now };
+        await StopScheduleAsync(db, schedule, currentUser, clock);
+        currentUser.UserId = booking.TravelerUserId;
+        currentUser.Role = nameof(UserRole.Traveler);
+
+        var result = await new GetTourBookingEmergencyStatusQueryHandler(db, currentUser)
+            .Handle(new GetTourBookingEmergencyStatusQuery(booking.Id), CancellationToken.None);
+
+        result.Value.RefundHandling.Should().Be(EmergencyRefundHandling.UnderReview);
+    }
+
+    [Theory]
+    [InlineData(true, true, EmergencyRefundHandling.RefundSubmitted)]
+    [InlineData(true, false, EmergencyRefundHandling.UnderReview)]
+    [InlineData(false, false, EmergencyRefundHandling.NotApplicable)]
+    public async Task Status_AfterACancellationBeforeDeparture_SaysHowTheRefundIsHandled(
+        bool paid, bool verifiedPayment, string expected)
+    {
+        await using var db = TestDbContext.Create();
+        var schedule = SeedSchedule(db, Now.AddDays(4));
+        var booking = SeedBooking(db, schedule,
+            paid ? BookingStatus.Confirmed : BookingStatus.PendingPayment,
+            paid ? PaymentStatus.Paid : PaymentStatus.Unpaid);
+        SeedTraveler(db, booking.TravelerUserId);
+        schedule.ReserveCapacity(1);
+        if (verifiedPayment)
+            SeedSuccessfulPayment(db, booking);
+        await db.SaveChangesAsync();
+        var currentUser = new FakeCurrentUserService { UserId = 2, Role = nameof(UserRole.TourOperator) };
+        var clock = new FakeDateTimeProvider { UtcNow = Now };
+        var preview = await new GetEmergencyTourImpactQueryHandler(db, currentUser, clock)
+            .Handle(new GetEmergencyTourImpactQuery(1, schedule.Id), CancellationToken.None);
+        (await new EmergencyTourCommandHandler(db, currentUser, clock, PasswordHasher,
+                new NoOpWeatherSafetyReviewNotifier())
+            .Handle(new CancelBeforeDepartureCommand(1, schedule.Id, Guid.NewGuid(),
+                preview.Value.ImpactVersion, EmergencyTourReason.WeatherEmergency,
+                "Typhoon makes the departure unsafe."), CancellationToken.None))
+            .IsSuccess.Should().BeTrue();
+        currentUser.UserId = booking.TravelerUserId;
+        currentUser.Role = nameof(UserRole.Traveler);
+
+        var result = await new GetTourBookingEmergencyStatusQueryHandler(db, currentUser)
+            .Handle(new GetTourBookingEmergencyStatusQuery(booking.Id), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.RefundHandling.Should().Be(expected);
+        result.Value.TourId.Should().Be(1, "the traveler can book another departure of the same tour");
+    }
+
     private static async Task StopScheduleAsync(
         TestDbContext db,
         TourSchedule schedule,
@@ -108,7 +168,9 @@ public sealed class TravelerEmergencyStatusTests
                 "incident-123"), CancellationToken.None);
     }
 
-    private static TourSchedule SeedSchedule(TestDbContext db)
+    private static TourSchedule SeedSchedule(TestDbContext db) => SeedSchedule(db, Now.AddHours(-1));
+
+    private static TourSchedule SeedSchedule(TestDbContext db, DateTimeOffset start)
     {
         SeedApprovedOperator(db);
         var tour = (Tour)Activator.CreateInstance(typeof(Tour), nonPublic: true)!;
@@ -116,7 +178,7 @@ public sealed class TravelerEmergencyStatusTests
         typeof(Tour).GetProperty(nameof(Tour.OperatorUserId))!.SetValue(tour, 2L);
         typeof(Tour).GetProperty(nameof(Tour.Status))!.SetValue(tour, TourStatus.Published);
         var schedule = TourSchedule.Create(
-            Now.AddHours(-1), Now.AddHours(7), "Da Nang", 20, Now);
+            start, start.AddHours(8), "Da Nang", 20, Now);
         typeof(TourSchedule).GetProperty(nameof(TourSchedule.Id))!.SetValue(schedule, 5L);
         typeof(TourSchedule).GetProperty(nameof(TourSchedule.TourId))!.SetValue(schedule, 1L);
         typeof(TourSchedule).GetProperty(nameof(TourSchedule.Tour))!.SetValue(schedule, tour);
@@ -167,10 +229,11 @@ public sealed class TravelerEmergencyStatusTests
         db.Users.Add(traveler);
     }
 
-    private static Booking SeedBooking(TestDbContext db, TourSchedule schedule)
+    private static Booking SeedBooking(TestDbContext db, TourSchedule schedule,
+        BookingStatus status = BookingStatus.Confirmed, PaymentStatus paymentStatus = PaymentStatus.Paid)
     {
         var booking = Booking.Restore(10, 3, schedule.Id, 1, 100_000m,
-            BookingStatus.Confirmed, PaymentStatus.Paid,
+            status, paymentStatus,
             Booking.DefaultCancellationPolicySnapshot);
         typeof(Booking).GetProperty(nameof(Booking.TourSchedule))!.SetValue(booking, schedule);
         db.Bookings.Add(booking);

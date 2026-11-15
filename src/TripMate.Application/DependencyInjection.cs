@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using TripMate.Application.Common.Behaviours;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Operator.Revenue.Common;
+using TripMate.Application.Features.TourRecommendations.Refresh;
 using TripMate.Application.Features.Tours.Search;
 using TripMate.Application.Features.Traveler.Bookings.Expiry;
 using TripMate.Application.Features.TripAlerts.Common;
@@ -30,6 +31,7 @@ public static class DependencyInjection
         services.AddScoped<OperatorRevenueAggregator>();
         services.AddScoped<TripAlertPersistence>();
         services.AddScoped<TripAlertScanner>();
+        services.AddScoped<ITourRecommendationCandidateReader, TourRecommendationCandidateReader>();
 
         // Weather alerts support Operator review; only Operator commands can cancel a tour.
         services.AddScoped<IWeatherDepartureImpactLoader, WeatherDepartureImpactLoader>();

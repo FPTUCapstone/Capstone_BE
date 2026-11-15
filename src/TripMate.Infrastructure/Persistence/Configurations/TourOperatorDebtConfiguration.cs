@@ -18,6 +18,7 @@ public sealed class TourOperatorDebtConfiguration : IEntityTypeConfiguration<Tou
         builder.Property(debt => debt.RecoveredAmount).HasColumnName("recovered_amount").HasPrecision(18, 2).IsRequired();
         builder.Property(debt => debt.IncurredAtUtc).HasColumnName("incurred_at_utc").AsUtcDateTime2().IsRequired();
         builder.Property(debt => debt.CreatedAtUtc).HasColumnName("created_at_utc").AsUtcDateTime2().IsRequired();
+        builder.Property(debt => debt.RefundId).HasColumnName("refund_id");
         builder.Ignore(debt => debt.OutstandingAmount);
 
         builder.HasOne<User>().WithMany().HasForeignKey(debt => debt.TourOperatorUserId).OnDelete(DeleteBehavior.Restrict);

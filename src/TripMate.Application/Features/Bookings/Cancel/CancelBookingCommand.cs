@@ -8,4 +8,4 @@ public sealed record CancelBookingCommand(long BookingId, Guid IdempotencyKey, s
     string? ReasonDetail, bool Confirmed = false) : IRequest<Result<CancelBookingResponse>>;
 
 public sealed record CancelBookingResponse(long BookingId, string Status, decimal RefundAmount,
-    string RefundStatus, DateTimeOffset CancelledAtUtc);
+    string RefundStatus, DateTimeOffset CancelledAtUtc, long? RefundId);
