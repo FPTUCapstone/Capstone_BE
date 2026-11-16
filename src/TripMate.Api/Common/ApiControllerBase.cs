@@ -370,7 +370,7 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             RefundConfirmationErrorCodes.ReturnReferenceRequired => StatusCodes.Status400BadRequest,
 
             PostTripComplaintErrorCodes.Unauthorized => StatusCodes.Status401Unauthorized,
-            PostTripComplaintErrorCodes.NotFound => StatusCodes.Status404NotFound,
+            // PostTripComplaintErrorCodes.NotFound shares "complaint.not_found" with PartialRefundProposalErrorCodes.NotFound above.
             PostTripComplaintErrorCodes.Ineligible => StatusCodes.Status422UnprocessableEntity,
             PostTripComplaintErrorCodes.Duplicate => StatusCodes.Status409Conflict,
             PostTripComplaintErrorCodes.IdempotencyKeyPayloadMismatch => StatusCodes.Status409Conflict,
