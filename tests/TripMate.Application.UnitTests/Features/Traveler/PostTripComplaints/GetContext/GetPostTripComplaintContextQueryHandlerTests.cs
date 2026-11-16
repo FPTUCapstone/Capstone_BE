@@ -63,7 +63,9 @@ public sealed class GetPostTripComplaintContextQueryHandlerTests
         result.Value.IneligibilityReason.Should().Be(PostTripComplaintErrorCodes.Duplicate);
         result.Value.Complaint!.Evidence.Should().ContainSingle().Which.Should().BeEquivalentTo(new
         {
-            FileName = "receipt.pdf", ContentType = "application/pdf", SizeBytes = 512L,
+            FileName = "receipt.pdf",
+            ContentType = "application/pdf",
+            SizeBytes = 512L,
         });
     }
 

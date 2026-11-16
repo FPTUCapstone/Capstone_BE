@@ -1,4 +1,5 @@
 using FluentAssertions;
+
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
