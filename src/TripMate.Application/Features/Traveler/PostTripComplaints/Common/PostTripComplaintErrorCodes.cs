@@ -11,4 +11,5 @@ public static class PostTripComplaintErrorCodes
     public const string InvalidInput = "complaint.invalid_input";
     public const string IdempotencyKeyPayloadMismatch = "complaint.idempotency_key_payload_mismatch";
     public const string StorageUnavailable = "complaint.storage_unavailable";
+    public const string EvidenceAmendmentUnavailable = "complaint.evidence_amendment_unavailable";
 }

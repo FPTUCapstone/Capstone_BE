@@ -24,6 +24,7 @@ public sealed class PostTripComplaint : BaseEntity
     public long? RespondedByOperatorUserId { get; private set; }
     public decimal RefundableAmount { get; private set; }
     public long? RefundId { get; private set; }
+    public DateTimeOffset? EvidenceAmendmentUsedAtUtc { get; private set; }
     public byte[] RowVersion { get; private set; } = [];
 
     public static PostTripComplaint Create(long bookingId, long travelerUserId,
@@ -48,5 +49,17 @@ public sealed class PostTripComplaint : BaseEntity
             SubmittedAtUtc = submittedAt, ResponseDeadlineUtc = deadline,
             RefundableAmount = refundableAmount,
         };
+    }
+
+    public bool CanAppendEvidence(DateTimeOffset nowUtc, DateTimeOffset submissionDeadlineUtc) =>
+        Status == PostTripComplaintStatus.AwaitingOperatorResponse &&
+        EvidenceAmendmentUsedAtUtc is null &&
+        nowUtc.ToUniversalTime() <= submissionDeadlineUtc.ToUniversalTime();
+
+    public void MarkEvidenceAmended(DateTimeOffset amendedAtUtc)
+    {
+        if (EvidenceAmendmentUsedAtUtc is not null)
+            throw new InvalidOperationException("Complaint evidence has already been amended.");
+        EvidenceAmendmentUsedAtUtc = amendedAtUtc.ToUniversalTime();
     }
 }

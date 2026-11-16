@@ -1,3 +1,4 @@
+using FluentAssertions;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -23,7 +24,7 @@ public sealed class PostTripComplaintTests
     }
 
     [Theory]
-    [InlineData(0)]
+    [InlineData(-0.01)]
     [InlineData(-1)]
     public void Create_NegativeRefundableSnapshot_IsRejected(decimal refundableAmount)
     {
@@ -32,6 +33,17 @@ public sealed class PostTripComplaintTests
             DateTimeOffset.UtcNow.AddDays(7), refundableAmount);
 
         action.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void Create_ZeroRefundableSnapshot_IsAllowed()
+    {
+        DateTimeOffset submittedAt = new(2026, 11, 15, 3, 0, 0, TimeSpan.Zero);
+        PostTripComplaint complaint = PostTripComplaint.Create(100, 200,
+            PostTripComplaintReasonCategory.Other, "Details", submittedAt,
+            submittedAt.AddDays(7), 0m);
+
+        complaint.RefundableAmount.Should().Be(0m);
     }
 
     [Fact]

@@ -27,6 +27,7 @@ public sealed class PostTripComplaintConfiguration : IEntityTypeConfiguration<Po
         builder.Property(item => item.RespondedByOperatorUserId).HasColumnName("responded_by_operator_user_id");
         builder.Property(item => item.RefundableAmount).HasColumnName("refundable_amount").HasPrecision(12, 2).IsRequired();
         builder.Property(item => item.RefundId).HasColumnName("refund_id");
+        builder.Property(item => item.EvidenceAmendmentUsedAtUtc).HasColumnName("evidence_amendment_used_at").AsUtcDateTime2();
         builder.Property(item => item.RowVersion).HasColumnName("row_version").IsRowVersion();
         builder.HasIndex(item => item.BookingId).IsUnique().HasDatabaseName("UX_PostTripComplaints_Booking");
         builder.HasIndex(item => new { item.Status, item.ResponseDeadlineUtc }).HasDatabaseName("IX_PostTripComplaints_Deadline");

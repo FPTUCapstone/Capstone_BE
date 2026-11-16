@@ -2,7 +2,7 @@
 
 ## Status
 
-Draft for approval. This supersedes the obsolete Audit Log scope previously
+Approved. This supersedes the obsolete Audit Log scope previously
 stored under this UC number. It implements only Traveler complaint submission.
 UC-69 responds to the complaint, UC-75 handles a Traveler decision on a
 partial-refund proposal, and UC-42/UC-67 handle an approved refund.
@@ -14,9 +14,10 @@ with a required category and detail and optional evidence. The system stores
 evidence privately, creates an `AwaitingOperatorResponse` complaint, derives
 the response deadline required by UC-69, and notifies the owning Tour Operator.
 
-The feature does not create a refund, decide a complaint, expose evidence to a
-client other than through a later authorised read, or implement Staff/Admin
-dispute handling.
+The feature does not create a refund, decide a complaint, or implement
+Staff/Admin dispute handling. The approved product extension below permits the
+Traveler to view their own private evidence and append evidence once; UC-69
+will later provide the equivalent authorised Tour Operator read.
 
 ## Rules and eligibility
 
@@ -27,6 +28,16 @@ dispute handling.
 | BR-149 / MSG159 / MSG160 | Evidence is optional; at most five files, each no larger than 10 MB, no more than 30 MB total, and only JPG, PNG, WebP or PDF after server-side content validation. |
 | MSG161 | A successful atomic submission is recorded and the owning Tour Operator is notified. |
 | MSG127 | If private evidence storage or persistence cannot complete, record no complaint and make the staged evidence unavailable/eligible for cleanup. |
+
+### Approved product extension — one evidence amendment
+
+The original complaint reason category and detail are immutable. The owning
+Traveler may append evidence **once only**, while the complaint remains
+`AwaitingOperatorResponse` and before the original three-calendar-day
+submission deadline. The combined initial and appended evidence remains subject
+to BR-149: at most five files, 10 MB per file and 30 MB total. A successful
+append records its timestamp, creates an immutable audit entry and notifies the
+Tour Operator. It does not reset either deadline.
 
 Reason category is required and must be one of: `ItineraryNotAsAdvertised`,
 `ServiceQuality`, `GuideOrStaffConduct`, `SafetyIssue`,
@@ -56,7 +67,8 @@ model, shared by UC-68, UC-69 and UC-75.
   rejection reason, operator/traveler response timestamps and deadlines;
 - an immutable `RefundableAmount` snapshot for UC-69/UC-75, captured with the
   approved formula in the preceding policy;
-- nullable complaint-created `RefundId` and a row-version concurrency token.
+- nullable complaint-created `RefundId`, nullable `EvidenceAmendmentUsedAtUtc`
+  and a row-version concurrency token.
 
 `ComplaintEvidence` contains only private storage metadata: complaint FK,
 original safe display name, validated content type, byte size, opaque storage
@@ -65,6 +77,18 @@ permanent delivery URL. The database enforces one complaint per booking, valid
 status/category values, evidence FK/indexes and a positive bounded byte size.
 
 ## API contract
+
+The authenticated Traveler may first read the server-authoritative submission
+context and any existing safe complaint detail:
+
+```http
+GET /api/v1/traveler/bookings/{bookingId}/post-trip-complaint
+```
+
+It returns booking/tour timing, `canSubmit`, a safe ineligibility code and an
+existing complaint's category, detail, status, timestamps and evidence metadata
+only. It never returns an evidence storage key, URL, refundable amount or a
+refund. A foreign or missing booking remains `404`.
 
 ```http
 POST /api/v1/traveler/bookings/{bookingId}/post-trip-complaints
@@ -88,6 +112,33 @@ The API follows the platform `Result`/RFC-7807 error shape and requires an
 idempotency key. An identical replay returns the original result; the same key
 with a different logical payload returns conflict. The database unique
 constraint remains the final duplicate-submission defence.
+
+The authenticated Traveler may list safe summaries outside Trip History:
+
+```http
+GET /api/v1/traveler/post-trip-complaints
+```
+
+The endpoint returns complaint/booking IDs and code, tour title, status,
+timestamps and evidence count only.
+
+```http
+POST /api/v1/traveler/bookings/{bookingId}/post-trip-complaint/evidence
+Authorization: Bearer <Traveler JWT>
+Idempotency-Key: <UUID>
+Content-Type: multipart/form-data
+```
+
+This one-time append endpoint accepts only `evidence` parts and validates the
+aggregate limits against files already stored for the complaint.
+
+```http
+GET /api/v1/traveler/bookings/{bookingId}/post-trip-complaint/evidence/{evidenceId}/download
+Authorization: Bearer <Traveler JWT>
+```
+
+It verifies ownership before returning a short-lived private delivery URL or a
+private local-development stream. It never exposes the storage key.
 
 ## Security and storage
 
@@ -133,12 +184,17 @@ does not leave accessible evidence.
    complaint, and retry is safe.
 6. The response exposes no storage key, permanent evidence URL, payment
    credential, operator-owned field or recomputed refund amount.
-7. Unit, API authorization/idempotency, private-storage and SQL Server
+7. The eligible owner may append evidence exactly once without changing the
+   complaint's original terms or either deadline; aggregate limits,
+   idempotency, audit and operator notification are atomic.
+8. The owner can list complaints outside Trip History and view their own
+   evidence only through authorised private delivery.
+9. Unit, API authorization/idempotency, private-storage and SQL Server
    migration tests cover normal, boundary, failure and concurrency paths.
 
 ## Out of scope
 
-- Complaint list/detail/read links and Tour Operator response (UC-69).
+- Tour Operator response and its read surface (UC-69).
 - Traveler partial-proposal acceptance/decline (UC-75).
 - Refund confirmation, operator return share or gateway processing (UC-42,
   UC-67).
