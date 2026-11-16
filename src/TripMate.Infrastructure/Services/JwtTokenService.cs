@@ -26,6 +26,7 @@ public class JwtTokenService(IOptions<JwtOptions> options) : IJwtTokenService
             new Claim(JwtRegisteredClaimNames.Email, user.Email ?? string.Empty),
             new Claim(ClaimTypes.Role, user.Role.ToString()),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new Claim(User.SessionVersionClaim, user.SessionVersion.ToString(System.Globalization.CultureInfo.InvariantCulture)),
         };
 
         var keyString = !string.IsNullOrWhiteSpace(_options.SigningKey)

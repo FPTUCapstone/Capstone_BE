@@ -6,6 +6,7 @@ namespace TripMate.Domain.Entities;
 /// <summary>Maps dbo.Users in database/tripmate_schema_v7.sql — see UserConfiguration.</summary>
 public class User : BaseEntity
 {
+    public const string SessionVersionClaim = "session_version";
     public UserRole Role { get; set; }
 
     public string? Email { get; set; }
@@ -44,6 +45,8 @@ public class User : BaseEntity
 
     public DateTimeOffset? LockedAtUtc { get; set; }
 
+    public int SessionVersion { get; private set; }
+
     public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
 
     /// <summary>Locks this account for <paramref name="reason"/> (BR-189, PD-9A). The caller is
@@ -53,6 +56,8 @@ public class User : BaseEntity
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(reason);
 
+        if (Status != AccountStatus.Locked) StatusBeforeLock = Status;
+        SessionVersion = checked(SessionVersion + 1);
         Status = AccountStatus.Locked;
         LockReason = reason;
         LockedAtUtc = nowUtc;
@@ -63,7 +68,7 @@ public class User : BaseEntity
     /// before calling this).</summary>
     public void Unlock(DateTimeOffset nowUtc)
     {
-        Status = AccountStatus.Active;
+        Status = StatusBeforeLock ?? AccountStatus.Active;
         StatusBeforeLock = null;
         LockedByUserId = null;
         LockReason = null;
@@ -97,6 +102,7 @@ public class User : BaseEntity
         LockedAtUtc = lockedAtUtc.ToUniversalTime();
         LockReason = lockReason.Trim();
         Status = AccountStatus.Locked;
+        SessionVersion = checked(SessionVersion + 1);
     }
 
     public bool TryRestoreFromLock(out AccountStatus restoredStatus)

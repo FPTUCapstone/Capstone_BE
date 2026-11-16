@@ -11,7 +11,7 @@ namespace TripMate.Application.UnitTests.Features.Admin.ActiveTrips;
 public sealed class GetActiveTripsQueryHandlerTests
 {
     [Fact]
-    public async Task Handle_NonAdministrator_ReturnsForbidden()
+    public async Task Handle_NonStaff_ReturnsForbidden()
     {
         await using var db = TestDbContext.Create();
         var handler = new GetActiveTripsQueryHandler(db, new CurrentUser(4, "Traveler"), new Clock());
@@ -26,7 +26,7 @@ public sealed class GetActiveTripsQueryHandlerTests
     public async Task Handle_NoActiveTrips_ReturnsSuccessfulEmptyPage()
     {
         await using var db = TestDbContext.Create();
-        var handler = new GetActiveTripsQueryHandler(db, new CurrentUser(1, "Administrator"), new Clock());
+        var handler = new GetActiveTripsQueryHandler(db, new CurrentUser(1, "Staff"), new Clock());
 
         var result = await handler.Handle(new GetActiveTripsQuery(), CancellationToken.None);
 
@@ -47,7 +47,7 @@ public sealed class GetActiveTripsQueryHandlerTests
         SeedTourSession(db, 4, 6, Booking(db, 13, 6, BookingStatus.Confirmed, PaymentStatus.Paid), interrupted: false);
         db.Refunds.Add(Refund.CreatePending(11, 1, 1, 100_000m, null, RefundInitiator.Administrator, Now));
         await db.SaveChangesAsync();
-        var handler = new GetActiveTripsQueryHandler(db, new CurrentUser(1, "Administrator"), new Clock());
+        var handler = new GetActiveTripsQueryHandler(db, new CurrentUser(1, "Staff"), new Clock());
 
         var result = await handler.Handle(new GetActiveTripsQuery(), CancellationToken.None);
 

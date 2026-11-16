@@ -144,7 +144,7 @@ public sealed class ActiveTripDetailsSqlServerTests
         await database.ExecuteNonQueryAsync(
             $"UPDATE trip.TripSessions SET fsm_state = 'Interrupted' WHERE session_id = {sessionId};");
 
-        var handler = new GetActiveTripDetailsQueryHandler(db, new Administrator(), new Clock());
+        var handler = new GetActiveTripDetailsQueryHandler(db, new Staff(), new Clock());
 
         var result = await handler.Handle(new GetActiveTripDetailsQuery(sessionId), default);
 
@@ -235,7 +235,7 @@ public sealed class ActiveTripDetailsSqlServerTests
             SET @session = SCOPE_IDENTITY();
             """);
         await using var db = database.CreateDbContext();
-        var handler = new GetActiveTripDetailsQueryHandler(db, new Administrator(), new Clock());
+        var handler = new GetActiveTripDetailsQueryHandler(db, new Staff(), new Clock());
         var sessionId = await db.TripSessions.AsNoTracking().Select(session => (long)session.Id).SingleAsync();
 
         var result = await handler.Handle(new GetActiveTripDetailsQuery(sessionId), default);
@@ -268,7 +268,7 @@ public sealed class ActiveTripDetailsSqlServerTests
             """);
         await using var db = database.CreateDbContext();
         var sessionId = await db.TripSessions.AsNoTracking().Select(session => session.Id).SingleAsync();
-        var handler = new GetActiveTripDetailsQueryHandler(db, new Administrator(), new Clock());
+        var handler = new GetActiveTripDetailsQueryHandler(db, new Staff(), new Clock());
 
         var result = await handler.Handle(new GetActiveTripDetailsQuery(sessionId), default);
 
@@ -297,7 +297,7 @@ public sealed class ActiveTripDetailsSqlServerTests
             VALUES (@itinerary, @itinerary, @traveler, NEWID(), 'Exploring', '2026-09-25T17:00:00');
             """);
         await using var db = database.CreateDbContext();
-        var handler = new GetActiveTripDetailsQueryHandler(db, new Administrator(), new Clock());
+        var handler = new GetActiveTripDetailsQueryHandler(db, new Staff(), new Clock());
         var sessionId = await db.TripSessions.AsNoTracking().Select(session => (long)session.Id).SingleAsync();
 
         var result = await handler.Handle(new GetActiveTripDetailsQuery(sessionId), default);
@@ -340,7 +340,7 @@ public sealed class ActiveTripDetailsSqlServerTests
             VALUES (@group, @traveler, 'Active');
             """);
         await using var db = database.CreateDbContext();
-        var handler = new GetActiveTripDetailsQueryHandler(db, new Administrator(), new Clock());
+        var handler = new GetActiveTripDetailsQueryHandler(db, new Staff(), new Clock());
         var sessionId = await db.TripSessions.AsNoTracking().Select(session => (long)session.Id).SingleAsync();
 
         var result = await handler.Handle(new GetActiveTripDetailsQuery(sessionId), default);
@@ -351,10 +351,10 @@ public sealed class ActiveTripDetailsSqlServerTests
         result.Value.GroupOrTraveler.Should().Be("Group Host");
     }
 
-    private sealed class Administrator : ICurrentUserService
+    private sealed class Staff : ICurrentUserService
     {
         public long? UserId => 1;
-        public string? Role => "Administrator";
+        public string? Role => "Staff";
     }
 
     private sealed class Clock : IDateTimeProvider

@@ -4,10 +4,8 @@ using System.Text.Json;
 using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
-using TripMate.Application.Common.Interfaces;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -49,7 +47,7 @@ public sealed class AuditLogDetailEndpointTests
     public async Task Get_WithNonAdministratorJwt_ReturnsForbidden(UserRole role)
     {
         await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
-        using var client = CreateClient(factory, role);
+        using var client = await CreateClientAsync(factory, role);
 
         var response = await client.GetAsync("/api/v1/admin/audit-logs/1");
 
@@ -61,7 +59,7 @@ public sealed class AuditLogDetailEndpointTests
     public async Task Get_WithAdministratorAndMissingEntry_ReturnsNotFoundProblemDetails()
     {
         await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
-        using var client = CreateClient(factory, UserRole.Administrator);
+        using var client = await CreateClientAsync(factory, UserRole.Administrator);
 
         var response = await client.GetAsync("/api/v1/admin/audit-logs/999");
 
@@ -104,7 +102,7 @@ public sealed class AuditLogDetailEndpointTests
             await db.SaveChangesAsync();
             return log.Id;
         });
-        using var client = CreateClient(factory, UserRole.Administrator);
+        using var client = await CreateClientAsync(factory, UserRole.Administrator);
 
         var response = await client.GetAsync($"/api/v1/admin/audit-logs/{id}");
 
@@ -147,7 +145,7 @@ public sealed class AuditLogDetailEndpointTests
             await db.SaveChangesAsync();
             return log.Id;
         });
-        using var client = CreateClient(factory, UserRole.Administrator);
+        using var client = await CreateClientAsync(factory, UserRole.Administrator);
 
         var response = await client.GetAsync($"/api/v1/admin/audit-logs/{id}");
 
@@ -173,7 +171,7 @@ public sealed class AuditLogDetailEndpointTests
             await db.SaveChangesAsync();
             return log.Id;
         });
-        using var client = CreateClient(factory, UserRole.Administrator);
+        using var client = await CreateClientAsync(factory, UserRole.Administrator);
 
         var response = await client.GetAsync($"/api/v1/admin/audit-logs/{id}");
 
@@ -183,17 +181,17 @@ public sealed class AuditLogDetailEndpointTests
         body.RootElement.GetProperty("reason").ValueKind.Should().Be(JsonValueKind.Null);
     }
 
-    private static HttpClient CreateClient(TripMateApiFactory factory, UserRole role)
+    private static async Task<HttpClient> CreateClientAsync(TripMateApiFactory factory, UserRole role)
     {
-        var service = factory.Services.GetRequiredService<IJwtTokenService>();
-        var token = service.GenerateAccessToken(new User
+        var user = new User
         {
             Id = 100,
             Email = "audit-reader@example.com",
             FullName = "Audit Reader",
             Role = role,
             Status = AccountStatus.Active,
-        }).Token;
+        };
+        var token = await factory.IssueTokenForPersistedUserAsync(user);
         return factory.CreateJwtClient(token);
     }
 }

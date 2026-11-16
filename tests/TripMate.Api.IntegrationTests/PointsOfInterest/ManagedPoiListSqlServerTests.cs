@@ -176,10 +176,10 @@ public sealed class ManagedPoiListSqlServerTests
             }
             var beforeDeniedRead = await ReadSnapshotAsync(database);
             using var denied = await client.GetAsync(Route);
-            denied.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+            denied.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
             AssertNoStore(denied);
-            using var problem = JsonDocument.Parse(await denied.Content.ReadAsStringAsync());
-            problem.RootElement.GetProperty("errorCode").GetString().Should().Be(ManagedPoiErrors.AccessRequired);
+            denied.Headers.WwwAuthenticate.Should().Contain(header => header.Scheme == "Bearer");
+            (await denied.Content.ReadAsStringAsync()).Should().BeEmpty();
             (await ReadSnapshotAsync(database)).Should().Be(beforeDeniedRead);
         }
         noSave.Calls.Should().Be(0);

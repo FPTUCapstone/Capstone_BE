@@ -10,7 +10,7 @@ using TripMate.Application.Features.Admin.TourOperatorApplications.Reject;
 
 namespace TripMate.Api.Controllers.V1;
 
-[Authorize(Roles = "Administrator")]
+[Authorize(Roles = "Staff")]
 [Route("api/v1/admin/tour-operator-applications")]
 public class AdminTourOperatorApplicationsController(ISender sender) : ApiControllerBase(sender)
 {

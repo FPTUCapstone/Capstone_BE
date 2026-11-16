@@ -35,6 +35,7 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(u => u.CreatedAtUtc).HasColumnName("created_at").AsUtcDateTime2();
         builder.Property(u => u.UpdatedAtUtc).HasColumnName("updated_at").AsUtcDateTime2();
         builder.Property(u => u.LastLoginAtUtc).HasColumnName("last_login_at").AsUtcDateTime2();
+        builder.Property(u => u.SessionVersion).HasColumnName("session_version").IsConcurrencyToken();
         builder.HasIndex(u => u.Email).IsUnique().HasFilter("[email] IS NOT NULL")
             .HasDatabaseName("UX_Users_Email");
         builder.HasIndex(u => u.PhoneNumber).IsUnique().HasFilter("[phone_number] IS NOT NULL")

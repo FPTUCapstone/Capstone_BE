@@ -109,6 +109,9 @@
     <None Include="..\..\database\migrations\20261007_add_notification_delivery_outbox.sql"
           Link="Database\migrations\20261007_add_notification_delivery_outbox.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261115_tm228_user_session_boundaries.sql"
+          Link="Database\migrations\20261115_tm228_user_session_boundaries.sql"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\database\seeds\20261003_uc30_commercial_services_development.sql"
           Link="Database\seeds\20261003_uc30_commercial_services_development.sql"
           CopyToOutputDirectory="PreserveNewest" />

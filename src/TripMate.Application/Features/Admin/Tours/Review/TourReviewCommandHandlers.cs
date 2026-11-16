@@ -21,7 +21,7 @@ public sealed class ApproveTourCommandHandler(IApplicationDbContext dbContext, I
 
     private async Task<Result<TourReviewResponse>> Transition(long tourId, TourStatus target, string? reason, CancellationToken cancellationToken)
     {
-        var access = AuthorizeAdmin();
+        var access = AuthorizeStaff();
         if (access is not null) return access;
         var tour = await dbContext.Tours.SingleOrDefaultAsync(x => x.Id == tourId, cancellationToken);
         if (tour is null) return NotFound();
@@ -32,8 +32,8 @@ public sealed class ApproveTourCommandHandler(IApplicationDbContext dbContext, I
         return Result.Success(new TourReviewResponse(tour.Id, tour.Status.ToString(), now));
     }
 
-    private Result<TourReviewResponse>? AuthorizeAdmin() => currentUser.UserId is null || currentUser.Role != nameof(UserRole.Administrator)
-        ? Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.AdminAccessRequired, "Administrator access is required.") : null;
+    private Result<TourReviewResponse>? AuthorizeStaff() => currentUser.UserId is null || currentUser.Role != nameof(UserRole.Staff)
+        ? Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.AdminAccessRequired, "Staff access is required.") : null;
     private static Result<TourReviewResponse> NotFound() => Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.TourNotFound, "The tour is unavailable.");
     private static Result<TourReviewResponse> InvalidState() => Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.InvalidState, "The tour is not awaiting review.");
     private async Task SaveAudit(Tour tour, TourStatus before, string action, DateTimeOffset now, string? reason, CancellationToken ct)
@@ -50,8 +50,8 @@ public sealed class RejectTourCommandHandler(IApplicationDbContext dbContext, IC
 {
     public async Task<Result<TourReviewResponse>> Handle(RejectTourCommand request, CancellationToken cancellationToken)
     {
-        if (currentUser.UserId is null || currentUser.Role != nameof(UserRole.Administrator))
-            return Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.AdminAccessRequired, "Administrator access is required.");
+        if (currentUser.UserId is null || currentUser.Role != nameof(UserRole.Staff))
+            return Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.AdminAccessRequired, "Staff access is required.");
         if (string.IsNullOrWhiteSpace(request.Reason) || request.Reason.Trim().Length > Tour.RejectionReasonMaxLength)
             return Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.RejectionReasonInvalid, "A rejection reason of at most 500 characters is required.");
         var tour = await dbContext.Tours.SingleOrDefaultAsync(x => x.Id == request.TourId, cancellationToken);
@@ -72,8 +72,8 @@ public sealed class PublishTourCommandHandler(IApplicationDbContext dbContext, I
 {
     public async Task<Result<TourReviewResponse>> Handle(PublishTourCommand request, CancellationToken cancellationToken)
     {
-        if (currentUser.UserId is null || currentUser.Role != nameof(UserRole.Administrator))
-            return Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.AdminAccessRequired, "Administrator access is required.");
+        if (currentUser.UserId is null || currentUser.Role != nameof(UserRole.Staff))
+            return Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.AdminAccessRequired, "Staff access is required.");
         var tour = await dbContext.Tours.SingleOrDefaultAsync(x => x.Id == request.TourId, cancellationToken);
         if (tour is null) return Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.TourNotFound, "The tour is unavailable.");
         if (tour.Status != TourStatus.Approved) return Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.InvalidState, "Only Approved tours can be published.");
@@ -92,8 +92,8 @@ public sealed class UnpublishTourCommandHandler(IApplicationDbContext dbContext,
 {
     public async Task<Result<TourReviewResponse>> Handle(UnpublishTourCommand request, CancellationToken cancellationToken)
     {
-        if (currentUser.UserId is null || currentUser.Role != nameof(UserRole.Administrator))
-            return Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.AdminAccessRequired, "Administrator access is required.");
+        if (currentUser.UserId is null || currentUser.Role != nameof(UserRole.Staff))
+            return Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.AdminAccessRequired, "Staff access is required.");
         var tour = await dbContext.Tours.SingleOrDefaultAsync(x => x.Id == request.TourId, cancellationToken);
         if (tour is null) return Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.TourNotFound, "The tour is unavailable.");
         if (tour.Status != TourStatus.Published)

@@ -77,9 +77,8 @@ public sealed class WeatherSafetyReviewSignalRTests
     public async Task Negotiate_AcceptsQueryJwtForTourOperator_AndRejectsOtherRoles()
     {
         await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
-        var tokenService = factory.Services.GetRequiredService<IJwtTokenService>();
-        string operatorToken = GenerateToken(tokenService, 42, UserRole.TourOperator);
-        string travelerToken = GenerateToken(tokenService, 43, UserRole.Traveler);
+        string operatorToken = await factory.IssueTokenForPersistedUserAsync(HubUser(42, UserRole.TourOperator));
+        string travelerToken = await factory.IssueTokenForPersistedUserAsync(HubUser(43, UserRole.Traveler));
         using var client = factory.CreateClient();
 
         using var operatorResponse = await client.PostAsync(
@@ -104,8 +103,7 @@ public sealed class WeatherSafetyReviewSignalRTests
         await using var baseFactory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
         await using var factory = baseFactory.WithWebHostBuilder(builder =>
             builder.ConfigureServices(services => services.AddSingleton<ILogEventSink>(sink)));
-        string token = GenerateToken(
-            factory.Services.GetRequiredService<IJwtTokenService>(), 42, UserRole.TourOperator);
+        string token = await baseFactory.IssueTokenForPersistedUserAsync(HubUser(42, UserRole.TourOperator));
         using var client = factory.CreateClient();
 
         using var hub = await client.PostAsync(
@@ -120,15 +118,14 @@ public sealed class WeatherSafetyReviewSignalRTests
         lines.Should().NotContain(line => line.Contains("access_token"));
     }
 
-    private static string GenerateToken(IJwtTokenService tokenService, long userId, UserRole role) =>
-        tokenService.GenerateAccessToken(new User
-        {
-            Id = userId,
-            Email = $"signalr-{userId}@test.local",
-            FullName = "SignalR Test User",
-            Role = role,
-            Status = AccountStatus.Active,
-        }).Token;
+    private static User HubUser(long userId, UserRole role) => new()
+    {
+        Id = userId,
+        Email = $"signalr-{userId}@test.local",
+        FullName = "SignalR Test User",
+        Role = role,
+        Status = AccountStatus.Active,
+    };
 
     private sealed class TestHubContext(IHubClients clients) : IHubContext<WeatherSafetyReviewHub>
     {
