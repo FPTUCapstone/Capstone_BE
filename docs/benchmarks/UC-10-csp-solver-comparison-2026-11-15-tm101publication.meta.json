@@ -1,0 +1,41 @@
+{
+  "date": "2026-11-15-tm101publication",
+  "source_hash": "9ddba42bbb505dce2253230c0ec8040678d24a0cb0f754fffb089d1e9bbc08c3",
+  "source_file_count": 59,
+  "generated_at_utc": "2026-11-14T17:48:51Z",
+  "operating_system": "Microsoft Windows 10.0.19045",
+  "processor": "Intel64 Family 6 Model 63 Stepping 2, GenuineIntel",
+  "logical_processors": 48,
+  "runtime": ".NET 10.0.12",
+  "build_configuration": "Release",
+  "warmup_iterations": 1,
+  "measured_iterations": 3,
+  "seeds": 25,
+  "candidate_counts": [
+    10,
+    20,
+    40
+  ],
+  "mandatory_counts": [
+    0,
+    1,
+    3,
+    6
+  ],
+  "rest_preferences": [
+    "None",
+    "Auto",
+    "Frequent"
+  ],
+  "named_scenario_count": 7,
+  "max_matrix_candidates": 40,
+  "csp": {
+    "max_stops": null,
+    "max_optional_domain_size": null,
+    "max_nodes": 200000,
+    "time_limit_milliseconds": 2500,
+    "final_candidates_to_validate": 5,
+    "use_initial_incumbent": null,
+    "polish_with_local_search": false
+  }
+}

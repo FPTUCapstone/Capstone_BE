@@ -113,6 +113,7 @@ try
         options.SwaggerDoc("v1", new OpenApiInfo { Title = "TripMate API", Version = "v1" });
         options.SchemaFilter<PoiEnumSchemaFilter>();
         options.SchemaFilter<PoiContractSchemaFilter>();
+        options.SchemaFilter<RouteContractSchemaFilter>();
         options.SchemaFilter<ProblemDetailsContractSchemaFilter>();
         options.SchemaFilter<TripReviewRequestSchemaFilter>();
         options.OperationFilter<AllowAnonymousOperationFilter>();
@@ -167,6 +168,7 @@ try
             };
             options.Events = new JwtBearerEvents
             {
+                OnTokenValidated = UserSessionValidation.ValidateAsync,
                 OnMessageReceived = context =>
                 {
                     var accessToken = context.Request.Query["access_token"];
@@ -303,6 +305,7 @@ try
     app.UseHttpsRedirection();
 
     app.UseAuthentication();
+    app.UseMiddleware<AdministrationFailureAuditMiddleware>();
     app.UseAuthorization();
 
     app.UseRateLimiter();

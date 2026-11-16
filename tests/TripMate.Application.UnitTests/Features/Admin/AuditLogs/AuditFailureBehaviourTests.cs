@@ -20,7 +20,7 @@ namespace TripMate.Application.UnitTests.Features.Admin.AuditLogs;
 public class AuditFailureBehaviourTests
 {
     private readonly Mock<IAuditFailureRecorder> _recorder = new();
-    private readonly FakeCurrentUserService _user = new() { UserId = 1, Role = "Administrator" };
+    private readonly FakeCurrentUserService _user = new() { UserId = 1, Role = "Staff" };
 
     [Fact]
     public async Task StateFailure_IsRecordedAndOriginalResultPreserved()
@@ -125,10 +125,10 @@ public class AuditFailureBehaviourTests
     }
 
     [Fact]
-    public async Task OperatorApplicationStateFailure_ByStaff_IsNotRecorded()
+    public async Task OperatorApplicationStateFailure_ByAdministrator_IsNotRecorded()
     {
-        // Reviewing operator applications stays an Administrator action.
-        _user.Role = "Staff";
+        // An Administrator is rejected before any Staff operator application work.
+        _user.Role = "Administrator";
         var failure = Result.Failure<ApproveOperatorApplicationResponseDto>(TourOperatorApplicationErrorCodes.NotPending, "Already reviewed");
 
         await Behaviour().Handle(new(42), _ => Task.FromResult(failure), CancellationToken.None);

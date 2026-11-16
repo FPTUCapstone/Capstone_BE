@@ -22,6 +22,7 @@ public sealed record TourDetailDto(
     IReadOnlyList<TourDetailScheduleDto> Schedules,
     bool HasBookableSchedule,
     TourDetailRatingDto Rating,
+    IReadOnlyList<TourDetailPublishedReviewDto> Reviews,
     DateTime AsOfUtc);
 
 /// <summary>Only the company name and contact phone are public; nothing else about the operator.</summary>
@@ -67,3 +68,8 @@ public sealed record TourDetailScheduleDto(
     bool Bookable);
 
 public sealed record TourDetailRatingDto(decimal? Average, int Count);
+
+/// <summary>Explicit public allow-list. DisplayName is the review's stored privacy choice.</summary>
+public sealed record TourDetailPublishedReviewDto(
+    string ReviewId, string DisplayName, byte Rating, string Title, string Content,
+    DateTime CreatedAtUtc, DateTime UpdatedAtUtc);

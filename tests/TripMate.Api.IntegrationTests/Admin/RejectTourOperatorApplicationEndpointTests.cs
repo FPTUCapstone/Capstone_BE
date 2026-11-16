@@ -31,7 +31,7 @@ public class RejectTourOperatorApplicationEndpointTests
     }
 
     [Fact]
-    public async Task Post_WithNonAdministratorRole_ReturnsForbidden()
+    public async Task Post_WithNonStaffRole_ReturnsForbidden()
     {
         await using var factory = new TripMateApiFactory();
         using var client = factory.CreateAuthenticatedClient(1, UserRole.Traveler);
@@ -50,7 +50,7 @@ public class RejectTourOperatorApplicationEndpointTests
     {
         await using var factory = new TripMateApiFactory();
         var seed = await SeedPendingApplicationAsync(factory);
-        using var client = factory.CreateAuthenticatedClient(seed.AdminId, UserRole.Administrator);
+        using var client = factory.CreateAuthenticatedClient(seed.AdminId, UserRole.Staff);
 
         var response = await client.PostAsJsonAsync(
             $"/api/v1/admin/tour-operator-applications/{seed.OperatorId}/reject",
@@ -64,7 +64,7 @@ public class RejectTourOperatorApplicationEndpointTests
     {
         await using var factory = new TripMateApiFactory();
         var seed = await SeedPendingApplicationAsync(factory);
-        using var client = factory.CreateAuthenticatedClient(seed.AdminId, UserRole.Administrator);
+        using var client = factory.CreateAuthenticatedClient(seed.AdminId, UserRole.Staff);
 
         var response = await client.PostAsJsonAsync(
             $"/api/v1/admin/tour-operator-applications/{seed.OperatorId}/reject",
@@ -77,7 +77,7 @@ public class RejectTourOperatorApplicationEndpointTests
     public async Task Post_WhenApplicationDoesNotExist_ReturnsNotFound()
     {
         await using var factory = new TripMateApiFactory();
-        using var client = factory.CreateAuthenticatedClient(1, UserRole.Administrator);
+        using var client = factory.CreateAuthenticatedClient(1, UserRole.Staff);
 
         var response = await client.PostAsJsonAsync(
             "/api/v1/admin/tour-operator-applications/999999/reject",
@@ -91,7 +91,7 @@ public class RejectTourOperatorApplicationEndpointTests
     {
         await using var factory = new TripMateApiFactory();
         var seed = await SeedPendingApplicationAsync(factory, AccountStatus.Active, OperatorApprovalStatus.Approved);
-        using var client = factory.CreateAuthenticatedClient(seed.AdminId, UserRole.Administrator);
+        using var client = factory.CreateAuthenticatedClient(seed.AdminId, UserRole.Staff);
 
         var response = await client.PostAsJsonAsync(
             $"/api/v1/admin/tour-operator-applications/{seed.OperatorId}/reject",
@@ -105,7 +105,7 @@ public class RejectTourOperatorApplicationEndpointTests
     {
         await using var factory = new TripMateApiFactory();
         var seed = await SeedPendingApplicationAsync(factory);
-        using var client = factory.CreateAuthenticatedClient(seed.AdminId, UserRole.Administrator);
+        using var client = factory.CreateAuthenticatedClient(seed.AdminId, UserRole.Staff);
         var reason = new string('x', OperatorProfile.RejectionReasonMaxLength);
 
         var response = await client.PostAsJsonAsync(
@@ -146,9 +146,9 @@ public class RejectTourOperatorApplicationEndpointTests
             var now = new DateTimeOffset(2026, 9, 28, 0, 0, 0, TimeSpan.Zero);
             var admin = new User
             {
-                Role = UserRole.Administrator,
+                Role = UserRole.Staff,
                 Email = $"admin-{Guid.NewGuid():N}@tripmate.local",
-                FullName = "UC-51 Administrator",
+                FullName = "UC-51 Staff",
                 Status = AccountStatus.Active,
                 CreatedAtUtc = now,
                 UpdatedAtUtc = now,

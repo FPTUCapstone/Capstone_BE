@@ -9,6 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
+using TripMate.Domain.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -29,14 +30,22 @@ public class AuditOutcomeEndpointTests
             await db.SaveChangesAsync();
             return user.Id;
         });
+        var staffId = await factory.WithDbContextAsync(async db =>
+        {
+            var staff = new User { Email = "staff@example.com", FullName = "Staff", Role = UserRole.Staff, Status = AccountStatus.Active };
+            db.Users.Add(staff);
+            await db.SaveChangesAsync();
+            return staff.Id;
+        });
+        using var staffClient = factory.CreateAuthenticatedClient(staffId, UserRole.Staff);
         using var client = factory.CreateAuthenticatedClient(adminId, UserRole.Administrator);
 
-        var response = await client.PostAsync($"/api/v1/admin/tour-operator-applications/{targetId}/approve", null);
+        var response = await staffClient.PostAsync($"/api/v1/admin/tour-operator-applications/{targetId}/approve", null);
 
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
         var audit = await factory.WithDbContextAsync(db => db.AuditLogs.SingleAsync());
         audit.Result.Should().Be(AuditOutcome.Failure);
-        audit.ActorUserId.Should().Be(adminId);
+        audit.ActorUserId.Should().Be(staffId);
         audit.Reason.Should().BeNull();
         audit.BeforeData.Should().BeNull();
         using var metadata = JsonDocument.Parse(audit.AfterData!);
@@ -109,7 +118,10 @@ public class AuditOutcomeEndpointTests
         (await admin.PostAsJsonAsync("/api/v1/admin/pois", new { name = "", categoryId = 1 })).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await traveler.PostAsync("/api/v1/admin/tour-operator-applications/999/approve", null)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await admin.GetAsync("/api/v1/admin/audit-logs/999")).StatusCode.Should().Be(HttpStatusCode.NotFound);
-        (await factory.WithDbContextAsync(db => db.AuditLogs.CountAsync())).Should().Be(0);
+        var audit = await factory.WithDbContextAsync(db => db.AuditLogs.SingleAsync());
+        audit.ActionType.Should().Be(AuditActionTypes.AdministrationAccessDenied);
+        audit.Result.Should().Be(AuditOutcome.Failure);
+        audit.AffectedEntityId.Should().BeNull();
     }
 
     private static Task<long> SeedAdmin(TripMateApiFactory factory) => factory.WithDbContextAsync(async db =>
