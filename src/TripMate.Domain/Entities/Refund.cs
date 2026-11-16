@@ -19,6 +19,7 @@ public class Refund : BaseEntity
     public Booking Booking { get; private set; } = null!;
     public long? TransactionId { get; private set; }
     public long? CancellationOperationId { get; private set; }
+    public long? ComplaintId { get; private set; }
     public decimal Amount { get; private set; }
     public string? Reason { get; private set; }
     public RefundInitiator InitiatedBy { get; private set; }
