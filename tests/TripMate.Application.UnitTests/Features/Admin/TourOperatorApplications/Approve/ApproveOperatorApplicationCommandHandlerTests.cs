@@ -26,7 +26,7 @@ public class ApproveOperatorApplicationCommandHandlerTests
     public ApproveOperatorApplicationCommandHandlerTests()
     {
         _currentUserService.UserId = 100;
-        _currentUserService.Role = "Administrator";
+        _currentUserService.Role = "Staff";
         _handler = new ApproveOperatorApplicationCommandHandler(_dbContext, _currentUserService, _dateTimeProvider);
     }
 

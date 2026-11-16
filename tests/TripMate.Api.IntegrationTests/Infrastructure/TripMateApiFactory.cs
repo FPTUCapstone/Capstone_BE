@@ -330,6 +330,17 @@ public sealed class TripMateApiFactory(
         return client;
     }
 
+    public async Task<string> IssueTokenForPersistedUserAsync(User user)
+    {
+        await WithDbContextAsync(async db =>
+        {
+            db.Users.Add(user);
+            await db.SaveChangesAsync();
+            return true;
+        });
+        return Services.GetRequiredService<IJwtTokenService>().GenerateAccessToken(user).Token;
+    }
+
     public HttpClient CreateJwtClient(string token)
     {
         var client = CreateClient(new WebApplicationFactoryClientOptions

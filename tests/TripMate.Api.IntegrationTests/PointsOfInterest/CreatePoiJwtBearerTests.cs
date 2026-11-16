@@ -60,15 +60,15 @@ public sealed class CreatePoiJwtBearerTests
     public async Task Post_WithNonStaffProductionJwt_ReturnsForbidden(UserRole role)
     {
         await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
-        var tokenService = factory.Services.GetRequiredService<IJwtTokenService>();
-        var token = tokenService.GenerateAccessToken(new User
+        var user = new User
         {
             Id = 42,
             Email = $"{role.ToString().ToLowerInvariant()}@example.com",
             FullName = $"JWT {role}",
             Role = role,
             Status = AccountStatus.Active,
-        }).Token;
+        };
+        var token = await factory.IssueTokenForPersistedUserAsync(user);
         using var client = factory.CreateJwtClient(token);
 
         var response = await client.PostAsJsonAsync(

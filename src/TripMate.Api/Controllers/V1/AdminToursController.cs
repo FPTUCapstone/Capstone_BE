@@ -9,7 +9,7 @@ using TripMate.Domain.Enums;
 
 namespace TripMate.Api.Controllers.V1;
 
-[Authorize(Roles = nameof(UserRole.Administrator))]
+[Authorize(Roles = nameof(UserRole.Staff))]
 [Route("api/v1/admin/tours")]
 public sealed class AdminToursController(ISender sender) : ApiControllerBase(sender)
 {

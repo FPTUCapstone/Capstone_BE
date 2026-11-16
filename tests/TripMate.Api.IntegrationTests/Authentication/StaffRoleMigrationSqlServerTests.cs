@@ -20,7 +20,7 @@ public sealed class StaffRoleMigrationSqlServerTests
 
         constraint.Name.Should().Be("CK_Users_Role");
         Normalize(constraint.Definition).Should().Be(
-            Normalize(SqlServerCanonicalRoleConstraint));
+            Normalize(SqlServerFinalRoleConstraint));
         constraint.IsDisabled.Should().BeFalse();
         constraint.IsNotTrusted.Should().BeFalse();
     }
@@ -58,6 +58,21 @@ public sealed class StaffRoleMigrationSqlServerTests
             Normalize(SqlServerCanonicalRoleConstraint));
         constraint.IsDisabled.Should().BeFalse();
         constraint.IsNotTrusted.Should().BeFalse();
+
+        var sessionMigration = Path.Combine(AppContext.BaseDirectory, "Database", "migrations",
+            "20261115_tm228_user_session_boundaries.sql");
+        await database.ExecuteScriptAsync(sessionMigration);
+        await database.ExecuteNonQueryAsync(
+            "INSERT dbo.Users(role, email) VALUES ('ServiceProvider', N'provider@example.com');");
+        await database.ExecuteScriptAsync(sessionMigration);
+        (await database.ExecuteScalarAsync<int>(
+            "SELECT COUNT(*) FROM dbo.Users WHERE session_version = 0 AND status_before_lock IS NULL;"))
+            .Should().Be(5);
+        var finalConstraint = await ReadRoleConstraintAsync(database);
+        finalConstraint.Name.Should().Be("CK_Users_Role");
+        Normalize(finalConstraint.Definition).Should().Be(Normalize(SqlServerFinalRoleConstraint));
+        finalConstraint.IsDisabled.Should().BeFalse();
+        finalConstraint.IsNotTrusted.Should().BeFalse();
     }
 
     [SqlServerFact]
@@ -258,6 +273,10 @@ public sealed class StaffRoleMigrationSqlServerTests
     // sys.check_constraints.definition, in reverse literal order.
     private const string SqlServerCanonicalRoleConstraint =
         "([role]='Staff' OR [role]='Administrator' OR " +
+        "[role]='TourOperator' OR [role]='Traveler')";
+
+    private const string SqlServerFinalRoleConstraint =
+        "([role]='ServiceProvider' OR [role]='Staff' OR [role]='Administrator' OR " +
         "[role]='TourOperator' OR [role]='Traveler')";
 
     private static string GetMigrationPath() =>

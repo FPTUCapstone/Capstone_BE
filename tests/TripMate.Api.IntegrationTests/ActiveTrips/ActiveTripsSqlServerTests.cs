@@ -80,7 +80,7 @@ public sealed class ActiveTripsSqlServerTests
                 '2026-09-25T17:00:00');
             """);
         await using var db = database.CreateDbContext();
-        var handler = new GetActiveTripsQueryHandler(db, new Administrator(), new Clock());
+        var handler = new GetActiveTripsQueryHandler(db, new Staff(), new Clock());
 
         var result = await handler.Handle(new GetActiveTripsQuery(
             Keyword: "trip-",
@@ -132,7 +132,7 @@ public sealed class ActiveTripsSqlServerTests
                  'Exploring', '2026-09-25T08:00:00', '2026-09-26T10:00:00');
             """);
         await using var db = database.CreateDbContext();
-        var handler = new GetActiveTripsQueryHandler(db, new Administrator(), new Clock());
+        var handler = new GetActiveTripsQueryHandler(db, new Staff(), new Clock());
 
         var result = await handler.Handle(new GetActiveTripsQuery(), default);
 
@@ -142,10 +142,10 @@ public sealed class ActiveTripsSqlServerTests
             .Which.GroupOrTraveler.Should().Be("Live Traveler");
     }
 
-    private sealed class Administrator : ICurrentUserService
+    private sealed class Staff : ICurrentUserService
     {
         public long? UserId => 1;
-        public string? Role => "Administrator";
+        public string? Role => "Staff";
     }
 
     private sealed class Clock : IDateTimeProvider

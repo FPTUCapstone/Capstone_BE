@@ -30,8 +30,8 @@ public sealed class RejectTourOperatorApplicationSqlServerTests
         await using var factory = new TripMateApiFactory(
             sqlServerConnectionString: database.ConnectionString,
             saveChangesInterceptor: barrier);
-        using var firstClient = factory.CreateAuthenticatedClient(seed.AdminId, UserRole.Administrator);
-        using var secondClient = factory.CreateAuthenticatedClient(seed.AdminId, UserRole.Administrator);
+        using var firstClient = factory.CreateAuthenticatedClient(seed.AdminId, UserRole.Staff);
+        using var secondClient = factory.CreateAuthenticatedClient(seed.AdminId, UserRole.Staff);
 
         var first = firstClient.PostAsJsonAsync(
             $"/api/v1/admin/tour-operator-applications/{seed.OperatorId}/reject",
@@ -82,8 +82,8 @@ public sealed class RejectTourOperatorApplicationSqlServerTests
         await using var factory = new TripMateApiFactory(
             sqlServerConnectionString: database.ConnectionString,
             saveChangesInterceptor: barrier);
-        using var rejectClient = factory.CreateAuthenticatedClient(seed.AdminId, UserRole.Administrator);
-        using var approveClient = factory.CreateAuthenticatedClient(seed.AdminId, UserRole.Administrator);
+        using var rejectClient = factory.CreateAuthenticatedClient(seed.AdminId, UserRole.Staff);
+        using var approveClient = factory.CreateAuthenticatedClient(seed.AdminId, UserRole.Staff);
 
         var reject = rejectClient.PostAsJsonAsync(
             $"/api/v1/admin/tour-operator-applications/{seed.OperatorId}/reject",
@@ -156,7 +156,7 @@ public sealed class RejectTourOperatorApplicationSqlServerTests
             """);
         await using var factory = new TripMateApiFactory(
             sqlServerConnectionString: database.ConnectionString);
-        using var client = factory.CreateAuthenticatedClient(seed.AdminId, UserRole.Administrator);
+        using var client = factory.CreateAuthenticatedClient(seed.AdminId, UserRole.Staff);
 
         var response = await client.PostAsJsonAsync(
             $"/api/v1/admin/tour-operator-applications/{seed.OperatorId}/reject",
@@ -199,9 +199,9 @@ public sealed class RejectTourOperatorApplicationSqlServerTests
         var now = new DateTimeOffset(2026, 9, 29, 0, 0, 0, TimeSpan.Zero);
         var admin = new User
         {
-            Role = UserRole.Administrator,
+            Role = UserRole.Staff,
             Email = $"uc51-admin-{suffix}@tripmate.local",
-            FullName = "UC-51 SQL Administrator",
+            FullName = "UC-51 SQL Staff",
             Status = AccountStatus.Active,
             CreatedAtUtc = now,
             UpdatedAtUtc = now,

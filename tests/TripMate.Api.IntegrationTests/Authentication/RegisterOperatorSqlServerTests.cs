@@ -179,8 +179,8 @@ public sealed class RegisterOperatorSqlServerTests
             new { email = "operator@example.com", password = Password });
         signIn.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        using var admin = factory.CreateAuthenticatedClient(userId, UserRole.Administrator);
-        var detail = await admin.GetAsync($"/api/v1/admin/tour-operator-applications/{userId}");
+        using var staff = factory.CreateAuthenticatedClient(userId, UserRole.Staff);
+        var detail = await staff.GetAsync($"/api/v1/admin/tour-operator-applications/{userId}");
         detail.StatusCode.Should().Be(HttpStatusCode.OK);
         var application = await detail.Content.ReadFromJsonAsync<JsonElement>();
         application.GetProperty("applicationStatus").GetString().Should().Be("PendingApproval");
