@@ -31,10 +31,88 @@ namespace TripMate.Api.IntegrationTests.Tickets;
 
 [Trait("Category", "SqlServer")]
 [Trait("Category", "Redis")]
-public sealed class CheckInAuditHttpSqlFailureTests(ITestOutputHelper output)
+public sealed class CheckInAuditHttpSqlFailureTests(ITestOutputHelper output) : IAsyncLifetime
 {
+    private readonly HashSet<string> _ownedRedisPrefixes = new(StringComparer.Ordinal);
+
+    public Task InitializeAsync() => Task.CompletedTask;
+
+    // xUnit invokes lifetime teardown after the test's await-using hosts have stopped.
+    // It records teardown failures alongside, rather than replacing, an assertion failure.
+    public async Task DisposeAsync()
+    {
+        if (_ownedRedisPrefixes.Count == 0) return;
+        string connection = Environment.GetEnvironmentVariable(
+            RedisTestFixture.ConnectionStringEnvironmentVariable)
+            ?? throw new InvalidOperationException("Redis cleanup requires the test connection.");
+        await using var redis = await ConnectionMultiplexer.ConnectAsync(
+            RedisTestFixture.BuildConfiguration(connection));
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        IServer server = redis.GetServers().Single();
+        IDatabase database = redis.GetDatabase();
+        foreach (string prefix in _ownedRedisPrefixes)
+        {
+            var keys = new List<RedisKey>();
+            await foreach (RedisKey key in server.KeysAsync(pattern: prefix + ":*", pageSize: 100)
+                .WithCancellation(deadline.Token))
+            {
+                if (keys.Count == 256)
+                    throw new InvalidOperationException("Test namespace cleanup exceeded its key bound.");
+                keys.Add(key);
+            }
+            if (keys.Count > 0)
+                await database.KeyDeleteAsync(keys.ToArray()).WaitAsync(deadline.Token);
+        }
+    }
+
     private const string Endpoint = "/api/v1/operator/check-in/scan";
     private static readonly DateTimeOffset Departure = new(2026, 10, 30, 1, 0, 0, TimeSpan.Zero);
+
+    [RedisTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Cleanup_AfterOperationFailure_PreservesPrimaryAndReportsCleanupFailure(bool exceedKeyBound)
+    {
+        await using var fixture = await RedisTestFixture.CreateAsync();
+        IDatabase redis = fixture.Multiplexer.GetDatabase();
+        string prefix = Prefix("cleanup-failure-probe");
+        var owner = new CheckInAuditHttpSqlFailureTests(output);
+        owner._ownedRedisPrefixes.Add(prefix);
+        RedisKey[] keys = Enumerable.Range(0, exceedKeyBound ? 257 : 1)
+            .Select(index => (RedisKey)$"{prefix}:probe:{index}").ToArray();
+        string otherKey = fixture.CreateUniquePrefix() + ":sentinel";
+        var primary = new InvalidOperationException("Injected primary operation failure.");
+        var errors = new Xunit.Sdk.ExceptionAggregator();
+        try
+        {
+            await redis.StringSetAsync(otherKey, "test sentinel");
+            foreach (RedisKey key in keys) await redis.StringSetAsync(key, "test probe");
+
+            // This is the same aggregator used by xUnit for test execution and lifetime teardown.
+            await errors.RunAsync(() => Task.FromException(primary));
+            await errors.RunAsync(owner.DisposeAsync);
+
+            Exception recorded = errors.ToException();
+            if (exceedKeyBound)
+            {
+                var aggregate = recorded.Should().BeOfType<AggregateException>().Subject;
+                aggregate.InnerExceptions.Should().Contain(primary);
+                aggregate.InnerExceptions.Should().Contain(error =>
+                    error.Message.Contains("cleanup exceeded its key bound", StringComparison.Ordinal));
+            }
+            else
+            {
+                recorded.Should().BeSameAs(primary);
+                (await redis.KeyExistsAsync(keys[0])).Should().BeFalse();
+            }
+            (await redis.KeyExistsAsync(otherKey)).Should().BeTrue();
+        }
+        finally
+        {
+            // The deliberately over-bound probe owns these exact keys; never flush the database.
+            await redis.KeyDeleteAsync(keys);
+        }
+    }
 
     [SqlServerRedisFact]
     public async Task Http_ValidQr_ReturnsSuccessMutatesOnceAndDurablyAdmits()
@@ -265,7 +343,7 @@ public sealed class CheckInAuditHttpSqlFailureTests(ITestOutputHelper output)
         (await host.Redis.StreamLengthAsync($"{prefix}:rejections")).Should().Be(0);
     }
 
-    private static HttpTestHost Host(
+    private HttpTestHost Host(
         string sqlConnection,
         long operatorId,
         string prefix,
@@ -273,6 +351,10 @@ public sealed class CheckInAuditHttpSqlFailureTests(ITestOutputHelper output)
         DateTimeOffset? now = null,
         ICheckInAuditJournal? journal = null)
     {
+        if (!prefix.StartsWith("tripmate:test:tm89:http-", StringComparison.Ordinal)
+            || !Guid.TryParseExact(prefix[(prefix.LastIndexOf(':') + 1)..], "N", out _))
+            throw new ArgumentException("Expected a uniquely owned HTTP test namespace.", nameof(prefix));
+        _ownedRedisPrefixes.Add(prefix);
         string redisConnection = Environment.GetEnvironmentVariable(
             RedisTestFixture.ConnectionStringEnvironmentVariable)
             ?? throw new InvalidOperationException(
