@@ -59,7 +59,7 @@ BEGIN TRY
            OR (status = ''Locked'' AND (
                 status_before_lock IS NULL
                 OR status_before_lock NOT IN (''PendingEmailVerification'', ''Active'', ''PendingApproval'', ''Rejected'', ''Inactive'')
-                OR locked_by_user_id IS NULL OR locked_at_utc IS NULL
+                OR locked_at_utc IS NULL
                 OR lock_reason IS NULL OR LEN(LTRIM(RTRIM(lock_reason))) = 0)
                 AND NOT (status_before_lock IS NULL AND locked_by_user_id IS NULL
                     AND locked_at_utc IS NOT NULL AND lock_reason IS NOT NULL
@@ -77,7 +77,7 @@ BEGIN TRY
                 AND locked_at_utc IS NOT NULL AND lock_reason IS NOT NULL
                 AND LEN(LTRIM(RTRIM(lock_reason))) > 0)
             OR (status_before_lock IN (''PendingEmailVerification'', ''Active'', ''PendingApproval'', ''Rejected'', ''Inactive'')
-                AND locked_by_user_id IS NOT NULL AND locked_at_utc IS NOT NULL
+                AND locked_at_utc IS NOT NULL
                     AND lock_reason IS NOT NULL AND LEN(LTRIM(RTRIM(lock_reason))) > 0)
             ))
         );';

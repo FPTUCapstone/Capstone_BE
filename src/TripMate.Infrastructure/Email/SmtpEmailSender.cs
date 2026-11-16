@@ -136,7 +136,11 @@ public sealed class SmtpEmailSender : IEmailSender, IEmailVerificationSender, IU
     {
         return exception switch
         {
-            // The server definitively rejected a command or the credentials:
+            // Transient 4xx SMTP command error (RFC 5321): server temporary error, mailbox busy, etc. -> retry
+            SmtpCommandException commandException when (int)commandException.StatusCode is >= 400 and < 500 =>
+                EmailDeliveryResult.Unknown,
+
+            // The server definitively rejected a command (5xx) or the credentials:
             // the message was not delivered.
             SmtpCommandException or AuthenticationException => EmailDeliveryResult.DefiniteFailure,
 

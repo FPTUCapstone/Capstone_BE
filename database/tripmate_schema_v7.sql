@@ -195,7 +195,7 @@ CREATE TABLE dbo.Users (
                 AND locked_at_utc IS NOT NULL AND lock_reason IS NOT NULL
                 AND LEN(LTRIM(RTRIM(lock_reason))) > 0)
             OR (status_before_lock IN ('PendingEmailVerification','Active','PendingApproval','Rejected','Inactive')
-                AND locked_by_user_id IS NOT NULL AND locked_at_utc IS NOT NULL
+                AND locked_at_utc IS NOT NULL
                 AND lock_reason IS NOT NULL AND LEN(LTRIM(RTRIM(lock_reason))) > 0)
         ))
     ),

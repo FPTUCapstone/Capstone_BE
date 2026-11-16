@@ -52,11 +52,12 @@ public class User : BaseEntity
     /// <summary>Locks this account for <paramref name="reason"/> (BR-189, PD-9A). The caller is
     /// responsible for terminating existing sessions (BR-175) — this only sets the account state
     /// that <see cref="Unlock"/> later clears.</summary>
-    public void Lock(string reason, DateTimeOffset nowUtc)
+    public void Lock(string reason, DateTimeOffset nowUtc, long? lockedByUserId = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(reason);
 
         if (Status != AccountStatus.Locked) StatusBeforeLock = Status;
+        if (lockedByUserId.HasValue) LockedByUserId = lockedByUserId.Value;
         SessionVersion = checked(SessionVersion + 1);
         Status = AccountStatus.Locked;
         LockReason = reason;
