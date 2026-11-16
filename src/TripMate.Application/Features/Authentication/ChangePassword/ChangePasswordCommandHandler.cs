@@ -127,6 +127,7 @@ public sealed class ChangePasswordCommandHandler(
         var (accessToken, accessTokenExpiresAtUtc) = jwtTokenService.GenerateAccessToken(user);
 
         user.PasswordHash = passwordHasher.Hash(request.NewPassword);
+        user.MustChangePassword = false;
         user.UpdatedAtUtc = now;
 
         var activeTokens = await dbContext.RefreshTokens
@@ -165,6 +166,7 @@ public sealed class ChangePasswordCommandHandler(
         {
             ApplicationStatus = eligibility.Value.ApplicationStatus,
             RefreshTokenExpiresAtUtc = refreshExpiresAt,
+            MustChangePassword = user.MustChangePassword,
         });
     }
 }

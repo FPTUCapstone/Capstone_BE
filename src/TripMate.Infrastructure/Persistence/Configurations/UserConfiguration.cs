@@ -22,6 +22,7 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(u => u.Email).HasColumnName("email").HasMaxLength(256);
         builder.Property(u => u.PhoneNumber).HasColumnName("phone_number").HasMaxLength(20);
         builder.Property(u => u.PasswordHash).HasColumnName("password_hash").HasMaxLength(256);
+        builder.Property(u => u.MustChangePassword).HasColumnName("must_change_password").HasDefaultValue(false);
         builder.Property(u => u.FullName).HasColumnName("full_name").HasMaxLength(150).IsRequired();
         builder.Property(u => u.AvatarUrl).HasColumnName("avatar_url").HasMaxLength(500);
         builder.Property(u => u.AvatarPublicId).HasColumnName("avatar_public_id").HasMaxLength(500);

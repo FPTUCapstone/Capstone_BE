@@ -12,6 +12,31 @@ public sealed class StaffRoleMigrationSqlServerTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
+    public async Task HistoricalMigration_PreservesServiceProviderOnRepeatedInitialization()
+    {
+        await using var database = await SqlServerTestDatabase.CreateEmptyAsync();
+        await database.ExecuteNonQueryAsync("""
+            CREATE TABLE dbo.Users (
+                user_id BIGINT IDENTITY(1,1) PRIMARY KEY,
+                role VARCHAR(20) NOT NULL CHECK (role IN
+                    ('Traveler','TourOperator','Administrator','Staff','ServiceProvider')));
+            INSERT dbo.Users(role) VALUES ('ServiceProvider');
+            """);
+
+        await database.ExecuteScriptAsync(GetMigrationPath());
+        await database.ExecuteScriptAsync(GetMigrationPath());
+
+        (await database.ExecuteScalarAsync<int>(
+            "SELECT COUNT(*) FROM dbo.Users WHERE role = 'ServiceProvider';"))
+            .Should().Be(1);
+        var constraint = await ReadRoleConstraintAsync(database);
+        constraint.IsDisabled.Should().BeFalse();
+        constraint.IsNotTrusted.Should().BeFalse();
+        constraint.Definition.Should().Contain("ServiceProvider");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
     public async Task FreshSchema_HasCanonicalNamedRoleConstraint()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
@@ -272,7 +297,7 @@ public sealed class StaffRoleMigrationSqlServerTests
     // SQL Server expands an IN predicate into this equivalent OR expression in
     // sys.check_constraints.definition, in reverse literal order.
     private const string SqlServerCanonicalRoleConstraint =
-        "([role]='Staff' OR [role]='Administrator' OR " +
+        "([role]='ServiceProvider' OR [role]='Staff' OR [role]='Administrator' OR " +
         "[role]='TourOperator' OR [role]='Traveler')";
 
     private const string SqlServerFinalRoleConstraint =

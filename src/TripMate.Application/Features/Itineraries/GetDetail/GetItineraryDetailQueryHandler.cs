@@ -14,7 +14,8 @@ namespace TripMate.Application.Features.Itineraries.GetDetail;
 public sealed class GetItineraryDetailQueryHandler(
     IApplicationDbContext dbContext,
     IItineraryAccessService accessService,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    IItineraryServiceBookingReader? bookedServiceReader = null)
     : IRequestHandler<GetItineraryDetailQuery, Result<ItineraryDetailResponse>>
 {
     public async Task<Result<ItineraryDetailResponse>> Handle(
@@ -66,12 +67,21 @@ public sealed class GetItineraryDetailQueryHandler(
             cancellationToken);
         var context = await ItineraryDetailContext.LoadAsync(dbContext, access.SchedulingRequestId, cancellationToken);
 
-        return Result.Success(ToResponse(
+        var response = ToResponse(
             itinerary,
             access.CanManage,
             context.Request,
             context.EndPoi,
-            isNavigationInProgress));
+            isNavigationInProgress);
+        if (bookedServiceReader is not null)
+        {
+            response = response with
+            {
+                BookedServices = await bookedServiceReader.ReadAsync(itinerary, cancellationToken),
+            };
+        }
+
+        return Result.Success(response);
     }
 
     internal static ItineraryDetailResponse ToResponse(

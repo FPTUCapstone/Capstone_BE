@@ -61,7 +61,11 @@ public sealed class WebRefreshCommandHandler(
         return Result.Success(new AuthResponseDto(
             user.Id, user.Email, user.FullName, user.Role, eligibility.Value.Status,
             accessToken, request.RawRefreshToken, accessTokenExpiresAtUtc)
-        { ApplicationStatus = eligibility.Value.ApplicationStatus, RefreshTokenExpiresAtUtc = session.ExpiresAtUtc });
+        {
+            ApplicationStatus = eligibility.Value.ApplicationStatus,
+            RefreshTokenExpiresAtUtc = session.ExpiresAtUtc,
+            MustChangePassword = user.MustChangePassword
+        });
     }
 
     private static Result<AuthResponseDto> InvalidSession() =>
