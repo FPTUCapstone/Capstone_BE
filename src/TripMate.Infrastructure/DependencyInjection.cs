@@ -31,6 +31,7 @@ using TripMate.Application.Features.Scheduling.TimeOfDay;
 using TripMate.Application.Features.Tickets.Common;
 using TripMate.Application.Features.Traveler.Bookings.Common;
 using TripMate.Application.Features.Traveler.Payments.Common;
+using TripMate.Application.Features.Traveler.PostTripComplaints.Common;
 using TripMate.Application.Features.TravelGroups.ManageInvitation;
 using TripMate.Application.Features.TripAlerts.Common;
 using TripMate.Application.Features.TripAlerts.Weather;
@@ -164,6 +165,7 @@ public static class DependencyInjection
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<CloudinaryOptions>, CloudinaryOptionsValidator>();
         services.AddSingleton<ICloudinaryClient, CloudinarySdkClient>();
+        services.AddSingleton<IComplaintEvidenceStorage, CloudinaryComplaintEvidenceStorage>();
         services.AddSingleton<ITourMediaImageInspector, SkiaSharpTourMediaImageInspector>();
         services.AddSingleton<ITourMediaStorage, CloudinaryTourMediaStorage>();
         services.AddSingleton<ITravelerAvatarStorage, CloudinaryTravelerAvatarStorage>();
