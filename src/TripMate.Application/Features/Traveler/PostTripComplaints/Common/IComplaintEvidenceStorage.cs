@@ -7,4 +7,6 @@ public interface IComplaintEvidenceStorage
 {
     Task<StoredComplaintEvidence?> StoreAsync(ComplaintEvidenceUpload upload, CancellationToken cancellationToken);
     Task<bool> DeleteAsync(string storageObjectKey, CancellationToken cancellationToken);
+    Task<byte[]?> ReadAsync(string storageObjectKey, CancellationToken cancellationToken);
+    Uri? CreateTemporaryDownloadUrl(string storageObjectKey, string contentType, DateTimeOffset expiresAtUtc);
 }

@@ -58,6 +58,27 @@ internal sealed class CloudinaryComplaintEvidenceStorage(
         }
     }
 
+    public Task<byte[]?> ReadAsync(string storageObjectKey, CancellationToken cancellationToken) =>
+        Task.FromResult<byte[]?>(null);
+
+    public Uri? CreateTemporaryDownloadUrl(string storageObjectKey, string contentType, DateTimeOffset expiresAtUtc)
+    {
+        bool isRaw = storageObjectKey.StartsWith("raw:", StringComparison.Ordinal);
+        string prefix = isRaw ? "raw:" : "image:";
+        if (!storageObjectKey.StartsWith(prefix, StringComparison.Ordinal)) return null;
+        string publicId = storageObjectKey[prefix.Length..];
+        if (!publicId.StartsWith(Root + "/", StringComparison.Ordinal) || publicId.Contains("..", StringComparison.Ordinal)) return null;
+        string? format = contentType.ToLowerInvariant() switch
+        {
+            "application/pdf" when isRaw => "pdf",
+            "image/jpeg" when !isRaw => "jpg",
+            "image/png" when !isRaw => "png",
+            "image/webp" when !isRaw => "webp",
+            _ => null,
+        };
+        return format is null ? null : client.CreateTemporaryDownloadUrl(publicId, format, isRaw, expiresAtUtc);
+    }
+
     private static bool IsAllowed(string contentType) =>
         contentType.Equals("image/jpeg", StringComparison.OrdinalIgnoreCase) ||
         contentType.Equals("image/png", StringComparison.OrdinalIgnoreCase) ||

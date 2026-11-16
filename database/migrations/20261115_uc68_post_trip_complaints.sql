@@ -74,13 +74,4 @@ BEGIN
     CREATE UNIQUE INDEX UX_ComplaintEvidence_StorageObjectKey ON commerce.ComplaintEvidence(storage_object_key);
 END
 GO
-
-IF COL_LENGTH(N'payment.Refunds', N'complaint_id') IS NULL
-    ALTER TABLE payment.Refunds ADD complaint_id BIGINT NULL;
-GO
-IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'FK_Refunds_PostTripComplaint')
-    ALTER TABLE payment.Refunds ADD CONSTRAINT FK_Refunds_PostTripComplaint FOREIGN KEY (complaint_id) REFERENCES commerce.PostTripComplaints(complaint_id);
-GO
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_Refunds_Complaint')
-    CREATE UNIQUE INDEX UX_Refunds_Complaint ON payment.Refunds(complaint_id) WHERE complaint_id IS NOT NULL;
-GO
+/* UC-68 owns complaint tables only; complaint-sourced refunds are added by TM-88. */

@@ -68,7 +68,7 @@ does not call UC-42, UC-67 or any payment gateway.
 
 ## Task 5 — API and contract tests
 
-- Add the authenticated Traveler multipart endpoint and request limits, with
+- Add the authenticated Traveler safe submit-context read and multipart endpoint and request limits, with
   `Idempotency-Key` binding and no controller business logic.
 - Document OpenAPI success/error examples and ensure generated contract never
   exposes opaque storage keys or permanent evidence locations.
@@ -90,3 +90,18 @@ does not call UC-42, UC-67 or any payment gateway.
 **DoD:** Every spec acceptance criterion passes, no known storage, ownership,
 migration, audit or cross-UC security blocker remains, and results are recorded
 in the pull request.
+
+## Task 7 — Approved evidence amendment and Traveler complaint access
+
+- Add a new idempotent migration (do not alter historical UC-68 migration) for
+  `evidence_amendment_used_at`.
+- Implement a one-time, idempotent append-evidence command for an own
+  `AwaitingOperatorResponse` complaint before its original submit deadline;
+  enforce aggregate file/byte limits and leave reason/detail/deadlines immutable.
+- Record an audit event and one operator notification on successful append.
+- Add own-complaint list and authorised evidence-delivery endpoints. Cloudinary
+  uses short-lived private links; Development streams private local storage.
+- Add focused handler, API authorisation/idempotency and SQL migration tests.
+
+**DoD:** A Traveler has a dedicated complaint entry point, can view private
+evidence, and can append evidence exactly once without changing original terms.
