@@ -10,6 +10,6 @@ public enum PostTripComplaintStatus
     AwaitingTravelerResponse,
     Approved,
     Rejected,
-    Expired,
     Declined,
+    Expired,
 }

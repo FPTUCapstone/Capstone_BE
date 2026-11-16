@@ -22,6 +22,7 @@ using TripMate.Application.Features.TourMedia.Common;
 using TripMate.Application.Features.TourRecommendations.Common;
 using TripMate.Application.Features.Tours.Shared;
 using TripMate.Application.Features.Traveler.Payments.Common;
+using TripMate.Application.Features.Traveler.PostTripComplaints.Common;
 using TripMate.Application.Features.TripAlerts.Common;
 using TripMate.Application.Features.TripHistory.Common;
 using TripMate.Application.Features.TripReviews.Common;
@@ -379,6 +380,15 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             RefundConfirmationErrorCodes.RequestNotPending or
                 RefundConfirmationErrorCodes.StatusPersistFailed => StatusCodes.Status409Conflict,
             RefundConfirmationErrorCodes.ReturnReferenceRequired => StatusCodes.Status400BadRequest,
+
+            PostTripComplaintErrorCodes.Unauthorized => StatusCodes.Status401Unauthorized,
+            // PostTripComplaintErrorCodes.NotFound shares "complaint.not_found" with PartialRefundProposalErrorCodes.NotFound above.
+            PostTripComplaintErrorCodes.Ineligible => StatusCodes.Status422UnprocessableEntity,
+            PostTripComplaintErrorCodes.Duplicate => StatusCodes.Status409Conflict,
+            PostTripComplaintErrorCodes.IdempotencyKeyPayloadMismatch => StatusCodes.Status409Conflict,
+            PostTripComplaintErrorCodes.EvidenceLimit or PostTripComplaintErrorCodes.EvidenceType or
+                PostTripComplaintErrorCodes.InvalidInput => StatusCodes.Status422UnprocessableEntity,
+            PostTripComplaintErrorCodes.StorageUnavailable => StatusCodes.Status503ServiceUnavailable,
 
             TripMate.Application.Features.Admin.Bookings.Common.PlatformBookingErrorCodes.Forbidden =>
                 StatusCodes.Status403Forbidden,
