@@ -456,7 +456,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 "No selectable locations were found in the selected area.");
         }
 
-        if (canonical.TransportMode == TransportMode.PublicTransit)
+        if (canonical.TransportMode == TransportMode.PublicTransit
+            && !routeDurationProvider.SupportsTransportMode(canonical.TransportMode))
         {
             return PreparedGeneration.Infeasible(
                 snapshot.Hash,
@@ -505,7 +506,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
             Stopwatch.GetElapsedTime(selectionStartedAt));
         var end = endPoi is null
             ? new RoutePoint(canonical.StartLatitude, canonical.StartLongitude)
-            : new RoutePoint(endPoi.Latitude, endPoi.Longitude);
+            : new RoutePoint(endPoi.Latitude, endPoi.Longitude, endPoi.Id);
         var input = new GenerationInput(
             canonical.StartAtUtc,
             timeZone,
@@ -532,8 +533,23 @@ public sealed class CreateSchedulingRequestCommandHandler(
             weightedInputs = factory.Create(input.Candidates, travelerProfile, input, ranking?.OutcomeCategory);
         }
 
-        var plan = await new ItineraryGenerationService(measuredRouteProvider, _generationOptions)
-            .GenerateAsync(input, weightedInputs, cancellationToken);
+        Result<GeneratedItineraryPlan> plan;
+        try
+        {
+            plan = await new ItineraryGenerationService(measuredRouteProvider, _generationOptions)
+                .GenerateAsync(input, weightedInputs, cancellationToken);
+        }
+        catch (RouteDurationProviderException ex) when (
+            canonical.TransportMode == TransportMode.PublicTransit
+            && ex.FailureKind == RouteDurationProviderFailureKind.UnsupportedMode)
+        {
+            return PreparedGeneration.Infeasible(
+                snapshot.Hash,
+                preferenceTokens,
+                explanationMetadata,
+                "Public transit routing is not available yet. Choose walking, motorbike, or car.",
+                ranking);
+        }
         if (plan.IsSuccess)
         {
             // REVIEW2 D10 option A: reorder for the time of day when the trip stays at most a few minutes longer.
@@ -1138,7 +1154,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
         new(
             poi.Id,
             poi.Name,
-            new RoutePoint(poi.Latitude, poi.Longitude),
+            new RoutePoint(poi.Latitude, poi.Longitude, poi.Id > 0 ? poi.Id : null),
             poi.AverageVisitDurationMinutes,
             poi.EstimatedVisitCost,
             poi.OpeningHours
@@ -1391,6 +1407,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
         IRouteDurationProvider inner,
         CandidatePoolFunnelDiagnostics funnel) : IRouteDurationProvider
     {
+        public bool SupportsTransportMode(TransportMode transportMode) => inner.SupportsTransportMode(transportMode);
+
         public async Task<RouteDurationMatrix> GetMatrixAsync(
             IReadOnlyList<RoutePoint> points,
             TransportMode transportMode,

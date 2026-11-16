@@ -23,6 +23,7 @@ using TripMate.Domain.Constants;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 using TripMate.Infrastructure.Persistence;
+using TripMate.Infrastructure.Routing;
 
 namespace TripMate.Application.UnitTests.Features.Scheduling.Create;
 
@@ -1157,6 +1158,176 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
     }
 
     [Fact]
+    public async Task Handle_ColocatedDistinctPois_UseTheirStoredRouteMetricsByIdentity()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var from = await SeedSelectablePoiAsync(dbContext, "Origin", 16.0471m, 108.2068m);
+        var to = await SeedSelectablePoiAsync(dbContext, "Destination", from.Latitude, from.Longitude);
+        dbContext.RouteSegments.AddRange(
+            RouteSegment.Create(from, to, 12.5m, 23, TransportMode.PublicTransit, null,
+                1, Guid.NewGuid(), _clock.UtcNow),
+            RouteSegment.Create(to, from, 11m, 31, TransportMode.PublicTransit, null,
+                1, Guid.NewGuid(), _clock.UtcNow));
+        await dbContext.SaveChangesAsync();
+        var fallback = new RecordingRouteDurationProvider();
+        var command = CreateCommand(Guid.NewGuid()) with
+        {
+            StartLatitude = from.Latitude,
+            StartLongitude = from.Longitude,
+            EndPoiId = to.Id,
+            ReturnToStart = false,
+            TransportMode = TransportMode.PublicTransit,
+            MandatoryPoiIds = [from.Id, to.Id],
+        };
+
+        var result = await CreateHandler(dbContext,
+            routeDurationProvider: new CatalogRouteDurationProvider(dbContext, fallback))
+            .Handle(command, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var origin = result.Value.Items.Single(item => item.PoiId == from.Id);
+        origin.TravelDurationToNextMinutes.Should().Be(23);
+        origin.TravelDistanceToNextMeters.Should().Be(12500);
+        fallback.CallCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Handle_ActiveCatalogTransitRoutes_AreUsedAndPersistedByTheSchedulingWorkflow()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var from = await SeedSelectablePoiAsync(dbContext, "Origin", 16.0471m, 108.2068m);
+        var to = await SeedSelectablePoiAsync(dbContext, "Destination", 16.0481m, 108.2078m);
+        dbContext.RouteSegments.AddRange(
+            RouteSegment.Create(from, to, 12.5m, 23, TransportMode.PublicTransit, null,
+                1, Guid.NewGuid(), _clock.UtcNow),
+            RouteSegment.Create(to, from, 11m, 31, TransportMode.PublicTransit, null,
+                1, Guid.NewGuid(), _clock.UtcNow));
+        await dbContext.SaveChangesAsync();
+        var fallback = new RecordingRouteDurationProvider();
+        var provider = new CatalogRouteDurationProvider(dbContext, fallback);
+        var command = CreateCommand(Guid.NewGuid()) with
+        {
+            StartLatitude = from.Latitude,
+            StartLongitude = from.Longitude,
+            EndPoiId = to.Id,
+            ReturnToStart = false,
+            TransportMode = TransportMode.PublicTransit,
+            MandatoryPoiIds = [from.Id, to.Id],
+        };
+
+        var result = await CreateHandler(dbContext, routeDurationProvider: provider)
+            .Handle(command, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var origin = result.Value.Items.Single(item => item.PoiId == from.Id);
+        origin.TravelDurationToNextMinutes.Should().Be(23);
+        origin.TravelDistanceToNextMeters.Should().Be(12500);
+        origin.TransportModeToNext.Should().Be(TransportMode.PublicTransit);
+        var persisted = await dbContext.ItineraryItems.SingleAsync(item => item.PointOfInterestId == from.Id);
+        persisted.TravelDurationToNextMinutes.Should().Be(23);
+        persisted.TravelDistanceToNextMeters.Should().Be(12500);
+        fallback.CallCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Handle_MaximumCatalogDuration_RejectsInfeasibleDirectionButAllowsShortReverse()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var from = await SeedSelectablePoiAsync(dbContext, "Origin", 16.0471m, 108.2068m);
+        var to = await SeedSelectablePoiAsync(dbContext, "Destination", 16.0481m, 108.2078m);
+        dbContext.RouteSegments.AddRange(
+            RouteSegment.Create(from, to, 12.5m, int.MaxValue, TransportMode.PublicTransit, null,
+                1, Guid.NewGuid(), _clock.UtcNow),
+            RouteSegment.Create(to, from, 11m, 31, TransportMode.PublicTransit, null,
+                1, Guid.NewGuid(), _clock.UtcNow));
+        await dbContext.SaveChangesAsync();
+        var fallback = new RecordingRouteDurationProvider();
+        var handler = CreateHandler(dbContext,
+            routeDurationProvider: new CatalogRouteDurationProvider(dbContext, fallback));
+        var forward = CreateCommand(Guid.NewGuid()) with
+        {
+            StartLatitude = from.Latitude,
+            StartLongitude = from.Longitude,
+            EndPoiId = to.Id,
+            ReturnToStart = false,
+            TransportMode = TransportMode.PublicTransit,
+            MandatoryPoiIds = [from.Id, to.Id],
+        };
+
+        var infeasible = await handler.Handle(forward, CancellationToken.None);
+        infeasible.ErrorCode.Should().Be(SchedulingErrorCodes.ConstraintsInfeasible);
+        var reverse = await handler.Handle(forward with
+        {
+            IdempotencyKey = Guid.NewGuid(),
+            StartLatitude = to.Latitude,
+            StartLongitude = to.Longitude,
+            EndPoiId = from.Id,
+        }, CancellationToken.None);
+
+        reverse.IsSuccess.Should().BeTrue();
+        reverse.Value.Items.Single(item => item.PoiId == to.Id).TravelDurationToNextMinutes.Should().Be(31);
+        (await dbContext.RouteSegments.SingleAsync(route => route.FromPoiId == from.Id))
+            .EstimatedDurationMinutes.Should().Be(int.MaxValue);
+        fallback.CallCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Handle_IncompleteCatalogTransitNetwork_PreservesInfeasibleReplayWithoutInventingRoadMetrics()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var from = await SeedSelectablePoiAsync(dbContext, "Origin", 16.0471m, 108.2068m);
+        var to = await SeedSelectablePoiAsync(dbContext, "Destination", 16.0481m, 108.2078m);
+        dbContext.RouteSegments.Add(RouteSegment.Create(from, to, 12.5m, 23,
+            TransportMode.PublicTransit, null, 1, Guid.NewGuid(), _clock.UtcNow));
+        await dbContext.SaveChangesAsync();
+        var fallback = new RecordingRouteDurationProvider();
+        var command = CreateCommand(Guid.NewGuid()) with
+        {
+            StartLatitude = from.Latitude,
+            StartLongitude = from.Longitude,
+            EndPoiId = to.Id,
+            ReturnToStart = false,
+            TransportMode = TransportMode.PublicTransit,
+            MandatoryPoiIds = [from.Id, to.Id],
+        };
+
+        var handler = CreateHandler(dbContext,
+            routeDurationProvider: new CatalogRouteDurationProvider(dbContext, fallback));
+        await AssertInfeasibleReplayAsync(handler, command, dbContext);
+        var request = await dbContext.SchedulingRequests.SingleAsync();
+        request.FailureMessage.Should().Be(
+            "Public transit routing is not available yet. Choose walking, motorbike, or car.");
+        request.GenerationOwnerId.Should().BeNull();
+        fallback.CallCount.Should().Be(0);
+        (await dbContext.Itineraries.CountAsync()).Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData(RouteDurationProviderFailureKind.Timeout)]
+    [InlineData(RouteDurationProviderFailureKind.Unavailable)]
+    public async Task Handle_CatalogTransitFallbackOutage_ReleasesReservationForRetry(
+        RouteDurationProviderFailureKind failureKind)
+    {
+        await using var dbContext = TestDbContext.Create();
+        var poi = await SeedSelectablePoiAsync(dbContext);
+        var provider = new CatalogRouteDurationProvider(dbContext,
+            new FailingRouteDurationProvider(failureKind, supportsTransit: true));
+        var result = await CreateHandler(dbContext, routeDurationProvider: provider)
+            .Handle(CreateCommand(Guid.NewGuid()) with
+            {
+                TransportMode = TransportMode.PublicTransit,
+                MandatoryPoiIds = [poi.Id],
+            }, CancellationToken.None);
+
+        result.ErrorCode.Should().Be(SchedulingErrorCodes.RoutingProviderUnavailable);
+        var request = await dbContext.SchedulingRequests.SingleAsync();
+        request.Status.Should().Be(SchedulingRequestStatus.Pending);
+        request.GenerationOwnerId.Should().BeNull();
+        (await dbContext.Itineraries.CountAsync()).Should().Be(0);
+        (await dbContext.ItineraryItems.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
     public async Task Handle_PublicTransit_ReplaysStoredFailureForSameKey()
     {
         await using var dbContext = TestDbContext.Create();
@@ -1891,13 +2062,13 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         rankingProvider.CallCount.Should().Be(0);
         routeProvider.LastPoints.Should().Contain(new RoutePoint(
             optionals[0].Latitude,
-            optionals[0].Longitude));
+            optionals[0].Longitude, optionals[0].Id));
         routeProvider.LastPoints.Should().NotContain(new RoutePoint(
             optionals[1].Latitude,
-            optionals[1].Longitude));
+            optionals[1].Longitude, optionals[1].Id));
         routeProvider.LastPoints.Should().NotContain(new RoutePoint(
             optionals[2].Latitude,
-            optionals[2].Longitude));
+            optionals[2].Longitude, optionals[2].Id));
     }
 
     [Fact]
@@ -2299,7 +2470,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
 
         result.IsSuccess.Should().BeTrue();
         routeProvider.LastPoints.Should().Contain(
-            new RoutePoint(distantEndPoi.Latitude, distantEndPoi.Longitude));
+            new RoutePoint(distantEndPoi.Latitude, distantEndPoi.Longitude, distantEndPoi.Id));
     }
 
     [Fact]
@@ -2859,8 +3030,9 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
     }
 
     private sealed class FailingRouteDurationProvider(
-        RouteDurationProviderFailureKind failureKind) : IRouteDurationProvider
+        RouteDurationProviderFailureKind failureKind, bool supportsTransit = false) : IRouteDurationProvider
     {
+        public bool SupportsTransportMode(TransportMode mode) => supportsTransit || mode != TransportMode.PublicTransit;
         public Task<RouteDurationMatrix> GetMatrixAsync(
             IReadOnlyList<RoutePoint> points,
             TransportMode transportMode,

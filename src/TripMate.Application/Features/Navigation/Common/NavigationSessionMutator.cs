@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
@@ -19,7 +20,8 @@ namespace TripMate.Application.Features.Navigation.Common;
 /// </summary>
 internal sealed class NavigationSessionMutator(
     IApplicationDbContext dbContext,
-    IDateTimeProvider clock)
+    IDateTimeProvider clock,
+    ILogger? logger = null)
 {
     private const int MaxAttempts = 3;
 
@@ -37,13 +39,18 @@ internal sealed class NavigationSessionMutator(
             try
             {
                 var outcome = await dbContext.ExecuteInTransactionAsync(
-                    transactionCancellationToken => MutateAsync(
-                        sessionId,
-                        travelerUserId,
-                        requiredItineraryAccess,
-                        mutate,
-                        behaviorSignal,
-                        transactionCancellationToken),
+                    async transactionCancellationToken =>
+                    {
+                        var result = await MutateAsync(sessionId, travelerUserId,
+                            requiredItineraryAccess, mutate, behaviorSignal, transactionCancellationToken);
+                        return result.Result.IsSuccess
+                            ? result with
+                            {
+                                Result = Result.Success(await ActiveRouteNavigationProjection.EnrichAsync(
+                                dbContext, result.Result.Value, transactionCancellationToken))
+                            }
+                            : result;
+                    },
                     cancellationToken);
                 if (outcome.Expired)
                 {
@@ -116,7 +123,7 @@ internal sealed class NavigationSessionMutator(
         // UC-10 item 6: only a real transition is a signal; a replay or a rejected action records nothing.
         if (progress == TripSessionProgressOutcome.Applied && behaviorSignal is { } signal)
         {
-            await new DerivedBehaviorSignalRecorder(dbContext).RecordNavigationAsync(
+            await new DerivedBehaviorSignalRecorder(dbContext, logger).RecordNavigationAsync(
                 session,
                 signal.ItineraryItemId,
                 signal.EventType,

@@ -212,6 +212,8 @@ public class ConfirmPasswordResetFlowTests
 
         DbSet<Domain.Entities.PointOfInterest> IApplicationDbContext.PointsOfInterest => throw new NotSupportedException();
 
+        DbSet<Domain.Entities.RouteSegment> IApplicationDbContext.RouteSegments => throw new NotSupportedException();
+
         DbSet<Domain.Entities.PoiOpeningHour> IApplicationDbContext.PoiOpeningHours => throw new NotSupportedException();
 
         DbSet<Domain.Entities.Tag> IApplicationDbContext.Tags => throw new NotSupportedException();

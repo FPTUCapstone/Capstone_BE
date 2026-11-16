@@ -19,6 +19,10 @@ public class Notification : BaseEntity
     public const string BookingRelatedEntityType = "Booking";
     public const string WeatherSafetyReviewCreatedType = "WeatherSafetyReviewCreated";
     public const string WeatherSafetyReviewEscalatedType = "WeatherSafetyReviewEscalated";
+    public const string PostTripComplaintRelatedEntityType = "PostTripComplaint";
+    public const string PartialRefundProposalAcceptedType = "PartialRefundProposalAccepted";
+    public const string PartialRefundProposalDeclinedType = "PartialRefundProposalDeclined";
+    public const string PartialRefundProposalExpiredType = "PartialRefundProposalExpired";
 
     // UC-70 in-app notices (SRS UC-66). In-app only: they never reach a lock screen.
     public const string EmergencyRefundReviewRequiredType = "EmergencyRefundReviewRequired";

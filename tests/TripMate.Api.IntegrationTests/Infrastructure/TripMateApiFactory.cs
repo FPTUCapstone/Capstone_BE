@@ -446,6 +446,8 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<UserUnlockOperation> UserUnlockOperations => Set<UserUnlockOperation>();
     public DbSet<PoiCategory> PoiCategories => Set<PoiCategory>();
     public DbSet<PointOfInterest> PointsOfInterest => Set<PointOfInterest>();
+
+    public DbSet<RouteSegment> RouteSegments => Set<RouteSegment>();
     public DbSet<PoiOpeningHour> PoiOpeningHours => Set<PoiOpeningHour>();
     public DbSet<Tag> Tags => Set<Tag>();
     public DbSet<PoiTag> PoiTags => Set<PoiTag>();
