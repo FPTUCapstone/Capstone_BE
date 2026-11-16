@@ -1,4 +1,5 @@
 using FluentValidation;
+
 using TripMate.Domain.Entities;
 
 namespace TripMate.Application.Features.Traveler.PostTripComplaints.Submit;

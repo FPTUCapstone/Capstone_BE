@@ -21,8 +21,10 @@ public sealed class PostTripComplaintEvidenceAmendmentOperation : BaseEntity
         if (payloadFingerprint.Length != PayloadFingerprintLength) throw new ArgumentOutOfRangeException(nameof(payloadFingerprint));
         return new PostTripComplaintEvidenceAmendmentOperation
         {
-            TravelerUserId = travelerUserId, IdempotencyKey = idempotencyKey,
-            PayloadFingerprint = payloadFingerprint, ComplaintId = complaintId,
+            TravelerUserId = travelerUserId,
+            IdempotencyKey = idempotencyKey,
+            PayloadFingerprint = payloadFingerprint,
+            ComplaintId = complaintId,
             CreatedAtUtc = createdAtUtc.ToUniversalTime(),
         };
     }

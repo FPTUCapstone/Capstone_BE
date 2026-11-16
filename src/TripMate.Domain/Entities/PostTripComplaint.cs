@@ -43,10 +43,13 @@ public sealed class PostTripComplaint : BaseEntity
         if (deadline <= submittedAt) throw new ArgumentOutOfRangeException(nameof(responseDeadlineUtc));
         return new PostTripComplaint
         {
-            BookingId = bookingId, TravelerUserId = travelerUserId,
+            BookingId = bookingId,
+            TravelerUserId = travelerUserId,
             Status = PostTripComplaintStatus.AwaitingOperatorResponse,
-            ReasonCategory = reasonCategory, ReasonDetail = normalizedReason,
-            SubmittedAtUtc = submittedAt, ResponseDeadlineUtc = deadline,
+            ReasonCategory = reasonCategory,
+            ReasonDetail = normalizedReason,
+            SubmittedAtUtc = submittedAt,
+            ResponseDeadlineUtc = deadline,
             RefundableAmount = refundableAmount,
         };
     }

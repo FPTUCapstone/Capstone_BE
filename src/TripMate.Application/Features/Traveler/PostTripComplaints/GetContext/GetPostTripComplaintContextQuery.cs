@@ -1,4 +1,5 @@
 using MediatR;
+
 using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;

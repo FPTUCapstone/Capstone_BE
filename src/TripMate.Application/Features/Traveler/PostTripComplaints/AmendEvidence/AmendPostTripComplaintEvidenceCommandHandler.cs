@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 
 using MediatR;
+
 using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
