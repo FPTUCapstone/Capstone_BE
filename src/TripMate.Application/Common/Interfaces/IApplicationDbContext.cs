@@ -12,6 +12,8 @@ public interface IApplicationDbContext
 
     DbSet<RefreshToken> RefreshTokens { get; }
 
+    DbSet<UserUnlockOperation> UserUnlockOperations { get; }
+
     DbSet<PoiCategory> PoiCategories { get; }
 
     DbSet<PointOfInterest> PointsOfInterest { get; }

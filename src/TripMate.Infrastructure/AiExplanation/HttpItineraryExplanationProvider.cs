@@ -43,8 +43,24 @@ public sealed class HttpItineraryExplanationProvider(
     private readonly ILogger<HttpItineraryExplanationProvider>? _logger = logger;
     private readonly IAiProviderBudget? _budget = budget;
 
-    public async Task<Result<ItineraryExplanationResult>> ExplainAsync(
+    public Task<Result<ItineraryExplanationResult>> ExplainAsync(
         ItineraryExplanationInput input,
+        CancellationToken cancellationToken) =>
+        ExplainCoreAsync(input, timeBudget: null, cancellationToken);
+
+    /// <inheritdoc />
+    public Task<Result<ItineraryExplanationResult>> ExplainAsync(
+        ItineraryExplanationInput input,
+        TimeSpan timeBudget,
+        CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(timeBudget, TimeSpan.Zero);
+        return ExplainCoreAsync(input, timeBudget, cancellationToken);
+    }
+
+    private async Task<Result<ItineraryExplanationResult>> ExplainCoreAsync(
+        ItineraryExplanationInput input,
+        TimeSpan? timeBudget,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(input);
@@ -62,8 +78,9 @@ public sealed class HttpItineraryExplanationProvider(
                 ResponseSchema));
 
         int maxAttempts = Math.Clamp(_options.MaxAttempts, 1, 2);
-        TimeSpan overallBudget = TimeSpan.FromSeconds(_options.OverallTimeoutSeconds);
-        TimeSpan attemptTimeout = TimeSpan.FromSeconds(_options.TimeoutSeconds);
+        // A caller's budget (background mode) stands for both limits: one attempt may use all of it.
+        TimeSpan overallBudget = timeBudget ?? TimeSpan.FromSeconds(_options.OverallTimeoutSeconds);
+        TimeSpan attemptTimeout = timeBudget ?? TimeSpan.FromSeconds(_options.TimeoutSeconds);
         long overallStart = Stopwatch.GetTimestamp();
 
         for (int attempt = 1; attempt <= maxAttempts; attempt++)

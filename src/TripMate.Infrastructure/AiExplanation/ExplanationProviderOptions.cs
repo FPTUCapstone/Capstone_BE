@@ -31,4 +31,17 @@ public sealed class ExplanationProviderOptions
     public int RateLimitPerMinute { get; init; } = 4;
 
     public int MaxConcurrency { get; init; } = 2;
+
+    /// <summary>
+    /// Background mode (specs/UC-10-background-explanation-spec.md): the create request answers with the template
+    /// sentences and the AI explanation is written afterwards. Has no effect while <see cref="Enabled"/> is false.
+    /// </summary>
+    public bool BackgroundEnabled { get; init; } = false;
+
+    /// <summary>
+    /// Seconds one background explanation may take (1-300). Separate from <see cref="OverallTimeoutSeconds"/>, whose
+    /// 30-second ceiling protects the request the traveler waits on. Keep it longer than the AI service's
+    /// LLM_TIMEOUT_SECONDS, so the backend is still listening when a slow answer arrives.
+    /// </summary>
+    public int BackgroundTimeoutSeconds { get; init; } = 100;
 }

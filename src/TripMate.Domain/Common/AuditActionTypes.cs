@@ -77,4 +77,5 @@ public static class AuditActionTypes
 
     // UC-63 Export Statistical Reports, BR-130
     public const string StatisticalReportExportRequested = "STATISTICAL_REPORT_EXPORT_REQUESTED";
+    public const string UserUnlock = "UnlockUserAccount";
 }

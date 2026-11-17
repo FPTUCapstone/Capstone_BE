@@ -141,6 +141,245 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         log.Properties["Outcome"].Should().Be("provider-skipped");
     }
 
+    // Background mode (specs/UC-10-background-explanation-spec.md, B1 and B6-B8): the request answers with the
+    // template sentences and hands the itinerary to the waiting list; it never waits for the AI.
+
+    [Fact]
+    public async Task Handle_BackgroundMode_AnswersWithTemplatesAndQueuesTheItinerary()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await SeedSelectablePoiAsync(dbContext);
+        var explanationProvider = new RecordingItineraryExplanationProvider
+        {
+            ResultFactory = ValidExplanationResult,
+        };
+        var queue = new RecordingExplanationQueue();
+        var logger = new RecordingLogger<CreateSchedulingRequestCommandHandler>();
+
+        var result = await CreateHandler(
+                dbContext,
+                explanationProvider: explanationProvider,
+                explanationOptions: BackgroundExplanationOptions(),
+                explanationLogger: logger,
+                explanationQueue: queue)
+            .Handle(CreateCommand(Guid.NewGuid()) with
+            {
+                MandatoryPoiIds = [mandatoryPoi.Id],
+            }, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        explanationProvider.CallCount.Should().Be(0, "the request never waits for the AI in background mode");
+        result.Value.ExplanationPending.Should().BeTrue();
+        string template = result.Value.Items.Should().ContainSingle().Subject.FriendlyExplanation!;
+        template.Should().NotBeNullOrWhiteSpace().And.Contain(mandatoryPoi.Name);
+        ItineraryItem persisted = await dbContext.ItineraryItems.AsNoTracking().SingleAsync();
+        persisted.FriendlyExplanation.Should().Be(template);
+
+        // B4: the job carries each item's id and the template sentence saved for it.
+        ItineraryExplanationJob job = queue.Jobs.Should().ContainSingle().Subject;
+        job.ItineraryId.Should().Be(result.Value.ItineraryId);
+        job.Input.Items.Should().ContainSingle().Which.PoiId.Should().Be(mandatoryPoi.Id);
+        job.Items.Should().Equal(
+            new ItineraryExplanationJobItem(persisted.Id, persisted.SequenceNo, template));
+        LogEntry log = logger.Entries.Should().ContainSingle().Subject;
+        log.Level.Should().Be(LogLevel.Information);
+        log.Properties["Outcome"].Should().Be("queued");
+        log.Properties["FallbackUsed"].Should().Be(true);
+    }
+
+    [Fact]
+    public async Task Handle_BackgroundMode_WhenTheWaitingListIsFull_KeepsTheTemplatesAndIsNotPending()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await SeedSelectablePoiAsync(dbContext);
+        var explanationProvider = new RecordingItineraryExplanationProvider
+        {
+            ResultFactory = ValidExplanationResult,
+        };
+        var queue = new RecordingExplanationQueue { Accept = false };
+        var logger = new RecordingLogger<CreateSchedulingRequestCommandHandler>();
+
+        var result = await CreateHandler(
+                dbContext,
+                explanationProvider: explanationProvider,
+                explanationOptions: BackgroundExplanationOptions(),
+                explanationLogger: logger,
+                explanationQueue: queue)
+            .Handle(CreateCommand(Guid.NewGuid()) with
+            {
+                MandatoryPoiIds = [mandatoryPoi.Id],
+            }, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.ExplanationPending.Should().BeFalse();
+        queue.Offered.Should().Be(1);
+        queue.Jobs.Should().BeEmpty();
+        explanationProvider.CallCount.Should().Be(0);
+        string template = result.Value.Items.Should().ContainSingle().Subject.FriendlyExplanation!;
+        (await dbContext.ItineraryItems.AsNoTracking().SingleAsync()).FriendlyExplanation.Should().Be(template);
+        LogEntry log = logger.Entries.Should().ContainSingle().Subject;
+        log.Level.Should().Be(LogLevel.Warning);
+        log.Properties["Outcome"].Should().Be("queue-full");
+    }
+
+    [Fact]
+    public async Task Handle_BackgroundModeWhileExplanationsAreDisabled_QueuesNothing()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await SeedSelectablePoiAsync(dbContext);
+        var explanationProvider = new RecordingItineraryExplanationProvider
+        {
+            ResultFactory = ValidExplanationResult,
+        };
+        var queue = new RecordingExplanationQueue();
+        var logger = new RecordingLogger<CreateSchedulingRequestCommandHandler>();
+
+        var result = await CreateHandler(
+                dbContext,
+                explanationProvider: explanationProvider,
+                explanationOptions: new ItineraryExplanationExecutionOptions
+                {
+                    Enabled = false,
+                    BackgroundEnabled = true,
+                },
+                explanationLogger: logger,
+                explanationQueue: queue)
+            .Handle(CreateCommand(Guid.NewGuid()) with
+            {
+                MandatoryPoiIds = [mandatoryPoi.Id],
+            }, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.ExplanationPending.Should().BeFalse();
+        queue.Offered.Should().Be(0);
+        explanationProvider.CallCount.Should().Be(0);
+        result.Value.Items.Should().ContainSingle().Which.FriendlyExplanation.Should().NotBeNullOrWhiteSpace();
+        logger.Entries.Should().ContainSingle().Which.Properties["Outcome"].Should().Be("provider-skipped");
+    }
+
+    [Fact]
+    public async Task Handle_BackgroundModeWithoutAWaitingList_KeepsTheTemplatesAndStillDoesNotWaitForTheAi()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await SeedSelectablePoiAsync(dbContext);
+        var explanationProvider = new RecordingItineraryExplanationProvider
+        {
+            ResultFactory = ValidExplanationResult,
+        };
+        var logger = new RecordingLogger<CreateSchedulingRequestCommandHandler>();
+
+        var result = await CreateHandler(
+                dbContext,
+                explanationProvider: explanationProvider,
+                explanationOptions: BackgroundExplanationOptions(),
+                explanationLogger: logger)
+            .Handle(CreateCommand(Guid.NewGuid()) with
+            {
+                MandatoryPoiIds = [mandatoryPoi.Id],
+            }, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.ExplanationPending.Should().BeFalse();
+        explanationProvider.CallCount.Should().Be(0);
+        result.Value.Items.Should().ContainSingle().Which.FriendlyExplanation.Should().NotBeNullOrWhiteSpace();
+        logger.Entries.Should().ContainSingle().Which.Properties["Outcome"].Should().Be("provider-skipped");
+    }
+
+    [Fact]
+    public async Task Handle_InlineMode_IsNeverPendingAndLeavesTheWaitingListAlone()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await SeedSelectablePoiAsync(dbContext);
+        var explanationProvider = new RecordingItineraryExplanationProvider
+        {
+            ResultFactory = ValidExplanationResult,
+        };
+        var queue = new RecordingExplanationQueue();
+
+        var result = await CreateHandler(
+                dbContext,
+                explanationProvider: explanationProvider,
+                explanationOptions: EnabledExplanationOptions(),
+                explanationQueue: queue)
+            .Handle(CreateCommand(Guid.NewGuid()) with
+            {
+                MandatoryPoiIds = [mandatoryPoi.Id],
+            }, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.ExplanationPending.Should().BeFalse();
+        explanationProvider.CallCount.Should().Be(1);
+        queue.Offered.Should().Be(0);
+        result.Value.Items.Should().ContainSingle().Which.FriendlyExplanation.Should().Be("Nội dung AI cho mục 1.");
+    }
+
+    [Fact]
+    public async Task Handle_BackgroundMode_AReplayIsNotQueuedAgain()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await SeedSelectablePoiAsync(dbContext);
+        var explanationProvider = new RecordingItineraryExplanationProvider
+        {
+            ResultFactory = ValidExplanationResult,
+        };
+        var queue = new RecordingExplanationQueue();
+        var handler = CreateHandler(
+            dbContext,
+            explanationProvider: explanationProvider,
+            explanationOptions: BackgroundExplanationOptions(),
+            explanationQueue: queue);
+        var command = CreateCommand(Guid.NewGuid()) with
+        {
+            MandatoryPoiIds = [mandatoryPoi.Id],
+        };
+
+        var first = await handler.Handle(command, CancellationToken.None);
+        var replay = await handler.Handle(command, CancellationToken.None);
+
+        first.Value.ExplanationPending.Should().BeTrue();
+        replay.IsSuccess.Should().BeTrue();
+        replay.Value.ItineraryId.Should().Be(first.Value.ItineraryId);
+        replay.Value.ExplanationPending.Should().BeFalse();
+        replay.Value.Items.Select(item => item.FriendlyExplanation)
+            .Should().Equal(first.Value.Items.Select(item => item.FriendlyExplanation));
+        queue.Offered.Should().Be(1);
+        explanationProvider.CallCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Handle_BackgroundMode_WhenTheTemplatesCannotBeSaved_QueuesNothing()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await SeedSelectablePoiAsync(dbContext);
+        var queue = new RecordingExplanationQueue();
+        var logger = new RecordingLogger<CreateSchedulingRequestCommandHandler>();
+        // Reservation, itinerary and the mandatory-POI behavior signal save first; the fourth save writes the
+        // template sentences.
+        int explanationSave = dbContext.SaveChangesAsyncCallCount + 4;
+        dbContext.SaveChangesAttemptFailureFactory = attempt =>
+            attempt == explanationSave ? new DbUpdateException("The database is unavailable.") : null;
+
+        var result = await CreateHandler(
+                dbContext,
+                explanationProvider: new RecordingItineraryExplanationProvider(),
+                explanationOptions: BackgroundExplanationOptions(),
+                explanationLogger: logger,
+                explanationQueue: queue)
+            .Handle(CreateCommand(Guid.NewGuid()) with
+            {
+                MandatoryPoiIds = [mandatoryPoi.Id],
+            }, CancellationToken.None);
+
+        dbContext.SaveChangesAttemptFailureFactory = null;
+        result.IsSuccess.Should().BeTrue();
+        result.Value.ExplanationPending.Should().BeFalse();
+        queue.Offered.Should().Be(0, "a sentence that was never saved cannot be recognized by the worker later");
+        (await dbContext.ItineraryItems.AsNoTracking().SingleAsync()).FriendlyExplanation.Should().BeNull();
+        LogEntry log = logger.Entries.Should().ContainSingle().Subject;
+        log.Level.Should().Be(LogLevel.Warning);
+        log.Properties["Outcome"].Should().Be("persistence-failed");
+    }
+
     [Theory]
     [InlineData(ExplanationProviderErrorCodes.Network, "network")]
     [InlineData(ExplanationProviderErrorCodes.Quota, "quota")]
@@ -2814,7 +3053,8 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         SchedulingReservationOptions? reservationOptions = null,
         WeightedRequestInputsFactory? weightedInputsFactory = null,
         IShadowSchedulingRunner? shadowRunner = null,
-        ShadowOptions? shadowOptions = null)
+        ShadowOptions? shadowOptions = null,
+        IItineraryExplanationQueue? explanationQueue = null)
     {
         return new(
             dbContext,
@@ -2834,11 +3074,15 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
             reservationOptions,
             weightedInputsFactory: weightedInputsFactory,
             shadowRunner: shadowRunner,
-            shadowOptions: shadowOptions);
+            shadowOptions: shadowOptions,
+            explanationQueue: explanationQueue);
     }
 
     private static ItineraryExplanationExecutionOptions EnabledExplanationOptions() =>
         new() { Enabled = true };
+
+    private static ItineraryExplanationExecutionOptions BackgroundExplanationOptions() =>
+        new() { Enabled = true, BackgroundEnabled = true };
 
     private static PoiRankingOrchestrator CreateRankingOrchestrator(
         IApplicationDbContext dbContext,
@@ -3404,6 +3648,27 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
             var provider = new RealTimeFitProvider(context);
             SunriseWindowObserved = provider.GetWindows(node).Any(window => window.Factor > 1.0);
             return provider;
+        }
+    }
+
+    /// <summary>The waiting list of background explanations; <see cref="Accept"/> false behaves like a full one.</summary>
+    private sealed class RecordingExplanationQueue : IItineraryExplanationQueue
+    {
+        public bool Accept { get; init; } = true;
+
+        public int Offered { get; private set; }
+
+        public List<ItineraryExplanationJob> Jobs { get; } = [];
+
+        public bool TryEnqueue(ItineraryExplanationJob job)
+        {
+            Offered++;
+            if (Accept)
+            {
+                Jobs.Add(job);
+            }
+
+            return Accept;
         }
     }
 

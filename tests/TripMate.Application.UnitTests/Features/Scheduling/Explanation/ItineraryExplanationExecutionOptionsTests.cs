@@ -108,4 +108,63 @@ public sealed class ItineraryExplanationExecutionOptionsTests
         result.Failed.Should().BeTrue();
         result.FailureMessage.Should().Contain(nameof(options.RetryBaseDelayMilliseconds));
     }
+
+    // Background mode (specs/UC-10-background-explanation-spec.md, B2 and B7).
+
+    [Fact]
+    public void Defaults_BackgroundModeIsOffWithAHundredSecondBudget()
+    {
+        var options = new ItineraryExplanationExecutionOptions();
+
+        options.BackgroundEnabled.Should().BeFalse();
+        options.BackgroundTimeout.Should().Be(TimeSpan.FromSeconds(100));
+        ItineraryExplanationExecutionOptions.DefaultBackgroundTimeout.Should().Be(TimeSpan.FromSeconds(100));
+        new ItineraryExplanationExecutionOptionsValidator().Validate(null, options).Succeeded.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-5)]
+    [InlineData(301)]
+    public void Validate_BackgroundTimeoutOutOfRange_Fails(int seconds)
+    {
+        var options = new ItineraryExplanationExecutionOptions
+        {
+            BackgroundTimeout = TimeSpan.FromSeconds(seconds),
+        };
+
+        var result = new ItineraryExplanationExecutionOptionsValidator()
+            .Validate(null, options);
+
+        result.Failed.Should().BeTrue();
+        result.FailureMessage.Should().Contain(nameof(options.BackgroundTimeout));
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(300)]
+    public void Validate_BackgroundTimeoutAtTheEdges_Succeeds(int seconds)
+    {
+        var options = new ItineraryExplanationExecutionOptions
+        {
+            BackgroundEnabled = true,
+            BackgroundTimeout = TimeSpan.FromSeconds(seconds),
+        };
+
+        new ItineraryExplanationExecutionOptionsValidator().Validate(null, options).Succeeded.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Validate_BackgroundTimeoutMayExceedTheInlineLimit()
+    {
+        // The 30-second ceiling protects the request the traveler waits on; the background budget is separate.
+        var options = new ItineraryExplanationExecutionOptions
+        {
+            ProviderTimeout = TimeSpan.FromSeconds(10),
+            OverallTimeout = TimeSpan.FromSeconds(20),
+            BackgroundTimeout = TimeSpan.FromSeconds(100),
+        };
+
+        new ItineraryExplanationExecutionOptionsValidator().Validate(null, options).Succeeded.Should().BeTrue();
+    }
 }
