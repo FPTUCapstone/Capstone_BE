@@ -136,7 +136,7 @@ public sealed class ModerateUserAccountCommandHandler(IApplicationDbContext db, 
                 var before = user.Status;
                 if (request.Lock)
                 {
-                    user.Lock(request.Reason.Trim(), now);
+                    user.Lock(request.Reason.Trim(), now, current.UserId);
                     var tokens = await db.RefreshTokens.Where(token => token.UserId == user.Id && token.RevokedAtUtc == null).ToListAsync(transactionCt);
                     foreach (var token in tokens) token.RevokedAtUtc = now;
                 }
