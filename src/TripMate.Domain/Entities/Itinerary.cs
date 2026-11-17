@@ -17,6 +17,8 @@ public class Itinerary : BaseEntity
     public const string ActiveStatus = "Active";
     public const string CompletedStatus = "Completed";
     public const string CancelledStatus = "Cancelled";
+    public const int SolverOutcomeMaxLength = 64;
+    public const int ObjectiveModeMaxLength = 20;
 
     private Itinerary()
     {
@@ -104,6 +106,41 @@ public class Itinerary : BaseEntity
         return itinerary;
     }
 
+    public static Itinerary CreateBookedTour(
+        long travelerUserId,
+        string? title,
+        long sourceBookingId,
+        long sourceTourId,
+        DateTimeOffset createdAtUtc,
+        DateTimeOffset? validFromUtc = null,
+        DateTimeOffset? validToUtc = null)
+    {
+        if (sourceBookingId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(sourceBookingId));
+        }
+
+        if (sourceTourId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(sourceTourId));
+        }
+
+        return new Itinerary(
+            travelerUserId,
+            title,
+            ActiveStatus,
+            createdAtUtc,
+            createdAtUtc,
+            version: 1)
+        {
+            SourceType = BookedTourSourceType,
+            SourceBookingId = sourceBookingId,
+            SourceTourId = sourceTourId,
+            ValidFromUtc = validFromUtc,
+            ValidToUtc = validToUtc,
+        };
+    }
+
     public long TravelerUserId { get; private set; }
 
     public User TravelerUser { get; private set; } = null!;
@@ -122,6 +159,10 @@ public class Itinerary : BaseEntity
 
     public Tour? SourceTour { get; private set; }
 
+    public long? SourceBookingId { get; private set; }
+
+    public Booking? SourceBooking { get; private set; }
+
     public DateTimeOffset? ValidFromUtc { get; private set; }
 
     public DateTimeOffset? ValidToUtc { get; private set; }
@@ -131,6 +172,52 @@ public class Itinerary : BaseEntity
     public DateTimeOffset UpdatedAtUtc { get; private set; }
 
     public int Version { get; private set; } = 1;
+
+    /// <summary>
+    /// How the schedule was produced (ADR-002): the solver outcome, or <c>manual_order</c> for a traveler's own order.
+    /// Null for itineraries saved before provenance was recorded.
+    /// </summary>
+    public string? SolverOutcome { get; private set; }
+
+    /// <summary>CSP objective mode used for the schedule; null when no CSP objective was involved.</summary>
+    public string? ObjectiveMode { get; private set; }
+
+    /// <summary>True when the CSP explored its whole search tree; null when the CSP did not run.</summary>
+    public bool? SearchCompleted { get; private set; }
+
+    /// <summary>True when the time-of-day step reordered the solver's schedule.</summary>
+    public bool? TimeOfDayRefined { get; private set; }
+
+    public void RecordGenerationProvenance(
+        string solverOutcome,
+        string? objectiveMode,
+        bool? searchCompleted,
+        bool timeOfDayRefined)
+    {
+        if (string.IsNullOrWhiteSpace(solverOutcome))
+        {
+            throw new ArgumentException("A solver outcome is required.", nameof(solverOutcome));
+        }
+
+        var outcome = solverOutcome.Trim();
+        if (outcome.Length > SolverOutcomeMaxLength)
+        {
+            throw new ArgumentException(
+                $"Solver outcome cannot exceed {SolverOutcomeMaxLength} characters.", nameof(solverOutcome));
+        }
+
+        var mode = string.IsNullOrWhiteSpace(objectiveMode) ? null : objectiveMode.Trim();
+        if (mode?.Length > ObjectiveModeMaxLength)
+        {
+            throw new ArgumentException(
+                $"Objective mode cannot exceed {ObjectiveModeMaxLength} characters.", nameof(objectiveMode));
+        }
+
+        SolverOutcome = outcome;
+        ObjectiveMode = mode;
+        SearchCompleted = searchCompleted;
+        TimeOfDayRefined = timeOfDayRefined;
+    }
 
     public void Accept(DateTimeOffset acceptedAtUtc)
     {

@@ -42,25 +42,25 @@ public sealed class SearchToursSqlServerTests
         result.Value.TotalPages.Should().Be(1);
         result.Value.AsOfUtc.Should().Be(Now.UtcDateTime);
         result.Value.Items.Select(item => item.Title).Should()
-            .Equal("Alpha public", "No schedule", "Sold out");
+            .Equal("Alpha public", "Sold out", "No schedule");
 
         var first = result.Value.Items[0];
         first.TourId.Should().Be("9007199254740993");
-        first.RepresentativeScheduleId.Should().Be("7002");
+        first.RepresentativeScheduleId.Should().Be("7001");
         first.DepartureAtUtc.Should().Be(
-            new DateTime(2026, 9, 20, 2, 0, 0, DateTimeKind.Utc));
-        first.AvailabilityStatus.Should().Be("available");
-        first.RemainingSlots.Should().Be(8);
+            new DateTime(2026, 9, 19, 1, 0, 0, DateTimeKind.Utc));
+        first.AvailabilityStatus.Should().Be("soldOut");
+        first.RemainingSlots.Should().Be(0);
         first.BasePrice.Should().Be(1_250_000);
         first.Currency.Should().Be("VND");
 
-        var noSchedule = result.Value.Items[1];
+        var noSchedule = result.Value.Items[2];
         noSchedule.RepresentativeScheduleId.Should().BeNull();
         noSchedule.DepartureAtUtc.Should().BeNull();
         noSchedule.AvailabilityStatus.Should().Be("noUpcomingSchedule");
         noSchedule.RemainingSlots.Should().BeNull();
 
-        var soldOut = result.Value.Items[2];
+        var soldOut = result.Value.Items[1];
         soldOut.RepresentativeScheduleId.Should().Be("7004");
         soldOut.AvailabilityStatus.Should().Be("soldOut");
         soldOut.RemainingSlots.Should().Be(0);
@@ -75,7 +75,7 @@ public sealed class SearchToursSqlServerTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
-    public async Task Search_CombinesLiteralDestinationVietnamDateAndInclusivePriceBounds()
+    public async Task Search_CombinesLiteralAccentInsensitiveDestinationVietnamDateAndInclusivePriceBounds()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
         await SeedFilterScenarioAsync(database);
@@ -92,14 +92,26 @@ public sealed class SearchToursSqlServerTests
                 PageSize: 1),
             CancellationToken.None);
 
-        result.Value.TotalCount.Should().Be(1);
-        result.Value.TotalPages.Should().Be(1);
+        result.Value.TotalCount.Should().Be(2);
+        result.Value.TotalPages.Should().Be(2);
         result.Value.Items.Should().ContainSingle();
         result.Value.Items[0].Title.Should().Be("Literal match");
         result.Value.Items[0].Destinations.Should().Equal("ĐÀ%_Nẵng", "Hội An");
         result.Value.Items[0].BasePrice.Should().Be(500_000);
         result.Value.Items[0].DepartureAtUtc.Should().Be(
             new DateTime(2026, 9, 19, 17, 0, 0, DateTimeKind.Utc));
+
+        var accentInsensitivePage = await handler.Handle(
+            new SearchToursQuery(
+                Destination: "  đà%_nẵng  ",
+                DepartureDate: new DateOnly(2026, 9, 20),
+                MinPrice: 500_000,
+                MaxPrice: 1_000_000,
+                Page: 2,
+                PageSize: 1),
+            CancellationToken.None);
+        accentInsensitivePage.Value.Items.Should().ContainSingle();
+        accentInsensitivePage.Value.Items[0].Title.Should().Be("Accent mismatch");
 
         var injectionAttempt = await handler.Handle(
             new SearchToursQuery(Destination: "%' OR 1=1 --"),
@@ -188,7 +200,7 @@ public sealed class SearchToursSqlServerTests
 
         result.Value.TotalCount.Should().Be(3);
         result.Value.Items.Select(item => item.Title).Should()
-            .Equal("Alpha public", "No schedule", "Sold out");
+            .Equal("Alpha public", "Sold out", "No schedule");
         ThumbnailJson(result.Value.Items[0]).GetString().Should().Be(
             "https://res.cloudinary.com/test/image/upload/cover.jpg");
         ThumbnailJson(result.Value.Items[1]).ValueKind.Should().Be(JsonValueKind.Null);
@@ -239,7 +251,189 @@ public sealed class SearchToursSqlServerTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
-    public async Task Search_CorruptCapacity_ReturnsUnknownWithoutLeakingScheduleDetails()
+    public async Task Search_OneAvailabilityFailure_KeepsThatTourUnknownAndOtherToursNormal()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await SeedVisibilityScenarioAsync(database);
+        await database.ExecuteNonQueryAsync("""
+            UPDATE commerce.TourSchedules
+            SET status = 'EmergencyStopped'
+            WHERE schedule_id = 7004;
+            """);
+        await using var context = database.CreateDbContext();
+        var handler = CreateHandler(context);
+
+        var result = await handler.Handle(new SearchToursQuery(), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.TotalCount.Should().Be(3);
+        result.Value.Items.Select(item => item.Title).Should()
+            .Equal("Alpha public", "No schedule", "Sold out");
+
+        var healthy = result.Value.Items[0];
+        healthy.RepresentativeScheduleId.Should().Be("7001");
+        healthy.AvailabilityStatus.Should().Be("soldOut");
+        healthy.RemainingSlots.Should().Be(0);
+
+        var failed = result.Value.Items[2];
+        failed.RepresentativeScheduleId.Should().BeNull();
+        failed.DepartureAtUtc.Should().BeNull();
+        failed.AvailabilityStatus.Should().Be("unknown");
+        failed.RemainingSlots.Should().BeNull();
+
+        var noSchedule = result.Value.Items[1];
+        noSchedule.AvailabilityStatus.Should().Be("noUpcomingSchedule");
+
+        await database.ExecuteNonQueryAsync("""
+            UPDATE commerce.TourSchedules
+            SET status = 'Scheduled'
+            WHERE schedule_id = 7004;
+            """);
+        await using var recoveredContext = database.CreateDbContext();
+        var recovered = await CreateHandler(recoveredContext)
+            .Handle(new SearchToursQuery(), CancellationToken.None);
+        var recoveredTour = recovered.Value.Items.Single(item => item.Title == "Sold out");
+        recoveredTour.RepresentativeScheduleId.Should().Be("7004");
+        recoveredTour.AvailabilityStatus.Should().Be("soldOut");
+        recoveredTour.RemainingSlots.Should().Be(0);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Search_DepartureDate_PagesAvailabilityUnknownAfterDatedTours()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await SeedVisibilityScenarioAsync(database);
+        await database.ExecuteNonQueryAsync("""
+            UPDATE commerce.TourSchedules
+            SET status = 'EmergencyStopped'
+            WHERE schedule_id = 7004;
+            """);
+
+        await using var firstContext = database.CreateDbContext();
+        var first = await CreateHandler(firstContext).Handle(
+            new SearchToursQuery(
+                Sort: SearchToursQuery.SortDepartureDate,
+                Page: 1,
+                PageSize: 1),
+            CancellationToken.None);
+        await using var secondContext = database.CreateDbContext();
+        var second = await CreateHandler(secondContext).Handle(
+            new SearchToursQuery(
+                Sort: SearchToursQuery.SortDepartureDate,
+                Page: 2,
+                PageSize: 1),
+            CancellationToken.None);
+        await using var thirdContext = database.CreateDbContext();
+        var third = await CreateHandler(thirdContext).Handle(
+            new SearchToursQuery(
+                Sort: SearchToursQuery.SortDepartureDate,
+                Page: 3,
+                PageSize: 1),
+            CancellationToken.None);
+
+        first.Value.Items.Should().ContainSingle()
+            .Which.Title.Should().Be("Alpha public");
+        first.Value.Items[0].DepartureAtUtc.Should().NotBeNull();
+        second.Value.Items.Should().ContainSingle()
+            .Which.Title.Should().Be("No schedule");
+        second.Value.Items[0].DepartureAtUtc.Should().BeNull();
+        third.Value.Items.Should().ContainSingle()
+            .Which.Title.Should().Be("Sold out");
+        third.Value.Items[0].AvailabilityStatus.Should().Be("unknown");
+        third.Value.Items[0].RepresentativeScheduleId.Should().BeNull();
+        third.Value.Items[0].DepartureAtUtc.Should().BeNull();
+        third.Value.Items[0].RemainingSlots.Should().BeNull();
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Search_CompletedSnapshot_RemainsConsistentAndNextSnapshotReflectsTransition()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await SeedVisibilityScenarioAsync(database);
+        await using var firstContext = database.CreateDbContext();
+        var completedSnapshot = await CreateHandler(firstContext).Handle(
+            new SearchToursQuery(
+                Sort: SearchToursQuery.SortDepartureDate,
+                Page: 2,
+                PageSize: 1),
+            CancellationToken.None);
+
+        completedSnapshot.Value.Items.Should().ContainSingle()
+            .Which.Title.Should().Be("Sold out");
+        completedSnapshot.Value.Items[0].DepartureAtUtc.Should().NotBeNull();
+
+        await database.ExecuteNonQueryAsync("""
+            UPDATE commerce.TourSchedules
+            SET status = 'EmergencyStopped'
+            WHERE schedule_id = 7004;
+            """);
+
+        completedSnapshot.Value.Items[0].Title.Should().Be("Sold out");
+        completedSnapshot.Value.Items[0].DepartureAtUtc.Should().NotBeNull();
+
+        await using var nextContext = database.CreateDbContext();
+        var nextSnapshot = await CreateHandler(nextContext).Handle(
+            new SearchToursQuery(
+                Sort: SearchToursQuery.SortDepartureDate,
+                Page: 2,
+                PageSize: 1),
+            CancellationToken.None);
+        nextSnapshot.Value.Items.Should().ContainSingle()
+            .Which.Title.Should().Be("No schedule");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Search_HistoricalCompletedSchedule_RemainsDateFilterEligibleAndNonBookable()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await SeedVisibilityScenarioAsync(database);
+        await database.ExecuteNonQueryAsync("""
+            UPDATE commerce.TourSchedules
+            SET status = 'Completed'
+            WHERE schedule_id = 7001;
+            """);
+        await using var context = database.CreateDbContext();
+
+        var result = await CreateHandler(context).Handle(
+            new SearchToursQuery(
+                Destination: "Đà Nẵng",
+                DepartureDate: new DateOnly(2026, 9, 19),
+                Sort: SearchToursQuery.SortDepartureDate),
+            CancellationToken.None);
+
+        result.Value.TotalCount.Should().Be(1);
+        result.Value.Items.Should().ContainSingle();
+        result.Value.Items[0].Title.Should().Be("Alpha public");
+        result.Value.Items[0].AvailabilityStatus.Should().Be("unknown");
+        result.Value.Items[0].RepresentativeScheduleId.Should().BeNull();
+        result.Value.Items[0].DepartureAtUtc.Should().BeNull();
+        result.Value.Items[0].RemainingSlots.Should().BeNull();
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Search_AvailabilityProviderFailure_PropagatesAsGlobalSearchFailure()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await SeedVisibilityScenarioAsync(database);
+        var interceptor = new FailAvailabilityQueryInterceptor();
+        await using var context = database.CreateDbContext(interceptor);
+        var handler = CreateHandler(context);
+
+        Func<Task> action = async () =>
+            await handler.Handle(new SearchToursQuery(), CancellationToken.None);
+
+        await action.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("Simulated global availability provider failure.");
+        interceptor.FailureCount.Should().Be(1);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Search_CorruptCapacity_DefenseInDepthFailsClosedWithoutBookableSchedule()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
         await SeedVisibilityScenarioAsync(database);
@@ -301,7 +495,8 @@ public sealed class SearchToursSqlServerTests
         result.Value.TotalCount.Should().Be(3);
         result.Value.Items.Should().HaveCount(3);
         gate.ReaderCommandCount.Should().Be(4);
-        gate.PageSql.Should().Contain("COLLATE Vietnamese_100_CI_AS");
+        gate.PageSql.Should().Contain("ORDER BY");
+        gate.AvailabilityExecutedInsideTransaction.Should().BeTrue();
 
         await database.ExecuteNonQueryAsync(
             "UPDATE commerce.Tours SET status = 'Inactive' WHERE tour_id = 201;");
@@ -314,7 +509,10 @@ public sealed class SearchToursSqlServerTests
     }
 
     private static SearchToursQueryHandler CreateHandler(IApplicationDbContext context) =>
-        new(context, new FixedClock(Now), NullLogger<SearchToursQueryHandler>.Instance);
+        new(
+            context,
+            new FixedClock(Now),
+            NullLogger<SearchToursQueryHandler>.Instance);
 
     private static async Task SeedVisibilityScenarioAsync(SqlServerTestDatabase database)
     {
@@ -456,6 +654,7 @@ public sealed class SearchToursSqlServerTests
     private sealed class PauseAfterCountInterceptor : DbCommandInterceptor
     {
         private int _readerCommandCount;
+        private int _availabilityExecutedInsideTransaction;
         private string? _pageSql;
 
         public TaskCompletionSource CountCompleted { get; } = new(
@@ -468,6 +667,9 @@ public sealed class SearchToursSqlServerTests
 
         public string? PageSql => _pageSql;
 
+        public bool AvailabilityExecutedInsideTransaction =>
+            Volatile.Read(ref _availabilityExecutedInsideTransaction) == 1;
+
         public override async ValueTask<DbDataReader> ReaderExecutedAsync(
             DbCommand command,
             CommandExecutedEventData eventData,
@@ -475,6 +677,14 @@ public sealed class SearchToursSqlServerTests
             CancellationToken cancellationToken = default)
         {
             Interlocked.Increment(ref _readerCommandCount);
+
+            if (command.CommandText.Contains(
+                    SearchToursQueryHandler.AvailabilitySnapshotQueryTag,
+                    StringComparison.Ordinal)
+                && command.Transaction is not null)
+            {
+                Interlocked.Exchange(ref _availabilityExecutedInsideTransaction, 1);
+            }
 
             if (_pageSql is null
                 && command.CommandText.Contains("ORDER BY", StringComparison.OrdinalIgnoreCase))
@@ -512,6 +722,31 @@ public sealed class SearchToursSqlServerTests
             }
 
             return new ValueTask<DbDataReader>(result);
+        }
+    }
+
+    private sealed class FailAvailabilityQueryInterceptor : DbCommandInterceptor
+    {
+        private int _failureCount;
+
+        public int FailureCount => Volatile.Read(ref _failureCount);
+
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains(
+                    SearchToursQueryHandler.AvailabilitySnapshotQueryTag,
+                    StringComparison.Ordinal))
+            {
+                Interlocked.Increment(ref _failureCount);
+                throw new InvalidOperationException(
+                    "Simulated global availability provider failure.");
+            }
+
+            return new ValueTask<InterceptionResult<DbDataReader>>(result);
         }
     }
 

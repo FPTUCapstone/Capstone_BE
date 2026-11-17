@@ -99,11 +99,19 @@ public sealed class TravelerTourBookingsEndpointTests
             Set(tour, nameof(Tour.BasePrice), 1_000_000m);
             Set(tour, nameof(Tour.DurationDays), 1);
             Set(tour, nameof(Tour.Status), TourStatus.Published);
+            // UC-70 bookability: a sellable tour template carries fully scheduled stops.
+            var itemsField = typeof(Tour).GetField("_itineraryItems", BindingFlags.NonPublic | BindingFlags.Instance)!;
+            ((List<TourItineraryItem>)itemsField.GetValue(tour)!).AddRange(
+            [
+                TourItineraryItem.Create(1, 1, 9001, new TimeOnly(9, 0), 60, null),
+                TourItineraryItem.Create(1, 2, 9002, new TimeOnly(11, 0), 45, null),
+            ]);
             db.Tours.Add(tour);
             await db.SaveChangesAsync();
 
             var schedule = TourSchedule.Create(
-                DateTimeOffset.UtcNow.AddDays(7), DateTimeOffset.UtcNow.AddDays(8), null, totalCapacity,
+                // Schedule opens before the first stop (09:00 +07 = 02:00Z) per the UC-70 timeline.
+                DateTimeOffset.UtcNow.Date.AddDays(7).AddHours(1), DateTimeOffset.UtcNow.Date.AddDays(8).AddHours(1), null, totalCapacity,
                 DateTimeOffset.UtcNow, adultPrice: 1_000_000m);
             Set(schedule, nameof(TourSchedule.TourId), tour.Id);
             Set(schedule, nameof(TourSchedule.Tour), tour);

@@ -344,6 +344,62 @@ public sealed class HttpItineraryExplanationProviderTests
         handler.CallCount.Should().Be(1);
     }
 
+    // Background mode (specs/UC-10-background-explanation-spec.md, B2): the caller's time budget replaces the
+    // configured per-attempt and overall timeouts for that one call.
+
+    [Fact]
+    public async Task ExplainAsync_WithATimeBudget_LetsAnAttemptOutliveTheConfiguredTimeouts()
+    {
+        using var handler = new DelayingHttpMessageHandler(
+            TimeSpan.FromMilliseconds(1300),
+            () => JsonResponse(CompletedResponse("""
+                {"items":[{"sequenceNo":1,"poiId":7,"friendlyExplanation":"Phù hợp sở thích văn hóa của bạn."}]}
+                """)));
+        var provider = CreateProvider(new HttpClient(handler), ShortTimeouts());
+
+        var result = await provider.ExplainAsync(Request(), TimeSpan.FromSeconds(30), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        handler.CallCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ExplainAsync_WithATimeBudget_TimesOutWhenTheBudgetIsSpent()
+    {
+        using var handler = new DelayingHttpMessageHandler(TimeSpan.FromSeconds(30));
+        var provider = CreateProvider(new HttpClient(handler));
+
+        var result = await provider.ExplainAsync(Request(), TimeSpan.FromMilliseconds(200), CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(ExplanationProviderErrorCodes.Timeout);
+        handler.CallCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ExplainAsync_WithANonPositiveTimeBudget_Throws()
+    {
+        using var handler = new DelayingHttpMessageHandler(TimeSpan.Zero);
+        var provider = CreateProvider(new HttpClient(handler));
+
+        Func<Task> act = () => provider.ExplainAsync(Request(), TimeSpan.Zero, CancellationToken.None);
+
+        await act.Should().ThrowAsync<ArgumentOutOfRangeException>();
+        handler.CallCount.Should().Be(0);
+    }
+
+    private static ExplanationProviderOptions ShortTimeouts() => new()
+    {
+        Enabled = true,
+        Endpoint = Endpoint,
+        ApiKey = FakeApiKey,
+        ModelName = "gemini-3.5-flash-lite",
+        TimeoutSeconds = 1,
+        OverallTimeoutSeconds = 1,
+        MaxAttempts = 2,
+        RetryBaseDelayMilliseconds = 0,
+    };
+
     private static HttpItineraryExplanationProvider CreateProvider(
         HttpClient client,
         ExplanationProviderOptions? customOptions = null,
@@ -479,7 +535,8 @@ public sealed class HttpItineraryExplanationProviderTests
         }
     }
 
-    private sealed class DelayingHttpMessageHandler(TimeSpan delay) : HttpMessageHandler
+    private sealed class DelayingHttpMessageHandler(TimeSpan delay, Func<HttpResponseMessage>? response = null)
+        : HttpMessageHandler
     {
         public int CallCount { get; private set; }
 
@@ -489,7 +546,7 @@ public sealed class HttpItineraryExplanationProviderTests
         {
             CallCount++;
             await Task.Delay(delay, cancellationToken);
-            return new HttpResponseMessage(HttpStatusCode.OK);
+            return response?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK);
         }
     }
 }

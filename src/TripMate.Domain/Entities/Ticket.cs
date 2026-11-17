@@ -50,6 +50,9 @@ public sealed class Ticket : BaseEntity
         IssuedAtUtc = issuedAtUtc.ToUniversalTime(),
     };
 
+    public static Ticket Create(long bookingId, TicketStatus status = TicketStatus.Valid) =>
+        new() { BookingId = bookingId, Status = status };
+
     public void Cancel()
     {
         if (Status == TicketStatus.Used)

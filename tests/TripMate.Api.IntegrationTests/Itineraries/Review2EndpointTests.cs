@@ -166,6 +166,81 @@ public sealed class Review2EndpointTests
         sender.Received.Should().BeEmpty();
     }
 
+    // UC-10 traveler feedback (feedback-ui-spec.md 3.1): the reason for each removed stop is optional.
+
+    [Fact]
+    public async Task AdjustItems_RemovedStops_ReachTheCommandWithTheirReasons()
+    {
+        var sender = new FixedSender(Result.Failure<ItineraryDetailResponse>(
+            ItineraryErrorCodes.InvalidState,
+            "stop here"));
+        await using var factory = new TripMateApiFactory(
+            configureTestServices: services => services.AddScoped<ISender>(_ => sender));
+        using var client = factory.CreateAuthenticatedClient(42, UserRole.Traveler);
+        using var request = new HttpRequestMessage(HttpMethod.Put, "/api/v1/itineraries/5/items")
+        {
+            Content = JsonContent.Create(new
+            {
+                stops = new object[] { new { poiId = 12 } },
+                removedStops = new object[]
+                {
+                    new { poiId = 88, reason = "NoTime" },
+                    new { poiId = 90, reason = "NotInterested" },
+                    new { poiId = 91, reason = "AlreadyVisited" },
+                },
+            }),
+        };
+        request.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
+
+        using var response = await client.SendAsync(request);
+
+        var command = sender.Received.OfType<AdjustItineraryItemsCommand>().Single();
+        command.OrderedVisitPoiIds.Should().Equal(12L);
+        command.RemovedStops.Should().Equal(
+            new RemovedItineraryStop(88, StopRemovalReason.NoTime),
+            new RemovedItineraryStop(90, StopRemovalReason.NotInterested),
+            new RemovedItineraryStop(91, StopRemovalReason.AlreadyVisited));
+    }
+
+    [Fact]
+    public async Task AdjustItems_WithoutRemovedStops_SendsNoReasons()
+    {
+        var sender = new FixedSender(Result.Failure<ItineraryDetailResponse>(ItineraryErrorCodes.InvalidState, "stop here"));
+        await using var factory = new TripMateApiFactory(
+            configureTestServices: services => services.AddScoped<ISender>(_ => sender));
+        using var client = factory.CreateAuthenticatedClient(42, UserRole.Traveler);
+        using var request = new HttpRequestMessage(HttpMethod.Put, "/api/v1/itineraries/5/items")
+        {
+            Content = JsonContent.Create(new { stops = new object[] { new { poiId = 12 } } }),
+        };
+        request.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
+
+        using var response = await client.SendAsync(request);
+
+        sender.Received.OfType<AdjustItineraryItemsCommand>().Single().RemovedStops.Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("{ \"stops\": [{ \"poiId\": 12 }], \"removedStops\": [{ \"poiId\": 88, \"reason\": \"Bored\" }] }")]
+    [InlineData("{ \"stops\": [{ \"poiId\": 12 }], \"removedStops\": [null] }")]
+    public async Task AdjustItems_WithAMalformedRemovedStop_ReturnsBadRequest(string json)
+    {
+        var sender = new FixedSender(Result.Failure<ItineraryDetailResponse>(ItineraryErrorCodes.InvalidState, "unused"));
+        await using var factory = new TripMateApiFactory(
+            configureTestServices: services => services.AddScoped<ISender>(_ => sender));
+        using var client = factory.CreateAuthenticatedClient(42, UserRole.Traveler);
+        using var request = new HttpRequestMessage(HttpMethod.Put, "/api/v1/itineraries/5/items")
+        {
+            Content = new StringContent(json, System.Text.Encoding.UTF8, "application/json"),
+        };
+        request.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
+
+        using var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        sender.Received.Should().BeEmpty();
+    }
+
     private static async Task<string?> ErrorCodeAsync(HttpResponseMessage response)
     {
         var body = await response.Content.ReadFromJsonAsync<JsonElement>();

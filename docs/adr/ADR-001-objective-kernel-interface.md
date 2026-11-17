@@ -100,9 +100,30 @@ Sau tối ưu PR-07c, kiến trúc interface `IObjectiveKernel` tiếp tục đ�
 
 Regenerate giữ nguyên objective `WeightedUtility`; không fallback ngầm sang `Lexicographic`.
 `ItineraryVersionService` tạo `WeightedRequestInputs` từ traveler profile và candidate của lần
-regenerate. Điểm sau tier penalty được chuẩn hóa tuyến tính về `[0,1]` khi cần, bảo toàn thứ tự tier
-và thứ tự trong tier. Kết quả phải là version mới hoặc business failure, không để lỗi thiếu weighted
+regenerate. Điểm sau tier penalty ban đầu được chuẩn hóa tuyến tính về `[0,1]` khi cần; mục 5.5.1
+thay khoảng này bằng `[0.5,1]` để tier thấp nhất vẫn có utility dương. Cả hai phép chuẩn hóa đều
+bảo toàn thứ tự tier và thứ tự trong tier. Kết quả phải là version mới hoặc business failure,
+không để lỗi thiếu weighted
 inputs hay invariant điểm thoát thành HTTP 500.
+
+### 5.5.1. Regenerate score floor (Issue #121, updated 2026-10-28)
+
+For every WeightedUtility Regenerate request, tier-adjusted scores that need normalization map
+linearly into `[0.5, 1]`. Scores already inside that interval remain unchanged. Equal adjusted
+scores that need normalization receive `0.5`. The rule applies whether or not the traveler has
+matching preferences, so the lowest tier does not become zero utility. Tier and within-tier
+ordering remain monotonic. The WeightedUtility objective and its travel/soft penalties remain
+unchanged; Lexicographic ranking is unaffected.
+
+The `0.5` baseline belongs to the regeneration objective. It uses the same neutral numeric
+convention as Create's ranking fallback, but the values do not come from the same pipeline:
+Regenerate computes preference scores as `0`, `100`, `200`, ... before applying tier penalties.
+With time-fit factor `1` and no extra soft penalties, a second POI in the same diversity group
+has gain `0.5 × 0.7 = 0.35`; a POI in a different group has gain `0.5`, as in the regression.
+The no-DI Moderate fallback uses `LambdaPerMin = 0.015`, so an extra 10-minute leg costs `0.15`.
+The `appsettings.json` pace defaults are Relaxed `0.018`, Moderate `0.012`, Fast `0.008`, making
+that leg cost at most `0.18` with those defaults. Distant or poorly timed POIs can still lose to
+travel and soft penalties.
 
 ### 5.6. Quyền quyết định sau WeightedUtility (Issue #114, 2026-10-24)
 
@@ -111,3 +132,15 @@ nhân hóa. Với kế hoạch này, `TimeOfDayRefiner` chỉ bổ sung `Recomme
 lịch, đổi thứ tự, hoặc thay thế kế hoạch, vì các thao tác đó có thể làm giảm objective và làm mất
 `ModelObjective`. Kế hoạch không có `ModelObjective`, gồm luồng `Lexicographic` hiện tại, vẫn dùng
 cơ chế sắp xếp lại theo thời điểm trong ngày như trước.
+
+### 5.7. Giới hạn đã biết: luôn bắt đầu tham quan sớm nhất (audit CSP, 2026-11-09)
+
+Mô hình CSP gán mỗi điểm một giờ bắt đầu duy nhất: giờ sớm nhất khả thi
+(`RoutingContext.StartAt`). `WeightedUtilityKernel` chấm TimeFit tại đúng giờ đó, nên solver không
+thể chủ động chờ để lấy thưởng TimeFit, ví dụ đến bãi biển sớm rồi đợi hoàng hôn. Với Lexicographic
+không có hệ quả vì hàm mục tiêu không có TimeFit.
+
+- **Quyết định:** chấp nhận cho giai đoạn hiện tại; WeightedUtility vẫn tắt trên production.
+- **Tái đánh giá khi:** shadow mode cho thấy nhiều lịch Weighted có điểm TimeFit thấp vì đến sớm. Khi
+  đó cân nhắc thêm vài giờ bắt đầu ứng viên cho mỗi điểm (giờ sớm nhất và các mốc TimeFit trong khung
+  mở cửa) và đo lại chi phí mỗi node theo Điều kiện 2.

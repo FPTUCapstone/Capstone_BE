@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 using Microsoft.Extensions.Options;
 
@@ -43,7 +44,10 @@ public sealed class TripMateAiPoiRankingProvider(
                 candidate.PoiId,
                 candidate.Name,
                 candidate.CategoryName,
-                candidate.TagNames.ToArray())).ToArray());
+                candidate.TagNames.ToArray())).ToArray(),
+            request.Context.Behavior is { } behavior
+                ? new RankingBehaviorBody(ToBody(behavior.Liked), ToBody(behavior.Disliked))
+                : null);
 
         using var httpRequest = new HttpRequestMessage(HttpMethod.Post, _options.Endpoint)
         {
@@ -150,9 +154,30 @@ public sealed class TripMateAiPoiRankingProvider(
             "The POI ranking provider rejected the request.");
     }
 
+    private static RankingBehaviorPoiBody[] ToBody(IReadOnlyCollection<PoiRankingBehaviorPoi> pois) =>
+        pois.Select(poi => new RankingBehaviorPoiBody(
+            poi.PoiId,
+            poi.Name,
+            poi.CategoryName,
+            poi.TagNames.ToArray(),
+            poi.Weight)).ToArray();
+
+    // `behavior` is left out when there is no profile, so the body stays exactly what it was before UC-10 item 6.
     private sealed record RankingRequestBody(
         IReadOnlyCollection<string> PreferenceTokens,
-        IReadOnlyCollection<RankingCandidateBody> Candidates);
+        IReadOnlyCollection<RankingCandidateBody> Candidates,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] RankingBehaviorBody? Behavior);
+
+    private sealed record RankingBehaviorBody(
+        IReadOnlyCollection<RankingBehaviorPoiBody> Liked,
+        IReadOnlyCollection<RankingBehaviorPoiBody> Disliked);
+
+    private sealed record RankingBehaviorPoiBody(
+        long PoiId,
+        string Name,
+        string CategoryName,
+        IReadOnlyCollection<string> TagNames,
+        decimal Weight);
 
     private sealed record RankingCandidateBody(
         long PoiId,

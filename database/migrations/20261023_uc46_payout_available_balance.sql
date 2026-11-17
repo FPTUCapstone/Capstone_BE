@@ -35,8 +35,9 @@ GO
 BEGIN TRY
     BEGIN TRANSACTION;
 
-    IF OBJECT_ID(N'payment.Payouts', N'U') IS NULL
-        THROW 51000, 'UC-46 balance redesign requires payment.Payouts (20261022 migration).', 1;
+    -- Superseded once 20261108_remove_legacy_payout_request_tables.sql has dropped payment.Payouts.
+    IF OBJECT_ID(N'payment.Payouts', N'U') IS NOT NULL
+    BEGIN
 
     /* ---------- payment.Payouts: per-operator active-payout uniqueness ---------- */
 
@@ -83,6 +84,7 @@ BEGIN TRY
         VALUES (N'payout.minimum_amount_vnd', N'1000000',
             N'UC-46: minimum payable net amount (VND) for a payout request to be allowed. Confirmed 2026-10-23.',
             SYSUTCDATETIME());
+    END
 
     COMMIT TRANSACTION;
 END TRY

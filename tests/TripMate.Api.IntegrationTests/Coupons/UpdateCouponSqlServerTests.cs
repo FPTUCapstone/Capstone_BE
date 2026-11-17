@@ -262,11 +262,26 @@ public sealed class UpdateCouponSqlServerTests
 
         var tour = CreateTour(operatorUser.Id, "SQL coupon tour");
         var replacementTour = CreateTour(operatorUser.Id, "SQL replacement tour");
+        // UC-70 bookability: a sellable tour template carries fully scheduled stops.
+        var category = PoiCategory.Create("Beach", null);
+        context.PoiCategories.Add(category);
+        await context.SaveChangesAsync();
+        var stop = (PointOfInterest)Activator.CreateInstance(typeof(PointOfInterest), nonPublic: true)!;
+        Set(stop, nameof(PointOfInterest.Name), "SQL coupon stop");
+        Set(stop, nameof(PointOfInterest.Latitude), 16.0m);
+        Set(stop, nameof(PointOfInterest.Longitude), 108.0m);
+        Set(stop, nameof(PointOfInterest.CategoryId), category.Id);
+        context.PointsOfInterest.Add(stop);
+        await context.SaveChangesAsync();
+        var itemsField = typeof(Tour).GetField("_itineraryItems", BindingFlags.NonPublic | BindingFlags.Instance)!;
+        ((List<TourItineraryItem>)itemsField.GetValue(tour)!).Add(
+            TourItineraryItem.Create(1, 1, stop.Id, new TimeOnly(9, 0), 60, null));
         context.Tours.AddRange(tour, replacementTour);
         await context.SaveChangesAsync();
 
         var schedule = TourSchedule.Create(
-            Now.AddDays(7), Now.AddDays(8), null, totalCapacity: 5, createdAtUtc: Now,
+            // Opens before the first stop (09:00 +07 = 02:00Z) per the UC-70 timeline.
+            Now.Date.AddDays(7).AddHours(1), Now.Date.AddDays(8).AddHours(1), null, totalCapacity: 5, createdAtUtc: Now,
             registrationDeadlineAtUtc: Now.AddDays(6), adultPrice: 1_000_000m);
         Set(schedule, nameof(TourSchedule.TourId), tour.Id);
         Set(schedule, nameof(TourSchedule.Tour), tour);

@@ -14,6 +14,7 @@ using TripMate.Application.Common.Geo;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Itineraries.Common;
+using TripMate.Application.Features.RecommendationFeedback.Derived;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Csp;
 using TripMate.Application.Features.Scheduling.Csp.Objectives;
@@ -44,7 +45,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
     TimeOfDayOptions? timeOfDayOptions = null,
     WeightedRequestInputsFactory? weightedInputsFactory = null,
     IShadowSchedulingRunner? shadowRunner = null,
-    ShadowOptions? shadowOptions = null)
+    ShadowOptions? shadowOptions = null,
+    IItineraryExplanationQueue? explanationQueue = null)
     : IRequestHandler<CreateSchedulingRequestCommand, Result<SchedulingResponseDto>>
 {
     private readonly SchedulingGenerationOptions _generationOptions =
@@ -58,6 +60,26 @@ public sealed class CreateSchedulingRequestCommandHandler(
     private readonly IShadowSchedulingRunner? _shadowRunner = shadowRunner;
 
     public async Task<Result<SchedulingResponseDto>> Handle(
+        CreateSchedulingRequestCommand command,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await HandleCoreAsync(command, cancellationToken);
+        }
+        catch (SchedulingRequestContentionException exception)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            dbContext.ClearTrackedEntities();
+            logger?.LogWarning(exception, "Scheduling DB contention exhausted its bounded recovery.");
+            return Result.Failure<SchedulingResponseDto>(
+                SchedulingErrorCodes.GenerationContended,
+                "Itinerary generation is busy. Please retry with the same Idempotency-Key.",
+                new Dictionary<string, object?> { ["retryAfterSeconds"] = 1 });
+        }
+    }
+
+    private async Task<Result<SchedulingResponseDto>> HandleCoreAsync(
         CreateSchedulingRequestCommand command,
         CancellationToken cancellationToken)
     {
@@ -270,12 +292,40 @@ public sealed class CreateSchedulingRequestCommandHandler(
         }
     }
 
+    private async Task<T> ExecuteSchedulingTransactionAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
+        CancellationToken cancellationToken)
+    {
+        // Retry only DB phases. Prepared routing/ranking/solver results remain outside this callback.
+        const int maximumAttempts = 3;
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await dbContext.ExecuteInSerializableTransactionAsync(operation, cancellationToken);
+            }
+            catch (Exception exception) when (dbContext.IsDeadlock(exception))
+            {
+                // The SQL transaction has been disposed/rolled back before tracking is cleared.
+                dbContext.ClearTrackedEntities();
+                cancellationToken.ThrowIfCancellationRequested();
+                if (attempt == maximumAttempts)
+                {
+                    throw new SchedulingRequestContentionException(exception);
+                }
+
+                logger?.LogWarning(exception, "Retrying scheduling DB phase after deadlock. Attempt={Attempt}.", attempt);
+                await Task.Delay(TimeSpan.FromMilliseconds(100 * attempt), cancellationToken);
+            }
+        }
+    }
+
     private async Task<ReservationDecision> ReserveAsync(
         CanonicalSchedulingRequest canonical,
         string requestHash,
         Guid ownerId,
         CancellationToken cancellationToken) =>
-        await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
+        await ExecuteSchedulingTransactionAsync(async transactionCancellationToken =>
         {
             await schedulingRequestLock.AcquireAsync(
                 canonical.TravelerUserId,
@@ -455,7 +505,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 "No selectable locations were found in the selected area.");
         }
 
-        if (canonical.TransportMode == TransportMode.PublicTransit)
+        if (canonical.TransportMode == TransportMode.PublicTransit
+            && !routeDurationProvider.SupportsTransportMode(canonical.TransportMode))
         {
             return PreparedGeneration.Infeasible(
                 snapshot.Hash,
@@ -467,20 +518,10 @@ public sealed class CreateSchedulingRequestCommandHandler(
         var mandatoryIds = canonical.MandatoryPoiIds.ToHashSet();
         var optionalCandidates = selectablePois
             .Where(poi => !mandatoryIds.Contains(poi.Id))
-            .Select(poi => new PoiRankingInputCandidate(
-                poi.Id,
-                poi.CategoryId,
-                poi.Name,
-                poi.Category.Name,
-                poi.PoiTags.Select(mapping => mapping.Tag.Name).ToArray(),
-                poi.ScenicScore,
-                poi.PhotoRating,
-                GeoDistance.EquirectangularKilometers(
-                    canonical.ExplorationLatitude,
-                    canonical.ExplorationLongitude,
-                    poi.Latitude,
-                    poi.Longitude),
-                poi.EstimatedVisitCost))
+            .Select(poi => PoiRankingInputCandidate.From(
+                poi,
+                canonical.ExplorationLatitude,
+                canonical.ExplorationLongitude))
             .ToArray();
         funnel.SetEligibleOptional(optionalCandidates.Length);
         long rankingStartedAt = Stopwatch.GetTimestamp();
@@ -514,7 +555,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
             Stopwatch.GetElapsedTime(selectionStartedAt));
         var end = endPoi is null
             ? new RoutePoint(canonical.StartLatitude, canonical.StartLongitude)
-            : new RoutePoint(endPoi.Latitude, endPoi.Longitude);
+            : new RoutePoint(endPoi.Latitude, endPoi.Longitude, endPoi.Id);
         var input = new GenerationInput(
             canonical.StartAtUtc,
             timeZone,
@@ -541,8 +582,23 @@ public sealed class CreateSchedulingRequestCommandHandler(
             weightedInputs = factory.Create(input.Candidates, travelerProfile, input, ranking.OutcomeCategory);
         }
 
-        var plan = await new ItineraryGenerationService(measuredRouteProvider, _generationOptions)
-            .GenerateAsync(input, weightedInputs, cancellationToken);
+        Result<GeneratedItineraryPlan> plan;
+        try
+        {
+            plan = await new ItineraryGenerationService(measuredRouteProvider, _generationOptions)
+                .GenerateAsync(input, weightedInputs, cancellationToken);
+        }
+        catch (RouteDurationProviderException ex) when (
+            canonical.TransportMode == TransportMode.PublicTransit
+            && ex.FailureKind == RouteDurationProviderFailureKind.UnsupportedMode)
+        {
+            return PreparedGeneration.Infeasible(
+                snapshot.Hash,
+                preferenceTokens,
+                explanationMetadata,
+                "Public transit routing is not available yet. Choose walking, motorbike, or car.",
+                ranking);
+        }
         if (plan.IsSuccess)
         {
             // REVIEW2 D10 option A: reorder for the time of day when the trip stays at most a few minutes longer.
@@ -597,7 +653,10 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 preferenceTokens,
                 explanationMetadata,
                 plan.ErrorMessage ?? "The selected constraints cannot produce an itinerary.",
-                ranking)
+                ranking,
+                plan.ErrorCode == SchedulingErrorCodes.GenerationTimedOut
+                    ? SchedulingErrorCodes.GenerationTimedOut
+                    : SchedulingErrorCodes.ConstraintsInfeasible)
             : PreparedGeneration.Successful(
                 snapshot.Hash,
                 preferenceTokens,
@@ -618,7 +677,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
         CancellationToken cancellationToken)
     {
         dbContext.ClearTrackedEntities();
-        return await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
+        return await ExecuteSchedulingTransactionAsync(async transactionCancellationToken =>
         {
             await schedulingRequestLock.AcquireAsync(
                 canonical.TravelerUserId,
@@ -699,6 +758,19 @@ public sealed class CreateSchedulingRequestCommandHandler(
                     CandidatePoolFunnelDimensions.OutcomeSnapshotMismatchTerminal);
             }
 
+            if (prepared.Plan is null
+                && string.Equals(prepared.FailureCode, SchedulingErrorCodes.GenerationTimedOut, StringComparison.Ordinal))
+            {
+                // A timeout is not a result: release the request so the same idempotency key generates again (ADR-002, G2).
+                request.ReleaseGeneration(ownerId, now);
+                await dbContext.SaveChangesAsync(transactionCancellationToken);
+                return FinalizeDecision.Completed(
+                    Result.Failure<SchedulingResponseDto>(
+                        SchedulingErrorCodes.GenerationTimedOut,
+                        prepared.FailureMessage!),
+                    CandidatePoolFunnelDimensions.OutcomeGenerationTimeout);
+            }
+
             if (prepared.Plan is null)
             {
                 request.FailGeneration(
@@ -719,6 +791,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 $"Generated itinerary - {TimeZoneInfo.ConvertTime(canonical.StartAtUtc, timeZone):dd MMM yyyy}",
                 canonical.StartAtUtc,
                 prepared.Plan.EndAtUtc);
+            prepared.Plan.Provenance?.ApplyTo(itinerary);
             foreach (var item in prepared.Plan.Items)
             {
                 itinerary.AddItem(GeneratedItineraryItemMapper.ToEntity(item, item.IsMandatory));
@@ -727,6 +800,14 @@ public sealed class CreateSchedulingRequestCommandHandler(
             request.CompleteGeneration(ownerId, now);
             dbContext.Itineraries.Add(itinerary);
             await dbContext.SaveChangesAsync(transactionCancellationToken);
+            // UC-10 item 6 (D6): a POI the traveler insisted on is a weak Like; recorded after the mandatory POIs
+            // were validated, so the signal never blocks the generation.
+            await new DerivedBehaviorSignalRecorder(dbContext, logger).RecordMandatoryAsync(
+                canonical.TravelerUserId,
+                request.Id,
+                canonical.MandatoryPoiIds,
+                now,
+                transactionCancellationToken);
             var fresh = new FreshGenerationContext(
                 request,
                 itinerary,
@@ -746,7 +827,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
         CancellationToken cancellationToken)
     {
         dbContext.ClearTrackedEntities();
-        await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
+        await ExecuteSchedulingTransactionAsync(async transactionCancellationToken =>
         {
             await schedulingRequestLock.AcquireAsync(
                 canonical.TravelerUserId,
@@ -783,7 +864,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
         }
 
         dbContext.ClearTrackedEntities();
-        await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
+        await ExecuteSchedulingTransactionAsync(async transactionCancellationToken =>
         {
             await schedulingRequestLock.AcquireAsync(
                 canonical.TravelerUserId,
@@ -902,12 +983,16 @@ public sealed class CreateSchedulingRequestCommandHandler(
             generation.SchedulingRequest.StartAtUtc,
             generation.SchedulingRequest.TimeZoneId);
         IReadOnlyDictionary<int, string> explanations = BuildFallback(input);
-        string outcome = "provider-skipped";
+        string outcome = ItineraryExplanationOutcomes.ProviderSkipped;
         bool fallbackUsed = true;
         bool timedOut = false;
         long startedAt = Stopwatch.GetTimestamp();
 
-        if (providerEnabled && provider is not null)
+        // Background mode (specs/UC-10-background-explanation-spec.md, B1): the request never waits for the AI.
+        // It saves the template sentences and hands the itinerary to the waiting list further down.
+        bool backgroundMode = providerEnabled && _explanationOptions.BackgroundEnabled;
+
+        if (providerEnabled && provider is not null && !backgroundMode)
         {
             using var providerCancellation =
                 CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -948,16 +1033,22 @@ public sealed class CreateSchedulingRequestCommandHandler(
             }
         }
 
-        LogExplanationOutcome(
-            logger,
-            provider,
-            providerEnabled,
-            input.Items.Count,
-            Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
-            outcome,
-            fallbackUsed,
-            timedOut);
+        if (!backgroundMode)
+        {
+            LogExplanationOutcome(
+                logger,
+                provider,
+                providerEnabled,
+                input.Items.Count,
+                Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
+                outcome,
+                fallbackUsed,
+                timedOut);
+        }
 
+        // Background mode: what the worker needs to recognize each item later (B4). Stays null when the template
+        // sentences could not be saved, because the worker would then have nothing to compare against.
+        ItineraryExplanationJobItem[]? savedTemplates = null;
         try
         {
             ItineraryItem[] persistedItems = await dbContext.ItineraryItems
@@ -969,6 +1060,17 @@ public sealed class CreateSchedulingRequestCommandHandler(
             }
 
             await dbContext.SaveChangesAsync(cancellationToken);
+            if (backgroundMode)
+            {
+                savedTemplates = persistedItems
+                    .Where(item => item.FriendlyExplanation is not null)
+                    .OrderBy(item => item.SequenceNo)
+                    .Select(item => new ItineraryExplanationJobItem(
+                        item.Id,
+                        item.SequenceNo,
+                        item.FriendlyExplanation!))
+                    .ToArray();
+            }
         }
         catch (OperationCanceledException)
         {
@@ -983,7 +1085,31 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 providerEnabled,
                 input.Items.Count,
                 Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
-                "persistence-failed",
+                ItineraryExplanationOutcomes.PersistenceFailed,
+                fallbackUsed,
+                timedOut);
+        }
+
+        bool explanationPending = false;
+        if (backgroundMode && savedTemplates is not null)
+        {
+            // Without a waiting list there is nobody to ask later: the templates stay, as if the provider were off.
+            if (explanationQueue is not null)
+            {
+                explanationPending = explanationQueue.TryEnqueue(
+                    new ItineraryExplanationJob(generation.Itinerary.Id, input, savedTemplates));
+                outcome = explanationPending
+                    ? ItineraryExplanationOutcomes.Queued
+                    : ItineraryExplanationOutcomes.QueueFull;
+            }
+
+            LogExplanationOutcome(
+                logger,
+                provider,
+                providerEnabled,
+                input.Items.Count,
+                Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
+                outcome,
                 fallbackUsed,
                 timedOut);
         }
@@ -993,7 +1119,10 @@ public sealed class CreateSchedulingRequestCommandHandler(
             generation.Itinerary,
             generation.Plan,
             generation.PoiMetadata,
-            explanations));
+            explanations) with
+        {
+            ExplanationPending = explanationPending,
+        });
     }
 
     private static IReadOnlyDictionary<int, string> BuildFallback(
@@ -1002,14 +1131,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
             item => item.SequenceNo,
             ItineraryExplanationFallback.Resolve);
 
-    private static string MapExplanationOutcome(string? errorCode) => errorCode switch
-    {
-        ExplanationProviderErrorCodes.Network => "network",
-        ExplanationProviderErrorCodes.Quota => "quota",
-        ExplanationProviderErrorCodes.ServerError => "server-error",
-        ExplanationProviderErrorCodes.Timeout => "timeout",
-        _ => "invalid-response",
-    };
+    private static string MapExplanationOutcome(string? errorCode) =>
+        ItineraryExplanationOutcomes.FromErrorCode(errorCode);
 
     private static void LogExplanationOutcome(
         ILogger<CreateSchedulingRequestCommandHandler>? logger,
@@ -1027,7 +1150,9 @@ public sealed class CreateSchedulingRequestCommandHandler(
         }
 
         string providerName = provider?.GetType().Name ?? "none";
-        if (outcome is "success" or "provider-skipped")
+        if (outcome is ItineraryExplanationOutcomes.Success
+            or ItineraryExplanationOutcomes.ProviderSkipped
+            or ItineraryExplanationOutcomes.Queued)
         {
             logger.LogInformation(
                 "Itinerary explanation provider={Provider}; enabled={Enabled}; itemCount={ItemCount}; latencyMs={LatencyMs:F0}; outcome={Outcome}; fallbackUsed={FallbackUsed}; timedOut={TimedOut}.",
@@ -1122,7 +1247,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
         new(
             poi.Id,
             poi.Name,
-            new RoutePoint(poi.Latitude, poi.Longitude),
+            new RoutePoint(poi.Latitude, poi.Longitude, poi.Id > 0 ? poi.Id : null),
             poi.AverageVisitDurationMinutes,
             poi.EstimatedVisitCost,
             poi.OpeningHours
@@ -1177,7 +1302,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 item.TravelDurationToNextMinutes,
                 item.EstimatedCost,
                 item.IsMandatory,
-                item.RecommendationReason,
+                // The same wording as the saved itinerary (GeneratedItineraryItemMapper).
+                RestStopReasons.ForTraveler(item.Kind, item.RecommendationReason),
                 explanations is not null
                     ? explanations[item.SequenceNo]
                     : null,
@@ -1186,7 +1312,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
                         ? metadata.CategoryName
                         : null),
                 item.TravelDistanceToNextMeters,
-                item.TransportModeToNext)).ToArray());
+                item.TransportModeToNext)).ToArray(),
+            SchedulingProvenanceDto.From(plan.Provenance));
 
     private static SchedulingResponseDto ToResponse(SchedulingRequest schedulingRequest, Itinerary itinerary)
     {
@@ -1216,7 +1343,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 item.FriendlyExplanation,
                 CostKindPolicy.FromCategory(item.PointOfInterest?.Category?.Name),
                 item.TravelDistanceToNextMeters,
-                item.TransportModeToNext)).ToArray());
+                item.TransportModeToNext)).ToArray(),
+            SchedulingProvenanceDto.From(itinerary));
     }
 
     private static string ComputeRequestHash(CanonicalSchedulingRequest command)
@@ -1372,6 +1500,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
         IRouteDurationProvider inner,
         CandidatePoolFunnelDiagnostics funnel) : IRouteDurationProvider
     {
+        public bool SupportsTransportMode(TransportMode transportMode) => inner.SupportsTransportMode(transportMode);
+
         public async Task<RouteDurationMatrix> GetMatrixAsync(
             IReadOnlyList<RoutePoint> points,
             TransportMode transportMode,

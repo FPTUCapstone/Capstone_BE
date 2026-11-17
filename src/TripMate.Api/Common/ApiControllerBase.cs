@@ -3,20 +3,26 @@ using MediatR;
 using Microsoft.AspNetCore.Mvc;
 
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Admin.Users.Common;
 using TripMate.Application.Features.Authentication.Common;
 using TripMate.Application.Features.Bookings.Common;
+using TripMate.Application.Features.Bookings.Refunds;
 using TripMate.Application.Features.CommercialServices.Common;
+using TripMate.Application.Features.Complaints.PartialRefundProposals;
 using TripMate.Application.Features.Coupons.Common;
 using TripMate.Application.Features.Navigation.Common;
 using TripMate.Application.Features.Operator.CheckIn.Common;
 using TripMate.Application.Features.Operator.Tours.Common;
+using TripMate.Application.Features.Operator.Tours.Emergency;
 using TripMate.Application.Features.PointsOfInterest.Common;
 using TripMate.Application.Features.RecommendationFeedback.Common;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Tickets.Common;
 using TripMate.Application.Features.TourMedia.Common;
+using TripMate.Application.Features.TourRecommendations.Common;
 using TripMate.Application.Features.Tours.Shared;
 using TripMate.Application.Features.Traveler.Payments.Common;
+using TripMate.Application.Features.Traveler.PostTripComplaints.Common;
 using TripMate.Application.Features.TripAlerts.Common;
 using TripMate.Application.Features.TripHistory.Common;
 using TripMate.Application.Features.TripReviews.Common;
@@ -58,6 +64,18 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
     {
         var statusCode = result.ErrorCode switch
         {
+            TripMate.Application.Features.Admin.UserAccounts.UserAccountErrors.Forbidden => StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.Admin.UserAccounts.UserAccountErrors.NotFound => StatusCodes.Status404NotFound,
+            TripMate.Application.Features.Admin.UserAccounts.UserAccountErrors.InvalidRequest => StatusCodes.Status400BadRequest,
+            TripMate.Application.Features.Admin.UserAccounts.UserAccountErrors.Conflict or
+            TripMate.Application.Features.Admin.UserAccounts.UserAccountErrors.OutstandingDebt or
+            TripMate.Application.Features.Admin.UserAccounts.UserAccountErrors.ProviderSettlementUnavailable => StatusCodes.Status409Conflict,
+            TripMate.Application.Features.SupportChat.SupportChatErrors.Unauthorized => StatusCodes.Status401Unauthorized,
+            TripMate.Application.Features.SupportChat.SupportChatErrors.Forbidden => StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.SupportChat.SupportChatErrors.Unavailable => StatusCodes.Status503ServiceUnavailable,
+            TripMate.Application.Features.SupportChat.SupportChatErrors.InvalidRequest => StatusCodes.Status400BadRequest,
+            TripMate.Application.Features.Routes.RouteErrors.DuplicateSubmission
+                or TripMate.Application.Features.Routes.RouteErrors.DuplicateRoute => StatusCodes.Status409Conflict,
             AuthErrorCodes.InvalidCredentials =>
                 StatusCodes.Status401Unauthorized,
 
@@ -168,19 +186,12 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripMate.Application.Features.Admin.ActiveTrips.GetList.ActiveTripErrorCodes.NotFound =>
                 StatusCodes.Status404NotFound,
 
-            TripMate.Application.Features.Admin.Payouts.Common.PayoutErrorCodes.Forbidden =>
+            TripMate.Application.Features.Admin.StatisticalReports.Common.StatisticalReportErrorCodes.Forbidden =>
                 StatusCodes.Status403Forbidden,
-
-            TripMate.Application.Features.Admin.Payouts.Common.PayoutErrorCodes.InvalidPeriodRange =>
-                StatusCodes.Status400BadRequest,
-
-            TripMate.Application.Features.Admin.Payouts.Common.PayoutErrorCodes.NotFound =>
-                StatusCodes.Status404NotFound,
-
-            TripMate.Application.Features.Admin.Payouts.Common.PayoutErrorCodes.NotPendingReview =>
-                StatusCodes.Status409Conflict,
-
-            TripMate.Application.Features.Admin.Payouts.Common.PayoutErrorCodes.RejectionReasonInvalid =>
+            TripMate.Application.Features.Admin.StatisticalReports.Common.StatisticalReportErrorCodes.PeriodNotClosed =>
+                StatusCodes.Status422UnprocessableEntity,
+            TripMate.Application.Features.Admin.StatisticalReports.Common.StatisticalReportErrorCodes.InvalidCriteria or
+                TripMate.Application.Features.Admin.StatisticalReports.Common.StatisticalReportErrorCodes.UnsupportedScope =>
                 StatusCodes.Status400BadRequest,
 
             TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.Forbidden =>
@@ -200,6 +211,17 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
 
             TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.DocumentInvalid =>
                 StatusCodes.Status422UnprocessableEntity,
+
+            UserAdministrationErrorCodes.Forbidden or UserAdministrationErrorCodes.ProtectedAdministrator =>
+                StatusCodes.Status403Forbidden,
+
+            UserAdministrationErrorCodes.NotFound =>
+                StatusCodes.Status404NotFound,
+
+            UserAdministrationErrorCodes.NotLocked
+                or UserAdministrationErrorCodes.LockRecoveryStateMissing
+                or UserAdministrationErrorCodes.IdempotencyKeyPayloadMismatch =>
+                StatusCodes.Status409Conflict,
 
             TripMate.Application.Features.Admin.TourOperatorApplications.Common.TourOperatorApplicationErrorCodes.RejectionReasonRequired =>
                 StatusCodes.Status422UnprocessableEntity,
@@ -249,21 +271,30 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
 
             TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.OperatorNotApproved =>
                 StatusCodes.Status403Forbidden,
-            TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.ValidationRequiredField or
-                TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.InvalidSettlementMonth =>
+            TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.ValidationRequiredField =>
                 StatusCodes.Status400BadRequest,
-            TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.MonthNotClosed or
-                TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.NoEligibleBooking or
-                TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.PayoutNotRequestable or
-                TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.BelowMinimumPayout =>
-                StatusCodes.Status422UnprocessableEntity,
-            TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.ActivePayoutExists or
-                TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.PayoutNotCancellable =>
-                StatusCodes.Status409Conflict,
-            TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.PayoutNotFound =>
+
+            // DAILY-PAYOUT-TRANSFER (UC-72/UC-73). Previously unmapped, falling through to the
+            // generic 400 default below for every one of these codes, including Forbidden and
+            // BatchNotFound — this is the gap FE spec Open question 5 was asking about.
+            TripMate.Application.Features.Payouts.DailySettlement.DailyPayoutErrorCodes.Forbidden =>
+                StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.Payouts.DailySettlement.DailyPayoutErrorCodes.BatchNotFound =>
                 StatusCodes.Status404NotFound,
-            TripMate.Application.Features.Operator.Payouts.Common.OperatorPayoutErrorCodes.SystemError =>
-                StatusCodes.Status500InternalServerError,
+            TripMate.Application.Features.Payouts.DailySettlement.DailyPayoutErrorCodes.NotFailed =>
+                StatusCodes.Status409Conflict,
+            TripMate.Application.Features.Payouts.DailySettlement.DailyPayoutErrorCodes.ResolutionReasonRequired =>
+                StatusCodes.Status400BadRequest,
+            TripMate.Application.Features.Payouts.DailySettlement.DailyPayoutErrorCodes.OperatorHasOutstandingDebt =>
+                StatusCodes.Status409Conflict,
+            TripMate.Application.Features.Payouts.DailySettlement.DailyPayoutErrorCodes.OperatorNotFound =>
+                StatusCodes.Status404NotFound,
+            TripMate.Application.Features.Payouts.DailySettlement.DailyPayoutErrorCodes.OperatorNotLocked =>
+                StatusCodes.Status409Conflict,
+            TripMate.Application.Features.Payouts.DailySettlement.DailyPayoutErrorCodes.RetryBlockedOperatorLocked =>
+                StatusCodes.Status409Conflict,
+            TripMate.Application.Features.Payouts.DailySettlement.DailyPayoutErrorCodes.RetryBlockedMissingBankAccount =>
+                StatusCodes.Status409Conflict,
 
             TripMate.Application.Features.Operator.Revenue.Exports.Common.RevenueExportErrorCodes.ValidationFailed =>
                 StatusCodes.Status400BadRequest,
@@ -285,9 +316,31 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             OperatorTourErrorCodes.ReviewPrerequisitesMissing => StatusCodes.Status422UnprocessableEntity,
             OperatorTourErrorCodes.RejectionReasonInvalid => StatusCodes.Status422UnprocessableEntity,
 
+            EmergencyTourErrorCodes.NotFound => StatusCodes.Status404NotFound,
+            EmergencyTourErrorCodes.Forbidden => StatusCodes.Status403Forbidden,
+            EmergencyTourErrorCodes.InvalidRequest => StatusCodes.Status400BadRequest,
+            EmergencyTourErrorCodes.AlreadyCompleted => StatusCodes.Status422UnprocessableEntity,
+            EmergencyTourErrorCodes.AlreadyTerminal or
+                EmergencyTourErrorCodes.ConcurrentStateChanged or
+                EmergencyTourErrorCodes.WrongActionWindow or
+                EmergencyTourErrorCodes.EvidenceNotPending or
+                EmergencyTourErrorCodes.EvidenceStale or
+                EmergencyTourErrorCodes.TripSessionLinkUnverified or
+                EmergencyTourErrorCodes.IdempotencyPayloadMismatch => StatusCodes.Status409Conflict,
+
+            TripMate.Application.Features.Operator.WeatherSafetyReviews.WeatherSafetyReviewErrorCodes.NotFound =>
+                StatusCodes.Status404NotFound,
+            TripMate.Application.Features.Operator.WeatherSafetyReviews.WeatherSafetyReviewErrorCodes.Forbidden =>
+                StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.Operator.WeatherSafetyReviews.WeatherSafetyReviewErrorCodes.AlreadyClosed =>
+                StatusCodes.Status409Conflict,
+
             TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.AccessRequired =>
                 StatusCodes.Status403Forbidden,
             TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.ScheduleNotFound =>
+                StatusCodes.Status404NotFound,
+            TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.BookingNotFound or
+                TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.EmergencyStatusNotFound =>
                 StatusCodes.Status404NotFound,
             TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.VoucherNotFound =>
                 StatusCodes.Status404NotFound,
@@ -304,6 +357,11 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.IdempotencyKeyRequired =>
                 StatusCodes.Status400BadRequest,
 
+            PartialRefundProposalErrorCodes.Unauthorized => StatusCodes.Status401Unauthorized,
+            PartialRefundProposalErrorCodes.NotFound => StatusCodes.Status404NotFound,
+            PartialRefundProposalErrorCodes.Forbidden => StatusCodes.Status403Forbidden,
+            PartialRefundProposalErrorCodes.ResponseClosed => StatusCodes.Status409Conflict,
+
             BookingCancellationErrorCodes.Unauthorized => StatusCodes.Status401Unauthorized,
             BookingCancellationErrorCodes.NotFound => StatusCodes.Status404NotFound,
             BookingCancellationErrorCodes.Forbidden => StatusCodes.Status403Forbidden,
@@ -314,8 +372,23 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
                 BookingCancellationErrorCodes.RefundManualReviewRequired => StatusCodes.Status409Conflict,
             BookingCancellationErrorCodes.WindowClosed => StatusCodes.Status422UnprocessableEntity,
             BookingCancellationErrorCodes.ReasonRequired => StatusCodes.Status422UnprocessableEntity,
+            BookingCancellationErrorCodes.ConfirmationRequired => StatusCodes.Status422UnprocessableEntity,
             BookingCancellationErrorCodes.PolicyUnavailable => StatusCodes.Status503ServiceUnavailable,
             BookingCancellationErrorCodes.ConcurrentRetryExhausted => StatusCodes.Status503ServiceUnavailable,
+
+            RefundConfirmationErrorCodes.OperatorNotOwner => StatusCodes.Status403Forbidden,
+            RefundConfirmationErrorCodes.RequestNotPending or
+                RefundConfirmationErrorCodes.StatusPersistFailed => StatusCodes.Status409Conflict,
+            RefundConfirmationErrorCodes.ReturnReferenceRequired => StatusCodes.Status400BadRequest,
+
+            PostTripComplaintErrorCodes.Unauthorized => StatusCodes.Status401Unauthorized,
+            // PostTripComplaintErrorCodes.NotFound shares "complaint.not_found" with PartialRefundProposalErrorCodes.NotFound above.
+            PostTripComplaintErrorCodes.Ineligible => StatusCodes.Status422UnprocessableEntity,
+            PostTripComplaintErrorCodes.Duplicate => StatusCodes.Status409Conflict,
+            PostTripComplaintErrorCodes.IdempotencyKeyPayloadMismatch => StatusCodes.Status409Conflict,
+            PostTripComplaintErrorCodes.EvidenceLimit or PostTripComplaintErrorCodes.EvidenceType or
+                PostTripComplaintErrorCodes.InvalidInput => StatusCodes.Status422UnprocessableEntity,
+            PostTripComplaintErrorCodes.StorageUnavailable => StatusCodes.Status503ServiceUnavailable,
 
             TripMate.Application.Features.Admin.Bookings.Common.PlatformBookingErrorCodes.Forbidden =>
                 StatusCodes.Status403Forbidden,
@@ -458,9 +531,13 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             SchedulingErrorCodes.GenerationCooldown or SchedulingErrorCodes.GenerationRateLimited =>
                 StatusCodes.Status429TooManyRequests,
 
+            SchedulingErrorCodes.GenerationContended => StatusCodes.Status409Conflict,
+
             SchedulingErrorCodes.RoutingProviderUnavailable
                 or SchedulingErrorCodes.GenerationTemporarilyUnavailable
-                or SchedulingErrorCodes.GenerationRateLimiterUnavailable =>
+                or SchedulingErrorCodes.GenerationRateLimiterUnavailable
+                or SchedulingErrorCodes.GenerationTimedOut
+                or TripMate.Application.Features.Itineraries.Common.ItineraryErrorCodes.GenerationTimedOut =>
                 StatusCodes.Status503ServiceUnavailable,
 
             FeedbackErrorCodes.PoiNotFound or FeedbackErrorCodes.ItineraryNotFound =>
@@ -518,6 +595,7 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
                 or NavigationErrorCodes.ActiveSessionExists
                 or NavigationErrorCodes.IdempotencyKeyPayloadMismatch
                 or NavigationErrorCodes.ItemAlreadyReached
+                or NavigationErrorCodes.TripAlreadyFinished
                 or NavigationErrorCodes.SessionCompleted => StatusCodes.Status409Conflict,
             NavigationErrorCodes.NoNavigableItems
                 or NavigationErrorCodes.ItineraryScheduleIncomplete
@@ -538,6 +616,9 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
                 or PaymentErrorCodes.PaymentBookingExpired => StatusCodes.Status409Conflict,
             PaymentErrorCodes.PaymentGatewayUnavailable => StatusCodes.Status503ServiceUnavailable,
             PaymentErrorCodes.PaymentCallbackInvalid => StatusCodes.Status400BadRequest,
+
+            TourRecommendationErrorCodes.InterestTagsRequired =>
+                StatusCodes.Status422UnprocessableEntity,
 
             _ => StatusCodes.Status400BadRequest,
         };

@@ -60,7 +60,7 @@ public sealed class BookingsController(ISender sender) : ApiControllerBase(sende
         }
 
         var result = await Sender.Send(new CancelBookingCommand(bookingId, parsedKey,
-            request?.ReasonCategory, request?.ReasonDetail), cancellationToken);
+            request?.ReasonCategory, request?.ReasonDetail, request?.Confirmed ?? false), cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 }

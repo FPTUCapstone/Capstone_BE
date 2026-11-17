@@ -19,6 +19,8 @@ public sealed record GoogleAuthResponse(
     DateTimeOffset AccessTokenExpiresAtUtc,
     bool IsNewAccount)
 {
+    public bool MustChangePassword { get; init; }
+
     // Backend-authoritative application status, serialized on the Mobile/shared wire (A1).
     // Never keeps the field present even under a null-omitting policy. The Web projection
     // (WebGoogleAuthResponseDto) is a separate type and is unaffected. Refresh expiry stays internal.

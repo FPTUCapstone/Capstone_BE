@@ -129,6 +129,18 @@ public class PointOfInterest : BaseEntity
         };
     }
 
+    public bool TryDeactivate(DateTimeOffset occurredAtUtc)
+    {
+        if (Status == PointOfInterestStatus.Inactive)
+        {
+            return false;
+        }
+
+        Status = PointOfInterestStatus.Inactive;
+        UpdatedAtUtc = occurredAtUtc.ToUniversalTime();
+        return true;
+    }
+
     public void AddOpeningHour(PoiOpeningHour openingHour)
     {
         ArgumentNullException.ThrowIfNull(openingHour);

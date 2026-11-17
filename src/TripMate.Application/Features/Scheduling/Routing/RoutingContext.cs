@@ -120,7 +120,7 @@ public sealed class RoutingContext
         var mandatory = input.MandatoryPoiIds.ToHashSet();
         var eligible = matrixCandidates
             .Where(candidate => mandatory.Contains(candidate.Id)
-                || (!ItineraryScheduleEvaluator.IsQualifiedRestCandidate(candidate)
+                || (!ItineraryScheduleEvaluator.IsRestOnlyCandidate(candidate)
                     && (!input.BudgetVnd.HasValue || candidate.EstimatedVisitCost.HasValue)))
             .ToArray();
 

@@ -10,4 +10,5 @@ public enum BookingStatus
     Cancelled = 3,
     Completed = 4,
     Expired = 5,
+    Interrupted = 6,
 }

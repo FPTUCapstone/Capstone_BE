@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Operator.Revenue.GetReport;
+using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Operator.Revenue.Common;
@@ -15,6 +16,8 @@ namespace TripMate.Application.Features.Operator.Revenue.Common;
 /// </summary>
 public sealed class OperatorRevenueAggregator(IApplicationDbContext db)
 {
+    private const decimal CancellationFeePlatformCommissionPercent = 10m;
+
     public async Task<OperatorRevenueAggregate> AggregateAsync(
         long operatorId,
         DateOnly startDate,
@@ -29,8 +32,37 @@ public sealed class OperatorRevenueAggregator(IApplicationDbContext db)
         var until = new DateTimeOffset(untilDate.ToDateTime(TimeOnly.MinValue), zone.GetUtcOffset(untilDate.ToDateTime(TimeOnly.MinValue))).ToUniversalTime();
 
         var rows = await db.PaymentTransactions.AsNoTracking()
-            .Where(p => p.Status == PaymentTransactionStatus.Success && (p.Booking.Status == BookingStatus.Confirmed || p.Booking.Status == BookingStatus.Completed) && p.Booking.PaymentStatus == PaymentStatus.Paid && (p.SucceededAtUtc ?? p.CreatedAtUtc) >= from && (p.SucceededAtUtc ?? p.CreatedAtUtc) < until && p.Booking.TourSchedule.Tour.OperatorUserId == operatorId && (!tourId.HasValue || p.Booking.TourSchedule.TourId == tourId.Value))
-            .Select(p => new { p.BookingId, p.Amount, p.Booking.TotalAmount, p.Booking.DiscountAmount, p.Booking.Quantity, TourId = p.Booking.TourSchedule.TourId, p.Booking.TourSchedule.Tour.Title, PaidAt = p.SucceededAtUtc ?? p.CreatedAtUtc, Rate = p.CommissionRateApplied ?? db.OperatorProfiles.Where(o => o.UserId == operatorId).Select(o => o.CommissionRate).FirstOrDefault() })
+            .Where(p => p.TransactionType == PaymentTransaction.TypePayment
+                && p.Status == PaymentTransactionStatus.Success
+                && ((p.Booking.Status == BookingStatus.Confirmed || p.Booking.Status == BookingStatus.Completed)
+                    && p.Booking.PaymentStatus == PaymentStatus.Paid
+                    || p.Booking.Status == BookingStatus.Cancelled
+                    && (p.Booking.PaymentStatus == PaymentStatus.PartiallyRefunded
+                        || p.Booking.PaymentStatus == PaymentStatus.Refunded
+                        // Do not erase cash already sent to an operator while a cancellation is
+                        // awaiting the customer-refund/reconciliation outcome. Once the Advance
+                        // payout exists, the later return receipt is what reduces NetAmount.
+                        || p.Booking.PaymentStatus == PaymentStatus.Paid
+                        && db.PayoutSettlements.Any(settlement => settlement.BookingId == p.BookingId
+                            && settlement.Status == PayoutSettlementStatus.Settled)))
+                && (p.SucceededAtUtc ?? p.CreatedAtUtc) >= from
+                && (p.SucceededAtUtc ?? p.CreatedAtUtc) < until
+                && p.Booking.TourSchedule.Tour.OperatorUserId == operatorId
+                && (!tourId.HasValue || p.Booking.TourSchedule.TourId == tourId.Value))
+            .Select(p => new
+            {
+                p.BookingId,
+                p.Amount,
+                p.Booking.TotalAmount,
+                p.Booking.DiscountAmount,
+                p.Booking.Quantity,
+                BookingStatus = p.Booking.Status,
+                TourId = p.Booking.TourSchedule.TourId,
+                p.Booking.TourSchedule.Tour.Title,
+                PaidAt = p.SucceededAtUtc ?? p.CreatedAtUtc,
+                Rate = p.CommissionRateApplied
+                    ?? db.OperatorProfiles.Where(o => o.UserId == operatorId).Select(o => o.CommissionRate).FirstOrDefault(),
+            })
             .ToListAsync(ct);
 
         var canonical = rows.GroupBy(x => x.BookingId).Select(g => g.OrderBy(x => x.PaidAt).First()).ToList();
@@ -51,22 +83,52 @@ public sealed class OperatorRevenueAggregator(IApplicationDbContext db)
                 .Select(g => new { BookingId = g.Key, Amount = g.Sum(x => x.Amount) })
                 .ToDictionaryAsync(x => x.BookingId, x => x.Amount, ct);
 
+        // "Net Amount" is the Tour Operator's realised cash position, never merely the
+        // value of a confirmed customer booking. A new booking contributes zero until an
+        // Advance/Final/Cancellation settlement is actually settled. Any bank return from the
+        // operator is deducted only after Staff has confirmed receipt in TripMate's account.
+        var settledPayoutByBooking = bookingIds.Count == 0
+            ? new Dictionary<long, decimal>()
+            : await db.PayoutSettlements.AsNoTracking()
+                .Where(settlement => bookingIds.Contains(settlement.BookingId)
+                    && settlement.Status == PayoutSettlementStatus.Settled)
+                .GroupBy(settlement => settlement.BookingId)
+                .Select(group => new { BookingId = group.Key, Amount = group.Sum(x => x.PayoutAmount) })
+                .ToDictionaryAsync(x => x.BookingId, x => x.Amount, ct);
+
+        var receivedReturnByBooking = bookingIds.Count == 0
+            ? new Dictionary<long, decimal>()
+            : await db.Refunds.AsNoTracking()
+                .Where(refund => bookingIds.Contains(refund.BookingId)
+                    && refund.ReturnReceivedAtUtc != null
+                    && refund.OperatorReturnShare != null)
+                .GroupBy(refund => refund.BookingId)
+                .Select(group => new { BookingId = group.Key, Amount = group.Sum(x => x.OperatorReturnShare!.Value) })
+                .ToDictionaryAsync(x => x.BookingId, x => x.Amount, ct);
+
         var totalRefundedAmount = refundsByBooking.Values.Sum();
 
-        // Commission is non-refundable, but it is charged on the amount the operator actually
-        // keeps after that booking's own refunds, not on the raw payment. A fully-refunded
-        // booking must contribute zero commission, never a negative payout.
-        decimal CommissionFor(long bookingId, decimal amount, decimal rate)
+        // Commission remains an accounting allocation on the paid booking. It is deliberately
+        // separate from NetAmount, which is cash realised through settled payouts.
+        decimal CommissionFor(long bookingId, decimal amount, decimal rate, BookingStatus bookingStatus)
         {
             var refunded = refundsByBooking.GetValueOrDefault(bookingId, 0m);
             var net = Math.Max(0m, amount - refunded);
+            if (bookingStatus == BookingStatus.Cancelled)
+                return Math.Round(net * CancellationFeePlatformCommissionPercent / 100m, 2);
+
             return Math.Round(net * rate / 100m, 2);
         }
 
+        decimal NetAmountFor(long bookingId) =>
+            settledPayoutByBooking.GetValueOrDefault(bookingId, 0m)
+            - receivedReturnByBooking.GetValueOrDefault(bookingId, 0m);
+
         var paymentsReceived = canonical.Sum(x => x.Amount);
         var discountsGiven = canonical.Sum(x => x.DiscountAmount);
-        var platformCommission = canonical.Sum(x => CommissionFor(x.BookingId, x.Amount, x.Rate));
+        var platformCommission = canonical.Sum(x => CommissionFor(x.BookingId, x.Amount, x.Rate, x.BookingStatus));
         var netSales = paymentsReceived - totalRefundedAmount;
+        var netAmount = canonical.Sum(x => NetAmountFor(x.BookingId));
 
         var summary = new OperatorRevenueSummaryDto(
             canonical.Sum(x => x.TotalAmount + x.DiscountAmount),
@@ -75,7 +137,7 @@ public sealed class OperatorRevenueAggregator(IApplicationDbContext db)
             totalRefundedAmount,
             netSales,
             platformCommission,
-            netSales - platformCommission,
+            netAmount,
             canonical.Count,
             canonical.Sum(x => x.Quantity),
             canonical.Count == 0 ? 0m : canonical.Average(x => x.Rate));
@@ -84,8 +146,8 @@ public sealed class OperatorRevenueAggregator(IApplicationDbContext db)
         {
             var refundedForTour = g.Sum(x => refundsByBooking.GetValueOrDefault(x.BookingId, 0m));
             var gross = g.Sum(x => x.TotalAmount + x.DiscountAmount);
-            var commission = g.Sum(x => CommissionFor(x.BookingId, x.Amount, x.Rate));
-            var net = g.Sum(x => x.Amount - CommissionFor(x.BookingId, x.Amount, x.Rate)) - refundedForTour;
+            var commission = g.Sum(x => CommissionFor(x.BookingId, x.Amount, x.Rate, x.BookingStatus));
+            var net = g.Sum(x => NetAmountFor(x.BookingId));
             return new OperatorTourRevenueDto(g.Key.TourId, $"TOUR-{g.Key.TourId}", g.Key.Title, g.Count(), g.Sum(x => x.Quantity), gross, refundedForTour, commission, net);
         }).OrderByDescending(x => x.NetAmount).ToList();
 
@@ -93,8 +155,8 @@ public sealed class OperatorRevenueAggregator(IApplicationDbContext db)
         {
             var refundedInPeriod = g.Sum(x => refundsByBooking.GetValueOrDefault(x.BookingId, 0m));
             var gross = g.Sum(x => x.TotalAmount + x.DiscountAmount);
-            var commission = g.Sum(x => CommissionFor(x.BookingId, x.Amount, x.Rate));
-            var net = g.Sum(x => x.Amount - CommissionFor(x.BookingId, x.Amount, x.Rate)) - refundedInPeriod;
+            var commission = g.Sum(x => CommissionFor(x.BookingId, x.Amount, x.Rate, x.BookingStatus));
+            var net = g.Sum(x => NetAmountFor(x.BookingId));
             return new OperatorRevenueChartDto(g.Key, g.Key, gross, commission, net, refundedInPeriod, g.Count());
         }).ToList();
 

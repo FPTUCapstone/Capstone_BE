@@ -181,15 +181,33 @@ public sealed class GetOperatorBookingsQueryHandler(
             OperatorBookingErrorCodes.Forbidden,
             "You do not have permission to access this function.");
 
-    private static async Task<OperatorBookingSummaryDto> BuildSummaryAsync(
+    private async Task<OperatorBookingSummaryDto> BuildSummaryAsync(
         IQueryable<Booking> filtered, int totalCount, CancellationToken cancellationToken)
     {
-        // Participants and amount share one basis: only bookings that will actually travel.
+        // Confirmed booking value is retained for operational context. The amount shown as TO
+        // revenue is a separate cash figure: settled payouts less operator returns received by
+        // TripMate. A confirmed booking still inside its 24-hour holding window therefore adds 0.
         IQueryable<Booking> confirmed = filtered.Where(booking =>
             booking.Status == BookingStatus.Confirmed || booking.Status == BookingStatus.Completed);
         int participants = await confirmed.SumAsync(booking => (int?)booking.Quantity, cancellationToken) ?? 0;
-        decimal amount = await confirmed.SumAsync(booking => (decimal?)booking.TotalAmount, cancellationToken) ?? 0m;
-        return new OperatorBookingSummaryDto(totalCount, participants, amount);
+        decimal confirmedAmount = await confirmed.SumAsync(booking => (decimal?)booking.TotalAmount, cancellationToken) ?? 0m;
+
+        var bookingIds = filtered.Select(booking => booking.Id);
+        decimal settledPayout = await dbContext.PayoutSettlements.AsNoTracking()
+            .Where(settlement => bookingIds.Contains(settlement.BookingId)
+                && settlement.Status == PayoutSettlementStatus.Settled)
+            .SumAsync(settlement => (decimal?)settlement.PayoutAmount, cancellationToken) ?? 0m;
+        decimal receivedReturns = await dbContext.Refunds.AsNoTracking()
+            .Where(refund => bookingIds.Contains(refund.BookingId)
+                && refund.ReturnReceivedAtUtc != null
+                && refund.OperatorReturnShare != null)
+            .SumAsync(refund => (decimal?)refund.OperatorReturnShare, cancellationToken) ?? 0m;
+
+        return new OperatorBookingSummaryDto(
+            totalCount,
+            participants,
+            confirmedAmount,
+            settledPayout - receivedReturns);
     }
 
     private static OperatorBookingListItemDto ToItem(

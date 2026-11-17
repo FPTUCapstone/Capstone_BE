@@ -12,6 +12,11 @@ public sealed class ServiceProviderConfiguration : IEntityTypeConfiguration<Serv
         builder.ToTable("ServiceProviders", "commercial");
 
         builder.HasKey(provider => provider.Id);
+        builder.Property(provider => provider.UserId).HasColumnName("user_id");
+        builder.HasOne(provider => provider.User).WithOne().HasForeignKey<ServiceProvider>(provider => provider.UserId)
+            .OnDelete(DeleteBehavior.NoAction).HasConstraintName("FK_ServiceProviders_User");
+        builder.HasIndex(provider => provider.UserId).IsUnique().HasFilter("[user_id] IS NOT NULL")
+            .HasDatabaseName("UX_ServiceProviders_User");
         builder.Property(provider => provider.Id)
             .HasColumnName("provider_id")
             .ValueGeneratedOnAdd();

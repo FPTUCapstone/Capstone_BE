@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 
 using TripMate.Api.Common;
 using TripMate.Application.Features.Traveler.Bookings.Create;
+using TripMate.Application.Features.Traveler.Bookings.Emergency;
 using TripMate.Application.Features.Traveler.Bookings.Quote;
 using TripMate.Domain.Enums;
 
@@ -15,6 +16,44 @@ namespace TripMate.Api.Controllers.V1;
 [Route("api/v1/traveler/tour-bookings")]
 public sealed class TravelerTourBookingsController(ISender sender) : ApiControllerBase(sender)
 {
+    [HttpGet("emergency-notices")]
+    [ProducesResponseType(typeof(IReadOnlyList<TourBookingEmergencyNoticeResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> ListEmergencyNotices(CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(new ListTourBookingEmergencyNoticesQuery(), cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    [HttpGet("{bookingId:long}/emergency-status")]
+    [ProducesResponseType(typeof(TourBookingEmergencyStatusResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetEmergencyStatus(
+        long bookingId,
+        CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(
+            new GetTourBookingEmergencyStatusQuery(bookingId), cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    [HttpPost("{bookingId:long}/emergency-status/acknowledge")]
+    [ProducesResponseType(typeof(TourBookingEmergencyAcknowledgeResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> AcknowledgeEmergencyStatus(
+        long bookingId,
+        CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(
+            new AcknowledgeTourBookingEmergencyStatusCommand(bookingId), cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
     [HttpPost("quote")]
     [ProducesResponseType(typeof(QuoteTourBookingResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]

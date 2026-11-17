@@ -89,6 +89,7 @@ public class ShadowSchedulingRunner : BackgroundService, IShadowSchedulingRunner
         ArgumentNullException.ThrowIfNull(item);
 
         var timeoutMs = Math.Max(100, _options.Value.TimeoutMs);
+        var pace = PersonalParamsFactory.EffectivePace(item.TravelerProfile);
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cts.CancelAfter(timeoutMs);
 
@@ -116,7 +117,8 @@ public class ShadowSchedulingRunner : BackgroundService, IShadowSchedulingRunner
                 RemovedStopsCount: 0,
                 DurationDiffMinutes: 0,
                 CostDiffVnd: 0,
-                Error: ex.Message);
+                Error: ex.Message,
+                Pace: pace);
         }
 
         var shadowGenOptions = new SchedulingGenerationOptions
@@ -164,10 +166,11 @@ public class ShadowSchedulingRunner : BackgroundService, IShadowSchedulingRunner
         {
             var error = shadowPlanResult.ErrorMessage ?? (timedOut ? "Timeout" : "Unknown error");
             _logger?.LogInformation(
-                "Shadow run finished for Request {RequestId} in {ElapsedMs:F1}ms. Success: False, TimedOut: {TimedOut}, Error: {Error}",
+                "Shadow run finished for Request {RequestId} in {ElapsedMs:F1}ms. Success: False, TimedOut: {TimedOut}, Pace: {Pace}, Error: {Error}",
                 item.RequestId,
                 sw.Elapsed.TotalMilliseconds,
                 timedOut,
+                pace,
                 error);
 
             return new ShadowMetrics(
@@ -182,7 +185,8 @@ public class ShadowSchedulingRunner : BackgroundService, IShadowSchedulingRunner
                 RemovedStopsCount: 0,
                 DurationDiffMinutes: 0,
                 CostDiffVnd: 0,
-                Error: error);
+                Error: error,
+                Pace: pace);
         }
 
         var primaryVisits = item.PrimaryPlan.Items
@@ -213,9 +217,10 @@ public class ShadowSchedulingRunner : BackgroundService, IShadowSchedulingRunner
         long? modelObjective = shadowPlanResult.Value.ModelObjective;
 
         _logger?.LogInformation(
-            "Shadow run finished for Request {RequestId} in {ElapsedMs:F1}ms. Success: True, J_model: {J_model}, Identical: {IsIdentical}, Jaccard: {Jaccard:F2}, PrimaryStops: {PrimaryStops}, ShadowStops: {ShadowStops}, DurationDiff: {DurationDiff}min, CostDiff: {CostDiff:N0}VND.",
+            "Shadow run finished for Request {RequestId} in {ElapsedMs:F1}ms. Success: True, Pace: {Pace}, J_model: {J_model}, Identical: {IsIdentical}, Jaccard: {Jaccard:F2}, PrimaryStops: {PrimaryStops}, ShadowStops: {ShadowStops}, DurationDiff: {DurationDiff}min, CostDiff: {CostDiff:N0}VND.",
             item.RequestId,
             sw.Elapsed.TotalMilliseconds,
+            pace,
             modelObjective,
             isIdentical,
             jaccard,
@@ -236,7 +241,8 @@ public class ShadowSchedulingRunner : BackgroundService, IShadowSchedulingRunner
             RemovedStopsCount: removed,
             DurationDiffMinutes: durationDiff,
             CostDiffVnd: costDiff,
-            Error: null);
+            Error: null,
+            Pace: pace);
     }
 
     private sealed class PrecomputedRouteDurationProvider(RouteDurationMatrix matrix) : IRouteDurationProvider

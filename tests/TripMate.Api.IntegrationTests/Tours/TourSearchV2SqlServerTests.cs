@@ -8,7 +8,9 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Tours.GetCategories;
+using TripMate.Application.Features.Tours.Search;
 using TripMate.Application.Features.Tours.Search.V2;
+using TripMate.Application.Features.TripReviews.Common;
 using TripMate.Domain.Entities;
 
 using Xunit.Abstractions;
@@ -303,6 +305,41 @@ public sealed class TourSearchV2SqlServerTests(ITestOutputHelper output)
         interceptor.PageCancellationObserved.Should().BeTrue();
     }
 
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task PublicRating_UsesOnlyCanonicalPublishedRawAverage()
+    {
+        await using var database = await SeedAsync();
+        await SeedPublicRatingOracleAsync(database);
+        await using var context = database.CreateDbContext();
+        var tours = context.Tours.Where(tour => tour.Id <= 3);
+
+        var publicRatings = await PublicTourRatingProjection.Query(context, tours)
+            .OrderBy(row => row.TourId)
+            .ToArrayAsync();
+
+        publicRatings.Single(row => row.TourId == 1).RawAverage.Should().Be(4m,
+            "legacy and non-Published canonical rows have no UC-24 publication authority");
+        publicRatings.Single(row => row.TourId == 2).RawAverage.Should().BeNull(
+            "a legacy-only Tour is unrated in public UC-24 search");
+        publicRatings.Single(row => row.TourId == 3).RawAverage.Should().Be(4.666666m);
+        (await PublicTourRatingProjection.Query(context, tours)
+                .Where(row => row.RawAverage >= 4.7m)
+                .Select(row => row.TourId)
+                .ToArrayAsync())
+            .Should().BeEmpty("filtering uses raw average, not the displayed 4.7");
+        (await PublicTourRatingProjection.Query(context, tours)
+                .Where(row => row.RawAverage >= 1m)
+                .Select(row => row.TourId)
+                .ToArrayAsync())
+            .Should().Equal([1L, 3L], "unrated Tours are excluded when minimumRating is present");
+
+        var shared = await TripReviewAggregateReader.QueryTourRatings(context, tours)
+            .SingleAsync(row => row.TourId == 1);
+        shared.RawAverage.Should().NotBe(4m,
+            "Search/Detail may differ and the shared Detail/POI projection must remain unchanged");
+    }
+
     private sealed class CancelRawPageInterceptor(CancellationTokenSource source) : DbCommandInterceptor
     {
         public bool PageCancellationObserved { get; private set; }
@@ -340,6 +377,52 @@ public sealed class TourSearchV2SqlServerTests(ITestOutputHelper output)
         context.TripReviews.Add(TripReview.CreatePublished(1, 902, 1, null, 5,
             "Raw title", "Raw content", null, null, false, "Raw owner", null, Now));
         await context.SaveChangesAsync();
+    }
+
+    private static async Task SeedPublicRatingOracleAsync(SqlServerTestDatabase database)
+    {
+        await database.ExecuteNonQueryAsync("""
+            SET IDENTITY_INSERT dbo.Users ON;
+            INSERT dbo.Users(user_id,role,status,email,full_name)
+            VALUES(903,'Traveler','Active',N'public-rating@example.test',N'Public rating owner');
+            SET IDENTITY_INSERT dbo.Users OFF;
+            INSERT planning.Itineraries(traveler_user_id,source_type,title)
+            VALUES(903,'Manual',N'R1'),(903,'Manual',N'R2'),(903,'Manual',N'R3'),
+                  (903,'Manual',N'R4'),(903,'Manual',N'R5');
+            INSERT commerce.Bookings(booking_code,traveler_user_id,itinerary_id,unit_price,total_amount,status)
+            SELECT CONCAT('PUBLIC-R-',itinerary_id),903,itinerary_id,0,0,'Completed'
+            FROM planning.Itineraries WHERE traveler_user_id=903;
+            INSERT social.Reviews(traveler_user_id,target_type,target_id,rating)
+            VALUES(903,'Tour',1,5),(903,'Tour',2,5);
+            """);
+        await using (var context = database.CreateDbContext())
+        {
+            var bookingIds = await context.Database.SqlQuery<long>(
+                    $"SELECT booking_id AS Value FROM commerce.Bookings WHERE traveler_user_id=903 ORDER BY booking_id")
+                .ToArrayAsync();
+            context.TripReviews.AddRange(
+                TripReview.CreatePublished(bookingIds[0], 903, 1, null, 4,
+                    "Published four", "Canonical published rating", null, null, false,
+                    "Public rating owner", null, Now),
+                TripReview.CreatePublished(bookingIds[1], 903, 1, null, 5,
+                    "Hidden five", "Canonical non-public rating", null, null, false,
+                    "Public rating owner", null, Now),
+                TripReview.CreatePublished(bookingIds[2], 903, 3, null, 5,
+                    "Five one", "Canonical published rating", null, null, false,
+                    "Public rating owner", null, Now),
+                TripReview.CreatePublished(bookingIds[3], 903, 3, null, 5,
+                    "Five two", "Canonical published rating", null, null, false,
+                    "Public rating owner", null, Now),
+                TripReview.CreatePublished(bookingIds[4], 903, 3, null, 4,
+                    "Four one", "Canonical published rating", null, null, false,
+                    "Public rating owner", null, Now));
+            await context.SaveChangesAsync();
+        }
+        await database.ExecuteNonQueryAsync("""
+            ALTER TABLE social.TripReviews NOCHECK CONSTRAINT CK_TripReviews_Publication;
+            UPDATE social.TripReviews SET publication_status='Hidden'
+            WHERE title=N'Hidden five';
+            """);
     }
 
     private static async Task<SqlServerTestDatabase> SeedAsync()

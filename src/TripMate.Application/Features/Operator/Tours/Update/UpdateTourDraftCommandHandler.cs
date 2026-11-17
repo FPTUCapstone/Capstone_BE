@@ -95,11 +95,13 @@ public sealed class UpdateTourDraftCommandHandler(
                 OperatorTourValidation.NormalizeText(request.TravellerRequirements),
                 OperatorTourValidation.NormalizeText(request.TimeZoneId));
             var items = request.ItineraryItems.Select(item => TourItineraryItem.Create(
-                item.DayNo, item.SequenceNo, item.PoiId, item.PlannedTime, item.StayDurationMinutes, item.Notes)).ToList();
+                item.DayNo, item.SequenceNo, item.PoiId, item.PlannedTime, item.StayDurationMinutes, item.Notes,
+                item.IsRequiredForWeather)).ToList();
             var schedules = request.Schedules.Select(schedule => TourSchedule.Create(schedule.StartAtUtc,
                 schedule.EndAtUtc, schedule.MeetingPoint, schedule.TotalCapacity, now,
                 schedule.MinimumCapacity, schedule.RegistrationDeadlineAtUtc,
-                schedule.AdultPrice ?? request.BasePrice, schedule.ChildPrice, schedule.InfantPrice)).ToList();
+                schedule.AdultPrice ?? request.BasePrice, schedule.ChildPrice, schedule.InfantPrice,
+                schedule.MeetingLatitude, schedule.MeetingLongitude)).ToList();
             tour.ReplaceDraftChildren(items, schedules);
             tour.ReplaceDraftDestinations(destinationIds,
                 OperatorTourValidation.BuildDestinationSummary(destinationIds.Select(id => destinationNames[id])));

@@ -22,7 +22,10 @@
     <PackageReference Include="SkiaSharp" Version="4.152.1" />
     <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="4.152.1" />
     <PackageReference Include="StackExchange.Redis" Version="3.3.1" />
+    <!-- Direct safe overrides for vulnerable transitive dependencies of ClosedXML/OpenXML and MailKit. -->
+    <PackageReference Include="System.IO.Packaging" Version="10.0.14" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.22.0" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.14" />
   </ItemGroup>
 
 
@@ -35,6 +38,11 @@
   <ItemGroup>
     <InternalsVisibleTo Include="TripMate.Infrastructure.UnitTests" />
     <InternalsVisibleTo Include="TripMate.Api.IntegrationTests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="SupportChat/Knowledge/srs-business-rules-20261112.json"
+                      LogicalName="TripMate.SupportChat.srs-business-rules-20261112.json" />
   </ItemGroup>
 
 </Project>

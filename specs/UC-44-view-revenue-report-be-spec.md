@@ -25,7 +25,7 @@ Excluded from scope:
 ## Business Rules & Principles
 
 1. **BR-105 (Strict Actor Isolation)**: A Tour Operator may view only the financial figures and bookings of tour packages owned by that Tour Operator (`Tour.OperatorUserId == CurrentUser.Id`). Querying or filtering by a tour owned by another operator must return 403 Forbidden with `MSG126` / `MSG84`.
-2. **BR-109 (Eligible Bookings)**: Revenue is computed only from bookings whose status is `Confirmed` or `Completed`, and with verified payment (`PaymentStatus.Paid`). Unpaid, pending payment, or cancelled without verified payment bookings are excluded from gross revenue.
+2. **BR-109 (Eligible Bookings)**: Revenue is computed from a verified successful payment for a booking that is `Confirmed` or `Completed` (`PaymentStatus.Paid`), or is `Cancelled` after a completed refund (`PaymentStatus.PartiallyRefunded` or `PaymentStatus.Refunded`). A cancelled `Paid` booking is also retained once it has a `Settled` payout: cash already transferred to the Tour Operator must remain visible while a refund or return reconciliation is pending. Unpaid and pending-payment bookings remain excluded.
 3. **BR-112 (Financial Calculation)**:
    - `GrossRevenue` = sum of `Booking.TotalAmount + Booking.DiscountAmount`; it is the booking value before voucher discounts.
    - `DiscountsGiven` = sum of `Booking.DiscountAmount`.
@@ -33,7 +33,13 @@ Excluded from scope:
    - `RefundedAmount` = sum of `payment.Refunds.Amount` where the refund status is `Processed` and `processed_at` falls in the selected Vietnam-time period. A refund is reported in the period it is completed, even when its original payment was collected in an earlier period.
    - `NetSales` = `PaymentsReceived - RefundedAmount`.
    - `CommissionAmount` = `NetSales * (CommissionRateApplied / 100)`. Refunds reduce the commission using the commission rate captured for the original successful payment.
-   - `NetAmount` (net payout) = `NetSales - CommissionAmount`.
+   - `NetAmount` (settled payout) = the sum of `payment.PayoutSettlement.PayoutAmount` for the
+     operator's eligible bookings where status is `Settled`, minus each `Refund.OperatorReturnShare`
+     after TripMate has confirmed receipt (`ReturnReceivedAtUtc`). It is zero for a newly paid booking
+     until the first 24-hour `Advance` payout settles; it then increases by the settled `Advance`,
+     `Final`, or cancellation true-up amount. It is intentionally not derived from `NetSales -
+     CommissionAmount`, which remains an accounting projection.
+   - **Cancelled booking settlement:** the realised amount follows actual money movements, not a calculated target. The settled `Advance` payout is included first. A Tour Operator return is deducted only once Staff confirms its receipt. A later settled `Cancellation` payout includes any true-up due to the operator. For example, a 10,000 VND payment with a 5,000 VND refund has a 7,000 VND advance; after TripMate receives the 3,500 VND operator return the realised position is 3,500 VND; after a 1,000 VND cancellation true-up settles it is 4,500 VND. `CommissionAmount` remains the 10% accounting allocation of the retained cancellation fee; no additional report column is introduced.
 4. **BR-114 (Commission Authority)**: A Platform Administrator maintains the rate for an operator. The operator cannot override it. The rate effective when a payment succeeds is snapshotted with that payment; later rate changes never alter historical reports.
 5. **Reporting Date Rule**: Eligible sales belong to the period containing the successful-payment timestamp (`SucceededAtUtc`), not the booking creation or departure timestamp. UC-46 separately determines payout eligibility from completed tours that have not been settled.
 6. **CR-07 (Timezone, Date & Week Standard)**: All date boundary comparisons and bucketing use Vietnam time (`Asia/Ho_Chi_Minh`, UTC+7). Input dates are formatted as ISO dates (`YYYY-MM-DD`). Daily and monthly buckets use local calendar boundaries. Weekly buckets use ISO weeks (Monday–Sunday); the first and last bucket are clipped to the selected date range while retaining their ISO `periodKey`.

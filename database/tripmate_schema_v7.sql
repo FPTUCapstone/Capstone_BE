@@ -155,6 +155,8 @@ CREATE SCHEMA commercial AUTHORIZATION dbo;
 GO
 CREATE SCHEMA social AUTHORIZATION dbo;
 GO
+CREATE SCHEMA admin AUTHORIZATION dbo;
+GO
 
 /* =====================================================================
    1. IDENTITY & ACCOUNTS  (dbo)
@@ -165,21 +167,41 @@ CREATE TABLE dbo.Users (
     user_id             BIGINT IDENTITY(1,1) PRIMARY KEY,
     role                VARCHAR(20)   NOT NULL
         CONSTRAINT CK_Users_Role
-        CHECK (role IN ('Traveler','TourOperator','Administrator','Staff')),
+        CHECK (role IN ('Traveler','TourOperator','Administrator','Staff','ServiceProvider')),
     email               NVARCHAR(256) NULL,
     phone_number        NVARCHAR(20)  NULL,
     password_hash       NVARCHAR(256) NULL,
+    must_change_password BIT NOT NULL CONSTRAINT DF_Users_MustChangePassword DEFAULT (0),
     full_name           NVARCHAR(150) NOT NULL,
     avatar_url          NVARCHAR(500) NULL,
     status              VARCHAR(24)   NOT NULL DEFAULT 'Active'
         CHECK (status IN ('PendingEmailVerification','Active','Locked',
                            'PendingApproval','Rejected','Inactive')),
+    status_before_lock  VARCHAR(24) NULL,
+    locked_by_user_id   BIGINT NULL,
+    locked_at_utc       DATETIME2 NULL,
+    lock_reason         NVARCHAR(1000) NULL,
     email_verified_at   DATETIME2     NULL,
     phone_verified_at   DATETIME2     NULL,
     created_at          DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME(),
     updated_at          DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME(),
     last_login_at       DATETIME2     NULL,
-    CONSTRAINT CK_Users_HasIdentifier CHECK (email IS NOT NULL OR phone_number IS NOT NULL)
+    CONSTRAINT CK_Users_HasIdentifier CHECK (email IS NOT NULL OR phone_number IS NOT NULL),
+    CONSTRAINT CK_Users_LockRecoveryState CHECK (
+        (status <> 'Locked' AND status_before_lock IS NULL AND locked_by_user_id IS NULL
+            AND locked_at_utc IS NULL AND lock_reason IS NULL)
+        OR (status = 'Locked' AND (
+            (status_before_lock IS NULL AND locked_by_user_id IS NULL AND locked_at_utc IS NULL AND lock_reason IS NULL)
+            OR (status_before_lock IS NULL AND locked_by_user_id IS NULL
+                AND locked_at_utc IS NOT NULL AND lock_reason IS NOT NULL
+                AND LEN(LTRIM(RTRIM(lock_reason))) > 0)
+            OR (status_before_lock IN ('PendingEmailVerification','Active','PendingApproval','Rejected','Inactive')
+                AND locked_at_utc IS NOT NULL
+                AND lock_reason IS NOT NULL AND LEN(LTRIM(RTRIM(lock_reason))) > 0)
+        ))
+    ),
+    CONSTRAINT FK_Users_LockedBy FOREIGN KEY (locked_by_user_id)
+        REFERENCES dbo.Users(user_id)
 );
 GO
 CREATE UNIQUE INDEX UX_Users_Email ON dbo.Users(email) WHERE email IS NOT NULL;
@@ -209,6 +231,27 @@ CREATE TABLE dbo.RefreshTokens (
 );
 GO
 CREATE INDEX IX_RefreshTokens_User ON dbo.RefreshTokens(user_id);
+GO
+
+CREATE TABLE admin.UserUnlockOperations (
+    operation_id            BIGINT IDENTITY(1,1) PRIMARY KEY,
+    administrator_user_id   BIGINT NOT NULL,
+    idempotency_key         VARCHAR(128) NOT NULL,
+    request_hash            VARCHAR(128) NOT NULL,
+    target_user_id          BIGINT NOT NULL,
+    restored_status         VARCHAR(24) NOT NULL,
+    unlocked_at_utc         DATETIME2 NOT NULL,
+    CONSTRAINT CK_UserUnlockOperations_RestoredStatus CHECK (
+        restored_status IN ('PendingEmailVerification','Active','PendingApproval','Rejected','Inactive')
+    ),
+    CONSTRAINT FK_UserUnlockOperations_Administrator FOREIGN KEY (administrator_user_id)
+        REFERENCES dbo.Users(user_id),
+    CONSTRAINT FK_UserUnlockOperations_Target FOREIGN KEY (target_user_id)
+        REFERENCES dbo.Users(user_id)
+);
+GO
+CREATE UNIQUE INDEX UX_UserUnlockOperations_AdministratorKey
+    ON admin.UserUnlockOperations(administrator_user_id, idempotency_key);
 GO
 
 -- v4: OtpCodes removed — OTP is short-lived (a few minutes) and deleted on
@@ -332,10 +375,19 @@ CREATE TABLE dbo.Notifications (
     status               VARCHAR(10) NOT NULL DEFAULT 'Pending'
         CHECK (status IN ('Pending','Sent','Failed','Read')),
     created_at           DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
-    sent_at              DATETIME2 NULL
+    sent_at              DATETIME2 NULL,
+    delivery_attempt_count INT NOT NULL CONSTRAINT DF_Notifications_DeliveryAttemptCount DEFAULT 0,
+    delivery_lease_token UNIQUEIDENTIFIER NULL,
+    delivery_lease_expires_at DATETIME2 NULL,
+    next_delivery_attempt_at DATETIME2 NULL,
+    delivery_last_error_code VARCHAR(100) NULL,
+    CONSTRAINT CK_Notifications_DeliveryAttemptCount CHECK (delivery_attempt_count >= 0)
 );
 GO
 CREATE INDEX IX_Notifications_User_Status ON dbo.Notifications(user_id, status);
+GO
+CREATE INDEX IX_Notifications_Delivery_Due ON dbo.Notifications(
+    status, channel, type, next_delivery_attempt_at, delivery_lease_expires_at, notification_id);
 GO
 
 CREATE TABLE dbo.AuditLogs (
@@ -724,6 +776,7 @@ CREATE TABLE commerce.TourItineraryItems (
     planned_time                 TIME NULL,
     stay_duration_minutes       INT NOT NULL DEFAULT 60 CHECK (stay_duration_minutes > 0),
     notes                         NVARCHAR(500) NULL,
+    is_required_for_weather       BIT NULL,   -- UC-70: Operator-classified weather-critical stop; NULL = not yet reviewed
     CONSTRAINT UQ_TourItineraryItems UNIQUE (tour_id, day_no, sequence_no)
 );
 GO
@@ -737,11 +790,18 @@ CREATE TABLE commerce.TourSchedules (
     meeting_point                 NVARCHAR(500) NULL,   -- NEW in v4: this dated departure's gathering point (can differ from the tour's own POI stops)
     total_capacity                 INT NOT NULL CHECK (total_capacity > 0),
     reserved_capacity                 INT NOT NULL DEFAULT 0 CHECK (reserved_capacity >= 0),
-    status                               VARCHAR(12) NOT NULL DEFAULT 'Scheduled'
-        CHECK (status IN ('Scheduled','Cancelled','Completed')),
+    status                               VARCHAR(20) NOT NULL DEFAULT 'Scheduled'
+        CONSTRAINT CK_TourSchedules_Status CHECK (status IN ('Scheduled','Cancelled','Completed','EmergencyStopped')),
     created_at                              DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    meeting_latitude                        DECIMAL(9,6) NULL,   -- UC-70: verified meeting coordinates for weather monitoring
+    meeting_longitude                       DECIMAL(9,6) NULL,
     CONSTRAINT CK_TourSchedules_CapacityWithinLimit CHECK (reserved_capacity <= total_capacity),
-    CONSTRAINT CK_TourSchedules_DateOrder CHECK (end_datetime > start_datetime)
+    CONSTRAINT CK_TourSchedules_DateOrder CHECK (end_datetime > start_datetime),
+    CONSTRAINT CK_TourSchedules_WeatherMeetingCoordinates CHECK (
+        (meeting_latitude IS NULL AND meeting_longitude IS NULL)
+        OR (meeting_latitude IS NOT NULL AND meeting_longitude IS NOT NULL
+            AND meeting_latitude BETWEEN -90 AND 90
+            AND meeting_longitude BETWEEN -180 AND 180))
 );
 GO
 CREATE INDEX IX_TourSchedules_Tour ON commerce.TourSchedules(tour_id, start_datetime);
@@ -806,6 +866,7 @@ CREATE TABLE planning.Itineraries (
         CHECK (source_type IN ('CSPGenerated','BookedTour','Manual')),
     scheduling_request_id      BIGINT NULL REFERENCES planning.SchedulingRequests(request_id),
     source_tour_id              BIGINT NULL REFERENCES commerce.Tours(tour_id),
+    source_booking_id           BIGINT NULL,
     title                         NVARCHAR(200) NULL,
     status                         VARCHAR(10) NOT NULL DEFAULT 'Draft'
         CHECK (status IN ('Draft','Active','Completed','Cancelled')),
@@ -944,10 +1005,77 @@ CREATE TABLE trip.WeatherEvents (
     valid_from                          DATETIME2 NOT NULL,
     valid_to                             DATETIME2 NULL,
     source                                 VARCHAR(50) NOT NULL DEFAULT 'WeatherAPI',
-    ingested_at                             DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+    ingested_at                             DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    provider                              VARCHAR(50) NULL,
+    provider_event_id                     VARCHAR(150) NULL,
+    original_authority                    NVARCHAR(200) NULL,
+    official_vietnam_risk_level           INT NULL
+        CONSTRAINT CK_WeatherEvents_RiskLevel CHECK (official_vietnam_risk_level IS NULL OR (official_vietnam_risk_level BETWEEN 1 AND 5)),
+    verified_directive                    VARCHAR(50) NULL,
+    is_withdrawn                          BIT NOT NULL CONSTRAINT DF_WeatherEvents_IsWithdrawn DEFAULT 0,
+    updated_at                            DATETIME2 NULL
 );
 GO
 CREATE INDEX IX_WeatherEvents_Window ON trip.WeatherEvents(valid_from, valid_to);
+GO
+CREATE UNIQUE NONCLUSTERED INDEX UX_WeatherEvents_ProviderEvent
+ON trip.WeatherEvents(provider, provider_event_id)
+WHERE provider IS NOT NULL AND provider_event_id IS NOT NULL;
+GO
+
+CREATE TABLE trip.WeatherAlertInboxItems (
+    inbox_id BIGINT IDENTITY(1,1) NOT NULL
+        CONSTRAINT PK_WeatherAlertInboxItems PRIMARY KEY,
+    provider VARCHAR(50) NOT NULL,
+    provider_notification_id VARCHAR(150) NULL,
+    payload NVARCHAR(MAX) NOT NULL,
+    status VARCHAR(30) NOT NULL
+        CONSTRAINT DF_WeatherAlertInboxItems_Status DEFAULT 'Pending',
+    attempt_count INT NOT NULL
+        CONSTRAINT DF_WeatherAlertInboxItems_Attempts DEFAULT 0,
+    max_attempts INT NOT NULL
+        CONSTRAINT DF_WeatherAlertInboxItems_MaxAttempts DEFAULT 3,
+    lease_expires_at DATETIME2 NULL,
+    leased_by VARCHAR(100) NULL,
+    last_error NVARCHAR(1000) NULL,
+    received_at DATETIME2 NOT NULL,
+    processed_at DATETIME2 NULL,
+    CONSTRAINT CK_WeatherAlertInboxItems_Status CHECK (
+        status IN ('Pending', 'Processing', 'Processed', 'Failed', 'Discarded')),
+    CONSTRAINT CK_WeatherAlertInboxItems_Attempts CHECK (
+        attempt_count >= 0 AND max_attempts > 0)
+);
+GO
+CREATE UNIQUE NONCLUSTERED INDEX UX_WeatherAlertInboxItems_ProviderNotification
+ON trip.WeatherAlertInboxItems (provider, provider_notification_id)
+WHERE provider_notification_id IS NOT NULL;
+GO
+CREATE NONCLUSTERED INDEX IX_WeatherAlertInboxItems_StatusLease
+ON trip.WeatherAlertInboxItems (status, lease_expires_at);
+GO
+
+CREATE TABLE trip.WeatherLocationMappings (
+    location_mapping_id BIGINT IDENTITY(1,1) NOT NULL
+        CONSTRAINT PK_WeatherLocationMappings PRIMARY KEY,
+    trip_mate_location_key VARCHAR(100) NOT NULL,
+    tomorrow_location_id VARCHAR(100) NOT NULL,
+    latitude DECIMAL(9,6) NOT NULL,
+    longitude DECIMAL(9,6) NOT NULL,
+    name NVARCHAR(200) NULL,
+    last_departure_end_at DATETIME2 NULL,
+    is_active BIT NOT NULL
+        CONSTRAINT DF_WeatherLocationMappings_IsActive DEFAULT 1,
+    created_at DATETIME2 NOT NULL,
+    updated_at DATETIME2 NOT NULL,
+    CONSTRAINT CK_WeatherLocationMappings_Coordinates CHECK (
+        latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180)
+);
+GO
+CREATE UNIQUE NONCLUSTERED INDEX UX_WeatherLocationMappings_Key
+ON trip.WeatherLocationMappings (trip_mate_location_key);
+GO
+CREATE UNIQUE NONCLUSTERED INDEX UX_WeatherLocationMappings_TomorrowId
+ON trip.WeatherLocationMappings (tomorrow_location_id);
 GO
 
 CREATE TABLE trip.Incidents (
@@ -1102,13 +1230,14 @@ CREATE TABLE commerce.Bookings (
     discount_amount                               DECIMAL(12,2) NOT NULL DEFAULT 0 CHECK (discount_amount >= 0),
     total_amount                                    DECIMAL(12,2) NOT NULL CHECK (total_amount >= 0),
     status                                             VARCHAR(14) NOT NULL DEFAULT 'PendingPayment'
-        CHECK (status IN ('PendingPayment','Confirmed','Cancelled','Completed','Expired')),
+        CONSTRAINT CK_Bookings_Status CHECK (status IN ('PendingPayment','Confirmed','Cancelled','Completed','Expired','Interrupted')),
     payment_status                                        VARCHAR(16) NOT NULL DEFAULT 'Unpaid'
         CHECK (payment_status IN ('Unpaid','Paid','Refunded','PartiallyRefunded')),
     booked_at                                                DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
     payment_expires_at                                          DATETIME2 NULL,
     cancelled_at                                                   DATETIME2 NULL,
     cancel_reason                                                     NVARCHAR(300) NULL,
+    emergency_notice_acknowledged_at                                  DATETIME2 NULL,
     cancellation_policy_snapshot                                      NVARCHAR(500) NOT NULL
         CONSTRAINT DF_Bookings_CancellationPolicySnapshot DEFAULT
         (N'{"atLeastSevenDaysPercent":100,"threeToSevenDaysPercent":70,"oneToThreeDaysPercent":30}')
@@ -1118,6 +1247,13 @@ CREATE INDEX IX_Bookings_Traveler ON commerce.Bookings(traveler_user_id, status)
 CREATE INDEX IX_Bookings_TourSchedule ON commerce.Bookings(tour_schedule_id, status);
 CREATE INDEX IX_Bookings_ExpiryScan ON commerce.Bookings(status, payment_expires_at)
     WHERE status = 'PendingPayment';
+GO
+
+ALTER TABLE planning.Itineraries ADD CONSTRAINT FK_Itineraries_SourceBooking
+    FOREIGN KEY (source_booking_id) REFERENCES commerce.Bookings(booking_id);
+GO
+CREATE UNIQUE INDEX IX_Itineraries_SourceBookingId ON planning.Itineraries(source_booking_id)
+    WHERE source_booking_id IS NOT NULL;
 GO
 
 CREATE TABLE commerce.BookingCancellationOperations (
@@ -1143,6 +1279,72 @@ CREATE TABLE commerce.BookingCancellationOperations (
 GO
 CREATE INDEX IX_BookingCancellationOperations_Booking
     ON commerce.BookingCancellationOperations(booking_id);
+GO
+
+-- UC-70: one committed emergency cancellation/emergency-stop decision per departure.
+-- Mirrors database/migrations/20261028_uc70_emergency_cancellation.sql.
+CREATE TABLE commerce.EmergencyTourCancellationOperations (
+    operation_id BIGINT IDENTITY(1,1) NOT NULL
+        CONSTRAINT PK_EmergencyTourCancellationOperations PRIMARY KEY,
+    tour_schedule_id BIGINT NOT NULL,
+    actor_user_id BIGINT NOT NULL,
+    command_id UNIQUEIDENTIFIER NOT NULL,
+    request_hash CHAR(64) NOT NULL,
+    action VARCHAR(24) NOT NULL,
+    reason_category VARCHAR(40) NOT NULL,
+    reason_details NVARCHAR(1000) NOT NULL,
+    immediate_instructions NVARCHAR(1000) NULL,
+    emergency_contact NVARCHAR(100) NULL,
+    evidence_reference NVARCHAR(500) NULL,
+    evidence_url NVARCHAR(1000) NULL,
+    authority_reference NVARCHAR(200) NULL,
+    evidence_provenance VARCHAR(20) NOT NULL
+        CONSTRAINT DF_EmergencyTourCancellationOperations_Provenance DEFAULT 'OperatorProvided',
+    evidence_added_later BIT NOT NULL
+        CONSTRAINT DF_EmergencyTourCancellationOperations_AddedLater DEFAULT 0,
+    affected_booking_count INT NOT NULL,
+    committed_at DATETIME2 NOT NULL,
+    CONSTRAINT FK_EmergencyTourCancellationOperations_Schedule
+        FOREIGN KEY (tour_schedule_id) REFERENCES commerce.TourSchedules(schedule_id),
+    CONSTRAINT FK_EmergencyTourCancellationOperations_Actor
+        FOREIGN KEY (actor_user_id) REFERENCES dbo.Users(user_id),
+    CONSTRAINT CK_EmergencyTourCancellationOperations_Counts CHECK (
+        affected_booking_count >= 0),
+    CONSTRAINT UX_EmergencyTourCancellationOperations_Schedule UNIQUE (tour_schedule_id),
+    CONSTRAINT UX_EmergencyTourCancellationOperations_ActorCommand UNIQUE (actor_user_id, command_id)
+);
+GO
+
+CREATE TABLE trip.WeatherSafetyReviews (
+    review_id BIGINT IDENTITY(1,1) NOT NULL
+        CONSTRAINT PK_WeatherSafetyReviews PRIMARY KEY,
+    tour_schedule_id BIGINT NOT NULL
+        CONSTRAINT FK_WeatherSafetyReviews_TourSchedule
+        REFERENCES commerce.TourSchedules(schedule_id),
+    provider VARCHAR(50) NOT NULL,
+    provider_event_id VARCHAR(150) NOT NULL,
+    status VARCHAR(30) NOT NULL
+        CONSTRAINT DF_WeatherSafetyReviews_Status DEFAULT 'PendingAcknowledgement',
+    urgent_notice_sent_at DATETIME2 NOT NULL,
+    acknowledgement_deadline DATETIME2 NOT NULL,
+    acknowledged_at DATETIME2 NULL,
+    acknowledged_by_operator_id BIGINT NULL
+        CONSTRAINT FK_WeatherSafetyReviews_Operator
+        REFERENCES dbo.Users(user_id),
+    escalated_at DATETIME2 NULL,
+    escalation_contact NVARCHAR(200) NULL,
+    immediate_instructions NVARCHAR(1000) NULL,
+    created_at DATETIME2 NOT NULL,
+    CONSTRAINT CK_WeatherSafetyReviews_Status CHECK (
+        status IN ('PendingAcknowledgement', 'Acknowledged', 'Escalated', 'Closed'))
+);
+GO
+CREATE UNIQUE NONCLUSTERED INDEX UX_WeatherSafetyReviews_ScheduleEvent
+ON trip.WeatherSafetyReviews (tour_schedule_id, provider, provider_event_id);
+GO
+-- The escalation sweep: status = 'PendingAcknowledgement' AND acknowledgement_deadline <= now.
+CREATE NONCLUSTERED INDEX IX_WeatherSafetyReviews_StatusDeadline
+ON trip.WeatherSafetyReviews (status, acknowledgement_deadline);
 GO
 
 -- NEW in v2 — named ticket-holders per booking, required to issue individual Tickets
@@ -1385,6 +1587,7 @@ GO
 
 CREATE TABLE commercial.ServiceProviders (
     provider_id         BIGINT IDENTITY(1,1) PRIMARY KEY,
+    user_id             BIGINT NULL,
     name                   NVARCHAR(150) COLLATE Vietnamese_100_CI_AS NOT NULL,
     service_category          VARCHAR(20) NOT NULL
         CHECK (service_category IN ('Vehicle','Hotel','Restaurant')),
@@ -1393,10 +1596,24 @@ CREATE TABLE commercial.ServiceProviders (
     api_endpoint                       NVARCHAR(300) NULL,   -- set when the provider is integrated via API rather than manual admin entry
     commission_rate                       DECIMAL(5,2) NULL
         CHECK (commission_rate IS NULL OR commission_rate BETWEEN 0 AND 100),   -- negotiated affiliate rate, if any
-    status                                    VARCHAR(10) NOT NULL DEFAULT 'Active' CHECK (status IN ('Active','Inactive'))
+    status                                    VARCHAR(10) NOT NULL DEFAULT 'Active' CHECK (status IN ('Active','Inactive')),
+    CONSTRAINT FK_ServiceProviders_User FOREIGN KEY (user_id) REFERENCES dbo.Users(user_id)
 );
 GO
 CREATE INDEX IX_ServiceProviders_Category ON commercial.ServiceProviders(service_category);
+CREATE UNIQUE INDEX UX_ServiceProviders_User ON commercial.ServiceProviders(user_id) WHERE user_id IS NOT NULL;
+GO
+
+CREATE TABLE commercial.ProviderPoiLinks (
+    provider_id BIGINT NOT NULL,
+    poi_id BIGINT NOT NULL,
+    CONSTRAINT PK_ProviderPoiLinks PRIMARY KEY (provider_id, poi_id),
+    CONSTRAINT FK_ProviderPoiLinks_Provider FOREIGN KEY (provider_id)
+        REFERENCES commercial.ServiceProviders(provider_id),
+    CONSTRAINT FK_ProviderPoiLinks_Poi FOREIGN KEY (poi_id) REFERENCES catalog.POIs(poi_id)
+);
+GO
+CREATE UNIQUE INDEX UX_ProviderPoiLinks_Poi ON commercial.ProviderPoiLinks(poi_id);
 GO
 
 -- The bookable item/listing: a specific vehicle, room type, or restaurant table/menu slot
@@ -1467,6 +1684,42 @@ BEGIN
 END;
 GO
 
+CREATE TABLE commercial.ServiceCommissionStatements (
+    statement_id BIGINT IDENTITY(1,1) PRIMARY KEY,
+    statement_code NVARCHAR(32) NOT NULL,
+    provider_id BIGINT NOT NULL,
+    period VARCHAR(7) NOT NULL,
+    total_requests INT NOT NULL,
+    total_actual_amount DECIMAL(14,2) NOT NULL,
+    commission_rate DECIMAL(5,2) NOT NULL DEFAULT 10.00,
+    commission_amount DECIMAL(14,2) NOT NULL,
+    issue_date DATE NOT NULL,
+    due_date DATE NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'Issued',
+    bank_transfer_reference NVARCHAR(100) NULL,
+    reported_at DATETIME2 NULL,
+    confirmed_by_user_id BIGINT NULL,
+    confirmed_at DATETIME2 NULL,
+    receipt_number NVARCHAR(50) NULL,
+    created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    row_version ROWVERSION,
+    CONSTRAINT FK_ServiceCommissionStatements_Provider FOREIGN KEY (provider_id)
+        REFERENCES commercial.ServiceProviders(provider_id),
+    CONSTRAINT FK_ServiceCommissionStatements_Staff FOREIGN KEY (confirmed_by_user_id)
+        REFERENCES dbo.Users(user_id),
+    CONSTRAINT UQ_ServiceCommissionStatements_StatementCode UNIQUE (statement_code),
+    CONSTRAINT UQ_ServiceCommissionStatements_Provider_Period UNIQUE (provider_id, period),
+    CONSTRAINT CK_ServiceCommissionStatements_TotalRequests CHECK (total_requests > 0),
+    CONSTRAINT CK_ServiceCommissionStatements_TotalActualAmount CHECK (total_actual_amount >= 0),
+    CONSTRAINT CK_ServiceCommissionStatements_CommissionAmount CHECK (commission_amount >= 0),
+    CONSTRAINT CK_ServiceCommissionStatements_Status CHECK (status IN ('Issued', 'PaymentReported', 'Paid', 'Overdue'))
+);
+GO
+CREATE INDEX IX_ServiceCommissionStatements_Provider ON commercial.ServiceCommissionStatements(provider_id);
+CREATE INDEX IX_ServiceCommissionStatements_Period ON commercial.ServiceCommissionStatements(period);
+CREATE INDEX IX_ServiceCommissionStatements_Status ON commercial.ServiceCommissionStatements(status);
+GO
+
 CREATE TABLE commercial.ServiceBookings (
     service_booking_id       BIGINT IDENTITY(1,1) PRIMARY KEY,
     traveler_user_id            BIGINT NOT NULL REFERENCES dbo.Users(user_id),
@@ -1476,15 +1729,56 @@ CREATE TABLE commercial.ServiceBookings (
     quantity                                  INT NOT NULL DEFAULT 1 CHECK (quantity > 0),   -- vehicles / rooms / seats
     total_price                                  DECIMAL(12,2) NOT NULL CHECK (total_price >= 0),
     commission_amount                                DECIMAL(12,2) NULL CHECK (commission_amount IS NULL OR commission_amount >= 0),   -- revenue TripMate recognizes on this booking
-    status                                               VARCHAR(10) NOT NULL DEFAULT 'Pending'
-        CHECK (status IN ('Pending','Confirmed','Cancelled','Completed')),
+    status                                               VARCHAR(24) NOT NULL DEFAULT 'Pending'
+        CONSTRAINT CK_ServiceBookings_RequestStatus CHECK (status IN
+            ('Pending','Confirmed','Cancelled','Completed','PendingConfirmation','Rejected','Expired','NoShow')),
     provider_reference                                       NVARCHAR(150) NULL,   -- booking reference returned by the external provider's system
     created_at                                                   DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    request_submitted_at DATETIME2 NULL,
+    actual_amount DECIMAL(12,2) NULL,
+    rejection_reason NVARCHAR(1000) NULL,
+    responded_by_user_id BIGINT NULL,
+    responded_at DATETIME2 NULL,
+    outcome_by_user_id BIGINT NULL,
+    outcome_at DATETIME2 NULL,
+    is_auto_completed BIT NOT NULL CONSTRAINT DF_ServiceBookings_AutoCompleted DEFAULT 0,
+    row_version ROWVERSION NOT NULL,
+    itinerary_id BIGINT NULL,
+    service_option NVARCHAR(200) NULL,
+    special_request NVARCHAR(1000) NULL,
+    commission_statement_id BIGINT NULL REFERENCES commercial.ServiceCommissionStatements(statement_id),
+    CONSTRAINT FK_ServiceBookings_RespondedBy FOREIGN KEY (responded_by_user_id) REFERENCES dbo.Users(user_id),
+    CONSTRAINT FK_ServiceBookings_OutcomeBy FOREIGN KEY (outcome_by_user_id) REFERENCES dbo.Users(user_id),
+    CONSTRAINT FK_ServiceBookings_Itinerary FOREIGN KEY (itinerary_id) REFERENCES planning.Itineraries(itinerary_id),
     CONSTRAINT CK_ServiceBookings_DateOrder CHECK (end_datetime IS NULL OR end_datetime >= start_datetime)
 );
 GO
 CREATE INDEX IX_ServiceBookings_Traveler ON commercial.ServiceBookings(traveler_user_id);
 CREATE INDEX IX_ServiceBookings_Service ON commercial.ServiceBookings(service_id, status);
+CREATE INDEX IX_ServiceBookings_RequestLifecycle
+    ON commercial.ServiceBookings(status, request_submitted_at, start_datetime)
+    WHERE request_submitted_at IS NOT NULL;
+CREATE INDEX IX_ServiceBookings_CommissionStatementId ON commercial.ServiceBookings(commission_statement_id);
+GO
+
+CREATE TABLE commercial.ServiceProviderRequestOperations (
+    operation_id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_ServiceProviderRequestOperations PRIMARY KEY,
+    service_booking_id BIGINT NOT NULL,
+    actor_user_id BIGINT NOT NULL,
+    idempotency_key UNIQUEIDENTIFIER NOT NULL,
+    operation_type VARCHAR(10) NOT NULL,
+    request_hash CHAR(64) NOT NULL,
+    response_json NVARCHAR(MAX) NOT NULL,
+    created_at DATETIME2 NOT NULL,
+    CONSTRAINT FK_ServiceProviderRequestOperations_Booking FOREIGN KEY (service_booking_id)
+        REFERENCES commercial.ServiceBookings(service_booking_id),
+    CONSTRAINT FK_ServiceProviderRequestOperations_Actor FOREIGN KEY (actor_user_id) REFERENCES dbo.Users(user_id),
+    CONSTRAINT CK_ServiceProviderRequestOperations_Type CHECK (operation_type IN ('Decision','Outcome')),
+    CONSTRAINT CK_ServiceProviderRequestOperations_Response CHECK (ISJSON(response_json) = 1)
+);
+GO
+CREATE UNIQUE INDEX UX_ServiceProviderRequestOperations_ActorKey
+    ON commercial.ServiceProviderRequestOperations(actor_user_id, idempotency_key);
 GO
 
 -- Ad-link / click-through revenue tracking — a click doesn't require a booking

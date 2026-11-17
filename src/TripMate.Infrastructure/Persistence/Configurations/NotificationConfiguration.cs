@@ -33,6 +33,32 @@ public class NotificationConfiguration : IEntityTypeConfiguration<Notification>
             .HasFilter($"[type] = '{Notification.TripAlertType}' AND [related_entity_type] = '{Notification.IncidentRelatedEntityType}' AND [related_entity_id] IS NOT NULL")
             .HasDatabaseName("UQ_Notifications_TripAlertIncident");
 
+        builder.Property(n => n.DeliveryAttemptCount)
+            .HasColumnName("delivery_attempt_count")
+            .HasDefaultValue(0)
+            .IsRequired();
+        builder.Property(n => n.DeliveryLeaseToken).HasColumnName("delivery_lease_token");
+        builder.Property(n => n.DeliveryLeaseExpiresAtUtc)
+            .HasColumnName("delivery_lease_expires_at")
+            .AsUtcDateTime2();
+        builder.Property(n => n.NextDeliveryAttemptAtUtc)
+            .HasColumnName("next_delivery_attempt_at")
+            .AsUtcDateTime2();
+        builder.Property(n => n.DeliveryLastErrorCode)
+            .HasColumnName("delivery_last_error_code")
+            .HasMaxLength(Notification.DeliveryLastErrorCodeMaxLength)
+            .IsUnicode(false);
+
+        builder.HasIndex(n => new
+        {
+            n.Status,
+            n.Channel,
+            n.Type,
+            n.NextDeliveryAttemptAtUtc,
+            n.DeliveryLeaseExpiresAtUtc,
+            n.Id,
+        }).HasDatabaseName("IX_Notifications_Delivery_Due");
+
         builder
             .HasOne(n => n.User)
             .WithMany()

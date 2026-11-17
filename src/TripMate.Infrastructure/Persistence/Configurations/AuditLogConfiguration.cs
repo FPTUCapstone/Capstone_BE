@@ -36,6 +36,10 @@ public class AuditLogConfiguration : IEntityTypeConfiguration<AuditLog>
         builder.Property(audit => audit.Reason)
             .HasColumnName("reason")
             .HasMaxLength(1000);
+        builder.Property(audit => audit.ScanAttemptId)
+            .HasColumnName("scan_attempt_id");
+        builder.Property(audit => audit.JournalEventId)
+            .HasColumnName("journal_event_id");
         builder.Property(audit => audit.IpAddress)
             .HasColumnName("ip_address")
             .HasMaxLength(45)
@@ -55,5 +59,9 @@ public class AuditLogConfiguration : IEntityTypeConfiguration<AuditLog>
         builder.HasIndex(audit => new { audit.ActorUserId, audit.CreatedAtUtc })
             .IsDescending(false, true)
             .HasDatabaseName("IX_AuditLogs_Actor_Date");
+        builder.HasIndex(audit => audit.JournalEventId)
+            .IsUnique()
+            .HasFilter("[journal_event_id] IS NOT NULL")
+            .HasDatabaseName("UX_AuditLogs_JournalEventId");
     }
 }

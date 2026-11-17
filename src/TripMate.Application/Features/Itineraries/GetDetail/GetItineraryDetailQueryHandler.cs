@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Itineraries.Common;
+using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Domain.Common;
 using TripMate.Domain.Enums;
 
@@ -13,7 +14,8 @@ namespace TripMate.Application.Features.Itineraries.GetDetail;
 public sealed class GetItineraryDetailQueryHandler(
     IApplicationDbContext dbContext,
     IItineraryAccessService accessService,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    IItineraryServiceBookingReader? bookedServiceReader = null)
     : IRequestHandler<GetItineraryDetailQuery, Result<ItineraryDetailResponse>>
 {
     public async Task<Result<ItineraryDetailResponse>> Handle(
@@ -65,12 +67,21 @@ public sealed class GetItineraryDetailQueryHandler(
             cancellationToken);
         var context = await ItineraryDetailContext.LoadAsync(dbContext, access.SchedulingRequestId, cancellationToken);
 
-        return Result.Success(ToResponse(
+        var response = ToResponse(
             itinerary,
             access.CanManage,
             context.Request,
             context.EndPoi,
-            isNavigationInProgress));
+            isNavigationInProgress);
+        if (bookedServiceReader is not null)
+        {
+            response = response with
+            {
+                BookedServices = await bookedServiceReader.ReadAsync(itinerary, cancellationToken),
+            };
+        }
+
+        return Result.Success(response);
     }
 
     internal static ItineraryDetailResponse ToResponse(
@@ -154,6 +165,7 @@ public sealed class GetItineraryDetailQueryHandler(
                 ? (int)Math.Ceiling((itinerary.ValidToUtc.Value - itinerary.ValidFromUtc.Value).TotalMinutes)
                 : orderedItems.Sum(item => item.StayDurationMinutes),
             items,
-            isNavigationInProgress);
+            isNavigationInProgress,
+            Provenance: SchedulingProvenanceDto.From(itinerary));
     }
 }

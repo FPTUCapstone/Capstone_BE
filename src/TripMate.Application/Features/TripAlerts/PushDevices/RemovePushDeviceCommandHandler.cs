@@ -18,7 +18,7 @@ public sealed class RemovePushDeviceCommandHandler(
         var device = await dbContext.PushDeviceTokens.SingleOrDefaultAsync(
             candidate =>
                 candidate.InstallationId == request.InstallationId
-                && candidate.UserId == request.TravelerUserId,
+                && candidate.UserId == request.UserId,
             cancellationToken);
         if (device is null)
         {

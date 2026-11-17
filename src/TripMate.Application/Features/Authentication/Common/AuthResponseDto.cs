@@ -15,6 +15,8 @@ public record AuthResponseDto(
     DateTimeOffset AccessTokenExpiresAtUtc
 )
 {
+    public bool MustChangePassword { get; init; }
+
     // Backend-authoritative application status, serialized on the Mobile/shared wire (A1).
     // Never is required so the field is present even under a null-omitting policy; null means
     // non-operator or unresolved. RefreshTokenExpiresAtUtc stays internal.

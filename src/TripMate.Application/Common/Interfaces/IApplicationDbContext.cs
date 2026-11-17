@@ -12,9 +12,13 @@ public interface IApplicationDbContext
 
     DbSet<RefreshToken> RefreshTokens { get; }
 
+    DbSet<UserUnlockOperation> UserUnlockOperations { get; }
+
     DbSet<PoiCategory> PoiCategories { get; }
 
     DbSet<PointOfInterest> PointsOfInterest { get; }
+
+    DbSet<RouteSegment> RouteSegments { get; }
 
     DbSet<PoiOpeningHour> PoiOpeningHours { get; }
 
@@ -54,6 +58,12 @@ public interface IApplicationDbContext
 
     DbSet<TourMediaCleanupOutboxItem> TourMediaCleanupOutbox { get; }
 
+    DbSet<TourSearchRequest> TourSearchRequests =>
+        throw new NotSupportedException("Tour recommendation snapshots are unavailable in this context.");
+
+    DbSet<TourRecommendationLog> TourRecommendationLogs =>
+        throw new NotSupportedException("Tour recommendation logs are unavailable in this context.");
+
     DbSet<AuditLog> AuditLogs { get; }
 
     DbSet<Notification> Notifications { get; }
@@ -73,7 +83,23 @@ public interface IApplicationDbContext
 
     DbSet<ServiceProvider> ServiceProviders { get; }
 
+    DbSet<ProviderPoiLink> ProviderPoiLinks =>
+        throw new NotSupportedException("Provider POI ownership is unavailable in this context.");
+
     DbSet<CommercialService> CommercialServices { get; }
+
+    DbSet<ServiceBooking> ServiceBookings { get; }
+
+    DbSet<ServiceCommissionStatement> ServiceCommissionStatements { get; }
+
+    DbSet<ServiceProviderRequestOperation> ServiceProviderRequestOperations =>
+        throw new NotSupportedException("Service request operations are unavailable in this context.");
+
+    DbSet<ClosedStatisticalPeriod> ClosedStatisticalPeriods { get; }
+
+    DbSet<StatisticalReportSnapshot> StatisticalReportSnapshots { get; }
+
+    DbSet<StatisticalReportExportOperation> StatisticalReportExportOperations { get; }
 
     DbSet<Voucher> Vouchers { get; }
 
@@ -88,6 +114,13 @@ public interface IApplicationDbContext
     DbSet<PaymentTransaction> PaymentTransactions { get; }
 
     DbSet<Refund> Refunds { get; }
+    DbSet<PostTripComplaint> PostTripComplaints => throw new NotSupportedException("Post-trip complaints are unavailable in this context.");
+    DbSet<ComplaintEvidence> ComplaintEvidence => throw new NotSupportedException("Complaint evidence is unavailable in this context.");
+    DbSet<PostTripComplaintSubmissionOperation> PostTripComplaintSubmissionOperations => throw new NotSupportedException("Post-trip complaint idempotency is unavailable in this context.");
+    DbSet<PostTripComplaintEvidenceAmendmentOperation> PostTripComplaintEvidenceAmendmentOperations => throw new NotSupportedException("Post-trip complaint evidence amendment idempotency is unavailable in this context.");
+
+    DbSet<EmergencyTourCancellationOperation> EmergencyTourCancellationOperations =>
+        throw new NotSupportedException("Emergency tour cancellation is unavailable in this context.");
 
     DbSet<RefundManualCompletionOperation> RefundManualCompletionOperations =>
         throw new NotSupportedException("Manual refund completion idempotency is unavailable in this context.");
@@ -120,6 +153,12 @@ public interface IApplicationDbContext
 
     DbSet<RecommendationBehaviorEvent> RecommendationBehaviorEvents =>
         throw new NotSupportedException("Recommendation behavior events are unavailable in this context.");
+
+    DbSet<PoiFavorite> PoiFavorites =>
+        throw new NotSupportedException("POI favorites are unavailable in this context.");
+
+    DbSet<PoiVisitedMark> PoiVisitedMarks =>
+        throw new NotSupportedException("POI visited marks are unavailable in this context.");
 
     DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests { get; }
 
@@ -155,22 +194,43 @@ public interface IApplicationDbContext
 
     DbSet<WeatherEvent> WeatherEvents { get; }
 
+    DbSet<WeatherAlertInboxItem> WeatherAlertInboxItems { get; }
+
+
+    DbSet<WeatherSafetyReview> WeatherSafetyReviews { get; }
+
+    DbSet<WeatherLocationMapping> WeatherLocationMappings { get; }
+
     DbSet<ReroutingEvent> ReroutingEvents { get; }
-
-    DbSet<Payout> Payouts { get; }
-
-    DbSet<PayoutItem> PayoutItems { get; }
-
-    DbSet<PayoutRefundItem> PayoutRefundItems { get; }
 
     DbSet<PayoutAdjustment> PayoutAdjustments { get; }
 
-    DbSet<PayoutPeriodBreakdown> PayoutPeriodBreakdowns { get; }
+    // DAILY-PAYOUT-TRANSFER (Task 2)
+    DbSet<PayoutRun> PayoutRuns { get; }
+
+    DbSet<PayoutBatch> PayoutBatches { get; }
+
+    DbSet<PayoutSettlement> PayoutSettlements { get; }
+
+    DbSet<PayoutSettlementAttempt> PayoutSettlementAttempts { get; }
+
+    DbSet<TourOperatorDebt> TourOperatorDebts { get; }
+
+
+    DbSet<PayoutReconciliationItem> PayoutReconciliationItems { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
 
     Task<int> RevokeRefreshTokenAsync(
         string tokenHash,
+        DateTimeOffset revokedAtUtc,
+        CancellationToken cancellationToken);
+
+    /// <summary>BR-175: revokes every still-active refresh token belonging to a user, used when
+    /// their account is locked (DAILY-PAYOUT-TRANSFER spec v6, BR-189, PD-9A) — unlike
+    /// <see cref="RevokeRefreshTokenAsync"/>, this is not limited to one token hash.</summary>
+    Task<int> RevokeAllRefreshTokensForUserAsync(
+        long userId,
         DateTimeOffset revokedAtUtc,
         CancellationToken cancellationToken);
 
@@ -217,6 +277,20 @@ public interface IApplicationDbContext
     /// chosen as a deadlock victim. The transaction is rolled back and can be retried.
     /// </summary>
     bool IsDeadlock(Exception exception) => false;
+
+    /// <summary>
+    /// True when the exception, or one of its inner exceptions, is the SQL Server unique-index
+    /// violation (2601/2627) on Itineraries.source_booking_id — meaning a concurrent payment
+    /// completion already materialized that booking's itinerary and the caller may replay.
+    /// </summary>
+    bool IsSourceBookingUniqueConflict(DbUpdateException exception) => false;
+
+    /// <summary>
+    /// True when the exception is the SQL Server unique violation (2601/2627) on the UC-70 decision
+    /// table: one decision per departure, or one per Operator command id. A concurrent winner has
+    /// committed, so re-running the command replays it or reports the departure as terminal.
+    /// </summary>
+    bool IsEmergencyDecisionUniqueConflict(DbUpdateException exception) => false;
 
     /// <summary>
     /// Removes durable document-cleanup reservations while the caller's database transaction

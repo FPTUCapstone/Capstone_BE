@@ -16,6 +16,7 @@ $env:Jwt__SigningKey = $values['JWT_SIGNING_KEY']
 $env:AiRanking__Enabled = 'false'
 $env:AiExplanation__Enabled = 'false'
 $env:Cloudinary__RevenueExportsFolderRoot = 'tripmate/revenue-exports'
+$env:Cloudinary__PostTripRefundEvidenceFolderRoot = 'tripmate/post-trip-refund-evidence'
 $env:Payment__Provider = if ([string]::IsNullOrWhiteSpace($values['Payment__Provider'])) { 'Mock' } else { $values['Payment__Provider'] }
 $apiPort = if ([string]::IsNullOrWhiteSpace($values['API_HOST_PORT'])) { '5021' } else { $values['API_HOST_PORT'] }
 $apiRoot = Join-Path $repoRoot 'src\TripMate.Api'

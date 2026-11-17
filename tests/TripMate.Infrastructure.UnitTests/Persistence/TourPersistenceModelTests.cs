@@ -113,7 +113,7 @@ public class TourPersistenceModelTests
         schedule.FindProperty(nameof(TourSchedule.ReservedCapacity))!.GetDefaultValue().Should().Be(0);
         schedule.FindProperty(nameof(TourSchedule.Status))!.GetProviderClrType()
             .Should().Be(typeof(string));
-        schedule.FindProperty(nameof(TourSchedule.Status))!.GetMaxLength().Should().Be(12);
+        schedule.FindProperty(nameof(TourSchedule.Status))!.GetMaxLength().Should().Be(20);
         schedule.FindProperty(nameof(TourSchedule.Status))!.IsUnicode().Should().BeFalse();
         schedule.FindProperty(nameof(TourSchedule.Status))!.GetDefaultValueSql()
             .Should().Be("'Scheduled'");
@@ -131,6 +131,24 @@ public class TourPersistenceModelTests
             .Single(candidate => candidate.GetDatabaseName() == "IX_TourSchedules_Tour");
         index.Properties.Select(property => property.Name)
             .Should().Equal(nameof(TourSchedule.TourId), nameof(TourSchedule.StartAtUtc));
+    }
+
+    [Fact]
+    public void Model_MapsWeatherReadinessFieldsWithoutImplicitClassification()
+    {
+        using var context = CreateContext();
+        var model = context.GetService<IDesignTimeModel>().Model;
+        var schedule = model.FindEntityType(typeof(TourSchedule))!;
+        var stop = model.FindEntityType(typeof(TourItineraryItem))!;
+
+        ColumnName(schedule, nameof(TourSchedule.MeetingLatitude)).Should().Be("meeting_latitude");
+        ColumnName(schedule, nameof(TourSchedule.MeetingLongitude)).Should().Be("meeting_longitude");
+        schedule.FindProperty(nameof(TourSchedule.MeetingLatitude))!.GetPrecision().Should().Be(9);
+        schedule.FindProperty(nameof(TourSchedule.MeetingLatitude))!.GetScale().Should().Be(6);
+        schedule.FindProperty(nameof(TourSchedule.MeetingLatitude))!.IsNullable.Should().BeTrue();
+        ColumnName(stop, nameof(TourItineraryItem.IsRequiredForWeather))
+            .Should().Be("is_required_for_weather");
+        stop.FindProperty(nameof(TourItineraryItem.IsRequiredForWeather))!.IsNullable.Should().BeTrue();
     }
 
     [Fact]
@@ -152,7 +170,7 @@ public class TourPersistenceModelTests
         Enum.GetNames<TourStatus>().Should()
             .Equal("Draft", "Pending", "Approved", "Rejected", "Published", "Inactive");
         Enum.GetNames<TourScheduleStatus>().Should()
-            .Equal("Scheduled", "Cancelled", "Completed");
+            .Equal("Scheduled", "Cancelled", "Completed", "EmergencyStopped");
     }
 
     private static void AssertUtcDateTime2(IEntityType entityType, string propertyName)

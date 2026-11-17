@@ -5,10 +5,8 @@ using System.Text.Json;
 using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
-using TripMate.Application.Common.Interfaces;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -50,7 +48,7 @@ public sealed class AuditConfigEndpointTests
     public async Task Request_WithNonAdministrator_ReturnsForbiddenProblemDetails(string method, UserRole role)
     {
         await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
-        using var client = CreateClient(factory, role);
+        using var client = await CreateClientAsync(factory, role);
 
         using var request = new HttpRequestMessage(new HttpMethod(method),
             "/api/v1/admin/system-configs/algorithm-parameters");
@@ -69,7 +67,7 @@ public sealed class AuditConfigEndpointTests
     public async Task Get_WithAdministrator_ReturnsParameterContract()
     {
         await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
-        using var client = CreateClient(factory, UserRole.Administrator);
+        using var client = await CreateClientAsync(factory, UserRole.Administrator);
         await SeedManagedRowsAsync(factory);
 
         var response = await client.GetAsync("/api/v1/admin/system-configs/algorithm-parameters");
@@ -89,7 +87,7 @@ public sealed class AuditConfigEndpointTests
     {
         // Review 2026-10-01 (MAJOR-1): missing rows are never masked with the seeded defaults.
         await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
-        using var client = CreateClient(factory, UserRole.Administrator);
+        using var client = await CreateClientAsync(factory, UserRole.Administrator);
 
         var response = await client.GetAsync("/api/v1/admin/system-configs/algorithm-parameters");
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -121,7 +119,7 @@ public sealed class AuditConfigEndpointTests
     public async Task Put_WithAdministrator_PersistsRowsAndWritesSuccessAuditEntry()
     {
         await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
-        using var client = CreateClient(factory, UserRole.Administrator);
+        using var client = await CreateClientAsync(factory, UserRole.Administrator);
 
         var response = await client.PutAsync(
             "/api/v1/admin/system-configs/algorithm-parameters",
@@ -158,7 +156,7 @@ public sealed class AuditConfigEndpointTests
     public async Task Put_WithValueOutOfRange_Returns422AndChangesNothing()
     {
         await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
-        using var client = CreateClient(factory, UserRole.Administrator);
+        using var client = await CreateClientAsync(factory, UserRole.Administrator);
         await factory.WithDbContextAsync<bool>(async db =>
         {
             db.SystemConfigs.Add(new SystemConfig(
@@ -191,17 +189,17 @@ public sealed class AuditConfigEndpointTests
         auditCount.Should().Be(0);
     }
 
-    private static HttpClient CreateClient(TripMateApiFactory factory, UserRole role)
+    private static async Task<HttpClient> CreateClientAsync(TripMateApiFactory factory, UserRole role)
     {
-        var service = factory.Services.GetRequiredService<IJwtTokenService>();
-        var token = service.GenerateAccessToken(new User
+        var user = new User
         {
             Id = 100,
             Email = "config-admin@example.com",
             FullName = "Config Administrator",
             Role = role,
             Status = AccountStatus.Active,
-        }).Token;
+        };
+        var token = await factory.IssueTokenForPersistedUserAsync(user);
         return factory.CreateJwtClient(token);
     }
 

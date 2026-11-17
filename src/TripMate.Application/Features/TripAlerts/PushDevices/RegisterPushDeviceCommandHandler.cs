@@ -9,6 +9,7 @@ using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.TripAlerts.Common;
 using TripMate.Domain.Entities;
+using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.TripAlerts.PushDevices;
 
@@ -24,16 +25,36 @@ public sealed class RegisterPushDeviceCommandHandler(
             ct => Register(request, ct),
             cancellationToken);
 
+    /// <summary>Travelers and active, approved Tour Operators; never administration roles.</summary>
+    private async Task<bool> CanReceivePushAsync(User user, CancellationToken cancellationToken) =>
+        user.Role switch
+        {
+            UserRole.Traveler => true,
+            UserRole.TourOperator => user.Status == AccountStatus.Active
+                && await dbContext.OperatorProfiles.AnyAsync(
+                    profile => profile.UserId == user.Id
+                        && profile.ApprovalStatus == OperatorApprovalStatus.Approved,
+                    cancellationToken),
+            _ => false,
+        };
+
     private async Task<Result> Register(
         RegisterPushDeviceCommand request,
         CancellationToken cancellationToken)
     {
         var user = await dbContext.Users.SingleOrDefaultAsync(
-            candidate => candidate.Id == request.TravelerUserId,
+            candidate => candidate.Id == request.UserId,
             cancellationToken);
         if (user is null)
         {
-            return Result.Failure(TripAlertErrorCodes.NotFound, "The Traveler was not found.");
+            return Result.Failure(TripAlertErrorCodes.NotFound, "The user was not found.");
+        }
+
+        if (!await CanReceivePushAsync(user, cancellationToken))
+        {
+            return Result.Failure(
+                TripAlertErrorCodes.AccessDenied,
+                "This account cannot register a push device.");
         }
 
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(request.Token)));

@@ -18,9 +18,13 @@ public class TestDbContext(
 
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
+    public DbSet<UserUnlockOperation> UserUnlockOperations => Set<UserUnlockOperation>();
+
     public DbSet<PoiCategory> PoiCategories => Set<PoiCategory>();
 
     public DbSet<PointOfInterest> PointsOfInterest => Set<PointOfInterest>();
+
+    public DbSet<RouteSegment> RouteSegments => Set<RouteSegment>();
 
     public DbSet<PoiOpeningHour> PoiOpeningHours => Set<PoiOpeningHour>();
 
@@ -91,6 +95,11 @@ public class TestDbContext(
     public DbSet<TourBookingCreateOperation> TourBookingCreateOperations => Set<TourBookingCreateOperation>();
     public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
     public DbSet<Refund> Refunds => Set<Refund>();
+    public DbSet<PostTripComplaint> PostTripComplaints => Set<PostTripComplaint>();
+    public DbSet<ComplaintEvidence> ComplaintEvidence => Set<ComplaintEvidence>();
+    public DbSet<PostTripComplaintSubmissionOperation> PostTripComplaintSubmissionOperations => Set<PostTripComplaintSubmissionOperation>();
+    public DbSet<EmergencyTourCancellationOperation> EmergencyTourCancellationOperations =>
+        Set<EmergencyTourCancellationOperation>();
     public DbSet<RefundManualCompletionOperation> RefundManualCompletionOperations =>
         Set<RefundManualCompletionOperation>();
     public DbSet<RevenueExport> RevenueExports => Set<RevenueExport>();
@@ -133,6 +142,10 @@ public class TestDbContext(
 
     public DbSet<SystemConfig> SystemConfigs => Set<SystemConfig>();
 
+    public DbSet<TourSearchRequest> TourSearchRequests => Set<TourSearchRequest>();
+
+    public DbSet<TourRecommendationLog> TourRecommendationLogs => Set<TourRecommendationLog>();
+
     public DbSet<TripSession> TripSessions => Set<TripSession>();
 
     public DbSet<TripSessionItem> TripSessionItems => Set<TripSessionItem>();
@@ -147,17 +160,41 @@ public class TestDbContext(
 
     public DbSet<WeatherEvent> WeatherEvents => Set<WeatherEvent>();
 
+    public DbSet<WeatherAlertInboxItem> WeatherAlertInboxItems => Set<WeatherAlertInboxItem>();
+
+
+    public DbSet<WeatherSafetyReview> WeatherSafetyReviews => Set<WeatherSafetyReview>();
+
+    public DbSet<WeatherLocationMapping> WeatherLocationMappings => Set<WeatherLocationMapping>();
+
+
     public DbSet<ReroutingEvent> ReroutingEvents => Set<ReroutingEvent>();
-
-    public DbSet<Payout> Payouts => Set<Payout>();
-
-    public DbSet<PayoutItem> PayoutItems => Set<PayoutItem>();
-
-    public DbSet<PayoutRefundItem> PayoutRefundItems => Set<PayoutRefundItem>();
 
     public DbSet<PayoutAdjustment> PayoutAdjustments => Set<PayoutAdjustment>();
 
-    public DbSet<PayoutPeriodBreakdown> PayoutPeriodBreakdowns => Set<PayoutPeriodBreakdown>();
+    public DbSet<PayoutRun> PayoutRuns => Set<PayoutRun>();
+
+    public DbSet<PayoutBatch> PayoutBatches => Set<PayoutBatch>();
+
+    public DbSet<PayoutSettlement> PayoutSettlements => Set<PayoutSettlement>();
+
+    public DbSet<PayoutSettlementAttempt> PayoutSettlementAttempts => Set<PayoutSettlementAttempt>();
+
+    public DbSet<TourOperatorDebt> TourOperatorDebts => Set<TourOperatorDebt>();
+
+
+    public DbSet<PayoutReconciliationItem> PayoutReconciliationItems => Set<PayoutReconciliationItem>();
+
+    public DbSet<ServiceBooking> ServiceBookings => Set<ServiceBooking>();
+
+    public DbSet<ServiceCommissionStatement> ServiceCommissionStatements => Set<ServiceCommissionStatement>();
+
+    public DbSet<ClosedStatisticalPeriod> ClosedStatisticalPeriods => Set<ClosedStatisticalPeriod>();
+
+    public DbSet<StatisticalReportSnapshot> StatisticalReportSnapshots => Set<StatisticalReportSnapshot>();
+
+    public DbSet<StatisticalReportExportOperation> StatisticalReportExportOperations =>
+        Set<StatisticalReportExportOperation>();
 
     public int TransactionExecutionCount { get; private set; }
 
@@ -177,6 +214,13 @@ public class TestDbContext(
 
     public bool ThrowOnSaveConcurrency { get; set; }
 
+    /// <summary>
+    /// Receives the 1-based SaveChangesAsync attempt number and returns the exception to
+    /// throw for that attempt (null = save normally). Lets tests simulate persistence
+    /// failures deterministically without constructing SqlException.
+    /// </summary>
+    public Func<int, Exception?>? SaveChangesAttemptFailureFactory { get; set; }
+
     public Func<int, Exception?>? SerializableTransactionCompletionFailureFactory { get; set; }
 
     public Func<int, Exception?>? TransactionCompletionFailureFactory { get; set; }
@@ -190,8 +234,10 @@ public class TestDbContext(
     public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         SaveChangesAsyncCallCount++;
-        if (SaveChangesFailureFactory?.Invoke() is { } failure)
+        if ((SaveChangesFailureFactory?.Invoke() ?? SaveChangesAttemptFailureFactory?.Invoke(SaveChangesAsyncCallCount)) is { } failure)
+        {
             throw failure;
+        }
 
         return ThrowOnSaveConcurrency
             ? throw new DbUpdateConcurrencyException("Concurrency conflict simulated in test.")
@@ -213,6 +259,22 @@ public class TestDbContext(
 
         token.RevokedAtUtc = revokedAtUtc;
         return 1;
+    }
+
+    public async Task<int> RevokeAllRefreshTokensForUserAsync(
+        long userId,
+        DateTimeOffset revokedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var tokens = await RefreshTokens
+            .Where(candidate => candidate.UserId == userId && candidate.RevokedAtUtc == null)
+            .ToListAsync(cancellationToken);
+        foreach (var token in tokens)
+        {
+            token.RevokedAtUtc = revokedAtUtc;
+        }
+
+        return tokens.Count;
     }
 
     public async Task<int> DeleteSignOutAuditEventsBeforeAsync(
@@ -310,10 +372,35 @@ public class TestDbContext(
         return reads(cancellationToken);
     }
 
-    public bool IsDeadlock(Exception exception) => exception is SimulatedDeadlockException;
+    public bool IsDeadlock(Exception exception) => WalkChain<SimulatedDeadlockException>(exception);
+
+    public bool IsSourceBookingUniqueConflict(DbUpdateException exception) =>
+        WalkChain<SimulatedSourceBookingUniqueConflictException>(exception);
+
+    public bool IsEmergencyDecisionUniqueConflict(DbUpdateException exception) =>
+        WalkChain<SimulatedEmergencyDecisionUniqueConflictException>(exception);
+
+    private static bool WalkChain<TException>(Exception exception)
+        where TException : Exception
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is TException)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<ProviderPoiLink>().HasKey(link => new { link.ServiceProviderId, link.PointOfInterestId });
+        modelBuilder.Entity<ProviderPoiLink>().HasOne(link => link.Provider).WithMany(provider => provider.PoiLinks)
+            .HasForeignKey(link => link.ServiceProviderId);
+        modelBuilder.Entity<ProviderPoiLink>().HasOne(link => link.Poi).WithMany()
+            .HasForeignKey(link => link.PointOfInterestId);
         modelBuilder.Entity<AlertDeliveryWork>().HasKey(work => work.NotificationId);
         modelBuilder.Entity<PushDeviceToken>().HasKey(device => device.Id);
 

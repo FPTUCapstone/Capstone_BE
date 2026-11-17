@@ -54,6 +54,14 @@ Mobile owns GPS, arrival detection, deviation detection, and Mapbox guidance.
 
 ## Resolved decisions
 
+BUG-03 decision (2026-11-17, requirement owner selected option A): a Traveler cannot
+start a new navigation session for a resolved itinerary version for which that Traveler
+already has a closed `RouteFinished` session. Return `409 navigation.trip_already_finished`
+without creating a session, snapshot, state history, or UC-14 alert scope. Existing session
+progress and alerts remain unchanged. Completion by another Traveler does not block this
+Traveler. `TravelerStopped` and `Expired` do not trigger this restriction. The existing
+idempotency-key replay takes precedence and still returns the original session with `201`.
+
 | Decision                     | Resolution                                                                                         |
 | ---------------------------- | -------------------------------------------------------------------------------------------------- |
 | Directions                   | Mobile calls Mapbox directly. Backend never proxies Mapbox.                                       |
@@ -290,6 +298,10 @@ No body. Check order:
    re-authorizing current access; a different requested itinerary ID returns `409`.
 2. Resolve current version and access (`404`/`403`).
 3. Resolved version must be `Active` (`409`).
+   After rejecting a stopped/cancelled booked tour, reject a new start if the same Traveler
+   has a closed `RouteFinished` session for the resolved itinerary version
+   (`409 navigation.trip_already_finished`). This check precedes item, schedule, time-window,
+   and open-session checks; it never changes the completed session or its snapshot.
 4. At least one navigable item (`422 navigation.no_navigable_items`).
 5. Every navigable item has a planned arrival and departure (`422
    navigation.itinerary_schedule_incomplete`). `ItineraryItem` planned times are nullable in the

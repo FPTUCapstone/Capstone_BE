@@ -7,6 +7,7 @@ using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Navigation.Common;
 using TripMate.Domain.Entities;
+using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Navigation.Start;
 
@@ -96,6 +97,35 @@ public sealed class StartNavigationSessionCommandHandler(
                 "Navigation requires an Active itinerary.");
         }
 
+        // Held until the commit, so a stop cannot slip in between this check and the new session.
+        var tourEnded = itinerary.SourceBookingId is { } bookingId
+            && await dbContext.ExecuteWithSerializableReadsAsync(
+                readCancellationToken => dbContext.Bookings.AsNoTracking().AnyAsync(
+                    booking => booking.Id == bookingId
+                        && (booking.Status == BookingStatus.Interrupted
+                            || booking.Status == BookingStatus.Cancelled),
+                    readCancellationToken),
+                cancellationToken);
+        if (tourEnded)
+        {
+            return Result.Failure<NavigationSessionResponse>(
+                NavigationErrorCodes.SessionInterrupted,
+                "This tour was stopped or cancelled, so navigation cannot start.");
+        }
+
+        var alreadyFinished = await dbContext.TripSessions.AsNoTracking().AnyAsync(
+            session => session.TravelerUserId == request.TravelerUserId
+                && session.ItineraryId == itinerary.Id
+                && session.EndedAtUtc != null
+                && session.CompletionReason == TripSession.RouteFinishedReason,
+            cancellationToken);
+        if (alreadyFinished)
+        {
+            return Result.Failure<NavigationSessionResponse>(
+                NavigationErrorCodes.TripAlreadyFinished,
+                "You have already completed this itinerary, so navigation cannot start again.");
+        }
+
         var navigableItems = itinerary.Items
             .Where(item => item.PointOfInterest is not null)
             .OrderBy(item => item.SequenceNo)
@@ -172,7 +202,8 @@ public sealed class StartNavigationSessionCommandHandler(
             snapshot);
         dbContext.TripSessions.Add(session);
         await dbContext.SaveChangesAsync(cancellationToken);
-        return Result.Success(NavigationSessionResponse.From(session, itinerary));
+        return Result.Success(await ActiveRouteNavigationProjection.EnrichAsync(dbContext,
+            NavigationSessionResponse.From(session, itinerary), cancellationToken));
     }
 
     private async Task<Result<NavigationSessionResponse>> ReplayAsync(
@@ -199,7 +230,8 @@ public sealed class StartNavigationSessionCommandHandler(
 
         // Untracked: shows the effective state without persisting a read-time expiry.
         replay.ExpireIfDue(clock.UtcNow);
-        return Result.Success(NavigationSessionResponse.From(replay, replay.Itinerary));
+        return Result.Success(await ActiveRouteNavigationProjection.EnrichAsync(dbContext,
+            NavigationSessionResponse.From(replay, replay.Itinerary), cancellationToken));
     }
 
     private async Task<TripSession?> LoadByKeyAsync(
