@@ -212,8 +212,11 @@ public sealed class TravelerPartialRefundProposalEndpointTests
         {
             if (complaintId != _proposal.ComplaintId || _proposal.Status != PostTripComplaintStatus.AwaitingTravelerResponse ||
                 _proposal.Round != 1) return Task.FromResult(false);
-            _proposal = _proposal with { Status = PostTripComplaintStatus.AwaitingOperatorReconsideration,
-                OperatorReconsiderationDeadlineUtc = operatorReconsiderationDeadlineUtc };
+            _proposal = _proposal with
+            {
+                Status = PostTripComplaintStatus.AwaitingOperatorReconsideration,
+                OperatorReconsiderationDeadlineUtc = operatorReconsiderationDeadlineUtc
+            };
             return Task.FromResult(true);
         }
 
