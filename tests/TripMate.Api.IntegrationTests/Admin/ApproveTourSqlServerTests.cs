@@ -57,9 +57,16 @@ public sealed class ApproveTourSqlServerTests
 
         var responses = await Task.WhenAll(firstTask, secondTask);
 
-        // One request must succeed (200 OK) and the other must be rejected (409 Conflict or 500 Deadlock)
+        // One request succeeds (200 OK) and the competing concurrent request cleanly conflicts (409 Conflict with MSG133)
+        // after bounded deadlock recovery and authoritative state recheck. Zero HTTP 500 errors.
         responses.Should().ContainSingle(r => r.StatusCode == HttpStatusCode.OK);
-        responses.Should().ContainSingle(r => r.StatusCode == HttpStatusCode.Conflict || r.StatusCode == HttpStatusCode.InternalServerError);
+        responses.Should().ContainSingle(r => r.StatusCode == HttpStatusCode.Conflict);
+
+        var conflictResponse = responses.Single(r => r.StatusCode == HttpStatusCode.Conflict);
+        using var conflictBody = JsonDocument.Parse(await conflictResponse.Content.ReadAsStringAsync());
+        conflictBody.RootElement.GetProperty("errorCode").GetString().Should().Be(OperatorTourErrorCodes.InvalidState);
+        conflictBody.RootElement.GetProperty("title").GetString()
+            .Should().Be("The selected package is no longer in the Pending Approval status.");
 
         // Verify database integrity: exactly one TourApproved audit record, final status Approved
         await using var verificationContext = database.CreateDbContext();

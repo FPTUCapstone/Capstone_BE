@@ -33,43 +33,58 @@ public sealed class ApproveTourCommandHandler(IApplicationDbContext dbContext, I
                 "Every item of the mandatory review checklist must pass before the approval can be confirmed.");
         }
 
-        return await dbContext.ExecuteInSerializableTransactionAsync(async ct =>
+        const int maxConcurrencyAttempts = 3;
+        for (var attempt = 1; attempt <= maxConcurrencyAttempts; attempt++)
         {
-            var tour = await dbContext.Tours.SingleOrDefaultAsync(x => x.Id == request.TourId, ct);
-            if (tour is null) return NotFound();
-            if (tour.Status != TourStatus.Pending) return InvalidState();
-
-            var now = clock.UtcNow;
-            var reviewerId = currentUser.UserId!.Value;
-            var statusBefore = tour.Status;
-
-            tour.Approve(reviewerId, now);
-
-            var afterData = JsonSerializer.Serialize(new
+            try
             {
-                Status = tour.Status.ToString(),
-                VersionNo = tour.VersionNo,
-                VersionRootTourId = tour.VersionRootTourId,
-                ReviewedBy = reviewerId,
-                ReviewedAtUtc = now,
-                PublishedAtUtc = tour.PublishedAtUtc,
-                Checklist = request.Checklist,
-                InternalNote = request.Note,
-            });
+                return await dbContext.ExecuteInSerializableTransactionAsync(async ct =>
+                {
+                    var tour = await dbContext.Tours.SingleOrDefaultAsync(x => x.Id == request.TourId, ct);
+                    if (tour is null) return NotFound();
+                    if (tour.Status != TourStatus.Pending) return InvalidState();
 
-            dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(
-                reviewerId,
-                AuditActionTypes.TourApproved,
-                AuditEntityTypes.Tour,
-                tour.Id,
-                now,
-                AuditOutcome.Success,
-                beforeData: JsonSerializer.Serialize(new { Status = statusBefore.ToString() }),
-                afterData: afterData));
+                    var now = clock.UtcNow;
+                    var reviewerId = currentUser.UserId!.Value;
+                    var statusBefore = tour.Status;
 
-            await dbContext.SaveChangesAsync(ct);
-            return Result.Success(new TourReviewResponse(tour.Id, tour.Status.ToString(), now));
-        }, cancellationToken);
+                    tour.Approve(reviewerId, now);
+
+                    var afterData = JsonSerializer.Serialize(new
+                    {
+                        Status = tour.Status.ToString(),
+                        VersionNo = tour.VersionNo,
+                        VersionRootTourId = tour.VersionRootTourId,
+                        ReviewedBy = reviewerId,
+                        ReviewedAtUtc = now,
+                        PublishedAtUtc = tour.PublishedAtUtc,
+                        Checklist = request.Checklist,
+                        InternalNote = request.Note,
+                    });
+
+                    dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(
+                        reviewerId,
+                        AuditActionTypes.TourApproved,
+                        AuditEntityTypes.Tour,
+                        tour.Id,
+                        now,
+                        AuditOutcome.Success,
+                        beforeData: JsonSerializer.Serialize(new { Status = statusBefore.ToString() }),
+                        afterData: afterData));
+
+                    await dbContext.SaveChangesAsync(ct);
+                    return Result.Success(new TourReviewResponse(tour.Id, tour.Status.ToString(), now));
+                }, cancellationToken);
+            }
+            catch (Exception exception) when (attempt < maxConcurrencyAttempts && dbContext.IsDeadlock(exception))
+            {
+                dbContext.ClearTrackedEntities();
+                var delayMs = Random.Shared.Next(20, 50) * attempt;
+                await Task.Delay(TimeSpan.FromMilliseconds(delayMs), cancellationToken);
+            }
+        }
+
+        return InvalidState();
     }
 
     private Result<TourReviewResponse>? AuthorizeStaff() => currentUser.UserId is null || currentUser.Role != nameof(UserRole.Staff)

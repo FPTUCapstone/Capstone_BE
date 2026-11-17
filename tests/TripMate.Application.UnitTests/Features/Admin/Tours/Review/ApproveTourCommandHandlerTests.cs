@@ -9,6 +9,7 @@ using TripMate.Application.Features.Operator.Tours.Common;
 using TripMate.Application.Features.Tours.Shared;
 using TripMate.Application.UnitTests.TestUtilities;
 using TripMate.Domain.Common;
+using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Application.UnitTests.Features.Admin.Tours.Review;
@@ -145,7 +146,7 @@ public sealed class ApproveTourCommandHandlerTests
             new ApproveTourCommand(tour.Id, ValidChecklist(), "Verified all requirements."),
             CancellationToken.None);
 
-        result.IsSuccess.Should().BeTrue();
+        result.IsSuccess.Should().BeTrue(because: $"{result.ErrorCode}: {result.ErrorMessage}");
         result.Value.TourId.Should().Be(tour.Id);
         result.Value.Status.Should().Be(TourStatus.Approved.ToString());
         result.Value.ChangedAtUtc.Should().Be(Now);
@@ -177,7 +178,7 @@ public sealed class ApproveTourCommandHandlerTests
             new ApproveTourCommand(tour.Id, checklist, note),
             CancellationToken.None);
 
-        result.IsSuccess.Should().BeTrue();
+        result.IsSuccess.Should().BeTrue(because: $"{result.ErrorCode}: {result.ErrorMessage}");
 
         var audit = await db.AuditLogs.SingleAsync(a => a.AffectedEntityId == tour.Id && a.ActionType == AuditActionTypes.TourApproved);
         audit.ActorUserId.Should().Be(staffId);
@@ -226,7 +227,7 @@ public sealed class ApproveTourCommandHandlerTests
         var result = await handler.Handle(
             new ApproveTourCommand(tour.Id, ValidChecklist()),
             CancellationToken.None);
-        result.IsSuccess.Should().BeTrue();
+        result.IsSuccess.Should().BeTrue(because: $"{result.ErrorCode}: {result.ErrorMessage}");
 
         // After approval, tour IS immediately visible to public under TourVisibility.PublicTour
         var visibleAfter = await db.Tours
@@ -235,5 +236,89 @@ public sealed class ApproveTourCommandHandlerTests
             .Where(TourVisibility.PublicTour(Now))
             .AnyAsync(t => t.Id == tour.Id);
         visibleAfter.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Handle_WhenTransientDeadlockOccurs_RetriesAndSucceedsOnNextAttempt()
+    {
+        await using var db = TestDbContext.Create();
+        await PublicTourTestData.SeedOperatorAsync(db, 1);
+        var tour = await PublicTourTestData.AddTourAsync(db, 1, TourStatus.Pending);
+        var clock = new FakeDateTimeProvider { UtcNow = Now };
+        var staffId = 55L;
+
+        var initialSaves = db.SaveChangesAsyncCallCount;
+
+        db.SaveChangesAttemptFailureFactory = attempt =>
+            attempt == (initialSaves + 1) ? new SimulatedDeadlockException() : null;
+
+        var handler = new ApproveTourCommandHandler(
+            db,
+            new FakeCurrentUserService { UserId = staffId, Role = nameof(UserRole.Staff) },
+            clock);
+
+        var result = await handler.Handle(
+            new ApproveTourCommand(tour.Id, ValidChecklist()),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(because: $"{result.ErrorCode}: {result.ErrorMessage}");
+        result.Value.Status.Should().Be(TourStatus.Approved.ToString());
+
+        var updatedTour = await db.Tours.SingleAsync(t => t.Id == tour.Id);
+        updatedTour.Status.Should().Be(TourStatus.Approved);
+        db.SaveChangesAsyncCallCount.Should().Be(initialSaves + 2);
+    }
+
+    [Fact]
+    public async Task Handle_WhenDeadlockOccursAndTourDecidedConcurrently_RetriesAndReturnsInvalidStateMsg133()
+    {
+        await using var db = TestDbContext.Create();
+        await PublicTourTestData.SeedOperatorAsync(db, 1);
+        var tour = await PublicTourTestData.AddTourAsync(db, 1, TourStatus.Pending);
+        var clock = new FakeDateTimeProvider { UtcNow = Now };
+        var staffId = 55L;
+
+        // On attempt 1, simulated deadlock happens while tour state reflects the concurrent winner's commit
+        db.SerializableTransactionCompletionFailureFactory = attempt =>
+            attempt == 1 ? new SimulatedDeadlockException() : null;
+
+        var handler = new ApproveTourCommandHandler(
+            db,
+            new FakeCurrentUserService { UserId = staffId, Role = nameof(UserRole.Staff) },
+            clock);
+
+        var result = await handler.Handle(
+            new ApproveTourCommand(tour.Id, ValidChecklist()),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be(OperatorTourErrorCodes.InvalidState);
+        result.ErrorMessage.Should().Be("The selected package is no longer in the Pending Approval status.");
+        db.TransactionExecutionCount.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Handle_WhenDeadlockExhaustsRetries_RethrowsDeadlockException()
+    {
+        await using var db = TestDbContext.Create();
+        await PublicTourTestData.SeedOperatorAsync(db, 1);
+        var tour = await PublicTourTestData.AddTourAsync(db, 1, TourStatus.Pending);
+        var clock = new FakeDateTimeProvider { UtcNow = Now };
+        var staffId = 55L;
+
+        // All attempts fail with deadlock
+        db.SerializableTransactionCompletionFailureFactory = _ => new SimulatedDeadlockException();
+
+        var handler = new ApproveTourCommandHandler(
+            db,
+            new FakeCurrentUserService { UserId = staffId, Role = nameof(UserRole.Staff) },
+            clock);
+
+        var act = () => handler.Handle(
+            new ApproveTourCommand(tour.Id, ValidChecklist()),
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<SimulatedDeadlockException>();
+        db.TransactionExecutionCount.Should().Be(3);
     }
 }
