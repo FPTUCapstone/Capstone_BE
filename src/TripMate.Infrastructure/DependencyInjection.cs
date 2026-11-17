@@ -22,6 +22,7 @@ using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Itineraries.GetDetail;
 using TripMate.Application.Features.Navigation.Common;
 using TripMate.Application.Features.Operator.CheckIn.Common;
+using TripMate.Application.Features.Operator.PostTripComplaints.Deadlines;
 using TripMate.Application.Features.Operator.Payouts.Common;
 using TripMate.Application.Features.Operator.Revenue.Exports.Common;
 using TripMate.Application.Features.Payouts.DailySettlement;
@@ -311,9 +312,18 @@ public static class DependencyInjection
         services.AddScoped<ReturnDeadlineProcessor>();
         services.AddHostedService<ReturnDeadlineBackgroundService>();
 
-        // UC-75: temporary ports until TM-222 (PostTripComplaint) and TM-88 (UC-42 RefundRequest) land.
-        services.AddScoped<IPartialRefundProposalStore, PendingPartialRefundProposalStore>();
-        services.AddScoped<IComplaintRefundRequestCreator, PendingComplaintRefundRequestCreator>();
+        services.AddOptions<OperatorComplaintDeadlineOptions>()
+            .Bind(configuration.GetSection(OperatorComplaintDeadlineOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<OperatorComplaintDeadlineOptions>, OperatorComplaintDeadlineOptionsValidator>();
+        services.AddSingleton(serviceProvider =>
+            serviceProvider.GetRequiredService<IOptions<OperatorComplaintDeadlineOptions>>().Value);
+        services.AddScoped<OperatorComplaintDeadlineProcessor>();
+        services.AddHostedService<OperatorComplaintDeadlineBackgroundService>();
+
+        // UC-75: backed by PostTripComplaint and Refund aggregates (UC-68, UC-69).
+        services.AddScoped<IPartialRefundProposalStore, PostTripComplaintProposalStore>();
+        services.AddScoped<IComplaintRefundRequestCreator, PostTripComplaintRefundRequestCreator>();
         services.AddOptions<PartialRefundProposalDeadlineOptions>()
             .Bind(configuration.GetSection(PartialRefundProposalDeadlineOptions.SectionName))
             .ValidateOnStart();

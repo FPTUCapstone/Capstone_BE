@@ -6,4 +6,6 @@ namespace TripMate.Api.Controllers.V1.Requests;
 
 /// <summary>UC-75 input data: the response option only (SRS §3.8.6.3).</summary>
 public sealed record RespondToPartialRefundProposalRequest(
-    [Required, EnumDataType(typeof(PartialRefundDecision))] PartialRefundDecision? Decision);
+    [Required, EnumDataType(typeof(PartialRefundDecision))] PartialRefundDecision? Decision,
+    string? Reason,
+    decimal? RequestedAmount);

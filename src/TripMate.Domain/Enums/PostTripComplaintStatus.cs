@@ -8,6 +8,7 @@ public enum PostTripComplaintStatus
 {
     AwaitingOperatorResponse,
     AwaitingTravelerResponse,
+    AwaitingOperatorReconsideration,
     Approved,
     Rejected,
     Declined,

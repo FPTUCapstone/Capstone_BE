@@ -116,6 +116,8 @@ public interface IApplicationDbContext
     DbSet<ComplaintEvidence> ComplaintEvidence => throw new NotSupportedException("Complaint evidence is unavailable in this context.");
     DbSet<PostTripComplaintSubmissionOperation> PostTripComplaintSubmissionOperations => throw new NotSupportedException("Post-trip complaint idempotency is unavailable in this context.");
     DbSet<PostTripComplaintEvidenceAmendmentOperation> PostTripComplaintEvidenceAmendmentOperations => throw new NotSupportedException("Post-trip complaint evidence amendment idempotency is unavailable in this context.");
+    DbSet<PostTripComplaintResponseOperation> PostTripComplaintResponseOperations => throw new NotSupportedException("Post-trip complaint response idempotency is unavailable in this context.");
+    DbSet<PostTripComplaintNegotiationEvent> PostTripComplaintNegotiationEvents => throw new NotSupportedException("Post-trip complaint negotiation history is unavailable in this context.");
 
     DbSet<EmergencyTourCancellationOperation> EmergencyTourCancellationOperations =>
         throw new NotSupportedException("Emergency tour cancellation is unavailable in this context.");

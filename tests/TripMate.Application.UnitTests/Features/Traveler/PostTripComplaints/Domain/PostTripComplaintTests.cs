@@ -75,4 +75,44 @@ public sealed class PostTripComplaintTests
         operation.TravelerUserId.Should().Be(200);
         operation.Complaint.Should().BeSameAs(complaint);
     }
+
+    [Fact]
+    public void ProposePartialRefund_SetsTravelerDeadlineAndPreservesRefundableSnapshot()
+    {
+        DateTimeOffset now = new(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        PostTripComplaint complaint = PostTripComplaint.Create(100, 200,
+            PostTripComplaintReasonCategory.Other, "Details", now.AddDays(-1), now.AddDays(6), 7000m);
+
+        complaint.ProposePartialRefund(300, 2500m, "Service evidence supports this amount.", now, now.AddDays(3));
+
+        complaint.Status.Should().Be(PostTripComplaintStatus.AwaitingTravelerResponse);
+        complaint.ProposedRefundAmount.Should().Be(2500m);
+        complaint.TravelerResponseDeadlineUtc.Should().Be(now.AddDays(3));
+        complaint.RefundableAmount.Should().Be(7000m);
+    }
+
+    [Fact]
+    public void Reject_BlankReason_IsRejectedWithoutClosingComplaint()
+    {
+        DateTimeOffset now = new(2026, 11, 20, 3, 0, 0, TimeSpan.Zero);
+        PostTripComplaint complaint = PostTripComplaint.Create(100, 200,
+            PostTripComplaintReasonCategory.Other, "Details", now.AddDays(-1), now.AddDays(6), 7000m);
+
+        Action action = () => complaint.Reject(300, " ", now);
+
+        action.Should().Throw<ArgumentException>();
+        complaint.Status.Should().Be(PostTripComplaintStatus.AwaitingOperatorResponse);
+    }
+
+    [Fact]
+    public void ExpireOperatorResponse_AtDeadline_ClosesOnlyPendingComplaint()
+    {
+        DateTimeOffset submitted = new(2026, 11, 15, 3, 0, 0, TimeSpan.Zero);
+        PostTripComplaint complaint = PostTripComplaint.Create(100, 200,
+            PostTripComplaintReasonCategory.Other, "Details", submitted, submitted.AddDays(7), 7000m);
+
+        complaint.ExpireOperatorResponse(submitted.AddDays(7)).Should().BeTrue();
+        complaint.Status.Should().Be(PostTripComplaintStatus.Expired);
+        complaint.ExpireOperatorResponse(submitted.AddDays(8)).Should().BeFalse();
+    }
 }

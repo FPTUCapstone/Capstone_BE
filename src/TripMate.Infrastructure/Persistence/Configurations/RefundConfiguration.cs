@@ -15,6 +15,9 @@ public sealed class RefundConfiguration : IEntityTypeConfiguration<Refund>
         builder.Property(refund => refund.BookingId).HasColumnName("booking_id").IsRequired();
         builder.Property(refund => refund.TransactionId).HasColumnName("transaction_id");
         builder.Property(refund => refund.CancellationOperationId).HasColumnName("cancellation_operation_id");
+        builder.Property(refund => refund.Source).HasColumnName("source_type").HasConversion<string>().HasMaxLength(32)
+            .IsUnicode(false).IsRequired();
+        builder.Property(refund => refund.ComplaintId).HasColumnName("complaint_id");
         builder.Property(refund => refund.Amount).HasColumnName("amount").HasPrecision(12, 2).IsRequired();
         builder.Property(refund => refund.Reason).HasColumnName("reason").HasMaxLength(Refund.ReasonMaxLength);
         builder.Property(refund => refund.InitiatedBy).HasColumnName("initiated_by").HasConversion<string>().HasMaxLength(20).IsRequired();
@@ -49,5 +52,7 @@ public sealed class RefundConfiguration : IEntityTypeConfiguration<Refund>
             .WithMany()
             .HasForeignKey(refund => refund.BookingId)
             .OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(refund => refund.ComplaintId).IsUnique().HasFilter("[complaint_id] IS NOT NULL")
+            .HasDatabaseName("UX_Refunds_Complaint");
     }
 }
