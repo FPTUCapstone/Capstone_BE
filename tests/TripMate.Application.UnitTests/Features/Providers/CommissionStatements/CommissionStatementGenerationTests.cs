@@ -1,5 +1,7 @@
 using FluentAssertions;
+
 using Microsoft.EntityFrameworkCore;
+
 using TripMate.Application.Features.Providers.CommissionStatements;
 using TripMate.Application.UnitTests.TestUtilities;
 using TripMate.Domain.Entities;

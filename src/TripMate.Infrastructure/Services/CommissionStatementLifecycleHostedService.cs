@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+
 using TripMate.Application.Features.Providers.CommissionStatements;
 
 namespace TripMate.Infrastructure.Services;

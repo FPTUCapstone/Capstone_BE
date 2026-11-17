@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+
 using TripMate.Application.Common.Interfaces;
 using TripMate.Domain.Common;
 using TripMate.Domain.Entities;
