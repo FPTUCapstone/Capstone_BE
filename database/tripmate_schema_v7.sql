@@ -167,10 +167,11 @@ CREATE TABLE dbo.Users (
     user_id             BIGINT IDENTITY(1,1) PRIMARY KEY,
     role                VARCHAR(20)   NOT NULL
         CONSTRAINT CK_Users_Role
-        CHECK (role IN ('Traveler','TourOperator','Administrator','Staff')),
+        CHECK (role IN ('Traveler','TourOperator','Administrator','Staff','ServiceProvider')),
     email               NVARCHAR(256) NULL,
     phone_number        NVARCHAR(20)  NULL,
     password_hash       NVARCHAR(256) NULL,
+    must_change_password BIT NOT NULL CONSTRAINT DF_Users_MustChangePassword DEFAULT (0),
     full_name           NVARCHAR(150) NOT NULL,
     avatar_url          NVARCHAR(500) NULL,
     status              VARCHAR(24)   NOT NULL DEFAULT 'Active'
@@ -1586,6 +1587,7 @@ GO
 
 CREATE TABLE commercial.ServiceProviders (
     provider_id         BIGINT IDENTITY(1,1) PRIMARY KEY,
+    user_id             BIGINT NULL,
     name                   NVARCHAR(150) COLLATE Vietnamese_100_CI_AS NOT NULL,
     service_category          VARCHAR(20) NOT NULL
         CHECK (service_category IN ('Vehicle','Hotel','Restaurant')),
@@ -1594,10 +1596,24 @@ CREATE TABLE commercial.ServiceProviders (
     api_endpoint                       NVARCHAR(300) NULL,   -- set when the provider is integrated via API rather than manual admin entry
     commission_rate                       DECIMAL(5,2) NULL
         CHECK (commission_rate IS NULL OR commission_rate BETWEEN 0 AND 100),   -- negotiated affiliate rate, if any
-    status                                    VARCHAR(10) NOT NULL DEFAULT 'Active' CHECK (status IN ('Active','Inactive'))
+    status                                    VARCHAR(10) NOT NULL DEFAULT 'Active' CHECK (status IN ('Active','Inactive')),
+    CONSTRAINT FK_ServiceProviders_User FOREIGN KEY (user_id) REFERENCES dbo.Users(user_id)
 );
 GO
 CREATE INDEX IX_ServiceProviders_Category ON commercial.ServiceProviders(service_category);
+CREATE UNIQUE INDEX UX_ServiceProviders_User ON commercial.ServiceProviders(user_id) WHERE user_id IS NOT NULL;
+GO
+
+CREATE TABLE commercial.ProviderPoiLinks (
+    provider_id BIGINT NOT NULL,
+    poi_id BIGINT NOT NULL,
+    CONSTRAINT PK_ProviderPoiLinks PRIMARY KEY (provider_id, poi_id),
+    CONSTRAINT FK_ProviderPoiLinks_Provider FOREIGN KEY (provider_id)
+        REFERENCES commercial.ServiceProviders(provider_id),
+    CONSTRAINT FK_ProviderPoiLinks_Poi FOREIGN KEY (poi_id) REFERENCES catalog.POIs(poi_id)
+);
+GO
+CREATE UNIQUE INDEX UX_ProviderPoiLinks_Poi ON commercial.ProviderPoiLinks(poi_id);
 GO
 
 -- The bookable item/listing: a specific vehicle, room type, or restaurant table/menu slot
@@ -1677,15 +1693,54 @@ CREATE TABLE commercial.ServiceBookings (
     quantity                                  INT NOT NULL DEFAULT 1 CHECK (quantity > 0),   -- vehicles / rooms / seats
     total_price                                  DECIMAL(12,2) NOT NULL CHECK (total_price >= 0),
     commission_amount                                DECIMAL(12,2) NULL CHECK (commission_amount IS NULL OR commission_amount >= 0),   -- revenue TripMate recognizes on this booking
-    status                                               VARCHAR(10) NOT NULL DEFAULT 'Pending'
-        CHECK (status IN ('Pending','Confirmed','Cancelled','Completed')),
+    status                                               VARCHAR(24) NOT NULL DEFAULT 'Pending'
+        CONSTRAINT CK_ServiceBookings_RequestStatus CHECK (status IN
+            ('Pending','Confirmed','Cancelled','Completed','PendingConfirmation','Rejected','Expired','NoShow')),
     provider_reference                                       NVARCHAR(150) NULL,   -- booking reference returned by the external provider's system
     created_at                                                   DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    request_submitted_at DATETIME2 NULL,
+    actual_amount DECIMAL(12,2) NULL,
+    rejection_reason NVARCHAR(1000) NULL,
+    responded_by_user_id BIGINT NULL,
+    responded_at DATETIME2 NULL,
+    outcome_by_user_id BIGINT NULL,
+    outcome_at DATETIME2 NULL,
+    is_auto_completed BIT NOT NULL CONSTRAINT DF_ServiceBookings_AutoCompleted DEFAULT 0,
+    row_version ROWVERSION NOT NULL,
+    itinerary_id BIGINT NULL,
+    service_option NVARCHAR(200) NULL,
+    special_request NVARCHAR(1000) NULL,
+    CONSTRAINT FK_ServiceBookings_RespondedBy FOREIGN KEY (responded_by_user_id) REFERENCES dbo.Users(user_id),
+    CONSTRAINT FK_ServiceBookings_OutcomeBy FOREIGN KEY (outcome_by_user_id) REFERENCES dbo.Users(user_id),
+    CONSTRAINT FK_ServiceBookings_Itinerary FOREIGN KEY (itinerary_id) REFERENCES planning.Itineraries(itinerary_id),
     CONSTRAINT CK_ServiceBookings_DateOrder CHECK (end_datetime IS NULL OR end_datetime >= start_datetime)
 );
 GO
 CREATE INDEX IX_ServiceBookings_Traveler ON commercial.ServiceBookings(traveler_user_id);
 CREATE INDEX IX_ServiceBookings_Service ON commercial.ServiceBookings(service_id, status);
+CREATE INDEX IX_ServiceBookings_RequestLifecycle
+    ON commercial.ServiceBookings(status, request_submitted_at, start_datetime)
+    WHERE request_submitted_at IS NOT NULL;
+GO
+
+CREATE TABLE commercial.ServiceProviderRequestOperations (
+    operation_id BIGINT IDENTITY(1,1) NOT NULL CONSTRAINT PK_ServiceProviderRequestOperations PRIMARY KEY,
+    service_booking_id BIGINT NOT NULL,
+    actor_user_id BIGINT NOT NULL,
+    idempotency_key UNIQUEIDENTIFIER NOT NULL,
+    operation_type VARCHAR(10) NOT NULL,
+    request_hash CHAR(64) NOT NULL,
+    response_json NVARCHAR(MAX) NOT NULL,
+    created_at DATETIME2 NOT NULL,
+    CONSTRAINT FK_ServiceProviderRequestOperations_Booking FOREIGN KEY (service_booking_id)
+        REFERENCES commercial.ServiceBookings(service_booking_id),
+    CONSTRAINT FK_ServiceProviderRequestOperations_Actor FOREIGN KEY (actor_user_id) REFERENCES dbo.Users(user_id),
+    CONSTRAINT CK_ServiceProviderRequestOperations_Type CHECK (operation_type IN ('Decision','Outcome')),
+    CONSTRAINT CK_ServiceProviderRequestOperations_Response CHECK (ISJSON(response_json) = 1)
+);
+GO
+CREATE UNIQUE INDEX UX_ServiceProviderRequestOperations_ActorKey
+    ON commercial.ServiceProviderRequestOperations(actor_user_id, idempotency_key);
 GO
 
 -- Ad-link / click-through revenue tracking — a click doesn't require a booking

@@ -83,9 +83,15 @@ public interface IApplicationDbContext
 
     DbSet<ServiceProvider> ServiceProviders { get; }
 
+    DbSet<ProviderPoiLink> ProviderPoiLinks =>
+        throw new NotSupportedException("Provider POI ownership is unavailable in this context.");
+
     DbSet<CommercialService> CommercialServices { get; }
 
     DbSet<ServiceBooking> ServiceBookings { get; }
+
+    DbSet<ServiceProviderRequestOperation> ServiceProviderRequestOperations =>
+        throw new NotSupportedException("Service request operations are unavailable in this context.");
 
     DbSet<ClosedStatisticalPeriod> ClosedStatisticalPeriods { get; }
 

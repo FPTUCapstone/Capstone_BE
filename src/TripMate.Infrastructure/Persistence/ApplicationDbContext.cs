@@ -96,8 +96,13 @@ public class ApplicationDbContext(
 
     public DbSet<ServiceProvider> ServiceProviders => Set<ServiceProvider>();
 
+    public DbSet<ProviderPoiLink> ProviderPoiLinks => Set<ProviderPoiLink>();
+
     public DbSet<CommercialService> CommercialServices => Set<CommercialService>();
     public DbSet<ServiceBooking> ServiceBookings => Set<ServiceBooking>();
+
+    public DbSet<ServiceProviderRequestOperation> ServiceProviderRequestOperations =>
+        Set<ServiceProviderRequestOperation>();
     public DbSet<ClosedStatisticalPeriod> ClosedStatisticalPeriods => Set<ClosedStatisticalPeriod>();
     public DbSet<StatisticalReportSnapshot> StatisticalReportSnapshots => Set<StatisticalReportSnapshot>();
     public DbSet<StatisticalReportExportOperation> StatisticalReportExportOperations => Set<StatisticalReportExportOperation>();

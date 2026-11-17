@@ -311,6 +311,7 @@ try
 
     app.UseAuthentication();
     app.UseMiddleware<AdministrationFailureAuditMiddleware>();
+    app.UseMiddleware<RequirePasswordChangeMiddleware>();
     app.UseAuthorization();
 
     app.UseRateLimiter();

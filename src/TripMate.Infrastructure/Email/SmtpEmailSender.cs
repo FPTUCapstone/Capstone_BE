@@ -92,7 +92,7 @@ public sealed class SmtpEmailSender : IEmailSender, IEmailVerificationSender, IU
             cancellationToken);
     }
 
-    private async Task<EmailDeliveryResult> SendAsync(
+    internal async Task<EmailDeliveryResult> SendAsync(
         string destinationEmail,
         PasswordResetEmailContent content,
         string purpose,
