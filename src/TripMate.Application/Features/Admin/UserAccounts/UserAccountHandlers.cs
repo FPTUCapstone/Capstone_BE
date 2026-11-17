@@ -30,6 +30,14 @@ internal static class UserAccountAccess
                 || user.Role == UserRole.ServiceProvider)
             : db.Users.Where(user => user.Role == UserRole.Staff);
 
+    public static Task<bool> HasUnpaidOverdueCommissionAsync(IApplicationDbContext db, long userId,
+        DateTimeOffset now, CancellationToken ct)
+    {
+        var today = DateOnly.FromDateTime(now.ToOffset(ServiceBooking.VietnamOffset).DateTime);
+        return db.ServiceCommissionStatements.AnyAsync(statement => statement.Provider.UserId == userId
+            && statement.DueDate < today && statement.Status != ServiceCommissionStatement.StatusPaid, ct);
+    }
+
     public static readonly Expression<Func<User, UserAccountDto>> Projection = user => new UserAccountDto(
         user.Id.ToString(), user.FullName, user.Email, user.Role.ToString(), user.Status.ToString(),
         user.CreatedAtUtc.UtcDateTime, user.LastLoginAtUtc.HasValue ? user.LastLoginAtUtc.Value.UtcDateTime : null);
@@ -106,7 +114,7 @@ public sealed class GetUserAccountQueryHandler(IApplicationDbContext db, ICurren
 }
 
 public sealed class ModerateUserAccountCommandHandler(IApplicationDbContext db, ICurrentUserService current,
-    IDateTimeProvider clock, IAuditFailureRecorder failures)
+    IDateTimeProvider clock, IAuditFailureRecorder failures, IUserUnlockLock userUnlockLock)
     : IRequestHandler<ModerateUserAccountCommand, Result<UserAccountDto>>
 {
     public async Task<Result<UserAccountDto>> Handle(ModerateUserAccountCommand request, CancellationToken ct)
@@ -120,6 +128,7 @@ public sealed class ModerateUserAccountCommandHandler(IApplicationDbContext db, 
         {
             var result = await db.ExecuteInSerializableTransactionAsync(async transactionCt =>
             {
+                await userUnlockLock.AcquireTargetUserAsync(request.UserId, transactionCt);
                 if (await UserAccountAccess.ActorRoleAsync(db, current, transactionCt) != role)
                     return Result.Failure<UserAccountDto>(UserAccountErrors.Forbidden, "Access denied.");
                 var user = await UserAccountAccess.Scope(db, role.Value).SingleOrDefaultAsync(user => user.Id == request.UserId, transactionCt);
@@ -129,10 +138,11 @@ public sealed class ModerateUserAccountCommandHandler(IApplicationDbContext db, 
                 if (!request.Lock && user.Role == UserRole.TourOperator && await db.TourOperatorDebts.AsNoTracking()
                     .AnyAsync(debt => debt.TourOperatorUserId == user.Id && debt.RecoveredAmount < debt.Amount, transactionCt))
                     return Result.Failure<UserAccountDto>(UserAccountErrors.OutstandingDebt, "The outstanding debt must be recovered before unlocking.");
-                if (!request.Lock && user.Role == UserRole.ServiceProvider && user.StatusBeforeLock is null)
+                var now = clock.UtcNow.ToUniversalTime();
+                if (!request.Lock && user.Role == UserRole.ServiceProvider && (user.StatusBeforeLock is null
+                    || await UserAccountAccess.HasUnpaidOverdueCommissionAsync(db, user.Id, now, transactionCt)))
                     return Result.Failure<UserAccountDto>(UserAccountErrors.ProviderSettlementUnavailable,
                         "Provider commission settlement must be verified before unlocking.");
-                var now = clock.UtcNow.ToUniversalTime();
                 var before = user.Status;
                 if (request.Lock)
                 {
@@ -140,7 +150,12 @@ public sealed class ModerateUserAccountCommandHandler(IApplicationDbContext db, 
                     var tokens = await db.RefreshTokens.Where(token => token.UserId == user.Id && token.RevokedAtUtc == null).ToListAsync(transactionCt);
                     foreach (var token in tokens) token.RevokedAtUtc = now;
                 }
-                else user.Unlock(now);
+                else
+                {
+                    user.Unlock(now);
+                    if (user.Role == UserRole.ServiceProvider)
+                        await db.RevokeAllRefreshTokensForUserAsync(user.Id, now, transactionCt);
+                }
                 db.AuditLogs.Add(AuditLog.CreateRecordedOutcome(current.UserId, action, AuditEntityTypes.User, user.Id,
                     now, AuditOutcome.Success, reason: request.Reason.Trim(),
                     beforeData: JsonSerializer.Serialize(new { Status = before.ToString() }),
