@@ -93,6 +93,9 @@ public class TestDbContext(
     public DbSet<TourBookingCreateOperation> TourBookingCreateOperations => Set<TourBookingCreateOperation>();
     public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
     public DbSet<Refund> Refunds => Set<Refund>();
+    public DbSet<PostTripComplaint> PostTripComplaints => Set<PostTripComplaint>();
+    public DbSet<ComplaintEvidence> ComplaintEvidence => Set<ComplaintEvidence>();
+    public DbSet<PostTripComplaintSubmissionOperation> PostTripComplaintSubmissionOperations => Set<PostTripComplaintSubmissionOperation>();
     public DbSet<EmergencyTourCancellationOperation> EmergencyTourCancellationOperations =>
         Set<EmergencyTourCancellationOperation>();
     public DbSet<RefundManualCompletionOperation> RefundManualCompletionOperations =>
@@ -389,6 +392,11 @@ public class TestDbContext(
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<ProviderPoiLink>().HasKey(link => new { link.ServiceProviderId, link.PointOfInterestId });
+        modelBuilder.Entity<ProviderPoiLink>().HasOne(link => link.Provider).WithMany(provider => provider.PoiLinks)
+            .HasForeignKey(link => link.ServiceProviderId);
+        modelBuilder.Entity<ProviderPoiLink>().HasOne(link => link.Poi).WithMany()
+            .HasForeignKey(link => link.PointOfInterestId);
         modelBuilder.Entity<AlertDeliveryWork>().HasKey(work => work.NotificationId);
         modelBuilder.Entity<PushDeviceToken>().HasKey(device => device.Id);
 

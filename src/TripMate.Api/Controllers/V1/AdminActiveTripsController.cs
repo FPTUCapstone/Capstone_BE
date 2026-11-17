@@ -9,7 +9,7 @@ using TripMate.Application.Features.Admin.ActiveTrips.GetList;
 
 namespace TripMate.Api.Controllers.V1;
 
-[Authorize(Roles = "Administrator")]
+[Authorize(Roles = "Staff")]
 [Route("api/v1/admin/trips/active")]
 public sealed class AdminActiveTripsController(ISender sender) : ApiControllerBase(sender)
 {

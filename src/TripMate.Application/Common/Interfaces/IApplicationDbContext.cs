@@ -81,9 +81,15 @@ public interface IApplicationDbContext
 
     DbSet<ServiceProvider> ServiceProviders { get; }
 
+    DbSet<ProviderPoiLink> ProviderPoiLinks =>
+        throw new NotSupportedException("Provider POI ownership is unavailable in this context.");
+
     DbSet<CommercialService> CommercialServices { get; }
 
     DbSet<ServiceBooking> ServiceBookings { get; }
+
+    DbSet<ServiceProviderRequestOperation> ServiceProviderRequestOperations =>
+        throw new NotSupportedException("Service request operations are unavailable in this context.");
 
     DbSet<ClosedStatisticalPeriod> ClosedStatisticalPeriods { get; }
 
@@ -104,6 +110,10 @@ public interface IApplicationDbContext
     DbSet<PaymentTransaction> PaymentTransactions { get; }
 
     DbSet<Refund> Refunds { get; }
+    DbSet<PostTripComplaint> PostTripComplaints => throw new NotSupportedException("Post-trip complaints are unavailable in this context.");
+    DbSet<ComplaintEvidence> ComplaintEvidence => throw new NotSupportedException("Complaint evidence is unavailable in this context.");
+    DbSet<PostTripComplaintSubmissionOperation> PostTripComplaintSubmissionOperations => throw new NotSupportedException("Post-trip complaint idempotency is unavailable in this context.");
+    DbSet<PostTripComplaintEvidenceAmendmentOperation> PostTripComplaintEvidenceAmendmentOperations => throw new NotSupportedException("Post-trip complaint evidence amendment idempotency is unavailable in this context.");
 
     DbSet<EmergencyTourCancellationOperation> EmergencyTourCancellationOperations =>
         throw new NotSupportedException("Emergency tour cancellation is unavailable in this context.");

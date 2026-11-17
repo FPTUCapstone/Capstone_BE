@@ -74,6 +74,8 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_URLS: http://+:8080
+      # Local UC-68 evidence survives API recreation but remains outside any public web root.
+      TRIPMATE_COMPLAINT_EVIDENCE_ROOT: /var/tripmate/complaint-evidence
       # Built from SA_PASSWORD in .env — no committed credential.
       ConnectionStrings__Default: "Server=sqlserver,1433;Database=TripMateDb;User Id=sa;Password=${SA_PASSWORD:?SA_PASSWORD must be set in .env (copy .env.example to .env)};TrustServerCertificate=True;"
       ConnectionStrings__Redis: ${REDIS_CONNECTION_STRING:-redis:6379}
@@ -153,6 +155,7 @@ services:
       GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/tripmate-firebase-admin.json
     volumes:
       - ./secrets:/run/secrets:ro
+      - tripmate-complaint-evidence:/var/tripmate/complaint-evidence
     ports:
       - "5000:8080"
 
@@ -218,6 +221,7 @@ services:
 
 volumes:
   tripmate-sqlserver-data:
+  tripmate-complaint-evidence:
   tripmate-ollama-data:
 
 networks:

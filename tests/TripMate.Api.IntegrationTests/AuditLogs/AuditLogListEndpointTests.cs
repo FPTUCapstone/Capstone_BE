@@ -3,10 +3,8 @@ using System.Text.Json;
 
 using FluentAssertions;
 
-using Microsoft.Extensions.DependencyInjection;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
-using TripMate.Application.Common.Interfaces;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -19,15 +17,15 @@ public sealed class AuditLogListEndpointTests
     public async Task GetAuditLogs_WhenFromDateAfterToDate_Returns400BadRequestWithValidationProblemDetails()
     {
         await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
-        var service = factory.Services.GetRequiredService<IJwtTokenService>();
-        var token = service.GenerateAccessToken(new User
+        var user = new User
         {
             Id = 100,
             Email = "admin@example.com",
             FullName = "Admin",
             Role = UserRole.Administrator,
             Status = AccountStatus.Active,
-        }).Token;
+        };
+        var token = await factory.IssueTokenForPersistedUserAsync(user);
         using var client = factory.CreateJwtClient(token);
 
         var fromDate = "2026-09-15T00:00:00Z";

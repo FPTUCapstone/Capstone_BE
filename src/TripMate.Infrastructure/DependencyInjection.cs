@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -11,12 +12,14 @@ using StackExchange.Redis;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Media;
+using TripMate.Application.Features.AccountProvisioning;
 using TripMate.Application.Features.Admin.StatisticalReports.Exports;
 using TripMate.Application.Features.Authentication.PasswordReset;
 using TripMate.Application.Features.Bookings.Common;
 using TripMate.Application.Features.Bookings.Refunds;
 using TripMate.Application.Features.Complaints.PartialRefundProposals;
 using TripMate.Application.Features.Itineraries.Common;
+using TripMate.Application.Features.Itineraries.GetDetail;
 using TripMate.Application.Features.Navigation.Common;
 using TripMate.Application.Features.Operator.CheckIn.Common;
 using TripMate.Application.Features.Operator.Payouts.Common;
@@ -28,9 +31,11 @@ using TripMate.Application.Features.Scheduling.Explanation;
 using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Application.Features.Scheduling.Shadow;
 using TripMate.Application.Features.Scheduling.TimeOfDay;
+using TripMate.Application.Features.ServiceProviderRequests;
 using TripMate.Application.Features.Tickets.Common;
 using TripMate.Application.Features.Traveler.Bookings.Common;
 using TripMate.Application.Features.Traveler.Payments.Common;
+using TripMate.Application.Features.Traveler.PostTripComplaints.Common;
 using TripMate.Application.Features.TravelGroups.ManageInvitation;
 using TripMate.Application.Features.TripAlerts.Common;
 using TripMate.Application.Features.TripAlerts.Weather;
@@ -76,6 +81,15 @@ public static class DependencyInjection
 
         services.AddScoped<IApplicationDbContext>(sp =>
             sp.GetRequiredService<ApplicationDbContext>());
+
+        services.AddScoped<IAccountProvisioningEmailSender, SmtpAccountProvisioningEmailSender>();
+        services.AddScoped<IAccountProvisioningLock, SqlServerAccountProvisioningLock>();
+        services.AddScoped<IAccountProvisioningPersistenceErrors, SqlServerAccountProvisioningPersistenceErrors>();
+        services.AddScoped<IServiceProviderRequestLock, SqlServerServiceProviderRequestLock>();
+        services.AddScoped<ProviderRequestMutationService>();
+        services.AddScoped<ServiceRequestLifecycleProcessor>();
+        services.AddScoped<IItineraryServiceBookingReader, ItineraryServiceBookingReader>();
+        services.AddHostedService<ServiceRequestLifecycleHostedService>();
         services.AddOptions<TripAlertOptions>()
             .Bind(configuration.GetSection(TripAlertOptions.SectionName))
             .Validate(options => options.ScanInterval > TimeSpan.Zero, "Trip alert scan interval must be positive.")
@@ -164,6 +178,15 @@ public static class DependencyInjection
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<CloudinaryOptions>, CloudinaryOptionsValidator>();
         services.AddSingleton<ICloudinaryClient, CloudinarySdkClient>();
+        services.AddSingleton<IComplaintEvidenceStorage>(serviceProvider =>
+        {
+            IHostEnvironment environment = serviceProvider.GetRequiredService<IHostEnvironment>();
+            return environment.IsDevelopment()
+                ? new LocalDevelopmentComplaintEvidenceStorage()
+                : new CloudinaryComplaintEvidenceStorage(
+                    serviceProvider.GetRequiredService<ICloudinaryClient>(),
+                    serviceProvider.GetRequiredService<ILogger<CloudinaryComplaintEvidenceStorage>>());
+        });
         services.AddSingleton<ITourMediaImageInspector, SkiaSharpTourMediaImageInspector>();
         services.AddSingleton<ITourMediaStorage, CloudinaryTourMediaStorage>();
         services.AddSingleton<ITravelerAvatarStorage, CloudinaryTravelerAvatarStorage>();

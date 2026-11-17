@@ -1,0 +1,11 @@
+# TM-228 Staff and Administrator boundaries
+
+Authority: current original Report 3, canonical Drive document exported 2026-11-15 (source comparison in the Docs discovery matrix). Sections 2.2.2, 3.9.1, 5.1; BR-168, BR-169–171, BR-175, BR-176, BR-182. Master request authorizes implementation, tests, commit, push and Draft PR; no merge.
+
+Add `/api/v1/admin/users` list and `/{userId}` detail, and POST `/{userId}/lock` and `/unlock` with required reason. Backend limits Staff to Traveler, TourOperator and ServiceProvider targets; Administrator to Staff. Check the acting account's current DB role and Active status before data access. Apply scope before filters/count/page. Missing and out-of-scope targets have the same 404. DTOs allow-list public administration fields, never credentials. Reject unknown mutation properties (including role). Use existing immutable audit infrastructure for success and failure, and queue account notification in the same transaction.
+
+Lock and unlock use serializable transactions and existing EF status concurrency token. Preserve status before lock, require reason and revoke every refresh token at lock. A persisted session version increments on lock; signed JWTs carry it and are rejected when stale even after unlock. This requires an idempotent database-first migration and explicit UTC mapping. No role editing or Traveler/Operator creation function is added.
+
+ServiceProvider uses role value 5, matching open TM-225 BE PR 169. Its creation/commission lifecycle stays owned by that PR. An automatically locked provider cannot be unlocked while the current develop schema lacks authoritative overdue-commission settlement information; fail closed and document this integration dependency. TourOperator unlock checks existing unrecovered debts (BR-189). No debt or financial fallback is invented.
+
+Operational endpoints and Application checks must enforce the exact SRS role: Staff for operator applications, tour moderation, ordinary POI/route operations, booking/active-trip monitoring and landing content; Administrator for algorithm, POI deactivation, reports/audit and failed payouts. Retain each operation's existing business behavior. Web navigation/direct URL guards must agree with Backend. Record any remaining dependency instead of pretending completion.

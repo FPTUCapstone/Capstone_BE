@@ -65,6 +65,8 @@ public sealed class ToursOpenApiTests
         var thumbnail = itemProperties.GetProperty("thumbnailUrl");
         thumbnail.GetProperty("type").GetString().Should().Be("string");
         IsNullable(thumbnail).Should().BeTrue();
+        item.GetProperty("required").EnumerateArray().Select(value => value.GetString())
+            .Should().Contain("thumbnailUrl");
     }
 
     private static void AssertResponseSchema(JsonElement response, string expectedSchema)

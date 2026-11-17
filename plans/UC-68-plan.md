@@ -1,77 +1,107 @@
-# Implementation Plan — UC-68: View Audit Logs
+# UC-68 Submit Post-Trip Complaint — Backend Implementation Plan
 
-## Overview
-This implementation plan outlines the backend implementation for **UC-68: View Audit Logs** in `TripMate.Application` and `TripMate.Api` following Clean Architecture, Database-First conventions, SRS §3.9.12.1 (Screen #33 System Audit Logs List), and the `Result<T>` pattern.
+## Approved cross-UC policy
 
-UC-68 is strictly focused on searching, filtering, paginating, and listing system audit records for Administrators.
+Use `TourSchedule.EndAtUtc`; plain SRS "days" are calendar days; and capture
+`RefundableAmount` at submission as `max(0, VerifiedPaidAmount - total refund
+amount already committed for the booking)`. The immutable snapshot is shared by
+UC-69 and UC-75.
 
----
+## Task 1 — Baseline and tests for domain rules
 
-## Technical Context & Scope Adjustments
+- Inspect the current booking/payment ownership readers, private-media storage
+  coordinator, durable cleanup journal, audit log and notification/outbox
+  conventions on `develop`.
+- Add failing domain/application tests for category/detail validation,
+  eligible booking status/window, duplicate booking and exact evidence limits.
+- Add refundable-amount snapshot tests using the approved cross-UC policy.
+- Add complaint status/category/action enums and pure domain factories/methods
+  without framework dependencies.
 
-1. **UC-68 Scope Strictness:**
-   - Focuses strictly on Screen #33: System Audit Logs List (`GET /api/v1/admin/audit-logs`).
-   - Detail inspection (`GET /{id}`) is owned by **UC-69** (Screen #34).
-   - CSV / Report export is owned by **UC-63**.
-2. **Database-First Mapping & Null-Safe Left Join:**
-   - Uses existing `dbo.AuditLogs` entity (`AuditLog.cs`) and `AuditLogConfiguration.cs`.
-   - `.Include(a => a.ActorUser)` performs a `LEFT JOIN` with `dbo.Users`.
-   - Handles `actor_user_id = null` (system-triggered background tasks) safely by populating `ActorFullName` as `"System"`.
-3. **Timezone Formatting (CR-07):**
-   - Operates in UTC (`DateTimeOffset`) for queries.
-   - DTO outputs `createdAtUtc` and `createdAtLocal` (`dd/MM/yyyy HH:mm:ss` in `Asia/Ho_Chi_Minh` UTC+7).
-4. **Read-Only Tracking Discipline:**
-   - Queries use `.AsNoTracking()`.
-5. **Ordering & Pagination:**
-   - Strict ordering: `OrderByDescending(a => a.CreatedAtUtc)`.
-   - Uses reusable `PaginatedList<T>` model.
-6. **Numeric Keyword Search (`AffectedEntityId`):**
-   - In `GetAuditLogsQueryHandler`, use `long.TryParse(keyword, out long entityId)` before building the `Where` clause to ensure EF Core translates string/number comparisons cleanly across all DB providers and InMemory test contexts.
-7. **Controller Error Mapping & Message Alignment:**
-   - `AuditLogErrorCodes.Forbidden` maps to `403 Forbidden` (`MSG126`: `"You do not have permission to access this function."` — locked SRS 5.3 content).
-   - Validation failure for `FromDateUtc > ToDateUtc` maps to `400 Bad Request` with `ValidationProblemDetails` (matching middleware).
+**DoD:** Tests describe each SRS rule and the selected time policy; no upload,
+HTTP or EF concern leaks into Domain.
 
----
+## Task 2 — Database-first persistence
 
-## Proposed Component Changes
+- Add idempotent SQL migration for `commerce.PostTripComplaints` and
+  `commerce.ComplaintEvidence`, including FKs, unique booking constraint,
+  checks, indexes, UTC mappings and row-version.
+- Add the UC-69/UC-75-reserved fields and nullable complaint-refund linkage
+  required by the approved shared schema, without implementing their commands.
+- Add entity configuration, DbSets and `IApplicationDbContext` members.
+- Add fresh-schema, upgrade-schema and re-run SQL Server tests.
 
-### Component 1: Application Common Models
-- [NEW] [`PaginatedList.cs`](file:///d:/study/Project-Capstone/Capstone_BE/src/TripMate.Application/Common/Models/PaginatedList.cs): Generic pagination container (`Items`, `PageNumber`, `PageSize`, `TotalCount`, `TotalPages`, `HasPreviousPage`, `HasNextPage`).
+**DoD:** The schema supports one private complaint/evidence set per booking and
+can be applied repeatedly without data loss or duplicate constraints.
 
-### Component 2: Application Layer (CQRS Features)
-- [NEW] [`AuditLogErrorCodes.cs`](file:///d:/study/Project-Capstone/Capstone_BE/src/TripMate.Application/Features/Admin/AuditLogs/Common/AuditLogErrorCodes.cs): `Forbidden`, `InvalidDateRange`.
-- [NEW] [`GetAuditLogsQuery.cs`](file:///d:/study/Project-Capstone/Capstone_BE/src/TripMate.Application/Features/Admin/AuditLogs/GetList/GetAuditLogsQuery.cs): Search parameters.
-- [NEW] [`GetAuditLogsQueryValidator.cs`](file:///d:/study/Project-Capstone/Capstone_BE/src/TripMate.Application/Features/Admin/AuditLogs/GetList/GetAuditLogsQueryValidator.cs): Validates page parameters & date range (`MSG29`).
-- [NEW] [`GetAuditLogsQueryHandler.cs`](file:///d:/study/Project-Capstone/Capstone_BE/src/TripMate.Application/Features/Admin/AuditLogs/GetList/GetAuditLogsQueryHandler.cs): Core query logic with `LEFT JOIN` and null actor safety.
-- [NEW] [`AuditLogSummaryDto.cs`](file:///d:/study/Project-Capstone/Capstone_BE/src/TripMate.Application/Features/Admin/AuditLogs/GetList/AuditLogSummaryDto.cs): Output record payload with UTC and CR-07 local timestamps.
+## Task 3 — Private evidence upload coordination
 
-### Component 3: Presentation Layer (API Controllers)
-- [MODIFY] [`ApiControllerBase.cs`](file:///d:/study/Project-Capstone/Capstone_BE/src/TripMate.Api/Common/ApiControllerBase.cs): Map `AuditLogErrorCodes`.
-- [NEW] [`AdminAuditLogsController.cs`](file:///d:/study/Project-Capstone/Capstone_BE/src/TripMate.Api/Controllers/V1/AdminAuditLogsController.cs): `GET /api/v1/admin/audit-logs`.
+- Define feature-specific application ports/DTOs for streamed evidence intake,
+  validated storage reservation and durable cleanup compensation.
+- Reuse the approved private storage/cleanup infrastructure; do not use a
+  public URL or a bespoke untracked cleanup worker.
+- Implement server-side file-signature/MIME/size/count/aggregate validation and
+  map SRS errors MSG159/MSG160 safely.
+- Add unit and infrastructure tests for valid JPG/PNG/WebP/PDF, spoofed type,
+  per-file/aggregate/count overage, storage failure and cleanup retry.
 
-### Component 4: Test Suite
-- [NEW] [`GetAuditLogsQueryHandlerTests.cs`](file:///d:/study/Project-Capstone/Capstone_BE/tests/TripMate.Application.UnitTests/Features/Admin/AuditLogs/GetList/GetAuditLogsQueryHandlerTests.cs): Unit tests for list filtering, pagination, ordering, system actor null safety, and date range validation.
+**DoD:** Validated files remain private, failures are compensatable, and no
+binary or permanent location is exposed in logs or responses.
 
----
+## Task 4 — Submit command, idempotency and side effects
 
-## Sequential Execution Tasks
+- Implement the Traveler submission command/validator/handler under
+  `Features/Traveler/PostTripComplaints`.
+- In one serializable transaction, load ownership and booking eligibility,
+  prevent duplicate creation, persist the complaint/evidence metadata/audit
+  record, and queue the operator notification after commit.
+- Populate the immutable refundable-amount snapshot using the approved
+  cross-UC policy.
+- Implement idempotency-key replay/conflict semantics and translate MSG157,
+  MSG158, MSG159, MSG160, MSG161, MSG126 and MSG127 through the current
+  catalogue/error conventions.
+- Add handler tests for ownership, status/window boundary, concurrent duplicate,
+  identical/conflicting replay, persistence rollback and exactly-once outbox.
 
-### Task 1: Common Models & Error Codes
-- Create `PaginatedList.cs` and `AuditLogErrorCodes.cs`.
+**DoD:** One logical submit has one complaint/audit/notification outcome and
+does not call UC-42, UC-67 or any payment gateway.
 
-### Task 2: CQRS List Feature (Query, DTO, Validator, Handler)
-- Create `GetAuditLogsQuery.cs`, `AuditLogSummaryDto.cs`, `GetAuditLogsQueryValidator.cs`, `GetAuditLogsQueryHandler.cs`.
+## Task 5 — API and contract tests
 
-### Task 3: Controller & Failure Mapping
-- Update `ApiControllerBase.cs` and create `AdminAuditLogsController.cs`.
+- Add the authenticated Traveler safe submit-context read and multipart endpoint and request limits, with
+  `Idempotency-Key` binding and no controller business logic.
+- Document OpenAPI success/error examples and ensure generated contract never
+  exposes opaque storage keys or permanent evidence locations.
+- Add API integration tests for authentication, foreign booking non-disclosure,
+  validation, multipart limits, duplicate replay/conflict and storage failure.
 
-### Task 4: Unit Test Suite & Solution Verification
-- Create `GetAuditLogsQueryHandlerTests.cs` and run `dotnet test`.
+**DoD:** Endpoint, status mapping and safe payloads match the approved spec.
 
----
+## Task 6 — End-to-end verification
 
-## Verification Plan
+- Run focused domain/application, private-storage/infrastructure, API and SQL
+  Server migration tests, then the applicable solution gate.
+- Manually verify: valid submit -> private evidence + awaiting-operator state +
+  notification; expired/duplicate/invalid evidence -> no mutation; storage
+  failure -> no accessible complaint/evidence; replay -> original response.
+- Review the implementation against UC-69 integration: it consumes the same
+  complaint entity/deadline/evidence model but is not implemented in this task.
 
-### Automated Tests
-- `dotnet test tests/TripMate.Application.UnitTests/TripMate.Application.UnitTests.csproj --filter "FullyQualifiedName~AuditLogs"`
-- Full test suite: `dotnet test`
+**DoD:** Every spec acceptance criterion passes, no known storage, ownership,
+migration, audit or cross-UC security blocker remains, and results are recorded
+in the pull request.
+
+## Task 7 — Approved evidence amendment and Traveler complaint access
+
+- Add a new idempotent migration (do not alter historical UC-68 migration) for
+  `evidence_amendment_used_at`.
+- Implement a one-time, idempotent append-evidence command for an own
+  `AwaitingOperatorResponse` complaint before its original submit deadline;
+  enforce aggregate file/byte limits and leave reason/detail/deadlines immutable.
+- Record an audit event and one operator notification on successful append.
+- Add own-complaint list and authorised evidence-delivery endpoints. Cloudinary
+  uses short-lived private links; Development streams private local storage.
+- Add focused handler, API authorisation/idempotency and SQL migration tests.
+
+**DoD:** A Traveler has a dedicated complaint entry point, can view private
+evidence, and can append evidence exactly once without changing original terms.

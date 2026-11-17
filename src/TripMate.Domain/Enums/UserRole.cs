@@ -10,6 +10,7 @@ public enum UserRole
     TourOperator = 2,
     Administrator = 3,
     Staff = 4,
+    ServiceProvider = 5,
 }
 
 public static class UserRoleExtensions

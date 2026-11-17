@@ -134,7 +134,11 @@ public class LoginCommandHandler(
                 accessToken,
                 refreshTokenValue,
                 accessTokenExpiresAtUtc)
-            { ApplicationStatus = eligibility.Value.ApplicationStatus, RefreshTokenExpiresAtUtc = refreshExpiresAt });
+            {
+                ApplicationStatus = eligibility.Value.ApplicationStatus,
+                RefreshTokenExpiresAtUtc = refreshExpiresAt,
+                MustChangePassword = user.MustChangePassword
+            });
         }
     }
 }

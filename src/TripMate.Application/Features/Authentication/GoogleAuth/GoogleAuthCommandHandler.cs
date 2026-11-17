@@ -251,7 +251,7 @@ public class GoogleAuthCommandHandler(
                 refreshTokenValue,
                 accessTokenExpiresAtUtc,
                 isNewAccount)
-            { ApplicationStatus = context.ApplicationStatus, RefreshTokenExpiresAtUtc = now.AddDays(7) });
+            { ApplicationStatus = context.ApplicationStatus, RefreshTokenExpiresAtUtc = now.AddDays(7), MustChangePassword = user.MustChangePassword });
         }
     }
 

@@ -21,7 +21,10 @@ public sealed record ItineraryDetailResponse(
     ItineraryLocationDto? StartLocation = null,
     ItineraryLocationDto? EndLocation = null,
     decimal? BudgetVnd = null,
-    SchedulingProvenanceDto? Provenance = null);
+    SchedulingProvenanceDto? Provenance = null)
+{
+    public IReadOnlyList<GetDetail.ItineraryBookedServiceDto> BookedServices { get; init; } = [];
+}
 
 /// <summary>A start or end point of the trip. <c>Address</c> is null for a raw coordinate start.</summary>
 public sealed record ItineraryLocationDto(decimal Latitude, decimal Longitude, string? Address);
