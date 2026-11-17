@@ -74,6 +74,46 @@ public sealed class TripMateAiExplanationProviderTests
         handler.CallCount.Should().Be(1);
     }
 
+    // Background mode (specs/UC-10-background-explanation-spec.md, B2): the caller's time budget replaces the
+    // configured per-attempt and overall timeouts for that one call.
+
+    [Fact]
+    public async Task ExplainAsync_WithATimeBudget_LetsAnAttemptOutliveTheConfiguredTimeouts()
+    {
+        using var handler = new DelayingHttpMessageHandler(TimeSpan.FromMilliseconds(1300), Success);
+        var provider = CreateProvider(handler, ExplanationOptions(timeoutSeconds: 1, overallTimeoutSeconds: 1));
+
+        var result = await provider.ExplainAsync(Input(), TimeSpan.FromSeconds(30), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        handler.CallCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ExplainAsync_WithATimeBudget_TimesOutWhenTheBudgetIsSpent()
+    {
+        using var handler = new DelayingHttpMessageHandler(TimeSpan.FromSeconds(30));
+        var provider = CreateProvider(handler, ExplanationOptions(timeoutSeconds: 10, overallTimeoutSeconds: 20));
+
+        var result = await provider.ExplainAsync(Input(), TimeSpan.FromMilliseconds(200), CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(ExplanationProviderErrorCodes.Timeout);
+        handler.CallCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ExplainAsync_WithANonPositiveTimeBudget_Throws()
+    {
+        using var handler = new SequenceHttpMessageHandler(_ => Success());
+        var provider = CreateProvider(handler, ExplanationOptions());
+
+        Func<Task> act = () => provider.ExplainAsync(Input(), TimeSpan.Zero, CancellationToken.None);
+
+        await act.Should().ThrowAsync<ArgumentOutOfRangeException>();
+        handler.CallCount.Should().Be(0);
+    }
+
     // E4
     [Fact]
     public async Task ExplainAsync_503Twice_ReturnsServerErrorAfterTwoRequests()
@@ -395,7 +435,8 @@ public sealed class TripMateAiExplanationProviderTests
         }
     }
 
-    private sealed class DelayingHttpMessageHandler(TimeSpan delay) : HttpMessageHandler
+    private sealed class DelayingHttpMessageHandler(TimeSpan delay, Func<HttpResponseMessage>? response = null)
+        : HttpMessageHandler
     {
         public int CallCount { get; private set; }
 
@@ -405,7 +446,7 @@ public sealed class TripMateAiExplanationProviderTests
         {
             CallCount++;
             await Task.Delay(delay, cancellationToken);
-            return new HttpResponseMessage(HttpStatusCode.OK);
+            return response?.Invoke() ?? new HttpResponseMessage(HttpStatusCode.OK);
         }
     }
 

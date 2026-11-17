@@ -467,6 +467,8 @@ public static class DependencyInjection
                 executionOptions.OverallTimeout = TimeSpan.FromSeconds(options.OverallTimeoutSeconds);
                 executionOptions.MaxAttempts = options.MaxAttempts;
                 executionOptions.RetryBaseDelayMilliseconds = options.RetryBaseDelayMilliseconds;
+                executionOptions.BackgroundEnabled = options.BackgroundEnabled;
+                executionOptions.BackgroundTimeout = TimeSpan.FromSeconds(options.BackgroundTimeoutSeconds);
             })
             .ValidateOnStart();
         services.AddSingleton<
@@ -475,6 +477,20 @@ public static class DependencyInjection
         services.AddSingleton(serviceProvider => serviceProvider
             .GetRequiredService<IOptions<ItineraryExplanationExecutionOptions>>()
             .Value);
+
+        // Background explanations (specs/UC-10-background-explanation-spec.md): the create request queues the
+        // itinerary, the hosted worker asks the AI afterwards. One in-memory list for the whole process; the
+        // worker is idle unless AiExplanation:Enabled and AiExplanation:BackgroundEnabled put something on it.
+        services.AddSingleton<InMemoryItineraryExplanationQueue>();
+        services.AddSingleton<IItineraryExplanationQueue>(serviceProvider =>
+            serviceProvider.GetRequiredService<InMemoryItineraryExplanationQueue>());
+        services.AddScoped<IBackgroundItineraryExplanationProcessor>(serviceProvider =>
+            new BackgroundItineraryExplanationProcessor(
+                serviceProvider.GetRequiredService<IApplicationDbContext>(),
+                serviceProvider.GetRequiredService<IItineraryExplanationProvider>(),
+                serviceProvider.GetRequiredService<ItineraryExplanationExecutionOptions>(),
+                serviceProvider.GetService<ILogger<BackgroundItineraryExplanationProcessor>>()));
+        services.AddHostedService<ItineraryExplanationBackgroundService>();
         services.AddScoped<PersonalBehaviorFeatureAggregator>();
         services.AddScoped(serviceProvider => new BehaviorProfileBuilder(
             serviceProvider.GetRequiredService<IApplicationDbContext>(),

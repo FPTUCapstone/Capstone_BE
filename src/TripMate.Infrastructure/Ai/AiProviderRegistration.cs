@@ -37,14 +37,14 @@ public static class AiProviderRegistration
         IConfiguration configuration)
     {
         AiProviderKind kind = ReadKind(configuration, ExplanationProviderOptions.SectionName);
-        if (kind == AiProviderKind.TripMateAi)
-        {
-            services.AddHttpClient<IItineraryExplanationProvider, TripMateAiExplanationProvider>();
-        }
-        else
-        {
-            services.AddHttpClient<IItineraryExplanationProvider, HttpItineraryExplanationProvider>();
-        }
+        IHttpClientBuilder client = kind == AiProviderKind.TripMateAi
+            ? services.AddHttpClient<IItineraryExplanationProvider, TripMateAiExplanationProvider>()
+            : services.AddHttpClient<IItineraryExplanationProvider, HttpItineraryExplanationProvider>();
+
+        // Both providers bound every attempt with their own cancellation token (the configured timeouts, or the
+        // caller's budget in background mode). HttpClient's default 100 seconds would silently cut a longer
+        // background budget, so the client itself sets no limit.
+        client.ConfigureHttpClient(httpClient => httpClient.Timeout = Timeout.InfiniteTimeSpan);
 
         return services;
     }

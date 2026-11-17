@@ -76,6 +76,12 @@ public sealed class ExplanationProviderOptionsValidator
                 $"{nameof(options.RetryBaseDelayMilliseconds)} must be between 0 and 5000 milliseconds.");
         }
 
+        if (options.BackgroundTimeoutSeconds is < 1 or > 300)
+        {
+            failures.Add(
+                $"{nameof(options.BackgroundTimeoutSeconds)} must be between 1 and 300 seconds.");
+        }
+
         return failures.Count == 0
             ? ValidateOptionsResult.Success
             : ValidateOptionsResult.Fail(failures);
