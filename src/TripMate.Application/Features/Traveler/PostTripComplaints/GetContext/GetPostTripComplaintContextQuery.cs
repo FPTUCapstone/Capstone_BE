@@ -62,7 +62,11 @@ public sealed class GetPostTripComplaintContextQueryHandler(
         bool eligible = booking.Status is BookingStatus.Confirmed or BookingStatus.Completed
             && clock.UtcNow >= endAt && clock.UtcNow <= deadline;
         string? reason = complaint is not null ? PostTripComplaintErrorCodes.Duplicate
-            : eligible ? null : PostTripComplaintErrorCodes.Ineligible;
+            : eligible ? null
+            : booking.Status is not (BookingStatus.Confirmed or BookingStatus.Completed)
+                ? PostTripComplaintErrorCodes.BookingStatusIneligible
+            : clock.UtcNow < endAt ? PostTripComplaintErrorCodes.TourNotEnded
+            : PostTripComplaintErrorCodes.Ineligible;
         bool canAmendEvidence = complaint?.CanAppendEvidence(clock.UtcNow, deadline) == true;
         return Result.Success(new PostTripComplaintContextResponse(booking.Id, booking.BookingCode,
             booking.TourSchedule.Tour.Title, endAt, deadline, eligible && complaint is null, canAmendEvidence, reason, detail));
