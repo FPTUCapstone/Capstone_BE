@@ -152,8 +152,13 @@ public sealed class RespondToPostTripComplaintCommandHandler(
                 request.IdempotencyKey, fingerprint, complaint.Id, now));
             dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(operatorUserId, "PostTripComplaintResponded",
                 Notification.PostTripComplaintRelatedEntityType, complaint.Id, now, AuditOutcome.Success,
-                afterData: JsonSerializer.Serialize(new { complaint.Status, complaint.ResponseAction,
-                    complaint.ProposedRefundAmount, complaint.RefundId })));
+                afterData: JsonSerializer.Serialize(new
+                {
+                    complaint.Status,
+                    complaint.ResponseAction,
+                    complaint.ProposedRefundAmount,
+                    complaint.RefundId
+                })));
             dbContext.Notifications.Add(new Notification
             {
                 UserId = complaint.TravelerUserId,
