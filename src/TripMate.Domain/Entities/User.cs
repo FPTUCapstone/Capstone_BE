@@ -49,6 +49,12 @@ public class User : BaseEntity
 
     public int SessionVersion { get; private set; }
 
+    /// <summary>Invalidates previously issued access tokens when persisted.</summary>
+    public void InvalidateSessions()
+    {
+        SessionVersion = checked(SessionVersion + 1);
+    }
+
     public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
 
     /// <summary>Locks this account for <paramref name="reason"/> (BR-189, PD-9A). The caller is
