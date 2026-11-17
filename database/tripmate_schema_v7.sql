@@ -1684,6 +1684,42 @@ BEGIN
 END;
 GO
 
+CREATE TABLE commercial.ServiceCommissionStatements (
+    statement_id BIGINT IDENTITY(1,1) PRIMARY KEY,
+    statement_code NVARCHAR(32) NOT NULL,
+    provider_id BIGINT NOT NULL,
+    period VARCHAR(7) NOT NULL,
+    total_requests INT NOT NULL,
+    total_actual_amount DECIMAL(14,2) NOT NULL,
+    commission_rate DECIMAL(5,2) NOT NULL DEFAULT 10.00,
+    commission_amount DECIMAL(14,2) NOT NULL,
+    issue_date DATE NOT NULL,
+    due_date DATE NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'Issued',
+    bank_transfer_reference NVARCHAR(100) NULL,
+    reported_at DATETIME2 NULL,
+    confirmed_by_user_id BIGINT NULL,
+    confirmed_at DATETIME2 NULL,
+    receipt_number NVARCHAR(50) NULL,
+    created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    row_version ROWVERSION,
+    CONSTRAINT FK_ServiceCommissionStatements_Provider FOREIGN KEY (provider_id)
+        REFERENCES commercial.ServiceProviders(provider_id),
+    CONSTRAINT FK_ServiceCommissionStatements_Staff FOREIGN KEY (confirmed_by_user_id)
+        REFERENCES dbo.Users(user_id),
+    CONSTRAINT UQ_ServiceCommissionStatements_StatementCode UNIQUE (statement_code),
+    CONSTRAINT UQ_ServiceCommissionStatements_Provider_Period UNIQUE (provider_id, period),
+    CONSTRAINT CK_ServiceCommissionStatements_TotalRequests CHECK (total_requests > 0),
+    CONSTRAINT CK_ServiceCommissionStatements_TotalActualAmount CHECK (total_actual_amount >= 0),
+    CONSTRAINT CK_ServiceCommissionStatements_CommissionAmount CHECK (commission_amount >= 0),
+    CONSTRAINT CK_ServiceCommissionStatements_Status CHECK (status IN ('Issued', 'PaymentReported', 'Paid', 'Overdue'))
+);
+GO
+CREATE INDEX IX_ServiceCommissionStatements_Provider ON commercial.ServiceCommissionStatements(provider_id);
+CREATE INDEX IX_ServiceCommissionStatements_Period ON commercial.ServiceCommissionStatements(period);
+CREATE INDEX IX_ServiceCommissionStatements_Status ON commercial.ServiceCommissionStatements(status);
+GO
+
 CREATE TABLE commercial.ServiceBookings (
     service_booking_id       BIGINT IDENTITY(1,1) PRIMARY KEY,
     traveler_user_id            BIGINT NOT NULL REFERENCES dbo.Users(user_id),
@@ -1710,6 +1746,7 @@ CREATE TABLE commercial.ServiceBookings (
     itinerary_id BIGINT NULL,
     service_option NVARCHAR(200) NULL,
     special_request NVARCHAR(1000) NULL,
+    commission_statement_id BIGINT NULL REFERENCES commercial.ServiceCommissionStatements(statement_id),
     CONSTRAINT FK_ServiceBookings_RespondedBy FOREIGN KEY (responded_by_user_id) REFERENCES dbo.Users(user_id),
     CONSTRAINT FK_ServiceBookings_OutcomeBy FOREIGN KEY (outcome_by_user_id) REFERENCES dbo.Users(user_id),
     CONSTRAINT FK_ServiceBookings_Itinerary FOREIGN KEY (itinerary_id) REFERENCES planning.Itineraries(itinerary_id),
@@ -1721,6 +1758,7 @@ CREATE INDEX IX_ServiceBookings_Service ON commercial.ServiceBookings(service_id
 CREATE INDEX IX_ServiceBookings_RequestLifecycle
     ON commercial.ServiceBookings(status, request_submitted_at, start_datetime)
     WHERE request_submitted_at IS NOT NULL;
+CREATE INDEX IX_ServiceBookings_CommissionStatementId ON commercial.ServiceBookings(commission_statement_id);
 GO
 
 CREATE TABLE commercial.ServiceProviderRequestOperations (

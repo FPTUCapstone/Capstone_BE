@@ -100,6 +100,7 @@ public class ApplicationDbContext(
 
     public DbSet<CommercialService> CommercialServices => Set<CommercialService>();
     public DbSet<ServiceBooking> ServiceBookings => Set<ServiceBooking>();
+    public DbSet<ServiceCommissionStatement> ServiceCommissionStatements => Set<ServiceCommissionStatement>();
 
     public DbSet<ServiceProviderRequestOperation> ServiceProviderRequestOperations =>
         Set<ServiceProviderRequestOperation>();

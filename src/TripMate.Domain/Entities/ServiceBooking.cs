@@ -43,6 +43,8 @@ public sealed class ServiceBooking : BaseEntity
     public long? ItineraryId { get; private set; }
     public string? ServiceOption { get; private set; }
     public string? SpecialRequest { get; private set; }
+    public long? CommissionStatementId { get; private set; }
+    public ServiceCommissionStatement? CommissionStatement { get; private set; }
 
     public DateOnly RequestedDate => DateOnly.FromDateTime(StartAtUtc.ToOffset(VietnamOffset).DateTime);
     public DateTimeOffset? ResponseDeadlineUtc => RequestSubmittedAtUtc?.AddHours(24);
@@ -108,6 +110,7 @@ public sealed class ServiceBooking : BaseEntity
     public bool TryRecordOutcome(string outcome, decimal? actualAmount, long actorUserId, DateTimeOffset nowUtc)
     {
         if (RequestSubmittedAtUtc is null || Status != Confirmed || actorUserId <= 0
+            || CommissionStatementId is not null
             || nowUtc < OutcomeAvailableAtUtc || nowUtc >= AutoCompleteAtUtc
             || outcome is not (Completed or NoShow)) return false;
         if (outcome == Completed && (actualAmount is null || actualAmount <= 0
@@ -116,6 +119,18 @@ public sealed class ServiceBooking : BaseEntity
 
         SetOutcome(outcome, outcome == NoShow ? 0 : actualAmount!.Value, actorUserId, nowUtc, false);
         return true;
+    }
+
+    public void AssignCommissionStatement(long statementId)
+    {
+        if (statementId <= 0) throw new ArgumentOutOfRangeException(nameof(statementId));
+        if (Status != Completed) throw new InvalidOperationException("Only completed service bookings can be assigned to a commission statement.");
+        if (CommissionStatementId is not null && CommissionStatementId != statementId)
+        {
+            throw new InvalidOperationException("Service booking is already assigned to another commission statement.");
+        }
+
+        CommissionStatementId = statementId;
     }
 
     public bool TryDefaultComplete(DateTimeOffset nowUtc)

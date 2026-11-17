@@ -177,7 +177,8 @@ public sealed class TripMateApiFactory(
                             or "TripMate.Infrastructure.Services.WeatherLocationSyncBackgroundService"
                             or "TripMate.Infrastructure.Services.DailyPayoutRunBackgroundService"
                             or "TripMate.Infrastructure.Services.DailyPayoutRetrySweepBackgroundService"
-                            or "TripMate.Infrastructure.Services.ServiceRequestLifecycleHostedService"))
+                            or "TripMate.Infrastructure.Services.ServiceRequestLifecycleHostedService"
+                            or "TripMate.Infrastructure.Services.CommissionStatementLifecycleHostedService"))
                 {
                     services.RemoveAt(index);
                 }
@@ -579,6 +580,9 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<PayoutReconciliationItem> PayoutReconciliationItems => Set<PayoutReconciliationItem>();
 
     public DbSet<ServiceBooking> ServiceBookings => Set<ServiceBooking>();
+
+    public DbSet<ServiceCommissionStatement> ServiceCommissionStatements =>
+        Set<ServiceCommissionStatement>();
 
     public DbSet<ClosedStatisticalPeriod> ClosedStatisticalPeriods => Set<ClosedStatisticalPeriod>();
 
