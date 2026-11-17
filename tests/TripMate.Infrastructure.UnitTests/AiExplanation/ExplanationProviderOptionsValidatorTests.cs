@@ -95,4 +95,57 @@ public sealed class ExplanationProviderOptionsValidatorTests
         result.Failed.Should().BeTrue();
         result.FailureMessage.Should().Contain(expectedError);
     }
+
+    // Background mode (specs/UC-10-background-explanation-spec.md, B2 and B7).
+
+    [Fact]
+    public void Defaults_BackgroundModeIsOffWithAHundredSecondBudget()
+    {
+        var options = new ExplanationProviderOptions();
+
+        options.BackgroundEnabled.Should().BeFalse();
+        options.BackgroundTimeoutSeconds.Should().Be(100);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(100)]
+    [InlineData(300)]
+    public void Validate_WhenEnabledWithBackgroundMode_Succeeds(int backgroundTimeoutSeconds)
+    {
+        ValidateOptionsResult result = _validator.Validate(
+            null,
+            new ExplanationProviderOptions
+            {
+                Enabled = true,
+                Endpoint = "https://provider.test/v1/interactions",
+                ApiKey = "key",
+                ModelName = "model",
+                BackgroundEnabled = true,
+                BackgroundTimeoutSeconds = backgroundTimeoutSeconds,
+            });
+
+        result.Succeeded.Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    [InlineData(301)]
+    public void Validate_WhenEnabledWithBackgroundTimeoutOutOfRange_Fails(int backgroundTimeoutSeconds)
+    {
+        ValidateOptionsResult result = _validator.Validate(
+            null,
+            new ExplanationProviderOptions
+            {
+                Enabled = true,
+                Endpoint = "https://provider.test/v1/interactions",
+                ApiKey = "key",
+                ModelName = "model",
+                BackgroundTimeoutSeconds = backgroundTimeoutSeconds,
+            });
+
+        result.Failed.Should().BeTrue();
+        result.FailureMessage.Should().Contain(nameof(ExplanationProviderOptions.BackgroundTimeoutSeconds));
+    }
 }
