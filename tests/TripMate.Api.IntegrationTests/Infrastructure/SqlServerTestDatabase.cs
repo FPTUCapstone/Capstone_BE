@@ -229,8 +229,20 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
                 DROP DATABASE [{DatabaseName}];
             END;
             """;
-        await command.ExecuteNonQueryAsync();
-        _databaseCreated = false;
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                await command.ExecuteNonQueryAsync();
+                _databaseCreated = false;
+                return;
+            }
+            catch (SqlException exception) when (exception.Number == 1205 && attempt < 2)
+            {
+                // Deadlock rolls back the DDL statement; retry the guarded, idempotent cleanup batch.
+                await Task.Delay(attempt == 0 ? 200 : 500);
+            }
+        }
     }
 
     private async Task InitializeAsync(bool applyCurrentSchema)
