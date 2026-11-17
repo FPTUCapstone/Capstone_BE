@@ -68,7 +68,7 @@ public sealed class UserAccountBoundaryTests
         await using var factory = new TripMateApiFactory(sqlServerConnectionString: database.ConnectionString);
         await using var db = database.CreateDbContext();
         var now = new DateTimeOffset(2026, 11, 15, 17, 0, 0, TimeSpan.Zero);
-        User Account(string name, UserRole role, DateTimeOffset createdAt) => new()
+        static User Account(string name, UserRole role, DateTimeOffset createdAt) => new()
         {
             FullName = name,
             Email = $"{name}@tm93.test",
@@ -83,8 +83,14 @@ public sealed class UserAccountBoundaryTests
         var nextDay = Account("NextDay", UserRole.Traveler, now.AddDays(1));
         db.Users.AddRange(staff, traveler, tourOperator, nextDay);
         await db.SaveChangesAsync();
-        db.OperatorProfiles.Add(new OperatorProfile { UserId = tourOperator.Id, CompanyName = "TM93 operator",
-            TaxCode = "0012345678", BusinessLicenseNo = "TM93-BIZ", ApprovalStatus = OperatorApprovalStatus.Approved });
+        db.OperatorProfiles.Add(new OperatorProfile
+        {
+            UserId = tourOperator.Id,
+            CompanyName = "TM93 operator",
+            TaxCode = "0012345678",
+            BusinessLicenseNo = "TM93-BIZ",
+            ApprovalStatus = OperatorApprovalStatus.Approved
+        });
         var tour = (Tour)Activator.CreateInstance(typeof(Tour), nonPublic: true)!;
         Set(tour, nameof(Tour.OperatorUserId), tourOperator.Id);
         Set(tour, nameof(Tour.Title), "TM93 SQL tour");
@@ -216,8 +222,14 @@ public sealed class UserAccountBoundaryTests
             var start = DateTimeOffset.Parse("2026-11-16T00:00:00+07:00", CultureInfo.InvariantCulture);
             (await db.Users.SingleAsync(user => user.Id == 30)).CreatedAtUtc = start;
             (await db.Users.SingleAsync(user => user.Id == 40)).CreatedAtUtc = start.AddDays(1).AddTicks(-1);
-            db.Users.Add(new User { Id = 50, FullName = "Next day", Role = UserRole.Traveler,
-                Status = AccountStatus.Active, CreatedAtUtc = start.AddDays(1) });
+            db.Users.Add(new User
+            {
+                Id = 50,
+                FullName = "Next day",
+                Role = UserRole.Traveler,
+                Status = AccountStatus.Active,
+                CreatedAtUtc = start.AddDays(1)
+            });
             await db.SaveChangesAsync();
             return true;
         });
@@ -330,8 +342,12 @@ public sealed class UserAccountBoundaryTests
                 AuditLog.CreateRecordedOutcome(10, "POI_DEACTIVATED", AuditEntityTypes.User, 40,
                     time, AuditOutcome.Success));
             var traveler = await db.Users.SingleAsync(user => user.Id == 30);
-            db.RefreshTokens.Add(new RefreshToken { User = traveler, TokenHash = "tm93-private",
-                ExpiresAtUtc = time.AddDays(1) });
+            db.RefreshTokens.Add(new RefreshToken
+            {
+                User = traveler,
+                TokenHash = "tm93-private",
+                ExpiresAtUtc = time.AddDays(1)
+            });
             await db.SaveChangesAsync();
             return true;
         });
