@@ -251,7 +251,7 @@ public sealed class CreatePoiSqlServerTests
         problem.RootElement.GetProperty("status").GetInt32()
             .Should().Be((int)HttpStatusCode.InternalServerError);
         problem.RootElement.GetProperty("title").GetString()
-            .Should().Be("An unexpected error occurred.");
+            .Should().Be("Hệ thống chưa thể hoàn tất yêu cầu. Vui lòng thử lại.");
         problem.RootElement.TryGetProperty("detail", out _).Should().BeFalse();
         responseBody.Should().NotContain(RejectAuditConstraintName);
         responseBody.Should().NotContain("SqlException");
