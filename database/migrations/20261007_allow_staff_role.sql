@@ -23,7 +23,7 @@ BEGIN TRY
     IF EXISTS (
         SELECT 1
         FROM dbo.Users
-        WHERE role NOT IN ('Traveler','TourOperator','Administrator','Staff'))
+        WHERE role NOT IN ('Traveler','TourOperator','Administrator','Staff','ServiceProvider'))
         THROW 51000, 'dbo.Users contains a role outside the canonical role set.', 1;
 
     IF EXISTS (
@@ -81,7 +81,7 @@ BEGIN TRY
 
     ALTER TABLE dbo.Users WITH CHECK
         ADD CONSTRAINT CK_Users_Role
-        CHECK (role IN ('Traveler','TourOperator','Administrator','Staff'));
+        CHECK (role IN ('Traveler','TourOperator','Administrator','Staff','ServiceProvider'));
 
     ALTER TABLE dbo.Users CHECK CONSTRAINT CK_Users_Role;
 

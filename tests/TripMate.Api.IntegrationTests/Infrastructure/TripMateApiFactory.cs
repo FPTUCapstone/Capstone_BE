@@ -19,11 +19,13 @@ using Serilog;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.AccountProvisioning;
 using TripMate.Application.Features.Bookings.Common;
 using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Explanation;
 using TripMate.Application.Features.Scheduling.Personalization;
+using TripMate.Application.Features.ServiceProviderRequests;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 using TripMate.Infrastructure.Persistence;
@@ -163,6 +165,7 @@ public sealed class TripMateApiFactory(
                             is "TripMate.Infrastructure.Services.TourMediaCleanupBackgroundService"
                             or "TripMate.Infrastructure.Services.TravelerAvatarCleanupBackgroundService"
                             or "TripMate.Infrastructure.Services.PendingBookingExpiryBackgroundService"
+                            or "TripMate.Infrastructure.Services.UserAdministrationNotificationDeliveryBackgroundService"
                             or "TripMate.Infrastructure.Services.RefundProcessingBackgroundService"
                             or "TripMate.Infrastructure.Services.RevenueExportWorkerBackgroundService"
                             or "TripMate.Infrastructure.Services.RevenueExportExpiryBackgroundService"
@@ -173,7 +176,8 @@ public sealed class TripMateApiFactory(
                             or "TripMate.Infrastructure.Services.TomorrowNotificationReconciliationBackgroundService"
                             or "TripMate.Infrastructure.Services.WeatherLocationSyncBackgroundService"
                             or "TripMate.Infrastructure.Services.DailyPayoutRunBackgroundService"
-                            or "TripMate.Infrastructure.Services.DailyPayoutRetrySweepBackgroundService"))
+                            or "TripMate.Infrastructure.Services.DailyPayoutRetrySweepBackgroundService"
+                            or "TripMate.Infrastructure.Services.ServiceRequestLifecycleHostedService"))
                 {
                     services.RemoveAt(index);
                 }
@@ -190,12 +194,16 @@ public sealed class TripMateApiFactory(
                 services.RemoveAll<IItineraryMutationLock>();
                 services.RemoveAll<IGroupInvitationLock>();
                 services.RemoveAll<IGroupJoinLock>();
+                services.RemoveAll<IUserUnlockLock>();
+                services.RemoveAll<IUserAdministrationNotificationOutboxStore>();
                 services.RemoveAll<IGroupLeaveLock>();
                 services.RemoveAll<ISchedulingRequestLock>();
                 services.RemoveAll<ITourMediaUploadLock>();
                 services.RemoveAll<ITourMediaCleanupOutboxStore>();
                 services.RemoveAll<IAccountCredentialLock>();
                 services.RemoveAll<IRefundManualCompletionLock>();
+                services.RemoveAll<IAccountProvisioningLock>();
+                services.RemoveAll<IServiceProviderRequestLock>();
                 services.RemoveAll<IRouteDurationProvider>();
 
                 services.AddDbContext<TestApiDbContext>(options =>
@@ -231,12 +239,16 @@ public sealed class TripMateApiFactory(
                 services.AddScoped<IItineraryMutationLock, NoOpItineraryMutationLock>();
                 services.AddScoped<IGroupInvitationLock, NoOpGroupInvitationLock>();
                 services.AddScoped<IGroupJoinLock, NoOpGroupJoinLock>();
+                services.AddScoped<IUserUnlockLock, NoOpUserUnlockLock>();
+                services.AddScoped<IUserAdministrationNotificationOutboxStore, NoOpUserAdministrationNotificationOutboxStore>();
                 services.AddScoped<IGroupLeaveLock, NoOpGroupLeaveLock>();
                 services.AddScoped<ISchedulingRequestLock, NoOpSchedulingRequestLock>();
                 services.AddScoped<ITourMediaUploadLock, NoOpTourMediaUploadLock>();
                 services.AddScoped<ITourMediaCleanupOutboxStore, NoOpTourMediaCleanupOutboxStore>();
                 services.AddScoped<IAccountCredentialLock, NoOpAccountCredentialLock>();
                 services.AddScoped<IRefundManualCompletionLock, NoOpRefundManualCompletionLock>();
+                services.AddScoped<IAccountProvisioningLock, UnsupportedInMemoryProvisioningLock>();
+                services.AddScoped<IServiceProviderRequestLock, UnsupportedInMemoryProviderRequestLock>();
                 services.AddScoped<IRouteDurationProvider, TestRouteDurationProvider>();
             }
             else if (saveChangesInterceptor is not null || dbInterceptor is not null)
@@ -449,6 +461,7 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<PushDeviceToken> PushDeviceTokens => Set<PushDeviceToken>();
     public DbSet<TravelerProfile> TravelerProfiles => Set<TravelerProfile>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<UserUnlockOperation> UserUnlockOperations => Set<UserUnlockOperation>();
     public DbSet<PoiCategory> PoiCategories => Set<PoiCategory>();
     public DbSet<PointOfInterest> PointsOfInterest => Set<PointOfInterest>();
 
@@ -485,6 +498,8 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<Message> Messages => Set<Message>();
     public DbSet<TripMate.Domain.Entities.ServiceProvider> ServiceProviders =>
         Set<TripMate.Domain.Entities.ServiceProvider>();
+    public DbSet<ProviderPoiLink> ProviderPoiLinks => Set<ProviderPoiLink>();
+    public DbSet<ServiceProviderRequestOperation> ServiceProviderRequestOperations => Set<ServiceProviderRequestOperation>();
     public DbSet<CommercialService> CommercialServices => Set<CommercialService>();
     public DbSet<Voucher> Vouchers => Set<Voucher>();
     public DbSet<Booking> Bookings => Set<Booking>();
@@ -822,4 +837,50 @@ internal sealed class TestAuthenticationHandler(
         return Task.FromResult(
             AuthenticateResult.Success(ticket));
     }
+}
+internal sealed class NoOpUserUnlockLock : IUserUnlockLock
+{
+    public Task AcquireAsync(long administratorUserId, string idempotencyKey, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+
+    public Task AcquireTargetUserAsync(long targetUserId, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+}
+
+internal sealed class NoOpUserAdministrationNotificationOutboxStore : IUserAdministrationNotificationOutboxStore
+{
+    public Task<IReadOnlyList<UserAdministrationNotificationClaim>> ClaimDueAsync(
+        DateTimeOffset nowUtc,
+        TimeSpan leaseDuration,
+        int batchSize,
+        CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<UserAdministrationNotificationClaim>>([]);
+
+    public Task CompleteAsync(long notificationId, Guid leaseToken, DateTimeOffset completedAtUtc,
+        CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public Task<bool> RenewLeaseAsync(long notificationId, Guid leaseToken, DateTimeOffset renewedAtUtc,
+        DateTimeOffset leaseExpiresAtUtc, CancellationToken cancellationToken) => Task.FromResult(true);
+
+    public Task RetryAsync(long notificationId, Guid leaseToken, DateTimeOffset notBeforeAtUtc,
+        DateTimeOffset updatedAtUtc, CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public Task FailAsync(long notificationId, Guid leaseToken, DateTimeOffset failedAtUtc,
+        CancellationToken cancellationToken) => Task.CompletedTask;
+}
+
+internal sealed class UnsupportedInMemoryProvisioningLock : IAccountProvisioningLock
+{
+    public Task AcquireAsync(string normalizedEmail, string normalizedPhone, IReadOnlyCollection<long> poiIds,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Account provisioning locking requires the isolated SQL Server fixture.");
+}
+
+internal sealed class UnsupportedInMemoryProviderRequestLock : IServiceProviderRequestLock
+{
+    public Task AcquireOperationAsync(long actorUserId, Guid key, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Service request locking requires the isolated SQL Server fixture.");
+
+    public Task AcquireBookingAsync(long bookingId, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Service request locking requires the isolated SQL Server fixture.");
 }

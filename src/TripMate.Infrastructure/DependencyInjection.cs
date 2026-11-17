@@ -12,12 +12,14 @@ using StackExchange.Redis;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Media;
+using TripMate.Application.Features.AccountProvisioning;
 using TripMate.Application.Features.Admin.StatisticalReports.Exports;
 using TripMate.Application.Features.Authentication.PasswordReset;
 using TripMate.Application.Features.Bookings.Common;
 using TripMate.Application.Features.Bookings.Refunds;
 using TripMate.Application.Features.Complaints.PartialRefundProposals;
 using TripMate.Application.Features.Itineraries.Common;
+using TripMate.Application.Features.Itineraries.GetDetail;
 using TripMate.Application.Features.Navigation.Common;
 using TripMate.Application.Features.Operator.CheckIn.Common;
 using TripMate.Application.Features.Operator.Payouts.Common;
@@ -29,6 +31,7 @@ using TripMate.Application.Features.Scheduling.Explanation;
 using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Application.Features.Scheduling.Shadow;
 using TripMate.Application.Features.Scheduling.TimeOfDay;
+using TripMate.Application.Features.ServiceProviderRequests;
 using TripMate.Application.Features.Tickets.Common;
 using TripMate.Application.Features.Traveler.Bookings.Common;
 using TripMate.Application.Features.Traveler.Payments.Common;
@@ -78,6 +81,15 @@ public static class DependencyInjection
 
         services.AddScoped<IApplicationDbContext>(sp =>
             sp.GetRequiredService<ApplicationDbContext>());
+
+        services.AddScoped<IAccountProvisioningEmailSender, SmtpAccountProvisioningEmailSender>();
+        services.AddScoped<IAccountProvisioningLock, SqlServerAccountProvisioningLock>();
+        services.AddScoped<IAccountProvisioningPersistenceErrors, SqlServerAccountProvisioningPersistenceErrors>();
+        services.AddScoped<IServiceProviderRequestLock, SqlServerServiceProviderRequestLock>();
+        services.AddScoped<ProviderRequestMutationService>();
+        services.AddScoped<ServiceRequestLifecycleProcessor>();
+        services.AddScoped<IItineraryServiceBookingReader, ItineraryServiceBookingReader>();
+        services.AddHostedService<ServiceRequestLifecycleHostedService>();
         services.AddOptions<TripAlertOptions>()
             .Bind(configuration.GetSection(TripAlertOptions.SectionName))
             .Validate(options => options.ScanInterval > TimeSpan.Zero, "Trip alert scan interval must be positive.")
@@ -116,6 +128,7 @@ public static class DependencyInjection
         services.AddScoped<IItineraryVersionService, ItineraryVersionService>();
         services.AddScoped<IGroupInvitationLock, SqlServerGroupInvitationLock>();
         services.AddScoped<IGroupJoinLock, SqlServerGroupJoinLock>();
+        services.AddScoped<IUserUnlockLock, SqlServerUserUnlockLock>();
         services.AddScoped<IGroupLeaveLock, SqlServerGroupLeaveLock>();
         services.AddSingleton<IGroupInvitationCodeGenerator, RandomGroupInvitationCodeGenerator>();
         services.AddScoped<ISchedulingRequestLock, SqlServerSchedulingRequestLock>();
@@ -154,12 +167,19 @@ public static class DependencyInjection
         services.AddSingleton<IOperatorDocumentCleanupJournal>(sp =>
             sp.GetRequiredService<SqlOperatorDocumentCleanupJournal>());
         services.AddHostedService<OperatorDocumentCleanupBackgroundService>();
+        services.AddScoped<IUserAdministrationNotificationOutboxStore, SqlServerUserAdministrationNotificationOutboxStore>();
+        services.AddScoped<UserAdministrationNotificationDeliveryProcessor>();
 
         services.AddOptions<TourMediaCleanupOptions>()
             .Bind(configuration.GetSection(TourMediaCleanupOptions.SectionName))
             .ValidateDataAnnotations()
             .ValidateOnStart();
         services.AddHostedService<TourMediaCleanupBackgroundService>();
+        services.AddOptions<UserAdministrationNotificationDeliveryOptions>()
+            .Bind(configuration.GetSection(UserAdministrationNotificationDeliveryOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.AddHostedService<UserAdministrationNotificationDeliveryBackgroundService>();
 
         services.AddOptions<CloudinaryOptions>()
             .Bind(configuration.GetSection(CloudinaryOptions.SectionName))
@@ -455,6 +475,8 @@ public static class DependencyInjection
                 executionOptions.OverallTimeout = TimeSpan.FromSeconds(options.OverallTimeoutSeconds);
                 executionOptions.MaxAttempts = options.MaxAttempts;
                 executionOptions.RetryBaseDelayMilliseconds = options.RetryBaseDelayMilliseconds;
+                executionOptions.BackgroundEnabled = options.BackgroundEnabled;
+                executionOptions.BackgroundTimeout = TimeSpan.FromSeconds(options.BackgroundTimeoutSeconds);
             })
             .ValidateOnStart();
         services.AddSingleton<
@@ -463,6 +485,20 @@ public static class DependencyInjection
         services.AddSingleton(serviceProvider => serviceProvider
             .GetRequiredService<IOptions<ItineraryExplanationExecutionOptions>>()
             .Value);
+
+        // Background explanations (specs/UC-10-background-explanation-spec.md): the create request queues the
+        // itinerary, the hosted worker asks the AI afterwards. One in-memory list for the whole process; the
+        // worker is idle unless AiExplanation:Enabled and AiExplanation:BackgroundEnabled put something on it.
+        services.AddSingleton<InMemoryItineraryExplanationQueue>();
+        services.AddSingleton<IItineraryExplanationQueue>(serviceProvider =>
+            serviceProvider.GetRequiredService<InMemoryItineraryExplanationQueue>());
+        services.AddScoped<IBackgroundItineraryExplanationProcessor>(serviceProvider =>
+            new BackgroundItineraryExplanationProcessor(
+                serviceProvider.GetRequiredService<IApplicationDbContext>(),
+                serviceProvider.GetRequiredService<IItineraryExplanationProvider>(),
+                serviceProvider.GetRequiredService<ItineraryExplanationExecutionOptions>(),
+                serviceProvider.GetService<ILogger<BackgroundItineraryExplanationProcessor>>()));
+        services.AddHostedService<ItineraryExplanationBackgroundService>();
         services.AddScoped<PersonalBehaviorFeatureAggregator>();
         services.AddScoped(serviceProvider => new BehaviorProfileBuilder(
             serviceProvider.GetRequiredService<IApplicationDbContext>(),
@@ -549,6 +585,8 @@ public static class DependencyInjection
         services.AddScoped<SmtpEmailSender>();
         services.AddScoped<IEmailSender>(sp => sp.GetRequiredService<SmtpEmailSender>());
         services.AddScoped<IEmailVerificationSender>(sp => sp.GetRequiredService<SmtpEmailSender>());
+        services.AddScoped<IUserAdministrationNotificationEmailSender>(sp =>
+            sp.GetRequiredService<SmtpEmailSender>());
         services.AddSingleton<IEmailVerificationResendCooldown, EmailVerificationResendCooldown>();
         services.AddSingleton<FirebaseEmailVerificationLinkService>();
         services.AddSingleton<IEmailVerificationLinkService>(sp =>

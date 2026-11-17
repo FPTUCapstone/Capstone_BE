@@ -101,6 +101,11 @@ try
 
             ExceptionHandlingMiddleware.AddActiveTripsErrorCode(context.HttpContext, problem);
 
+            var requestPath = context.HttpContext.Request.Path.Value;
+            if (requestPath?.StartsWith("/api/v1/admin/users/", StringComparison.OrdinalIgnoreCase) == true
+                && requestPath.EndsWith("/unlock", StringComparison.OrdinalIgnoreCase))
+                problem.Extensions["errorCode"] = TripMate.Application.Features.Admin.Users.Common.UserAdministrationErrorCodes.RequestInvalid;
+
             var result = new BadRequestObjectResult(problem);
             result.ContentTypes.Add("application/problem+json");
             return result;
@@ -306,6 +311,7 @@ try
 
     app.UseAuthentication();
     app.UseMiddleware<AdministrationFailureAuditMiddleware>();
+    app.UseMiddleware<RequirePasswordChangeMiddleware>();
     app.UseAuthorization();
 
     app.UseRateLimiter();

@@ -22,22 +22,21 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(u => u.Email).HasColumnName("email").HasMaxLength(256);
         builder.Property(u => u.PhoneNumber).HasColumnName("phone_number").HasMaxLength(20);
         builder.Property(u => u.PasswordHash).HasColumnName("password_hash").HasMaxLength(256);
+        builder.Property(u => u.MustChangePassword).HasColumnName("must_change_password").HasDefaultValue(false);
         builder.Property(u => u.FullName).HasColumnName("full_name").HasMaxLength(150).IsRequired();
         builder.Property(u => u.AvatarUrl).HasColumnName("avatar_url").HasMaxLength(500);
         builder.Property(u => u.AvatarPublicId).HasColumnName("avatar_public_id").HasMaxLength(500);
         builder.Property(u => u.Status).HasColumnName("status").HasConversion<string>().HasMaxLength(24).IsConcurrencyToken();
+        builder.Property(u => u.StatusBeforeLock).HasColumnName("status_before_lock").HasConversion<string>().HasMaxLength(24);
+        builder.Property(u => u.LockedByUserId).HasColumnName("locked_by_user_id");
+        builder.Property(u => u.LockedAtUtc).HasColumnName("locked_at_utc").AsUtcDateTime2();
+        builder.Property(u => u.LockReason).HasColumnName("lock_reason").HasMaxLength(1000);
         builder.Property(u => u.EmailVerifiedAtUtc).HasColumnName("email_verified_at").AsUtcDateTime2();
         builder.Property(u => u.PhoneVerifiedAtUtc).HasColumnName("phone_verified_at").AsUtcDateTime2();
         builder.Property(u => u.CreatedAtUtc).HasColumnName("created_at").AsUtcDateTime2();
         builder.Property(u => u.UpdatedAtUtc).HasColumnName("updated_at").AsUtcDateTime2();
         builder.Property(u => u.LastLoginAtUtc).HasColumnName("last_login_at").AsUtcDateTime2();
-        // DAILY-PAYOUT-TRANSFER spec v6 (BR-189, PD-9A): added by
-        // database/migrations/20261112_daily_payout_v6_schema.sql, not part of tripmate_schema_v7.sql.
-        builder.Property(u => u.LockReason).HasColumnName("lock_reason").HasMaxLength(200);
-        builder.Property(u => u.LockedAtUtc).HasColumnName("locked_at_utc").AsUtcDateTime2();
-        builder.Property(u => u.StatusBeforeLock).HasColumnName("status_before_lock").HasConversion<string>().HasMaxLength(24);
         builder.Property(u => u.SessionVersion).HasColumnName("session_version").IsConcurrencyToken();
-
         builder.HasIndex(u => u.Email).IsUnique().HasFilter("[email] IS NOT NULL")
             .HasDatabaseName("UX_Users_Email");
         builder.HasIndex(u => u.PhoneNumber).IsUnique().HasFilter("[phone_number] IS NOT NULL")
@@ -48,5 +47,10 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
             .WithOne(t => t.User)
             .HasForeignKey(t => t.UserId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasOne<User>()
+            .WithMany()
+            .HasForeignKey(u => u.LockedByUserId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }

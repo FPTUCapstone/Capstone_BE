@@ -118,6 +118,8 @@ services:
       AiExplanation__RetryBaseDelayMilliseconds: ${AiExplanation__RetryBaseDelayMilliseconds:-500}
       AiExplanation__RateLimitPerMinute: ${AiExplanation__RateLimitPerMinute:-4}
       AiExplanation__MaxConcurrency: ${AiExplanation__MaxConcurrency:-2}
+      AiExplanation__BackgroundEnabled: ${AiExplanation__BackgroundEnabled:-false}
+      AiExplanation__BackgroundTimeoutSeconds: ${AiExplanation__BackgroundTimeoutSeconds:-100}
 
       Cors__AllowedOrigins__0: http://localhost:3001
       Cors__AllowedOrigins__1: http://localhost:3005
@@ -212,7 +214,9 @@ services:
       OLLAMA_BASE_URL: http://ollama:11434
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3}
       LLM_MODEL: ${LLM_MODEL:-qwen3:1.7b}
-      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-9}
+      # Below AiExplanation__BackgroundTimeoutSeconds (100), so the backend is still listening when a slow
+      # answer arrives. For the old inline mode (backend limit 10-30 seconds) set it below that limit instead.
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-90}
     depends_on:
       ollama:
         condition: service_healthy

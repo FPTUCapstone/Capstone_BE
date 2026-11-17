@@ -18,7 +18,7 @@ namespace TripMate.Infrastructure.Email;
 /// Cancellation before any delivery attempt preserves normal CancellationToken semantics.
 /// Logs carry classifications only — never the OTP, credentials, recipient, or raw SMTP payloads.
 /// </summary>
-public sealed class SmtpEmailSender : IEmailSender, IEmailVerificationSender
+public sealed class SmtpEmailSender : IEmailSender, IEmailVerificationSender, IUserAdministrationNotificationEmailSender
 {
     private const int SendTimeoutMilliseconds = 10_000;
 
@@ -75,7 +75,24 @@ public sealed class SmtpEmailSender : IEmailSender, IEmailVerificationSender
             cancellationToken);
     }
 
-    private async Task<EmailDeliveryResult> SendAsync(
+    Task<EmailDeliveryResult> IUserAdministrationNotificationEmailSender.SendAsync(
+        string destinationEmail,
+        string subject,
+        string body,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(destinationEmail);
+        ArgumentException.ThrowIfNullOrWhiteSpace(subject);
+        ArgumentException.ThrowIfNullOrWhiteSpace(body);
+
+        return SendAsync(
+            destinationEmail,
+            new PasswordResetEmailContent(subject, body),
+            "Administrative notification",
+            cancellationToken);
+    }
+
+    internal async Task<EmailDeliveryResult> SendAsync(
         string destinationEmail,
         PasswordResetEmailContent content,
         string purpose,
@@ -119,7 +136,11 @@ public sealed class SmtpEmailSender : IEmailSender, IEmailVerificationSender
     {
         return exception switch
         {
-            // The server definitively rejected a command or the credentials:
+            // Transient 4xx SMTP command error (RFC 5321): server temporary error, mailbox busy, etc. -> retry
+            SmtpCommandException commandException when (int)commandException.StatusCode is >= 400 and < 500 =>
+                EmailDeliveryResult.Unknown,
+
+            // The server definitively rejected a command (5xx) or the credentials:
             // the message was not delivered.
             SmtpCommandException or AuthenticationException => EmailDeliveryResult.DefiniteFailure,
 

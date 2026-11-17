@@ -203,6 +203,9 @@ public class ConfirmPasswordResetFlowTests
 
         public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
+        DbSet<Domain.Entities.UserUnlockOperation> IApplicationDbContext.UserUnlockOperations =>
+            throw new NotSupportedException();
+
         // The confirm flow only touches Users and RefreshTokens; the remaining context
         // members are never reached, so their entity types are kept out of the model.
         DbSet<Domain.Entities.PoiCategory> IApplicationDbContext.PoiCategories => throw new NotSupportedException();
@@ -379,6 +382,8 @@ public class ConfirmPasswordResetFlowTests
         {
             // The confirm flow only persists Users and RefreshTokens; excluding the rest
             // avoids building a model for entities this test never touches.
+            modelBuilder.Ignore<Domain.Entities.ProviderPoiLink>();
+            modelBuilder.Ignore<Domain.Entities.ServiceProviderRequestOperation>();
             modelBuilder.Ignore<Domain.Entities.TravelerProfile>();
             modelBuilder.Ignore<Domain.Entities.PoiCategory>();
             modelBuilder.Ignore<Domain.Entities.PointOfInterest>();
@@ -406,6 +411,7 @@ public class ConfirmPasswordResetFlowTests
             modelBuilder.Ignore<Domain.Entities.GroupInvitationOperation>();
             modelBuilder.Ignore<Domain.Entities.GroupJoinOperation>();
             modelBuilder.Ignore<Domain.Entities.ItineraryVersionOperation>();
+            modelBuilder.Ignore<Domain.Entities.UserUnlockOperation>();
             modelBuilder.Ignore<Domain.Entities.SystemConfig>();
             modelBuilder.Ignore<Domain.Entities.TripSession>();
             modelBuilder.Ignore<Domain.Entities.TripSessionItem>();
