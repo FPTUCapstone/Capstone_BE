@@ -400,6 +400,7 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
                 TripMate.Application.Features.Operator.PostTripComplaints.Common.OperatorPostTripComplaintErrorCodes.IdempotencyMismatch =>
                 StatusCodes.Status409Conflict,
             TripMate.Application.Features.Operator.PostTripComplaints.Common.OperatorPostTripComplaintErrorCodes.AmountExceedsRefundable or
+                TripMate.Application.Features.Operator.PostTripComplaints.Common.OperatorPostTripComplaintErrorCodes.ProposalReasonRequired or
                 TripMate.Application.Features.Operator.PostTripComplaints.Common.OperatorPostTripComplaintErrorCodes.RejectionReasonRequired or
                 TripMate.Application.Features.Operator.PostTripComplaints.Common.OperatorPostTripComplaintErrorCodes.RefundUnavailable =>
                 StatusCodes.Status422UnprocessableEntity,
