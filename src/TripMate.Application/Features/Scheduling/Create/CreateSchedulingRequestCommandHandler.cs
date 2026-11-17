@@ -63,6 +63,26 @@ public sealed class CreateSchedulingRequestCommandHandler(
         CreateSchedulingRequestCommand command,
         CancellationToken cancellationToken)
     {
+        try
+        {
+            return await HandleCoreAsync(command, cancellationToken);
+        }
+        catch (SchedulingRequestContentionException exception)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            dbContext.ClearTrackedEntities();
+            logger?.LogWarning(exception, "Scheduling DB contention exhausted its bounded recovery.");
+            return Result.Failure<SchedulingResponseDto>(
+                SchedulingErrorCodes.GenerationContended,
+                "Itinerary generation is busy. Please retry with the same Idempotency-Key.",
+                new Dictionary<string, object?> { ["retryAfterSeconds"] = 1 });
+        }
+    }
+
+    private async Task<Result<SchedulingResponseDto>> HandleCoreAsync(
+        CreateSchedulingRequestCommand command,
+        CancellationToken cancellationToken)
+    {
         var canonical = CanonicalSchedulingRequest.From(command);
         var timeZone = TimeZoneInfo.FindSystemTimeZoneById(canonical.TimeZoneId);
         var requestHash = ComputeRequestHash(canonical);
@@ -272,12 +292,40 @@ public sealed class CreateSchedulingRequestCommandHandler(
         }
     }
 
+    private async Task<T> ExecuteSchedulingTransactionAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
+        CancellationToken cancellationToken)
+    {
+        // Retry only DB phases. Prepared routing/ranking/solver results remain outside this callback.
+        const int maximumAttempts = 3;
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await dbContext.ExecuteInSerializableTransactionAsync(operation, cancellationToken);
+            }
+            catch (Exception exception) when (dbContext.IsDeadlock(exception))
+            {
+                // The SQL transaction has been disposed/rolled back before tracking is cleared.
+                dbContext.ClearTrackedEntities();
+                cancellationToken.ThrowIfCancellationRequested();
+                if (attempt == maximumAttempts)
+                {
+                    throw new SchedulingRequestContentionException(exception);
+                }
+
+                logger?.LogWarning(exception, "Retrying scheduling DB phase after deadlock. Attempt={Attempt}.", attempt);
+                await Task.Delay(TimeSpan.FromMilliseconds(100 * attempt), cancellationToken);
+            }
+        }
+    }
+
     private async Task<ReservationDecision> ReserveAsync(
         CanonicalSchedulingRequest canonical,
         string requestHash,
         Guid ownerId,
         CancellationToken cancellationToken) =>
-        await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
+        await ExecuteSchedulingTransactionAsync(async transactionCancellationToken =>
         {
             await schedulingRequestLock.AcquireAsync(
                 canonical.TravelerUserId,
@@ -629,7 +677,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
         CancellationToken cancellationToken)
     {
         dbContext.ClearTrackedEntities();
-        return await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
+        return await ExecuteSchedulingTransactionAsync(async transactionCancellationToken =>
         {
             await schedulingRequestLock.AcquireAsync(
                 canonical.TravelerUserId,
@@ -779,7 +827,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
         CancellationToken cancellationToken)
     {
         dbContext.ClearTrackedEntities();
-        await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
+        await ExecuteSchedulingTransactionAsync(async transactionCancellationToken =>
         {
             await schedulingRequestLock.AcquireAsync(
                 canonical.TravelerUserId,
@@ -816,7 +864,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
         }
 
         dbContext.ClearTrackedEntities();
-        await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
+        await ExecuteSchedulingTransactionAsync(async transactionCancellationToken =>
         {
             await schedulingRequestLock.AcquireAsync(
                 canonical.TravelerUserId,

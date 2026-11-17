@@ -1,3 +1,4 @@
+using System.Data;
 using System.Text.RegularExpressions;
 
 using Microsoft.Data.SqlClient;
@@ -165,7 +166,7 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         await using var connection = new SqlConnection(ConnectionString);
-        await connection.OpenAsync(cancellationToken);
+        await OpenConnectionAsync(connection, cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = commandText;
         command.CommandTimeout = 120;
@@ -177,7 +178,7 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
         CancellationToken cancellationToken = default)
     {
         await using var connection = new SqlConnection(ConnectionString);
-        await connection.OpenAsync(cancellationToken);
+        await OpenConnectionAsync(connection, cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = commandText;
         command.CommandTimeout = 120;
@@ -195,7 +196,7 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
             """;
 
         await using var connection = new SqlConnection(ConnectionString);
-        await connection.OpenAsync(cancellationToken);
+        await OpenConnectionAsync(connection, cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = commandText;
         var value = await command.ExecuteScalarAsync(cancellationToken);
@@ -219,7 +220,7 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
         EnsureSafeDatabaseName(DatabaseName);
 
         await using var connection = new SqlConnection(_masterConnectionString);
-        await connection.OpenAsync();
+        await OpenConnectionAsync(connection);
         await using var command = connection.CreateCommand();
         command.CommandTimeout = 120;
         command.CommandText = $"""
@@ -229,8 +230,20 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
                 DROP DATABASE [{DatabaseName}];
             END;
             """;
-        await command.ExecuteNonQueryAsync();
-        _databaseCreated = false;
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                await command.ExecuteNonQueryAsync();
+                _databaseCreated = false;
+                return;
+            }
+            catch (SqlException exception) when (exception.Number == 1205 && attempt < 2)
+            {
+                // Deadlock rolls back the DDL statement; retry the guarded, idempotent cleanup batch.
+                await Task.Delay(attempt == 0 ? 200 : 500);
+            }
+        }
     }
 
     private async Task InitializeAsync(bool applyCurrentSchema)
@@ -239,7 +252,7 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
 
         await using (var connection = new SqlConnection(_masterConnectionString))
         {
-            await connection.OpenAsync();
+            await OpenConnectionAsync(connection);
             await using var command = connection.CreateCommand();
             command.CommandText =
                 $"CREATE DATABASE [{DatabaseName}] COLLATE Vietnamese_100_CI_AS;";
@@ -253,8 +266,10 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
             return;
         }
 
+        await using var schemaConnection = new SqlConnection(ConnectionString);
+        await OpenConnectionAsync(schemaConnection);
         var schemaPath = Path.Combine(AppContext.BaseDirectory, "Database", "tripmate_schema_v7.sql");
-        await ExecuteScriptAsync(schemaPath);
+        await ExecuteBatchesAsync(schemaConnection, await File.ReadAllTextAsync(schemaPath));
 
         var migrationsDirectory = Path.Combine(
             FindRepositoryRoot(),
@@ -264,7 +279,7 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
             .EnumerateFiles(migrationsDirectory, "*.sql", SearchOption.TopDirectoryOnly)
             .OrderBy(Path.GetFileName, StringComparer.Ordinal))
         {
-            await ExecuteScriptAsync(migrationPath);
+            await ExecuteBatchesAsync(schemaConnection, await File.ReadAllTextAsync(migrationPath));
         }
     }
 
@@ -272,10 +287,16 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
         string script,
         CancellationToken cancellationToken = default)
     {
-
         await using var schemaConnection = new SqlConnection(ConnectionString);
-        await schemaConnection.OpenAsync(cancellationToken);
+        await OpenConnectionAsync(schemaConnection, cancellationToken);
+        await ExecuteBatchesAsync(schemaConnection, script, cancellationToken);
+    }
 
+    private static async Task ExecuteBatchesAsync(
+        SqlConnection schemaConnection,
+        string script,
+        CancellationToken cancellationToken = default)
+    {
         await using (var quotedIdentifierCommand = schemaConnection.CreateCommand())
         {
             quotedIdentifierCommand.CommandText = "SET QUOTED_IDENTIFIER ON;";
@@ -293,6 +314,29 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
             command.CommandText = batch;
             command.CommandTimeout = 120;
             await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+    }
+
+    private static async Task OpenConnectionAsync(
+        SqlConnection connection,
+        CancellationToken cancellationToken = default)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                await connection.OpenAsync(cancellationToken);
+                return;
+            }
+            catch (Exception exception) when (
+                connection.State == ConnectionState.Closed
+                && (exception is TimeoutException || exception is SqlException { Number: -2 }))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (attempt == 2) throw;
+                // Only opening is retried. No SQL command has executed on this connection.
+                await Task.Delay(attempt == 0 ? 200 : 500, cancellationToken);
+            }
         }
     }
 

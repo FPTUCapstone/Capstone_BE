@@ -91,6 +91,14 @@ public static class DependencyInjection
         services.AddScoped<ServiceRequestLifecycleProcessor>();
         services.AddScoped<IItineraryServiceBookingReader, ItineraryServiceBookingReader>();
         services.AddHostedService<ServiceRequestLifecycleHostedService>();
+
+        // TM-226: Commission Statements & Reconciliation (UC-81-83)
+        services.AddScoped<TripMate.Application.Features.Providers.CommissionStatements.ICommissionStatementService, TripMate.Application.Features.Providers.CommissionStatements.CommissionStatementService>();
+        services.AddScoped<TripMate.Application.Features.Providers.CommissionStatements.ProviderCommissionQueryHandler>();
+        services.AddScoped<TripMate.Application.Features.Providers.CommissionStatements.ReportCommissionPaymentCommandHandler>();
+        services.AddScoped<TripMate.Application.Features.Providers.CommissionStatements.AdminReconciliationQueryHandler>();
+        services.AddScoped<TripMate.Application.Features.Providers.CommissionStatements.AdminReconciliationCommandHandler>();
+        services.AddHostedService<CommissionStatementLifecycleHostedService>();
         services.AddOptions<TripAlertOptions>()
             .Bind(configuration.GetSection(TripAlertOptions.SectionName))
             .Validate(options => options.ScanInterval > TimeSpan.Zero, "Trip alert scan interval must be positive.")

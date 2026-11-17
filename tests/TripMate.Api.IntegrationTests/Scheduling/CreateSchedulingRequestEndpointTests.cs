@@ -5,6 +5,8 @@ using System.Text.Json.Serialization;
 
 using FluentAssertions;
 
+using MediatR;
+
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -12,7 +14,9 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
+using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Scheduling.Common;
+using TripMate.Application.Features.Scheduling.Create;
 using TripMate.Application.Features.Scheduling.Csp;
 using TripMate.Application.Features.Scheduling.Shadow;
 using TripMate.Domain.Entities;
@@ -23,6 +27,33 @@ namespace TripMate.Api.IntegrationTests.Scheduling;
 [Collection(nameof(TripMateApiFactory))]
 public sealed class CreateSchedulingRequestEndpointTests
 {
+    [Fact]
+    public async Task Post_ContentionResult_Returns409WithRetryHint()
+    {
+        // Mapping coverage only; real SQL deadlocks are tested in CreateSchedulingRequestSqlServerTests.
+        using var factory = CreateFactory(services =>
+        {
+            services.RemoveAll<IRequestHandler<CreateSchedulingRequestCommand, Result<SchedulingResponseDto>>>();
+            services.AddScoped<IRequestHandler<CreateSchedulingRequestCommand, Result<SchedulingResponseDto>>,
+                ContendedSchedulingHandler>();
+        });
+        using var client = factory.CreateAuthenticatedClient(42, UserRole.Traveler);
+        using var response = await SendValidRequestAsync(client, Guid.NewGuid());
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        problem.RootElement.GetProperty("errorCode").GetString().Should().Be("planning.generation_contended");
+        problem.RootElement.GetProperty("retryAfterSeconds").GetInt32().Should().Be(1);
+    }
+
+    private sealed class ContendedSchedulingHandler
+        : IRequestHandler<CreateSchedulingRequestCommand, Result<SchedulingResponseDto>>
+    {
+        public Task<Result<SchedulingResponseDto>> Handle(CreateSchedulingRequestCommand request,
+            CancellationToken cancellationToken) => Task.FromResult(Result.Failure<SchedulingResponseDto>(
+                "planning.generation_contended", "Generation is busy. Retry with the same Idempotency-Key.",
+                new Dictionary<string, object?> { ["retryAfterSeconds"] = 1 }));
+    }
+
     [Fact]
     public async Task Post_SameKeyAndPayload_ReplaysTheOriginalItinerary()
     {

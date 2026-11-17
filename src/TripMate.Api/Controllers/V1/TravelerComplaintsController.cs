@@ -3,6 +3,7 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
+using TripMate.Api.Authorization;
 using TripMate.Api.Common;
 using TripMate.Api.Controllers.V1.Requests;
 using TripMate.Application.Features.Complaints.PartialRefundProposals;
@@ -12,6 +13,11 @@ namespace TripMate.Api.Controllers.V1;
 
 /// <summary>UC-75 Respond to Partial Refund Proposal (screen #97).</summary>
 [Authorize(Roles = nameof(UserRole.Traveler))]
+[AuthorizationProblemDetails(
+    PartialRefundProposalErrorCodes.Unauthorized,
+    "Authentication is required.",
+    PartialRefundProposalErrorCodes.Forbidden,
+    "A Traveler account is required.")]
 [Route("api/v1/traveler/complaints")]
 public sealed class TravelerComplaintsController(ISender sender) : ApiControllerBase(sender)
 {

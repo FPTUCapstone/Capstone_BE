@@ -90,6 +90,8 @@ public interface IApplicationDbContext
 
     DbSet<ServiceBooking> ServiceBookings { get; }
 
+    DbSet<ServiceCommissionStatement> ServiceCommissionStatements { get; }
+
     DbSet<ServiceProviderRequestOperation> ServiceProviderRequestOperations =>
         throw new NotSupportedException("Service request operations are unavailable in this context.");
 
