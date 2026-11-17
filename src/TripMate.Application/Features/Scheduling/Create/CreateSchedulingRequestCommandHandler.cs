@@ -538,7 +538,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
         if (_generationOptions.Csp.Mode == ObjectiveMode.WeightedUtility)
         {
             var factory = weightedInputsFactory ?? new WeightedRequestInputsFactory(new PersonalParamsFactory());
-            weightedInputs = factory.Create(input.Candidates, travelerProfile, input, ranking?.OutcomeCategory);
+            weightedInputs = factory.Create(input.Candidates, travelerProfile, input, ranking.OutcomeCategory);
         }
 
         var plan = await new ItineraryGenerationService(measuredRouteProvider, _generationOptions)
@@ -570,7 +570,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
                     routeMatrix,
                     _generationOptions,
                     travelerProfile,
-                    ranking?.OutcomeCategory,
+                    ranking.OutcomeCategory,
                     plan.Value));
             }
         }
