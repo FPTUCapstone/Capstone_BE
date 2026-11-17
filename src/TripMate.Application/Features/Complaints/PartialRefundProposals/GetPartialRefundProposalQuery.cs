@@ -17,7 +17,12 @@ public sealed record PartialRefundProposalResponse(
     decimal ProposedAmount,
     DateTimeOffset ResponseDeadlineUtc,
     string Status,
-    bool CanRespond);
+    bool CanRespond,
+    string? ProposalReason = null,
+    int Round = 1,
+    bool CanCounterOffer = false,
+    bool CanDeclineFinally = false,
+    decimal RefundableAmount = 0m);
 
 public sealed class GetPartialRefundProposalQueryHandler(
     IPartialRefundProposalStore store,
@@ -35,9 +40,11 @@ public sealed class GetPartialRefundProposalQueryHandler(
         if (proposal.TravelerUserId != travelerId)
             return PartialRefundProposalAccess.Forbidden<PartialRefundProposalResponse>();
 
+        bool open = PartialRefundProposalRules.IsOpen(proposal.Status, proposal.ResponseDeadlineUtc, clock.UtcNow);
         return Result.Success(new PartialRefundProposalResponse(proposal.ComplaintId, proposal.BookingId,
-            proposal.BookingCode, proposal.ProposedAmount, proposal.ResponseDeadlineUtc, proposal.Status.ToString(),
-            PartialRefundProposalRules.IsOpen(proposal.Status, proposal.ResponseDeadlineUtc, clock.UtcNow)));
+            proposal.BookingCode, proposal.ProposedAmount, proposal.ResponseDeadlineUtc, proposal.Status.ToString(), open,
+            proposal.ProposalReason, proposal.Round, open && proposal.Round == 1, open && proposal.Round == 2,
+            proposal.RefundableAmount));
     }
 }
 

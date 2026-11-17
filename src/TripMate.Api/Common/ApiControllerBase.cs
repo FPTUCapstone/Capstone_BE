@@ -390,6 +390,22 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
                 PostTripComplaintErrorCodes.InvalidInput => StatusCodes.Status422UnprocessableEntity,
             PostTripComplaintErrorCodes.StorageUnavailable => StatusCodes.Status503ServiceUnavailable,
 
+            TripMate.Application.Features.Operator.PostTripComplaints.Common.OperatorPostTripComplaintErrorCodes.Unauthorized =>
+                StatusCodes.Status401Unauthorized,
+            TripMate.Application.Features.Operator.PostTripComplaints.Common.OperatorPostTripComplaintErrorCodes.NotFound =>
+                StatusCodes.Status404NotFound,
+            TripMate.Application.Features.Operator.PostTripComplaints.Common.OperatorPostTripComplaintErrorCodes.Forbidden =>
+                StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.Operator.PostTripComplaints.Common.OperatorPostTripComplaintErrorCodes.ResponseClosed or
+                TripMate.Application.Features.Operator.PostTripComplaints.Common.OperatorPostTripComplaintErrorCodes.IdempotencyMismatch =>
+                StatusCodes.Status409Conflict,
+            TripMate.Application.Features.Operator.PostTripComplaints.Common.OperatorPostTripComplaintErrorCodes.AmountExceedsRefundable or
+                TripMate.Application.Features.Operator.PostTripComplaints.Common.OperatorPostTripComplaintErrorCodes.RejectionReasonRequired or
+                TripMate.Application.Features.Operator.PostTripComplaints.Common.OperatorPostTripComplaintErrorCodes.RefundUnavailable =>
+                StatusCodes.Status422UnprocessableEntity,
+            TripMate.Application.Features.Operator.PostTripComplaints.Common.OperatorPostTripComplaintErrorCodes.InvalidFilter =>
+                StatusCodes.Status400BadRequest,
+
             TripMate.Application.Features.Admin.Bookings.Common.PlatformBookingErrorCodes.Forbidden =>
                 StatusCodes.Status403Forbidden,
             TripMate.Application.Features.Admin.Bookings.Common.PlatformBookingErrorCodes.InvalidDateRange =>

@@ -69,16 +69,19 @@ public sealed class OperatorRevenueAggregator(IApplicationDbContext db)
 
         var bookingIds = canonical.Select(x => x.BookingId).ToList();
 
-        // Option B commission policy: a refund always offsets the commission/net of the booking
-        // it belongs to, regardless of when the refund itself was processed. Refunds are looked
-        // up by booking id only (no ProcessedAtUtc filter against the report window) — otherwise
+        // Option B commission policy: a refund offsets the commission/net once it has either
+        // reached the customer or the operator's return has been confirmed by TripMate. The
+        // latter matters when the gateway is retrying: the operator's cash position has already
+        // changed and the report must not show a zero refund alongside a reduced Net Amount.
+        // Refunds are looked up by booking id only (no ProcessedAtUtc filter against the report window) — otherwise
         // a booking paid in one period but refunded in a later period would show full commission
         // in BOTH periods' reports (the refund's own period has no matching payment to apply it
         // against, and the payment's period never learns about a refund that hasn't happened yet).
         var refundsByBooking = bookingIds.Count == 0
             ? new Dictionary<long, decimal>()
             : await db.Refunds.AsNoTracking()
-                .Where(r => r.Status == RefundStatus.Processed && bookingIds.Contains(r.BookingId))
+                .Where(r => bookingIds.Contains(r.BookingId)
+                    && (r.Status == RefundStatus.Processed || r.ReturnReceivedAtUtc != null))
                 .GroupBy(r => r.BookingId)
                 .Select(g => new { BookingId = g.Key, Amount = g.Sum(x => x.Amount) })
                 .ToDictionaryAsync(x => x.BookingId, x => x.Amount, ct);
@@ -117,7 +120,11 @@ public sealed class OperatorRevenueAggregator(IApplicationDbContext db)
             if (bookingStatus == BookingStatus.Cancelled)
                 return Math.Round(net * CancellationFeePlatformCommissionPercent / 100m, 2);
 
-            return Math.Round(net * rate / 100m, 2);
+            // Commission snapshots created by the payment flow are stored as fractions
+            // (0.10 = 10%). Older records/tests may contain percent points (10 = 10%),
+            // so normalise both representations at the reporting boundary.
+            var fraction = rate is > 0m and <= 1m ? rate : rate / 100m;
+            return Math.Round(net * fraction, 2);
         }
 
         decimal NetAmountFor(long bookingId) =>
@@ -140,7 +147,7 @@ public sealed class OperatorRevenueAggregator(IApplicationDbContext db)
             netAmount,
             canonical.Count,
             canonical.Sum(x => x.Quantity),
-            canonical.Count == 0 ? 0m : canonical.Average(x => x.Rate));
+            canonical.Count == 0 ? 0m : canonical.Average(x => x.Rate is > 0m and <= 1m ? x.Rate * 100m : x.Rate));
 
         var allTourDetails = canonical.GroupBy(x => new { x.TourId, x.Title }).Select(g =>
         {

@@ -19,6 +19,8 @@ public class Refund : BaseEntity
     public Booking Booking { get; private set; } = null!;
     public long? TransactionId { get; private set; }
     public long? CancellationOperationId { get; private set; }
+    public RefundSource Source { get; private set; } = RefundSource.BookingCancellation;
+    public long? ComplaintId { get; private set; }
     public decimal Amount { get; private set; }
     public string? Reason { get; private set; }
     public RefundInitiator InitiatedBy { get; private set; }
@@ -73,6 +75,31 @@ public class Refund : BaseEntity
             Amount = amount,
             Reason = reason,
             InitiatedBy = initiatedBy,
+            Status = RefundStatus.PendingOperatorConfirmation,
+            RequestedAtUtc = requestedAtUtc.ToUniversalTime(),
+        };
+    }
+
+    /// <summary>
+    /// Creates the UC-69 refund request after a Tour Operator accepts a post-trip complaint.
+    /// The normal UC-42 confirmation and UC-67 processor remain responsible for moving money.
+    /// </summary>
+    public static Refund CreateForPostTripComplaint(long bookingId, long transactionId, long complaintId,
+        decimal amount, DateTimeOffset requestedAtUtc)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(bookingId);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(transactionId);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(complaintId);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(amount);
+        return new Refund
+        {
+            BookingId = bookingId,
+            TransactionId = transactionId,
+            ComplaintId = complaintId,
+            Source = RefundSource.PostTripComplaint,
+            Amount = amount,
+            Reason = "Post-trip complaint accepted",
+            InitiatedBy = RefundInitiator.TourOperator,
             Status = RefundStatus.PendingOperatorConfirmation,
             RequestedAtUtc = requestedAtUtc.ToUniversalTime(),
         };

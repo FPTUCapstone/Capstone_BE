@@ -206,6 +206,26 @@ public sealed class TravelerPartialRefundProposalEndpointTests
             return Task.FromResult(true);
         }
 
+        public Task<bool> TryCounterAsync(long complaintId, long travelerUserId, decimal requestedAmount,
+            string reason, DateTimeOffset counteredAtUtc, DateTimeOffset operatorReconsiderationDeadlineUtc,
+            CancellationToken cancellationToken)
+        {
+            if (complaintId != _proposal.ComplaintId || _proposal.Status != PostTripComplaintStatus.AwaitingTravelerResponse ||
+                _proposal.Round != 1) return Task.FromResult(false);
+            _proposal = _proposal with { Status = PostTripComplaintStatus.AwaitingOperatorReconsideration,
+                OperatorReconsiderationDeadlineUtc = operatorReconsiderationDeadlineUtc };
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> TryDeclineFinallyAsync(long complaintId, long travelerUserId, string reason,
+            DateTimeOffset declinedAtUtc, CancellationToken cancellationToken)
+        {
+            if (complaintId != _proposal.ComplaintId || _proposal.Status != PostTripComplaintStatus.AwaitingTravelerResponse ||
+                _proposal.Round != 2) return Task.FromResult(false);
+            _proposal = _proposal with { Status = PostTripComplaintStatus.Declined };
+            return Task.FromResult(true);
+        }
+
         public Task<IReadOnlyList<PartialRefundProposal>> ListOverdueAsync(DateTimeOffset nowUtc, int maxCount,
             CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<PartialRefundProposal>>([]);
     }

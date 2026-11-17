@@ -21,8 +21,12 @@ public sealed class PostTripComplaintConfiguration : IEntityTypeConfiguration<Po
         builder.Property(item => item.SubmittedAtUtc).HasColumnName("submitted_at").AsUtcDateTime2().IsRequired();
         builder.Property(item => item.ResponseDeadlineUtc).HasColumnName("response_deadline_at").AsUtcDateTime2().IsRequired();
         builder.Property(item => item.TravelerResponseDeadlineUtc).HasColumnName("traveler_response_deadline_at").AsUtcDateTime2();
+        builder.Property(item => item.OperatorReconsiderationDeadlineUtc).HasColumnName("operator_reconsideration_deadline_at").AsUtcDateTime2();
         builder.Property(item => item.ResponseAction).HasColumnName("response_action").HasConversion<string>().HasMaxLength(32).IsUnicode(false);
         builder.Property(item => item.ProposedRefundAmount).HasColumnName("proposed_refund_amount").HasPrecision(12, 2);
+        builder.Property(item => item.PartialRefundProposalReason).HasColumnName("partial_refund_proposal_reason")
+            .HasMaxLength(PostTripComplaint.PartialRefundProposalReasonMaxLength);
+        builder.Property(item => item.PartialRefundProposalRound).HasColumnName("partial_refund_proposal_round").IsRequired();
         builder.Property(item => item.RejectionReason).HasColumnName("rejection_reason").HasMaxLength(PostTripComplaint.ReasonDetailMaxLength);
         builder.Property(item => item.RespondedAtUtc).HasColumnName("responded_at").AsUtcDateTime2();
         builder.Property(item => item.RespondedByOperatorUserId).HasColumnName("responded_by_operator_user_id");
