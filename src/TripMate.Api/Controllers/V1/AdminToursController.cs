@@ -3,20 +3,30 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
+using TripMate.Api.Authorization;
 using TripMate.Api.Common;
 using TripMate.Application.Features.Admin.Tours.Review;
+using TripMate.Application.Features.Operator.Tours.Common;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Api.Controllers.V1;
 
 [Authorize(Roles = nameof(UserRole.Staff))]
+[ForbiddenProblemDetails(
+    OperatorTourErrorCodes.AdminAccessRequired,
+    "You do not have permission to access this function.")]
 [Route("api/v1/admin/tours")]
 public sealed class AdminToursController(ISender sender) : ApiControllerBase(sender)
 {
     [HttpPost("{tourId:long}/approve")]
-    public async Task<IActionResult> Approve(long tourId, CancellationToken cancellationToken)
+    public async Task<IActionResult> Approve(
+        long tourId,
+        [FromBody] ApproveTourRequest? request,
+        CancellationToken cancellationToken)
     {
-        var result = await Sender.Send(new ApproveTourCommand(tourId), cancellationToken);
+        var result = await Sender.Send(
+            new ApproveTourCommand(tourId, request?.Checklist, request?.Note),
+            cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 
@@ -41,5 +51,7 @@ public sealed class AdminToursController(ISender sender) : ApiControllerBase(sen
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 }
+
+public sealed record ApproveTourRequest(TourReviewChecklistDto? Checklist, string? Note);
 
 public sealed record RejectTourRequest(string? Reason);

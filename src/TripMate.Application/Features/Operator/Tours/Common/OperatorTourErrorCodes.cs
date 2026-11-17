@@ -15,5 +15,6 @@ public static class OperatorTourErrorCodes
     public const string CancellationPolicyUnavailable = "operator_tour.cancellation_policy_unavailable";
     public const string AdminAccessRequired = "operator_tour.admin_access_required";
     public const string RejectionReasonInvalid = "operator_tour.rejection_reason_invalid";
+    public const string ReviewChecklistIncomplete = "operator_tour.review_checklist_incomplete";
     public const string WeatherReviewInvalid = "operator_tour.weather_review_invalid";
 }

@@ -16,33 +16,66 @@ namespace TripMate.Application.Features.Admin.Tours.Review;
 public sealed class ApproveTourCommandHandler(IApplicationDbContext dbContext, ICurrentUserService currentUser, IDateTimeProvider clock)
     : IRequestHandler<ApproveTourCommand, Result<TourReviewResponse>>
 {
-    public Task<Result<TourReviewResponse>> Handle(ApproveTourCommand request, CancellationToken cancellationToken) =>
-        Transition(request.TourId, TourStatus.Approved, null, cancellationToken);
-
-    private async Task<Result<TourReviewResponse>> Transition(long tourId, TourStatus target, string? reason, CancellationToken cancellationToken)
+    public async Task<Result<TourReviewResponse>> Handle(ApproveTourCommand request, CancellationToken cancellationToken)
     {
         var access = AuthorizeStaff();
         if (access is not null) return access;
-        var tour = await dbContext.Tours.SingleOrDefaultAsync(x => x.Id == tourId, cancellationToken);
-        if (tour is null) return NotFound();
-        if (tour.Status != TourStatus.Pending) return InvalidState();
-        var now = clock.UtcNow;
-        tour.Approve(currentUser.UserId!.Value, now);
-        await SaveAudit(tour, TourStatus.Pending, AuditActionTypes.TourApproved, now, null, cancellationToken);
-        return Result.Success(new TourReviewResponse(tour.Id, tour.Status.ToString(), now));
+
+        if (request.Checklist is null ||
+            !request.Checklist.ContentCompleteness ||
+            !request.Checklist.ImageAppropriateness ||
+            !request.Checklist.PricePlausibility ||
+            !request.Checklist.PolicyCompliance ||
+            !request.Checklist.ItineraryFeasibility)
+        {
+            return Result.Failure<TourReviewResponse>(
+                OperatorTourErrorCodes.ReviewChecklistIncomplete,
+                "Every item of the mandatory review checklist must pass before the approval can be confirmed.");
+        }
+
+        return await dbContext.ExecuteInSerializableTransactionAsync(async ct =>
+        {
+            var tour = await dbContext.Tours.SingleOrDefaultAsync(x => x.Id == request.TourId, ct);
+            if (tour is null) return NotFound();
+            if (tour.Status != TourStatus.Pending) return InvalidState();
+
+            var now = clock.UtcNow;
+            var reviewerId = currentUser.UserId!.Value;
+            var statusBefore = tour.Status;
+
+            tour.Approve(reviewerId, now);
+
+            var afterData = JsonSerializer.Serialize(new
+            {
+                Status = tour.Status.ToString(),
+                VersionNo = tour.VersionNo,
+                VersionRootTourId = tour.VersionRootTourId,
+                ReviewedBy = reviewerId,
+                ReviewedAtUtc = now,
+                PublishedAtUtc = tour.PublishedAtUtc,
+                Checklist = request.Checklist,
+                InternalNote = request.Note,
+            });
+
+            dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(
+                reviewerId,
+                AuditActionTypes.TourApproved,
+                AuditEntityTypes.Tour,
+                tour.Id,
+                now,
+                AuditOutcome.Success,
+                beforeData: JsonSerializer.Serialize(new { Status = statusBefore.ToString() }),
+                afterData: afterData));
+
+            await dbContext.SaveChangesAsync(ct);
+            return Result.Success(new TourReviewResponse(tour.Id, tour.Status.ToString(), now));
+        }, cancellationToken);
     }
 
     private Result<TourReviewResponse>? AuthorizeStaff() => currentUser.UserId is null || currentUser.Role != nameof(UserRole.Staff)
         ? Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.AdminAccessRequired, "Staff access is required.") : null;
     private static Result<TourReviewResponse> NotFound() => Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.TourNotFound, "The tour is unavailable.");
-    private static Result<TourReviewResponse> InvalidState() => Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.InvalidState, "The tour is not awaiting review.");
-    private async Task SaveAudit(Tour tour, TourStatus before, string action, DateTimeOffset now, string? reason, CancellationToken ct)
-    {
-        dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(currentUser.UserId!.Value, action, AuditEntityTypes.Tour, tour.Id, now, AuditOutcome.Success,
-            beforeData: JsonSerializer.Serialize(new { Status = before.ToString() }),
-            afterData: JsonSerializer.Serialize(new { Status = tour.Status.ToString(), RejectionReason = reason })));
-        await dbContext.SaveChangesAsync(ct);
-    }
+    private static Result<TourReviewResponse> InvalidState() => Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.InvalidState, "The selected package is no longer in the Pending Approval status.");
 }
 
 public sealed class RejectTourCommandHandler(IApplicationDbContext dbContext, ICurrentUserService currentUser, IDateTimeProvider clock)

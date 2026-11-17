@@ -307,6 +307,7 @@ public class Tour : BaseEntity
         Status = TourStatus.Approved;
         ReviewedBy = reviewerUserId;
         ReviewedAtUtc = reviewedAtUtc.ToUniversalTime();
+        PublishedAtUtc = reviewedAtUtc.ToUniversalTime();
         RejectionReason = null;
         UpdatedAtUtc = ReviewedAtUtc.Value;
     }
