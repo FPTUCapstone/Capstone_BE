@@ -531,6 +531,8 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             SchedulingErrorCodes.GenerationCooldown or SchedulingErrorCodes.GenerationRateLimited =>
                 StatusCodes.Status429TooManyRequests,
 
+            SchedulingErrorCodes.GenerationContended => StatusCodes.Status409Conflict,
+
             SchedulingErrorCodes.RoutingProviderUnavailable
                 or SchedulingErrorCodes.GenerationTemporarilyUnavailable
                 or SchedulingErrorCodes.GenerationRateLimiterUnavailable
@@ -593,6 +595,7 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
                 or NavigationErrorCodes.ActiveSessionExists
                 or NavigationErrorCodes.IdempotencyKeyPayloadMismatch
                 or NavigationErrorCodes.ItemAlreadyReached
+                or NavigationErrorCodes.TripAlreadyFinished
                 or NavigationErrorCodes.SessionCompleted => StatusCodes.Status409Conflict,
             NavigationErrorCodes.NoNavigableItems
                 or NavigationErrorCodes.ItineraryScheduleIncomplete

@@ -6,6 +6,7 @@ public static class SchedulingErrorCodes
     public const string MandatoryFoodNotAllowed = "planning.mandatory_food_not_allowed";
     public const string IdempotencyKeyPayloadMismatch = "planning.idempotency_key_payload_mismatch";
     public const string GenerationCooldown = "planning.generation_cooldown";
+    public const string GenerationContended = "planning.generation_contended";
     public const string GenerationRateLimited = "planning.generation_rate_limited";
     public const string GenerationRateLimiterUnavailable =
         "planning.generation_rate_limiter_unavailable";

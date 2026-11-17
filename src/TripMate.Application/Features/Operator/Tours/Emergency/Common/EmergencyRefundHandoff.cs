@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Bookings.Common;
+using TripMate.Application.Features.Bookings.Refunds;
 using TripMate.Application.Features.TripAlerts.Common;
 using TripMate.Domain.Common;
 using TripMate.Domain.Entities;
@@ -27,6 +28,9 @@ public static class EmergencyRefundHandoff
         "Tour bị đơn vị điều hành hủy trước giờ khởi hành. Hoàn 100% số tiền đã thanh toán.";
 
     private const string KeyScope = "TripMate.UC70.RefundHandoff";
+
+    /// <summary>Same window the ordinary cancellation gives the Tour Operator to return its share.</summary>
+    private const int ReturnDeadlineWorkingDays = 3;
     private const int NotificationBodyMaxLength = 1000; // dbo.Notifications.body
 
     /// <summary>
@@ -93,8 +97,22 @@ public static class EmergencyRefundHandoff
                 : OperatorCancellationRefundReason;
             foreach (var (booking, payment, operation) in submitted)
             {
-                dbContext.Refunds.Add(Refund.CreatePending(booking.Id, payment.Id, operation.Id,
-                    booking.TotalAmount, refundReason, RefundInitiator.TourOperator, nowUtc));
+                // BR-139: TripMate refunds the Traveler in full, but whatever it had already
+                // transferred to the Tour Operator for this booking has to come back, exactly as an
+                // ordinary cancellation records it. Without this the advance is silently absorbed.
+                decimal transferredToOperator = await dbContext.PayoutSettlements.AsNoTracking()
+                    .Where(settlement => settlement.BookingId == booking.Id
+                        && settlement.Status == PayoutSettlementStatus.Settled)
+                    .SumAsync(settlement => (decimal?)settlement.PayoutAmount, cancellationToken) ?? 0m;
+                decimal operatorReturnShare = RefundShareCalculator.CalculateOperatorReturnShare(
+                    booking.TotalAmount, transferredToOperator, booking.TotalAmount);
+                DateTimeOffset? returnDeadlineAtUtc = operatorReturnShare > 0m
+                    ? WorkingDayCalculator.AddWorkingDays(nowUtc, ReturnDeadlineWorkingDays)
+                    : null;
+
+                dbContext.Refunds.Add(Refund.CreateAutomatically(booking.Id, payment.Id, operation.Id,
+                    booking.TotalAmount, refundReason, RefundInitiator.TourOperator,
+                    operatorReturnShare, returnDeadlineAtUtc, nowUtc));
             }
         }
 

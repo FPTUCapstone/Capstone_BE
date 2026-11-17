@@ -17,6 +17,27 @@ public sealed class StartNavigationSessionCommandHandlerTests
         new(2026, 10, 20, 1, 30, 0, TimeSpan.Zero);
 
     [Fact]
+    public async Task Handle_RouteFinishedRejectsNewStartWithoutChangingHistory()
+    {
+        await using var db = CreateDbContext();
+        var itinerary = await SeedActiveItineraryAsync(db, Now.AddHours(1));
+        var finished = await SeedOpenSessionAsync(db, itinerary, Now.AddMinutes(-10));
+        finished.ReachItem(itinerary.Items.Single().Id, Now.AddMinutes(-1));
+        await db.SaveChangesAsync();
+        db.ClearTrackedEntities();
+
+        var result = await CreateHandler(db, Now).Handle(
+            new StartNavigationSessionCommand(itinerary.Id, 7, Guid.NewGuid()),
+            CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be("navigation.trip_already_finished");
+        (await db.TripSessions.CountAsync()).Should().Be(1);
+        (await db.TripSessionItems.SingleAsync()).ReachedAtUtc.Should().Be(Now.AddMinutes(-1));
+        (await db.TripStateHistories.CountAsync()).Should().Be(2);
+    }
+
+    [Fact]
     public async Task Handle_ActiveAccessibleItineraryCreatesFrozenNavigatingSession()
     {
         await using var db = CreateDbContext();

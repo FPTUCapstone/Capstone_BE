@@ -35,6 +35,40 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         UtcNow = new DateTimeOffset(2026, 10, 20, 1, 0, 0, TimeSpan.Zero),
     };
 
+    [Theory]
+    [InlineData(1, true)]
+    [InlineData(2, true)]
+    [InlineData(3, false)]
+    public async Task Handle_SimulatedReservationDeadlock_BoundsRetryWithoutProviderReplay(int failures, bool succeeds)
+    {
+        // This unit test checks retry policy only. Actual SQL 1205 is covered by the SQL Server suite.
+        await using var context = TestDbContext.Create();
+        await SeedSelectablePoiAsync(context);
+        var requestLock = new DeadlockingSchedulingRequestLock(failures);
+        var result = await CreateHandler(context, schedulingRequestLock: requestLock)
+            .Handle(CreateCommand(Guid.NewGuid()), CancellationToken.None);
+
+        result.IsSuccess.Should().Be(succeeds);
+        requestLock.CallCount.Should().Be(succeeds ? failures + 2 : 3);
+        if (!succeeds)
+        {
+            result.ErrorCode.Should().Be("planning.generation_contended");
+            (await context.SchedulingRequests.CountAsync()).Should().Be(0);
+        }
+    }
+
+    private sealed class DeadlockingSchedulingRequestLock(int failures) : ISchedulingRequestLock
+    {
+        public int CallCount { get; private set; }
+        public Task AcquireAsync(long travelerUserId, Guid idempotencyKey, CancellationToken cancellationToken)
+        {
+            CallCount++;
+            return CallCount <= failures
+                ? Task.FromException(new InvalidOperationException("Wrapped persistence error", new SimulatedDeadlockException()))
+                : Task.CompletedTask;
+        }
+    }
+
     [Fact]
     public async Task Handle_ExplanationProviderSucceeds_PersistsAndReturnsValidatedText()
     {

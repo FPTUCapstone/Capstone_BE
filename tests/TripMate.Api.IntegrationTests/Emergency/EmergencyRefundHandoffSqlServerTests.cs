@@ -76,6 +76,60 @@ public sealed class EmergencyRefundHandoffSqlServerTests
             .Should().NotContain(PaymentStatus.Refunded, "UC-70 never settles a refund itself");
     }
 
+    /// <summary>
+    /// BR-139: TripMate refunds the Traveler in full, but the part it had already transferred to the
+    /// Tour Operator must come back. A weather cancellation must record that share and its return
+    /// deadline exactly like an ordinary cancellation, or TripMate silently absorbs the advance.
+    /// </summary>
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task CancelBeforeDeparture_RecordsTheOperatorReturnShare_WhenTheAdvanceWasSettled()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database);
+        const decimal advance = 1_750_000m; // 70% of the 2,500,000 already transferred for the first paid booking
+
+        await using (var payouts = database.CreateDbContext())
+        {
+            var batch = PayoutBatch.Create(DateOnly.FromDateTime(Now.UtcDateTime), seed.OperatorId, Now);
+            payouts.PayoutBatches.Add(batch);
+            await payouts.SaveChangesAsync();
+            var settlement = PayoutSettlement.Create(batch.Id, seed.PaidBookingIds[0], seed.OperatorId,
+                DateOnly.FromDateTime(Now.UtcDateTime), PayoutSettlementKind.Advance, advance, 0m, 0m,
+                advance, 0m, advance, Now);
+            batch.AddSettlement(settlement);
+            payouts.PayoutSettlements.Add(settlement);
+            await payouts.SaveChangesAsync();
+            batch.MarkSettled("transfer-advance", Now);
+            await payouts.SaveChangesAsync();
+        }
+
+        await using (var db = database.CreateDbContext())
+        {
+            var impact = await new GetEmergencyTourImpactQueryHandler(db, OperatorUser(seed.OperatorId), new FixedClock(Now))
+                .Handle(new GetEmergencyTourImpactQuery(seed.TourId, seed.ScheduleId), CancellationToken.None);
+            impact.IsSuccess.Should().BeTrue("{0}", impact.ErrorMessage);
+            var result = await Handler(db, seed.OperatorId).Handle(new CancelBeforeDepartureCommand(
+                seed.TourId, seed.ScheduleId, Guid.NewGuid(), impact.Value.ImpactVersion,
+                EmergencyTourReason.WeatherEmergency, "Typhoon makes the departure unsafe.", "0900000000"),
+                CancellationToken.None);
+            result.IsSuccess.Should().BeTrue("{0}", result.ErrorMessage);
+        }
+
+        await using var verify = database.CreateDbContext();
+        var settled = await verify.Refunds.AsNoTracking()
+            .SingleAsync(refund => refund.BookingId == seed.PaidBookingIds[0]);
+        settled.OperatorReturnShare.Should().Be(advance);
+        settled.ReturnDeadlineAtUtc.Should().NotBeNull();
+        settled.Status.Should().Be(RefundStatus.AwaitingPartnerReturn);
+
+        var notTransferred = await verify.Refunds.AsNoTracking()
+            .SingleAsync(refund => refund.BookingId == seed.PaidBookingIds[1]);
+        notTransferred.OperatorReturnShare.Should().Be(0m);
+        notTransferred.ReturnDeadlineAtUtc.Should().BeNull();
+        notTransferred.Status.Should().Be(RefundStatus.Pending);
+    }
+
     private static EmergencyTourCommandHandler Handler(IApplicationDbContext db, long operatorId) =>
         new(db, OperatorUser(operatorId), new FixedClock(Now), new PasswordHasherService(), new NoOpReviewNotifier());
 

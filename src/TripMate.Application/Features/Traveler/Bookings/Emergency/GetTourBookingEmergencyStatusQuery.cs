@@ -42,8 +42,7 @@ public sealed record TourBookingEmergencyStatusResponse(
     string? EmergencyContact,
     DateTimeOffset CommittedAtUtc,
     DateTimeOffset? AcknowledgedAtUtc = null,
-    string RefundHandling = EmergencyRefundHandling.NotApplicable,
-    long? TourId = null);
+    string RefundHandling = EmergencyRefundHandling.NotApplicable);
 
 public sealed class GetTourBookingEmergencyStatusQueryHandler(
     IApplicationDbContext dbContext,
@@ -72,7 +71,6 @@ public sealed class GetTourBookingEmergencyStatusQueryHandler(
             {
                 booking.Id,
                 booking.TourScheduleId,
-                booking.TourSchedule.TourId,
                 BookingStatus = booking.Status,
                 ScheduleStatus = booking.TourSchedule.Status,
                 TotalTicketCount = booking.Tickets.Count,
@@ -118,8 +116,7 @@ public sealed class GetTourBookingEmergencyStatusQueryHandler(
             operation.EmergencyContact,
             operation.CommittedAtUtc,
             result.EmergencyNoticeAcknowledgedAtUtc,
-            refundHandling,
-            result.TourId));
+            refundHandling));
     }
 
     private static Result<TourBookingEmergencyStatusResponse> Failure(string code, string message) =>
