@@ -565,6 +565,7 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
                 or NavigationErrorCodes.ActiveSessionExists
                 or NavigationErrorCodes.IdempotencyKeyPayloadMismatch
                 or NavigationErrorCodes.ItemAlreadyReached
+                or NavigationErrorCodes.TripAlreadyFinished
                 or NavigationErrorCodes.SessionCompleted => StatusCodes.Status409Conflict,
             NavigationErrorCodes.NoNavigableItems
                 or NavigationErrorCodes.ItineraryScheduleIncomplete
