@@ -187,6 +187,8 @@ public class TestDbContext(
 
     public DbSet<ServiceBooking> ServiceBookings => Set<ServiceBooking>();
 
+    public DbSet<ServiceCommissionStatement> ServiceCommissionStatements => Set<ServiceCommissionStatement>();
+
     public DbSet<ClosedStatisticalPeriod> ClosedStatisticalPeriods => Set<ClosedStatisticalPeriod>();
 
     public DbSet<StatisticalReportSnapshot> StatisticalReportSnapshots => Set<StatisticalReportSnapshot>();
