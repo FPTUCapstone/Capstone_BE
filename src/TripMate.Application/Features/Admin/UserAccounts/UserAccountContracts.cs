@@ -9,6 +9,7 @@ public static class UserAccountErrors
     public const string Forbidden = "account_management.forbidden";
     public const string NotFound = "account_management.not_found";
     public const string InvalidRequest = "account_management.invalid_request";
+    public const string InvalidDateRange = "account_management.invalid_date_range";
     public const string Conflict = "account_management.conflict";
     public const string OutstandingDebt = "account_management.outstanding_debt";
     public const string ProviderSettlementUnavailable = "account_management.provider_settlement_unavailable";
@@ -18,8 +19,8 @@ public sealed record UserAccountDto(string UserId, string FullName, string? Emai
     string Status, DateTime CreatedAtUtc, DateTime? LastLoginAtUtc);
 public sealed record UserAccountPageDto(int Page, int PageSize, int TotalCount, int TotalPages,
     IReadOnlyList<UserAccountDto> Items);
-public sealed record AccountModerationDto(string Action, string? Reason, DateTime AtUtc);
-public sealed record UserAccountDetailDto(UserAccountDto Account, int BookingCount,
+public sealed record AccountModerationDto(string Action, string ActorAttribution, string? Reason, DateTime AtUtc);
+public sealed record UserAccountDetailDto(UserAccountDto Account, int? BookingCount,
     IReadOnlyList<AccountModerationDto> ModerationHistory);
 
 public sealed record ListUserAccountsQuery(int Page = 1, int PageSize = 20,

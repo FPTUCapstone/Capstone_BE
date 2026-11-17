@@ -27,6 +27,7 @@ public sealed class AdminUserAccountsController(ISender sender) : ApiControllerB
     public const string UserIdRouteValueName = "userId";
 
     [HttpGet]
+    [ForbiddenProblemDetails(UserAccountErrors.Forbidden, "Access denied.")]
     [ProducesResponseType<UserAccountPageDto>(StatusCodes.Status200OK)]
     public async Task<IActionResult> List([FromQuery] ListUserAccountsQuery query, CancellationToken ct)
     {
@@ -36,6 +37,7 @@ public sealed class AdminUserAccountsController(ISender sender) : ApiControllerB
     }
 
     [HttpGet("{userId:long}")]
+    [ForbiddenProblemDetails(UserAccountErrors.Forbidden, "Access denied.")]
     [ProducesResponseType<UserAccountDetailDto>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Detail(long userId, CancellationToken ct)
     {
