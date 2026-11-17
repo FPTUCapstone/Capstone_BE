@@ -104,6 +104,33 @@ public sealed class TravelerPartialRefundProposalEndpointTests
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
+    [Theory]
+    [InlineData("GET", "")]
+    [InlineData("POST", "/response")]
+    public async Task Anonymous_IsUnauthorizedWithTheFeatureCode(string method, string suffix)
+    {
+        await using var factory = CreateFactory(out _);
+        using var client = factory.CreateClient();
+
+        using var response = await client.SendAsync(
+            new HttpRequestMessage(new HttpMethod(method), $"{Url}{suffix}"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await ErrorCodeAsync(response)).Should().Be(PartialRefundProposalErrorCodes.Unauthorized);
+    }
+
+    [Fact]
+    public async Task NonTraveler_IsForbiddenWithTheFeatureCode()
+    {
+        await using var factory = CreateFactory(out _);
+        using var client = factory.CreateAuthenticatedClient(22, UserRole.TourOperator);
+
+        var response = await client.GetAsync(Url);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await ErrorCodeAsync(response)).Should().Be(PartialRefundProposalErrorCodes.Forbidden);
+    }
+
     [Fact]
     public async Task Get_BeforeComplaintStoreIsAvailable_ReturnsNotFound()
     {
