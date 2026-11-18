@@ -343,6 +343,199 @@ public sealed class CheckInAuditHttpSqlFailureTests(ITestOutputHelper output) : 
         (await host.Redis.StreamLengthAsync($"{prefix}:rejections")).Should().Be(0);
     }
 
+    [SqlServerRedisFact]
+    public async Task Http_WrongSchedule_ReturnsConflictAndProjectsDurableRejection()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        SeededTicket fixture = await SeedAsync(database);
+        long otherScheduleId = await AddScheduleForSameTourAsync(database, fixture.Seed.ScheduleId, Departure.AddHours(2));
+        string prefix = Prefix("wrong-schedule");
+        await using var host = Host(database.ConnectionString, fixture.Seed.OperatorId, prefix);
+
+        using HttpResponseMessage response = await host.Client.PostAsJsonAsync(
+            Endpoint, new CheckInTravelerCommand(otherScheduleId, QrContent: fixture.Content));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("errorCode")
+            .GetString().Should().Be(CheckInErrorCodes.WrongSchedule);
+        await AssertUnusedAsync(database, fixture.TicketId, fixture.QrId);
+        await WaitForAuditCountAsync(database, 1);
+        await using var context = database.CreateDbContext();
+        (await context.AuditLogs.SingleAsync(a => a.JournalEventId != null)).Reason
+            .Should().Be(CheckInErrorCodes.WrongSchedule);
+    }
+
+    [SqlServerRedisFact]
+    public async Task Http_CancelledBooking_ReturnsConflictAndProjectsDurableRejection()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await TicketSqlServerSeed.CreateAsync(database, Departure);
+        long bookingId = await seed.AddBookingAsync(BookingStatus.Confirmed, PaymentStatus.Paid, ParticipantType.Adult);
+        long ticketId = await seed.AddTicketAsync(bookingId);
+        TicketQrCode qr = await IssueQrAsync(database, ticketId);
+        await database.ExecuteNonQueryAsync(
+            $"UPDATE commerce.Bookings SET status = 'Cancelled' WHERE booking_id = {bookingId};");
+        string prefix = Prefix("cancelled-booking");
+        await using var host = Host(database.ConnectionString, seed.OperatorId, prefix);
+
+        using HttpResponseMessage response = await host.Client.PostAsJsonAsync(
+            Endpoint, new CheckInTravelerCommand(seed.ScheduleId, QrContent: Codec().ContentFor(qr.QrToken, qr.Signature)));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("errorCode")
+            .GetString().Should().Be(CheckInErrorCodes.BookingCancelled);
+        await AssertUnusedAsync(database, ticketId, qr.Id);
+        await WaitForAuditCountAsync(database, 1);
+        await using var context = database.CreateDbContext();
+        (await context.AuditLogs.SingleAsync(a => a.JournalEventId != null)).Reason
+            .Should().Be(CheckInErrorCodes.BookingCancelled);
+    }
+
+    [SqlServerRedisFact]
+    public async Task Http_AfterDepartureWindow_ReturnsConflictAndProjectsDurableRejection()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        SeededTicket fixture = await SeedAsync(database);
+        string prefix = Prefix("after-window");
+        await using var host = Host(database.ConnectionString, fixture.Seed.OperatorId, prefix,
+            now: Departure.AddDays(1));
+
+        using HttpResponseMessage response = await ScanAsync(host, fixture);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("errorCode")
+            .GetString().Should().Be(CheckInErrorCodes.DepartureNotToday);
+        await AssertUnusedAsync(database, fixture.TicketId, fixture.QrId);
+        await WaitForAuditCountAsync(database, 1);
+        await using var context = database.CreateDbContext();
+        (await context.AuditLogs.SingleAsync(a => a.JournalEventId != null)).Reason
+            .Should().Be(CheckInErrorCodes.DepartureNotToday);
+    }
+
+    [SqlServerRedisFact]
+    public async Task Http_DepartureCounterReconciliation_MatchesAcrossScanProgressDeparturesAndSql()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await TicketSqlServerSeed.CreateAsync(database, Departure);
+        long bookingA = await seed.AddBookingAsync(BookingStatus.Confirmed, PaymentStatus.Paid,
+            ParticipantType.Adult, ParticipantType.Adult, ParticipantType.Child); // 3 pax
+        long ticketA = await seed.AddTicketAsync(bookingA);
+        TicketQrCode qrA = await IssueQrAsync(database, ticketA);
+
+        long bookingB = await seed.AddBookingAsync(BookingStatus.Confirmed, PaymentStatus.Paid,
+            ParticipantType.Adult, ParticipantType.Child); // 2 pax
+        long ticketB = await seed.AddTicketAsync(bookingB);
+        TicketQrCode qrB = await IssueQrAsync(database, ticketB);
+
+        long cancelledBooking = await seed.AddBookingAsync(BookingStatus.Confirmed, PaymentStatus.Paid,
+            ParticipantType.Adult, ParticipantType.Adult, ParticipantType.Adult, ParticipantType.Adult); // 4 pax excluded once cancelled
+        long cancelledTicket = await seed.AddTicketAsync(cancelledBooking);
+        TicketQrCode cancelledQr = await IssueQrAsync(database, cancelledTicket);
+        await database.ExecuteNonQueryAsync(
+            $"UPDATE commerce.Bookings SET status = 'Cancelled' WHERE booking_id = {cancelledBooking};");
+
+        await seed.AddBookingAsync(BookingStatus.Confirmed, PaymentStatus.Unpaid, ParticipantType.Adult); // 1 pax excluded
+
+        string bookingCodeB;
+        await using (var context = database.CreateDbContext())
+        {
+            bookingCodeB = await context.Bookings.Where(b => b.Id == bookingB)
+                .Select(b => b.BookingCode).SingleAsync();
+        }
+
+        string prefix = Prefix("counter-reconciliation");
+        await using var host = Host(database.ConnectionString, seed.OperatorId, prefix);
+
+        // Initial progress: 0/5 checked in, 5 waiting.
+        DepartureProgressDto initialProgress = (await host.Client.GetFromJsonAsync<DepartureProgressDto>(
+            $"/api/v1/operator/check-in/schedules/{seed.ScheduleId}/progress"))!;
+        initialProgress.CheckedInParticipants.Should().Be(0);
+        initialProgress.TotalEligibleParticipants.Should().Be(5);
+        initialProgress.WaitingParticipants.Should().Be(5);
+
+        OperatorDepartureSummaryDto[] initialDepartures = (await host.Client.GetFromJsonAsync<OperatorDepartureSummaryDto[]>(
+            "/api/v1/operator/check-in/departures?targetDate=2026-10-30"))!;
+        initialDepartures.Should().ContainSingle(d =>
+            d.ScheduleId == seed.ScheduleId
+            && d.CheckedInParticipants == 0
+            && d.TotalEligibleParticipants == 5
+            && d.WaitingParticipants == 5);
+
+        // 1. QR scan Booking A (3 pax).
+        using HttpResponseMessage scanAResponse = await host.Client.PostAsJsonAsync(
+            Endpoint, new CheckInTravelerCommand(seed.ScheduleId, QrContent: Codec().ContentFor(qrA.QrToken, qrA.Signature)));
+        scanAResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        CheckInResultDto scanA = (await scanAResponse.Content.ReadFromJsonAsync<CheckInResultDto>())!;
+        scanA.ParticipantCount.Should().Be(3);
+        scanA.Departure.CheckedInParticipants.Should().Be(3);
+        scanA.Departure.TotalEligibleParticipants.Should().Be(5);
+        scanA.Departure.WaitingParticipants.Should().Be(2);
+
+        // 2. Rejected scans (duplicate A, invalid QR, cancelled booking) must NOT alter counters.
+        (await host.Client.PostAsJsonAsync(Endpoint, new CheckInTravelerCommand(seed.ScheduleId,
+            QrContent: Codec().ContentFor(qrA.QrToken, qrA.Signature)))).StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await host.Client.PostAsJsonAsync(Endpoint, new CheckInTravelerCommand(seed.ScheduleId,
+            QrContent: "invalid.qr.payload"))).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await host.Client.PostAsJsonAsync(Endpoint, new CheckInTravelerCommand(seed.ScheduleId,
+            QrContent: Codec().ContentFor(cancelledQr.QrToken, cancelledQr.Signature)))).StatusCode.Should().Be(HttpStatusCode.Conflict);
+
+        DepartureProgressDto afterRejects = (await host.Client.GetFromJsonAsync<DepartureProgressDto>(
+            $"/api/v1/operator/check-in/schedules/{seed.ScheduleId}/progress"))!;
+        afterRejects.CheckedInParticipants.Should().Be(3);
+        afterRejects.TotalEligibleParticipants.Should().Be(5);
+        afterRejects.WaitingParticipants.Should().Be(2);
+
+        // 3. Manual booking-code check-in for Booking B (2 pax) reconciles to 5/5/0.
+        using HttpResponseMessage scanBResponse = await host.Client.PostAsJsonAsync(
+            Endpoint, new CheckInTravelerCommand(seed.ScheduleId, BookingCode: bookingCodeB));
+        scanBResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        CheckInResultDto scanB = (await scanBResponse.Content.ReadFromJsonAsync<CheckInResultDto>())!;
+        scanB.ParticipantCount.Should().Be(2);
+        scanB.Departure.CheckedInParticipants.Should().Be(5);
+        scanB.Departure.TotalEligibleParticipants.Should().Be(5);
+        scanB.Departure.WaitingParticipants.Should().Be(0);
+
+        DepartureProgressDto finalProgress = (await host.Client.GetFromJsonAsync<DepartureProgressDto>(
+            $"/api/v1/operator/check-in/schedules/{seed.ScheduleId}/progress"))!;
+        finalProgress.Should().Be(scanB.Departure);
+
+        OperatorDepartureSummaryDto[] finalDepartures = (await host.Client.GetFromJsonAsync<OperatorDepartureSummaryDto[]>(
+            "/api/v1/operator/check-in/departures?targetDate=2026-10-30"))!;
+        finalDepartures.Should().ContainSingle(d =>
+            d.ScheduleId == seed.ScheduleId
+            && d.CheckedInParticipants == 5
+            && d.TotalEligibleParticipants == 5
+            && d.WaitingParticipants == 0);
+
+        await AssertUsedOnceAsync(database, ticketA, qrA.Id);
+        await AssertUsedOnceAsync(database, ticketB, qrB.Id);
+        await AssertUnusedAsync(database, cancelledTicket, cancelledQr.Id);
+        await WaitForAuditCountAsync(database, 3);
+    }
+
+    [SqlServerRedisFact]
+    public async Task Http_AdmissionOnlyIndeterminateAttempt_NeverProjectsAsRejectedInSql()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        SeededTicket fixture = await SeedAsync(database);
+        string prefix = Prefix("admission-only");
+        string unavailableConnection = UnavailableConnection(database.ConnectionString);
+
+        await using (var failedHost = Host(unavailableConnection, fixture.Seed.OperatorId, prefix))
+        {
+            using HttpResponseMessage failed = await ScanAsync(failedHost, fixture);
+            await AssertMsg127Async(failed);
+            (await failedHost.Redis.StreamLengthAsync($"{prefix}:admissions")).Should().Be(1);
+            (await failedHost.Redis.StreamLengthAsync($"{prefix}:rejections")).Should().Be(0);
+        }
+
+        // Start a healthy host sharing the same prefix so the projection worker runs against recovered SQL.
+        await using var healthyHost = Host(database.ConnectionString, fixture.Seed.OperatorId, prefix);
+        await WaitForAuditCountAsync(database, 0, stableChecks: 5);
+        (await healthyHost.Redis.StreamLengthAsync($"{prefix}:admissions")).Should().Be(1);
+        (await healthyHost.Redis.StreamLengthAsync($"{prefix}:rejections")).Should().Be(0);
+    }
+
     private HttpTestHost Host(
         string sqlConnection,
         long operatorId,
@@ -462,15 +655,38 @@ public sealed class CheckInAuditHttpSqlFailureTests(ITestOutputHelper output) : 
         long bookingId = await seed.AddBookingAsync(
             BookingStatus.Confirmed, PaymentStatus.Paid, ParticipantType.Adult);
         long ticketId = await seed.AddTicketAsync(bookingId);
+        TicketQrCode qr = await IssueQrAsync(database, ticketId);
+        return new SeededTicket(
+            seed, ticketId, qr.Id, Codec().ContentFor(qr.QrToken, qr.Signature));
+    }
+
+    private static async Task<TicketQrCode> IssueQrAsync(SqlServerTestDatabase database, long ticketId)
+    {
         await using var context = database.CreateDbContext();
-        var codec = Codec();
         var issuer = new TicketQrIssuer(
-            context, codec, new SqlServerTicketQrPersistenceErrorClassifier());
+            context, Codec(), new SqlServerTicketQrPersistenceErrorClassifier());
         TicketQrCode? qr = await issuer.EnsureActiveAsync(
             ticketId, Departure.AddMinutes(-5), CancellationToken.None);
         qr.Should().NotBeNull();
-        return new SeededTicket(
-            seed, ticketId, qr!.Id, codec.ContentFor(qr.QrToken, qr.Signature));
+        return qr!;
+    }
+
+    private static async Task<long> AddScheduleForSameTourAsync(
+        SqlServerTestDatabase database,
+        long existingScheduleId,
+        DateTimeOffset startAtUtc)
+    {
+        await using var context = database.CreateDbContext();
+        long tourId = await context.TourSchedules.AsNoTracking()
+            .Where(s => s.Id == existingScheduleId)
+            .Select(s => s.TourId)
+            .SingleAsync();
+        var schedule = TourSchedule.Create(startAtUtc, startAtUtc.AddHours(6), "Second Gate", 20,
+            startAtUtc.AddDays(-30), adultPrice: 1_000_000m);
+        typeof(TourSchedule).GetProperty(nameof(TourSchedule.TourId))!.SetValue(schedule, tourId);
+        context.TourSchedules.Add(schedule);
+        await context.SaveChangesAsync();
+        return schedule.Id;
     }
 
     private static AesGcmHmacTicketQrCodec Codec() => new(Options.Create(new TicketQrOptions
