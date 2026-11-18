@@ -6,6 +6,12 @@ public sealed class CheckInAuditJournalMetrics
     public long Projected => Interlocked.Read(ref _projected);
     public long Duplicates => Interlocked.Read(ref _duplicates);
     public long ProjectionFailures => Interlocked.Read(ref _projectionFailures);
+
+    /// <summary>
+    /// Counts malformed or semantically conflicting audit delivery encounters across both fresh
+    /// reads and reclaimed pending deliveries (stateless; avoids an unbounded in-memory seen-ID
+    /// set). Pair with Redis <c>XPENDING</c> depth for the distinct count of retained entries.
+    /// </summary>
     public long Conflicts => Interlocked.Read(ref _conflicts);
     public long AcknowledgementMisses => Interlocked.Read(ref _acknowledgementMisses);
     internal void RecordProjected() => Interlocked.Increment(ref _projected);
