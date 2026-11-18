@@ -22,6 +22,9 @@ public sealed class RouteSegmentConfiguration : IEntityTypeConfiguration<RouteSe
         builder.Property(route => route.EstimatedDurationMinutes).HasColumnName("est_duration_minutes");
         builder.Property(route => route.Status).HasColumnName("status").HasConversion<string>().HasMaxLength(10).IsUnicode(false);
         builder.Property(route => route.RouteNote).HasColumnName("route_note").HasMaxLength(RouteSegment.NoteMaxLength);
+        builder.Property(route => route.RequiresReview).HasColumnName("requires_review").HasDefaultValue(false);
+        builder.Property(route => route.ReviewFlaggedAtUtc).HasColumnName("review_flagged_at_utc").AsUtcDateTime2();
+        builder.Property(route => route.ReviewFlagReason).HasColumnName("review_flag_reason").HasMaxLength(500);
         builder.Property(route => route.CreatedById).HasColumnName("created_by");
         builder.HasOne<TripMate.Domain.Entities.User>().WithMany().HasForeignKey(route => route.CreatedById).OnDelete(DeleteBehavior.NoAction);
         builder.Property(route => route.IdempotencyKey).HasColumnName("idempotency_key");
