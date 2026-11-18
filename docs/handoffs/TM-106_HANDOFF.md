@@ -1,6 +1,8 @@
 # TM-106 — Approve Tour Post (UC-60) Technical & Ownership Handoff
 
 > **Handoff Status:** Backend locally verified within TM-106 scope; Draft PR published for independent external review, remote CI observation, and continuation by the receiving team member. **Not merged, not deployed, not Jira Done, and not full UC-60 acceptance.**
+>
+> **Updated 2026-11-18 (receiving member):** CI formatting/fixture blockers fixed, TM-107 Reject brought under the shared serializable invariant, SRS source still unverified, Booking blocker still open. See **Section J** for the dated log and evidence; Sections A–I are the original handoff record.
 
 ---
 
@@ -244,7 +246,9 @@ Because Owner-approved immediate publication keeps an approved tour in `TourStat
 ## H. Mandatory Open Defects, CI Blockers, and Dependencies
 
 ### BLOCKER A — TM-107 Approve/Reject Concurrency Race (`Severity: HIGH`)
-- **Owning Task:** `TM-107` (Reject Tour Post) — **not** modified in TM-106.
+> **UPDATE 2026-11-18 — RESOLVED in this PR by Owner-directed integration (commit `796b49e5`, see Section J).** The text below is preserved as the historical record of the defect as handed over; `RejectTourCommandHandler` now runs under the same serializable transaction, bounded deadlock retry and `MSG127` semantics as Approve.
+
+- **Owning Task:** `TM-107` (Reject Tour Post) — *(at handoff)* **not** modified in TM-106.
 - **Affected File:** `src/TripMate.Application/Features/Admin/Tours/Review/TourReviewCommandHandlers.cs` (`RejectTourCommandHandler`).
 - **Problem:** `RejectTourCommandHandler` does not execute inside `ExecuteInSerializableTransactionAsync` and has no deadlock retry or `MSG127` persistence-failure handling matching `ApproveTourCommandHandler`.
 - **Observed SQL Server Failure Modes:**
@@ -263,6 +267,8 @@ Because Owner-approved immediate publication keeps an approved tour in `TourStat
 - **Required Coordination:** Coordinate with Traveler Booking owner to enforce `OperatorProfile.ApprovalStatus == Approved` and `OperatorProfile.User.Status == Active` on quote/create paths.
 
 ### BLOCKER C — SQL Server Diagnostic Test in GitHub Actions CI (`Severity: CI BLOCKER`)
+> **UPDATE 2026-11-18 — PARTIALLY RESOLVED.** The Approve/Reject diagnostic named below was converted into the acceptance test `ConcurrentApproveAndReject_OnlyOneDecisionCommits_AndLoserReceivesConflict` once Blocker A was fixed (Section J). The **Booking** diagnostic (`Diagnostic_BookingAfterOperatorLocked_ReproducesCrossTaskBookingDefect`) remains `DefectReproduction` inside the blocking `Category=SqlServer` filter and still needs Owner disposition (Blocker B). Original text preserved below.
+
 - **CI Workflow & Filter:** `.github/workflows/backend-tests.yml` runs:
   `dotnet test tests/TripMate.Api.IntegrationTests/TripMate.Api.IntegrationTests.csproj -c Release --no-restore --filter "Category=SqlServer"`
   and fails the job if `failed > 0 || skipped > 0 || notExecuted > 0`.
@@ -318,3 +324,50 @@ Move the Draft PR to **Ready for Review** only after:
 
 ### Step 6 — Final Project Acceptance
 - Merge, deployment, full UC-60 SRS acceptance, and Jira `Done` transition are separate later governance decisions after review approval and cross-task/frontend integration.
+
+
+---
+
+## J. Continuation Log — 2026-11-18 (receiving member)
+
+> Historical sections A–I are preserved unchanged except for the dated `UPDATE` notes on Blockers A and C. Evidence below is labelled **CI** (GitHub Actions) or **LOCAL** (disposable SQL Server database `TripMate_Test_<guid>`, Windows, UTC+7).
+
+### J.1 Commits added on top of handoff HEAD `61ef10dd`
+
+| Commit | Scope | Summary |
+|---|---|---|
+| `fca8eb13` | formatting only | Removed the final LF from 7 new `.cs` files (`.editorconfig`: `insert_final_newline = false` for `*.cs`). 7 lines changed, no logic. |
+| `8fd0b2cd` | test fixture only | `SeedPendingTourAsync` built the departure from an Unspecified-kind `DateTime`, which converts to `DateTimeOffset` using the **host** timezone. On a UTC runner the 08:00 departure became 15:00 Asia/Ho_Chi_Minh, so the 08:00/11:00 itinerary stops fell outside the departure window and `BookedTourItineraryTimeline.Plan` returned `stop_outside_departure_window` → `422 tour_booking.itinerary_not_bookable`. Departure is now pinned to `+07:00`. |
+| `796b49e5` | production + tests | **Owner-directed TM-107 integration.** `RejectTourCommandHandler` now uses `ExecuteInSerializableTransactionAsync`, bounded deadlock retry (3 attempts), `ClearTrackedEntities`, and `MSG127` on genuine persistence failures, mirroring Approve. Error codes, messages, validation and audit payloads unchanged. |
+
+### J.2 CI history (all on PR #188)
+
+| Run | Head SHA | Result | Notes |
+|---|---|---|---|
+| [44304659055](https://github.com/FPTUCapstone/Capstone_BE/actions/runs/44304659055) | `61ef10dd` | FAIL | 7× `FINALNEWLINE` in "Verify formatting of changed C# files". SQL/Redis/remaining tests `SKIPPED` (never ran). |
+| [44308874900](https://github.com/FPTUCapstone/Capstone_BE/actions/runs/44308874900) | `fca8eb13` | FAIL | Formatting PASS. SQL: 723 pass / **3 fail** / 0 skip (726). Failures: `UnpublishApprovedTour_...`, `Diagnostic_BookingAfterOperatorLocked_...`, `ApprovedTour_PublicVisibilityAndBookingFlow_...` — all `422 itinerary_not_bookable` (fixture timezone defect above). The Approve/Reject diagnostic **passed** in this run. |
+| [44318366637](https://github.com/FPTUCapstone/Capstone_BE/actions/runs/44318366637) | `8fd0b2cd` | **PASS** | Formatting PASS; SQL 726/0/0; Redis 28/0/0; remaining: CandidatePoolReplay 13, Infrastructure 1316 (3 skip), Application 5397, Api 1220 (5 skip), 0 failures. |
+| *(see PR checks for `796b49e5` and later)* | `796b49e5`+ | PENDING at time of writing | Do not treat as passing until the run completes. |
+
+### J.3 TM-107 integration evidence (LOCAL, `796b49e5`)
+
+- **Jira:** TM-107 `[UC-61] Reject Tour Post` is **Done** (assignee Phan Quoc Khanh); its handler already existed on `develop`, so integration = bringing it under the shared invariant, not merging a branch.
+- **Unit (Application, `FullyQualifiedName~Features.Admin.Tours.Review`):** 67 PASS (52 Approve/Unpublish + 15 new Reject). 6 of the 15 were red before the fix (transaction count, deadlock retry, retry exhaustion, MSG127, no-retry on storage failure, programming error not disguised).
+- **Unit regression (Application, excl. `Golden`):** 5,059 PASS (5,044 baseline + 15).
+- **API regression, non-SQL (`Admin` + `Tour`, excl. SqlServer/Redis):** 238 PASS, 17 SKIP, 0 FAIL.
+- **Real SQL Server, `ApproveTourSqlServerTests`:** 10 PASS, 0 FAIL, 0 SKIP; no `TripMate_Test_*` databases left behind.
+- **Red-green of the race test:** against the **old** Reject handler → `Approve 200 / Reject 500` (handoff "Mode B" reproduced, test FAIL). Against the fix → `Approve 200 / Reject 409`, `TourApproved=1`, `TourRejected=0`, final status `Approved`; 5/5 repeated runs identical.
+- **Not exercised:** the "Reject wins" ordering (the test asserts the symmetric branch but the barrier produced Approve-wins in every observed run). Final CI result for `796b49e5` is the authoritative check.
+
+### J.4 State of each handoff item
+
+| Item | State |
+|---|---|
+| Format / CI blockers from handoff | **Resolved** (run 44318366637 green at `8fd0b2cd`). |
+| Blocker A — TM-107 race | **Resolved** by `796b49e5` (pending CI confirmation on that SHA). |
+| Blocker B — Booking after Operator Locked | **Open**, owner = Booking. Still reproduced (`Quote 200`, `Create 201` for a hidden tour). `Diagnostic_BookingAfterOperatorLocked_...` remains inside the blocking `Category=SqlServer` filter and asserts the defect exists, so it will go red when Booking is fixed. **Needs Owner disposition** (separate diagnostic workflow, or flip to an acceptance test together with the Booking fix). No CI filter was changed. |
+| PC-03 notification | `DEFERRED_BY_OWNER_SCOPE` — not implemented. |
+| CR-05 / TM-38 Frontend | `FRONTEND_DEPENDENCY` — not implemented or verified. |
+| SRS source identity | **`SOURCE_NOT_AVAILABLE`** — the official binary (SHA-256 `a4ceabc0…8298`) was **not found**. Two files named `Report3_Software-Requirement-Specification.docx` exist on the receiving member's machine (`D:\Capstone_Project_Env\` and `D:\HoangTrinh05\`); they are byte-identical to each other (SHA-256 `424cc3ebac39328d1f93d4616694ad133f9731da1dc96bb9c9b29c5619fc7ada`) but match **neither** the official hash nor the previously inspected copy (`c7636775…`). Source identity is therefore **not** verified; the official file must be supplied by the Project Owner. Report 3 V2 was not used as a substitute. |
+| Draft → Ready for Review | **Not performed.** Requires Owner approval. |
+| Pre-existing `dotnet format TripMate.slnx --verify-no-changes` (whole solution) | Fails on 16 `WHITESPACE` files already on `develop`, none in this PR. CI only checks changed files; intentionally not touched. |
