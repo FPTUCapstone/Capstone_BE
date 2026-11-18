@@ -354,7 +354,8 @@ Move the Draft PR to **Ready for Review** only after:
 | [44304659055](https://github.com/FPTUCapstone/Capstone_BE/actions/runs/44304659055) | `61ef10dd` | FAIL | 7× `FINALNEWLINE` in "Verify formatting of changed C# files". SQL/Redis/remaining tests `SKIPPED` (never ran). |
 | [44308874900](https://github.com/FPTUCapstone/Capstone_BE/actions/runs/44308874900) | `fca8eb13` | FAIL | Formatting PASS. SQL: 723 pass / **3 fail** / 0 skip (726). Failures: `UnpublishApprovedTour_...`, `Diagnostic_BookingAfterOperatorLocked_...`, `ApprovedTour_PublicVisibilityAndBookingFlow_...` — all `422 itinerary_not_bookable` (fixture timezone defect above). The Approve/Reject diagnostic **passed** in this run. |
 | [44318366637](https://github.com/FPTUCapstone/Capstone_BE/actions/runs/44318366637) | `8fd0b2cd` | **PASS** | Formatting PASS; SQL 726/0/0; Redis 28/0/0; remaining: CandidatePoolReplay 13, Infrastructure 1316 (3 skip), Application 5397, Api 1220 (5 skip), 0 failures. |
-| *(see PR checks for `796b49e5` and later)* | `796b49e5`+ | PENDING at time of writing | Do not treat as passing until the run completes. |
+| [44336640180](https://github.com/FPTUCapstone/Capstone_BE/actions/runs/44336640180) | `eb791922` | CANCELLED (by receiving member) | Superseded by the next push and was blocking the newer queued run (the workflow does not cancel in-progress runs). Not a pass and not a failure. |
+| [44348087250](https://github.com/FPTUCapstone/Capstone_BE/actions/runs/44348087250) | `f780bfdd` | **PASS** | [Job log](https://github.com/FPTUCapstone/Capstone_BE/actions/runs/44348087250/job/134956387891). Formatting PASS; SQL **726 / 0 fail / 0 skip**; Redis **28 / 0 / 0**; remaining: CandidatePoolReplay 13, Infrastructure 1,316 (3 skip), Application 5,425, Api 1,220 (5 skip), **0 failures**. Contains all code commits (`796b49e5`, `23edeb01`, `f6172e1e`). |
 
 ### J.3 TM-107 integration evidence (LOCAL, `796b49e5`)
 
@@ -371,10 +372,31 @@ Move the Draft PR to **Ready for Review** only after:
 | Item | State |
 |---|---|
 | Format / CI blockers from handoff | **Resolved** (run 44318366637 green at `8fd0b2cd`). |
-| Blocker A — TM-107 race | **Resolved** by `796b49e5` (pending CI confirmation on that SHA). |
-| Blocker B — Booking after Operator Locked | **Resolved** by `23edeb01` (CI confirmation pending). Local red→green: Quote 200 / Create 201 before; 404 / 404, 0 bookings, `ReservedCapacity = 0` after. The Booking diagnostic was converted to an acceptance test, so **no `DefectReproduction` test remains in the blocking `Category=SqlServer` filter** and no CI policy change was needed. Unit: 8 new Quote/Create theory cases (red before the fix). Touches Booking handlers owned by another task by Owner direction; reviewers from that area should be added. |
+| Blocker A — TM-107 race | **Resolved** by `796b49e5`; CI-confirmed by run 44348087250 (SQL 726/0/0). |
+| Blocker B — Booking after Operator Locked | **Resolved** by `23edeb01`; CI-confirmed by run 44348087250 (SQL 726/0/0). Local red→green: Quote 200 / Create 201 before; 404 / 404, 0 bookings, `ReservedCapacity = 0` after. The Booking diagnostic was converted to an acceptance test, so **no `DefectReproduction` test remains in the blocking `Category=SqlServer` filter** and no CI policy change was needed. Unit: 8 new Quote/Create theory cases (red before the fix). Touches Booking handlers owned by another task by Owner direction; reviewers from that area should be added. |
 | PC-03 notification | **Partial.** In-app `TourApproved` notice implemented (atomic with the approval; no schema change). **Email delivery not implemented** (worker only handles `AccountUnlocked`). Notice text provisional until the official SRS message is available. |
 | CR-05 / TM-38 Frontend | `FRONTEND_DEPENDENCY` — not implemented or verified. |
 | SRS source identity | **`SOURCE_NOT_AVAILABLE`** — the official binary (SHA-256 `a4ceabc0…8298`) was **not found**. Two files named `Report3_Software-Requirement-Specification.docx` exist on the receiving member's machine (`D:\Capstone_Project_Env\` and `D:\HoangTrinh05\`); they are byte-identical to each other (SHA-256 `424cc3ebac39328d1f93d4616694ad133f9731da1dc96bb9c9b29c5619fc7ada`) but match **neither** the official hash nor the previously inspected copy (`c7636775…`). Source identity is therefore **not** verified; the official file must be supplied by the Project Owner. Report 3 V2 was not used as a substitute. |
-| Draft → Ready for Review | **Not performed.** Requires Owner approval. |
+| Draft → Ready for Review | See J.5. Performed only after CI is green on the final head and per the requester's instruction; reviewers are **not** assigned. |
 | Pre-existing `dotnet format TripMate.slnx --verify-no-changes` (whole solution) | Fails on 16 `WHITESPACE` files already on `develop`, none in this PR. CI only checks changed files; intentionally not touched. |
+
+### J.5 Acceptance against the Definition of Ready (2026-11-19)
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| 1 | Formatting passes | **PASS** | Run 44348087250 "Verify formatting of changed C# files" = success; local `dotnet format --verify-no-changes --include <24 changed files>` exit 0. |
+| 2 | Required Backend tests executed | **PASS** | Local on disposable SQL Server DBs and in CI (J.2, J.3). Red→green observed for Reject race, Reject unit tests, Booking eligibility, PC-03 notice. |
+| 3 | Actual CI results known | **PASS** | Run 44348087250 on `f780bfdd`: SQL 726/0/0, Redis 28/0/0, remaining 0 failures. |
+| 4 | No unresolved in-scope critical defects | **PASS (known)** | Blockers A and B resolved and CI-confirmed. No `DefectReproduction` test remains in the blocking filter. |
+| 5 | Cross-task blockers have an approved disposition | **PASS with caveat** | A (TM-107) and B (Booking) were fixed in this PR on explicit requester direction. PC-03 email and CR-05 (TM-38 Frontend) remain deferred / not implemented. |
+| 6 | PR description and handoff accurate | **PASS** | Updated alongside this section; historical text preserved. |
+| 7 | No unauthorized code modifications | **PASS with caveat** | Production files outside the original TM-106 set were changed (`RejectTourCommandHandler`, `QuoteTourBookingQueryHandler`, `CreateTourBookingCommandHandler`, `TourVisibility`, `Notification` constants) **by requester direction**; reviewers from those areas should confirm. No migration, no CI workflow change, no SRS change. |
+| 8 | Requested reviewers identified and authorized | **NOT DONE** | No reviewers assigned; the team must choose them. |
+| 9 | Project Owner approves the review transition | **Requester instruction only** | The session user asked to create/finalize the PR; their Owner status was not independently verified. |
+
+**What this acceptance does NOT cover (UC-60 is not fully accepted):**
+- PC-03 **email** delivery (only the in-app notice exists; wording provisional).
+- CR-05 / TM-38 Frontend integration (Staff UI, confirmation modal, MSG144).
+- SRS source identity: official binary (`a4ceabc0…`) still not located (`SOURCE_NOT_AVAILABLE`).
+- Jira transition, merge and deployment (separate governance decisions; develop auto-deploys, see the migrate-before-merge note — this PR has **no migration**).
+- Overlap to watch: PR #182 (TM-228) also edits `UserAccountBoundaryTests.cs`; `git merge-tree` of #182 with this branch is currently conflict-free.
