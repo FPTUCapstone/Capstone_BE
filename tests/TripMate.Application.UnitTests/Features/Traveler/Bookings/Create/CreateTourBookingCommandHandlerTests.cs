@@ -21,7 +21,7 @@ public sealed class CreateTourBookingCommandHandlerTests
     {
         await using var db = TestDbContext.Create();
         var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
-        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        var tour = TourBookingTestData.SeedBookableTour(2, 1_000_000m);
         db.Tours.Add(tour);
         await db.SaveChangesAsync();
         var schedule = TourBookingTestData.SeedSchedule(tour, Now.AddDays(5), totalCapacity: 10, reservedCapacity: 0);
@@ -45,7 +45,7 @@ public sealed class CreateTourBookingCommandHandlerTests
     {
         await using var db = TestDbContext.Create();
         var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
-        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        var tour = TourBookingTestData.SeedBookableTour(2, 1_000_000m);
         db.Tours.Add(tour);
         await db.SaveChangesAsync();
         var schedule = TourBookingTestData.SeedSchedule(tour, Now.AddDays(5), totalCapacity: 10, reservedCapacity: 0);
@@ -72,7 +72,7 @@ public sealed class CreateTourBookingCommandHandlerTests
     {
         await using var db = TestDbContext.Create();
         var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
-        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        var tour = TourBookingTestData.SeedBookableTour(2, 1_000_000m);
         db.Tours.Add(tour);
         await db.SaveChangesAsync();
         var schedule = TourBookingTestData.SeedSchedule(tour, Now.AddDays(5), 10, 0);
@@ -97,7 +97,7 @@ public sealed class CreateTourBookingCommandHandlerTests
     {
         await using var db = TestDbContext.Create();
         var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
-        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        var tour = TourBookingTestData.SeedBookableTour(2, 1_000_000m);
         db.Tours.Add(tour);
         await db.SaveChangesAsync();
         var schedule = TourBookingTestData.SeedSchedule(tour, Now.AddDays(5), 10, 0);
@@ -119,7 +119,7 @@ public sealed class CreateTourBookingCommandHandlerTests
     {
         await using var db = TestDbContext.Create();
         var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
-        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        var tour = TourBookingTestData.SeedBookableTour(2, 1_000_000m);
         db.Tours.Add(tour);
         await db.SaveChangesAsync();
         var schedule = TourBookingTestData.SeedSchedule(tour, Now.AddDays(5), totalCapacity: 1, reservedCapacity: 1);
@@ -138,7 +138,7 @@ public sealed class CreateTourBookingCommandHandlerTests
     {
         await using var db = TestDbContext.Create();
         var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
-        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        var tour = TourBookingTestData.SeedBookableTour(2, 1_000_000m);
         db.Tours.Add(tour);
         await db.SaveChangesAsync();
         var schedule = TourBookingTestData.SeedSchedule(tour, Now.AddDays(5), 10, 0);
@@ -162,7 +162,7 @@ public sealed class CreateTourBookingCommandHandlerTests
     {
         await using var db = TestDbContext.Create();
         var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
-        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        var tour = TourBookingTestData.SeedBookableTour(2, 1_000_000m);
         db.Tours.Add(tour);
         await db.SaveChangesAsync();
         var schedule = TourBookingTestData.SeedSchedule(tour, Now.AddDays(5), totalCapacity: 10, reservedCapacity: 0);
@@ -195,7 +195,7 @@ public sealed class CreateTourBookingCommandHandlerTests
     {
         await using var db = TestDbContext.Create();
         var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
-        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        var tour = TourBookingTestData.SeedBookableTour(2, 1_000_000m);
         db.Tours.Add(tour);
         await db.SaveChangesAsync();
         var invalidSchedule = TourBookingTestData.SeedSchedule(
@@ -236,7 +236,7 @@ public sealed class CreateTourBookingCommandHandlerTests
     {
         await using var db = TestDbContext.Create();
         var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
-        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        var tour = TourBookingTestData.SeedBookableTour(2, 1_000_000m);
         db.Tours.Add(tour);
         await db.SaveChangesAsync();
         var schedule = TourBookingTestData.SeedSchedule(tour, Now.AddDays(5), totalCapacity: 10, reservedCapacity: 0);
@@ -267,7 +267,7 @@ public sealed class CreateTourBookingCommandHandlerTests
     {
         await using var db = TestDbContext.Create();
         var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
-        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        var tour = TourBookingTestData.SeedBookableTour(2, 1_000_000m);
         db.Tours.Add(tour);
         await db.SaveChangesAsync();
         var schedule = TourBookingTestData.SeedSchedule(tour, Now.AddDays(5), 10, 0);
@@ -292,7 +292,7 @@ public sealed class CreateTourBookingCommandHandlerTests
     {
         await using var db = TestDbContext.Create();
         var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
-        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        var tour = TourBookingTestData.SeedBookableTour(2, 1_000_000m);
         db.Tours.Add(tour);
         await db.SaveChangesAsync();
         var schedule = TourBookingTestData.SeedSchedule(tour, Now.AddDays(5), 10, 0);
@@ -321,7 +321,7 @@ public sealed class CreateTourBookingCommandHandlerTests
         // otherwise payment could confirm an unmaterializable itinerary.
         await using var db = TestDbContext.Create();
         var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
-        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        var tour = TourBookingTestData.SeedBookableTour(2, 1_000_000m);
         var itemsField = typeof(Tour).GetField("_itineraryItems",
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
         ((List<TourItineraryItem>)itemsField.GetValue(tour)!).Add(
@@ -347,7 +347,7 @@ public sealed class CreateTourBookingCommandHandlerTests
     {
         await using var db = TestDbContext.Create();
         var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
-        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        var tour = TourBookingTestData.SeedBookableTour(2, 1_000_000m);
         typeof(Tour).GetProperty(nameof(Tour.TimeZoneId))!.SetValue(tour, "Mars/Olympus_Mons");
         db.Tours.Add(tour);
         await db.SaveChangesAsync();
@@ -370,7 +370,7 @@ public sealed class CreateTourBookingCommandHandlerTests
     {
         await using var db = TestDbContext.Create();
         var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
-        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        var tour = TourBookingTestData.SeedBookableTour(2, 1_000_000m);
         ReplaceStops(tour, "America/New_York", (1, 1, 9001L, new TimeOnly(2, 30), 60));
         db.Tours.Add(tour);
         await db.SaveChangesAsync();
@@ -398,7 +398,7 @@ public sealed class CreateTourBookingCommandHandlerTests
     {
         await using var db = TestDbContext.Create();
         var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
-        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        var tour = TourBookingTestData.SeedBookableTour(2, 1_000_000m);
         ReplaceStops(tour, "America/New_York", (1, 1, 9001L, new TimeOnly(1, 30), 60));
         db.Tours.Add(tour);
         await db.SaveChangesAsync();
@@ -423,7 +423,7 @@ public sealed class CreateTourBookingCommandHandlerTests
     {
         await using var db = TestDbContext.Create();
         var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
-        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        var tour = TourBookingTestData.SeedBookableTour(2, 1_000_000m);
         // The second stop starts (11:00) before the first one leaves (10:30 + 60 min).
         ReplaceStops(tour, "Asia/Ho_Chi_Minh",
             (1, 1, 9001L, new TimeOnly(10, 30), 60),
@@ -447,7 +447,7 @@ public sealed class CreateTourBookingCommandHandlerTests
     {
         await using var db = TestDbContext.Create();
         var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
-        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        var tour = TourBookingTestData.SeedBookableTour(2, 1_000_000m);
         // Day 2 stop but the departure only lasts eight hours.
         ReplaceStops(tour, "Asia/Ho_Chi_Minh", (2, 1, 9001L, new TimeOnly(10, 30), 60));
         db.Tours.Add(tour);
@@ -470,7 +470,7 @@ public sealed class CreateTourBookingCommandHandlerTests
         await using var db = TestDbContext.Create();
         var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
         // The traveler already holds an expired payment hold with reserved capacity.
-        var oldTour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        var oldTour = TourBookingTestData.SeedBookableTour(2, 1_000_000m);
         db.Tours.Add(oldTour);
         await db.SaveChangesAsync();
         var oldSchedule = TourBookingTestData.SeedSchedule(oldTour, Now.AddDays(5), 10, reservedCapacity: 1);
@@ -484,7 +484,7 @@ public sealed class CreateTourBookingCommandHandlerTests
         await db.SaveChangesAsync();
 
         // The target departure carries an unmaterializable template (unknown time zone).
-        var targetTour = TourBookingTestData.SeedTour(3, 1_000_000m);
+        var targetTour = TourBookingTestData.SeedBookableTour(3, 1_000_000m);
         typeof(Tour).GetProperty(nameof(Tour.TimeZoneId))!.SetValue(targetTour, "Mars/Olympus_Mons");
         db.Tours.Add(targetTour);
         await db.SaveChangesAsync();
@@ -513,7 +513,7 @@ public sealed class CreateTourBookingCommandHandlerTests
     {
         await using var db = TestDbContext.Create();
         var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
-        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        var tour = TourBookingTestData.SeedBookableTour(2, 1_000_000m);
         db.Tours.Add(tour);
         await db.SaveChangesAsync();
         var schedule = TourBookingTestData.SeedSchedule(tour, Now.AddDays(5), 10, 0);
@@ -537,6 +537,34 @@ public sealed class CreateTourBookingCommandHandlerTests
         (await db.Bookings.CountAsync()).Should().Be(1);
         (await db.TourSchedules.AsNoTracking().SingleAsync(s => s.Id == schedule.Id)).ReservedCapacity
             .Should().Be(1, "replay must not double-reserve capacity");
+    }
+
+    // BR-56: a tour hidden from public Search/Detail because its operator is locked or not approved must not be
+    // bookable; Create must use the same visibility definition as the public read, before any mutation.
+    [Theory]
+    [InlineData(OperatorApprovalStatus.Approved, AccountStatus.Locked)]
+    [InlineData(OperatorApprovalStatus.Approved, AccountStatus.Inactive)]
+    [InlineData(OperatorApprovalStatus.PendingApproval, AccountStatus.Active)]
+    [InlineData(OperatorApprovalStatus.Rejected, AccountStatus.Active)]
+    public async Task Handle_WhenOperatorIsNotEligible_ReturnsScheduleNotFoundAndCreatesNothing(
+        OperatorApprovalStatus approval, AccountStatus accountStatus)
+    {
+        await using var db = TestDbContext.Create();
+        var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
+        var tour = TourBookingTestData.SeedBookableTour(2, 1_000_000m, operatorApproval: approval, operatorAccountStatus: accountStatus);
+        db.Tours.Add(tour);
+        await db.SaveChangesAsync();
+        var schedule = TourBookingTestData.SeedSchedule(tour, Now.AddDays(5), totalCapacity: 10, reservedCapacity: 0);
+        db.TourSchedules.Add(schedule);
+        await db.SaveChangesAsync();
+
+        var result = await NewHandler(db, traveler.Id)
+            .Handle(Command(schedule.Id, [Participant("Nguyen Van A")]), CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be(TourBookingErrorCodes.ScheduleNotFound);
+        (await db.Bookings.CountAsync()).Should().Be(0);
+        (await db.TourSchedules.AsNoTracking().SingleAsync(s => s.Id == schedule.Id)).ReservedCapacity.Should().Be(0);
     }
 
     private static void ReplaceStops(Tour tour, string timeZoneId,

@@ -588,8 +588,8 @@ public sealed class ApproveTourSqlServerTests(ITestOutputHelper output)
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
-    [Trait("Classification", "DefectReproduction")]
-    public async Task Diagnostic_BookingAfterOperatorLocked_ReproducesCrossTaskBookingDefect()
+    [Trait("Classification", "VerifiedFix")]
+    public async Task BookingAfterOperatorLocked_QuoteAndCreateAreRejected_AndNothingIsReserved()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
         var seed = await SeedPendingTourAsync(database);
@@ -648,18 +648,19 @@ public sealed class ApproveTourSqlServerTests(ITestOutputHelper output)
             .ToListAsync();
         var schedule = await db.TourSchedules.AsNoTracking().SingleAsync(s => s.Id == seed.ScheduleId);
 
-        output.WriteLine("[DEFECT_REPRODUCED: BOOKING_OPERATOR_STATUS_ENFORCEMENT / EXTERNAL_DEPENDENCY]");
+        output.WriteLine("[VERIFIED_FIX: BOOKING_OPERATOR_STATUS_ENFORCEMENT]");
         output.WriteLine($"  Public Search Hidden: True | Public Detail HTTP: {(int)detailResponse.StatusCode}");
         output.WriteLine($"  Quote HTTP: {(int)quoteResponse.StatusCode} {quoteResponse.StatusCode} | Body: {quoteRaw}");
         output.WriteLine($"  Create HTTP: {(int)createResponse.StatusCode} {createResponse.StatusCode} | Body: {createRaw}");
         output.WriteLine($"  Persisted Bookings Count: {bookings.Count} | Schedule ReservedCapacity: {schedule.ReservedCapacity}");
 
-        // Reproduce the exact cross-task vulnerability in QuoteTourBookingQueryHandler & CreateTourBookingCommandHandler:
-        // Both handlers omit OperatorProfile.User.Status == AccountStatus.Active from IsPubliclyBookableTour.
-        quoteResponse.StatusCode.Should().Be(HttpStatusCode.OK);
-        createResponse.StatusCode.Should().Be(HttpStatusCode.Created);
-        bookings.Should().ContainSingle();
-        schedule.ReservedCapacity.Should().Be(1);
+        // BR-56: a tour hidden from public Search/Detail because its operator was locked must not be quotable or
+        // bookable through a direct schedule id. Quote/Create share TourVisibility.PublicTour with Search/Detail.
+        // (Previously a DefectReproduction diagnostic asserting Quote 200 / Create 201.)
+        quoteResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        createResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        bookings.Should().BeEmpty();
+        schedule.ReservedCapacity.Should().Be(0);
     }
 
     private static async Task<SeedResult> SeedPendingTourAsync(SqlServerTestDatabase database)
