@@ -45,8 +45,7 @@ public sealed class UnlockUserAccountEndpointTests
     [Theory]
     [InlineData(UserRole.Traveler)]
     [InlineData(UserRole.TourOperator)]
-    [InlineData(UserRole.Staff)]
-    public async Task Unlock_WhenCallerIsNotAdministrator_ReturnsForbidden(UserRole role)
+    public async Task Unlock_WhenCallerIsOutsideAdministrationRoles_ReturnsForbidden(UserRole role)
     {
         await using var factory = new TripMateApiFactory();
         using var client = factory.CreateAuthenticatedClient(10, role);
@@ -70,17 +69,17 @@ public sealed class UnlockUserAccountEndpointTests
     }
 
     [Fact]
-    public async Task Unlock_WithoutIdempotencyKey_ReturnsBadRequest()
+    public async Task Unlock_WithoutIdempotencyKey_HidesMissingAndOutOfScopeAccounts()
     {
         await using var factory = new TripMateApiFactory();
+        await SeedAccountsAsync(factory, 20, UserRole.Traveler);
         using var client = factory.CreateAuthenticatedClient(10, UserRole.Administrator);
 
-        var response = await client.PostAsJsonAsync(
-            "/api/v1/admin/users/20/unlock",
-            new { reason = "Verified account owner" });
+        using var outside = await client.PostAsJsonAsync("/api/v1/admin/users/20/unlock", new { reason = "Verified" });
+        using var missing = await client.PostAsJsonAsync("/api/v1/admin/users/404/unlock", new { reason = "Verified" });
 
-        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
-        (await response.Content.ReadAsStringAsync()).Should().Contain("user.unlock_request_invalid");
+        outside.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        missing.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]
@@ -105,7 +104,7 @@ public sealed class UnlockUserAccountEndpointTests
     public async Task Unlock_WhenTargetIsValid_Returns200AndPersistsOneOperation()
     {
         await using var factory = new TripMateApiFactory();
-        await SeedLockedTravelerAsync(factory, 20);
+        await SeedAccountsAsync(factory, 20, UserRole.Staff);
         using var client = factory.CreateAuthenticatedClient(10, UserRole.Administrator);
 
         var response = await SendUnlockAsync(client, 20, "unlock-http-004");
@@ -132,7 +131,7 @@ public sealed class UnlockUserAccountEndpointTests
     public async Task Unlock_WhenSameKeyAndPayloadAreRetried_ReplaysResponseWithoutSecondMutation()
     {
         await using var factory = new TripMateApiFactory();
-        await SeedLockedTravelerAsync(factory, 20);
+        await SeedAccountsAsync(factory, 20, UserRole.Staff);
         using var client = factory.CreateAuthenticatedClient(10, UserRole.Administrator);
 
         var first = await SendUnlockAsync(client, 20, "unlock-http-replay");
@@ -153,6 +152,7 @@ public sealed class UnlockUserAccountEndpointTests
     public async Task Unlock_WhenTargetDoesNotExist_ReturnsNotFoundWithErrorCode()
     {
         await using var factory = new TripMateApiFactory();
+        await SeedAccountsAsync(factory, 20, UserRole.Staff);
         using var client = factory.CreateAuthenticatedClient(10, UserRole.Administrator);
 
         var response = await SendUnlockAsync(client, 404, "unlock-http-005");
@@ -171,7 +171,7 @@ public sealed class UnlockUserAccountEndpointTests
         return client.SendAsync(request);
     }
 
-    private static async Task SeedLockedTravelerAsync(TripMateApiFactory factory, long userId)
+    private static async Task SeedAccountsAsync(TripMateApiFactory factory, long userId, UserRole targetRole)
     {
         await factory.WithDbContextAsync(async db =>
         {
@@ -182,15 +182,15 @@ public sealed class UnlockUserAccountEndpointTests
                 Role = UserRole.Administrator,
                 Status = AccountStatus.Active,
             };
-            var traveler = new User
+            var target = new User
             {
                 Id = userId,
-                FullName = "Locked traveler",
-                Role = UserRole.Traveler,
+                FullName = "Locked test account",
+                Role = targetRole,
                 Status = AccountStatus.Active,
             };
-            traveler.RecordLock(AccountStatus.Active, administrator.Id, DateTimeOffset.UtcNow, "Security review");
-            db.Users.AddRange(administrator, traveler);
+            target.RecordLock(AccountStatus.Active, administrator.Id, DateTimeOffset.UtcNow, "Security review");
+            db.Users.AddRange(administrator, target);
             await db.SaveChangesAsync();
             return true;
         });
