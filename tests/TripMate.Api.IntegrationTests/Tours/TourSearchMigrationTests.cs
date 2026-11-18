@@ -13,6 +13,7 @@ public sealed class TourSearchMigrationTests
     private const string TourPackageAuthoringMigrationFileName = "20261015_add_tour_package_authoring.sql";
     private const string TourDestinationSummaryMigrationFileName = "20261016_add_tour_destination_summary.sql";
     private const string TourVersionLineageMigrationFileName = "20261016_add_tour_version_lineage.sql";
+    private const string TourSubmissionMigrationFileName = "20261118_tm83_tour_submission.sql";
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
@@ -37,6 +38,7 @@ public sealed class TourSearchMigrationTests
         await ApplyMigrationAsync(upgradedDatabase, TourPackageAuthoringMigrationFileName);
         await ApplyMigrationAsync(upgradedDatabase, TourDestinationSummaryMigrationFileName);
         await ApplyMigrationAsync(upgradedDatabase, TourVersionLineageMigrationFileName);
+        await ApplyMigrationAsync(upgradedDatabase, TourSubmissionMigrationFileName);
 
         var freshInventory = await ReadTm70SchemaInventoryAsync(freshDatabase);
         var upgradedInventory = await ReadTm70SchemaInventoryAsync(upgradedDatabase);

@@ -31,32 +31,31 @@ public sealed class PendingTourQueueSqlServerTests
         using var client = factory.CreateAuthenticatedClient(seed.StaffId, UserRole.Staff);
 
         // Only Pending tours, oldest submission first; the Approved tour never appears.
-        var all = await GetItemsAsync(client, "/api/v1/admin/tours/pending");
-        all.Select(i => i.GetProperty("tourId").GetInt64()).Should().Equal(seed.OlderPendingId, seed.NewerPendingId);
+        var all = await GetItemsAsync(client, "/api/v1/admin/tours");
+        all.Select(i => i.GetProperty("id").GetInt64()).Should().Equal(seed.OlderPendingId, seed.NewerPendingId);
         all[0].GetProperty("operatorName").GetString().Should().Be("SQL Queue Tours");
         all[0].GetProperty("imageCount").GetInt32().Should().Be(1, "the soft-deleted image is not counted");
         all[0].GetRawText().Should().NotContain("0901112223").And.NotContain("TAX-");
 
         // A normal keyword matches by title, case-insensitively, and by operator company.
-        (await GetItemsAsync(client, "/api/v1/admin/tours/pending?keyword=lantern"))
-            .Select(i => i.GetProperty("tourId").GetInt64()).Should().Equal(seed.OlderPendingId);
-        (await GetItemsAsync(client, "/api/v1/admin/tours/pending?keyword=sql%20queue"))
+        (await GetItemsAsync(client, "/api/v1/admin/tours?keyword=lantern"))
+            .Select(i => i.GetProperty("id").GetInt64()).Should().Equal(seed.OlderPendingId);
+        (await GetItemsAsync(client, "/api/v1/admin/tours?keyword=sql%20queue"))
             .Should().HaveCount(2);
 
         // LIKE wildcards typed by the reviewer must be matched literally: none of the titles contain them.
         foreach (var wildcard in new[] { "%25", "_", "%5Ba-z%5D", "%5B" })
         {
-            (await GetItemsAsync(client, $"/api/v1/admin/tours/pending?keyword={wildcard}"))
+            (await GetItemsAsync(client, $"/api/v1/admin/tours?keyword={wildcard}"))
                 .Should().BeEmpty(because: $"keyword '{wildcard}' must not act as a wildcard");
         }
 
         // Paging envelope on the real provider, including a page past the end.
-        var page2 = await client.GetAsync("/api/v1/admin/tours/pending?pageNumber=2&pageSize=1");
+        var page2 = await client.GetAsync("/api/v1/admin/tours?page=2&pageSize=1");
         using var page2Body = JsonDocument.Parse(await page2.Content.ReadAsStringAsync());
         page2Body.RootElement.GetProperty("totalCount").GetInt32().Should().Be(2);
-        page2Body.RootElement.GetProperty("totalPages").GetInt32().Should().Be(2);
-        page2Body.RootElement.GetProperty("items")[0].GetProperty("tourId").GetInt64().Should().Be(seed.NewerPendingId);
-        (await GetItemsAsync(client, "/api/v1/admin/tours/pending?pageNumber=9")).Should().BeEmpty();
+        page2Body.RootElement.GetProperty("items")[0].GetProperty("id").GetInt64().Should().Be(seed.NewerPendingId);
+        (await GetItemsAsync(client, "/api/v1/admin/tours?page=9")).Should().BeEmpty();
     }
 
     [SqlServerFact]

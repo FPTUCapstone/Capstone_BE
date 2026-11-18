@@ -41,3 +41,11 @@ Errors: unknown id → `TourNotFound` (404); status != `Pending` → `InvalidSta
 - Detail exposes images and every checklist input; no operator contact data.
 - Non-Staff (Administrator, Traveler, Operator, anonymous) cannot read either endpoint.
 - Works on real SQL Server (LIKE, ordering, projection translate) — proven by a disposable-DB test.
+
+> ## Revision 2026-11-19 — rebased on develop after TM-83 (#189) and extended instead of duplicated
+> TM-83 landed `GET /api/v1/admin/tours` (queue) and `GET /api/v1/admin/tours/{id}` (operator-view detail) plus a real `Tour.SubmittedAtUtc`. This design was therefore changed:
+> - **Queue:** the separate `GET .../pending` endpoint is **removed**. The TM-83 queue gains an optional `keyword` (title or operator company, literal LIKE) and the Screen 13 columns (`operatorName`, `location`, `category`, `durationDays`, `priceVnd`, `nextDepartureAtUtc`, `nextDepartureCapacity`, `imageCount`) as **additive, defaulted** members; its original contract (`id, operatorUserId, title, status, submittedAtUtc, submissionNote`, `page/pageSize/totalCount`, ordering by `SubmittedAtUtc` then `Id`) is unchanged. Response is TM-83's envelope (`items, page, pageSize, totalCount`); there is no `totalPages` (clients compute it).
+> - **Detail:** `GET .../{id}/review` is **kept**, because the TM-83 detail is the operator's view and lacks what the checklist needs: image URLs, POI names, operator company name, and a Pending gate (409 otherwise).
+> - **Submitted time:** now the real `SubmittedAtUtc` (the earlier `UpdatedAtUtc` stand-in is gone).
+> - **Access rule:** both reads now use TM-83's rule — the caller must be an **active Staff account in the database**, not just a Staff token (a locked Staff gets 403).
+> Sections below describing `GET /pending`, `PageNumber` and `PaginatedList` are superseded by this note.

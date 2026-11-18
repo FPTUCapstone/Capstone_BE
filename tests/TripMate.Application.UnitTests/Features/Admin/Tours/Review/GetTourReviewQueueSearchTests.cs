@@ -1,7 +1,6 @@
 using FluentAssertions;
 
-using TripMate.Application.Features.Admin.Tours.Review.PendingTours;
-using TripMate.Application.Features.Operator.Tours.Common;
+using TripMate.Application.Features.Admin.Tours.Review;
 using TripMate.Application.UnitTests.TestUtilities;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
@@ -10,13 +9,28 @@ using DomainTourMedia = TripMate.Domain.Entities.TourMedia;
 
 namespace TripMate.Application.UnitTests.Features.Admin.Tours.Review;
 
-public sealed class GetPendingToursQueryHandlerTests
+/// <summary>
+/// UC-60 Screen 13 additions to the TM-83 Staff review queue: keyword search and the columns the screen shows.
+/// The original contract (id, operatorUserId, title, status, submittedAtUtc, submissionNote, paging) is unchanged.
+/// </summary>
+public sealed class GetTourReviewQueueSearchTests
 {
     private static readonly DateTimeOffset T0 = new(2026, 11, 10, 8, 0, 0, TimeSpan.Zero);
+    private const long StaffId = 55;
 
-    private static GetPendingToursQueryHandler CreateHandler(
-        TestDbContext db, long? userId = 55, string? role = nameof(UserRole.Staff)) =>
-        new(db, new FakeCurrentUserService { UserId = userId, Role = role });
+    private static async Task<GetTourReviewQueueQueryHandler> CreateHandlerAsync(TestDbContext db)
+    {
+        db.Users.Add(new User
+        {
+            Id = StaffId,
+            Email = "staff@test.local",
+            FullName = "Staff",
+            Role = UserRole.Staff,
+            Status = AccountStatus.Active,
+        });
+        await db.SaveChangesAsync();
+        return new GetTourReviewQueueQueryHandler(db, new FakeCurrentUserService { UserId = StaffId, Role = nameof(UserRole.Staff) });
+    }
 
     private static async Task<Tour> AddTourAsync(
         TestDbContext db, long operatorId, string title, TourStatus status, DateTimeOffset submittedAtUtc)
@@ -41,55 +55,28 @@ public sealed class GetPendingToursQueryHandlerTests
         return tour;
     }
 
-    [Theory]
-    [InlineData(null, null)]
-    [InlineData(99L, nameof(UserRole.Administrator))]
-    [InlineData(99L, nameof(UserRole.Traveler))]
-    [InlineData(99L, nameof(UserRole.TourOperator))]
-    public async Task Handle_WhenCallerNotStaff_ReturnsForbidden(long? userId, string? role)
-    {
-        await using var db = TestDbContext.Create();
-
-        var result = await CreateHandler(db, userId, role).Handle(new GetPendingToursQuery(), CancellationToken.None);
-
-        result.IsSuccess.Should().BeFalse();
-        result.ErrorCode.Should().Be(OperatorTourErrorCodes.AdminAccessRequired);
-    }
-
     [Fact]
-    public async Task Handle_ListsOnlyPendingTours()
-    {
-        await using var db = TestDbContext.Create();
-        await PublicTourTestData.SeedOperatorAsync(db, 1);
-        var pending = await AddTourAsync(db, 1, "Pending tour", TourStatus.Pending, T0);
-        await AddTourAsync(db, 1, "Draft tour", TourStatus.Draft, T0);
-        await AddTourAsync(db, 1, "Approved tour", TourStatus.Approved, T0);
-        await AddTourAsync(db, 1, "Rejected tour", TourStatus.Rejected, T0);
-
-        var result = await CreateHandler(db).Handle(new GetPendingToursQuery(), CancellationToken.None);
-
-        result.IsSuccess.Should().BeTrue(because: $"{result.ErrorCode}: {result.ErrorMessage}");
-        result.Value.Items.Select(i => i.TourId).Should().Equal(pending.Id);
-        result.Value.TotalCount.Should().Be(1);
-    }
-
-    [Fact]
-    public async Task Handle_OrdersOldestSubmittedFirstThenById()
+    public async Task Handle_ListsOnlyPendingToursOldestSubmittedFirstThenById()
     {
         await using var db = TestDbContext.Create();
         await PublicTourTestData.SeedOperatorAsync(db, 1);
         var newest = await AddTourAsync(db, 1, "Newest", TourStatus.Pending, T0.AddHours(5));
         var oldestA = await AddTourAsync(db, 1, "Oldest A", TourStatus.Pending, T0);
         var oldestB = await AddTourAsync(db, 1, "Oldest B", TourStatus.Pending, T0);
-        var middle = await AddTourAsync(db, 1, "Middle", TourStatus.Pending, T0.AddHours(2));
+        await AddTourAsync(db, 1, "Draft", TourStatus.Draft, T0);
+        await AddTourAsync(db, 1, "Approved", TourStatus.Approved, T0);
+        await AddTourAsync(db, 1, "Rejected", TourStatus.Rejected, T0);
+        var handler = await CreateHandlerAsync(db);
 
-        var result = await CreateHandler(db).Handle(new GetPendingToursQuery(), CancellationToken.None);
+        var result = await handler.Handle(new GetTourReviewQueueQuery(), CancellationToken.None);
 
-        result.Value.Items.Select(i => i.TourId).Should().Equal(oldestA.Id, oldestB.Id, middle.Id, newest.Id);
+        result.IsSuccess.Should().BeTrue(because: $"{result.ErrorCode}: {result.ErrorMessage}");
+        result.Value.Items.Select(i => i.Id).Should().Equal(oldestA.Id, oldestB.Id, newest.Id);
+        result.Value.TotalCount.Should().Be(3);
     }
 
     [Fact]
-    public async Task Handle_FiltersByTitleOrOperatorCompanyName()
+    public async Task Handle_FiltersByTitleOrOperatorCompanyName_IgnoringSurroundingSpaces()
     {
         await using var db = TestDbContext.Create();
         await PublicTourTestData.SeedOperatorAsync(db, 1, company: "Sunrise Travel");
@@ -97,12 +84,14 @@ public sealed class GetPendingToursQueryHandlerTests
         var byTitle = await AddTourAsync(db, 1, "Hoi An lantern night", TourStatus.Pending, T0);
         var byCompany = await AddTourAsync(db, 2, "Mountain trek", TourStatus.Pending, T0.AddMinutes(1));
         await AddTourAsync(db, 1, "Unrelated cooking class", TourStatus.Pending, T0.AddMinutes(2));
+        var handler = await CreateHandlerAsync(db);
 
-        var title = await CreateHandler(db).Handle(new GetPendingToursQuery(Keyword: "  lantern "), CancellationToken.None);
-        var company = await CreateHandler(db).Handle(new GetPendingToursQuery(Keyword: "lotus"), CancellationToken.None);
+        var title = await handler.Handle(new GetTourReviewQueueQuery(Keyword: "  lantern "), CancellationToken.None);
+        var company = await handler.Handle(new GetTourReviewQueueQuery(Keyword: "lotus"), CancellationToken.None);
 
-        title.Value.Items.Select(i => i.TourId).Should().Equal(byTitle.Id);
-        company.Value.Items.Select(i => i.TourId).Should().Equal(byCompany.Id);
+        title.Value.Items.Select(i => i.Id).Should().Equal(byTitle.Id);
+        company.Value.Items.Select(i => i.Id).Should().Equal(byCompany.Id);
+        title.Value.TotalCount.Should().Be(1);
     }
 
     [Theory]
@@ -114,15 +103,16 @@ public sealed class GetPendingToursQueryHandlerTests
         await PublicTourTestData.SeedOperatorAsync(db, 1);
         await AddTourAsync(db, 1, "Plain title", TourStatus.Pending, T0);
         await AddTourAsync(db, 1, "Another title", TourStatus.Pending, T0.AddMinutes(1));
+        var handler = await CreateHandlerAsync(db);
 
-        var result = await CreateHandler(db).Handle(new GetPendingToursQuery(Keyword: keyword), CancellationToken.None);
+        var result = await handler.Handle(new GetTourReviewQueueQuery(Keyword: keyword), CancellationToken.None);
 
         result.Value.Items.Should().BeEmpty("a wildcard typed by the reviewer must not match every pending tour");
         result.Value.TotalCount.Should().Be(0);
     }
 
     [Fact]
-    public async Task Handle_PagesWithCorrectTotals()
+    public async Task Handle_PagesWithCorrectTotals_AndPastTheEndIsEmpty()
     {
         await using var db = TestDbContext.Create();
         await PublicTourTestData.SeedOperatorAsync(db, 1);
@@ -131,33 +121,21 @@ public sealed class GetPendingToursQueryHandlerTests
             await AddTourAsync(db, 1, $"Tour {i:00}", TourStatus.Pending, T0.AddMinutes(i));
         }
 
-        var page2 = await CreateHandler(db).Handle(new GetPendingToursQuery(PageNumber: 2, PageSize: 20), CancellationToken.None);
+        var handler = await CreateHandlerAsync(db);
+
+        var page2 = await handler.Handle(new GetTourReviewQueueQuery(Page: 2, PageSize: 20), CancellationToken.None);
+        var beyond = await handler.Handle(new GetTourReviewQueueQuery(Page: 9, PageSize: 20), CancellationToken.None);
 
         page2.Value.Items.Should().HaveCount(5);
         page2.Value.TotalCount.Should().Be(25);
-        page2.Value.TotalPages.Should().Be(2);
-        page2.Value.PageNumber.Should().Be(2);
-        page2.Value.PageSize.Should().Be(20);
-        page2.Value.Items[0].TourName.Should().Be("Tour 20");
+        page2.Value.Page.Should().Be(2);
+        page2.Value.Items[0].Title.Should().Be("Tour 20");
+        beyond.Value.Items.Should().BeEmpty();
+        beyond.Value.TotalCount.Should().Be(25);
     }
 
     [Fact]
-    public async Task Handle_PageBeyondLastReturnsEmptyItemsWithTotals()
-    {
-        await using var db = TestDbContext.Create();
-        await PublicTourTestData.SeedOperatorAsync(db, 1);
-        await AddTourAsync(db, 1, "Only tour", TourStatus.Pending, T0);
-
-        var result = await CreateHandler(db).Handle(new GetPendingToursQuery(PageNumber: 9), CancellationToken.None);
-
-        result.IsSuccess.Should().BeTrue();
-        result.Value.Items.Should().BeEmpty();
-        result.Value.TotalCount.Should().Be(1);
-        result.Value.TotalPages.Should().Be(1);
-    }
-
-    [Fact]
-    public async Task Handle_MapsSummaryFields()
+    public async Task Handle_KeepsTheOriginalColumnsAndAddsTheScreenColumns()
     {
         await using var db = TestDbContext.Create();
         await PublicTourTestData.SeedOperatorAsync(db, 1, company: "Sunrise Travel");
@@ -167,7 +145,7 @@ public sealed class GetPendingToursQueryHandlerTests
             (T0.AddDays(10), 8, 1_500_000m),
         };
         var tour = PublicTourTestData.NewTour(1, "Mapped tour", departures);
-        tour.SubmitForReview(T0);
+        tour.SubmitForReview(T0, "Please review quickly");
         db.Tours.Add(tour);
         await db.SaveChangesAsync();
         db.TourMedia.AddRange(
@@ -177,15 +155,21 @@ public sealed class GetPendingToursQueryHandlerTests
         deleted.SoftDelete(T0);
         db.TourMedia.Add(deleted);
         await db.SaveChangesAsync();
+        var handler = await CreateHandlerAsync(db);
 
-        var result = await CreateHandler(db).Handle(new GetPendingToursQuery(), CancellationToken.None);
+        var result = await handler.Handle(new GetTourReviewQueueQuery(), CancellationToken.None);
 
         var item = result.Value.Items.Should().ContainSingle().Subject;
-        item.TourId.Should().Be(tour.Id);
-        item.TourName.Should().Be("Mapped tour");
+        // Original TM-83 contract.
+        item.Id.Should().Be(tour.Id);
+        item.OperatorUserId.Should().Be(1);
+        item.Title.Should().Be("Mapped tour");
+        item.Status.Should().Be(nameof(TourStatus.Pending));
+        item.SubmittedAtUtc.Should().Be(T0);
+        item.SubmissionNote.Should().Be("Please review quickly");
+        // Screen 13 additions.
         item.OperatorName.Should().Be("Sunrise Travel");
         item.Location.Should().Be("Hoi An, Da Nang");
-        item.SubmittedAtUtc.Should().Be(T0);
         item.DurationDays.Should().Be(2);
         item.PriceVnd.Should().Be(1_500_000m);
         item.NextDepartureAtUtc.Should().Be(T0.AddDays(10), "the earliest departure is reported");
@@ -198,15 +182,12 @@ public sealed class GetPendingToursQueryHandlerTests
     {
         await using var db = TestDbContext.Create();
         await PublicTourTestData.SeedOperatorAsync(db, 1);
-        var tour = PublicTourTestData.NewTour(1, "Bare tour");
-        tour.SubmitForReview(T0);
-        db.Tours.Add(tour);
-        await db.SaveChangesAsync();
-        // Legacy rows can lack schedules even though the domain now forbids creating such a tour.
+        var tour = await AddTourAsync(db, 1, "Bare tour", TourStatus.Pending, T0);
         db.TourSchedules.RemoveRange(db.TourSchedules.Where(s => s.TourId == tour.Id));
         await db.SaveChangesAsync();
+        var handler = await CreateHandlerAsync(db);
 
-        var result = await CreateHandler(db).Handle(new GetPendingToursQuery(), CancellationToken.None);
+        var result = await handler.Handle(new GetTourReviewQueueQuery(), CancellationToken.None);
 
         var item = result.Value.Items.Should().ContainSingle().Subject;
         item.Category.Should().BeNull();
@@ -221,9 +202,22 @@ public sealed class GetPendingToursQueryHandlerTests
         await using var db = TestDbContext.Create();
         await PublicTourTestData.SeedOperatorAsync(db, 1, accountStatus: AccountStatus.Locked);
         var tour = await AddTourAsync(db, 1, "Locked operator tour", TourStatus.Pending, T0);
+        var handler = await CreateHandlerAsync(db);
 
-        var result = await CreateHandler(db).Handle(new GetPendingToursQuery(), CancellationToken.None);
+        var result = await handler.Handle(new GetTourReviewQueueQuery(), CancellationToken.None);
 
-        result.Value.Items.Select(i => i.TourId).Should().Equal(tour.Id);
+        result.Value.Items.Select(i => i.Id).Should().Equal(tour.Id);
+    }
+
+    [Fact]
+    public void Validator_RejectsAKeywordLongerThan100Characters_AndKeepsTheOriginalPagingRules()
+    {
+        var validator = new GetTourReviewQueueQueryValidator();
+
+        validator.Validate(new GetTourReviewQueueQuery()).IsValid.Should().BeTrue();
+        validator.Validate(new GetTourReviewQueueQuery(Keyword: new string('a', 100))).IsValid.Should().BeTrue();
+        validator.Validate(new GetTourReviewQueueQuery(Keyword: new string('a', 101))).IsValid.Should().BeFalse();
+        validator.Validate(new GetTourReviewQueueQuery(Page: 0)).IsValid.Should().BeFalse();
+        validator.Validate(new GetTourReviewQueueQuery(PageSize: 101)).IsValid.Should().BeFalse();
     }
 }

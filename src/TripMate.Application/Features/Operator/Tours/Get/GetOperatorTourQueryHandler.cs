@@ -37,8 +37,14 @@ public sealed class GetOperatorTourQueryHandler(
             return AccessDenied();
         }
 
+        return await ReadDetailAsync(request.TourId, operatorId, cancellationToken);
+    }
+
+    // Shared projection for the owned operator detail and the authorized Staff review detail.
+    internal async Task<Result<OperatorTourDetailDto>> ReadDetailAsync(long tourId, long? operatorId, CancellationToken cancellationToken)
+    {
         var tour = await dbContext.Tours.AsNoTracking()
-            .Where(candidate => candidate.Id == request.TourId && candidate.OperatorUserId == operatorId)
+            .Where(candidate => candidate.Id == tourId && (!operatorId.HasValue || candidate.OperatorUserId == operatorId.Value))
             .Select(candidate => new OperatorTourDetailDto(
                 candidate.Id,
                 candidate.Title,
@@ -97,7 +103,7 @@ public sealed class GetOperatorTourQueryHandler(
         // Same evaluator as submit-review, so the hint shown to the operator matches what the command enforces.
         var terms = await dbContext.Tours.AsNoTracking()
             .Where(candidate => candidate.Id == tour.Id)
-            .Select(candidate => new { candidate.TimeZoneId, candidate.Highlights, candidate.TravellerRequirements })
+            .Select(candidate => new { candidate.TimeZoneId, candidate.Highlights, candidate.TravellerRequirements, candidate.SubmittedAtUtc, candidate.SubmissionNote })
             .SingleAsync(cancellationToken);
         string timeZoneId = string.IsNullOrWhiteSpace(terms.TimeZoneId) ? Tour.DefaultTimeZoneId : terms.TimeZoneId;
         var warnings = await BuildWarningsAsync(tour, timeZoneId, cancellationToken);
@@ -114,6 +120,8 @@ public sealed class GetOperatorTourQueryHandler(
             weatherIssues.Add(WeatherReadinessIssueCodes.MeetingCoordinatesMissing);
         return Result.Success(tour with
         {
+            SubmittedAtUtc = terms.SubmittedAtUtc,
+            SubmissionNote = terms.SubmissionNote,
             MediaCount = readiness.MediaCount,
             HasPrimaryImage = readiness.HasPrimaryImage,
             ReviewBlockers = readiness.Blockers,

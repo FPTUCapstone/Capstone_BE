@@ -31,6 +31,25 @@ public sealed class GetPendingTourReviewQueryHandlerTests
         return tour;
     }
 
+    /// <summary>The detail read requires an ACTIVE Staff account in the database (same rule as the TM-83 queue).</summary>
+    private static TestDbContext NewDb(AccountStatus staffStatus = AccountStatus.Active)
+    {
+        var db = TestDbContext.Create();
+        db.Users.Add(new User { Id = 55, Email = "staff@test.local", FullName = "Staff", Role = UserRole.Staff, Status = staffStatus });
+        db.SaveChanges();
+        return db;
+    }
+
+    [Fact]
+    public async Task Handle_WhenStaffAccountIsLocked_ReturnsForbidden()
+    {
+        await using var db = NewDb(AccountStatus.Locked);
+
+        var result = await CreateHandler(db).Handle(new GetPendingTourReviewQuery(1), CancellationToken.None);
+
+        result.ErrorCode.Should().Be(OperatorTourErrorCodes.AdminAccessRequired);
+    }
+
     private static void Set<T>(object instance, string property, T value) =>
         instance.GetType().GetProperty(property)!.SetValue(instance, value);
 
@@ -41,7 +60,7 @@ public sealed class GetPendingTourReviewQueryHandlerTests
     [InlineData(99L, nameof(UserRole.TourOperator))]
     public async Task Handle_WhenCallerNotStaff_ReturnsForbidden(long? userId, string? role)
     {
-        await using var db = TestDbContext.Create();
+        await using var db = NewDb();
 
         var result = await CreateHandler(db, userId, role)
             .Handle(new GetPendingTourReviewQuery(1), CancellationToken.None);
@@ -52,7 +71,7 @@ public sealed class GetPendingTourReviewQueryHandlerTests
     [Fact]
     public async Task Handle_WhenTourMissing_ReturnsNotFound()
     {
-        await using var db = TestDbContext.Create();
+        await using var db = NewDb();
 
         var result = await CreateHandler(db).Handle(new GetPendingTourReviewQuery(404), CancellationToken.None);
 
@@ -66,7 +85,7 @@ public sealed class GetPendingTourReviewQueryHandlerTests
     [InlineData(TourStatus.Published)]
     public async Task Handle_WhenTourNotPending_ReturnsInvalidState(TourStatus status)
     {
-        await using var db = TestDbContext.Create();
+        await using var db = NewDb();
         await PublicTourTestData.SeedOperatorAsync(db, 1);
         var tour = await PublicTourTestData.AddTourAsync(db, 1, status);
 
@@ -78,7 +97,7 @@ public sealed class GetPendingTourReviewQueryHandlerTests
     [Fact]
     public async Task Handle_MapsEveryChecklistInput()
     {
-        await using var db = TestDbContext.Create();
+        await using var db = NewDb();
         await PublicTourTestData.SeedOperatorAsync(db, 1, company: "Sunrise Travel");
         await PublicTourTestData.AddPoiAsync(db, 100, "Ancient Town", "1 Old Street");
         await PublicTourTestData.AddPoiAsync(db, 101, "Bridge Pagoda", null);
@@ -126,7 +145,7 @@ public sealed class GetPendingTourReviewQueryHandlerTests
     [Fact]
     public async Task Handle_SplitsServicesOnLineBreaksAndDropsBlanks()
     {
-        await using var db = TestDbContext.Create();
+        await using var db = NewDb();
         await PublicTourTestData.SeedOperatorAsync(db, 1);
         await PublicTourTestData.AddPoiAsync(db, 100, "Ancient Town", null);
         await PublicTourTestData.AddPoiAsync(db, 101, "Bridge Pagoda", null);
@@ -144,7 +163,7 @@ public sealed class GetPendingTourReviewQueryHandlerTests
     [Fact]
     public async Task Handle_ResponseContainsNoOperatorContactData()
     {
-        await using var db = TestDbContext.Create();
+        await using var db = NewDb();
         await PublicTourTestData.SeedOperatorAsync(db, 1, phone: "0900123456", address: "9 Secret Lane");
         await PublicTourTestData.AddPoiAsync(db, 100, "Ancient Town", null);
         await PublicTourTestData.AddPoiAsync(db, 101, "Bridge Pagoda", null);
@@ -163,7 +182,7 @@ public sealed class GetPendingTourReviewQueryHandlerTests
     [Fact]
     public async Task Handle_TourWithNothingOptional_ReturnsEmptyCollections()
     {
-        await using var db = TestDbContext.Create();
+        await using var db = NewDb();
         await PublicTourTestData.SeedOperatorAsync(db, 1);
         var tour = await AddPendingTourAsync(db);
         db.TourSchedules.RemoveRange(db.TourSchedules.Where(s => s.TourId == tour.Id));

@@ -65,6 +65,10 @@ public class Tour : BaseEntity
 
     public TourStatus Status { get; private set; }
 
+    public DateTimeOffset? SubmittedAtUtc { get; private set; }
+
+    public string? SubmissionNote { get; private set; }
+
     public string? RejectionReason { get; private set; }
 
     public long? ReviewedBy { get; private set; }
@@ -155,15 +159,20 @@ public class Tour : BaseEntity
         VersionNo = versionNo;
     }
 
-    public void SubmitForReview(DateTimeOffset submittedAtUtc)
+    public void SubmitForReview(DateTimeOffset submittedAtUtc, string? submissionNote = null)
     {
         if (Status is not (TourStatus.Draft or TourStatus.Rejected))
         {
             throw new InvalidOperationException("Only Draft or Rejected tours can be submitted for review.");
         }
 
+        string? normalizedNote = NormalizeTerms(submissionNote, nameof(submissionNote));
+        SubmittedAtUtc = submittedAtUtc.ToUniversalTime();
+        SubmissionNote = normalizedNote;
         Status = TourStatus.Pending;
         RejectionReason = null;
+        ReviewedBy = null;
+        ReviewedAtUtc = null;
         UpdatedAtUtc = submittedAtUtc.ToUniversalTime();
     }
 

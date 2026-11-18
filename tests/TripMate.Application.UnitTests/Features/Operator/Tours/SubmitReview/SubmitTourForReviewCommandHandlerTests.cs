@@ -30,10 +30,18 @@ public sealed class SubmitTourForReviewCommandHandlerTests
         var handler = new SubmitTourForReviewCommandHandler(db,
             new FakeCurrentUserService { UserId = actor.Id }, clock);
 
-        var result = await handler.Handle(new SubmitTourForReviewCommand(created.Value.TourId), CancellationToken.None);
+        var result = await handler.Handle(new SubmitTourForReviewCommand(created.Value.TourId, "  Please review  "), CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue();
         (await db.Tours.SingleAsync()).Status.Should().Be(TourStatus.Pending);
+        tour.SubmissionNote.Should().Be("Please review");
+        tour.SubmittedAtUtc.Should().Be(clock.UtcNow);
+        result.Value.SubmittedAtUtc.Should().Be(clock.UtcNow);
+        clock.UtcNow = clock.UtcNow.AddHours(1);
+        var duplicate = await handler.Handle(new SubmitTourForReviewCommand(tour.Id, "different"), CancellationToken.None);
+        duplicate.IsFailure.Should().BeTrue();
+        tour.SubmissionNote.Should().Be("Please review");
+        tour.SubmittedAtUtc.Should().Be(clock.UtcNow.AddHours(-1));
         (await db.AuditLogs.CountAsync()).Should().Be(1);
     }
 
@@ -53,18 +61,27 @@ public sealed class SubmitTourForReviewCommandHandlerTests
             null, "Da Nang tour cover", 1, true, clock.UtcNow));
         await db.SaveChangesAsync();
         var handler = new SubmitTourForReviewCommandHandler(db, user, clock);
-        (await handler.Handle(new SubmitTourForReviewCommand(created.Value.TourId), CancellationToken.None))
+        (await handler.Handle(new SubmitTourForReviewCommand(created.Value.TourId, "Original submission"), CancellationToken.None))
             .IsSuccess.Should().BeTrue();
         tour.Reject(99, "Needs a clearer description.", clock.UtcNow);
         await db.SaveChangesAsync();
 
-        var resubmitted = await handler.Handle(new SubmitTourForReviewCommand(created.Value.TourId), CancellationToken.None);
+        clock.UtcNow = clock.UtcNow.AddHours(1);
+        var resubmitted = await handler.Handle(new SubmitTourForReviewCommand(created.Value.TourId, "   "), CancellationToken.None);
 
         resubmitted.IsSuccess.Should().BeTrue();
+        tour.SubmittedAtUtc.Should().Be(clock.UtcNow);
+        tour.SubmissionNote.Should().BeNull();
+        tour.RejectionReason.Should().BeNull();
+        tour.ReviewedBy.Should().BeNull();
+        tour.ReviewedAtUtc.Should().BeNull();
         var audits = await db.AuditLogs.OrderBy(log => log.Id).ToListAsync();
         audits.Should().HaveCount(2);
         audits[0].BeforeData.Should().Contain("Draft");
         audits[1].BeforeData.Should().Contain("Rejected").And.NotContain("Draft");
+        audits[1].BeforeData.Should().Contain("Original submission").And.Contain("Needs a clearer description.")
+            .And.Contain("ReviewedBy").And.Contain("SubmittedAtUtc");
+        audits[1].AfterData.Should().Contain("Pending").And.Contain("SubmissionNote").And.Contain("ReviewedAtUtc");
     }
 
     [Fact]
@@ -109,6 +126,54 @@ public sealed class SubmitTourForReviewCommandHandlerTests
 
         result.IsFailure.Should().BeTrue();
         (await db.Tours.SingleAsync()).Status.Should().Be(TourStatus.Draft);
+    }
+
+    [Theory]
+    [InlineData("title", "required_fields_missing")]
+    [InlineData("description", "required_fields_missing")]
+    [InlineData("price", "required_fields_missing")]
+    [InlineData("itinerary", "itinerary_missing")]
+    [InlineData("end", "future_departure_missing")]
+    [InlineData("capacity", "future_departure_missing")]
+    [InlineData("childPrice", "future_departure_missing")]
+    [InlineData("deadline", "future_departure_missing")]
+    public async Task Handle_IncompleteLegacyDraft_DetailAndSubmitAgreeAndDoNotMutate(string missing, string blocker)
+    {
+        await using var db = TestDbContext.Create();
+        var actor = await SeedApprovedOperatorAsync(db, 7);
+        await TourAuthoringTestData.SeedReferenceDataAsync(db);
+        await SeedPoiAsync(db, 88);
+        var clock = new FakeDateTimeProvider { UtcNow = new DateTimeOffset(2026, 10, 15, 0, 0, 0, TimeSpan.Zero) };
+        var user = new FakeCurrentUserService { UserId = actor.Id };
+        var created = await new CreateTourPackageCommandHandler(db, user, clock)
+            .Handle(Command(88, clock.UtcNow), CancellationToken.None);
+        var tour = await db.Tours.SingleAsync();
+        db.TourMedia.Add(TripMate.Domain.Entities.TourMedia.Create(tour, "tour/cover", "https://cdn.example.test/cover.jpg",
+            null, "Cover", 1, true, clock.UtcNow));
+        var schedule = await db.TourSchedules.SingleAsync();
+        switch (missing)
+        {
+            case "title": typeof(Tour).GetProperty(nameof(Tour.Title))!.SetValue(tour, " "); break;
+            case "description": typeof(Tour).GetProperty(nameof(Tour.Description))!.SetValue(tour, null); break;
+            case "price": typeof(Tour).GetProperty(nameof(Tour.BasePrice))!.SetValue(tour, 0m); break;
+            case "itinerary": db.TourItineraryItems.RemoveRange(await db.TourItineraryItems.ToListAsync()); break;
+            case "end": typeof(TourSchedule).GetProperty(nameof(TourSchedule.EndAtUtc))!.SetValue(schedule, schedule.StartAtUtc); break;
+            case "capacity": typeof(TourSchedule).GetProperty(nameof(TourSchedule.TotalCapacity))!.SetValue(schedule, 0); break;
+            case "childPrice": typeof(TourSchedule).GetProperty(nameof(TourSchedule.ChildPrice))!.SetValue(schedule, -1m); break;
+            case "deadline": typeof(TourSchedule).GetProperty(nameof(TourSchedule.RegistrationDeadlineAtUtc))!.SetValue(schedule, schedule.StartAtUtc); break;
+        }
+        await db.SaveChangesAsync();
+        var before = tour.UpdatedAtUtc;
+        var detail = await new TripMate.Application.Features.Operator.Tours.Get.GetOperatorTourQueryHandler(db, user, clock)
+            .Handle(new TripMate.Application.Features.Operator.Tours.Get.GetOperatorTourQuery(tour.Id), CancellationToken.None);
+        detail.Value.ReviewBlockers.Should().Contain(blocker);
+        detail.Value.CanSubmitForReview.Should().BeFalse();
+        var result = await new SubmitTourForReviewCommandHandler(db, user, clock)
+            .Handle(new SubmitTourForReviewCommand(created.Value.TourId), CancellationToken.None);
+        result.IsFailure.Should().BeTrue();
+        tour.Status.Should().Be(TourStatus.Draft);
+        tour.UpdatedAtUtc.Should().Be(before);
+        (await db.AuditLogs.CountAsync()).Should().Be(0);
     }
 
     private static CreateTourPackageCommand Command(long poiId, DateTimeOffset now) => new(

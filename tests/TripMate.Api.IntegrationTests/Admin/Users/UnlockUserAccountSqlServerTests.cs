@@ -23,14 +23,14 @@ public sealed class UnlockUserAccountSqlServerTests
     public async Task Unlock_WhenOperatorHasOutstandingDebt_PreservesLockAndCreatesNoOperation()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
-        var (administratorId, targetId) = await SeedAsync(database);
+        var (staffId, targetId) = await SeedAsync(database);
         await using var context = database.CreateDbContext();
         var target = await context.Users.SingleAsync(user => user.Id == targetId);
         target.Role = UserRole.TourOperator;
         context.TourOperatorDebts.Add(TourOperatorDebt.Create(targetId, 500_000m, Now.AddDays(-20), Now));
         await context.SaveChangesAsync();
         var handler = new UnlockUserAccountCommandHandler(
-            context, new FixedCurrentUser(administratorId), new FixedClock(), new SqlServerUserUnlockLock(context));
+            context, new FixedCurrentUser(staffId), new FixedClock(), new SqlServerUserUnlockLock(context));
 
         var result = await handler.Handle(
             new UnlockUserAccountCommand(targetId, "Verified support case", "sql-debt-unlock"), CancellationToken.None);
@@ -48,14 +48,14 @@ public sealed class UnlockUserAccountSqlServerTests
     public async Task UnlockAndReplay_RevokesTokensAndPersistsExactlyOneAuditOperationAndPendingNotification()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
-        var (AdministratorId, TravelerId) = await SeedAsync(database);
+        var (StaffId, TravelerId) = await SeedAsync(database);
 
         UnlockUserAccountResponse first;
         await using (var context = database.CreateDbContext())
         {
             var handler = new UnlockUserAccountCommandHandler(
                 context,
-                new FixedCurrentUser(AdministratorId),
+                new FixedCurrentUser(StaffId),
                 new FixedClock(),
                 new SqlServerUserUnlockLock(context));
             var result = await handler.Handle(
@@ -69,7 +69,7 @@ public sealed class UnlockUserAccountSqlServerTests
         {
             var handler = new UnlockUserAccountCommandHandler(
                 replayContext,
-                new FixedCurrentUser(AdministratorId),
+                new FixedCurrentUser(StaffId),
                 new FixedClock(),
                 new SqlServerUserUnlockLock(replayContext));
             var replay = await handler.Handle(
@@ -86,7 +86,7 @@ public sealed class UnlockUserAccountSqlServerTests
             .Be(Now);
         (await verification.AuditLogs.CountAsync(log => log.AffectedEntityId == TravelerId)).Should().Be(1);
         (await verification.UserUnlockOperations.CountAsync(operation =>
-            operation.AdministratorUserId == AdministratorId && operation.TargetUserId == TravelerId)).Should().Be(1);
+            operation.AdministratorUserId == StaffId && operation.TargetUserId == TravelerId)).Should().Be(1);
         var notification = await verification.Notifications.SingleAsync(notification =>
             notification.UserId == TravelerId);
         notification.Type.Should().Be(UserAdministrationNotificationTypes.AccountUnlocked);
@@ -98,7 +98,7 @@ public sealed class UnlockUserAccountSqlServerTests
     public async Task ConcurrentSameKeyRequests_CreateOneAuditAndReplayOneResponse()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
-        var (AdministratorId, TravelerId) = await SeedAsync(database);
+        var (StaffId, TravelerId) = await SeedAsync(database);
         var startGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         async Task<UnlockUserAccountResponse> UnlockAsync()
@@ -107,7 +107,7 @@ public sealed class UnlockUserAccountSqlServerTests
             await using var context = database.CreateDbContext();
             var handler = new UnlockUserAccountCommandHandler(
                 context,
-                new FixedCurrentUser(AdministratorId),
+                new FixedCurrentUser(StaffId),
                 new FixedClock(),
                 new SqlServerUserUnlockLock(context));
             var result = await handler.Handle(
@@ -126,7 +126,7 @@ public sealed class UnlockUserAccountSqlServerTests
         await using var verification = database.CreateDbContext();
         (await verification.AuditLogs.CountAsync(log => log.AffectedEntityId == TravelerId)).Should().Be(1);
         (await verification.UserUnlockOperations.CountAsync(operation =>
-            operation.AdministratorUserId == AdministratorId && operation.TargetUserId == TravelerId)).Should().Be(1);
+            operation.AdministratorUserId == StaffId && operation.TargetUserId == TravelerId)).Should().Be(1);
         (await verification.Notifications.CountAsync(notification => notification.UserId == TravelerId)).Should().Be(1);
     }
 
@@ -135,7 +135,7 @@ public sealed class UnlockUserAccountSqlServerTests
     public async Task ConcurrentDifferentKeysForSameTarget_OneSucceedsAndOneReturnsNotLockedWithoutDuplicateAudit()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
-        var (AdministratorId, TravelerId) = await SeedAsync(database);
+        var (StaffId, TravelerId) = await SeedAsync(database);
         var startGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         async Task<TripMate.Application.Common.Models.Result<UnlockUserAccountResponse>> UnlockAsync(string idempotencyKey)
@@ -144,7 +144,7 @@ public sealed class UnlockUserAccountSqlServerTests
             await using var context = database.CreateDbContext();
             var handler = new UnlockUserAccountCommandHandler(
                 context,
-                new FixedCurrentUser(AdministratorId),
+                new FixedCurrentUser(StaffId),
                 new FixedClock(),
                 new SqlServerUserUnlockLock(context));
             return await handler.Handle(
@@ -166,7 +166,7 @@ public sealed class UnlockUserAccountSqlServerTests
             .Be(AccountStatus.Active);
         (await verification.AuditLogs.CountAsync(log => log.AffectedEntityId == TravelerId)).Should().Be(1);
         (await verification.UserUnlockOperations.CountAsync(operation =>
-            operation.AdministratorUserId == AdministratorId && operation.TargetUserId == TravelerId)).Should().Be(1);
+            operation.AdministratorUserId == StaffId && operation.TargetUserId == TravelerId)).Should().Be(1);
         (await verification.Notifications.CountAsync(notification => notification.UserId == TravelerId)).Should().Be(1);
     }
 
@@ -175,13 +175,13 @@ public sealed class UnlockUserAccountSqlServerTests
     public async Task ReusedKeyWithDifferentReason_ReturnsConflictWithoutSecondMutation()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
-        var (AdministratorId, TravelerId) = await SeedAsync(database);
+        var (StaffId, TravelerId) = await SeedAsync(database);
 
         await using (var firstContext = database.CreateDbContext())
         {
             var handler = new UnlockUserAccountCommandHandler(
                 firstContext,
-                new FixedCurrentUser(AdministratorId),
+                new FixedCurrentUser(StaffId),
                 new FixedClock(),
                 new SqlServerUserUnlockLock(firstContext));
             (await handler.Handle(
@@ -193,7 +193,7 @@ public sealed class UnlockUserAccountSqlServerTests
         {
             var handler = new UnlockUserAccountCommandHandler(
                 replayContext,
-                new FixedCurrentUser(AdministratorId),
+                new FixedCurrentUser(StaffId),
                 new FixedClock(),
                 new SqlServerUserUnlockLock(replayContext));
             var mismatch = await handler.Handle(
@@ -207,7 +207,7 @@ public sealed class UnlockUserAccountSqlServerTests
         await using var verification = database.CreateDbContext();
         (await verification.AuditLogs.CountAsync(log => log.AffectedEntityId == TravelerId)).Should().Be(1);
         (await verification.UserUnlockOperations.CountAsync(operation =>
-            operation.AdministratorUserId == AdministratorId && operation.TargetUserId == TravelerId)).Should().Be(1);
+            operation.AdministratorUserId == StaffId && operation.TargetUserId == TravelerId)).Should().Be(1);
     }
 
     [SqlServerFact]
@@ -215,13 +215,13 @@ public sealed class UnlockUserAccountSqlServerTests
     public async Task PersistenceFailure_RollsBackUserTokenAuditAndOperation()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
-        var (AdministratorId, TravelerId) = await SeedAsync(database);
+        var (StaffId, TravelerId) = await SeedAsync(database);
 
         await using (var failingContext = database.CreateDbContext(new FailingSaveChangesInterceptor()))
         {
             var handler = new UnlockUserAccountCommandHandler(
                 failingContext,
-                new FixedCurrentUser(AdministratorId),
+                new FixedCurrentUser(StaffId),
                 new FixedClock(),
                 new SqlServerUserUnlockLock(failingContext));
 
@@ -242,19 +242,19 @@ public sealed class UnlockUserAccountSqlServerTests
         (await verification.Notifications.CountAsync(notification => notification.UserId == TravelerId)).Should().Be(0);
     }
 
-    private static async Task<(long AdministratorId, long TravelerId)> SeedAsync(SqlServerTestDatabase database)
+    private static async Task<(long StaffId, long TravelerId)> SeedAsync(SqlServerTestDatabase database)
     {
         await using var context = database.CreateDbContext();
-        var administrator = new User
+        var staff = new User
         {
-            FullName = "SQL unlock administrator",
-            Email = $"unlock-admin-{Guid.NewGuid():N}@example.com",
-            Role = UserRole.Administrator,
+            FullName = "SQL unlock staff",
+            Email = $"unlock-staff-{Guid.NewGuid():N}@example.com",
+            Role = UserRole.Staff,
             Status = AccountStatus.Active,
             CreatedAtUtc = Now,
             UpdatedAtUtc = Now,
         };
-        context.Users.Add(administrator);
+        context.Users.Add(staff);
         await context.SaveChangesAsync();
 
         var traveler = new User
@@ -266,7 +266,7 @@ public sealed class UnlockUserAccountSqlServerTests
             CreatedAtUtc = Now,
             UpdatedAtUtc = Now,
         };
-        traveler.RecordLock(AccountStatus.Active, administrator.Id, Now.AddHours(-1), "Security review");
+        traveler.RecordLock(AccountStatus.Active, staff.Id, Now.AddHours(-1), "Security review");
         context.Users.Add(traveler);
         await context.SaveChangesAsync();
 
@@ -278,14 +278,14 @@ public sealed class UnlockUserAccountSqlServerTests
             ExpiresAtUtc = Now.AddDays(7),
         });
         await context.SaveChangesAsync();
-        return (administrator.Id, traveler.Id);
+        return (staff.Id, traveler.Id);
     }
 
     private sealed class FixedCurrentUser(long userId) : ICurrentUserService
     {
         public long? UserId { get; } = userId;
 
-        public string? Role { get; } = nameof(UserRole.Administrator);
+        public string? Role { get; } = nameof(UserRole.Staff);
     }
 
     private sealed class FixedClock : IDateTimeProvider

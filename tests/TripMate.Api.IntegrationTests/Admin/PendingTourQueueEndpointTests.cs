@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Http.Json;
 using System.Text.Json;
 
 using FluentAssertions;
@@ -13,11 +12,15 @@ using TripMate.Domain.Enums;
 
 namespace TripMate.Api.IntegrationTests.Admin;
 
-/// <summary>UC-60 Screens 13/14 read endpoints: Staff-only pending queue and review detail.</summary>
+/// <summary>
+/// UC-60 Screens 13/14 read endpoints: the TM-83 Staff queue (<c>GET /api/v1/admin/tours</c>, now with keyword search
+/// and the screen columns) and the review model (<c>GET /api/v1/admin/tours/{id}/review</c>).
+/// </summary>
 [Collection(nameof(TripMateApiFactory))]
 public sealed class PendingTourQueueEndpointTests
 {
-    private const string QueuePath = "/api/v1/admin/tours/pending";
+    private const string QueuePath = "/api/v1/admin/tours";
+    private const long StaffId = 55;
 
     [Fact]
     public async Task Get_WithoutAuthentication_ReturnsUnauthorizedOnBothRoutes()
@@ -49,28 +52,37 @@ public sealed class PendingTourQueueEndpointTests
     }
 
     [Fact]
-    public async Task GetQueue_AsStaff_ReturnsOnlyPendingToursWithPagingEnvelope()
+    public async Task GetQueue_AsStaff_ReturnsOnlyPendingToursWithPagingEnvelopeAndScreenColumns()
     {
         await using var factory = new TripMateApiFactory();
         var pendingId = await SeedTourAsync(factory, TourStatus.Pending, "Pending lantern tour");
         await SeedTourAsync(factory, TourStatus.Approved, "Already approved tour");
-        using var client = factory.CreateAuthenticatedClient(55, UserRole.Staff);
+        using var client = await StaffClientAsync(factory);
 
-        var response = await client.GetAsync($"{QueuePath}?pageNumber=1&pageSize=20");
+        var response = await client.GetAsync($"{QueuePath}?page=1&pageSize=20");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         response.Headers.CacheControl!.NoStore.Should().BeTrue();
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var root = body.RootElement;
         root.GetProperty("totalCount").GetInt32().Should().Be(1);
-        root.GetProperty("totalPages").GetInt32().Should().Be(1);
-        root.GetProperty("pageNumber").GetInt32().Should().Be(1);
+        root.GetProperty("page").GetInt32().Should().Be(1);
         root.GetProperty("pageSize").GetInt32().Should().Be(20);
         var item = root.GetProperty("items").EnumerateArray().Should().ContainSingle().Subject;
-        item.GetProperty("tourId").GetInt64().Should().Be(pendingId);
-        item.GetProperty("tourName").GetString().Should().Be("Pending lantern tour");
+        // Original TM-83 members.
+        item.GetProperty("id").GetInt64().Should().Be(pendingId);
+        item.GetProperty("title").GetString().Should().Be("Pending lantern tour");
+        item.GetProperty("status").GetString().Should().Be("Pending");
+        item.TryGetProperty("operatorUserId", out _).Should().BeTrue();
+        item.TryGetProperty("submittedAtUtc", out _).Should().BeTrue();
+        item.TryGetProperty("submissionNote", out _).Should().BeTrue();
+        // Screen 13 additions, and no operator contact data.
         item.GetProperty("operatorName").GetString().Should().Be("Queue Tours");
-        item.GetRawText().Should().NotContain("0901234567", "operator contact data must not leak into the queue");
+        item.GetProperty("location").GetString().Should().Be("Hoi An");
+        item.GetProperty("priceVnd").GetDecimal().Should().Be(1_500_000m);
+        item.GetProperty("durationDays").GetInt32().Should().Be(1);
+        item.GetProperty("imageCount").GetInt32().Should().Be(0);
+        item.GetRawText().Should().NotContain("0901234567").And.NotContain("TAX-");
     }
 
     [Fact]
@@ -79,24 +91,24 @@ public sealed class PendingTourQueueEndpointTests
         await using var factory = new TripMateApiFactory();
         await SeedTourAsync(factory, TourStatus.Pending, "Lantern night");
         await SeedTourAsync(factory, TourStatus.Pending, "Mountain trek");
-        using var client = factory.CreateAuthenticatedClient(55, UserRole.Staff);
+        using var client = await StaffClientAsync(factory);
 
         var response = await client.GetAsync($"{QueuePath}?keyword=lantern");
 
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         body.RootElement.GetProperty("totalCount").GetInt32().Should().Be(1);
-        body.RootElement.GetProperty("items")[0].GetProperty("tourName").GetString().Should().Be("Lantern night");
+        body.RootElement.GetProperty("items")[0].GetProperty("title").GetString().Should().Be("Lantern night");
     }
 
     [Theory]
     [InlineData("pageSize=101")]
     [InlineData("pageSize=0")]
-    [InlineData("pageNumber=0")]
-    [InlineData("pageNumber=-3")]
+    [InlineData("page=0")]
+    [InlineData("page=-3")]
     public async Task GetQueue_WithInvalidPaging_ReturnsBadRequest(string query)
     {
         await using var factory = new TripMateApiFactory();
-        using var client = factory.CreateAuthenticatedClient(55, UserRole.Staff);
+        using var client = await StaffClientAsync(factory);
 
         var response = await client.GetAsync($"{QueuePath}?{query}");
 
@@ -107,7 +119,7 @@ public sealed class PendingTourQueueEndpointTests
     public async Task GetQueue_WithOversizedKeyword_ReturnsBadRequest()
     {
         await using var factory = new TripMateApiFactory();
-        using var client = factory.CreateAuthenticatedClient(55, UserRole.Staff);
+        using var client = await StaffClientAsync(factory);
 
         var response = await client.GetAsync($"{QueuePath}?keyword={new string('a', 101)}");
 
@@ -115,11 +127,34 @@ public sealed class PendingTourQueueEndpointTests
     }
 
     [Fact]
+    public async Task GetQueue_AsLockedStaff_IsForbidden()
+    {
+        await using var factory = new TripMateApiFactory();
+        await factory.WithDbContextAsync(async db =>
+        {
+            db.Users.Add(new User
+            {
+                Id = StaffId,
+                Email = "locked-staff@test.local",
+                FullName = "Locked Staff",
+                Role = UserRole.Staff,
+                Status = AccountStatus.Locked,
+            });
+            await db.SaveChangesAsync();
+            return 0;
+        });
+        using var client = factory.CreateAuthenticatedClient(StaffId, UserRole.Staff);
+
+        (await client.GetAsync(QueuePath)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await client.GetAsync("/api/v1/admin/tours/1/review")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
     public async Task GetReview_ForPendingTour_ReturnsChecklistInputs()
     {
         await using var factory = new TripMateApiFactory();
         var tourId = await SeedTourAsync(factory, TourStatus.Pending, "Review me");
-        using var client = factory.CreateAuthenticatedClient(55, UserRole.Staff);
+        using var client = await StaffClientAsync(factory);
 
         var response = await client.GetAsync($"/api/v1/admin/tours/{tourId}/review");
 
@@ -140,7 +175,7 @@ public sealed class PendingTourQueueEndpointTests
     public async Task GetReview_WhenTourDoesNotExist_ReturnsNotFound()
     {
         await using var factory = new TripMateApiFactory();
-        using var client = factory.CreateAuthenticatedClient(55, UserRole.Staff);
+        using var client = await StaffClientAsync(factory);
 
         var response = await client.GetAsync("/api/v1/admin/tours/404404/review");
 
@@ -155,13 +190,36 @@ public sealed class PendingTourQueueEndpointTests
     {
         await using var factory = new TripMateApiFactory();
         var tourId = await SeedTourAsync(factory, status, "Not pending");
-        using var client = factory.CreateAuthenticatedClient(55, UserRole.Staff);
+        using var client = await StaffClientAsync(factory);
 
         var response = await client.GetAsync($"/api/v1/admin/tours/{tourId}/review");
 
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
         using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         body.RootElement.GetProperty("errorCode").GetString().Should().Be(OperatorTourErrorCodes.InvalidState);
+    }
+
+    /// <summary>The read endpoints require an ACTIVE Staff account in the database, not just a Staff token.</summary>
+    private static async Task<HttpClient> StaffClientAsync(TripMateApiFactory factory)
+    {
+        await factory.WithDbContextAsync(async db =>
+        {
+            if (await db.Users.FindAsync(StaffId) is null)
+            {
+                db.Users.Add(new User
+                {
+                    Id = StaffId,
+                    Email = "queue-staff@test.local",
+                    FullName = "Queue Staff",
+                    Role = UserRole.Staff,
+                    Status = AccountStatus.Active,
+                });
+                await db.SaveChangesAsync();
+            }
+
+            return 0;
+        });
+        return factory.CreateAuthenticatedClient(StaffId, UserRole.Staff);
     }
 
     private static Task<long> SeedTourAsync(TripMateApiFactory factory, TourStatus desiredStatus, string title) =>

@@ -17,7 +17,7 @@ public sealed class GetPendingTourReviewQueryHandler(IApplicationDbContext dbCon
     public async Task<Result<PendingTourReviewDto>> Handle(
         GetPendingTourReviewQuery request, CancellationToken cancellationToken)
     {
-        if (currentUser.UserId is null || currentUser.Role != nameof(UserRole.Staff))
+        if (!await TourReviewReadAccess.IsActiveStaffAsync(dbContext, currentUser, cancellationToken))
         {
             return Result.Failure<PendingTourReviewDto>(
                 OperatorTourErrorCodes.AdminAccessRequired, "Staff access is required.");

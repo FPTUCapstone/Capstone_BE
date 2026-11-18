@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Admin.Users.Common;
 using TripMate.Domain.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
@@ -29,6 +30,14 @@ internal static class UserAccountAccess
             ? db.Users.Where(user => user.Role == UserRole.Traveler || user.Role == UserRole.TourOperator
                 || user.Role == UserRole.ServiceProvider)
             : db.Users.Where(user => user.Role == UserRole.Staff);
+
+    public static Task<bool> HasUnpaidOverdueCommissionAsync(IApplicationDbContext db, long userId,
+        DateTimeOffset now, CancellationToken ct)
+    {
+        var today = DateOnly.FromDateTime(now.ToOffset(ServiceBooking.VietnamOffset).DateTime);
+        return db.ServiceCommissionStatements.AnyAsync(statement => statement.Provider.UserId == userId
+            && statement.DueDate < today && statement.Status != ServiceCommissionStatement.StatusPaid, ct);
+    }
 
     public static readonly Expression<Func<User, UserAccountDto>> Projection = user => new UserAccountDto(
         user.Id.ToString(), user.FullName, user.Email, user.Role.ToString(), user.Status.ToString(),
@@ -98,12 +107,19 @@ public sealed class GetUserAccountQueryHandler(IApplicationDbContext db, ICurren
             return Result.Failure<UserAccountDetailDto>(UserAccountErrors.NotFound, "The account is unavailable.");
         }
         var isTourOperator = account.Role == nameof(UserRole.TourOperator);
+        var isServiceProvider = account.Role == nameof(UserRole.ServiceProvider);
         var historyRows = await db.AuditLogs.AsNoTracking()
-            .Where(row => row.AffectedEntityId == request.UserId && row.Result == AuditOutcome.Success)
+            // The Service Provider commission job records its auto-lock without an explicit outcome.
+            .Where(row => row.AffectedEntityId == request.UserId
+                && (row.Result == AuditOutcome.Success
+                    || (isServiceProvider && row.ActionType == AuditActionTypes.ServiceProviderAutoLocked
+                        && row.Result == null)))
             .Where(row =>
                 (row.AffectedEntity == AuditEntityTypes.User &&
                     (row.ActionType == AuditActionTypes.UserAccountLocked ||
                         row.ActionType == AuditActionTypes.UserAccountUnlocked ||
+                        row.ActionType == AuditActionTypes.UserUnlock ||
+                        (isServiceProvider && row.ActionType == AuditActionTypes.ServiceProviderAutoLocked) ||
                         (isTourOperator &&
                             (row.ActionType == AuditActionTypes.TourOperatorAutoLocked ||
                                 row.ActionType == AuditActionTypes.TourOperatorUnlocked)))) ||
@@ -141,7 +157,7 @@ public sealed class GetUserAccountQueryHandler(IApplicationDbContext db, ICurren
     private static string ActorAttribution(string action, long? actorId) => actorId switch
     {
         long id => $"Account {id.ToString(CultureInfo.InvariantCulture)}",
-        null when action == AuditActionTypes.TourOperatorAutoLocked => "System",
+        null when action is AuditActionTypes.TourOperatorAutoLocked or AuditActionTypes.ServiceProviderAutoLocked => "System",
         _ => "Unknown"
     };
 
@@ -166,7 +182,7 @@ public sealed class GetUserAccountQueryHandler(IApplicationDbContext db, ICurren
 }
 
 public sealed class ModerateUserAccountCommandHandler(IApplicationDbContext db, ICurrentUserService current,
-    IDateTimeProvider clock, IAuditFailureRecorder failures)
+    IDateTimeProvider clock, IAuditFailureRecorder failures, IUserUnlockLock userUnlockLock)
     : IRequestHandler<ModerateUserAccountCommand, Result<UserAccountDto>>
 {
     public async Task<Result<UserAccountDto>> Handle(ModerateUserAccountCommand request, CancellationToken ct)
@@ -180,6 +196,7 @@ public sealed class ModerateUserAccountCommandHandler(IApplicationDbContext db, 
         {
             var result = await db.ExecuteInSerializableTransactionAsync(async transactionCt =>
             {
+                await userUnlockLock.AcquireTargetUserAsync(request.UserId, transactionCt);
                 if (await UserAccountAccess.ActorRoleAsync(db, current, transactionCt) != role)
                     return Result.Failure<UserAccountDto>(UserAccountErrors.Forbidden, "Access denied.");
                 var user = await UserAccountAccess.Scope(db, role.Value).SingleOrDefaultAsync(user => user.Id == request.UserId, transactionCt);
@@ -189,10 +206,11 @@ public sealed class ModerateUserAccountCommandHandler(IApplicationDbContext db, 
                 if (!request.Lock && user.Role == UserRole.TourOperator && await db.TourOperatorDebts.AsNoTracking()
                     .AnyAsync(debt => debt.TourOperatorUserId == user.Id && debt.RecoveredAmount < debt.Amount, transactionCt))
                     return Result.Failure<UserAccountDto>(UserAccountErrors.OutstandingDebt, "The outstanding debt must be recovered before unlocking.");
-                if (!request.Lock && user.Role == UserRole.ServiceProvider && user.StatusBeforeLock is null)
+                var now = clock.UtcNow.ToUniversalTime();
+                if (!request.Lock && user.Role == UserRole.ServiceProvider
+                    && await UserAccountAccess.HasUnpaidOverdueCommissionAsync(db, user.Id, now, transactionCt))
                     return Result.Failure<UserAccountDto>(UserAccountErrors.ProviderSettlementUnavailable,
                         "Provider commission settlement must be verified before unlocking.");
-                var now = clock.UtcNow.ToUniversalTime();
                 var before = user.Status;
                 if (request.Lock)
                 {
@@ -200,7 +218,14 @@ public sealed class ModerateUserAccountCommandHandler(IApplicationDbContext db, 
                     var tokens = await db.RefreshTokens.Where(token => token.UserId == user.Id && token.RevokedAtUtc == null).ToListAsync(transactionCt);
                     foreach (var token in tokens) token.RevokedAtUtc = now;
                 }
-                else user.Unlock(now);
+                else
+                {
+                    if (!await AccountLockRecovery.TryRestoreAsync(db, user, now, transactionCt))
+                        return Result.Failure<UserAccountDto>(UserAdministrationErrorCodes.LockRecoveryStateMissing,
+                            AccountLockRecovery.IncompleteMessage);
+                    if (user.Role == UserRole.ServiceProvider)
+                        await db.RevokeAllRefreshTokensForUserAsync(user.Id, now, transactionCt);
+                }
                 db.AuditLogs.Add(AuditLog.CreateRecordedOutcome(current.UserId, action, AuditEntityTypes.User, user.Id,
                     now, AuditOutcome.Success, reason: request.Reason.Trim(),
                     beforeData: JsonSerializer.Serialize(new { Status = before.ToString() }),

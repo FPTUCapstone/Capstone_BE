@@ -19,16 +19,26 @@ namespace TripMate.Api.Controllers.V1;
 [Route("api/v1/admin/tours")]
 public sealed class AdminToursController(ISender sender) : ApiControllerBase(sender)
 {
-    /// <summary>UC-60 Screen 13: Staff queue of tours waiting for review.</summary>
-    [HttpGet("pending")]
+    /// <summary>UC-60 Screen 13: Staff queue of tours waiting for review (paged, optional keyword).</summary>
+    [HttpGet]
     [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
-    public async Task<IActionResult> GetPending([FromQuery] GetPendingToursQuery query, CancellationToken cancellationToken)
+    public async Task<IActionResult> Queue([FromQuery] GetTourReviewQueueQuery query, CancellationToken cancellationToken)
     {
         var result = await Sender.Send(query, cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 
-    /// <summary>UC-60 Screen 14: review detail of a Pending tour.</summary>
+    [HttpGet("{tourId:long}")]
+    public async Task<IActionResult> Detail(long tourId, CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(new GetTourReviewDetailQuery(tourId), cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    /// <summary>
+    /// UC-60 Screen 14: review model of a Pending tour. Unlike <see cref="Detail"/> (the operator's view) it carries
+    /// what the checklist needs and the operator view lacks: image URLs, POI names and the operator company name.
+    /// </summary>
     [HttpGet("{tourId:long}/review")]
     [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     public async Task<IActionResult> GetReviewDetail(long tourId, CancellationToken cancellationToken)
