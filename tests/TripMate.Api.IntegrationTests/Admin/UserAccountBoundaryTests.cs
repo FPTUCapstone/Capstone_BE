@@ -381,6 +381,47 @@ public sealed class UserAccountBoundaryTests
     }
 
     [Fact]
+    public async Task Detail_IncludesIdempotentUnlockAndProviderAutoLockHistory()
+    {
+        await using var factory = await SeedAsync();
+        await factory.WithDbContextAsync(async db =>
+        {
+            var time = DateTimeOffset.Parse("2026-11-16T10:00:00Z", CultureInfo.InvariantCulture);
+            db.Users.Add(new User { Id = 50, FullName = "Provider", Role = UserRole.ServiceProvider, Status = AccountStatus.Active });
+            await db.SaveChangesAsync();
+            db.AuditLogs.AddRange(
+                // The commission job records its lock without an explicit outcome.
+                new AuditLog(null, AuditActionTypes.ServiceProviderAutoLocked, AuditEntityTypes.User, 50, time),
+                AuditLog.CreateRecordedOutcome(10, AuditActionTypes.UserUnlock, AuditEntityTypes.User, 50,
+                    time, AuditOutcome.Success, reason: "Settlement verified"),
+                AuditLog.CreateRecordedOutcome(10, AuditActionTypes.UserUnlock, AuditEntityTypes.User, 50,
+                    time, AuditOutcome.Failure),
+                AuditLog.CreateRecordedOutcome(10, AuditActionTypes.UserUnlock, AuditEntityTypes.User, 30,
+                    time, AuditOutcome.Success, reason: "Verified owner"),
+                new AuditLog(null, AuditActionTypes.ServiceProviderAutoLocked, AuditEntityTypes.User, 30, time));
+            await db.SaveChangesAsync();
+            return true;
+        });
+        using var staff = factory.CreateAuthenticatedClient(10, UserRole.Staff);
+
+        using var provider = await staff.GetAsync("/api/v1/admin/users/50");
+        using var traveler = await staff.GetAsync("/api/v1/admin/users/30");
+
+        provider.StatusCode.Should().Be(HttpStatusCode.OK);
+        var providerHistory = (await provider.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("moderationHistory").EnumerateArray().ToArray();
+        providerHistory.Select(row => row.GetProperty("action").GetString()).Should().Equal(
+            AuditActionTypes.UserUnlock, AuditActionTypes.ServiceProviderAutoLocked);
+        providerHistory[0].GetProperty("actorAttribution").GetString().Should().Be("Account 10");
+        providerHistory[0].GetProperty("reason").GetString().Should().Be("Settlement verified");
+        providerHistory[1].GetProperty("actorAttribution").GetString().Should().Be("System");
+
+        var travelerHistory = (await traveler.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("moderationHistory").EnumerateArray().ToArray();
+        travelerHistory.Select(row => row.GetProperty("action").GetString()).Should().Equal(AuditActionTypes.UserUnlock);
+    }
+
+    [Fact]
     public async Task Directory_AuditsAnonymousAndForbiddenExactlyOnce()
     {
         await using var factory = await SeedAsync();
