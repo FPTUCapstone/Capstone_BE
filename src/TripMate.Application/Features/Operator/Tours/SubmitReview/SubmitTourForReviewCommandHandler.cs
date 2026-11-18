@@ -31,6 +31,7 @@ public sealed class SubmitTourForReviewCommandHandler(
         long operatorId = currentUser.UserId.Value;
         return await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
         {
+            await dbContext.AcquireTourSubmissionLockAsync(request.TourId, transactionCancellationToken);
             bool eligible = await dbContext.OperatorProfiles.AsNoTracking().AnyAsync(profile =>
                 profile.UserId == operatorId &&
                 profile.ApprovalStatus == OperatorApprovalStatus.Approved &&
@@ -66,11 +67,19 @@ public sealed class SubmitTourForReviewCommandHandler(
             {
                 return Result.Failure<SubmitTourForReviewResponse>(
                     OperatorTourErrorCodes.ReviewPrerequisitesMissing,
-                    "A primary image, a destination, a priced future departure, and cancellation terms are required before review.");
+                    "Complete mandatory tour fields, itinerary, cover image, destination, valid priced future departure, and cancellation terms before review.");
             }
 
-            TourStatus statusBefore = tour.Status;
-            tour.SubmitForReview(now);
+            string beforeData = JsonSerializer.Serialize(new
+            {
+                Status = tour.Status.ToString(),
+                tour.SubmittedAtUtc,
+                tour.SubmissionNote,
+                tour.RejectionReason,
+                tour.ReviewedBy,
+                tour.ReviewedAtUtc
+            });
+            tour.SubmitForReview(now, request.SubmissionNote);
             dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(
                 operatorId,
                 AuditActionTypes.TourSubmitForReview,
@@ -78,10 +87,18 @@ public sealed class SubmitTourForReviewCommandHandler(
                 tour.Id,
                 now,
                 AuditOutcome.Success,
-                beforeData: JsonSerializer.Serialize(new { Status = statusBefore.ToString() }),
-                afterData: JsonSerializer.Serialize(new { Status = TourStatus.Pending.ToString() })));
+                beforeData: beforeData,
+                afterData: JsonSerializer.Serialize(new
+                {
+                    Status = tour.Status.ToString(),
+                    tour.SubmittedAtUtc,
+                    tour.SubmissionNote,
+                    tour.RejectionReason,
+                    tour.ReviewedBy,
+                    tour.ReviewedAtUtc
+                })));
             await dbContext.SaveChangesAsync(transactionCancellationToken);
-            return Result.Success(new SubmitTourForReviewResponse(tour.Id, nameof(TourStatus.Pending)));
+            return Result.Success(new SubmitTourForReviewResponse(tour.Id, nameof(TourStatus.Pending), tour.SubmittedAtUtc!.Value));
         }, cancellationToken);
     }
 

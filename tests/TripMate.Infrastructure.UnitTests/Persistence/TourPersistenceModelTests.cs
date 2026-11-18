@@ -62,6 +62,10 @@ public class TourPersistenceModelTests
         tour.FindProperty(nameof(Tour.Status))!.IsUnicode().Should().BeFalse();
         tour.FindProperty(nameof(Tour.Status))!.GetDefaultValueSql().Should().Be("'Draft'");
 
+        AssertUtcDateTime2(tour, nameof(Tour.SubmittedAtUtc));
+        ColumnName(tour, nameof(Tour.SubmittedAtUtc)).Should().Be("submitted_at_utc");
+        ColumnName(tour, nameof(Tour.SubmissionNote)).Should().Be("submission_note");
+        tour.FindProperty(nameof(Tour.SubmissionNote))!.GetMaxLength().Should().Be(Tour.TermsMaxLength);
         AssertUtcDateTime2(tour, nameof(Tour.ReviewedAtUtc));
         AssertUtcDateTime2(tour, nameof(Tour.PublishedAtUtc));
         AssertUtcDateTime2(tour, nameof(Tour.CreatedAtUtc));
