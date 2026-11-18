@@ -510,6 +510,16 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
         Set<TourBookingCreateOperation>();
     public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
     public DbSet<Refund> Refunds => Set<Refund>();
+    public DbSet<PostTripComplaint> PostTripComplaints => Set<PostTripComplaint>();
+    public DbSet<ComplaintEvidence> ComplaintEvidence => Set<ComplaintEvidence>();
+    public DbSet<PostTripComplaintSubmissionOperation> PostTripComplaintSubmissionOperations =>
+        Set<PostTripComplaintSubmissionOperation>();
+    public DbSet<PostTripComplaintEvidenceAmendmentOperation> PostTripComplaintEvidenceAmendmentOperations =>
+        Set<PostTripComplaintEvidenceAmendmentOperation>();
+    public DbSet<PostTripComplaintResponseOperation> PostTripComplaintResponseOperations =>
+        Set<PostTripComplaintResponseOperation>();
+    public DbSet<PostTripComplaintNegotiationEvent> PostTripComplaintNegotiationEvents =>
+        Set<PostTripComplaintNegotiationEvent>();
     public DbSet<EmergencyTourCancellationOperation> EmergencyTourCancellationOperations =>
         Set<EmergencyTourCancellationOperation>();
     public DbSet<RefundManualCompletionOperation> RefundManualCompletionOperations =>

@@ -1,5 +1,9 @@
-**/bin/
-**/obj/
+# Exclude generated .NET outputs even when Docker receives a Windows build context.
+# The explicit /** form prevents read-only host artifacts from being copied into /src.
+**/bin
+**/bin/**
+**/obj
+**/obj/**
 **/.vs/
 **/.vscode/
 **/*.user

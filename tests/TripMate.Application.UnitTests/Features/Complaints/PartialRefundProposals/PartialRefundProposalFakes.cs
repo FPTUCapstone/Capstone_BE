@@ -26,7 +26,7 @@ internal static class PartialRefundProposalTestData
         PostTripComplaintStatus status = PostTripComplaintStatus.AwaitingTravelerResponse,
         DateTimeOffset? deadline = null) =>
         new(complaintId, BookingId, BookingCode, TravelerId, OperatorId, status, ProposedAmount,
-            deadline ?? Deadline);
+            deadline ?? Deadline, "Initial proposal rationale", 1, null, ProposedAmount);
 
     public static TestDbContext CreateDbContext() => new(new DbContextOptionsBuilder<TestDbContext>()
         .UseInMemoryDatabase(Guid.NewGuid().ToString())
@@ -66,6 +66,31 @@ internal sealed class FakePartialRefundProposalStore(TestDbContext? dbContext = 
 
         _proposals[complaintId] = proposal with { Status = outcome };
         Closes.Add((complaintId, outcome, respondedAtUtc));
+        return Task.FromResult(true);
+    }
+
+    public Task<bool> TryCounterAsync(long complaintId, long travelerUserId, decimal requestedAmount, string reason,
+        DateTimeOffset counteredAtUtc, DateTimeOffset operatorReconsiderationDeadlineUtc,
+        CancellationToken cancellationToken)
+    {
+        if (LoseRaceFor.Contains(complaintId) || !_proposals.TryGetValue(complaintId, out var proposal) ||
+            proposal.Status != PostTripComplaintStatus.AwaitingTravelerResponse || proposal.Round != 1)
+            return Task.FromResult(false);
+        _proposals[complaintId] = proposal with
+        {
+            Status = PostTripComplaintStatus.AwaitingOperatorReconsideration,
+            OperatorReconsiderationDeadlineUtc = operatorReconsiderationDeadlineUtc
+        };
+        return Task.FromResult(true);
+    }
+
+    public Task<bool> TryDeclineFinallyAsync(long complaintId, long travelerUserId, string reason,
+        DateTimeOffset declinedAtUtc, CancellationToken cancellationToken)
+    {
+        if (LoseRaceFor.Contains(complaintId) || !_proposals.TryGetValue(complaintId, out var proposal) ||
+            proposal.Status != PostTripComplaintStatus.AwaitingTravelerResponse || proposal.Round != 2)
+            return Task.FromResult(false);
+        _proposals[complaintId] = proposal with { Status = PostTripComplaintStatus.Declined };
         return Task.FromResult(true);
     }
 

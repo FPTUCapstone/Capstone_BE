@@ -98,6 +98,8 @@ public class TestDbContext(
     public DbSet<PostTripComplaint> PostTripComplaints => Set<PostTripComplaint>();
     public DbSet<ComplaintEvidence> ComplaintEvidence => Set<ComplaintEvidence>();
     public DbSet<PostTripComplaintSubmissionOperation> PostTripComplaintSubmissionOperations => Set<PostTripComplaintSubmissionOperation>();
+    public DbSet<PostTripComplaintResponseOperation> PostTripComplaintResponseOperations => Set<PostTripComplaintResponseOperation>();
+    public DbSet<PostTripComplaintNegotiationEvent> PostTripComplaintNegotiationEvents => Set<PostTripComplaintNegotiationEvent>();
     public DbSet<EmergencyTourCancellationOperation> EmergencyTourCancellationOperations =>
         Set<EmergencyTourCancellationOperation>();
     public DbSet<RefundManualCompletionOperation> RefundManualCompletionOperations =>

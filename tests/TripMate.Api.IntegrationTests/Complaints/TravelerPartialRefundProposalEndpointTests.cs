@@ -56,7 +56,7 @@ public sealed class TravelerPartialRefundProposalEndpointTests
     {
         await using var factory = CreateFactory(out _);
         using var client = factory.CreateAuthenticatedClient(TravelerId, UserRole.Traveler);
-        (await client.PostAsJsonAsync($"{Url}/response", new { decision = "Decline" })).EnsureSuccessStatusCode();
+        (await client.PostAsJsonAsync($"{Url}/response", new { decision = "Accept" })).EnsureSuccessStatusCode();
 
         var response = await client.PostAsJsonAsync($"{Url}/response", new { decision = "Accept" });
 
@@ -203,6 +203,29 @@ public sealed class TravelerPartialRefundProposalEndpointTests
                 return Task.FromResult(false);
 
             _proposal = _proposal with { Status = outcome };
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> TryCounterAsync(long complaintId, long travelerUserId, decimal requestedAmount,
+            string reason, DateTimeOffset counteredAtUtc, DateTimeOffset operatorReconsiderationDeadlineUtc,
+            CancellationToken cancellationToken)
+        {
+            if (complaintId != _proposal.ComplaintId || _proposal.Status != PostTripComplaintStatus.AwaitingTravelerResponse ||
+                _proposal.Round != 1) return Task.FromResult(false);
+            _proposal = _proposal with
+            {
+                Status = PostTripComplaintStatus.AwaitingOperatorReconsideration,
+                OperatorReconsiderationDeadlineUtc = operatorReconsiderationDeadlineUtc
+            };
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> TryDeclineFinallyAsync(long complaintId, long travelerUserId, string reason,
+            DateTimeOffset declinedAtUtc, CancellationToken cancellationToken)
+        {
+            if (complaintId != _proposal.ComplaintId || _proposal.Status != PostTripComplaintStatus.AwaitingTravelerResponse ||
+                _proposal.Round != 2) return Task.FromResult(false);
+            _proposal = _proposal with { Status = PostTripComplaintStatus.Declined };
             return Task.FromResult(true);
         }
 

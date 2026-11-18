@@ -43,7 +43,8 @@ public sealed class TravelerComplaintsController(ISender sender) : ApiController
         RespondToPartialRefundProposalRequest request, CancellationToken cancellationToken)
     {
         var result = await Sender.Send(
-            new RespondToPartialRefundProposalCommand(complaintId, request.Decision!.Value), cancellationToken);
+            new RespondToPartialRefundProposalCommand(complaintId, request.Decision!.Value, request.Reason,
+                request.RequestedAmount), cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 }

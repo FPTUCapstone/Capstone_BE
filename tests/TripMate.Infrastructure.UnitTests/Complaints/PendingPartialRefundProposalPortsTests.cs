@@ -1,21 +1,24 @@
 using FluentAssertions;
 
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
 using TripMate.Application.Features.Complaints.PartialRefundProposals;
 using TripMate.Domain.Enums;
 using TripMate.Infrastructure.Complaints;
+using TripMate.Infrastructure.Persistence;
 
 namespace TripMate.Infrastructure.UnitTests.Complaints;
 
-public sealed class PendingPartialRefundProposalPortsTests
+public sealed class PostTripComplaintProposalStoreTests
 {
     private static readonly DateTimeOffset Now = new(2026, 11, 15, 0, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public async Task Store_BeforeTm222_FindsNothingAndClosesNothing()
+    public async Task EmptyStore_FindsNothingAndClosesNothing()
     {
-        var store = new PendingPartialRefundProposalStore();
+        await using var dbContext = CreateDbContext();
+        var store = new PostTripComplaintProposalStore(dbContext);
 
         (await store.FindAsync(1, CancellationToken.None)).Should().BeNull();
         (await store.TryCloseAsync(1, PostTripComplaintStatus.Declined, Now, CancellationToken.None)).Should().BeFalse();
@@ -23,13 +26,14 @@ public sealed class PendingPartialRefundProposalPortsTests
     }
 
     [Fact]
-    public async Task RefundRequestCreator_BeforeTm88_NeverFallsBackToDirectRefund()
+    public async Task RefundRequestCreator_WithoutVerifiedPayment_RefusesToCreateRefund()
     {
-        var creator = new PendingComplaintRefundRequestCreator();
+        await using var dbContext = CreateDbContext();
+        var creator = new PostTripComplaintRefundRequestCreator(dbContext);
 
         var act = () => creator.CreateForAcceptedComplaintAsync(1, 2, 500_000m, Now, CancellationToken.None);
 
-        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*TM-88*");
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*No verified payment transaction*");
     }
 
     [Theory]
@@ -56,5 +60,13 @@ public sealed class PendingPartialRefundProposalPortsTests
         options.SweepInterval.Should().Be(TimeSpan.FromHours(1));
         new PartialRefundProposalDeadlineOptionsValidator().Validate(null, options)
             .Should().Be(ValidateOptionsResult.Success);
+    }
+
+    private static ApplicationDbContext CreateDbContext()
+    {
+        var options = new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseInMemoryDatabase($"post-trip-complaint-proposal-{Guid.NewGuid():N}")
+            .Options;
+        return new ApplicationDbContext(options);
     }
 }
