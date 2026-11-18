@@ -111,14 +111,17 @@ Result: **`00:07 +2: All tests passed!`**
   - Container restarted via `docker restart tm89-verify-redis`.
   - Phase `verify` confirmed stream length `1` survived restart and same-`EventId` replay remained idempotent (`StreamLength == 1`).
   - 50-sample `append + WAITAOF` latency distribution on isolated container: **`p50 = 3.38 ms`, `p95 = 3.98 ms`, `p99 = 95.27 ms`** (no SLA inferred).
-- **Malformed/Poison Event Isolation (`CheckInAuditProjectionRedisTests` & `CheckInAuditProjectionSqlServerTests`):**
+- **Malformed/Poison Event Isolation & Reclaim Logging (`CheckInAuditProjectionRedisTests` & `CheckInAuditProjectionSqlServerTests`):**
   - Missing payload, invalid JSON, non-object JSON (`[1,2,3]`), missing required fields, wrong JSON property types, and an `Admission` event injected into the rejection stream all stayed pending (`XPENDING = 6` in Redis test, `3` in SQL+Redis test), incremented `metrics.Conflicts`, recorded `ProjectionFailures = 0`, preserved stream length (no `XDEL`/`XTRIM`), and allowed all healthy rejection events in the same and subsequent batches to project to `dbo.AuditLogs` and ACK cleanly.
+  - Second-batch `XAUTOCLAIM` reclaim cycle verified via `RecordingLogger`: Batch 1 (fresh delivery) logged 6 `LogError` + 0 `LogWarning` (`Conflicts == 6`, `Projected == 2`), and Batch 2 (reclaim cycle) logged concise `LogWarning` with 0 new `LogError` (`Pending == 6`, `StreamLength == 9`, `ProjectionFailures == 0`, `Projected == 3`).
 - **SQL Outage & Recovery (`CheckInAuditProjectionSqlServerTests` & `CheckInAuditHttpSqlFailureTests`):**
   - 25 rejection events remained pending during SQL outage and projected 25/25 after recovery (`XPENDING = 0`, `StreamLength = 25`).
   - HTTP SQL unavailability after durable admission returned `HTTP 503` / `MSG127`, left ticket unused, recorded 1 admission and 0 rejections, never fabricated a rejected SQL audit row even after SQL recovery (`Http_AdmissionOnlyIndeterminateAttempt_NeverProjectsAsRejectedInSql`), and subsequent retry after SQL recovery succeeded once.
 - **Concurrency Races (`CheckInTravelerRegressionSqlServerTests` & `CheckInAuditHttpSqlFailureTests`):**
   - Two concurrent scans of the same QR → exactly 1×200 and 1×409 `AlreadyUsed`, 1 consumption, 1 audited rejection.
   - Concurrent booking cancellation vs scan barrier (`CancelCommitsWhileScanWaitsForTransaction_ScanRejectsBookingCancelledAndLeavesTicketUnused`) → scan rejected with `checkin.booking_cancelled`, ticket stayed `Cancelled`, 0 `Success` check-in logs.
+  - Concurrent booking-only cancellation (`Booking.Status = Cancelled` while `Ticket.Status` stays `Valid` & QR stays `Active`) via `BookingOnlyCancellationCommitsWhileScanWaitsForTransaction_ScanRejectsBookingCancelledAndLeavesTicketUnused` → scan rejected with `checkin.booking_cancelled`, 0 `Success` check-in logs, ticket stayed `Valid`/unused.
+  - Concurrent booking payment ineligibility (`Booking.PaymentStatus = Unpaid` while `Ticket.Status` stays `Valid` & QR stays `Active`) via `BookingBecomesUnpaidWhileScanWaitsForTransaction_ScanRejectsBookingNotConfirmedAndLeavesTicketUnused` → scan rejected with `checkin.booking_not_confirmed`, 0 `Success` check-in logs, ticket stayed `Valid`/unused.
   - Concurrent QR refresh vs scan barrier → old QR rejected with `checkin.invalid_qr`, replacement QR remained active and succeeded.
 
 ---

@@ -60,4 +60,19 @@ public sealed class CheckInAuditProjectionWorkerTests
             "malformed stream entries must be isolated per entry, never throwing {0}",
             exception.GetType().Name);
     }
+
+    [Theory]
+    [InlineData("{\"schemaVersion\":1,\"eventId\":\"00000000000000000000000000000001\",\"scanAttemptId\":\"00000000000000000000000000000002\",\"eventType\":\"Rejected\",\"occurredAtUtc\":\"2026-11-05T01:02:03Z\",\"actorUserId\":7,\"scheduleId\":9,\"ticketId\":null,\"reasonCode\":null}")]
+    [InlineData("{\"schemaVersion\":1,\"eventId\":\"00000000000000000000000000000001\",\"scanAttemptId\":\"00000000000000000000000000000002\",\"eventType\":\"Rejected\",\"occurredAtUtc\":\"2026-11-05T01:02:03Z\",\"actorUserId\":7,\"scheduleId\":9,\"ticketId\":null,\"reasonCode\":\"\"}")]
+    [InlineData("{\"schemaVersion\":1,\"eventId\":\"00000000000000000000000000000001\",\"scanAttemptId\":\"00000000000000000000000000000002\",\"eventType\":\"Rejected\",\"occurredAtUtc\":\"2026-11-05T01:02:03Z\",\"actorUserId\":7,\"scheduleId\":9,\"ticketId\":null,\"reasonCode\":\"   \"}")]
+    [InlineData("{\"schemaVersion\":1,\"eventId\":\"00000000000000000000000000000001\",\"scanAttemptId\":\"00000000000000000000000000000002\",\"eventType\":\"Rejected\",\"occurredAtUtc\":\"2026-11-05T01:02:03Z\",\"actorUserId\":7,\"scheduleId\":9,\"ticketId\":null}")]
+    public void Parse_RejectedWithoutReasonCode_ThrowsExplicitInvalidDataException(string payload)
+    {
+        var entry = new StreamEntry("1-0", [new NameValueEntry("payload", payload)]);
+
+        Action act = () => CheckInAuditProjectionBackgroundService.Parse(entry);
+
+        act.Should().Throw<InvalidDataException>()
+            .WithMessage("*reasonCode*");
+    }
 }

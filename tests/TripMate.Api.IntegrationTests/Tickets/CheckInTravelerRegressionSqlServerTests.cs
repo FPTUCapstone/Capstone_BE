@@ -299,6 +299,84 @@ public sealed class CheckInTravelerRegressionSqlServerTests
             && e.ReasonCode == CheckInErrorCodes.BookingCancelled);
     }
 
+    [SqlServerFact]
+    public async Task BookingOnlyCancellationCommitsWhileScanWaitsForTransaction_ScanRejectsBookingCancelledAndLeavesTicketUnused()
+    {
+        // Defensive TOCTOU regression test: only commerce.Bookings.status changes to Cancelled
+        // while Ticket remains Valid and QR remains Active, proving the serializable transaction's
+        // Include(t => t.Booking) cancellation recheck is effective on its own.
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var (seed, ticketId, qr) = await SeedAsync(database);
+        var barrier = new PauseFirstTicketRead();
+        var journal = new StubAuditJournal();
+        await using var scanContext = database.CreateDbContext(barrier);
+        var scan = Handler(scanContext, seed, journal).Handle(
+            new CheckInTravelerCommand(seed.ScheduleId, QrContent: Codec().ContentFor(qr.QrToken, qr.Signature)),
+            CancellationToken.None);
+        try
+        {
+            await barrier.Reached.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            await database.ExecuteNonQueryAsync($"""
+                UPDATE commerce.Bookings
+                SET status = 'Cancelled'
+                WHERE booking_id = (SELECT booking_id FROM commerce.Tickets WHERE ticket_id = {ticketId});
+                """);
+        }
+        finally
+        {
+            barrier.Release.TrySetResult();
+        }
+
+        var rejected = await scan.WaitAsync(TimeSpan.FromSeconds(30));
+        rejected.ErrorCode.Should().Be(CheckInErrorCodes.BookingCancelled);
+        await AssertUnusedAsync(database, ticketId);
+        await using var verification = database.CreateDbContext();
+        (await verification.TicketQrCodes.AsNoTracking().SingleAsync(q => q.Id == qr.Id))
+            .Status.Should().Be(TicketQrCodeStatus.Active);
+        journal.Events.Should().ContainSingle(e =>
+            e.EventType == CheckInAuditEventType.Rejected
+            && e.ReasonCode == CheckInErrorCodes.BookingCancelled);
+    }
+
+    [SqlServerFact]
+    public async Task BookingBecomesUnpaidWhileScanWaitsForTransaction_ScanRejectsBookingNotConfirmedAndLeavesTicketUnused()
+    {
+        // Defensive TOCTOU regression test: only commerce.Bookings.payment_status changes away
+        // from Paid while Ticket remains Valid and QR remains Active, proving the serializable
+        // transaction's BookingNotConfirmed recheck is effective on its own.
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var (seed, ticketId, qr) = await SeedAsync(database);
+        var barrier = new PauseFirstTicketRead();
+        var journal = new StubAuditJournal();
+        await using var scanContext = database.CreateDbContext(barrier);
+        var scan = Handler(scanContext, seed, journal).Handle(
+            new CheckInTravelerCommand(seed.ScheduleId, QrContent: Codec().ContentFor(qr.QrToken, qr.Signature)),
+            CancellationToken.None);
+        try
+        {
+            await barrier.Reached.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            await database.ExecuteNonQueryAsync($"""
+                UPDATE commerce.Bookings
+                SET payment_status = 'Unpaid'
+                WHERE booking_id = (SELECT booking_id FROM commerce.Tickets WHERE ticket_id = {ticketId});
+                """);
+        }
+        finally
+        {
+            barrier.Release.TrySetResult();
+        }
+
+        var rejected = await scan.WaitAsync(TimeSpan.FromSeconds(30));
+        rejected.ErrorCode.Should().Be(CheckInErrorCodes.BookingNotConfirmed);
+        await AssertUnusedAsync(database, ticketId);
+        await using var verification = database.CreateDbContext();
+        (await verification.TicketQrCodes.AsNoTracking().SingleAsync(q => q.Id == qr.Id))
+            .Status.Should().Be(TicketQrCodeStatus.Active);
+        journal.Events.Should().ContainSingle(e =>
+            e.EventType == CheckInAuditEventType.Rejected
+            && e.ReasonCode == CheckInErrorCodes.BookingNotConfirmed);
+    }
+
     private static async Task<(TicketSqlServerSeed Seed, long TicketId, TicketQrCode Qr)> SeedAsync(SqlServerTestDatabase database)
     {
         var seed = await TicketSqlServerSeed.CreateAsync(database, Departure);

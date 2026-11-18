@@ -256,6 +256,10 @@ public sealed class CheckInTravelerCommandHandler(
                         if (ticket is null)
                             return new CheckInTransactionOutcome();
 
+                        // Per SRS BR-86, concurrent booking cancellation (UC-41 / emergency stop)
+                        // transitions both the booking and its ticket to Cancelled; map either signal
+                        // inside the serializable transaction to BookingCancelled rather than generic
+                        // TicketInvalid while keeping pre-check TicketInvalid for other non-valid states.
                         if (ticket.Booking?.Status == BookingStatus.Cancelled || ticket.Status == TicketStatus.Cancelled)
                             return new CheckInTransactionOutcome(BookingCancelled: true);
 

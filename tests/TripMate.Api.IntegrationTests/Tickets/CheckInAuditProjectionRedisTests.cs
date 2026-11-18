@@ -194,20 +194,25 @@ public sealed class CheckInAuditProjectionRedisTests
 
         await using var provider = Services(prefix).BuildServiceProvider();
         var metrics = new CheckInAuditJournalMetrics();
+        var logger = new RecordingLogger<CheckInAuditProjectionBackgroundService>();
         var worker = new CheckInAuditProjectionBackgroundService(
-            connection, options, provider.GetRequiredService<IServiceScopeFactory>(), metrics,
-            NullLogger<CheckInAuditProjectionBackgroundService>.Instance);
+            connection, options, provider.GetRequiredService<IServiceScopeFactory>(), metrics, logger);
 
         (await worker.ProcessBatchAsync(CancellationToken.None)).Should().Be(2);
         metrics.Projected.Should().Be(2);
         metrics.Conflicts.Should().Be(6);
         metrics.ProjectionFailures.Should().Be(0);
+        logger.Count(Microsoft.Extensions.Logging.LogLevel.Error).Should().Be(6,
+            "initial malformed deliveries must log full ERROR diagnostics");
+        logger.Count(Microsoft.Extensions.Logging.LogLevel.Warning).Should().Be(0);
         (await connection.Database.StreamPendingAsync(options.RejectionStreamKey, options.ConsumerGroup))
             .PendingMessageCount.Should().Be(6, "malformed poison entries must stay pending for investigation");
         (await connection.Database.StreamLengthAsync(options.RejectionStreamKey))
             .Should().Be(8, "no unauthorized deletion or trimming is allowed");
 
-        // Wait past PendingLease so poison entries are reclaimed, and add another healthy event.
+        // Second batch / reclaim cycle: wait past PendingLease so poison entries are reclaimed via XAUTOCLAIM,
+        // and append a 3rd healthy event. Poison stays pending, emits concise Warnings (no new ERROR flood),
+        // never throws out of batch processing, and the healthy event projects cleanly.
         await Task.Delay(30);
         var healthyThree = CheckInAuditEvent.Rejected(
             Guid.NewGuid(), Guid.NewGuid(), DateTimeOffset.Parse("2026-11-05T03:02:00Z"),
@@ -216,9 +221,16 @@ public sealed class CheckInAuditProjectionRedisTests
 
         (await worker.ProcessBatchAsync(CancellationToken.None)).Should().Be(1);
         metrics.Projected.Should().Be(3);
+        metrics.Conflicts.Should().BeGreaterThan(6,
+            "Conflicts tracks failed delivery encounters across reclaimed batches");
         metrics.ProjectionFailures.Should().Be(0);
+        logger.Count(Microsoft.Extensions.Logging.LogLevel.Error).Should().Be(6,
+            "reclaimed poison retries must downgrade to concise Warning instead of repeating ERROR stack traces");
+        logger.Count(Microsoft.Extensions.Logging.LogLevel.Warning).Should().BeGreaterThan(0);
         (await connection.Database.StreamPendingAsync(options.RejectionStreamKey, options.ConsumerGroup))
-            .PendingMessageCount.Should().Be(6);
+            .PendingMessageCount.Should().Be(6, "poison entries must remain pending and never be silently ACKed");
+        (await connection.Database.StreamLengthAsync(options.RejectionStreamKey))
+            .Should().Be(9, "reclaim must never delete or trim stream entries");
 
         await using AsyncServiceScope verificationScope = provider.CreateAsyncScope();
         var verificationDb = (ApplicationDbContext)verificationScope.ServiceProvider.GetRequiredService<IApplicationDbContext>();
@@ -226,6 +238,26 @@ public sealed class CheckInAuditProjectionRedisTests
             row.JournalEventId == healthyOne.EventId
             || row.JournalEventId == healthyTwo.EventId
             || row.JournalEventId == healthyThree.EventId)).Should().Be(3);
+    }
+
+    private sealed class RecordingLogger<T> : Microsoft.Extensions.Logging.ILogger<T>
+    {
+        private readonly List<(Microsoft.Extensions.Logging.LogLevel Level, string Message, Exception? Exception)> _entries = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            Microsoft.Extensions.Logging.LogLevel logLevel,
+            Microsoft.Extensions.Logging.EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter) =>
+            _entries.Add((logLevel, formatter(state, exception), exception));
+
+        public int Count(Microsoft.Extensions.Logging.LogLevel level) =>
+            _entries.Count(entry => entry.Level == level);
     }
 
     private static ServiceCollection Services(string databaseName)

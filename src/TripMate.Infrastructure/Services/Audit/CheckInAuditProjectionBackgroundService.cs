@@ -46,10 +46,11 @@ internal sealed class CheckInAuditProjectionBackgroundService(
 
     internal async Task<int> ProcessBatchAsync(CancellationToken cancellationToken)
     {
-        StreamEntry[] entries = await ReadEntriesAsync();
+        DeliveredEntry[] entries = await ReadEntriesAsync();
         int processed = 0;
-        foreach (StreamEntry entry in entries)
+        foreach (DeliveredEntry delivered in entries)
         {
+            StreamEntry entry = delivered.Entry;
             cancellationToken.ThrowIfCancellationRequested();
             CheckInAuditEvent auditEvent;
             try
@@ -59,8 +60,23 @@ internal sealed class CheckInAuditProjectionBackgroundService(
             }
             catch (Exception exception) when (exception is JsonException or FormatException or InvalidDataException or ArgumentException)
             {
+                // Malformed entries intentionally remain pending (no ACK, delete, trim, or dead-letter)
+                // for investigation until a retention/remediation policy is approved (Issue #162).
+                // Conflicts counts each failed delivery encounter; full ERROR details are logged on
+                // initial delivery while reclaimed retries log a concise Warning to avoid stack-trace floods.
                 metrics.RecordConflict();
-                logger.LogError(exception, "Malformed audit event {StreamEntryId}; leaving pending.", entry.Id);
+                if (delivered.IsReclaimed)
+                {
+                    logger.LogWarning(
+                        "Malformed audit event {StreamEntryId} remains pending on reclaimed delivery ({ExceptionType}: {Message}).",
+                        entry.Id,
+                        exception.GetType().Name,
+                        exception.Message);
+                }
+                else
+                {
+                    logger.LogError(exception, "Malformed audit event {StreamEntryId}; leaving pending for investigation.", entry.Id);
+                }
                 continue;
             }
 
@@ -70,7 +86,17 @@ internal sealed class CheckInAuditProjectionBackgroundService(
             if (result == CheckInAuditProjectionResult.Conflict)
             {
                 metrics.RecordConflict();
-                logger.LogError("Conflicting projection for {EventId}; leaving {StreamEntryId} pending.", auditEvent.EventId, entry.Id);
+                if (delivered.IsReclaimed)
+                {
+                    logger.LogWarning(
+                        "Conflicting projection for {EventId} remains pending on reclaimed delivery ({StreamEntryId}).",
+                        auditEvent.EventId,
+                        entry.Id);
+                }
+                else
+                {
+                    logger.LogError("Conflicting projection for {EventId}; leaving {StreamEntryId} pending for investigation.", auditEvent.EventId, entry.Id);
+                }
                 continue;
             }
             long acknowledged = await connection.Database.StreamAcknowledgeAsync(
@@ -90,7 +116,9 @@ internal sealed class CheckInAuditProjectionBackgroundService(
         return processed;
     }
 
-    private async Task<StreamEntry[]> ReadEntriesAsync()
+    private readonly record struct DeliveredEntry(StreamEntry Entry, bool IsReclaimed);
+
+    private async Task<DeliveredEntry[]> ReadEntriesAsync()
     {
         // Recovery receives at most half the configured capacity. A fresh read is performed on
         // every sweep so a large poison/conflict PEL cannot prevent newly appended outcomes from
@@ -108,9 +136,19 @@ internal sealed class CheckInAuditProjectionBackgroundService(
         StreamEntry[] fresh = await connection.Database.StreamReadGroupAsync(
             options.RejectionStreamKey, options.ConsumerGroup, options.ConsumerName, ">",
             freshLimit, noAck: false, CommandFlags.DemandMaster);
-        return claimed.ClaimedEntries.Length == 0
-            ? fresh
-            : [.. claimed.ClaimedEntries, .. fresh];
+
+        var combined = new DeliveredEntry[claimed.ClaimedEntries.Length + fresh.Length];
+        for (int i = 0; i < claimed.ClaimedEntries.Length; i++)
+        {
+            combined[i] = new DeliveredEntry(claimed.ClaimedEntries[i], IsReclaimed: true);
+        }
+
+        for (int i = 0; i < fresh.Length; i++)
+        {
+            combined[claimed.ClaimedEntries.Length + i] = new DeliveredEntry(fresh[i], IsReclaimed: false);
+        }
+
+        return combined;
     }
 
     internal static bool RecordAcknowledgement(long acknowledged, CheckInAuditJournalMetrics metrics)
@@ -159,9 +197,13 @@ internal sealed class CheckInAuditProjectionBackgroundService(
         long schedule = ReadRequiredInt64(root, "scheduleId");
         long? ticket = ReadNullableInt64(root, "ticketId");
         string? reason = ReadNullableString(root, "reasonCode");
-        return type == CheckInAuditEventType.Rejected
-            ? CheckInAuditEvent.Rejected(eventId, attemptId, occurred, actor, schedule, ticket, reason ?? string.Empty)
-            : CheckInAuditEvent.Admission(eventId, attemptId, occurred, actor, schedule);
+        if (type == CheckInAuditEventType.Rejected)
+        {
+            if (string.IsNullOrWhiteSpace(reason))
+                throw new InvalidDataException("Rejected event requires reasonCode.");
+            return CheckInAuditEvent.Rejected(eventId, attemptId, occurred, actor, schedule, ticket, reason);
+        }
+        return CheckInAuditEvent.Admission(eventId, attemptId, occurred, actor, schedule);
     }
 
     private static JsonElement GetRequiredProperty(JsonElement root, string name) =>

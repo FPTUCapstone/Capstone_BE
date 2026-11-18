@@ -3,8 +3,8 @@
 **Date:** 2026-11-18 (Asia/Saigon)
 **Task:** TM-89 — UC-43 Check In Traveler by QR Code
 **Canonical SRS Authority:** `Report3_Software-Requirement-Specification.docx` (Original Report 3, SHA-256 `74d81c867c068cf5312187337afa6bd5a83f1f8e2a5ef0cc1e19415f4edc00c8`)
-**Backend Repository / Branch:** `FPTUCapstone/Capstone_BE` — `fix/tm89-uc43-engineering-completion` (based on `origin/develop` `9fefc826`)
-**Mobile Repository / Branch:** `FPTUCapstone/Capstone_Mobile` — `fix/tm89-uc43-engineering-completion` (`3fee2b983cd72de9986ec5ffb3117d478c9b7103`, PR [#92](https://github.com/FPTUCapstone/Capstone_Mobile/pull/92))
+**Backend Repository / Branch:** `FPTUCapstone/Capstone_BE` — `fix/tm89-uc43-engineering-completion` (PR [#184](https://github.com/FPTUCapstone/Capstone_BE/pull/184), target `develop`)
+**Mobile Repository / Branch:** `FPTUCapstone/Capstone_Mobile` — `fix/tm89-uc43-engineering-completion` (PR [#92](https://github.com/FPTUCapstone/Capstone_Mobile/pull/92), target `develop`)
 **Production Status:** **NO-GO** (Production infrastructure / Redis backup in GitHub Issue #162 remains explicitly deferred)
 **Jira Status:** Unchanged (`TM-89` not transitioned)
 
@@ -14,17 +14,17 @@
 
 Continuing from the merged `develop` baseline (Backend PR #137, Backend PR #146, test commit `2979a2926b0b9d3719976b0b7e15334b16441bed`, Mobile PR #66, Mobile PR #67), this engineering completion pass audited the full UC-43 & BE-03 implementation against the canonical SRS and closed every remaining in-scope engineering defect and verification gap:
 
-1. **BE-03 Malformed/Poison Event Crash Fix (`CheckInAuditProjectionBackgroundService`)** — **VERIFIED**
+1. **BE-03 Malformed/Poison Event Crash Fix & Reclaim Noise Reduction (`CheckInAuditProjectionBackgroundService`)** — **VERIFIED**
    - **Root cause:** `CheckInAuditProjectionBackgroundService.Parse(StreamEntry)` called `root.GetProperty(...)`, `.GetInt32()`, `.GetInt64()`, and `.GetString()` directly. Missing properties threw `KeyNotFoundException` and wrong JSON types / non-object roots threw `InvalidOperationException`, escaping the per-entry `catch` filter (`JsonException | FormatException | InvalidDataException | ArgumentException`), aborting the entire projection batch, blocking healthy events, and incrementing `ProjectionFailures` instead of isolating the poison entry as a conflict.
-   - **Fix:** Refactored `Parse(StreamEntry)` in `src/TripMate.Infrastructure/Services/Audit/CheckInAuditProjectionBackgroundService.cs` to validate object root, required properties via `TryGetProperty`, and value kinds, throwing `InvalidDataException` on any malformed shape. Malformed entries now remain pending (no ACK/XDEL/XTRIM), increment `metrics.Conflicts`, record `ProjectionFailures == 0`, and never block healthy events in the same or subsequent batches.
-2. **Concurrent Booking Cancellation TOCTOU Fix (`CheckInTravelerCommandHandler`)** — **VERIFIED**
-   - **Root cause:** Inside `ExecuteInSerializableTransactionAsync`, the handler reloaded `Ticket` without its `Booking` status/payment status, so a concurrent booking cancellation between pre-check (Step 7) and transaction start (Step 9) mapped to generic `checkin.ticket_invalid` (or risked missing a booking-only status transition).
-   - **Fix:** Included `Booking` inside the serializable transaction in `src/TripMate.Application/Features/Operator/CheckIn/Scan/CheckInTravelerCommandHandler.cs` and enforced `BookingCancelled` and `BookingNotConfirmed` checks prior to ticket consumption. Verified with a real SQL Server concurrency barrier test (`CancelCommitsWhileScanWaitsForTransaction_ScanRejectsBookingCancelledAndLeavesTicketUnused`).
+   - **Fix:** Refactored `Parse(StreamEntry)` in `src/TripMate.Infrastructure/Services/Audit/CheckInAuditProjectionBackgroundService.cs` to validate object root, required properties via `TryGetProperty`, value kinds, and non-blank `reasonCode` on `Rejected` events (throwing explicit `InvalidDataException`). Malformed entries remain intentionally pending (no ACK/XDEL/XTRIM/dead-letter), increment `metrics.Conflicts` (explicitly documented as conflict/malformed delivery encounters across fresh + reclaimed cycles; pair with `XPENDING` for distinct retained count), record `ProjectionFailures == 0`, log full `LogError(exception, ...)` on fresh delivery and concise `LogWarning(...)` on reclaimed `XAUTOCLAIM` redeliveries (avoiding stack-trace noise without an unbounded cache), and never block healthy events in the same or subsequent batches.
+2. **Concurrent Booking Cancellation / Payment-Ineligibility TOCTOU Fix (`CheckInTravelerCommandHandler`)** — **VERIFIED**
+   - **Root cause:** Inside `ExecuteInSerializableTransactionAsync`, the handler reloaded `Ticket` without its `Booking` status/payment status, so a concurrent booking cancellation or payment-status transition between pre-check (Step 7) and transaction start (Step 9) mapped to generic `checkin.ticket_invalid` (or risked missing a booking-only status transition).
+   - **Fix:** Included `Booking` inside the serializable transaction in `src/TripMate.Application/Features/Operator/CheckIn/Scan/CheckInTravelerCommandHandler.cs` and enforced `BookingCancelled` and `BookingNotConfirmed` checks prior to ticket consumption (with inline BR-86 documentation for transaction-time `TicketStatus.Cancelled` → `BookingCancelled`). Verified with three real SQL Server concurrency barrier tests: full cancel race (`CancelCommitsWhileScanWaitsForTransaction_ScanRejectsBookingCancelledAndLeavesTicketUnused`), booking-only cancellation while ticket remains `Valid` (`BookingOnlyCancellationCommitsWhileScanWaitsForTransaction_ScanRejectsBookingCancelledAndLeavesTicketUnused`), and booking-becomes-`Unpaid` while ticket remains `Valid` (`BookingBecomesUnpaidWhileScanWaitsForTransaction_ScanRejectsBookingNotConfirmedAndLeavesTicketUnused`).
 3. **Departure Counter Reconciliation & HTTP + SQL + Redis Acceptance Coverage** — **VERIFIED**
    - Added real HTTP + SQL Server 2022 + Redis 8.2 tests in `tests/TripMate.Api.IntegrationTests/Tickets/CheckInAuditHttpSqlFailureTests.cs` verifying wrong schedule (`409`), cancelled booking (`409`), after-departure-window (`409`), manual booking-code check-in (`200`), multi-booking counter reconciliation across `POST /scan`, `GET /schedules/{id}/progress`, `GET /departures`, and SQL tables (excluding cancelled and unpaid bookings), and admission-only indeterminate attempts (confirmed in `admissions`, 0 in `rejections`, 0 projected SQL rows).
 4. **Flutter Mobile Fixes & Real Flutter ↔ Backend End-to-End Integration** — **VERIFIED**
-   - Fixed stale departure summary counts in `OperatorCheckInCubit` after check-in / progress refresh, made `MSG127` (`503` → `system`) and HTTP `400` validation (`invalidInput`) mappings explicit in `OperatorCheckInRepositoryImpl`, and differentiated `MobileScannerErrorCode.permissionDenied` in `CheckInCameraScannerView`.
-   - Added and executed real Flutter–Backend integration suite (`test/integration/tm89_uc43_live_backend_test.dart`) hitting live `TripMate.Api` backed by isolated SQL Server 2022 and Redis 8.2 AOF (`CheckInAuditJournal:Enabled=true`).
+   - Fixed stale departure summary counts in `OperatorCheckInCubit` after check-in / progress refresh (using `OperatorDepartureSummary.copyWith`), added explicit `MSG127` (`503` → `system`) contract guard and HTTP `400` validation (`invalidInput`) mapping in `OperatorCheckInRepositoryImpl`, and differentiated `MobileScannerErrorCode.permissionDenied` in `CheckInCameraScannerView` (verified via real `MobileScanner.errorBuilder` widget tests and `selectDeparture` counter-sync unit tests).
+   - Added and executed manual/env-gated real Flutter–Backend integration suite (`test/integration/tm89_uc43_live_backend_test.dart`, with full per-test env-var skip gate and Dio request-counting interceptor verifying `scanPostCount == 1` during rapid duplicate scans) hitting live `TripMate.Api` backed by isolated SQL Server 2022 and Redis 8.2 AOF (`CheckInAuditJournal:Enabled=true`).
 5. **Fresh Schema & Migration Compatibility Verification** — **VERIFIED**
    - Applied `database/tripmate_schema_v7.sql` + all incremental migrations on `origin/develop` (including UC-10, payout, refund, and `20261105_add_checkin_audit_journal_identity.sql`) twice (fresh + idempotent re-run) on disposable SQL Server 2022 with exit code `0`.
 
@@ -80,16 +80,17 @@ Source: `Report3_Software-Requirement-Specification.docx` (extracted line refere
 | Build | `dotnet build TripMate.slnx -c Release` | 0 errors | 0 | — | **PASS** |
 | Application Unit Tests (full serial) | `dotnet test tests/TripMate.Application.UnitTests/TripMate.Application.UnitTests.csproj -c Release --no-build -- xUnit.MaxParallelThreads=1` | 5,338 | 0 | 0 | **PASS** |
 | Infrastructure Unit Tests (full) | `dotnet test TripMate.slnx -c Release --no-restore -m:1 --filter "Category!=SqlServer&Category!=Redis"` (Infrastructure project) | 1,312 | 0 | 3 (real Cloudinary smoke) | **PASS** |
-| Infrastructure Focused Check-In / Audit | `dotnet test tests/TripMate.Infrastructure.UnitTests/... --filter "FullyQualifiedName~CheckInAudit\|FullyQualifiedName~CheckInPersistence"` | 38 | 0 | 0 | **PASS** |
+| Application Focused Check-In / BookingCheckIn | `dotnet test tests/TripMate.Application.UnitTests/... --filter "FullyQualifiedName~CheckIn\|FullyQualifiedName~BookingCheckIn"` | 49 | 0 | 0 | **PASS** |
+| Infrastructure Focused Check-In / Audit (incl. BE-L3) | `dotnet test tests/TripMate.Infrastructure.UnitTests/... --filter "FullyQualifiedName~CheckInAudit\|FullyQualifiedName~CheckInPersistence"` | 42 | 0 | 0 | **PASS** |
 | CandidatePoolReplay Tests | `dotnet test TripMate.slnx ...` (Replay project) | 13 | 0 | 0 | **PASS** |
 | API Integration (non-SQL/Redis) | `dotnet test TripMate.slnx ...` (API Integration non-SQL/Redis) | 940 | 0 | 162 (gated SQL/Redis) | **PASS** |
-| Real Redis 8.2 Journal & Projection (incl. poison) | `dotnet test tests/TripMate.Api.IntegrationTests/... --filter "FullyQualifiedName~CheckInAuditRedisJournalTests\|FullyQualifiedName~CheckInAuditProjectionRedisTests"` | 6 | 0 | 0 | **PASS** |
+| Real Redis 8.2 Journal & Projection (incl. BE-M1 2-cycle reclaim + logger) | `dotnet test tests/TripMate.Api.IntegrationTests/... --filter "FullyQualifiedName~CheckInAuditRedisJournalTests\|FullyQualifiedName~CheckInAuditProjectionRedisTests"` | 6 | 0 | 0 | **PASS** |
 | Real SQL Server 2022 Audit Migration | `dotnet test tests/TripMate.Api.IntegrationTests/... --filter "FullyQualifiedName~AuditMigrationSqlServerTests"` | 5 | 0 | 0 | **PASS** |
 | Real SQL + Redis Projection (outage, recovery, duplicate, conflict, poison) | `dotnet test tests/TripMate.Api.IntegrationTests/... --filter "FullyQualifiedName~CheckInAuditProjectionSqlServerTests"` | 3 | 0 | 0 | **PASS** |
-| Real SQL Check-In Regression & Concurrency (incl. cancel race & QR issuer) | `dotnet test tests/TripMate.Api.IntegrationTests/... --filter "FullyQualifiedName~CheckInTravelerRegressionSqlServerTests\|FullyQualifiedName~TicketQrIssuerConcurrencyTests"` | 23 | 0 | 0 | **PASS** |
+| Real SQL Check-In Regression & Concurrency (incl. BE-M2 Case A & Case B + QR issuer) | `dotnet test tests/TripMate.Api.IntegrationTests/... --filter "FullyQualifiedName~CheckInTravelerRegressionSqlServerTests\|FullyQualifiedName~TicketQrIssuerConcurrencyTests"` | 25 | 0 | 0 | **PASS** |
 | Real HTTP + SQL + Redis Acceptance (all UC-43 scenarios, counters, admission-only) | `dotnet test tests/TripMate.Api.IntegrationTests/... --filter "FullyQualifiedName~CheckInAuditHttpSqlFailureTests"` | 18 | 0 | 0 | **PASS** |
 | Real Redis 8.2.11 AOF Restart Probe & Latency | `CheckInAuditAofRestartTests` (`write` → `docker restart tm89-verify-redis` → `verify` + 50 samples) | 2 | 0 | 0 | **PASS** (`p50=3.38 ms, p95=3.98 ms, p99=95.27 ms`) |
-| Fresh Schema + All Migrations (`apply-schema.sh`) | Fresh run + idempotent second run on SQL Server 2022 (`TripMate_TM89_Fresh`) | 2/2 runs | 0 | 0 | **PASS** |
+| Fresh Schema + All Migrations (`apply-schema.sh`) | Fresh run + idempotent second run on SQL Server 2022 (`TripMate_TM89_Fresh` & `TripMate_TM89_RevE2E`) | 2/2 runs | 0 | 0 | **PASS** |
 
 ### Mobile (`C:\tm89_worktrees\mobile`, Flutter `3.47.9`, Dart `3.13.7`)
 
@@ -97,9 +98,9 @@ Source: `Report3_Software-Requirement-Specification.docx` (extracted line refere
 |---|---|---:|---:|---:|---|
 | Formatting | `dart format --output=none --set-exit-if-changed .` | 909 files | 0 | — | **PASS** |
 | Static Analysis | `flutter analyze` | 0 issues | 0 | — | **PASS** |
-| Focused UC-43 Unit/Widget/Router | `flutter test test/features/operator_check_in test/app/router/operator_check_in_route_test.dart` | 91 | 0 | 0 | **PASS** |
-| Full Mobile Regression | `flutter test` | 2,800 | 0 | 6 (env-gated live tests) | **PASS** |
-| Real Flutter ↔ Live Backend E2E | `flutter test test/integration/tm89_uc43_live_backend_test.dart --reporter expanded` (against live `TripMate.Api` + SQL 2022 + Redis 8.2 AOF) | 2/2 suites | 0 | 0 | **PASS** |
+| Focused UC-43 Unit/Widget/Router (incl. MB-M1/M2/L5/L6) | `flutter test test/features/operator_check_in test/app/router/operator_check_in_route_test.dart` | 99 | 0 | 0 | **PASS** |
+| Full Mobile Regression (offline CI parity) | `flutter test` | 2,808 | 0 | 6 (env-gated live tests) | **PASS** |
+| Real Flutter ↔ Live Backend E2E (manual/env-gated, incl. Dio `scanPostCount == 1`) | `flutter test test/integration/tm89_uc43_live_backend_test.dart --reporter expanded` (against live `TripMate.Api` + SQL 2022 + Redis 8.2 AOF) | 2/2 suites | 0 | 0 | **PASS** |
 
 ---
 

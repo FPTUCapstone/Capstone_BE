@@ -10,8 +10,9 @@
 ## 1. Completed Engineering Work
 
 - **Backend (`FPTUCapstone/Capstone_BE`, branch `fix/tm89-uc43-engineering-completion`):**
-  - Fixed BE-03 malformed/poison event parsing crash in `CheckInAuditProjectionBackgroundService.Parse(StreamEntry)` so non-object JSON, missing required properties, and mismatched JSON types are isolated per entry (`Conflicts++`, `ProjectionFailures=0`, kept pending without ACK/XDEL/XTRIM) without blocking healthy events.
-  - Closed concurrent booking cancellation TOCTOU window inside `CheckInTravelerCommandHandler`'s serializable transaction (`BookingCancelled` / `BookingNotConfirmed` enforced atomically on reloaded `Ticket.Booking`).
+  - Fixed BE-03 malformed/poison event parsing crash in `CheckInAuditProjectionBackgroundService.Parse(StreamEntry)` (including explicit `InvalidDataException` for missing/blank `reasonCode` on `Rejected` events) so non-object JSON, missing required properties, and mismatched JSON types are isolated per entry (`Conflicts++`, `ProjectionFailures=0`, kept pending without ACK/XDEL/XTRIM) without blocking healthy events.
+  - **Intentional Poison Retention & Reclaim Semantics (BE-M1):** Malformed and conflicting entries intentionally remain pending in Redis Streams for investigation until a retention/remediation policy is approved (tracked alongside GitHub Issue #162); no dead-letter stream, auto-ACK, delete, or trim is performed. On initial fresh delivery, full `LogError(exception, ...)` diagnostics are emitted; on subsequent `XAUTOCLAIM` reclaimed deliveries, a concise `LogWarning` is emitted to avoid repeated stack-trace noise without maintaining an unbounded in-memory ID cache. `CheckInAuditJournalMetrics.Conflicts` counts conflict/malformed delivery encounters (fresh + reclaimed); pair with Redis `XPENDING` count for distinct retained poison entries.
+  - Closed concurrent booking cancellation TOCTOU window inside `CheckInTravelerCommandHandler`'s serializable transaction (`BookingCancelled` / `BookingNotConfirmed` enforced atomically on reloaded `Ticket.Booking`, with defensive SQL concurrency tests covering booking-only cancellation and booking-becomes-unpaid independently of ticket status).
   - Added automated unit + real Redis 8.2 + real SQL Server 2022 tests covering poison-event isolation, concurrent cancellation race, wrong schedule, cancelled booking, after-window rejection, manual booking-code check-in, full departure counter reconciliation across `/scan`, `/progress`, `/departures`, and SQL, plus admission-only indeterminate non-projection.
   - Verified full fresh + idempotent `apply-schema.sh` compatibility on SQL Server 2022 against `origin/develop` (`9fefc826`), full BE regression (`5,338` Application + `1,312` Infrastructure + `13` Replay + `940` API non-SQL/Redis + `57` real SQL/Redis/AOF integration tests, 0 failures), and `dotnet format`.
 - **Mobile (`FPTUCapstone/Capstone_Mobile`, branch `fix/tm89-uc43-engineering-completion`, PR [#92](https://github.com/FPTUCapstone/Capstone_Mobile/pull/92)):**
@@ -46,8 +47,10 @@ To run Backend + Mobile locally for UC-43 verification:
    - `ConnectionStrings__Redis=<isolated Redis 8.2 connection>`
    - `CheckInAuditJournal__Enabled=true`
    - `Jwt__SigningKey=<base64 dev key>`, `TicketQr__EncryptionKey=<base64 32-byte key>`, `TicketQr__SigningKey=<base64 32-byte key>`
-4. Run Flutter live integration test against the local API:
-   - Set `TM89_API_BASE_URL`, seeded credentials, schedule IDs, and QR/booking codes, then run:
+4. Run Flutter live integration test against the local API (manual/env-gated — skipped in offline CI when env vars are unset; because QR tickets are single-use per BR-85, reset or recreate the disposable database and re-seed fresh bookings/tickets before each run):
+   - Required env vars (API test): `TM89_API_BASE_URL`, `TM89_OPERATOR_EMAIL`, `TM89_OPERATOR_PASSWORD`, `TM89_OTHER_OPERATOR_EMAIL`, `TM89_OTHER_OPERATOR_PASSWORD`, `TM89_TRAVELER_EMAIL`, `TM89_TRAVELER_PASSWORD`, `TM89_SCHEDULE_ID`, `TM89_OTHER_SCHEDULE_ID`, `TM89_OUTSIDE_WINDOW_SCHEDULE_ID`, `TM89_API_VALID_QR`, `TM89_API_MANUAL_BOOKING_CODE`, `TM89_CANCELLED_QR`, `TM89_UNPAID_QR`.
+   - Required env vars (Widget UI test): `TM89_API_BASE_URL`, `TM89_OPERATOR_EMAIL`, `TM89_OPERATOR_PASSWORD`, `TM89_SCHEDULE_ID`, `TM89_UI_VALID_QR`, `TM89_UI_MANUAL_BOOKING_CODE`.
+   - Command:
      `flutter test test/integration/tm89_uc43_live_backend_test.dart --reporter expanded`
 
 ---
