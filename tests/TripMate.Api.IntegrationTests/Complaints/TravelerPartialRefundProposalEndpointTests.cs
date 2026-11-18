@@ -56,7 +56,7 @@ public sealed class TravelerPartialRefundProposalEndpointTests
     {
         await using var factory = CreateFactory(out _);
         using var client = factory.CreateAuthenticatedClient(TravelerId, UserRole.Traveler);
-        (await client.PostAsJsonAsync($"{Url}/response", new { decision = "Decline" })).EnsureSuccessStatusCode();
+        (await client.PostAsJsonAsync($"{Url}/response", new { decision = "Accept" })).EnsureSuccessStatusCode();
 
         var response = await client.PostAsJsonAsync($"{Url}/response", new { decision = "Accept" });
 
