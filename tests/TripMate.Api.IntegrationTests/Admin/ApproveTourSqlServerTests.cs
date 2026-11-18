@@ -342,8 +342,8 @@ public sealed class ApproveTourSqlServerTests(ITestOutputHelper output)
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
-    [Trait("Classification", "DefectReproduction")]
-    public async Task Diagnostic_UnpublishApprovedTour_ReproducesStateMachineGuardDefect()
+    [Trait("Classification", "VerifiedFix")]
+    public async Task UnpublishApprovedTour_TransitionsToInactive_HidesPublicly_BlocksNewBookings_PreservesExistingBookingsAndAudit()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
         var seed = await SeedPendingTourAsync(database);
@@ -352,34 +352,222 @@ public sealed class ApproveTourSqlServerTests(ITestOutputHelper output)
             sqlServerConnectionString: database.ConnectionString);
 
         using var staffClient = factory.CreateAuthenticatedClient(seed.StaffId1, UserRole.Staff);
+        using var guestClient = factory.CreateClient();
+        using var travelerClient = factory.CreateAuthenticatedClient(seed.TravelerId, UserRole.Traveler);
 
+        // 1. Staff approves Pending tour -> Approved with immediate PublishedAtUtc
         var approveResponse = await staffClient.PostAsJsonAsync(
             $"/api/v1/admin/tours/{seed.TourId}/approve",
-            new { checklist = ValidChecklist });
+            new { checklist = ValidChecklist, note = "Gate 1 end-to-end unpublish test" });
         approveResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        var unpublishResponse = await staffClient.PostAsJsonAsync(
+        // 2. Traveler creates an existing booking before takedown
+        travelerClient.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
+        var preBookingResponse = await travelerClient.PostAsJsonAsync(
+            "/api/v1/traveler/tour-bookings",
+            new
+            {
+                tourScheduleId = seed.ScheduleId.ToString(),
+                participants = new[]
+                {
+                    new { fullName = "Existing Traveler One", participantType = "Adult" },
+                    new { fullName = "Existing Traveler Two", participantType = "Adult" },
+                },
+            });
+        preBookingResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+        using var preBookingBody = JsonDocument.Parse(await preBookingResponse.Content.ReadAsStringAsync());
+        var existingBookingId = long.Parse(preBookingBody.RootElement.GetProperty("bookingId").GetString()!);
+
+        // 3. Staff unpublishes the publicly active Approved tour (Gate 1)
+        using var moderatorClient = factory.CreateAuthenticatedClient(seed.StaffId2, UserRole.Staff);
+        var unpublishResponse = await moderatorClient.PostAsync(
             $"/api/v1/admin/tours/{seed.TourId}/unpublish",
-            new { });
-        var unpublishRaw = await unpublishResponse.Content.ReadAsStringAsync();
+            null);
+        unpublishResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var unpublishBody = JsonDocument.Parse(await unpublishResponse.Content.ReadAsStringAsync());
+        unpublishBody.RootElement.GetProperty("tourId").GetInt64().Should().Be(seed.TourId);
+        unpublishBody.RootElement.GetProperty("status").GetString().Should().Be(TourStatus.Inactive.ToString());
 
-        unpublishResponse.StatusCode.Should().Be(HttpStatusCode.Conflict);
-        using var body = JsonDocument.Parse(unpublishRaw);
-        body.RootElement.GetProperty("errorCode").GetString().Should().Be(OperatorTourErrorCodes.InvalidState);
-        body.RootElement.GetProperty("title").GetString().Should().Be("Only Published tours can be unpublished.");
+        // 4. Duplicate unpublish returns controlled 409 Conflict
+        var duplicateUnpublish = await moderatorClient.PostAsync(
+            $"/api/v1/admin/tours/{seed.TourId}/unpublish",
+            null);
+        duplicateUnpublish.StatusCode.Should().Be(HttpStatusCode.Conflict);
 
-        await using var context = database.CreateDbContext();
-        var tour = await context.Tours.SingleAsync(t => t.Id == seed.TourId);
-        tour.Status.Should().Be(TourStatus.Approved);
+        // 5. Public Search excludes the tour and Public Detail returns 404
+        var postSearch = await guestClient.GetAsync("/api/v1/tours?destination=Hoi+An");
+        postSearch.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var postSearchBody = JsonDocument.Parse(await postSearch.Content.ReadAsStringAsync());
+        postSearchBody.RootElement.GetProperty("items").EnumerateArray().ToList()
+            .Should().NotContain(item => item.GetProperty("tourId").GetString() == seed.TourId.ToString());
+
+        var postDetail = await guestClient.GetAsync($"/api/v1/tours/{seed.TourId}");
+        postDetail.StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        // 6. New Booking Quote and Booking Create are both rejected for the Inactive tour
+        var postQuote = await travelerClient.PostAsJsonAsync(
+            "/api/v1/traveler/tour-bookings/quote",
+            new
+            {
+                tourScheduleId = seed.ScheduleId.ToString(),
+                participantCounts = new { adult = 1, child = 0, infant = 0 },
+            });
+        postQuote.StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        travelerClient.DefaultRequestHeaders.Remove("Idempotency-Key");
+        travelerClient.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
+        var postCreate = await travelerClient.PostAsJsonAsync(
+            "/api/v1/traveler/tour-bookings",
+            new
+            {
+                tourScheduleId = seed.ScheduleId.ToString(),
+                participants = new[] { new { fullName = "Blocked Traveler", participantType = "Adult" } },
+            });
+        postCreate.StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        // 7. Verify DB: Tour is Inactive with preserved provenance, existing booking & capacity untouched, accurate audit
+        await using var db = database.CreateDbContext();
+        var tour = await db.Tours.AsNoTracking().SingleAsync(t => t.Id == seed.TourId);
+        tour.Status.Should().Be(TourStatus.Inactive);
+        tour.ReviewedBy.Should().Be(seed.StaffId1);
+        tour.ReviewedAtUtc.Should().NotBeNull();
         tour.PublishedAtUtc.Should().NotBeNull();
 
-        var action = () => tour.Unpublish(DateTimeOffset.UtcNow);
-        action.Should().Throw<InvalidOperationException>()
-            .WithMessage("Only Published tours can be unpublished.");
+        var existingBooking = await db.Bookings.AsNoTracking().SingleAsync(b => b.Id == existingBookingId);
+        existingBooking.Status.Should().Be(BookingStatus.PendingPayment);
+        existingBooking.TotalAmount.Should().Be(3_000_000m);
 
-        output.WriteLine("[DEFECT_REPRODUCED: UNPUBLISH_COMPATIBILITY / PENDING_OWNER_APPROVAL]");
-        output.WriteLine($"  TourStatus={tour.Status}, PublishedAtUtc={tour.PublishedAtUtc:O}");
-        output.WriteLine($"  Unpublish HTTP: {(int)unpublishResponse.StatusCode} | Body: {unpublishRaw}");
+        var schedule = await db.TourSchedules.AsNoTracking().SingleAsync(s => s.Id == seed.ScheduleId);
+        schedule.ReservedCapacity.Should().Be(2);
+
+        var unpublishAudits = await db.AuditLogs.AsNoTracking()
+            .Where(a => a.AffectedEntityId == seed.TourId && a.ActionType == AuditActionTypes.TourUnpublished)
+            .ToListAsync();
+        unpublishAudits.Should().ContainSingle();
+        unpublishAudits[0].ActorUserId.Should().Be(seed.StaffId2);
+
+        using var beforeJson = JsonDocument.Parse(unpublishAudits[0].BeforeData!);
+        beforeJson.RootElement.GetProperty("Status").GetString().Should().Be(TourStatus.Approved.ToString());
+        using var afterJson = JsonDocument.Parse(unpublishAudits[0].AfterData!);
+        afterJson.RootElement.GetProperty("Status").GetString().Should().Be(TourStatus.Inactive.ToString());
+        afterJson.RootElement.GetProperty("ModeratedBy").GetInt64().Should().Be(seed.StaffId2);
+        afterJson.RootElement.GetProperty("VersionNo").GetInt32().Should().Be(1);
+
+        output.WriteLine(
+            $"[VERIFIED_FIX: GATE_1_UNPUBLISH_APPROVED] TourStatus={tour.Status}, AuditBefore={unpublishAudits[0].BeforeData}, " +
+            $"AuditAfter={unpublishAudits[0].AfterData}, PostQuote={(int)postQuote.StatusCode}, PostCreate={(int)postCreate.StatusCode}, " +
+            $"ExistingBookingStatus={existingBooking.Status}, ReservedCapacity={schedule.ReservedCapacity}");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    [Trait("Classification", "VerifiedFix")]
+    public async Task UnpublishPublishedTour_PreservesExistingBehavior_AndRecordsPublishedBeforeStatus()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedPendingTourAsync(database);
+
+        await using var factory = new TripMateApiFactory(
+            sqlServerConnectionString: database.ConnectionString);
+
+        using var staffClient = factory.CreateAuthenticatedClient(seed.StaffId1, UserRole.Staff);
+        (await staffClient.PostAsJsonAsync($"/api/v1/admin/tours/{seed.TourId}/approve", new { checklist = ValidChecklist }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await staffClient.PostAsync($"/api/v1/admin/tours/{seed.TourId}/publish", null))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var unpublishResponse = await staffClient.PostAsync($"/api/v1/admin/tours/{seed.TourId}/unpublish", null);
+        unpublishResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        await using var db = database.CreateDbContext();
+        var tour = await db.Tours.AsNoTracking().SingleAsync(t => t.Id == seed.TourId);
+        tour.Status.Should().Be(TourStatus.Inactive);
+
+        var audit = await db.AuditLogs.AsNoTracking()
+            .SingleAsync(a => a.AffectedEntityId == seed.TourId && a.ActionType == AuditActionTypes.TourUnpublished);
+        using var beforeJson = JsonDocument.Parse(audit.BeforeData!);
+        beforeJson.RootElement.GetProperty("Status").GetString().Should().Be(TourStatus.Published.ToString());
+
+        output.WriteLine(
+            $"[VERIFIED_FIX: GATE_1_UNPUBLISH_PUBLISHED] TourStatus={tour.Status}, AuditBefore={audit.BeforeData}, AuditAfter={audit.AfterData}");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    [Trait("Classification", "VerifiedFix")]
+    public async Task ConcurrentUnpublishRequests_OneSucceedsOneConflicts_AndPersistsSingleAudit()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedPendingTourAsync(database);
+
+        await using var factory = new TripMateApiFactory(
+            sqlServerConnectionString: database.ConnectionString);
+
+        using var firstClient = factory.CreateAuthenticatedClient(seed.StaffId1, UserRole.Staff);
+        using var secondClient = factory.CreateAuthenticatedClient(seed.StaffId2, UserRole.Staff);
+
+        (await firstClient.PostAsJsonAsync($"/api/v1/admin/tours/{seed.TourId}/approve", new { checklist = ValidChecklist }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var firstTask = firstClient.PostAsync($"/api/v1/admin/tours/{seed.TourId}/unpublish", null);
+        var secondTask = secondClient.PostAsync($"/api/v1/admin/tours/{seed.TourId}/unpublish", null);
+        var responses = await Task.WhenAll(firstTask, secondTask);
+
+        responses.Should().ContainSingle(r => r.StatusCode == HttpStatusCode.OK);
+        responses.Should().ContainSingle(r => r.StatusCode == HttpStatusCode.Conflict);
+
+        await using var db = database.CreateDbContext();
+        var tour = await db.Tours.AsNoTracking().SingleAsync(t => t.Id == seed.TourId);
+        tour.Status.Should().Be(TourStatus.Inactive);
+
+        var audits = await db.AuditLogs.AsNoTracking()
+            .Where(a => a.AffectedEntityId == seed.TourId && a.ActionType == AuditActionTypes.TourUnpublished)
+            .ToListAsync();
+        audits.Should().ContainSingle();
+
+        output.WriteLine(
+            $"[VERIFIED_FIX: GATE_1_CONCURRENT_UNPUBLISH] Statuses=[{(int)responses[0].StatusCode}, {(int)responses[1].StatusCode}], " +
+            $"FinalStatus={tour.Status}, UnpublishAuditCount={audits.Count}");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    [Trait("Classification", "VerifiedFix")]
+    public async Task UnpublishPersistenceFailure_RollsBackSqlTransaction_ReturnsMsg127_AndPreservesApprovedState()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedPendingTourAsync(database);
+
+        var failingCommandInterceptor = new FailOnAuditLogInsertCommandInterceptor { Enabled = false };
+        await using var factory = new TripMateApiFactory(
+            sqlServerConnectionString: database.ConnectionString,
+            dbInterceptor: failingCommandInterceptor);
+
+        using var staffClient = factory.CreateAuthenticatedClient(seed.StaffId1, UserRole.Staff);
+        (await staffClient.PostAsJsonAsync($"/api/v1/admin/tours/{seed.TourId}/approve", new { checklist = ValidChecklist }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Arm the SQL failure interceptor right before Unpublish so Tour UPDATE runs and AuditLog INSERT fails
+        failingCommandInterceptor.Enabled = true;
+
+        var response = await staffClient.PostAsync($"/api/v1/admin/tours/{seed.TourId}/unpublish", null);
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("errorCode").GetString().Should().Be(OperatorTourErrorCodes.ServiceUnavailable);
+        failingCommandInterceptor.InterceptedCount.Should().Be(1);
+
+        await using var db = database.CreateDbContext();
+        var tour = await db.Tours.AsNoTracking().SingleAsync(t => t.Id == seed.TourId);
+        tour.Status.Should().Be(TourStatus.Approved);
+
+        var unpublishAudits = await db.AuditLogs.AsNoTracking()
+            .Where(a => a.AffectedEntityId == seed.TourId && a.ActionType == AuditActionTypes.TourUnpublished)
+            .ToListAsync();
+        unpublishAudits.Should().BeEmpty();
+
+        output.WriteLine(
+            $"[VERIFIED_FIX: GATE_1_UNPUBLISH_ROLLBACK] HttpStatus={(int)response.StatusCode}, ErrorCode=MSG127, " +
+            $"InterceptedAuditInserts={failingCommandInterceptor.InterceptedCount}, FinalTourStatus={tour.Status}, UnpublishAuditCount={unpublishAudits.Count}");
     }
 
     [SqlServerFact]
@@ -617,6 +805,8 @@ public sealed class ApproveTourSqlServerTests(ITestOutputHelper output)
     {
         private int _interceptedCount;
 
+        public bool Enabled { get; set; } = true;
+
         public int InterceptedCount => Volatile.Read(ref _interceptedCount);
 
         public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
@@ -625,7 +815,8 @@ public sealed class ApproveTourSqlServerTests(ITestOutputHelper output)
             InterceptionResult<DbDataReader> result,
             CancellationToken cancellationToken = default)
         {
-            if (command.CommandText.Contains("AuditLogs", StringComparison.OrdinalIgnoreCase)
+            if (Enabled
+                && command.CommandText.Contains("AuditLogs", StringComparison.OrdinalIgnoreCase)
                 && command.CommandText.Contains("INSERT", StringComparison.OrdinalIgnoreCase))
             {
                 Interlocked.Increment(ref _interceptedCount);
@@ -641,7 +832,8 @@ public sealed class ApproveTourSqlServerTests(ITestOutputHelper output)
             InterceptionResult<int> result,
             CancellationToken cancellationToken = default)
         {
-            if (command.CommandText.Contains("AuditLogs", StringComparison.OrdinalIgnoreCase)
+            if (Enabled
+                && command.CommandText.Contains("AuditLogs", StringComparison.OrdinalIgnoreCase)
                 && command.CommandText.Contains("INSERT", StringComparison.OrdinalIgnoreCase))
             {
                 Interlocked.Increment(ref _interceptedCount);

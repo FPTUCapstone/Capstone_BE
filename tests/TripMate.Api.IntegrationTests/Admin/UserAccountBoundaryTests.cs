@@ -129,10 +129,32 @@ public sealed class UserAccountBoundaryTests
         await using var factory = await SeedAsync();
         using var staff = factory.CreateAuthenticatedClient(10, UserRole.Staff);
         using var admin = factory.CreateAuthenticatedClient(20, UserRole.Administrator);
-        using var staffResponse = post ? await staff.PostAsync(path, null) : await staff.GetAsync(path);
-        using var adminResponse = post ? await admin.PostAsync(path, null) : await admin.GetAsync(path);
+        object? payload = path.EndsWith("/approve", StringComparison.Ordinal)
+            ? new
+            {
+                checklist = new
+                {
+                    contentCompleteness = true,
+                    imageAppropriateness = true,
+                    pricePlausibility = true,
+                    policyCompliance = true,
+                    itineraryFeasibility = true
+                }
+            }
+            : null;
+        using var staffResponse = post
+            ? payload is not null ? await staff.PostAsJsonAsync(path, payload) : await staff.PostAsync(path, null)
+            : await staff.GetAsync(path);
+        using var adminResponse = post
+            ? payload is not null ? await admin.PostAsJsonAsync(path, payload) : await admin.PostAsync(path, null)
+            : await admin.GetAsync(path);
         staffResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
         adminResponse.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        if (path.EndsWith("/approve", StringComparison.Ordinal))
+        {
+            var forbidden = await adminResponse.Content.ReadFromJsonAsync<JsonElement>();
+            forbidden.GetProperty("errorCode").GetString().Should().Be("operator_tour.admin_access_required");
+        }
     }
 
     [Fact]

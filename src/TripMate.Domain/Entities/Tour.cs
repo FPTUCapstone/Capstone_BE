@@ -335,11 +335,22 @@ public class Tour : BaseEntity
         UpdatedAtUtc = PublishedAtUtc.Value;
     }
 
+    public bool CanUnpublish(DateTimeOffset asOfUtc)
+    {
+        var normalizedAsOfUtc = asOfUtc.ToUniversalTime();
+        return Status == TourStatus.Published
+            || (Status == TourStatus.Approved
+                && PublishedAtUtc.HasValue
+                && PublishedAtUtc.Value <= normalizedAsOfUtc);
+    }
+
     public void Unpublish(DateTimeOffset unpublishedAtUtc)
     {
-        if (Status != TourStatus.Published) throw new InvalidOperationException("Only Published tours can be unpublished.");
+        var normalizedUnpublishedAtUtc = unpublishedAtUtc.ToUniversalTime();
+        if (!CanUnpublish(normalizedUnpublishedAtUtc))
+            throw new InvalidOperationException("Only Published or publicly active Approved tours can be unpublished.");
         Status = TourStatus.Inactive;
-        UpdatedAtUtc = unpublishedAtUtc.ToUniversalTime();
+        UpdatedAtUtc = normalizedUnpublishedAtUtc;
     }
 
     private static void EnsureWholeVnd(decimal price, string parameterName)
