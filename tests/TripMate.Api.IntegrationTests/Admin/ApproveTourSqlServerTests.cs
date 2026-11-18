@@ -1,6 +1,6 @@
+using System.Data.Common;
 using System.Net;
 using System.Net.Http.Json;
-using System.Reflection;
 using System.Text.Json;
 
 using FluentAssertions;
@@ -11,22 +11,22 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Features.Admin.Tours.Review;
 using TripMate.Application.Features.Operator.Tours.Common;
-using TripMate.Application.Features.Tours.Search;
-using TripMate.Application.Features.Traveler.Bookings.Quote;
 using TripMate.Domain.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
+
+using Xunit.Abstractions;
 
 namespace TripMate.Api.IntegrationTests.Admin;
 
 /// <summary>
 /// TM-106 SQL Server integration suite.
-/// Exercises real concurrency, audit trail persistence, state-machine regression,
-/// and the complete Public Search -> Detail -> Quote -> Booking pipeline against
-/// an isolated, disposable SQL Server test database.
+/// Clearly separates required/fixed acceptance tests ([Trait("Classification", "RequiredBehavior"|"VerifiedFix")])
+/// from diagnostic defect-reproduction tests ([Trait("Classification", "DefectReproduction")]).
+/// Defect-reproduction tests explicitly log diagnostic evidence and MUST NOT be counted as acceptance passes.
 /// </summary>
 [Collection(nameof(TripMateApiFactory))]
-public sealed class ApproveTourSqlServerTests
+public sealed class ApproveTourSqlServerTests(ITestOutputHelper output)
 {
     private static readonly TourReviewChecklistDto ValidChecklist = new(
         ContentCompleteness: true,
@@ -37,6 +37,7 @@ public sealed class ApproveTourSqlServerTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
+    [Trait("Classification", "VerifiedFix")]
     public async Task ConcurrentApproveRequests_OneSucceedsOneConflicts_AndPersistsSingleDecision()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
@@ -82,43 +83,15 @@ public sealed class ApproveTourSqlServerTests
         audits.Should().ContainSingle();
         audits[0].Result.Should().Be(AuditOutcome.Success);
         audits[0].ActorUserId.Should().Be(tour.ReviewedBy);
+
+        output.WriteLine(
+            $"[VERIFIED_FIX] ConcurrentApprove: Statuses=[{(int)responses[0].StatusCode}, {(int)responses[1].StatusCode}], " +
+            $"FinalTourStatus={tour.Status}, ReviewedBy={tour.ReviewedBy}, AuditCount={audits.Count}");
     }
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
-    public async Task ConcurrentApproveAndReject_DemonstratesRaceCondition_WhenRejectLacksSerializableIsolation()
-    {
-        await using var database = await SqlServerTestDatabase.CreateAsync();
-        var seed = await SeedPendingTourAsync(database);
-
-        await using var factory = new TripMateApiFactory(
-            sqlServerConnectionString: database.ConnectionString);
-
-        using var approveClient = factory.CreateAuthenticatedClient(seed.StaffId1, UserRole.Staff);
-        using var rejectClient = factory.CreateAuthenticatedClient(seed.StaffId2, UserRole.Staff);
-
-        var approveTask = approveClient.PostAsJsonAsync(
-            $"/api/v1/admin/tours/{seed.TourId}/approve",
-            new { checklist = ValidChecklist, note = "Concurrent approval" });
-        var rejectTask = rejectClient.PostAsJsonAsync(
-            $"/api/v1/admin/tours/{seed.TourId}/reject",
-            new { reason = "Concurrent rejection reason for conflict test." });
-
-        var responses = await Task.WhenAll(approveTask, rejectTask);
-
-        // Technical Finding: Because RejectTourCommandHandler (TM-107) runs under ReadCommitted isolation
-        // and Tour lacks a rowversion token, both handlers can read Status == Pending concurrently.
-        // Consequently, both can return HTTP 200 OK in a last-write-wins race, or one may conflict if serialized.
-        responses.Should().AllSatisfy(r =>
-            r.StatusCode.Should().BeOneOf(HttpStatusCode.OK, HttpStatusCode.Conflict, HttpStatusCode.InternalServerError));
-
-        await using var verificationContext = database.CreateDbContext();
-        var tour = await verificationContext.Tours.AsNoTracking().SingleAsync(t => t.Id == seed.TourId);
-        tour.Status.Should().BeOneOf(TourStatus.Approved, TourStatus.Rejected);
-    }
-
-    [SqlServerFact]
-    [Trait("Category", "SqlServer")]
+    [Trait("Classification", "RequiredBehavior")]
     public async Task RepeatedApproval_AfterCommit_ReturnsConflictMsg133_AndLeavesStateUntouched()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
@@ -129,18 +102,15 @@ public sealed class ApproveTourSqlServerTests
 
         using var client = factory.CreateAuthenticatedClient(seed.StaffId1, UserRole.Staff);
 
-        // First approval commits successfully
         var firstResponse = await client.PostAsJsonAsync(
             $"/api/v1/admin/tours/{seed.TourId}/approve",
             new { checklist = ValidChecklist, note = "Initial valid approval" });
         firstResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        // Capture commit state
         await using var checkContext = database.CreateDbContext();
         var tourAfterFirst = await checkContext.Tours.AsNoTracking().SingleAsync(t => t.Id == seed.TourId);
         var reviewedAtFirst = tourAfterFirst.ReviewedAtUtc;
 
-        // Second approval attempt immediately fails
         var secondResponse = await client.PostAsJsonAsync(
             $"/api/v1/admin/tours/{seed.TourId}/approve",
             new { checklist = ValidChecklist, note = "Duplicate approval attempt" });
@@ -151,7 +121,6 @@ public sealed class ApproveTourSqlServerTests
         body.RootElement.GetProperty("title").GetString()
             .Should().Be("The selected package is no longer in the Pending Approval status.");
 
-        // Database verification: unchanged state and exactly one audit log
         var tourAfterSecond = await checkContext.Tours.AsNoTracking().SingleAsync(t => t.Id == seed.TourId);
         tourAfterSecond.Status.Should().Be(TourStatus.Approved);
         tourAfterSecond.ReviewedAtUtc.Should().Be(reviewedAtFirst);
@@ -164,52 +133,75 @@ public sealed class ApproveTourSqlServerTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
-    public async Task StateMachineRegression_UnpublishApprovedTour_FailsWithConflict_DemonstratingUnpublishGuard()
+    [Trait("Classification", "VerifiedFix")]
+    public async Task ApprovalPersistenceFailure_RollsBackSqlTransaction_ReturnsMsg127_AndPreservesPendingState()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
         var seed = await SeedPendingTourAsync(database);
 
+        var failingCommandInterceptor = new FailOnAuditLogInsertCommandInterceptor();
         await using var factory = new TripMateApiFactory(
-            sqlServerConnectionString: database.ConnectionString);
+            sqlServerConnectionString: database.ConnectionString,
+            dbInterceptor: failingCommandInterceptor);
 
         using var staffClient = factory.CreateAuthenticatedClient(seed.StaffId1, UserRole.Staff);
 
-        // 1. Staff approves the tour -> Status = Approved, PublishedAtUtc is set
-        var approveResponse = await staffClient.PostAsJsonAsync(
+        var response = await staffClient.PostAsJsonAsync(
             $"/api/v1/admin/tours/{seed.TourId}/approve",
-            new { checklist = ValidChecklist });
-        approveResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+            new { checklist = ValidChecklist, note = "Rollback test on real SQL Server" });
 
-        // 2. Staff attempts to unpublish the newly-approved tour
-        // Baseline Unpublish requires Status == Published; calling Unpublish on Approved yields HTTP 409 Conflict
-        var unpublishResponse = await staffClient.PostAsJsonAsync(
-            $"/api/v1/admin/tours/{seed.TourId}/unpublish",
-            new { });
+        // Must return HTTP 503 with SRS MSG127 semantics — never a false 409 Conflict
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        var rawBody = await response.Content.ReadAsStringAsync();
+        using var body = JsonDocument.Parse(rawBody);
+        body.RootElement.GetProperty("errorCode").GetString().Should().Be(OperatorTourErrorCodes.ServiceUnavailable);
+        body.RootElement.GetProperty("title").GetString()
+            .Should().Be("TripMate is temporarily unable to process your request. Please check your connection and try again.");
 
-        unpublishResponse.StatusCode.Should().Be(HttpStatusCode.Conflict);
-        using var body = JsonDocument.Parse(await unpublishResponse.Content.ReadAsStringAsync());
-        body.RootElement.GetProperty("errorCode").GetString().Should().Be(OperatorTourErrorCodes.InvalidState);
-        body.RootElement.GetProperty("title").GetString().Should().Be("Only Published tours can be unpublished.");
+        // Confirm interceptor actually intercepted the AuditLog INSERT after Tour UPDATE ran inside the transaction
+        failingCommandInterceptor.InterceptedCount.Should().Be(1);
 
-        // 3. Entity-level validation: Tour.Unpublish throws InvalidOperationException when Status == Approved
-        await using var context = database.CreateDbContext();
-        var tour = await context.Tours.SingleAsync(t => t.Id == seed.TourId);
-        tour.Status.Should().Be(TourStatus.Approved);
+        // Fresh DbContext confirms SQL Server rolled back the UPDATE on commerce.Tours completely
+        await using var verificationContext = database.CreateDbContext();
+        var tour = await verificationContext.Tours.AsNoTracking().SingleAsync(t => t.Id == seed.TourId);
+        tour.Status.Should().Be(TourStatus.Pending);
+        tour.ReviewedBy.Should().BeNull();
+        tour.ReviewedAtUtc.Should().BeNull();
+        tour.PublishedAtUtc.Should().BeNull();
 
-        var action = () => tour.Unpublish(DateTimeOffset.UtcNow);
-        action.Should().Throw<InvalidOperationException>()
-            .WithMessage("Only Published tours can be unpublished.");
+        var audits = await verificationContext.AuditLogs.AsNoTracking()
+            .Where(a => a.AffectedEntityId == seed.TourId && a.ActionType == AuditActionTypes.TourApproved)
+            .ToListAsync();
+        audits.Should().BeEmpty();
+
+        output.WriteLine(
+            $"[VERIFIED_FIX] SqlRollbackOnFailure: HttpStatus={(int)response.StatusCode}, ErrorCode=MSG127, " +
+            $"InterceptedAuditInserts={failingCommandInterceptor.InterceptedCount}, FinalTourStatus={tour.Status}, " +
+            $"ReviewedBy={tour.ReviewedBy?.ToString() ?? "null"}, AuditCount={audits.Count}");
     }
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
-    public async Task ApprovedTour_BookingEligibility_FullFlow_Search_Detail_Quote_Booking()
+    [Trait("Classification", "RequiredBehavior")]
+    public async Task ApprovedTour_PublicVisibilityAndBookingFlow_BeforeOperatorLock_SucceedsEndToEnd()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
         var seed = await SeedPendingTourAsync(database);
 
         await using var factory = new TripMateApiFactory(
             sqlServerConnectionString: database.ConnectionString);
+
+        using var guestClient = factory.CreateClient();
+
+        // 0. Before approval: Pending tour is hidden from public search and detail
+        var preSearchResponse = await guestClient.GetAsync("/api/v1/tours?destination=Hoi+An");
+        preSearchResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var preSearchBody = JsonDocument.Parse(await preSearchResponse.Content.ReadAsStringAsync());
+        preSearchBody.RootElement.GetProperty("items").EnumerateArray().ToList()
+            .Should().NotContain(item => item.GetProperty("tourId").GetString() == seed.TourId.ToString());
+
+        var preDetailResponse = await guestClient.GetAsync($"/api/v1/tours/{seed.TourId}");
+        preDetailResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
 
         // 1. Approve the tour via TM-106 API
         using var staffClient = factory.CreateAuthenticatedClient(seed.StaffId1, UserRole.Staff);
@@ -219,7 +211,6 @@ public sealed class ApproveTourSqlServerTests
         approveResponse.StatusCode.Should().Be(HttpStatusCode.OK);
 
         // 2. Public Search finds the approved tour
-        using var guestClient = factory.CreateClient();
         var searchResponse = await guestClient.GetAsync("/api/v1/tours?destination=Hoi+An");
         searchResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         using var searchBody = JsonDocument.Parse(await searchResponse.Content.ReadAsStringAsync());
@@ -245,7 +236,7 @@ public sealed class ApproveTourSqlServerTests
         quoteResponse.StatusCode.Should().Be(HttpStatusCode.OK);
         using var quoteBody = JsonDocument.Parse(await quoteResponse.Content.ReadAsStringAsync());
         quoteBody.RootElement.GetProperty("tourId").GetString().Should().Be(seed.TourId.ToString());
-        quoteBody.RootElement.GetProperty("totalAmount").GetDecimal().Should().Be(3_000_000m); // 2 * 1,500,000
+        quoteBody.RootElement.GetProperty("totalAmount").GetDecimal().Should().Be(3_000_000m);
 
         // 5. Booking Create succeeds on real SQL Server
         var bookingKey = Guid.NewGuid().ToString();
@@ -276,13 +267,195 @@ public sealed class ApproveTourSqlServerTests
         var schedule = await db.TourSchedules.AsNoTracking().SingleAsync(s => s.Id == seed.ScheduleId);
         schedule.ReservedCapacity.Should().Be(2);
 
-        // 7. Negative Guard: Locked / Inactive operator tour does not appear in public search
+        // 7. Public visibility guard: Locked operator hides tour from both Public Search and Public Detail
         await database.ExecuteNonQueryAsync($"UPDATE dbo.Users SET status = 'Locked' WHERE user_id = {seed.OperatorId};");
-        var postSuspendSearch = await guestClient.GetAsync("/api/v1/tours?destination=Hoi+An");
-        postSuspendSearch.StatusCode.Should().Be(HttpStatusCode.OK);
-        using var postSuspendBody = JsonDocument.Parse(await postSuspendSearch.Content.ReadAsStringAsync());
-        var postSuspendItems = postSuspendBody.RootElement.GetProperty("items").EnumerateArray().ToList();
-        postSuspendItems.Should().NotContain(item => item.GetProperty("tourId").GetString() == seed.TourId.ToString());
+        var postLockSearch = await guestClient.GetAsync("/api/v1/tours?destination=Hoi+An");
+        postLockSearch.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var postLockBody = JsonDocument.Parse(await postLockSearch.Content.ReadAsStringAsync());
+        postLockBody.RootElement.GetProperty("items").EnumerateArray().ToList()
+            .Should().NotContain(item => item.GetProperty("tourId").GetString() == seed.TourId.ToString());
+
+        var postLockDetail = await guestClient.GetAsync($"/api/v1/tours/{seed.TourId}");
+        postLockDetail.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    [Trait("Classification", "DefectReproduction")]
+    public async Task Diagnostic_ConcurrentApproveAndReject_ReproducesCrossTaskRaceDefect()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedPendingTourAsync(database);
+
+        // Synchronize both Approve (SERIALIZABLE) and Reject (Read Committed, TM-107) at SavingChangesAsync
+        // after both have read Status == Pending to deterministically expose the cross-task race defect.
+        var barrier = new ApproveRejectRaceBarrier(participants: 2);
+        await using var factory = new TripMateApiFactory(
+            sqlServerConnectionString: database.ConnectionString,
+            saveChangesInterceptor: barrier);
+
+        using var approveClient = factory.CreateAuthenticatedClient(seed.StaffId1, UserRole.Staff);
+        using var rejectClient = factory.CreateAuthenticatedClient(seed.StaffId2, UserRole.Staff);
+
+        var approveTask = approveClient.PostAsJsonAsync(
+            $"/api/v1/admin/tours/{seed.TourId}/approve",
+            new { checklist = ValidChecklist, note = "Concurrent approval diagnostic" });
+        var rejectTask = rejectClient.PostAsJsonAsync(
+            $"/api/v1/admin/tours/{seed.TourId}/reject",
+            new { reason = "Concurrent rejection diagnostic reason." });
+
+        await Task.WhenAll(approveTask, rejectTask);
+
+        var approveResponse = await approveTask;
+        var rejectResponse = await rejectTask;
+        var approveBody = await approveResponse.Content.ReadAsStringAsync();
+        var rejectBody = await rejectResponse.Content.ReadAsStringAsync();
+
+        await using var verificationContext = database.CreateDbContext();
+        var tour = await verificationContext.Tours.AsNoTracking().SingleAsync(t => t.Id == seed.TourId);
+        var approvedAudits = await verificationContext.AuditLogs.AsNoTracking()
+            .Where(a => a.AffectedEntityId == seed.TourId && a.ActionType == AuditActionTypes.TourApproved)
+            .ToListAsync();
+        var rejectedAudits = await verificationContext.AuditLogs.AsNoTracking()
+            .Where(a => a.AffectedEntityId == seed.TourId && a.ActionType == AuditActionTypes.TourRejected)
+            .ToListAsync();
+
+        var bothCommitted = approveResponse.StatusCode == HttpStatusCode.OK
+            && rejectResponse.StatusCode == HttpStatusCode.OK;
+
+        output.WriteLine("[DEFECT_REPRODUCED: APPROVE_REJECT_RACE / CROSS_TASK_DEPENDENCY (TM-107)]");
+        output.WriteLine($"  Approve HTTP: {(int)approveResponse.StatusCode} {approveResponse.StatusCode} | Body: {approveBody}");
+        output.WriteLine($"  Reject  HTTP: {(int)rejectResponse.StatusCode} {rejectResponse.StatusCode} | Body: {rejectBody}");
+        output.WriteLine($"  Final Tour Status: {tour.Status}");
+        output.WriteLine($"  TourApproved Audit Count: {approvedAudits.Count}");
+        output.WriteLine($"  TourRejected Audit Count: {rejectedAudits.Count}");
+        output.WriteLine($"  Final ReviewedBy: {tour.ReviewedBy} | Final ReviewedAtUtc: {tour.ReviewedAtUtc:O}");
+        output.WriteLine($"  ConflictingDecisionsBothCommitted: {bothCommitted}");
+
+        // Explicitly assert the reproduced defect so this diagnostic cannot silently pass as compliant behavior:
+        // RejectTourCommandHandler (TM-107) runs under Read Committed without rowversion or serializable locking,
+        // so both decisions commit with HTTP 200 OK and both audit logs are written.
+        bothCommitted.Should().BeTrue("Expected deterministic reproduction of cross-task Approve/Reject race defect.");
+        approvedAudits.Should().ContainSingle();
+        rejectedAudits.Should().ContainSingle();
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    [Trait("Classification", "DefectReproduction")]
+    public async Task Diagnostic_UnpublishApprovedTour_ReproducesStateMachineGuardDefect()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedPendingTourAsync(database);
+
+        await using var factory = new TripMateApiFactory(
+            sqlServerConnectionString: database.ConnectionString);
+
+        using var staffClient = factory.CreateAuthenticatedClient(seed.StaffId1, UserRole.Staff);
+
+        var approveResponse = await staffClient.PostAsJsonAsync(
+            $"/api/v1/admin/tours/{seed.TourId}/approve",
+            new { checklist = ValidChecklist });
+        approveResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var unpublishResponse = await staffClient.PostAsJsonAsync(
+            $"/api/v1/admin/tours/{seed.TourId}/unpublish",
+            new { });
+        var unpublishRaw = await unpublishResponse.Content.ReadAsStringAsync();
+
+        unpublishResponse.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        using var body = JsonDocument.Parse(unpublishRaw);
+        body.RootElement.GetProperty("errorCode").GetString().Should().Be(OperatorTourErrorCodes.InvalidState);
+        body.RootElement.GetProperty("title").GetString().Should().Be("Only Published tours can be unpublished.");
+
+        await using var context = database.CreateDbContext();
+        var tour = await context.Tours.SingleAsync(t => t.Id == seed.TourId);
+        tour.Status.Should().Be(TourStatus.Approved);
+        tour.PublishedAtUtc.Should().NotBeNull();
+
+        var action = () => tour.Unpublish(DateTimeOffset.UtcNow);
+        action.Should().Throw<InvalidOperationException>()
+            .WithMessage("Only Published tours can be unpublished.");
+
+        output.WriteLine("[DEFECT_REPRODUCED: UNPUBLISH_COMPATIBILITY / PENDING_OWNER_APPROVAL]");
+        output.WriteLine($"  TourStatus={tour.Status}, PublishedAtUtc={tour.PublishedAtUtc:O}");
+        output.WriteLine($"  Unpublish HTTP: {(int)unpublishResponse.StatusCode} | Body: {unpublishRaw}");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    [Trait("Classification", "DefectReproduction")]
+    public async Task Diagnostic_BookingAfterOperatorLocked_ReproducesCrossTaskBookingDefect()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedPendingTourAsync(database);
+
+        await using var factory = new TripMateApiFactory(
+            sqlServerConnectionString: database.ConnectionString);
+
+        // 1. Approve tour while Operator is Active
+        using var staffClient = factory.CreateAuthenticatedClient(seed.StaffId1, UserRole.Staff);
+        var approveResponse = await staffClient.PostAsJsonAsync(
+            $"/api/v1/admin/tours/{seed.TourId}/approve",
+            new { checklist = ValidChecklist });
+        approveResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // 2. Lock the owning Operator account while keeping schedule, capacity, and Traveler completely valid
+        await database.ExecuteNonQueryAsync($"UPDATE dbo.Users SET status = 'Locked' WHERE user_id = {seed.OperatorId};");
+
+        // 3. Confirm Public Search and Public Detail properly hide the tour via TourVisibility.PublicTour
+        using var guestClient = factory.CreateClient();
+        var searchResponse = await guestClient.GetAsync("/api/v1/tours?destination=Hoi+An");
+        searchResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var searchBody = JsonDocument.Parse(await searchResponse.Content.ReadAsStringAsync());
+        searchBody.RootElement.GetProperty("items").EnumerateArray().ToList()
+            .Should().NotContain(item => item.GetProperty("tourId").GetString() == seed.TourId.ToString());
+
+        var detailResponse = await guestClient.GetAsync($"/api/v1/tours/{seed.TourId}");
+        detailResponse.StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        // 4. Isolated diagnostic: Attempt valid Quote and Booking Create with valid scheduleId and active Traveler
+        using var travelerClient = factory.CreateAuthenticatedClient(seed.TravelerId, UserRole.Traveler);
+        var quoteResponse = await travelerClient.PostAsJsonAsync(
+            "/api/v1/traveler/tour-bookings/quote",
+            new
+            {
+                tourScheduleId = seed.ScheduleId.ToString(),
+                participantCounts = new { adult = 1, child = 0, infant = 0 },
+            });
+        var quoteRaw = await quoteResponse.Content.ReadAsStringAsync();
+
+        travelerClient.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
+        var createResponse = await travelerClient.PostAsJsonAsync(
+            "/api/v1/traveler/tour-bookings",
+            new
+            {
+                tourScheduleId = seed.ScheduleId.ToString(),
+                participants = new[]
+                {
+                    new { fullName = "Locked Operator Diagnostic Traveler", participantType = "Adult" },
+                },
+            });
+        var createRaw = await createResponse.Content.ReadAsStringAsync();
+
+        await using var db = database.CreateDbContext();
+        var bookings = await db.Bookings.AsNoTracking()
+            .Where(b => b.TourScheduleId == seed.ScheduleId)
+            .ToListAsync();
+        var schedule = await db.TourSchedules.AsNoTracking().SingleAsync(s => s.Id == seed.ScheduleId);
+
+        output.WriteLine("[DEFECT_REPRODUCED: BOOKING_OPERATOR_STATUS_ENFORCEMENT / EXTERNAL_DEPENDENCY]");
+        output.WriteLine($"  Public Search Hidden: True | Public Detail HTTP: {(int)detailResponse.StatusCode}");
+        output.WriteLine($"  Quote HTTP: {(int)quoteResponse.StatusCode} {quoteResponse.StatusCode} | Body: {quoteRaw}");
+        output.WriteLine($"  Create HTTP: {(int)createResponse.StatusCode} {createResponse.StatusCode} | Body: {createRaw}");
+        output.WriteLine($"  Persisted Bookings Count: {bookings.Count} | Schedule ReservedCapacity: {schedule.ReservedCapacity}");
+
+        // Reproduce the exact cross-task vulnerability in QuoteTourBookingQueryHandler & CreateTourBookingCommandHandler:
+        // Both handlers omit OperatorProfile.User.Status == AccountStatus.Active from IsPubliclyBookableTour.
+        quoteResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        createResponse.StatusCode.Should().Be(HttpStatusCode.Created);
+        bookings.Should().ContainSingle();
+        schedule.ReservedCapacity.Should().Be(1);
     }
 
     private static async Task<SeedResult> SeedPendingTourAsync(SqlServerTestDatabase database)
@@ -408,4 +581,74 @@ public sealed class ApproveTourSqlServerTests
         long TravelerId,
         long TourId,
         long ScheduleId);
+
+    private sealed class ApproveRejectRaceBarrier(int participants) : SaveChangesInterceptor
+    {
+        private readonly TaskCompletionSource<bool> _release =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _arrivals;
+
+        public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            var isTourDecision = eventData.Context?.ChangeTracker
+                .Entries<Tour>()
+                .Any(entry => entry.State == EntityState.Modified
+                    && entry.Property(t => t.Status).IsModified) == true;
+
+            if (!isTourDecision)
+            {
+                return result;
+            }
+
+            if (Interlocked.Increment(ref _arrivals) == participants)
+            {
+                _release.TrySetResult(true);
+            }
+
+            await _release.Task.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
+            return result;
+        }
+    }
+
+    private sealed class FailOnAuditLogInsertCommandInterceptor : DbCommandInterceptor
+    {
+        private int _interceptedCount;
+
+        public int InterceptedCount => Volatile.Read(ref _interceptedCount);
+
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("AuditLogs", StringComparison.OrdinalIgnoreCase)
+                && command.CommandText.Contains("INSERT", StringComparison.OrdinalIgnoreCase))
+            {
+                Interlocked.Increment(ref _interceptedCount);
+                throw new InvalidOperationException("Simulated SQL write failure on AuditLogs INSERT.");
+            }
+
+            return ValueTask.FromResult(result);
+        }
+
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
+            DbCommand command,
+            CommandEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.Contains("AuditLogs", StringComparison.OrdinalIgnoreCase)
+                && command.CommandText.Contains("INSERT", StringComparison.OrdinalIgnoreCase))
+            {
+                Interlocked.Increment(ref _interceptedCount);
+                throw new InvalidOperationException("Simulated SQL write failure on AuditLogs INSERT.");
+            }
+
+            return ValueTask.FromResult(result);
+        }
+    }
 }

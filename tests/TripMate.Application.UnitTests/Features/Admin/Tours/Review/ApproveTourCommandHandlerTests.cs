@@ -298,7 +298,7 @@ public sealed class ApproveTourCommandHandlerTests
     }
 
     [Fact]
-    public async Task Handle_WhenDeadlockExhaustsRetries_RethrowsDeadlockException()
+    public async Task Handle_WhenDeadlockExhaustsRetries_ReturnsServiceUnavailableMsg127()
     {
         await using var db = TestDbContext.Create();
         await PublicTourTestData.SeedOperatorAsync(db, 1);
@@ -306,8 +306,76 @@ public sealed class ApproveTourCommandHandlerTests
         var clock = new FakeDateTimeProvider { UtcNow = Now };
         var staffId = 55L;
 
-        // All attempts fail with deadlock
-        db.SerializableTransactionCompletionFailureFactory = _ => new SimulatedDeadlockException();
+        // All attempts fail with deadlock before persisting
+        db.SaveChangesFailureFactory = () => new SimulatedDeadlockException();
+
+        var handler = new ApproveTourCommandHandler(
+            db,
+            new FakeCurrentUserService { UserId = staffId, Role = nameof(UserRole.Staff) },
+            clock);
+
+        var result = await handler.Handle(
+            new ApproveTourCommand(tour.Id, ValidChecklist()),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be(OperatorTourErrorCodes.ServiceUnavailable);
+        result.ErrorMessage.Should().Be("TripMate is temporarily unable to process your request. Please check your connection and try again.");
+        db.TransactionExecutionCount.Should().Be(3);
+
+        // Tour stays Pending and no audit record was persisted
+        var storedTour = await db.Tours.AsNoTracking().SingleAsync(t => t.Id == tour.Id);
+        storedTour.Status.Should().Be(TourStatus.Pending);
+        var audits = await db.AuditLogs.AsNoTracking()
+            .Where(a => a.AffectedEntityId == tour.Id && a.ActionType == AuditActionTypes.TourApproved)
+            .ToListAsync();
+        audits.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Handle_WhenUnrecoverableSaveFailureOccurs_ReturnsServiceUnavailableMsg127_WithoutRetrying()
+    {
+        await using var db = TestDbContext.Create();
+        await PublicTourTestData.SeedOperatorAsync(db, 1);
+        var tour = await PublicTourTestData.AddTourAsync(db, 1, TourStatus.Pending);
+        var clock = new FakeDateTimeProvider { UtcNow = Now };
+        var staffId = 55L;
+
+        db.SaveChangesFailureFactory = () => new DbUpdateException("Simulated storage outage.");
+
+        var handler = new ApproveTourCommandHandler(
+            db,
+            new FakeCurrentUserService { UserId = staffId, Role = nameof(UserRole.Staff) },
+            clock);
+
+        var result = await handler.Handle(
+            new ApproveTourCommand(tour.Id, ValidChecklist()),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be(OperatorTourErrorCodes.ServiceUnavailable);
+        result.ErrorMessage.Should().Be("TripMate is temporarily unable to process your request. Please check your connection and try again.");
+        // Non-deadlock infrastructure failure must NOT retry and must NOT be converted to 409 InvalidState
+        db.TransactionExecutionCount.Should().Be(1);
+
+        var storedTour = await db.Tours.AsNoTracking().SingleAsync(t => t.Id == tour.Id);
+        storedTour.Status.Should().Be(TourStatus.Pending);
+        var audits = await db.AuditLogs.AsNoTracking()
+            .Where(a => a.AffectedEntityId == tour.Id && a.ActionType == AuditActionTypes.TourApproved)
+            .ToListAsync();
+        audits.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Handle_WhenCancellationRequested_PropagatesOperationCanceledException()
+    {
+        await using var db = TestDbContext.Create();
+        await PublicTourTestData.SeedOperatorAsync(db, 1);
+        var tour = await PublicTourTestData.AddTourAsync(db, 1, TourStatus.Pending);
+        var clock = new FakeDateTimeProvider { UtcNow = Now };
+        var staffId = 55L;
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
 
         var handler = new ApproveTourCommandHandler(
             db,
@@ -316,9 +384,8 @@ public sealed class ApproveTourCommandHandlerTests
 
         var act = () => handler.Handle(
             new ApproveTourCommand(tour.Id, ValidChecklist()),
-            CancellationToken.None);
+            cts.Token);
 
-        await act.Should().ThrowAsync<SimulatedDeadlockException>();
-        db.TransactionExecutionCount.Should().Be(3);
+        await act.Should().ThrowAsync<OperationCanceledException>();
     }
 }

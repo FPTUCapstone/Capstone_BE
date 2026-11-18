@@ -300,16 +300,17 @@ public class Tour : BaseEntity
         UpdatedAtUtc = updatedAtUtc.ToUniversalTime();
     }
 
-    public void Approve(long reviewerUserId, DateTimeOffset reviewedAtUtc)
+    public void Approve(long reviewerUserId, DateTimeOffset reviewedAtUtc, DateTimeOffset? publishedAtUtc = null)
     {
         if (Status != TourStatus.Pending) throw new InvalidOperationException("Only Pending tours can be approved.");
         if (reviewerUserId <= 0) throw new ArgumentOutOfRangeException(nameof(reviewerUserId));
+        var normalizedReviewedAtUtc = reviewedAtUtc.ToUniversalTime();
         Status = TourStatus.Approved;
         ReviewedBy = reviewerUserId;
-        ReviewedAtUtc = reviewedAtUtc.ToUniversalTime();
-        PublishedAtUtc = reviewedAtUtc.ToUniversalTime();
+        ReviewedAtUtc = normalizedReviewedAtUtc;
+        PublishedAtUtc = publishedAtUtc?.ToUniversalTime();
         RejectionReason = null;
-        UpdatedAtUtc = ReviewedAtUtc.Value;
+        UpdatedAtUtc = normalizedReviewedAtUtc;
     }
 
     public void Reject(long reviewerUserId, string reason, DateTimeOffset reviewedAtUtc)

@@ -5,6 +5,7 @@ using System.Text.Json;
 using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
@@ -131,7 +132,7 @@ public sealed class ApproveTourEndpointTests
     }
 
     [Fact]
-    public async Task Post_WithMissingChecklist_ReturnsBadRequest()
+    public async Task Post_WithMissingChecklist_ReturnsBadRequestWithMsg01_AndLeavesPending()
     {
         await using var factory = new TripMateApiFactory();
         var tourId = await SeedTourAsync(factory, TourStatus.Pending);
@@ -142,6 +143,19 @@ public sealed class ApproveTourEndpointTests
             new { checklist = (TourReviewChecklistDto?)null, note = "Some note" });
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var payload = await response.Content.ReadAsStringAsync();
+        payload.Should().Contain("This field is required.");
+
+        await factory.WithDbContextAsync(async db =>
+        {
+            var tour = await db.Tours.AsNoTracking().SingleAsync(t => t.Id == tourId);
+            tour.Status.Should().Be(TourStatus.Pending);
+            var audits = await db.AuditLogs.AsNoTracking()
+                .Where(a => a.AffectedEntityId == tourId && a.ActionType == AuditActionTypes.TourApproved)
+                .ToListAsync();
+            audits.Should().BeEmpty();
+            return true;
+        });
     }
 
     [Theory]
@@ -150,7 +164,7 @@ public sealed class ApproveTourEndpointTests
     [InlineData(true, true, false, true, true)]
     [InlineData(true, true, true, false, true)]
     [InlineData(true, true, true, true, false)]
-    public async Task Post_WithIncompleteChecklistCriterion_ReturnsBadRequest(
+    public async Task Post_WithIncompleteChecklistCriterion_ReturnsBadRequestWithMsg01_AndLeavesPending(
         bool completeness, bool images, bool pricing, bool policy, bool itinerary)
     {
         await using var factory = new TripMateApiFactory();
@@ -169,6 +183,19 @@ public sealed class ApproveTourEndpointTests
             new { checklist });
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var payload = await response.Content.ReadAsStringAsync();
+        payload.Should().Contain("This field is required.");
+
+        await factory.WithDbContextAsync(async db =>
+        {
+            var tour = await db.Tours.AsNoTracking().SingleAsync(t => t.Id == tourId);
+            tour.Status.Should().Be(TourStatus.Pending);
+            var audits = await db.AuditLogs.AsNoTracking()
+                .Where(a => a.AffectedEntityId == tourId && a.ActionType == AuditActionTypes.TourApproved)
+                .ToListAsync();
+            audits.Should().BeEmpty();
+            return true;
+        });
     }
 
     [Fact]
@@ -277,6 +304,56 @@ public sealed class ApproveTourEndpointTests
         body.RootElement.GetProperty("errorCode").GetString().Should().Be(OperatorTourErrorCodes.InvalidState);
         body.RootElement.GetProperty("title").GetString()
             .Should().Be("The selected package is no longer in the Pending Approval status.");
+    }
+
+    [Fact]
+    public async Task Post_WhenPersistenceFails_ReturnsServiceUnavailableWithMsg127_AndPreservesPendingState()
+    {
+        var failingInterceptor = new FailOnTourApprovalSaveInterceptor();
+        await using var factory = new TripMateApiFactory(saveChangesInterceptor: failingInterceptor);
+        var tourId = await SeedTourAsync(factory, TourStatus.Pending);
+        using var client = factory.CreateAuthenticatedClient(12, UserRole.Staff);
+
+        var response = await client.PostAsJsonAsync(
+            $"/api/v1/admin/tours/{tourId}/approve",
+            new { checklist = ValidChecklist, note = "Persistence outage check" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        body.RootElement.GetProperty("errorCode").GetString().Should().Be(OperatorTourErrorCodes.ServiceUnavailable);
+        body.RootElement.GetProperty("title").GetString()
+            .Should().Be("TripMate is temporarily unable to process your request. Please check your connection and try again.");
+
+        await factory.WithDbContextAsync(async db =>
+        {
+            var tour = await db.Tours.AsNoTracking().SingleAsync(t => t.Id == tourId);
+            tour.Status.Should().Be(TourStatus.Pending);
+            var audits = await db.AuditLogs.AsNoTracking()
+                .Where(a => a.AffectedEntityId == tourId && a.ActionType == AuditActionTypes.TourApproved)
+                .ToListAsync();
+            audits.Should().BeEmpty();
+            return true;
+        });
+    }
+
+    private sealed class FailOnTourApprovalSaveInterceptor : SaveChangesInterceptor
+    {
+        public override ValueTask<InterceptionResult<int>> SavingChangesAsync(
+            DbContextEventData eventData,
+            InterceptionResult<int> result,
+            CancellationToken cancellationToken = default)
+        {
+            var approvingTour = eventData.Context?.ChangeTracker
+                .Entries<Tour>()
+                .Any(e => e.State == EntityState.Modified && e.Entity.Status == TourStatus.Approved) == true;
+
+            if (approvingTour)
+            {
+                throw new DbUpdateException("Simulated database write failure.");
+            }
+
+            return ValueTask.FromResult(result);
+        }
     }
 
     private static Task<long> SeedTourAsync(TripMateApiFactory factory, TourStatus desiredStatus) =>

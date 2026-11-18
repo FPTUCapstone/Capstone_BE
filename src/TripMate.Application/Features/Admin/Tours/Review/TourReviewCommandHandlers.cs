@@ -48,7 +48,7 @@ public sealed class ApproveTourCommandHandler(IApplicationDbContext dbContext, I
                     var reviewerId = currentUser.UserId!.Value;
                     var statusBefore = tour.Status;
 
-                    tour.Approve(reviewerId, now);
+                    tour.Approve(reviewerId, now, publishedAtUtc: now);
 
                     var afterData = JsonSerializer.Serialize(new
                     {
@@ -76,21 +76,31 @@ public sealed class ApproveTourCommandHandler(IApplicationDbContext dbContext, I
                     return Result.Success(new TourReviewResponse(tour.Id, tour.Status.ToString(), now));
                 }, cancellationToken);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
             catch (Exception exception) when (attempt < maxConcurrencyAttempts && dbContext.IsDeadlock(exception))
             {
                 dbContext.ClearTrackedEntities();
                 var delayMs = Random.Shared.Next(20, 50) * attempt;
                 await Task.Delay(TimeSpan.FromMilliseconds(delayMs), cancellationToken);
             }
+            catch (Exception)
+            {
+                dbContext.ClearTrackedEntities();
+                return ServiceUnavailable();
+            }
         }
 
-        return InvalidState();
+        return ServiceUnavailable();
     }
 
     private Result<TourReviewResponse>? AuthorizeStaff() => currentUser.UserId is null || currentUser.Role != nameof(UserRole.Staff)
         ? Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.AdminAccessRequired, "Staff access is required.") : null;
     private static Result<TourReviewResponse> NotFound() => Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.TourNotFound, "The tour is unavailable.");
     private static Result<TourReviewResponse> InvalidState() => Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.InvalidState, "The selected package is no longer in the Pending Approval status.");
+    private static Result<TourReviewResponse> ServiceUnavailable() => Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.ServiceUnavailable, "TripMate is temporarily unable to process your request. Please check your connection and try again.");
 }
 
 public sealed class RejectTourCommandHandler(IApplicationDbContext dbContext, ICurrentUserService currentUser, IDateTimeProvider clock)
