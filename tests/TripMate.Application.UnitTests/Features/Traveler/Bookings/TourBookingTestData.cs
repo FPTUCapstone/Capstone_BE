@@ -42,6 +42,38 @@ internal static class TourBookingTestData
         return tour;
     }
 
+    /// <summary>
+    /// A <see cref="SeedTour"/> whose owning operator exists and is, by default, approved and active - i.e. a
+    /// tour a Traveler may legitimately book (BR-56). The operator graph is attached through the navigation so
+    /// <c>db.Tours.Add(tour)</c> persists it. Pass a non-default state to model a locked or unapproved operator.
+    /// </summary>
+    public static Tour SeedBookableTour(long operatorId, decimal basePrice, TourStatus status = TourStatus.Published,
+        OperatorApprovalStatus operatorApproval = OperatorApprovalStatus.Approved,
+        AccountStatus operatorAccountStatus = AccountStatus.Active)
+    {
+        var tour = SeedTour(operatorId, basePrice, status);
+        var user = new User
+        {
+            Id = operatorId,
+            Email = $"operator-{operatorId}@test.local",
+            FullName = "Operator",
+            Role = UserRole.TourOperator,
+            Status = operatorAccountStatus,
+        };
+        Set(tour, nameof(Tour.OperatorProfile), new OperatorProfile
+        {
+            UserId = operatorId,
+            User = user,
+            CompanyName = "Test Tours",
+            TaxCode = $"TAX-{operatorId}",
+            BusinessLicenseNo = $"LIC-{operatorId}",
+            ContactPhone = "0900000000",
+            ContactAddress = "1 Test Street",
+            ApprovalStatus = operatorApproval,
+        });
+        return tour;
+    }
+
     public static TourSchedule SeedSchedule(Tour tour, DateTimeOffset startAtUtc, int totalCapacity,
         int reservedCapacity, decimal? adultPrice = null, decimal? childPrice = null, decimal? infantPrice = null,
         DateTimeOffset? registrationDeadlineAtUtc = null, TourScheduleStatus status = TourScheduleStatus.Scheduled)

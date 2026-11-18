@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Tours.Shared;
 using TripMate.Application.Features.Traveler.Bookings.Common;
 using TripMate.Application.Features.Traveler.Bookings.Expiry;
 using TripMate.Domain.Entities;
@@ -81,7 +82,8 @@ public sealed class CreateTourBookingCommandHandler(
             var schedule = await dbContext.TourSchedules
                 .Include(scheduleEntity => scheduleEntity.Tour)
                 .SingleOrDefaultAsync(scheduleEntity => scheduleEntity.Id == scheduleId, transactionCancellationToken);
-            if (schedule is null || !IsPubliclyBookableTour(schedule.Tour, now))
+            if (schedule is null
+                || !await TourVisibility.IsPublicAsync(dbContext.Tours, schedule.TourId, now, transactionCancellationToken))
                 return Result.Failure<CreateTourBookingResponse>(
                     TourBookingErrorCodes.ScheduleNotFound, "The selected tour departure was not found.");
             if (!schedule.IsOpenForBooking(now))
@@ -220,10 +222,6 @@ public sealed class CreateTourBookingCommandHandler(
         booking.PaymentExpiresAtUtc ?? booking.BookedAtUtc,
         booking.BookedAtUtc)
     { IsReplay = isReplay };
-
-    private static bool IsPubliclyBookableTour(Tour tour, DateTimeOffset now) =>
-        tour.Status == TourStatus.Published ||
-        (tour.Status == TourStatus.Approved && tour.PublishedAtUtc.HasValue && tour.PublishedAtUtc <= now);
 
     private static string ComputeFingerprint(CreateTourBookingCommand request)
     {

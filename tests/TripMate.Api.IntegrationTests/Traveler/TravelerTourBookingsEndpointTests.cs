@@ -99,6 +99,25 @@ public sealed class TravelerTourBookingsEndpointTests
             Set(tour, nameof(Tour.BasePrice), 1_000_000m);
             Set(tour, nameof(Tour.DurationDays), 1);
             Set(tour, nameof(Tour.Status), TourStatus.Published);
+            // BR-56: a bookable tour belongs to an approved, active operator (the same rule Search/Detail apply).
+            Set(tour, nameof(Tour.OperatorProfile), new OperatorProfile
+            {
+                UserId = 1L,
+                User = new User
+                {
+                    Id = 1L,
+                    Email = "operator-1@test.local",
+                    FullName = "Operator",
+                    Role = UserRole.TourOperator,
+                    Status = AccountStatus.Active,
+                },
+                CompanyName = "Integration Tours",
+                TaxCode = "TAX-1",
+                BusinessLicenseNo = "LIC-1",
+                ContactPhone = "0900000000",
+                ContactAddress = "1 Test Street",
+                ApprovalStatus = OperatorApprovalStatus.Approved,
+            });
             // UC-70 bookability: a sellable tour template carries fully scheduled stops.
             var itemsField = typeof(Tour).GetField("_itineraryItems", BindingFlags.NonPublic | BindingFlags.Instance)!;
             ((List<TourItineraryItem>)itemsField.GetValue(tour)!).AddRange(
