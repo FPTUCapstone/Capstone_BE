@@ -1,8 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
-using TripMate.Domain.Enums;
 using TripMate.Domain.Entities;
+using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Operator.Tours.Common;
 
