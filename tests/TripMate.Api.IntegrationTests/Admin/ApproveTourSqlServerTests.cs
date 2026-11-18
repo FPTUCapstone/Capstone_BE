@@ -738,9 +738,12 @@ public sealed class ApproveTourSqlServerTests(ITestOutputHelper output)
                 TourItineraryItem.Create(1, 2, poi2.Id, new TimeOnly(11, 0), 60, null),
             ],
             [
+                // Pin the departure to 08:00 Asia/Ho_Chi_Minh (UTC+7, no DST) explicitly. Converting an
+                // Unspecified-kind DateTime to DateTimeOffset uses the *host* timezone, which made the
+                // itinerary stops (08:00/11:00 local) fall outside the departure window on UTC runners.
                 TourSchedule.Create(
-                    now.Date.AddDays(10).AddHours(8),
-                    now.Date.AddDays(11).AddHours(8),
+                    new DateTimeOffset(now.Date.AddDays(10).AddHours(8), TimeSpan.FromHours(7)),
+                    new DateTimeOffset(now.Date.AddDays(11).AddHours(8), TimeSpan.FromHours(7)),
                     "Hoi An Gate",
                     10,
                     now,
