@@ -8,6 +8,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Include="..\..\database\migrations\20261118_tm83_tour_submission.sql"
+          Link="Database\migrations\20261118_tm83_tour_submission.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Include="..\Shared\TomorrowAlertFixtures.cs" Link="Shared\TomorrowAlertFixtures.cs" />
     <PackageReference Include="FluentAssertions" Version="7.2.0" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.0" />

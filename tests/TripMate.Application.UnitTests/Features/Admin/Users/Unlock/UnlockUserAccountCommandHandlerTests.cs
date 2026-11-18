@@ -21,9 +21,21 @@ public sealed class UnlockUserAccountCommandHandlerTests
     private readonly FakeCurrentUserService _currentUser = new()
     {
         UserId = 10,
-        Role = nameof(UserRole.Administrator)
+        Role = nameof(UserRole.Staff)
     };
     private readonly FakeDateTimeProvider _clock = new() { UtcNow = Now };
+
+    public UnlockUserAccountCommandHandlerTests()
+    {
+        _dbContext.Users.Add(new User
+        {
+            Id = _currentUser.UserId!.Value,
+            FullName = "Unlock staff actor",
+            Role = UserRole.Staff,
+            Status = AccountStatus.Active
+        });
+        _dbContext.SaveChanges();
+    }
 
     [Fact]
     public async Task Handle_WhenOperatorDebtIsFullyRecovered_RestoresAdministrativeLock()
@@ -192,7 +204,7 @@ public sealed class UnlockUserAccountCommandHandlerTests
     }
 
     [Fact]
-    public async Task Handle_WhenTargetIsAdministrator_ReturnsProtectedFailure()
+    public async Task Handle_WhenTargetIsAdministrator_ReturnsNotFound()
     {
         var administrator = new User
         {
@@ -208,28 +220,20 @@ public sealed class UnlockUserAccountCommandHandlerTests
             new UnlockUserAccountCommand(administrator.Id, "Verified", "unlock-004"),
             CancellationToken.None);
 
-        result.ErrorCode.Should().Be("user.unlock_protected_administrator");
+        result.ErrorCode.Should().Be("user.not_found");
         _dbContext.AuditLogs.Should().BeEmpty();
     }
 
     [Fact]
-    public async Task Handle_WhenTargetIsCallingAdministrator_ReturnsProtectedFailure()
+    public async Task Handle_WhenClaimDoesNotMatchPersistedActorRole_ReturnsForbidden()
     {
-        var administrator = new User
-        {
-            Id = _currentUser.UserId!.Value,
-            FullName = "Calling administrator",
-            Role = UserRole.Administrator,
-            Status = AccountStatus.Locked
-        };
-        _dbContext.Users.Add(administrator);
-        await _dbContext.SaveChangesAsync(CancellationToken.None);
+        _currentUser.Role = nameof(UserRole.Administrator);
 
         var result = await CreateHandler().Handle(
-            new UnlockUserAccountCommand(administrator.Id, "Verified", "unlock-self"),
+            new UnlockUserAccountCommand(20, "Verified", "unlock-stale-role"),
             CancellationToken.None);
 
-        result.ErrorCode.Should().Be("user.unlock_protected_administrator");
+        result.ErrorCode.Should().Be("user.unlock_forbidden");
         _dbContext.AuditLogs.Should().BeEmpty();
         _dbContext.UserUnlockOperations.Should().BeEmpty();
     }

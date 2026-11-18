@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Admin.UserAccounts;
 using TripMate.Application.Features.Admin.Users.Common;
 using TripMate.Application.Features.Payouts.DailySettlement;
 using TripMate.Domain.Common;
@@ -27,8 +28,7 @@ public sealed class UnlockUserAccountCommandHandler(
         UnlockUserAccountCommand request,
         CancellationToken cancellationToken)
     {
-        if (currentUserService.UserId is not long administratorUserId
-            || currentUserService.Role != nameof(UserRole.Administrator))
+        if (currentUserService.UserId is not > 0)
         {
             return Result.Failure<UnlockUserAccountResponse>(
                 UserAdministrationErrorCodes.Forbidden,
@@ -42,7 +42,7 @@ public sealed class UnlockUserAccountCommandHandler(
         return await dbContext.ExecuteInSerializableTransactionAsync(
             transactionCancellationToken => ExecuteInTransactionAsync(
                 request.UserId,
-                administratorUserId,
+                currentUserService.UserId.Value,
                 normalizedReason,
                 normalizedKey,
                 requestHash,
@@ -52,7 +52,7 @@ public sealed class UnlockUserAccountCommandHandler(
 
     private async Task<Result<UnlockUserAccountResponse>> ExecuteInTransactionAsync(
         long targetUserId,
-        long administratorUserId,
+        long actorUserId,
         string reason,
         string idempotencyKey,
         string requestHash,
@@ -62,11 +62,28 @@ public sealed class UnlockUserAccountCommandHandler(
         // the serializable idempotency lookup from holding a range lock while it
         // waits for another unlock of the same account.
         await userUnlockLock.AcquireTargetUserAsync(targetUserId, cancellationToken);
-        await userUnlockLock.AcquireAsync(administratorUserId, idempotencyKey, cancellationToken);
+        await userUnlockLock.AcquireAsync(actorUserId, idempotencyKey, cancellationToken);
+
+        var role = await UserAccountAccess.ActorRoleAsync(dbContext, currentUserService, cancellationToken);
+        if (role is null)
+        {
+            return Result.Failure<UnlockUserAccountResponse>(
+                UserAdministrationErrorCodes.Forbidden,
+                "You do not have permission to unlock user accounts.");
+        }
+
+        User? target = await UserAccountAccess.Scope(dbContext, role.Value)
+            .SingleOrDefaultAsync(user => user.Id == targetUserId, cancellationToken);
+        if (target is null)
+        {
+            return Result.Failure<UnlockUserAccountResponse>(
+                UserAdministrationErrorCodes.NotFound,
+                "The user account was not found.");
+        }
 
         UserUnlockOperation? existingOperation = await dbContext.UserUnlockOperations
             .SingleOrDefaultAsync(
-                operation => operation.AdministratorUserId == administratorUserId
+                operation => operation.AdministratorUserId == actorUserId
                     && operation.IdempotencyKey == idempotencyKey,
                 cancellationToken);
         if (existingOperation is not null)
@@ -79,22 +96,6 @@ public sealed class UnlockUserAccountCommandHandler(
                 existingOperation.TargetUserId,
                 existingOperation.RestoredStatus,
                 existingOperation.UnlockedAtUtc));
-        }
-
-        User? target = await dbContext.Users
-            .SingleOrDefaultAsync(user => user.Id == targetUserId, cancellationToken);
-        if (target is null)
-        {
-            return Result.Failure<UnlockUserAccountResponse>(
-                UserAdministrationErrorCodes.NotFound,
-                "The user account was not found.");
-        }
-
-        if (target.Role == UserRole.Administrator)
-        {
-            return Result.Failure<UnlockUserAccountResponse>(
-                UserAdministrationErrorCodes.ProtectedAdministrator,
-                "Administrator accounts cannot be unlocked through this endpoint.");
         }
 
         if (target.Status != AccountStatus.Locked)
@@ -114,6 +115,14 @@ public sealed class UnlockUserAccountCommandHandler(
                 DailyPayoutErrorCodes.OperatorHasOutstandingDebtMessage);
         }
 
+        var now = dateTimeProvider.UtcNow;
+        if (target.Role == UserRole.ServiceProvider
+            && await UserAccountAccess.HasUnpaidOverdueCommissionAsync(dbContext, target.Id, now, cancellationToken))
+        {
+            return Result.Failure<UnlockUserAccountResponse>(UserAccountErrors.ProviderSettlementUnavailable,
+                "Provider commission settlement must be verified before unlocking.");
+        }
+
         // Capture the lock evidence before restoration clears it. An unlock audit must explain
         // both why/when the account was locked and exactly which status was restored.
         var previousLock = new
@@ -124,19 +133,17 @@ public sealed class UnlockUserAccountCommandHandler(
             previousLockReason = target.LockReason,
         };
 
-        if (!target.TryRestoreFromLock(out AccountStatus restoredStatus))
+        if (!await AccountLockRecovery.TryRestoreAsync(dbContext, target, now, cancellationToken))
         {
-            return Result.Failure<UnlockUserAccountResponse>(
-                UserAdministrationErrorCodes.LockRecoveryStateMissing,
-                "The historical lock record is incomplete and cannot be safely restored.");
+            return Result.Failure<UnlockUserAccountResponse>(UserAdministrationErrorCodes.LockRecoveryStateMissing,
+                AccountLockRecovery.IncompleteMessage);
         }
 
-        var now = dateTimeProvider.UtcNow;
-        target.UpdatedAtUtc = now;
+        var restoredStatus = target.Status;
         await dbContext.RevokeAllRefreshTokensForUserAsync(target.Id, now, cancellationToken);
 
         dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(
-            actorUserId: administratorUserId,
+            actorUserId: actorUserId,
             actionType: AuditActionTypes.UserUnlock,
             affectedEntity: AuditEntityTypes.User,
             affectedEntityId: target.Id,
@@ -164,7 +171,7 @@ public sealed class UnlockUserAccountCommandHandler(
             CreatedAtUtc = now,
         });
         dbContext.UserUnlockOperations.Add(UserUnlockOperation.Create(
-            administratorUserId,
+            actorUserId,
             idempotencyKey,
             requestHash,
             target.Id,

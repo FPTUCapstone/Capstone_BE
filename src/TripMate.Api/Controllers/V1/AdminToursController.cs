@@ -18,6 +18,20 @@ namespace TripMate.Api.Controllers.V1;
 [Route("api/v1/admin/tours")]
 public sealed class AdminToursController(ISender sender) : ApiControllerBase(sender)
 {
+    [HttpGet]
+    public async Task<IActionResult> Queue([FromQuery] GetTourReviewQueueQuery query, CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(query, cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    [HttpGet("{tourId:long}")]
+    public async Task<IActionResult> Detail(long tourId, CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(new GetTourReviewDetailQuery(tourId), cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
     [HttpPost("{tourId:long}/approve")]
     public async Task<IActionResult> Approve(
         long tourId,

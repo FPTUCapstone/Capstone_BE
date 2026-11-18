@@ -255,6 +255,9 @@ public interface IApplicationDbContext
     {
     }
 
+    /// <summary>Serializes submission before any authorization or readiness reads in the transaction.</summary>
+    Task AcquireTourSubmissionLockAsync(long tourId, CancellationToken cancellationToken) => Task.CompletedTask;
+
     Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken);
