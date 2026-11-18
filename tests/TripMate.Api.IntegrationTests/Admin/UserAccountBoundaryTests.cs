@@ -23,6 +23,103 @@ public sealed class UserAccountBoundaryTests
 {
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
+    public async Task SqlServer_UnlockPathsRequireMatchingLockEvidenceAndAuditScopedDenials()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await using var factory = new TripMateApiFactory(sqlServerConnectionString: database.ConnectionString);
+        await using var db = database.CreateDbContext();
+        User NewAccount(UserRole role, string name) => new()
+        {
+            Role = role,
+            Status = AccountStatus.Active,
+            FullName = name,
+            Email = $"{Guid.NewGuid():N}@tm228.test"
+        };
+
+        var staff = NewAccount(UserRole.Staff, "Staff");
+        var legacy = NewAccount(UserRole.ServiceProvider, "No audit");
+        var wrongTime = NewAccount(UserRole.TourOperator, "Wrong audit time");
+        var unsuccessful = NewAccount(UserRole.TourOperator, "Failed audit");
+        var humanActor = NewAccount(UserRole.TourOperator, "Human audit actor");
+        var regular = NewAccount(UserRole.TourOperator, "Operator unlock without key");
+        var keyed = NewAccount(UserRole.TourOperator, "Operator unlock with key");
+        var denied = NewAccount(UserRole.Administrator, "Out of scope");
+        var unknown = new[] { legacy, wrongTime, unsuccessful, humanActor };
+        db.Users.AddRange(unknown.Concat([staff, regular, keyed, denied]));
+        await db.SaveChangesAsync();
+
+        var now = DateTimeOffset.UtcNow.AddHours(-1).AddTicks(7);
+        foreach (var user in unknown.Concat([regular, keyed]))
+            user.Lock("Unrecovered pending debt (BR-189)", now);
+
+        db.AuditLogs.AddRange(
+            OperatorAudit(wrongTime, now.AddSeconds(-1), null, AuditOutcome.Success),
+            OperatorAudit(unsuccessful, now, null, AuditOutcome.Failure),
+            OperatorAudit(humanActor, now, staff.Id, AuditOutcome.Success),
+            OperatorAudit(regular, now, null, AuditOutcome.Success),
+            OperatorAudit(keyed, now, null, AuditOutcome.Success));
+        await db.SaveChangesAsync();
+
+        using var client = factory.CreateAuthenticatedClient(staff.Id, UserRole.Staff);
+        foreach (var user in unknown)
+        {
+            using var standard = await Unlock(user.Id, false);
+            using var withKey = await Unlock(user.Id, true);
+            standard.StatusCode.Should().Be(HttpStatusCode.Conflict, user.FullName);
+            withKey.StatusCode.Should().Be(HttpStatusCode.Conflict, user.FullName);
+            using var standardProblem = JsonDocument.Parse(await standard.Content.ReadAsStringAsync());
+            using var keyedProblem = JsonDocument.Parse(await withKey.Content.ReadAsStringAsync());
+            standardProblem.RootElement.GetProperty("errorCode").GetString().Should().Be("user.lock_recovery_state_missing");
+            keyedProblem.RootElement.GetProperty("errorCode").GetString().Should().Be("user.lock_recovery_state_missing");
+        }
+        using var regularResponse = await Unlock(regular.Id, false);
+        using var keyedResponse = await Unlock(keyed.Id, true);
+        regularResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+        keyedResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var outside = await Unlock(denied.Id, true);
+        using var missing = await Unlock(long.MaxValue, true);
+        outside.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        missing.StatusCode.Should().Be(outside.StatusCode);
+        using var outsideProblem = JsonDocument.Parse(await outside.Content.ReadAsStringAsync());
+        using var missingProblem = JsonDocument.Parse(await missing.Content.ReadAsStringAsync());
+        outsideProblem.RootElement.GetProperty("errorCode").GetString().Should().Be("user.not_found");
+        outsideProblem.RootElement.GetProperty("title").GetString().Should()
+            .Be(missingProblem.RootElement.GetProperty("title").GetString());
+        outsideProblem.RootElement.GetProperty("errorCode").GetString().Should()
+            .Be(missingProblem.RootElement.GetProperty("errorCode").GetString());
+        var deniedAudit = await db.AuditLogs.SingleAsync(log => log.ActionType == AuditActionTypes.UserUnlock
+            && log.Result == AuditOutcome.Failure && log.AffectedEntityId == denied.Id);
+        deniedAudit.ActorUserId.Should().Be(staff.Id);
+
+        var unknownIds = unknown.Select(user => user.Id).ToArray();
+        (await db.Users.AsNoTracking().Where(user => unknownIds.Contains(user.Id)).ToListAsync())
+            .Should().OnlyContain(user => user.Status == AccountStatus.Locked && user.StatusBeforeLock == AccountStatus.Active);
+        (await db.AuditLogs.CountAsync(log => log.Result == AuditOutcome.Success
+            && (log.ActionType == AuditActionTypes.UserUnlock || log.ActionType == AuditActionTypes.UserAccountUnlocked))).Should().Be(2);
+        var operation = await db.UserUnlockOperations.SingleAsync();
+        operation.TargetUserId.Should().Be(keyed.Id);
+        var restoredIds = new[] { regular.Id, keyed.Id };
+        (await db.Users.AsNoTracking().Where(user => restoredIds.Contains(user.Id)).ToListAsync())
+            .Should().OnlyContain(user => user.Status == AccountStatus.Active && user.StatusBeforeLock == null);
+
+        async Task<HttpResponseMessage> Unlock(long userId, bool hasKey)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/admin/users/{userId}/unlock")
+            {
+                Content = JsonContent.Create(new { reason = "Reviewed lock evidence" })
+            };
+            if (hasKey) request.Headers.Add("Idempotency-Key", $"tm228-evidence-{userId}");
+            return await client.SendAsync(request);
+        }
+
+        static AuditLog OperatorAudit(User target, DateTimeOffset at, long? actor, AuditOutcome result) =>
+            AuditLog.CreateRecordedOutcome(actor, AuditActionTypes.TourOperatorAutoLocked, AuditEntityTypes.User,
+                target.Id, at, result);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
     public async Task SqlServer_UnlockPathsEnforceRoleScopeAndProviderSettlement()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();

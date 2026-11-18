@@ -133,20 +133,13 @@ public sealed class UnlockUserAccountCommandHandler(
             previousLockReason = target.LockReason,
         };
 
-        if (!target.TryRestoreFromLock(out var restoredStatus))
+        if (!await AccountLockRecovery.TryRestoreAsync(dbContext, target, now, cancellationToken))
         {
-            if (!await HasRecordedSystemLockAsync(target, cancellationToken))
-            {
-                return Result.Failure<UnlockUserAccountResponse>(
-                    UserAdministrationErrorCodes.LockRecoveryStateMissing,
-                    "The historical lock record is incomplete and cannot be safely restored.");
-            }
-
-            target.Unlock(now);
-            restoredStatus = target.Status;
+            return Result.Failure<UnlockUserAccountResponse>(UserAdministrationErrorCodes.LockRecoveryStateMissing,
+                AccountLockRecovery.IncompleteMessage);
         }
 
-        target.UpdatedAtUtc = now;
+        var restoredStatus = target.Status;
         await dbContext.RevokeAllRefreshTokensForUserAsync(target.Id, now, cancellationToken);
 
         dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(
@@ -188,26 +181,6 @@ public sealed class UnlockUserAccountCommandHandler(
         await dbContext.SaveChangesAsync(cancellationToken);
 
         return Result.Success(new UnlockUserAccountResponse(target.Id, restoredStatus, now));
-    }
-
-    private Task<bool> HasRecordedSystemLockAsync(User target, CancellationToken cancellationToken)
-    {
-        var action = target.Role switch
-        {
-            UserRole.ServiceProvider => AuditActionTypes.ServiceProviderAutoLocked,
-            UserRole.TourOperator => AuditActionTypes.TourOperatorAutoLocked,
-            _ => null,
-        };
-        if (action is null || target.LockedByUserId is not null || target.LockedAtUtc is null
-            || target.StatusBeforeLock is not { } previous || previous == AccountStatus.Locked
-            || !Enum.IsDefined(previous) || string.IsNullOrWhiteSpace(target.LockReason))
-        {
-            return Task.FromResult(false);
-        }
-
-        return dbContext.AuditLogs.AnyAsync(audit => audit.ActionType == action && audit.ActorUserId == null
-            && audit.AffectedEntity == AuditEntityTypes.User && audit.AffectedEntityId == target.Id
-            && audit.CreatedAtUtc == target.LockedAtUtc && audit.Result != AuditOutcome.Failure, cancellationToken);
     }
 
     private static string ComputeRequestHash(long targetUserId, string normalizedReason)

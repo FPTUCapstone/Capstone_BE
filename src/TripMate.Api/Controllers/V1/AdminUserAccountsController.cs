@@ -73,7 +73,7 @@ public sealed class AdminUserAccountsController(ISender sender, ICurrentUserServ
             if (result.ErrorCode is UserAdministrationErrorCodes.Forbidden or UserAdministrationErrorCodes.NotFound)
             {
                 await failures.RecordAsync(new AuditFailureEvent(currentUser.UserId, AuditActionTypes.UserUnlock,
-                    AuditEntityTypes.User, null, result.ErrorCode));
+                    AuditEntityTypes.User, userId > 0 ? userId : null, result.ErrorCode));
             }
 
             return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);

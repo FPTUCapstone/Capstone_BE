@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Admin.Users.Common;
 using TripMate.Domain.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
@@ -139,8 +140,8 @@ public sealed class ModerateUserAccountCommandHandler(IApplicationDbContext db, 
                     .AnyAsync(debt => debt.TourOperatorUserId == user.Id && debt.RecoveredAmount < debt.Amount, transactionCt))
                     return Result.Failure<UserAccountDto>(UserAccountErrors.OutstandingDebt, "The outstanding debt must be recovered before unlocking.");
                 var now = clock.UtcNow.ToUniversalTime();
-                if (!request.Lock && user.Role == UserRole.ServiceProvider && (user.StatusBeforeLock is null
-                    || await UserAccountAccess.HasUnpaidOverdueCommissionAsync(db, user.Id, now, transactionCt)))
+                if (!request.Lock && user.Role == UserRole.ServiceProvider
+                    && await UserAccountAccess.HasUnpaidOverdueCommissionAsync(db, user.Id, now, transactionCt))
                     return Result.Failure<UserAccountDto>(UserAccountErrors.ProviderSettlementUnavailable,
                         "Provider commission settlement must be verified before unlocking.");
                 var before = user.Status;
@@ -152,7 +153,9 @@ public sealed class ModerateUserAccountCommandHandler(IApplicationDbContext db, 
                 }
                 else
                 {
-                    user.Unlock(now);
+                    if (!await AccountLockRecovery.TryRestoreAsync(db, user, now, transactionCt))
+                        return Result.Failure<UserAccountDto>(UserAdministrationErrorCodes.LockRecoveryStateMissing,
+                            AccountLockRecovery.IncompleteMessage);
                     if (user.Role == UserRole.ServiceProvider)
                         await db.RevokeAllRefreshTokensForUserAsync(user.Id, now, transactionCt);
                 }
