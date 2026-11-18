@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.Text.Json;
 
 using MediatR;
@@ -86,7 +87,7 @@ public sealed class ApproveTourCommandHandler(IApplicationDbContext dbContext, I
                 var delayMs = Random.Shared.Next(20, 50) * attempt;
                 await Task.Delay(TimeSpan.FromMilliseconds(delayMs), cancellationToken);
             }
-            catch (Exception)
+            catch (Exception exception) when (IsPersistenceFailure(exception))
             {
                 dbContext.ClearTrackedEntities();
                 return ServiceUnavailable();
@@ -94,6 +95,24 @@ public sealed class ApproveTourCommandHandler(IApplicationDbContext dbContext, I
         }
 
         return ServiceUnavailable();
+    }
+
+    private bool IsPersistenceFailure(Exception exception)
+    {
+        if (dbContext.IsDeadlock(exception))
+        {
+            return true;
+        }
+
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is DbUpdateException or DbException or TimeoutException)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private Result<TourReviewResponse>? AuthorizeStaff() => currentUser.UserId is null || currentUser.Role != nameof(UserRole.Staff)

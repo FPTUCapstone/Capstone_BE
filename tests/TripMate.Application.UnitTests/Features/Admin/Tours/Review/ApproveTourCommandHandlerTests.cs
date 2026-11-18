@@ -388,4 +388,30 @@ public sealed class ApproveTourCommandHandlerTests
 
         await act.Should().ThrowAsync<OperationCanceledException>();
     }
+
+    [Fact]
+    public async Task Handle_WhenUnexpectedProgrammingErrorOccurs_DoesNotDisguiseAsMsg127()
+    {
+        await using var db = TestDbContext.Create();
+        await PublicTourTestData.SeedOperatorAsync(db, 1);
+        var tour = await PublicTourTestData.AddTourAsync(db, 1, TourStatus.Pending);
+        var clock = new FakeDateTimeProvider { UtcNow = Now };
+        var staffId = 55L;
+
+        // Unexpected programming error (not DbUpdateException / DbException / TimeoutException / deadlock)
+        db.SaveChangesFailureFactory = () => new InvalidOperationException("Unexpected programming invariant failure.");
+
+        var handler = new ApproveTourCommandHandler(
+            db,
+            new FakeCurrentUserService { UserId = staffId, Role = nameof(UserRole.Staff) },
+            clock);
+
+        var act = () => handler.Handle(
+            new ApproveTourCommand(tour.Id, ValidChecklist()),
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("Unexpected programming invariant failure.");
+        db.TransactionExecutionCount.Should().Be(1);
+    }
 }
