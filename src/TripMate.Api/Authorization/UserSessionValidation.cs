@@ -33,7 +33,8 @@ public static class UserSessionValidation
             .SingleOrDefaultAsync(context.HttpContext.RequestAborted);
         if (account is null || account.Role != role || account.SessionVersion != version
             || account.Status == AccountStatus.Locked
-            || (role.IsAdministrationRole() && account.Status != AccountStatus.Active))
+            || (role.IsAdministrationRole() && account.Status != AccountStatus.Active)
+            || (role == UserRole.ServiceProvider && account.Status != AccountStatus.Active))
             context.Fail("The session is unavailable.");
     }
 }

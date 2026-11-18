@@ -82,6 +82,40 @@ public class PasswordResetEndpointsTests
         return (factory, sender);
     }
 
+    [Fact]
+    public async Task Confirm_ProviderReset_RejectsPreviouslyIssuedRestrictedJwt()
+    {
+        var sender = new FakeEmailSender();
+        using var factory = new TripMateApiFactory(
+            authenticationMode: ApiTestAuthenticationMode.JwtBearer,
+            emailSenderFactory: _ => sender);
+        var user = new User
+        {
+            Email = "provider-reset@example.com",
+            FullName = "Provider Reset",
+            Role = UserRole.ServiceProvider,
+            Status = AccountStatus.Active,
+            PasswordHash = "hashed:OldPassword1!",
+            MustChangePassword = true,
+            CreatedAtUtc = DateTimeOffset.UtcNow.AddDays(-1),
+        };
+        var oldJwt = await factory.IssueTokenForPersistedUserAsync(user);
+        using var oldSession = factory.CreateJwtClient(oldJwt);
+        using var before = await oldSession.GetAsync("/api/v1/provider/service-booking-requests");
+        before.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        using var client = factory.CreateClient();
+        using var request = await client.PostAsJsonAsync("/api/v1/auth/password-reset/request", new { email = user.Email });
+        request.EnsureSuccessStatusCode();
+        await sender.WaitForAttemptAsync();
+        using var confirm = await client.PostAsJsonAsync("/api/v1/auth/password-reset/confirm",
+            new { email = user.Email, code = sender.LastOtp, newPassword = "NewPassword2!" });
+        confirm.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var after = await oldSession.GetAsync("/api/v1/provider/service-booking-requests");
+        after.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
     private async Task SeedUserAsync(
         TripMateApiFactory factory,
         string email,

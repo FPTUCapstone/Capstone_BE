@@ -88,6 +88,8 @@ public sealed class ConfirmPasswordResetCommandHandler(
                             }
 
                             user.PasswordHash = passwordHasherService.Hash(request.NewPassword);
+                            user.MustChangePassword = false;
+                            user.InvalidateSessions();
                             user.UpdatedAtUtc = dateTimeProvider.UtcNow;
 
                             var activeTokens = await dbContext.RefreshTokens
