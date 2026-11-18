@@ -62,7 +62,7 @@ Upon successful Backend approval:
 | **CR-05** | Confirmation modal prior to submitting approval — **`TM-38 FRONTEND_DEPENDENCY`** (`NOT_VERIFIED` under Backend scope). |
 | **PC-01** | Approved tour status updated to `Approved` and immediately eligible for public visibility/booking — **IMPLEMENTED (Backend)**. |
 | **PC-02** | Reviewer ID, timestamp, version lineage, and approval audit persisted atomically — **IMPLEMENTED (Backend)**. |
-| **PC-03** | Operator notification (in-app / email) — **`PC03_DEFERRED_BY_OWNER_SCOPE`** (explicitly excluded by Project Owner; no outbox/worker/notification changes). |
+| **PC-03** | Operator notification — **`PC03_PARTIAL_INAPP_ONLY`** (updated 2026-11-18, see Section J): an in-app `TourApproved` notice is now written atomically with the approval; **email delivery remains deferred** (no outbox/worker/schema change). Original Owner scope note preserved in Dependency D. |
 | **PC-04** | Tour removed from Pending Approval queue once status leaves `Pending` — **IMPLEMENTED (Backend state transition)**. |
 | **PC-05** | Confirmation UI / toast display (`MSG144`) — **`TM-38 FRONTEND_DEPENDENCY`**. |
 
@@ -257,6 +257,8 @@ Because Owner-approved immediate publication keeps an approved tour in `TourStat
 - **Required Integrity Invariant:** Only **one** moderation decision may be committed for a `Pending` Tour, with a consistent final status and audit trail. Coordinate with TM-107 ownership before modifying `RejectTourCommandHandler`.
 
 ### BLOCKER B — Booking After Operator Account Lock (`Severity: HIGH`)
+> **UPDATE 2026-11-18 — RESOLVED in this PR (commit `23edeb01`, see Section J).** Quote and Create now reuse `TourVisibility.PublicTour` (the Search/Detail definition), so a tour hidden by a locked/unapproved operator returns 404 before any mutation. The text below is the historical record of the defect as handed over.
+
 - **Owning Task:** Traveler Booking feature — **not** modified in TM-106.
 - **Affected Handlers:** `QuoteTourBookingQueryHandler` and `CreateTourBookingCommandHandler`.
 - **Observed SQL Server Behavior:** After locking a Tour Operator's account:
@@ -267,7 +269,7 @@ Because Owner-approved immediate publication keeps an approved tour in `TourStat
 - **Required Coordination:** Coordinate with Traveler Booking owner to enforce `OperatorProfile.ApprovalStatus == Approved` and `OperatorProfile.User.Status == Active` on quote/create paths.
 
 ### BLOCKER C — SQL Server Diagnostic Test in GitHub Actions CI (`Severity: CI BLOCKER`)
-> **UPDATE 2026-11-18 — PARTIALLY RESOLVED.** The Approve/Reject diagnostic named below was converted into the acceptance test `ConcurrentApproveAndReject_OnlyOneDecisionCommits_AndLoserReceivesConflict` once Blocker A was fixed (Section J). The **Booking** diagnostic (`Diagnostic_BookingAfterOperatorLocked_ReproducesCrossTaskBookingDefect`) remains `DefectReproduction` inside the blocking `Category=SqlServer` filter and still needs Owner disposition (Blocker B). Original text preserved below.
+> **UPDATE 2026-11-18 — RESOLVED.** Both diagnostics were converted into acceptance tests once their underlying defects were fixed: `ConcurrentApproveAndReject_OnlyOneDecisionCommits_AndLoserReceivesConflict` (Blocker A, `796b49e5`) and `BookingAfterOperatorLocked_QuoteAndCreateAreRejected_AndNothingIsReserved` (Blocker B, `23edeb01`). No `DefectReproduction` test remains in the blocking `Category=SqlServer` filter and `.github/workflows/backend-tests.yml` was not modified. Original text preserved below.
 
 - **CI Workflow & Filter:** `.github/workflows/backend-tests.yml` runs:
   `dotnet test tests/TripMate.Api.IntegrationTests/TripMate.Api.IntegrationTests.csproj -c Release --no-restore --filter "Category=SqlServer"`
@@ -278,6 +280,8 @@ Because Owner-approved immediate publication keeps an approved tour in `TourStat
 - **Why This PR Is Draft:** The diagnostic test was intentionally preserved unmodified (not deleted, skipped, or weakened, and `.github/workflows/backend-tests.yml` was not altered) so the defect remains transparent for the receiving member and Project Owner to disposition properly.
 
 ### DEPENDENCY D — Operator Notification (`UC-60 PC-03`)
+> **UPDATE 2026-11-18 — PARTIALLY IMPLEMENTED (Owner-directed, option 1).** In-app only: `ApproveTourCommandHandler` adds one `Notification` (`Channel=InApp`, `Type=TourApproved`, related `Tour`) for the owning operator in the same serializable transaction as the decision. No schema change (`Notifications.type` is free text), no outbox, no worker. **Email is still not delivered**: the existing delivery worker only handles `AccountUnlocked`. Notice wording is provisional until the official SRS message text is available. Original deferral text preserved below.
+
 - **Status:** `PC03_DEFERRED_BY_OWNER_SCOPE`.
 - Notification integration (in-app inbox and/or email outbox worker) was explicitly excluded from TM-106 by the Project Owner. The SRS postcondition `PC-03` remains outstanding until scheduled separately.
 
@@ -339,6 +343,9 @@ Move the Draft PR to **Ready for Review** only after:
 | `fca8eb13` | formatting only | Removed the final LF from 7 new `.cs` files (`.editorconfig`: `insert_final_newline = false` for `*.cs`). 7 lines changed, no logic. |
 | `8fd0b2cd` | test fixture only | `SeedPendingTourAsync` built the departure from an Unspecified-kind `DateTime`, which converts to `DateTimeOffset` using the **host** timezone. On a UTC runner the 08:00 departure became 15:00 Asia/Ho_Chi_Minh, so the 08:00/11:00 itinerary stops fell outside the departure window and `BookedTourItineraryTimeline.Plan` returned `stop_outside_departure_window` → `422 tour_booking.itinerary_not_bookable`. Departure is now pinned to `+07:00`. |
 | `796b49e5` | production + tests | **Owner-directed TM-107 integration.** `RejectTourCommandHandler` now uses `ExecuteInSerializableTransactionAsync`, bounded deadlock retry (3 attempts), `ClearTrackedEntities`, and `MSG127` on genuine persistence failures, mirroring Approve. Error codes, messages, validation and audit payloads unchanged. |
+| `eb791922` | docs | Handoff continuation log (this section's first version). |
+| `23edeb01` | production + tests | **Booking eligibility.** `TourVisibility.IsPublicAsync` reuses the Search/Detail `PublicTour` predicate; `QuoteTourBookingQueryHandler` and `CreateTourBookingCommandHandler` drop their private status-only `IsPubliclyBookableTour`. A tour hidden by a locked/inactive/unapproved operator now returns `ScheduleNotFound` (404) before any mutation. Booking SqlServer diagnostic converted to an acceptance test (404/404, 0 bookings, `ReservedCapacity = 0`). |
+| *PC-03 commit* (see `git log`) | production + tests | **PC-03 in-app notice (Owner option 1).** `ApproveTourCommandHandler` writes one `InApp` `TourApproved` `Notification` for the owning operator inside the approval transaction. Also fixes `TravelerTourBookingsEndpointTests` seed (needs an approved, active operator under BR-56). No schema change. |
 
 ### J.2 CI history (all on PR #188)
 
@@ -365,8 +372,8 @@ Move the Draft PR to **Ready for Review** only after:
 |---|---|
 | Format / CI blockers from handoff | **Resolved** (run 44318366637 green at `8fd0b2cd`). |
 | Blocker A — TM-107 race | **Resolved** by `796b49e5` (pending CI confirmation on that SHA). |
-| Blocker B — Booking after Operator Locked | **Open**, owner = Booking. Still reproduced (`Quote 200`, `Create 201` for a hidden tour). `Diagnostic_BookingAfterOperatorLocked_...` remains inside the blocking `Category=SqlServer` filter and asserts the defect exists, so it will go red when Booking is fixed. **Needs Owner disposition** (separate diagnostic workflow, or flip to an acceptance test together with the Booking fix). No CI filter was changed. |
-| PC-03 notification | `DEFERRED_BY_OWNER_SCOPE` — not implemented. |
+| Blocker B — Booking after Operator Locked | **Resolved** by `23edeb01` (CI confirmation pending). Local red→green: Quote 200 / Create 201 before; 404 / 404, 0 bookings, `ReservedCapacity = 0` after. The Booking diagnostic was converted to an acceptance test, so **no `DefectReproduction` test remains in the blocking `Category=SqlServer` filter** and no CI policy change was needed. Unit: 8 new Quote/Create theory cases (red before the fix). Touches Booking handlers owned by another task by Owner direction; reviewers from that area should be added. |
+| PC-03 notification | **Partial.** In-app `TourApproved` notice implemented (atomic with the approval; no schema change). **Email delivery not implemented** (worker only handles `AccountUnlocked`). Notice text provisional until the official SRS message is available. |
 | CR-05 / TM-38 Frontend | `FRONTEND_DEPENDENCY` — not implemented or verified. |
 | SRS source identity | **`SOURCE_NOT_AVAILABLE`** — the official binary (SHA-256 `a4ceabc0…8298`) was **not found**. Two files named `Report3_Software-Requirement-Specification.docx` exist on the receiving member's machine (`D:\Capstone_Project_Env\` and `D:\HoangTrinh05\`); they are byte-identical to each other (SHA-256 `424cc3ebac39328d1f93d4616694ad133f9731da1dc96bb9c9b29c5619fc7ada`) but match **neither** the official hash nor the previously inspected copy (`c7636775…`). Source identity is therefore **not** verified; the official file must be supplied by the Project Owner. Report 3 V2 was not used as a substitute. |
 | Draft → Ready for Review | **Not performed.** Requires Owner approval. |
