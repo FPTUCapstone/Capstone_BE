@@ -98,12 +98,19 @@ public sealed class GetUserAccountQueryHandler(IApplicationDbContext db, ICurren
             return Result.Failure<UserAccountDetailDto>(UserAccountErrors.NotFound, "The account is unavailable.");
         }
         var isTourOperator = account.Role == nameof(UserRole.TourOperator);
+        var isServiceProvider = account.Role == nameof(UserRole.ServiceProvider);
         var historyRows = await db.AuditLogs.AsNoTracking()
-            .Where(row => row.AffectedEntityId == request.UserId && row.Result == AuditOutcome.Success)
+            // The Service Provider commission job records its auto-lock without an explicit outcome.
+            .Where(row => row.AffectedEntityId == request.UserId
+                && (row.Result == AuditOutcome.Success
+                    || (isServiceProvider && row.ActionType == AuditActionTypes.ServiceProviderAutoLocked
+                        && row.Result == null)))
             .Where(row =>
                 (row.AffectedEntity == AuditEntityTypes.User &&
                     (row.ActionType == AuditActionTypes.UserAccountLocked ||
                         row.ActionType == AuditActionTypes.UserAccountUnlocked ||
+                        row.ActionType == AuditActionTypes.UserUnlock ||
+                        (isServiceProvider && row.ActionType == AuditActionTypes.ServiceProviderAutoLocked) ||
                         (isTourOperator &&
                             (row.ActionType == AuditActionTypes.TourOperatorAutoLocked ||
                                 row.ActionType == AuditActionTypes.TourOperatorUnlocked)))) ||
@@ -141,7 +148,7 @@ public sealed class GetUserAccountQueryHandler(IApplicationDbContext db, ICurren
     private static string ActorAttribution(string action, long? actorId) => actorId switch
     {
         long id => $"Account {id.ToString(CultureInfo.InvariantCulture)}",
-        null when action == AuditActionTypes.TourOperatorAutoLocked => "System",
+        null when action is AuditActionTypes.TourOperatorAutoLocked or AuditActionTypes.ServiceProviderAutoLocked => "System",
         _ => "Unknown"
     };
 
