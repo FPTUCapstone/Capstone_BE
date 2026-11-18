@@ -131,17 +131,69 @@ public sealed class RejectTourCommandHandler(IApplicationDbContext dbContext, IC
             return Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.AdminAccessRequired, "Staff access is required.");
         if (string.IsNullOrWhiteSpace(request.Reason) || request.Reason.Trim().Length > Tour.RejectionReasonMaxLength)
             return Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.RejectionReasonInvalid, "A rejection reason of at most 500 characters is required.");
-        var tour = await dbContext.Tours.SingleOrDefaultAsync(x => x.Id == request.TourId, cancellationToken);
-        if (tour is null) return Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.TourNotFound, "The tour is unavailable.");
-        if (tour.Status != TourStatus.Pending) return Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.InvalidState, "The tour is not awaiting review.");
-        var now = clock.UtcNow;
-        tour.Reject(currentUser.UserId.Value, request.Reason, now);
-        dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(currentUser.UserId.Value, AuditActionTypes.TourRejected, AuditEntityTypes.Tour, tour.Id, now, AuditOutcome.Success,
-            beforeData: JsonSerializer.Serialize(new { Status = TourStatus.Pending.ToString() }),
-            afterData: JsonSerializer.Serialize(new { Status = tour.Status.ToString(), tour.RejectionReason })));
-        await dbContext.SaveChangesAsync(cancellationToken);
-        return Result.Success(new TourReviewResponse(tour.Id, tour.Status.ToString(), now));
+
+        // Shared moderation invariant (TM-106 Approve / TM-107 Reject): a Pending Tour may receive at most one
+        // successful review decision. Reject therefore runs under the same serializable transaction, bounded
+        // deadlock retry and MSG127 persistence-failure semantics as ApproveTourCommandHandler.
+        var reviewerId = currentUser.UserId.Value;
+        const int maxConcurrencyAttempts = 3;
+        for (var attempt = 1; attempt <= maxConcurrencyAttempts; attempt++)
+        {
+            try
+            {
+                return await dbContext.ExecuteInSerializableTransactionAsync(async ct =>
+                {
+                    var tour = await dbContext.Tours.SingleOrDefaultAsync(x => x.Id == request.TourId, ct);
+                    if (tour is null) return Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.TourNotFound, "The tour is unavailable.");
+                    if (tour.Status != TourStatus.Pending) return Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.InvalidState, "The tour is not awaiting review.");
+                    var now = clock.UtcNow;
+                    tour.Reject(reviewerId, request.Reason, now);
+                    dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(reviewerId, AuditActionTypes.TourRejected, AuditEntityTypes.Tour, tour.Id, now, AuditOutcome.Success,
+                        beforeData: JsonSerializer.Serialize(new { Status = TourStatus.Pending.ToString() }),
+                        afterData: JsonSerializer.Serialize(new { Status = tour.Status.ToString(), tour.RejectionReason })));
+                    await dbContext.SaveChangesAsync(ct);
+                    return Result.Success(new TourReviewResponse(tour.Id, tour.Status.ToString(), now));
+                }, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception) when (attempt < maxConcurrencyAttempts && dbContext.IsDeadlock(exception))
+            {
+                dbContext.ClearTrackedEntities();
+                var delayMs = Random.Shared.Next(20, 50) * attempt;
+                await Task.Delay(TimeSpan.FromMilliseconds(delayMs), cancellationToken);
+            }
+            catch (Exception exception) when (IsPersistenceFailure(exception))
+            {
+                dbContext.ClearTrackedEntities();
+                return ServiceUnavailable();
+            }
+        }
+
+        return ServiceUnavailable();
     }
+
+    private bool IsPersistenceFailure(Exception exception)
+    {
+        if (dbContext.IsDeadlock(exception))
+        {
+            return true;
+        }
+
+        for (var current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is DbUpdateException or DbException or TimeoutException)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static Result<TourReviewResponse> ServiceUnavailable() => Result.Failure<TourReviewResponse>(OperatorTourErrorCodes.ServiceUnavailable, "TripMate is temporarily unable to process your request. Please check your connection and try again.");
 }
 
 public sealed class PublishTourCommandHandler(IApplicationDbContext dbContext, ICurrentUserService currentUser, IDateTimeProvider clock)

@@ -281,14 +281,15 @@ public sealed class ApproveTourSqlServerTests(ITestOutputHelper output)
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
-    [Trait("Classification", "DefectReproduction")]
-    public async Task Diagnostic_ConcurrentApproveAndReject_ReproducesCrossTaskRaceDefect()
+    [Trait("Classification", "VerifiedFix")]
+    public async Task ConcurrentApproveAndReject_OnlyOneDecisionCommits_AndLoserReceivesConflict()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
         var seed = await SeedPendingTourAsync(database);
 
-        // Synchronize both Approve (SERIALIZABLE) and Reject (Read Committed, TM-107) at SavingChangesAsync
-        // after both have read Status == Pending to deterministically expose the cross-task race defect.
+        // Synchronize both Approve and Reject (both SERIALIZABLE since the shared moderation invariant was
+        // applied to TM-107) at SavingChangesAsync after both have read Status == Pending, to deterministically
+        // force the race. This was previously a DefectReproduction diagnostic (both decisions committed).
         var barrier = new ApproveRejectRaceBarrier(participants: 2);
         await using var factory = new TripMateApiFactory(
             sqlServerConnectionString: database.ConnectionString,
@@ -320,24 +321,39 @@ public sealed class ApproveTourSqlServerTests(ITestOutputHelper output)
             .Where(a => a.AffectedEntityId == seed.TourId && a.ActionType == AuditActionTypes.TourRejected)
             .ToListAsync();
 
-        var bothCommitted = approveResponse.StatusCode == HttpStatusCode.OK
-            && rejectResponse.StatusCode == HttpStatusCode.OK;
+        var approveWon = approveResponse.StatusCode == HttpStatusCode.OK;
+        var rejectWon = rejectResponse.StatusCode == HttpStatusCode.OK;
 
-        output.WriteLine("[DEFECT_REPRODUCED: APPROVE_REJECT_RACE / CROSS_TASK_DEPENDENCY (TM-107)]");
+        output.WriteLine("[VERIFIED_FIX: APPROVE_REJECT_SHARED_INVARIANT (TM-106 / TM-107)]");
         output.WriteLine($"  Approve HTTP: {(int)approveResponse.StatusCode} {approveResponse.StatusCode} | Body: {approveBody}");
         output.WriteLine($"  Reject  HTTP: {(int)rejectResponse.StatusCode} {rejectResponse.StatusCode} | Body: {rejectBody}");
         output.WriteLine($"  Final Tour Status: {tour.Status}");
         output.WriteLine($"  TourApproved Audit Count: {approvedAudits.Count}");
         output.WriteLine($"  TourRejected Audit Count: {rejectedAudits.Count}");
         output.WriteLine($"  Final ReviewedBy: {tour.ReviewedBy} | Final ReviewedAtUtc: {tour.ReviewedAtUtc:O}");
-        output.WriteLine($"  ConflictingDecisionsBothCommitted: {bothCommitted}");
 
-        // Explicitly assert the reproduced defect so this diagnostic cannot silently pass as compliant behavior:
-        // RejectTourCommandHandler (TM-107) runs under Read Committed without rowversion or serializable locking,
-        // so both decisions commit with HTTP 200 OK and both audit logs are written.
-        bothCommitted.Should().BeTrue("Expected deterministic reproduction of cross-task Approve/Reject race defect.");
-        approvedAudits.Should().ContainSingle();
-        rejectedAudits.Should().ContainSingle();
+        // Shared invariant: exactly one conflicting decision commits, whichever request wins the lock race.
+        (approveWon ^ rejectWon).Should().BeTrue(
+            "exactly one of Approve/Reject may succeed. Approve={0}, Reject={1}",
+            approveResponse.StatusCode,
+            rejectResponse.StatusCode);
+
+        if (approveWon)
+        {
+            rejectResponse.StatusCode.Should().Be(HttpStatusCode.Conflict);
+            tour.Status.Should().Be(TourStatus.Approved);
+            tour.ReviewedBy.Should().Be(seed.StaffId1);
+            approvedAudits.Should().ContainSingle();
+            rejectedAudits.Should().BeEmpty();
+        }
+        else
+        {
+            approveResponse.StatusCode.Should().Be(HttpStatusCode.Conflict);
+            tour.Status.Should().Be(TourStatus.Rejected);
+            tour.ReviewedBy.Should().Be(seed.StaffId2);
+            rejectedAudits.Should().ContainSingle();
+            approvedAudits.Should().BeEmpty();
+        }
     }
 
     [SqlServerFact]
