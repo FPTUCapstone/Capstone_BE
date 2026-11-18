@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using TripMate.Api.Authorization;
 using TripMate.Api.Common;
 using TripMate.Application.Features.Admin.Tours.Review;
+using TripMate.Application.Features.Admin.Tours.Review.PendingTours;
 using TripMate.Application.Features.Operator.Tours.Common;
 using TripMate.Domain.Enums;
 
@@ -18,6 +19,24 @@ namespace TripMate.Api.Controllers.V1;
 [Route("api/v1/admin/tours")]
 public sealed class AdminToursController(ISender sender) : ApiControllerBase(sender)
 {
+    /// <summary>UC-60 Screen 13: Staff queue of tours waiting for review.</summary>
+    [HttpGet("pending")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public async Task<IActionResult> GetPending([FromQuery] GetPendingToursQuery query, CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(query, cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    /// <summary>UC-60 Screen 14: review detail of a Pending tour.</summary>
+    [HttpGet("{tourId:long}/review")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public async Task<IActionResult> GetReviewDetail(long tourId, CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(new GetPendingTourReviewQuery(tourId), cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
     [HttpPost("{tourId:long}/approve")]
     public async Task<IActionResult> Approve(
         long tourId,
