@@ -56,7 +56,7 @@ public sealed class TravelerPartialRefundProposalEndpointTests
     {
         await using var factory = CreateFactory(out _);
         using var client = factory.CreateAuthenticatedClient(TravelerId, UserRole.Traveler);
-        (await client.PostAsJsonAsync($"{Url}/response", new { decision = "Decline" })).EnsureSuccessStatusCode();
+        (await client.PostAsJsonAsync($"{Url}/response", new { decision = "Accept" })).EnsureSuccessStatusCode();
 
         var response = await client.PostAsJsonAsync($"{Url}/response", new { decision = "Accept" });
 
@@ -102,6 +102,33 @@ public sealed class TravelerPartialRefundProposalEndpointTests
         var response = await client.PostAsJsonAsync($"{Url}/response", new { decision = "Accept" });
 
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Theory]
+    [InlineData("GET", "")]
+    [InlineData("POST", "/response")]
+    public async Task Anonymous_IsUnauthorizedWithTheFeatureCode(string method, string suffix)
+    {
+        await using var factory = CreateFactory(out _);
+        using var client = factory.CreateClient();
+
+        using var response = await client.SendAsync(
+            new HttpRequestMessage(new HttpMethod(method), $"{Url}{suffix}"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await ErrorCodeAsync(response)).Should().Be(PartialRefundProposalErrorCodes.Unauthorized);
+    }
+
+    [Fact]
+    public async Task NonTraveler_IsForbiddenWithTheFeatureCode()
+    {
+        await using var factory = CreateFactory(out _);
+        using var client = factory.CreateAuthenticatedClient(22, UserRole.TourOperator);
+
+        var response = await client.GetAsync(Url);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await ErrorCodeAsync(response)).Should().Be(PartialRefundProposalErrorCodes.Forbidden);
     }
 
     [Fact]
@@ -176,6 +203,29 @@ public sealed class TravelerPartialRefundProposalEndpointTests
                 return Task.FromResult(false);
 
             _proposal = _proposal with { Status = outcome };
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> TryCounterAsync(long complaintId, long travelerUserId, decimal requestedAmount,
+            string reason, DateTimeOffset counteredAtUtc, DateTimeOffset operatorReconsiderationDeadlineUtc,
+            CancellationToken cancellationToken)
+        {
+            if (complaintId != _proposal.ComplaintId || _proposal.Status != PostTripComplaintStatus.AwaitingTravelerResponse ||
+                _proposal.Round != 1) return Task.FromResult(false);
+            _proposal = _proposal with
+            {
+                Status = PostTripComplaintStatus.AwaitingOperatorReconsideration,
+                OperatorReconsiderationDeadlineUtc = operatorReconsiderationDeadlineUtc
+            };
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> TryDeclineFinallyAsync(long complaintId, long travelerUserId, string reason,
+            DateTimeOffset declinedAtUtc, CancellationToken cancellationToken)
+        {
+            if (complaintId != _proposal.ComplaintId || _proposal.Status != PostTripComplaintStatus.AwaitingTravelerResponse ||
+                _proposal.Round != 2) return Task.FromResult(false);
+            _proposal = _proposal with { Status = PostTripComplaintStatus.Declined };
             return Task.FromResult(true);
         }
 

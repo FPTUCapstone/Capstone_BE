@@ -46,10 +46,11 @@ internal sealed class CheckInAuditProjectionBackgroundService(
 
     internal async Task<int> ProcessBatchAsync(CancellationToken cancellationToken)
     {
-        StreamEntry[] entries = await ReadEntriesAsync();
+        DeliveredEntry[] entries = await ReadEntriesAsync();
         int processed = 0;
-        foreach (StreamEntry entry in entries)
+        foreach (DeliveredEntry delivered in entries)
         {
+            StreamEntry entry = delivered.Entry;
             cancellationToken.ThrowIfCancellationRequested();
             CheckInAuditEvent auditEvent;
             try
@@ -59,8 +60,23 @@ internal sealed class CheckInAuditProjectionBackgroundService(
             }
             catch (Exception exception) when (exception is JsonException or FormatException or InvalidDataException or ArgumentException)
             {
+                // Malformed entries intentionally remain pending (no ACK, delete, trim, or dead-letter)
+                // for investigation until a retention/remediation policy is approved (Issue #162).
+                // Conflicts counts each failed delivery encounter; full ERROR details are logged on
+                // initial delivery while reclaimed retries log a concise Warning to avoid stack-trace floods.
                 metrics.RecordConflict();
-                logger.LogError(exception, "Malformed audit event {StreamEntryId}; leaving pending.", entry.Id);
+                if (delivered.IsReclaimed)
+                {
+                    logger.LogWarning(
+                        "Malformed audit event {StreamEntryId} remains pending on reclaimed delivery ({ExceptionType}: {Message}).",
+                        entry.Id,
+                        exception.GetType().Name,
+                        exception.Message);
+                }
+                else
+                {
+                    logger.LogError(exception, "Malformed audit event {StreamEntryId}; leaving pending for investigation.", entry.Id);
+                }
                 continue;
             }
 
@@ -70,7 +86,17 @@ internal sealed class CheckInAuditProjectionBackgroundService(
             if (result == CheckInAuditProjectionResult.Conflict)
             {
                 metrics.RecordConflict();
-                logger.LogError("Conflicting projection for {EventId}; leaving {StreamEntryId} pending.", auditEvent.EventId, entry.Id);
+                if (delivered.IsReclaimed)
+                {
+                    logger.LogWarning(
+                        "Conflicting projection for {EventId} remains pending on reclaimed delivery ({StreamEntryId}).",
+                        auditEvent.EventId,
+                        entry.Id);
+                }
+                else
+                {
+                    logger.LogError("Conflicting projection for {EventId}; leaving {StreamEntryId} pending for investigation.", auditEvent.EventId, entry.Id);
+                }
                 continue;
             }
             long acknowledged = await connection.Database.StreamAcknowledgeAsync(
@@ -90,7 +116,9 @@ internal sealed class CheckInAuditProjectionBackgroundService(
         return processed;
     }
 
-    private async Task<StreamEntry[]> ReadEntriesAsync()
+    private readonly record struct DeliveredEntry(StreamEntry Entry, bool IsReclaimed);
+
+    private async Task<DeliveredEntry[]> ReadEntriesAsync()
     {
         // Recovery receives at most half the configured capacity. A fresh read is performed on
         // every sweep so a large poison/conflict PEL cannot prevent newly appended outcomes from
@@ -108,9 +136,19 @@ internal sealed class CheckInAuditProjectionBackgroundService(
         StreamEntry[] fresh = await connection.Database.StreamReadGroupAsync(
             options.RejectionStreamKey, options.ConsumerGroup, options.ConsumerName, ">",
             freshLimit, noAck: false, CommandFlags.DemandMaster);
-        return claimed.ClaimedEntries.Length == 0
-            ? fresh
-            : [.. claimed.ClaimedEntries, .. fresh];
+
+        var combined = new DeliveredEntry[claimed.ClaimedEntries.Length + fresh.Length];
+        for (int i = 0; i < claimed.ClaimedEntries.Length; i++)
+        {
+            combined[i] = new DeliveredEntry(claimed.ClaimedEntries[i], IsReclaimed: true);
+        }
+
+        for (int i = 0; i < fresh.Length; i++)
+        {
+            combined[claimed.ClaimedEntries.Length + i] = new DeliveredEntry(fresh[i], IsReclaimed: false);
+        }
+
+        return combined;
     }
 
     internal static bool RecordAcknowledgement(long acknowledged, CheckInAuditJournalMetrics metrics)
@@ -140,18 +178,83 @@ internal sealed class CheckInAuditProjectionBackgroundService(
         if (string.IsNullOrWhiteSpace(payload)) throw new InvalidDataException("Payload missing.");
         using JsonDocument document = JsonDocument.Parse(payload);
         JsonElement root = document.RootElement;
-        if (root.GetProperty("schemaVersion").GetInt32() != CheckInAuditEvent.CurrentSchemaVersion) throw new InvalidDataException("Unsupported schema.");
-        Guid eventId = Guid.ParseExact(root.GetProperty("eventId").GetString()!, "N");
-        Guid attemptId = Guid.ParseExact(root.GetProperty("scanAttemptId").GetString()!, "N");
-        if (!Enum.TryParse(root.GetProperty("eventType").GetString(), out CheckInAuditEventType type)) throw new InvalidDataException("Invalid event type.");
-        DateTimeOffset occurred = DateTimeOffset.Parse(root.GetProperty("occurredAtUtc").GetString()!, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
-        long actor = root.GetProperty("actorUserId").GetInt64();
-        long schedule = root.GetProperty("scheduleId").GetInt64();
-        JsonElement ticketElement = root.GetProperty("ticketId");
-        long? ticket = ticketElement.ValueKind == JsonValueKind.Null ? null : ticketElement.GetInt64();
-        string? reason = root.GetProperty("reasonCode").GetString();
-        return type == CheckInAuditEventType.Rejected
-            ? CheckInAuditEvent.Rejected(eventId, attemptId, occurred, actor, schedule, ticket, reason!)
-            : CheckInAuditEvent.Admission(eventId, attemptId, occurred, actor, schedule);
+        if (root.ValueKind != JsonValueKind.Object)
+            throw new InvalidDataException("Payload root must be a JSON object.");
+
+        int schemaVersion = ReadRequiredInt32(root, "schemaVersion");
+        if (schemaVersion != CheckInAuditEvent.CurrentSchemaVersion)
+            throw new InvalidDataException("Unsupported schema.");
+
+        Guid eventId = Guid.ParseExact(ReadRequiredString(root, "eventId"), "N");
+        Guid attemptId = Guid.ParseExact(ReadRequiredString(root, "scanAttemptId"), "N");
+        if (!Enum.TryParse(ReadRequiredString(root, "eventType"), out CheckInAuditEventType type))
+            throw new InvalidDataException("Invalid event type.");
+        DateTimeOffset occurred = DateTimeOffset.Parse(
+            ReadRequiredString(root, "occurredAtUtc"),
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
+        long actor = ReadRequiredInt64(root, "actorUserId");
+        long schedule = ReadRequiredInt64(root, "scheduleId");
+        long? ticket = ReadNullableInt64(root, "ticketId");
+        string? reason = ReadNullableString(root, "reasonCode");
+        if (type == CheckInAuditEventType.Rejected)
+        {
+            if (string.IsNullOrWhiteSpace(reason))
+                throw new InvalidDataException("Rejected event requires reasonCode.");
+            return CheckInAuditEvent.Rejected(eventId, attemptId, occurred, actor, schedule, ticket, reason);
+        }
+        return CheckInAuditEvent.Admission(eventId, attemptId, occurred, actor, schedule);
+    }
+
+    private static JsonElement GetRequiredProperty(JsonElement root, string name) =>
+        root.TryGetProperty(name, out JsonElement value)
+            ? value
+            : throw new InvalidDataException($"Required property '{name}' is missing.");
+
+    private static string ReadRequiredString(JsonElement root, string name)
+    {
+        JsonElement value = GetRequiredProperty(root, name);
+        if (value.ValueKind != JsonValueKind.String)
+            throw new InvalidDataException($"Property '{name}' must be a JSON string.");
+        string? text = value.GetString();
+        return string.IsNullOrWhiteSpace(text)
+            ? throw new InvalidDataException($"Property '{name}' must not be empty.")
+            : text;
+    }
+
+    private static string? ReadNullableString(JsonElement root, string name)
+    {
+        JsonElement value = GetRequiredProperty(root, name);
+        return value.ValueKind switch
+        {
+            JsonValueKind.Null => null,
+            JsonValueKind.String => value.GetString(),
+            _ => throw new InvalidDataException($"Property '{name}' must be a JSON string or null."),
+        };
+    }
+
+    private static int ReadRequiredInt32(JsonElement root, string name)
+    {
+        JsonElement value = GetRequiredProperty(root, name);
+        return value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out int parsed)
+            ? parsed
+            : throw new InvalidDataException($"Property '{name}' must be a 32-bit integer.");
+    }
+
+    private static long ReadRequiredInt64(JsonElement root, string name)
+    {
+        JsonElement value = GetRequiredProperty(root, name);
+        return value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out long parsed)
+            ? parsed
+            : throw new InvalidDataException($"Property '{name}' must be a 64-bit integer.");
+    }
+
+    private static long? ReadNullableInt64(JsonElement root, string name)
+    {
+        JsonElement value = GetRequiredProperty(root, name);
+        if (value.ValueKind == JsonValueKind.Null) return null;
+        return value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out long parsed)
+            ? parsed
+            : throw new InvalidDataException($"Property '{name}' must be a 64-bit integer or null.");
     }
 }

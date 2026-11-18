@@ -21,7 +21,9 @@ public sealed class GetPartialRefundProposalQueryHandlerTests
 
         result.IsSuccess.Should().BeTrue();
         result.Value.Should().BeEquivalentTo(new PartialRefundProposalResponse(ComplaintId, BookingId, BookingCode,
-            ProposedAmount, Deadline, nameof(PostTripComplaintStatus.AwaitingTravelerResponse), CanRespond: true));
+            ProposedAmount, Deadline, nameof(PostTripComplaintStatus.AwaitingTravelerResponse), CanRespond: true,
+            ProposalReason: "Initial proposal rationale", Round: 1, CanCounterOffer: true,
+            CanDeclineFinally: false, RefundableAmount: ProposedAmount));
     }
 
     [Fact]

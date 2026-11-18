@@ -34,6 +34,7 @@ public sealed class ServiceBookingConfiguration : IEntityTypeConfiguration<Servi
         builder.Property(booking => booking.ItineraryId).HasColumnName("itinerary_id");
         builder.Property(booking => booking.ServiceOption).HasColumnName("service_option").HasMaxLength(ServiceBooking.ServiceOptionMaxLength);
         builder.Property(booking => booking.SpecialRequest).HasColumnName("special_request").HasMaxLength(ServiceBooking.SpecialRequestMaxLength);
+        builder.Property(booking => booking.CommissionStatementId).HasColumnName("commission_statement_id");
         builder.Ignore(booking => booking.RequestedDate);
         builder.Ignore(booking => booking.ResponseDeadlineUtc);
         builder.Ignore(booking => booking.OutcomeAvailableAtUtc);
@@ -42,6 +43,8 @@ public sealed class ServiceBookingConfiguration : IEntityTypeConfiguration<Servi
         builder.HasOne<User>().WithMany().HasForeignKey(booking => booking.OutcomeByUserId).OnDelete(DeleteBehavior.NoAction);
         builder.HasOne<Itinerary>().WithMany().HasForeignKey(booking => booking.ItineraryId).OnDelete(DeleteBehavior.NoAction);
         builder.HasOne(booking => booking.Service).WithMany().HasForeignKey(booking => booking.ServiceId).OnDelete(DeleteBehavior.NoAction);
+        builder.HasOne(booking => booking.CommissionStatement).WithMany(stmt => stmt.Bookings).HasForeignKey(booking => booking.CommissionStatementId).OnDelete(DeleteBehavior.NoAction);
         builder.HasIndex(booking => new { booking.ServiceId, booking.Status }).HasDatabaseName("IX_ServiceBookings_Service");
+        builder.HasIndex(booking => booking.CommissionStatementId).HasDatabaseName("IX_ServiceBookings_CommissionStatementId");
     }
 }

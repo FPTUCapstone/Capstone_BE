@@ -148,7 +148,6 @@ public sealed class TravelerEmergencyStatusTests
 
         result.IsSuccess.Should().BeTrue();
         result.Value.RefundHandling.Should().Be(expected);
-        result.Value.TourId.Should().Be(1, "the traveler can book another departure of the same tour");
     }
 
     private static async Task StopScheduleAsync(

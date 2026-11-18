@@ -78,4 +78,8 @@ public static class AuditActionTypes
     // UC-63 Export Statistical Reports, BR-130
     public const string StatisticalReportExportRequested = "STATISTICAL_REPORT_EXPORT_REQUESTED";
     public const string UserUnlock = "UnlockUserAccount";
+
+    // UC-83 BR-174 / UC-81 BR-200: Service commission receipt and overdue account locking
+    public const string CommissionReceiptConfirmed = "COMMISSION_RECEIPT_CONFIRMED";
+    public const string ServiceProviderAutoLocked = "SERVICE_PROVIDER_AUTO_LOCKED";
 }

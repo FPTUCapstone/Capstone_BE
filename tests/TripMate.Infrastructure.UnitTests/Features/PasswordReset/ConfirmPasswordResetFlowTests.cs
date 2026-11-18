@@ -347,6 +347,8 @@ public class ConfirmPasswordResetFlowTests
 
         DbSet<Domain.Entities.ServiceBooking> IApplicationDbContext.ServiceBookings => throw new NotSupportedException();
 
+        DbSet<Domain.Entities.ServiceCommissionStatement> IApplicationDbContext.ServiceCommissionStatements => throw new NotSupportedException();
+
         DbSet<Domain.Entities.ClosedStatisticalPeriod> IApplicationDbContext.ClosedStatisticalPeriods => throw new NotSupportedException();
 
         DbSet<Domain.Entities.StatisticalReportSnapshot> IApplicationDbContext.StatisticalReportSnapshots => throw new NotSupportedException();

@@ -353,7 +353,8 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
                 StatusCodes.Status409Conflict,
             TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.VoucherNotEligible or
                 TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.VoucherMinimumNotMet or
-                TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.ParticipantsRequired =>
+                TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.ParticipantsRequired or
+                TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.TourItineraryNotBookable =>
                 StatusCodes.Status422UnprocessableEntity,
             TripMate.Application.Features.Traveler.Bookings.Common.TourBookingErrorCodes.IdempotencyKeyRequired =>
                 StatusCodes.Status400BadRequest,
@@ -390,6 +391,23 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             PostTripComplaintErrorCodes.EvidenceLimit or PostTripComplaintErrorCodes.EvidenceType or
                 PostTripComplaintErrorCodes.InvalidInput => StatusCodes.Status422UnprocessableEntity,
             PostTripComplaintErrorCodes.StorageUnavailable => StatusCodes.Status503ServiceUnavailable,
+
+            TripMate.Application.Features.Operator.PostTripComplaints.Common.OperatorPostTripComplaintErrorCodes.Unauthorized =>
+                StatusCodes.Status401Unauthorized,
+            TripMate.Application.Features.Operator.PostTripComplaints.Common.OperatorPostTripComplaintErrorCodes.NotFound =>
+                StatusCodes.Status404NotFound,
+            TripMate.Application.Features.Operator.PostTripComplaints.Common.OperatorPostTripComplaintErrorCodes.Forbidden =>
+                StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.Operator.PostTripComplaints.Common.OperatorPostTripComplaintErrorCodes.ResponseClosed or
+                TripMate.Application.Features.Operator.PostTripComplaints.Common.OperatorPostTripComplaintErrorCodes.IdempotencyMismatch =>
+                StatusCodes.Status409Conflict,
+            TripMate.Application.Features.Operator.PostTripComplaints.Common.OperatorPostTripComplaintErrorCodes.AmountExceedsRefundable or
+                TripMate.Application.Features.Operator.PostTripComplaints.Common.OperatorPostTripComplaintErrorCodes.ProposalReasonRequired or
+                TripMate.Application.Features.Operator.PostTripComplaints.Common.OperatorPostTripComplaintErrorCodes.RejectionReasonRequired or
+                TripMate.Application.Features.Operator.PostTripComplaints.Common.OperatorPostTripComplaintErrorCodes.RefundUnavailable =>
+                StatusCodes.Status422UnprocessableEntity,
+            TripMate.Application.Features.Operator.PostTripComplaints.Common.OperatorPostTripComplaintErrorCodes.InvalidFilter =>
+                StatusCodes.Status400BadRequest,
 
             TripMate.Application.Features.Admin.Bookings.Common.PlatformBookingErrorCodes.Forbidden =>
                 StatusCodes.Status403Forbidden,
@@ -532,6 +550,8 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             SchedulingErrorCodes.GenerationCooldown or SchedulingErrorCodes.GenerationRateLimited =>
                 StatusCodes.Status429TooManyRequests,
 
+            SchedulingErrorCodes.GenerationContended => StatusCodes.Status409Conflict,
+
             SchedulingErrorCodes.RoutingProviderUnavailable
                 or SchedulingErrorCodes.GenerationTemporarilyUnavailable
                 or SchedulingErrorCodes.GenerationRateLimiterUnavailable
@@ -594,6 +614,7 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
                 or NavigationErrorCodes.ActiveSessionExists
                 or NavigationErrorCodes.IdempotencyKeyPayloadMismatch
                 or NavigationErrorCodes.ItemAlreadyReached
+                or NavigationErrorCodes.TripAlreadyFinished
                 or NavigationErrorCodes.SessionCompleted => StatusCodes.Status409Conflict,
             NavigationErrorCodes.NoNavigableItems
                 or NavigationErrorCodes.ItineraryScheduleIncomplete

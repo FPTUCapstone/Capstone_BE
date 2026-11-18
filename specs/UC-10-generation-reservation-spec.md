@@ -32,8 +32,8 @@ This change shall:
 
 ## Out of Scope
 
-- changing request or response DTOs or routes; the new technical retry failure uses the
-  endpoint's existing `503 Service Unavailable` category;
+- changing request or success DTOs or routes; snapshot/routing failures retain the
+  existing `503 Service Unavailable` category, while bounded DB contention uses 409;
 - returning a new asynchronous `202 Accepted` processing resource;
 - optimizing the catalog query/projection described as audit item 3;
 - changing ranking, candidate-pool, routing, budget, rest, or itinerary semantics;
@@ -111,8 +111,8 @@ owner that lost its lease must not persist an itinerary.
 
 Run a short `SERIALIZABLE` transaction:
 
-1. Acquire the existing transaction-owned scheduling application lock for the
-   traveler and idempotency key.
+1. Acquire the transaction-owned scheduling application lock for the traveler,
+   shared across idempotency keys, with a 5-second acquisition timeout.
 2. Read the `SchedulingRequest` by its unique key.
 3. If no row exists, create it, claim a lease, save, and commit.
 4. If its request hash differs, commit without mutation and return the existing
@@ -192,6 +192,25 @@ reducing its row volume belongs to audit item 3. External provider calls and the
 generator itself are forbidden inside Phase 1 or Phase 3.
 
 ## Lease and Retry Configuration
+
+### Concurrent DB contention (REG-UC10-01, confirmed 2026-11-17)
+
+- Each Reserve, Finalize, Release and rate-limit cleanup DB phase locks
+  `TripMate:SchedulingRequest:{travelerUserId}` until its transaction ends.
+  No application lock is held during external routing/ranking/explanation or solver work.
+- SQL Server deadlock victim 1205, including nested persistence exceptions, retries only
+  the rolled-back DB phase: at most three total attempts, with 100ms and 200ms delays.
+  Clear the rolled-back change tracker before retry; Finalize reuses the prepared plan.
+- Lock acquisition timeout (5 seconds), or exhausted deadlock attempts, returns HTTP 409,
+  code `planning.generation_contended`, a same-key retry message and `retryAfterSeconds=1`.
+  Caller cancellation remains observable and is never translated to contention.
+- The 15-second cooldown and three-fresh-generations/minute quota remain unchanged.
+  Retrying a DB phase does not acquire an extra limiter permit or repeat Mapbox/AI calls.
+  Fresh requests can still receive 429 from the limiter after successful reservation.
+- Same-key replay/mismatch rules remain unchanged. A rolled-back reservation inserts no
+  rows; failed Finalize persists no itinerary/items and attempts owner-checked release.
+  If cleanup itself is contended, the existing bounded lease remains the recovery path;
+  a 409 is not a cached deterministic generation failure.
 
 Add validated application options with these defaults:
 

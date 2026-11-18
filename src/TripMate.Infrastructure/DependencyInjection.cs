@@ -23,6 +23,7 @@ using TripMate.Application.Features.Itineraries.GetDetail;
 using TripMate.Application.Features.Navigation.Common;
 using TripMate.Application.Features.Operator.CheckIn.Common;
 using TripMate.Application.Features.Operator.Payouts.Common;
+using TripMate.Application.Features.Operator.PostTripComplaints.Deadlines;
 using TripMate.Application.Features.Operator.Revenue.Exports.Common;
 using TripMate.Application.Features.Payouts.DailySettlement;
 using TripMate.Application.Features.PointsOfInterest.ExternalReviews;
@@ -90,6 +91,14 @@ public static class DependencyInjection
         services.AddScoped<ServiceRequestLifecycleProcessor>();
         services.AddScoped<IItineraryServiceBookingReader, ItineraryServiceBookingReader>();
         services.AddHostedService<ServiceRequestLifecycleHostedService>();
+
+        // TM-226: Commission Statements & Reconciliation (UC-81-83)
+        services.AddScoped<TripMate.Application.Features.Providers.CommissionStatements.ICommissionStatementService, TripMate.Application.Features.Providers.CommissionStatements.CommissionStatementService>();
+        services.AddScoped<TripMate.Application.Features.Providers.CommissionStatements.ProviderCommissionQueryHandler>();
+        services.AddScoped<TripMate.Application.Features.Providers.CommissionStatements.ReportCommissionPaymentCommandHandler>();
+        services.AddScoped<TripMate.Application.Features.Providers.CommissionStatements.AdminReconciliationQueryHandler>();
+        services.AddScoped<TripMate.Application.Features.Providers.CommissionStatements.AdminReconciliationCommandHandler>();
+        services.AddHostedService<CommissionStatementLifecycleHostedService>();
         services.AddOptions<TripAlertOptions>()
             .Bind(configuration.GetSection(TripAlertOptions.SectionName))
             .Validate(options => options.ScanInterval > TimeSpan.Zero, "Trip alert scan interval must be positive.")
@@ -311,9 +320,18 @@ public static class DependencyInjection
         services.AddScoped<ReturnDeadlineProcessor>();
         services.AddHostedService<ReturnDeadlineBackgroundService>();
 
-        // UC-75: temporary ports until TM-222 (PostTripComplaint) and TM-88 (UC-42 RefundRequest) land.
-        services.AddScoped<IPartialRefundProposalStore, PendingPartialRefundProposalStore>();
-        services.AddScoped<IComplaintRefundRequestCreator, PendingComplaintRefundRequestCreator>();
+        services.AddOptions<OperatorComplaintDeadlineOptions>()
+            .Bind(configuration.GetSection(OperatorComplaintDeadlineOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<OperatorComplaintDeadlineOptions>, OperatorComplaintDeadlineOptionsValidator>();
+        services.AddSingleton(serviceProvider =>
+            serviceProvider.GetRequiredService<IOptions<OperatorComplaintDeadlineOptions>>().Value);
+        services.AddScoped<OperatorComplaintDeadlineProcessor>();
+        services.AddHostedService<OperatorComplaintDeadlineBackgroundService>();
+
+        // UC-75: backed by PostTripComplaint and Refund aggregates (UC-68, UC-69).
+        services.AddScoped<IPartialRefundProposalStore, PostTripComplaintProposalStore>();
+        services.AddScoped<IComplaintRefundRequestCreator, PostTripComplaintRefundRequestCreator>();
         services.AddOptions<PartialRefundProposalDeadlineOptions>()
             .Bind(configuration.GetSection(PartialRefundProposalDeadlineOptions.SectionName))
             .ValidateOnStart();
