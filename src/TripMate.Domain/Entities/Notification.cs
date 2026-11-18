@@ -20,6 +20,11 @@ public class Notification : BaseEntity
     public const string WeatherSafetyReviewCreatedType = "WeatherSafetyReviewCreated";
     public const string WeatherSafetyReviewEscalatedType = "WeatherSafetyReviewEscalated";
     public const string PostTripComplaintRelatedEntityType = "PostTripComplaint";
+
+    // UC-60 PC-03: the owning Tour Operator is told that Staff approved the tour package.
+    public const string TourApprovedType = "TourApproved";
+    public const string TourRelatedEntityType = "Tour";
+    public const string TourApprovedTitle = "Your tour package was approved";
     public const string PartialRefundProposalAcceptedType = "PartialRefundProposalAccepted";
     public const string PartialRefundProposalDeclinedType = "PartialRefundProposalDeclined";
     public const string PartialRefundProposalExpiredType = "PartialRefundProposalExpired";

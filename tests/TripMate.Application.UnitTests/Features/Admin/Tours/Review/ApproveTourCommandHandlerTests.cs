@@ -414,4 +414,78 @@ public sealed class ApproveTourCommandHandlerTests
             .WithMessage("Unexpected programming invariant failure.");
         db.TransactionExecutionCount.Should().Be(1);
     }
+
+    // UC-60 PC-03: the Tour Operator is notified of the approval. In-app only for now (email delivery is a
+    // separate outbox concern). The notice is written in the SAME transaction as the decision.
+    [Fact]
+    public async Task Handle_WhenApproved_CreatesSingleInAppNotificationForTheOwningOperator()
+    {
+        await using var db = TestDbContext.Create();
+        await PublicTourTestData.SeedOperatorAsync(db, 1);
+        var tour = await PublicTourTestData.AddTourAsync(db, 1, TourStatus.Pending);
+        var handler = new ApproveTourCommandHandler(
+            db,
+            new FakeCurrentUserService { UserId = 55, Role = nameof(UserRole.Staff) },
+            new FakeDateTimeProvider { UtcNow = Now });
+
+        var result = await handler.Handle(
+            new ApproveTourCommand(tour.Id, ValidChecklist(), "Internal moderator-only remark"),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(because: $"{result.ErrorCode}: {result.ErrorMessage}");
+        var notices = await db.Notifications.AsNoTracking()
+            .Where(n => n.Type == Notification.TourApprovedType)
+            .ToListAsync();
+        var notice = notices.Should().ContainSingle().Subject;
+        notice.UserId.Should().Be(tour.OperatorUserId);
+        notice.Channel.Should().Be(NotificationChannel.InApp);
+        notice.RelatedEntityType.Should().Be(Notification.TourRelatedEntityType);
+        notice.RelatedEntityId.Should().Be(tour.Id);
+        notice.CreatedAtUtc.Should().Be(Now);
+        notice.Title.Should().NotBeNullOrWhiteSpace();
+        notice.Body.Should().NotBeNullOrWhiteSpace();
+        // The operator-facing notice must not leak moderation internals.
+        (notice.Title + notice.Body).Should()
+            .NotContain("Internal moderator-only remark")
+            .And.NotContain("55");
+    }
+
+    [Fact]
+    public async Task Handle_WhenPersistenceFails_DoesNotLeaveANotificationBehind()
+    {
+        await using var db = TestDbContext.Create();
+        await PublicTourTestData.SeedOperatorAsync(db, 1);
+        var tour = await PublicTourTestData.AddTourAsync(db, 1, TourStatus.Pending);
+        db.SaveChangesFailureFactory = () => new DbUpdateException("Simulated storage outage.");
+        var handler = new ApproveTourCommandHandler(
+            db,
+            new FakeCurrentUserService { UserId = 55, Role = nameof(UserRole.Staff) },
+            new FakeDateTimeProvider { UtcNow = Now });
+
+        var result = await handler.Handle(new ApproveTourCommand(tour.Id, ValidChecklist()), CancellationToken.None);
+
+        result.ErrorCode.Should().Be(OperatorTourErrorCodes.ServiceUnavailable);
+        (await db.Notifications.AsNoTracking().AnyAsync(n => n.Type == Notification.TourApprovedType))
+            .Should().BeFalse("the approval and its notification are one atomic unit");
+    }
+
+    [Theory]
+    [InlineData(TourStatus.Approved)]
+    [InlineData(TourStatus.Rejected)]
+    [InlineData(TourStatus.Draft)]
+    public async Task Handle_WhenTourIsNotPending_CreatesNoNotification(TourStatus status)
+    {
+        await using var db = TestDbContext.Create();
+        await PublicTourTestData.SeedOperatorAsync(db, 1);
+        var tour = await PublicTourTestData.AddTourAsync(db, 1, status);
+        var handler = new ApproveTourCommandHandler(
+            db,
+            new FakeCurrentUserService { UserId = 55, Role = nameof(UserRole.Staff) },
+            new FakeDateTimeProvider { UtcNow = Now });
+
+        var result = await handler.Handle(new ApproveTourCommand(tour.Id, ValidChecklist()), CancellationToken.None);
+
+        result.ErrorCode.Should().Be(OperatorTourErrorCodes.InvalidState);
+        (await db.Notifications.AsNoTracking().AnyAsync(n => n.Type == Notification.TourApprovedType)).Should().BeFalse();
+    }
 }

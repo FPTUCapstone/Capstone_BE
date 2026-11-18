@@ -84,6 +84,15 @@ public sealed class ApproveTourSqlServerTests(ITestOutputHelper output)
         audits[0].Result.Should().Be(AuditOutcome.Success);
         audits[0].ActorUserId.Should().Be(tour.ReviewedBy);
 
+        // UC-60 PC-03: exactly one in-app notice reaches the owning operator, even though two approvals raced.
+        var notices = await verificationContext.Notifications.AsNoTracking()
+            .Where(n => n.Type == Notification.TourApprovedType && n.RelatedEntityId == seed.TourId)
+            .ToListAsync();
+        var notice = notices.Should().ContainSingle().Subject;
+        notice.UserId.Should().Be(seed.OperatorId);
+        notice.Channel.Should().Be(NotificationChannel.InApp);
+        notice.RelatedEntityType.Should().Be(Notification.TourRelatedEntityType);
+
         output.WriteLine(
             $"[VERIFIED_FIX] ConcurrentApprove: Statuses=[{(int)responses[0].StatusCode}, {(int)responses[1].StatusCode}], " +
             $"FinalTourStatus={tour.Status}, ReviewedBy={tour.ReviewedBy}, AuditCount={audits.Count}");
@@ -173,6 +182,11 @@ public sealed class ApproveTourSqlServerTests(ITestOutputHelper output)
             .Where(a => a.AffectedEntityId == seed.TourId && a.ActionType == AuditActionTypes.TourApproved)
             .ToListAsync();
         audits.Should().BeEmpty();
+
+        // The notification is part of the same transaction: nothing may survive the rollback.
+        (await verificationContext.Notifications.AsNoTracking()
+            .AnyAsync(n => n.Type == Notification.TourApprovedType && n.RelatedEntityId == seed.TourId))
+            .Should().BeFalse();
 
         output.WriteLine(
             $"[VERIFIED_FIX] SqlRollbackOnFailure: HttpStatus={(int)response.StatusCode}, ErrorCode=MSG127, " +
