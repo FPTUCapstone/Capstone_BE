@@ -67,8 +67,8 @@ public sealed class TravelerTripsSqlServerTests
             VALUES(1,'T-VALID','Valid'),(2,'T-UP','Valid');
             INSERT payment.PaymentTransactions(booking_id,gateway,amount,transaction_type,status)
             VALUES(3,'PayOS',800000,'Payment','Success'),(3,'VNPAY',800000,'Payment','Success');
-            INSERT payment.Refunds(booking_id,transaction_id,amount,initiated_by,status)
-            VALUES(3,1,100000,'System','Failed'),(3,2,800000,'System','Processed');
+            INSERT payment.Refunds(booking_id,transaction_id,amount,initiated_by,status,source_type)
+            VALUES(3,1,100000,'System','Failed','BookingCancellation'),(3,2,800000,'System','Processed','BookingCancellation');
             -- CSP trips: one request with a regenerated Draft v2 (A1) and one with two Active versions.
             INSERT planning.SchedulingRequests(traveler_user_id,idempotency_key,request_hash,start_at,
                 start_latitude,start_longitude,destination_latitude,destination_longitude,available_minutes,search_radius_km)

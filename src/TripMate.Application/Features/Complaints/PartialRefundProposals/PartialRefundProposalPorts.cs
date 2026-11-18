@@ -11,7 +11,11 @@ public sealed record PartialRefundProposal(
     long TourOperatorUserId,
     PostTripComplaintStatus Status,
     decimal ProposedAmount,
-    DateTimeOffset ResponseDeadlineUtc);
+    DateTimeOffset ResponseDeadlineUtc,
+    string? ProposalReason = null,
+    int Round = 1,
+    DateTimeOffset? OperatorReconsiderationDeadlineUtc = null,
+    decimal RefundableAmount = 0m);
 
 /// <summary>
 /// Port to the PostTripComplaint aggregate owned by UC-68/UC-69 (TM-222). Implementations run on
@@ -28,6 +32,13 @@ public interface IPartialRefundProposalStore
     /// </summary>
     Task<bool> TryCloseAsync(long complaintId, PostTripComplaintStatus outcome, DateTimeOffset respondedAtUtc,
         CancellationToken cancellationToken);
+
+    Task<bool> TryCounterAsync(long complaintId, long travelerUserId, decimal requestedAmount, string reason,
+        DateTimeOffset counteredAtUtc, DateTimeOffset operatorReconsiderationDeadlineUtc,
+        CancellationToken cancellationToken);
+
+    Task<bool> TryDeclineFinallyAsync(long complaintId, long travelerUserId, string reason,
+        DateTimeOffset declinedAtUtc, CancellationToken cancellationToken);
 
     /// <summary>Proposals still AwaitingTravelerResponse whose deadline is at or before <paramref name="nowUtc"/>.</summary>
     Task<IReadOnlyList<PartialRefundProposal>> ListOverdueAsync(DateTimeOffset nowUtc, int maxCount,

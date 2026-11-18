@@ -326,6 +326,48 @@ public sealed class GetOperatorRevenueReportQueryHandlerTests
         octoberResult.Value.TourDetails.Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task Handle_ReturnReceivedRefundAndFractionalCommissionSnapshot_ReportsConsistentRefundAndCommission()
+    {
+        await using var db = TestDbContext.Create();
+        var operatorUser = await SeedApprovedOperatorAsync(db, 7, commissionRate: 0.10m);
+        var tour = CreateTour(106, operatorUser.Id, "Fractional rate tour");
+        db.Add(tour);
+        await db.SaveChangesAsync();
+
+        var schedule = CreateTourSchedule(206, tour.Id);
+        db.Add(schedule);
+        await db.SaveChangesAsync();
+
+        var booking = await SeedPaidBookingAsync(
+            db, bookingId: 306, scheduleId: schedule.Id, totalAmount: 30_000m,
+            succeededAtUtc: new DateTimeOffset(2026, 9, 10, 3, 0, 0, TimeSpan.Zero),
+            commissionRateApplied: 0.10m);
+        var refund = CreateRefund(406, booking.Id, 20_000m,
+            processedAtUtc: new DateTimeOffset(2026, 9, 12, 3, 0, 0, TimeSpan.Zero));
+        Set(refund, nameof(Refund.Status), RefundStatus.RetryPending);
+        Set(refund, nameof(Refund.ReturnReceivedAtUtc), new DateTimeOffset(2026, 9, 12, 2, 0, 0, TimeSpan.Zero));
+        db.Add(refund);
+        await db.SaveChangesAsync();
+
+        var handler = new GetOperatorRevenueReportQueryHandler(db, new FakeCurrentUserService
+        {
+            UserId = operatorUser.Id,
+            Role = nameof(UserRole.TourOperator),
+        }, new OperatorRevenueAggregator(db));
+
+        var result = await handler.Handle(new GetOperatorRevenueReportQuery(Start, End, "monthly"), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Summary.RefundedAmount.Should().Be(20_000m);
+        result.Value.Summary.PlatformCommission.Should().Be(1_000m);
+        result.Value.Summary.CommissionRatePercent.Should().Be(10m);
+
+        var detail = result.Value.TourDetails.Should().ContainSingle().Subject;
+        detail.RefundedAmount.Should().Be(20_000m);
+        detail.Commission.Should().Be(1_000m);
+    }
+
     private static async Task<User> SeedApprovedOperatorAsync(TestDbContext db, long id, decimal commissionRate = 10m)
     {
         var user = new User
@@ -352,7 +394,8 @@ public sealed class GetOperatorRevenueReportQueryHandlerTests
     }
 
     private static async Task<Booking> SeedPaidBookingAsync(
-        TestDbContext db, long bookingId, long scheduleId, decimal totalAmount, DateTimeOffset succeededAtUtc)
+        TestDbContext db, long bookingId, long scheduleId, decimal totalAmount, DateTimeOffset succeededAtUtc,
+        decimal commissionRateApplied = 10m)
     {
         var travelerId = 900 + bookingId;
         db.Users.Add(new User
@@ -389,7 +432,7 @@ public sealed class GetOperatorRevenueReportQueryHandlerTests
             amount: totalAmount,
             orderCode: bookingId,
             createdAtUtc: bookedAt);
-        transaction.MarkSuccess(gatewayRef: null, rawResponse: null, nowUtc: succeededAtUtc, commissionRateApplied: 10m);
+        transaction.MarkSuccess(gatewayRef: null, rawResponse: null, nowUtc: succeededAtUtc, commissionRateApplied: commissionRateApplied);
         db.PaymentTransactions.Add(transaction);
         await db.SaveChangesAsync();
 

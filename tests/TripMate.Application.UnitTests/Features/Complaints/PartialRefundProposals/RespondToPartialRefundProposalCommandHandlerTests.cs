@@ -52,23 +52,40 @@ public sealed class RespondToPartialRefundProposalCommandHandlerTests
     }
 
     [Fact]
-    public async Task Decline_BeforeDeadline_DeclinesWithoutRefundRequestAndNotifiesOperatorWithMsg167()
+    public async Task CounterOffer_BeforeDeadline_RequestsOneFinalOperatorProposal()
     {
         await using var db = CreateDbContext();
         var (store, refunds, handler) = Arrange(db, BeforeDeadline);
 
-        var result = await handler.Handle(Command(PartialRefundDecision.Decline), CancellationToken.None);
+        var result = await handler.Handle(new RespondToPartialRefundProposalCommand(ComplaintId,
+            PartialRefundDecision.CounterOffer, "The proposal does not cover the missed itinerary items.", 500_000m),
+            CancellationToken.None);
 
         result.Value.Should().Be(new RespondToPartialRefundProposalResponse(ComplaintId,
-            nameof(PostTripComplaintStatus.Declined), null, BeforeDeadline));
-        store.Get(ComplaintId).Status.Should().Be(PostTripComplaintStatus.Declined);
+            nameof(PostTripComplaintStatus.AwaitingOperatorReconsideration), null, BeforeDeadline, 500_000m));
+        store.Get(ComplaintId).Status.Should().Be(PostTripComplaintStatus.AwaitingOperatorReconsideration);
         refunds.Created.Should().BeEmpty();
         var notification = await db.Notifications.SingleAsync();
         notification.UserId.Should().Be(OperatorId);
-        notification.Type.Should().Be(Notification.PartialRefundProposalDeclinedType);
+        notification.Type.Should().Be("PartialRefundCounterOffer");
         notification.Body.Should().Be(
-            "The traveler declined your partial refund proposal for booking BK-UC75. "
-            + "The complaint will be handled under the partnership contract.");
+            "The traveler requested 500,000 VND for booking BK-UC75. "
+            + "Review and submit your final revised proposal within 3 days.");
+    }
+
+    [Fact]
+    public async Task FinalDecline_AfterRevisedOffer_ClosesWithoutRefundRequest()
+    {
+        await using var db = CreateDbContext();
+        var revised = Proposal() with { Round = 2, ProposalReason = "Final revised offer." };
+        var (store, refunds, handler) = Arrange(db, BeforeDeadline, revised);
+
+        var result = await handler.Handle(new RespondToPartialRefundProposalCommand(ComplaintId,
+            PartialRefundDecision.Decline, "The final proposal is still inadequate."), CancellationToken.None);
+
+        result.Value.Status.Should().Be(nameof(PostTripComplaintStatus.Declined));
+        store.Get(ComplaintId).Status.Should().Be(PostTripComplaintStatus.Declined);
+        refunds.Created.Should().BeEmpty();
     }
 
     [Theory]
