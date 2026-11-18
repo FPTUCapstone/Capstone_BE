@@ -574,6 +574,8 @@ CREATE TABLE commerce.Tours (
     reviewed_by               BIGINT NULL REFERENCES dbo.Users(user_id),
     reviewed_at                DATETIME2 NULL,
     published_at                DATETIME2 NULL,
+    submitted_at_utc             DATETIME2 NULL,
+    submission_note              NVARCHAR(4000) NULL,
     created_at                  DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
     updated_at                  DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
     CONSTRAINT FK_Tours_TourCategories FOREIGN KEY (category_id)

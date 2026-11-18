@@ -31,6 +31,12 @@ public class TourConfiguration : IEntityTypeConfiguration<Tour>
             .IsRequired();
         builder.Property(tour => tour.CategoryId)
             .HasColumnName("category_id");
+        builder.Property(tour => tour.SubmittedAtUtc)
+            .HasColumnName("submitted_at_utc")
+            .AsUtcDateTime2();
+        builder.Property(tour => tour.SubmissionNote)
+            .HasColumnName("submission_note")
+            .HasMaxLength(Tour.TermsMaxLength);
         builder.Property(tour => tour.Title)
             .HasColumnName("title")
             .HasMaxLength(Tour.TitleMaxLength)
