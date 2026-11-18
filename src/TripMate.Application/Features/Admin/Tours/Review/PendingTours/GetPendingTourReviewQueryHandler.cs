@@ -48,7 +48,7 @@ public sealed class GetPendingTourReviewQueryHandler(IApplicationDbContext dbCon
                 OperatorName = tour.OperatorProfile.CompanyName,
                 tour.DestinationSummary,
                 Category = tour.Category != null ? tour.Category.Name : null,
-                SubmittedAtUtc = tour.UpdatedAtUtc,
+                SubmittedAtUtc = tour.SubmittedAtUtc ?? tour.UpdatedAtUtc, // legacy rows pre-date the column
                 tour.DurationDays,
                 tour.BasePrice,
                 tour.Description,

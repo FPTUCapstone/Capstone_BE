@@ -31,6 +31,39 @@ public sealed class GetPendingTourReviewQueryHandlerTests
         return tour;
     }
 
+    [Fact]
+    public async Task Handle_ReportsTheRealSubmissionTime_NotTheLastUpdateTime()
+    {
+        await using var db = NewDb();
+        await PublicTourTestData.SeedOperatorAsync(db, 1);
+        await PublicTourTestData.AddPoiAsync(db, 100, "Ancient Town", null);
+        await PublicTourTestData.AddPoiAsync(db, 101, "Bridge Pagoda", null);
+        var tour = await AddPendingTourAsync(db);
+        Set(tour, nameof(Tour.UpdatedAtUtc), T0.AddHours(6));
+        await db.SaveChangesAsync();
+
+        var result = await CreateHandler(db).Handle(new GetPendingTourReviewQuery(tour.Id), CancellationToken.None);
+
+        result.Value.SubmittedAtUtc.Should().Be(T0, "SubmittedAtUtc is the submission time; UpdatedAtUtc moves with later edits");
+    }
+
+    [Fact]
+    public async Task Handle_FallsBackToUpdatedAtForLegacyRowsWithoutASubmissionTime()
+    {
+        await using var db = NewDb();
+        await PublicTourTestData.SeedOperatorAsync(db, 1);
+        await PublicTourTestData.AddPoiAsync(db, 100, "Ancient Town", null);
+        await PublicTourTestData.AddPoiAsync(db, 101, "Bridge Pagoda", null);
+        var tour = await AddPendingTourAsync(db);
+        Set<DateTimeOffset?>(tour, nameof(Tour.SubmittedAtUtc), null);
+        Set(tour, nameof(Tour.UpdatedAtUtc), T0.AddHours(6));
+        await db.SaveChangesAsync();
+
+        var result = await CreateHandler(db).Handle(new GetPendingTourReviewQuery(tour.Id), CancellationToken.None);
+
+        result.Value.SubmittedAtUtc.Should().Be(T0.AddHours(6));
+    }
+
     /// <summary>The detail read requires an ACTIVE Staff account in the database (same rule as the TM-83 queue).</summary>
     private static TestDbContext NewDb(AccountStatus staffStatus = AccountStatus.Active)
     {
