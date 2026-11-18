@@ -182,6 +182,9 @@ public class ApplicationDbContext(
                 audit.CreatedAtUtc < cutoffUtc)
             .ExecuteDeleteAsync(cancellationToken);
 
+    public Task AcquireTourSubmissionLockAsync(long tourId, CancellationToken cancellationToken) =>
+        new SqlServerTourMediaUploadLock(this).AcquireTourAsync(tourId, cancellationToken);
+
     public async Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
         CancellationToken cancellationToken)

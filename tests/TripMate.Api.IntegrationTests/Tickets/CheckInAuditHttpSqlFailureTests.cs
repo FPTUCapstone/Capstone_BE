@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Data.Common;
 using System.Net;
 using System.Net.Http.Json;
@@ -11,6 +12,9 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+
+using Serilog.Core;
+using Serilog.Events;
 
 using StackExchange.Redis;
 
@@ -215,7 +219,7 @@ public sealed class CheckInAuditHttpSqlFailureTests(ITestOutputHelper output) : 
 
         using HttpResponseMessage response = await ScanAsync(host, fixture);
 
-        await AssertMsg127Async(response);
+        await AssertMsg127Async(response, host);
         await AssertUnusedAsync(database, fixture.TicketId, fixture.QrId);
         journal.Events.Should().ContainSingle(e => e.EventType == CheckInAuditEventType.Admission);
     }
@@ -233,7 +237,7 @@ public sealed class CheckInAuditHttpSqlFailureTests(ITestOutputHelper output) : 
         using HttpResponseMessage response = await host.Client.PostAsJsonAsync(
             Endpoint, new CheckInTravelerCommand(fixture.Seed.ScheduleId, QrContent: "invalid"));
 
-        await AssertMsg127Async(response);
+        await AssertMsg127Async(response, host);
         await AssertUnusedAsync(database, fixture.TicketId, fixture.QrId);
         journal.Events.Select(e => e.EventType).Should().Equal(
             CheckInAuditEventType.Admission, CheckInAuditEventType.Rejected);
@@ -296,7 +300,8 @@ public sealed class CheckInAuditHttpSqlFailureTests(ITestOutputHelper output) : 
             string failedBody = await failed.Content.ReadAsStringAsync();
             output.WriteLine("SQL unavailable response: status={0}; body={1}",
                 (int)failed.StatusCode, failedBody);
-            failed.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable, failedBody);
+            failed.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable,
+                "{0}{1}Server diagnostics:{1}{2}", failedBody, Environment.NewLine, failedHost.Diagnostics);
             JsonElement problem = Problem(failedBody);
             problem.GetProperty("errorCode").GetString().Should().Be(CheckInErrorCodes.Unavailable);
             problem.GetProperty("title").GetString().Should().Be(CheckInErrorCodes.UnavailableMessage);
@@ -524,7 +529,7 @@ public sealed class CheckInAuditHttpSqlFailureTests(ITestOutputHelper output) : 
         await using (var failedHost = Host(unavailableConnection, fixture.Seed.OperatorId, prefix))
         {
             using HttpResponseMessage failed = await ScanAsync(failedHost, fixture);
-            await AssertMsg127Async(failed);
+            await AssertMsg127Async(failed, failedHost);
             (await failedHost.Redis.StreamLengthAsync($"{prefix}:admissions")).Should().Be(1);
             (await failedHost.Redis.StreamLengthAsync($"{prefix}:rejections")).Should().Be(0);
         }
@@ -566,19 +571,27 @@ public sealed class CheckInAuditHttpSqlFailureTests(ITestOutputHelper output) : 
             ["CheckInAuditJournal:CommandTimeout"] = "00:00:03",
             ["CheckInAuditJournal:DurabilityTimeout"] = "00:00:02",
         };
+        // Keep errors in memory so a failed HTTP assertion can show the server-side exception.
+        // The factory deletes its log files on disposal and CI does not retain them.
+        var diagnostics = new CapturingLogSink();
         var factory = new TripMateApiFactory(
             ApiTestAuthenticationMode.HeaderStub,
             sqlConnection,
             dateTimeProviderFactory: _ => new FixedClock(now ?? Departure),
-            configureTestServices: journal is null ? null : services =>
+            configureTestServices: services =>
             {
+                // The host replaces the default logging providers with Serilog, which reads sinks from DI.
+                services.AddSingleton<ILogEventSink>(diagnostics);
+                if (journal is null)
+                    return;
+
                 services.RemoveAll<ICheckInAuditJournal>();
                 services.AddSingleton(journal);
             },
             dbInterceptor: interceptor,
             configurationOverrides: settings);
         return new HttpTestHost(factory, factory.CreateAuthenticatedClient(
-            operatorId, UserRole.TourOperator), redisConnection);
+            operatorId, UserRole.TourOperator), redisConnection, diagnostics);
     }
 
     private static string Prefix(string scenario) =>
@@ -589,10 +602,11 @@ public sealed class CheckInAuditHttpSqlFailureTests(ITestOutputHelper output) : 
             Endpoint,
             new CheckInTravelerCommand(fixture.Seed.ScheduleId, QrContent: fixture.Content));
 
-    private static async Task AssertMsg127Async(HttpResponseMessage response)
+    private static async Task AssertMsg127Async(HttpResponseMessage response, HttpTestHost host)
     {
         string body = await response.Content.ReadAsStringAsync();
-        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable, body);
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable,
+            "{0}{1}Server diagnostics:{1}{2}", body, Environment.NewLine, host.Diagnostics);
         JsonElement problem = Problem(body);
         problem.GetProperty("errorCode").GetString().Should().Be(CheckInErrorCodes.Unavailable);
         problem.GetProperty("title").GetString().Should().Be(CheckInErrorCodes.UnavailableMessage);
@@ -772,14 +786,50 @@ public sealed class CheckInAuditHttpSqlFailureTests(ITestOutputHelper output) : 
         }
     }
 
+    /// <summary>
+    /// Records error log entries, including exceptions, for one test host so a failed
+    /// assertion can report why the API answered 500 instead of the expected MSG127 response.
+    /// </summary>
+    private sealed class CapturingLogSink : ILogEventSink
+    {
+        private const int MaxEntries = 50;
+        private const int MaxEntryLength = 8000;
+        private readonly ConcurrentQueue<string> _entries = new();
+
+        public string Snapshot() =>
+            _entries.IsEmpty ? "(no errors were logged)" : string.Join(Environment.NewLine, _entries);
+
+        public void Emit(LogEvent logEvent)
+        {
+            // Startup warnings (licensing, EF model hints) would crowd out the failure, so only keep
+            // errors and warnings that carry an exception.
+            bool relevant = logEvent.Level >= LogEventLevel.Error
+                || (logEvent.Level == LogEventLevel.Warning && logEvent.Exception is not null);
+            if (!relevant || _entries.Count >= MaxEntries)
+                return;
+
+            string entry = logEvent.Exception is null
+                ? $"[{logEvent.Level}] {logEvent.RenderMessage()}"
+                : $"[{logEvent.Level}] {logEvent.RenderMessage()}{Environment.NewLine}{logEvent.Exception}";
+            _entries.Enqueue(entry.Length <= MaxEntryLength ? entry : entry[..MaxEntryLength] + "...");
+        }
+    }
+
     private sealed class HttpTestHost : IAsyncDisposable
     {
         private readonly TripMateApiFactory _factory;
         private readonly IConnectionMultiplexer _redis;
 
-        public HttpTestHost(TripMateApiFactory factory, HttpClient client, string redisConnection)
+        private readonly CapturingLogSink _diagnostics;
+
+        public HttpTestHost(
+            TripMateApiFactory factory,
+            HttpClient client,
+            string redisConnection,
+            CapturingLogSink diagnostics)
         {
             _factory = factory;
+            _diagnostics = diagnostics;
             Client = client;
             var options = ConfigurationOptions.Parse(redisConnection);
             options.AllowAdmin = true;
@@ -788,6 +838,9 @@ public sealed class CheckInAuditHttpSqlFailureTests(ITestOutputHelper output) : 
 
         public HttpClient Client { get; }
         public IDatabase Redis => _redis.GetDatabase();
+
+        /// <summary>Errors the host logged so far, for assertion messages.</summary>
+        public string Diagnostics => _diagnostics.Snapshot();
 
         public async ValueTask DisposeAsync()
         {
