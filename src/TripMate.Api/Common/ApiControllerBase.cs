@@ -66,7 +66,8 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
         {
             TripMate.Application.Features.Admin.UserAccounts.UserAccountErrors.Forbidden => StatusCodes.Status403Forbidden,
             TripMate.Application.Features.Admin.UserAccounts.UserAccountErrors.NotFound => StatusCodes.Status404NotFound,
-            TripMate.Application.Features.Admin.UserAccounts.UserAccountErrors.InvalidRequest => StatusCodes.Status400BadRequest,
+            TripMate.Application.Features.Admin.UserAccounts.UserAccountErrors.InvalidRequest or
+            TripMate.Application.Features.Admin.UserAccounts.UserAccountErrors.InvalidDateRange => StatusCodes.Status400BadRequest,
             TripMate.Application.Features.Admin.UserAccounts.UserAccountErrors.Conflict or
             TripMate.Application.Features.Admin.UserAccounts.UserAccountErrors.OutstandingDebt or
             TripMate.Application.Features.Admin.UserAccounts.UserAccountErrors.ProviderSettlementUnavailable => StatusCodes.Status409Conflict,
