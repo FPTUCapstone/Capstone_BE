@@ -16,7 +16,7 @@ public sealed class QuoteTourBookingQueryHandlerTests
     {
         await using var db = TestDbContext.Create();
         var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
-        var tour = TourBookingTestData.SeedTour(operatorId: 2, basePrice: 1_000_000m);
+        var tour = TourBookingTestData.SeedBookableTour(operatorId: 2, basePrice: 1_000_000m);
         db.Tours.Add(tour);
         await db.SaveChangesAsync();
         var schedule = TourBookingTestData.SeedSchedule(tour, Now.AddDays(5), totalCapacity: 10, reservedCapacity: 0);
@@ -41,7 +41,7 @@ public sealed class QuoteTourBookingQueryHandlerTests
     {
         await using var db = TestDbContext.Create();
         var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
-        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        var tour = TourBookingTestData.SeedBookableTour(2, 1_000_000m);
         db.Tours.Add(tour);
         await db.SaveChangesAsync();
         var schedule = TourBookingTestData.SeedSchedule(tour, Now.AddDays(5), 10, 0, childPrice: 700_000m);
@@ -64,7 +64,7 @@ public sealed class QuoteTourBookingQueryHandlerTests
     {
         await using var db = TestDbContext.Create();
         var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
-        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        var tour = TourBookingTestData.SeedBookableTour(2, 1_000_000m);
         db.Tours.Add(tour);
         await db.SaveChangesAsync();
         var schedule = TourBookingTestData.SeedSchedule(tour, Now.AddDays(5), totalCapacity: 2, reservedCapacity: 1);
@@ -85,7 +85,7 @@ public sealed class QuoteTourBookingQueryHandlerTests
     {
         await using var db = TestDbContext.Create();
         var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
-        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        var tour = TourBookingTestData.SeedBookableTour(2, 1_000_000m);
         db.Tours.Add(tour);
         await db.SaveChangesAsync();
         var schedule = TourBookingTestData.SeedSchedule(tour, Now.AddDays(5), 10, 0,
@@ -107,7 +107,7 @@ public sealed class QuoteTourBookingQueryHandlerTests
     {
         await using var db = TestDbContext.Create();
         var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
-        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        var tour = TourBookingTestData.SeedBookableTour(2, 1_000_000m);
         db.Tours.Add(tour);
         await db.SaveChangesAsync();
         var schedule = TourBookingTestData.SeedSchedule(tour, Now.AddDays(5), 10, 0);
@@ -138,5 +138,35 @@ public sealed class QuoteTourBookingQueryHandlerTests
         var result = await handler.Handle(query, CancellationToken.None);
 
         result.ErrorCode.Should().Be(TourBookingErrorCodes.AccessRequired);
+    }
+
+    // BR-56: a tour hidden from public Search/Detail because its operator is locked or not approved must not
+    // be quotable either; Quote must use the same visibility definition as the public read.
+    [Theory]
+    [InlineData(OperatorApprovalStatus.Approved, AccountStatus.Locked)]
+    [InlineData(OperatorApprovalStatus.Approved, AccountStatus.Inactive)]
+    [InlineData(OperatorApprovalStatus.PendingApproval, AccountStatus.Active)]
+    [InlineData(OperatorApprovalStatus.Rejected, AccountStatus.Active)]
+    public async Task Handle_WhenOperatorIsNotEligible_ReturnsScheduleNotFound(
+        OperatorApprovalStatus approval, AccountStatus accountStatus)
+    {
+        await using var db = TestDbContext.Create();
+        var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
+        var tour = TourBookingTestData.SeedBookableTour(2, 1_000_000m, operatorApproval: approval, operatorAccountStatus: accountStatus);
+        db.Tours.Add(tour);
+        await db.SaveChangesAsync();
+        var schedule = TourBookingTestData.SeedSchedule(tour, Now.AddDays(5), totalCapacity: 10, reservedCapacity: 0);
+        db.TourSchedules.Add(schedule);
+        await db.SaveChangesAsync();
+        var handler = new QuoteTourBookingQueryHandler(
+            db, new FakeCurrentUserService { UserId = traveler.Id, Role = nameof(UserRole.Traveler) },
+            new FakeDateTimeProvider { UtcNow = Now });
+
+        var result = await handler.Handle(
+            new QuoteTourBookingQuery(schedule.Id.ToString(), new QuoteParticipantCounts(1, 0, 0), null),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be(TourBookingErrorCodes.ScheduleNotFound);
     }
 }
