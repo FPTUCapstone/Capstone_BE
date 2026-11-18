@@ -140,18 +140,79 @@ internal sealed class CheckInAuditProjectionBackgroundService(
         if (string.IsNullOrWhiteSpace(payload)) throw new InvalidDataException("Payload missing.");
         using JsonDocument document = JsonDocument.Parse(payload);
         JsonElement root = document.RootElement;
-        if (root.GetProperty("schemaVersion").GetInt32() != CheckInAuditEvent.CurrentSchemaVersion) throw new InvalidDataException("Unsupported schema.");
-        Guid eventId = Guid.ParseExact(root.GetProperty("eventId").GetString()!, "N");
-        Guid attemptId = Guid.ParseExact(root.GetProperty("scanAttemptId").GetString()!, "N");
-        if (!Enum.TryParse(root.GetProperty("eventType").GetString(), out CheckInAuditEventType type)) throw new InvalidDataException("Invalid event type.");
-        DateTimeOffset occurred = DateTimeOffset.Parse(root.GetProperty("occurredAtUtc").GetString()!, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
-        long actor = root.GetProperty("actorUserId").GetInt64();
-        long schedule = root.GetProperty("scheduleId").GetInt64();
-        JsonElement ticketElement = root.GetProperty("ticketId");
-        long? ticket = ticketElement.ValueKind == JsonValueKind.Null ? null : ticketElement.GetInt64();
-        string? reason = root.GetProperty("reasonCode").GetString();
+        if (root.ValueKind != JsonValueKind.Object)
+            throw new InvalidDataException("Payload root must be a JSON object.");
+
+        int schemaVersion = ReadRequiredInt32(root, "schemaVersion");
+        if (schemaVersion != CheckInAuditEvent.CurrentSchemaVersion)
+            throw new InvalidDataException("Unsupported schema.");
+
+        Guid eventId = Guid.ParseExact(ReadRequiredString(root, "eventId"), "N");
+        Guid attemptId = Guid.ParseExact(ReadRequiredString(root, "scanAttemptId"), "N");
+        if (!Enum.TryParse(ReadRequiredString(root, "eventType"), out CheckInAuditEventType type))
+            throw new InvalidDataException("Invalid event type.");
+        DateTimeOffset occurred = DateTimeOffset.Parse(
+            ReadRequiredString(root, "occurredAtUtc"),
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal);
+        long actor = ReadRequiredInt64(root, "actorUserId");
+        long schedule = ReadRequiredInt64(root, "scheduleId");
+        long? ticket = ReadNullableInt64(root, "ticketId");
+        string? reason = ReadNullableString(root, "reasonCode");
         return type == CheckInAuditEventType.Rejected
-            ? CheckInAuditEvent.Rejected(eventId, attemptId, occurred, actor, schedule, ticket, reason!)
+            ? CheckInAuditEvent.Rejected(eventId, attemptId, occurred, actor, schedule, ticket, reason ?? string.Empty)
             : CheckInAuditEvent.Admission(eventId, attemptId, occurred, actor, schedule);
+    }
+
+    private static JsonElement GetRequiredProperty(JsonElement root, string name) =>
+        root.TryGetProperty(name, out JsonElement value)
+            ? value
+            : throw new InvalidDataException($"Required property '{name}' is missing.");
+
+    private static string ReadRequiredString(JsonElement root, string name)
+    {
+        JsonElement value = GetRequiredProperty(root, name);
+        if (value.ValueKind != JsonValueKind.String)
+            throw new InvalidDataException($"Property '{name}' must be a JSON string.");
+        string? text = value.GetString();
+        return string.IsNullOrWhiteSpace(text)
+            ? throw new InvalidDataException($"Property '{name}' must not be empty.")
+            : text;
+    }
+
+    private static string? ReadNullableString(JsonElement root, string name)
+    {
+        JsonElement value = GetRequiredProperty(root, name);
+        return value.ValueKind switch
+        {
+            JsonValueKind.Null => null,
+            JsonValueKind.String => value.GetString(),
+            _ => throw new InvalidDataException($"Property '{name}' must be a JSON string or null."),
+        };
+    }
+
+    private static int ReadRequiredInt32(JsonElement root, string name)
+    {
+        JsonElement value = GetRequiredProperty(root, name);
+        return value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out int parsed)
+            ? parsed
+            : throw new InvalidDataException($"Property '{name}' must be a 32-bit integer.");
+    }
+
+    private static long ReadRequiredInt64(JsonElement root, string name)
+    {
+        JsonElement value = GetRequiredProperty(root, name);
+        return value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out long parsed)
+            ? parsed
+            : throw new InvalidDataException($"Property '{name}' must be a 64-bit integer.");
+    }
+
+    private static long? ReadNullableInt64(JsonElement root, string name)
+    {
+        JsonElement value = GetRequiredProperty(root, name);
+        if (value.ValueKind == JsonValueKind.Null) return null;
+        return value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out long parsed)
+            ? parsed
+            : throw new InvalidDataException($"Property '{name}' must be a 64-bit integer or null.");
     }
 }

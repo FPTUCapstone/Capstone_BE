@@ -117,6 +117,46 @@ public sealed class CheckInAuditProjectionSqlServerTests
                 "a semantic conflict must never be acknowledged");
     }
 
+    [SqlServerRedisFact]
+    public async Task MalformedPoisonEntries_RemainPendingInRedis_WhileHealthyRejectionsProjectToSqlServer()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await SeedActorAsync(database);
+        await using var redis = await RedisTestFixture.CreateAsync();
+        await using var multiplexer = await redis.CreateIndependentMultiplexerAsync();
+        string prefix = redis.CreateUniquePrefix();
+        CheckInAuditJournalOptions options = Options(prefix);
+        await using var connection = new CheckInAuditRedisConnection(multiplexer, ownsMultiplexer: false);
+        var journal = new RedisCheckInAuditJournal(connection, options);
+
+        await connection.Database.StreamAddAsync(options.RejectionStreamKey, [new NameValueEntry("payload", "{\"schemaVersion\":1}")]);
+        await connection.Database.StreamAddAsync(options.RejectionStreamKey, [new NameValueEntry("payload", "{\"schemaVersion\":\"bad\"}")]);
+        await connection.Database.StreamAddAsync(options.RejectionStreamKey, [new NameValueEntry("payload", "[1,2]")]);
+        CheckInAuditEvent healthy = Rejection(201);
+        (await journal.AppendAsync(healthy, CancellationToken.None)).Should().Be(CheckInAuditWriteResult.Confirmed);
+
+        await connection.Database.StreamCreateConsumerGroupAsync(
+            options.RejectionStreamKey, options.ConsumerGroup, "0-0", createStream: true);
+
+        await using DependencyInjectionServiceProvider provider = Services(database.ConnectionString);
+        var metrics = new CheckInAuditJournalMetrics();
+        var worker = Worker(connection, options, provider, metrics);
+
+        (await worker.ProcessBatchAsync(CancellationToken.None)).Should().Be(1);
+        metrics.Projected.Should().Be(1);
+        metrics.Conflicts.Should().Be(3);
+        metrics.ProjectionFailures.Should().Be(0);
+        (await connection.Database.StreamPendingAsync(options.RejectionStreamKey, options.ConsumerGroup))
+            .PendingMessageCount.Should().Be(3);
+        (await connection.Database.StreamLengthAsync(options.RejectionStreamKey))
+            .Should().Be(4, "no poison or projected entries may be deleted or trimmed");
+
+        await using ApplicationDbContext verification = database.CreateDbContext();
+        AuditLog persisted = await verification.AuditLogs.SingleAsync(row => row.JournalEventId == healthy.EventId);
+        persisted.ScanAttemptId.Should().Be(healthy.ScanAttemptId);
+        persisted.Reason.Should().Be(healthy.ReasonCode);
+    }
+
     private static CheckInAuditProjectionBackgroundService Worker(
         CheckInAuditRedisConnection connection,
         CheckInAuditJournalOptions options,

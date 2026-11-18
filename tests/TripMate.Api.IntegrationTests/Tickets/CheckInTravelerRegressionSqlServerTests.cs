@@ -255,6 +255,50 @@ public sealed class CheckInTravelerRegressionSqlServerTests
         await AssertUsedAsync(database, ticketId, replacement.Id);
     }
 
+    [SqlServerFact]
+    public async Task CancelCommitsWhileScanWaitsForTransaction_ScanRejectsBookingCancelledAndLeavesTicketUnused()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var (seed, ticketId, qr) = await SeedAsync(database);
+        var barrier = new PauseFirstTicketRead();
+        var journal = new StubAuditJournal();
+        await using var scanContext = database.CreateDbContext(barrier);
+        var scan = Handler(scanContext, seed, journal).Handle(
+            new CheckInTravelerCommand(seed.ScheduleId, QrContent: Codec().ContentFor(qr.QrToken, qr.Signature)),
+            CancellationToken.None);
+        try
+        {
+            await barrier.Reached.Task.WaitAsync(TimeSpan.FromSeconds(15));
+            await database.ExecuteNonQueryAsync($"""
+                UPDATE commerce.Bookings
+                SET status = 'Cancelled'
+                WHERE booking_id = (SELECT booking_id FROM commerce.Tickets WHERE ticket_id = {ticketId});
+                UPDATE commerce.Tickets
+                SET status = 'Cancelled'
+                WHERE ticket_id = {ticketId};
+                UPDATE commerce.TicketQrCodes
+                SET status = 'Revoked'
+                WHERE qr_code_id = {qr.Id};
+                """);
+        }
+        finally
+        {
+            barrier.Release.TrySetResult();
+        }
+
+        var rejected = await scan.WaitAsync(TimeSpan.FromSeconds(30));
+        rejected.ErrorCode.Should().Be(CheckInErrorCodes.BookingCancelled);
+        await using var verification = database.CreateDbContext();
+        var persistedTicket = await verification.Tickets.AsNoTracking().SingleAsync(t => t.Id == ticketId);
+        persistedTicket.Status.Should().Be(TicketStatus.Cancelled);
+        persistedTicket.CheckedInAtUtc.Should().BeNull();
+        (await verification.CheckInLogs.CountAsync(l => l.TicketId == ticketId && l.ScanResult == CheckInScanResult.Success))
+            .Should().Be(0);
+        journal.Events.Should().ContainSingle(e =>
+            e.EventType == CheckInAuditEventType.Rejected
+            && e.ReasonCode == CheckInErrorCodes.BookingCancelled);
+    }
+
     private static async Task<(TicketSqlServerSeed Seed, long TicketId, TicketQrCode Qr)> SeedAsync(SqlServerTestDatabase database)
     {
         var seed = await TicketSqlServerSeed.CreateAsync(database, Departure);

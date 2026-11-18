@@ -159,6 +159,75 @@ public sealed class CheckInAuditProjectionRedisTests
             .Should().Be(1);
     }
 
+    [RedisFact]
+    public async Task MalformedPoisonEntries_RemainPendingAndDoNotBlockHealthyEventsInSameOrLaterBatch()
+    {
+        await using var fixture = await RedisTestFixture.CreateAsync();
+        await using var multiplexer = await fixture.CreateIndependentMultiplexerAsync();
+        string prefix = fixture.CreateUniquePrefix();
+        CheckInAuditJournalOptions options = Options(prefix);
+        options.ProjectionBatchSize = 10;
+        options.PendingLease = TimeSpan.FromMilliseconds(10);
+        await using var connection = new CheckInAuditRedisConnection(multiplexer, ownsMultiplexer: false);
+        var journal = new RedisCheckInAuditJournal(connection, options);
+
+        // Inject diverse poison/malformed entries directly into the rejection stream.
+        await connection.Database.StreamAddAsync(options.RejectionStreamKey, [new StackExchange.Redis.NameValueEntry("other", "missing-payload")]);
+        await connection.Database.StreamAddAsync(options.RejectionStreamKey, [new StackExchange.Redis.NameValueEntry("payload", "{not-json")]);
+        await connection.Database.StreamAddAsync(options.RejectionStreamKey, [new StackExchange.Redis.NameValueEntry("payload", "[1,2,3]")]);
+        await connection.Database.StreamAddAsync(options.RejectionStreamKey, [new StackExchange.Redis.NameValueEntry("payload", "{\"schemaVersion\":1}")]);
+        await connection.Database.StreamAddAsync(options.RejectionStreamKey, [new StackExchange.Redis.NameValueEntry("payload", "{\"schemaVersion\":\"1\",\"actorUserId\":\"abc\"}")]);
+        await connection.Database.StreamAddAsync(options.RejectionStreamKey, [new StackExchange.Redis.NameValueEntry("payload",
+            $"{{\"eventId\":\"{Guid.NewGuid():N}\",\"scanAttemptId\":\"{Guid.NewGuid():N}\",\"eventType\":\"Admission\",\"occurredAtUtc\":\"2026-11-05T01:02:03Z\",\"actorUserId\":7,\"scheduleId\":9,\"ticketId\":null,\"reasonCode\":null,\"schemaVersion\":1}}")]);
+
+        var healthyOne = CheckInAuditEvent.Rejected(
+            Guid.NewGuid(), Guid.NewGuid(), DateTimeOffset.Parse("2026-11-05T03:00:00Z"),
+            7, 9, 1001, "checkin.invalid_qr");
+        var healthyTwo = CheckInAuditEvent.Rejected(
+            Guid.NewGuid(), Guid.NewGuid(), DateTimeOffset.Parse("2026-11-05T03:01:00Z"),
+            7, 9, 1002, "checkin.already_used");
+        (await journal.AppendAsync(healthyOne, CancellationToken.None)).Should().Be(CheckInAuditWriteResult.Confirmed);
+        (await journal.AppendAsync(healthyTwo, CancellationToken.None)).Should().Be(CheckInAuditWriteResult.Confirmed);
+
+        await connection.Database.StreamCreateConsumerGroupAsync(
+            options.RejectionStreamKey, options.ConsumerGroup, "0-0", createStream: true);
+
+        await using var provider = Services(prefix).BuildServiceProvider();
+        var metrics = new CheckInAuditJournalMetrics();
+        var worker = new CheckInAuditProjectionBackgroundService(
+            connection, options, provider.GetRequiredService<IServiceScopeFactory>(), metrics,
+            NullLogger<CheckInAuditProjectionBackgroundService>.Instance);
+
+        (await worker.ProcessBatchAsync(CancellationToken.None)).Should().Be(2);
+        metrics.Projected.Should().Be(2);
+        metrics.Conflicts.Should().Be(6);
+        metrics.ProjectionFailures.Should().Be(0);
+        (await connection.Database.StreamPendingAsync(options.RejectionStreamKey, options.ConsumerGroup))
+            .PendingMessageCount.Should().Be(6, "malformed poison entries must stay pending for investigation");
+        (await connection.Database.StreamLengthAsync(options.RejectionStreamKey))
+            .Should().Be(8, "no unauthorized deletion or trimming is allowed");
+
+        // Wait past PendingLease so poison entries are reclaimed, and add another healthy event.
+        await Task.Delay(30);
+        var healthyThree = CheckInAuditEvent.Rejected(
+            Guid.NewGuid(), Guid.NewGuid(), DateTimeOffset.Parse("2026-11-05T03:02:00Z"),
+            7, 9, 1003, "checkin.wrong_schedule");
+        (await journal.AppendAsync(healthyThree, CancellationToken.None)).Should().Be(CheckInAuditWriteResult.Confirmed);
+
+        (await worker.ProcessBatchAsync(CancellationToken.None)).Should().Be(1);
+        metrics.Projected.Should().Be(3);
+        metrics.ProjectionFailures.Should().Be(0);
+        (await connection.Database.StreamPendingAsync(options.RejectionStreamKey, options.ConsumerGroup))
+            .PendingMessageCount.Should().Be(6);
+
+        await using AsyncServiceScope verificationScope = provider.CreateAsyncScope();
+        var verificationDb = (ApplicationDbContext)verificationScope.ServiceProvider.GetRequiredService<IApplicationDbContext>();
+        (await verificationDb.AuditLogs.CountAsync(row =>
+            row.JournalEventId == healthyOne.EventId
+            || row.JournalEventId == healthyTwo.EventId
+            || row.JournalEventId == healthyThree.EventId)).Should().Be(3);
+    }
+
     private static ServiceCollection Services(string databaseName)
     {
         var dbOptions = new DbContextOptionsBuilder<ApplicationDbContext>()
