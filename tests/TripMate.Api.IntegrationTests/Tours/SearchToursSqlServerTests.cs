@@ -11,8 +11,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Tours.Search;
-using TripMate.Infrastructure.Persistence;
 using TripMate.Domain.Entities;
+using TripMate.Infrastructure.Persistence;
 
 namespace TripMate.Api.IntegrationTests.Tours;
 
