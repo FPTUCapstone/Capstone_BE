@@ -557,6 +557,7 @@ public static class DependencyInjection
         services.Configure<ReviewTranslationOptions>(configuration.GetSection(ReviewTranslationOptions.SectionName));
         services.AddHttpClient<IReviewTranslator, GeminiReviewTranslator>();
         services.Configure<EmailOptions>(configuration.GetSection(EmailOptions.SectionName));
+        services.Configure<GmailApiOptions>(configuration.GetSection(GmailApiOptions.SectionName));
         services.Configure<PasswordResetSecurityOptions>(configuration.GetSection(PasswordResetSecurityOptions.SectionName));
         services.AddTicketQr(configuration);
         services.AddSingleton<ITicketQrPersistenceErrorClassifier, SqlServerTicketQrPersistenceErrorClassifier>();
@@ -601,10 +602,28 @@ public static class DependencyInjection
         services.AddScoped<IPasswordResetEligibilityResolver, PasswordResetEligibilityResolver>();
         services.AddSingleton<ISmtpTransportFactory, MailKitSmtpClientFactory>();
         services.AddScoped<SmtpEmailSender>();
-        services.AddScoped<IEmailSender>(sp => sp.GetRequiredService<SmtpEmailSender>());
-        services.AddScoped<IEmailVerificationSender>(sp => sp.GetRequiredService<SmtpEmailSender>());
+        services.AddHttpClient<GmailRestEmailSender>();
+        services.AddScoped<IEmailSender>(sp =>
+        {
+            var gmailOptions = sp.GetRequiredService<IOptions<GmailApiOptions>>().Value;
+            return gmailOptions.IsConfigured
+                ? sp.GetRequiredService<GmailRestEmailSender>()
+                : sp.GetRequiredService<SmtpEmailSender>();
+        });
+        services.AddScoped<IEmailVerificationSender>(sp =>
+        {
+            var gmailOptions = sp.GetRequiredService<IOptions<GmailApiOptions>>().Value;
+            return gmailOptions.IsConfigured
+                ? sp.GetRequiredService<GmailRestEmailSender>()
+                : sp.GetRequiredService<SmtpEmailSender>();
+        });
         services.AddScoped<IUserAdministrationNotificationEmailSender>(sp =>
-            sp.GetRequiredService<SmtpEmailSender>());
+        {
+            var gmailOptions = sp.GetRequiredService<IOptions<GmailApiOptions>>().Value;
+            return gmailOptions.IsConfigured
+                ? sp.GetRequiredService<GmailRestEmailSender>()
+                : sp.GetRequiredService<SmtpEmailSender>();
+        });
         services.AddSingleton<IEmailVerificationResendCooldown, EmailVerificationResendCooldown>();
         services.AddSingleton<FirebaseEmailVerificationLinkService>();
         services.AddSingleton<IEmailVerificationLinkService>(sp =>

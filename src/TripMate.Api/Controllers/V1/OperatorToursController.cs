@@ -218,9 +218,12 @@ public sealed class OperatorToursController(ISender sender) : ApiControllerBase(
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status422UnprocessableEntity)]
-    public async Task<IActionResult> SubmitForReview(long tourId, CancellationToken cancellationToken)
+    public async Task<IActionResult> SubmitForReview(long tourId,
+        [FromBody(EmptyBodyBehavior = Microsoft.AspNetCore.Mvc.ModelBinding.EmptyBodyBehavior.Allow)] SubmitTourForReviewRequest? request,
+        CancellationToken cancellationToken)
     {
-        var result = await Sender.Send(new SubmitTourForReviewCommand(tourId), cancellationToken);
+        var result = await Sender.Send(new SubmitTourForReviewCommand(tourId, request?.SubmissionNote), cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 }
+public sealed record SubmitTourForReviewRequest(string? SubmissionNote);

@@ -1,13 +1,10 @@
 using System.ComponentModel.DataAnnotations;
-using System.Globalization;
-using System.Security.Claims;
 using System.Text.Json.Serialization;
 
 using MediatR;
 
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 using TripMate.Api.Authorization;
 using TripMate.Api.Common;
@@ -22,11 +19,12 @@ namespace TripMate.Api.Controllers.V1;
 
 [Authorize(Policy = UserRoleExtensions.StaffOrAdministrator)]
 [Route("api/v1/admin/users")]
-public sealed class AdminUserAccountsController(ISender sender) : ApiControllerBase(sender)
+public sealed class AdminUserAccountsController(ISender sender, ICurrentUserService currentUser, IAuditFailureRecorder failures) : ApiControllerBase(sender)
 {
     public const string UserIdRouteValueName = "userId";
 
     [HttpGet]
+    [ForbiddenProblemDetails(UserAccountErrors.Forbidden, "Access denied.")]
     [ProducesResponseType<UserAccountPageDto>(StatusCodes.Status200OK)]
     public async Task<IActionResult> List([FromQuery] ListUserAccountsQuery query, CancellationToken ct)
     {
@@ -36,6 +34,7 @@ public sealed class AdminUserAccountsController(ISender sender) : ApiControllerB
     }
 
     [HttpGet("{userId:long}")]
+    [ForbiddenProblemDetails(UserAccountErrors.Forbidden, "Access denied.")]
     [ProducesResponseType<UserAccountDetailDto>(StatusCodes.Status200OK)]
     public async Task<IActionResult> Detail(long userId, CancellationToken ct)
     {
@@ -70,51 +69,16 @@ public sealed class AdminUserAccountsController(ISender sender) : ApiControllerB
 
         if (!string.IsNullOrWhiteSpace(idempotencyKey))
         {
-            if (!User.IsInRole(nameof(UserRole.Administrator)))
-            {
-                var actorIdStr = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-                long.TryParse(actorIdStr, NumberStyles.None, CultureInfo.InvariantCulture, out var actorId);
-                var recorder = HttpContext.RequestServices.GetService<IAuditFailureRecorder>();
-                if (recorder != null)
-                {
-                    await recorder.RecordAsync(new AuditFailureEvent(
-                        actorId > 0 ? actorId : null,
-                        AuditActionTypes.UserUnlock,
-                        AuditEntityTypes.User,
-                        userId > 0 ? userId : null,
-                        AuthorizationAuditErrorCodes.Forbidden));
-                }
-
-                return Forbid();
-            }
-
             var result = await Sender.Send(
                 new UnlockUserAccountCommand(userId, request.Reason, idempotencyKey),
                 ct);
-            return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
-        }
-
-        if (User.IsInRole(nameof(UserRole.Administrator)))
-        {
-            var db = HttpContext.RequestServices.GetRequiredService<IApplicationDbContext>();
-            var targetRole = await db.Users.AsNoTracking()
-                .Where(u => u.Id == userId)
-                .Select(u => (UserRole?)u.Role)
-                .SingleOrDefaultAsync(ct);
-
-            if (targetRole != UserRole.Staff)
+            if (result.ErrorCode is UserAdministrationErrorCodes.Forbidden or UserAdministrationErrorCodes.NotFound)
             {
-                var problem = new ValidationProblemDetails(new Dictionary<string, string[]>
-                {
-                    ["Idempotency-Key"] = ["The Idempotency-Key header is required."]
-                })
-                {
-                    Status = StatusCodes.Status400BadRequest,
-                    Title = "One or more validation errors occurred."
-                };
-                problem.Extensions["errorCode"] = UserAdministrationErrorCodes.RequestInvalid;
-                return BadRequest(problem);
+                await failures.RecordAsync(new AuditFailureEvent(currentUser.UserId, AuditActionTypes.UserUnlock,
+                    AuditEntityTypes.User, userId > 0 ? userId : null, result.ErrorCode));
             }
+
+            return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
         }
 
         return await Moderate(userId, request, false, ct);

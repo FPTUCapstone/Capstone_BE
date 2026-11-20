@@ -249,11 +249,24 @@ public sealed class CheckInTravelerCommandHandler(
                     var checkInResult = await dbContext.ExecuteInSerializableTransactionAsync(async txToken =>
                     {
                         var ticket = await dbContext.Tickets
+                            .Include(t => t.Booking)
                             .Where(t => t.Id == ticketId)
                             .SingleOrDefaultAsync(txToken);
 
                         if (ticket is null)
                             return new CheckInTransactionOutcome();
+
+                        // Per SRS BR-86, concurrent booking cancellation (UC-41 / emergency stop)
+                        // transitions both the booking and its ticket to Cancelled; map either signal
+                        // inside the serializable transaction to BookingCancelled rather than generic
+                        // TicketInvalid while keeping pre-check TicketInvalid for other non-valid states.
+                        if (ticket.Booking?.Status == BookingStatus.Cancelled || ticket.Status == TicketStatus.Cancelled)
+                            return new CheckInTransactionOutcome(BookingCancelled: true);
+
+                        if (ticket.Booking is not null
+                            && (ticket.Booking.Status != BookingStatus.Confirmed
+                                || ticket.Booking.PaymentStatus != PaymentStatus.Paid))
+                            return new CheckInTransactionOutcome(BookingNotConfirmed: true);
 
                         if (ticket.Status == TicketStatus.Used)
                             return new CheckInTransactionOutcome(AlreadyUsed: true, CheckedInAt: ticket.CheckedInAtUtc);
@@ -310,6 +323,22 @@ public sealed class CheckInTravelerCommandHandler(
                             nowUtc,
                             progress));
                     }, cancellationToken);
+
+                    if (checkInResult.BookingCancelled)
+                    {
+                        return await RejectAsync(
+                            scanAttemptId, operatorId, request.ScheduleId, ticketId, nowUtc,
+                            CheckInErrorCodes.BookingCancelled,
+                            "The booking for this ticket has been cancelled.");
+                    }
+
+                    if (checkInResult.BookingNotConfirmed)
+                    {
+                        return await RejectAsync(
+                            scanAttemptId, operatorId, request.ScheduleId, ticketId, nowUtc,
+                            CheckInErrorCodes.BookingNotConfirmed,
+                            "The booking is not confirmed and paid.");
+                    }
 
                     if (checkInResult.InvalidQr)
                     {
@@ -379,6 +408,8 @@ public sealed class CheckInTravelerCommandHandler(
         bool AlreadyUsed = false,
         DateTimeOffset? CheckedInAt = null,
         bool InvalidQr = false,
+        bool BookingCancelled = false,
+        bool BookingNotConfirmed = false,
         CheckInResultDto? Result = null);
 
     private async Task<string> ResolvePassengerNameAsync(
