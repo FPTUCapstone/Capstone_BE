@@ -204,15 +204,18 @@ public sealed class ItineraryScheduleEvaluatorTests
         ItineraryScheduleEvaluator.IsRestOnlyCandidate(sheltered).Should().BeFalse();
     }
 
-    [Fact]
-    public void Evaluate_WhenTheNearestRestCandidateWasAlreadyVisited_PicksAnotherRestStop()
+    [Theory]
+    [InlineData(RestPreference.Auto, false)]
+    [InlineData(RestPreference.Frequent, true)]
+    public void Evaluate_AfterDining_NeverReusesTheMealAsAnAutomaticRest(RestPreference preference, bool needsLaterRest)
     {
         var (baseInput, _) = OptionalRouteOptimizationScenarios.CreateZigzagScenario();
         var visitedCafe = OptionalRouteOptimizationScenarios.CreateCandidate(1, "Cafe the traveler added", visitDurationMinutes: 160, cost: 20_000m, effectiveDesirabilityScore: 1.0m) with
         {
             CategoryName = PoiCategoryNames.FoodAndDrink,
+            HasShelter = true,
         };
-        var museum = OptionalRouteOptimizationScenarios.CreateCandidate(2, "Museum", visitDurationMinutes: 60, cost: 20_000m, effectiveDesirabilityScore: 1.0m);
+        var museum = OptionalRouteOptimizationScenarios.CreateCandidate(2, "Museum", visitDurationMinutes: 150, cost: 20_000m, effectiveDesirabilityScore: 1.0m);
         var cafe = OptionalRouteOptimizationScenarios.CreateCandidate(3, "Cafe", visitDurationMinutes: 30, cost: 20_000m, effectiveDesirabilityScore: 0.5m) with
         {
             CategoryName = PoiCategoryNames.FoodAndDrink,
@@ -234,14 +237,19 @@ public sealed class ItineraryScheduleEvaluatorTests
             AvailableMinutes = 600,
             Candidates = candidates,
             MandatoryPoiIds = [2L],
-            RestPreference = RestPreference.Auto,
+            RestPreference = preference,
         };
 
-        // A cafe the traveler added as a visit is still a rest place, and it is the nearest one right after its own visit.
+        // Dining satisfies Auto rest. Frequent may need a later rest, but must never reuse the explicit meal POI.
         var evaluated = _evaluator.Evaluate(input, [visitedCafe, museum], matrix, candidates, indexMap);
 
         evaluated.Should().NotBeNull();
-        evaluated!.Plan.Items.Single(it => it.Kind == ItineraryItemKind.Rest).PointOfInterestId.Should().Be(3L);
+        evaluated!.Plan.Items.Any(it => it.Kind == ItineraryItemKind.Rest).Should().Be(needsLaterRest);
+        evaluated.Plan.Items.Should().NotContain(it => it.Kind == ItineraryItemKind.Rest && it.PointOfInterestId == 1L);
+        if (needsLaterRest)
+        {
+            evaluated.Plan.Items.Single(it => it.Kind == ItineraryItemKind.Rest).PointOfInterestId.Should().Be(3L);
+        }
         var validate = () => new GeneratedItineraryInvariantValidator().Validate(input, matrix, candidates, evaluated.Plan);
         validate.Should().NotThrow();
     }

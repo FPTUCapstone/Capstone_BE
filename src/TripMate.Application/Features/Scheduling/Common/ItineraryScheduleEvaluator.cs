@@ -18,6 +18,7 @@ public sealed class ItineraryScheduleEvaluator(SchedulingGenerationOptions? opti
 {
     private const int AutoRestThresholdMinutes = 150;
     private const int RestDurationMinutes = 30;
+    public const int MaxDiningRestApproachMinutes = 15;
     private const int OpeningLookaheadDays = 7;
     private readonly SchedulingGenerationOptions _options = options ?? new SchedulingGenerationOptions();
 
@@ -38,6 +39,7 @@ public sealed class ItineraryScheduleEvaluator(SchedulingGenerationOptions? opti
 
         var currentTime = input.StartAtUtc;
         var continuousMinutes = 0;
+        var restCount = 0;
         var totalCost = 0m;
         var totalMatrixTravelMinutes = 0;
         var items = new List<GeneratedItineraryItem>(sequence.Count * 2);
@@ -91,10 +93,18 @@ public sealed class ItineraryScheduleEvaluator(SchedulingGenerationOptions? opti
                 isMandatoryStop ? "Mandatory location" : "Suggested nearby location"));
 
             continuousMinutes += candidate.VisitDurationMinutes;
+            if (IsDiningRest(candidate, currentTime, input.TimeZone))
+            {
+                continuousMinutes = 0;
+                restCount++;
+            }
             currentTime = departureTime;
             previousIndex = candidateIndex;
 
-            if (NeedsRest(input, continuousMinutes, items.Count(item => item.Kind == ItineraryItemKind.Rest)))
+            var nextVisit = sequenceIndex + 1 < sequence.Count ? sequence[sequenceIndex + 1] : null;
+            if (NeedsRest(input, continuousMinutes, restCount)
+                && !CanDeferRestToDining(nextVisit, currentTime,
+                    nextVisit is null ? 0 : matrix.GetMinutes(previousIndex, candidateMatrixIndices[nextVisit.Id]), input))
             {
                 var nextIndex = sequenceIndex + 1 < sequence.Count
                     ? candidateMatrixIndices[sequence[sequenceIndex + 1].Id]
@@ -108,7 +118,8 @@ public sealed class ItineraryScheduleEvaluator(SchedulingGenerationOptions? opti
                     nextIndex,
                     currentTime,
                     matrix,
-                    items);
+                    items,
+                    plannedVisits: sequence);
 
                 if (restCandidate is not null)
                 {
@@ -150,6 +161,7 @@ public sealed class ItineraryScheduleEvaluator(SchedulingGenerationOptions? opti
                 }
 
                 continuousMinutes = 0;
+                restCount++;
             }
         }
 
@@ -231,6 +243,33 @@ public sealed class ItineraryScheduleEvaluator(SchedulingGenerationOptions? opti
             _ => false,
         };
 
+    /// <summary>An explicit dining stop can satisfy rest without losing its visit cost or editing identity.</summary>
+    public static bool IsDiningRest(GenerationCandidate candidate, DateTimeOffset arrival, TimeZoneInfo timeZone)
+    {
+        if (candidate.VisitDurationMinutes < RestDurationMinutes
+            || !PoiCategoryNames.IsFoodAndDrink(candidate.CategoryName)) return false;
+        if (candidate.HasShelter || candidate.IndoorOutdoor == IndoorOutdoorType.Indoor) return true;
+
+        var localArrival = TimeZoneInfo.ConvertTime(arrival, timeZone).DateTime;
+        var localDeparture = localArrival.AddMinutes(candidate.VisitDurationMinutes);
+        for (var day = localArrival.Date; day <= localDeparture.Date; day = day.AddDays(1))
+        {
+            if (localArrival < day.AddHours(14).AddMinutes(30) && localDeparture > day.AddHours(11)) return false;
+        }
+        return true;
+    }
+
+    public bool CanDeferRestToDining(GenerationCandidate? next, DateTimeOffset currentTime,
+        int travelMinutes, GenerationInput input)
+    {
+        if (next is null || !PoiCategoryNames.IsFoodAndDrink(next.CategoryName)) return false;
+        var arrival = AlignToOpeningHours(currentTime.AddMinutes(travelMinutes + _options.TransitionBufferMinutes), next, input.TimeZone);
+        return arrival != DateTimeOffset.MinValue
+            && arrival <= currentTime.AddMinutes(MaxDiningRestApproachMinutes)
+            && IsDiningRest(next, arrival, input.TimeZone)
+            && FitsOpeningHours(arrival, arrival.AddMinutes(next.VisitDurationMinutes), next, input.TimeZone);
+    }
+
     /// <summary>True when <paramref name="poiId"/> is a visit among <paramref name="items"/> (a short list; no allocation).</summary>
     public static bool WasVisited(IReadOnlyList<GeneratedItineraryItem> items, long poiId)
     {
@@ -250,6 +289,7 @@ public sealed class ItineraryScheduleEvaluator(SchedulingGenerationOptions? opti
     /// not suggested again as the rest stop.
     /// </param>
     /// <param name="visitingPoiId">A visit just placed but not yet in <paramref name="itemsSoFar"/>.</param>
+    /// <param name="plannedVisits">All visits in this route, including those not yet reached.</param>
     public GenerationCandidate? FindQualifiedRestCandidate(
         IReadOnlyList<GenerationCandidate> candidates,
         IReadOnlyDictionary<long, int> candidateMatrixIndices,
@@ -259,13 +299,15 @@ public sealed class ItineraryScheduleEvaluator(SchedulingGenerationOptions? opti
         DateTimeOffset currentTime,
         RouteDurationMatrix matrix,
         IReadOnlyList<GeneratedItineraryItem> itemsSoFar,
-        long? visitingPoiId = null)
+        long? visitingPoiId = null,
+        IReadOnlyList<GenerationCandidate>? plannedVisits = null)
     {
         return candidates
             .Where(candidate =>
                 !input.MandatoryPoiIds.Contains(candidate.Id)
                 && IsQualifiedRestCandidate(candidate)
                 && candidate.Id != visitingPoiId
+                && !IsPlannedVisit(plannedVisits, candidate.Id)
                 && !WasVisited(itemsSoFar, candidate.Id)
                 && RestDetourMinutes(matrix, previousIndex, candidateMatrixIndices[candidate.Id], nextIndex)
                     <= MaxRestDetourMinutes)
@@ -323,6 +365,16 @@ public sealed class ItineraryScheduleEvaluator(SchedulingGenerationOptions? opti
                 != UnicodeCategory.NonSpacingMark)
             .ToArray())
             .ToLowerInvariant();
+
+    private static bool IsPlannedVisit(IReadOnlyList<GenerationCandidate>? visits, long poiId)
+    {
+        if (visits is null) return false;
+        for (var i = 0; i < visits.Count; i++)
+        {
+            if (visits[i].Id == poiId) return true;
+        }
+        return false;
+    }
 
     /// <summary>A rest stop may add at most this many minutes over going straight to the next stop.</summary>
     public const int MaxRestDetourMinutes = 10;
