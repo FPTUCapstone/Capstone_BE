@@ -12,11 +12,49 @@ using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Tours.Search;
 using TripMate.Infrastructure.Persistence;
+using TripMate.Domain.Entities;
 
 namespace TripMate.Api.IntegrationTests.Tours;
 
 public sealed class SearchToursSqlServerTests
 {
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Search_BookableOnly_FiltersBeforePaginationAndSelectsLaterValidSchedule()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await SeedVisibilityScenarioAsync(database);
+        long poiId;
+        await using (var seed = database.CreateDbContext())
+        {
+            var category = PoiCategory.Create("Booking eligibility", null);
+            seed.PoiCategories.Add(category);
+            var poi = PointOfInterest.Create(category, "Eligible stop", 15.88m, 108.33m, 101, Now);
+            seed.PointsOfInterest.Add(poi);
+            await seed.SaveChangesAsync();
+            poiId = poi.Id;
+        }
+        await database.ExecuteNonQueryAsync($"""
+            INSERT commerce.TourItineraryItems(tour_id,day_no,sequence_no,poi_id,planned_time,stay_duration_minutes)
+            VALUES(9007199254740993,1,1,{poiId},'10:00',60),(108,1,1,{poiId},'10:00',60);
+            """);
+        await using var context = database.CreateDbContext();
+        var handler = CreateHandler(context);
+        var first = (await handler.Handle(new SearchToursQuery(PageSize: 1, BookableOnly: true), CancellationToken.None)).Value;
+        first.TotalCount.Should().Be(1);
+        first.TotalPages.Should().Be(1);
+        first.Items.Single().RepresentativeScheduleId.Should().Be("7002");
+        first.Items.Single().AvailabilityStatus.Should().Be("available");
+        var second = (await handler.Handle(new SearchToursQuery(Page: 2, PageSize: 1, BookableOnly: true), CancellationToken.None)).Value;
+        second.TotalCount.Should().Be(1);
+        second.Items.Should().BeEmpty();
+        var fullDate = (await handler.Handle(new SearchToursQuery(DepartureDate: new DateOnly(2026, 9, 19), BookableOnly: true), CancellationToken.None)).Value;
+        fullDate.TotalCount.Should().Be(0);
+        await database.ExecuteNonQueryAsync("UPDATE commerce.TourItineraryItems SET planned_time = NULL;");
+        var invalid = (await handler.Handle(new SearchToursQuery(BookableOnly: true), CancellationToken.None)).Value;
+        invalid.TotalCount.Should().Be(0);
+    }
+
     private static readonly DateTimeOffset Now = new(
         2026,
         9,

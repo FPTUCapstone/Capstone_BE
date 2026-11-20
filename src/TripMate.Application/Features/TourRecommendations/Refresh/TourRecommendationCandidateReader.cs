@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
+using TripMate.Application.Features.Traveler.Bookings.Common;
 using TripMate.Application.Features.Tours.Shared;
 using TripMate.Domain.Enums;
 
@@ -72,6 +73,10 @@ internal sealed class TourRecommendationCandidateReader(IApplicationDbContext db
                     tour.Title,
                     tour.BasePrice,
                     tour.DurationDays,
+                    tour.TimeZoneId,
+                    Stops = tour.ItineraryItems.Select(stop => new BookedTourStopInput(
+                        stop.DayNo, stop.SequenceNo, stop.PoiId, stop.PlannedTime,
+                        stop.StayDurationMinutes, stop.Notes)).ToArray(),
                     OperatorName = tour.OperatorProfile.CompanyName,
                     Category = tour.Category == null ? null : tour.Category.Name,
                     Destinations = tour.Destinations
@@ -112,9 +117,20 @@ internal sealed class TourRecommendationCandidateReader(IApplicationDbContext db
                 yield break;
             }
 
-            var batch = rows.Select(row =>
+            var batch = rows
+                .Select(row => new
+                {
+                    Row = row,
+                    Schedules = row.Schedules.Where(schedule =>
+                        BookedTourItineraryTimeline.Plan(row.Stops, row.TimeZoneId,
+                            schedule.StartAtUtc, schedule.EndAtUtc).Stops is not null).ToArray(),
+                })
+                .Where(candidate => candidate.Schedules.Length > 0)
+                .Select(candidate =>
             {
-                var representative = SelectRepresentativeSchedule(row.Schedules, startDate, endDate)!;
+                var row = candidate.Row;
+                var representative = SelectRepresentativeSchedule(
+                    candidate.Schedules, startDate, endDate)!;
                 string[] interestTokens = row.PoiCategories
                     .Concat(row.PoiTags)
                     .Concat(row.Category is null ? [] : [row.Category])
