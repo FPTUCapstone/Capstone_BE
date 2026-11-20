@@ -39,6 +39,8 @@ public sealed class SearchToursEndpointTests
     [Theory]
     [InlineData("page=", "page")]
     [InlineData("page=abc", "page")]
+    [InlineData("bookableOnly=invalid", "bookableOnly")]
+    [InlineData("bookableOnly=true&bookableOnly=false", "bookableOnly")]
     [InlineData("departureDate=2026-09-20T00%3A00%3A00Z", "departureDate")]
     [InlineData("minPrice=1.5", "minPrice")]
     [InlineData("page=1&page=2", "page")]
@@ -72,7 +74,7 @@ public sealed class SearchToursEndpointTests
         using var response = await client.GetAsync(
             "/api/v1/tours?keyword=Hue&destination=Hue&startDate=2026-09-20"
             + "&endDate=2026-09-21&minPrice=0&maxPrice=9999999999"
-            + "&durationDays=2&minimumRating=4.5&sort=rating&page=1&pageSize=20");
+            + "&durationDays=2&minimumRating=4.5&sort=rating&page=1&pageSize=20&bookableOnly=true");
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         response.Headers.CacheControl!.NoStore.Should().BeTrue();

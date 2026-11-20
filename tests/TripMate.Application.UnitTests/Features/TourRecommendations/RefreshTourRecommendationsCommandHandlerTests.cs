@@ -46,7 +46,8 @@ public sealed class RefreshTourRecommendationsCommandHandlerTests
             8,
             TourStatus.Published,
             "Tour 11",
-            [(Now.AddDays(10), 10, 1_000_000m)]);
+            [(Now.AddDays(10), 10, 1_000_000m)],
+            stops: [(1, 1, 100L)]);
         var rejectedTour = await PublicTourTestData.AddTourAsync(
             db,
             8,

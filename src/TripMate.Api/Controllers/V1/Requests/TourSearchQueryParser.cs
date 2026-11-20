@@ -26,6 +26,7 @@ internal static class TourSearchQueryParser
         "sort",
         "page",
         "pageSize",
+        SearchToursQuery.BookableOnlyParameterName,
     ],
         StringComparer.Ordinal);
 
@@ -61,6 +62,10 @@ internal static class TourSearchQueryParser
         TryReadSingle(source, modelState, "sort", out var sort);
         var page = ParseInt32(source, modelState, "page") ?? 1;
         var pageSize = ParseInt32(source, modelState, "pageSize") ?? 20;
+        TryReadSingle(source, modelState, SearchToursQuery.BookableOnlyParameterName, out var bookableOnlyText);
+        var bookableOnly = false;
+        if (bookableOnlyText is not null && !bool.TryParse(bookableOnlyText, out bookableOnly))
+            modelState.AddModelError(SearchToursQuery.BookableOnlyParameterName, "Use true or false for bookableOnly.");
 
         if (departureDate.HasValue && (startDate.HasValue || endDate.HasValue))
         {
@@ -86,7 +91,8 @@ internal static class TourSearchQueryParser
             DurationDays: durationDays,
             Category: category,
             MinimumRating: minimumRating,
-            Sort: sort);
+            Sort: sort,
+            BookableOnly: bookableOnly);
         return modelState.IsValid;
     }
 
