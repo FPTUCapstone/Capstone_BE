@@ -19,9 +19,20 @@ public sealed class RouteSegment : BaseEntity
     public TransportMode TransportMode { get; private set; }
     public RouteStatus Status { get; private set; }
     public string? RouteNote { get; private set; }
+    public bool RequiresReview { get; private set; }
+    public DateTimeOffset? ReviewFlaggedAtUtc { get; private set; }
+    public string? ReviewFlagReason { get; private set; }
     public DateTimeOffset CreatedAtUtc { get; private set; }
     public long? CreatedById { get; private set; }
     public Guid? IdempotencyKey { get; private set; }
+
+    public void DeactivateForEndpointReview(DateTimeOffset now, string? reason)
+    {
+        Status = RouteStatus.Inactive;
+        RequiresReview = true;
+        ReviewFlaggedAtUtc = now.ToUniversalTime();
+        ReviewFlagReason = string.IsNullOrWhiteSpace(reason) ? "Endpoint point of interest deactivated." : reason.Trim();
+    }
 
     public static RouteSegment Create(PointOfInterest from, PointOfInterest to,
         decimal distanceKm, int estimatedDurationMinutes, TransportMode transportMode,
