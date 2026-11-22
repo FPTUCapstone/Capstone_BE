@@ -106,6 +106,25 @@ public class ConfirmPasswordResetCommandHandlerTests
         _store.Verify(s => s.RecordFailedAttempt(It.IsAny<long>(), It.IsAny<long>()), Times.Never);
     }
 
+    [Fact(DisplayName = "TM-229: password reset clears MustChangePassword flag for provisioned accounts")]
+    public async Task Handle_WithMustChangePassword_ClearsFlagOnSuccess()
+    {
+        var user = CreateUser(role: UserRole.ServiceProvider);
+        user.MustChangePassword = true;
+        await _dbContext.SaveChangesAsync();
+
+        SetupCurrentState();
+        _store.Setup(s => s.TryConsume(UserId, 1)).Returns(true);
+
+        var result = await _handler.Handle(
+            new ConfirmPasswordResetCommand(Email, CorrectCode, NewPassword), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var updated = await _dbContext.Users.SingleAsync(u => u.Id == UserId);
+        updated.MustChangePassword.Should().BeFalse();
+        updated.SessionVersion.Should().Be(1);
+    }
+
     private static string OldPassword1() => "OldPassword1!";
 
     [Fact(DisplayName = "PLAN-CONF-02: all active refresh tokens are revoked on success")]
