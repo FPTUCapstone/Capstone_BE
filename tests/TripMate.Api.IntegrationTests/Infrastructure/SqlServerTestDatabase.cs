@@ -40,7 +40,6 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
     public const string ConnectionStringEnvironmentVariable =
         "TRIPMATE_SQLSERVER_TEST_CONNECTION";
 
-    private const string DatabaseNamePrefix = "TripMate_Test_";
     private static readonly Regex BatchSeparator = new(
         @"^\s*GO\s*(?:--.*)?$",
         RegexOptions.IgnoreCase | RegexOptions.Multiline | RegexOptions.CultureInvariant);
@@ -91,7 +90,7 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
                 $"{ConnectionStringEnvironmentVariable} was removed after test discovery.");
         }
 
-        var databaseName = $"{DatabaseNamePrefix}{Guid.NewGuid():N}";
+        var databaseName = SqlServerManagedNames.NewTestName();
         var masterConnection = new SqlConnectionStringBuilder(configuredConnectionString)
         {
             InitialCatalog = "master",
@@ -217,17 +216,58 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
             return;
         }
 
-        EnsureSafeDatabaseName(DatabaseName);
+        await DropDatabaseAsync(_masterConnectionString, DatabaseName);
+        _databaseCreated = false;
+    }
 
-        await using var connection = new SqlConnection(_masterConnectionString);
+    internal static string DefaultSchemaPath()
+    {
+        return Path.Combine(AppContext.BaseDirectory, "Database", "tripmate_schema_v7.sql");
+    }
+
+    internal static string DefaultMigrationsDirectory()
+    {
+        return Path.Combine(
+            FindRepositoryRoot(),
+            "database",
+            "migrations");
+    }
+
+    internal static async Task ApplyCurrentSchemaAsync(
+        string databaseConnectionString,
+        string schemaPath,
+        string migrationsDirectory)
+    {
+        await using var schemaConnection = new SqlConnection(databaseConnectionString);
+        await OpenConnectionAsync(schemaConnection);
+        await ExecuteBatchesAsync(schemaConnection, await File.ReadAllTextAsync(schemaPath));
+
+        foreach (var migrationPath in Directory
+            .EnumerateFiles(migrationsDirectory, "*.sql", SearchOption.TopDirectoryOnly)
+            .OrderBy(Path.GetFileName, StringComparer.Ordinal))
+        {
+            await ExecuteBatchesAsync(schemaConnection, await File.ReadAllTextAsync(migrationPath));
+        }
+    }
+
+    internal static async Task DropDatabaseAsync(string masterConnectionString, string databaseName)
+    {
+        if (!SqlServerManagedNames.IsTestName(databaseName)
+            && !SqlServerManagedNames.IsTemplateName(databaseName))
+        {
+            throw new InvalidOperationException(
+                "Refusing to manage a database outside the isolated test naming convention.");
+        }
+
+        await using var connection = new SqlConnection(masterConnectionString);
         await OpenConnectionAsync(connection);
         await using var command = connection.CreateCommand();
         command.CommandTimeout = 120;
         command.CommandText = $"""
-            IF DB_ID(N'{DatabaseName}') IS NOT NULL
+            IF DB_ID(N'{databaseName}') IS NOT NULL
             BEGIN
-                ALTER DATABASE [{DatabaseName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
-                DROP DATABASE [{DatabaseName}];
+                ALTER DATABASE [{databaseName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+                DROP DATABASE [{databaseName}];
             END;
             """;
         for (var attempt = 0; ; attempt++)
@@ -235,7 +275,6 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
             try
             {
                 await command.ExecuteNonQueryAsync();
-                _databaseCreated = false;
                 return;
             }
             catch (SqlException exception) when (exception.Number == 1205 && attempt < 2)
@@ -248,7 +287,11 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
 
     private async Task InitializeAsync(bool applyCurrentSchema)
     {
-        EnsureSafeDatabaseName(DatabaseName);
+        if (!SqlServerManagedNames.IsTestName(DatabaseName))
+        {
+            throw new InvalidOperationException(
+                "Refusing to manage a database outside the isolated test naming convention.");
+        }
 
         await using (var connection = new SqlConnection(_masterConnectionString))
         {
@@ -266,21 +309,10 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
             return;
         }
 
-        await using var schemaConnection = new SqlConnection(ConnectionString);
-        await OpenConnectionAsync(schemaConnection);
-        var schemaPath = Path.Combine(AppContext.BaseDirectory, "Database", "tripmate_schema_v7.sql");
-        await ExecuteBatchesAsync(schemaConnection, await File.ReadAllTextAsync(schemaPath));
-
-        var migrationsDirectory = Path.Combine(
-            FindRepositoryRoot(),
-            "database",
-            "migrations");
-        foreach (var migrationPath in Directory
-            .EnumerateFiles(migrationsDirectory, "*.sql", SearchOption.TopDirectoryOnly)
-            .OrderBy(Path.GetFileName, StringComparer.Ordinal))
-        {
-            await ExecuteBatchesAsync(schemaConnection, await File.ReadAllTextAsync(migrationPath));
-        }
+        await ApplyCurrentSchemaAsync(
+            ConnectionString,
+            DefaultSchemaPath(),
+            DefaultMigrationsDirectory());
     }
 
     private async Task ExecuteBatchesAsync(
@@ -317,7 +349,7 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
         }
     }
 
-    private static async Task OpenConnectionAsync(
+    internal static async Task OpenConnectionAsync(
         SqlConnection connection,
         CancellationToken cancellationToken = default)
     {
@@ -337,18 +369,6 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
                 // Only opening is retried. No SQL command has executed on this connection.
                 await Task.Delay(attempt == 0 ? 200 : 500, cancellationToken);
             }
-        }
-    }
-
-    private static void EnsureSafeDatabaseName(string databaseName)
-    {
-        if (!databaseName.StartsWith(DatabaseNamePrefix, StringComparison.Ordinal)
-            || databaseName.Length != DatabaseNamePrefix.Length + 32
-            || databaseName.Any(character =>
-                !char.IsAsciiLetterOrDigit(character) && character != '_'))
-        {
-            throw new InvalidOperationException(
-                "Refusing to manage a database outside the isolated test naming convention.");
         }
     }
 
