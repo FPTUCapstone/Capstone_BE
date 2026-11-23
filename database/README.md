@@ -362,6 +362,22 @@ Chỉ khi `database/tripmate_schema_v7.sql` đổi (thêm bảng, đổi cột, 
 từ mục 10.2 và gửi file `.tar` mới cho team. Image này là ảnh chụp cố định tại thời điểm build,
 không tự đồng bộ theo `.sql` — sửa `.sql` xong mà không build lại thì file `.tar` cũ vẫn y nguyên.
 
+## 11. SQL integration test: database template và file `.bak`
+
+- Mỗi lần chạy test SQL, schema chỉ được build **một lần** vào database tạm `TripMate_Template_<guid>`,
+  sau đó được BACKUP ra file `.bak` trên máy chạy SQL Server rồi DROP database này ngay. Mỗi test lấy
+  database riêng `TripMate_Test_<guid>` bằng RESTORE từ file `.bak` đó và DROP khi test xong.
+- File `TripMate_Template_<guid>.bak` **không được tự xoá**: T-SQL không có cách an toàn để xoá đúng một
+  file, còn `xp_delete_file` (không tài liệu hoá) cố ý không dùng vì nó xoá theo thư mục/đuôi file/tuổi
+  file và có thể xoá nhầm backup khác. Mỗi file nặng khoảng 7 MB (đo được 7.041.024 byte, không nén);
+  mỗi lần chạy test local tạo vài file (một lần chạy đầy đủ để lại khoảng 7-8 file), và BACKUP lỗi có thể
+  để lại file dở dang. File nằm trong thư mục backup mặc định của SQL Server, xem bằng
+  `SELECT SERVERPROPERTY('InstanceDefaultBackupPath')`; dev xoá tay `TripMate_Template_*.bak` ở đó khi cần.
+- Trên CI, SQL Server chạy trong service container và bị huỷ sau job nên không còn gì sót lại.
+- Nếu tiến trình test bị kill giữa chừng thì chỉ còn lại file `.bak` (database template đã bị DROP từ trước).
+- Instance Windows trả đường dẫn backup **không** có dấu `\` ở cuối, trong khi đường dẫn data/log thì có;
+  vì vậy fixture ghép đường dẫn bằng ký tự phân cách của chính SQL Server.
+
 ## TM-79 staged parent schema
 
 `migrations/20260928_add_trip_review_parent.sql` adds only `social.TripReviews`
