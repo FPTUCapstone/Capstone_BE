@@ -81,6 +81,7 @@ public class ApplicationDbContext(
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
     public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<TourApprovalNotice> TourApprovalNotices => Set<TourApprovalNotice>();
 
     public DbSet<PushDeviceToken> PushDeviceTokens => Set<PushDeviceToken>();
 

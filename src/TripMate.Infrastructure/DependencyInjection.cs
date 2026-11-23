@@ -189,6 +189,8 @@ public static class DependencyInjection
             .ValidateDataAnnotations()
             .ValidateOnStart();
         services.AddHostedService<UserAdministrationNotificationDeliveryBackgroundService>();
+        services.AddScoped<TourApprovalNoticeDeliveryProcessor>();
+        services.AddHostedService<TourApprovalNoticeDeliveryBackgroundService>();
 
         services.AddOptions<CloudinaryOptions>()
             .Bind(configuration.GetSection(CloudinaryOptions.SectionName))
