@@ -374,7 +374,7 @@ không tự đồng bộ theo `.sql` — sửa `.sql` xong mà không build lạ
   để lại file dở dang. File nằm trong thư mục backup mặc định của SQL Server, xem bằng
   `SELECT SERVERPROPERTY('InstanceDefaultBackupPath')`; dev xoá tay `TripMate_Template_*.bak` ở đó khi cần.
 - Trên CI, SQL Server chạy trong service container và bị huỷ sau job nên không còn gì sót lại.
-- Nếu tiến trình test bị kill giữa chừng thì chỉ còn lại file `.bak` (database template đã bị DROP từ trước).
+- Nếu tiến trình test bị kill giữa chừng: sau khi build template xong thì template đã bị DROP nên chỉ còn `.bak` của nó; kill đúng lúc đang build template có thể để sót cả database `TripMate_Template_<guid>`; kill lúc test đang chạy có thể để sót các database `TripMate_Test_<guid>` của test chạy dở. Dev xoá tay các database sót này bằng `DROP DATABASE`.
 - Instance Windows trả đường dẫn backup **không** có dấu `\` ở cuối, trong khi đường dẫn data/log thì có;
   vì vậy fixture ghép đường dẫn bằng ký tự phân cách của chính SQL Server.
 
