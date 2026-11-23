@@ -25,4 +25,10 @@ public class GroupPollVote : BaseEntity
     public User User { get; private set; } = null!;
 
     public DateTimeOffset VotedAtUtc { get; private set; }
+
+    public void UpdateOption(int optionIndex, DateTimeOffset votedAtUtc)
+    {
+        OptionIndex = optionIndex;
+        VotedAtUtc = votedAtUtc;
+    }
 }

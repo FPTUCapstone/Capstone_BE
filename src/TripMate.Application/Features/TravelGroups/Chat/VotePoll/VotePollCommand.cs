@@ -1,5 +1,7 @@
 using MediatR;
+
 using Microsoft.EntityFrameworkCore;
+
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.TravelGroups.Common;
@@ -7,7 +9,7 @@ using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.TravelGroups.Chat.VotePoll;
 
-public sealed record VotePollCommand(long MessageId, long UserId, int OptionIndex)
+public sealed record VotePollCommand(long GroupId, long MessageId, long UserId, int OptionIndex)
     : IRequest<Result<IReadOnlyDictionary<int, int>>>;
 
 public sealed class VotePollCommandHandler(
@@ -26,8 +28,11 @@ public sealed class VotePollCommandHandler(
         }
 
         var message = await dbContext.GroupMessages
+            .Include(m => m.Group)
             .Include(m => m.PollVotes)
-            .FirstOrDefaultAsync(m => m.Id == request.MessageId, cancellationToken);
+            .FirstOrDefaultAsync(
+                m => m.Id == request.MessageId && m.GroupId == request.GroupId,
+                cancellationToken);
 
         if (message is null)
         {
@@ -35,17 +40,34 @@ public sealed class VotePollCommandHandler(
                 TravelGroupErrorCodes.MessageNotFound, "Message not found.");
         }
 
-        var isMember = await dbContext.GroupMembers
+        var member = await dbContext.GroupMembers
             .AsNoTracking()
-            .AnyAsync(m => m.GroupId == message.GroupId
-                && m.UserId == request.UserId
-                && m.Status == GroupMemberStatus.Active,
+            .FirstOrDefaultAsync(
+                m => m.GroupId == request.GroupId && m.UserId == request.UserId,
                 cancellationToken);
 
-        if (!isMember)
+        if (member is null || member.Status == GroupMemberStatus.Removed)
         {
             return Result.Failure<IReadOnlyDictionary<int, int>>(
                 TravelGroupErrorCodes.ActiveMembershipRequired, "Active membership is required.");
+        }
+
+        if (message.Group.Status != TravelGroupStatus.Active)
+        {
+            return Result.Failure<IReadOnlyDictionary<int, int>>(
+                TravelGroupErrorCodes.GroupClosed, "Cannot vote on polls in a closed group.");
+        }
+
+        if (member.Status != GroupMemberStatus.Active)
+        {
+            return Result.Failure<IReadOnlyDictionary<int, int>>(
+                TravelGroupErrorCodes.ActiveMembershipRequired, "Active membership is required.");
+        }
+
+        if (!string.Equals(message.MessageType, "poll", StringComparison.Ordinal))
+        {
+            return Result.Failure<IReadOnlyDictionary<int, int>>(
+                TravelGroupErrorCodes.InvalidMessageType, "Only poll messages support voting.");
         }
 
         message.RecordPollVote(request.UserId, request.OptionIndex, dateTimeProvider.UtcNow);

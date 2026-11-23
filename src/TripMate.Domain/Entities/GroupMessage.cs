@@ -80,8 +80,10 @@ public class GroupMessage : BaseEntity
         var existing = _pollVotes.FirstOrDefault(v => v.UserId == userId);
         if (existing is not null)
         {
-            _pollVotes.Remove(existing);
+            existing.UpdateOption(optionIndex, votedAtUtc);
+            return;
         }
+
         _pollVotes.Add(new GroupPollVote(Id, optionIndex, userId, votedAtUtc));
     }
 }

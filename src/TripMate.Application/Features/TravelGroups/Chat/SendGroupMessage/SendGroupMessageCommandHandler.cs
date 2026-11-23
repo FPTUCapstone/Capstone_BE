@@ -1,5 +1,7 @@
 using MediatR;
+
 using Microsoft.EntityFrameworkCore;
+
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.TravelGroups.Common;
@@ -17,26 +19,45 @@ public sealed class SendGroupMessageCommandHandler(
         SendGroupMessageCommand request,
         CancellationToken cancellationToken)
     {
-        var groupMember = await dbContext.GroupMembers
-            .Include(m => m.User)
-            .Include(m => m.TravelGroup)
-            .FirstOrDefaultAsync(m => m.GroupId == request.GroupId
-                && m.UserId == request.SenderUserId
-                && m.Status == GroupMemberStatus.Active,
-                cancellationToken);
+        var group = await dbContext.TravelGroups
+            .AsNoTracking()
+            .FirstOrDefaultAsync(g => g.Id == request.GroupId, cancellationToken);
 
-        if (groupMember is null)
+        if (group is null)
         {
-            var groupExists = await dbContext.TravelGroups
-                .AsNoTracking()
-                .AnyAsync(g => g.Id == request.GroupId, cancellationToken);
-
             return Result.Failure<GroupMessageDto>(
-                groupExists ? TravelGroupErrorCodes.ActiveMembershipRequired : TravelGroupErrorCodes.GroupNotFound,
-                groupExists ? "Active membership is required to send messages." : "Group not found.");
+                TravelGroupErrorCodes.GroupNotFound,
+                "Group not found.");
         }
 
-        var normalizedType = request.MessageType.ToLowerInvariant().Trim();
+        var groupMember = await dbContext.GroupMembers
+            .Include(m => m.User)
+            .FirstOrDefaultAsync(
+                m => m.GroupId == request.GroupId && m.UserId == request.SenderUserId,
+                cancellationToken);
+
+        if (groupMember is null || groupMember.Status == GroupMemberStatus.Removed)
+        {
+            return Result.Failure<GroupMessageDto>(
+                TravelGroupErrorCodes.ActiveMembershipRequired,
+                "Active membership is required to send messages.");
+        }
+
+        if (group.Status != TravelGroupStatus.Active)
+        {
+            return Result.Failure<GroupMessageDto>(
+                TravelGroupErrorCodes.GroupClosed,
+                "Cannot send messages to a closed group.");
+        }
+
+        if (groupMember.Status != GroupMemberStatus.Active)
+        {
+            return Result.Failure<GroupMessageDto>(
+                TravelGroupErrorCodes.ActiveMembershipRequired,
+                "Active membership is required to send messages.");
+        }
+
+        var normalizedType = request.MessageType.Trim().ToLowerInvariant();
         var now = dateTimeProvider.UtcNow;
 
         var message = new GroupMessage(

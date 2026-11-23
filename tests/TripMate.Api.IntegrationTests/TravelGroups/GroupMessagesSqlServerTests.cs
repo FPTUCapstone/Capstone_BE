@@ -1,16 +1,16 @@
 using FluentAssertions;
+
 using Microsoft.EntityFrameworkCore;
+
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.TravelGroups.Chat.AcknowledgeBroadcast;
-using TripMate.Application.Features.TravelGroups.Chat.CheckinRollCall;
 using TripMate.Application.Features.TravelGroups.Chat.GetGroupMessages;
 using TripMate.Application.Features.TravelGroups.Chat.SendGroupMessage;
 using TripMate.Application.Features.TravelGroups.Chat.ToggleExpensePayment;
 using TripMate.Application.Features.TravelGroups.Chat.VotePoll;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
-using Xunit;
 
 namespace TripMate.Api.IntegrationTests.TravelGroups;
 
@@ -53,7 +53,7 @@ public sealed class GroupMessagesSqlServerTests
             var ackHandler = new AcknowledgeBroadcastCommandHandler(context, new FixedDateTimeProvider());
 
             var act = async () => await ackHandler.Handle(
-                new AcknowledgeBroadcastCommand(messageId, userId2),
+                new AcknowledgeBroadcastCommand(groupId, messageId, userId2),
                 CancellationToken.None);
 
             await act.Should().ThrowAsync<DbUpdateException>();
@@ -71,13 +71,14 @@ public sealed class GroupMessagesSqlServerTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
-    public async Task PersistExpenseSplit_And_VotePoll_SucceedsInSqlServer()
+    public async Task PersistExpenseSplit_And_VotePollSwitch_SucceedsInSqlServer()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
         await ApplyChatMigrationAsync(database);
 
         var (userId1, userId2, groupId) = await SeedGroupAndMembersAsync(database);
 
+        long pollMessageId;
         await using (var context = database.CreateDbContext())
         {
             var sendHandler = new SendGroupMessageCommandHandler(context, new FixedDateTimeProvider());
@@ -92,23 +93,37 @@ public sealed class GroupMessagesSqlServerTests
                 CancellationToken.None);
 
             pollResult.IsSuccess.Should().BeTrue();
+            pollMessageId = pollResult.Value.MessageId;
 
             // Toggle payment in SQL Server
             var toggleHandler = new ToggleExpensePaymentCommandHandler(context, new FixedDateTimeProvider());
             var toggleResult = await toggleHandler.Handle(
-                new ToggleExpensePaymentCommand(billResult.Value.MessageId, userId2, true),
+                new ToggleExpensePaymentCommand(groupId, billResult.Value.MessageId, userId2, true),
                 CancellationToken.None);
 
             toggleResult.IsSuccess.Should().BeTrue();
 
-            // Vote in SQL Server
+            // Vote option 2 in SQL Server
             var voteHandler = new VotePollCommandHandler(context, new FixedDateTimeProvider());
             var voteResult = await voteHandler.Handle(
-                new VotePollCommand(pollResult.Value.MessageId, userId2, 2),
+                new VotePollCommand(groupId, pollMessageId, userId2, 2),
                 CancellationToken.None);
 
             voteResult.IsSuccess.Should().BeTrue();
             voteResult.Value[2].Should().Be(1);
+        }
+
+        // Switch vote from option 2 to option 0 on a fresh DbContext to verify UQ_GroupPollVotes_MessageUser update in place
+        await using (var switchContext = database.CreateDbContext())
+        {
+            var voteHandler = new VotePollCommandHandler(switchContext, new FixedDateTimeProvider());
+            var switchedResult = await voteHandler.Handle(
+                new VotePollCommand(groupId, pollMessageId, userId2, 0),
+                CancellationToken.None);
+
+            switchedResult.IsSuccess.Should().BeTrue();
+            switchedResult.Value[0].Should().Be(1);
+            switchedResult.Value.ContainsKey(2).Should().BeFalse();
         }
 
         // Verify persistence from independent context
@@ -116,11 +131,12 @@ public sealed class GroupMessagesSqlServerTests
         {
             var getHandler = new GetGroupMessagesQueryHandler(verifyContext);
             var queryResult = await getHandler.Handle(
-                new GetGroupMessagesQuery(groupId, userId1),
+                new GetGroupMessagesQuery(groupId, userId2),
                 CancellationToken.None);
 
             queryResult.IsSuccess.Should().BeTrue();
             queryResult.Value.Should().HaveCount(2);
+            queryResult.Value[1].MyPollVoteOption.Should().Be(0);
         }
     }
 

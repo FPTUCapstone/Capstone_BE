@@ -1,7 +1,9 @@
 using MediatR;
+
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
+
 using TripMate.Api.Common;
 using TripMate.Api.Controllers.V1.Requests;
 using TripMate.Api.Realtime;
@@ -37,6 +39,12 @@ public class GroupMessagesController(
         CancellationToken cancellationToken = default)
     {
         if (!currentUserService.UserId.HasValue) return Unauthorized();
+        if (groupId <= 0)
+        {
+            return Problem(
+                title: "A positive group ID is required.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
 
         var query = new GetGroupMessagesQuery(groupId, currentUserService.UserId.Value, limit, beforeMessageId);
         var result = await Sender.Send(query, cancellationToken);
@@ -49,12 +57,19 @@ public class GroupMessagesController(
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> SendMessage(
         long groupId,
         [FromBody] SendGroupMessageRequest request,
         CancellationToken cancellationToken = default)
     {
         if (!currentUserService.UserId.HasValue) return Unauthorized();
+        if (groupId <= 0)
+        {
+            return Problem(
+                title: "A positive group ID is required.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
 
         var command = new SendGroupMessageCommand(
             groupId,
@@ -66,7 +81,6 @@ public class GroupMessagesController(
         var result = await Sender.Send(command, cancellationToken);
         if (!result.IsSuccess) return HandleFailure(result);
 
-        // Broadcast to SignalR room
         await hubContext.Clients
             .Group(GroupChatHub.GetGroupRoom(groupId))
             .SendAsync("MessageReceived", result.Value, cancellationToken);
@@ -80,14 +94,21 @@ public class GroupMessagesController(
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Acknowledge(
         long groupId,
         long messageId,
         CancellationToken cancellationToken = default)
     {
         if (!currentUserService.UserId.HasValue) return Unauthorized();
+        if (groupId <= 0 || messageId <= 0)
+        {
+            return Problem(
+                title: "Positive group and message IDs are required.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
 
-        var command = new AcknowledgeBroadcastCommand(messageId, currentUserService.UserId.Value);
+        var command = new AcknowledgeBroadcastCommand(groupId, messageId, currentUserService.UserId.Value);
         var result = await Sender.Send(command, cancellationToken);
         if (!result.IsSuccess) return HandleFailure(result);
 
@@ -104,14 +125,21 @@ public class GroupMessagesController(
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Checkin(
         long groupId,
         long messageId,
         CancellationToken cancellationToken = default)
     {
         if (!currentUserService.UserId.HasValue) return Unauthorized();
+        if (groupId <= 0 || messageId <= 0)
+        {
+            return Problem(
+                title: "Positive group and message IDs are required.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
 
-        var command = new CheckinRollCallCommand(messageId, currentUserService.UserId.Value);
+        var command = new CheckinRollCallCommand(groupId, messageId, currentUserService.UserId.Value);
         var result = await Sender.Send(command, cancellationToken);
         if (!result.IsSuccess) return HandleFailure(result);
 
@@ -128,6 +156,7 @@ public class GroupMessagesController(
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> TogglePayment(
         long groupId,
         long messageId,
@@ -135,8 +164,14 @@ public class GroupMessagesController(
         CancellationToken cancellationToken = default)
     {
         if (!currentUserService.UserId.HasValue) return Unauthorized();
+        if (groupId <= 0 || messageId <= 0)
+        {
+            return Problem(
+                title: "Positive group and message IDs are required.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
 
-        var command = new ToggleExpensePaymentCommand(messageId, currentUserService.UserId.Value, request.IsPaid);
+        var command = new ToggleExpensePaymentCommand(groupId, messageId, currentUserService.UserId.Value, request.IsPaid);
         var result = await Sender.Send(command, cancellationToken);
         if (!result.IsSuccess) return HandleFailure(result);
 
@@ -153,6 +188,7 @@ public class GroupMessagesController(
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
     public async Task<IActionResult> Vote(
         long groupId,
         long messageId,
@@ -160,8 +196,14 @@ public class GroupMessagesController(
         CancellationToken cancellationToken = default)
     {
         if (!currentUserService.UserId.HasValue) return Unauthorized();
+        if (groupId <= 0 || messageId <= 0)
+        {
+            return Problem(
+                title: "Positive group and message IDs are required.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
 
-        var command = new VotePollCommand(messageId, currentUserService.UserId.Value, request.OptionIndex);
+        var command = new VotePollCommand(groupId, messageId, currentUserService.UserId.Value, request.OptionIndex);
         var result = await Sender.Send(command, cancellationToken);
         if (!result.IsSuccess) return HandleFailure(result);
 

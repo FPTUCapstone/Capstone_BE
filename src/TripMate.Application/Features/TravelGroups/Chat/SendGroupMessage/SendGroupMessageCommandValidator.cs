@@ -1,5 +1,7 @@
 using FluentValidation;
 
+using TripMate.Application.Features.TravelGroups.Common;
+
 namespace TripMate.Application.Features.TravelGroups.Chat.SendGroupMessage;
 
 public class SendGroupMessageCommandValidator : AbstractValidator<SendGroupMessageCommand>
@@ -10,11 +12,20 @@ public class SendGroupMessageCommandValidator : AbstractValidator<SendGroupMessa
     {
         RuleFor(x => x.GroupId).GreaterThan(0);
         RuleFor(x => x.SenderUserId).GreaterThan(0);
+
         RuleFor(x => x.MessageType)
-            .Must(t => AllowedTypes.Contains(t.ToLowerInvariant()))
-            .WithMessage("Invalid message type.");
+            .Cascade(CascadeMode.Stop)
+            .Must(t => !string.IsNullOrWhiteSpace(t) && AllowedTypes.Contains(t.Trim().ToLowerInvariant()))
+            .WithMessage("Invalid message type.")
+            .WithErrorCode(TravelGroupErrorCodes.InvalidMessageType);
+
         RuleFor(x => x.Content)
-            .NotEmpty()
-            .WithMessage("Content is required.");
+            .Cascade(CascadeMode.Stop)
+            .Must(c => !string.IsNullOrWhiteSpace(c))
+            .WithMessage("Content is required.")
+            .WithErrorCode(TravelGroupErrorCodes.InvalidMessageContent)
+            .Must(c => c is not null && c.Trim().Length <= 4000)
+            .WithMessage("Content must not exceed 4000 characters.")
+            .WithErrorCode(TravelGroupErrorCodes.InvalidMessageContent);
     }
 }
