@@ -40,7 +40,6 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
     public const string ConnectionStringEnvironmentVariable =
         "TRIPMATE_SQLSERVER_TEST_CONNECTION";
 
-    private const string DatabaseNamePrefix = "TripMate_Test_";
     private static readonly Regex BatchSeparator = new(
         @"^\s*GO\s*(?:--.*)?$",
         RegexOptions.IgnoreCase | RegexOptions.Multiline | RegexOptions.CultureInvariant);
@@ -64,12 +63,17 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
 
     public static async Task<SqlServerTestDatabase> CreateAsync()
     {
-        return await CreateAsync(applyCurrentSchema: true);
+        return await CreateAsync(SqlServerTemplateDatabase.Shared);
+    }
+
+    internal static async Task<SqlServerTestDatabase> CreateAsync(SqlServerTemplateDatabase template)
+    {
+        return await CreateAsync(database => database.RestoreFromAsync(template));
     }
 
     public static async Task<SqlServerTestDatabase> CreateEmptyAsync()
     {
-        return await CreateAsync(applyCurrentSchema: false);
+        return await CreateAsync(database => database.InitializeAsync());
     }
 
     public async Task ExecuteScriptAsync(
@@ -80,7 +84,8 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
         await ExecuteBatchesAsync(script, cancellationToken);
     }
 
-    private static async Task<SqlServerTestDatabase> CreateAsync(bool applyCurrentSchema)
+    private static async Task<SqlServerTestDatabase> CreateAsync(
+        Func<SqlServerTestDatabase, Task> initialize)
     {
         var configuredConnectionString = Environment.GetEnvironmentVariable(
             ConnectionStringEnvironmentVariable);
@@ -91,7 +96,7 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
                 $"{ConnectionStringEnvironmentVariable} was removed after test discovery.");
         }
 
-        var databaseName = $"{DatabaseNamePrefix}{Guid.NewGuid():N}";
+        var databaseName = SqlServerManagedNames.NewTestName();
         var masterConnection = new SqlConnectionStringBuilder(configuredConnectionString)
         {
             InitialCatalog = "master",
@@ -110,7 +115,7 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
 
         try
         {
-            await database.InitializeAsync(applyCurrentSchema);
+            await initialize(database);
             return database;
         }
         catch (Exception initializationException)
@@ -217,17 +222,61 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
             return;
         }
 
-        EnsureSafeDatabaseName(DatabaseName);
+        await DropDatabaseAsync(_masterConnectionString, DatabaseName);
+        _databaseCreated = false;
+    }
 
-        await using var connection = new SqlConnection(_masterConnectionString);
+    internal static string DefaultSchemaPath()
+    {
+        return Path.Combine(AppContext.BaseDirectory, "Database", "tripmate_schema_v7.sql");
+    }
+
+    internal static string DefaultMigrationsDirectory()
+    {
+        return Path.Combine(
+            FindRepositoryRoot(),
+            "database",
+            "migrations");
+    }
+
+    internal static async Task ApplyCurrentSchemaAsync(
+        string databaseConnectionString,
+        string schemaPath,
+        string migrationsDirectory)
+    {
+        await using var schemaConnection = new SqlConnection(databaseConnectionString);
+        await OpenConnectionAsync(schemaConnection);
+        await ExecuteBatchesAsync(schemaConnection, await File.ReadAllTextAsync(schemaPath));
+
+        foreach (var migrationPath in Directory
+            .EnumerateFiles(migrationsDirectory, "*.sql", SearchOption.TopDirectoryOnly)
+            .OrderBy(Path.GetFileName, StringComparer.Ordinal))
+        {
+            await ExecuteBatchesAsync(schemaConnection, await File.ReadAllTextAsync(migrationPath));
+        }
+    }
+
+    internal static async Task DropDatabaseAsync(string masterConnectionString, string databaseName)
+    {
+        if (!SqlServerManagedNames.IsTestName(databaseName)
+            && !SqlServerManagedNames.IsTemplateName(databaseName))
+        {
+            throw new InvalidOperationException(
+                "Refusing to manage a database outside the isolated test naming convention.");
+        }
+
+        await using var connection = new SqlConnection(masterConnectionString);
         await OpenConnectionAsync(connection);
         await using var command = connection.CreateCommand();
         command.CommandTimeout = 120;
+        // Only an ONLINE database (state 0) accepts SINGLE_USER; one left RESTORING by a failed
+        // restore rejects the ALTER but can still be dropped.
         command.CommandText = $"""
-            IF DB_ID(N'{DatabaseName}') IS NOT NULL
+            IF DB_ID(N'{databaseName}') IS NOT NULL
             BEGIN
-                ALTER DATABASE [{DatabaseName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
-                DROP DATABASE [{DatabaseName}];
+                IF EXISTS (SELECT 1 FROM sys.databases WHERE name = N'{databaseName}' AND state = 0)
+                    ALTER DATABASE [{databaseName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+                DROP DATABASE [{databaseName}];
             END;
             """;
         for (var attempt = 0; ; attempt++)
@@ -235,7 +284,6 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
             try
             {
                 await command.ExecuteNonQueryAsync();
-                _databaseCreated = false;
                 return;
             }
             catch (SqlException exception) when (exception.Number == 1205 && attempt < 2)
@@ -246,41 +294,29 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
         }
     }
 
-    private async Task InitializeAsync(bool applyCurrentSchema)
+    private async Task InitializeAsync()
     {
-        EnsureSafeDatabaseName(DatabaseName);
-
-        await using (var connection = new SqlConnection(_masterConnectionString))
+        if (!SqlServerManagedNames.IsTestName(DatabaseName))
         {
-            await OpenConnectionAsync(connection);
-            await using var command = connection.CreateCommand();
-            command.CommandText =
-                $"CREATE DATABASE [{DatabaseName}] COLLATE Vietnamese_100_CI_AS;";
-            command.CommandTimeout = 120;
-            await command.ExecuteNonQueryAsync();
-            _databaseCreated = true;
+            throw new InvalidOperationException(
+                "Refusing to manage a database outside the isolated test naming convention.");
         }
 
-        if (!applyCurrentSchema)
-        {
-            return;
-        }
+        await using var connection = new SqlConnection(_masterConnectionString);
+        await OpenConnectionAsync(connection);
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            $"CREATE DATABASE [{DatabaseName}] COLLATE Vietnamese_100_CI_AS;";
+        command.CommandTimeout = 120;
+        await command.ExecuteNonQueryAsync();
+        _databaseCreated = true;
+    }
 
-        await using var schemaConnection = new SqlConnection(ConnectionString);
-        await OpenConnectionAsync(schemaConnection);
-        var schemaPath = Path.Combine(AppContext.BaseDirectory, "Database", "tripmate_schema_v7.sql");
-        await ExecuteBatchesAsync(schemaConnection, await File.ReadAllTextAsync(schemaPath));
-
-        var migrationsDirectory = Path.Combine(
-            FindRepositoryRoot(),
-            "database",
-            "migrations");
-        foreach (var migrationPath in Directory
-            .EnumerateFiles(migrationsDirectory, "*.sql", SearchOption.TopDirectoryOnly)
-            .OrderBy(Path.GetFileName, StringComparer.Ordinal))
-        {
-            await ExecuteBatchesAsync(schemaConnection, await File.ReadAllTextAsync(migrationPath));
-        }
+    private async Task RestoreFromAsync(SqlServerTemplateDatabase template)
+    {
+        // Set before RESTORE so a restore that fails halfway is dropped by DisposeAsync.
+        _databaseCreated = true;
+        await template.RestoreCloneAsync(DatabaseName);
     }
 
     private async Task ExecuteBatchesAsync(
@@ -317,7 +353,7 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
         }
     }
 
-    private static async Task OpenConnectionAsync(
+    internal static async Task OpenConnectionAsync(
         SqlConnection connection,
         CancellationToken cancellationToken = default)
     {
@@ -337,18 +373,6 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
                 // Only opening is retried. No SQL command has executed on this connection.
                 await Task.Delay(attempt == 0 ? 200 : 500, cancellationToken);
             }
-        }
-    }
-
-    private static void EnsureSafeDatabaseName(string databaseName)
-    {
-        if (!databaseName.StartsWith(DatabaseNamePrefix, StringComparison.Ordinal)
-            || databaseName.Length != DatabaseNamePrefix.Length + 32
-            || databaseName.Any(character =>
-                !char.IsAsciiLetterOrDigit(character) && character != '_'))
-        {
-            throw new InvalidOperationException(
-                "Refusing to manage a database outside the isolated test naming convention.");
         }
     }
 
