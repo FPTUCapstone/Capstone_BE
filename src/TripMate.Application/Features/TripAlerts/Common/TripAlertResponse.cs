@@ -26,8 +26,10 @@ public sealed record TripAlertResponse(
     public const string WeatherAdvisoryMessageCode = "trip_alert.weather_advisory";
     public const string SevereWeatherMessageCode = "trip_alert.severe_weather";
     public const string ScheduleDelayMessageCode = "trip_alert.schedule_delay";
+    public const string StopOverstayMessageCode = "trip_alert.stop_overstay";
     public const string RouteDeviationMessageCode = "trip_alert.route_deviation";
     public const string PoiClosureMessageCode = "trip_alert.poi_closure";
+    public const string OverstaySourcePrefix = "overstay:";
 
     public static TripAlertResponse From(
         Incident incident,
@@ -37,7 +39,7 @@ public sealed record TripAlertResponse(
             incident.Id,
             incident.IncidentType,
             incident.IncidentType == Incident.WeatherAdvisoryType ? InfoSeverity : WarningSeverity,
-            ResolveMessageCode(incident.IncidentType),
+            ResolveMessageCode(incident.IncidentType, incident.SourceKey),
             incident.Description,
             incident.AffectedItem is null
                 ? null
@@ -45,7 +47,8 @@ public sealed record TripAlertResponse(
                     incident.AffectedItem.ItineraryItemId,
                     incident.AffectedItem.PoiId,
                     incident.AffectedItem.PoiName,
-                    incident.AffectedItem.PlannedArrivalUtc),
+                    incident.AffectedItem.PlannedArrivalUtc,
+                    incident.AffectedItem.PlannedDepartureUtc),
             incident.DetectedAtUtc,
             incident.ResolvedAtUtc,
             notification.Status == NotificationStatus.Read,
@@ -72,10 +75,12 @@ public sealed record TripAlertResponse(
         return null;
     }
 
-    private static string ResolveMessageCode(string incidentType) => incidentType switch
+    private static string ResolveMessageCode(string incidentType, string? sourceKey) => incidentType switch
     {
         Incident.SevereWeatherType => SevereWeatherMessageCode,
         Incident.WeatherAdvisoryType => WeatherAdvisoryMessageCode,
+        Incident.ScheduleDelayType when sourceKey?.StartsWith(OverstaySourcePrefix, StringComparison.Ordinal) == true
+            => StopOverstayMessageCode,
         Incident.ScheduleDelayType => ScheduleDelayMessageCode,
         Incident.RouteDeviationType => RouteDeviationMessageCode,
         Incident.PoiClosureType => PoiClosureMessageCode,
@@ -87,4 +92,5 @@ public sealed record TripAlertAffectedItemResponse(
     long ItemId,
     long PoiId,
     string Name,
-    DateTimeOffset PlannedArrivalUtc);
+    DateTimeOffset PlannedArrivalUtc,
+    DateTimeOffset? PlannedDepartureUtc = null);

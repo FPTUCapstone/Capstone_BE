@@ -232,6 +232,165 @@ public sealed class TripAlertScannerTests
         weather.WeatherBasis.Should().Be(TripWeatherBasis.CurrentAtDestination.ToString());
     }
 
+    [Fact]
+    public async Task Scan_ExploringPastPlannedDepartureThreshold_CreatesStopOverstayAlertOnceAndExposesPlannedDeparture()
+    {
+        await using var db = TestDbContext.Create();
+        var plannedArrival = Now.AddMinutes(-90);
+        var plannedDeparture = Now.AddMinutes(-20);
+        var seed = await SeedTwoStopsAsync(db, plannedArrival, plannedDeparture, Now.AddMinutes(10), Now.AddMinutes(70));
+        var session = await db.TripSessions.Include(s => s.Items).SingleAsync(s => s.Id == seed.SessionId);
+        session.ReachItem(seed.FirstItemId, plannedArrival);
+        await db.SaveChangesAsync();
+
+        var scanner = new TripAlertScanner(
+            db,
+            new FakeDateTimeProvider { UtcNow = Now },
+            Options.Create(new TripAlertOptions()),
+            new NoWeatherProvider());
+
+        await scanner.ScanAsync(CancellationToken.None);
+        await scanner.ScanAsync(CancellationToken.None);
+
+        var list = await new ListTripAlertsQueryHandler(db)
+            .Handle(new ListTripAlertsQuery(seed.SessionId, TravelerId), CancellationToken.None);
+        list.IsSuccess.Should().BeTrue();
+        var alert = list.Value.Should().ContainSingle().Subject;
+        alert.Type.Should().Be(Incident.ScheduleDelayType);
+        alert.Severity.Should().Be(TripAlertResponse.WarningSeverity);
+        alert.MessageCode.Should().Be(TripAlertResponse.StopOverstayMessageCode);
+        alert.ResolvedAtUtc.Should().BeNull();
+        alert.AffectedItem.Should().NotBeNull();
+        alert.AffectedItem!.ItemId.Should().Be(seed.FirstItemId);
+        alert.AffectedItem.PlannedDepartureUtc.Should().Be(plannedDeparture);
+    }
+
+    [Fact]
+    public async Task Scan_ExploringWithinOverstayThreshold_DoesNotCreateOverstayAlert()
+    {
+        await using var db = TestDbContext.Create();
+        var plannedArrival = Now.AddMinutes(-75);
+        var plannedDeparture = Now.AddMinutes(-15); // Exactly on the 15-minute boundary (not strictly past).
+        var seed = await SeedTwoStopsAsync(db, plannedArrival, plannedDeparture, Now.AddMinutes(15), Now.AddMinutes(75));
+        var session = await db.TripSessions.Include(s => s.Items).SingleAsync(s => s.Id == seed.SessionId);
+        session.ReachItem(seed.FirstItemId, plannedArrival);
+        await db.SaveChangesAsync();
+
+        var scanner = new TripAlertScanner(
+            db,
+            new FakeDateTimeProvider { UtcNow = Now },
+            Options.Create(new TripAlertOptions()),
+            new NoWeatherProvider());
+
+        await scanner.ScanAsync(CancellationToken.None);
+
+        (await db.Incidents.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Scan_OverstayAlertRemainsOpenWhileExploringAndResolvesOnDepart()
+    {
+        await using var db = TestDbContext.Create();
+        var plannedArrival = Now.AddMinutes(-90);
+        var plannedDeparture = Now.AddMinutes(-20);
+        var seed = await SeedTwoStopsAsync(db, plannedArrival, plannedDeparture, Now.AddMinutes(10), Now.AddMinutes(70));
+        var session = await db.TripSessions.Include(s => s.Items).SingleAsync(s => s.Id == seed.SessionId);
+        session.ReachItem(seed.FirstItemId, plannedArrival);
+        await db.SaveChangesAsync();
+
+        var clock = new FakeDateTimeProvider { UtcNow = Now };
+        var scanner = new TripAlertScanner(db, clock, Options.Create(new TripAlertOptions()), new NoWeatherProvider());
+        await scanner.ScanAsync(CancellationToken.None);
+
+        clock.UtcNow = Now.AddMinutes(10);
+        await scanner.ScanAsync(CancellationToken.None);
+        (await db.Incidents.SingleAsync()).ResolvedAtUtc.Should().BeNull();
+
+        session = await db.TripSessions.Include(s => s.Items).SingleAsync(s => s.Id == seed.SessionId);
+        session.Depart(Now.AddMinutes(11));
+        await db.SaveChangesAsync();
+
+        clock.UtcNow = Now.AddMinutes(12);
+        await scanner.ScanAsync(CancellationToken.None);
+
+        var resolved = await db.Incidents.SingleAsync();
+        resolved.ResolvedAtUtc.Should().Be(Now.AddMinutes(12));
+    }
+
+    [Fact]
+    public async Task Scan_FinalStopExploringPastDeparture_StillCreatesStopOverstayAlert()
+    {
+        await using var db = TestDbContext.Create();
+        // Stop 1 is skipped and stop 2 is reached: zero Pending items remain while still Exploring stop 2.
+        var seed = await SeedTwoStopsAsync(
+            db,
+            firstArrivalUtc: Now.AddMinutes(-150),
+            firstDepartureUtc: Now.AddMinutes(-100),
+            secondArrivalUtc: Now.AddMinutes(-80),
+            secondDepartureUtc: Now.AddMinutes(-20));
+        var session = await db.TripSessions.Include(s => s.Items).SingleAsync(s => s.Id == seed.SessionId);
+        session.SkipItem(seed.FirstItemId, Now.AddMinutes(-140));
+        session.ReachItem(seed.SecondItemId, Now.AddMinutes(-80));
+        await db.SaveChangesAsync();
+
+        var scanner = new TripAlertScanner(
+            db,
+            new FakeDateTimeProvider { UtcNow = Now },
+            Options.Create(new TripAlertOptions()),
+            new NoWeatherProvider());
+
+        await scanner.ScanAsync(CancellationToken.None);
+
+        var list = await new ListTripAlertsQueryHandler(db)
+            .Handle(new ListTripAlertsQuery(seed.SessionId, TravelerId), CancellationToken.None);
+        var alert = list.Value.Should().ContainSingle().Subject;
+        alert.MessageCode.Should().Be(TripAlertResponse.StopOverstayMessageCode);
+        alert.AffectedItem!.ItemId.Should().Be(seed.SecondItemId);
+        alert.AffectedItem.PlannedDepartureUtc.Should().Be(Now.AddMinutes(-20));
+        alert.ResolvedAtUtc.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Scan_WhileExploring_SuppressesArrivalDelayForNextStopUntilDepart()
+    {
+        await using var db = TestDbContext.Create();
+        // Both stop 1 departure (Now - 60m) and stop 2 arrival (Now - 40m) are well past their thresholds.
+        var seed = await SeedTwoStopsAsync(
+            db,
+            firstArrivalUtc: Now.AddMinutes(-120),
+            firstDepartureUtc: Now.AddMinutes(-60),
+            secondArrivalUtc: Now.AddMinutes(-40),
+            secondDepartureUtc: Now.AddMinutes(20));
+        var session = await db.TripSessions.Include(s => s.Items).SingleAsync(s => s.Id == seed.SessionId);
+        session.ReachItem(seed.FirstItemId, Now.AddMinutes(-120));
+        await db.SaveChangesAsync();
+
+        var clock = new FakeDateTimeProvider { UtcNow = Now };
+        var scanner = new TripAlertScanner(db, clock, Options.Create(new TripAlertOptions()), new NoWeatherProvider());
+        await scanner.ScanAsync(CancellationToken.None);
+
+        var whileExploring = await new ListTripAlertsQueryHandler(db)
+            .Handle(new ListTripAlertsQuery(seed.SessionId, TravelerId), CancellationToken.None);
+        whileExploring.Value.Should().ContainSingle()
+            .Which.MessageCode.Should().Be(TripAlertResponse.StopOverstayMessageCode);
+
+        session = await db.TripSessions.Include(s => s.Items).SingleAsync(s => s.Id == seed.SessionId);
+        session.Depart(Now.AddMinutes(1));
+        await db.SaveChangesAsync();
+
+        clock.UtcNow = Now.AddMinutes(2);
+        await scanner.ScanAsync(CancellationToken.None);
+
+        var afterDepart = await new ListTripAlertsQueryHandler(db)
+            .Handle(new ListTripAlertsQuery(seed.SessionId, TravelerId), CancellationToken.None);
+        afterDepart.Value.Should().HaveCount(2);
+        afterDepart.Value.Single(a => a.MessageCode == TripAlertResponse.StopOverstayMessageCode)
+            .ResolvedAtUtc.Should().NotBeNull();
+        var nextDelay = afterDepart.Value.Single(a => a.MessageCode == TripAlertResponse.ScheduleDelayMessageCode);
+        nextDelay.AffectedItem!.ItemId.Should().Be(seed.SecondItemId);
+        nextDelay.ResolvedAtUtc.Should().BeNull();
+    }
+
     private static async Task<Seed> SeedAsync(TestDbContext db,
         DateTimeOffset? plannedArrivalUtc = null, bool reviewedOutdoor = false)
     {
@@ -300,5 +459,57 @@ public sealed class TripAlertScannerTests
         }
     }
 
+    private static async Task<TwoStopSeed> SeedTwoStopsAsync(
+        TestDbContext db,
+        DateTimeOffset firstArrivalUtc,
+        DateTimeOffset firstDepartureUtc,
+        DateTimeOffset secondArrivalUtc,
+        DateTimeOffset secondDepartureUtc)
+    {
+        var user = new User
+        {
+            Id = TravelerId,
+            Email = "scanner@example.com",
+            FullName = "Scanner",
+            Role = UserRole.Traveler,
+            Status = AccountStatus.Active,
+            CreatedAtUtc = Now,
+            UpdatedAtUtc = Now,
+        };
+        var category = PoiCategory.Create("Culture", null);
+        db.AddRange(user, category);
+        await db.SaveChangesAsync();
+        var firstPoi = PointOfInterest.Create(category, "Cham Museum", 16.0605m, 108.2235m, TravelerId, Now);
+        var secondPoi = PointOfInterest.Create(category, "Dragon Bridge", 16.0612m, 108.2277m, TravelerId, Now);
+        db.AddRange(firstPoi, secondPoi);
+        await db.SaveChangesAsync();
+        var itinerary = Itinerary.CreateManual(TravelerId, "Overstay Trip", Itinerary.ActiveStatus, Now);
+        itinerary.AddItem(ItineraryItem.CreateVisit(1, firstPoi.Id, firstArrivalUtc, firstDepartureUtc, true, 0, "Stop 1"));
+        itinerary.AddItem(ItineraryItem.CreateVisit(2, secondPoi.Id, secondArrivalUtc, secondDepartureUtc, false, 0, "Stop 2"));
+        db.Add(itinerary);
+        await db.SaveChangesAsync();
+        var ordered = itinerary.Items.OrderBy(i => i.SequenceNo).ToArray();
+        var session = TripSession.Start(
+            itinerary.Id,
+            itinerary.Id,
+            TravelerId,
+            Guid.NewGuid(),
+            firstArrivalUtc.AddMinutes(-30),
+            secondDepartureUtc.AddHours(2),
+            [
+                TripSessionItem.Snapshot(
+                    ordered[0].Id, 1, firstPoi.Id, firstPoi.Name, firstPoi.Latitude, firstPoi.Longitude,
+                    firstArrivalUtc, firstDepartureUtc, true),
+                TripSessionItem.Snapshot(
+                    ordered[1].Id, 2, secondPoi.Id, secondPoi.Name, secondPoi.Latitude, secondPoi.Longitude,
+                    secondArrivalUtc, secondDepartureUtc, false),
+            ]);
+        db.Add(session);
+        await db.SaveChangesAsync();
+        db.ClearTrackedEntities();
+        return new TwoStopSeed(session.Id, ordered[0].Id, ordered[1].Id);
+    }
+
     private sealed record Seed(long SessionId, long ItemId, long PoiId);
+    private sealed record TwoStopSeed(long SessionId, long FirstItemId, long SecondItemId);
 }
