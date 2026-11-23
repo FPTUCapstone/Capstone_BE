@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Test-fixture change only. No change under `src/`, `database/schema` or `database/migrations`, and no change to `.github/workflows`.
-- Work only in worktree `D:\Capstone_Project_Production\_wt\Capstone_BE_ci_sql_template`, branch `chore/ci-sql-test-db-template`. Never touch the main checkout `Capstone_BE`. Before every commit, `git status --short` must list only paths from this plan; no TM-300 path (`database/seeds/*`, `specs/TM-300-spec.md`, `plans/TM-300-plan.md`, `tools/poi-seed/`). No push, no PR until asked.
+- Work only on branch `chore/ci-sql-test-db-template`; do not stage, stash or commit unrelated local changes. Before every commit, `git status --short` must list only paths from this plan.
 - C# files: file-scoped namespaces, 4-space indent, **no final newline** (`.editorconfig` `insert_final_newline = false` for `*.cs`; CI fails with FINALNEWLINE otherwise). Before each commit run `dotnet format TripMate.slnx --verify-no-changes --no-restore --include <changed .cs files>`.
 - Database names stay `TripMate_Test_` + 32 hex for clones; templates use `TripMate_Template_` + 32 hex. Collation `Vietnamese_100_CI_AS`. Pooling stays disabled on every fixture connection.
 - Keep CI-785 and CI-787 behavior: guarded drop with `SINGLE_USER WITH ROLLBACK IMMEDIATE`, deadlock-1205 retry (3 attempts, 200/500 ms), `TRIPMATE_SQLSERVER_TEST_PRESERVE=1` keeps clones, connection-open retry only before a command runs. The drop batch keeps the literal text `DROP DATABASE [name]`.

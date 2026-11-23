@@ -1,7 +1,7 @@
 # CI: build the SQL Server test schema once, clone it per test
 
 Status: draft for approval, 2026-11-23.
-Branch `chore/ci-sql-test-db-template` (worktree `_wt/Capstone_BE_ci_sql_template`), based on `origin/develop` at `08dcae45`.
+Branch `chore/ci-sql-test-db-template`, based on `origin/develop` at `08dcae45`.
 Scope: test fixture only (`tests/TripMate.Api.IntegrationTests/Infrastructure`). No application, schema or migration change.
 
 ## 1. Problem
@@ -32,15 +32,13 @@ Isolation, naming (`TripMate_Test_<guid32>`), collation and the final database s
 
 Non-goals (separate follow-ups, only if measurements still justify them): matrix sharding of the job, `DELAYED_DURABILITY` or recovery-model tuning, a single `dotnet build` shared by the three `dotnet test` steps, restore throttling, a template shared across processes.
 
-## 3. Isolation from TM-300
+## 3. Isolation from unrelated work
 
-This change is independent of TM-300 and must not carry any of its files.
-TM-300 work is uncommitted in the main checkout `Capstone_BE` (on `develop`):
-`database/seeds/README.md` (modified), `database/seeds/20261118_*.sql` (4 untracked), `specs/TM-300-spec.md`, `plans/TM-300-plan.md`, `tools/poi-seed/`.
+This change is independent of any other in-flight work and carries only the files named in the plan.
 Rules for this branch:
-- Work only in the worktree above; never touch, stash or commit the main checkout.
+- Work on this dedicated branch only; do not stage, stash or commit unrelated local changes.
 - Before every commit, `git status --short` must list only paths named in the plan's file list.
-- The PR description and commits do not mention TM-300. TM-300 gets its own branch and PR later.
+- Commits and the PR description describe this change only.
 
 ## 4. Design
 
