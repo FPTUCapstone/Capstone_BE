@@ -35,6 +35,8 @@ public sealed class TourSearchOperationFilter : IOperationFilter
             Parameter("pageSize", JsonSchemaType.Integer,
                 $"Items per page. Defaults to 20; maximum {TourSearchCriteria.MaximumPageSize}.",
                 "int32", 1, TourSearchCriteria.MaximumPageSize),
+            Parameter(SearchToursQuery.BookableOnlyParameterName, JsonSchemaType.Boolean,
+                "Only tours with an open departure accepted by booking preflight. Defaults to false; Web discovery uses true."),
         ];
     }
 

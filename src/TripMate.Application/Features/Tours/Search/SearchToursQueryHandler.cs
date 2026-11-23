@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Tours.Shared;
 using TripMate.Application.Features.TripReviews.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
@@ -135,13 +136,21 @@ public sealed class SearchToursQueryHandler(
                     tours = tours.Where(tour => ratedIds.Contains(tour.Id));
                 }
 
+                long[] bookableScheduleIds = request.BookableOnly
+                    ? await PublicTourBookability.ReadScheduleIdsAsync(tours, now, transactionCancellationToken)
+                    : [];
+                if (request.BookableOnly)
+                    tours = tours.Where(tour => tour.Schedules.Any(schedule => bookableScheduleIds.Contains(schedule.Id)
+                        && (!hasDates || (schedule.StartAtUtc >= lowerInclusive && schedule.StartAtUtc < upperExclusive))));
+
                 var totalCount = await tours.LongCountAsync(transactionCancellationToken);
                 var candidates = (
                     from tour in tours
                     join rating in publishedRatings
                         on tour.Id equals rating.TourId
                     from schedule in tour.Schedules
-                        .Where(schedule => schedule.Status != TourScheduleStatus.Cancelled
+                        .Where(schedule => (!request.BookableOnly || bookableScheduleIds.Contains(schedule.Id))
+                            && schedule.Status != TourScheduleStatus.Cancelled
                             && schedule.EndAtUtc > schedule.StartAtUtc
                             && (hasDates
                                 ? schedule.StartAtUtc >= lowerInclusive

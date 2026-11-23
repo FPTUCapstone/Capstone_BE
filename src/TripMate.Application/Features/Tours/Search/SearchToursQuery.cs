@@ -17,8 +17,10 @@ public sealed record SearchToursQuery(
     int? DurationDays = null,
     string? Category = null,
     decimal? MinimumRating = null,
-    string? Sort = null) : IRequest<Result<PagedToursResponseDto>>
+    string? Sort = null,
+    bool BookableOnly = false) : IRequest<Result<PagedToursResponseDto>>
 {
+    public const string BookableOnlyParameterName = "bookableOnly";
     public const string SortRelevance = "relevance";
     public const string SortPriceAscending = "priceAsc";
     public const string SortPriceDescending = "priceDesc";

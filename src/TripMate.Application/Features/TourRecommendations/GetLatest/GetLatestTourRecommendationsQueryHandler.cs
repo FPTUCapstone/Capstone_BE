@@ -59,9 +59,15 @@ internal sealed class GetLatestTourRecommendationsQueryHandler(
                 return Result.Success(EmptyPage(request.Page, nowUtc));
             }
 
+            var bookableScheduleIds = await PublicTourBookability.ReadScheduleIdsAsync(
+                dbContext.Tours.Where(TourVisibility.PublicTour(nowUtc))
+                    .Where(tour => dbContext.TourRecommendationLogs.Any(log =>
+                        log.SearchRequestId == snapshot.Id && log.IsRecommended && log.TourId == tour.Id)),
+                nowUtc, cancellationToken);
             var publicTourIds = dbContext.Tours
                 .AsNoTracking()
                 .Where(TourVisibility.PublicTour(nowUtc))
+                .Where(tour => tour.Schedules.Any(schedule => bookableScheduleIds.Contains(schedule.Id)))
                 .Where(tour => tour.Schedules.Any(schedule =>
                     schedule.Status == TourScheduleStatus.Scheduled
                     && schedule.StartAtUtc > nowUtc
@@ -108,7 +114,8 @@ internal sealed class GetLatestTourRecommendationsQueryHandler(
                 ? []
                 : await dbContext.TourSchedules
                     .AsNoTracking()
-                    .Where(schedule => tourIds.Contains(schedule.TourId)
+                    .Where(schedule => bookableScheduleIds.Contains(schedule.Id)
+                        && tourIds.Contains(schedule.TourId)
                         && schedule.Status == TourScheduleStatus.Scheduled
                         && schedule.StartAtUtc > nowUtc
                         && schedule.EndAtUtc > schedule.StartAtUtc

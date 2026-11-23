@@ -149,3 +149,16 @@ jobs:
       # so exclude them here instead of executing them a second time.
       - name: Run remaining tests
         run: dotnet test TripMate.slnx -c Release --no-restore --filter "Category!=SqlServer&Category!=Redis"
+
+      # Failed integration assertions carry the server-side diagnostics in their TRX error text.
+      # Keep the TRX files so an intermittent failure can be investigated after the run ends.
+      - name: Upload integration test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results
+          path: |
+            ${{ runner.temp }}/tm70-sql/*.trx
+            ${{ runner.temp }}/uc10-redis/*.trx
+          if-no-files-found: ignore
+          retention-days: 7
