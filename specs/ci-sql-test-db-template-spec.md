@@ -66,7 +66,7 @@ Rules for this branch:
 - Directories come from the server, never from constants and never from `Path.Combine` on the test host (the host and the server can run different operating systems):
   `SERVERPROPERTY('InstanceDefaultDataPath')`, `SERVERPROPERTY('InstanceDefaultLogPath')`, `SERVERPROPERTY('InstanceDefaultBackupPath')`. A NULL value fails the build with a clear message.
 - Joining: pick the separator from the directory itself (`\` if it contains one, otherwise `/`), trim one trailing separator, add the separator, append the file name. This matters: on the Windows instance used for measuring, data and log paths end with `\` but the backup path does not (`...\MSSQL\Backup`). Concatenating directly wrote to `...\MSSQL\BackupTM_...bak` and failed with "Access is denied".
-- Expected values in the Linux container are the documented defaults (`/var/opt/mssql/data/` for data and log, backup folder `/var/opt/mssql/data`). They are not verified on the author's machine. The design does not depend on the literal values, and plan Task 3 adds a probe test that records the real ones on the first CI run.
+- Expected values in the Linux container are the documented defaults (`/var/opt/mssql/data/` for data and log, backup folder `/var/opt/mssql/data`). They are not verified on the author's machine. The design does not depend on the literal values, and plan Task 3 adds a probe test. A green CI run proves the paths work; to read the actual values, run that one test in a CI debug re-run or locally against a Linux SQL Server with `--logger "console;verbosity=detailed"` (the values go to `ITestOutputHelper`, which CI shows only for failing runs).
 - File names:
 
 | File | Directory | Name |
@@ -93,7 +93,8 @@ Rules for this branch:
 ### 4.5 Behavior change that tests must absorb
 
 - Rows produced by migrations at build time (for example anything using `NEWID()` or the current time) are now identical in every clone instead of differing per database. The full suite is the check.
-- `CreateAsync_BootstrapReusesTwoConnectionsEvenWhenOpeningIsRetried` asserts that one `CreateAsync()` opens exactly two connections. After this change that contract belongs to the template build, not to every call. The test is moved to the template class, which is instantiable per test; a new test asserts that a clone from an existing template uses one connection and runs no schema script.
+- `CreateAsync_BootstrapReusesTwoConnectionsEvenWhenOpeningIsRetried` asserted that one `CreateAsync()` opens exactly two connections. After this change that contract belongs to the template build, not to every call: the template build uses at most three connections (one master connection for all master-level steps, one database connection for schema and migrations, and one opened by the guarded drop). The test is moved to the template class (instantiable per test) as `BuildAsync_UsesAtMostThreeConnectionsEvenWhenOpeningIsRetried`; a new test asserts that a clone from an existing template uses one connection and runs no schema script.
+- The template is set to `RECOVERY SIMPLE` before the backup, so clones keep a truncating log like today's never-backed-up test databases and the final database state stays the same.
 
 ## 5. Alternatives considered
 
