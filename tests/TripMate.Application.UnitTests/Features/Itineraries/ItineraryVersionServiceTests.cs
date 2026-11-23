@@ -370,6 +370,30 @@ public sealed class ItineraryVersionServiceTests
         result.ErrorCode.Should().Be(ItineraryErrorCodes.GenerationTimedOut);
     }
 
+    [Fact]
+    public async Task CreateRegeneratedVersion_PreservesMandatoryFoodAndDrinkStop()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var restaurant = await AddPlanningReadyPoiAsync(
+            dbContext,
+            PoiCategoryNames.FoodAndDrink,
+            "Madame Lan",
+            visitMinutes: 60,
+            hasShelter: true);
+        var current = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Current museum", visitMinutes: 240);
+        var alternative = await AddPlanningReadyPoiAsync(dbContext, "Nature", "Alternative park", visitMinutes: 240);
+        var request = await AddRequestAsync(dbContext, travelerUserId: 42, mandatoryPoiIdsJson: $"[{restaurant.Id}]");
+        var original = await AddItineraryAsync(dbContext, request, 1, restaurant.Id, current.Id);
+
+        var result = await new ItineraryVersionService(dbContext, new FixedRouteDurationProvider())
+            .CreateRegeneratedVersionAsync(original, request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        VisitIds(result.Value).Should().Contain(restaurant.Id);
+        VisitIds(result.Value).Should().Contain(alternative.Id);
+        result.Value.Items.Single(item => item.PointOfInterestId == restaurant.Id).IsMandatory.Should().BeTrue();
+    }
+
     /// <summary>ADR-002 (G2): a version saved from the traveler's own order is not presented as a solver result.</summary>
     [Fact]
     public async Task CreateAdjustedVersion_RecordsTheTravelersOwnOrder()

@@ -466,20 +466,9 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 "The selected ending location is unavailable.");
         }
 
-        if (canonical.MandatoryPoiIds.Any(id => activePois.Any(poi =>
-                poi.Id == id && PoiCategoryNames.IsFoodAndDrink(poi.Category?.Name))))
-        {
-            return PreparedGeneration.Infeasible(
-                snapshot.Hash,
-                preferenceTokens,
-                explanationMetadata,
-                "Restaurants cannot be mandatory stops. Add them after the itinerary is created.",
-                failureCode: SchedulingErrorCodes.MandatoryFoodNotAllowed);
-        }
-
         var selectablePois = activePois
             .Where(PlanningPoiEligibility.IsPlanningReady)
-            .Where(PlanningPoiEligibility.IsAutoSchedulable)
+            .Where(poi => PlanningPoiEligibility.IsAutoSchedulable(poi) || canonical.MandatoryPoiIds.Contains(poi.Id))
             .Where(poi => GeoDistance.EquirectangularKilometers(
                 canonical.ExplorationLatitude,
                 canonical.ExplorationLongitude,

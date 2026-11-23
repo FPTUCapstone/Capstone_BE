@@ -6,7 +6,7 @@
 
 ## Environment and corpus
 
-- Source: SHA-256 `09ddca2cb913e39847aae97fd77531e4ad995dbb5000a8223af367564f2583b9` over 60 benchmarked files (`SolverComparisonReport.SourceInputs`: the scheduling `Common`, `Csp` and `Routing` folders, the corpus fixture, the comparison rule and the runner; line endings normalized to LF). `SolverComparisonReportTests` recomputes it, so this report always matches the committed source, whatever the merge strategy.
+- Source: SHA-256 `9322efba390d168a8d701f108322108c1bded0179f07d095894a28617827f81d` over 60 benchmarked files (`SolverComparisonReport.SourceInputs`: the scheduling `Common`, `Csp` and `Routing` folders, the corpus fixture, the comparison rule and the runner; line endings normalized to LF). `SolverComparisonReportTests` recomputes it, so this report always matches the committed source, whatever the merge strategy.
 - Generated at (UTC): 2026-11-20T07:01:41Z
 - Host: Microsoft Windows 10.0.26200; CPU: Intel64 Family 6 Model 141 Stepping 1, GenuineIntel; logical processors: 12; runtime: .NET 10.0.0; build: Release
 - Iterations: 1 warmup + 3 measured per scenario and mode, sequential, in one process. The warmup run produces the compared plan, its outcome and its CSP statistics; only measured runs are timed.

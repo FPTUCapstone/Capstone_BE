@@ -302,10 +302,15 @@ public sealed class ItineraryScheduleEvaluator(SchedulingGenerationOptions? opti
         long? visitingPoiId = null,
         IReadOnlyList<GenerationCandidate>? plannedVisits = null)
     {
+        var hasPlannedDining = input.RestPreference != RestPreference.Frequent
+            && plannedVisits is not null
+            && plannedVisits.Any(v => PoiCategoryNames.IsFoodAndDrink(v.CategoryName));
+
         return candidates
             .Where(candidate =>
                 !input.MandatoryPoiIds.Contains(candidate.Id)
                 && IsQualifiedRestCandidate(candidate)
+                && (!hasPlannedDining || !PoiCategoryNames.IsFoodAndDrink(candidate.CategoryName))
                 && candidate.Id != visitingPoiId
                 && !IsPlannedVisit(plannedVisits, candidate.Id)
                 && !WasVisited(itemsSoFar, candidate.Id)
