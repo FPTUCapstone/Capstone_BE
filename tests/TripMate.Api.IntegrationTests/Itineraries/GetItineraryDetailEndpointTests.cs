@@ -101,6 +101,60 @@ public sealed class GetItineraryDetailEndpointTests
             .Should().NotBe("Giải thích của phiên bản cũ.");
     }
 
+    [Theory]
+    [InlineData(GroupMemberStatus.Active, HttpStatusCode.OK)]
+    [InlineData(GroupMemberStatus.Left, HttpStatusCode.Forbidden)]
+    [InlineData(GroupMemberStatus.Removed, HttpStatusCode.Forbidden)]
+    public async Task Get_SharedItinerary_OnlyActiveMembersCanReadCurrentVersion(
+        GroupMemberStatus membershipStatus,
+        HttpStatusCode expectedStatus)
+    {
+        await using var factory = new TripMateApiFactory();
+        var seed = await SeedVersionedAsync(factory);
+        await factory.WithDbContextAsync(async context =>
+        {
+            var now = DateTimeOffset.UtcNow;
+            context.Users.Add(new User
+            {
+                Id = 2,
+                Email = "offline-itinerary-member@example.com",
+                FullName = "Offline Itinerary Member",
+                Role = UserRole.Traveler,
+                Status = AccountStatus.Active,
+                CreatedAtUtc = now,
+                UpdatedAtUtc = now,
+            });
+            var group = TravelGroup.Create(seed.HistoricalId, 1, "Shared offline trip", now);
+            group.AddMember(GroupMember.CreateHost(group, 1, now));
+            var member = GroupMember.CreateMember(group, 2, now);
+            group.AddMember(member);
+            if (membershipStatus == GroupMemberStatus.Left)
+            {
+                member.Leave(now);
+            }
+            else if (membershipStatus == GroupMemberStatus.Removed)
+            {
+                member.Remove(now);
+            }
+
+            context.TravelGroups.Add(group);
+            await context.SaveChangesAsync();
+            return group.Id;
+        });
+        using var client = factory.CreateAuthenticatedClient(2, UserRole.Traveler);
+
+        using var response = await client.GetAsync($"/api/v1/itineraries/{seed.HistoricalId}");
+
+        response.StatusCode.Should().Be(expectedStatus);
+        if (expectedStatus == HttpStatusCode.OK)
+        {
+            using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            json.RootElement.GetProperty("itineraryId").GetInt64().Should().Be(seed.CurrentId);
+            json.RootElement.GetProperty("version").GetInt32().Should().Be(2);
+            json.RootElement.GetProperty("canManage").GetBoolean().Should().BeFalse();
+        }
+    }
+
     private static async Task<long> SeedAsync(TripMateApiFactory factory)
     {
         return await factory.WithDbContextAsync(async context =>
