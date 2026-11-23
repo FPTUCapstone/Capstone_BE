@@ -34,6 +34,7 @@ public sealed class ItinerariesController(
     public async Task<IActionResult> List(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = ListMyItinerariesQuery.DefaultPageSize,
+        [FromQuery] string? sort = null,
         CancellationToken cancellationToken = default)
     {
         if (!currentUserService.UserId.HasValue)
@@ -42,7 +43,7 @@ public sealed class ItinerariesController(
         }
 
         var result = await Sender.Send(
-            new ListMyItinerariesQuery(currentUserService.UserId.Value, page, pageSize),
+            new ListMyItinerariesQuery(currentUserService.UserId.Value, page, pageSize, sort),
             cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
