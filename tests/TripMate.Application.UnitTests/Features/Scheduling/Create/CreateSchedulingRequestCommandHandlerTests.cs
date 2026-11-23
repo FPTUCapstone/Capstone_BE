@@ -1327,7 +1327,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
     [Theory]
     [InlineData(PoiCategoryNames.FoodAndDrink)]
     [InlineData("Cafe")]
-    public async Task Handle_FoodAndDrinkAsMandatory_FailsWithItsOwnCodeAndReplaysIt(string categoryName)
+    public async Task Handle_FoodAndDrinkAsMandatory_SucceedsAndSchedulesStop(string categoryName)
     {
         await using var dbContext = TestDbContext.Create();
         await SeedSelectablePoiAsync(dbContext);
@@ -1345,9 +1345,11 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         var first = await handler.Handle(command, CancellationToken.None);
         var replay = await handler.Handle(command, CancellationToken.None);
 
-        first.ErrorCode.Should().Be(SchedulingErrorCodes.MandatoryFoodNotAllowed);
-        replay.ErrorCode.Should().Be(SchedulingErrorCodes.MandatoryFoodNotAllowed);
-        (await dbContext.Itineraries.CountAsync()).Should().Be(0);
+        first.IsSuccess.Should().BeTrue();
+        first.Value.Items.Should().Contain(item => item.PoiId == restaurant.Id && item.IsMandatory);
+        replay.IsSuccess.Should().BeTrue();
+        replay.Value.Items.Should().Contain(item => item.PoiId == restaurant.Id && item.IsMandatory);
+        (await dbContext.Itineraries.CountAsync()).Should().Be(1);
     }
 
     [Fact]
