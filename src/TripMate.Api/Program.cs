@@ -173,7 +173,8 @@ try
                 {
                     var accessToken = context.Request.Query["access_token"];
                     if (!string.IsNullOrWhiteSpace(accessToken)
-                        && context.HttpContext.Request.Path.StartsWithSegments(WeatherSafetyReviewHub.Route))
+                        && (context.HttpContext.Request.Path.StartsWithSegments(WeatherSafetyReviewHub.Route)
+                            || context.HttpContext.Request.Path.StartsWithSegments(GroupChatHub.Route)))
                     {
                         context.Token = accessToken;
                     }
@@ -313,6 +314,7 @@ try
 
     app.MapControllers();
     app.MapHub<WeatherSafetyReviewHub>(WeatherSafetyReviewHub.Route);
+    app.MapHub<GroupChatHub>(GroupChatHub.Route);
 
     app.MapGet("/health", () => Results.Ok(new { status = "healthy" })).AllowAnonymous();
 

@@ -141,6 +141,16 @@ public interface IApplicationDbContext
 
     DbSet<GroupMember> GroupMembers { get; }
 
+    DbSet<GroupMessage> GroupMessages { get; }
+
+    DbSet<GroupMessageReadReceipt> GroupMessageReadReceipts { get; }
+
+    DbSet<GroupRollCallCheckin> GroupRollCallCheckins { get; }
+
+    DbSet<GroupSplitBillPayment> GroupSplitBillPayments { get; }
+
+    DbSet<GroupPollVote> GroupPollVotes { get; }
+
     DbSet<Itinerary> Itineraries { get; }
 
     DbSet<ItineraryItem> ItineraryItems { get; }

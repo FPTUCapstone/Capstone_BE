@@ -439,6 +439,14 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
                 TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.MemberNotActive =>
                 StatusCodes.Status409Conflict,
 
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.MessageNotFound =>
+                StatusCodes.Status404NotFound,
+
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.InvalidMessageType or
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.InvalidMessageContent or
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.InvalidPollOptions =>
+                StatusCodes.Status400BadRequest,
+
             TripMate.Application.Features.Notifications.MarkRead.NotificationErrorCodes.NotFound =>
                 StatusCodes.Status404NotFound,
 

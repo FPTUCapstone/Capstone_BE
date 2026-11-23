@@ -115,6 +115,16 @@ public class TestDbContext(
 
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
 
+    public DbSet<GroupMessage> GroupMessages => Set<GroupMessage>();
+
+    public DbSet<GroupMessageReadReceipt> GroupMessageReadReceipts => Set<GroupMessageReadReceipt>();
+
+    public DbSet<GroupRollCallCheckin> GroupRollCallCheckins => Set<GroupRollCallCheckin>();
+
+    public DbSet<GroupSplitBillPayment> GroupSplitBillPayments => Set<GroupSplitBillPayment>();
+
+    public DbSet<GroupPollVote> GroupPollVotes => Set<GroupPollVote>();
+
     public DbSet<Itinerary> Itineraries => Set<Itinerary>();
 
     public DbSet<ItineraryItem> ItineraryItems => Set<ItineraryItem>();
