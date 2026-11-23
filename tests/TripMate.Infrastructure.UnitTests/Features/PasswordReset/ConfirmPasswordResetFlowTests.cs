@@ -287,6 +287,19 @@ public class ConfirmPasswordResetFlowTests
 
         DbSet<Domain.Entities.GroupMember> IApplicationDbContext.GroupMembers => throw new NotSupportedException();
 
+        DbSet<Domain.Entities.GroupMessage> IApplicationDbContext.GroupMessages => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.GroupMessageReadReceipt> IApplicationDbContext.GroupMessageReadReceipts =>
+            throw new NotSupportedException();
+
+        DbSet<Domain.Entities.GroupRollCallCheckin> IApplicationDbContext.GroupRollCallCheckins =>
+            throw new NotSupportedException();
+
+        DbSet<Domain.Entities.GroupSplitBillPayment> IApplicationDbContext.GroupSplitBillPayments =>
+            throw new NotSupportedException();
+
+        DbSet<Domain.Entities.GroupPollVote> IApplicationDbContext.GroupPollVotes => throw new NotSupportedException();
+
         DbSet<Domain.Entities.Itinerary> IApplicationDbContext.Itineraries => throw new NotSupportedException();
 
         DbSet<Domain.Entities.ItineraryItem> IApplicationDbContext.ItineraryItems => throw new NotSupportedException();
@@ -402,6 +415,11 @@ public class ConfirmPasswordResetFlowTests
             modelBuilder.Ignore<Domain.Entities.VoucherApplicableTour>();
             modelBuilder.Ignore<Domain.Entities.TravelGroup>();
             modelBuilder.Ignore<Domain.Entities.GroupMember>();
+            modelBuilder.Ignore<Domain.Entities.GroupMessage>();
+            modelBuilder.Ignore<Domain.Entities.GroupMessageReadReceipt>();
+            modelBuilder.Ignore<Domain.Entities.GroupRollCallCheckin>();
+            modelBuilder.Ignore<Domain.Entities.GroupSplitBillPayment>();
+            modelBuilder.Ignore<Domain.Entities.GroupPollVote>();
             modelBuilder.Ignore<Domain.Entities.Itinerary>();
             modelBuilder.Ignore<Domain.Entities.TravelGroupCreationRequest>();
             modelBuilder.Ignore<Domain.Entities.GroupInvitation>();
