@@ -11,10 +11,12 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
+using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.PointsOfInterest.Deactivate;
 using TripMate.Domain.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
+using TripMate.Infrastructure.Persistence;
 
 namespace TripMate.Api.IntegrationTests.PointsOfInterest;
 
@@ -136,15 +138,23 @@ public sealed class DeactivatePoiSqlServerTests
         body.GetProperty("messageCode").GetString().Should().Be(PoiDeactivationErrors.Msg194);
     }
 
-    [Fact]
-    public async Task Deactivate_WhenValid_TransitionsPoiCascadesRoutesAndWritesAuditLog()
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Deactivate_RejectsReplacedRouteAndCommitsExactlyOnceWithReplay()
     {
-        await using var factory = new TripMateApiFactory();
-        var adminId = await SeedActorAsync(factory, UserRole.Administrator);
-        var poiId = await SeedPoiAsync(factory, "To Deactivate POI");
-        var otherPoiId = await SeedPoiAsync(factory, "Connected POI");
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await using var factory = new TripMateApiFactory(sqlServerConnectionString: database.ConnectionString);
+        var adminId = await WithSqlDbAsync(db => SeedActorAsync(db, UserRole.Administrator));
+        var poiId = await WithSqlDbAsync(db => SeedPoiAsync(db, "To Deactivate POI", adminId));
+        var otherPoiId = await WithSqlDbAsync(db => SeedPoiAsync(db, "Connected POI", adminId));
 
-        var routeId = await factory.WithDbContextAsync(async db =>
+        async Task<T> WithSqlDbAsync<T>(Func<ApplicationDbContext, Task<T>> action)
+        {
+            await using var db = database.CreateDbContext();
+            return await action(db);
+        }
+
+        var routeId = await WithSqlDbAsync(async db =>
         {
             var from = await db.PointsOfInterest.FindAsync(poiId);
             var to = await db.PointsOfInterest.FindAsync(otherPoiId);
@@ -163,15 +173,56 @@ public sealed class DeactivatePoiSqlServerTests
         preview!.HasActiveReferences.Should().BeTrue();
         preview.ActiveRoutesCount.Should().Be(1);
 
-        // Step 2: Confirm deactivation with token and mandatory reason
+        var replacementId = await WithSqlDbAsync(async db =>
+        {
+            var original = await db.RouteSegments.FindAsync(routeId);
+            original!.DeactivateForEndpointReview(TestTime, "Synthetic route replacement");
+            var from = await db.PointsOfInterest.FindAsync(poiId);
+            var to = await db.PointsOfInterest.FindAsync(otherPoiId);
+            var replacement = RouteSegment.Create(from!, to!, 8.5m, 18, TransportMode.Walking,
+                "Replacement route", adminId, Guid.NewGuid(), TestTime);
+            db.RouteSegments.Add(replacement);
+            await db.SaveChangesAsync();
+            return replacement.Id;
+        });
+
+        var path = $"{BaseRoute}/{poiId}/deactivate";
         var command = new DeactivatePoiCommand
         {
             PoiId = poiId,
             Reason = "Site permanently closed by local authorities.",
             ReferenceSnapshotToken = preview.ReferenceSnapshotToken,
-            IdempotencyKey = Guid.NewGuid()
         };
-        var response = await client.PostAsJsonAsync($"{BaseRoute}/{poiId}/deactivate", command);
+        var stale = await client.PostAsJsonAsync(path, command);
+        stale.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var conflict = await stale.Content.ReadFromJsonAsync<JsonElement>();
+        conflict.GetProperty("errorCode").GetString().Should().Be(PoiDeactivationErrors.ReferenceMismatch);
+        conflict.GetProperty("activeRoutesCount").GetInt32().Should().Be(1);
+        var freshToken = conflict.GetProperty("referenceSnapshotToken").GetString()!;
+        freshToken.Should().NotBe(preview.ReferenceSnapshotToken);
+
+        var key = Guid.NewGuid();
+        var confirmed = command with { ReferenceSnapshotToken = freshToken };
+        async Task<HttpResponseMessage> SendAsync(DeactivatePoiCommand body, Guid requestKey)
+        {
+            using var message = new HttpRequestMessage(HttpMethod.Post, path)
+            {
+                Content = JsonContent.Create(body),
+            };
+            message.Headers.Add("Idempotency-Key", requestKey.ToString());
+            return await client.SendAsync(message);
+        }
+
+        var results = await Task.WhenAll(SendAsync(confirmed, key), SendAsync(confirmed, key));
+        using var response = results[0];
+        using var concurrentReplay = results[1];
+        concurrentReplay.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var retry = await SendAsync(confirmed, key);
+        retry.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var conflicting = await SendAsync(confirmed with { Reason = "Different reason" }, key);
+        conflicting.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        using var anotherRequest = await SendAsync(confirmed, Guid.NewGuid());
+        anotherRequest.StatusCode.Should().Be(HttpStatusCode.Conflict);
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var result = await response.Content.ReadFromJsonAsync<DeactivatePoiResultDto>();
@@ -180,26 +231,28 @@ public sealed class DeactivatePoiSqlServerTests
         result.Status.Should().Be(PointOfInterestStatus.Inactive.ToString());
         result.DeactivatedConnectingRoutesCount.Should().Be(1);
         result.MessageCode.Should().Be(PoiDeactivationErrors.Msg193);
+        (await concurrentReplay.Content.ReadFromJsonAsync<DeactivatePoiResultDto>()).Should().Be(result);
+        (await retry.Content.ReadFromJsonAsync<DeactivatePoiResultDto>()).Should().Be(result);
 
         // Verify database state: POI is Inactive
-        await factory.WithDbContextAsync(async db =>
+        await WithSqlDbAsync(async db =>
         {
             var poi = await db.PointsOfInterest.FindAsync(poiId);
             poi!.Status.Should().Be(PointOfInterestStatus.Inactive);
 
             // Verify cascaded connecting route is Inactive with review flags
-            var route = await db.RouteSegments.FindAsync(routeId);
+            var route = await db.RouteSegments.FindAsync(replacementId);
             route!.Status.Should().Be(RouteStatus.Inactive);
             route.RequiresReview.Should().BeTrue();
             route.ReviewFlaggedAtUtc.Should().NotBeNull();
             route.ReviewFlagReason.Should().Be("Endpoint point of interest deactivated.");
 
             // Verify AuditLog record (BR-130)
-            var audit = await db.AuditLogs.FirstOrDefaultAsync(a => a.AffectedEntityId == poiId && a.ActionType == AuditActionTypes.PoiDeactivated);
-            audit.Should().NotBeNull();
-            audit!.ActorUserId.Should().Be(adminId);
+            var audit = await db.AuditLogs.SingleAsync(a => a.AffectedEntityId == poiId && a.ActionType == AuditActionTypes.PoiDeactivated);
+            audit.ActorUserId.Should().Be(adminId);
             audit.Reason.Should().Be("Site permanently closed by local authorities.");
-            audit.AfterData.Should().Contain(routeId.ToString());
+            using var afterData = JsonDocument.Parse(audit.AfterData!);
+            afterData.RootElement.GetProperty("deactivatedRouteIds")[0].GetInt64().Should().Be(replacementId);
             return true;
         });
     }
@@ -303,37 +356,41 @@ public sealed class DeactivatePoiSqlServerTests
         }
     }
 
-    private static async Task<long> SeedActorAsync(TripMateApiFactory factory, UserRole role) =>
-        await factory.WithDbContextAsync(async db =>
-        {
-            var user = new User
-            {
-                Email = $"{Guid.NewGuid():N}@test.local",
-                FullName = $"Test {role}",
-                Role = role,
-                Status = AccountStatus.Active,
-                CreatedAtUtc = TestTime,
-                UpdatedAtUtc = TestTime,
-                EmailVerifiedAtUtc = TestTime,
-            };
-            db.Users.Add(user);
-            await db.SaveChangesAsync();
-            return user.Id;
-        });
+    private static Task<long> SeedActorAsync(TripMateApiFactory factory, UserRole role) =>
+        factory.WithDbContextAsync(db => SeedActorAsync(db, role));
 
-    private static async Task<long> SeedPoiAsync(TripMateApiFactory factory, string name) =>
-        await factory.WithDbContextAsync(async db =>
+    private static async Task<long> SeedActorAsync(IApplicationDbContext db, UserRole role)
+    {
+        var user = new User
         {
-            var category = await db.PoiCategories.FirstOrDefaultAsync() ?? PoiCategory.Create("Default", null);
-            if (category.Id == 0)
-            {
-                db.PoiCategories.Add(category);
-                await db.SaveChangesAsync();
-            }
+            Email = $"{Guid.NewGuid():N}@test.local",
+            FullName = $"Test {role}",
+            Role = role,
+            Status = AccountStatus.Active,
+            CreatedAtUtc = TestTime,
+            UpdatedAtUtc = TestTime,
+            EmailVerifiedAtUtc = TestTime,
+        };
+        db.Users.Add(user);
+        await db.SaveChangesAsync(CancellationToken.None);
+        return user.Id;
+    }
 
-            var poi = PointOfInterest.Create(category, name, 16.05m, 108.20m, 1, TestTime);
-            db.PointsOfInterest.Add(poi);
-            await db.SaveChangesAsync();
-            return poi.Id;
-        });
+    private static Task<long> SeedPoiAsync(TripMateApiFactory factory, string name) =>
+        factory.WithDbContextAsync(db => SeedPoiAsync(db, name, 1));
+
+    private static async Task<long> SeedPoiAsync(IApplicationDbContext db, string name, long createdBy)
+    {
+        var category = await db.PoiCategories.FirstOrDefaultAsync() ?? PoiCategory.Create("Default", null);
+        if (category.Id == 0)
+        {
+            db.PoiCategories.Add(category);
+            await db.SaveChangesAsync(CancellationToken.None);
+        }
+
+        var poi = PointOfInterest.Create(category, name, 16.05m, 108.20m, createdBy, TestTime);
+        db.PointsOfInterest.Add(poi);
+        await db.SaveChangesAsync(CancellationToken.None);
+        return poi.Id;
+    }
 }

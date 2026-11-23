@@ -5,6 +5,8 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Authorization;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
+using Microsoft.Data.SqlClient;
+using Microsoft.EntityFrameworkCore;
 
 using TripMate.Api.Authorization;
 using TripMate.Api.Common;
@@ -15,7 +17,7 @@ using TripMate.Domain.Enums;
 namespace TripMate.Api.Controllers.V1;
 
 [Route("api/v1/admin/pois")]
-public sealed class PoiManagementController(ISender sender) : ApiControllerBase(sender)
+public sealed class PoiManagementController(ISender sender, ILogger<PoiManagementController> logger) : ApiControllerBase(sender)
 {
     private static readonly string[] QueryParameterNames =
     [
@@ -111,8 +113,21 @@ public sealed class PoiManagementController(ISender sender) : ApiControllerBase(
             ? idempotencyKey.Value
             : Guid.NewGuid();
 
-        var result = await Sender.Send(command with { IdempotencyKey = key }, cancellationToken);
-        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+        try
+        {
+            var result = await Sender.Send(command with { IdempotencyKey = key }, cancellationToken);
+            return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested
+            && (exception is SqlException
+                || exception is DbUpdateException { InnerException: SqlException }))
+        {
+            logger.LogWarning(exception, "POI {PoiId} deactivation could not complete in SQL Server.", id);
+            return Problem(
+                title: PoiDeactivationErrors.Msg127Message,
+                statusCode: StatusCodes.Status503ServiceUnavailable,
+                extensions: new Dictionary<string, object?> { ["errorCode"] = PoiDeactivationErrors.Unavailable });
+        }
     }
 }
 

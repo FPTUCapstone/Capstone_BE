@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 
 using MediatR;
@@ -32,23 +30,22 @@ public sealed class DeactivatePoiCommandHandler(
                 PoiDeactivationErrors.Forbidden, PoiDeactivationErrors.Msg126Message);
         }
 
-        var isAdministrator = await dbContext.Users.AsNoTracking().AnyAsync(
-            user => user.Id == actorId.Value
-                && user.Status == AccountStatus.Active
-                && user.Role == UserRole.Administrator,
-            cancellationToken);
-
-        if (!isAdministrator)
-        {
-            return Result.Failure<DeactivatePoiResultDto>(
-                PoiDeactivationErrors.Forbidden, PoiDeactivationErrors.Msg126Message);
-        }
-
-        // Acquire lock coordinating with TM-225 provisioning and other POI mutations
-        await poiDeactivationLock.AcquireAsync(request.PoiId, cancellationToken);
-
         return await dbContext.ExecuteInSerializableTransactionAsync(async token =>
         {
+            await poiDeactivationLock.AcquireAsync(request.PoiId, token);
+
+            // Serializable retains the account read lock until the mutation commits or rolls back.
+            var isAdministrator = await dbContext.Users.AsNoTracking().AnyAsync(
+                user => user.Id == actorId.Value
+                    && user.Status == AccountStatus.Active
+                    && user.Role == UserRole.Administrator,
+                token);
+            if (!isAdministrator)
+            {
+                return Result.Failure<DeactivatePoiResultDto>(
+                    PoiDeactivationErrors.Forbidden, PoiDeactivationErrors.Msg126Message);
+            }
+
             var poi = await dbContext.PointsOfInterest
                 .FirstOrDefaultAsync(p => p.Id == request.PoiId, token);
 
@@ -60,30 +57,22 @@ public sealed class DeactivatePoiCommandHandler(
 
             if (poi.Status == PointOfInterestStatus.Inactive)
             {
-                return Result.Failure<DeactivatePoiResultDto>(
-                    PoiDeactivationErrors.AlreadyInactive, PoiDeactivationErrors.AlreadyInactiveMessage);
+                var replay = await FindReplayAsync(actorId.Value, request, token);
+                return replay is not null
+                    ? Result.Success(replay)
+                    : Result.Failure<DeactivatePoiResultDto>(
+                        PoiDeactivationErrors.AlreadyInactive, PoiDeactivationErrors.AlreadyInactiveMessage);
             }
 
-            // Concurrency check (Abnormal case 6.a2): verify references haven't changed since preview
-            var activeItinerariesCount = await dbContext.ItineraryItems
-                .Where(item => item.PointOfInterestId == request.PoiId && item.Itinerary.Status == Itinerary.ActiveStatus)
-                .Select(item => item.ItineraryId)
-                .Distinct()
-                .CountAsync(token);
-
-            var activeRoutes = await dbContext.RouteSegments
-                .Where(route => (route.FromPoiId == request.PoiId || route.ToPoiId == request.PoiId)
-                    && route.Status == RouteStatus.Active)
+            var activeRoutes = await PoiReferenceSnapshot.ActiveRoutes(dbContext, request.PoiId)
+                .OrderBy(route => route.Id)
                 .ToListAsync(token);
-            var activeRoutesCount = activeRoutes.Count;
-
-            var openBookingsCount = await dbContext.ServiceBookings
-                .Where(booking => (booking.Status == ServiceBooking.PendingConfirmation || booking.Status == ServiceBooking.Confirmed)
-                    && dbContext.CommercialServices.Any(service => service.Id == booking.ServiceId && service.PoiId == request.PoiId))
-                .CountAsync(token);
-
-            var rawToken = $"{request.PoiId}:{activeItinerariesCount}:{activeRoutesCount}:{openBookingsCount}";
-            var currentToken = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rawToken)));
+            var snapshot = await PoiReferenceSnapshot.ReadAsync(
+                dbContext, request.PoiId, activeRoutes.Select(route => route.Id).ToArray(), token);
+            var currentToken = snapshot.CreateToken(request.PoiId);
+            var activeItinerariesCount = snapshot.ItineraryIds.Count;
+            var activeRoutesCount = snapshot.RouteIds.Count;
+            var openBookingsCount = snapshot.BookingIds.Count;
 
             if (!string.Equals(currentToken, request.ReferenceSnapshotToken, StringComparison.OrdinalIgnoreCase))
             {
@@ -123,13 +112,12 @@ public sealed class DeactivatePoiCommandHandler(
                 openBookingsCount,
             });
 
-            var afterData = JsonSerializer.Serialize(new
-            {
-                status = PointOfInterestStatus.Inactive.ToString(),
-                reason = request.Reason.Trim(),
-                deactivatedRouteIds,
-                deactivatedAtUtc = now,
-            });
+            var reason = request.Reason.Trim();
+            var afterData = JsonSerializer.Serialize(
+                new DeactivationAudit(
+                    PointOfInterestStatus.Inactive.ToString(), reason, deactivatedRouteIds,
+                    now, request.IdempotencyKey, currentToken),
+                JsonSerializerOptions.Web);
 
             var auditLog = AuditLog.CreateRecordedOutcome(
                 actorUserId: actorId.Value,
@@ -138,7 +126,7 @@ public sealed class DeactivatePoiCommandHandler(
                 affectedEntityId: request.PoiId,
                 createdAtUtc: now,
                 result: AuditOutcome.Success,
-                reason: request.Reason.Trim(),
+                reason: reason,
                 beforeData: beforeData,
                 afterData: afterData);
 
@@ -155,4 +143,56 @@ public sealed class DeactivatePoiCommandHandler(
                 PoiDeactivationErrors.Msg193Message));
         }, cancellationToken);
     }
+
+    private async Task<DeactivatePoiResultDto?> FindReplayAsync(
+        long actorId, DeactivatePoiCommand request, CancellationToken cancellationToken)
+    {
+        if (request.IdempotencyKey == Guid.Empty)
+        {
+            return null;
+        }
+
+        // A POI can only be deactivated once. The immutable audit record commits
+        // atomically with that state change and provides the original response.
+        var afterData = await dbContext.AuditLogs.AsNoTracking()
+            .Where(audit => audit.AffectedEntity == AuditEntityTypes.PointOfInterest
+                && audit.AffectedEntityId == request.PoiId
+                && audit.ActorUserId == actorId
+                && audit.ActionType == AuditActionTypes.PoiDeactivated
+                && audit.Result == AuditOutcome.Success)
+            .OrderByDescending(audit => audit.Id)
+            .Select(audit => audit.AfterData)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (afterData is null)
+        {
+            return null;
+        }
+
+        DeactivationAudit? saved;
+        try
+        {
+            saved = JsonSerializer.Deserialize<DeactivationAudit>(afterData, JsonSerializerOptions.Web);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        return saved is { DeactivatedRouteIds: not null }
+            && saved.IdempotencyKey == request.IdempotencyKey
+            && string.Equals(saved.Reason, request.Reason.Trim(), StringComparison.Ordinal)
+            && string.Equals(saved.ReferenceSnapshotToken, request.ReferenceSnapshotToken, StringComparison.OrdinalIgnoreCase)
+            ? new DeactivatePoiResultDto(
+                request.PoiId, saved.Status, saved.DeactivatedRouteIds.Count, saved.DeactivatedAtUtc,
+                PoiDeactivationErrors.Msg193, PoiDeactivationErrors.Msg193Message)
+            : null;
+    }
+
+    private sealed record DeactivationAudit(
+        string Status,
+        string Reason,
+        IReadOnlyList<long> DeactivatedRouteIds,
+        DateTimeOffset DeactivatedAtUtc,
+        Guid IdempotencyKey,
+        string ReferenceSnapshotToken);
 }

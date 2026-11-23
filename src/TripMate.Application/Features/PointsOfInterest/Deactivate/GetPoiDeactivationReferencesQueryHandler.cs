@@ -1,13 +1,9 @@
-using System.Security.Cryptography;
-using System.Text;
-
 using MediatR;
 
 using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
-using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.PointsOfInterest.Deactivate;
@@ -56,27 +52,15 @@ public sealed class GetPoiDeactivationReferencesQueryHandler(
                 PoiDeactivationErrors.AlreadyInactive, PoiDeactivationErrors.AlreadyInactiveMessage);
         }
 
-        var activeItinerariesCount = await dbContext.ItineraryItems
-            .AsNoTracking()
-            .Where(item => item.PointOfInterestId == request.PoiId && item.Itinerary.Status == Itinerary.ActiveStatus)
-            .Select(item => item.ItineraryId)
-            .Distinct()
-            .CountAsync(cancellationToken);
-
-        var activeRoutesCount = await dbContext.RouteSegments
-            .AsNoTracking()
-            .Where(route => (route.FromPoiId == request.PoiId || route.ToPoiId == request.PoiId)
-                && route.Status == RouteStatus.Active)
-            .CountAsync(cancellationToken);
-
-        var openBookingsCount = await dbContext.ServiceBookings
-            .AsNoTracking()
-            .Where(booking => (booking.Status == ServiceBooking.PendingConfirmation || booking.Status == ServiceBooking.Confirmed)
-                && dbContext.CommercialServices.Any(service => service.Id == booking.ServiceId && service.PoiId == request.PoiId))
-            .CountAsync(cancellationToken);
-
-        var rawToken = $"{request.PoiId}:{activeItinerariesCount}:{activeRoutesCount}:{openBookingsCount}";
-        var snapshotToken = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rawToken)));
+        var routeIds = await PoiReferenceSnapshot.ActiveRoutes(dbContext, request.PoiId)
+            .Select(route => route.Id)
+            .OrderBy(id => id)
+            .ToListAsync(cancellationToken);
+        var snapshot = await PoiReferenceSnapshot.ReadAsync(dbContext, request.PoiId, routeIds, cancellationToken);
+        var activeItinerariesCount = snapshot.ItineraryIds.Count;
+        var activeRoutesCount = snapshot.RouteIds.Count;
+        var openBookingsCount = snapshot.BookingIds.Count;
+        var snapshotToken = snapshot.CreateToken(request.PoiId);
         var hasActiveReferences = activeItinerariesCount > 0 || activeRoutesCount > 0 || openBookingsCount > 0;
 
         return Result.Success(new PoiDeactivationReferencesDto(

@@ -1,6 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
-
 using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
@@ -88,8 +85,7 @@ public class DeactivatePoiHandlersTests
         result.Value.MessageCode.Should().Be(PoiDeactivationErrors.Msg194);
         result.Value.Message.Should().Be(PoiDeactivationErrors.Msg194Message);
 
-        var expectedToken = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{poi.Id}:0:1:0")));
-        result.Value.ReferenceSnapshotToken.Should().Be(expectedToken);
+        result.Value.ReferenceSnapshotToken.Should().MatchRegex("^[0-9A-F]{64}$");
     }
 
     [Fact]
@@ -134,9 +130,10 @@ public class DeactivatePoiHandlersTests
         dbContext.RouteSegments.Add(route);
         await dbContext.SaveChangesAsync();
 
-        var token = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{poi.Id}:0:1:0")));
-
         var currentUserService = new StubCurrentUserService(admin.Id, nameof(UserRole.Administrator));
+        var preview = await new GetPoiDeactivationReferencesQueryHandler(dbContext, currentUserService)
+            .Handle(new GetPoiDeactivationReferencesQuery(poi.Id), CancellationToken.None);
+        var token = preview.Value.ReferenceSnapshotToken;
         var dateTimeProvider = new StubDateTimeProvider(Now);
         var lockProvider = new StubPoiDeactivationLock();
 

@@ -16,13 +16,14 @@ public sealed class SqlServerPoiDeactivationLock(IApplicationDbContext db) : IPo
             return;
         }
 
-        // Lock POI mutation and coordinate with TM-225 account provisioning in alphabetical order
-        var resources = new List<string>
+        if (efDbContext.Database.CurrentTransaction is null)
         {
-            "TripMate:PoiMutation:" + poiId.ToString(CultureInfo.InvariantCulture),
-            "TripMate:Provisioning:Poi:" + poiId.ToString(CultureInfo.InvariantCulture),
-        };
-        resources.Sort(StringComparer.Ordinal);
+            throw new InvalidOperationException("POI deactivation requires an active SQL transaction.");
+        }
+
+        // Match TM-225's ordinal lock ordering for the shared provisioning resource.
+        var id = poiId.ToString(CultureInfo.InvariantCulture);
+        string[] resources = ["TripMate:PoiMutation:" + id, "TripMate:Provisioning:Poi:" + id];
 
         foreach (var resource in resources)
         {
