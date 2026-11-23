@@ -56,6 +56,34 @@ internal sealed class SqlServerTemplateDatabase
 
     internal Task<SqlServerTemplateHandle> GetHandleAsync() => _handle.Value;
 
+    /// <summary>
+    /// Restores the template backup into a new test database on one master connection, building
+    /// the template first if no caller has yet. No retry: a failed restore surfaces to the caller,
+    /// which owns dropping the partial database.
+    /// </summary>
+    internal async Task RestoreCloneAsync(string cloneName)
+    {
+        if (!SqlServerManagedNames.IsTestName(cloneName))
+        {
+            throw new InvalidOperationException(
+                "Refusing to manage a database outside the isolated test naming convention.");
+        }
+
+        var handle = await GetHandleAsync();
+        var dataPath = SqlServerServerPath.Combine(handle.DataDirectory, cloneName + ".mdf");
+        var logPath = SqlServerServerPath.Combine(handle.LogDirectory, cloneName + "_log.ldf");
+
+        await using var master = new SqlConnection(ConnectionStringFor("master"));
+        await SqlServerTestDatabase.OpenConnectionAsync(master);
+        await ExecuteAsync(
+            master,
+            $"""
+            RESTORE DATABASE [{cloneName}] FROM DISK = N'{EscapeLiteral(handle.BackupPath)}'
+            WITH MOVE N'{EscapeLiteral(handle.DataLogicalName)}' TO N'{EscapeLiteral(dataPath)}',
+                 MOVE N'{EscapeLiteral(handle.LogLogicalName)}' TO N'{EscapeLiteral(logPath)}';
+            """);
+    }
+
     internal static (string Data, string Log) PickLogicalNames(
         IReadOnlyList<(string Name, string TypeDesc)> files)
     {
@@ -94,16 +122,8 @@ internal sealed class SqlServerTemplateDatabase
         var templateName = SqlServerManagedNames.NewTemplateName();
         Volatile.Write(ref _templateName, templateName);
 
-        var masterConnectionString = new SqlConnectionStringBuilder(_configuredConnectionString)
-        {
-            InitialCatalog = "master",
-            Pooling = false,
-        }.ConnectionString;
-        var templateConnectionString = new SqlConnectionStringBuilder(_configuredConnectionString)
-        {
-            InitialCatalog = templateName,
-            Pooling = false,
-        }.ConnectionString;
+        var masterConnectionString = ConnectionStringFor("master");
+        var templateConnectionString = ConnectionStringFor(templateName);
 
         var templateMayExist = false;
         try
@@ -162,6 +182,13 @@ internal sealed class SqlServerTemplateDatabase
             throw;
         }
     }
+
+    private string ConnectionStringFor(string initialCatalog) =>
+        new SqlConnectionStringBuilder(_configuredConnectionString)
+        {
+            InitialCatalog = initialCatalog,
+            Pooling = false,
+        }.ConnectionString;
 
     private static async Task<string> ReadServerPathAsync(SqlConnection master, string propertyName)
     {

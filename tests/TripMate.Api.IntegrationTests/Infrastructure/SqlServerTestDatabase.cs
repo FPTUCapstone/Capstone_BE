@@ -63,12 +63,17 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
 
     public static async Task<SqlServerTestDatabase> CreateAsync()
     {
-        return await CreateAsync(applyCurrentSchema: true);
+        return await CreateAsync(SqlServerTemplateDatabase.Shared);
+    }
+
+    internal static async Task<SqlServerTestDatabase> CreateAsync(SqlServerTemplateDatabase template)
+    {
+        return await CreateAsync(database => database.RestoreFromAsync(template));
     }
 
     public static async Task<SqlServerTestDatabase> CreateEmptyAsync()
     {
-        return await CreateAsync(applyCurrentSchema: false);
+        return await CreateAsync(database => database.InitializeAsync());
     }
 
     public async Task ExecuteScriptAsync(
@@ -79,7 +84,8 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
         await ExecuteBatchesAsync(script, cancellationToken);
     }
 
-    private static async Task<SqlServerTestDatabase> CreateAsync(bool applyCurrentSchema)
+    private static async Task<SqlServerTestDatabase> CreateAsync(
+        Func<SqlServerTestDatabase, Task> initialize)
     {
         var configuredConnectionString = Environment.GetEnvironmentVariable(
             ConnectionStringEnvironmentVariable);
@@ -109,7 +115,7 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
 
         try
         {
-            await database.InitializeAsync(applyCurrentSchema);
+            await initialize(database);
             return database;
         }
         catch (Exception initializationException)
@@ -263,10 +269,13 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
         await OpenConnectionAsync(connection);
         await using var command = connection.CreateCommand();
         command.CommandTimeout = 120;
+        // Only an ONLINE database (state 0) accepts SINGLE_USER; one left RESTORING by a failed
+        // restore rejects the ALTER but can still be dropped.
         command.CommandText = $"""
             IF DB_ID(N'{databaseName}') IS NOT NULL
             BEGIN
-                ALTER DATABASE [{databaseName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
+                IF EXISTS (SELECT 1 FROM sys.databases WHERE name = N'{databaseName}' AND state = 0)
+                    ALTER DATABASE [{databaseName}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;
                 DROP DATABASE [{databaseName}];
             END;
             """;
@@ -285,7 +294,7 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
         }
     }
 
-    private async Task InitializeAsync(bool applyCurrentSchema)
+    private async Task InitializeAsync()
     {
         if (!SqlServerManagedNames.IsTestName(DatabaseName))
         {
@@ -293,26 +302,21 @@ internal sealed class SqlServerTestDatabase : IAsyncDisposable
                 "Refusing to manage a database outside the isolated test naming convention.");
         }
 
-        await using (var connection = new SqlConnection(_masterConnectionString))
-        {
-            await OpenConnectionAsync(connection);
-            await using var command = connection.CreateCommand();
-            command.CommandText =
-                $"CREATE DATABASE [{DatabaseName}] COLLATE Vietnamese_100_CI_AS;";
-            command.CommandTimeout = 120;
-            await command.ExecuteNonQueryAsync();
-            _databaseCreated = true;
-        }
+        await using var connection = new SqlConnection(_masterConnectionString);
+        await OpenConnectionAsync(connection);
+        await using var command = connection.CreateCommand();
+        command.CommandText =
+            $"CREATE DATABASE [{DatabaseName}] COLLATE Vietnamese_100_CI_AS;";
+        command.CommandTimeout = 120;
+        await command.ExecuteNonQueryAsync();
+        _databaseCreated = true;
+    }
 
-        if (!applyCurrentSchema)
-        {
-            return;
-        }
-
-        await ApplyCurrentSchemaAsync(
-            ConnectionString,
-            DefaultSchemaPath(),
-            DefaultMigrationsDirectory());
+    private async Task RestoreFromAsync(SqlServerTemplateDatabase template)
+    {
+        // Set before RESTORE so a restore that fails halfway is dropped by DisposeAsync.
+        _databaseCreated = true;
+        await template.RestoreCloneAsync(DatabaseName);
     }
 
     private async Task ExecuteBatchesAsync(

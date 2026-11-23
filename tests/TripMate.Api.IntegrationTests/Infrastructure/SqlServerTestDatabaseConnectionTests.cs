@@ -6,22 +6,6 @@ namespace TripMate.Api.IntegrationTests.Infrastructure;
 
 public sealed class SqlServerTestDatabaseConnectionTests
 {
-    [SqlServerFact]
-    [Trait("Category", "SqlServer")]
-    public async Task CreateAsync_BootstrapReusesTwoConnectionsEvenWhenOpeningIsRetried()
-    {
-        using var probe = new ConnectionProbe(openFailures: 1);
-        await using var database = await SqlServerTestDatabase.CreateAsync();
-        var bootstrapConnections = probe.DistinctConnections;
-        probe.OpenAttempts.Should().BeGreaterThan(2, "the injected opening timeout must be retried");
-        probe.Dispose();
-
-        bootstrapConnections.Should().Be(2,
-            "schema and ordered migrations should share one database connection instead of reconnecting for every file");
-        (await database.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM sys.tables WHERE name = 'AuditLogs';"))
-            .Should().Be(1);
-    }
-
     [SqlServerTheory]
     [Trait("Category", "SqlServer")]
     [InlineData(1)]
