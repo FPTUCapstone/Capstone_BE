@@ -29,6 +29,16 @@ public sealed class SqlServerTemplateCloneTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
+    public async Task CreateAsync_Clone_UsesSimpleRecoveryLikeAFreshDatabaseDoes()
+    {
+        await using var clone = await SqlServerTestDatabase.CreateAsync();
+
+        (await clone.ExecuteScalarAsync<string>(
+            "SELECT recovery_model_desc FROM sys.databases WHERE name = DB_NAME();")).Should().Be("SIMPLE");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
     public async Task CreateAsync_Clones_AreIsolatedAndDropIndependently()
     {
         var first = await SqlServerTestDatabase.CreateAsync();

@@ -106,7 +106,7 @@ public sealed class SqlServerTemplateDatabaseTests(ITestOutputHelper output)
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
-    public async Task BuildAsync_UsesTwoConnectionsEvenWhenOpeningIsRetried()
+    public async Task BuildAsync_UsesAtMostThreeConnectionsEvenWhenOpeningIsRetried()
     {
         using var probe = new ConnectionProbe(openFailures: 1);
         var template = NewTemplate();

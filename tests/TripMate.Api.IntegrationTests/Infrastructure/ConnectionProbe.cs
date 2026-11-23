@@ -9,6 +9,7 @@ namespace TripMate.Api.IntegrationTests.Infrastructure;
 /// not reproduction of CI's non-pooled connection pressure. The SQL script is real.
 /// AsyncLocal limits observation to this test's execution flow and its temporary DB.
 /// </summary>
+/// <remarks>Never attach it around the first use of Shared; use your own SqlServerTemplateDatabase instance.</remarks>
 internal sealed class ConnectionProbe : IObserver<DiagnosticListener>, IDisposable
 {
     private readonly AsyncLocal<bool> _active = new();

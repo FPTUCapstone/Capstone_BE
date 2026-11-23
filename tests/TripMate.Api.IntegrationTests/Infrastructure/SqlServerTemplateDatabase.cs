@@ -48,6 +48,7 @@ internal sealed class SqlServerTemplateDatabase
             LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
+    /// <summary>Never attach a probe or fault injector around the first use of Shared; use your own instance.</summary>
     internal static SqlServerTemplateDatabase Shared => SharedInstance.Value;
 
     internal int BuildCount => Volatile.Read(ref _buildCount);
@@ -153,6 +154,7 @@ internal sealed class SqlServerTemplateDatabase
                     await ReadDatabaseFilesAsync(master, templateName));
 
                 var backupPath = SqlServerServerPath.Combine(backupDirectory, templateName + ".bak");
+                await ExecuteAsync(master, $"ALTER DATABASE [{templateName}] SET RECOVERY SIMPLE;");
                 await ExecuteAsync(
                     master,
                     $"BACKUP DATABASE [{templateName}] TO DISK = N'{EscapeLiteral(backupPath)}' WITH INIT;");
