@@ -7,13 +7,16 @@ using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Logging.Abstractions;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
+using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Admin.Tours.Review;
 using TripMate.Application.Features.Operator.Tours.Common;
 using TripMate.Domain.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
+using TripMate.Infrastructure.Services;
 
 using Xunit.Abstractions;
 
@@ -34,6 +37,77 @@ public sealed class ApproveTourSqlServerTests(ITestOutputHelper output)
         PricePlausibility: true,
         PolicyCompliance: true,
         ItineraryFeasibility: true);
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Approval_WhenInAppNotificationInsertFails_CommitsAndWorkerRetriesExactlyOnce()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedPendingTourAsync(database);
+        await database.ExecuteNonQueryAsync("""
+            ALTER TABLE dbo.Notifications ADD CONSTRAINT CK_Test_TourApprovedUnavailable
+                CHECK ([type] <> 'TourApproved');
+            """);
+        await using var factory = new TripMateApiFactory(sqlServerConnectionString: database.ConnectionString);
+        using var staff = factory.CreateAuthenticatedClient(seed.StaffId1, UserRole.Staff);
+
+        var response = await staff.PostAsJsonAsync(
+            $"/api/v1/admin/tours/{seed.TourId}/approve",
+            new { checklist = ValidChecklist, note = "Private moderation note" });
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        await using var verification = database.CreateDbContext();
+        var tour = await verification.Tours.AsNoTracking().SingleAsync(t => t.Id == seed.TourId);
+        tour.Status.Should().Be(TourStatus.Approved);
+        (await verification.AuditLogs.CountAsync(a => a.AffectedEntityId == seed.TourId
+            && a.ActionType == AuditActionTypes.TourApproved)).Should().Be(1);
+        (await verification.Notifications.AnyAsync(n => n.Type == Notification.TourApprovedType)).Should().BeFalse();
+
+        var clock = new DeliveryClock { UtcNow = DateTimeOffset.UtcNow.AddSeconds(1) };
+        await using (var deliveryContext = database.CreateDbContext())
+        {
+            var processor = new TourApprovalNoticeDeliveryProcessor(
+                deliveryContext, clock, NullLogger<TourApprovalNoticeDeliveryProcessor>.Instance);
+            await processor.ProcessDueBatchAsync(CancellationToken.None);
+        }
+
+        var pending = await verification.TourApprovalNotices.AsNoTracking().SingleAsync();
+        pending.OperatorUserId.Should().Be(seed.OperatorId);
+        pending.NextAttemptAtUtc.Should().BeAfter(clock.UtcNow);
+        (await verification.Notifications.AnyAsync(n => n.Type == Notification.TourApprovedType)).Should().BeFalse();
+        (await verification.Tours.AsNoTracking().SingleAsync(t => t.Id == seed.TourId))
+            .Status.Should().Be(TourStatus.Approved);
+
+        await database.ExecuteNonQueryAsync(
+            "ALTER TABLE dbo.Notifications DROP CONSTRAINT CK_Test_TourApprovedUnavailable;");
+        clock.UtcNow = pending.NextAttemptAtUtc.AddSeconds(1);
+
+        // New contexts simulate a worker restart with two replicas polling the same queue.
+        async Task DeliverAsync()
+        {
+            await using var context = database.CreateDbContext();
+            var processor = new TourApprovalNoticeDeliveryProcessor(
+                context, clock, NullLogger<TourApprovalNoticeDeliveryProcessor>.Instance);
+            await processor.ProcessDueBatchAsync(CancellationToken.None);
+        }
+
+        await Task.WhenAll(DeliverAsync(), DeliverAsync());
+        await DeliverAsync();
+        (await verification.TourApprovalNotices.AnyAsync()).Should().BeFalse();
+        var notice = (await verification.Notifications.AsNoTracking()
+            .Where(n => n.Type == Notification.TourApprovedType).ToListAsync()).Should().ContainSingle().Subject;
+        notice.UserId.Should().Be(seed.OperatorId);
+        notice.Channel.Should().Be(NotificationChannel.InApp);
+        notice.RelatedEntityId.Should().Be(seed.TourId);
+        notice.Body.Should().Contain(tour.Title).And.NotContain("Private moderation note");
+        (await verification.AuditLogs.CountAsync(a => a.AffectedEntityId == seed.TourId
+            && a.ActionType == AuditActionTypes.TourApproved)).Should().Be(1);
+    }
+
+    private sealed class DeliveryClock : IDateTimeProvider
+    {
+        public DateTimeOffset UtcNow { get; set; }
+    }
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
@@ -84,14 +158,12 @@ public sealed class ApproveTourSqlServerTests(ITestOutputHelper output)
         audits[0].Result.Should().Be(AuditOutcome.Success);
         audits[0].ActorUserId.Should().Be(tour.ReviewedBy);
 
-        // UC-60 PC-03: exactly one in-app notice reaches the owning operator, even though two approvals raced.
-        var notices = await verificationContext.Notifications.AsNoTracking()
-            .Where(n => n.Type == Notification.TourApprovedType && n.RelatedEntityId == seed.TourId)
+        // Two approval requests may enqueue only one delivery for the operator.
+        var notices = await verificationContext.TourApprovalNotices.AsNoTracking()
+            .Where(n => n.TourId == seed.TourId)
             .ToListAsync();
         var notice = notices.Should().ContainSingle().Subject;
-        notice.UserId.Should().Be(seed.OperatorId);
-        notice.Channel.Should().Be(NotificationChannel.InApp);
-        notice.RelatedEntityType.Should().Be(Notification.TourRelatedEntityType);
+        notice.OperatorUserId.Should().Be(seed.OperatorId);
 
         output.WriteLine(
             $"[VERIFIED_FIX] ConcurrentApprove: Statuses=[{(int)responses[0].StatusCode}, {(int)responses[1].StatusCode}], " +
@@ -186,6 +258,8 @@ public sealed class ApproveTourSqlServerTests(ITestOutputHelper output)
         // The notification is part of the same transaction: nothing may survive the rollback.
         (await verificationContext.Notifications.AsNoTracking()
             .AnyAsync(n => n.Type == Notification.TourApprovedType && n.RelatedEntityId == seed.TourId))
+            .Should().BeFalse();
+        (await verificationContext.TourApprovalNotices.AnyAsync(n => n.TourId == seed.TourId))
             .Should().BeFalse();
 
         output.WriteLine(
