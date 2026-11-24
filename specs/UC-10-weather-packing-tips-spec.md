@@ -80,7 +80,7 @@ while loading. `date` is the local date of the first visit stop; a plan that cro
 - `IDayForecastProvider` + `TomorrowDayForecastProvider` + options and validators; `appsettings.json`, `.env.example`.
 - Controller action on the itineraries controller.
 - Log outcomes (no place name, no tip text): `success`, `no-tips`, `disabled`, `out-of-range`, `provider-error`,
-  `timeout`, `too-many-locations`, `no-coordinates`, `past` (every stop already ended; no forecast call is made).
+  `timeout`, `too-many-locations`, `no-coordinates`, `past` (every stop already ended; no forecast call is made), `no-forecast` (the provider answered with nothing: Tomorrow.io off or no hourly timeline in the response).
 - Tests: rules (one per tip and each boundary), provider parsing with a fake HTTP handler, handler (owner,
   other user, disabled, error, timeout, beyond forecast, past plan, partial coverage gives `null`).
 - Web and Mobile follow in their own PRs (Backend, then Web, then Mobile, as UC-10): a card at the top of the
