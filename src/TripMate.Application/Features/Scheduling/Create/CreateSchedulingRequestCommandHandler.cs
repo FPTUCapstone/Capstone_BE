@@ -45,7 +45,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
     TimeOfDayOptions? timeOfDayOptions = null,
     WeightedRequestInputsFactory? weightedInputsFactory = null,
     IShadowSchedulingRunner? shadowRunner = null,
-    ShadowOptions? shadowOptions = null)
+    ShadowOptions? shadowOptions = null,
+    IItineraryExplanationQueue? explanationQueue = null)
     : IRequestHandler<CreateSchedulingRequestCommand, Result<SchedulingResponseDto>>
 {
     private readonly SchedulingGenerationOptions _generationOptions =
@@ -59,6 +60,26 @@ public sealed class CreateSchedulingRequestCommandHandler(
     private readonly IShadowSchedulingRunner? _shadowRunner = shadowRunner;
 
     public async Task<Result<SchedulingResponseDto>> Handle(
+        CreateSchedulingRequestCommand command,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await HandleCoreAsync(command, cancellationToken);
+        }
+        catch (SchedulingRequestContentionException exception)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            dbContext.ClearTrackedEntities();
+            logger?.LogWarning(exception, "Scheduling DB contention exhausted its bounded recovery.");
+            return Result.Failure<SchedulingResponseDto>(
+                SchedulingErrorCodes.GenerationContended,
+                "Itinerary generation is busy. Please retry with the same Idempotency-Key.",
+                new Dictionary<string, object?> { ["retryAfterSeconds"] = 1 });
+        }
+    }
+
+    private async Task<Result<SchedulingResponseDto>> HandleCoreAsync(
         CreateSchedulingRequestCommand command,
         CancellationToken cancellationToken)
     {
@@ -271,12 +292,40 @@ public sealed class CreateSchedulingRequestCommandHandler(
         }
     }
 
+    private async Task<T> ExecuteSchedulingTransactionAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
+        CancellationToken cancellationToken)
+    {
+        // Retry only DB phases. Prepared routing/ranking/solver results remain outside this callback.
+        const int maximumAttempts = 3;
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await dbContext.ExecuteInSerializableTransactionAsync(operation, cancellationToken);
+            }
+            catch (Exception exception) when (dbContext.IsDeadlock(exception))
+            {
+                // The SQL transaction has been disposed/rolled back before tracking is cleared.
+                dbContext.ClearTrackedEntities();
+                cancellationToken.ThrowIfCancellationRequested();
+                if (attempt == maximumAttempts)
+                {
+                    throw new SchedulingRequestContentionException(exception);
+                }
+
+                logger?.LogWarning(exception, "Retrying scheduling DB phase after deadlock. Attempt={Attempt}.", attempt);
+                await Task.Delay(TimeSpan.FromMilliseconds(100 * attempt), cancellationToken);
+            }
+        }
+    }
+
     private async Task<ReservationDecision> ReserveAsync(
         CanonicalSchedulingRequest canonical,
         string requestHash,
         Guid ownerId,
         CancellationToken cancellationToken) =>
-        await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
+        await ExecuteSchedulingTransactionAsync(async transactionCancellationToken =>
         {
             await schedulingRequestLock.AcquireAsync(
                 canonical.TravelerUserId,
@@ -417,20 +466,9 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 "The selected ending location is unavailable.");
         }
 
-        if (canonical.MandatoryPoiIds.Any(id => activePois.Any(poi =>
-                poi.Id == id && PoiCategoryNames.IsFoodAndDrink(poi.Category?.Name))))
-        {
-            return PreparedGeneration.Infeasible(
-                snapshot.Hash,
-                preferenceTokens,
-                explanationMetadata,
-                "Restaurants cannot be mandatory stops. Add them after the itinerary is created.",
-                failureCode: SchedulingErrorCodes.MandatoryFoodNotAllowed);
-        }
-
         var selectablePois = activePois
             .Where(PlanningPoiEligibility.IsPlanningReady)
-            .Where(PlanningPoiEligibility.IsAutoSchedulable)
+            .Where(poi => PlanningPoiEligibility.IsAutoSchedulable(poi) || canonical.MandatoryPoiIds.Contains(poi.Id))
             .Where(poi => GeoDistance.EquirectangularKilometers(
                 canonical.ExplorationLatitude,
                 canonical.ExplorationLongitude,
@@ -530,7 +568,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
         if (_generationOptions.Csp.Mode == ObjectiveMode.WeightedUtility)
         {
             var factory = weightedInputsFactory ?? new WeightedRequestInputsFactory(new PersonalParamsFactory());
-            weightedInputs = factory.Create(input.Candidates, travelerProfile, input, ranking?.OutcomeCategory);
+            weightedInputs = factory.Create(input.Candidates, travelerProfile, input, ranking.OutcomeCategory);
         }
 
         Result<GeneratedItineraryPlan> plan;
@@ -577,7 +615,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
                     routeMatrix,
                     _generationOptions,
                     travelerProfile,
-                    ranking?.OutcomeCategory,
+                    ranking.OutcomeCategory,
                     plan.Value));
             }
         }
@@ -628,7 +666,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
         CancellationToken cancellationToken)
     {
         dbContext.ClearTrackedEntities();
-        return await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
+        return await ExecuteSchedulingTransactionAsync(async transactionCancellationToken =>
         {
             await schedulingRequestLock.AcquireAsync(
                 canonical.TravelerUserId,
@@ -778,7 +816,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
         CancellationToken cancellationToken)
     {
         dbContext.ClearTrackedEntities();
-        await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
+        await ExecuteSchedulingTransactionAsync(async transactionCancellationToken =>
         {
             await schedulingRequestLock.AcquireAsync(
                 canonical.TravelerUserId,
@@ -815,7 +853,7 @@ public sealed class CreateSchedulingRequestCommandHandler(
         }
 
         dbContext.ClearTrackedEntities();
-        await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
+        await ExecuteSchedulingTransactionAsync(async transactionCancellationToken =>
         {
             await schedulingRequestLock.AcquireAsync(
                 canonical.TravelerUserId,
@@ -934,12 +972,16 @@ public sealed class CreateSchedulingRequestCommandHandler(
             generation.SchedulingRequest.StartAtUtc,
             generation.SchedulingRequest.TimeZoneId);
         IReadOnlyDictionary<int, string> explanations = BuildFallback(input);
-        string outcome = "provider-skipped";
+        string outcome = ItineraryExplanationOutcomes.ProviderSkipped;
         bool fallbackUsed = true;
         bool timedOut = false;
         long startedAt = Stopwatch.GetTimestamp();
 
-        if (providerEnabled && provider is not null)
+        // Background mode (specs/UC-10-background-explanation-spec.md, B1): the request never waits for the AI.
+        // It saves the template sentences and hands the itinerary to the waiting list further down.
+        bool backgroundMode = providerEnabled && _explanationOptions.BackgroundEnabled;
+
+        if (providerEnabled && provider is not null && !backgroundMode)
         {
             using var providerCancellation =
                 CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -980,16 +1022,22 @@ public sealed class CreateSchedulingRequestCommandHandler(
             }
         }
 
-        LogExplanationOutcome(
-            logger,
-            provider,
-            providerEnabled,
-            input.Items.Count,
-            Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
-            outcome,
-            fallbackUsed,
-            timedOut);
+        if (!backgroundMode)
+        {
+            LogExplanationOutcome(
+                logger,
+                provider,
+                providerEnabled,
+                input.Items.Count,
+                Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
+                outcome,
+                fallbackUsed,
+                timedOut);
+        }
 
+        // Background mode: what the worker needs to recognize each item later (B4). Stays null when the template
+        // sentences could not be saved, because the worker would then have nothing to compare against.
+        ItineraryExplanationJobItem[]? savedTemplates = null;
         try
         {
             ItineraryItem[] persistedItems = await dbContext.ItineraryItems
@@ -1001,6 +1049,17 @@ public sealed class CreateSchedulingRequestCommandHandler(
             }
 
             await dbContext.SaveChangesAsync(cancellationToken);
+            if (backgroundMode)
+            {
+                savedTemplates = persistedItems
+                    .Where(item => item.FriendlyExplanation is not null)
+                    .OrderBy(item => item.SequenceNo)
+                    .Select(item => new ItineraryExplanationJobItem(
+                        item.Id,
+                        item.SequenceNo,
+                        item.FriendlyExplanation!))
+                    .ToArray();
+            }
         }
         catch (OperationCanceledException)
         {
@@ -1015,7 +1074,31 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 providerEnabled,
                 input.Items.Count,
                 Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
-                "persistence-failed",
+                ItineraryExplanationOutcomes.PersistenceFailed,
+                fallbackUsed,
+                timedOut);
+        }
+
+        bool explanationPending = false;
+        if (backgroundMode && savedTemplates is not null)
+        {
+            // Without a waiting list there is nobody to ask later: the templates stay, as if the provider were off.
+            if (explanationQueue is not null)
+            {
+                explanationPending = explanationQueue.TryEnqueue(
+                    new ItineraryExplanationJob(generation.Itinerary.Id, input, savedTemplates));
+                outcome = explanationPending
+                    ? ItineraryExplanationOutcomes.Queued
+                    : ItineraryExplanationOutcomes.QueueFull;
+            }
+
+            LogExplanationOutcome(
+                logger,
+                provider,
+                providerEnabled,
+                input.Items.Count,
+                Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds,
+                outcome,
                 fallbackUsed,
                 timedOut);
         }
@@ -1025,7 +1108,10 @@ public sealed class CreateSchedulingRequestCommandHandler(
             generation.Itinerary,
             generation.Plan,
             generation.PoiMetadata,
-            explanations));
+            explanations) with
+        {
+            ExplanationPending = explanationPending,
+        });
     }
 
     private static IReadOnlyDictionary<int, string> BuildFallback(
@@ -1034,14 +1120,8 @@ public sealed class CreateSchedulingRequestCommandHandler(
             item => item.SequenceNo,
             ItineraryExplanationFallback.Resolve);
 
-    private static string MapExplanationOutcome(string? errorCode) => errorCode switch
-    {
-        ExplanationProviderErrorCodes.Network => "network",
-        ExplanationProviderErrorCodes.Quota => "quota",
-        ExplanationProviderErrorCodes.ServerError => "server-error",
-        ExplanationProviderErrorCodes.Timeout => "timeout",
-        _ => "invalid-response",
-    };
+    private static string MapExplanationOutcome(string? errorCode) =>
+        ItineraryExplanationOutcomes.FromErrorCode(errorCode);
 
     private static void LogExplanationOutcome(
         ILogger<CreateSchedulingRequestCommandHandler>? logger,
@@ -1059,7 +1139,9 @@ public sealed class CreateSchedulingRequestCommandHandler(
         }
 
         string providerName = provider?.GetType().Name ?? "none";
-        if (outcome is "success" or "provider-skipped")
+        if (outcome is ItineraryExplanationOutcomes.Success
+            or ItineraryExplanationOutcomes.ProviderSkipped
+            or ItineraryExplanationOutcomes.Queued)
         {
             logger.LogInformation(
                 "Itinerary explanation provider={Provider}; enabled={Enabled}; itemCount={ItemCount}; latencyMs={LatencyMs:F0}; outcome={Outcome}; fallbackUsed={FallbackUsed}; timedOut={TimedOut}.",

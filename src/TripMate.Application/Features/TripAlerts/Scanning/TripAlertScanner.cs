@@ -39,6 +39,8 @@ public sealed class TripAlertScanner(
 
         foreach (var session in sessions)
         {
+            await ScanOverstay(session, now, cancellationToken);
+
             var pendingItems = session.Items
                 .Where(item => item.Status == TripSessionItem.PendingStatus)
                 .OrderBy(item => item.SequenceNo)
@@ -48,7 +50,11 @@ public sealed class TripAlertScanner(
                 continue;
             }
 
-            await ScanDelay(session, pendingItems[0], now, cancellationToken);
+            if (session.FsmState != TripSession.ExploringState)
+            {
+                await ScanDelay(session, pendingItems[0], now, cancellationToken);
+            }
+
             await ScanPoisAndWeather(session, pendingItems, now, cancellationToken);
         }
     }
@@ -67,15 +73,28 @@ public sealed class TripAlertScanner(
         {
             var sessionEnded = incident.Session.EndedAtUtc.HasValue
                 || incident.Session.FsmState == TripSession.CompletedState;
-            var item = incident.AffectedItineraryItemId.HasValue
-                ? incident.Session.Items.SingleOrDefault(candidate =>
-                    candidate.ItineraryItemId == incident.AffectedItineraryItemId.Value)
-                : null;
-            var reached = item?.ReachedAtUtc.HasValue == true;
-            var skipped = item?.SkippedAtUtc.HasValue == true
-                && (incident.IncidentType != Incident.RouteDeviationType
-                    || item.SkippedAtUtc >= incident.DetectedAtUtc);
-            var progressResolved = reached || skipped;
+            var isOverstay = incident.SourceKey!.StartsWith(
+                TripAlertResponse.OverstaySourcePrefix,
+                StringComparison.Ordinal);
+            bool progressResolved;
+            if (isOverstay)
+            {
+                progressResolved = incident.Session.FsmState != TripSession.ExploringState
+                    || incident.Session.ExploringItemId != incident.AffectedItineraryItemId;
+            }
+            else
+            {
+                var item = incident.AffectedItineraryItemId.HasValue
+                    ? incident.Session.Items.SingleOrDefault(candidate =>
+                        candidate.ItineraryItemId == incident.AffectedItineraryItemId.Value)
+                    : null;
+                var reached = item?.ReachedAtUtc.HasValue == true;
+                var skipped = item?.SkippedAtUtc.HasValue == true
+                    && (incident.IncidentType != Incident.RouteDeviationType
+                        || item.SkippedAtUtc >= incident.DetectedAtUtc);
+                progressResolved = reached || skipped;
+            }
+
             if (sessionEnded || progressResolved)
             {
                 changed |= incident.Resolve(now);
@@ -86,6 +105,36 @@ public sealed class TripAlertScanner(
         {
             await dbContext.SaveChangesAsync(cancellationToken);
         }
+    }
+
+    private Task ScanOverstay(
+        TripSession session,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        if (session.FsmState != TripSession.ExploringState || !session.ExploringItemId.HasValue)
+        {
+            return Task.CompletedTask;
+        }
+
+        var exploringItem = session.Items.SingleOrDefault(item =>
+            item.ItineraryItemId == session.ExploringItemId.Value);
+        if (exploringItem is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        var sourceKey = $"{TripAlertResponse.OverstaySourcePrefix}{exploringItem.ItineraryItemId}";
+        return now > exploringItem.PlannedDepartureUtc + options.OverstayThreshold
+            ? EnsurePersisted(
+                session,
+                Incident.ScheduleDelayType,
+                sourceKey,
+                exploringItem.ItineraryItemId,
+                "You have stayed past the planned departure time at this stop.",
+                now,
+                cancellationToken)
+            : ResolveBySource(session.Id, Incident.ScheduleDelayType, sourceKey, now, cancellationToken);
     }
 
     private Task ScanDelay(

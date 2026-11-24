@@ -22,6 +22,8 @@ public class TestDbContext(
 
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
+    public DbSet<UserUnlockOperation> UserUnlockOperations => Set<UserUnlockOperation>();
+
     public DbSet<PoiCategory> PoiCategories => Set<PoiCategory>();
 
     public DbSet<PointOfInterest> PointsOfInterest => Set<PointOfInterest>();
@@ -70,6 +72,7 @@ public class TestDbContext(
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
     public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<TourApprovalNotice> TourApprovalNotices => Set<TourApprovalNotice>();
 
     public DbSet<PushDeviceToken> PushDeviceTokens => Set<PushDeviceToken>();
 
@@ -100,6 +103,8 @@ public class TestDbContext(
     public DbSet<PostTripComplaint> PostTripComplaints => Set<PostTripComplaint>();
     public DbSet<ComplaintEvidence> ComplaintEvidence => Set<ComplaintEvidence>();
     public DbSet<PostTripComplaintSubmissionOperation> PostTripComplaintSubmissionOperations => Set<PostTripComplaintSubmissionOperation>();
+    public DbSet<PostTripComplaintResponseOperation> PostTripComplaintResponseOperations => Set<PostTripComplaintResponseOperation>();
+    public DbSet<PostTripComplaintNegotiationEvent> PostTripComplaintNegotiationEvents => Set<PostTripComplaintNegotiationEvent>();
     public DbSet<EmergencyTourCancellationOperation> EmergencyTourCancellationOperations =>
         Set<EmergencyTourCancellationOperation>();
     public DbSet<RefundManualCompletionOperation> RefundManualCompletionOperations =>
@@ -198,6 +203,8 @@ public class TestDbContext(
     public DbSet<PayoutReconciliationItem> PayoutReconciliationItems => Set<PayoutReconciliationItem>();
 
     public DbSet<ServiceBooking> ServiceBookings => Set<ServiceBooking>();
+
+    public DbSet<ServiceCommissionStatement> ServiceCommissionStatements => Set<ServiceCommissionStatement>();
 
     public DbSet<ClosedStatisticalPeriod> ClosedStatisticalPeriods => Set<ClosedStatisticalPeriod>();
 
@@ -406,6 +413,7 @@ public class TestDbContext(
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<TourApprovalNotice>().HasKey(notice => notice.TourId);
         modelBuilder.Entity<ProviderPoiLink>().HasKey(link => new { link.ServiceProviderId, link.PointOfInterestId });
         modelBuilder.Entity<ProviderPoiLink>().HasOne(link => link.Provider).WithMany(provider => provider.PoiLinks)
             .HasForeignKey(link => link.ServiceProviderId);

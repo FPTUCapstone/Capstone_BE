@@ -12,6 +12,13 @@ public sealed class SqlServerCheckInPersistenceErrorClassifier : ICheckInPersist
 
         for (Exception? current = exception; current is not null; current = current.InnerException)
         {
+            // SqlClient throws TimeoutException (not SqlException) when it gives up waiting to open a
+            // connection, for example when too many non-pooled opens are queued.
+            if (current is TimeoutException)
+            {
+                return true;
+            }
+
             if (current is SqlException sqlException
                 && (sqlException.IsTransient || IsKnownInfrastructureFailure(sqlException.Number)))
             {

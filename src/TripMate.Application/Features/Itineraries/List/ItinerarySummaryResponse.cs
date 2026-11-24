@@ -1,3 +1,5 @@
+using TripMate.Domain.Enums;
+
 namespace TripMate.Application.Features.Itineraries.List;
 
 public sealed record ItinerarySummaryResponse(
@@ -10,7 +12,10 @@ public sealed record ItinerarySummaryResponse(
     DateTimeOffset? ValidTo,
     bool CanManage,
     int StopCount,
-    long? OpenNavigationSessionId);
+    long? OpenNavigationSessionId,
+    DateTimeOffset? CreatedAt = null,
+    TransportMode? TransportMode = null,
+    IReadOnlyList<string>? PreviewStopNames = null);
 
 public sealed record ItinerarySummaryPage(
     IReadOnlyCollection<ItinerarySummaryResponse> Items,

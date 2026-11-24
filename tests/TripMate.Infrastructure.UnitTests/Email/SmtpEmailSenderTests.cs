@@ -72,6 +72,16 @@ public class SmtpEmailSenderTests
         commandResult.Status.Should().Be(EmailDeliveryStatus.DefiniteFailure);
     }
 
+    [Fact(DisplayName = "PLAN-EMAIL-02b: transient 4xx SMTP error maps to Unknown for retry")]
+    public async Task Send_WhenSmtpReturnsTransient4xx_ReturnsUnknownForRetry()
+    {
+        _client.OnSend = new SmtpCommandException(
+            SmtpErrorCode.MessageNotAccepted, (SmtpStatusCode)451, "451 Requested action aborted: local error in processing");
+        var result = await CreateSender().SendPasswordResetOtpAsync(Destination, Otp, CancellationToken.None);
+
+        result.Status.Should().Be(EmailDeliveryStatus.Unknown);
+    }
+
     [Fact(DisplayName = "PLAN-EMAIL-03: timeout maps to Unknown")]
     public async Task Send_WhenInternalTimeoutOccurs_ReturnsUnknown()
     {

@@ -2,7 +2,7 @@
 
 ## Status
 
-Ready for implementation. Scope and gap decisions confirmed by the developer on 2026-11-15.
+Ready for implementation. The negotiation amendment below was approved by the product owner on 2026-11-17.
 
 Source of truth: the official SRS (Google Doc `1VwPkqRyC6ZlbXBQC0ztdektt0vAyE3qt`), sections
 §2.2.2 UC-75, §3.8.6.3, §3.1.4 non-screen function #16 (Complaint Deadline Job), §3.1.5 entity
@@ -10,6 +10,32 @@ Source of truth: the official SRS (Google Doc `1VwPkqRyC6ZlbXBQC0ztdektt0vAyE3qt
 MSG166–MSG168 (MSG166–168 added by this decision record).
 
 ## Scope
+
+### Negotiation amendment — approved 2026-11-17
+
+The single accept/decline branch is replaced by one bounded negotiation cycle. This is an explicit
+product extension to the SRS; it does not alter the UC-42/UC-67 money flow.
+
+1. The operator's initial partial-refund offer and its reason are persisted as negotiation round 1.
+2. The Traveler may either accept it, or submit **one** counter-offer. A counter-offer requires a
+   non-empty reason and a requested amount in `(0, RefundableAmount]`. It moves the complaint to
+   `AwaitingOperatorReconsideration` and gives the operator 72 calendar hours to respond.
+3. After a counter-offer, the operator has one final decision: accept a full refund, make exactly
+   one revised partial-refund offer (round 2, with a required reason and amount in
+   `(0, RefundableAmount]`), or reject the complaint with a required reason. A revised offer gives
+   the Traveler a new 72-hour response deadline; full acceptance enters UC-42/UC-67 and rejection
+   is terminal.
+4. The Traveler may accept round 2, or decline it finally. A final decline requires a reason and
+   closes the complaint as `Declined`. It must not start another counter-offer cycle.
+5. Every offer, counter-offer, acceptance and final decline is append-only history. Current offer
+   fields remain a read model only; no party may overwrite prior commercial communication.
+6. An accepted offer creates exactly one complaint-sourced refund request in
+   `PendingOperatorConfirmation`; UC-42 confirms/reconciles the operator return and UC-67 then
+   processes the original-channel refund. UC-75 never calls a payment gateway.
+
+`AwaitingOperatorReconsideration` is a new persisted complaint status. An operator who misses its
+72-hour reconsideration deadline leaves the complaint `Declined`; the timeout and all terminal
+outcomes are notified to both parties.
 
 In scope (only what §3.8.6.3 and job #16 state):
 
@@ -33,7 +59,7 @@ Out of scope:
 | RefundRequest entity, Operator confirmation, return share, Staff reconciliation | UC-42 / TM-88 |
 | Paying the Traveler, Refund Progress screen | UC-67 / TM-117 |
 | Handling under the partnership contract after `Declined` | Outside the system (SRS defines no screen, actor or data) |
-| Counter-offer, changing an answer, deadline extension, audit log | Not in SRS |
+| Refund floor/percentage policy | Future configurable commercial policy; not hard-coded by UC-75 |
 
 ## Dependencies
 
@@ -52,9 +78,8 @@ because it pays the Traveler directly and so breaks BR-143.
 
 ## Domain
 
-`PostTripComplaintStatus` (SRS §3.8.6.2 PC-01 and §3.8.6.3 PC-01): `AwaitingOperatorResponse`,
-`AwaitingTravelerResponse`, `Approved`, `Rejected`, `Expired`, `Declined`. TM-222 must reuse this
-enum.
+`PostTripComplaintStatus`: `AwaitingOperatorResponse`, `AwaitingTravelerResponse`,
+`AwaitingOperatorReconsideration`, `Approved`, `Rejected`, `Expired`, `Declined`.
 
 `PartialRefundProposalRules`:
 
@@ -82,8 +107,22 @@ Returns `200`:
 
 ### POST `{complaintId}/partial-refund-proposal/response`
 
-Body `{ "decision": "Accept" | "Decline" }`. The SRS input data has no Idempotency-Key. A repeated
-call after the first one has been recorded is rejected with MSG165 (G1).
+Body is one of:
+
+```json
+{ "decision": "Accept" }
+```
+
+```json
+{ "decision": "CounterOffer", "reason": "The proposed amount does not cover the missing service.", "requestedAmount": 300000 }
+```
+
+```json
+{ "decision": "Decline", "reason": "The revised amount remains inadequate." }
+```
+
+`CounterOffer` is valid only for round 1; `Decline` is a final response valid only for round 2.
+The SRS input data has no Idempotency-Key. A repeated or stale call is rejected with MSG165.
 
 Returns `200`:
 
@@ -103,6 +142,8 @@ Returns `200`:
 | Signed-in Traveler does not own the booking (1.a2) | `complaint.partial_refund.forbidden` | 403 | MSG126 |
 | Status is not `AwaitingTravelerResponse` (G1), or `now >= deadline` before the job has run (1.a1, G5), or a concurrent writer closed it first | `complaint.partial_refund.response_closed` | 409 | MSG165 |
 | Unknown `decision` value | model validation | 400 | — |
+| Missing/overlong Traveler reason | `complaint.partial_refund.reason_required` | 400 | — |
+| Missing, non-positive or over-snapshot counter amount | `complaint.partial_refund.counter_amount_invalid` | 400 | — |
 | Persistence failure (4.a1) | global handler | 5xx | MSG127; the status is not changed |
 
 ## Command flow
@@ -110,11 +151,11 @@ Returns `200`:
 Everything runs in one `ExecuteInSerializableTransactionAsync`:
 
 1. Load the proposal, then check owner, then check `IsOpen`.
-2. `TryCloseAsync(complaintId, Approved | Declined, now)`. This is conditional on the status still
-   being `AwaitingTravelerResponse`. A `false` result returns MSG165.
+2. Atomically apply the chosen transition, conditioned on the current status and negotiation round.
+   A lost race returns MSG165.
 3. Accept only: `IComplaintRefundRequestCreator.CreateForAcceptedComplaintAsync(complaintId,
    bookingId, proposedAmount, now)`. The amount is fixed here and is never recalculated (UC-67).
-4. Add the Operator notification: MSG166 on accept, MSG167 on decline.
+4. Add the recipient notification for acceptance, counter-offer, revised offer or final decline.
 5. `SaveChangesAsync`.
 
 ## Complaint Deadline Job: 3-day branch
@@ -149,5 +190,6 @@ Channel `Push`, `RelatedEntityType = "PostTripComplaint"`, `RelatedEntityId = co
 
 ## Database
 
-No schema change in UC-75. The columns are owned by TM-222 (PostTripComplaint) and TM-88
-(RefundRequest).
+UC-75 owns an additive migration for the reconsideration deadline/current proposal metadata and
+the append-only `commerce.PostTripComplaintNegotiationEvents` table. Existing partial proposals
+remain readable; they are treated as legacy round-1 offers when no history row exists.

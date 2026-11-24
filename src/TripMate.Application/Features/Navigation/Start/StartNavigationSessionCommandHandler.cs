@@ -113,6 +113,19 @@ public sealed class StartNavigationSessionCommandHandler(
                 "This tour was stopped or cancelled, so navigation cannot start.");
         }
 
+        var alreadyFinished = await dbContext.TripSessions.AsNoTracking().AnyAsync(
+            session => session.TravelerUserId == request.TravelerUserId
+                && session.ItineraryId == itinerary.Id
+                && session.EndedAtUtc != null
+                && session.CompletionReason == TripSession.RouteFinishedReason,
+            cancellationToken);
+        if (alreadyFinished)
+        {
+            return Result.Failure<NavigationSessionResponse>(
+                NavigationErrorCodes.TripAlreadyFinished,
+                "You have already completed this itinerary, so navigation cannot start again.");
+        }
+
         var navigableItems = itinerary.Items
             .Where(item => item.PointOfInterest is not null)
             .OrderBy(item => item.SequenceNo)

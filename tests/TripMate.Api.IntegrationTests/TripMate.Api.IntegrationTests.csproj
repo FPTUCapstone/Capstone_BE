@@ -8,6 +8,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Include="..\..\database\migrations\20261118_tm83_tour_submission.sql"
+          Link="Database\migrations\20261118_tm83_tour_submission.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Include="..\Shared\TomorrowAlertFixtures.cs" Link="Shared\TomorrowAlertFixtures.cs" />
     <PackageReference Include="FluentAssertions" Version="7.2.0" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.0" />
@@ -102,6 +108,12 @@
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\database\migrations\20261007_allow_staff_role.sql"
           Link="Database\migrations\20261007_allow_staff_role.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261007_add_user_unlock_operations.sql"
+          Link="Database\migrations\20261007_add_user_unlock_operations.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261007_add_notification_delivery_outbox.sql"
+          Link="Database\migrations\20261007_add_notification_delivery_outbox.sql"
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\database\migrations\20261115_tm228_user_session_boundaries.sql"
           Link="Database\migrations\20261115_tm228_user_session_boundaries.sql"

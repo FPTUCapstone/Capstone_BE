@@ -155,6 +155,8 @@ CREATE SCHEMA commercial AUTHORIZATION dbo;
 GO
 CREATE SCHEMA social AUTHORIZATION dbo;
 GO
+CREATE SCHEMA admin AUTHORIZATION dbo;
+GO
 
 /* =====================================================================
    1. IDENTITY & ACCOUNTS  (dbo)
@@ -175,12 +177,31 @@ CREATE TABLE dbo.Users (
     status              VARCHAR(24)   NOT NULL DEFAULT 'Active'
         CHECK (status IN ('PendingEmailVerification','Active','Locked',
                            'PendingApproval','Rejected','Inactive')),
+    status_before_lock  VARCHAR(24) NULL,
+    locked_by_user_id   BIGINT NULL,
+    locked_at_utc       DATETIME2 NULL,
+    lock_reason         NVARCHAR(1000) NULL,
     email_verified_at   DATETIME2     NULL,
     phone_verified_at   DATETIME2     NULL,
     created_at          DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME(),
     updated_at          DATETIME2     NOT NULL DEFAULT SYSUTCDATETIME(),
     last_login_at       DATETIME2     NULL,
-    CONSTRAINT CK_Users_HasIdentifier CHECK (email IS NOT NULL OR phone_number IS NOT NULL)
+    CONSTRAINT CK_Users_HasIdentifier CHECK (email IS NOT NULL OR phone_number IS NOT NULL),
+    CONSTRAINT CK_Users_LockRecoveryState CHECK (
+        (status <> 'Locked' AND status_before_lock IS NULL AND locked_by_user_id IS NULL
+            AND locked_at_utc IS NULL AND lock_reason IS NULL)
+        OR (status = 'Locked' AND (
+            (status_before_lock IS NULL AND locked_by_user_id IS NULL AND locked_at_utc IS NULL AND lock_reason IS NULL)
+            OR (status_before_lock IS NULL AND locked_by_user_id IS NULL
+                AND locked_at_utc IS NOT NULL AND lock_reason IS NOT NULL
+                AND LEN(LTRIM(RTRIM(lock_reason))) > 0)
+            OR (status_before_lock IN ('PendingEmailVerification','Active','PendingApproval','Rejected','Inactive')
+                AND locked_at_utc IS NOT NULL
+                AND lock_reason IS NOT NULL AND LEN(LTRIM(RTRIM(lock_reason))) > 0)
+        ))
+    ),
+    CONSTRAINT FK_Users_LockedBy FOREIGN KEY (locked_by_user_id)
+        REFERENCES dbo.Users(user_id)
 );
 GO
 CREATE UNIQUE INDEX UX_Users_Email ON dbo.Users(email) WHERE email IS NOT NULL;
@@ -210,6 +231,27 @@ CREATE TABLE dbo.RefreshTokens (
 );
 GO
 CREATE INDEX IX_RefreshTokens_User ON dbo.RefreshTokens(user_id);
+GO
+
+CREATE TABLE admin.UserUnlockOperations (
+    operation_id            BIGINT IDENTITY(1,1) PRIMARY KEY,
+    administrator_user_id   BIGINT NOT NULL,
+    idempotency_key         VARCHAR(128) NOT NULL,
+    request_hash            VARCHAR(128) NOT NULL,
+    target_user_id          BIGINT NOT NULL,
+    restored_status         VARCHAR(24) NOT NULL,
+    unlocked_at_utc         DATETIME2 NOT NULL,
+    CONSTRAINT CK_UserUnlockOperations_RestoredStatus CHECK (
+        restored_status IN ('PendingEmailVerification','Active','PendingApproval','Rejected','Inactive')
+    ),
+    CONSTRAINT FK_UserUnlockOperations_Administrator FOREIGN KEY (administrator_user_id)
+        REFERENCES dbo.Users(user_id),
+    CONSTRAINT FK_UserUnlockOperations_Target FOREIGN KEY (target_user_id)
+        REFERENCES dbo.Users(user_id)
+);
+GO
+CREATE UNIQUE INDEX UX_UserUnlockOperations_AdministratorKey
+    ON admin.UserUnlockOperations(administrator_user_id, idempotency_key);
 GO
 
 -- v4: OtpCodes removed — OTP is short-lived (a few minutes) and deleted on
@@ -333,10 +375,19 @@ CREATE TABLE dbo.Notifications (
     status               VARCHAR(10) NOT NULL DEFAULT 'Pending'
         CHECK (status IN ('Pending','Sent','Failed','Read')),
     created_at           DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
-    sent_at              DATETIME2 NULL
+    sent_at              DATETIME2 NULL,
+    delivery_attempt_count INT NOT NULL CONSTRAINT DF_Notifications_DeliveryAttemptCount DEFAULT 0,
+    delivery_lease_token UNIQUEIDENTIFIER NULL,
+    delivery_lease_expires_at DATETIME2 NULL,
+    next_delivery_attempt_at DATETIME2 NULL,
+    delivery_last_error_code VARCHAR(100) NULL,
+    CONSTRAINT CK_Notifications_DeliveryAttemptCount CHECK (delivery_attempt_count >= 0)
 );
 GO
 CREATE INDEX IX_Notifications_User_Status ON dbo.Notifications(user_id, status);
+GO
+CREATE INDEX IX_Notifications_Delivery_Due ON dbo.Notifications(
+    status, channel, type, next_delivery_attempt_at, delivery_lease_expires_at, notification_id);
 GO
 
 CREATE TABLE dbo.AuditLogs (
@@ -523,6 +574,8 @@ CREATE TABLE commerce.Tours (
     reviewed_by               BIGINT NULL REFERENCES dbo.Users(user_id),
     reviewed_at                DATETIME2 NULL,
     published_at                DATETIME2 NULL,
+    submitted_at_utc             DATETIME2 NULL,
+    submission_note              NVARCHAR(4000) NULL,
     created_at                  DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
     updated_at                  DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
     CONSTRAINT FK_Tours_TourCategories FOREIGN KEY (category_id)
@@ -1633,6 +1686,42 @@ BEGIN
 END;
 GO
 
+CREATE TABLE commercial.ServiceCommissionStatements (
+    statement_id BIGINT IDENTITY(1,1) PRIMARY KEY,
+    statement_code NVARCHAR(32) NOT NULL,
+    provider_id BIGINT NOT NULL,
+    period VARCHAR(7) NOT NULL,
+    total_requests INT NOT NULL,
+    total_actual_amount DECIMAL(14,2) NOT NULL,
+    commission_rate DECIMAL(5,2) NOT NULL DEFAULT 10.00,
+    commission_amount DECIMAL(14,2) NOT NULL,
+    issue_date DATE NOT NULL,
+    due_date DATE NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'Issued',
+    bank_transfer_reference NVARCHAR(100) NULL,
+    reported_at DATETIME2 NULL,
+    confirmed_by_user_id BIGINT NULL,
+    confirmed_at DATETIME2 NULL,
+    receipt_number NVARCHAR(50) NULL,
+    created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    row_version ROWVERSION,
+    CONSTRAINT FK_ServiceCommissionStatements_Provider FOREIGN KEY (provider_id)
+        REFERENCES commercial.ServiceProviders(provider_id),
+    CONSTRAINT FK_ServiceCommissionStatements_Staff FOREIGN KEY (confirmed_by_user_id)
+        REFERENCES dbo.Users(user_id),
+    CONSTRAINT UQ_ServiceCommissionStatements_StatementCode UNIQUE (statement_code),
+    CONSTRAINT UQ_ServiceCommissionStatements_Provider_Period UNIQUE (provider_id, period),
+    CONSTRAINT CK_ServiceCommissionStatements_TotalRequests CHECK (total_requests > 0),
+    CONSTRAINT CK_ServiceCommissionStatements_TotalActualAmount CHECK (total_actual_amount >= 0),
+    CONSTRAINT CK_ServiceCommissionStatements_CommissionAmount CHECK (commission_amount >= 0),
+    CONSTRAINT CK_ServiceCommissionStatements_Status CHECK (status IN ('Issued', 'PaymentReported', 'Paid', 'Overdue'))
+);
+GO
+CREATE INDEX IX_ServiceCommissionStatements_Provider ON commercial.ServiceCommissionStatements(provider_id);
+CREATE INDEX IX_ServiceCommissionStatements_Period ON commercial.ServiceCommissionStatements(period);
+CREATE INDEX IX_ServiceCommissionStatements_Status ON commercial.ServiceCommissionStatements(status);
+GO
+
 CREATE TABLE commercial.ServiceBookings (
     service_booking_id       BIGINT IDENTITY(1,1) PRIMARY KEY,
     traveler_user_id            BIGINT NOT NULL REFERENCES dbo.Users(user_id),
@@ -1659,6 +1748,7 @@ CREATE TABLE commercial.ServiceBookings (
     itinerary_id BIGINT NULL,
     service_option NVARCHAR(200) NULL,
     special_request NVARCHAR(1000) NULL,
+    commission_statement_id BIGINT NULL REFERENCES commercial.ServiceCommissionStatements(statement_id),
     CONSTRAINT FK_ServiceBookings_RespondedBy FOREIGN KEY (responded_by_user_id) REFERENCES dbo.Users(user_id),
     CONSTRAINT FK_ServiceBookings_OutcomeBy FOREIGN KEY (outcome_by_user_id) REFERENCES dbo.Users(user_id),
     CONSTRAINT FK_ServiceBookings_Itinerary FOREIGN KEY (itinerary_id) REFERENCES planning.Itineraries(itinerary_id),
@@ -1670,6 +1760,7 @@ CREATE INDEX IX_ServiceBookings_Service ON commercial.ServiceBookings(service_id
 CREATE INDEX IX_ServiceBookings_RequestLifecycle
     ON commercial.ServiceBookings(status, request_submitted_at, start_datetime)
     WHERE request_submitted_at IS NOT NULL;
+CREATE INDEX IX_ServiceBookings_CommissionStatementId ON commercial.ServiceBookings(commission_statement_id);
 GO
 
 CREATE TABLE commercial.ServiceProviderRequestOperations (

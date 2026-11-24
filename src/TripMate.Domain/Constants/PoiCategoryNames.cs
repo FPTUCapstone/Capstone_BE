@@ -50,8 +50,11 @@ public static class PoiCategoryNames
         }
 
         var trimmed = categoryName.Trim();
-        return FoodAndDrinkAliases.Any(alias =>
-            string.Equals(trimmed, alias, StringComparison.OrdinalIgnoreCase));
+        foreach (var alias in FoodAndDrinkAliases)
+        {
+            if (string.Equals(trimmed, alias, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
     }
 
     /// <summary>

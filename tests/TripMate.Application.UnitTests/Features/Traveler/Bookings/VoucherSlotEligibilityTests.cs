@@ -65,7 +65,7 @@ public sealed class VoucherSlotEligibilityTests
         TestDbContext db, PriorBookingState previous)
     {
         var traveler = await TourBookingTestData.SeedTravelerAsync(db, 1);
-        var tour = TourBookingTestData.SeedTour(2, 1_000_000m);
+        var tour = TourBookingTestData.SeedBookableTour(2, 1_000_000m);
         db.Tours.Add(tour);
         await db.SaveChangesAsync();
         var schedule = TourBookingTestData.SeedSchedule(tour, Now.AddDays(5), 10, 0);

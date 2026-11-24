@@ -65,6 +65,10 @@ public class Tour : BaseEntity
 
     public TourStatus Status { get; private set; }
 
+    public DateTimeOffset? SubmittedAtUtc { get; private set; }
+
+    public string? SubmissionNote { get; private set; }
+
     public string? RejectionReason { get; private set; }
 
     public long? ReviewedBy { get; private set; }
@@ -155,15 +159,20 @@ public class Tour : BaseEntity
         VersionNo = versionNo;
     }
 
-    public void SubmitForReview(DateTimeOffset submittedAtUtc)
+    public void SubmitForReview(DateTimeOffset submittedAtUtc, string? submissionNote = null)
     {
         if (Status is not (TourStatus.Draft or TourStatus.Rejected))
         {
             throw new InvalidOperationException("Only Draft or Rejected tours can be submitted for review.");
         }
 
+        string? normalizedNote = NormalizeTerms(submissionNote, nameof(submissionNote));
+        SubmittedAtUtc = submittedAtUtc.ToUniversalTime();
+        SubmissionNote = normalizedNote;
         Status = TourStatus.Pending;
         RejectionReason = null;
+        ReviewedBy = null;
+        ReviewedAtUtc = null;
         UpdatedAtUtc = submittedAtUtc.ToUniversalTime();
     }
 
@@ -300,15 +309,17 @@ public class Tour : BaseEntity
         UpdatedAtUtc = updatedAtUtc.ToUniversalTime();
     }
 
-    public void Approve(long reviewerUserId, DateTimeOffset reviewedAtUtc)
+    public void Approve(long reviewerUserId, DateTimeOffset reviewedAtUtc, DateTimeOffset? publishedAtUtc = null)
     {
         if (Status != TourStatus.Pending) throw new InvalidOperationException("Only Pending tours can be approved.");
         if (reviewerUserId <= 0) throw new ArgumentOutOfRangeException(nameof(reviewerUserId));
+        var normalizedReviewedAtUtc = reviewedAtUtc.ToUniversalTime();
         Status = TourStatus.Approved;
         ReviewedBy = reviewerUserId;
-        ReviewedAtUtc = reviewedAtUtc.ToUniversalTime();
+        ReviewedAtUtc = normalizedReviewedAtUtc;
+        PublishedAtUtc = publishedAtUtc?.ToUniversalTime();
         RejectionReason = null;
-        UpdatedAtUtc = ReviewedAtUtc.Value;
+        UpdatedAtUtc = normalizedReviewedAtUtc;
     }
 
     public void Reject(long reviewerUserId, string reason, DateTimeOffset reviewedAtUtc)
@@ -333,11 +344,22 @@ public class Tour : BaseEntity
         UpdatedAtUtc = PublishedAtUtc.Value;
     }
 
+    public bool CanUnpublish(DateTimeOffset asOfUtc)
+    {
+        var normalizedAsOfUtc = asOfUtc.ToUniversalTime();
+        return Status == TourStatus.Published
+            || (Status == TourStatus.Approved
+                && PublishedAtUtc.HasValue
+                && PublishedAtUtc.Value <= normalizedAsOfUtc);
+    }
+
     public void Unpublish(DateTimeOffset unpublishedAtUtc)
     {
-        if (Status != TourStatus.Published) throw new InvalidOperationException("Only Published tours can be unpublished.");
+        var normalizedUnpublishedAtUtc = unpublishedAtUtc.ToUniversalTime();
+        if (!CanUnpublish(normalizedUnpublishedAtUtc))
+            throw new InvalidOperationException("Only Published or publicly active Approved tours can be unpublished.");
         Status = TourStatus.Inactive;
-        UpdatedAtUtc = unpublishedAtUtc.ToUniversalTime();
+        UpdatedAtUtc = normalizedUnpublishedAtUtc;
     }
 
     private static void EnsureWholeVnd(decimal price, string parameterName)

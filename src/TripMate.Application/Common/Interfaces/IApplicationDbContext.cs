@@ -16,6 +16,8 @@ public interface IApplicationDbContext
 
     DbSet<RefreshToken> RefreshTokens { get; }
 
+    DbSet<UserUnlockOperation> UserUnlockOperations { get; }
+
     DbSet<PoiCategory> PoiCategories { get; }
 
     DbSet<PointOfInterest> PointsOfInterest { get; }
@@ -69,6 +71,7 @@ public interface IApplicationDbContext
     DbSet<AuditLog> AuditLogs { get; }
 
     DbSet<Notification> Notifications { get; }
+    DbSet<TourApprovalNotice> TourApprovalNotices { get; }
 
     DbSet<PushDeviceToken> PushDeviceTokens =>
         throw new NotSupportedException("Push device tokens are unavailable in this context.");
@@ -91,6 +94,8 @@ public interface IApplicationDbContext
     DbSet<CommercialService> CommercialServices { get; }
 
     DbSet<ServiceBooking> ServiceBookings { get; }
+
+    DbSet<ServiceCommissionStatement> ServiceCommissionStatements { get; }
 
     DbSet<ServiceProviderRequestOperation> ServiceProviderRequestOperations =>
         throw new NotSupportedException("Service request operations are unavailable in this context.");
@@ -118,6 +123,8 @@ public interface IApplicationDbContext
     DbSet<ComplaintEvidence> ComplaintEvidence => throw new NotSupportedException("Complaint evidence is unavailable in this context.");
     DbSet<PostTripComplaintSubmissionOperation> PostTripComplaintSubmissionOperations => throw new NotSupportedException("Post-trip complaint idempotency is unavailable in this context.");
     DbSet<PostTripComplaintEvidenceAmendmentOperation> PostTripComplaintEvidenceAmendmentOperations => throw new NotSupportedException("Post-trip complaint evidence amendment idempotency is unavailable in this context.");
+    DbSet<PostTripComplaintResponseOperation> PostTripComplaintResponseOperations => throw new NotSupportedException("Post-trip complaint response idempotency is unavailable in this context.");
+    DbSet<PostTripComplaintNegotiationEvent> PostTripComplaintNegotiationEvents => throw new NotSupportedException("Post-trip complaint negotiation history is unavailable in this context.");
 
     DbSet<EmergencyTourCancellationOperation> EmergencyTourCancellationOperations =>
         throw new NotSupportedException("Emergency tour cancellation is unavailable in this context.");
@@ -262,6 +269,9 @@ public interface IApplicationDbContext
     void MarkTripSessionProgressForConcurrencyCheck(TripSession session)
     {
     }
+
+    /// <summary>Serializes submission before any authorization or readiness reads in the transaction.</summary>
+    Task AcquireTourSubmissionLockAsync(long tourId, CancellationToken cancellationToken) => Task.CompletedTask;
 
     Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,

@@ -207,6 +207,9 @@ public class ConfirmPasswordResetFlowTests
 
         DbSet<Domain.Entities.DirectMessage> IApplicationDbContext.DirectMessages => throw new NotSupportedException();
 
+        DbSet<Domain.Entities.UserUnlockOperation> IApplicationDbContext.UserUnlockOperations =>
+            throw new NotSupportedException();
+
         // The confirm flow only touches Users and RefreshTokens; the remaining context
         // members are never reached, so their entity types are kept out of the model.
         DbSet<Domain.Entities.PoiCategory> IApplicationDbContext.PoiCategories => throw new NotSupportedException();
@@ -247,6 +250,8 @@ public class ConfirmPasswordResetFlowTests
         DbSet<Domain.Entities.AuditLog> IApplicationDbContext.AuditLogs => throw new NotSupportedException();
 
         DbSet<Domain.Entities.Notification> IApplicationDbContext.Notifications => throw new NotSupportedException();
+        DbSet<Domain.Entities.TourApprovalNotice> IApplicationDbContext.TourApprovalNotices =>
+            throw new NotSupportedException();
 
         DbSet<Domain.Entities.PoiPhoto> IApplicationDbContext.PoiPhotos => throw new NotSupportedException();
 
@@ -361,6 +366,8 @@ public class ConfirmPasswordResetFlowTests
 
         DbSet<Domain.Entities.ServiceBooking> IApplicationDbContext.ServiceBookings => throw new NotSupportedException();
 
+        DbSet<Domain.Entities.ServiceCommissionStatement> IApplicationDbContext.ServiceCommissionStatements => throw new NotSupportedException();
+
         DbSet<Domain.Entities.ClosedStatisticalPeriod> IApplicationDbContext.ClosedStatisticalPeriods => throw new NotSupportedException();
 
         DbSet<Domain.Entities.StatisticalReportSnapshot> IApplicationDbContext.StatisticalReportSnapshots => throw new NotSupportedException();
@@ -412,6 +419,7 @@ public class ConfirmPasswordResetFlowTests
             modelBuilder.Ignore<Domain.Entities.TourDestination>();
             modelBuilder.Ignore<Domain.Entities.AuditLog>();
             modelBuilder.Ignore<Domain.Entities.Notification>();
+            modelBuilder.Ignore<Domain.Entities.TourApprovalNotice>();
             modelBuilder.Ignore<Domain.Entities.PoiPhoto>();
             modelBuilder.Ignore<Domain.Entities.Review>();
             modelBuilder.Ignore<Domain.Entities.Message>();
@@ -430,6 +438,7 @@ public class ConfirmPasswordResetFlowTests
             modelBuilder.Ignore<Domain.Entities.GroupInvitationOperation>();
             modelBuilder.Ignore<Domain.Entities.GroupJoinOperation>();
             modelBuilder.Ignore<Domain.Entities.ItineraryVersionOperation>();
+            modelBuilder.Ignore<Domain.Entities.UserUnlockOperation>();
             modelBuilder.Ignore<Domain.Entities.SystemConfig>();
             modelBuilder.Ignore<Domain.Entities.TripSession>();
             modelBuilder.Ignore<Domain.Entities.TripSessionItem>();

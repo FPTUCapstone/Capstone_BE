@@ -18,7 +18,7 @@ namespace TripMate.Api.IntegrationTests.Tours;
 /// delete/insert ordering, so the replace-all update path can only be proven here.
 /// </summary>
 [Collection(nameof(TripMateApiFactory))]
-public sealed class OperatorTourPackageSqlServerTests
+public sealed partial class OperatorTourPackageSqlServerTests
 {
     [SqlServerFact]
     [Trait("Category", "SqlServer")]

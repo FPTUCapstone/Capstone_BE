@@ -27,6 +27,12 @@ Pass rules (spec §14.2):
 Each service deadline sits below its backend timeout, so a 200 answer already arrived in time. A model
 that is too slow shows up as 504 answers, which break the "every call returns 200" rule.
 
+These explanation rules measure the inline mode, where the traveler waits for the answer. In background mode
+(`AiExplanation:BackgroundEnabled`, `specs/UC-10-background-explanation-spec.md`) the create request does not
+wait: the service deadline is `LLM_TIMEOUT_SECONDS` = 90 (the Compose default) and the backend allows
+`AiExplanation:BackgroundTimeoutSeconds` = 100. Set `LLM_TIMEOUT_SECONDS` below 10 explicitly to repeat the
+inline measurement of this runbook.
+
 Switching the demo environment to `Provider=TripMateAi` and `Enabled=true` is **not** part of this
 runbook; the developer decides from the results (§9).
 

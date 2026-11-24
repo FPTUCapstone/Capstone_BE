@@ -358,6 +358,9 @@ public sealed class Uc70RecoveryAndEvidenceEndpointTests
 
         AssertNoMoneyFields(status);
         status.GetProperty("refundHandling").GetString().Should().Be("RefundSubmitted");
+        status.TryGetProperty("tourId", out _).Should().BeFalse(
+            "an emergency cancellation must not offer another departure");
+        status.TryGetProperty("rebookableTourId", out _).Should().BeFalse();
     }
 
     private static Task PayAsync(TripMateApiFactory factory, long bookingId) =>

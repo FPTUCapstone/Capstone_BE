@@ -2,6 +2,7 @@ using FluentAssertions;
 
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
 using TripMate.Application.Features.Scheduling.Explanation;
@@ -66,6 +67,12 @@ public sealed class ExplanationDependencyInjectionTests
         configuration["AiExplanation:Timeout"].Should().BeNull();
         provider.GetRequiredService<IOptions<ItineraryExplanationExecutionOptions>>()
             .Value.Enabled.Should().BeFalse();
+
+        // Background mode is committed switched off, with the budget written out so operators see the knob.
+        configuration["AiExplanation:BackgroundEnabled"].Should().Be("False");
+        configuration["AiExplanation:BackgroundTimeoutSeconds"].Should().Be("100");
+        options.BackgroundEnabled.Should().BeFalse();
+        options.BackgroundTimeoutSeconds.Should().Be(100);
     }
 
     [Fact]
@@ -91,6 +98,113 @@ public sealed class ExplanationDependencyInjectionTests
         provider.GetRequiredService<IOptions<ItineraryExplanationExecutionOptions>>()
             .Value.Enabled.Should().BeTrue();
     }
+
+    // Background mode (specs/UC-10-background-explanation-spec.md, B2 and B7).
+
+    [Fact]
+    public void AddInfrastructure_WithoutBackgroundSettings_KeepsBackgroundModeOff()
+    {
+        using ServiceProvider provider = BuildProvider(new Dictionary<string, string?>
+        {
+            ["AiExplanation:Enabled"] = "false",
+        });
+
+        provider.GetRequiredService<IStartupValidator>().Validate();
+        var executionOptions = provider
+            .GetRequiredService<IOptions<ItineraryExplanationExecutionOptions>>()
+            .Value;
+        executionOptions.BackgroundEnabled.Should().BeFalse();
+        executionOptions.BackgroundTimeout.Should().Be(TimeSpan.FromSeconds(100));
+    }
+
+    [Fact]
+    public void AddInfrastructure_MapsBackgroundModeOntoTheExecutionOptions()
+    {
+        using ServiceProvider provider = BuildProvider(EnabledProvider().Concat(
+        [
+            new KeyValuePair<string, string?>("AiExplanation:BackgroundEnabled", "true"),
+            new KeyValuePair<string, string?>("AiExplanation:BackgroundTimeoutSeconds", "120"),
+        ]));
+
+        provider.GetRequiredService<IStartupValidator>().Validate();
+        var executionOptions = provider
+            .GetRequiredService<IOptions<ItineraryExplanationExecutionOptions>>()
+            .Value;
+        executionOptions.Enabled.Should().BeTrue();
+        executionOptions.BackgroundEnabled.Should().BeTrue();
+        executionOptions.BackgroundTimeout.Should().Be(TimeSpan.FromSeconds(120));
+        // The inline limits are untouched by the background budget.
+        executionOptions.OverallTimeout.Should().Be(ItineraryExplanationExecutionOptions.DefaultOverallTimeout);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("301")]
+    public void AddInfrastructure_BackgroundTimeoutOutOfRange_FailsStartupValidation(string seconds)
+    {
+        using ServiceProvider provider = BuildProvider(new Dictionary<string, string?>
+        {
+            ["AiExplanation:Enabled"] = "false",
+            ["AiExplanation:BackgroundTimeoutSeconds"] = seconds,
+        });
+
+        var action = () => provider.GetRequiredService<IStartupValidator>().Validate();
+
+        action.Should().Throw<OptionsValidationException>()
+            .WithMessage($"*{nameof(ItineraryExplanationExecutionOptions.BackgroundTimeout)}*");
+    }
+
+    [Theory]
+    [InlineData("Gemini")]
+    [InlineData("TripMateAi")]
+    public void AddInfrastructure_ExplanationHttpClientHasNoTimeoutOfItsOwn(string providerKind)
+    {
+        // HttpClient's default 100 seconds would silently cut a longer background budget; the provider's own
+        // cancellation token enforces every limit instead.
+        using ServiceProvider provider = BuildProvider(new Dictionary<string, string?>
+        {
+            ["AiExplanation:Enabled"] = "false",
+            ["AiExplanation:Provider"] = providerKind,
+        });
+
+        using HttpClient client = provider
+            .GetRequiredService<IHttpClientFactory>()
+            .CreateClient(nameof(IItineraryExplanationProvider));
+
+        client.Timeout.Should().Be(Timeout.InfiniteTimeSpan);
+    }
+
+    [Fact]
+    public void AddInfrastructure_RegistersTheWaitingListItsWorkerAndTheProcessor()
+    {
+        var services = new ServiceCollection();
+        services.AddInfrastructure(new ConfigurationBuilder()
+            .AddInMemoryCollection(BaselineConfiguration())
+            .Build());
+
+        services.Should().Contain(descriptor =>
+            descriptor.ServiceType == typeof(IHostedService)
+            && descriptor.ImplementationType == typeof(ItineraryExplanationBackgroundService));
+        services.Should().Contain(descriptor =>
+            descriptor.ServiceType == typeof(IBackgroundItineraryExplanationProcessor)
+            && descriptor.Lifetime == ServiceLifetime.Scoped);
+        using ServiceProvider provider = services.BuildServiceProvider();
+
+        // One list for the whole process: what a create request queues is what the worker reads.
+        provider.GetRequiredService<IItineraryExplanationQueue>()
+            .Should().BeSameAs(provider.GetRequiredService<InMemoryItineraryExplanationQueue>());
+        using IServiceScope scope = provider.CreateScope();
+        scope.ServiceProvider.GetRequiredService<IBackgroundItineraryExplanationProcessor>()
+            .Should().BeOfType<BackgroundItineraryExplanationProcessor>();
+    }
+
+    private static IEnumerable<KeyValuePair<string, string?>> EnabledProvider() =>
+    [
+        new("AiExplanation:Enabled", "true"),
+        new("AiExplanation:Endpoint", "https://generativelanguage.googleapis.com/v1/interactions"),
+        new("AiExplanation:ApiKey", "test-key"),
+        new("AiExplanation:ModelName", "test-model"),
+    ];
 
     private static ServiceProvider BuildProvider(
         IEnumerable<KeyValuePair<string, string?>> values)

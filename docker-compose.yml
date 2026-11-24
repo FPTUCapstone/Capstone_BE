@@ -118,6 +118,8 @@ services:
       AiExplanation__RetryBaseDelayMilliseconds: ${AiExplanation__RetryBaseDelayMilliseconds:-500}
       AiExplanation__RateLimitPerMinute: ${AiExplanation__RateLimitPerMinute:-4}
       AiExplanation__MaxConcurrency: ${AiExplanation__MaxConcurrency:-2}
+      AiExplanation__BackgroundEnabled: ${AiExplanation__BackgroundEnabled:-false}
+      AiExplanation__BackgroundTimeoutSeconds: ${AiExplanation__BackgroundTimeoutSeconds:-100}
 
       Cors__AllowedOrigins__0: http://localhost:3001
       Cors__AllowedOrigins__1: http://localhost:3005
@@ -135,6 +137,12 @@ services:
       Email__Password: ${EMAIL_PASSWORD:?EMAIL_PASSWORD must be set in .env}
       Email__FromEmail: ${EMAIL_FROM_EMAIL:?EMAIL_FROM_EMAIL must be set in .env}
       PasswordResetSecurity__OtpPepper: ${PASSWORD_RESET_OTP_PEPPER:?PASSWORD_RESET_OTP_PEPPER must be set in .env}
+      # Gmail REST API (optional, for port 443 HTTPS email sending)
+      Gmail__ClientId: ${Gmail__ClientId:-}
+      Gmail__ClientSecret: ${Gmail__ClientSecret:-}
+      Gmail__RefreshToken: ${Gmail__RefreshToken:-}
+      Gmail__SenderEmail: ${Gmail__SenderEmail:-tripmate.support.mail@gmail.com}
+      Gmail__FromName: ${Gmail__FromName:-TripMate}
       # UC-29 e-ticket QR keys (Base64, 32 bytes each, different from each other).
       TicketQr__EncryptionKey: ${TICKET_QR_ENCRYPTION_KEY:?TICKET_QR_ENCRYPTION_KEY must be set in .env}
       TicketQr__SigningKey: ${TICKET_QR_SIGNING_KEY:?TICKET_QR_SIGNING_KEY must be set in .env}
@@ -212,7 +220,9 @@ services:
       OLLAMA_BASE_URL: http://ollama:11434
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3}
       LLM_MODEL: ${LLM_MODEL:-qwen3:1.7b}
-      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-9}
+      # Below AiExplanation__BackgroundTimeoutSeconds (100), so the backend is still listening when a slow
+      # answer arrives. For the old inline mode (backend limit 10-30 seconds) set it below that limit instead.
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-90}
     depends_on:
       ollama:
         condition: service_healthy

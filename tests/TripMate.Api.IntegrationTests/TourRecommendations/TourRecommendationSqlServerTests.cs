@@ -151,6 +151,8 @@ public sealed class TourRecommendationSqlServerTests
                     @operator, @category, CONCAT(N'Paged Tour ', @i), 2000000, 3, @status,
                     CASE WHEN @status = 'Published' THEN '2026-11-01T00:00:00' ELSE NULL END);
                 SET @tour = SCOPE_IDENTITY();
+                INSERT commerce.TourItineraryItems(tour_id, day_no, sequence_no, poi_id, planned_time, stay_duration_minutes)
+                SELECT @tour, 1, 1, poi_id, '09:00', 60 FROM catalog.POIs WHERE name = N'TM71 Beach';
                 INSERT commerce.TourSchedules(
                     tour_id, start_datetime, end_datetime, total_capacity, reserved_capacity, status)
                 VALUES (
@@ -174,10 +176,10 @@ public sealed class TourRecommendationSqlServerTests
         commandCounter.Reset();
 
         var first = await latest.Handle(new GetLatestTourRecommendationsQuery(Page: 1), CancellationToken.None);
-        commandCounter.Count.Should().Be(6);
+        commandCounter.Count.Should().Be(7);
         commandCounter.Reset();
         var second = await latest.Handle(new GetLatestTourRecommendationsQuery(Page: 2), CancellationToken.None);
-        commandCounter.Count.Should().Be(6,
+        commandCounter.Count.Should().Be(7,
             "page query count must stay bounded rather than grow with returned Tours");
 
         first.Value.TotalCount.Should().Be(21);
@@ -471,6 +473,8 @@ public sealed class TourRecommendationSqlServerTests
                     @operator, @category, CONCAT(N'Large Catalogue Tour ', @i),
                     2000000, 3, 'Published', '2026-11-01T00:00:00');
                 SET @tour = SCOPE_IDENTITY();
+                INSERT commerce.TourItineraryItems(tour_id, day_no, sequence_no, poi_id, planned_time, stay_duration_minutes)
+                SELECT @tour, 1, 1, poi_id, '09:00', 60 FROM catalog.POIs WHERE name = N'TM71 Beach';
                 INSERT commerce.TourSchedules(
                     tour_id, start_datetime, end_datetime,
                     total_capacity, reserved_capacity, status)
@@ -503,8 +507,8 @@ public sealed class TourRecommendationSqlServerTests
             "streaming must not introduce an arbitrary candidate cap");
         db.ChangeTracker.Entries().Should().BeEmpty(
             "persisted batches and response projections must not retain the whole catalogue");
-        commandCounter.Count.Should().Be(13,
-            "250 Tours require three candidate batches plus fixed profile, scoring and response projections");
+        commandCounter.Count.Should().Be(14,
+            "250 Tours require three candidate batches plus fixed profile, scoring, bookability and response projections");
     }
 
     private static async Task SeedRecommendationDataAsync(SqlServerTestDatabase database)
@@ -524,6 +528,13 @@ public sealed class TourRecommendationSqlServerTests
             DECLARE @destination BIGINT;
             INSERT catalog.Destinations(name) VALUES (N'Da Nang');
             SET @destination = SCOPE_IDENTITY();
+            DECLARE @poiCategory INT;
+            INSERT catalog.POICategories(name) VALUES (N'Beach');
+            SET @poiCategory = SCOPE_IDENTITY();
+            DECLARE @poi BIGINT;
+            INSERT catalog.POIs(category_id, name, latitude, longitude)
+            VALUES (@poiCategory, N'TM71 Beach', 16.0, 108.0);
+            SET @poi = SCOPE_IDENTITY();
 
             DECLARE @tour BIGINT;
             INSERT commerce.Tours(
@@ -532,6 +543,8 @@ public sealed class TourRecommendationSqlServerTests
             VALUES (@operator, @category, N'Da Nang Beach', 2000000, 3,
                 'Published', '2026-11-01T00:00:00');
             SET @tour = SCOPE_IDENTITY();
+            INSERT commerce.TourItineraryItems(tour_id, day_no, sequence_no, poi_id, planned_time, stay_duration_minutes)
+            VALUES (@tour, 1, 1, @poi, '09:00', 60);
             INSERT commerce.TourDestinations(tour_id, destination_id, sequence_no)
             VALUES (@tour, @destination, 1);
             INSERT commerce.TourSchedules(

@@ -31,6 +31,8 @@ public class ApplicationDbContext(
 
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
+    public DbSet<UserUnlockOperation> UserUnlockOperations => Set<UserUnlockOperation>();
+
     public DbSet<PoiCategory> PoiCategories => Set<PoiCategory>();
 
     public DbSet<PointOfInterest> PointsOfInterest => Set<PointOfInterest>();
@@ -83,6 +85,7 @@ public class ApplicationDbContext(
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
     public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<TourApprovalNotice> TourApprovalNotices => Set<TourApprovalNotice>();
 
     public DbSet<PushDeviceToken> PushDeviceTokens => Set<PushDeviceToken>();
 
@@ -102,6 +105,7 @@ public class ApplicationDbContext(
 
     public DbSet<CommercialService> CommercialServices => Set<CommercialService>();
     public DbSet<ServiceBooking> ServiceBookings => Set<ServiceBooking>();
+    public DbSet<ServiceCommissionStatement> ServiceCommissionStatements => Set<ServiceCommissionStatement>();
 
     public DbSet<ServiceProviderRequestOperation> ServiceProviderRequestOperations =>
         Set<ServiceProviderRequestOperation>();
@@ -124,6 +128,8 @@ public class ApplicationDbContext(
     public DbSet<ComplaintEvidence> ComplaintEvidence => Set<ComplaintEvidence>();
     public DbSet<PostTripComplaintSubmissionOperation> PostTripComplaintSubmissionOperations => Set<PostTripComplaintSubmissionOperation>();
     public DbSet<PostTripComplaintEvidenceAmendmentOperation> PostTripComplaintEvidenceAmendmentOperations => Set<PostTripComplaintEvidenceAmendmentOperation>();
+    public DbSet<PostTripComplaintResponseOperation> PostTripComplaintResponseOperations => Set<PostTripComplaintResponseOperation>();
+    public DbSet<PostTripComplaintNegotiationEvent> PostTripComplaintNegotiationEvents => Set<PostTripComplaintNegotiationEvent>();
     public DbSet<EmergencyTourCancellationOperation> EmergencyTourCancellationOperations =>
         Set<EmergencyTourCancellationOperation>();
     public DbSet<RefundManualCompletionOperation> RefundManualCompletionOperations =>
@@ -180,6 +186,9 @@ public class ApplicationDbContext(
                 audit.ActionType == TripMate.Domain.Common.AuditActionTypes.AuthSignOut &&
                 audit.CreatedAtUtc < cutoffUtc)
             .ExecuteDeleteAsync(cancellationToken);
+
+    public Task AcquireTourSubmissionLockAsync(long tourId, CancellationToken cancellationToken) =>
+        new SqlServerTourMediaUploadLock(this).AcquireTourAsync(tourId, cancellationToken);
 
     public async Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,

@@ -69,8 +69,10 @@ Decided 2026-11-14. Applied inside the same serializable transaction as the deci
   `AdminReviewBookingIds`.
 - The Operator response adds `refundsSubmitted` (replays recompute it from the derived keys).
 - Traveler `emergency-status` adds `refundHandling`: `RefundSubmitted` (a UC-70 refund exists for the
-  booking), `UnderReview` (paid booking without one) or `NotApplicable` (unpaid), and `tourId` for
-  booking another departure of the same tour.
+  booking), `UnderReview` (paid booking without one) or `NotApplicable` (unpaid).
+  Decision confirmed on 2026-11-17: emergency cancellation does not suggest another trip.
+  The response omits `tourId` (previously used only for rebooking) and `rebookableTourId`;
+  Mobile keeps the existing refund-progress action when a refund request exists.
 - Admin Active Trips items add `refundReviewRequired`: the trip was interrupted by an emergency stop and
   its paid booking has no refund yet.
 
@@ -91,7 +93,7 @@ Decided 2026-11-14. Applied inside the same serializable transaction as the deci
 | Result panel: Bookings Cancelled, Refunds Submitted, Notifications Sent | `affectedBookingCount` and `refundsSubmitted`; push delivery is asynchronous, so no "sent" count | Push is sent after commit by the delivery queue |
 | MSG151 push names the tour, date, amount and "has been refunded" | Generic push copy; details load from `emergency-status` after sign-in | Nothing personal on the lock screen; at decision time the refund is submitted, not yet credited |
 | Refund "immediately" through UC-67 | The refund request is created immediately; the refund processor submits it, and PayOS refunds are completed by Admin (`complete-manual`) | PayOS has no refund API |
-| Rebooking link inside MSG151 | Mobile "Đặt chuyến khác" button from `emergency-status.tourId` | Same outcome without a link in the push |
+| Rebooking link inside MSG151 | Removed by the requirement owner's decision; no rebooking suggestion in the emergency screen or response | SRS wording must follow the confirmed decision |
 | MSG185 weather warning to Travelers | In-app notice | A push would need a new FCM contract on Mobile |
 | MSG153 when a refund cannot reach the gateway | Raised by the refund processor (UC-67), not by UC-70 | UC-70 never calls a gateway |
 | Cancellation only | Also an emergency stop of an active trip, Operator evidence, password step-up for the stop, Traveler acknowledgement, 30-minute review deadline with escalation | Safety during a running tour |

@@ -18,6 +18,11 @@ public sealed class AdministrationFailureAuditMiddleware(RequestDelegate next)
             || path.StartsWithSegments("/api/v1/admin/tour-operator-applications");
         if (governedOperation && context.Response.StatusCode is StatusCodes.Status401Unauthorized or StatusCodes.Status403Forbidden)
         {
+            if (path.StartsWithSegments("/api/v1/admin/users") && path.Value?.EndsWith("/unlock", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                return;
+            }
+
             long? actor = long.TryParse(context.User.FindFirstValue(ClaimTypes.NameIdentifier), out var id) && id > 0 ? id : null;
             await recorder.RecordAsync(new(actor, AuditActionTypes.AdministrationAccessDenied,
                 AuditEntityTypes.User, null, $"administration.http_{context.Response.StatusCode}"));

@@ -23,6 +23,7 @@ using TripMate.Application.Features.Itineraries.GetDetail;
 using TripMate.Application.Features.Navigation.Common;
 using TripMate.Application.Features.Operator.CheckIn.Common;
 using TripMate.Application.Features.Operator.Payouts.Common;
+using TripMate.Application.Features.Operator.PostTripComplaints.Deadlines;
 using TripMate.Application.Features.Operator.Revenue.Exports.Common;
 using TripMate.Application.Features.Payouts.DailySettlement;
 using TripMate.Application.Features.PointsOfInterest.ExternalReviews;
@@ -90,6 +91,14 @@ public static class DependencyInjection
         services.AddScoped<ServiceRequestLifecycleProcessor>();
         services.AddScoped<IItineraryServiceBookingReader, ItineraryServiceBookingReader>();
         services.AddHostedService<ServiceRequestLifecycleHostedService>();
+
+        // TM-226: Commission Statements & Reconciliation (UC-81-83)
+        services.AddScoped<TripMate.Application.Features.Providers.CommissionStatements.ICommissionStatementService, TripMate.Application.Features.Providers.CommissionStatements.CommissionStatementService>();
+        services.AddScoped<TripMate.Application.Features.Providers.CommissionStatements.ProviderCommissionQueryHandler>();
+        services.AddScoped<TripMate.Application.Features.Providers.CommissionStatements.ReportCommissionPaymentCommandHandler>();
+        services.AddScoped<TripMate.Application.Features.Providers.CommissionStatements.AdminReconciliationQueryHandler>();
+        services.AddScoped<TripMate.Application.Features.Providers.CommissionStatements.AdminReconciliationCommandHandler>();
+        services.AddHostedService<CommissionStatementLifecycleHostedService>();
         services.AddOptions<TripAlertOptions>()
             .Bind(configuration.GetSection(TripAlertOptions.SectionName))
             .Validate(options => options.ScanInterval > TimeSpan.Zero, "Trip alert scan interval must be positive.")
@@ -128,6 +137,7 @@ public static class DependencyInjection
         services.AddScoped<IItineraryVersionService, ItineraryVersionService>();
         services.AddScoped<IGroupInvitationLock, SqlServerGroupInvitationLock>();
         services.AddScoped<IGroupJoinLock, SqlServerGroupJoinLock>();
+        services.AddScoped<IUserUnlockLock, SqlServerUserUnlockLock>();
         services.AddScoped<IGroupLeaveLock, SqlServerGroupLeaveLock>();
         services.AddSingleton<IGroupInvitationCodeGenerator, RandomGroupInvitationCodeGenerator>();
         services.AddScoped<ISchedulingRequestLock, SqlServerSchedulingRequestLock>();
@@ -166,12 +176,21 @@ public static class DependencyInjection
         services.AddSingleton<IOperatorDocumentCleanupJournal>(sp =>
             sp.GetRequiredService<SqlOperatorDocumentCleanupJournal>());
         services.AddHostedService<OperatorDocumentCleanupBackgroundService>();
+        services.AddScoped<IUserAdministrationNotificationOutboxStore, SqlServerUserAdministrationNotificationOutboxStore>();
+        services.AddScoped<UserAdministrationNotificationDeliveryProcessor>();
 
         services.AddOptions<TourMediaCleanupOptions>()
             .Bind(configuration.GetSection(TourMediaCleanupOptions.SectionName))
             .ValidateDataAnnotations()
             .ValidateOnStart();
         services.AddHostedService<TourMediaCleanupBackgroundService>();
+        services.AddOptions<UserAdministrationNotificationDeliveryOptions>()
+            .Bind(configuration.GetSection(UserAdministrationNotificationDeliveryOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.AddHostedService<UserAdministrationNotificationDeliveryBackgroundService>();
+        services.AddScoped<TourApprovalNoticeDeliveryProcessor>();
+        services.AddHostedService<TourApprovalNoticeDeliveryBackgroundService>();
 
         services.AddOptions<CloudinaryOptions>()
             .Bind(configuration.GetSection(CloudinaryOptions.SectionName))
@@ -303,9 +322,18 @@ public static class DependencyInjection
         services.AddScoped<ReturnDeadlineProcessor>();
         services.AddHostedService<ReturnDeadlineBackgroundService>();
 
-        // UC-75: temporary ports until TM-222 (PostTripComplaint) and TM-88 (UC-42 RefundRequest) land.
-        services.AddScoped<IPartialRefundProposalStore, PendingPartialRefundProposalStore>();
-        services.AddScoped<IComplaintRefundRequestCreator, PendingComplaintRefundRequestCreator>();
+        services.AddOptions<OperatorComplaintDeadlineOptions>()
+            .Bind(configuration.GetSection(OperatorComplaintDeadlineOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<OperatorComplaintDeadlineOptions>, OperatorComplaintDeadlineOptionsValidator>();
+        services.AddSingleton(serviceProvider =>
+            serviceProvider.GetRequiredService<IOptions<OperatorComplaintDeadlineOptions>>().Value);
+        services.AddScoped<OperatorComplaintDeadlineProcessor>();
+        services.AddHostedService<OperatorComplaintDeadlineBackgroundService>();
+
+        // UC-75: backed by PostTripComplaint and Refund aggregates (UC-68, UC-69).
+        services.AddScoped<IPartialRefundProposalStore, PostTripComplaintProposalStore>();
+        services.AddScoped<IComplaintRefundRequestCreator, PostTripComplaintRefundRequestCreator>();
         services.AddOptions<PartialRefundProposalDeadlineOptions>()
             .Bind(configuration.GetSection(PartialRefundProposalDeadlineOptions.SectionName))
             .ValidateOnStart();
@@ -467,6 +495,8 @@ public static class DependencyInjection
                 executionOptions.OverallTimeout = TimeSpan.FromSeconds(options.OverallTimeoutSeconds);
                 executionOptions.MaxAttempts = options.MaxAttempts;
                 executionOptions.RetryBaseDelayMilliseconds = options.RetryBaseDelayMilliseconds;
+                executionOptions.BackgroundEnabled = options.BackgroundEnabled;
+                executionOptions.BackgroundTimeout = TimeSpan.FromSeconds(options.BackgroundTimeoutSeconds);
             })
             .ValidateOnStart();
         services.AddSingleton<
@@ -475,6 +505,20 @@ public static class DependencyInjection
         services.AddSingleton(serviceProvider => serviceProvider
             .GetRequiredService<IOptions<ItineraryExplanationExecutionOptions>>()
             .Value);
+
+        // Background explanations (specs/UC-10-background-explanation-spec.md): the create request queues the
+        // itinerary, the hosted worker asks the AI afterwards. One in-memory list for the whole process; the
+        // worker is idle unless AiExplanation:Enabled and AiExplanation:BackgroundEnabled put something on it.
+        services.AddSingleton<InMemoryItineraryExplanationQueue>();
+        services.AddSingleton<IItineraryExplanationQueue>(serviceProvider =>
+            serviceProvider.GetRequiredService<InMemoryItineraryExplanationQueue>());
+        services.AddScoped<IBackgroundItineraryExplanationProcessor>(serviceProvider =>
+            new BackgroundItineraryExplanationProcessor(
+                serviceProvider.GetRequiredService<IApplicationDbContext>(),
+                serviceProvider.GetRequiredService<IItineraryExplanationProvider>(),
+                serviceProvider.GetRequiredService<ItineraryExplanationExecutionOptions>(),
+                serviceProvider.GetService<ILogger<BackgroundItineraryExplanationProcessor>>()));
+        services.AddHostedService<ItineraryExplanationBackgroundService>();
         services.AddScoped<PersonalBehaviorFeatureAggregator>();
         services.AddScoped(serviceProvider => new BehaviorProfileBuilder(
             serviceProvider.GetRequiredService<IApplicationDbContext>(),
@@ -515,6 +559,7 @@ public static class DependencyInjection
         services.Configure<ReviewTranslationOptions>(configuration.GetSection(ReviewTranslationOptions.SectionName));
         services.AddHttpClient<IReviewTranslator, GeminiReviewTranslator>();
         services.Configure<EmailOptions>(configuration.GetSection(EmailOptions.SectionName));
+        services.Configure<GmailApiOptions>(configuration.GetSection(GmailApiOptions.SectionName));
         services.Configure<PasswordResetSecurityOptions>(configuration.GetSection(PasswordResetSecurityOptions.SectionName));
         services.AddTicketQr(configuration);
         services.AddSingleton<ITicketQrPersistenceErrorClassifier, SqlServerTicketQrPersistenceErrorClassifier>();
@@ -559,8 +604,28 @@ public static class DependencyInjection
         services.AddScoped<IPasswordResetEligibilityResolver, PasswordResetEligibilityResolver>();
         services.AddSingleton<ISmtpTransportFactory, MailKitSmtpClientFactory>();
         services.AddScoped<SmtpEmailSender>();
-        services.AddScoped<IEmailSender>(sp => sp.GetRequiredService<SmtpEmailSender>());
-        services.AddScoped<IEmailVerificationSender>(sp => sp.GetRequiredService<SmtpEmailSender>());
+        services.AddHttpClient<GmailRestEmailSender>();
+        services.AddScoped<IEmailSender>(sp =>
+        {
+            var gmailOptions = sp.GetRequiredService<IOptions<GmailApiOptions>>().Value;
+            return gmailOptions.IsConfigured
+                ? sp.GetRequiredService<GmailRestEmailSender>()
+                : sp.GetRequiredService<SmtpEmailSender>();
+        });
+        services.AddScoped<IEmailVerificationSender>(sp =>
+        {
+            var gmailOptions = sp.GetRequiredService<IOptions<GmailApiOptions>>().Value;
+            return gmailOptions.IsConfigured
+                ? sp.GetRequiredService<GmailRestEmailSender>()
+                : sp.GetRequiredService<SmtpEmailSender>();
+        });
+        services.AddScoped<IUserAdministrationNotificationEmailSender>(sp =>
+        {
+            var gmailOptions = sp.GetRequiredService<IOptions<GmailApiOptions>>().Value;
+            return gmailOptions.IsConfigured
+                ? sp.GetRequiredService<GmailRestEmailSender>()
+                : sp.GetRequiredService<SmtpEmailSender>();
+        });
         services.AddSingleton<IEmailVerificationResendCooldown, EmailVerificationResendCooldown>();
         services.AddSingleton<FirebaseEmailVerificationLinkService>();
         services.AddSingleton<IEmailVerificationLinkService>(sp =>

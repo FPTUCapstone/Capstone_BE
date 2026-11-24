@@ -19,6 +19,11 @@ internal static class PartialRefundProposalNotifications
         Create(proposal.TourOperatorUserId, Notification.PartialRefundProposalDeclinedType, proposal, nowUtc,
             $"The traveler declined your partial refund proposal for booking {proposal.BookingCode}. The complaint will be handled under the partnership contract.");
 
+    public static Notification CounterOffered(PartialRefundProposal proposal, decimal requestedAmount, DateTimeOffset nowUtc) =>
+        Create(proposal.TourOperatorUserId, "PartialRefundCounterOffer", proposal, nowUtc,
+            string.Create(CultureInfo.InvariantCulture,
+                $"The traveler requested {requestedAmount:N0} VND for booking {proposal.BookingCode}. Review and submit your final revised proposal within 3 days."));
+
     public static IEnumerable<Notification> Expired(PartialRefundProposal proposal, DateTimeOffset nowUtc)
     {
         string body = $"The partial refund proposal for booking {proposal.BookingCode} received no response within 3 days and has been closed as declined. The complaint will be handled under the partnership contract.";
