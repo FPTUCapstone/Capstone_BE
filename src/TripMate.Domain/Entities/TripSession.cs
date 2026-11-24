@@ -120,7 +120,7 @@ public sealed class TripSession : BaseEntity
         return session;
     }
 
-    /// <summary>The sequence number the next snapshot row must take: one after the highest row currently held.</summary>
+    /// <summary>The lowest sequence number a new snapshot row may take: one after the highest row currently held.</summary>
     public int NextItemSequenceNo => _items.Count == 0 ? 1 : _items.Max(item => item.SequenceNo) + 1;
 
     /// <summary>
@@ -175,12 +175,14 @@ public sealed class TripSession : BaseEntity
             throw new ArgumentException("A rerouted plan needs at least one remaining item.", nameof(newItems));
         }
 
+        // Gaps are legal: a rest stop without a POI takes a sequence number but is not a session row.
         var ordered = newItems.OrderBy(item => item.SequenceNo).ToArray();
-        var expectedFirst = NextItemSequenceNo;
-        if (ordered.Select((item, index) => item.SequenceNo == expectedFirst + index).Any(ok => !ok))
+        var firstAllowed = NextItemSequenceNo;
+        if (ordered[0].SequenceNo < firstAllowed
+            || ordered.Select(item => item.SequenceNo).Distinct().Count() != ordered.Length)
         {
             throw new ArgumentException(
-                "Rerouted items must continue the sequence consecutively after the kept items.",
+                "Rerouted items must sort after every kept item and have distinct sequence numbers.",
                 nameof(newItems));
         }
 

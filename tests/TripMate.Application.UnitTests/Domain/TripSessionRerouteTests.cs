@@ -108,10 +108,10 @@ public sealed class TripSessionRerouteTests
             .Should().Throw<ArgumentOutOfRangeException>();
         FluentActions.Invoking(() => session.AttachRerouteItems(92, [], Now))
             .Should().Throw<ArgumentException>();
-        FluentActions.Invoking(() => session.AttachRerouteItems(92, [NewItem(2001, 4, 31)], Now))
-            .Should().Throw<ArgumentException>("sequence must continue exactly after the kept rows");
-        FluentActions.Invoking(() => session.AttachRerouteItems(92, [NewItem(2001, 3, 31), NewItem(2002, 5, 32)], Now))
-            .Should().Throw<ArgumentException>("sequence must be consecutive");
+        FluentActions.Invoking(() => session.AttachRerouteItems(92, [NewItem(2001, 2, 31)], Now))
+            .Should().Throw<ArgumentException>("a new row must sort after every kept row");
+        FluentActions.Invoking(() => session.AttachRerouteItems(92, [NewItem(2001, 3, 31), NewItem(2002, 3, 32)], Now))
+            .Should().Throw<ArgumentException>("two new rows cannot share a sequence number");
         FluentActions.Invoking(() => session.AttachRerouteItems(92, [NewItem(1001, 3, 31)], Now))
             .Should().Throw<ArgumentException>("an itinerary item id may appear only once in the session");
         FluentActions.Invoking(() => session.AttachRerouteItems(92, [NewItem(2001, 3, 31)], Now.ToOffset(TimeSpan.FromHours(7))))
@@ -119,6 +119,17 @@ public sealed class TripSessionRerouteTests
 
         session.ItineraryId.Should().Be(91);
         session.Items.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public void AttachRerouteItems_AllowsGapsBecauseRestStopsWithoutAPoiTakeSequenceNumbers()
+    {
+        var session = SessionWithReachedAndSkipped();
+        session.RemovePendingItems();
+
+        session.AttachRerouteItems(92, [NewItem(2001, 3, 31), NewItem(2002, 5, 32)], Now);
+
+        session.Items.OrderBy(item => item.SequenceNo).Select(item => item.SequenceNo).Should().Equal(1, 2, 3, 5);
     }
 
     [Fact]
