@@ -11,7 +11,9 @@ refunds a departure.
 
 1. Create or open the Custom Insight for the weather condition TripMate reviews. Vietnam has no Insight
    Category (Severe Weather Event) coverage confirmed for this account, so use a Custom Insight.
-2. Create an Alert on that Insight with `PRIOR`, `START` and `END` notifications and make it active.
+2. Create an Alert on that Insight with `PRIOR` (e.g. `value: 2880` [48 h / 2 days] or `1440` [24 h];
+   Tomorrow.io allows one `PRIOR` entry per Alert), `START` and `END` (`value: 120`) notifications, and
+   make it active.
 3. Copy the Alert id; it becomes `TomorrowIo__AlertId`.
 4. Development → Webhooks → Alerts: add the public HTTPS URL
    `https://<staging-host>/api/v1/webhooks/tomorrow/alerts` and turn its status toggle on.
@@ -98,5 +100,18 @@ if separate, Alert. Until then keep `TomorrowIo__Enabled=false` in production.
 - 429 is retried on the next cycle (sync 6 h, reconciliation 15 min); `Retry-After` is not read.
 
 - The Emergency Stop rate limiter is in-process and exact with one Backend replica only.
-- An `END` (all-clear) notification never closes a review; the Operator decides.
-- `PRIOR`/`START` carry no end time; the event is treated as lasting 24 hours for matching.
+- An `END` (all-clear) notification marks the matching `WeatherEvent` withdrawn (`is_withdrawn = 1`),
+  refreshes the Operator UI via SignalR, and suppresses Admin SLA escalation, while never closing the
+  `WeatherSafetyReview` automatically — the Operator still confirms.
+- `PRIOR`/`START` carry no end time; the event is treated as lasting 24 hours for matching. Because
+  Tomorrow.io allows only one `PRIOR` entry per Alert (`value: 2880` = `48 h`) and sends neither `START` nor
+  `END` when a forecasted hazard clears before onset, `WeatherForecastCheckpointBackgroundService` runs
+  every `ForecastCheckpointIntervalMinutes` (default `15`) and re-evaluates open `CustomInsight` reviews
+  against `GET /v4/weather/forecast` at `24 h`, `12 h`, and `6 h` before `TourSchedule.StartAtUtc` (once per
+  checkpoint, deduplicated per `MonitoringCell`):
+  - If all matched forecast hours across the departure's meeting point and required stops are below threshold,
+    the `WeatherEvent` is marked withdrawn (`is_withdrawn = 1`), the Operator UI refreshes via SignalR, and
+    Admin SLA escalation is suppressed (review is never auto-closed).
+  - If hazardous weather persists (`rainIntensity > 10 mm/h`, `windSpeed > 10.8 m/s`, `windGust > 15 m/s`,
+    `visibility < 1 km`, or `weatherCode = 8000`), an already-acknowledged `WeatherSafetyReview` reopens to
+    `PendingAcknowledgement` for the Operator with a fresh 30-minute SLA without re-warning Travelers.

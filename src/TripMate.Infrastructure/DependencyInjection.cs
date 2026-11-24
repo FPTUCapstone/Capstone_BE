@@ -624,6 +624,7 @@ public static class DependencyInjection
         services.AddHostedService<WeatherSafetyReviewEscalationBackgroundService>();
         services.AddHostedService<TomorrowNotificationReconciliationBackgroundService>();
         services.AddHostedService<WeatherLocationSyncBackgroundService>();
+        services.AddHostedService<WeatherForecastCheckpointBackgroundService>();
 
         // UC-06 password reset: zero DB schema; reset state lives in process-local memory only.
         services.AddSingleton<IPasswordResetStateStore, InMemoryPasswordResetStateStore>();

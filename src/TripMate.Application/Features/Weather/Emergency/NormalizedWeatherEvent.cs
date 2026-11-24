@@ -69,6 +69,10 @@ public sealed record NormalizedWeatherEvent(
     public string? ProviderSeverity { get; init; }
     public bool IsCustomEvent { get; init; }
     public bool IsSamplePayload { get; init; }
+    public string? NotificationStage { get; init; }
+    public int? CheckpointLeadMinutes { get; init; }
+    public string? ClearanceAlertPrefix { get; init; }
+    public string? ClearanceLocationSuffix { get; init; }
 
     /// <summary>Tomorrow.io Location ids the notification was raised for (data.locations[].id).</summary>
     public IReadOnlyList<string> ProviderLocationIds { get; init; } = [];

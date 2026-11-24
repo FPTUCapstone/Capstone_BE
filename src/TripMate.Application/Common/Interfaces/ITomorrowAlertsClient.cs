@@ -35,6 +35,18 @@ public sealed record TomorrowCreatedLocation(TomorrowCallOutcome Outcome, string
 
 public sealed record TomorrowLinkedLocations(TomorrowCallOutcome Outcome, IReadOnlySet<string> LocationIds);
 
+public sealed record TomorrowHourlyForecastSlot(
+    DateTimeOffset TimeUtc,
+    double RainIntensityMmPerHour,
+    double WindSpeedMetersPerSecond,
+    double WindGustMetersPerSecond,
+    double VisibilityKm,
+    int WeatherCode);
+
+public sealed record TomorrowHourlyForecastResponse(
+    TomorrowCallOutcome Outcome,
+    IReadOnlyList<TomorrowHourlyForecastSlot> Hours);
+
 /// <summary>
 /// Tomorrow.io v4 calls UC-70 needs. Every Alert call targets the configured
 /// <c>TomorrowIo:AlertId</c>; TripMate never creates Insights or Alerts.
@@ -72,4 +84,11 @@ public interface ITomorrowAlertsClient
     Task<TomorrowCallOutcome> UnlinkLocationsAsync(
         IReadOnlyCollection<string> locationIds,
         CancellationToken cancellationToken = default);
+
+    /// <summary>GET /v4/weather/forecast?location={lat},{lon}&amp;timesteps=1h&amp;units=metric.</summary>
+    Task<TomorrowHourlyForecastResponse> GetHourlyForecastAsync(
+        double latitude,
+        double longitude,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult(new TomorrowHourlyForecastResponse(TomorrowCallOutcome.Skipped, []));
 }
