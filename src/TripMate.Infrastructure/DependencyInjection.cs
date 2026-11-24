@@ -22,6 +22,7 @@ using TripMate.Application.Features.Bookings.Refunds;
 using TripMate.Application.Features.Complaints.PartialRefundProposals;
 using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Itineraries.GetDetail;
+using TripMate.Application.Features.Itineraries.WeatherTips;
 using TripMate.Application.Features.Navigation.Common;
 using TripMate.Application.Features.Operator.CheckIn.Common;
 using TripMate.Application.Features.Operator.Payouts.Common;
@@ -147,6 +148,18 @@ public static class DependencyInjection
                 "Tomorrow cache duration must be at most ten minutes.")
             .ValidateOnStart();
         services.AddHttpClient<ITripWeatherProvider, TomorrowTripWeatherProvider>((provider, client) =>
+        {
+            var weather = provider.GetRequiredService<IOptions<TomorrowWeatherOptions>>().Value;
+            client.BaseAddress = new Uri(weather.BaseUrl, UriKind.Absolute);
+            client.Timeout = TimeSpan.FromSeconds(10);
+        });
+        services.AddOptions<WeatherTipsOptions>()
+            .Bind(configuration.GetSection(WeatherTipsOptions.SectionName))
+            .Validate(options => options.TimeoutSeconds is >= WeatherTipsOptions.MinTimeoutSeconds
+                and <= WeatherTipsOptions.MaxTimeoutSeconds,
+                "WeatherTips timeout must be between 1 and 10 seconds.")
+            .ValidateOnStart();
+        services.AddHttpClient<IDayForecastProvider, TomorrowDayForecastProvider>((provider, client) =>
         {
             var weather = provider.GetRequiredService<IOptions<TomorrowWeatherOptions>>().Value;
             client.BaseAddress = new Uri(weather.BaseUrl, UriKind.Absolute);
