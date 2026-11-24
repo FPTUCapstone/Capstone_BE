@@ -5,8 +5,8 @@ using System.Text;
 using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
-using TripMate.Application.Features.Traveler.Bookings.Common;
 using TripMate.Application.Features.Tours.Shared;
+using TripMate.Application.Features.Traveler.Bookings.Common;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.TourRecommendations.Refresh;
