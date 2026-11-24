@@ -52,6 +52,66 @@ public sealed class TourRecommendationCandidateReaderTests
             .Should().BeFalse();
     }
 
+    [Fact]
+    public void ResolveInterestSynonyms_MapsFreeTextCategoryToCanonicalInterestKey()
+    {
+        TourRecommendationCandidateReader.ResolveInterestSynonyms("Food & Drink")
+            .Should().BeEquivalentTo(["Food & Drink", "culinary"]);
+    }
+
+    [Fact]
+    public void ResolveInterestSynonyms_MapsVietnameseAdminTagToCanonicalInterestKey()
+    {
+        TourRecommendationCandidateReader.ResolveInterestSynonyms("Ngắm bình minh")
+            .Should().BeEquivalentTo(["Ngắm bình minh", "nature"]);
+    }
+
+    [Fact]
+    public void ResolveInterestSynonyms_KeepsAlreadyCanonicalTokenUnchangedWithNoDuplicate()
+    {
+        TourRecommendationCandidateReader.ResolveInterestSynonyms("Culture")
+            .Should().BeEquivalentTo(["Culture"]);
+    }
+
+    [Fact]
+    public void ResolveInterestSynonyms_PreservesUnmappableFreeTextTagAsIs()
+    {
+        TourRecommendationCandidateReader.ResolveInterestSynonyms("Chụp ảnh hoàng hôn")
+            .Should().BeEquivalentTo(["Chụp ảnh hoàng hôn"]);
+    }
+
+    [Fact]
+    public void ResolveInterestSynonyms_BlankInputYieldsNoTokens()
+    {
+        TourRecommendationCandidateReader.ResolveInterestSynonyms("  ")
+            .Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ParseJsonArray_ParsesOperatorEnteredJsonStringArray()
+    {
+        TourRecommendationCandidateReader.ParseJsonArray("""["Motorbike","Car"]""")
+            .Should().Equal("Motorbike", "Car");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("not json")]
+    [InlineData("{}")]
+    public void ParseJsonArray_NullBlankOrMalformedJsonYieldsNoTokens(string? json)
+    {
+        TourRecommendationCandidateReader.ParseJsonArray(json).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ParseJsonArray_SkipsBlankEntriesInTheArray()
+    {
+        TourRecommendationCandidateReader.ParseJsonArray("""["Vegetarian"," ","Halal",null]""")
+            .Should().Equal("Vegetarian", "Halal");
+    }
+
     private static TourRecommendationCandidateSchedule NewSchedule(
         long id,
         DateTimeOffset start,

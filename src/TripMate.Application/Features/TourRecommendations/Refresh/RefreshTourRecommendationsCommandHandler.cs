@@ -37,12 +37,23 @@ internal sealed class RefreshTourRecommendationsCommandHandler(
                 "Authentication is required.");
         }
 
-        string? interestTagsJson = await dbContext.TravelerProfiles
+        var travelerPreferences = await dbContext.TravelerProfiles
             .AsNoTracking()
             .Where(profile => profile.UserId == travelerUserId)
-            .Select(profile => profile.InterestTagsJson)
+            .Select(profile => new
+            {
+                profile.InterestTagsJson,
+                profile.TravelPace,
+                profile.PreferredTransportMode,
+                profile.FoodPreferencesJson,
+            })
             .SingleOrDefaultAsync(cancellationToken);
-        var travelerInterests = ParseInterestTags(interestTagsJson);
+        var travelerInterests = ParseInterestTags(travelerPreferences?.InterestTagsJson);
+        string? travelerPace = travelerPreferences?.TravelPace?.ToString();
+        var travelerTransportTokens = travelerPreferences?.PreferredTransportMode is { } mode
+            ? (IReadOnlyCollection<string>)[mode.ToString()]
+            : [];
+        var travelerDietTokens = ParseInterestTags(travelerPreferences?.FoodPreferencesJson);
         if (travelerInterests.Count == 0)
         {
             return Result.Failure<TourRecommendationPageDto>(
@@ -97,7 +108,13 @@ internal sealed class RefreshTourRecommendationsCommandHandler(
                             request.MaxBudget,
                             candidate.BasePrice,
                             historyTokens,
-                            candidate.HistoryTokens));
+                            candidate.HistoryTokens,
+                            travelerPace,
+                            candidate.Pace,
+                            travelerTransportTokens,
+                            candidate.TransportTokens,
+                            travelerDietTokens,
+                            candidate.DietTokens));
                         dbContext.TourRecommendationLogs.Add(
                             TourRecommendationLog.CreateForPersistedSnapshot(
                                 snapshot.Id,

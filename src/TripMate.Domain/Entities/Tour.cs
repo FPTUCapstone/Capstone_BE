@@ -16,6 +16,7 @@ public class Tour : BaseEntity
     public const int MaxDestinations = 10;
     public const int DestinationSummaryMaxLength = 300;
     public const string DestinationCollation = "Vietnamese_100_CI_AS";
+    public const int PreferenceJsonMaxLength = 1000;
 
     private readonly List<TourSchedule> _schedules = [];
     private readonly List<TourDestination> _destinations = [];
@@ -60,6 +61,25 @@ public class Tour : BaseEntity
     public string? Exclusions { get; private set; }
 
     public string? TravellerRequirements { get; private set; }
+
+    /// <summary>
+    /// Operator-declared sightseeing intensity, compared against the traveler's
+    /// <see cref="TravelerProfile.TravelPace"/> by tour-recommendation scoring.
+    /// </summary>
+    public TravelerPace? PaceLevel { get; private set; }
+
+    /// <summary>
+    /// Operator-declared JSON array of <see cref="TransportMode"/> names the tour can
+    /// accommodate, compared against <see cref="TravelerProfile.PreferredTransportMode"/>.
+    /// </summary>
+    public string? SupportedTransportModesJson { get; private set; }
+
+    /// <summary>
+    /// Operator-declared JSON array of canonical food-preference keys (see
+    /// TravelerPreferenceKeys.FoodPreferences) the tour can accommodate, compared against
+    /// <see cref="TravelerProfile.FoodPreferencesJson"/>.
+    /// </summary>
+    public string? DietaryAccommodationsJson { get; private set; }
 
     public long? CancellationPolicyTemplateId { get; private set; }
 
@@ -217,6 +237,30 @@ public class Tour : BaseEntity
         Highlights = normalizedHighlights;
         TravellerRequirements = normalizedRequirements;
         TimeZoneId = normalizedTimeZone;
+        UpdatedAtUtc = updatedAtUtc.ToUniversalTime();
+    }
+
+    /// <summary>
+    /// Sets the operator-declared pace/transport/diet accommodation used by tour-recommendation
+    /// scoring. All three are optional; a null/empty value leaves that dimension out of scoring
+    /// rather than treating the tour as a mismatch (existing tours keep NULL, unaffected).
+    /// </summary>
+    public void SetRecommendationAttributes(
+        TravelerPace? paceLevel,
+        string? supportedTransportModesJson,
+        string? dietaryAccommodationsJson,
+        DateTimeOffset updatedAtUtc)
+    {
+        if (Status is not (TourStatus.Draft or TourStatus.Rejected))
+        {
+            throw new InvalidOperationException("Only Draft or Rejected tours can be updated.");
+        }
+
+        PaceLevel = paceLevel;
+        SupportedTransportModesJson = NormalizePreferenceJson(
+            supportedTransportModesJson, nameof(supportedTransportModesJson));
+        DietaryAccommodationsJson = NormalizePreferenceJson(
+            dietaryAccommodationsJson, nameof(dietaryAccommodationsJson));
         UpdatedAtUtc = updatedAtUtc.ToUniversalTime();
     }
 
@@ -391,5 +435,21 @@ public class Tour : BaseEntity
         if (normalized?.Length > TermsMaxLength)
             throw new ArgumentException($"At most {TermsMaxLength} characters are allowed.", parameterName);
         return normalized;
+    }
+
+    private static string? NormalizePreferenceJson(string? value, string parameterName)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        if (value.Length > PreferenceJsonMaxLength)
+        {
+            throw new ArgumentException(
+                $"At most {PreferenceJsonMaxLength} characters are allowed.", parameterName);
+        }
+
+        return value;
     }
 }
