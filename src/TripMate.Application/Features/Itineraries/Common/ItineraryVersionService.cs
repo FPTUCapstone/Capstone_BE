@@ -11,6 +11,7 @@ using TripMate.Application.Features.Scheduling.Csp;
 using TripMate.Application.Features.Scheduling.Csp.Objectives;
 using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Application.Features.Scheduling.TimeOfDay;
+using TripMate.Domain.Constants;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -80,7 +81,7 @@ public sealed class ItineraryVersionService(
 
         var eligiblePois = pois
             .Where(PlanningPoiEligibility.IsPlanningReady)
-            .Where(PlanningPoiEligibility.IsAutoSchedulable)
+            .Where(poi => PlanningPoiEligibility.IsAutoSchedulable(poi) || mandatoryIds.Contains(poi.Id))
             .Where(poi => GeoDistance.EquirectangularKilometers(
                 request.ExplorationLatitude,
                 request.ExplorationLongitude,
@@ -341,6 +342,7 @@ public sealed class ItineraryVersionService(
             .ToArray();
         var candidates = LimitMatrixCandidates(pois
             .Where(PlanningPoiEligibility.IsPlanningReady)
+            .Where(poi => keepIds.Contains(poi.Id) || !PoiCategoryNames.IsFoodAndDrink(poi.Category?.Name))
             .Where(poi => GeoDistance.EquirectangularKilometers(
                 request.ExplorationLatitude,
                 request.ExplorationLongitude,

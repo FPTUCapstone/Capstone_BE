@@ -327,6 +327,7 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             OperatorTourErrorCodes.InvalidState => StatusCodes.Status409Conflict,
             OperatorTourErrorCodes.EditLocked => StatusCodes.Status409Conflict,
             OperatorTourErrorCodes.ReviewPrerequisitesMissing => StatusCodes.Status422UnprocessableEntity,
+            OperatorTourErrorCodes.ReviewChecklistIncomplete => StatusCodes.Status400BadRequest,
             OperatorTourErrorCodes.RejectionReasonInvalid => StatusCodes.Status422UnprocessableEntity,
 
             EmergencyTourErrorCodes.NotFound => StatusCodes.Status404NotFound,

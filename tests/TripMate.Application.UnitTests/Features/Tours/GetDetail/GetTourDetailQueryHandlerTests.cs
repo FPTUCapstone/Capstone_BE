@@ -240,16 +240,26 @@ public sealed class GetTourDetailQueryHandlerTests
     }
 
     [Fact]
+    public async Task Handle_WhenTimelineOverlaps_DepartureIsNotBookable()
+    {
+        await using var db = await CreateDatabaseAsync();
+        var tour = await PublicTourTestData.AddTourAsync(db, 7, TourStatus.Published);
+        var dto = (await CreateHandler(db).Handle(new GetTourDetailQuery(tour.Id), CancellationToken.None)).Value;
+        dto.HasBookableSchedule.Should().BeFalse();
+        dto.Schedules.Should().OnlyContain(schedule => !schedule.Bookable);
+    }
+
+    [Fact]
     public async Task Handle_ClassifiesAvailabilityAndBookability()
     {
         await using var db = await CreateDatabaseAsync();
         var tour = await PublicTourTestData.AddTourAsync(db, 7, TourStatus.Published, departures:
         [
-            (Now.AddDays(1), 10, 1_000_000m),
-            (Now.AddDays(2), 10, 1_000_000m),
-            (Now.AddDays(3), 10, 1_000_000m),
-            (Now.AddDays(4), 10, 1_000_000m),
-        ]);
+            (Now.AddDays(1).AddHours(-3), 10, 1_000_000m),
+            (Now.AddDays(2).AddHours(-3), 10, 1_000_000m),
+            (Now.AddDays(3).AddHours(-3), 10, 1_000_000m),
+            (Now.AddDays(4).AddHours(-3), 10, 1_000_000m),
+        ], stops: [(1, 1, 100L)]);
         var schedules = tour.Schedules.ToList();
         SetSchedule(schedules[0], reserved: 3);
         SetSchedule(schedules[1], reserved: 10);

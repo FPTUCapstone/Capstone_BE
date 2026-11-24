@@ -68,6 +68,7 @@ public class TestDbContext(
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
     public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<TourApprovalNotice> TourApprovalNotices => Set<TourApprovalNotice>();
 
     public DbSet<PushDeviceToken> PushDeviceTokens => Set<PushDeviceToken>();
 
@@ -398,6 +399,7 @@ public class TestDbContext(
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<TourApprovalNotice>().HasKey(notice => notice.TourId);
         modelBuilder.Entity<ProviderPoiLink>().HasKey(link => new { link.ServiceProviderId, link.PointOfInterestId });
         modelBuilder.Entity<ProviderPoiLink>().HasOne(link => link.Provider).WithMany(provider => provider.PoiLinks)
             .HasForeignKey(link => link.ServiceProviderId);
