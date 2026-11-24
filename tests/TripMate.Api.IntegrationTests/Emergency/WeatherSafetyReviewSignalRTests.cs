@@ -64,12 +64,15 @@ public sealed class WeatherSafetyReviewSignalRTests
     [Fact]
     public void Hub_RequiresTourOperatorRole()
     {
-        var authorize = typeof(WeatherSafetyReviewHub)
+        var authorization = typeof(WeatherSafetyReviewHub)
             .GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true)
             .Cast<AuthorizeAttribute>()
-            .Single();
+            .ToArray();
 
-        authorize.Roles.Should().Be(nameof(UserRole.TourOperator));
+        authorization.Where(attribute => attribute.Roles is not null).Should()
+            .ContainSingle().Which.Roles.Should().Be(nameof(UserRole.TourOperator));
+        authorization.Should().Contain(attribute => attribute.Policy ==
+            TripMate.Api.Authorization.OperatorContractWorkspacePolicies.Workspace);
         WeatherSafetyReviewHub.Route.Should().Be("/hubs/operator-weather-safety");
     }
 
