@@ -190,6 +190,11 @@ try
 
     builder.Services.AddAuthorization(options =>
     {
+        options.AddPolicy(OperatorContractWorkspacePolicies.Workspace, policy =>
+        {
+            policy.RequireAuthenticatedUser();
+            policy.AddRequirements(new OperatorContractWorkspaceRequirement());
+        });
         options.AddPolicy(TripReviewAuthorizationPolicies.ActiveTraveler, policy =>
         {
             policy.RequireAuthenticatedUser();
@@ -204,6 +209,7 @@ try
             policy.RequireRole(nameof(UserRole.Staff), nameof(UserRole.Administrator)));
     });
     builder.Services.AddScoped<IAuthorizationHandler, ActiveTravelerAuthorizationHandler>();
+    builder.Services.AddScoped<IAuthorizationHandler, OperatorContractWorkspaceAuthorizationHandler>();
     builder.Services.AddSingleton<
         IAuthorizationMiddlewareResultHandler,
         ProblemDetailsAuthorizationMiddlewareResultHandler>();
@@ -227,6 +233,14 @@ try
     builder.Services.AddRateLimiter(options =>
     {
         options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+        options.AddPolicy(OperatorContractSigningRateLimiter.PolicyName, context =>
+            RateLimitPartition.GetFixedWindowLimiter(context.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ =>
+                new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = TripMate.Application.Features.Operator.Contracts.Common.OperatorContractSigningPolicy.MaximumChallengesPerFifteenMinutes,
+                    Window = TimeSpan.FromMinutes(15),
+                    QueueLimit = 0,
+                }));
         options.AddPolicy(SupportChatRateLimiter.PolicyName, context =>
             RateLimitPartition.GetFixedWindowLimiter(
                 context.User.FindFirstValue(ClaimTypes.NameIdentifier)

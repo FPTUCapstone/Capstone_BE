@@ -13,6 +13,7 @@ using TripMate.Domain.Enums;
 namespace TripMate.Api.Controllers.V1;
 
 [ApiController]
+[Authorize(Policy = global::TripMate.Api.Authorization.OperatorContractWorkspacePolicies.Workspace)]
 [Authorize(Roles = nameof(UserRole.Traveler) + "," + nameof(UserRole.TourOperator))]
 [Route("api/v1/bookings")]
 public sealed class BookingsController(ISender sender) : ApiControllerBase(sender)

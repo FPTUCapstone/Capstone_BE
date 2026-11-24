@@ -27,4 +27,9 @@ public sealed record OperatorApplicationDto(
     string? RejectionReason,
     DateTimeOffset? ReviewedAtUtc,
     int ResubmissionCount,
-    IReadOnlyList<OperatorApplicationDocumentDto> Documents);
+    IReadOnlyList<OperatorApplicationDocumentDto> Documents)
+{
+    public string? OnboardingState { get; init; }
+    public string? ContractStatus { get; init; }
+    public string? CurrentContractId { get; init; }
+}

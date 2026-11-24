@@ -16,6 +16,7 @@ namespace TripMate.Api.Controllers.V1;
 /// UC-43 Check In Traveler by QR Code (Mobile Screen #88).
 /// Provides QR/manual check-in, real-time departure boarding progress, and departure schedule overview.
 /// </summary>
+[Authorize(Policy = global::TripMate.Api.Authorization.OperatorContractWorkspacePolicies.Workspace)]
 [Authorize(Roles = nameof(UserRole.TourOperator))]
 [Route("api/v1/operator/check-in")]
 public sealed class OperatorCheckInController(ISender sender) : ApiControllerBase(sender)

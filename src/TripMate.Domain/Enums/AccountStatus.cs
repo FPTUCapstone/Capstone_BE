@@ -15,4 +15,5 @@ public enum AccountStatus
     PendingApproval = 4,
     Rejected = 5,
     Inactive = 6,
+    PendingContractSignature = 7,
 }
