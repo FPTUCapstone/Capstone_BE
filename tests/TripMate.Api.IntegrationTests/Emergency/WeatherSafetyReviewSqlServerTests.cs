@@ -526,7 +526,7 @@ public sealed class WeatherSafetyReviewSqlServerTests
               AND notification.body NOT LIKE '%Da Nang%';
             """)).Should().Be(1);
 
-        // START of the same occurrence after the Operator acknowledged: still one review, one notice.
+        // START of the same occurrence after the Operator acknowledged: still one review, reopened for Operator, no duplicate Traveler warning.
         (await database.ExecuteScalarAsync<int>($"""
             UPDATE trip.WeatherSafetyReviews SET status = '{WeatherSafetyReview.StatusAcknowledged}'
             WHERE review_id = {reviewId};
@@ -547,14 +547,11 @@ public sealed class WeatherSafetyReviewSqlServerTests
         await LeaseAndProcessAsync(factory);
 
         (await database.ExecuteScalarAsync<int>($"SELECT COUNT(*) FROM trip.WeatherSafetyReviews WHERE tour_schedule_id = {scheduleId};")).Should().Be(1);
+        (await database.ExecuteScalarAsync<string>($"SELECT status FROM trip.WeatherSafetyReviews WHERE review_id = {reviewId};")).Should().Be(WeatherSafetyReview.StatusPendingAcknowledgement);
         (await database.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM trip.WeatherEvents WHERE provider = 'TomorrowIo';")).Should().Be(1);
-        (await database.ExecuteScalarAsync<int>($"SELECT COUNT(*) FROM dbo.Notifications WHERE type = '{Notification.WeatherSafetyReviewCreatedType}';")).Should().Be(1);
+        (await database.ExecuteScalarAsync<int>($"SELECT COUNT(*) FROM dbo.Notifications WHERE type = '{Notification.WeatherSafetyReviewCreatedType}';")).Should().Be(2);
+        (await database.ExecuteScalarAsync<int>($"SELECT COUNT(*) FROM dbo.Notifications WHERE type = '{Notification.WeatherWarningType}';")).Should().Be(1);
         (await database.ExecuteScalarAsync<int>("SELECT COUNT(*) FROM trip.WeatherAlertInboxItems WHERE status = 'Processed';")).Should().Be(2);
-        await database.ExecuteScalarAsync<int>($"""
-            UPDATE trip.WeatherSafetyReviews SET status = '{WeatherSafetyReview.StatusPendingAcknowledgement}'
-            WHERE review_id = {reviewId};
-            SELECT @@ROWCOUNT;
-            """);
 
         // --- STEP 5: MANUAL-ONLY INVARIANT AUDIT ---
         string postScheduleStatus = await database.ExecuteScalarAsync<string>($"SELECT status FROM commerce.TourSchedules WHERE schedule_id = {scheduleId};");
@@ -598,10 +595,10 @@ public sealed class WeatherSafetyReviewSqlServerTests
         ackDto!.Status.Should().Be(WeatherSafetyReview.StatusAcknowledged);
         ackDto.ImmediateInstructions.Should().Be("Divert route inland, avoid Son Tra coastal pass.");
         ackDto.AcknowledgedByOperatorId.Should().Be(operatorId);
-        realtimeNotifier.Calls.Should().ContainSingle(call =>
+        realtimeNotifier.Calls.Count(call =>
             call.OperatorUserId == operatorId
             && call.Notification.ReviewId == reviewId
-            && call.Notification.ChangeType == WeatherSafetyReviewChangeTypes.Updated);
+            && call.Notification.ChangeType == WeatherSafetyReviewChangeTypes.Updated).Should().Be(2);
 
         (await database.ExecuteScalarAsync<string>($"SELECT status FROM trip.WeatherSafetyReviews WHERE review_id = {reviewId};"))
             .Should().Be(WeatherSafetyReview.StatusAcknowledged);

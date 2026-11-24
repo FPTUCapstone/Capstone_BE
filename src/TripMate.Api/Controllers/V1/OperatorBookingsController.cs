@@ -11,6 +11,7 @@ using TripMate.Domain.Enums;
 namespace TripMate.Api.Controllers.V1;
 
 /// <summary>UC-40: customer bookings placed on the signed-in Tour Operator's own tours (read-only).</summary>
+[Authorize(Policy = global::TripMate.Api.Authorization.OperatorContractWorkspacePolicies.Workspace)]
 [Authorize(Roles = nameof(UserRole.TourOperator))]
 [Route("api/v1/operator/bookings")]
 public sealed class OperatorBookingsController(ISender sender) : ApiControllerBase(sender)

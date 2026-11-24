@@ -3,10 +3,13 @@ using System.Text.Json;
 using MediatR;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Admin.TourOperatorApplications.Common;
+using TripMate.Application.Features.Operator.Contracts;
+using TripMate.Application.Features.Operator.Contracts.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -15,10 +18,34 @@ namespace TripMate.Application.Features.Admin.TourOperatorApplications.Approve;
 public class ApproveOperatorApplicationCommandHandler(
     IApplicationDbContext dbContext,
     ICurrentUserService currentUserService,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    OperatorContractIssuer? contractIssuer = null,
+    IOptions<OperatorContractOptions>? contractOptions = null)
     : IRequestHandler<ApproveOperatorApplicationCommand, Result<ApproveOperatorApplicationResponseDto>>
 {
     public async Task<Result<ApproveOperatorApplicationResponseDto>> Handle(
+        ApproveOperatorApplicationCommand request,
+        CancellationToken cancellationToken)
+    {
+        if (contractOptions?.Value.Enabled != true)
+            return await ApproveAsync(request, cancellationToken);
+
+        try
+        {
+            // Keep publication-head/template read locks until the approval and
+            // issued snapshot commit. Concurrent publication must serialize with
+            // approval, so an archived template cannot be selected at commit.
+            return await dbContext.ExecuteInSerializableTransactionAsync(
+                token => ApproveAsync(request, token), cancellationToken);
+        }
+        catch (Exception exception) when (dbContext.IsDeadlock(exception))
+        {
+            return Result.Failure<ApproveOperatorApplicationResponseDto>(
+                "contract.conflict", "The application or published template changed. Reload before approving again.");
+        }
+    }
+
+    private async Task<Result<ApproveOperatorApplicationResponseDto>> ApproveAsync(
         ApproveOperatorApplicationCommand request,
         CancellationToken cancellationToken)
     {
@@ -102,6 +129,14 @@ public class ApproveOperatorApplicationCommandHandler(
         }
 
         var now = dateTimeProvider.UtcNow;
+        var contractEnabled = contractOptions?.Value.Enabled == true;
+        if (contractEnabled)
+        {
+            if (contractIssuer is null) return Result.Failure<ApproveOperatorApplicationResponseDto>("contract.unavailable", "Contract issuance is temporarily unavailable.");
+            var issued = await contractIssuer.CreateForApprovalAsync(user, profile, now, cancellationToken);
+            if (issued.IsFailure) return Result.Failure<ApproveOperatorApplicationResponseDto>(issued.ErrorCode!, issued.ErrorMessage!, issued.ErrorMetadata);
+            dbContext.OperatorContracts.Add(issued.Value);
+        }
 
         // 6. Record before-snapshot for AuditLog
         var beforeSnapshot = JsonSerializer.Serialize(new
@@ -112,7 +147,7 @@ public class ApproveOperatorApplicationCommandHandler(
         });
 
         // 7. Update User & Profile state
-        user.Status = AccountStatus.Active;
+        user.Status = contractEnabled ? AccountStatus.PendingContractSignature : AccountStatus.Active;
         user.UpdatedAtUtc = now;
 
         profile.ApprovalStatus = OperatorApprovalStatus.Approved;
@@ -147,7 +182,9 @@ public class ApproveOperatorApplicationCommandHandler(
         var msgRow = await dbContext.Messages
             .FirstOrDefaultAsync(m => m.MessageCode == TourOperatorApplicationMessages.CodeMSG114, cancellationToken);
 
-        var messageText = TourOperatorApplicationMessages.FormatApproveSuccess(msgRow?.ContentTemplate, profile.CompanyName);
+        var messageText = contractEnabled
+            ? $"Hồ sơ {profile.CompanyName} đã được duyệt. Vui lòng đăng nhập để đọc và ký hợp đồng đối tác trước khi tài khoản được kích hoạt."
+            : TourOperatorApplicationMessages.FormatApproveSuccess(msgRow?.ContentTemplate, profile.CompanyName);
 
         dbContext.Notifications.Add(new Notification
         {
@@ -172,6 +209,10 @@ public class ApproveOperatorApplicationCommandHandler(
             return Result.Failure<ApproveOperatorApplicationResponseDto>(
                 TourOperatorApplicationErrorCodes.NotPending,
                 "Application is no longer pending approval.");
+        }
+        catch (Exception exception) when (dbContext.IsOperatorContractUniqueConflict(exception))
+        {
+            return Result.Failure<ApproveOperatorApplicationResponseDto>("contract.conflict", "The application has already been processed. Reload its status.");
         }
 
         return Result.Success(new ApproveOperatorApplicationResponseDto(

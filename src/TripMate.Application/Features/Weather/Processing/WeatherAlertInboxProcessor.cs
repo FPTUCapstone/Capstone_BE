@@ -57,10 +57,18 @@ public sealed class WeatherAlertInboxProcessor(
             return;
         }
 
-        var processedEvents = new List<(WeatherEvent EventEntity, NormalizedWeatherEvent Normalized)>();
+        var processedEvents = new List<ProcessedWeatherSignal>();
+        var clearedEvents = new List<WeatherEvent>();
 
         foreach (var evt in events)
         {
+            if (evt.IsWithdrawn && evt.ClearanceAlertPrefix is not null)
+            {
+                var cleared = await MarkMatchingEventsWithdrawnAsync(evt, cancellationToken);
+                clearedEvents.AddRange(cleared);
+                continue;
+            }
+
             var existingEvent = await context.WeatherEvents
                 .FirstOrDefaultAsync(e => e.Provider == evt.Provider && e.ProviderEventId == evt.ProviderEventId, cancellationToken);
 
@@ -85,7 +93,7 @@ public sealed class WeatherAlertInboxProcessor(
                 }
 
                 context.WeatherEvents.Add(weatherEvent);
-                processedEvents.Add((weatherEvent, evt));
+                processedEvents.Add(new ProcessedWeatherSignal(evt, false, null, null, null));
                 continue;
             }
 
@@ -97,9 +105,15 @@ public sealed class WeatherAlertInboxProcessor(
                 continue;
             }
 
+            bool wasWithdrawn = existingEvent.IsWithdrawn;
+            string previousSeverity = existingEvent.Severity;
+            string? previousDescription = existingEvent.Description;
+            DateTimeOffset? previousUpdatedAtUtc = existingEvent.UpdatedAtUtc;
+
             if (evt.IsWithdrawn)
             {
                 existingEvent.MarkWithdrawn(evt.UpdatedAtUtc);
+                clearedEvents.Add(existingEvent);
             }
             else
             {
@@ -113,14 +127,20 @@ public sealed class WeatherAlertInboxProcessor(
                     updatedAtUtc: evt.UpdatedAtUtc);
             }
 
-            processedEvents.Add((existingEvent, evt));
+            processedEvents.Add(new ProcessedWeatherSignal(
+                evt, wasWithdrawn, previousSeverity, previousDescription, previousUpdatedAtUtc));
         }
 
         await context.SaveChangesAsync(cancellationToken);
 
-        if (departureFinder is not null)
+        if (clearedEvents.Count > 0)
         {
-            await CreateReviewsAsync(processedEvents.Select(processed => processed.Normalized), cancellationToken);
+            await NotifyWithdrawnEventReviewsAsync(clearedEvents, cancellationToken);
+        }
+
+        if (departureFinder is not null && processedEvents.Count > 0)
+        {
+            await CreateReviewsAsync(processedEvents, cancellationToken);
         }
 
         await CompleteAsync(item, cancellationToken);
@@ -128,16 +148,110 @@ public sealed class WeatherAlertInboxProcessor(
             item.Id, events.Count);
     }
 
-    private async Task CreateReviewsAsync(IEnumerable<NormalizedWeatherEvent> events, CancellationToken cancellationToken)
+    private async Task<IReadOnlyList<WeatherEvent>> MarkMatchingEventsWithdrawnAsync(
+        NormalizedWeatherEvent clearance,
+        CancellationToken cancellationToken)
+    {
+        string prefix = clearance.ClearanceAlertPrefix!;
+        string? suffix = clearance.ClearanceLocationSuffix;
+
+        var activeCandidates = await context.WeatherEvents
+            .Where(e => e.Provider == clearance.Provider
+                && !e.IsWithdrawn
+                && e.ProviderEventId != null
+                && (e.ProviderEventId == clearance.ProviderEventId
+                    || (e.ProviderEventId.StartsWith(prefix)
+                        && (suffix == null || e.ProviderEventId.EndsWith(suffix)))))
+            .ToListAsync(cancellationToken);
+
+        if (activeCandidates.Count == 0)
+        {
+            return [];
+        }
+
+        var inWindow = activeCandidates
+            .Where(e => e.ValidFromUtc <= clearance.UpdatedAtUtc
+                && (!e.ValidToUtc.HasValue || clearance.UpdatedAtUtc <= e.ValidToUtc.Value))
+            .ToList();
+        var targets = inWindow.Count > 0
+            ? inWindow
+            : activeCandidates
+                .Where(e => !e.ValidToUtc.HasValue || clearance.UpdatedAtUtc <= e.ValidToUtc.Value)
+                .ToList();
+
+        var marked = new List<WeatherEvent>();
+        foreach (var target in targets)
+        {
+            if (target.UpdatedAtUtc.HasValue && clearance.UpdatedAtUtc < target.UpdatedAtUtc.Value)
+            {
+                continue;
+            }
+
+            target.MarkWithdrawn(clearance.UpdatedAtUtc);
+            marked.Add(target);
+        }
+
+        return marked;
+    }
+
+    private async Task NotifyWithdrawnEventReviewsAsync(
+        IReadOnlyCollection<WeatherEvent> clearedEvents,
+        CancellationToken cancellationToken)
+    {
+        if (reviewNotifier is null)
+        {
+            return;
+        }
+
+        var eventIds = clearedEvents
+            .Where(e => !string.IsNullOrWhiteSpace(e.ProviderEventId))
+            .Select(e => e.ProviderEventId!)
+            .Distinct()
+            .ToList();
+        if (eventIds.Count == 0)
+        {
+            return;
+        }
+
+        var nowUtc = timeProvider.GetUtcNow();
+        var affectedReviews = await context.WeatherSafetyReviews.AsNoTracking()
+            .Where(r => eventIds.Contains(r.ProviderEventId) && r.Status != WeatherSafetyReview.StatusClosed)
+            .Select(r => new { r.Id, r.TourScheduleId, r.Provider, r.ProviderEventId, r.TourSchedule.Tour.OperatorUserId })
+            .ToListAsync(cancellationToken);
+
+        var clearedPairs = clearedEvents
+            .Where(e => e.Provider is not null && e.ProviderEventId is not null)
+            .Select(e => (e.Provider!, e.ProviderEventId!))
+            .ToHashSet();
+
+        foreach (var review in affectedReviews.Where(r => clearedPairs.Contains((r.Provider, r.ProviderEventId))))
+        {
+            await reviewNotifier.NotifyChangedAsync(
+                review.OperatorUserId,
+                new WeatherSafetyReviewChanged(
+                    review.Id,
+                    review.TourScheduleId,
+                    WeatherSafetyReviewChangeTypes.Updated,
+                    nowUtc),
+                cancellationToken);
+        }
+    }
+
+    private async Task CreateReviewsAsync(IEnumerable<ProcessedWeatherSignal> signals, CancellationToken cancellationToken)
     {
         var nowUtc = timeProvider.GetUtcNow();
         var createdReviews = new List<(WeatherSafetyReview Review, long OperatorUserId)>();
+        var reopenedReviews = new List<(WeatherSafetyReview Review, long OperatorUserId)>();
 
         await context.ExecuteInTransactionAsync(async token =>
         {
             createdReviews.Clear();
-            foreach (var evt in events.Where(candidate => !candidate.IsWithdrawn))
+            reopenedReviews.Clear();
+            var slaMinutes = options?.Value.SafetyReviewAcknowledgementSlaMinutes ?? 30;
+
+            foreach (var signal in signals.Where(candidate => !candidate.Normalized.IsWithdrawn))
             {
+                var evt = signal.Normalized;
                 foreach (var matched in await departureFinder!.FindAffectedDeparturesAsync(evt, token))
                 {
                     var eval = WeatherEmergencyDecision.Evaluate(evt, matched.Impact, nowUtc);
@@ -147,17 +261,34 @@ public sealed class WeatherAlertInboxProcessor(
                         continue;
                     }
 
-                    bool hasReview = await context.WeatherSafetyReviews
+                    var existingReview = await context.WeatherSafetyReviews
+                        .FirstOrDefaultAsync(r => r.TourScheduleId == matched.Schedule.Id
+                            && r.Provider == evt.Provider
+                            && r.ProviderEventId == evt.ProviderEventId, token);
+
+                    if (existingReview is not null)
+                    {
+                        if (ShouldReopenAcknowledgedReview(existingReview, signal)
+                            && existingReview.ReopenForCheckpoint(
+                                urgentNoticeSentAtUtc: nowUtc,
+                                acknowledgementDeadlineUtc: nowUtc.AddMinutes(slaMinutes),
+                                fallbackInstructions: eval.Details ?? eval.ReasonCode))
+                        {
+                            reopenedReviews.Add((existingReview, matched.Schedule.Tour.OperatorUserId));
+                        }
+
+                        continue;
+                    }
+
+                    bool hasOpenOtherReview = await context.WeatherSafetyReviews
                         .AnyAsync(r => r.TourScheduleId == matched.Schedule.Id
-                                       && ((r.Provider == evt.Provider && r.ProviderEventId == evt.ProviderEventId)
-                                           || r.Status == WeatherSafetyReview.StatusPendingAcknowledgement
-                                           || r.Status == WeatherSafetyReview.StatusEscalated), token);
-                    if (hasReview)
+                            && (r.Status == WeatherSafetyReview.StatusPendingAcknowledgement
+                                || r.Status == WeatherSafetyReview.StatusEscalated), token);
+                    if (hasOpenOtherReview)
                     {
                         continue;
                     }
 
-                    var slaMinutes = options?.Value.SafetyReviewAcknowledgementSlaMinutes ?? 30;
                     var review = WeatherSafetyReview.CreateHold(
                         tourScheduleId: matched.Schedule.Id,
                         provider: evt.Provider,
@@ -181,7 +312,17 @@ public sealed class WeatherAlertInboxProcessor(
                 await AddTravelerWarningsAsync(review.TourScheduleId, nowUtc, token);
             }
 
-            await context.SaveChangesAsync(token);
+            foreach (var (review, operatorUserId) in reopenedReviews)
+            {
+                EmergencyPushNotices.AddReviewNotice(
+                    context, operatorUserId, review.Id, Notification.WeatherSafetyReviewCreatedType, nowUtc);
+            }
+
+            if (createdReviews.Count > 0 || reopenedReviews.Count > 0)
+            {
+                await context.SaveChangesAsync(token);
+            }
+
             return true;
         }, cancellationToken);
 
@@ -201,7 +342,65 @@ public sealed class WeatherAlertInboxProcessor(
                     nowUtc),
                 cancellationToken);
         }
+
+        foreach (var (review, operatorUserId) in reopenedReviews)
+        {
+            await reviewNotifier.NotifyChangedAsync(
+                operatorUserId,
+                new WeatherSafetyReviewChanged(
+                    review.Id,
+                    review.TourScheduleId,
+                    WeatherSafetyReviewChangeTypes.Updated,
+                    nowUtc),
+                cancellationToken);
+        }
     }
+
+    private static bool ShouldReopenAcknowledgedReview(
+        WeatherSafetyReview review,
+        ProcessedWeatherSignal signal)
+    {
+        if (review.Status != WeatherSafetyReview.StatusAcknowledged)
+        {
+            return false;
+        }
+
+        var evt = signal.Normalized;
+        if (review.AcknowledgedAtUtc.HasValue && evt.UpdatedAtUtc < review.AcknowledgedAtUtc.Value)
+        {
+            return false;
+        }
+
+        if (signal.WasWithdrawn || SeverityRank(evt.ProviderSeverity) > SeverityRank(signal.PreviousSeverity))
+        {
+            return true;
+        }
+
+        DateTimeOffset baseline = review.AcknowledgedAtUtc ?? review.UrgentNoticeSentAtUtc;
+        if (evt.UpdatedAtUtc > baseline)
+        {
+            return true;
+        }
+
+        return evt.UpdatedAtUtc == baseline
+            && (evt.NotificationStage == "START" || evt.Description != signal.PreviousDescription);
+    }
+
+    private static int SeverityRank(string? severity) => severity switch
+    {
+        WeatherEvent.SeverityLow => 1,
+        WeatherEvent.SeverityModerate => 2,
+        WeatherEvent.SeveritySevere => 3,
+        WeatherEvent.SeverityExtreme => 4,
+        _ => 0,
+    };
+
+    private sealed record ProcessedWeatherSignal(
+        NormalizedWeatherEvent Normalized,
+        bool WasWithdrawn,
+        string? PreviousSeverity,
+        string? PreviousDescription,
+        DateTimeOffset? PreviousUpdatedAtUtc);
 
     /// <summary>
     /// SRS UC-66 MSG185: every Traveler holding an open booking of the departure learns of the warning.

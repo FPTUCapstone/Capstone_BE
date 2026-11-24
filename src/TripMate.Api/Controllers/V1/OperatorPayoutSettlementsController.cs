@@ -14,6 +14,7 @@ namespace TripMate.Api.Controllers.V1;
 /// Mounted at a distinct path from the legacy <c>/api/v1/operator/payouts</c> (the UC-46
 /// payout-request model) so the two do not collide while both exist in the codebase.
 /// </summary>
+[Authorize(Policy = global::TripMate.Api.Authorization.OperatorContractWorkspacePolicies.Workspace)]
 [Authorize(Roles = nameof(UserRole.TourOperator))]
 [Route("api/v1/operator/payout-settlements")]
 public sealed class OperatorPayoutSettlementsController(ISender sender) : ApiControllerBase(sender)

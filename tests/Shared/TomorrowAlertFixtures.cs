@@ -130,9 +130,10 @@ public static class TomorrowAlertFixtures
         string type = "PRIOR",
         string alertId = DocsAlertId,
         string locationId = DocsLocationId,
-        DateTimeOffset? startTime = null) =>
+        DateTimeOffset? startTime = null,
+        int priorMinutes = 30) =>
         Swap(CustomInsightWebhook, alertId, locationId, startTime)
-            .Replace("\"type\": \"PRIOR\",\n            \"value\": 30,", Notification(type), StringComparison.Ordinal);
+            .Replace("\"type\": \"PRIOR\",\n            \"value\": 30,", Notification(type, priorMinutes), StringComparison.Ordinal);
 
     public static string EndWebhook(
         string alertId = DocsAlertId,
@@ -175,9 +176,9 @@ public static class TomorrowAlertFixtures
         return $"t={timestamp},sig={signature}";
     }
 
-    private static string Notification(string type) => type switch
+    private static string Notification(string type, int priorMinutes = 30) => type switch
     {
-        "PRIOR" => "\"type\": \"PRIOR\",\n            \"value\": 30,",
+        "PRIOR" => $"\"type\": \"PRIOR\",\n            \"value\": {priorMinutes.ToString(System.Globalization.CultureInfo.InvariantCulture)},",
         _ => $"\"type\": \"{type}\",",
     };
 
