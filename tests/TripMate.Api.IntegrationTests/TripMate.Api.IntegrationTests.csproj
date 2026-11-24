@@ -11,6 +11,9 @@
     <None Include="..\..\database\migrations\20261118_tm83_tour_submission.sql"
           Link="Database\migrations\20261118_tm83_tour_submission.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261124_tour_recommendation_attributes.sql"
+          Link="Database\migrations\20261124_tour_recommendation_attributes.sql"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
