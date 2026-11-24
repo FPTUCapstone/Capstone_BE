@@ -370,6 +370,30 @@ public sealed class ItineraryVersionServiceTests
         result.ErrorCode.Should().Be(ItineraryErrorCodes.GenerationTimedOut);
     }
 
+    [Fact]
+    public async Task CreateRegeneratedVersion_PreservesMandatoryFoodAndDrinkStop()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var restaurant = await AddPlanningReadyPoiAsync(
+            dbContext,
+            PoiCategoryNames.FoodAndDrink,
+            "Madame Lan",
+            visitMinutes: 60,
+            hasShelter: true);
+        var current = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Current museum", visitMinutes: 240);
+        var alternative = await AddPlanningReadyPoiAsync(dbContext, "Nature", "Alternative park", visitMinutes: 240);
+        var request = await AddRequestAsync(dbContext, travelerUserId: 42, mandatoryPoiIdsJson: $"[{restaurant.Id}]");
+        var original = await AddItineraryAsync(dbContext, request, 1, restaurant.Id, current.Id);
+
+        var result = await new ItineraryVersionService(dbContext, new FixedRouteDurationProvider())
+            .CreateRegeneratedVersionAsync(original, request, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        VisitIds(result.Value).Should().Contain(restaurant.Id);
+        VisitIds(result.Value).Should().Contain(alternative.Id);
+        result.Value.Items.Single(item => item.PointOfInterestId == restaurant.Id).IsMandatory.Should().BeTrue();
+    }
+
     /// <summary>ADR-002 (G2): a version saved from the traveler's own order is not presented as a solver result.</summary>
     [Fact]
     public async Task CreateAdjustedVersion_RecordsTheTravelersOwnOrder()
@@ -503,6 +527,33 @@ public sealed class ItineraryVersionServiceTests
         result.IsSuccess.Should().BeTrue();
         VisitIds(result.Value).Should().Equal(bridge.Id);
         request.MandatoryPoiIdsJson.Should().Be("[]");
+    }
+
+    [Fact]
+    public async Task CreateAdjustedVersion_PersistsMealCostAndDuration_WithoutAnExtraRest()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var museum = await AddPlanningReadyPoiAsync(dbContext, "Museum", "Cham Museum", visitMinutes: 150);
+        var restaurant = await AddPlanningReadyPoiAsync(dbContext, PoiCategoryNames.FoodAndDrink,
+            "Bun Bo Ba Dung", visitMinutes: 45, hasShelter: true);
+        restaurant.ConfigurePlanningMetadata(150_000m, "https://example.com/restaurant", Now);
+        var request = await AddRequestAsync(dbContext, 42, restPreference: RestPreference.Auto);
+        var original = await AddItineraryAsync(dbContext, request, museum.Id);
+        var options = new SchedulingGenerationOptions { TransitionBufferMinutes = 5 };
+
+        var result = await new ItineraryVersionService(dbContext, new FixedRouteDurationProvider(), options)
+            .CreateAdjustedVersionAsync(original, request, [museum.Id, restaurant.Id], CancellationToken.None);
+        result.IsSuccess.Should().BeTrue();
+        await dbContext.SaveChangesAsync();
+        dbContext.ChangeTracker.Clear();
+        var saved = await dbContext.Itineraries.Include(itinerary => itinerary.Items)
+            .SingleAsync(itinerary => itinerary.Id == result.Value.Id);
+        saved.Items.Should().HaveCount(2);
+        saved.Items.Should().NotContain(item => item.Kind == ItineraryItemKind.Rest);
+        var meal = saved.Items.Single(item => item.PointOfInterestId == restaurant.Id);
+        meal.Kind.Should().Be(ItineraryItemKind.Visit);
+        meal.EstimatedCost.Should().Be(150_000m);
+        (meal.PlannedDepartureUtc!.Value - meal.PlannedArrivalUtc!.Value).TotalMinutes.Should().Be(45);
     }
 
     [Fact]
@@ -916,9 +967,10 @@ public sealed class ItineraryVersionServiceTests
         TestDbContext dbContext,
         long travelerUserId,
         string mandatoryPoiIdsJson = "[]",
-        TransportMode transportMode = TransportMode.Motorbike)
+        TransportMode transportMode = TransportMode.Motorbike,
+        RestPreference restPreference = RestPreference.None)
     {
-        var request = CreateRequest(travelerUserId, Guid.NewGuid(), mandatoryPoiIdsJson, transportMode);
+        var request = CreateRequest(travelerUserId, Guid.NewGuid(), mandatoryPoiIdsJson, transportMode, restPreference: restPreference);
         var generationOwnerId = Guid.NewGuid();
         request.ClaimGeneration(generationOwnerId, Now.AddMinutes(1), Now);
         request.CompleteGeneration(generationOwnerId, Now);
@@ -932,7 +984,8 @@ public sealed class ItineraryVersionServiceTests
         Guid idempotencyKey,
         string mandatoryPoiIdsJson = "[]",
         TransportMode transportMode = TransportMode.Motorbike,
-        int availableMinutes = 480) =>
+        int availableMinutes = 480,
+        RestPreference restPreference = RestPreference.None) =>
         SchedulingRequest.Create(
             travelerUserId,
             idempotencyKey,
@@ -950,7 +1003,7 @@ public sealed class ItineraryVersionServiceTests
             10m,
             800_000m,
             mandatoryPoiIdsJson,
-            RestPreference.None,
+            restPreference,
             Now);
 
     private static long[] VisitIds(Itinerary itinerary) => itinerary.Items
@@ -1287,7 +1340,8 @@ public sealed class ItineraryVersionServiceTests
         string poiName,
         decimal latitude = 16.0471m,
         decimal longitude = 108.2068m,
-        int visitMinutes = 60)
+        int visitMinutes = 60,
+        bool hasShelter = false)
     {
         var poi = PointOfInterest.Create(
             PoiCategory.Create(categoryName, null),
@@ -1296,7 +1350,8 @@ public sealed class ItineraryVersionServiceTests
             longitude,
             1,
             Now,
-            averageVisitDurationMinutes: visitMinutes);
+            averageVisitDurationMinutes: visitMinutes,
+            hasShelter: hasShelter);
         poi.ConfigurePlanningMetadata(60_000m, "https://example.com/poi", Now);
         poi.AddOpeningHour(PoiOpeningHour.Create(
             2,

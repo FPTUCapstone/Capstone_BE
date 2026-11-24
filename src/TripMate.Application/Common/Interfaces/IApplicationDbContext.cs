@@ -87,6 +87,7 @@ public interface IApplicationDbContext
     DbSet<AuditLog> AuditLogs { get; }
 
     DbSet<Notification> Notifications { get; }
+    DbSet<TourApprovalNotice> TourApprovalNotices { get; }
 
     DbSet<PushDeviceToken> PushDeviceTokens =>
         throw new NotSupportedException("Push device tokens are unavailable in this context.");

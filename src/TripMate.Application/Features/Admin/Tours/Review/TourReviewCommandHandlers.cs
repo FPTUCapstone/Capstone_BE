@@ -73,19 +73,8 @@ public sealed class ApproveTourCommandHandler(IApplicationDbContext dbContext, I
                         beforeData: JsonSerializer.Serialize(new { Status = statusBefore.ToString() }),
                         afterData: afterData));
 
-                    // UC-60 PC-03: tell the owning operator, atomically with the decision. The notice deliberately
-                    // carries no reviewer identity, checklist or internal note.
-                    dbContext.Notifications.Add(new Notification
-                    {
-                        UserId = tour.OperatorUserId,
-                        Channel = NotificationChannel.InApp,
-                        Type = Notification.TourApprovedType,
-                        Title = Notification.TourApprovedTitle,
-                        Body = $"Your tour package \"{tour.Title}\" has been approved and is now available to travelers.",
-                        RelatedEntityType = Notification.TourRelatedEntityType,
-                        RelatedEntityId = tour.Id,
-                        CreatedAtUtc = now,
-                    });
+                    dbContext.TourApprovalNotices.Add(
+                        new TourApprovalNotice(tour.Id, tour.OperatorUserId, tour.Title, now));
 
                     await dbContext.SaveChangesAsync(ct);
                     return Result.Success(new TourReviewResponse(tour.Id, tour.Status.ToString(), now));

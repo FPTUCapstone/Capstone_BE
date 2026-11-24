@@ -416,9 +416,9 @@ public sealed class ApproveTourCommandHandlerTests
     }
 
     // UC-60 PC-03: the Tour Operator is notified of the approval. In-app only for now (email delivery is a
-    // separate outbox concern). The notice is written in the SAME transaction as the decision.
+    // separate outbox concern). The delivery intent commits with the decision.
     [Fact]
-    public async Task Handle_WhenApproved_CreatesSingleInAppNotificationForTheOwningOperator()
+    public async Task Handle_WhenApproved_QueuesOneInAppNoticeForTheOwningOperator()
     {
         await using var db = TestDbContext.Create();
         await PublicTourTestData.SeedOperatorAsync(db, 1);
@@ -433,21 +433,14 @@ public sealed class ApproveTourCommandHandlerTests
             CancellationToken.None);
 
         result.IsSuccess.Should().BeTrue(because: $"{result.ErrorCode}: {result.ErrorMessage}");
-        var notices = await db.Notifications.AsNoTracking()
-            .Where(n => n.Type == Notification.TourApprovedType)
-            .ToListAsync();
+        var notices = await db.TourApprovalNotices.AsNoTracking().ToListAsync();
         var notice = notices.Should().ContainSingle().Subject;
-        notice.UserId.Should().Be(tour.OperatorUserId);
-        notice.Channel.Should().Be(NotificationChannel.InApp);
-        notice.RelatedEntityType.Should().Be(Notification.TourRelatedEntityType);
-        notice.RelatedEntityId.Should().Be(tour.Id);
-        notice.CreatedAtUtc.Should().Be(Now);
-        notice.Title.Should().NotBeNullOrWhiteSpace();
-        notice.Body.Should().NotBeNullOrWhiteSpace();
-        // The operator-facing notice must not leak moderation internals.
-        (notice.Title + notice.Body).Should()
-            .NotContain("Internal moderator-only remark")
-            .And.NotContain("55");
+        notice.OperatorUserId.Should().Be(tour.OperatorUserId);
+        notice.TourId.Should().Be(tour.Id);
+        notice.TourTitle.Should().Be(tour.Title);
+        notice.ApprovedAtUtc.Should().Be(Now);
+        notice.NextAttemptAtUtc.Should().Be(Now);
+        (await db.Notifications.AnyAsync()).Should().BeFalse();
     }
 
     [Fact]
@@ -465,8 +458,7 @@ public sealed class ApproveTourCommandHandlerTests
         var result = await handler.Handle(new ApproveTourCommand(tour.Id, ValidChecklist()), CancellationToken.None);
 
         result.ErrorCode.Should().Be(OperatorTourErrorCodes.ServiceUnavailable);
-        (await db.Notifications.AsNoTracking().AnyAsync(n => n.Type == Notification.TourApprovedType))
-            .Should().BeFalse("the approval and its notification are one atomic unit");
+        (await db.TourApprovalNotices.AnyAsync()).Should().BeFalse();
     }
 
     [Theory]
@@ -486,6 +478,6 @@ public sealed class ApproveTourCommandHandlerTests
         var result = await handler.Handle(new ApproveTourCommand(tour.Id, ValidChecklist()), CancellationToken.None);
 
         result.ErrorCode.Should().Be(OperatorTourErrorCodes.InvalidState);
-        (await db.Notifications.AsNoTracking().AnyAsync(n => n.Type == Notification.TourApprovedType)).Should().BeFalse();
+        (await db.TourApprovalNotices.AnyAsync()).Should().BeFalse();
     }
 }

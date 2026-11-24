@@ -166,6 +166,7 @@ public sealed class TripMateApiFactory(
                             or "TripMate.Infrastructure.Services.TravelerAvatarCleanupBackgroundService"
                             or "TripMate.Infrastructure.Services.PendingBookingExpiryBackgroundService"
                             or "TripMate.Infrastructure.Services.UserAdministrationNotificationDeliveryBackgroundService"
+                            or "TripMate.Infrastructure.Services.TourApprovalNoticeDeliveryBackgroundService"
                             or "TripMate.Infrastructure.Services.RefundProcessingBackgroundService"
                             or "TripMate.Infrastructure.Services.RevenueExportWorkerBackgroundService"
                             or "TripMate.Infrastructure.Services.RevenueExportExpiryBackgroundService"
@@ -187,6 +188,7 @@ public sealed class TripMateApiFactory(
             if (sqlServerConnectionString is null)
             {
                 services.RemoveAll<ApplicationDbContext>();
+                services.RemoveAll<TripMate.Infrastructure.Services.TourApprovalNoticeDeliveryProcessor>();
                 services.RemoveAll<TripMate.Application.Features.TripReviews.Common.ITripReviewContextReader>();
                 services.AddScoped<TripMate.Application.Features.TripReviews.Common.ITripReviewContextReader, UnsupportedInMemoryTripReviewContextReader>();
                 services.RemoveAll<DbContextOptions<ApplicationDbContext>>();
@@ -497,6 +499,7 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
         Set<TourMediaCleanupOutboxItem>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<TourApprovalNotice> TourApprovalNotices => Set<TourApprovalNotice>();
     public DbSet<PoiPhoto> PoiPhotos => Set<PoiPhoto>();
     public DbSet<Review> Reviews => Set<Review>();
 

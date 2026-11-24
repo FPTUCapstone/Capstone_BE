@@ -325,6 +325,82 @@ public sealed class GeneratedItineraryInvariantValidatorTests
             .WithMessage("*opening hours*");
     }
 
+    [Fact]
+    public void Validate_AcceptsFreeRest_WhenPlannedVisitsIncludeFoodAndDrinkAndAnotherRestaurantIsNearby()
+    {
+        var c101 = new GenerationCandidate(
+            101,
+            "Morning Museum",
+            new RoutePoint(16.0544m, 108.2022m),
+            150,
+            60_000m,
+            OptionalRouteOptimizationScenarios.DefaultPermissiveHours,
+            CategoryName: "Culture",
+            HasShelter: true);
+        var c102 = new GenerationCandidate(
+            102,
+            "Afternoon Heritage House",
+            new RoutePoint(16.0544m, 108.2022m),
+            45,
+            80_000m,
+            OptionalRouteOptimizationScenarios.DefaultPermissiveHours,
+            CategoryName: "Culture",
+            HasShelter: true);
+        var c103 = new GenerationCandidate(
+            103,
+            "Chosen Lunch Spot",
+            new RoutePoint(16.0544m, 108.2022m),
+            45,
+            120_000m,
+            OptionalRouteOptimizationScenarios.DefaultPermissiveHours,
+            CategoryName: "Food & Drink",
+            HasShelter: true);
+        var c104 = new GenerationCandidate(
+            104,
+            "Nearby Unchosen Cafe",
+            new RoutePoint(16.0544m, 108.2022m),
+            30,
+            50_000m,
+            OptionalRouteOptimizationScenarios.DefaultPermissiveHours,
+            CategoryName: "Food & Drink",
+            HasShelter: true);
+
+        GenerationCandidate[] candidates = [c101, c102, c103, c104];
+        var input = OptionalRouteOptimizationScenarios.CreateInput(
+            availableMinutes: 480,
+            candidates: candidates,
+            mandatoryPoiIds: [c101.Id],
+            restPreference: RestPreference.Auto,
+            budgetVnd: null);
+        var matrix = RouteDurationMatrix.Create(new int[,]
+        {
+            { 0, 5, 5, 5, 5, 5 },
+            { 5, 0, 5, 5, 5, 5 },
+            { 5, 5, 0, 5, 5, 5 },
+            { 5, 5, 5, 0, 5, 5 },
+            { 5, 5, 5, 5, 0, 5 },
+            { 5, 5, 5, 5, 5, 0 },
+        });
+        var candidateMatrixIndices = candidates
+            .Select((candidate, index) => (candidate.Id, Index: index + 1))
+            .ToDictionary(entry => entry.Id, entry => entry.Index);
+
+        var schedule = new ItineraryScheduleEvaluator().Evaluate(
+            input,
+            [c101, c102, c103],
+            matrix,
+            candidates,
+            candidateMatrixIndices,
+            CancellationToken.None);
+
+        schedule.Should().NotBeNull();
+        schedule!.Plan.Items.Should().Contain(item =>
+            item.Kind == ItineraryItemKind.Rest && item.PointOfInterestId == null);
+
+        var act = () => _validator.Validate(input, matrix, candidates, schedule.Plan);
+        act.Should().NotThrow();
+    }
+
     private static (
         GenerationInput Input,
         RouteDurationMatrix Matrix,
