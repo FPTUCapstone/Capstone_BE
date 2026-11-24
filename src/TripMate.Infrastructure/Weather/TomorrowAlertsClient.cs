@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -21,6 +22,7 @@ public sealed class TomorrowAlertsClient(
     ILogger<TomorrowAlertsClient> logger) : ITomorrowAlertsClient
 {
     private const string NotificationsPath = "/v4/notifications";
+    private const string ForecastPath = "/v4/weather/forecast";
 
     private readonly TomorrowIoOptions _options = options.Value;
 
@@ -205,6 +207,77 @@ public sealed class TomorrowAlertsClient(
         CancellationToken cancellationToken = default) =>
         ChangeLinksAsync("unlink", "UnlinkLocations", locationIds, cancellationToken);
 
+    public async Task<TomorrowHourlyForecastResponse> GetHourlyForecastAsync(
+        double latitude,
+        double longitude,
+        CancellationToken cancellationToken = default)
+    {
+        if (!IsConfigured)
+        {
+            return new TomorrowHourlyForecastResponse(TomorrowCallOutcome.Skipped, []);
+        }
+
+        var query = new Dictionary<string, string?>
+        {
+            ["location"] = string.Create(CultureInfo.InvariantCulture, $"{latitude},{longitude}"),
+            ["timesteps"] = "1h",
+            ["units"] = "metric",
+        };
+        using var request = CreateRequest(HttpMethod.Get, QueryHelpers.AddQueryString(ForecastPath, query));
+        var (outcome, body) = await SendAsync(request, "HourlyForecast", cancellationToken);
+        if (outcome != TomorrowCallOutcome.Success)
+        {
+            return new TomorrowHourlyForecastResponse(outcome, []);
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (!doc.RootElement.TryGetProperty("timelines", out var timelines)
+                || timelines.ValueKind != JsonValueKind.Object
+                || !timelines.TryGetProperty("hourly", out var hourly)
+                || hourly.ValueKind != JsonValueKind.Array)
+            {
+                logger.LogWarning("Tomorrow.io hourly forecast response does not carry timelines.hourly.");
+                return new TomorrowHourlyForecastResponse(TomorrowCallOutcome.InvalidResponse, []);
+            }
+
+            var slots = new List<TomorrowHourlyForecastSlot>();
+            foreach (var entry in hourly.EnumerateArray())
+            {
+                string? rawTime = GetString(entry, "time");
+                if (string.IsNullOrWhiteSpace(rawTime)
+                    || !DateTimeOffset.TryParse(
+                        rawTime,
+                        CultureInfo.InvariantCulture,
+                        DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                        out var timeUtc)
+                    || !entry.TryGetProperty("values", out var values)
+                    || values.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                double rain = GetDouble(values, "rainIntensity")
+                    ?? GetDouble(values, "precipitationIntensity")
+                    ?? 0d;
+                double windSpeed = GetDouble(values, "windSpeed") ?? 0d;
+                double windGust = GetDouble(values, "windGust") ?? 0d;
+                double visibility = GetDouble(values, "visibility") ?? double.PositiveInfinity;
+                int weatherCode = GetInt32(values, "weatherCode") ?? 0;
+
+                slots.Add(new TomorrowHourlyForecastSlot(timeUtc, rain, windSpeed, windGust, visibility, weatherCode));
+            }
+
+            return new TomorrowHourlyForecastResponse(TomorrowCallOutcome.Success, slots);
+        }
+        catch (JsonException)
+        {
+            logger.LogWarning("Tomorrow.io hourly forecast response is not valid JSON.");
+            return new TomorrowHourlyForecastResponse(TomorrowCallOutcome.InvalidResponse, []);
+        }
+    }
+
     private async Task<TomorrowCallOutcome> ChangeLinksAsync(
         string pathSegment,
         string operation,
@@ -300,5 +373,22 @@ public sealed class TomorrowAlertsClient(
         && element.TryGetProperty(propertyName, out var property)
         && property.ValueKind == JsonValueKind.String
             ? property.GetString()
+            : null;
+
+    private static double? GetDouble(JsonElement element, string propertyName) =>
+        element.ValueKind == JsonValueKind.Object
+        && element.TryGetProperty(propertyName, out var property)
+        && property.ValueKind == JsonValueKind.Number
+        && property.TryGetDouble(out double value)
+        && double.IsFinite(value)
+            ? value
+            : null;
+
+    private static int? GetInt32(JsonElement element, string propertyName) =>
+        element.ValueKind == JsonValueKind.Object
+        && element.TryGetProperty(propertyName, out var property)
+        && property.ValueKind == JsonValueKind.Number
+        && property.TryGetInt32(out int value)
+            ? value
             : null;
 }

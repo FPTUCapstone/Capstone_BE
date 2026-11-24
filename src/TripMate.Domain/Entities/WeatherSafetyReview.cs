@@ -70,6 +70,26 @@ public sealed class WeatherSafetyReview
         return true;
     }
 
+    public bool ReopenForCheckpoint(
+        DateTimeOffset urgentNoticeSentAtUtc,
+        DateTimeOffset acknowledgementDeadlineUtc,
+        string? fallbackInstructions = null)
+    {
+        if (Status != StatusAcknowledged) return false;
+
+        UrgentNoticeSentAtUtc = urgentNoticeSentAtUtc.ToUniversalTime();
+        AcknowledgementDeadlineUtc = acknowledgementDeadlineUtc.ToUniversalTime();
+        EscalatedAtUtc = null;
+        EscalationContact = null;
+        if (string.IsNullOrWhiteSpace(ImmediateInstructions) && !string.IsNullOrWhiteSpace(fallbackInstructions))
+        {
+            ImmediateInstructions = fallbackInstructions.Trim();
+        }
+
+        Status = StatusPendingAcknowledgement;
+        return true;
+    }
+
     public bool Escalate(DateTimeOffset escalatedAtUtc, string escalationContact)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(escalationContact);

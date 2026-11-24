@@ -72,9 +72,23 @@ public sealed class WeatherSafetyReviewEscalationBackgroundService(
             return 0;
         }
 
+        var eventIds = expiredReviews.Select(r => r.ProviderEventId).Distinct().ToList();
+        var withdrawnEvents = await dbContext.WeatherEvents.AsNoTracking()
+            .Where(e => e.IsWithdrawn
+                && e.Provider != null
+                && e.ProviderEventId != null
+                && eventIds.Contains(e.ProviderEventId))
+            .Select(e => new { Provider = e.Provider!, ProviderEventId = e.ProviderEventId! })
+            .ToListAsync(cancellationToken);
+        var withdrawnSet = withdrawnEvents
+            .Select(e => (e.Provider, e.ProviderEventId))
+            .ToHashSet();
+
         int escalatedCount = 0;
         foreach (var review in expiredReviews)
         {
+            if (withdrawnSet.Contains((review.Provider, review.ProviderEventId))) continue;
+
             bool escalated = review.Escalate(now, "Bộ phận điều phối vận hành");
             if (!escalated) continue;
 
