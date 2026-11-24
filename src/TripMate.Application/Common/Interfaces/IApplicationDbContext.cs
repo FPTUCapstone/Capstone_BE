@@ -6,6 +6,26 @@ namespace TripMate.Application.Common.Interfaces;
 
 public interface IApplicationDbContext
 {
+    DbSet<OperatorContract> OperatorContracts =>
+        throw new NotSupportedException("Operator contracts are unavailable in this context.");
+    DbSet<OperatorContractSigningChallenge> OperatorContractSigningChallenges =>
+        throw new NotSupportedException("Contract challenges are unavailable in this context.");
+    DbSet<OperatorContractLegacyExemption> OperatorContractLegacyExemptions =>
+        throw new NotSupportedException("Contract legacy exemptions are unavailable in this context.");
+
+    bool IsOperatorContractUniqueConflict(Exception exception) => false;
+
+    Task LockOperatorContractChallengeAsync(Guid challengeId, CancellationToken cancellationToken) => Task.CompletedTask;
+
+    DbSet<OperatorContractTemplate> OperatorContractTemplates =>
+        throw new NotSupportedException("Contract templates are unavailable in this context.");
+
+    DbSet<ContractTemplatePublicationHead> ContractTemplatePublicationHeads =>
+        throw new NotSupportedException("Contract publication heads are unavailable in this context.");
+
+    DbSet<ContractTemplateRenderJob> ContractTemplateRenderJobs =>
+        throw new NotSupportedException("Contract render jobs are unavailable in this context.");
+
     DbSet<User> Users { get; }
 
     DbSet<TravelerProfile> TravelerProfiles { get; }
@@ -296,6 +316,12 @@ public interface IApplicationDbContext
     /// committed, so re-running the command replays it or reports the departure as terminal.
     /// </summary>
     bool IsEmergencyDecisionUniqueConflict(DbUpdateException exception) => false;
+
+    /// <summary>
+    /// True for a SQL Server unique violation on a contract publication invariant.
+    /// Deadlocks remain retryable through IsDeadlock rather than business conflicts.
+    /// </summary>
+    bool IsContractTemplatePublicationConflict(Exception exception) => false;
 
     /// <summary>
     /// Removes durable document-cleanup reservations while the caller's database transaction

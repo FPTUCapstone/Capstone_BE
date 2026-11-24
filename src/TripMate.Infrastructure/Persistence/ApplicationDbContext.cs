@@ -23,6 +23,26 @@ public class ApplicationDbContext(
 
     public DbSet<User> Users => Set<User>();
 
+    public DbSet<OperatorContract> OperatorContracts => Set<OperatorContract>();
+    public DbSet<OperatorContractSigningChallenge> OperatorContractSigningChallenges => Set<OperatorContractSigningChallenge>();
+    public DbSet<OperatorContractLegacyExemption> OperatorContractLegacyExemptions => Set<OperatorContractLegacyExemption>();
+
+    public async Task LockOperatorContractChallengeAsync(Guid challengeId, CancellationToken cancellationToken)
+    {
+        if (Database.CurrentTransaction is null)
+            throw new InvalidOperationException("Challenge verification requires an explicit database transaction.");
+        if (challengeId == Guid.Empty) throw new ArgumentException("A challenge identity is required.", nameof(challengeId));
+        await Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT challenge_id FROM admin.OperatorContractSigningChallenges WITH (UPDLOCK,HOLDLOCK) WHERE challenge_id={challengeId};",
+            cancellationToken);
+    }
+
+    public DbSet<OperatorContractTemplate> OperatorContractTemplates => Set<OperatorContractTemplate>();
+
+    public DbSet<ContractTemplatePublicationHead> ContractTemplatePublicationHeads => Set<ContractTemplatePublicationHead>();
+
+    public DbSet<ContractTemplateRenderJob> ContractTemplateRenderJobs => Set<ContractTemplateRenderJob>();
+
     public DbSet<TravelerProfile> TravelerProfiles => Set<TravelerProfile>();
 
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
@@ -249,6 +269,15 @@ public class ApplicationDbContext(
         IsUniqueViolationOn(exception,
             EmergencyTourCancellationOperationConfiguration.ScheduleIndexName,
             EmergencyTourCancellationOperationConfiguration.ActorCommandIndexName);
+
+    public bool IsContractTemplatePublicationConflict(Exception exception) =>
+        IsUniqueViolationOn(exception,
+            "UX_OperatorContractTemplates_Published",
+            "UX_OperatorContractTemplates_Version",
+            "UX_OperatorContractTemplates_PublicationKey");
+
+    public bool IsOperatorContractUniqueConflict(Exception exception) =>
+        IsUniqueViolationOn(exception, "UX_OperatorContracts_Current", "UX_OperatorContracts_SigningOperation");
 
     private static bool IsUniqueViolationOn(Exception exception, params string[] indexNames)
     {
