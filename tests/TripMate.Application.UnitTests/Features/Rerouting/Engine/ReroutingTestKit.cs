@@ -167,10 +167,19 @@ internal sealed class ReroutingTestKit : IAsyncDisposable
         return session;
     }
 
-    public async Task<Incident> AddIncidentAsync(TripSession session, string incidentType, long affectedItemId)
+    public async Task<Incident> AddIncidentAsync(
+        TripSession session,
+        string incidentType,
+        long affectedItemId,
+        string? sourceKey = null,
+        DateTimeOffset? detectedAt = null)
     {
         var incident = Incident.CreateTripAlert(
-            session, incidentType, $"{incidentType}:{affectedItemId}:{Guid.NewGuid():N}", Now, affectedItemId);
+            session,
+            incidentType,
+            sourceKey ?? $"{incidentType}:{affectedItemId}:{Guid.NewGuid():N}",
+            detectedAt ?? Now,
+            affectedItemId);
         Db.Incidents.Add(incident);
         await Db.SaveChangesAsync();
         return incident;
