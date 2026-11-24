@@ -80,6 +80,30 @@ public sealed class TourRecommendationCandidateReaderTests
             .Should().BeEquivalentTo(["Chụp ảnh hoàng hôn"]);
     }
 
+    [Theory]
+    [InlineData("Văn hóa", "culture")]
+    [InlineData("Bãi biển", "beach")]
+    [InlineData("Biển", "beach")]
+    [InlineData("Danh lam & Di sản", "heritage")]
+    [InlineData("Giải trí", "adventure")]
+    [InlineData("Thiên nhiên", "nature")]
+    [InlineData("Ẩm thực", "culinary")]
+    [InlineData("Gia đình", "relaxation")]
+    [InlineData("Miễn phí", "relaxation")]
+    [InlineData("Ngắm hoàng hôn", "nature")]
+    [InlineData("Phiêu lưu", "adventure")]
+    [InlineData("Chụp ảnh đẹp", "photography")]
+    [InlineData("Đêm", "nature")]
+    [InlineData("Lịch sử", "history")]
+    [InlineData("Tâm linh", "heritage")]
+    [InlineData("Mua sắm", "shopping")]
+    public void ResolveInterestSynonyms_MapsProductionVietnameseCategoryToCanonicalInterestKey(
+        string rawToken, string canonicalKey)
+    {
+        TourRecommendationCandidateReader.ResolveInterestSynonyms(rawToken)
+            .Should().BeEquivalentTo([rawToken, canonicalKey]);
+    }
+
     [Fact]
     public void ResolveInterestSynonyms_BlankInputYieldsNoTokens()
     {
