@@ -18,6 +18,7 @@ using TripMate.Domain.Enums;
 
 namespace TripMate.Api.Controllers.V1;
 
+[Authorize(Policy = global::TripMate.Api.Authorization.OperatorContractWorkspacePolicies.Workspace)]
 [Authorize(Roles = nameof(UserRole.TourOperator))]
 [Route("api/v1/operator/tours/{tourId:long}/media")]
 public sealed class OperatorTourMediaController(

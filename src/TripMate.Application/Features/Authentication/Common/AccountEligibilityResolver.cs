@@ -14,7 +14,8 @@ namespace TripMate.Application.Features.Authentication.Common;
 public static class AccountEligibilityResolver
 {
     public static async Task<Result<CurrentAccountContext>> ResolveAsync(
-        IApplicationDbContext dbContext, User user, DateTimeOffset now, CancellationToken cancellationToken)
+        IApplicationDbContext dbContext, User user, DateTimeOffset now, CancellationToken cancellationToken,
+        bool contractGateEnabled = false)
     {
         switch (user.Status)
         {
@@ -25,8 +26,10 @@ public static class AccountEligibilityResolver
             case AccountStatus.Inactive:
                 return Result.Failure<CurrentAccountContext>(AuthErrorCodes.AccountInactive, "Account is inactive.");
             case AccountStatus.Active:
-                return Result.Success(new CurrentAccountContext(AccountStatus.Active,
-                    await ReadApplicationStatusAsync(dbContext, user, cancellationToken)));
+                return await ResolveActiveAsync(dbContext, user, cancellationToken, contractGateEnabled);
+            case AccountStatus.PendingContractSignature:
+                if (!contractGateEnabled) return Unresolved();
+                break;
             case AccountStatus.PendingApproval:
             case AccountStatus.Rejected:
                 break;
@@ -47,9 +50,37 @@ public static class AccountEligibilityResolver
             .SingleOrDefaultAsync(p => p.UserId == user.Id, cancellationToken);
         var matches = profile is not null && (
             (user.Status == AccountStatus.PendingApproval && profile.ApprovalStatus == OperatorApprovalStatus.PendingApproval)
-            || (user.Status == AccountStatus.Rejected && profile.ApprovalStatus == OperatorApprovalStatus.Rejected));
+            || (user.Status == AccountStatus.Rejected && profile.ApprovalStatus == OperatorApprovalStatus.Rejected)
+            || (user.Status == AccountStatus.PendingContractSignature && profile.ApprovalStatus == OperatorApprovalStatus.Approved));
 
-        return matches ? Result.Success(new CurrentAccountContext(AccountStatus.Active, profile!.ApprovalStatus.ToString())) : Unresolved();
+        if (!matches) return Unresolved();
+        if (user.Status == AccountStatus.PendingContractSignature)
+        {
+            var contract = await dbContext.OperatorContracts.AsNoTracking()
+                .Where(item => item.OperatorUserId == user.Id && item.Status == OperatorContractStatus.PendingSignature)
+                .OrderByDescending(item => item.Id).Select(item => new { item.Id, item.Status }).FirstOrDefaultAsync(cancellationToken);
+            return contract is null ? Unresolved() : Result.Success(new CurrentAccountContext(AccountStatus.Active,
+                profile!.ApprovalStatus.ToString(), "AwaitingSignature", contract.Status.ToString(), contract.Id.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        }
+        return Result.Success(new CurrentAccountContext(AccountStatus.Active, profile!.ApprovalStatus.ToString(),
+            user.Status == AccountStatus.Rejected ? "Rejected" : "AwaitingReview"));
+    }
+
+    private static async Task<Result<CurrentAccountContext>> ResolveActiveAsync(
+        IApplicationDbContext dbContext, User user, CancellationToken cancellationToken, bool contractGateEnabled)
+    {
+        var approval = await ReadApplicationStatusAsync(dbContext, user, cancellationToken);
+        if (user.Role != UserRole.TourOperator) return Result.Success(new CurrentAccountContext(AccountStatus.Active, approval));
+        var onboarding = approval switch { "Approved" => "Active", "PendingApproval" => "AwaitingReview", "Rejected" => "Rejected", _ => "Unresolved" };
+        if (!contractGateEnabled || approval != nameof(OperatorApprovalStatus.Approved))
+            return Result.Success(new CurrentAccountContext(AccountStatus.Active, approval, onboarding));
+        var contract = await dbContext.OperatorContracts.AsNoTracking()
+            .Where(item => item.OperatorUserId == user.Id && item.Status == OperatorContractStatus.Signed)
+            .OrderByDescending(item => item.Id).Select(item => new { item.Id, item.Status }).FirstOrDefaultAsync(cancellationToken);
+        if (contract is not null) return Result.Success(new CurrentAccountContext(AccountStatus.Active, approval, "Active",
+            contract.Status.ToString(), contract.Id.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        return await dbContext.OperatorContractLegacyExemptions.AsNoTracking().AnyAsync(item => item.OperatorUserId == user.Id, cancellationToken)
+            ? Result.Success(new CurrentAccountContext(AccountStatus.Active, approval, "Active")) : Unresolved();
     }
 
     private static async Task<string?> ReadApplicationStatusAsync(
@@ -66,4 +97,5 @@ public static class AccountEligibilityResolver
     private static Result<CurrentAccountContext> Unresolved() => Result.Failure<CurrentAccountContext>(
         AuthErrorCodes.AccountStateUnresolved, "Account state could not be resolved.");
 }
-public sealed record CurrentAccountContext(AccountStatus Status, string? ApplicationStatus);
+public sealed record CurrentAccountContext(AccountStatus Status, string? ApplicationStatus,
+    string? OnboardingState = null, string? ContractStatus = null, string? CurrentContractId = null);

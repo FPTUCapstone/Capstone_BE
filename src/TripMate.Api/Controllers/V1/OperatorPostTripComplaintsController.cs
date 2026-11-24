@@ -12,6 +12,7 @@ using TripMate.Domain.Enums;
 namespace TripMate.Api.Controllers.V1;
 
 /// <summary>UC-69 — Tour Operator response to an owned post-trip complaint.</summary>
+[Authorize(Policy = global::TripMate.Api.Authorization.OperatorContractWorkspacePolicies.Workspace)]
 [Authorize(Roles = nameof(UserRole.TourOperator))]
 [Route("api/v1/operator/post-trip-complaints")]
 public sealed class OperatorPostTripComplaintsController(ISender sender) : ApiControllerBase(sender)

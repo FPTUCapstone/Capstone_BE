@@ -115,12 +115,10 @@ public sealed class GmailRestEmailSender : IEmailSender, IEmailVerificationSende
                 return EmailDeliveryResult.Delivered;
             }
 
-            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
             logger.LogWarning(
-                "{Purpose} email failed via Gmail REST API. StatusCode: {StatusCode}; Response: {Response}",
+                "{Purpose} email failed via Gmail REST API. StatusCode: {StatusCode}",
                 purpose,
-                response.StatusCode,
-                errorBody);
+                response.StatusCode);
 
             return EmailDeliveryResult.DefiniteFailure;
         }
@@ -130,7 +128,7 @@ public sealed class GmailRestEmailSender : IEmailSender, IEmailVerificationSende
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Gmail REST API email delivery outcome unknown ({ExceptionType}).", ex.GetType().Name);
+            logger.LogWarning("Gmail REST API email delivery outcome unknown ({ExceptionType}).", ex.GetType().Name);
             return EmailDeliveryResult.Unknown;
         }
     }
@@ -158,8 +156,7 @@ public sealed class GmailRestEmailSender : IEmailSender, IEmailVerificationSende
         using var response = await httpClient.SendAsync(request, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
-            var err = await response.Content.ReadAsStringAsync(cancellationToken);
-            logger.LogError("Failed to refresh Gmail API token. Status: {Status}, Body: {Body}", response.StatusCode, err);
+            logger.LogError("Failed to refresh Gmail API token. Status: {Status}", response.StatusCode);
             return null;
         }
 

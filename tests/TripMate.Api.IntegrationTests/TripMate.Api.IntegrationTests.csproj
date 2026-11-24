@@ -8,6 +8,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Include="..\..\database\migrations\20261124_operator_contract_signing.sql"
+          Link="Database\migrations\20261124_operator_contract_signing.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261123_admin_operator_contract_templates.sql"
+          Link="Database\migrations\20261123_admin_operator_contract_templates.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="..\..\database\migrations\20261118_tm83_tour_submission.sql"
           Link="Database\migrations\20261118_tm83_tour_submission.sql"
           CopyToOutputDirectory="PreserveNewest" />

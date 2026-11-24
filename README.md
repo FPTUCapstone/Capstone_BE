@@ -377,3 +377,33 @@ Xem [`CONTRIBUTING.md`](CONTRIBUTING.md) (branch, commit convention, Pull Reques
 See [isolated semantic PoC instructions](tools/semantic-poc/README.md) for the CPU embedding service,
 Qdrant fixture evaluation and SQL-authoritative tests. Ordinary startup and production tour search
 are unchanged; semantic contract approval is pending.
+# Administrator contract templates
+
+The web Administrator can manage versioned DOCX partnership templates. See
+[renderer configuration](docker/contract-renderer/README.md) and
+[approved specification](specs/admin-contract-template-management-spec.md).
+Apply the additive contract-template migration before enabling its preview worker.
+Source documents and generated previews require private persistent storage. This
+phase does not enable Tour Operator signing or change account activation rules.
+
+### Tour Operator contract signing
+
+The optional `OperatorContracts__Enabled` gate adds a contract and email-OTP signing
+step after Staff approval. Apply `20261124_operator_contract_signing.sql` first;
+it records a one-time exemption for existing approved Active operators. New
+operators remain `PendingContractSignature` until the accepted PDF, signature,
+OTP verification and activation commit together. The default feature flag is false.
+The private artifact directory and isolated renderer configuration above are reused.
+Email uses the existing SMTP/Gmail transport and OTP pepper with a separate signing
+purpose. No OTP is returned by an endpoint. Web entry: `/partner/contract`; Mobile:
+`/operator/contract`. See the signing specification and plan for rollout and tests.
+
+During cutover, pause Staff application approvals before applying the signing
+migration and keep them paused until all API instances and compatible clients are
+deployed with `OperatorContracts__Enabled=true`. The legacy exemption is recorded
+once at migration time: approvals made with the flag disabled after that point do
+not automatically receive an exemption. Before resuming approvals, reconcile any
+Active+Approved operator with neither a signed contract nor a recorded exemption;
+do not bulk exempt new operators or silently change their account status. Restore
+signing configuration and investigate the affected applications before enabling
+workspace access. Keep the approval pause during a rollback that disables signing.

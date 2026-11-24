@@ -51,6 +51,15 @@ public class User : BaseEntity
 
     public ICollection<RefreshToken> RefreshTokens { get; set; } = new List<RefreshToken>();
 
+    public bool TryActivateAfterContractSignature(DateTimeOffset nowUtc)
+    {
+        if (Role != UserRole.TourOperator || Status != AccountStatus.PendingContractSignature) return false;
+        Status = AccountStatus.Active;
+        SessionVersion = checked(SessionVersion + 1);
+        UpdatedAtUtc = nowUtc.ToUniversalTime();
+        return true;
+    }
+
     /// <summary>Locks this account for <paramref name="reason"/> (BR-189, PD-9A). The caller is
     /// responsible for terminating existing sessions (BR-175) — this only sets the account state
     /// that <see cref="Unlock"/> later clears.</summary>

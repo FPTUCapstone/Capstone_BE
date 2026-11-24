@@ -13,6 +13,8 @@ using StackExchange.Redis;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Media;
 using TripMate.Application.Features.AccountProvisioning;
+using TripMate.Application.Features.Admin.ContractTemplates;
+using TripMate.Application.Features.Admin.ContractTemplates.Common;
 using TripMate.Application.Features.Admin.StatisticalReports.Exports;
 using TripMate.Application.Features.Authentication.PasswordReset;
 using TripMate.Application.Features.Bookings.Common;
@@ -49,6 +51,7 @@ using TripMate.Infrastructure.AiExplanation;
 using TripMate.Infrastructure.AiRanking;
 using TripMate.Infrastructure.Authentication;
 using TripMate.Infrastructure.Complaints;
+using TripMate.Infrastructure.Contracts.Templates;
 using TripMate.Infrastructure.Email;
 using TripMate.Infrastructure.ExternalReviews;
 using TripMate.Infrastructure.Media;
@@ -76,6 +79,30 @@ public static class DependencyInjection
         IConfiguration configuration)
     {
         services.AddSupportChat(configuration);
+        services.Configure<TripMate.Application.Features.Operator.Contracts.Common.OperatorContractOptions>(
+            configuration.GetSection(TripMate.Application.Features.Operator.Contracts.Common.OperatorContractOptions.SectionName));
+        services.AddScoped<TripMate.Application.Features.Operator.Contracts.OperatorContractIssuer>();
+        services.AddScoped<TripMate.Application.Features.Operator.Contracts.OperatorContractWorkflow>();
+        services.AddScoped<TripMate.Application.Features.Operator.Contracts.Common.IContractSignatureImageInspector, TripMate.Infrastructure.Contracts.ContractSignatureImageInspector>();
+        services.AddScoped<TripMate.Application.Features.Operator.Contracts.Common.IContractPdfSignatureStamper, TripMate.Infrastructure.Contracts.ContractPdfSignatureStamper>();
+        services.AddScoped<TripMate.Application.Features.Operator.Contracts.Common.IOperatorContractDocumentComposer, TripMate.Infrastructure.Contracts.OperatorContractDocumentComposer>();
+        services.AddScoped<TripMate.Application.Features.Operator.Contracts.Common.IOperatorContractOtpProtector>(provider =>
+            new TripMate.Infrastructure.Contracts.OperatorContractOtpProtector(() => provider.GetRequiredService<IOtpProtectionService>()));
+        services.AddScoped<TripMate.Application.Features.Operator.Contracts.Common.IOperatorContractOtpEmailSender>(provider =>
+            new TripMate.Infrastructure.Contracts.OperatorContractOtpEmailSender(() => provider.GetRequiredService<IUserAdministrationNotificationEmailSender>()));
+        if (configuration.GetValue<bool>("OperatorContracts:Enabled"))
+            services.AddHostedService<OperatorContractPreparationBackgroundService>();
+        services.Configure<ContractTemplateArtifactOptions>(configuration.GetSection("ContractTemplates:Artifacts"));
+        services.Configure<ContractTemplateRendererOptions>(configuration.GetSection("ContractTemplates:Renderer"));
+        services.AddScoped<IContractTemplateDocumentProcessor, DocxContractTemplateProcessor>();
+        services.AddScoped<IContractTemplateArtifactStorage, PrivateContractTemplateArtifactStorage>();
+        services.AddScoped<IContractTemplatePdfRenderer>(provider =>
+            string.IsNullOrWhiteSpace(configuration["ContractTemplates:Renderer:DockerImage"])
+                ? new LibreOfficeContractTemplateRenderer(provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<ContractTemplateRendererOptions>>())
+                : new DockerContractTemplateRenderer(provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<ContractTemplateRendererOptions>>()));
+        services.AddScoped<ContractTemplateWorkflow>();
+        if (configuration.GetValue<bool>("ContractTemplates:PreviewWorkerEnabled"))
+            services.AddHostedService<ContractTemplatePreviewBackgroundService>();
         // Database-first: the schema is owned by database/tripmate_schema_v7.sql, applied via
         // database/apply-schema.sh. This context only maps to it — no EF Core migrations here.
         services.AddDbContext<ApplicationDbContext>(options =>
