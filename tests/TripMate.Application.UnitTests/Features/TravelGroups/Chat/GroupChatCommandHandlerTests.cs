@@ -19,6 +19,10 @@ namespace TripMate.Application.UnitTests.Features.TravelGroups.Chat;
 
 public class GroupChatCommandHandlerTests
 {
+    private const string PollMetadata = "{\"options\":[{\"text\":\"First\"},{\"text\":\"Second\"}]}";
+    private static string SplitBillMetadata(long payerId, string payerName = "User One") =>
+        $$"""{"totalAmount":100000,"payerName":"{{payerName}}","payerBankName":"MBBank","payerBankAccount":"1234567890","participants":[{"userId":{{payerId}},"displayName":"{{payerName}}","amount":100000}]}""";
+
     private readonly FakeDateTimeProvider _dateTimeProvider = new();
 
     private async Task<(TestDbContext dbContext, TravelGroup group, TravelGroup secondGroup, User user1, User user2)> SeedChatTestAsync()
@@ -73,7 +77,13 @@ public class GroupChatCommandHandlerTests
     public void Validator_ValidMessageTypes_Pass(string messageType)
     {
         var validator = new SendGroupMessageCommandValidator();
-        var result = validator.Validate(new SendGroupMessageCommand(1, 1, messageType, "Hello team"));
+        var metadata = messageType switch
+        {
+            "poll" => PollMetadata,
+            "split_bill" => SplitBillMetadata(1),
+            _ => null,
+        };
+        var result = validator.Validate(new SendGroupMessageCommand(1, 1, messageType, "Hello team", metadata));
         result.IsValid.Should().BeTrue();
     }
 
@@ -147,7 +157,7 @@ public class GroupChatCommandHandlerTests
         await using (context)
         {
             var handler = new SendGroupMessageCommandHandler(context, _dateTimeProvider);
-            var command = new SendGroupMessageCommand(group.Id, user1.Id, "split_bill", "Lunch 800k");
+            var command = new SendGroupMessageCommand(group.Id, user1.Id, "split_bill", "Lunch 800k", SplitBillMetadata(user1.Id));
 
             var result = await handler.Handle(command, CancellationToken.None);
 
@@ -217,7 +227,7 @@ public class GroupChatCommandHandlerTests
         {
             var sendHandler = new SendGroupMessageCommandHandler(context, _dateTimeProvider);
             var msg = await sendHandler.Handle(
-                new SendGroupMessageCommand(group.Id, user1.Id, "split_bill", "Dinner 400k"),
+                new SendGroupMessageCommand(group.Id, user1.Id, "split_bill", "Dinner 400k", SplitBillMetadata(user1.Id)),
                 CancellationToken.None);
 
             var toggleHandler = new ToggleExpensePaymentCommandHandler(context, _dateTimeProvider);
@@ -243,7 +253,7 @@ public class GroupChatCommandHandlerTests
         {
             var sendHandler = new SendGroupMessageCommandHandler(context, _dateTimeProvider);
             var msg = await sendHandler.Handle(
-                new SendGroupMessageCommand(group.Id, user1.Id, "poll", "What to eat for lunch?"),
+                new SendGroupMessageCommand(group.Id, user1.Id, "poll", "What to eat for lunch?", PollMetadata),
                 CancellationToken.None);
 
             var voteHandler = new VotePollCommandHandler(context, _dateTimeProvider);
@@ -273,7 +283,7 @@ public class GroupChatCommandHandlerTests
         {
             var sendHandler = new SendGroupMessageCommandHandler(context, _dateTimeProvider);
             var msg = await sendHandler.Handle(
-                new SendGroupMessageCommand(group.Id, user1.Id, "poll", "Poll"),
+                new SendGroupMessageCommand(group.Id, user1.Id, "poll", "Poll", PollMetadata),
                 CancellationToken.None);
 
             var voteHandler = new VotePollCommandHandler(context, _dateTimeProvider);
@@ -295,8 +305,8 @@ public class GroupChatCommandHandlerTests
             var sendHandler = new SendGroupMessageCommandHandler(context, _dateTimeProvider);
             var broadcast = await sendHandler.Handle(new SendGroupMessageCommand(group.Id, user1.Id, "broadcast", "Notice"), CancellationToken.None);
             var rollCall = await sendHandler.Handle(new SendGroupMessageCommand(group.Id, user1.Id, "roll_call", "Roll call"), CancellationToken.None);
-            var bill = await sendHandler.Handle(new SendGroupMessageCommand(group.Id, user1.Id, "split_bill", "Bill"), CancellationToken.None);
-            var poll = await sendHandler.Handle(new SendGroupMessageCommand(group.Id, user1.Id, "poll", "Poll"), CancellationToken.None);
+            var bill = await sendHandler.Handle(new SendGroupMessageCommand(group.Id, user1.Id, "split_bill", "Bill", SplitBillMetadata(user1.Id)), CancellationToken.None);
+            var poll = await sendHandler.Handle(new SendGroupMessageCommand(group.Id, user1.Id, "poll", "Poll", PollMetadata), CancellationToken.None);
 
             var ackResult = await new AcknowledgeBroadcastCommandHandler(context, _dateTimeProvider)
                 .Handle(new AcknowledgeBroadcastCommand(secondGroup.Id, broadcast.Value.MessageId, user2.Id), CancellationToken.None);
@@ -325,8 +335,8 @@ public class GroupChatCommandHandlerTests
             var sendHandler = new SendGroupMessageCommandHandler(context, _dateTimeProvider);
             var textMsg = await sendHandler.Handle(new SendGroupMessageCommand(group.Id, user1.Id, "text", "Just text"), CancellationToken.None);
             var broadcastMsg = await sendHandler.Handle(new SendGroupMessageCommand(group.Id, user1.Id, "broadcast", "Notice"), CancellationToken.None);
-            var pollMsg = await sendHandler.Handle(new SendGroupMessageCommand(group.Id, user1.Id, "poll", "Lunch?"), CancellationToken.None);
-            var billMsg = await sendHandler.Handle(new SendGroupMessageCommand(group.Id, user1.Id, "split_bill", "Lunch 100k"), CancellationToken.None);
+            var pollMsg = await sendHandler.Handle(new SendGroupMessageCommand(group.Id, user1.Id, "poll", "Lunch?", PollMetadata), CancellationToken.None);
+            var billMsg = await sendHandler.Handle(new SendGroupMessageCommand(group.Id, user1.Id, "split_bill", "Lunch 100k", SplitBillMetadata(user1.Id)), CancellationToken.None);
 
             var ackResult = await new AcknowledgeBroadcastCommandHandler(context, _dateTimeProvider)
                 .Handle(new AcknowledgeBroadcastCommand(group.Id, textMsg.Value.MessageId, user2.Id), CancellationToken.None);

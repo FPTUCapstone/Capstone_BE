@@ -21,16 +21,13 @@ public sealed class ToggleExpensePaymentCommandHandler(
         ToggleExpensePaymentCommand request,
         CancellationToken cancellationToken)
     {
-        var message = await dbContext.GroupMessages
-            .Include(m => m.Group)
-            .Include(m => m.SplitBillPayments)
-            .FirstOrDefaultAsync(
-                m => m.Id == request.MessageId && m.GroupId == request.GroupId,
-                cancellationToken);
+        var group = await dbContext.TravelGroups
+            .AsNoTracking()
+            .FirstOrDefaultAsync(g => g.Id == request.GroupId, cancellationToken);
 
-        if (message is null)
+        if (group is null)
         {
-            return Result.Failure<IReadOnlyList<long>>(TravelGroupErrorCodes.MessageNotFound, "Message not found.");
+            return Result.Failure<IReadOnlyList<long>>(TravelGroupErrorCodes.GroupNotFound, "Group not found.");
         }
 
         var member = await dbContext.GroupMembers
@@ -44,7 +41,7 @@ public sealed class ToggleExpensePaymentCommandHandler(
             return Result.Failure<IReadOnlyList<long>>(TravelGroupErrorCodes.ActiveMembershipRequired, "Active membership is required.");
         }
 
-        if (message.Group.Status != TravelGroupStatus.Active)
+        if (group.Status != TravelGroupStatus.Active)
         {
             return Result.Failure<IReadOnlyList<long>>(TravelGroupErrorCodes.GroupClosed, "Cannot update expense payments in a closed group.");
         }
@@ -54,18 +51,35 @@ public sealed class ToggleExpensePaymentCommandHandler(
             return Result.Failure<IReadOnlyList<long>>(TravelGroupErrorCodes.ActiveMembershipRequired, "Active membership is required.");
         }
 
+        var message = await dbContext.GroupMessages
+            .Include(m => m.SplitBillPayments)
+            .FirstOrDefaultAsync(
+                m => m.Id == request.MessageId && m.GroupId == request.GroupId,
+                cancellationToken);
+
+        if (message is null)
+        {
+            return Result.Failure<IReadOnlyList<long>>(TravelGroupErrorCodes.MessageNotFound, "Message not found.");
+        }
+
         if (!string.Equals(message.MessageType, "split_bill", StringComparison.Ordinal))
         {
             return Result.Failure<IReadOnlyList<long>>(TravelGroupErrorCodes.InvalidMessageType, "Only split bill messages support payment updates.");
         }
 
         message.UpdateSplitBillPayment(request.UserId, request.IsPaid, dateTimeProvider.UtcNow);
-        await dbContext.SaveChangesAsync(cancellationToken);
+        await GroupChatPersistence.SaveInteractionAsync(dbContext, "UQ_GroupSplitBillPayments_MessageUser", async () =>
+        {
+            var winner = await dbContext.GroupSplitBillPayments.SingleAsync(
+                row => row.MessageId == request.MessageId && row.UserId == request.UserId, cancellationToken);
+            winner.UpdateStatus(request.IsPaid, dateTimeProvider.UtcNow);
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }, cancellationToken);
 
-        var paidUserIds = message.SplitBillPayments
-            .Where(p => p.IsPaid)
+        var paidUserIds = await dbContext.GroupSplitBillPayments.AsNoTracking()
+            .Where(p => p.MessageId == request.MessageId && p.IsPaid)
             .Select(p => p.UserId)
-            .ToList();
+            .ToListAsync(cancellationToken);
 
         return Result.Success<IReadOnlyList<long>>(paidUserIds);
     }

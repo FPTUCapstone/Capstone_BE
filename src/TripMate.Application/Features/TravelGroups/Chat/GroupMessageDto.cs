@@ -16,4 +16,5 @@ public sealed record GroupMessageDto(
     bool IsPresentByMe,
     IReadOnlyList<long> PaidUserIds,
     IReadOnlyDictionary<int, int> PollVoteCounts,
-    int? MyPollVoteOption);
+    int? MyPollVoteOption,
+    Guid? ClientMessageId = null);

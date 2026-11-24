@@ -12,6 +12,7 @@ using TripMate.Application.Features.TravelGroups.Chat;
 using TripMate.Application.Features.TravelGroups.Chat.AcknowledgeBroadcast;
 using TripMate.Application.Features.TravelGroups.Chat.CheckinRollCall;
 using TripMate.Application.Features.TravelGroups.Chat.GetGroupMessages;
+using TripMate.Application.Features.TravelGroups.Chat.MarkGroupChatRead;
 using TripMate.Application.Features.TravelGroups.Chat.SendGroupMessage;
 using TripMate.Application.Features.TravelGroups.Chat.ToggleExpensePayment;
 using TripMate.Application.Features.TravelGroups.Chat.VotePoll;
@@ -24,7 +25,8 @@ namespace TripMate.Api.Controllers.V1;
 public class GroupMessagesController(
     ISender sender,
     ICurrentUserService currentUserService,
-    IHubContext<GroupChatHub> hubContext) : ApiControllerBase(sender)
+    IHubContext<GroupChatHub> hubContext,
+    ILogger<GroupMessagesController> logger) : ApiControllerBase(sender)
 {
     [HttpGet]
     [ProducesResponseType(typeof(IReadOnlyList<GroupMessageDto>), StatusCodes.Status200OK)]
@@ -76,16 +78,31 @@ public class GroupMessagesController(
             currentUserService.UserId.Value,
             request.MessageType,
             request.Content,
-            request.MetadataJson);
+            request.MetadataJson,
+            request.ClientMessageId);
 
         var result = await Sender.Send(command, cancellationToken);
         if (!result.IsSuccess) return HandleFailure(result);
 
-        await hubContext.Clients
-            .Group(GroupChatHub.GetGroupRoom(groupId))
-            .SendAsync("MessageReceived", result.Value, cancellationToken);
+        await NotifyAsync(groupId, "MessageReceived", result.Value, cancellationToken);
 
         return StatusCode(StatusCodes.Status201Created, result.Value);
+    }
+
+    [HttpPost("read")]
+    [ProducesResponseType(typeof(GroupChatReadCursorDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> MarkRead(long groupId, [FromBody] MarkGroupChatReadRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!currentUserService.UserId.HasValue) return Unauthorized();
+        var result = await Sender.Send(new MarkGroupChatReadCommand(groupId,
+            currentUserService.UserId.Value, request.ThroughMessageId), cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 
     [HttpPost("{messageId:long}/acknowledge")]
@@ -112,9 +129,7 @@ public class GroupMessagesController(
         var result = await Sender.Send(command, cancellationToken);
         if (!result.IsSuccess) return HandleFailure(result);
 
-        await hubContext.Clients
-            .Group(GroupChatHub.GetGroupRoom(groupId))
-            .SendAsync("BroadcastAcknowledged", new { messageId, userId = currentUserService.UserId.Value, readCount = result.Value }, cancellationToken);
+        await NotifyAsync(groupId, "BroadcastAcknowledged", new { messageId, userId = currentUserService.UserId.Value, readCount = result.Value }, cancellationToken);
 
         return Ok(result.Value);
     }
@@ -143,9 +158,7 @@ public class GroupMessagesController(
         var result = await Sender.Send(command, cancellationToken);
         if (!result.IsSuccess) return HandleFailure(result);
 
-        await hubContext.Clients
-            .Group(GroupChatHub.GetGroupRoom(groupId))
-            .SendAsync("RollCallCheckedIn", new { messageId, userId = currentUserService.UserId.Value, presentCount = result.Value }, cancellationToken);
+        await NotifyAsync(groupId, "RollCallCheckedIn", new { messageId, userId = currentUserService.UserId.Value, presentCount = result.Value }, cancellationToken);
 
         return Ok(result.Value);
     }
@@ -175,9 +188,7 @@ public class GroupMessagesController(
         var result = await Sender.Send(command, cancellationToken);
         if (!result.IsSuccess) return HandleFailure(result);
 
-        await hubContext.Clients
-            .Group(GroupChatHub.GetGroupRoom(groupId))
-            .SendAsync("ExpensePaymentUpdated", new { messageId, paidUserIds = result.Value }, cancellationToken);
+        await NotifyAsync(groupId, "ExpensePaymentUpdated", new { messageId, paidUserIds = result.Value }, cancellationToken);
 
         return Ok(result.Value);
     }
@@ -207,10 +218,22 @@ public class GroupMessagesController(
         var result = await Sender.Send(command, cancellationToken);
         if (!result.IsSuccess) return HandleFailure(result);
 
-        await hubContext.Clients
-            .Group(GroupChatHub.GetGroupRoom(groupId))
-            .SendAsync("PollVoteRecorded", new { messageId, userId = currentUserService.UserId.Value, optionIndex = request.OptionIndex, counts = result.Value }, cancellationToken);
+        await NotifyAsync(groupId, "PollVoteRecorded", new { messageId, userId = currentUserService.UserId.Value, optionIndex = request.OptionIndex, counts = result.Value }, cancellationToken);
 
         return Ok(result.Value);
+    }
+    private async Task NotifyAsync(long groupId, string eventName, object payload, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var recipients = await Sender.Send(new GetGroupChatRecipientsQuery(groupId), cancellationToken);
+            await hubContext.Clients.Users(recipients).SendAsync(eventName, payload, cancellationToken);
+        }
+        catch (Exception)
+        {
+            // Persistence has committed. History/interaction reads provide the reload fallback.
+            // Avoid logging message content, user identifiers or exception payloads.
+            logger.LogWarning("Group chat notification {EventName} could not be delivered after persistence.", eventName);
+        }
     }
 }

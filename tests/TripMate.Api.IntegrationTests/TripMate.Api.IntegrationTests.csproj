@@ -198,4 +198,9 @@
     <None Include="..\..\database\migrations\20261007_extend_trip_review_typed_parents.sql" Condition="Exists('..\..\database\migrations\20261007_extend_trip_review_typed_parents.sql')" Link="Database\migrations\20261007_extend_trip_review_typed_parents.sql" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="..\..\database\migrations\20261123_add_direct_chat.sql"
+          Link="Database\migrations\20261123_add_direct_chat.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

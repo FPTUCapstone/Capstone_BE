@@ -6,6 +6,10 @@ namespace TripMate.Application.Common.Interfaces;
 
 public interface IApplicationDbContext
 {
+    DbSet<DirectConversation> DirectConversations { get; }
+
+    DbSet<DirectMessage> DirectMessages { get; }
+
     DbSet<User> Users { get; }
 
     DbSet<TravelerProfile> TravelerProfiles { get; }

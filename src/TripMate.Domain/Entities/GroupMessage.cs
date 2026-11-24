@@ -20,12 +20,15 @@ public class GroupMessage : BaseEntity
         string messageType,
         string content,
         string? metadataJson,
-        DateTimeOffset createdAtUtc)
+        DateTimeOffset createdAtUtc,
+        Guid? clientMessageId = null)
     {
         if (groupId <= 0) throw new ArgumentOutOfRangeException(nameof(groupId));
         if (senderUserId <= 0) throw new ArgumentOutOfRangeException(nameof(senderUserId));
         if (string.IsNullOrWhiteSpace(content)) throw new ArgumentException("Content is required.", nameof(content));
 
+        if (clientMessageId == Guid.Empty) throw new ArgumentException("Client message ID must not be empty.", nameof(clientMessageId));
+        ClientMessageId = clientMessageId;
         GroupId = groupId;
         SenderUserId = senderUserId;
         MessageType = messageType;
@@ -33,6 +36,8 @@ public class GroupMessage : BaseEntity
         MetadataJson = metadataJson;
         CreatedAtUtc = createdAtUtc;
     }
+
+    public Guid? ClientMessageId { get; private set; }
 
     public long GroupId { get; private set; }
     public TravelGroup Group { get; private set; } = null!;
@@ -53,13 +58,13 @@ public class GroupMessage : BaseEntity
     public void AddReadReceipt(long userId, DateTimeOffset readAtUtc)
     {
         if (_readReceipts.Any(r => r.UserId == userId)) return;
-        _readReceipts.Add(new GroupMessageReadReceipt(Id, userId, readAtUtc));
+        _readReceipts.Add(new GroupMessageReadReceipt(this, userId, readAtUtc));
     }
 
     public void AddRollCallCheckin(long userId, DateTimeOffset checkedInAtUtc)
     {
         if (_rollCallCheckins.Any(r => r.UserId == userId)) return;
-        _rollCallCheckins.Add(new GroupRollCallCheckin(Id, userId, checkedInAtUtc));
+        _rollCallCheckins.Add(new GroupRollCallCheckin(this, userId, checkedInAtUtc));
     }
 
     public void UpdateSplitBillPayment(long userId, bool isPaid, DateTimeOffset? paidAtUtc)
@@ -67,7 +72,7 @@ public class GroupMessage : BaseEntity
         var payment = _splitBillPayments.FirstOrDefault(p => p.UserId == userId);
         if (payment is null)
         {
-            _splitBillPayments.Add(new GroupSplitBillPayment(Id, userId, isPaid, paidAtUtc));
+            _splitBillPayments.Add(new GroupSplitBillPayment(this, userId, isPaid, paidAtUtc));
         }
         else
         {
@@ -84,6 +89,6 @@ public class GroupMessage : BaseEntity
             return;
         }
 
-        _pollVotes.Add(new GroupPollVote(Id, optionIndex, userId, votedAtUtc));
+        _pollVotes.Add(new GroupPollVote(this, optionIndex, userId, votedAtUtc));
     }
 }

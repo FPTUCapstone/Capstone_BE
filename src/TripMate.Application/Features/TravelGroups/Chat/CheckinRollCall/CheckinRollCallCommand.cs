@@ -20,16 +20,13 @@ public sealed class CheckinRollCallCommandHandler(
         CheckinRollCallCommand request,
         CancellationToken cancellationToken)
     {
-        var message = await dbContext.GroupMessages
-            .Include(m => m.Group)
-            .Include(m => m.RollCallCheckins)
-            .FirstOrDefaultAsync(
-                m => m.Id == request.MessageId && m.GroupId == request.GroupId,
-                cancellationToken);
+        var group = await dbContext.TravelGroups
+            .AsNoTracking()
+            .FirstOrDefaultAsync(g => g.Id == request.GroupId, cancellationToken);
 
-        if (message is null)
+        if (group is null)
         {
-            return Result.Failure<int>(TravelGroupErrorCodes.MessageNotFound, "Message not found.");
+            return Result.Failure<int>(TravelGroupErrorCodes.GroupNotFound, "Group not found.");
         }
 
         var member = await dbContext.GroupMembers
@@ -43,7 +40,7 @@ public sealed class CheckinRollCallCommandHandler(
             return Result.Failure<int>(TravelGroupErrorCodes.ActiveMembershipRequired, "Active membership is required.");
         }
 
-        if (message.Group.Status != TravelGroupStatus.Active)
+        if (group.Status != TravelGroupStatus.Active)
         {
             return Result.Failure<int>(TravelGroupErrorCodes.GroupClosed, "Cannot check in to a closed group.");
         }
@@ -53,14 +50,32 @@ public sealed class CheckinRollCallCommandHandler(
             return Result.Failure<int>(TravelGroupErrorCodes.ActiveMembershipRequired, "Active membership is required.");
         }
 
+        var message = await dbContext.GroupMessages
+            .Include(m => m.RollCallCheckins)
+            .FirstOrDefaultAsync(
+                m => m.Id == request.MessageId && m.GroupId == request.GroupId,
+                cancellationToken);
+
+        if (message is null)
+        {
+            return Result.Failure<int>(TravelGroupErrorCodes.MessageNotFound, "Message not found.");
+        }
+
         if (!string.Equals(message.MessageType, "roll_call", StringComparison.Ordinal))
         {
             return Result.Failure<int>(TravelGroupErrorCodes.InvalidMessageType, "Only roll call messages support check-in.");
         }
 
         message.AddRollCallCheckin(request.UserId, dateTimeProvider.UtcNow);
-        await dbContext.SaveChangesAsync(cancellationToken);
+        await GroupChatPersistence.SaveInteractionAsync(dbContext, "UQ_GroupRollCallCheckins_MessageUser", async () =>
+        {
+            var winner = await dbContext.GroupRollCallCheckins.SingleAsync(
+                row => row.MessageId == request.MessageId && row.UserId == request.UserId, cancellationToken);
+            // The winning confirmation already represents the requested state.
 
-        return Result.Success(message.RollCallCheckins.Count);
+        }, cancellationToken);
+
+        return Result.Success(await dbContext.GroupRollCallCheckins.AsNoTracking()
+            .CountAsync(row => row.MessageId == request.MessageId, cancellationToken));
     }
 }

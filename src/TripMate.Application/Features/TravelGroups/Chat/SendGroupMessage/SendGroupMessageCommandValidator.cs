@@ -19,6 +19,15 @@ public class SendGroupMessageCommandValidator : AbstractValidator<SendGroupMessa
             .WithMessage("Invalid message type.")
             .WithErrorCode(TravelGroupErrorCodes.InvalidMessageType);
 
+        RuleFor(x => x.ClientMessageId)
+            .Must(id => id != Guid.Empty)
+            .WithMessage("Client message ID must not be empty.")
+            .WithErrorCode(TravelGroupErrorCodes.InvalidMessageContent);
+
+        RuleFor(x => x).Must(x => GroupChatMetadata.IsValid(x.MetadataJson, x.MessageType))
+            .WithMessage("Metadata must be a valid JSON object of at most 16000 characters and depth 16 matching the message type requirements (polls require 2 to 6 options; split bills require valid positive integer amounts, recipient details, and participant allocations).")
+            .WithErrorCode(TravelGroupErrorCodes.InvalidPollOptions);
+
         RuleFor(x => x.Content)
             .Cascade(CascadeMode.Stop)
             .Must(c => !string.IsNullOrWhiteSpace(c))

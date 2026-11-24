@@ -82,14 +82,15 @@ public sealed class GroupMessagesSqlServerTests
         await using (var context = database.CreateDbContext())
         {
             var sendHandler = new SendGroupMessageCommandHandler(context, new FixedDateTimeProvider());
+            var billMetadata = $$"""{"totalAmount":600000,"payerName":"Host Traveler","payerBankName":"MBBank","payerBankAccount":"1234567890","participants":[{"userId":{{userId1}},"displayName":"Host Traveler","amount":300000},{"userId":{{userId2}},"displayName":"Tour Member","amount":300000}]}""";
             var billResult = await sendHandler.Handle(
-                new SendGroupMessageCommand(groupId, userId1, "split_bill", "Lunch 600k"),
+                new SendGroupMessageCommand(groupId, userId1, "split_bill", "Lunch 600k", billMetadata),
                 CancellationToken.None);
 
             billResult.IsSuccess.Should().BeTrue();
 
             var pollResult = await sendHandler.Handle(
-                new SendGroupMessageCommand(groupId, userId1, "poll", "Where next?"),
+                new SendGroupMessageCommand(groupId, userId1, "poll", "Where next?", "{\"options\":[{\"text\":\"Beach\"},{\"text\":\"Museum\"},{\"text\":\"Park\"}]}"),
                 CancellationToken.None);
 
             pollResult.IsSuccess.Should().BeTrue();

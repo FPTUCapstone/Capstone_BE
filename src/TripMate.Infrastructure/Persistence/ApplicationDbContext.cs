@@ -21,6 +21,10 @@ public class ApplicationDbContext(
     private const int SqlServerUniqueIndexError = 2601;
     private const int SqlServerUniqueConstraintError = 2627;
 
+    public DbSet<DirectConversation> DirectConversations => Set<DirectConversation>();
+
+    public DbSet<DirectMessage> DirectMessages => Set<DirectMessage>();
+
     public DbSet<User> Users => Set<User>();
 
     public DbSet<TravelerProfile> TravelerProfiles => Set<TravelerProfile>();

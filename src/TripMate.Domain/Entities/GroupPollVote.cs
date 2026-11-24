@@ -16,6 +16,12 @@ public class GroupPollVote : BaseEntity
         VotedAtUtc = votedAtUtc;
     }
 
+    internal GroupPollVote(GroupMessage message, int optionIndex, long userId, DateTimeOffset votedAtUtc)
+        : this(message.Id, optionIndex, userId, votedAtUtc)
+    {
+        Message = message;
+    }
+
     public long MessageId { get; private set; }
     public GroupMessage Message { get; private set; } = null!;
 

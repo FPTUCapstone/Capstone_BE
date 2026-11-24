@@ -174,9 +174,10 @@ public sealed class GroupMessagesEndpointTests
         (await checkin.Content.ReadFromJsonAsync<int>()).Should().Be(1);
 
         // 3. Host posts split_bill -> host already paid, member pays
+        var billMetadata = $$"""{"totalAmount":800000,"payerName":"Chat Host","payerBankName":"MBBank","payerBankAccount":"1234567890","participants":[{"userId":{{hostUserId}},"displayName":"Chat Host","amount":400000},{"userId":{{memberUserId}},"displayName":"Chat Member","amount":400000}]}""";
         var billResp = await hostClient.PostAsJsonAsync(
             $"/api/v1/travel-groups/{groupId}/messages",
-            new SendGroupMessageRequest("split_bill", "Cano Ticket 800k"));
+            new SendGroupMessageRequest("split_bill", "Cano Ticket 800k", billMetadata));
         var bill = (await billResp.Content.ReadFromJsonAsync<GroupMessageDto>())!;
         bill.PaidUserIds.Should().Contain(hostUserId);
 
@@ -190,7 +191,7 @@ public sealed class GroupMessagesEndpointTests
         // 4. Host posts poll -> member votes option 0 then switches to option 1
         var pollResp = await hostClient.PostAsJsonAsync(
             $"/api/v1/travel-groups/{groupId}/messages",
-            new SendGroupMessageRequest("poll", "Where to dine?"));
+            new SendGroupMessageRequest("poll", "Where to dine?", "{\"options\":[{\"text\":\"Restaurant\"},{\"text\":\"Market\"}]}"));
         var poll = (await pollResp.Content.ReadFromJsonAsync<GroupMessageDto>())!;
 
         (await memberClient.PostAsJsonAsync(
@@ -273,6 +274,55 @@ public sealed class GroupMessagesEndpointTests
         await memberHub.JoinGroupChat(groupId);
         fakeGroups.AddedRooms.Should().ContainSingle()
             .Which.Should().Be(("conn-member", GroupChatHub.GetGroupRoom(groupId)));
+    }
+
+    [Fact]
+    public async Task SecurityAndValidation_MemberBroadcastDenied_InvalidSplitBillRejected_OutsiderNo404Oracle()
+    {
+        await using var factory = new TripMateApiFactory();
+        var (hostUserId, memberUserId, outsiderUserId, groupId, _) = await SeedTwoGroupsAsync(factory);
+        using var hostClient = factory.CreateAuthenticatedClient(hostUserId, UserRole.Traveler);
+        using var memberClient = factory.CreateAuthenticatedClient(memberUserId, UserRole.Traveler);
+        using var outsiderClient = factory.CreateAuthenticatedClient(outsiderUserId, UserRole.Traveler);
+
+        // Regular Traveler member cannot send broadcast or roll_call
+        (await memberClient.PostAsJsonAsync(
+                $"/api/v1/travel-groups/{groupId}/messages",
+                new SendGroupMessageRequest("broadcast", "Unauthorized broadcast")))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await memberClient.PostAsJsonAsync(
+                $"/api/v1/travel-groups/{groupId}/messages",
+                new SendGroupMessageRequest("roll_call", "Unauthorized roll call")))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        // Invalid split_bill metadata rejected with 400
+        (await hostClient.PostAsJsonAsync(
+                $"/api/v1/travel-groups/{groupId}/messages",
+                new SendGroupMessageRequest("split_bill", "Bad bill", "{}")))
+            .StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await hostClient.PostAsJsonAsync(
+                $"/api/v1/travel-groups/{groupId}/messages",
+                new SendGroupMessageRequest("split_bill", "Null metadata bill")))
+            .StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        // Seed real broadcast + poll
+        var bMsg = (await (await hostClient.PostAsJsonAsync(
+                $"/api/v1/travel-groups/{groupId}/messages",
+                new SendGroupMessageRequest("broadcast", "Real notice")))
+            .Content.ReadFromJsonAsync<GroupMessageDto>())!;
+
+        // Outsider gets 403 (never 404) for both real and non-existent message IDs
+        foreach (var msgId in new[] { bMsg.MessageId, 99999999L })
+        {
+            (await outsiderClient.PostAsync($"/api/v1/travel-groups/{groupId}/messages/{msgId}/acknowledge", null))
+                .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+            (await outsiderClient.PostAsync($"/api/v1/travel-groups/{groupId}/messages/{msgId}/checkin", null))
+                .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+            (await outsiderClient.PostAsJsonAsync($"/api/v1/travel-groups/{groupId}/messages/{msgId}/vote", new VotePollRequest(0)))
+                .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+            (await outsiderClient.PostAsJsonAsync($"/api/v1/travel-groups/{groupId}/messages/{msgId}/toggle-payment", new TogglePaymentRequest(true)))
+                .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        }
     }
 
     private static async Task<(long HostUserId, long MemberUserId, long OutsiderUserId, long GroupAId, long GroupBId)> SeedTwoGroupsAsync(

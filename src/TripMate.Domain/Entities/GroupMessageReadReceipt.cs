@@ -15,6 +15,12 @@ public class GroupMessageReadReceipt : BaseEntity
         ReadAtUtc = readAtUtc;
     }
 
+    internal GroupMessageReadReceipt(GroupMessage message, long userId, DateTimeOffset readAtUtc)
+        : this(message.Id, userId, readAtUtc)
+    {
+        Message = message;
+    }
+
     public long MessageId { get; private set; }
     public GroupMessage Message { get; private set; } = null!;
 

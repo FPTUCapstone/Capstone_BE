@@ -15,6 +15,12 @@ public class GroupRollCallCheckin : BaseEntity
         CheckedInAtUtc = checkedInAtUtc;
     }
 
+    internal GroupRollCallCheckin(GroupMessage message, long userId, DateTimeOffset checkedInAtUtc)
+        : this(message.Id, userId, checkedInAtUtc)
+    {
+        Message = message;
+    }
+
     public long MessageId { get; private set; }
     public GroupMessage Message { get; private set; } = null!;
 

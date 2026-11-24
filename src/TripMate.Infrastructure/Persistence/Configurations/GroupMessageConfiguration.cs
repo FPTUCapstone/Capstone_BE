@@ -19,6 +19,10 @@ public class GroupMessageConfiguration : IEntityTypeConfiguration<GroupMessage>
         builder.Property(m => m.SenderUserId).HasColumnName("sender_user_id").IsRequired();
         builder.Property(m => m.MessageType).HasColumnName("message_type").HasMaxLength(20).IsRequired();
         builder.Property(m => m.Content).HasColumnName("content").IsRequired();
+        builder.Property(m => m.ClientMessageId).HasColumnName("client_message_id");
+        builder.HasIndex(m => new { m.GroupId, m.SenderUserId, m.ClientMessageId })
+            .HasDatabaseName("UX_GroupMessages_ClientMessageId")
+            .IsUnique().HasFilter("[client_message_id] IS NOT NULL");
         builder.Property(m => m.MetadataJson).HasColumnName("metadata_json");
         builder.Property(m => m.CreatedAtUtc).HasColumnName("created_at").AsUtcDateTime2().IsRequired();
 

@@ -452,6 +452,10 @@ internal sealed class UnsupportedInMemoryReviewMediaCoordinator
 public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     : DbContext(options), IApplicationDbContext
 {
+    public DbSet<DirectConversation> DirectConversations => Set<DirectConversation>();
+
+    public DbSet<DirectMessage> DirectMessages => Set<DirectMessage>();
+
     public DbSet<User> Users => Set<User>();
     public DbSet<PushDeviceToken> PushDeviceTokens => Set<PushDeviceToken>();
     public DbSet<TravelerProfile> TravelerProfiles => Set<TravelerProfile>();

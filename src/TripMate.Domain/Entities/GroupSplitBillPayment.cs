@@ -16,6 +16,12 @@ public class GroupSplitBillPayment : BaseEntity
         PaidAtUtc = paidAtUtc;
     }
 
+    internal GroupSplitBillPayment(GroupMessage message, long userId, bool isPaid, DateTimeOffset? paidAtUtc)
+        : this(message.Id, userId, isPaid, paidAtUtc)
+    {
+        Message = message;
+    }
+
     public long MessageId { get; private set; }
     public GroupMessage Message { get; private set; } = null!;
 

@@ -203,6 +203,10 @@ public class ConfirmPasswordResetFlowTests
 
         public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
+        DbSet<Domain.Entities.DirectConversation> IApplicationDbContext.DirectConversations => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.DirectMessage> IApplicationDbContext.DirectMessages => throw new NotSupportedException();
+
         // The confirm flow only touches Users and RefreshTokens; the remaining context
         // members are never reached, so their entity types are kept out of the model.
         DbSet<Domain.Entities.PoiCategory> IApplicationDbContext.PoiCategories => throw new NotSupportedException();

@@ -12,6 +12,10 @@ public class TestDbContext(
     DbContextOptions<TestDbContext> options)
     : DbContext(options), IApplicationDbContext
 {
+    public DbSet<DirectConversation> DirectConversations => Set<DirectConversation>();
+
+    public DbSet<DirectMessage> DirectMessages => Set<DirectMessage>();
+
     public DbSet<User> Users => Set<User>();
 
     public DbSet<TravelerProfile> TravelerProfiles => Set<TravelerProfile>();
@@ -523,6 +527,8 @@ public class TestDbContext(
         modelBuilder.Entity<TourDestination>()
             .HasKey(link => new { link.TourId, link.DestinationId });
 
+        modelBuilder.ApplyConfiguration(new TripMate.Infrastructure.Persistence.Configurations.DirectConversationConfiguration());
+        modelBuilder.ApplyConfiguration(new TripMate.Infrastructure.Persistence.Configurations.DirectMessageConfiguration());
         base.OnModelCreating(modelBuilder);
     }
 

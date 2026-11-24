@@ -9,4 +9,5 @@ public sealed record SendGroupMessageCommand(
     long SenderUserId,
     string MessageType,
     string Content,
-    string? MetadataJson = null) : IRequest<Result<GroupMessageDto>>;
+    string? MetadataJson = null,
+    Guid? ClientMessageId = null) : IRequest<Result<GroupMessageDto>>;

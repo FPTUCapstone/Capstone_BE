@@ -78,7 +78,8 @@ public sealed class GetGroupMessagesQueryHandler(IApplicationDbContext dbContext
                     m.RollCallCheckins.Any(c => c.UserId == request.UserId),
                     m.SplitBillPayments.Where(p => p.IsPaid).Select(p => p.UserId).ToList(),
                     pollCounts,
-                    myVote);
+                    myVote,
+                    m.ClientMessageId);
             })
             .ToList();
 
