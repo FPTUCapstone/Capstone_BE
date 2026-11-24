@@ -120,6 +120,92 @@ public sealed class TripSession : BaseEntity
         return session;
     }
 
+    /// <summary>The sequence number the next snapshot row must take: one after the highest row currently held.</summary>
+    public int NextItemSequenceNo => _items.Count == 0 ? 1 : _items.Max(item => item.SequenceNo) + 1;
+
+    /// <summary>
+    /// UC-15 step 1 of a reroute: drops every Pending snapshot row and returns them. Reached and Skipped rows
+    /// are history and stay. A terminal session is left alone.
+    /// </summary>
+    public IReadOnlyList<TripSessionItem> RemovePendingItems()
+    {
+        if (IsTerminal)
+        {
+            return [];
+        }
+
+        var pending = _items.Where(item => item.Status == TripSessionItem.PendingStatus).ToArray();
+        foreach (var item in pending)
+        {
+            _items.Remove(item);
+        }
+
+        return pending;
+    }
+
+    /// <summary>
+    /// UC-15 step 2 of a reroute: binds the session to the rerouted itinerary version and adds its remaining
+    /// rows. Requires <see cref="RemovePendingItems"/> first. The FSM state, the exploring item and the requested
+    /// itinerary id do not change; one history row records the rebind.
+    /// </summary>
+    public void AttachRerouteItems(
+        long newItineraryId,
+        IReadOnlyList<TripSessionItem> newItems,
+        DateTimeOffset nowUtc)
+    {
+        if (newItineraryId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(newItineraryId));
+        }
+
+        ArgumentNullException.ThrowIfNull(newItems);
+        EnsureUtc(nowUtc, nameof(nowUtc));
+        if (IsTerminal)
+        {
+            throw new InvalidOperationException("A finished session cannot be rerouted.");
+        }
+
+        if (_items.Any(item => item.Status == TripSessionItem.PendingStatus))
+        {
+            throw new InvalidOperationException("Remove the pending items before attaching the rerouted ones.");
+        }
+
+        if (newItems.Count == 0)
+        {
+            throw new ArgumentException("A rerouted plan needs at least one remaining item.", nameof(newItems));
+        }
+
+        var ordered = newItems.OrderBy(item => item.SequenceNo).ToArray();
+        var expectedFirst = NextItemSequenceNo;
+        if (ordered.Select((item, index) => item.SequenceNo == expectedFirst + index).Any(ok => !ok))
+        {
+            throw new ArgumentException(
+                "Rerouted items must continue the sequence consecutively after the kept items.",
+                nameof(newItems));
+        }
+
+        var heldIds = _items.Select(item => item.ItineraryItemId).ToHashSet();
+        if (ordered.Select(item => item.ItineraryItemId).Distinct().Count() != ordered.Length
+            || ordered.Any(item => heldIds.Contains(item.ItineraryItemId)))
+        {
+            throw new ArgumentException("An itinerary item may appear only once in the session.", nameof(newItems));
+        }
+
+        foreach (var item in ordered)
+        {
+            item.AttachTo(this);
+            _items.Add(item);
+        }
+
+        ItineraryId = newItineraryId;
+        RecordTransition(
+            FsmState,
+            FsmState,
+            TripStateHistory.RerouteAcceptedReason,
+            TripStateHistory.TriggeredByTraveler,
+            nowUtc);
+    }
+
     public TripSessionProgressOutcome ReachItem(long itineraryItemId, DateTimeOffset reachedAtUtc)
     {
         EnsureUtc(reachedAtUtc, nameof(reachedAtUtc));
