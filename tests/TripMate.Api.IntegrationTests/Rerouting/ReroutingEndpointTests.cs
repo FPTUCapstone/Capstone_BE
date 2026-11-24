@@ -158,6 +158,65 @@ public sealed class ReroutingEndpointTests
     }
 
     [Fact]
+    public async Task Reject_ThenReplay_ThenAccept_FollowTheContractWithTheRealHandlers()
+    {
+        await using var factory = new TripMateApiFactory();
+        Seed seed = null!;
+        await factory.WithDbContextAsync(async db => seed = await SeedAsync(db, DateTimeOffset.UtcNow, sessionStartedAt: DateTimeOffset.UtcNow.AddHours(-1)));
+        using var client = factory.CreateAuthenticatedClient(seed.TravelerId, UserRole.Traveler);
+
+        var first = await client.PutAsync(Url(seed.SessionId, seed.ProposalId) + "/rejection", null);
+        var replay = await client.PutAsync(Url(seed.SessionId, seed.ProposalId) + "/rejection", null);
+        var accept = await client.PutAsync(Url(seed.SessionId, seed.ProposalId) + "/acceptance", null);
+
+        first.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        replay.StatusCode.Should().Be(HttpStatusCode.NoContent);
+        accept.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await ErrorCodeAsync(accept)).Should().Be(ReroutingErrorCodes.ProposalClosed);
+        var stored = await factory.WithDbContextAsync(db =>
+            db.ReroutingEvents.AsNoTracking().SingleAsync(proposal => proposal.Id == seed.ProposalId));
+        stored.Status.Should().Be(ReroutingEvent.StatusRejected);
+        stored.DecidedAtUtc.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task Accept_OfAnOverdueProposal_IsConflictAndTheExpiryIsPersisted()
+    {
+        await using var factory = new TripMateApiFactory();
+        Seed seed = null!;
+        await factory.WithDbContextAsync(async db => seed = await SeedAsync(
+            db, DateTimeOffset.UtcNow.AddHours(-2), sessionStartedAt: DateTimeOffset.UtcNow.AddHours(-3)));
+        using var client = factory.CreateAuthenticatedClient(seed.TravelerId, UserRole.Traveler);
+
+        var response = await client.PutAsync(Url(seed.SessionId, seed.ProposalId) + "/acceptance", null);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await ErrorCodeAsync(response)).Should().Be(ReroutingErrorCodes.ProposalExpired);
+        var stored = await factory.WithDbContextAsync(db =>
+            db.ReroutingEvents.AsNoTracking().SingleAsync(proposal => proposal.Id == seed.ProposalId));
+        stored.Status.Should().Be(ReroutingEvent.StatusExpired);
+    }
+
+    [Fact]
+    public async Task Accept_ByAnotherTraveler_IsNotFoundAndNothingChanges()
+    {
+        await using var factory = new TripMateApiFactory();
+        Seed seed = null!;
+        await factory.WithDbContextAsync(async db => seed = await SeedAsync(db, DateTimeOffset.UtcNow, sessionStartedAt: DateTimeOffset.UtcNow.AddHours(-1)));
+        using var client = factory.CreateAuthenticatedClient(seed.OtherTravelerId, UserRole.Traveler);
+
+        var accept = await client.PutAsync(Url(seed.SessionId, seed.ProposalId) + "/acceptance", null);
+        var reject = await client.PutAsync(Url(seed.SessionId, seed.ProposalId) + "/rejection", null);
+
+        accept.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        reject.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await ErrorCodeAsync(accept)).Should().Be(ReroutingErrorCodes.NotFound);
+        var stored = await factory.WithDbContextAsync(db =>
+            db.ReroutingEvents.AsNoTracking().SingleAsync(proposal => proposal.Id == seed.ProposalId));
+        stored.Status.Should().Be(ReroutingEvent.StatusProposed);
+    }
+
+    [Fact]
     public async Task Reject_Success_IsNoContent()
     {
         await using var factory = new TripMateApiFactory(configureTestServices: services =>
@@ -180,7 +239,11 @@ public sealed class ReroutingEndpointTests
 
     private sealed record Seed(long TravelerId, long OtherTravelerId, long SessionId, long ProposalId);
 
-    private static async Task<Seed> SeedAsync(IApplicationDbContext db, DateTimeOffset proposedAt, bool demoSnapshot = false)
+    private static async Task<Seed> SeedAsync(
+        IApplicationDbContext db,
+        DateTimeOffset proposedAt,
+        bool demoSnapshot = false,
+        DateTimeOffset? sessionStartedAt = null)
     {
         var suffix = Guid.NewGuid().ToString("N");
         var traveler = NewTraveler($"uc15-owner-{suffix}@example.com");
@@ -207,8 +270,9 @@ public sealed class ReroutingEndpointTests
         db.Itineraries.Add(itinerary);
         await db.SaveChangesAsync(CancellationToken.None);
         var items = itinerary.Items.OrderBy(item => item.SequenceNo).ToArray();
+        var sessionStart = sessionStartedAt ?? Base;
         var session = TripSession.Start(
-            itinerary.Id, itinerary.Id, traveler.Id, Guid.NewGuid(), Base, Base.AddHours(8),
+            itinerary.Id, itinerary.Id, traveler.Id, Guid.NewGuid(), sessionStart, sessionStart.AddHours(8),
             items.Select((item, index) => TripSessionItem.Snapshot(
                 item.Id, item.SequenceNo, pois[index].Id, pois[index].Name, pois[index].Latitude, pois[index].Longitude,
                 item.PlannedArrivalUtc!.Value, item.PlannedDepartureUtc!.Value, false)));
