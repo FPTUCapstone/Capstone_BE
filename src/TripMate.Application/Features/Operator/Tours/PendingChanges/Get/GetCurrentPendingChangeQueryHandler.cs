@@ -47,7 +47,8 @@ public sealed class GetCurrentPendingChangeQueryHandler(
         }
 
         return Result.Success(new GetCurrentPendingChangeResponse(
-            changeSet.Id, changeSet.TourId, changeSet.Status.ToString(), changeSet.CategoryId,
+            changeSet.Id, changeSet.TourId, changeSet.Status.ToString(),
+            changeSet.CategoryId == 0 ? null : changeSet.CategoryId,
             changeSet.Title, changeSet.Description, changeSet.BasePrice, changeSet.DurationDays,
             changeSet.Inclusions, changeSet.Exclusions, changeSet.Highlights,
             changeSet.TravellerRequirements, changeSet.TimeZoneId,

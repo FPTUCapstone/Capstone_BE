@@ -18,7 +18,8 @@ public sealed class GetModerationQueueQueryHandlerTests
         await using var db = TestDbContext.Create();
         var handler = new GetModerationQueueQueryHandler(db, new FakeCurrentUserService
         {
-            UserId = 1, Role = nameof(UserRole.TourOperator),
+            UserId = 1,
+            Role = nameof(UserRole.TourOperator),
         });
 
         var result = await handler.Handle(new GetModerationQueueQuery(), CancellationToken.None);
@@ -62,7 +63,8 @@ public sealed class GetModerationQueueQueryHandlerTests
 
         var handler = new GetModerationQueueQueryHandler(db, new FakeCurrentUserService
         {
-            UserId = staff.Id, Role = nameof(UserRole.Staff),
+            UserId = staff.Id,
+            Role = nameof(UserRole.Staff),
         });
 
         var result = await handler.Handle(new GetModerationQueueQuery(), CancellationToken.None);
@@ -87,8 +89,11 @@ public sealed class GetModerationQueueQueryHandlerTests
     {
         var user = new User
         {
-            Id = 500, Email = "staff@test.local", FullName = "Staff",
-            Role = UserRole.Staff, Status = AccountStatus.Active,
+            Id = 500,
+            Email = "staff@test.local",
+            FullName = "Staff",
+            Role = UserRole.Staff,
+            Status = AccountStatus.Active,
         };
         db.Users.Add(user);
         await db.SaveChangesAsync();
@@ -99,14 +104,21 @@ public sealed class GetModerationQueueQueryHandlerTests
     {
         var user = new User
         {
-            Id = 1, Email = "1@test.local", FullName = "Operator",
-            Role = UserRole.TourOperator, Status = AccountStatus.Active,
+            Id = 1,
+            Email = "1@test.local",
+            FullName = "Operator",
+            Role = UserRole.TourOperator,
+            Status = AccountStatus.Active,
         };
         db.Users.Add(user);
         db.OperatorProfiles.Add(new OperatorProfile
         {
-            UserId = 1, User = user, CompanyName = "Tour Co", TaxCode = "Tax1",
-            BusinessLicenseNo = "Lic1", ApprovalStatus = OperatorApprovalStatus.Approved,
+            UserId = 1,
+            User = user,
+            CompanyName = "Tour Co",
+            TaxCode = "Tax1",
+            BusinessLicenseNo = "Lic1",
+            ApprovalStatus = OperatorApprovalStatus.Approved,
         });
         await db.SaveChangesAsync();
         return user;

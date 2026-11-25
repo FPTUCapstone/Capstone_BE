@@ -156,14 +156,21 @@ public sealed class CreatePendingChangeCommandHandlerTests
     {
         var user = new User
         {
-            Id = id, Email = $"{id}@test.local", FullName = "Operator",
-            Role = UserRole.TourOperator, Status = AccountStatus.Active,
+            Id = id,
+            Email = $"{id}@test.local",
+            FullName = "Operator",
+            Role = UserRole.TourOperator,
+            Status = AccountStatus.Active,
         };
         db.Users.Add(user);
         db.OperatorProfiles.Add(new OperatorProfile
         {
-            UserId = id, User = user, CompanyName = "Tour Co", TaxCode = $"Tax{id}",
-            BusinessLicenseNo = $"Lic{id}", ApprovalStatus = OperatorApprovalStatus.Approved,
+            UserId = id,
+            User = user,
+            CompanyName = "Tour Co",
+            TaxCode = $"Tax{id}",
+            BusinessLicenseNo = $"Lic{id}",
+            ApprovalStatus = OperatorApprovalStatus.Approved,
         });
         await db.SaveChangesAsync();
         return user;

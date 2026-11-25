@@ -124,7 +124,9 @@ public sealed class ApprovePendingChangeCommandHandlerTests
         var changeSet = await CreateSubmittedDraftAsync(db, actor, tour);
         var handler = BuildHandler(db);
         int callsBeforeHandle = db.SaveChangesAsyncCallCount;
-        db.SaveChangesAttemptFailureFactory = attempt => attempt == callsBeforeHandle + 2
+        // Inside the transaction: Phase 1 (delete old children) + Phase 2 (apply + audit) = 2
+        // saves; the notification attempt after commit is the 3rd save from this point.
+        db.SaveChangesAttemptFailureFactory = attempt => attempt == callsBeforeHandle + 3
             ? new InvalidOperationException("Simulated notification save failure.")
             : null;
 
@@ -149,14 +151,21 @@ public sealed class ApprovePendingChangeCommandHandlerTests
         await TourAuthoringTestData.SeedReferenceDataAsync(db);
         var user = new User
         {
-            Id = 1, Email = "1@test.local", FullName = "Operator",
-            Role = UserRole.TourOperator, Status = AccountStatus.Active,
+            Id = 1,
+            Email = "1@test.local",
+            FullName = "Operator",
+            Role = UserRole.TourOperator,
+            Status = AccountStatus.Active,
         };
         db.Users.Add(user);
         db.OperatorProfiles.Add(new OperatorProfile
         {
-            UserId = 1, User = user, CompanyName = "Tour Co", TaxCode = "Tax1",
-            BusinessLicenseNo = "Lic1", ApprovalStatus = OperatorApprovalStatus.Approved,
+            UserId = 1,
+            User = user,
+            CompanyName = "Tour Co",
+            TaxCode = "Tax1",
+            BusinessLicenseNo = "Lic1",
+            ApprovalStatus = OperatorApprovalStatus.Approved,
         });
         var poi = (PointOfInterest)Activator.CreateInstance(typeof(PointOfInterest), nonPublic: true)!;
         typeof(PointOfInterest).GetProperty(nameof(PointOfInterest.Id))!.SetValue(poi, 88L);

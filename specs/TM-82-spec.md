@@ -1,13 +1,14 @@
-# TM-82 / UC-36 - Update Tour Package (Draft, revision 5)
+# TM-82 / UC-36 - Update Tour Package (Draft, revision 6)
 
 Status: **Approved by the Task Owner (Mai Nguyễn Tiến Đạt) on 2026-11-25.** Cleared to move into
-the plan and implementation phases (AGENTS.md §1.2 steps 2-4). This revision replaces revision 4
-and records four further decisions the Task Owner made alongside clearing implementation to begin
-(§3, point H) — a deliberate departure from UC-60/UC-61's notification-retry wording (H.D1), a
-closed scope boundary on tour media (H.D2), a clarified BR-101 field list for the draft version
-(H.D3), and no change to §3 point B/G5's locked transaction shape (H.D1 only narrows what "stop and
-ask" in that section still covers). Revision 4's own content is otherwise unchanged; see §13 for the
-full diff.
+the plan and implementation phases (AGENTS.md §1.2 steps 2-4). This revision replaces revision 5
+and records §3 point I: the moderating role for TM-82's Approve/Reject endpoints is `UserRole.Staff`,
+re-verified against `develop` at implementation time (Task 7) after 291 commits moved the codebase
+past the role mapping revision 4/5 had concluded. Revision 5 recorded four decisions the Task Owner
+made alongside clearing implementation to begin (§3, point H) — a deliberate departure from
+UC-60/UC-61's notification-retry wording (H.D1), a closed scope boundary on tour media (H.D2), a
+clarified BR-101 field list for the draft version (H.D3), and no change to §3 point B/G5's locked
+transaction shape. Revisions 4-5's own content is otherwise unchanged; see §13/§14 for the full diff.
 
 ## 0. Why this spec exists
 
@@ -221,15 +222,17 @@ is incomplete even within the DOCX itself (UC-60's own Validation table line sti
 "Administrator" while the rest of that same use case in the same file says "Staff"; and UC-37's
 separate PC-02 reference to the "moderation queue of the Administrator" was not updated either).
 
-**Per the Task Owner's locked decision (§3, point A3): this spec maps "Staff" to the existing
-`UserRole.Administrator`**, matching every currently-shipped review handler
-(`TourReviewCommandHandlers.cs`'s Approve/Reject/Publish/Unpublish all gate on
-`currentUser.Role != nameof(UserRole.Administrator)`, **VERIFIED**). This is recorded as a
-**deliberate implementation mapping, not a claim that the SRS is internally consistent** — if the
-project later introduces a true separate `Staff` role distinct from `Administrator`, UC-60/UC-61's
-moderation endpoints (both the existing ones and this spec's new draft-version ones) would need a
-follow-up ticket to re-target that role. This spec does not invent a new role to resolve the
-document's own inconsistency.
+**SUPERSEDED at implementation time (2026-11-25, Task 7) — see §3 point I.** This §1.3 analysis was
+written against the `develop` snapshot available when revision 4/5 were drafted, where
+`TourReviewCommandHandlers.cs` gated on `UserRole.Administrator`. By the time Task 7 implemented
+the Approve/Reject endpoints, `develop` had moved 291 commits ahead and already introduced a real,
+separate `UserRole.Staff`; `TourReviewCommandHandlers.cs`'s Approve/Reject/Publish/Unpublish now
+gate on `currentUser.Role != nameof(UserRole.Staff)`, not `Administrator`. The "deliberate
+implementation mapping" paragraph that used to follow this sentence described a decision that was
+correct for the code at the time it was written, but is no longer what the codebase does — it is
+struck here rather than left to silently disagree with §3 point I and the shipped handlers. The
+original paragraph is preserved in revision history for anyone auditing how this conclusion
+changed.
 
 ### 1.4 Appendix §5.1 vs. UC body text — now closed (was Open item 2)
 
@@ -560,6 +563,23 @@ to proceed to the plan and implementation phases per AGENTS.md §1.2.
    appears to conflict with something in the codebase, **stop and ask — do not guess** (per this
    point's own instruction and AGENTS.md §1.1); this spec does not pre-resolve a conflict that has
    not yet been found.
+
+### I. Moderating role re-verified at implementation time — Staff, not Administrator (2026-11-25, Task 7, revision 6)
+
+**§1.3/§3 point A3's "map Staff to `UserRole.Administrator`" conclusion is superseded.** It was
+correct for the `develop` snapshot available when revisions 4-5 were written, but `develop` moved
+291 commits ahead before Task 7 implemented the Approve/Reject endpoints, and by then a real,
+separate `UserRole.Staff` already existed in the codebase — confirmed by inspecting
+`TourReviewCommandHandlers.cs` at implementation time: every one of its Approve/Reject/Publish/
+Unpublish handlers gates on `currentUser.Role != nameof(UserRole.Staff)`, not `Administrator`.
+Stopped and confirmed with the Task Owner before implementing (not inferred): **TM-82's new
+Approve/Reject endpoints (spec §5.7-§5.8) use `UserRole.Staff`**, matching the existing moderation
+flow exactly, not the `Administrator` mapping §1.3 concluded. Every place in this document that
+still reads "the mapped Administrator role" (§7's error contract table, acceptance criterion 4,
+§10's closed-item analysis) means **Staff** as of this revision — those references are not
+individually rewritten below, since they predate a conclusion this point supersedes, but this point
+is the authoritative statement of which role gates the implemented endpoints. §4.1/§5's `Tour`/
+`TourPendingChangeSet` design is unaffected; only the role check's target changed.
 
 ## 4. Domain model
 
@@ -1109,3 +1129,28 @@ Task Owner's approval record, §3 point G.**
 - No changes to §3 point B/G5's locked transaction shape (decision-then-notify), to the domain
   model (§4), to the API contract (§5), to the error contract (§7), or to the data/architecture
   section (§8) beyond what H.D1-H.D3 state above.
+
+## 14. Changelog versus revision 5 (this revision)
+
+- **I.** Superseded §1.3/§3 point A3's "Staff maps to `UserRole.Administrator`" conclusion. Code
+  inspection at Task 7 implementation time found `develop` had moved 291 commits ahead since
+  revisions 4-5 were drafted and already shipped a real, separate `UserRole.Staff`;
+  `TourReviewCommandHandlers.cs`'s Approve/Reject/Publish/Unpublish handlers gate on
+  `currentUser.Role != nameof(UserRole.Staff)`, not `Administrator`. Confirmed with the Task Owner
+  before implementing. TM-82's Approve/Reject endpoints now gate on `UserRole.Staff`, matching the
+  existing moderation flow. §1.3's own analysis is marked superseded in place rather than deleted,
+  to preserve the record of why the original conclusion was reached and why it no longer holds.
+  Every other place in this document reading "the mapped Administrator role" means Staff as of
+  this revision (§3 point I is authoritative; those references are not individually rewritten).
+- Found and fixed during PR #212 acceptance review (not a spec change, recorded here for context):
+  `Tour.ApplyPendingChange`'s cancellation-policy/destination/itinerary-item replacement needed the
+  same two-phase delete-then-save split `UpdateTourDraftCommandHandler` already uses, to avoid a
+  unique-constraint violation when a re-approved draft version reproduces an unchanged cutoff/day/
+  destination key; BR-61 needed re-checking at submit time (not just save and approve) against
+  current `ReservedCapacity`; a past-departure schedule's non-date fields (capacity, price, meeting
+  point) were not being pinned to their live values the way §3 point D already required for dates;
+  concurrent create needed the same retry loop `CreateTourPackageCommandHandler` already has; and
+  several TM-82 error codes needed their own HTTP status mapping distinct from the pre-existing
+  UC-60/UC-61 codes they were incorrectly reusing. None of these are spec-level changes — §3 point D,
+  §6.4, and §8's existing text already required this behavior; the implementation had not fully
+  satisfied it.

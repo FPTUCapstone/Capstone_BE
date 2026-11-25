@@ -465,7 +465,7 @@ public class Tour : BaseEntity
         TravellerRequirements = NormalizeTerms(travellerRequirements, nameof(travellerRequirements));
         TimeZoneId = NormalizeTimeZoneId(timeZoneId);
 
-        ReconcileSchedules(schedules);
+        ReconcileSchedules(schedules, normalizedAppliedAtUtc);
         ApplyPendingItineraryItems(itineraryItems);
         ReplaceDraftDestinationsCore(destinationIds, destinationSummary);
         ApplyCancellationPolicySnapshotCore(cancellationPolicy);
@@ -473,14 +473,17 @@ public class Tour : BaseEntity
         UpdatedAtUtc = normalizedAppliedAtUtc;
     }
 
-    private void ReconcileSchedules(IEnumerable<TourSchedule> proposedSchedules)
+    private void ReconcileSchedules(IEnumerable<TourSchedule> proposedSchedules, DateTimeOffset nowUtc)
     {
         var proposed = proposedSchedules?.ToArray() ?? throw new ArgumentNullException(nameof(proposedSchedules));
         if (proposed.Length == 0) throw new ArgumentException("At least one schedule is required.", nameof(proposedSchedules));
 
         var proposedIds = proposed.Where(schedule => schedule.Id != 0).Select(schedule => schedule.Id).ToHashSet();
+        // spec §3 point D: a past-departure schedule is never removed by reconciliation, even when
+        // it carries no reservations — only a future schedule with no reservations is prunable.
         var removable = _schedules
-            .Where(existing => !proposedIds.Contains(existing.Id) && existing.ReservedCapacity == 0)
+            .Where(existing => !proposedIds.Contains(existing.Id) && existing.ReservedCapacity == 0
+                && existing.StartAtUtc > nowUtc)
             .ToList();
         foreach (var schedule in removable)
         {

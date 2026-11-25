@@ -44,7 +44,7 @@ public sealed class RejectPendingChangeCommandHandlerTests
             new RejectPendingChangeCommand(changeSet.Id, reason!), CancellationToken.None);
 
         result.IsFailure.Should().BeTrue();
-        result.ErrorCode.Should().Be("operator_tour.rejection_reason_invalid");
+        result.ErrorCode.Should().Be("operator_tour.pending_change_rejection_reason_invalid");
         result.ErrorMessage.Should().Contain("MSG123");
     }
 
@@ -115,14 +115,21 @@ public sealed class RejectPendingChangeCommandHandlerTests
         await TourAuthoringTestData.SeedReferenceDataAsync(db);
         var user = new User
         {
-            Id = 1, Email = "1@test.local", FullName = "Operator",
-            Role = UserRole.TourOperator, Status = AccountStatus.Active,
+            Id = 1,
+            Email = "1@test.local",
+            FullName = "Operator",
+            Role = UserRole.TourOperator,
+            Status = AccountStatus.Active,
         };
         db.Users.Add(user);
         db.OperatorProfiles.Add(new OperatorProfile
         {
-            UserId = 1, User = user, CompanyName = "Tour Co", TaxCode = "Tax1",
-            BusinessLicenseNo = "Lic1", ApprovalStatus = OperatorApprovalStatus.Approved,
+            UserId = 1,
+            User = user,
+            CompanyName = "Tour Co",
+            TaxCode = "Tax1",
+            BusinessLicenseNo = "Lic1",
+            ApprovalStatus = OperatorApprovalStatus.Approved,
         });
         var poi = (PointOfInterest)Activator.CreateInstance(typeof(PointOfInterest), nonPublic: true)!;
         typeof(PointOfInterest).GetProperty(nameof(PointOfInterest.Id))!.SetValue(poi, 88L);

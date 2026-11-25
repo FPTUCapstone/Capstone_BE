@@ -6,6 +6,7 @@ using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Operator.Tours.Common;
 using TripMate.Application.Features.Operator.Tours.PendingChanges.Common;
+using TripMate.Domain.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -61,6 +62,8 @@ public sealed class SavePendingChangeCommandHandler(
 
             var liveSchedulesById = tour.Schedules.ToDictionary(schedule => schedule.Id);
             DateTimeOffset now = clock.UtcNow;
+            var effectiveSchedules = new List<PendingChangeScheduleItem>(request.Schedules.Count);
+            var pastDepartureScheduleIdsSeen = new HashSet<long>();
 
             foreach (var proposed in request.Schedules)
             {
@@ -73,28 +76,62 @@ public sealed class SavePendingChangeCommandHandler(
                             "A proposed schedule does not belong to this tour.");
                     }
 
-                    bool isPastDeparture = liveSchedule.StartAtUtc <= now;
-                    bool isUnchanged = isPastDeparture && liveSchedule.StartAtUtc == proposed.StartAtUtc
-                        && liveSchedule.EndAtUtc == proposed.EndAtUtc;
-                    if (!isUnchanged && proposed.StartAtUtc <= now)
+                    // spec §3 point D: a past-departure schedule is always carried over verbatim
+                    // with its ORIGINAL field values — never re-validated against BR-22, and never
+                    // allowed to drift (capacity, price, meeting point, etc.) just because the
+                    // request body still includes it. The live row's values always win here,
+                    // regardless of what the operator proposed.
+                    if (liveSchedule.StartAtUtc <= now)
+                    {
+                        pastDepartureScheduleIdsSeen.Add(liveSchedule.Id);
+                        effectiveSchedules.Add(new PendingChangeScheduleItem(
+                            liveSchedule.Id, liveSchedule.StartAtUtc, liveSchedule.EndAtUtc,
+                            liveSchedule.MeetingPoint, liveSchedule.TotalCapacity, liveSchedule.MinimumCapacity,
+                            liveSchedule.RegistrationDeadlineAtUtc, liveSchedule.AdultPrice,
+                            liveSchedule.ChildPrice, liveSchedule.InfantPrice, liveSchedule.MeetingLatitude,
+                            liveSchedule.MeetingLongitude));
+                        continue;
+                    }
+
+                    if (proposed.StartAtUtc <= now)
                     {
                         return Result.Failure<PendingChangeSavedResponse>(
                             OperatorTourErrorCodes.InvalidScheduleDate,
                             "MSG29: the departure date must not be earlier than the current date.");
                     }
-
                     if (proposed.TotalCapacity < liveSchedule.ReservedCapacity)
                     {
                         return Result.Failure<PendingChangeSavedResponse>(
                             OperatorTourErrorCodes.ScheduleHasActiveBookings,
                             "MSG143: the capacity cannot be reduced below the number of slots already sold.");
                     }
+                    effectiveSchedules.Add(proposed);
                 }
-                else if (proposed.StartAtUtc <= now)
+                else
                 {
-                    return Result.Failure<PendingChangeSavedResponse>(
-                        OperatorTourErrorCodes.InvalidScheduleDate,
-                        "MSG29: the departure date must not be earlier than the current date.");
+                    if (proposed.StartAtUtc <= now)
+                    {
+                        return Result.Failure<PendingChangeSavedResponse>(
+                            OperatorTourErrorCodes.InvalidScheduleDate,
+                            "MSG29: the departure date must not be earlier than the current date.");
+                    }
+                    effectiveSchedules.Add(proposed);
+                }
+            }
+
+            // spec §3 point D: a past-departure schedule can never be removed from the draft by
+            // omitting it from the request body — it is always present in the saved payload,
+            // regardless of what the operator submitted.
+            foreach (var liveSchedule in tour.Schedules)
+            {
+                if (liveSchedule.StartAtUtc <= now && pastDepartureScheduleIdsSeen.Add(liveSchedule.Id))
+                {
+                    effectiveSchedules.Add(new PendingChangeScheduleItem(
+                        liveSchedule.Id, liveSchedule.StartAtUtc, liveSchedule.EndAtUtc,
+                        liveSchedule.MeetingPoint, liveSchedule.TotalCapacity, liveSchedule.MinimumCapacity,
+                        liveSchedule.RegistrationDeadlineAtUtc, liveSchedule.AdultPrice,
+                        liveSchedule.ChildPrice, liveSchedule.InfantPrice, liveSchedule.MeetingLatitude,
+                        liveSchedule.MeetingLongitude));
                 }
             }
 
@@ -111,7 +148,7 @@ public sealed class SavePendingChangeCommandHandler(
 
             string destinationIdsJson = PendingChangePayload.SerializeDestinationIds(request.DestinationIds);
             string itineraryItemsJson = PendingChangePayload.SerializeItineraryItems(request.ItineraryItems);
-            string schedulesJson = PendingChangePayload.SerializeSchedules(request.Schedules);
+            string schedulesJson = PendingChangePayload.SerializeSchedules(effectiveSchedules);
             string destinationSummary = OperatorTourValidation.BuildDestinationSummary(
                 destinationIds.Select(id => destinationNames[id]));
 
@@ -121,6 +158,10 @@ public sealed class SavePendingChangeCommandHandler(
                 request.TravellerRequirements, request.TimeZoneId ?? Tour.DefaultTimeZoneId,
                 destinationIdsJson, destinationSummary,
                 request.CancellationPolicyTemplateId, itineraryItemsJson, schedulesJson, now);
+
+            dbContext.AuditLogs.Add(AuditLog.CreateRecordedOutcome(operatorId,
+                AuditActionTypes.TourPendingChangeSaved, AuditEntityTypes.Tour, tour.Id, now,
+                AuditOutcome.Success));
 
             await dbContext.SaveChangesAsync(transactionCancellationToken);
 

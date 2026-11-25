@@ -39,9 +39,11 @@ public sealed class SubmitPendingChangeCommandHandler(
                 transactionCancellationToken);
             if (!eligible) return AccessDenied();
 
-            Tour? tour = await dbContext.Tours.AsNoTracking().SingleOrDefaultAsync(
-                candidate => candidate.Id == request.TourId && candidate.OperatorUserId == operatorId,
-                transactionCancellationToken);
+            Tour? tour = await dbContext.Tours.AsNoTracking()
+                .Include(candidate => candidate.Schedules)
+                .SingleOrDefaultAsync(
+                    candidate => candidate.Id == request.TourId && candidate.OperatorUserId == operatorId,
+                    transactionCancellationToken);
             if (tour is null)
                 return Result.Failure<PendingChangeSubmittedResponse>(OperatorTourErrorCodes.TourNotFound, "The tour is unavailable.");
 
@@ -62,9 +64,26 @@ public sealed class SubmitPendingChangeCommandHandler(
             if (!IsReadyForReview(changeSet))
             {
                 return Result.Failure<PendingChangeSubmittedResponse>(
-                    OperatorTourErrorCodes.ReviewPrerequisitesMissing,
+                    OperatorTourErrorCodes.PendingChangeReviewPrerequisitesMissing,
                     "MSG01: mandatory fields, at least one itinerary day, and at least one " +
                     "departure schedule are required.");
+            }
+
+            // spec §6.4 step 2: BR-61 is re-validated as part of submit's completeness check,
+            // against the live tour's CURRENT ReservedCapacity — bookings may have been made
+            // between save and submit, so the capacity check at save time is not sufficient.
+            var liveSchedulesById = tour.Schedules.ToDictionary(schedule => schedule.Id);
+            var proposedSchedules = PendingChangePayload.DeserializeSchedules(changeSet.SchedulesJson);
+            foreach (var proposed in proposedSchedules)
+            {
+                if (proposed.ScheduleId is { } scheduleId
+                    && liveSchedulesById.TryGetValue(scheduleId, out var liveSchedule)
+                    && proposed.TotalCapacity < liveSchedule.ReservedCapacity)
+                {
+                    return Result.Failure<PendingChangeSubmittedResponse>(
+                        OperatorTourErrorCodes.ScheduleHasActiveBookings,
+                        "MSG143: the capacity cannot be reduced below the number of slots already sold.");
+                }
             }
 
             DateTimeOffset now = clock.UtcNow;

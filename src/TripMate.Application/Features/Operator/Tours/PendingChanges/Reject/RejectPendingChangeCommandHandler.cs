@@ -39,7 +39,7 @@ public sealed class RejectPendingChangeCommandHandler(
         if (string.IsNullOrWhiteSpace(request.Reason) || request.Reason.Trim().Length > Tour.RejectionReasonMaxLength)
         {
             return Result.Failure<PendingChangeDecisionResponse>(
-                OperatorTourErrorCodes.RejectionReasonInvalid, "MSG123: a valid rejection reason is required.");
+                OperatorTourErrorCodes.PendingChangeRejectionReasonInvalid, "MSG123: a valid rejection reason is required.");
         }
 
         long submittedByUserId = 0;
@@ -77,7 +77,8 @@ public sealed class RejectPendingChangeCommandHandler(
 
             submittedByUserId = changeSet.SubmittedByUserId;
             return Result.Success(new PendingChangeDecisionResponse(
-                changeSet.Id, tour.Id, changeSet.Status.ToString(), tour.Status.ToString()));
+                changeSet.Id, tour.Id, changeSet.Status.ToString(), tour.Status.ToString(),
+                "MSG145: the rejection is confirmed and stored."));
         }, cancellationToken);
 
         if (decision.IsSuccess)

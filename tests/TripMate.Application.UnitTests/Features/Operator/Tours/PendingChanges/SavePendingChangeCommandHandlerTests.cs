@@ -175,14 +175,21 @@ public sealed class SavePendingChangeCommandHandlerTests
         await TourAuthoringTestData.SeedReferenceDataAsync(db);
         var user = new User
         {
-            Id = operatorId, Email = $"{operatorId}@test.local", FullName = "Operator",
-            Role = UserRole.TourOperator, Status = AccountStatus.Active,
+            Id = operatorId,
+            Email = $"{operatorId}@test.local",
+            FullName = "Operator",
+            Role = UserRole.TourOperator,
+            Status = AccountStatus.Active,
         };
         db.Users.Add(user);
         db.OperatorProfiles.Add(new OperatorProfile
         {
-            UserId = operatorId, User = user, CompanyName = "Tour Co", TaxCode = $"Tax{operatorId}",
-            BusinessLicenseNo = $"Lic{operatorId}", ApprovalStatus = OperatorApprovalStatus.Approved,
+            UserId = operatorId,
+            User = user,
+            CompanyName = "Tour Co",
+            TaxCode = $"Tax{operatorId}",
+            BusinessLicenseNo = $"Lic{operatorId}",
+            ApprovalStatus = OperatorApprovalStatus.Approved,
         });
         var poiId = 80 + categoryKey;
         var poi = (PointOfInterest)Activator.CreateInstance(typeof(PointOfInterest), nonPublic: true)!;

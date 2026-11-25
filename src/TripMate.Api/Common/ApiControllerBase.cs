@@ -332,6 +332,15 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             OperatorTourErrorCodes.ReviewChecklistIncomplete => StatusCodes.Status400BadRequest,
             OperatorTourErrorCodes.RejectionReasonInvalid => StatusCodes.Status422UnprocessableEntity,
 
+            // TM-82 §7: draft-version error codes with their own HTTP statuses, distinct from the
+            // pre-existing UC-60/UC-61 codes above.
+            OperatorTourErrorCodes.PendingChangeNotFound => StatusCodes.Status404NotFound,
+            OperatorTourErrorCodes.ScheduleHasActiveBookings => StatusCodes.Status409Conflict,
+            OperatorTourErrorCodes.ScheduleNotOwnedByTour => StatusCodes.Status400BadRequest,
+            OperatorTourErrorCodes.InvalidScheduleDate => StatusCodes.Status400BadRequest,
+            OperatorTourErrorCodes.PendingChangeReviewPrerequisitesMissing => StatusCodes.Status400BadRequest,
+            OperatorTourErrorCodes.PendingChangeRejectionReasonInvalid => StatusCodes.Status400BadRequest,
+
             EmergencyTourErrorCodes.NotFound => StatusCodes.Status404NotFound,
             EmergencyTourErrorCodes.Forbidden => StatusCodes.Status403Forbidden,
             EmergencyTourErrorCodes.InvalidRequest => StatusCodes.Status400BadRequest,

@@ -23,12 +23,35 @@ public sealed class CreatePendingChangeCommandHandler(
     IDateTimeProvider clock)
     : IRequestHandler<CreatePendingChangeCommand, Result<PendingChangeResponse>>
 {
+    // Two concurrent create calls can both read "no open draft yet" under SERIALIZABLE and then
+    // collide on the UX_TourPendingChangeSets_OpenPerTour unique index, or deadlock against each
+    // other. Retrying the whole attempt lets the loser observe the winner's committed row and
+    // return it (idempotent success) instead of surfacing the conflict as a 500.
+    private const int MaxAttempts = 5;
+
     public async Task<Result<PendingChangeResponse>> Handle(
         CreatePendingChangeCommand request, CancellationToken cancellationToken)
     {
         if (!currentUser.UserId.HasValue) return AccessDenied();
         long operatorId = currentUser.UserId.Value;
 
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await CreateAttemptAsync(request, operatorId, cancellationToken);
+            }
+            catch (Exception exception) when (attempt < MaxAttempts
+                && (exception is DbUpdateException || dbContext.IsDeadlock(exception)))
+            {
+                dbContext.ClearTrackedEntities();
+            }
+        }
+    }
+
+    private async Task<Result<PendingChangeResponse>> CreateAttemptAsync(
+        CreatePendingChangeCommand request, long operatorId, CancellationToken cancellationToken)
+    {
         return await dbContext.ExecuteInSerializableTransactionAsync(async transactionCancellationToken =>
         {
             bool eligible = await dbContext.OperatorProfiles.AsNoTracking().AnyAsync(profile =>

@@ -57,6 +57,7 @@ public sealed class ApprovePendingChangeCommandHandler(
                 .Include(candidate => candidate.Destinations)
                 .Include(candidate => candidate.ItineraryItems)
                 .Include(candidate => candidate.Schedules)
+                .Include(candidate => candidate.CancellationPolicyRules)
                 .SingleOrDefaultAsync(candidate => candidate.Id == changeSet.TourId, transactionCancellationToken);
             if (tour is null || tour.Status is not (TourStatus.Approved or TourStatus.Published))
             {
@@ -105,6 +106,19 @@ public sealed class ApprovePendingChangeCommandHandler(
                 .ToList();
             var destinationIds = PendingChangePayload.DeserializeDestinationIds(changeSet.DestinationIdsJson);
 
+            // Phase 1: delete the old destinations/itinerary items/cancellation policy rules and
+            // save first. Each of these children carries a unique key ((tour_id, destination_id);
+            // (tour_id, day_no, sequence_no); (tour_id, days_before_departure)) that a re-approved
+            // draft version commonly reproduces unchanged — deleting and re-inserting equal keys
+            // in one SaveChanges is not safe (mirrors UpdateTourDraftCommandHandler's own 2-phase
+            // save). Schedules are excluded: ApplyPendingChange reconciles them in place by id,
+            // never destroying a row that still exists.
+            dbContext.TourDestinations.RemoveRange(tour.Destinations.ToList());
+            dbContext.TourItineraryItems.RemoveRange(tour.ItineraryItems.ToList());
+            dbContext.TourCancellationPolicyRules.RemoveRange(tour.CancellationPolicyRules.ToList());
+            await dbContext.SaveChangesAsync(transactionCancellationToken);
+
+            // Phase 2: write the replacement children together with the scalar/schedule changes.
             tour.ApplyPendingChange(
                 changeSet.CategoryId == 0 ? null : changeSet.CategoryId, changeSet.Title, changeSet.Description,
                 changeSet.BasePrice, changeSet.DurationDays, changeSet.Inclusions, changeSet.Exclusions,
@@ -119,7 +133,8 @@ public sealed class ApprovePendingChangeCommandHandler(
 
             submittedByUserId = changeSet.SubmittedByUserId;
             return Result.Success(new PendingChangeDecisionResponse(
-                changeSet.Id, tour.Id, changeSet.Status.ToString(), tour.Status.ToString()));
+                changeSet.Id, tour.Id, changeSet.Status.ToString(), tour.Status.ToString(),
+                "MSG144: the approval is confirmed and stored."));
         }, cancellationToken);
 
         if (decision.IsSuccess)

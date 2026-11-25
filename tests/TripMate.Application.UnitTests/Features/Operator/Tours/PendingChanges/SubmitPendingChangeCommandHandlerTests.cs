@@ -74,7 +74,7 @@ public sealed class SubmitPendingChangeCommandHandlerTests
             new SubmitPendingChangeCommand(tour.Id, changeSet.Id), CancellationToken.None);
 
         result.IsFailure.Should().BeTrue();
-        result.ErrorCode.Should().Be("operator_tour.review_prerequisites_missing");
+        result.ErrorCode.Should().Be("operator_tour.pending_change_review_prerequisites_missing");
     }
 
     [Fact]
@@ -95,7 +95,7 @@ public sealed class SubmitPendingChangeCommandHandlerTests
             new SubmitPendingChangeCommand(tour.Id, changeSet.Id), CancellationToken.None);
 
         result.IsFailure.Should().BeTrue();
-        result.ErrorCode.Should().Be("operator_tour.review_prerequisites_missing");
+        result.ErrorCode.Should().Be("operator_tour.pending_change_review_prerequisites_missing");
     }
 
     [Fact]
@@ -116,7 +116,7 @@ public sealed class SubmitPendingChangeCommandHandlerTests
             new SubmitPendingChangeCommand(tour.Id, changeSet.Id), CancellationToken.None);
 
         result.IsFailure.Should().BeTrue();
-        result.ErrorCode.Should().Be("operator_tour.review_prerequisites_missing");
+        result.ErrorCode.Should().Be("operator_tour.pending_change_review_prerequisites_missing");
     }
 
     private static async Task<(User Actor, Tour Tour)> SeedApprovedTourAsync(TestDbContext db)
@@ -124,14 +124,21 @@ public sealed class SubmitPendingChangeCommandHandlerTests
         await TourAuthoringTestData.SeedReferenceDataAsync(db);
         var user = new User
         {
-            Id = 1, Email = "1@test.local", FullName = "Operator",
-            Role = UserRole.TourOperator, Status = AccountStatus.Active,
+            Id = 1,
+            Email = "1@test.local",
+            FullName = "Operator",
+            Role = UserRole.TourOperator,
+            Status = AccountStatus.Active,
         };
         db.Users.Add(user);
         db.OperatorProfiles.Add(new OperatorProfile
         {
-            UserId = 1, User = user, CompanyName = "Tour Co", TaxCode = "Tax1",
-            BusinessLicenseNo = "Lic1", ApprovalStatus = OperatorApprovalStatus.Approved,
+            UserId = 1,
+            User = user,
+            CompanyName = "Tour Co",
+            TaxCode = "Tax1",
+            BusinessLicenseNo = "Lic1",
+            ApprovalStatus = OperatorApprovalStatus.Approved,
         });
         var poi = (PointOfInterest)Activator.CreateInstance(typeof(PointOfInterest), nonPublic: true)!;
         typeof(PointOfInterest).GetProperty(nameof(PointOfInterest.Id))!.SetValue(poi, 88L);

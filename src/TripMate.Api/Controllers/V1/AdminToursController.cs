@@ -97,6 +97,18 @@ public sealed class AdminToursController(ISender sender) : ApiControllerBase(sen
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 
+    /// <summary>
+    /// Staff's detail view of a draft version's proposed values, so a decision is made against
+    /// what was actually submitted rather than the live tour or the queue's title-only row.
+    /// </summary>
+    [HttpGet("pending-changes/{pendingChangeId:long}")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public async Task<IActionResult> GetPendingChangeDetail(long pendingChangeId, CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(new GetPendingChangeDetailQuery(pendingChangeId), cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
     [HttpPost("pending-changes/{pendingChangeId:long}/approve")]
     public async Task<IActionResult> ApprovePendingChange(long pendingChangeId, CancellationToken cancellationToken)
     {
