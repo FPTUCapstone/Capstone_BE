@@ -93,6 +93,29 @@ public class TourSchedule : BaseEntity
     }
 
     /// <summary>
+    /// Updates this schedule's own fields in place from a matched proposed schedule
+    /// (<c>Tour.ApplyPendingChange</c>, TM-82). <see cref="BaseEntity.Id"/> and
+    /// <see cref="ReservedCapacity"/> (the sold-slot counter) are never touched here — the caller
+    /// has already matched <paramref name="proposed"/> to this row by id, and the point of this
+    /// method is precisely to preserve both while every other field moves to the proposed value.
+    /// </summary>
+    internal void ApplyProposedFields(TourSchedule proposed)
+    {
+        ArgumentNullException.ThrowIfNull(proposed);
+        StartAtUtc = proposed.StartAtUtc;
+        EndAtUtc = proposed.EndAtUtc;
+        MeetingPoint = proposed.MeetingPoint;
+        MeetingLatitude = proposed.MeetingLatitude;
+        MeetingLongitude = proposed.MeetingLongitude;
+        TotalCapacity = proposed.TotalCapacity;
+        MinimumCapacity = proposed.MinimumCapacity;
+        RegistrationDeadlineAtUtc = proposed.RegistrationDeadlineAtUtc;
+        AdultPrice = proposed.AdultPrice;
+        ChildPrice = proposed.ChildPrice;
+        InfantPrice = proposed.InfantPrice;
+    }
+
+    /// <summary>
     /// BR-63 effective-price policy (UC-27): Adult uses this schedule's override or the tour's
     /// BasePrice; Child/Infant use their own override or fall back to the resolved Adult price.
     /// Null on Child/Infant means "no override", never "not permitted" — an age or

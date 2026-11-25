@@ -247,6 +247,186 @@ public sealed class TourTests
         tour.RejectionReason.Should().BeNull();
     }
 
+    [Theory]
+    [InlineData(TourStatus.Draft)]
+    [InlineData(TourStatus.Pending)]
+    [InlineData(TourStatus.Rejected)]
+    public void ApplyPendingChange_ThrowsUnlessApprovedOrPublished(TourStatus status)
+    {
+        var tour = NewDraft();
+        if (status == TourStatus.Pending)
+        {
+            tour.SubmitForReview(Now);
+        }
+        else if (status == TourStatus.Rejected)
+        {
+            tour.SubmitForReview(Now);
+            tour.Reject(2, "Needs changes", Now);
+        }
+
+        var action = () => tour.ApplyPendingChange(
+            categoryId: 1, title: "New title", description: "New description", basePrice: 200000m,
+            durationDays: 2, inclusions: null, exclusions: null, highlights: null,
+            travellerRequirements: null, timeZoneId: Tour.DefaultTimeZoneId,
+            destinationIds: [1], destinationSummary: "Da Nang",
+            cancellationPolicy: TourAuthoringTestData.NewPolicy(),
+            itineraryItems: [TourItineraryItem.Create(1, 1, 5, null, 60, null)],
+            schedules: [TourSchedule.Create(Now.AddDays(10), Now.AddDays(11), null, 10, Now, adultPrice: 200000m)],
+            appliedAtUtc: Now);
+
+        action.Should().Throw<InvalidOperationException>();
+    }
+
+    [Theory]
+    [InlineData(TourStatus.Approved)]
+    [InlineData(TourStatus.Published)]
+    public void ApplyPendingChange_SucceedsAndLeavesStatusAndReviewFieldsUnchanged(TourStatus status)
+    {
+        var tour = NewDraft();
+        tour.SubmitForReview(Now);
+        tour.Approve(2, Now);
+        if (status == TourStatus.Published)
+        {
+            tour.Publish(2, Now);
+        }
+
+        var reviewedAtBefore = tour.ReviewedAtUtc;
+        var reviewedByBefore = tour.ReviewedBy;
+        var publishedAtBefore = tour.PublishedAtUtc;
+        var appliedAt = Now.AddDays(1);
+
+        tour.ApplyPendingChange(
+            categoryId: 1, title: "Updated title", description: "Updated description",
+            basePrice: 300000m, durationDays: 3, inclusions: "Breakfast", exclusions: null,
+            highlights: null, travellerRequirements: null, timeZoneId: Tour.DefaultTimeZoneId,
+            destinationIds: [1, 2], destinationSummary: "Da Nang, Hoi An",
+            cancellationPolicy: TourAuthoringTestData.NewPolicy(),
+            itineraryItems: [TourItineraryItem.Create(1, 1, 5, null, 60, null)],
+            schedules: [TourSchedule.Create(Now.AddDays(10), Now.AddDays(11), null, 15, Now, adultPrice: 300000m)],
+            appliedAtUtc: appliedAt);
+
+        tour.Title.Should().Be("Updated title");
+        tour.BasePrice.Should().Be(300000m);
+        tour.DurationDays.Should().Be(3);
+        tour.Inclusions.Should().Be("Breakfast");
+        tour.Destinations.Select(link => link.DestinationId).Should().BeEquivalentTo([1L, 2L]);
+        tour.Schedules.Should().ContainSingle(schedule => schedule.TotalCapacity == 15);
+        tour.Status.Should().Be(status);
+        tour.ReviewedAtUtc.Should().Be(reviewedAtBefore);
+        tour.ReviewedBy.Should().Be(reviewedByBefore);
+        tour.PublishedAtUtc.Should().Be(publishedAtBefore);
+        tour.UpdatedAtUtc.Should().Be(appliedAt);
+    }
+
+    [Fact]
+    public void ApplyPendingChange_UpdatesAnExistingScheduleInPlace_PreservingIdAndReservedCapacity()
+    {
+        var tour = NewDraft();
+        tour.SubmitForReview(Now);
+        tour.Approve(2, Now);
+        var existingSchedule = tour.Schedules.Single();
+        existingSchedule.Id = 501;
+        existingSchedule.ReserveCapacity(3);
+
+        var proposedSchedule = TourSchedule.Create(
+            Now.AddDays(20), Now.AddDays(21), "New meeting point", 20, Now, adultPrice: 400000m);
+        proposedSchedule.Id = existingSchedule.Id;
+
+        tour.ApplyPendingChange(
+            categoryId: 1, title: "T", description: "D", basePrice: 400000m, durationDays: 1,
+            inclusions: null, exclusions: null, highlights: null, travellerRequirements: null,
+            timeZoneId: Tour.DefaultTimeZoneId, destinationIds: [1], destinationSummary: "Da Nang",
+            cancellationPolicy: TourAuthoringTestData.NewPolicy(),
+            itineraryItems: [TourItineraryItem.Create(1, 1, 5, null, 60, null)],
+            schedules: [proposedSchedule], appliedAtUtc: Now.AddDays(1));
+
+        var resultSchedule = tour.Schedules.Single();
+        resultSchedule.Id.Should().Be(501);
+        resultSchedule.ReservedCapacity.Should().Be(3, "the sold-slot counter must survive the update");
+        resultSchedule.TotalCapacity.Should().Be(20);
+        resultSchedule.MeetingPoint.Should().Be("New meeting point");
+    }
+
+    [Fact]
+    public void ApplyPendingChange_DoesNotRemoveAScheduleWithSoldSlotsEvenIfOmittedFromThePayload()
+    {
+        var tour = NewDraft();
+        tour.SubmitForReview(Now);
+        tour.Approve(2, Now);
+        var existingSchedule = tour.Schedules.Single();
+        existingSchedule.Id = 501;
+        existingSchedule.ReserveCapacity(2);
+
+        var newSchedule = TourSchedule.Create(
+            Now.AddDays(30), Now.AddDays(31), null, 10, Now, adultPrice: 500000m);
+
+        tour.ApplyPendingChange(
+            categoryId: 1, title: "T", description: "D", basePrice: 500000m, durationDays: 1,
+            inclusions: null, exclusions: null, highlights: null, travellerRequirements: null,
+            timeZoneId: Tour.DefaultTimeZoneId, destinationIds: [1], destinationSummary: "Da Nang",
+            cancellationPolicy: TourAuthoringTestData.NewPolicy(),
+            itineraryItems: [TourItineraryItem.Create(1, 1, 5, null, 60, null)],
+            schedules: [newSchedule], appliedAtUtc: Now.AddDays(1));
+
+        tour.Schedules.Should().Contain(schedule => schedule.Id == 501 && schedule.ReservedCapacity == 2,
+            "a schedule with sold slots must never be removed by ApplyPendingChange");
+        tour.Schedules.Should().HaveCount(2, "the old sold-out schedule stays and the new one is added");
+    }
+
+    [Fact]
+    public void ApplyPendingChange_RemovesAnExistingScheduleWithNoSoldSlotsWhenOmittedFromThePayload()
+    {
+        var tour = NewDraft();
+        tour.SubmitForReview(Now);
+        tour.Approve(2, Now);
+        var existingSchedule = tour.Schedules.Single();
+        existingSchedule.Id = 501;
+
+        var newSchedule = TourSchedule.Create(
+            Now.AddDays(30), Now.AddDays(31), null, 10, Now, adultPrice: 500000m);
+
+        tour.ApplyPendingChange(
+            categoryId: 1, title: "T", description: "D", basePrice: 500000m, durationDays: 1,
+            inclusions: null, exclusions: null, highlights: null, travellerRequirements: null,
+            timeZoneId: Tour.DefaultTimeZoneId, destinationIds: [1], destinationSummary: "Da Nang",
+            cancellationPolicy: TourAuthoringTestData.NewPolicy(),
+            itineraryItems: [TourItineraryItem.Create(1, 1, 5, null, 60, null)],
+            schedules: [newSchedule], appliedAtUtc: Now.AddDays(1));
+
+        tour.Schedules.Should().NotContain(schedule => schedule.Id == 501);
+        tour.Schedules.Should().ContainSingle(schedule => schedule.TotalCapacity == 10);
+    }
+
+    [Fact]
+    public void ApplyPendingChange_AddsANewScheduleWithANewIdAlongsideExistingOnes()
+    {
+        var tour = NewDraft();
+        tour.SubmitForReview(Now);
+        tour.Approve(2, Now);
+        var existingSchedule = tour.Schedules.Single();
+        existingSchedule.Id = 501;
+        existingSchedule.ReserveCapacity(1);
+
+        var keepProposal = TourSchedule.Create(
+            existingSchedule.StartAtUtc, existingSchedule.EndAtUtc, existingSchedule.MeetingPoint,
+            existingSchedule.TotalCapacity, Now, adultPrice: existingSchedule.AdultPrice);
+        keepProposal.Id = 501;
+        var newProposal = TourSchedule.Create(
+            Now.AddDays(40), Now.AddDays(41), null, 5, Now, adultPrice: 600000m);
+
+        tour.ApplyPendingChange(
+            categoryId: 1, title: "T", description: "D", basePrice: 600000m, durationDays: 1,
+            inclusions: null, exclusions: null, highlights: null, travellerRequirements: null,
+            timeZoneId: Tour.DefaultTimeZoneId, destinationIds: [1], destinationSummary: "Da Nang",
+            cancellationPolicy: TourAuthoringTestData.NewPolicy(),
+            itineraryItems: [TourItineraryItem.Create(1, 1, 5, null, 60, null)],
+            schedules: [keepProposal, newProposal], appliedAtUtc: Now.AddDays(1));
+
+        tour.Schedules.Should().HaveCount(2);
+        tour.Schedules.Should().Contain(schedule => schedule.Id == 501 && schedule.ReservedCapacity == 1);
+        tour.Schedules.Should().Contain(schedule => schedule.Id != 501 && schedule.TotalCapacity == 5);
+    }
+
     private static Tour NewDraft(
         long[]? destinationIds = null,
         CancellationPolicyTemplate? policy = null,
