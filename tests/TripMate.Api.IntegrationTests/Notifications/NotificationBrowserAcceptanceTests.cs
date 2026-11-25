@@ -115,8 +115,12 @@ public sealed class NotificationBrowserAcceptanceTests(ITestOutputHelper output)
         traveler.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
         var submitted = await traveler.PostAsJsonAsync("/api/v1/traveler/service-booking-requests", new
         {
-            serviceId = service.ServiceId, startsAt, quantity = 1,
-            contactName = "Browser UAT", contactPhone = "0901234567", contactEmail = "test@example.test"
+            serviceId = service.ServiceId,
+            startsAt,
+            quantity = 1,
+            contactName = "Browser UAT",
+            contactPhone = "0901234567",
+            contactEmail = "test@example.test"
         });
         await RequireSuccessAsync(submitted);
         var booking = (await submitted.Content.ReadFromJsonAsync<CommercialServiceSubmission>())!;
@@ -140,9 +144,13 @@ public sealed class NotificationBrowserAcceptanceTests(ITestOutputHelper output)
                 notice.Status.Should().NotBe(NotificationStatus.Read);
                 actors.Add(new
                 {
-                    role = actor.Role.ToString(), actor.Email, account.Entry,
+                    role = actor.Role.ToString(),
+                    actor.Email,
+                    account.Entry,
                     destination = actor.Role == UserRole.ServiceProvider ? $"/provider/bookings/{booking.Id}" : account.Destination,
-                    noticeId = notice.Id, notice.Title, noticeType = notice.Type,
+                    noticeId = notice.Id,
+                    notice.Title,
+                    noticeType = notice.Type,
                 });
                 if (actor.Role is UserRole.Traveler or UserRole.TourOperator)
                 {

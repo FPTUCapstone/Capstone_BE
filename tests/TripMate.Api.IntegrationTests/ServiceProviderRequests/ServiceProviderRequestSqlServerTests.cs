@@ -30,8 +30,12 @@ public sealed class ServiceProviderRequestSqlServerTests
         await using var db = database.CreateDbContext();
         var outsider = new User
         {
-            Role = UserRole.Traveler, Status = AccountStatus.Active, FullName = "Another Traveler",
-            Email = "another-traveler@example.test", CreatedAtUtc = fixture.Now, UpdatedAtUtc = fixture.Now
+            Role = UserRole.Traveler,
+            Status = AccountStatus.Active,
+            FullName = "Another Traveler",
+            Email = "another-traveler@example.test",
+            CreatedAtUtc = fixture.Now,
+            UpdatedAtUtc = fixture.Now
         };
         db.Users.Add(outsider);
         await db.SaveChangesAsync();
@@ -82,8 +86,15 @@ public sealed class ServiceProviderRequestSqlServerTests
 
         const string submit = "/api/v1/traveler/service-booking-requests";
         traveler.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
-        var request = new { serviceId = original.ServiceId, startsAt = start, quantity = 1,
-            contactName = "Booking contact", contactPhone = "0901234567", contactEmail = "contact@example.test" };
+        var request = new
+        {
+            serviceId = original.ServiceId,
+            startsAt = start,
+            quantity = 1,
+            contactName = "Booking contact",
+            contactPhone = "0901234567",
+            contactEmail = "contact@example.test"
+        };
         var past = await traveler.PostAsJsonAsync(submit, request with
         {
             startsAt = fixture.Now.AddDays(-1).ToString("yyyy-MM-ddTHH:mm:ssZ")

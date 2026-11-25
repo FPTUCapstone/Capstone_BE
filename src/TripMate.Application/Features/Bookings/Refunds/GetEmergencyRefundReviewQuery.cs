@@ -1,6 +1,9 @@
 using System.Text.Json;
+
 using MediatR;
+
 using Microsoft.EntityFrameworkCore;
+
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Domain.Common;
@@ -41,7 +44,10 @@ public sealed class GetEmergencyRefundReviewQueryHandler(IApplicationDbContext d
             .OrderBy(booking => booking.Id)
             .Select(booking => new
             {
-                booking.Id, booking.BookingCode, booking.TotalAmount, booking.PaymentStatus,
+                booking.Id,
+                booking.BookingCode,
+                booking.TotalAmount,
+                booking.PaymentStatus,
                 RefundStatus = db.Refunds.Where(refund => refund.BookingId == booking.Id)
                     .OrderByDescending(refund => refund.Id).Select(refund => (RefundStatus?)refund.Status).FirstOrDefault()
             })
