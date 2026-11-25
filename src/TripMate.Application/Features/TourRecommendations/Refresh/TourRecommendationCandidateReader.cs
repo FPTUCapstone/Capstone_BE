@@ -7,6 +7,7 @@ using Microsoft.EntityFrameworkCore;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.Tours.Shared;
 using TripMate.Application.Features.Traveler.Bookings.Common;
+using TripMate.Application.Features.Traveler.Preferences.Common;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.TourRecommendations.Refresh;
@@ -147,7 +148,8 @@ internal sealed class TourRecommendationCandidateReader(IApplicationDbContext db
                 string[] interestTokens = row.PoiCategories
                     .Concat(row.PoiTags)
                     .Concat(row.Category is null ? [] : [row.Category])
-                    .SelectMany(ResolveInterestSynonyms)
+                    .Select(ResolveCanonicalInterestKey)
+                    .OfType<string>()
                     .ToArray();
                 string[] historyTokens = row.Destinations
                     .Concat(row.Category is null ? [] : [row.Category])
@@ -173,12 +175,7 @@ internal sealed class TourRecommendationCandidateReader(IApplicationDbContext db
     }
 
     /// <summary>
-    /// Maps free-text POI/Tour category and tag names (English synonyms and Vietnamese labels not
-    /// literally equal to <see cref="TravelerPreferenceKeys.InterestKeys"/>) onto the canonical
-    /// traveler interest vocabulary, so Jaccard matching in <c>TourRecommendationScoring</c> does
-    /// not silently score 0 for a conceptually matching tour. The original token is always kept
-    /// alongside any resolved synonym so already-canonical values and untranslatable free-text tags
-    /// (e.g. admin-entered Vietnamese tags with no interest equivalent) are preserved unchanged.
+    /// Maps English and Vietnamese POI and tour labels to canonical traveler interest keys.
     /// </summary>
     private static readonly IReadOnlyDictionary<string, string> InterestSynonymMap =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
@@ -259,20 +256,17 @@ internal sealed class TourRecommendationCandidateReader(IApplicationDbContext db
             // interest key.
         };
 
-    internal static IEnumerable<string> ResolveInterestSynonyms(string rawToken)
+    internal static string? ResolveCanonicalInterestKey(string? rawToken)
     {
         if (string.IsNullOrWhiteSpace(rawToken))
         {
-            yield break;
+            return null;
         }
 
-        yield return rawToken;
-
-        var normalized = RemoveDiacritics(rawToken.Trim()).ToLowerInvariant();
-        if (InterestSynonymMap.TryGetValue(normalized, out var canonical))
-        {
-            yield return canonical;
-        }
+        var trimmed = rawToken.Trim();
+        return TravelerPreferenceKeys.InterestKeys.FirstOrDefault(
+            key => string.Equals(key, trimmed, StringComparison.OrdinalIgnoreCase))
+            ?? InterestSynonymMap.GetValueOrDefault(RemoveDiacritics(trimmed));
     }
 
     /// <summary>Parses an operator-entered JSON string array (same shape as the UC-09 preference

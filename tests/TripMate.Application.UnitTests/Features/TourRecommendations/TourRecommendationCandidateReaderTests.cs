@@ -1,12 +1,71 @@
 using FluentAssertions;
 
+using TripMate.Application.Features.TourRecommendations.Common;
 using TripMate.Application.Features.TourRecommendations.Refresh;
+using TripMate.Application.UnitTests.TestUtilities;
+using TripMate.Domain.Entities;
 
 namespace TripMate.Application.UnitTests.Features.TourRecommendations;
 
 public sealed class TourRecommendationCandidateReaderTests
 {
     private static readonly DateTimeOffset Now = new(2026, 11, 4, 0, 0, 0, TimeSpan.Zero);
+
+    [Fact]
+    public async Task ReadBatchesAsync_Tour182InterestsHaveFullJaccardMatch()
+    {
+        await using var db = TestDbContext.Create();
+        const long operatorId = 8;
+        await TourAuthoringTestData.SeedReferenceDataAsync(db);
+        await PublicTourTestData.SeedOperatorAsync(db, operatorId);
+
+        string[] poiCategoryNames = ["Bãi biển", "Danh lam & Di sản", "Natural attraction", "Thiên nhiên"];
+        string[] poiTagNames =
+        [
+            "Biển", "Chụp ảnh đẹp", "Đêm", "Gia đình", "Lịch sử", "Miễn phí",
+            "Ngắm hoàng hôn", "Phiêu lưu", "Tâm linh", "Văn hóa",
+        ];
+        var pois = poiCategoryNames.Select(name => PointOfInterest.Create(
+            PoiCategory.Create(name, description: null), name, 16m, 108m, operatorId, Now)).ToArray();
+        foreach (var name in poiTagNames)
+        {
+            pois[0].AddTag(Tag.Create(name));
+        }
+
+        var tourCategory = TourCategory.Create("CULTURE_HERITAGE", "Culture & Heritage");
+        db.PointsOfInterest.AddRange(pois);
+        db.TourCategories.Add(tourCategory);
+        await db.SaveChangesAsync();
+
+        var tour = Tour.CreateDraft(
+            operatorId, tourCategory.Id, "Miền Trung di sản 4 ngày 3 đêm",
+            "Central Vietnam heritage tour", 2_000_000m, 4,
+            [TourAuthoringTestData.DestinationId], "Da Nang", TourAuthoringTestData.NewPolicy(),
+            pois.Select((poi, index) => TourItineraryItem.Create(
+                index + 1, 1, poi.Id, new TimeOnly(9, 0), 60, null)),
+            [TourSchedule.Create(Now.AddDays(10), Now.AddDays(14), "Hotel lobby", 10, Now)],
+            Now);
+        tour.SubmitForReview(Now);
+        tour.Approve(2, Now);
+        tour.Publish(2, Now);
+        db.Tours.Add(tour);
+        await db.SaveChangesAsync();
+
+        var reader = new TourRecommendationCandidateReader(db);
+        var candidates = new List<TourRecommendationCandidate>();
+        await foreach (var batch in reader.ReadBatchesAsync(Now, null, null, CancellationToken.None))
+        {
+            candidates.AddRange(batch);
+        }
+
+        string[] travelerInterests =
+        [
+            "adventure", "beach", "culture", "heritage", "history", "nature", "photography", "relaxation",
+        ];
+        var candidate = candidates.Should().ContainSingle().Which;
+        TourRecommendationScoring.Jaccard(travelerInterests, candidate.InterestTokens).Should().Be(1m);
+        candidate.InterestTokens.Distinct().Should().BeEquivalentTo(travelerInterests);
+    }
 
     [Fact]
     public void SelectRepresentativeSchedule_PrefersEarliestMatchingBookableSchedule()
@@ -53,31 +112,35 @@ public sealed class TourRecommendationCandidateReaderTests
     }
 
     [Fact]
-    public void ResolveInterestSynonyms_MapsFreeTextCategoryToCanonicalInterestKey()
+    public void ResolveCanonicalInterestKey_MapsFreeTextCategoryToCanonicalInterestKey()
     {
-        TourRecommendationCandidateReader.ResolveInterestSynonyms("Food & Drink")
-            .Should().BeEquivalentTo(["Food & Drink", "culinary"]);
+        TourRecommendationCandidateReader.ResolveCanonicalInterestKey("Food & Drink")
+            .Should().Be("culinary");
     }
 
     [Fact]
-    public void ResolveInterestSynonyms_MapsVietnameseAdminTagToCanonicalInterestKey()
+    public void ResolveCanonicalInterestKey_MapsVietnameseAdminTagToCanonicalInterestKey()
     {
-        TourRecommendationCandidateReader.ResolveInterestSynonyms("Ngắm bình minh")
-            .Should().BeEquivalentTo(["Ngắm bình minh", "nature"]);
+        TourRecommendationCandidateReader.ResolveCanonicalInterestKey("Ngắm bình minh")
+            .Should().Be("nature");
+    }
+
+    [Theory]
+    [InlineData("Culture", "culture")]
+    [InlineData(" Architecture ", "architecture")]
+    public void ResolveCanonicalInterestKey_RecognizesDirectKeysWithoutSynonyms(
+        string rawToken, string canonicalKey)
+    {
+        TourRecommendationCandidateReader.ResolveCanonicalInterestKey(rawToken)
+            .Should().Be(canonicalKey);
     }
 
     [Fact]
-    public void ResolveInterestSynonyms_KeepsAlreadyCanonicalTokenUnchangedWithNoDuplicate()
+    public void ResolveCanonicalInterestKey_ExcludesFreeTextWithoutACanonicalMatch()
     {
-        TourRecommendationCandidateReader.ResolveInterestSynonyms("Culture")
-            .Should().BeEquivalentTo(["Culture"]);
-    }
-
-    [Fact]
-    public void ResolveInterestSynonyms_PreservesUnmappableFreeTextTagAsIs()
-    {
-        TourRecommendationCandidateReader.ResolveInterestSynonyms("Chụp ảnh hoàng hôn")
-            .Should().BeEquivalentTo(["Chụp ảnh hoàng hôn"]);
+        // Unmapped tags would inflate the Jaccard union without adding a possible match.
+        TourRecommendationCandidateReader.ResolveCanonicalInterestKey("Chụp ảnh hoàng hôn")
+            .Should().BeNull();
     }
 
     [Theory]
@@ -97,11 +160,11 @@ public sealed class TourRecommendationCandidateReaderTests
     [InlineData("Lịch sử", "history")]
     [InlineData("Tâm linh", "heritage")]
     [InlineData("Mua sắm", "shopping")]
-    public void ResolveInterestSynonyms_MapsProductionVietnameseCategoryToCanonicalInterestKey(
+    public void ResolveCanonicalInterestKey_MapsProductionVietnameseCategoryToCanonicalInterestKey(
         string rawToken, string canonicalKey)
     {
-        TourRecommendationCandidateReader.ResolveInterestSynonyms(rawToken)
-            .Should().BeEquivalentTo([rawToken, canonicalKey]);
+        TourRecommendationCandidateReader.ResolveCanonicalInterestKey(rawToken)
+            .Should().Be(canonicalKey);
     }
 
     [Theory]
@@ -126,11 +189,11 @@ public sealed class TourRecommendationCandidateReaderTests
     [InlineData("Vui chơi", "adventure")]
     [InlineData("Nightlife", "nature")]
     [InlineData("Về đêm", "nature")]
-    public void ResolveInterestSynonyms_MapsProductionTagToCanonicalInterestKey(
+    public void ResolveCanonicalInterestKey_MapsProductionTagToCanonicalInterestKey(
         string rawToken, string canonicalKey)
     {
-        TourRecommendationCandidateReader.ResolveInterestSynonyms(rawToken)
-            .Should().BeEquivalentTo([rawToken, canonicalKey]);
+        TourRecommendationCandidateReader.ResolveCanonicalInterestKey(rawToken)
+            .Should().Be(canonicalKey);
     }
 
     [Theory]
@@ -139,19 +202,18 @@ public sealed class TourRecommendationCandidateReaderTests
     [InlineData("Nổi tiếng")]
     [InlineData("Sightseeing")]
     [InlineData("Lưu trú")]
-    [InlineData("Architecture")]
-    public void ResolveInterestSynonyms_LeavesGenericOrUnmappedProductionTagUnresolved(
+    public void ResolveCanonicalInterestKey_ExcludesGenericOrUnmappedProductionTags(
         string rawToken)
     {
-        TourRecommendationCandidateReader.ResolveInterestSynonyms(rawToken)
-            .Should().BeEquivalentTo([rawToken]);
+        TourRecommendationCandidateReader.ResolveCanonicalInterestKey(rawToken)
+            .Should().BeNull();
     }
 
     [Fact]
-    public void ResolveInterestSynonyms_BlankInputYieldsNoTokens()
+    public void ResolveCanonicalInterestKey_BlankInputYieldsNoKey()
     {
-        TourRecommendationCandidateReader.ResolveInterestSynonyms("  ")
-            .Should().BeEmpty();
+        TourRecommendationCandidateReader.ResolveCanonicalInterestKey("  ")
+            .Should().BeNull();
     }
 
     [Fact]
