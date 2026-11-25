@@ -16,6 +16,7 @@ using TripMate.Application.Features.Operator.Tours.Common;
 using TripMate.Application.Features.Operator.Tours.Emergency;
 using TripMate.Application.Features.PointsOfInterest.Common;
 using TripMate.Application.Features.RecommendationFeedback.Common;
+using TripMate.Application.Features.Rerouting.Common;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Tickets.Common;
 using TripMate.Application.Features.TourMedia.Common;
@@ -662,6 +663,11 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripAlertErrorCodes.TargetNotNavigable
                 or TripAlertErrorCodes.TargetAlreadyReached => StatusCodes.Status422UnprocessableEntity,
             TripAlertErrorCodes.DeviationCooldown => StatusCodes.Status429TooManyRequests,
+
+            ReroutingErrorCodes.NotFound => StatusCodes.Status404NotFound,
+            ReroutingErrorCodes.ProposalExpired
+                or ReroutingErrorCodes.ProposalClosed
+                or ReroutingErrorCodes.ProposalInfeasible => StatusCodes.Status409Conflict,
 
             PaymentErrorCodes.AccessDenied => StatusCodes.Status403Forbidden,
             PaymentErrorCodes.PaymentNotFound => StatusCodes.Status404NotFound,

@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
 using TripMate.Application.Common.Interfaces;
+using TripMate.Application.Features.Rerouting.Generate;
 using TripMate.Application.Features.TripAlerts.Common;
 using TripMate.Application.Features.TripAlerts.Weather;
 using TripMate.Domain.Entities;
@@ -13,7 +14,9 @@ public sealed class TripAlertScanner(
     IApplicationDbContext dbContext,
     IDateTimeProvider clock,
     IOptions<TripAlertOptions> options,
-    ITripWeatherProvider weatherProvider)
+    ITripWeatherProvider weatherProvider,
+    IReroutingProposalGenerator? reroutingGenerator = null,
+    IReroutingProposalSweeper? reroutingSweeper = null)
 {
     private readonly TripAlertOptions options = options.Value;
     private readonly TripAlertPersistence persistence = new(dbContext);
@@ -56,6 +59,43 @@ public sealed class TripAlertScanner(
             }
 
             await ScanPoisAndWeather(session, pendingItems, now, cancellationToken);
+        }
+
+        await SweepProposalsAsync(now, cancellationToken);
+    }
+
+    // UC-15 housekeeping runs last and can never fail a scan: the alerts above are already committed.
+    private async Task SweepProposalsAsync(DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        if (reroutingSweeper is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await reroutingSweeper.SweepAsync(now, cancellationToken);
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    // UC-15: the proposal is generated only after the incident and its Notification committed, and a failure
+    // here must never touch the alert.
+    private async Task GenerateProposalAsync(long incidentId, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        if (reroutingGenerator is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await reroutingGenerator.TryGenerateAsync(incidentId, now, cancellationToken);
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
         }
     }
 
@@ -314,10 +354,12 @@ public sealed class TripAlertScanner(
             return;
         }
 
+        long? createdIncidentId = null;
         try
         {
             await dbContext.ExecuteInTransactionAsync(async ct =>
             {
+                createdIncidentId = null;
                 if (await dbContext.Incidents.AnyAsync(incident =>
                         incident.SessionId == session.Id
                         && incident.IncidentType == type
@@ -328,8 +370,9 @@ public sealed class TripAlertScanner(
                     return false;
                 }
 
-                await persistence.CreateAsync(
+                var created = await persistence.CreateAsync(
                     session, type, sourceKey, detectedAtUtc, itemId, null, description, ct, weather);
+                createdIncidentId = created.IncidentId;
                 return true;
             }, cancellationToken);
         }
@@ -345,6 +388,13 @@ public sealed class TripAlertScanner(
             {
                 throw;
             }
+
+            createdIncidentId = null;
+        }
+
+        if (createdIncidentId.HasValue)
+        {
+            await GenerateProposalAsync(createdIncidentId.Value, detectedAtUtc, cancellationToken);
         }
     }
 
