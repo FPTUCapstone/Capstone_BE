@@ -105,18 +105,46 @@ public sealed class TourRecommendationCandidateReaderTests
     }
 
     [Theory]
-    [InlineData("Kiến trúc", "architecture")]
-    [InlineData("Công trình kiến trúc", "architecture")]
-    [InlineData("Di tích kiến trúc", "architecture")]
-    [InlineData("Kiến trúc cổ", "architecture")]
-    [InlineData("Historical Architecture", "architecture")]
-    [InlineData("Landmark", "architecture")]
-    [InlineData("Landmark & Architecture", "architecture")]
-    public void ResolveInterestSynonyms_MapsArchitectureThemedCategoryToCanonicalInterestKey(
+    [InlineData("Bánh mì", "culinary")]
+    [InlineData("Bánh xèo", "culinary")]
+    [InlineData("Bún bò", "culinary")]
+    [InlineData("Cao lầu", "culinary")]
+    [InlineData("Chè", "culinary")]
+    [InlineData("Cơm hến", "culinary")]
+    [InlineData("Hải sản", "culinary")]
+    [InlineData("Mì Quảng", "culinary")]
+    [InlineData("Nem lụi", "culinary")]
+    [InlineData("Food", "culinary")]
+    [InlineData("Food Drink", "culinary")]
+    [InlineData("Bảo tàng", "museum")]
+    [InlineData("Di sản", "heritage")]
+    [InlineData("Thắng cảnh", "heritage")]
+    [InlineData("UNESCO", "heritage")]
+    [InlineData("Spiritual", "heritage")]
+    [InlineData("Family", "relaxation")]
+    [InlineData("Entertainment", "adventure")]
+    [InlineData("Vui chơi", "adventure")]
+    [InlineData("Nightlife", "nature")]
+    [InlineData("Về đêm", "nature")]
+    public void ResolveInterestSynonyms_MapsProductionTagToCanonicalInterestKey(
         string rawToken, string canonicalKey)
     {
         TourRecommendationCandidateReader.ResolveInterestSynonyms(rawToken)
             .Should().BeEquivalentTo([rawToken, canonicalKey]);
+    }
+
+    [Theory]
+    [InlineData("Check in")]
+    [InlineData("Must visit")]
+    [InlineData("Nổi tiếng")]
+    [InlineData("Sightseeing")]
+    [InlineData("Lưu trú")]
+    [InlineData("Architecture")]
+    public void ResolveInterestSynonyms_LeavesGenericOrUnmappedProductionTagUnresolved(
+        string rawToken)
+    {
+        TourRecommendationCandidateReader.ResolveInterestSynonyms(rawToken)
+            .Should().BeEquivalentTo([rawToken]);
     }
 
     [Fact]

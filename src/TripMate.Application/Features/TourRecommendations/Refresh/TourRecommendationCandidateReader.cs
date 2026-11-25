@@ -220,18 +220,43 @@ internal sealed class TourRecommendationCandidateReader(IApplicationDbContext db
             ["tam linh"] = "heritage",
             ["mua sam"] = "shopping",
 
-            // "Architecture" is a canonical TravelerPreferenceKeys.InterestKeys value with no
-            // production category/tag mapped to it yet (confirmed: it never appears in any POI
-            // category/tag seed or migration), so travelers who select it always lose Jaccard
-            // match share. Add the architecture-themed English/Vietnamese labels operators are
-            // most likely to use so a match becomes possible once such a category/tag exists.
-            ["kien truc"] = "architecture",
-            ["cong trinh kien truc"] = "architecture",
-            ["di tich kien truc"] = "architecture",
-            ["kien truc co"] = "architecture",
-            ["historical architecture"] = "architecture",
-            ["landmark"] = "architecture",
-            ["landmark & architecture"] = "architecture",
+            // Confirmed via direct production query against catalog.POICategories/catalog.Tags
+            // (2026-11-25): specific Vietnamese dish-name tags that free-text to "Food & Drink"
+            // conceptually but don't literally equal any InterestSynonymMap key above.
+            ["banh mi"] = "culinary",
+            ["banh xeo"] = "culinary",
+            ["bun bo"] = "culinary",
+            ["cao lau"] = "culinary",
+            ["che"] = "culinary",
+            ["com hen"] = "culinary",
+            ["hai san"] = "culinary",
+            ["mi quang"] = "culinary",
+            ["nem lui"] = "culinary",
+            ["food"] = "culinary",
+            ["food drink"] = "culinary",
+
+            // Other production tags confirmed to conceptually match a canonical interest key.
+            ["bao tang"] = "museum",
+            ["di san"] = "heritage",
+            ["thang canh"] = "heritage",
+            ["unesco"] = "heritage",
+            ["spiritual"] = "heritage",
+            ["family"] = "relaxation",
+            ["entertainment"] = "adventure",
+            ["vui choi"] = "adventure",
+            ["nightlife"] = "nature",
+            ["ve đem"] = "nature",
+
+            // Note: "architecture" is a canonical TravelerPreferenceKeys.InterestKeys value, but
+            // the 2026-11-25 production query found no POI category or tag resembling it at all
+            // (not even a synonym gap — no architecture-themed data exists yet). No mapping is
+            // added here; one belongs once an operator actually tags a POI this way.
+            //
+            // Also confirmed not mapped by design: "check in", "must visit", "nổi tiếng",
+            // "sightseeing" are generic popularity/photo-op tags with no single conceptually
+            // correct interest key, so mapping them would create false-positive matches.
+            // "Lưu trú" (catalog.POICategories) means accommodation, which has no corresponding
+            // interest key.
         };
 
     internal static IEnumerable<string> ResolveInterestSynonyms(string rawToken)
