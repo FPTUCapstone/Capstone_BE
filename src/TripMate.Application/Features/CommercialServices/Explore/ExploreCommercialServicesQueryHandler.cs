@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Domain.Entities;
+using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.CommercialServices.Explore;
 
@@ -19,7 +20,8 @@ public sealed class ExploreCommercialServicesQueryHandler(IApplicationDbContext 
             .AsNoTracking()
             .Where(service =>
                 service.AvailabilityStatus == CommercialService.AvailabilityAvailable
-                && service.Provider.Status == ServiceProvider.StatusActive);
+                && service.Provider.Status == ServiceProvider.StatusActive
+                && (!service.PoiId.HasValue || dbContext.PointsOfInterest.Any(p => p.Id == service.PoiId.Value && p.Status == PointOfInterestStatus.Active)));
 
         if (!string.IsNullOrWhiteSpace(request.Category))
         {

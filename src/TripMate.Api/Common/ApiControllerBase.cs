@@ -89,6 +89,18 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripMate.Application.Features.SupportChat.SupportChatErrors.Forbidden => StatusCodes.Status403Forbidden,
             TripMate.Application.Features.SupportChat.SupportChatErrors.Unavailable => StatusCodes.Status503ServiceUnavailable,
             TripMate.Application.Features.SupportChat.SupportChatErrors.InvalidRequest => StatusCodes.Status400BadRequest,
+            TripMate.Application.Features.PointsOfInterest.Deactivate.PoiDeactivationErrors.Forbidden =>
+                StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.PointsOfInterest.Deactivate.PoiDeactivationErrors.NotFound =>
+                StatusCodes.Status404NotFound,
+            TripMate.Application.Features.PointsOfInterest.Deactivate.PoiDeactivationErrors.AlreadyInactive or
+            TripMate.Application.Features.PointsOfInterest.Deactivate.PoiDeactivationErrors.ReferenceMismatch =>
+                StatusCodes.Status409Conflict,
+            TripMate.Application.Features.PointsOfInterest.Deactivate.PoiDeactivationErrors.Unavailable =>
+                StatusCodes.Status503ServiceUnavailable,
+            TripMate.Application.Features.PointsOfInterest.Deactivate.PoiDeactivationErrors.Msg123 or
+            TripMate.Application.Features.PointsOfInterest.Deactivate.PoiDeactivationErrors.InvalidInput =>
+                StatusCodes.Status400BadRequest,
             TripMate.Application.Features.Routes.RouteErrors.DuplicateSubmission
                 or TripMate.Application.Features.Routes.RouteErrors.DuplicateRoute => StatusCodes.Status409Conflict,
             AuthErrorCodes.InvalidCredentials =>

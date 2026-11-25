@@ -113,6 +113,7 @@ public static class DependencyInjection
 
         services.AddScoped<IAccountProvisioningEmailSender, SmtpAccountProvisioningEmailSender>();
         services.AddScoped<IAccountProvisioningLock, SqlServerAccountProvisioningLock>();
+        services.AddScoped<TripMate.Application.Features.PointsOfInterest.Deactivate.IPoiDeactivationLock, SqlServerPoiDeactivationLock>();
         services.AddScoped<IAccountProvisioningPersistenceErrors, SqlServerAccountProvisioningPersistenceErrors>();
         services.AddScoped<IServiceProviderRequestLock, SqlServerServiceProviderRequestLock>();
         services.AddScoped<ProviderRequestMutationService>();
