@@ -27,18 +27,9 @@ BEGIN TRY
     BEGIN
         ALTER TABLE commerce.Bookings
             ADD payment_flow VARCHAR(30) NOT NULL
+                CONSTRAINT CK_Bookings_PaymentFlow
+                    CHECK (payment_flow IN (N'PlatformCollectedLegacy', N'OperatorDirect'))
                 CONSTRAINT DF_Bookings_PaymentFlow DEFAULT N'PlatformCollectedLegacy';
-    END;
-
-    IF NOT EXISTS (
-        SELECT 1 FROM sys.check_constraints
-        WHERE parent_object_id = OBJECT_ID(N'commerce.Bookings')
-          AND name = N'CK_Bookings_PaymentFlow'
-    )
-    BEGIN
-        ALTER TABLE commerce.Bookings
-            ADD CONSTRAINT CK_Bookings_PaymentFlow
-                CHECK (payment_flow IN (N'PlatformCollectedLegacy', N'OperatorDirect'));
     END;
 
     -- =========================================================================
@@ -164,10 +155,6 @@ BEGIN TRY
         CREATE INDEX IX_DirectRefundCases_Status
             ON payment.DirectRefundCases(status, transfer_deadline_at);
 
-        CREATE INDEX IX_DirectRefundCases_TransferDeadline
-            ON payment.DirectRefundCases(transfer_deadline_at)
-            WHERE transfer_deadline_at IS NOT NULL AND status IN (N'AwaitingTransfer');
-
         CREATE INDEX IX_DirectRefundCases_Booking
             ON payment.DirectRefundCases(booking_id);
     END;
@@ -210,8 +197,7 @@ BEGIN TRY
             ON payment.DirectRefundTransfers(case_id);
 
         CREATE INDEX IX_DirectRefundTransfers_ConfirmationDeadline
-            ON payment.DirectRefundTransfers(confirmation_deadline_at)
-            WHERE confirmation_deadline_at > SYSUTCDATETIME();
+            ON payment.DirectRefundTransfers(confirmation_deadline_at);
     END;
 
     -- =========================================================================
