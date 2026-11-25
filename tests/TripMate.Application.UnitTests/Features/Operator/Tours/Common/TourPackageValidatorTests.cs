@@ -110,6 +110,29 @@ public sealed class TourPackageValidatorTests
         UpdateValidator.Validate(Update(Create() with { Exclusions = overLimit })).IsValid.Should().BeFalse();
     }
 
+    [Fact]
+    public void CreateAndUpdate_RejectDuplicateScheduleStartsAndPastRegistrationDeadlines()
+    {
+        var baseCmd = Create();
+        var s1 = baseCmd.Schedules[0];
+        var duplicateCmd = baseCmd with { Schedules = [s1, s1 with { TotalCapacity = 15 }] };
+        var pastDeadlineCmd = baseCmd with
+        {
+            Schedules = [s1 with { RegistrationDeadlineAtUtc = Clock.UtcNow.AddMinutes(-5) }],
+        };
+        var overflowPriceCmd = baseCmd with
+        {
+            Schedules = [s1 with { ChildPrice = 10_000_000_000m }],
+        };
+
+        CreateValidator.Validate(duplicateCmd).IsValid.Should().BeFalse();
+        UpdateValidator.Validate(Update(duplicateCmd)).IsValid.Should().BeFalse();
+        CreateValidator.Validate(pastDeadlineCmd).IsValid.Should().BeFalse();
+        UpdateValidator.Validate(Update(pastDeadlineCmd)).IsValid.Should().BeFalse();
+        CreateValidator.Validate(overflowPriceCmd).IsValid.Should().BeFalse();
+        UpdateValidator.Validate(Update(overflowPriceCmd)).IsValid.Should().BeFalse();
+    }
+
     private static CreateTourPackageCommand Create()
     {
         var now = Clock.UtcNow;

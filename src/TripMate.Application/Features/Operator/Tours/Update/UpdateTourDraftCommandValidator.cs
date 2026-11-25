@@ -48,19 +48,23 @@ public sealed class UpdateTourDraftCommandValidator : AbstractValidator<UpdateTo
             items is not null && items.All(item => item.DayNo <= command.DurationDays));
         RuleForEach(command => command.Schedules).ChildRules(schedule =>
         {
-            schedule.RuleFor(value => value.StartAtUtc).GreaterThan(clock.UtcNow);
+            schedule.RuleFor(value => value.StartAtUtc).GreaterThan(_ => clock.UtcNow);
             schedule.RuleFor(value => value.EndAtUtc).GreaterThan(value => value.StartAtUtc);
             schedule.RuleFor(value => value.TotalCapacity).GreaterThan(0);
             schedule.RuleFor(value => value.MinimumCapacity).GreaterThan(0)
                 .LessThanOrEqualTo(value => value.TotalCapacity);
             schedule.RuleFor(value => value.RegistrationDeadlineAtUtc)
+                .GreaterThan(_ => clock.UtcNow)
                 .LessThan(value => value.StartAtUtc)
                 .When(value => value.RegistrationDeadlineAtUtc.HasValue);
             schedule.RuleFor(value => value.AdultPrice).GreaterThan(0)
+                .LessThanOrEqualTo(9_999_999_999.99m)
                 .When(value => value.AdultPrice.HasValue);
             schedule.RuleFor(value => value.ChildPrice).GreaterThanOrEqualTo(0)
+                .LessThanOrEqualTo(9_999_999_999.99m)
                 .When(value => value.ChildPrice.HasValue);
             schedule.RuleFor(value => value.InfantPrice).GreaterThanOrEqualTo(0)
+                .LessThanOrEqualTo(9_999_999_999.99m)
                 .When(value => value.InfantPrice.HasValue);
             schedule.RuleFor(value => value.AdultPrice).Must(OperatorTourValidation.IsWholeVnd)
                 .WithMessage("The price must be a whole VND amount.");
@@ -72,5 +76,9 @@ public sealed class UpdateTourDraftCommandValidator : AbstractValidator<UpdateTo
             schedule.RuleFor(value => value).Must(OperatorTourValidation.HasValidMeetingCoordinates)
                 .WithMessage("Meeting coordinates require a named point and valid latitude and longitude.");
         });
+        RuleFor(command => command.Schedules)
+            .Must(schedules => schedules is null
+                || schedules.Select(s => s.StartAtUtc.ToUniversalTime()).Distinct().Count() == schedules.Count)
+            .WithMessage("Departure start dates and times must be unique.");
     }
 }

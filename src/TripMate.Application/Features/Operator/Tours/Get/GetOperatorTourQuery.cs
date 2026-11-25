@@ -71,6 +71,8 @@ public sealed record OperatorTourItineraryItemDto(
     int StayDurationMinutes,
     string? Notes)
 {
+    public string? PoiName { get; init; }
+
     public bool? IsRequiredForWeather { get; init; }
 }
 
@@ -93,4 +95,6 @@ public sealed record OperatorTourDepartureDto(
     public decimal? MeetingLongitude { get; init; }
 
     public bool WeatherReady { get; init; }
+
+    public bool IsCompleted { get; init; }
 }

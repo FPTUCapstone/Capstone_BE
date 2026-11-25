@@ -78,9 +78,17 @@ public sealed class CreateTourPackageCommandHandler(
 
                 if (existingOperation.TourId.HasValue)
                 {
-                    return Result.Success(new CreateTourPackageResponse(
-                        existingOperation.TourId.Value,
-                        nameof(TourStatus.Draft)));
+                    var existingTour = await dbContext.Tours.AsNoTracking()
+                        .Where(candidate => candidate.Id == existingOperation.TourId.Value)
+                        .Select(candidate => new { candidate.Id, candidate.Status, candidate.VersionNo })
+                        .SingleOrDefaultAsync(transactionCancellationToken);
+                    if (existingTour is not null)
+                    {
+                        return Result.Success(new CreateTourPackageResponse(
+                            existingTour.Id,
+                            existingTour.Status.ToString(),
+                            existingTour.VersionNo));
+                    }
                 }
 
                 return Result.Failure<CreateTourPackageResponse>(

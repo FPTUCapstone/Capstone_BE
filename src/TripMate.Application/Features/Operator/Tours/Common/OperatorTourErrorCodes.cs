@@ -18,4 +18,6 @@ public static class OperatorTourErrorCodes
     public const string ReviewChecklistIncomplete = "operator_tour.review_checklist_incomplete";
     public const string ServiceUnavailable = "MSG127";
     public const string WeatherReviewInvalid = "operator_tour.weather_review_invalid";
+    public const string DuplicateDeparture = "operator_tour.duplicate_departure";
+    public const string DepartureItineraryMismatch = "operator_tour.departure_itinerary_mismatch";
 }

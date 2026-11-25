@@ -179,6 +179,16 @@ public class Tour : BaseEntity
         VersionNo = versionNo;
     }
 
+    public void ClearVersionRootForDelete()
+    {
+        if (Status is not (TourStatus.Draft or TourStatus.Rejected))
+        {
+            throw new InvalidOperationException("Only Draft or Rejected tours can clear version lineage for deletion.");
+        }
+
+        VersionRootTourId = null;
+    }
+
     public void SubmitForReview(DateTimeOffset submittedAtUtc, string? submissionNote = null)
     {
         if (Status is not (TourStatus.Draft or TourStatus.Rejected))
@@ -404,6 +414,30 @@ public class Tour : BaseEntity
             throw new InvalidOperationException("Only Published or publicly active Approved tours can be unpublished.");
         Status = TourStatus.Inactive;
         UpdatedAtUtc = normalizedUnpublishedAtUtc;
+    }
+
+    public bool CanAcceptAdditionalDeparture(DateTimeOffset asOfUtc)
+    {
+        var normalizedAsOfUtc = asOfUtc.ToUniversalTime();
+        return Status == TourStatus.Published
+            || (Status == TourStatus.Approved
+                && PublishedAtUtc.HasValue
+                && PublishedAtUtc.Value <= normalizedAsOfUtc);
+    }
+
+    public void AddDeparture(TourSchedule schedule, DateTimeOffset nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(schedule);
+        var normalizedNow = nowUtc.ToUniversalTime();
+        if (!CanAcceptAdditionalDeparture(normalizedNow))
+        {
+            throw new InvalidOperationException(
+                "Only an approved and published tour can accept additional departures.");
+        }
+
+        schedule.AttachTo(this);
+        _schedules.Add(schedule);
+        UpdatedAtUtc = normalizedNow;
     }
 
     private static void EnsureWholeVnd(decimal price, string parameterName)

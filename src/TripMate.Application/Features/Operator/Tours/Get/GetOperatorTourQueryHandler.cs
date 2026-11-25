@@ -75,6 +75,7 @@ public sealed class GetOperatorTourQueryHandler(
                         item.DayNo, item.SequenceNo, item.PoiId, item.PlannedTime,
                         item.StayDurationMinutes, item.Notes)
                     {
+                        PoiName = item.Poi.Name,
                         IsRequiredForWeather = item.IsRequiredForWeather,
                     })
                     .ToList(),
@@ -107,8 +108,9 @@ public sealed class GetOperatorTourQueryHandler(
             .SingleAsync(cancellationToken);
         string timeZoneId = string.IsNullOrWhiteSpace(terms.TimeZoneId) ? Tour.DefaultTimeZoneId : terms.TimeZoneId;
         var warnings = await BuildWarningsAsync(tour, timeZoneId, cancellationToken);
+        DateTimeOffset now = clock.UtcNow;
         var readiness = await TourReviewReadinessEvaluator.LoadAsync(
-            dbContext, tour.Id, tour.CancellationPolicyTemplateId, clock.UtcNow, cancellationToken);
+            dbContext, tour.Id, tour.CancellationPolicyTemplateId, now, cancellationToken);
         bool editable = Enum.TryParse(tour.Status, out TourStatus status) && TourReviewReadinessEvaluator.IsEditable(status);
         bool stopsClassified = tour.ItineraryItems.Count > 0
             && tour.ItineraryItems.All(item => item.IsRequiredForWeather.HasValue);
@@ -138,6 +140,8 @@ public sealed class GetOperatorTourQueryHandler(
                     && !string.IsNullOrWhiteSpace(departure.MeetingPoint)
                     && departure.MeetingLatitude.HasValue
                     && departure.MeetingLongitude.HasValue,
+                IsCompleted = departure.Status == nameof(TourScheduleStatus.Completed)
+                    || (departure.Status == nameof(TourScheduleStatus.Scheduled) && departure.EndAtUtc <= now),
             }).ToList(),
         });
     }

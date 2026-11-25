@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using TripMate.Api.Common;
 using TripMate.Application.Features.Operator.Tours.Create;
 using TripMate.Application.Features.Operator.Tours.Delete;
+using TripMate.Application.Features.Operator.Tours.Departures.Add;
 using TripMate.Application.Features.Operator.Tours.Emergency;
 using TripMate.Application.Features.Operator.Tours.Emergency.AddEvidence;
 using TripMate.Application.Features.Operator.Tours.Get;
@@ -225,6 +226,40 @@ public sealed class OperatorToursController(ISender sender) : ApiControllerBase(
     {
         var result = await Sender.Send(new SubmitTourForReviewCommand(tourId, request?.SubmissionNote), cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    [HttpPost("{tourId:long}/departures")]
+    [ProducesResponseType(typeof(AddTourDepartureResponse), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status422UnprocessableEntity)]
+    public async Task<IActionResult> AddDeparture(
+        long tourId,
+        AddTourDepartureRequest request,
+        [FromHeader(Name = "Idempotency-Key")] Guid idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(
+            new AddTourDepartureCommand(
+                tourId,
+                idempotencyKey,
+                request.StartAtUtc,
+                request.EndAtUtc,
+                request.MeetingPoint,
+                request.TotalCapacity,
+                request.MinimumCapacity,
+                request.RegistrationDeadlineAtUtc,
+                request.AdultPrice,
+                request.ChildPrice,
+                request.InfantPrice,
+                request.MeetingLatitude,
+                request.MeetingLongitude),
+            cancellationToken);
+        return result.IsSuccess
+            ? StatusCode(StatusCodes.Status201Created, result.Value)
+            : HandleFailure(result);
     }
 }
 public sealed record SubmitTourForReviewRequest(string? SubmissionNote);

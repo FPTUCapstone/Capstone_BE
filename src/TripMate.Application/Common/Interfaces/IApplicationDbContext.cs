@@ -62,6 +62,9 @@ public interface IApplicationDbContext
     DbSet<TourPackageCreateOperation> TourPackageCreateOperations =>
         throw new NotSupportedException("Tour package idempotency is unavailable in this context.");
 
+    DbSet<TourDepartureCreateOperation> TourDepartureCreateOperations =>
+        throw new NotSupportedException("Tour departure idempotency is unavailable in this context.");
+
     DbSet<CancellationPolicyTemplate> CancellationPolicyTemplates =>
         throw new NotSupportedException("Cancellation policies are unavailable in this context.");
 
