@@ -435,8 +435,13 @@ public class ApplicationDbContext(
 
     public DbSet<TourOperatorDebt> TourOperatorDebts => Set<TourOperatorDebt>();
 
-
     public DbSet<PayoutReconciliationItem> PayoutReconciliationItems => Set<PayoutReconciliationItem>();
+
+    // Direct Operator Payment, Refund and Commission (Phase 1 Task 5)
+    public DbSet<OperatorPaymentChannel> OperatorPaymentChannels => Set<OperatorPaymentChannel>();
+    public DbSet<DirectRefundCase> DirectRefundCases => Set<DirectRefundCase>();
+    public DbSet<DirectRefundTransfer> DirectRefundTransfers => Set<DirectRefundTransfer>();
+    public DbSet<DirectCommissionStatement> DirectCommissionStatements => Set<DirectCommissionStatement>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
