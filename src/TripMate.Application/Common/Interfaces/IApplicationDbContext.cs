@@ -112,6 +112,7 @@ public interface IApplicationDbContext
         throw new NotSupportedException("Provider POI ownership is unavailable in this context.");
 
     DbSet<CommercialService> CommercialServices { get; }
+    DbSet<ServiceAvailability> ServiceAvailability { get; }
 
     DbSet<ServiceBooking> ServiceBookings { get; }
 

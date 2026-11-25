@@ -43,6 +43,11 @@ public sealed class ServiceBooking : BaseEntity
     public long? ItineraryId { get; private set; }
     public string? ServiceOption { get; private set; }
     public string? SpecialRequest { get; private set; }
+    public Guid? SubmitKey { get; private set; }
+    public string? SubmitHash { get; private set; }
+    public string? ContactName { get; private set; }
+    public string? ContactPhone { get; private set; }
+    public string? ContactEmail { get; private set; }
     public long? CommissionStatementId { get; private set; }
     public ServiceCommissionStatement? CommissionStatement { get; private set; }
 
@@ -51,7 +56,6 @@ public sealed class ServiceBooking : BaseEntity
     public DateTimeOffset OutcomeAvailableAtUtc => VietnamMidnight(RequestedDate.AddDays(1));
     public DateTimeOffset AutoCompleteAtUtc => VietnamMidnight(RequestedDate.AddDays(4));
 
-    // UC31 can use this factory when its request-submission flow is delivered.
     public static ServiceBooking CreatePendingRequest(long travelerUserId, long serviceId,
         DateTimeOffset startAtUtc, DateTimeOffset? endAtUtc, int quantity,
         decimal estimatedAmount, DateTimeOffset submittedAtUtc, long? itineraryId = null,
@@ -82,6 +86,21 @@ public sealed class ServiceBooking : BaseEntity
         };
     }
 
+    public void SetSubmission(Guid key, string hash, string contactName, string contactPhone, string contactEmail)
+    {
+        if (SubmitKey.HasValue || key == Guid.Empty || hash.Length != 64
+            || string.IsNullOrWhiteSpace(contactName) || contactName.Length > 150
+            || string.IsNullOrWhiteSpace(contactPhone) || contactPhone.Length > 20
+            || string.IsNullOrWhiteSpace(contactEmail) || contactEmail.Length > 256)
+            throw new ArgumentException("Invalid booking submission details.");
+
+        SubmitKey = key;
+        SubmitHash = hash;
+        ContactName = contactName;
+        ContactPhone = contactPhone;
+        ContactEmail = contactEmail;
+    }
+
     public bool TryDecide(string decision, string? reason, long actorUserId, DateTimeOffset nowUtc)
     {
         if (RequestSubmittedAtUtc is null || Status != PendingConfirmation || actorUserId <= 0
@@ -94,6 +113,17 @@ public sealed class ServiceBooking : BaseEntity
         RejectionReason = decision == Rejected ? reason!.Trim() : null;
         RespondedByUserId = actorUserId;
         RespondedAtUtc = nowUtc.ToUniversalTime();
+        CommissionAmount = 0;
+        return true;
+    }
+
+    public bool TryCancel(DateTimeOffset nowUtc)
+    {
+        if (RequestSubmittedAtUtc is null || Status != PendingConfirmation
+            || nowUtc < RequestSubmittedAtUtc || nowUtc >= ResponseDeadlineUtc)
+            return false;
+
+        Status = Cancelled;
         CommissionAmount = 0;
         return true;
     }

@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Rerouting.Generate;
 using TripMate.Application.Features.TripAlerts.Common;
 using TripMate.Domain.Entities;
 
@@ -13,21 +14,46 @@ namespace TripMate.Application.Features.TripAlerts.ReportDeviation;
 public sealed class ReportDeviationCommandHandler(
     IApplicationDbContext dbContext,
     IDateTimeProvider clock,
-    IOptions<TripAlertOptions> options)
+    IOptions<TripAlertOptions> options,
+    IReroutingProposalGenerator? reroutingGenerator = null)
     : IRequestHandler<ReportDeviationCommand, Result<TripAlertResponse>>
 {
     private readonly TripAlertOptions options = options.Value;
     private readonly TripAlertPersistence persistence = new(dbContext);
 
-    public Task<Result<TripAlertResponse>> Handle(
+    public async Task<Result<TripAlertResponse>> Handle(
         ReportDeviationCommand request,
-        CancellationToken cancellationToken) =>
-        dbContext.ExecuteInTransactionAsync(
-            transactionCancellationToken => HandleInTransaction(request, transactionCancellationToken),
+        CancellationToken cancellationToken)
+    {
+        long? createdIncidentId = null;
+        var result = await dbContext.ExecuteInTransactionAsync(
+            transactionCancellationToken =>
+            {
+                createdIncidentId = null;
+                return HandleInTransaction(
+                    request, incidentId => createdIncidentId = incidentId, transactionCancellationToken);
+            },
             cancellationToken);
+
+        // UC-15: only after the incident and its Notification committed, and only for a newly raised deviation (not a
+        // replay or an already open one). A failure there never changes this response.
+        if (result.IsSuccess && createdIncidentId.HasValue && reroutingGenerator is not null)
+        {
+            try
+            {
+                await reroutingGenerator.TryGenerateAsync(createdIncidentId.Value, clock.UtcNow, cancellationToken);
+            }
+            catch (Exception) when (!cancellationToken.IsCancellationRequested)
+            {
+            }
+        }
+
+        return result;
+    }
 
     private async Task<Result<TripAlertResponse>> HandleInTransaction(
         ReportDeviationCommand request,
+        Action<long> onCreated,
         CancellationToken cancellationToken)
     {
         var session = await dbContext.ExecuteWithSerializableReadsAsync(
@@ -119,7 +145,7 @@ public sealed class ReportDeviationCommandHandler(
                 new Dictionary<string, object?> { ["retryAfterSeconds"] = retryAfter });
         }
 
-        return Result.Success(await persistence.CreateAsync(
+        var created = await persistence.CreateAsync(
             session,
             Incident.RouteDeviationType,
             sourceKey,
@@ -127,7 +153,9 @@ public sealed class ReportDeviationCommandHandler(
             request.TargetItemId,
             request.EventId,
             null,
-            cancellationToken));
+            cancellationToken);
+        onCreated(created.IncidentId);
+        return Result.Success(created);
     }
 
     private static Result<TripAlertResponse> Failure(string code, string message) =>

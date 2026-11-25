@@ -124,6 +124,7 @@ public class ApplicationDbContext(
     public DbSet<ProviderPoiLink> ProviderPoiLinks => Set<ProviderPoiLink>();
 
     public DbSet<CommercialService> CommercialServices => Set<CommercialService>();
+    public DbSet<ServiceAvailability> ServiceAvailability => Set<ServiceAvailability>();
     public DbSet<ServiceBooking> ServiceBookings => Set<ServiceBooking>();
     public DbSet<ServiceCommissionStatement> ServiceCommissionStatements => Set<ServiceCommissionStatement>();
 

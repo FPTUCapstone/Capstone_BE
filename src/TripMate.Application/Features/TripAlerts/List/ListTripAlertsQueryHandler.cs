@@ -1,16 +1,21 @@
 using MediatR;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Rerouting.Common;
 using TripMate.Application.Features.TripAlerts.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.TripAlerts.List;
 
-public sealed class ListTripAlertsQueryHandler(IApplicationDbContext dbContext)
+public sealed class ListTripAlertsQueryHandler(
+    IApplicationDbContext dbContext,
+    IDateTimeProvider? clock = null,
+    IOptions<ReroutingOptions>? reroutingOptions = null)
     : IRequestHandler<ListTripAlertsQuery, Result<IReadOnlyCollection<TripAlertResponse>>>
 {
     public async Task<Result<IReadOnlyCollection<TripAlertResponse>>> Handle(
@@ -55,10 +60,15 @@ public sealed class ListTripAlertsQueryHandler(IApplicationDbContext dbContext)
                 && notification.RelatedEntityId.HasValue
                 && incidentIds.Contains(notification.RelatedEntityId.Value))
             .ToDictionaryAsync(notification => notification.RelatedEntityId!.Value, cancellationToken);
+        // A proposal past its TTL is never offered, even before the sweep marks it Expired (spec 8):
+        // open while now <= proposed_at + ttl, i.e. proposed_at >= now - ttl.
+        var oldestStillOpen = (clock?.UtcNow ?? DateTimeOffset.UtcNow)
+            - (reroutingOptions?.Value ?? new ReroutingOptions()).ProposalTtl;
         var proposals = await dbContext.ReroutingEvents.AsNoTracking()
             .Where(proposal =>
                 incidentIds.Contains(proposal.IncidentId)
-                && proposal.Status == ReroutingEvent.StatusProposed)
+                && proposal.Status == ReroutingEvent.StatusProposed
+                && proposal.ProposedAtUtc >= oldestStillOpen)
             .GroupBy(proposal => proposal.IncidentId)
             .Select(group => new { IncidentId = group.Key, ProposalId = group.Max(item => item.Id) })
             .ToDictionaryAsync(item => item.IncidentId, item => (long?)item.ProposalId, cancellationToken);

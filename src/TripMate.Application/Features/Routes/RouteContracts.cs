@@ -40,12 +40,16 @@ public sealed record CreateRouteCommand : IRequest<Result<RouteDto>>
 public sealed record RouteDto(long Id, long FromPoiId, long ToPoiId, string FromPoiName,
     string ToPoiName, decimal DistanceKm, int EstimatedDurationMinutes, string TransportMode,
     string Status, string? RouteNote, DateTimeOffset CreatedAtUtc,
-    string? MessageCode = null, string? Message = null)
+    string? MessageCode = null, string? Message = null,
+    bool RequiresReview = false, DateTimeOffset? ReviewFlaggedAtUtc = null, string? ReviewFlagReason = null)
 {
     public static RouteDto From(RouteSegment route) => new(route.Id, route.FromPoiId,
         route.ToPoiId, route.FromPoi.Name, route.ToPoi.Name, route.DistanceKm,
         route.EstimatedDurationMinutes, route.TransportMode.ToString(), route.Status.ToString(),
-        route.RouteNote, route.CreatedAtUtc);
+        route.RouteNote, route.CreatedAtUtc,
+        RequiresReview: route.RequiresReview,
+        ReviewFlaggedAtUtc: route.ReviewFlaggedAtUtc,
+        ReviewFlagReason: route.ReviewFlagReason);
 }
 
 public sealed record ListRoutesQuery(int Page = 1, int PageSize = 20) : IRequest<Result<RouteListDto>>;
