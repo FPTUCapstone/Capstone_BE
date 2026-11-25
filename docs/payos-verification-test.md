@@ -110,7 +110,11 @@ POST /api/v1/payments/payos/webhook/{operatorChannelId}
 **Ưu:** Verify signature ngay không cần DB lookup; URL đăng ký với PayOS embed TO identity.  
 **Nhược:** Mỗi TO phải đăng ký URL riêng khi onboard; URL thay đổi nếu channelId thay đổi; `operatorChannelId` lộ ra URL public (acceptable nhưng cần lưu ý).
 
-**Recommendation:** Phương án A đơn giản hơn và phù hợp với architecture hiện tại. Phương án B tốt hơn về security nhưng phức tạp hơn khi TO onboard. **Cần owner quyết định trước Phase 2 Task 9.**
+**Decision (25/11/2026, owner approved):** ✅ **Phương án A** — lookup by orderCode.
+
+Routing flow: Webhook đến → Extract `orderCode` → Tra DB (read-only) → Tìm booking → Tìm `OperatorPaymentChannel` → Lấy `ChecksumKey` → Verify HMAC → Process.
+
+Lý do chọn: Đơn giản, một endpoint, không đổi URL đăng ký PayOS khi TO onboard mới. DB lookup trước verify là chấp nhận được vì chỉ đọc, và `orderCode` không phải data nhạy cảm.
 
 ---
 
