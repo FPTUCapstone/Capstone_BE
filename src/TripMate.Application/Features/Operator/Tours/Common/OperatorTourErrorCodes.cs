@@ -18,4 +18,9 @@ public static class OperatorTourErrorCodes
     public const string ReviewChecklistIncomplete = "operator_tour.review_checklist_incomplete";
     public const string ServiceUnavailable = "MSG127";
     public const string WeatherReviewInvalid = "operator_tour.weather_review_invalid";
+
+    // TM-82 / UC-36: draft versions of an Approved/Published tour.
+    public const string PendingChangeNotFound = "operator_tour.pending_change_not_found";
+    public const string ScheduleHasActiveBookings = "operator_tour.schedule_has_active_bookings";
+    public const string ScheduleNotOwnedByTour = "operator_tour.schedule_not_owned_by_tour";
 }
