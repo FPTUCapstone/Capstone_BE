@@ -11,6 +11,9 @@ using Moq;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Scheduling.Personalization;
+using TripMate.Application.UnitTests.TestUtilities;
+using TripMate.Domain.Entities;
+using TripMate.Domain.Enums;
 using TripMate.Infrastructure.Persistence;
 
 namespace TripMate.Application.UnitTests.Features.Scheduling.Personalization;
@@ -22,7 +25,8 @@ public sealed class PoiRankingOrchestratorTests
     {
         var dbContext = new Mock<IApplicationDbContext>(MockBehavior.Strict);
         var provider = new RecordingProvider();
-        var orchestrator = CreateOrchestrator(dbContext.Object, provider, providerEnabled: true);
+        var logger = new RecordingLogger<PoiRankingOrchestrator>();
+        var orchestrator = CreateOrchestrator(dbContext.Object, provider, providerEnabled: true, logger: logger);
 
         PoiRankingSnapshot snapshot = await orchestrator.BuildRankingAsync(
             new PoiRankingInput(17L, ["culture"], []),
@@ -33,6 +37,12 @@ public sealed class PoiRankingOrchestratorTests
         snapshot.OutcomeCategory.Should().Be(PoiRankingOutcomeCategory.ProviderSkipped);
         provider.CallCount.Should().Be(0);
         dbContext.VerifyNoOtherCalls();
+
+        LogEntry log = logger.Entries.Should().ContainSingle().Subject;
+        log.Level.Should().Be(LogLevel.Information);
+        log.Properties["Outcome"].Should().Be("provider-skipped");
+        log.Properties["FallbackUsed"].Should().Be(false);
+        log.Properties["TimedOut"].Should().Be(false);
     }
 
     [Fact]
@@ -62,8 +72,8 @@ public sealed class PoiRankingOrchestratorTests
                 [candidate]),
             CancellationToken.None);
 
-        snapshot.Entries[11L].TripMateBaseScore.Should().Be(0.875m);
-        snapshot.Entries[11L].EffectiveDesirabilityScore.Should().Be(0.875m);
+        snapshot.Entries[11L].TripMateBaseScore.Should().Be(0.950m);
+        snapshot.Entries[11L].EffectiveDesirabilityScore.Should().Be(0.7925m);
         countingContext.VerifyGet(
             context => context.RecommendationBehaviorEvents,
             Times.Exactly(2));
@@ -174,7 +184,7 @@ public sealed class PoiRankingOrchestratorTests
         snapshot.OutcomeCategory.Should().Be(PoiRankingOutcomeCategory.ProviderSkipped);
         snapshot.Entries.Should().HaveCount(3);
         snapshot.Entries.Values.Should().OnlyContain(entry =>
-            entry.EffectiveDesirabilityScore == entry.TripMateBaseScore);
+            entry.EffectiveDesirabilityScore == (0.60m * entry.TripMateBaseScore) + (0.40m * 0.50m));
         snapshot.ProviderPoolPoiIds.Should().NotContain(1L);
         provider.CallCount.Should().Be(0);
         LogEntry log = logger.Entries.Should().ContainSingle().Subject;
@@ -185,7 +195,7 @@ public sealed class PoiRankingOrchestratorTests
             ["CandidateCount"] = 4,
             ["PoolCount"] = 3,
             ["Outcome"] = "provider-skipped",
-            ["FallbackUsed"] = false,
+            ["FallbackUsed"] = true,
             ["TimedOut"] = false,
         });
         log.Message.Should().NotContain("FAKE_SECRET_SHOULD_NOT_APPEAR");
@@ -216,7 +226,7 @@ public sealed class PoiRankingOrchestratorTests
         snapshot.OutcomeCategory.Should().Be(PoiRankingOutcomeCategory.ProviderSkipped);
         snapshot.Entries.Should().HaveCount(3);
         snapshot.Entries.Values.Should().OnlyContain(entry =>
-            entry.EffectiveDesirabilityScore == entry.TripMateBaseScore);
+            entry.EffectiveDesirabilityScore == (0.55m * entry.TripMateBaseScore) + (0.45m * 0.50m));
         LogEntry log = logger.Entries.Should().ContainSingle().Subject;
         log.Level.Should().Be(LogLevel.Information);
         log.Properties.Should().Contain(new Dictionary<string, object?>
@@ -224,7 +234,7 @@ public sealed class PoiRankingOrchestratorTests
             ["CandidateCount"] = 4,
             ["PoolCount"] = 3,
             ["Outcome"] = "provider-skipped",
-            ["FallbackUsed"] = false,
+            ["FallbackUsed"] = true,
             ["TimedOut"] = false,
         });
     }
@@ -259,9 +269,15 @@ public sealed class PoiRankingOrchestratorTests
         request.Candidates.Should().ContainSingle().Which.Should().BeEquivalentTo(
             new PoiRankingCandidate(2L, "Museum", "Culture", ["heritage"]));
         PublicPropertyNames<PoiRankingRequest>().Should().BeEquivalentTo("Candidates", "Context");
-        PublicPropertyNames<PoiRankingContext>().Should().BeEquivalentTo("PreferenceTokens");
+        // UC-10 item 6 added the behavior profile. It stays semantic: POI descriptions and a weight, never the
+        // traveler's identity, scores, costs or coordinates.
+        PublicPropertyNames<PoiRankingContext>().Should().BeEquivalentTo("PreferenceTokens", "Behavior");
+        PublicPropertyNames<PoiRankingBehavior>().Should().BeEquivalentTo("Liked", "Disliked");
+        PublicPropertyNames<PoiRankingBehaviorPoi>().Should().BeEquivalentTo(
+            "PoiId", "Name", "CategoryName", "TagNames", "Weight");
         PublicPropertyNames<PoiRankingCandidate>().Should().BeEquivalentTo(
             "PoiId", "Name", "CategoryName", "TagNames");
+        request.Context.Behavior.Should().BeNull("this orchestrator has no behavior profile builder");
         provider.CallCount.Should().Be(1);
     }
 
@@ -405,7 +421,7 @@ public sealed class PoiRankingOrchestratorTests
 
         snapshot.OutcomeCategory.Should().Be(PoiRankingOutcomeCategory.InvalidResponse);
         snapshot.Entries.Values.Should().OnlyContain(entry =>
-            entry.EffectiveDesirabilityScore == entry.TripMateBaseScore);
+            entry.EffectiveDesirabilityScore == (0.60m * entry.TripMateBaseScore) + (0.40m * 0.60m));
         provider.CallCount.Should().Be(1);
         LogEntry log = logger.Entries.Should().ContainSingle().Subject;
         log.Level.Should().Be(LogLevel.Warning);
@@ -441,7 +457,7 @@ public sealed class PoiRankingOrchestratorTests
 
         snapshot.OutcomeCategory.ToString().Should().Be(expectedOutcome);
         snapshot.Entries[1L].EffectiveDesirabilityScore.Should().Be(
-            snapshot.Entries[1L].TripMateBaseScore);
+            (0.55m * snapshot.Entries[1L].TripMateBaseScore) + (0.45m * 0.60m));
         provider.CallCount.Should().Be(1);
         LogEntry log = logger.Entries.Should().ContainSingle().Subject;
         log.Level.Should().Be(LogLevel.Warning);
@@ -477,7 +493,7 @@ public sealed class PoiRankingOrchestratorTests
 
         snapshot.OutcomeCategory.Should().Be(PoiRankingOutcomeCategory.Timeout);
         snapshot.Entries[1L].EffectiveDesirabilityScore.Should().Be(
-            snapshot.Entries[1L].TripMateBaseScore);
+            (0.55m * snapshot.Entries[1L].TripMateBaseScore) + (0.45m * 0.60m));
         provider.CallCount.Should().Be(1);
         callerCancellation.IsCancellationRequested.Should().BeFalse();
         LogEntry log = logger.Entries.Should().ContainSingle().Subject;
@@ -653,8 +669,8 @@ public sealed class PoiRankingOrchestratorTests
         snapshot.ProviderPoolPoiIds.Should().Equal(7L);
         snapshot.Entries[7L].Should().Be(new PoiRankingSnapshotEntry(
             7L,
-            0.6125m,
-            0.7275m,
+            0.5750m,
+            0.72125m,
             8m,
             7m,
             1.5m,
@@ -695,6 +711,134 @@ public sealed class PoiRankingOrchestratorTests
         finalTopThree.Should().Equal(10L, 9L, 8L);
     }
 
+    [Fact]
+    public async Task BuildRankingAsync_WhenAiSucceeds_UsesActualAiScoreAndIgnoresFallback()
+    {
+        await using var dbContext = CreateDbContext();
+        var provider = new RecordingProvider
+        {
+            Handler = (req, _) => Task.FromResult(Result.Success(new PoiRankingResult(
+                req.Candidates.Select(c => new PoiRankingItem(c.PoiId, 0.90m, "Great match")).ToArray()))),
+        };
+        var logger = new RecordingLogger<PoiRankingOrchestrator>();
+        var orchestrator = CreateOrchestrator(dbContext, provider, true, logger: logger);
+
+        PoiRankingSnapshot snapshot = await orchestrator.BuildRankingAsync(
+            new PoiRankingInput(17L, ["culture"], [Candidate(1L)]),
+            CancellationToken.None);
+
+        // BaseScore is 0.100m, actual AiScore is 0.90m
+        // Expected: 0.55 * 0.100 + 0.45 * 0.90 = 0.055 + 0.405 = 0.460m
+        snapshot.OutcomeCategory.Should().Be(PoiRankingOutcomeCategory.Success);
+        snapshot.Entries[1L].EffectiveDesirabilityScore.Should().Be(0.460m);
+        provider.CallCount.Should().Be(1);
+
+        LogEntry log = logger.Entries.Should().ContainSingle().Subject;
+        log.Level.Should().Be(LogLevel.Information);
+        log.Properties["Outcome"].Should().Be("success");
+        log.Properties["FallbackUsed"].Should().Be(false);
+        log.Properties["TimedOut"].Should().Be(false);
+    }
+
+    public static TheoryData<PoiRankingOutcomeCategory, bool, decimal, int, string> ReachableNonSuccessOutcomes => new()
+    {
+        // Failure outcomes (require preferences so provider is actually called and fails):
+        { PoiRankingOutcomeCategory.Timeout, true, ExpectedBlendedScore(0.100m, 0.60m), 1, "timeout" },
+        { PoiRankingOutcomeCategory.Quota, true, ExpectedBlendedScore(0.100m, 0.60m), 1, "quota" },
+        { PoiRankingOutcomeCategory.Network, true, ExpectedBlendedScore(0.100m, 0.60m), 1, "network" },
+        { PoiRankingOutcomeCategory.ServerError, true, ExpectedBlendedScore(0.100m, 0.60m), 1, "server-error" },
+        { PoiRankingOutcomeCategory.InvalidResponse, true, ExpectedBlendedScore(0.100m, 0.60m), 1, "invalid-response" },
+        // ProviderSkipped case A: Provider disabled with preferences -> fallback 0.60, provider not called
+        { PoiRankingOutcomeCategory.ProviderSkipped, true, ExpectedBlendedScore(0.100m, 0.60m), 0, "provider-skipped" },
+        // ProviderSkipped case B: Cold start (no preferences, provider enabled) -> fallback 0.50, provider not called
+        { PoiRankingOutcomeCategory.ProviderSkipped, false, ExpectedBlendedScore(0.100m, 0.50m), 0, "provider-skipped" },
+    };
+
+    [Theory]
+    [MemberData(nameof(ReachableNonSuccessOutcomes))]
+    public async Task BuildRankingAsync_AllReachableNonSuccessOutcomes_ApplyConsistentFallbackAndTelemetry(
+        PoiRankingOutcomeCategory outcomeCategory,
+        bool hasPreferences,
+        decimal expectedScore,
+        int expectedCallCount,
+        string expectedLogOutcome)
+    {
+        await using var dbContext = CreateDbContext();
+        RecordingProvider provider;
+        bool providerEnabled = true;
+        PersonalizationRankingOptions? options = null;
+
+        switch (outcomeCategory)
+        {
+            case PoiRankingOutcomeCategory.Timeout:
+                provider = new RecordingProvider
+                {
+                    Handler = async (_, cancellationToken) =>
+                    {
+                        await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                        return Result.Success(new PoiRankingResult([]));
+                    },
+                };
+                options = Options(providerTimeout: TimeSpan.FromMilliseconds(20));
+                break;
+            case PoiRankingOutcomeCategory.Quota:
+                provider = new RecordingProvider
+                {
+                    Handler = (_, _) => Task.FromResult(
+                        Result.Failure<PoiRankingResult>(PoiRankingProviderErrorCodes.Quota, "Quota")),
+                };
+                break;
+            case PoiRankingOutcomeCategory.Network:
+                provider = new RecordingProvider
+                {
+                    Handler = (_, _) => Task.FromResult(
+                        Result.Failure<PoiRankingResult>(PoiRankingProviderErrorCodes.Network, "Network")),
+                };
+                break;
+            case PoiRankingOutcomeCategory.ServerError:
+                provider = new RecordingProvider
+                {
+                    Handler = (_, _) => Task.FromResult(
+                        Result.Failure<PoiRankingResult>(PoiRankingProviderErrorCodes.ServerError, "Server error")),
+                };
+                break;
+            case PoiRankingOutcomeCategory.InvalidResponse:
+                provider = new RecordingProvider
+                {
+                    Handler = (_, _) => Task.FromResult(
+                        Result.Failure<PoiRankingResult>(PoiRankingProviderErrorCodes.InvalidResponse, "Invalid response")),
+                };
+                break;
+            case PoiRankingOutcomeCategory.ProviderSkipped:
+                provider = new RecordingProvider();
+                providerEnabled = !hasPreferences; // if hasPreferences=true, disabled to trigger skipped; if false, enabled but cold start triggers skipped
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(outcomeCategory));
+        }
+
+        var logger = new RecordingLogger<PoiRankingOrchestrator>();
+        var orchestrator = CreateOrchestrator(dbContext, provider, providerEnabled, options, logger);
+        var preferenceTokens = hasPreferences ? new[] { "culture" } : Array.Empty<string>();
+
+        PoiRankingSnapshot snapshot = await orchestrator.BuildRankingAsync(
+            new PoiRankingInput(17L, preferenceTokens, [Candidate(1L)]),
+            CancellationToken.None);
+
+        snapshot.OutcomeCategory.Should().Be(outcomeCategory);
+        snapshot.Entries[1L].EffectiveDesirabilityScore.Should().Be(expectedScore);
+        provider.CallCount.Should().Be(expectedCallCount);
+
+        LogEntry log = logger.Entries.Should().ContainSingle().Subject;
+        log.Properties["Outcome"].Should().Be(expectedLogOutcome);
+        log.Properties["FallbackUsed"].Should().Be(true);
+        log.Properties["TimedOut"].Should().Be(outcomeCategory == PoiRankingOutcomeCategory.Timeout);
+    }
+
+    private static decimal ExpectedBlendedScore(decimal baseScore, decimal aiFallback) =>
+        (new PersonalizationRankingOptions().BaseWeight * baseScore)
+        + (new PersonalizationRankingOptions().AiWeight * aiFallback);
+
     public static TheoryData<string> PoolOrderingCases => new()
     {
         "base",
@@ -727,18 +871,238 @@ public sealed class PoiRankingOrchestratorTests
             _ => throw new ArgumentOutOfRangeException(nameof(scenario)),
         };
 
+    // UC-10 item 6 (spec .scratch/uc10-behavior-learning §3.3): the behavior profile reaches the provider.
+
+    [Fact]
+    public async Task BuildRankingAsync_SendsTheBehaviorProfileWithTheDeclaredInterests()
+    {
+        await using var dbContext = CreateDbContext();
+        PointOfInterest liked = await SeedPoiWithLikeAsync(dbContext, travelerUserId: 123L, "Cham Museum");
+        var provider = new RecordingProvider();
+        var orchestrator = CreateOrchestrator(dbContext, provider, providerEnabled: true, withBehaviorProfile: true);
+
+        await orchestrator.BuildRankingAsync(
+            new PoiRankingInput(123L, ["culture"], [Candidate(900L)]),
+            CancellationToken.None);
+
+        PoiRankingContext context = provider.LastRequest!.Context;
+        context.PreferenceTokens.Should().Equal("culture");
+        PoiRankingBehaviorPoi sent = context.Behavior!.Liked.Should().ContainSingle().Subject;
+        sent.PoiId.Should().Be(liked.Id);
+        sent.Name.Should().Be("Cham Museum");
+        sent.Weight.Should().Be(1.0m);
+        context.Behavior.Disliked.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task BuildRankingAsync_WithBehaviorButNoDeclaredInterests_StillCallsTheProvider()
+    {
+        await using var dbContext = CreateDbContext();
+        await SeedPoiWithLikeAsync(dbContext, travelerUserId: 123L, "Cham Museum");
+        var provider = new RecordingProvider();
+        var orchestrator = CreateOrchestrator(dbContext, provider, providerEnabled: true, withBehaviorProfile: true);
+
+        PoiRankingSnapshot snapshot = await orchestrator.BuildRankingAsync(
+            new PoiRankingInput(123L, [], [Candidate(900L)]),
+            CancellationToken.None);
+
+        provider.CallCount.Should().Be(1);
+        provider.LastRequest!.Context.PreferenceTokens.Should().BeEmpty();
+        provider.LastRequest.Context.Behavior!.Liked.Should().ContainSingle();
+        snapshot.OutcomeCategory.Should().Be(PoiRankingOutcomeCategory.Success);
+    }
+
+    [Fact]
+    public async Task BuildRankingAsync_WithNeitherInterestsNorBehavior_SkipsTheProvider()
+    {
+        await using var dbContext = CreateDbContext();
+        await SeedPoiWithLikeAsync(dbContext, travelerUserId: 999L, "Someone else's museum");
+        var provider = new RecordingProvider();
+        var orchestrator = CreateOrchestrator(dbContext, provider, providerEnabled: true, withBehaviorProfile: true);
+
+        PoiRankingSnapshot snapshot = await orchestrator.BuildRankingAsync(
+            new PoiRankingInput(123L, [], [Candidate(900L)]),
+            CancellationToken.None);
+
+        provider.CallCount.Should().Be(0);
+        snapshot.OutcomeCategory.Should().Be(PoiRankingOutcomeCategory.ProviderSkipped);
+    }
+
+    [Fact]
+    public async Task BuildRankingAsync_WithoutBehavior_SendsNoProfile()
+    {
+        await using var dbContext = CreateDbContext();
+        var provider = new RecordingProvider();
+        var orchestrator = CreateOrchestrator(dbContext, provider, providerEnabled: true, withBehaviorProfile: true);
+
+        await orchestrator.BuildRankingAsync(
+            new PoiRankingInput(123L, ["culture"], [Candidate(900L)]),
+            CancellationToken.None);
+
+        provider.LastRequest!.Context.Behavior.Should().BeNull();
+    }
+
+    // Decision D8 (2026-11-11): a stop the traveler removed is not suggested again for 14 days.
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task BuildRankingAsync_LeavesOutAStopTheTravelerRemovedRecently_WhateverTheProviderState(
+        bool providerEnabled)
+    {
+        await using var dbContext = CreateDbContext();
+        await AddRemovalAsync(dbContext, travelerUserId: 123L, poiId: 1L, daysAgo: 3);
+        var provider = new RecordingProvider();
+        var orchestrator = CreateOrchestrator(dbContext, provider, providerEnabled, withBehaviorProfile: true);
+
+        PoiRankingSnapshot snapshot = await orchestrator.BuildRankingAsync(
+            new PoiRankingInput(123L, ["culture"], [Candidate(1L), Candidate(2L)]),
+            CancellationToken.None);
+
+        snapshot.ProviderPoolPoiIds.Should().BeEquivalentTo([2L]);
+        snapshot.Entries.Keys.Should().BeEquivalentTo([2L]);
+        if (providerEnabled)
+        {
+            provider.LastRequest!.Candidates.Select(candidate => candidate.PoiId).Should().Equal(2L);
+        }
+
+        // The generation snapshot hash is rebuilt from every candidate at finalize, so the counts must cover the
+        // removed stop too; otherwise the request would be rejected as "planning data changed".
+        snapshot.BehaviorAggregation.PoiCounts.Should().ContainKey(1L);
+    }
+
+    [Fact]
+    public async Task BuildRankingAsync_SuggestsARemovedStopAgainAfterTheCooldown()
+    {
+        await using var dbContext = CreateDbContext();
+        await AddRemovalAsync(dbContext, travelerUserId: 123L, poiId: 1L, daysAgo: 15);
+        var orchestrator = CreateOrchestrator(
+            dbContext, new RecordingProvider(), providerEnabled: true, withBehaviorProfile: true);
+
+        PoiRankingSnapshot snapshot = await orchestrator.BuildRankingAsync(
+            new PoiRankingInput(123L, ["culture"], [Candidate(1L), Candidate(2L)]),
+            CancellationToken.None);
+
+        snapshot.Entries.Keys.Should().BeEquivalentTo([1L, 2L]);
+    }
+
+    [Fact]
+    public async Task BuildRankingAsync_WhenEveryCandidateWasRemovedRecently_StillSuggestsThem()
+    {
+        // An empty day helps nobody: with nothing else to offer, the cooldown gives way.
+        await using var dbContext = CreateDbContext();
+        await AddRemovalAsync(dbContext, travelerUserId: 123L, poiId: 1L, daysAgo: 1);
+        await AddRemovalAsync(dbContext, travelerUserId: 123L, poiId: 2L, daysAgo: 1);
+        var orchestrator = CreateOrchestrator(
+            dbContext, new RecordingProvider(), providerEnabled: true, withBehaviorProfile: true);
+
+        PoiRankingSnapshot snapshot = await orchestrator.BuildRankingAsync(
+            new PoiRankingInput(123L, ["culture"], [Candidate(1L), Candidate(2L)]),
+            CancellationToken.None);
+
+        snapshot.Entries.Keys.Should().BeEquivalentTo([1L, 2L]);
+    }
+
+    // D20 (2026-11-11): a place the traveler has just been to rests for 14 days, as long as enough other places
+    // are left to fill a day.
+
+    [Fact]
+    public async Task BuildRankingAsync_LeavesOutAStopTheTravelerVisitedRecently()
+    {
+        await using var dbContext = CreateDbContext();
+        await AddVisitAsync(dbContext, travelerUserId: 123L, poiId: 1L, daysAgo: 3);
+        var orchestrator = CreateOrchestrator(
+            dbContext, new RecordingProvider(), providerEnabled: true, withBehaviorProfile: true);
+
+        PoiRankingSnapshot snapshot = await orchestrator.BuildRankingAsync(
+            new PoiRankingInput(123L, ["culture"], Candidates(1L, 7L)),
+            CancellationToken.None);
+
+        snapshot.Entries.Keys.Should().BeEquivalentTo([2L, 3L, 4L, 5L, 6L, 7L]);
+        snapshot.BehaviorAggregation.PoiCounts.Should().ContainKey(1L);
+    }
+
+    [Fact]
+    public async Task BuildRankingAsync_WhenFewPlacesAreLeft_VisitedStopsComeBackButRemovedOnesDoNot()
+    {
+        // Hiding the removed stop and both visited stops would leave 3 places, too few for a day.
+        await using var dbContext = CreateDbContext();
+        await AddRemovalAsync(dbContext, travelerUserId: 123L, poiId: 1L, daysAgo: 1);
+        await AddVisitAsync(dbContext, travelerUserId: 123L, poiId: 2L, daysAgo: 1);
+        await AddVisitAsync(dbContext, travelerUserId: 123L, poiId: 3L, daysAgo: 1);
+        var orchestrator = CreateOrchestrator(
+            dbContext, new RecordingProvider(), providerEnabled: true, withBehaviorProfile: true);
+
+        PoiRankingSnapshot snapshot = await orchestrator.BuildRankingAsync(
+            new PoiRankingInput(123L, ["culture"], Candidates(1L, 6L)),
+            CancellationToken.None);
+
+        snapshot.Entries.Keys.Should().BeEquivalentTo([2L, 3L, 4L, 5L, 6L]);
+    }
+
+    private static PoiRankingInputCandidate[] Candidates(long first, long last) =>
+        Enumerable.Range((int)first, (int)(last - first + 1)).Select(id => Candidate(id)).ToArray();
+
+    private static async Task AddVisitAsync(
+        ApplicationDbContext dbContext,
+        long travelerUserId,
+        long poiId,
+        int daysAgo)
+    {
+        dbContext.RecommendationBehaviorEvents.Add(RecommendationBehaviorEvent.Create(
+            travelerUserId, poiId, 30L, RecommendationEventType.Like, null, null, false,
+            RecommendationCaptureSource.Navigation, BehaviorNow.AddDays(-daysAgo), Guid.NewGuid()));
+        await dbContext.SaveChangesAsync();
+    }
+
+    private static async Task AddRemovalAsync(
+        ApplicationDbContext dbContext,
+        long travelerUserId,
+        long poiId,
+        int daysAgo)
+    {
+        dbContext.RecommendationBehaviorEvents.Add(RecommendationBehaviorEvent.Create(
+            travelerUserId, poiId, 30L, RecommendationEventType.Dislike, null, null, false,
+            RecommendationCaptureSource.ItineraryEdit, BehaviorNow.AddDays(-daysAgo), Guid.NewGuid()));
+        await dbContext.SaveChangesAsync();
+    }
+
+    private static async Task<PointOfInterest> SeedPoiWithLikeAsync(
+        ApplicationDbContext dbContext,
+        long travelerUserId,
+        string name)
+    {
+        var poi = PointOfInterest.Create(PoiCategory.Create($"Category-{Guid.NewGuid():N}", null), name, 16m, 108m, 1, BehaviorNow);
+        dbContext.PointsOfInterest.Add(poi);
+        await dbContext.SaveChangesAsync();
+        dbContext.RecommendationBehaviorEvents.Add(RecommendationBehaviorEvent.Create(
+            travelerUserId, poi.Id, null, RecommendationEventType.Like, null, null, null,
+            RecommendationCaptureSource.Explore, BehaviorNow, Guid.NewGuid()));
+        await dbContext.SaveChangesAsync();
+        return poi;
+    }
+
+    private static readonly DateTimeOffset BehaviorNow = new(2026, 11, 11, 4, 0, 0, TimeSpan.Zero);
+
     private static PoiRankingOrchestrator CreateOrchestrator(
         IApplicationDbContext dbContext,
         IPoiRankingProvider provider,
         bool providerEnabled,
         PersonalizationRankingOptions? options = null,
-        ILogger<PoiRankingOrchestrator>? logger = null) =>
+        ILogger<PoiRankingOrchestrator>? logger = null,
+        bool withBehaviorProfile = false) =>
         new(
             new PersonalBehaviorFeatureAggregator(dbContext),
             provider,
             options ?? Options(),
             providerEnabled,
-            logger ?? new RecordingLogger<PoiRankingOrchestrator>());
+            logger ?? new RecordingLogger<PoiRankingOrchestrator>(),
+            withBehaviorProfile
+                ? new BehaviorProfileBuilder(
+                    dbContext,
+                    new FakeDateTimeProvider { UtcNow = BehaviorNow },
+                    options ?? Options())
+                : null);
 
     private static ApplicationDbContext CreateDbContext()
     {

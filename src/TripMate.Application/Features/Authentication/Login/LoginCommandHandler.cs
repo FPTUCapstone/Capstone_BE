@@ -4,10 +4,12 @@ using MediatR;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Authentication.Common;
+using TripMate.Application.Features.Operator.Contracts.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -23,7 +25,8 @@ public class LoginCommandHandler(
     IPasswordHasherService passwordHasher,
     IJwtTokenService jwtTokenService,
     IDateTimeProvider dateTimeProvider,
-    ILogger<LoginCommandHandler> logger)
+    ILogger<LoginCommandHandler> logger,
+    IOptions<OperatorContractOptions>? contractOptions = null)
     : IRequestHandler<LoginCommand, Result<AuthResponseDto>>
 {
     public async Task<Result<AuthResponseDto>> Handle(
@@ -83,7 +86,7 @@ public class LoginCommandHandler(
             }
 
             var eligibility = await AccountEligibilityResolver.ResolveAsync(
-                dbContext, user, dateTimeProvider.UtcNow, ct);
+                dbContext, user, dateTimeProvider.UtcNow, ct, contractOptions?.Value.Enabled ?? false);
             if (eligibility.IsFailure)
             {
                 return Result.Failure<AuthResponseDto>(eligibility.ErrorCode!, eligibility.ErrorMessage!);
@@ -134,7 +137,14 @@ public class LoginCommandHandler(
                 accessToken,
                 refreshTokenValue,
                 accessTokenExpiresAtUtc)
-            { ApplicationStatus = eligibility.Value.ApplicationStatus, RefreshTokenExpiresAtUtc = refreshExpiresAt });
+            {
+                ApplicationStatus = eligibility.Value.ApplicationStatus,
+                OnboardingState = eligibility.Value.OnboardingState,
+                ContractStatus = eligibility.Value.ContractStatus,
+                CurrentContractId = eligibility.Value.CurrentContractId,
+                RefreshTokenExpiresAtUtc = refreshExpiresAt,
+                MustChangePassword = user.MustChangePassword
+            });
         }
     }
 }

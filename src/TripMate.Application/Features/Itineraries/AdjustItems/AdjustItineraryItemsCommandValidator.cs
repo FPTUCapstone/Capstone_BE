@@ -29,5 +29,20 @@ public sealed class AdjustItineraryItemsCommandValidator : AbstractValidator<Adj
                 || command.Stops.Select(stop => stop.PoiId).SequenceEqual(command.OrderedVisitPoiIds))
             .WithMessage("Stops and visit locations must describe the same order.")
             .When(command => command.Stops is not null);
+        RuleFor(command => command.RemovedStops!)
+            .Cascade(CascadeMode.Stop)
+            .Must(removed => removed.Count <= AdjustItineraryItemsCommand.MaxStops)
+            .WithMessage($"At most {AdjustItineraryItemsCommand.MaxStops} removed locations can have a reason.")
+            .Must(removed => removed.All(stop => stop.PoiId > 0))
+            .WithMessage("Location ids must be positive.")
+            .Must(removed => removed.All(stop => Enum.IsDefined(stop.Reason)))
+            .WithMessage("Choose a valid removal reason.")
+            .Must(removed => removed.Select(stop => stop.PoiId).Distinct().Count() == removed.Count)
+            .WithMessage("A removed location can have only one reason.")
+            .When(command => command.RemovedStops is not null);
+        RuleFor(command => command)
+            .Must(command => !command.RemovedStops!.Any(removed => command.OrderedVisitPoiIds.Contains(removed.PoiId)))
+            .WithMessage("A removed location cannot stay in the itinerary.")
+            .When(command => command.RemovedStops is not null && command.OrderedVisitPoiIds is not null);
     }
 }

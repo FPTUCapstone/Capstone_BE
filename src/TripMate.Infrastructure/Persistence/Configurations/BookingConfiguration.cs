@@ -58,7 +58,7 @@ public sealed class BookingConfiguration : IEntityTypeConfiguration<Booking>
         builder.Property(booking => booking.PaymentStatus)
             .HasColumnName("payment_status")
             .HasConversion<string>()
-            .HasMaxLength(16)
+            .HasMaxLength(nameof(TripMate.Domain.Enums.PaymentStatus.PartiallyRefunded).Length)
             .IsUnicode(false)
             .HasDefaultValueSql("'Unpaid'")
             .IsRequired();
@@ -81,6 +81,9 @@ public sealed class BookingConfiguration : IEntityTypeConfiguration<Booking>
             .HasMaxLength(Booking.PolicySnapshotMaxLength)
             .HasDefaultValue(Booking.DefaultCancellationPolicySnapshot)
             .IsRequired();
+        builder.Property(booking => booking.EmergencyNoticeAcknowledgedAtUtc)
+            .HasColumnName("emergency_notice_acknowledged_at")
+            .AsUtcDateTime2();
 
         builder.Ignore(booking => booking.SubtotalAmount);
 
@@ -96,7 +99,7 @@ public sealed class BookingConfiguration : IEntityTypeConfiguration<Booking>
             .HasForeignKey(participant => participant.BookingId)
             .OnDelete(DeleteBehavior.Cascade);
         builder.HasMany(booking => booking.Tickets)
-            .WithOne()
+            .WithOne(ticket => ticket.Booking)
             .HasForeignKey(ticket => ticket.BookingId)
             .OnDelete(DeleteBehavior.Cascade);
 

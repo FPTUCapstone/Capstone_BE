@@ -16,7 +16,7 @@ public sealed record WeatherAdvisoryResponse(
     string PoiName,
     DateTimeOffset PlannedArrivalUtc,
     DateTimeOffset ForecastAtUtc,
-    double RainMmPerHour,
+    double RainIntensityMmPerHour,
     string? Condition)
 {
     public const string InfoSeverity = "Info";

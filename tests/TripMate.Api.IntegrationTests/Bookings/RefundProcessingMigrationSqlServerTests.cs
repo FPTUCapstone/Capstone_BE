@@ -26,6 +26,29 @@ public sealed class RefundProcessingMigrationSqlServerTests
 
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
+    public async Task Migration_DoesNotNarrowAnExpandedStatusColumnWithTheDueIndex()
+    {
+        await using SqlServerTestDatabase database = await CreateLegacyDatabaseAsync();
+        await database.ExecuteNonQueryAsync("ALTER TABLE payment.Refunds ALTER COLUMN status VARCHAR(30) NOT NULL;");
+        await database.ExecuteNonQueryAsync("ALTER TABLE payment.Refunds ADD next_attempt_at DATETIME2 NULL;");
+        await database.ExecuteNonQueryAsync(
+            "CREATE INDEX IX_Refunds_Due ON payment.Refunds(status, next_attempt_at);");
+
+        Func<Task> apply = () => ApplyAsync(database);
+
+        await apply.Should().NotThrowAsync("a later migration may already have widened status and created the due index");
+        (await database.ExecuteScalarAsync<short>("""
+            SELECT max_length FROM sys.columns
+            WHERE object_id = OBJECT_ID(N'payment.Refunds') AND name = N'status';
+            """)).Should().Be(30, "a historical migration must never narrow a newer status column");
+        (await database.ExecuteScalarAsync<int>("""
+            SELECT COUNT(*) FROM sys.indexes
+            WHERE object_id = OBJECT_ID(N'payment.Refunds') AND name = N'IX_Refunds_Due';
+            """)).Should().Be(1, "the existing retry-sweep index must remain usable");
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
     public async Task ManualCompletionMigration_CreatesDurableIdempotencyTableAndCanRunAgain()
     {
         await using SqlServerTestDatabase database = await SqlServerTestDatabase.CreateEmptyAsync();

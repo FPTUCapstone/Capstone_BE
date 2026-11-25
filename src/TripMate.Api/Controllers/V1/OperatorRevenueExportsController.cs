@@ -13,6 +13,7 @@ using TripMate.Domain.Enums;
 namespace TripMate.Api.Controllers.V1;
 
 /// <summary>UC-45: Export Revenue Report.</summary>
+[Authorize(Policy = global::TripMate.Api.Authorization.OperatorContractWorkspacePolicies.Workspace)]
 [Authorize(Roles = nameof(UserRole.TourOperator))]
 [Route("api/v1/operator/revenue/exports")]
 public sealed class OperatorRevenueExportsController(ISender sender) : ApiControllerBase(sender)

@@ -1,11 +1,14 @@
 using MediatR;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Media;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Authentication.Common;
 using TripMate.Application.Features.Operator.Application.Common;
+using TripMate.Application.Features.Operator.Contracts.Common;
 using TripMate.Domain.Common;
 
 namespace TripMate.Application.Features.Operator.Application.GetCurrent;
@@ -14,7 +17,8 @@ public sealed class GetOperatorApplicationQueryHandler(
     IApplicationDbContext db,
     ICurrentUserService currentUser,
     IOperatorDocumentStorage storage,
-    IDateTimeProvider clock)
+    IDateTimeProvider clock,
+    IOptions<OperatorContractOptions>? contractOptions = null)
     : IRequestHandler<GetOperatorApplicationQuery, Result<OperatorApplicationDto>>
 {
     public async Task<Result<OperatorApplicationDto>> Handle(
@@ -64,6 +68,8 @@ public sealed class GetOperatorApplicationQueryHandler(
             })
             .ToArray();
 
+        var eligibility = await AccountEligibilityResolver.ResolveAsync(db, user, clock.UtcNow, cancellationToken,
+            contractOptions?.Value.Enabled ?? false);
         return Result.Success(new OperatorApplicationDto(
             user.Id,
             user.Status.ToString(),
@@ -77,6 +83,11 @@ public sealed class GetOperatorApplicationQueryHandler(
             profile.RejectionReason,
             profile.ReviewedAtUtc,
             resubmissionCount,
-            documents));
+            documents)
+        {
+            OnboardingState = eligibility.IsSuccess ? eligibility.Value.OnboardingState : "Unresolved",
+            ContractStatus = eligibility.IsSuccess ? eligibility.Value.ContractStatus : null,
+            CurrentContractId = eligibility.IsSuccess ? eligibility.Value.CurrentContractId : null
+        });
     }
 }

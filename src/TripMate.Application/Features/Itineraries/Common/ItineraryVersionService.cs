@@ -6,7 +6,12 @@ using TripMate.Application.Common.Geo;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Scheduling.Common;
+using TripMate.Application.Features.Scheduling.Create;
+using TripMate.Application.Features.Scheduling.Csp;
+using TripMate.Application.Features.Scheduling.Csp.Objectives;
+using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Application.Features.Scheduling.TimeOfDay;
+using TripMate.Domain.Constants;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -16,7 +21,9 @@ public sealed class ItineraryVersionService(
     IApplicationDbContext dbContext,
     IRouteDurationProvider routeDurationProvider,
     SchedulingGenerationOptions? generationOptions = null,
-    TimeOfDayOptions? timeOfDayOptions = null)
+    TimeOfDayOptions? timeOfDayOptions = null,
+    WeightedRequestInputsFactory? weightedInputsFactory = null,
+    PoiRankingOrchestrator? poiRankingOrchestrator = null)
     : IItineraryVersionService
 {
     public async Task<Result<Itinerary>> CreateRegeneratedVersionAsync(
@@ -24,18 +31,18 @@ public sealed class ItineraryVersionService(
         SchedulingRequest request,
         CancellationToken cancellationToken)
     {
-        if (request.TransportMode == TransportMode.PublicTransit)
+        if (request.TransportMode == TransportMode.PublicTransit
+            && !routeDurationProvider.SupportsTransportMode(request.TransportMode))
         {
             return UnsupportedPublicTransit();
         }
 
+        var effectiveGenerationOptions = generationOptions ?? new SchedulingGenerationOptions();
         var timeZone = TimeZoneInfo.FindSystemTimeZoneById(request.TimeZoneId);
-        var travelerInterestTags = await dbContext.TravelerProfiles
+        var travelerProfile = await dbContext.TravelerProfiles
             .AsNoTracking()
-            .Where(profile => profile.UserId == request.TravelerUserId)
-            .Select(profile => profile.InterestTagsJson)
-            .SingleOrDefaultAsync(cancellationToken);
-        var preferenceTokens = TravelerPreferenceScoring.ParsePreferenceTokens(travelerInterestTags);
+            .SingleOrDefaultAsync(profile => profile.UserId == request.TravelerUserId, cancellationToken);
+        var preferenceTokens = TravelerPreferenceScoring.ParsePreferenceTokens(travelerProfile?.InterestTagsJson);
         var mandatoryIds = JsonSerializer.Deserialize<long[]>(request.MandatoryPoiIdsJson) ?? [];
         var pois = await LoadRelevantActivePoisAsync(request, mandatoryIds, cancellationToken);
         var currentStops = await dbContext.Itineraries
@@ -72,43 +79,54 @@ public sealed class ItineraryVersionService(
                 "The saved ending location is no longer available.");
         }
 
-        var candidates = LimitMatrixCandidates(PreferOtherPlaces(pois
+        var eligiblePois = pois
             .Where(PlanningPoiEligibility.IsPlanningReady)
-            .Where(PlanningPoiEligibility.IsAutoSchedulable)
+            .Where(poi => PlanningPoiEligibility.IsAutoSchedulable(poi) || mandatoryIds.Contains(poi.Id))
             .Where(poi => GeoDistance.EquirectangularKilometers(
                 request.ExplorationLatitude,
                 request.ExplorationLongitude,
                 poi.Latitude,
                 poi.Longitude) <= request.SearchRadiusKm)
-            .Select(poi => new GenerationCandidate(
-                poi.Id,
-                poi.Name,
-                new RoutePoint(poi.Latitude, poi.Longitude),
-                poi.AverageVisitDurationMinutes,
-                poi.EstimatedVisitCost,
-                poi.OpeningHours
-                    .Where(hour => !hour.IsClosed && hour.OpenTime.HasValue && hour.CloseTime.HasValue)
-                    .Select(hour => new GenerationOpeningHours(
-                        hour.DayOfWeek,
-                        hour.OpenTime!.Value,
-                        hour.CloseTime!.Value)).ToArray(),
-                TripMateBaseScore: TravelerPreferenceScoring.CalculatePreferenceScore(
+            .ToArray();
+
+        // UC-10 item 6 (D4): rank optional places exactly like create does (rules, behavior and the AI provider),
+        // so what the traveler just removed or added already shapes the next suggestion. Mandatory places are
+        // never ranked. The "other places first" tiers below still decide before any score does.
+        PoiRankingSnapshot? ranking = poiRankingOrchestrator is null
+            ? null
+            : await poiRankingOrchestrator.BuildRankingAsync(
+                new PoiRankingInput(
+                    request.TravelerUserId,
+                    preferenceTokens,
+                    eligiblePois
+                        .Where(poi => !mandatoryIds.Contains(poi.Id))
+                        .Select(poi => PoiRankingInputCandidate.From(
+                            poi,
+                            request.ExplorationLatitude,
+                            request.ExplorationLongitude))
+                        .ToArray()),
+                cancellationToken);
+
+        var scoredCandidates = ranking is null
+            ? eligiblePois.Select(poi => ToRuleScoredCandidate(poi, preferenceTokens))
+            // As in create: an optional place outside the ranked pool is dropped, a mandatory one has no score.
+            : eligiblePois
+                .Where(poi => mandatoryIds.Contains(poi.Id) || ranking.Entries.ContainsKey(poi.Id))
+                .Select(poi => CreateSchedulingRequestCommandHandler.ToCandidate(
                     poi,
-                    preferenceTokens),
-                EffectiveDesirabilityScore: TravelerPreferenceScoring.CalculatePreferenceScore(
-                    poi,
-                    preferenceTokens),
-                ScenicScoreForRanking: poi.ScenicScore,
-                PhotoRatingForRanking: poi.PhotoRating,
-                EstimatedVisitCostForRanking: poi.EstimatedVisitCost,
-                PreferenceScore: TravelerPreferenceScoring.CalculatePreferenceScore(poi, preferenceTokens),
-                ScenicScore: poi.ScenicScore,
-                PhotoRating: poi.PhotoRating,
-                CategoryName: poi.Category.Name,
-                HasShelter: poi.HasShelter)).ToArray(), lastSuggestedVersions), mandatoryIds);
+                    preferenceTokens,
+                    ranking.Entries.GetValueOrDefault(poi.Id)));
+        var candidates = LimitMatrixCandidates(
+            PreferOtherPlaces(scoredCandidates.ToArray(), lastSuggestedVersions),
+            mandatoryIds);
+        if (effectiveGenerationOptions.Csp.Mode == ObjectiveMode.WeightedUtility)
+        {
+            candidates = NormalizeEffectiveDesirabilityScores(candidates);
+        }
+
         var end = endPoi is null
             ? new RoutePoint(request.StartLatitude, request.StartLongitude)
-            : new RoutePoint(endPoi.Latitude, endPoi.Longitude);
+            : new RoutePoint(endPoi.Latitude, endPoi.Longitude, endPoi.Id);
         var input = new GenerationInput(
             request.StartAtUtc,
             timeZone,
@@ -121,23 +139,37 @@ public sealed class ItineraryVersionService(
             candidates,
             mandatoryIds);
         var routing = new MemoizingRouteDurationProvider(routeDurationProvider);
-        var plan = await new ItineraryGenerationService(routing, generationOptions)
-            .GenerateAsync(input, cancellationToken);
+        WeightedRequestInputs? weightedInputs = null;
+        if (effectiveGenerationOptions.Csp.Mode == ObjectiveMode.WeightedUtility)
+        {
+            var factory = weightedInputsFactory ?? new WeightedRequestInputsFactory(new PersonalParamsFactory());
+            weightedInputs = factory.Create(
+                input.Candidates,
+                travelerProfile,
+                input,
+                ranking?.OutcomeCategory ?? PoiRankingOutcomeCategory.ProviderSkipped);
+        }
+
+        var plan = await new ItineraryGenerationService(routing, effectiveGenerationOptions)
+            .GenerateAsync(input, weightedInputs, cancellationToken);
         if (plan.IsFailure)
         {
             return Result.Failure<Itinerary>(
-                ItineraryErrorCodes.ConstraintsInfeasible,
+                plan.ErrorCode == SchedulingErrorCodes.GenerationTimedOut
+                    ? ItineraryErrorCodes.GenerationTimedOut
+                    : ItineraryErrorCodes.ConstraintsInfeasible,
                 plan.ErrorMessage ?? "The saved constraints cannot produce an itinerary.");
         }
 
-        plan = Result.Success(await new TimeOfDayRefiner(routing, generationOptions, timeOfDayOptions ?? new TimeOfDayOptions())
+        plan = Result.Success(await new TimeOfDayRefiner(routing, effectiveGenerationOptions, timeOfDayOptions ?? new TimeOfDayOptions())
             .RefineAsync(input, plan.Value, TimeOfDayTraitsFactory.From(pois), cancellationToken));
 
         // Nothing else fits: keep the current version instead of saving an identical copy.
+        // The same places in another visit order are not an alternative for the traveler.
         if (plan.Value.Items
-            .OrderBy(item => item.SequenceNo)
             .Select(item => (item.Kind, item.PointOfInterestId))
-            .SequenceEqual(currentStops.Select(stop => (stop.Kind, stop.PointOfInterestId))))
+            .ToHashSet()
+            .SetEquals(currentStops.Select(stop => (stop.Kind, stop.PointOfInterestId))))
         {
             return Result.Failure<Itinerary>(
                 ItineraryErrorCodes.NoAlternative,
@@ -156,6 +188,7 @@ public sealed class ItineraryVersionService(
             request.StartAtUtc,
             plan.Value.EndAtUtc,
             source.Version + 1);
+        plan.Value.Provenance?.ApplyTo(successor);
         foreach (var item in plan.Value.Items)
         {
             successor.AddItem(GeneratedItineraryItemMapper.ToEntity(item, item.IsMandatory));
@@ -163,6 +196,22 @@ public sealed class ItineraryVersionService(
 
         dbContext.Itineraries.Add(successor);
         return Result.Success(successor);
+    }
+
+    /// <summary>The rule-only score regenerate used before it had a ranking; kept for callers without one.</summary>
+    private static GenerationCandidate ToRuleScoredCandidate(
+        PointOfInterest poi,
+        HashSet<string> preferenceTokens)
+    {
+        decimal preferenceScore = TravelerPreferenceScoring.CalculatePreferenceScore(poi, preferenceTokens);
+        return CreateSchedulingRequestCommandHandler.ToCandidate(poi, preferenceTokens, rankingEntry: null) with
+        {
+            TripMateBaseScore = preferenceScore,
+            EffectiveDesirabilityScore = preferenceScore,
+            ScenicScoreForRanking = poi.ScenicScore,
+            PhotoRatingForRanking = poi.PhotoRating,
+            EstimatedVisitCostForRanking = poi.EstimatedVisitCost,
+        };
     }
 
     public Task<Result<Itinerary>> CreateAdjustedVersionAsync(
@@ -236,6 +285,7 @@ public sealed class ItineraryVersionService(
             request.StartAtUtc,
             plan.EndAtUtc,
             source.Version + 1);
+        SchedulingProvenance.ForManualOrder().ApplyTo(successor);
         foreach (var item in plan.Items)
         {
             successor.AddItem(GeneratedItineraryItemMapper.ToEntity(
@@ -248,6 +298,66 @@ public sealed class ItineraryVersionService(
     }
 
 
+    public Task<Result<Itinerary>> CreateReroutedVersionAsync(
+        Itinerary source,
+        SchedulingRequest request,
+        IReadOnlyList<ItineraryItem> keptItems,
+        GeneratedItineraryPlan remainingPlan,
+        int firstNewSequenceNo,
+        DateTimeOffset nowUtc,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(keptItems);
+        ArgumentNullException.ThrowIfNull(remainingPlan);
+        if (remainingPlan.Items.Count == 0)
+        {
+            throw new ArgumentException("A rerouted plan needs at least one remaining item.", nameof(remainingPlan));
+        }
+
+        var highestKept = keptItems.Count == 0 ? 0 : keptItems.Max(item => item.SequenceNo);
+        if (firstNewSequenceNo <= highestKept)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(firstNewSequenceNo),
+                "New items must be numbered after every kept item.");
+        }
+
+        var mandatoryIds = JsonSerializer.Deserialize<long[]>(request.MandatoryPoiIdsJson) ?? [];
+        var title = source.Title ?? $"Generated itinerary - {request.StartAtUtc:dd MMM yyyy}";
+        if (title.Length > Itinerary.TitleMaxLength)
+        {
+            title = title[..Itinerary.TitleMaxLength];
+        }
+
+        var successor = Itinerary.CreateCspGenerated(
+            request,
+            title,
+            source.ValidFromUtc ?? request.StartAtUtc,
+            remainingPlan.EndAtUtc,
+            source.Version + 1);
+        RerouteProvenance.ApplyTo(successor);
+        foreach (var kept in keptItems.OrderBy(item => item.SequenceNo))
+        {
+            successor.AddItem(kept.CopyForVersion());
+        }
+
+        // The plan numbers its items from 1; shift them so they follow the kept items (gaps are fine).
+        var planItems = remainingPlan.Items.OrderBy(item => item.SequenceNo).ToArray();
+        var offset = firstNewSequenceNo - planItems[0].SequenceNo;
+        foreach (var item in planItems)
+        {
+            successor.AddItem(GeneratedItineraryItemMapper.ToEntity(
+                item with { SequenceNo = item.SequenceNo + offset },
+                item.PointOfInterestId is { } poiId && mandatoryIds.Contains(poiId)));
+        }
+
+        successor.Accept(nowUtc);
+        dbContext.Itineraries.Add(successor);
+        return Task.FromResult(Result.Success(successor));
+    }
+
     /// <summary>
     /// Schedules each ordered list of stops with the same matrix (one routing call per transport mode) and
     /// without saving anything. Used to save an adjusted version and to check suggestions before showing them.
@@ -256,13 +366,22 @@ public sealed class ItineraryVersionService(
         SchedulingRequest request,
         IReadOnlyList<IReadOnlyList<ItineraryStop>> variants,
         CancellationToken cancellationToken,
-        int? availableMinutesOverride = null)
+        int? availableMinutesOverride = null,
+        EvaluationAnchor? anchor = null)
     {
-        if (request.TransportMode == TransportMode.PublicTransit)
+        if (request.TransportMode == TransportMode.PublicTransit
+            && !routeDurationProvider.SupportsTransportMode(request.TransportMode))
         {
             return Result.Failure<IReadOnlyList<StopsEvaluation>>(
                 ItineraryErrorCodes.ConstraintsInfeasible,
                 UnsupportedPublicTransitMessage);
+        }
+
+        if (anchor is { AvailableMinutes: <= 0 })
+        {
+            return Result.Failure<IReadOnlyList<StopsEvaluation>>(
+                ItineraryErrorCodes.ConstraintsInfeasible,
+                "No time is left in the trip to schedule the remaining stops.");
         }
 
         var timeZone = TimeZoneInfo.FindSystemTimeZoneById(request.TimeZoneId);
@@ -273,7 +392,14 @@ public sealed class ItineraryVersionService(
             .SingleOrDefaultAsync(cancellationToken);
         var preferenceTokens = TravelerPreferenceScoring.ParsePreferenceTokens(travelerInterestTags);
         var mandatoryIds = JsonSerializer.Deserialize<long[]>(request.MandatoryPoiIdsJson) ?? [];
-        var pois = await LoadRelevantActivePoisAsync(request, mandatoryIds, cancellationToken);
+        // Every chosen stop of every variant stays in the matrix, so all variants share one matrix.
+        var keepIds = mandatoryIds
+            .Concat(variants.SelectMany(variant => variant.Select(stop => stop.PoiId)))
+            .Distinct()
+            .ToArray();
+        var pois = anchor is null
+            ? await LoadRelevantActivePoisAsync(request, mandatoryIds, cancellationToken)
+            : await LoadAnchoredActivePoisAsync(request, anchor, keepIds, cancellationToken);
         var endPoi = request.EndPointOfInterestId.HasValue
             ? pois.SingleOrDefault(poi => poi.Id == request.EndPointOfInterestId.Value)
             : null;
@@ -284,22 +410,26 @@ public sealed class ItineraryVersionService(
                 "The saved ending location is no longer available.");
         }
 
-        // Every chosen stop of every variant stays in the matrix, so all variants share one matrix.
-        var keepIds = mandatoryIds
-            .Concat(variants.SelectMany(variant => variant.Select(stop => stop.PoiId)))
-            .Distinct()
-            .ToArray();
         var candidates = LimitMatrixCandidates(pois
             .Where(PlanningPoiEligibility.IsPlanningReady)
-            .Where(poi => GeoDistance.EquirectangularKilometers(
-                request.ExplorationLatitude,
-                request.ExplorationLongitude,
-                poi.Latitude,
-                poi.Longitude) <= request.SearchRadiusKm)
+            .Where(poi => keepIds.Contains(poi.Id) || !PoiCategoryNames.IsFoodAndDrink(poi.Category?.Name))
+            .Where(poi => anchor is null
+                ? GeoDistance.EquirectangularKilometers(
+                    request.ExplorationLatitude,
+                    request.ExplorationLongitude,
+                    poi.Latitude,
+                    poi.Longitude) <= request.SearchRadiusKm
+                // Rerouting: the Admin's rerouting radius around the affected stop bounds replacements; a stop
+                // the engine chose is never lost to the trip radius.
+                : keepIds.Contains(poi.Id) || GeoDistance.EquirectangularKilometers(
+                    anchor.CandidateCenter.Latitude,
+                    anchor.CandidateCenter.Longitude,
+                    poi.Latitude,
+                    poi.Longitude) <= anchor.CandidateRadiusKm)
             .Select(poi => new GenerationCandidate(
                 poi.Id,
                 poi.Name,
-                new RoutePoint(poi.Latitude, poi.Longitude),
+                new RoutePoint(poi.Latitude, poi.Longitude, poi.Id),
                 poi.AverageVisitDurationMinutes,
                 poi.EstimatedVisitCost,
                 poi.OpeningHours
@@ -321,19 +451,21 @@ public sealed class ItineraryVersionService(
                 ScenicScore: poi.ScenicScore,
                 PhotoRating: poi.PhotoRating,
                 CategoryName: poi.Category.Name,
-                HasShelter: poi.HasShelter)), keepIds);
-        var effectiveAvailableMinutes = availableMinutesOverride ?? request.AvailableMinutes;
+                HasShelter: poi.HasShelter,
+                IndoorOutdoor: poi.IndoorOutdoor,
+                Tags: poi.PoiTags.Select(mapping => mapping.Tag.Name).ToArray())), keepIds);
+        var effectiveAvailableMinutes = anchor?.AvailableMinutes ?? availableMinutesOverride ?? request.AvailableMinutes;
         var input = new GenerationInput(
-            request.StartAtUtc,
+            anchor?.StartAtUtc ?? request.StartAtUtc,
             timeZone,
-            new RoutePoint(request.StartLatitude, request.StartLongitude),
+            anchor?.Start ?? new RoutePoint(request.StartLatitude, request.StartLongitude),
             endPoi is null
                 ? new RoutePoint(request.StartLatitude, request.StartLongitude)
-                : new RoutePoint(endPoi.Latitude, endPoi.Longitude),
+                : new RoutePoint(endPoi.Latitude, endPoi.Longitude, endPoi.Id),
             effectiveAvailableMinutes,
             request.TransportMode,
             request.RestPreference,
-            request.BudgetVnd,
+            anchor is null ? request.BudgetVnd : anchor.RemainingBudgetVnd,
             candidates,
             mandatoryIds);
 
@@ -451,12 +583,46 @@ public sealed class ItineraryVersionService(
         }
 
         // Larger than the whole score spread, so a tier never overtakes a better one.
-        var tierStep = candidates.Max(candidate => candidate.EffectiveDesirabilityScore)
-            - candidates.Min(candidate => candidate.EffectiveDesirabilityScore)
+        var tierStep = candidates.Max(candidate => candidate.EffectiveDesirabilityScore ?? 0m)
+            - candidates.Min(candidate => candidate.EffectiveDesirabilityScore ?? 0m)
             + 1m;
         return candidates.Select(candidate => lastSuggestedVersions.TryGetValue(candidate.Id, out var version)
-            ? candidate with { EffectiveDesirabilityScore = candidate.EffectiveDesirabilityScore - (tierStep * version) }
+            ? candidate with { EffectiveDesirabilityScore = (candidate.EffectiveDesirabilityScore ?? 0m) - (tierStep * version) }
             : candidate);
+    }
+
+    private static IReadOnlyList<GenerationCandidate> NormalizeEffectiveDesirabilityScores(
+        IReadOnlyList<GenerationCandidate> candidates)
+    {
+        if (candidates.Count == 0)
+        {
+            return candidates;
+        }
+
+        var scores = candidates
+            .Select(candidate => candidate.EffectiveDesirabilityScore
+                ?? candidate.TripMateBaseScore
+                ?? 0.5m)
+            .ToArray();
+        var minimum = scores.Min();
+        var maximum = scores.Max();
+        // Keep the lowest regeneration tier eligible rather than assigning it zero utility.
+        // This is a neutral objective baseline, not a ranking-pipeline score.
+        const decimal neutralRegenerationScore = 0.5m;
+        if (minimum >= neutralRegenerationScore && maximum <= 1m)
+        {
+            return candidates;
+        }
+
+        var range = maximum - minimum;
+        return candidates
+            .Select((candidate, index) => candidate with
+            {
+                EffectiveDesirabilityScore = range == 0m
+                    ? neutralRegenerationScore
+                    : neutralRegenerationScore + (scores[index] - minimum) / range * (1m - neutralRegenerationScore),
+            })
+            .ToArray();
     }
 
     private IReadOnlyList<GenerationCandidate> LimitMatrixCandidates(
@@ -470,7 +636,7 @@ public sealed class ItineraryVersionService(
             .OrderBy(candidate => candidate.Id);
         var optional = materialized
             .Where(candidate => !mandatoryIds.Contains(candidate.Id))
-            .OrderByDescending(candidate => candidate.EffectiveDesirabilityScore)
+            .OrderByDescending(candidate => candidate.EffectiveDesirabilityScore ?? decimal.MinValue)
             .ThenByDescending(candidate => candidate.ScenicScoreForRanking ?? decimal.MinValue)
             .ThenByDescending(candidate => candidate.PhotoRatingForRanking ?? decimal.MinValue)
             .ThenBy(candidate => candidate.EstimatedVisitCostForRanking ?? decimal.MaxValue)
@@ -490,6 +656,20 @@ public sealed class ItineraryVersionService(
                 request.ExplorationLongitude,
                 request.SearchRadiusKm,
                 mandatoryIds,
+                request.EndPointOfInterestId)
+            .ToListAsync(cancellationToken);
+
+    private async Task<List<PointOfInterest>> LoadAnchoredActivePoisAsync(
+        SchedulingRequest request,
+        EvaluationAnchor anchor,
+        IReadOnlyCollection<long> keepIds,
+        CancellationToken cancellationToken)
+        => await dbContext.PointsOfInterest
+            .WithPlanningDetails(
+                anchor.CandidateCenter.Latitude,
+                anchor.CandidateCenter.Longitude,
+                anchor.CandidateRadiusKm,
+                keepIds,
                 request.EndPointOfInterestId)
             .ToListAsync(cancellationToken);
 

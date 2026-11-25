@@ -203,11 +203,20 @@ public class ConfirmPasswordResetFlowTests
 
         public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
+        DbSet<Domain.Entities.DirectConversation> IApplicationDbContext.DirectConversations => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.DirectMessage> IApplicationDbContext.DirectMessages => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.UserUnlockOperation> IApplicationDbContext.UserUnlockOperations =>
+            throw new NotSupportedException();
+
         // The confirm flow only touches Users and RefreshTokens; the remaining context
         // members are never reached, so their entity types are kept out of the model.
         DbSet<Domain.Entities.PoiCategory> IApplicationDbContext.PoiCategories => throw new NotSupportedException();
 
         DbSet<Domain.Entities.PointOfInterest> IApplicationDbContext.PointsOfInterest => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.RouteSegment> IApplicationDbContext.RouteSegments => throw new NotSupportedException();
 
         DbSet<Domain.Entities.PoiOpeningHour> IApplicationDbContext.PoiOpeningHours => throw new NotSupportedException();
 
@@ -241,6 +250,8 @@ public class ConfirmPasswordResetFlowTests
         DbSet<Domain.Entities.AuditLog> IApplicationDbContext.AuditLogs => throw new NotSupportedException();
 
         DbSet<Domain.Entities.Notification> IApplicationDbContext.Notifications => throw new NotSupportedException();
+        DbSet<Domain.Entities.TourApprovalNotice> IApplicationDbContext.TourApprovalNotices =>
+            throw new NotSupportedException();
 
         DbSet<Domain.Entities.PoiPhoto> IApplicationDbContext.PoiPhotos => throw new NotSupportedException();
 
@@ -285,6 +296,19 @@ public class ConfirmPasswordResetFlowTests
 
         DbSet<Domain.Entities.GroupMember> IApplicationDbContext.GroupMembers => throw new NotSupportedException();
 
+        DbSet<Domain.Entities.GroupMessage> IApplicationDbContext.GroupMessages => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.GroupMessageReadReceipt> IApplicationDbContext.GroupMessageReadReceipts =>
+            throw new NotSupportedException();
+
+        DbSet<Domain.Entities.GroupRollCallCheckin> IApplicationDbContext.GroupRollCallCheckins =>
+            throw new NotSupportedException();
+
+        DbSet<Domain.Entities.GroupSplitBillPayment> IApplicationDbContext.GroupSplitBillPayments =>
+            throw new NotSupportedException();
+
+        DbSet<Domain.Entities.GroupPollVote> IApplicationDbContext.GroupPollVotes => throw new NotSupportedException();
+
         DbSet<Domain.Entities.Itinerary> IApplicationDbContext.Itineraries => throw new NotSupportedException();
 
         DbSet<Domain.Entities.ItineraryItem> IApplicationDbContext.ItineraryItems => throw new NotSupportedException();
@@ -317,22 +341,51 @@ public class ConfirmPasswordResetFlowTests
 
         DbSet<Domain.Entities.WeatherEvent> IApplicationDbContext.WeatherEvents => throw new NotSupportedException();
 
+        DbSet<Domain.Entities.WeatherAlertInboxItem> IApplicationDbContext.WeatherAlertInboxItems => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.WeatherSafetyReview> IApplicationDbContext.WeatherSafetyReviews => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.WeatherLocationMapping> IApplicationDbContext.WeatherLocationMappings => throw new NotSupportedException();
+
+
         DbSet<Domain.Entities.ReroutingEvent> IApplicationDbContext.ReroutingEvents => throw new NotSupportedException();
-
-        DbSet<Domain.Entities.Payout> IApplicationDbContext.Payouts => throw new NotSupportedException();
-
-        DbSet<Domain.Entities.PayoutItem> IApplicationDbContext.PayoutItems => throw new NotSupportedException();
-
-        DbSet<Domain.Entities.PayoutRefundItem> IApplicationDbContext.PayoutRefundItems => throw new NotSupportedException();
 
         DbSet<Domain.Entities.PayoutAdjustment> IApplicationDbContext.PayoutAdjustments => throw new NotSupportedException();
 
-        DbSet<Domain.Entities.PayoutPeriodBreakdown> IApplicationDbContext.PayoutPeriodBreakdowns => throw new NotSupportedException();
+        DbSet<Domain.Entities.PayoutRun> IApplicationDbContext.PayoutRuns => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.PayoutBatch> IApplicationDbContext.PayoutBatches => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.PayoutSettlement> IApplicationDbContext.PayoutSettlements => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.PayoutSettlementAttempt> IApplicationDbContext.PayoutSettlementAttempts => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.TourOperatorDebt> IApplicationDbContext.TourOperatorDebts => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.PayoutReconciliationItem> IApplicationDbContext.PayoutReconciliationItems => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.ServiceBooking> IApplicationDbContext.ServiceBookings => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.ServiceAvailability> IApplicationDbContext.ServiceAvailability => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.ServiceCommissionStatement> IApplicationDbContext.ServiceCommissionStatements => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.ClosedStatisticalPeriod> IApplicationDbContext.ClosedStatisticalPeriods => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.StatisticalReportSnapshot> IApplicationDbContext.StatisticalReportSnapshots => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.StatisticalReportExportOperation> IApplicationDbContext.StatisticalReportExportOperations => throw new NotSupportedException();
 
         DbSet<Domain.Entities.LandingContentVersion> IApplicationDbContext.LandingContentVersions => throw new NotSupportedException();
 
         public Task<int> RevokeRefreshTokenAsync(
             string tokenHash,
+            DateTimeOffset revokedAtUtc,
+            CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public Task<int> RevokeAllRefreshTokensForUserAsync(
+            long userId,
             DateTimeOffset revokedAtUtc,
             CancellationToken cancellationToken) =>
             throw new NotSupportedException();
@@ -354,6 +407,8 @@ public class ConfirmPasswordResetFlowTests
         {
             // The confirm flow only persists Users and RefreshTokens; excluding the rest
             // avoids building a model for entities this test never touches.
+            modelBuilder.Ignore<Domain.Entities.ProviderPoiLink>();
+            modelBuilder.Ignore<Domain.Entities.ServiceProviderRequestOperation>();
             modelBuilder.Ignore<Domain.Entities.TravelerProfile>();
             modelBuilder.Ignore<Domain.Entities.PoiCategory>();
             modelBuilder.Ignore<Domain.Entities.PointOfInterest>();
@@ -368,6 +423,8 @@ public class ConfirmPasswordResetFlowTests
             modelBuilder.Ignore<Domain.Entities.TourDestination>();
             modelBuilder.Ignore<Domain.Entities.AuditLog>();
             modelBuilder.Ignore<Domain.Entities.Notification>();
+            modelBuilder.Ignore<Domain.Entities.ServiceAvailability>();
+            modelBuilder.Ignore<Domain.Entities.TourApprovalNotice>();
             modelBuilder.Ignore<Domain.Entities.PoiPhoto>();
             modelBuilder.Ignore<Domain.Entities.Review>();
             modelBuilder.Ignore<Domain.Entities.Message>();
@@ -375,12 +432,18 @@ public class ConfirmPasswordResetFlowTests
             modelBuilder.Ignore<Domain.Entities.VoucherApplicableTour>();
             modelBuilder.Ignore<Domain.Entities.TravelGroup>();
             modelBuilder.Ignore<Domain.Entities.GroupMember>();
+            modelBuilder.Ignore<Domain.Entities.GroupMessage>();
+            modelBuilder.Ignore<Domain.Entities.GroupMessageReadReceipt>();
+            modelBuilder.Ignore<Domain.Entities.GroupRollCallCheckin>();
+            modelBuilder.Ignore<Domain.Entities.GroupSplitBillPayment>();
+            modelBuilder.Ignore<Domain.Entities.GroupPollVote>();
             modelBuilder.Ignore<Domain.Entities.Itinerary>();
             modelBuilder.Ignore<Domain.Entities.TravelGroupCreationRequest>();
             modelBuilder.Ignore<Domain.Entities.GroupInvitation>();
             modelBuilder.Ignore<Domain.Entities.GroupInvitationOperation>();
             modelBuilder.Ignore<Domain.Entities.GroupJoinOperation>();
             modelBuilder.Ignore<Domain.Entities.ItineraryVersionOperation>();
+            modelBuilder.Ignore<Domain.Entities.UserUnlockOperation>();
             modelBuilder.Ignore<Domain.Entities.SystemConfig>();
             modelBuilder.Ignore<Domain.Entities.TripSession>();
             modelBuilder.Ignore<Domain.Entities.TripSessionItem>();

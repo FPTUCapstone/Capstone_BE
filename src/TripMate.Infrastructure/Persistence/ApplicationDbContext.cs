@@ -8,6 +8,8 @@ using Microsoft.EntityFrameworkCore.Storage;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Media;
 using TripMate.Domain.Entities;
+using TripMate.Domain.Enums;
+using TripMate.Infrastructure.Persistence.Configurations;
 
 namespace TripMate.Infrastructure.Persistence;
 
@@ -16,16 +18,46 @@ public class ApplicationDbContext(
     : DbContext(options), IApplicationDbContext
 {
     private const int SqlServerDeadlockVictimError = 1205;
+    private const int SqlServerUniqueIndexError = 2601;
+    private const int SqlServerUniqueConstraintError = 2627;
+
+    public DbSet<DirectConversation> DirectConversations => Set<DirectConversation>();
+
+    public DbSet<DirectMessage> DirectMessages => Set<DirectMessage>();
 
     public DbSet<User> Users => Set<User>();
+
+    public DbSet<OperatorContract> OperatorContracts => Set<OperatorContract>();
+    public DbSet<OperatorContractSigningChallenge> OperatorContractSigningChallenges => Set<OperatorContractSigningChallenge>();
+    public DbSet<OperatorContractLegacyExemption> OperatorContractLegacyExemptions => Set<OperatorContractLegacyExemption>();
+
+    public async Task LockOperatorContractChallengeAsync(Guid challengeId, CancellationToken cancellationToken)
+    {
+        if (Database.CurrentTransaction is null)
+            throw new InvalidOperationException("Challenge verification requires an explicit database transaction.");
+        if (challengeId == Guid.Empty) throw new ArgumentException("A challenge identity is required.", nameof(challengeId));
+        await Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT challenge_id FROM admin.OperatorContractSigningChallenges WITH (UPDLOCK,HOLDLOCK) WHERE challenge_id={challengeId};",
+            cancellationToken);
+    }
+
+    public DbSet<OperatorContractTemplate> OperatorContractTemplates => Set<OperatorContractTemplate>();
+
+    public DbSet<ContractTemplatePublicationHead> ContractTemplatePublicationHeads => Set<ContractTemplatePublicationHead>();
+
+    public DbSet<ContractTemplateRenderJob> ContractTemplateRenderJobs => Set<ContractTemplateRenderJob>();
 
     public DbSet<TravelerProfile> TravelerProfiles => Set<TravelerProfile>();
 
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
+    public DbSet<UserUnlockOperation> UserUnlockOperations => Set<UserUnlockOperation>();
+
     public DbSet<PoiCategory> PoiCategories => Set<PoiCategory>();
 
     public DbSet<PointOfInterest> PointsOfInterest => Set<PointOfInterest>();
+
+    public DbSet<RouteSegment> RouteSegments => Set<RouteSegment>();
 
     public DbSet<PoiOpeningHour> PoiOpeningHours => Set<PoiOpeningHour>();
 
@@ -66,9 +98,14 @@ public class ApplicationDbContext(
     public DbSet<TourMediaCleanupOutboxItem> TourMediaCleanupOutbox =>
         Set<TourMediaCleanupOutboxItem>();
 
+    public DbSet<TourSearchRequest> TourSearchRequests => Set<TourSearchRequest>();
+
+    public DbSet<TourRecommendationLog> TourRecommendationLogs => Set<TourRecommendationLog>();
+
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
     public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<TourApprovalNotice> TourApprovalNotices => Set<TourApprovalNotice>();
 
     public DbSet<PushDeviceToken> PushDeviceTokens => Set<PushDeviceToken>();
 
@@ -84,7 +121,18 @@ public class ApplicationDbContext(
 
     public DbSet<ServiceProvider> ServiceProviders => Set<ServiceProvider>();
 
+    public DbSet<ProviderPoiLink> ProviderPoiLinks => Set<ProviderPoiLink>();
+
     public DbSet<CommercialService> CommercialServices => Set<CommercialService>();
+    public DbSet<ServiceAvailability> ServiceAvailability => Set<ServiceAvailability>();
+    public DbSet<ServiceBooking> ServiceBookings => Set<ServiceBooking>();
+    public DbSet<ServiceCommissionStatement> ServiceCommissionStatements => Set<ServiceCommissionStatement>();
+
+    public DbSet<ServiceProviderRequestOperation> ServiceProviderRequestOperations =>
+        Set<ServiceProviderRequestOperation>();
+    public DbSet<ClosedStatisticalPeriod> ClosedStatisticalPeriods => Set<ClosedStatisticalPeriod>();
+    public DbSet<StatisticalReportSnapshot> StatisticalReportSnapshots => Set<StatisticalReportSnapshot>();
+    public DbSet<StatisticalReportExportOperation> StatisticalReportExportOperations => Set<StatisticalReportExportOperation>();
 
     public DbSet<Voucher> Vouchers => Set<Voucher>();
 
@@ -97,16 +145,39 @@ public class ApplicationDbContext(
     public DbSet<TourBookingCreateOperation> TourBookingCreateOperations => Set<TourBookingCreateOperation>();
     public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
     public DbSet<Refund> Refunds => Set<Refund>();
+    public DbSet<PostTripComplaint> PostTripComplaints => Set<PostTripComplaint>();
+    public DbSet<ComplaintEvidence> ComplaintEvidence => Set<ComplaintEvidence>();
+    public DbSet<PostTripComplaintSubmissionOperation> PostTripComplaintSubmissionOperations => Set<PostTripComplaintSubmissionOperation>();
+    public DbSet<PostTripComplaintEvidenceAmendmentOperation> PostTripComplaintEvidenceAmendmentOperations => Set<PostTripComplaintEvidenceAmendmentOperation>();
+    public DbSet<PostTripComplaintResponseOperation> PostTripComplaintResponseOperations => Set<PostTripComplaintResponseOperation>();
+    public DbSet<PostTripComplaintNegotiationEvent> PostTripComplaintNegotiationEvents => Set<PostTripComplaintNegotiationEvent>();
+    public DbSet<EmergencyTourCancellationOperation> EmergencyTourCancellationOperations =>
+        Set<EmergencyTourCancellationOperation>();
     public DbSet<RefundManualCompletionOperation> RefundManualCompletionOperations =>
         Set<RefundManualCompletionOperation>();
     public DbSet<RevenueExport> RevenueExports => Set<RevenueExport>();
 
     public DbSet<Ticket> Tickets => Set<Ticket>();
+
+    public DbSet<TicketQrCode> TicketQrCodes => Set<TicketQrCode>();
+
+    public DbSet<CheckInLog> CheckInLogs => Set<CheckInLog>();
     public DbSet<BookingCancellationOperation> BookingCancellationOperations =>
         Set<BookingCancellationOperation>();
 
+    /// <summary>
+    /// UC-29 / BR-86: cancelling a booking invalidates its QR immediately. Runs inside the caller's
+    /// cancellation transaction. commerce.TicketQrCodes has no revocation timestamp column, so
+    /// <paramref name="revokedAtUtc"/> is not stored.
+    /// </summary>
     public Task<int> RevokeActiveTicketQrCodesAsync(long bookingId, DateTimeOffset revokedAtUtc,
-        CancellationToken cancellationToken) => Task.FromResult(0);
+        CancellationToken cancellationToken) =>
+        TicketQrCodes
+            .Where(code => code.Status == TicketQrCodeStatus.Active
+                && Tickets.Any(ticket => ticket.Id == code.TicketId && ticket.BookingId == bookingId))
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(code => code.Status, TicketQrCodeStatus.Revoked),
+                cancellationToken);
 
     public Task<int> RevokeRefreshTokenAsync(
         string tokenHash,
@@ -114,6 +185,16 @@ public class ApplicationDbContext(
         CancellationToken cancellationToken) =>
         RefreshTokens
             .Where(token => token.TokenHash == tokenHash && token.RevokedAtUtc == null)
+            .ExecuteUpdateAsync(
+                setters => setters.SetProperty(token => token.RevokedAtUtc, revokedAtUtc),
+                cancellationToken);
+
+    public Task<int> RevokeAllRefreshTokensForUserAsync(
+        long userId,
+        DateTimeOffset revokedAtUtc,
+        CancellationToken cancellationToken) =>
+        RefreshTokens
+            .Where(token => token.UserId == userId && token.RevokedAtUtc == null)
             .ExecuteUpdateAsync(
                 setters => setters.SetProperty(token => token.RevokedAtUtc, revokedAtUtc),
                 cancellationToken);
@@ -126,6 +207,9 @@ public class ApplicationDbContext(
                 audit.ActionType == TripMate.Domain.Common.AuditActionTypes.AuthSignOut &&
                 audit.CreatedAtUtc < cutoffUtc)
             .ExecuteDeleteAsync(cancellationToken);
+
+    public Task AcquireTourSubmissionLockAsync(long tourId, CancellationToken cancellationToken) =>
+        new SqlServerTourMediaUploadLock(this).AcquireTourAsync(tourId, cancellationToken);
 
     public async Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
@@ -176,6 +260,37 @@ public class ApplicationDbContext(
         for (var current = exception; current is not null; current = current.InnerException)
         {
             if (current is SqlException { Number: SqlServerDeadlockVictimError })
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public bool IsSourceBookingUniqueConflict(DbUpdateException exception) =>
+        IsUniqueViolationOn(exception, ItineraryConfiguration.SourceBookingIndexName);
+
+    public bool IsEmergencyDecisionUniqueConflict(DbUpdateException exception) =>
+        IsUniqueViolationOn(exception,
+            EmergencyTourCancellationOperationConfiguration.ScheduleIndexName,
+            EmergencyTourCancellationOperationConfiguration.ActorCommandIndexName);
+
+    public bool IsContractTemplatePublicationConflict(Exception exception) =>
+        IsUniqueViolationOn(exception,
+            "UX_OperatorContractTemplates_Published",
+            "UX_OperatorContractTemplates_Version",
+            "UX_OperatorContractTemplates_PublicationKey");
+
+    public bool IsOperatorContractUniqueConflict(Exception exception) =>
+        IsUniqueViolationOn(exception, "UX_OperatorContracts_Current", "UX_OperatorContracts_SigningOperation");
+
+    private static bool IsUniqueViolationOn(Exception exception, params string[] indexNames)
+    {
+        for (Exception? current = exception; current is not null; current = current.InnerException)
+        {
+            if (current is SqlException { Number: SqlServerUniqueIndexError or SqlServerUniqueConstraintError } sqlException
+                && indexNames.Any(name => sqlException.Message.Contains($"'{name}'", StringComparison.Ordinal)))
             {
                 return true;
             }
@@ -260,6 +375,16 @@ public class ApplicationDbContext(
 
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
 
+    public DbSet<GroupMessage> GroupMessages => Set<GroupMessage>();
+
+    public DbSet<GroupMessageReadReceipt> GroupMessageReadReceipts => Set<GroupMessageReadReceipt>();
+
+    public DbSet<GroupRollCallCheckin> GroupRollCallCheckins => Set<GroupRollCallCheckin>();
+
+    public DbSet<GroupSplitBillPayment> GroupSplitBillPayments => Set<GroupSplitBillPayment>();
+
+    public DbSet<GroupPollVote> GroupPollVotes => Set<GroupPollVote>();
+
     public DbSet<Itinerary> Itineraries => Set<Itinerary>();
 
     public DbSet<ItineraryItem> ItineraryItems => Set<ItineraryItem>();
@@ -269,6 +394,10 @@ public class ApplicationDbContext(
     public DbSet<RecommendationBehaviorEvent> RecommendationBehaviorEvents =>
         Set<RecommendationBehaviorEvent>();
 
+    public DbSet<PoiFavorite> PoiFavorites => Set<PoiFavorite>();
+
+    public DbSet<PoiVisitedMark> PoiVisitedMarks => Set<PoiVisitedMark>();
+
     public DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests => Set<TravelGroupCreationRequest>();
 
     public DbSet<GroupInvitation> GroupInvitations => Set<GroupInvitation>();
@@ -276,6 +405,10 @@ public class ApplicationDbContext(
     public DbSet<GroupInvitationOperation> GroupInvitationOperations => Set<GroupInvitationOperation>();
 
     public DbSet<GroupJoinOperation> GroupJoinOperations => Set<GroupJoinOperation>();
+
+    public DbSet<GroupLeaveOperation> GroupLeaveOperations => Set<GroupLeaveOperation>();
+
+    public DbSet<GroupMemberRemovalOperation> GroupMemberRemovalOperations => Set<GroupMemberRemovalOperation>();
 
     public DbSet<ItineraryVersionOperation> ItineraryVersionOperations => Set<ItineraryVersionOperation>();
 
@@ -297,17 +430,30 @@ public class ApplicationDbContext(
 
     public DbSet<WeatherEvent> WeatherEvents => Set<WeatherEvent>();
 
+    public DbSet<WeatherAlertInboxItem> WeatherAlertInboxItems => Set<WeatherAlertInboxItem>();
+
+
+    public DbSet<WeatherSafetyReview> WeatherSafetyReviews => Set<WeatherSafetyReview>();
+
+    public DbSet<WeatherLocationMapping> WeatherLocationMappings => Set<WeatherLocationMapping>();
+
     public DbSet<ReroutingEvent> ReroutingEvents => Set<ReroutingEvent>();
-
-    public DbSet<Payout> Payouts => Set<Payout>();
-
-    public DbSet<PayoutItem> PayoutItems => Set<PayoutItem>();
-
-    public DbSet<PayoutRefundItem> PayoutRefundItems => Set<PayoutRefundItem>();
 
     public DbSet<PayoutAdjustment> PayoutAdjustments => Set<PayoutAdjustment>();
 
-    public DbSet<PayoutPeriodBreakdown> PayoutPeriodBreakdowns => Set<PayoutPeriodBreakdown>();
+    // DAILY-PAYOUT-TRANSFER (Task 2)
+    public DbSet<PayoutRun> PayoutRuns => Set<PayoutRun>();
+
+    public DbSet<PayoutBatch> PayoutBatches => Set<PayoutBatch>();
+
+    public DbSet<PayoutSettlement> PayoutSettlements => Set<PayoutSettlement>();
+
+    public DbSet<PayoutSettlementAttempt> PayoutSettlementAttempts => Set<PayoutSettlementAttempt>();
+
+    public DbSet<TourOperatorDebt> TourOperatorDebts => Set<TourOperatorDebt>();
+
+
+    public DbSet<PayoutReconciliationItem> PayoutReconciliationItems => Set<PayoutReconciliationItem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

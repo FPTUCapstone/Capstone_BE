@@ -1,5 +1,7 @@
 using System.Linq.Expressions;
 
+using Microsoft.EntityFrameworkCore;
+
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -22,4 +24,13 @@ public static class TourVisibility
                      && tour.PublishedAtUtc.Value <= nowUtc))
                 && tour.OperatorProfile.ApprovalStatus == OperatorApprovalStatus.Approved
                 && tour.OperatorProfile.User.Status == AccountStatus.Active;
+
+    /// <summary>
+    /// True when the tour is currently public under <see cref="PublicTour"/>. Booking Quote/Create use this so a
+    /// tour that Search/Detail hide (for example because its operator was locked) can never be quoted or booked
+    /// through a direct schedule id.
+    /// </summary>
+    public static Task<bool> IsPublicAsync(
+        IQueryable<Tour> tours, long tourId, DateTimeOffset nowUtc, CancellationToken cancellationToken) =>
+        tours.AsNoTracking().Where(PublicTour(nowUtc)).AnyAsync(tour => tour.Id == tourId, cancellationToken);
 }

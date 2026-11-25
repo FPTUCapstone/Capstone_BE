@@ -19,6 +19,44 @@ public sealed class NavigationSessionEndpointTests
     private const string SecondKey = "22222222-2222-2222-2222-222222222222";
 
     [Fact]
+    public async Task RouteFinished_RejectsNewStartAndPreservesCompletedSessionAndReplay()
+    {
+        await using var factory = new TripMateApiFactory();
+        var seed = await SeedAsync(factory);
+        using var client = factory.CreateAuthenticatedClient(7, UserRole.Traveler);
+        using var start = await StartAsync(client, seed.ItineraryId, FirstKey);
+        start.StatusCode.Should().Be(HttpStatusCode.Created);
+        var sessionId = (await ReadAsync(start)).RootElement.GetProperty("sessionId").GetInt64();
+        foreach (var itemId in seed.ItemIds)
+        {
+            using var reached = await client.PutAsync(
+                $"/api/v1/navigation-sessions/{sessionId}/reached-items/{itemId}", content: null);
+            reached.StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+
+        using var before = await client.GetAsync($"/api/v1/navigation-sessions/{sessionId}");
+        var completed = await before.Content.ReadAsStringAsync();
+        using var completedJson = JsonDocument.Parse(completed);
+        completedJson.RootElement.GetProperty("completionReason").GetString()
+            .Should().Be(TripSession.RouteFinishedReason);
+
+        await ExpectErrorAsync(await StartAsync(client, seed.ItineraryId, SecondKey),
+            HttpStatusCode.Conflict, "navigation.trip_already_finished");
+
+        using var after = await client.GetAsync($"/api/v1/navigation-sessions/{sessionId}");
+        (await after.Content.ReadAsStringAsync()).Should().Be(completed);
+        using var replay = await StartAsync(client, seed.ItineraryId, FirstKey);
+        replay.StatusCode.Should().Be(HttpStatusCode.Created);
+        (await replay.Content.ReadAsStringAsync()).Should().Be(completed);
+        await factory.WithDbContextAsync(async db =>
+        {
+            (await db.TripSessions.CountAsync()).Should().Be(1);
+            (await db.Set<TripSessionItem>().CountAsync()).Should().Be(3);
+            return true;
+        });
+    }
+
+    [Fact]
     public async Task Lifecycle_FlexibleOrderExploringSkipRevisitAndAutomaticFinish()
     {
         await using var factory = new TripMateApiFactory();

@@ -20,6 +20,9 @@ public sealed class IncidentConfiguration : IEntityTypeConfiguration<Incident>
         builder.Property(incident => incident.AffectedItineraryItemId).HasColumnName("affected_itinerary_item_id");
         builder.Property(incident => incident.SourceKey).HasColumnName("source_key").HasMaxLength(Incident.SourceKeyMaxLength);
         builder.Property(incident => incident.ClientEventId).HasColumnName("client_event_id");
+        builder.Property(incident => incident.WeatherBasis).HasColumnName("weather_basis").HasMaxLength(30).IsUnicode(false);
+        builder.Property(incident => incident.WeatherAtUtc).HasColumnName("weather_at_utc").AsUtcDateTime2();
+        builder.Property(incident => incident.RainIntensityMmPerHour).HasColumnName("rain_intensity_mm_per_hour");
         builder.Property(incident => incident.DetectedAtUtc).HasColumnName("detected_at").AsUtcDateTime2().IsRequired();
         builder.Property(incident => incident.ResolvedAtUtc).HasColumnName("resolved_at").AsUtcDateTime2();
         builder.HasOne(incident => incident.Session).WithMany().HasForeignKey(incident => incident.SessionId).OnDelete(DeleteBehavior.Cascade);

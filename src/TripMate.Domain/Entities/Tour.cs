@@ -16,6 +16,7 @@ public class Tour : BaseEntity
     public const int MaxDestinations = 10;
     public const int DestinationSummaryMaxLength = 300;
     public const string DestinationCollation = "Vietnamese_100_CI_AS";
+    public const int PreferenceJsonMaxLength = 1000;
 
     private readonly List<TourSchedule> _schedules = [];
     private readonly List<TourDestination> _destinations = [];
@@ -61,9 +62,32 @@ public class Tour : BaseEntity
 
     public string? TravellerRequirements { get; private set; }
 
+    /// <summary>
+    /// Operator-declared sightseeing intensity, compared against the traveler's
+    /// <see cref="TravelerProfile.TravelPace"/> by tour-recommendation scoring.
+    /// </summary>
+    public TravelerPace? PaceLevel { get; private set; }
+
+    /// <summary>
+    /// Operator-declared JSON array of <see cref="TransportMode"/> names the tour can
+    /// accommodate, compared against <see cref="TravelerProfile.PreferredTransportMode"/>.
+    /// </summary>
+    public string? SupportedTransportModesJson { get; private set; }
+
+    /// <summary>
+    /// Operator-declared JSON array of canonical food-preference keys (see
+    /// TravelerPreferenceKeys.FoodPreferences) the tour can accommodate, compared against
+    /// <see cref="TravelerProfile.FoodPreferencesJson"/>.
+    /// </summary>
+    public string? DietaryAccommodationsJson { get; private set; }
+
     public long? CancellationPolicyTemplateId { get; private set; }
 
     public TourStatus Status { get; private set; }
+
+    public DateTimeOffset? SubmittedAtUtc { get; private set; }
+
+    public string? SubmissionNote { get; private set; }
 
     public string? RejectionReason { get; private set; }
 
@@ -155,15 +179,20 @@ public class Tour : BaseEntity
         VersionNo = versionNo;
     }
 
-    public void SubmitForReview(DateTimeOffset submittedAtUtc)
+    public void SubmitForReview(DateTimeOffset submittedAtUtc, string? submissionNote = null)
     {
         if (Status is not (TourStatus.Draft or TourStatus.Rejected))
         {
             throw new InvalidOperationException("Only Draft or Rejected tours can be submitted for review.");
         }
 
+        string? normalizedNote = NormalizeTerms(submissionNote, nameof(submissionNote));
+        SubmittedAtUtc = submittedAtUtc.ToUniversalTime();
+        SubmissionNote = normalizedNote;
         Status = TourStatus.Pending;
         RejectionReason = null;
+        ReviewedBy = null;
+        ReviewedAtUtc = null;
         UpdatedAtUtc = submittedAtUtc.ToUniversalTime();
     }
 
@@ -208,6 +237,30 @@ public class Tour : BaseEntity
         Highlights = normalizedHighlights;
         TravellerRequirements = normalizedRequirements;
         TimeZoneId = normalizedTimeZone;
+        UpdatedAtUtc = updatedAtUtc.ToUniversalTime();
+    }
+
+    /// <summary>
+    /// Sets the operator-declared pace/transport/diet accommodation used by tour-recommendation
+    /// scoring. All three are optional; a null/empty value leaves that dimension out of scoring
+    /// rather than treating the tour as a mismatch (existing tours keep NULL, unaffected).
+    /// </summary>
+    public void SetRecommendationAttributes(
+        TravelerPace? paceLevel,
+        string? supportedTransportModesJson,
+        string? dietaryAccommodationsJson,
+        DateTimeOffset updatedAtUtc)
+    {
+        if (Status is not (TourStatus.Draft or TourStatus.Rejected))
+        {
+            throw new InvalidOperationException("Only Draft or Rejected tours can be updated.");
+        }
+
+        PaceLevel = paceLevel;
+        SupportedTransportModesJson = NormalizePreferenceJson(
+            supportedTransportModesJson, nameof(supportedTransportModesJson));
+        DietaryAccommodationsJson = NormalizePreferenceJson(
+            dietaryAccommodationsJson, nameof(dietaryAccommodationsJson));
         UpdatedAtUtc = updatedAtUtc.ToUniversalTime();
     }
 
@@ -300,15 +353,17 @@ public class Tour : BaseEntity
         UpdatedAtUtc = updatedAtUtc.ToUniversalTime();
     }
 
-    public void Approve(long reviewerUserId, DateTimeOffset reviewedAtUtc)
+    public void Approve(long reviewerUserId, DateTimeOffset reviewedAtUtc, DateTimeOffset? publishedAtUtc = null)
     {
         if (Status != TourStatus.Pending) throw new InvalidOperationException("Only Pending tours can be approved.");
         if (reviewerUserId <= 0) throw new ArgumentOutOfRangeException(nameof(reviewerUserId));
+        var normalizedReviewedAtUtc = reviewedAtUtc.ToUniversalTime();
         Status = TourStatus.Approved;
         ReviewedBy = reviewerUserId;
-        ReviewedAtUtc = reviewedAtUtc.ToUniversalTime();
+        ReviewedAtUtc = normalizedReviewedAtUtc;
+        PublishedAtUtc = publishedAtUtc?.ToUniversalTime();
         RejectionReason = null;
-        UpdatedAtUtc = ReviewedAtUtc.Value;
+        UpdatedAtUtc = normalizedReviewedAtUtc;
     }
 
     public void Reject(long reviewerUserId, string reason, DateTimeOffset reviewedAtUtc)
@@ -333,11 +388,22 @@ public class Tour : BaseEntity
         UpdatedAtUtc = PublishedAtUtc.Value;
     }
 
+    public bool CanUnpublish(DateTimeOffset asOfUtc)
+    {
+        var normalizedAsOfUtc = asOfUtc.ToUniversalTime();
+        return Status == TourStatus.Published
+            || (Status == TourStatus.Approved
+                && PublishedAtUtc.HasValue
+                && PublishedAtUtc.Value <= normalizedAsOfUtc);
+    }
+
     public void Unpublish(DateTimeOffset unpublishedAtUtc)
     {
-        if (Status != TourStatus.Published) throw new InvalidOperationException("Only Published tours can be unpublished.");
+        var normalizedUnpublishedAtUtc = unpublishedAtUtc.ToUniversalTime();
+        if (!CanUnpublish(normalizedUnpublishedAtUtc))
+            throw new InvalidOperationException("Only Published or publicly active Approved tours can be unpublished.");
         Status = TourStatus.Inactive;
-        UpdatedAtUtc = unpublishedAtUtc.ToUniversalTime();
+        UpdatedAtUtc = normalizedUnpublishedAtUtc;
     }
 
     private static void EnsureWholeVnd(decimal price, string parameterName)
@@ -369,5 +435,21 @@ public class Tour : BaseEntity
         if (normalized?.Length > TermsMaxLength)
             throw new ArgumentException($"At most {TermsMaxLength} characters are allowed.", parameterName);
         return normalized;
+    }
+
+    private static string? NormalizePreferenceJson(string? value, string parameterName)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        if (value.Length > PreferenceJsonMaxLength)
+        {
+            throw new ArgumentException(
+                $"At most {PreferenceJsonMaxLength} characters are allowed.", parameterName);
+        }
+
+        return value;
     }
 }

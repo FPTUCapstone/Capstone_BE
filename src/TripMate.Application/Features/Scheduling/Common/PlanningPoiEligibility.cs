@@ -11,6 +11,7 @@ public static class PlanningPoiEligibility
         && poi.OpeningHours.Any(hours =>
             !hours.IsClosed && hours.OpenTime.HasValue && hours.CloseTime.HasValue);
 
+    /// <summary>Restaurants and cafés are added by travelers, not auto-scheduled by generation.</summary>
     public static bool IsAutoSchedulable(PointOfInterest poi) =>
         !PoiCategoryNames.IsFoodAndDrink(poi.Category?.Name);
 }

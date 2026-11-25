@@ -66,6 +66,64 @@ public sealed class SearchToursQueryValidatorTests
     }
 
     [Fact]
+    public async Task Validate_PublicContract_AcceptsFrozenCriteria()
+    {
+        var result = await _validator.ValidateAsync(new SearchToursQuery(
+            Keyword: "Huế",
+            StartDate: new DateOnly(2026, 9, 20),
+            EndDate: new DateOnly(2026, 9, 21),
+            DurationDays: 2,
+            MinimumRating: 4.7m,
+            Sort: SearchToursQuery.SortRating));
+
+        result.IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Validate_KeywordOver300NfcCharacters_IsRejected()
+    {
+        var result = await _validator.ValidateAsync(new SearchToursQuery(
+            Keyword: new string('x', 301)));
+
+        result.Errors.Should().ContainSingle(error => error.PropertyName == "Keyword");
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Validate_UnrepresentableRangeBound_IsRejected(bool start)
+    {
+        var result = await _validator.ValidateAsync(new SearchToursQuery(
+            StartDate: start ? DateOnly.MinValue : null,
+            EndDate: start ? null : DateOnly.MaxValue));
+
+        result.IsValid.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Validate_ReversedRanges_UseApprovedMessageCodes()
+    {
+        var result = await _validator.ValidateAsync(new SearchToursQuery(
+            StartDate: new DateOnly(2026, 9, 21),
+            EndDate: new DateOnly(2026, 9, 20),
+            MinPrice: 2,
+            MaxPrice: 1));
+
+        result.Errors.Should().Contain(error => error.ErrorCode == SearchToursQuery.InvalidPriceRangeCode);
+        result.Errors.Should().Contain(error => error.ErrorCode == SearchToursQuery.InvalidDateRangeCode);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(6)]
+    public async Task Validate_MinimumRatingOutsideScale_IsRejected(decimal rating)
+    {
+        var result = await _validator.ValidateAsync(new SearchToursQuery(MinimumRating: rating));
+
+        result.Errors.Should().ContainSingle(error => error.PropertyName == "MinimumRating");
+    }
+
+    [Fact]
     public async Task Validate_MinDate_IsRejectedBecauseVietnamStartPrecedesUtcYearOne()
     {
         var result = await _validator.ValidateAsync(new SearchToursQuery(

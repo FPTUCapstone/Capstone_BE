@@ -12,6 +12,22 @@ public sealed class TripSessionTests
     private static readonly DateTimeOffset ExpiresAtUtc = StartedAtUtc.AddHours(12);
 
     [Fact]
+    public void RevokeGroupAccess_ClosesOpenSessionAsSystemActionAndCannotOverwriteCompletion()
+    {
+        var session = CreateSession();
+        var revokedAt = StartedAtUtc.AddHours(1);
+
+        session.RevokeGroupAccess(revokedAt).Should().BeTrue();
+        session.RevokeGroupAccess(revokedAt.AddMinutes(1)).Should().BeFalse();
+
+        session.FsmState.Should().Be(TripSession.CompletedState);
+        session.CompletionReason.Should().Be(TripSession.GroupAccessRevokedReason);
+        session.EndedAtUtc.Should().Be(revokedAt);
+        session.StateHistory.Last().TriggeredBy.Should().Be(TripStateHistory.TriggeredBySystem);
+        session.StateHistory.Last().Reason.Should().Be(TripSession.GroupAccessRevokedReason);
+    }
+
+    [Fact]
     public void Start_CreatesNavigatingSessionWithFrozenItemsExpiryAndHistory()
     {
         var session = CreateSession();

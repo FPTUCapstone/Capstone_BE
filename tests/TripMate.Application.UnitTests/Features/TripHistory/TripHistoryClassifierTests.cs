@@ -16,6 +16,7 @@ public sealed class TripHistoryClassifierTests
     [InlineData(BookingStatus.Completed, ListTravelerTripsQuery.TabCompleted)]
     [InlineData(BookingStatus.Cancelled, ListTravelerTripsQuery.TabCancelled)]
     [InlineData(BookingStatus.Expired, ListTravelerTripsQuery.TabCancelled)]
+    [InlineData(BookingStatus.Interrupted, ListTravelerTripsQuery.TabCancelled)]
     public void TabForBooking_MapsStoredStatusOnly(BookingStatus status, string expectedTab)
     {
         TripHistoryClassifier.TabForBooking(status).Should().Be(expectedTab);
@@ -36,6 +37,14 @@ public sealed class TripHistoryClassifierTests
         var act = () => TripHistoryClassifier.TabForBooking((BookingStatus)999);
 
         act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    [Fact]
+    public void TryTabForBooking_UnknownStatus_IsNullSoOneRecordCannotBreakTheList()
+    {
+        TripHistoryClassifier.TryTabForBooking((BookingStatus)999).Should().BeNull();
+        TripHistoryClassifier.TryTabForBooking(BookingStatus.Interrupted)
+            .Should().Be(ListTravelerTripsQuery.TabCancelled);
     }
 
     [Theory]

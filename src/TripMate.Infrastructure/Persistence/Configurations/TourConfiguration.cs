@@ -31,6 +31,12 @@ public class TourConfiguration : IEntityTypeConfiguration<Tour>
             .IsRequired();
         builder.Property(tour => tour.CategoryId)
             .HasColumnName("category_id");
+        builder.Property(tour => tour.SubmittedAtUtc)
+            .HasColumnName("submitted_at_utc")
+            .AsUtcDateTime2();
+        builder.Property(tour => tour.SubmissionNote)
+            .HasColumnName("submission_note")
+            .HasMaxLength(Tour.TermsMaxLength);
         builder.Property(tour => tour.Title)
             .HasColumnName("title")
             .HasMaxLength(Tour.TitleMaxLength)
@@ -60,6 +66,17 @@ public class TourConfiguration : IEntityTypeConfiguration<Tour>
             .HasColumnName("exclusions");
         builder.Property(tour => tour.TravellerRequirements)
             .HasColumnName("traveller_requirements");
+        builder.Property(tour => tour.PaceLevel)
+            .HasColumnName("pace_level")
+            .HasConversion<string>()
+            .HasMaxLength(20)
+            .IsUnicode(false);
+        builder.Property(tour => tour.SupportedTransportModesJson)
+            .HasColumnName("supported_transport_modes_json")
+            .HasMaxLength(Tour.PreferenceJsonMaxLength);
+        builder.Property(tour => tour.DietaryAccommodationsJson)
+            .HasColumnName("dietary_accommodations_json")
+            .HasMaxLength(Tour.PreferenceJsonMaxLength);
         builder.Property(tour => tour.CancellationPolicyTemplateId)
             .HasColumnName("cancellation_policy_template_id");
         builder.Property(tour => tour.Status)

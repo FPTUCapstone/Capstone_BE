@@ -1,10 +1,12 @@
 using MediatR;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Authentication.Common;
+using TripMate.Application.Features.Operator.Contracts.Common;
 using TripMate.Domain.Entities;
 
 namespace TripMate.Application.Features.Authentication.WebRefresh;
@@ -22,7 +24,8 @@ public sealed record WebRefreshCommand(string? RawRefreshToken) : IRequest<Resul
 public sealed class WebRefreshCommandHandler(
     IApplicationDbContext dbContext,
     IJwtTokenService jwtTokenService,
-    IDateTimeProvider dateTimeProvider)
+    IDateTimeProvider dateTimeProvider,
+    IOptions<OperatorContractOptions>? contractOptions = null)
     : IRequestHandler<WebRefreshCommand, Result<AuthResponseDto>>
 {
     public async Task<Result<AuthResponseDto>> Handle(WebRefreshCommand request, CancellationToken cancellationToken)
@@ -48,7 +51,7 @@ public sealed class WebRefreshCommandHandler(
         }
 
         var eligibility = await AccountEligibilityResolver.ResolveAsync(
-            dbContext, user, dateTimeProvider.UtcNow, cancellationToken);
+            dbContext, user, dateTimeProvider.UtcNow, cancellationToken, contractOptions?.Value.Enabled ?? false);
         if (eligibility.IsFailure)
         {
             return Result.Failure<AuthResponseDto>(eligibility.ErrorCode!, eligibility.ErrorMessage!);
@@ -61,7 +64,14 @@ public sealed class WebRefreshCommandHandler(
         return Result.Success(new AuthResponseDto(
             user.Id, user.Email, user.FullName, user.Role, eligibility.Value.Status,
             accessToken, request.RawRefreshToken, accessTokenExpiresAtUtc)
-        { ApplicationStatus = eligibility.Value.ApplicationStatus, RefreshTokenExpiresAtUtc = session.ExpiresAtUtc });
+        {
+            ApplicationStatus = eligibility.Value.ApplicationStatus,
+            OnboardingState = eligibility.Value.OnboardingState,
+            ContractStatus = eligibility.Value.ContractStatus,
+            CurrentContractId = eligibility.Value.CurrentContractId,
+            RefreshTokenExpiresAtUtc = session.ExpiresAtUtc,
+            MustChangePassword = user.MustChangePassword
+        });
     }
 
     private static Result<AuthResponseDto> InvalidSession() =>

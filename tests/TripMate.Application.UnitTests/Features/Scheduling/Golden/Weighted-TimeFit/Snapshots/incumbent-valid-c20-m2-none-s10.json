@@ -1,0 +1,71 @@
+{
+  "ScenarioId": "incumbent-valid-c20-m2-none-s10",
+  "Source": "GroupC_Incumbent",
+  "Feasible": true,
+  "BestModelObjective": 10217,
+  "BestEvaluatedObjective": 10217,
+  "BestVisitPoiIds": [
+    13,
+    1,
+    11,
+    16,
+    2
+  ],
+  "EliteModelObjectives": [
+    3713,
+    3628,
+    3301,
+    3154,
+    2854
+  ],
+  "EliteVisitIds": [
+    [
+      1,
+      2,
+      11,
+      5
+    ],
+    [
+      1,
+      2,
+      11
+    ],
+    [
+      1,
+      2,
+      11,
+      5,
+      9
+    ],
+    [
+      1,
+      2,
+      11,
+      16,
+      9
+    ],
+    [
+      1,
+      2,
+      11,
+      5,
+      20
+    ]
+  ],
+  "BestTravelMinutes": 68,
+  "BestDurationMinutes": 283,
+  "BestEstimatedCost": 75000,
+  "EndAtUtc": "2026-10-20T05:43:00+00:00",
+  "NodesExpanded": 200000,
+  "PrunedByConstraints": 0,
+  "PrunedByForwardChecking": 0,
+  "PrunedByBound": 184193,
+  "SolutionsFound": 199998,
+  "NodesToFirstSolution": 3,
+  "SearchCompleted": false,
+  "NodeLimitReached": true,
+  "TimeLimitReached": false,
+  "EvaluatorCalls": 2,
+  "UsedRelaxedRestModel": false,
+  "ChoseRelaxedRestModel": false
+}

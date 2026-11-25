@@ -87,6 +87,42 @@ public sealed class FactoryLoggingIsolationTests
         Directory.Exists(Path.GetDirectoryName(derivedPath)).Should().BeFalse();
     }
 
+    [Fact]
+    public async Task Disposal_RetriesWhenWindowsTemporarilyKeepsLogFileOpen()
+    {
+        var factory = new TripMateApiFactory();
+        using var client = factory.CreateClient();
+        await client.GetAsync("/logging-isolation/transient-lock");
+        string logPath = ReadLogPath(factory);
+        string logRoot = Directory.GetParent(logPath)!.Parent!.FullName;
+
+        using var lockStream = new FileStream(
+            logPath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite);
+        Task releaseLock = Task.Run(async () =>
+        {
+            await Task.Delay(100);
+            lockStream.Dispose();
+        });
+
+        Exception? disposalFailure = null;
+        try
+        {
+            factory.Dispose();
+        }
+        catch (Exception exception)
+        {
+            disposalFailure = exception;
+        }
+
+        await releaseLock;
+        disposalFailure.Should().BeNull(
+            "transient Windows file-handle release must not make integration tests flaky");
+        Directory.Exists(logRoot).Should().BeFalse();
+    }
+
     private static string ReadLogPath(WebApplicationFactory<Program> factory) =>
         Path.GetFullPath(factory.Services.GetRequiredService<IConfiguration>()[
             "Serilog:WriteTo:0:Args:path"]!);

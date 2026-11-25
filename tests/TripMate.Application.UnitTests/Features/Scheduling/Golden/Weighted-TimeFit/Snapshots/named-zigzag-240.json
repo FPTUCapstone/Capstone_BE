@@ -1,0 +1,55 @@
+{
+  "ScenarioId": "named-zigzag-240",
+  "Source": "GroupB_Named",
+  "Feasible": true,
+  "BestModelObjective": 8033,
+  "BestEvaluatedObjective": 8033,
+  "BestVisitPoiIds": [
+    101,
+    102,
+    202
+  ],
+  "EliteModelObjectives": [
+    8033,
+    6630,
+    6557,
+    5971
+  ],
+  "EliteVisitIds": [
+    [
+      101,
+      102,
+      202
+    ],
+    [
+      101,
+      201,
+      102
+    ],
+    [
+      201,
+      101,
+      102
+    ],
+    [
+      101,
+      102
+    ]
+  ],
+  "BestTravelMinutes": 74,
+  "BestDurationMinutes": 209,
+  "BestEstimatedCost": 50000,
+  "EndAtUtc": "2026-10-20T04:29:00+00:00",
+  "NodesExpanded": 12,
+  "PrunedByConstraints": 4,
+  "PrunedByForwardChecking": 6,
+  "PrunedByBound": 1,
+  "SolutionsFound": 4,
+  "NodesToFirstSolution": 3,
+  "SearchCompleted": true,
+  "NodeLimitReached": false,
+  "TimeLimitReached": false,
+  "EvaluatorCalls": 2,
+  "UsedRelaxedRestModel": false,
+  "ChoseRelaxedRestModel": false
+}

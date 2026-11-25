@@ -10,14 +10,20 @@ using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Create;
+using TripMate.Application.Features.Scheduling.Csp;
+using TripMate.Application.Features.Scheduling.Csp.Objectives;
 using TripMate.Application.Features.Scheduling.Diagnostics;
 using TripMate.Application.Features.Scheduling.Explanation;
 using TripMate.Application.Features.Scheduling.Personalization;
+using TripMate.Application.Features.Scheduling.Routing;
+using TripMate.Application.Features.Scheduling.Shadow;
+using TripMate.Application.Features.Scheduling.TimeOfDay;
 using TripMate.Application.UnitTests.TestUtilities;
 using TripMate.Domain.Constants;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 using TripMate.Infrastructure.Persistence;
+using TripMate.Infrastructure.Routing;
 
 namespace TripMate.Application.UnitTests.Features.Scheduling.Create;
 
@@ -28,6 +34,40 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
     {
         UtcNow = new DateTimeOffset(2026, 10, 20, 1, 0, 0, TimeSpan.Zero),
     };
+
+    [Theory]
+    [InlineData(1, true)]
+    [InlineData(2, true)]
+    [InlineData(3, false)]
+    public async Task Handle_SimulatedReservationDeadlock_BoundsRetryWithoutProviderReplay(int failures, bool succeeds)
+    {
+        // This unit test checks retry policy only. Actual SQL 1205 is covered by the SQL Server suite.
+        await using var context = TestDbContext.Create();
+        await SeedSelectablePoiAsync(context);
+        var requestLock = new DeadlockingSchedulingRequestLock(failures);
+        var result = await CreateHandler(context, schedulingRequestLock: requestLock)
+            .Handle(CreateCommand(Guid.NewGuid()), CancellationToken.None);
+
+        result.IsSuccess.Should().Be(succeeds);
+        requestLock.CallCount.Should().Be(succeeds ? failures + 2 : 3);
+        if (!succeeds)
+        {
+            result.ErrorCode.Should().Be("planning.generation_contended");
+            (await context.SchedulingRequests.CountAsync()).Should().Be(0);
+        }
+    }
+
+    private sealed class DeadlockingSchedulingRequestLock(int failures) : ISchedulingRequestLock
+    {
+        public int CallCount { get; private set; }
+        public Task AcquireAsync(long travelerUserId, Guid idempotencyKey, CancellationToken cancellationToken)
+        {
+            CallCount++;
+            return CallCount <= failures
+                ? Task.FromException(new InvalidOperationException("Wrapped persistence error", new SimulatedDeadlockException()))
+                : Task.CompletedTask;
+        }
+    }
 
     [Fact]
     public async Task Handle_ExplanationProviderSucceeds_PersistsAndReturnsValidatedText()
@@ -57,7 +97,15 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
 
         result.IsSuccess.Should().BeTrue();
         explanationProvider.CallCount.Should().Be(1);
-        dbContext.SaveChangesAsyncCallCount.Should().Be(savesBeforeHandle + 3);
+        // Reservation, itinerary, the mandatory-POI behavior signal (UC-10 item 6), then the explanations.
+        dbContext.SaveChangesAsyncCallCount.Should().Be(savesBeforeHandle + 4);
+        RecommendationBehaviorEvent signal = await dbContext.RecommendationBehaviorEvents.AsNoTracking().SingleAsync();
+        signal.EventType.Should().Be(RecommendationEventType.Like);
+        signal.Source.Should().Be(RecommendationCaptureSource.SchedulingRequest);
+        signal.PointOfInterestId.Should().Be(mandatoryPoi.Id);
+        signal.TravelerUserId.Should().Be(command.TravelerUserId);
+        signal.ItineraryId.Should().BeNull();
+        signal.WasMandatory.Should().BeTrue();
         result.Value.Items.Should().OnlyContain(item =>
             item.FriendlyExplanation == $"Giải thích cho mục {item.SequenceNo}.");
         ItineraryItem persisted = await dbContext.ItineraryItems.SingleAsync();
@@ -91,6 +139,245 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         LogEntry log = logger.Entries.Should().ContainSingle().Subject;
         log.Level.Should().Be(LogLevel.Information);
         log.Properties["Outcome"].Should().Be("provider-skipped");
+    }
+
+    // Background mode (specs/UC-10-background-explanation-spec.md, B1 and B6-B8): the request answers with the
+    // template sentences and hands the itinerary to the waiting list; it never waits for the AI.
+
+    [Fact]
+    public async Task Handle_BackgroundMode_AnswersWithTemplatesAndQueuesTheItinerary()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await SeedSelectablePoiAsync(dbContext);
+        var explanationProvider = new RecordingItineraryExplanationProvider
+        {
+            ResultFactory = ValidExplanationResult,
+        };
+        var queue = new RecordingExplanationQueue();
+        var logger = new RecordingLogger<CreateSchedulingRequestCommandHandler>();
+
+        var result = await CreateHandler(
+                dbContext,
+                explanationProvider: explanationProvider,
+                explanationOptions: BackgroundExplanationOptions(),
+                explanationLogger: logger,
+                explanationQueue: queue)
+            .Handle(CreateCommand(Guid.NewGuid()) with
+            {
+                MandatoryPoiIds = [mandatoryPoi.Id],
+            }, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        explanationProvider.CallCount.Should().Be(0, "the request never waits for the AI in background mode");
+        result.Value.ExplanationPending.Should().BeTrue();
+        string template = result.Value.Items.Should().ContainSingle().Subject.FriendlyExplanation!;
+        template.Should().NotBeNullOrWhiteSpace().And.Contain(mandatoryPoi.Name);
+        ItineraryItem persisted = await dbContext.ItineraryItems.AsNoTracking().SingleAsync();
+        persisted.FriendlyExplanation.Should().Be(template);
+
+        // B4: the job carries each item's id and the template sentence saved for it.
+        ItineraryExplanationJob job = queue.Jobs.Should().ContainSingle().Subject;
+        job.ItineraryId.Should().Be(result.Value.ItineraryId);
+        job.Input.Items.Should().ContainSingle().Which.PoiId.Should().Be(mandatoryPoi.Id);
+        job.Items.Should().Equal(
+            new ItineraryExplanationJobItem(persisted.Id, persisted.SequenceNo, template));
+        LogEntry log = logger.Entries.Should().ContainSingle().Subject;
+        log.Level.Should().Be(LogLevel.Information);
+        log.Properties["Outcome"].Should().Be("queued");
+        log.Properties["FallbackUsed"].Should().Be(true);
+    }
+
+    [Fact]
+    public async Task Handle_BackgroundMode_WhenTheWaitingListIsFull_KeepsTheTemplatesAndIsNotPending()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await SeedSelectablePoiAsync(dbContext);
+        var explanationProvider = new RecordingItineraryExplanationProvider
+        {
+            ResultFactory = ValidExplanationResult,
+        };
+        var queue = new RecordingExplanationQueue { Accept = false };
+        var logger = new RecordingLogger<CreateSchedulingRequestCommandHandler>();
+
+        var result = await CreateHandler(
+                dbContext,
+                explanationProvider: explanationProvider,
+                explanationOptions: BackgroundExplanationOptions(),
+                explanationLogger: logger,
+                explanationQueue: queue)
+            .Handle(CreateCommand(Guid.NewGuid()) with
+            {
+                MandatoryPoiIds = [mandatoryPoi.Id],
+            }, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.ExplanationPending.Should().BeFalse();
+        queue.Offered.Should().Be(1);
+        queue.Jobs.Should().BeEmpty();
+        explanationProvider.CallCount.Should().Be(0);
+        string template = result.Value.Items.Should().ContainSingle().Subject.FriendlyExplanation!;
+        (await dbContext.ItineraryItems.AsNoTracking().SingleAsync()).FriendlyExplanation.Should().Be(template);
+        LogEntry log = logger.Entries.Should().ContainSingle().Subject;
+        log.Level.Should().Be(LogLevel.Warning);
+        log.Properties["Outcome"].Should().Be("queue-full");
+    }
+
+    [Fact]
+    public async Task Handle_BackgroundModeWhileExplanationsAreDisabled_QueuesNothing()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await SeedSelectablePoiAsync(dbContext);
+        var explanationProvider = new RecordingItineraryExplanationProvider
+        {
+            ResultFactory = ValidExplanationResult,
+        };
+        var queue = new RecordingExplanationQueue();
+        var logger = new RecordingLogger<CreateSchedulingRequestCommandHandler>();
+
+        var result = await CreateHandler(
+                dbContext,
+                explanationProvider: explanationProvider,
+                explanationOptions: new ItineraryExplanationExecutionOptions
+                {
+                    Enabled = false,
+                    BackgroundEnabled = true,
+                },
+                explanationLogger: logger,
+                explanationQueue: queue)
+            .Handle(CreateCommand(Guid.NewGuid()) with
+            {
+                MandatoryPoiIds = [mandatoryPoi.Id],
+            }, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.ExplanationPending.Should().BeFalse();
+        queue.Offered.Should().Be(0);
+        explanationProvider.CallCount.Should().Be(0);
+        result.Value.Items.Should().ContainSingle().Which.FriendlyExplanation.Should().NotBeNullOrWhiteSpace();
+        logger.Entries.Should().ContainSingle().Which.Properties["Outcome"].Should().Be("provider-skipped");
+    }
+
+    [Fact]
+    public async Task Handle_BackgroundModeWithoutAWaitingList_KeepsTheTemplatesAndStillDoesNotWaitForTheAi()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await SeedSelectablePoiAsync(dbContext);
+        var explanationProvider = new RecordingItineraryExplanationProvider
+        {
+            ResultFactory = ValidExplanationResult,
+        };
+        var logger = new RecordingLogger<CreateSchedulingRequestCommandHandler>();
+
+        var result = await CreateHandler(
+                dbContext,
+                explanationProvider: explanationProvider,
+                explanationOptions: BackgroundExplanationOptions(),
+                explanationLogger: logger)
+            .Handle(CreateCommand(Guid.NewGuid()) with
+            {
+                MandatoryPoiIds = [mandatoryPoi.Id],
+            }, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.ExplanationPending.Should().BeFalse();
+        explanationProvider.CallCount.Should().Be(0);
+        result.Value.Items.Should().ContainSingle().Which.FriendlyExplanation.Should().NotBeNullOrWhiteSpace();
+        logger.Entries.Should().ContainSingle().Which.Properties["Outcome"].Should().Be("provider-skipped");
+    }
+
+    [Fact]
+    public async Task Handle_InlineMode_IsNeverPendingAndLeavesTheWaitingListAlone()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await SeedSelectablePoiAsync(dbContext);
+        var explanationProvider = new RecordingItineraryExplanationProvider
+        {
+            ResultFactory = ValidExplanationResult,
+        };
+        var queue = new RecordingExplanationQueue();
+
+        var result = await CreateHandler(
+                dbContext,
+                explanationProvider: explanationProvider,
+                explanationOptions: EnabledExplanationOptions(),
+                explanationQueue: queue)
+            .Handle(CreateCommand(Guid.NewGuid()) with
+            {
+                MandatoryPoiIds = [mandatoryPoi.Id],
+            }, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.ExplanationPending.Should().BeFalse();
+        explanationProvider.CallCount.Should().Be(1);
+        queue.Offered.Should().Be(0);
+        result.Value.Items.Should().ContainSingle().Which.FriendlyExplanation.Should().Be("Nội dung AI cho mục 1.");
+    }
+
+    [Fact]
+    public async Task Handle_BackgroundMode_AReplayIsNotQueuedAgain()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await SeedSelectablePoiAsync(dbContext);
+        var explanationProvider = new RecordingItineraryExplanationProvider
+        {
+            ResultFactory = ValidExplanationResult,
+        };
+        var queue = new RecordingExplanationQueue();
+        var handler = CreateHandler(
+            dbContext,
+            explanationProvider: explanationProvider,
+            explanationOptions: BackgroundExplanationOptions(),
+            explanationQueue: queue);
+        var command = CreateCommand(Guid.NewGuid()) with
+        {
+            MandatoryPoiIds = [mandatoryPoi.Id],
+        };
+
+        var first = await handler.Handle(command, CancellationToken.None);
+        var replay = await handler.Handle(command, CancellationToken.None);
+
+        first.Value.ExplanationPending.Should().BeTrue();
+        replay.IsSuccess.Should().BeTrue();
+        replay.Value.ItineraryId.Should().Be(first.Value.ItineraryId);
+        replay.Value.ExplanationPending.Should().BeFalse();
+        replay.Value.Items.Select(item => item.FriendlyExplanation)
+            .Should().Equal(first.Value.Items.Select(item => item.FriendlyExplanation));
+        queue.Offered.Should().Be(1);
+        explanationProvider.CallCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Handle_BackgroundMode_WhenTheTemplatesCannotBeSaved_QueuesNothing()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await SeedSelectablePoiAsync(dbContext);
+        var queue = new RecordingExplanationQueue();
+        var logger = new RecordingLogger<CreateSchedulingRequestCommandHandler>();
+        // Reservation, itinerary and the mandatory-POI behavior signal save first; the fourth save writes the
+        // template sentences.
+        int explanationSave = dbContext.SaveChangesAsyncCallCount + 4;
+        dbContext.SaveChangesAttemptFailureFactory = attempt =>
+            attempt == explanationSave ? new DbUpdateException("The database is unavailable.") : null;
+
+        var result = await CreateHandler(
+                dbContext,
+                explanationProvider: new RecordingItineraryExplanationProvider(),
+                explanationOptions: BackgroundExplanationOptions(),
+                explanationLogger: logger,
+                explanationQueue: queue)
+            .Handle(CreateCommand(Guid.NewGuid()) with
+            {
+                MandatoryPoiIds = [mandatoryPoi.Id],
+            }, CancellationToken.None);
+
+        dbContext.SaveChangesAttemptFailureFactory = null;
+        result.IsSuccess.Should().BeTrue();
+        result.Value.ExplanationPending.Should().BeFalse();
+        queue.Offered.Should().Be(0, "a sentence that was never saved cannot be recognized by the worker later");
+        (await dbContext.ItineraryItems.AsNoTracking().SingleAsync()).FriendlyExplanation.Should().BeNull();
+        LogEntry log = logger.Entries.Should().ContainSingle().Subject;
+        log.Level.Should().Be(LogLevel.Warning);
+        log.Properties["Outcome"].Should().Be("persistence-failed");
     }
 
     [Theory]
@@ -295,7 +582,8 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
 
         // FriendlyExplanation remains NULL; no fallback persistence occurred
         persistedItinerary.Items.Single().FriendlyExplanation.Should().BeNull();
-        dbContext.SaveChangesAsyncCallCount.Should().Be(savesBeforeHandle + 2);
+        // Reservation, itinerary and the mandatory-POI behavior signal (UC-10 item 6); nothing after the cancel.
+        dbContext.SaveChangesAsyncCallCount.Should().Be(savesBeforeHandle + 3);
     }
 
     [Fact]
@@ -327,8 +615,9 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
 
         // 1 & 2. T1 SaveChanges succeeded and transaction committed
         dbContext.TransactionExecutionCount.Should().Be(2);
-        // 11 & 12. Exactly one T2 persistence attempt occurred; NO retry (T1 = 1 save, T2 = 1 failed save)
-        dbContext.SaveChangesAsyncCallCount.Should().Be(savesBeforeHandle + 3);
+        // 11 & 12. Exactly one T2 persistence attempt occurred; NO retry (reservation = 1 save; T1 = the itinerary
+        // and the mandatory-POI behavior signal of UC-10 item 6 = 2 saves; T2 = 1 failed save)
+        dbContext.SaveChangesAsyncCallCount.Should().Be(savesBeforeHandle + 4);
 
         // 4. Handler still preserves the successful scheduling result
         result.IsSuccess.Should().BeTrue();
@@ -479,6 +768,41 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
     }
 
     [Fact]
+    public async Task Handle_RestStop_ShowsItsReasonInVietnamese_InTheResponseAndTheSavedItinerary()
+    {
+        // Decision 2026-11-11: visit reasons are Vietnamese, so the rest reason must not be the solver's English code.
+        await using var dbContext = TestDbContext.Create();
+        var first = CreateSelectablePoi(
+            PoiCategory.Create("Nature", null), "Riverside park", 16.0471m, 108.2068m, "https://example.com/riverside");
+        var second = CreateSelectablePoi(
+            PoiCategory.Create("Culture", null), "Old quarter", 16.0472m, 108.2069m, "https://example.com/quarter");
+        dbContext.PointsOfInterest.AddRange(first, second);
+        await dbContext.SaveChangesAsync();
+        dbContext.Entry(first).Property(poi => poi.AverageVisitDurationMinutes).CurrentValue = 120;
+        dbContext.Entry(second).Property(poi => poi.AverageVisitDurationMinutes).CurrentValue = 120;
+        await dbContext.SaveChangesAsync();
+
+        var result = await CreateHandler(dbContext)
+            .Handle(CreateCommand(Guid.NewGuid()) with
+            {
+                AvailableMinutes = 480,
+                MandatoryPoiIds = [first.Id, second.Id],
+                RestPreference = RestPreference.Frequent,
+            }, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var shownRests = result.Value.Items.Where(item => item.ItemKind == ItineraryItemKind.Rest).ToArray();
+        shownRests.Should().NotBeEmpty();
+        shownRests.Should().OnlyContain(item => item.RecommendationReason == "Nghỉ tự do");
+        var savedRests = await dbContext.ItineraryItems
+            .AsNoTracking()
+            .Where(item => item.Kind == ItineraryItemKind.Rest)
+            .ToListAsync();
+        savedRests.Should().HaveSameCount(shownRests);
+        savedRests.Should().OnlyContain(item => item.RecommendationReason == "Nghỉ tự do");
+    }
+
+    [Fact]
     public async Task Handle_InfeasibleScheduling_DoesNotCallExplanationProvider()
     {
         await using var dbContext = TestDbContext.Create();
@@ -528,7 +852,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         dbContext.ChangeTracker.Entries().Should().BeEmpty();
         LogEntry log = logger.Entries.Should().ContainSingle().Subject;
         log.Level.Should().Be(LogLevel.Warning);
-        log.Properties["Provider"].Should().Be("OpenRouteService");
+        log.Properties["Provider"].Should().Be("Mapbox");
         log.Properties["Operation"].Should().Be("duration-matrix");
         log.Properties["Category"].Should().Be(failureKind);
     }
@@ -1000,13 +1324,15 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         result.Value.Items.Select(item => item.PoiId).Should().NotContain(restaurant.Id);
     }
 
-    [Fact]
-    public async Task Handle_FoodAndDrinkAsMandatory_FailsWithItsOwnCodeAndReplaysIt()
+    [Theory]
+    [InlineData(PoiCategoryNames.FoodAndDrink)]
+    [InlineData("Cafe")]
+    public async Task Handle_FoodAndDrinkAsMandatory_SucceedsAndSchedulesStop(string categoryName)
     {
         await using var dbContext = TestDbContext.Create();
         await SeedSelectablePoiAsync(dbContext);
         var restaurant = CreateSelectablePoi(
-            PoiCategory.Create(PoiCategoryNames.FoodAndDrink, null),
+            PoiCategory.Create(categoryName, null),
             "Mi Quang Ba Mua",
             16.0472m,
             108.2069m,
@@ -1019,9 +1345,11 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         var first = await handler.Handle(command, CancellationToken.None);
         var replay = await handler.Handle(command, CancellationToken.None);
 
-        first.ErrorCode.Should().Be(SchedulingErrorCodes.MandatoryFoodNotAllowed);
-        replay.ErrorCode.Should().Be(SchedulingErrorCodes.MandatoryFoodNotAllowed);
-        (await dbContext.Itineraries.CountAsync()).Should().Be(0);
+        first.IsSuccess.Should().BeTrue();
+        first.Value.Items.Should().Contain(item => item.PoiId == restaurant.Id && item.IsMandatory);
+        replay.IsSuccess.Should().BeTrue();
+        replay.Value.Items.Should().Contain(item => item.PoiId == restaurant.Id && item.IsMandatory);
+        (await dbContext.Itineraries.CountAsync()).Should().Be(1);
     }
 
     [Fact]
@@ -1102,6 +1430,176 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         var command = CreateCommand(Guid.NewGuid());
 
         await AssertInfeasibleReplayAsync(handler, command, dbContext);
+    }
+
+    [Fact]
+    public async Task Handle_ColocatedDistinctPois_UseTheirStoredRouteMetricsByIdentity()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var from = await SeedSelectablePoiAsync(dbContext, "Origin", 16.0471m, 108.2068m);
+        var to = await SeedSelectablePoiAsync(dbContext, "Destination", from.Latitude, from.Longitude);
+        dbContext.RouteSegments.AddRange(
+            RouteSegment.Create(from, to, 12.5m, 23, TransportMode.PublicTransit, null,
+                1, Guid.NewGuid(), _clock.UtcNow),
+            RouteSegment.Create(to, from, 11m, 31, TransportMode.PublicTransit, null,
+                1, Guid.NewGuid(), _clock.UtcNow));
+        await dbContext.SaveChangesAsync();
+        var fallback = new RecordingRouteDurationProvider();
+        var command = CreateCommand(Guid.NewGuid()) with
+        {
+            StartLatitude = from.Latitude,
+            StartLongitude = from.Longitude,
+            EndPoiId = to.Id,
+            ReturnToStart = false,
+            TransportMode = TransportMode.PublicTransit,
+            MandatoryPoiIds = [from.Id, to.Id],
+        };
+
+        var result = await CreateHandler(dbContext,
+            routeDurationProvider: new CatalogRouteDurationProvider(dbContext, fallback))
+            .Handle(command, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var origin = result.Value.Items.Single(item => item.PoiId == from.Id);
+        origin.TravelDurationToNextMinutes.Should().Be(23);
+        origin.TravelDistanceToNextMeters.Should().Be(12500);
+        fallback.CallCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Handle_ActiveCatalogTransitRoutes_AreUsedAndPersistedByTheSchedulingWorkflow()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var from = await SeedSelectablePoiAsync(dbContext, "Origin", 16.0471m, 108.2068m);
+        var to = await SeedSelectablePoiAsync(dbContext, "Destination", 16.0481m, 108.2078m);
+        dbContext.RouteSegments.AddRange(
+            RouteSegment.Create(from, to, 12.5m, 23, TransportMode.PublicTransit, null,
+                1, Guid.NewGuid(), _clock.UtcNow),
+            RouteSegment.Create(to, from, 11m, 31, TransportMode.PublicTransit, null,
+                1, Guid.NewGuid(), _clock.UtcNow));
+        await dbContext.SaveChangesAsync();
+        var fallback = new RecordingRouteDurationProvider();
+        var provider = new CatalogRouteDurationProvider(dbContext, fallback);
+        var command = CreateCommand(Guid.NewGuid()) with
+        {
+            StartLatitude = from.Latitude,
+            StartLongitude = from.Longitude,
+            EndPoiId = to.Id,
+            ReturnToStart = false,
+            TransportMode = TransportMode.PublicTransit,
+            MandatoryPoiIds = [from.Id, to.Id],
+        };
+
+        var result = await CreateHandler(dbContext, routeDurationProvider: provider)
+            .Handle(command, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var origin = result.Value.Items.Single(item => item.PoiId == from.Id);
+        origin.TravelDurationToNextMinutes.Should().Be(23);
+        origin.TravelDistanceToNextMeters.Should().Be(12500);
+        origin.TransportModeToNext.Should().Be(TransportMode.PublicTransit);
+        var persisted = await dbContext.ItineraryItems.SingleAsync(item => item.PointOfInterestId == from.Id);
+        persisted.TravelDurationToNextMinutes.Should().Be(23);
+        persisted.TravelDistanceToNextMeters.Should().Be(12500);
+        fallback.CallCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Handle_MaximumCatalogDuration_RejectsInfeasibleDirectionButAllowsShortReverse()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var from = await SeedSelectablePoiAsync(dbContext, "Origin", 16.0471m, 108.2068m);
+        var to = await SeedSelectablePoiAsync(dbContext, "Destination", 16.0481m, 108.2078m);
+        dbContext.RouteSegments.AddRange(
+            RouteSegment.Create(from, to, 12.5m, int.MaxValue, TransportMode.PublicTransit, null,
+                1, Guid.NewGuid(), _clock.UtcNow),
+            RouteSegment.Create(to, from, 11m, 31, TransportMode.PublicTransit, null,
+                1, Guid.NewGuid(), _clock.UtcNow));
+        await dbContext.SaveChangesAsync();
+        var fallback = new RecordingRouteDurationProvider();
+        var handler = CreateHandler(dbContext,
+            routeDurationProvider: new CatalogRouteDurationProvider(dbContext, fallback));
+        var forward = CreateCommand(Guid.NewGuid()) with
+        {
+            StartLatitude = from.Latitude,
+            StartLongitude = from.Longitude,
+            EndPoiId = to.Id,
+            ReturnToStart = false,
+            TransportMode = TransportMode.PublicTransit,
+            MandatoryPoiIds = [from.Id, to.Id],
+        };
+
+        var infeasible = await handler.Handle(forward, CancellationToken.None);
+        infeasible.ErrorCode.Should().Be(SchedulingErrorCodes.ConstraintsInfeasible);
+        var reverse = await handler.Handle(forward with
+        {
+            IdempotencyKey = Guid.NewGuid(),
+            StartLatitude = to.Latitude,
+            StartLongitude = to.Longitude,
+            EndPoiId = from.Id,
+        }, CancellationToken.None);
+
+        reverse.IsSuccess.Should().BeTrue();
+        reverse.Value.Items.Single(item => item.PoiId == to.Id).TravelDurationToNextMinutes.Should().Be(31);
+        (await dbContext.RouteSegments.SingleAsync(route => route.FromPoiId == from.Id))
+            .EstimatedDurationMinutes.Should().Be(int.MaxValue);
+        fallback.CallCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Handle_IncompleteCatalogTransitNetwork_PreservesInfeasibleReplayWithoutInventingRoadMetrics()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var from = await SeedSelectablePoiAsync(dbContext, "Origin", 16.0471m, 108.2068m);
+        var to = await SeedSelectablePoiAsync(dbContext, "Destination", 16.0481m, 108.2078m);
+        dbContext.RouteSegments.Add(RouteSegment.Create(from, to, 12.5m, 23,
+            TransportMode.PublicTransit, null, 1, Guid.NewGuid(), _clock.UtcNow));
+        await dbContext.SaveChangesAsync();
+        var fallback = new RecordingRouteDurationProvider();
+        var command = CreateCommand(Guid.NewGuid()) with
+        {
+            StartLatitude = from.Latitude,
+            StartLongitude = from.Longitude,
+            EndPoiId = to.Id,
+            ReturnToStart = false,
+            TransportMode = TransportMode.PublicTransit,
+            MandatoryPoiIds = [from.Id, to.Id],
+        };
+
+        var handler = CreateHandler(dbContext,
+            routeDurationProvider: new CatalogRouteDurationProvider(dbContext, fallback));
+        await AssertInfeasibleReplayAsync(handler, command, dbContext);
+        var request = await dbContext.SchedulingRequests.SingleAsync();
+        request.FailureMessage.Should().Be(
+            "Public transit routing is not available yet. Choose walking, motorbike, or car.");
+        request.GenerationOwnerId.Should().BeNull();
+        fallback.CallCount.Should().Be(0);
+        (await dbContext.Itineraries.CountAsync()).Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData(RouteDurationProviderFailureKind.Timeout)]
+    [InlineData(RouteDurationProviderFailureKind.Unavailable)]
+    public async Task Handle_CatalogTransitFallbackOutage_ReleasesReservationForRetry(
+        RouteDurationProviderFailureKind failureKind)
+    {
+        await using var dbContext = TestDbContext.Create();
+        var poi = await SeedSelectablePoiAsync(dbContext);
+        var provider = new CatalogRouteDurationProvider(dbContext,
+            new FailingRouteDurationProvider(failureKind, supportsTransit: true));
+        var result = await CreateHandler(dbContext, routeDurationProvider: provider)
+            .Handle(CreateCommand(Guid.NewGuid()) with
+            {
+                TransportMode = TransportMode.PublicTransit,
+                MandatoryPoiIds = [poi.Id],
+            }, CancellationToken.None);
+
+        result.ErrorCode.Should().Be(SchedulingErrorCodes.RoutingProviderUnavailable);
+        var request = await dbContext.SchedulingRequests.SingleAsync();
+        request.Status.Should().Be(SchedulingRequestStatus.Pending);
+        request.GenerationOwnerId.Should().BeNull();
+        (await dbContext.Itineraries.CountAsync()).Should().Be(0);
+        (await dbContext.ItineraryItems.CountAsync()).Should().Be(0);
     }
 
     [Fact]
@@ -1839,13 +2337,13 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         rankingProvider.CallCount.Should().Be(0);
         routeProvider.LastPoints.Should().Contain(new RoutePoint(
             optionals[0].Latitude,
-            optionals[0].Longitude));
+            optionals[0].Longitude, optionals[0].Id));
         routeProvider.LastPoints.Should().NotContain(new RoutePoint(
             optionals[1].Latitude,
-            optionals[1].Longitude));
+            optionals[1].Longitude, optionals[1].Id));
         routeProvider.LastPoints.Should().NotContain(new RoutePoint(
             optionals[2].Latitude,
-            optionals[2].Longitude));
+            optionals[2].Longitude, optionals[2].Id));
     }
 
     [Fact]
@@ -1904,11 +2402,58 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
             new HashSet<string>(),
             rankingEntry: null);
 
-        candidate.TripMateBaseScore.Should().Be(0m);
-        candidate.EffectiveDesirabilityScore.Should().Be(0m);
+        candidate.TripMateBaseScore.Should().BeNull();
+        candidate.EffectiveDesirabilityScore.Should().BeNull();
         candidate.ScenicScoreForRanking.Should().BeNull();
         candidate.PhotoRatingForRanking.Should().BeNull();
         candidate.EstimatedVisitCostForRanking.Should().BeNull();
+    }
+
+    [Fact]
+    public void ToCandidate_CarriesIndoorAndSunriseTagIntoTimeFit()
+    {
+        var poi = PointOfInterest.Create(
+            PoiCategory.Create("Culture", null), "Gallery", 16.0471m, 108.2068m, 1, _clock.UtcNow,
+            indoorOutdoor: IndoorOutdoorType.Indoor);
+        poi.AddTag(Tag.Create("sunrise"));
+
+        GenerationCandidate candidate = CreateSchedulingRequestCommandHandler.ToCandidate(
+            poi, new HashSet<string>(), rankingEntry: null);
+
+        candidate.IndoorOutdoor.Should().Be(IndoorOutdoorType.Indoor);
+        candidate.Tags.Should().ContainSingle().Which.Should().Be("sunrise");
+    }
+
+    [Fact]
+    public async Task Handle_WeightedIndoorSunrisePoi_ReachesRealTimeFitProvider()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var poi = PointOfInterest.Create(
+            PoiCategory.Create("Culture", null), "Indoor gallery", 16.0471m, 108.2068m,
+            1, _clock.UtcNow, indoorOutdoor: IndoorOutdoorType.Indoor);
+        poi.ConfigurePlanningMetadata(60_000m, "https://example.com/gallery", _clock.UtcNow);
+        poi.AddOpeningHour(PoiOpeningHour.Create(2, new TimeOnly(7, 0), new TimeOnly(20, 0), false));
+        poi.AddTag(Tag.Create("sunrise"));
+        dbContext.PointsOfInterest.Add(poi);
+        await dbContext.SaveChangesAsync();
+
+        var probe = new RecordingTimeFitFactory(poi.Id);
+        var options = new SchedulingGenerationOptions
+        {
+            SolverMode = SchedulingSolverMode.Csp,
+            Csp = new CspOptions { Mode = ObjectiveMode.WeightedUtility },
+        };
+        var command = CreateCommand(Guid.NewGuid()) with { MandatoryPoiIds = [poi.Id] };
+
+        var result = await CreateHandler(dbContext, generationOptions: options,
+                weightedInputsFactory: new WeightedRequestInputsFactory(timeFitFactory: probe))
+            .Handle(command, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        probe.ObservedCandidate.Should().NotBeNull();
+        probe.ObservedCandidate!.IndoorOutdoor.Should().Be(IndoorOutdoorType.Indoor);
+        probe.ObservedCandidate.Tags.Should().Contain("sunrise");
+        probe.SunriseWindowObserved.Should().BeTrue();
     }
 
     [Theory]
@@ -2200,7 +2745,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
 
         result.IsSuccess.Should().BeTrue();
         routeProvider.LastPoints.Should().Contain(
-            new RoutePoint(distantEndPoi.Latitude, distantEndPoi.Longitude));
+            new RoutePoint(distantEndPoi.Latitude, distantEndPoi.Longitude, distantEndPoi.Id));
     }
 
     [Fact]
@@ -2353,6 +2898,148 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         (await dbContext.Itineraries.CountAsync()).Should().Be(0);
     }
 
+    /// <summary>ADR-002 (G2): the response and the saved itinerary say how the schedule was produced; a replay says the same.</summary>
+    [Fact]
+    public async Task Handle_CspMode_ReturnsAndPersistsTheScheduleProvenance()
+    {
+        await using var dbContext = TestDbContext.Create();
+        await SeedPreferenceRankingPoisAsync(dbContext);
+        var handler = CreateHandler(
+            dbContext,
+            generationOptions: new SchedulingGenerationOptions { SolverMode = SchedulingSolverMode.Csp });
+        var command = CreateCommand(Guid.NewGuid()) with { AvailableMinutes = 150 };
+        var expected = new SchedulingProvenanceDto(
+            SchedulingSolverOutcomes.Csp,
+            SchedulingSolverKinds.Csp,
+            nameof(ObjectiveMode.Lexicographic),
+            SearchCompleted: true,
+            TimeOfDayRefined: false);
+
+        var created = await handler.Handle(command, CancellationToken.None);
+        var replayed = await handler.Handle(command, CancellationToken.None);
+
+        created.IsSuccess.Should().BeTrue();
+        created.Value.Provenance.Should().Be(expected);
+        replayed.Value.Provenance.Should().Be(expected);
+        var saved = await dbContext.Itineraries.AsNoTracking().SingleAsync();
+        saved.SolverOutcome.Should().Be(SchedulingSolverOutcomes.Csp);
+        saved.ObjectiveMode.Should().Be(nameof(ObjectiveMode.Lexicographic));
+        saved.SearchCompleted.Should().BeTrue();
+        saved.TimeOfDayRefined.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// ADR-002 (G2): a CSP timeout without a heuristic plan proves nothing about the request, so the request is released
+    /// instead of failed, and the same idempotency key generates again.
+    /// </summary>
+    [Fact]
+    public async Task Handle_WhenTheCspTimesOutWithoutAPlan_ReleasesTheRequestSoTheSameKeyCanRetry()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var (first, second) = await SeedPreferenceRankingPoisAsync(dbContext);
+        var command = CreateCommand(Guid.NewGuid()) with
+        {
+            AvailableMinutes = 150,
+            MandatoryPoiIds = [first.Id, second.Id],
+        };
+
+        var timedOut = await CreateHandler(
+                dbContext,
+                generationOptions: new SchedulingGenerationOptions
+                {
+                    SolverMode = SchedulingSolverMode.Csp,
+                    Csp = new CspOptions { TimeLimitMilliseconds = 0 },
+                })
+            .Handle(command, CancellationToken.None);
+
+        timedOut.IsFailure.Should().BeTrue();
+        timedOut.ErrorCode.Should().Be(SchedulingErrorCodes.GenerationTimedOut);
+        (await dbContext.SchedulingRequests.AsNoTracking().SingleAsync()).Status
+            .Should().Be(SchedulingRequestStatus.Pending);
+
+        var retried = await CreateHandler(
+                dbContext,
+                generationOptions: new SchedulingGenerationOptions { SolverMode = SchedulingSolverMode.Csp })
+            .Handle(command, CancellationToken.None);
+
+        retried.ErrorCode.Should().Be(SchedulingErrorCodes.ConstraintsInfeasible, "the retry generated again instead of replaying the timeout");
+    }
+
+    [Fact]
+    public async Task Handle_WhenCspModeIsWeightedUtility_GeneratesValidItineraryWithWeightedInputs()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await SeedSelectablePoiAsync(dbContext);
+        var options = new SchedulingGenerationOptions
+        {
+            SolverMode = SchedulingSolverMode.Csp,
+            Csp = new CspOptions
+            {
+                Mode = ObjectiveMode.WeightedUtility,
+            },
+        };
+        var command = CreateCommand(Guid.NewGuid()) with
+        {
+            MandatoryPoiIds = [mandatoryPoi.Id],
+        };
+
+        var result = await CreateHandler(
+                dbContext,
+                generationOptions: options)
+            .Handle(command, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Should().NotBeNull();
+        result.Value!.ItineraryId.Should().BeGreaterThan(0);
+        (await dbContext.Itineraries.CountAsync()).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Handle_WhenShadowEnabledAndSampled_EnqueuesShadowWorkItemWithoutAffectingPrimaryResult()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var mandatoryPoi = await SeedSelectablePoiAsync(dbContext);
+        var routeProvider = new RecordingRouteDurationProvider();
+        var shadowRunner = new RecordingShadowRunner();
+        var shadowOptions = new ShadowOptions
+        {
+            Enabled = true,
+            SampleRate = 1.0,
+            TimeoutMs = 5000,
+        };
+
+        var command = CreateCommand(Guid.NewGuid()) with
+        {
+            MandatoryPoiIds = [mandatoryPoi.Id],
+        };
+
+        var result = await CreateHandler(
+                dbContext,
+                routeDurationProvider: routeProvider,
+                shadowRunner: shadowRunner,
+                shadowOptions: shadowOptions)
+            .Handle(command, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Should().NotBeNull();
+        result.Value!.ItineraryId.Should().BeGreaterThan(0);
+        shadowRunner.EnqueuedItems.Should().HaveCount(1);
+        shadowRunner.EnqueuedItems[0].RequestId.Should().Be(result.Value.SchedulingRequestId);
+        shadowRunner.EnqueuedItems[0].RouteDurationMatrix.PointCount.Should().Be(routeProvider.LastPointCount);
+        shadowRunner.EnqueuedItems[0].RouteDurationMatrix.GetMinutes(0, 1).Should().Be(15);
+        routeProvider.CallCount.Should().Be(1);
+    }
+
+    private sealed class RecordingShadowRunner : IShadowSchedulingRunner
+    {
+        public List<ShadowWorkItem> EnqueuedItems { get; } = [];
+
+        public void Enqueue(ShadowWorkItem item)
+        {
+            EnqueuedItems.Add(item);
+        }
+    }
+
     private CreateSchedulingRequestCommandHandler CreateHandler(
         TestDbContext dbContext,
         IRouteDurationProvider? routeDurationProvider = null,
@@ -2365,7 +3052,11 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         ItineraryExplanationExecutionOptions? explanationOptions = null,
         ILogger<CreateSchedulingRequestCommandHandler>? explanationLogger = null,
         IGenerateRateLimiter? generateRateLimiter = null,
-        SchedulingReservationOptions? reservationOptions = null)
+        SchedulingReservationOptions? reservationOptions = null,
+        WeightedRequestInputsFactory? weightedInputsFactory = null,
+        IShadowSchedulingRunner? shadowRunner = null,
+        ShadowOptions? shadowOptions = null,
+        IItineraryExplanationQueue? explanationQueue = null)
     {
         return new(
             dbContext,
@@ -2382,11 +3073,18 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
             explanationOptions,
             explanationLogger,
             generateRateLimiter,
-            reservationOptions);
+            reservationOptions,
+            weightedInputsFactory: weightedInputsFactory,
+            shadowRunner: shadowRunner,
+            shadowOptions: shadowOptions,
+            explanationQueue: explanationQueue);
     }
 
     private static ItineraryExplanationExecutionOptions EnabledExplanationOptions() =>
         new() { Enabled = true };
+
+    private static ItineraryExplanationExecutionOptions BackgroundExplanationOptions() =>
+        new() { Enabled = true, BackgroundEnabled = true };
 
     private static PoiRankingOrchestrator CreateRankingOrchestrator(
         IApplicationDbContext dbContext,
@@ -2612,14 +3310,15 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
     }
 
     private sealed class FailingRouteDurationProvider(
-        RouteDurationProviderFailureKind failureKind) : IRouteDurationProvider
+        RouteDurationProviderFailureKind failureKind, bool supportsTransit = false) : IRouteDurationProvider
     {
+        public bool SupportsTransportMode(TransportMode mode) => supportsTransit || mode != TransportMode.PublicTransit;
         public Task<RouteDurationMatrix> GetMatrixAsync(
             IReadOnlyList<RoutePoint> points,
             TransportMode transportMode,
             CancellationToken cancellationToken) =>
             Task.FromException<RouteDurationMatrix>(new RouteDurationProviderException(
-                "OpenRouteService",
+                "Mapbox",
                 failureKind,
                 "safe provider failure",
                 new HttpRequestException("sensitive transport detail")));
@@ -2635,7 +3334,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
         {
             callerCancellation.Cancel();
             return Task.FromException<RouteDurationMatrix>(new RouteDurationProviderException(
-                "OpenRouteService",
+                "Mapbox",
                 RouteDurationProviderFailureKind.Timeout,
                 "safe provider failure",
                 new TaskCanceledException("transient timeout")));
@@ -2678,7 +3377,7 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
             if (CallCount == 1)
             {
                 return Task.FromException<RouteDurationMatrix>(new RouteDurationProviderException(
-                    "OpenRouteService",
+                    "Mapbox",
                     RouteDurationProviderFailureKind.Timeout,
                     "safe provider failure",
                     new TaskCanceledException("transient timeout")));
@@ -2934,6 +3633,44 @@ public sealed class CreateSchedulingRequestCommandHandlerTests
                 ?? request.Candidates
                     .Select(candidate => new PoiRankingItem(candidate.PoiId, 0.5m, null))
                     .ToArray())));
+        }
+    }
+
+    private sealed class RecordingTimeFitFactory(long poiId) : ITimeFitProviderFactory
+    {
+        public GenerationCandidate? ObservedCandidate { get; private set; }
+
+        public bool SunriseWindowObserved { get; private set; }
+
+        public ITimeFitProvider Create(RoutingContext context)
+        {
+            var node = Enumerable.Range(0, context.Nodes.Count)
+                .First(index => context.Nodes[index].Candidate.Id == poiId);
+            ObservedCandidate = context.Nodes[node].Candidate;
+            var provider = new RealTimeFitProvider(context);
+            SunriseWindowObserved = provider.GetWindows(node).Any(window => window.Factor > 1.0);
+            return provider;
+        }
+    }
+
+    /// <summary>The waiting list of background explanations; <see cref="Accept"/> false behaves like a full one.</summary>
+    private sealed class RecordingExplanationQueue : IItineraryExplanationQueue
+    {
+        public bool Accept { get; init; } = true;
+
+        public int Offered { get; private set; }
+
+        public List<ItineraryExplanationJob> Jobs { get; } = [];
+
+        public bool TryEnqueue(ItineraryExplanationJob job)
+        {
+            Offered++;
+            if (Accept)
+            {
+                Jobs.Add(job);
+            }
+
+            return Accept;
         }
     }
 

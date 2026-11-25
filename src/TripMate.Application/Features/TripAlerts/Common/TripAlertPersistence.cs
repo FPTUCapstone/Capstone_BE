@@ -16,7 +16,8 @@ public sealed class TripAlertPersistence(IApplicationDbContext dbContext)
         long? affectedItemId,
         Guid? clientEventId,
         string? description,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        TripMate.Application.Features.TripAlerts.Weather.TripWeatherSnapshot? weather = null)
     {
         var incident = Incident.CreateTripAlert(
             session,
@@ -25,7 +26,8 @@ public sealed class TripAlertPersistence(IApplicationDbContext dbContext)
             detectedAtUtc,
             affectedItemId,
             clientEventId,
-            NormalizeDescription(description));
+            NormalizeDescription(description),
+            weather?.Basis.ToString(), weather?.ForecastAtUtc, weather?.RainMmPerHour);
         dbContext.Incidents.Add(incident);
         await dbContext.SaveChangesAsync(cancellationToken);
 

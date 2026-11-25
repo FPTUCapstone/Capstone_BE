@@ -1,0 +1,41 @@
+{
+  "ScenarioId": "budget-tight-exact-mandatory-s21",
+  "Source": "GroupD_Budget",
+  "ExpectedFeasible": true,
+  "Feasible": true,
+  "BestVisitPoiIds": [
+    1,
+    2
+  ],
+  "EliteVisitIds": [
+    [
+      1,
+      2
+    ],
+    [
+      2,
+      1
+    ]
+  ],
+  "BestTravelMinutes": 58,
+  "BestFinish": 153,
+  "NodesExpanded": 5,
+  "PrunedByConstraints": 0,
+  "PrunedByForwardChecking": 54,
+  "PrunedByBound": 0,
+  "SolutionsFound": 2,
+  "NodesToFirstSolution": 3,
+  "SearchCompleted": true,
+  "NodeLimitReached": false,
+  "TimeLimitReached": false,
+  "InitialIncumbentAccepted": false,
+  "ReturnedInitialIncumbent": false,
+  "EvaluatorCalls": 1,
+  "InSearchEvaluationLimitReached": false,
+  "TieEvaluationLimitReached": false,
+  "UsedRelaxedRestModel": false,
+  "ChoseRelaxedRestModel": false,
+  "DriftMeasured": true,
+  "MaxModelVsEvaluatorDriftMinutes": 0,
+  "TravelMinutesModelVsEvaluatorDiff": 0
+}

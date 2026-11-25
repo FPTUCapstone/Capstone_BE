@@ -102,6 +102,11 @@ public sealed class GeneratedItineraryInvariantValidator(SchedulingGenerationOpt
 
             if (item.PointOfInterestId is { } restPoiId)
             {
+                if (visitedIds.Contains(restPoiId))
+                {
+                    throw new InvalidOperationException("Invariant violation: rest POI is also scheduled as a visit.");
+                }
+
                 if (input.MandatoryPoiIds.Contains(restPoiId))
                 {
                     throw new InvalidOperationException("Invariant violation: rest item cannot use a mandatory POI.");
@@ -134,6 +139,10 @@ public sealed class GeneratedItineraryInvariantValidator(SchedulingGenerationOpt
         var continuousMinutes = 0;
         var restCount = 0;
         var restRequired = false;
+        var evaluator = new ItineraryScheduleEvaluator(_options);
+        var plannedVisits = visitItems
+            .Select(visit => candidateMap[visit.PointOfInterestId!.Value])
+            .ToArray();
         var locationIndices = new int[itemsList.Count];
 
         for (var i = 0; i < itemsList.Count; i++)
@@ -187,9 +196,22 @@ public sealed class GeneratedItineraryInvariantValidator(SchedulingGenerationOpt
 
                 totalCost += candidate.EstimatedVisitCost ?? 0m;
                 continuousMinutes += candidate.VisitDurationMinutes;
+                if (ItineraryScheduleEvaluator.IsDiningRest(candidate, item.PlannedArrivalUtc, input.TimeZone))
+                {
+                    continuousMinutes = 0;
+                    restCount++;
+                }
                 currentTime = item.PlannedDepartureUtc;
                 previousIndex = candidateIndex;
                 restRequired = ItineraryScheduleEvaluator.NeedsRest(input, continuousMinutes, restCount);
+                if (restRequired && i + 1 < itemsList.Count
+                    && itemsList[i + 1].Kind == ItineraryItemKind.Visit
+                    && itemsList[i + 1].PointOfInterestId is { } nextPoiIdForDining
+                    && evaluator.CanDeferRestToDining(candidateMap[nextPoiIdForDining], currentTime,
+                        matrix.GetMinutes(previousIndex, candidateMatrixIndices[nextPoiIdForDining]), input))
+                {
+                    restRequired = false;
+                }
             }
             else if (item.Kind == ItineraryItemKind.Rest)
             {
@@ -204,14 +226,16 @@ public sealed class GeneratedItineraryInvariantValidator(SchedulingGenerationOpt
                 var nextIndex = nextVisit?.PointOfInterestId is { } nextPoiId
                     ? candidateMatrixIndices[nextPoiId]
                     : matrix.PointCount - 1;
-                var expectedRestCandidate = FindExpectedRestCandidate(
+                var expectedRestCandidate = evaluator.FindQualifiedRestCandidate(
                     candidates,
                     candidateMatrixIndices,
                     input,
                     previousIndex,
                     nextIndex,
                     currentTime,
-                    matrix);
+                    matrix,
+                    itemsList.GetRange(0, i),
+                    plannedVisits: plannedVisits);
 
                 if (item.PointOfInterestId is { } restPoiId)
                 {
@@ -335,43 +359,5 @@ public sealed class GeneratedItineraryInvariantValidator(SchedulingGenerationOpt
         {
             throw new InvalidOperationException("Invariant violation: plan TotalEstimatedCost exceeds budget.");
         }
-    }
-
-    private GenerationCandidate? FindExpectedRestCandidate(
-        IReadOnlyList<GenerationCandidate> candidates,
-        IReadOnlyDictionary<long, int> candidateMatrixIndices,
-        GenerationInput input,
-        int previousIndex,
-        int nextIndex,
-        DateTimeOffset currentTime,
-        RouteDurationMatrix matrix)
-    {
-        return candidates
-            .Where(candidate =>
-                !input.MandatoryPoiIds.Contains(candidate.Id)
-                && ItineraryScheduleEvaluator.IsQualifiedRestCandidate(candidate))
-            .OrderBy(candidate => matrix.GetMinutes(
-                previousIndex,
-                candidateMatrixIndices[candidate.Id]))
-            .ThenBy(candidate => candidate.Id)
-            .FirstOrDefault(candidate =>
-            {
-                var restIndex = candidateMatrixIndices[candidate.Id];
-                var restArrival = currentTime.AddMinutes(
-                    matrix.GetMinutes(previousIndex, restIndex)
-                    + _options.TransitionBufferMinutes);
-                var restDeparture = restArrival.AddMinutes(30);
-                var nextArrival = restDeparture.AddMinutes(
-                    matrix.GetMinutes(restIndex, nextIndex)
-                    + (nextIndex == matrix.PointCount - 1
-                        ? _options.FinalReturnBufferMinutes
-                        : _options.TransitionBufferMinutes));
-                return ItineraryScheduleEvaluator.FitsOpeningHours(
-                        restArrival,
-                        restDeparture,
-                        candidate,
-                        input.TimeZone)
-                    && nextArrival <= input.StartAtUtc.AddMinutes(input.AvailableMinutes);
-            });
     }
 }

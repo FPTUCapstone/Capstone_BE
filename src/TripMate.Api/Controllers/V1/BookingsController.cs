@@ -13,6 +13,7 @@ using TripMate.Domain.Enums;
 namespace TripMate.Api.Controllers.V1;
 
 [ApiController]
+[Authorize(Policy = global::TripMate.Api.Authorization.OperatorContractWorkspacePolicies.Workspace)]
 [Authorize(Roles = nameof(UserRole.Traveler) + "," + nameof(UserRole.TourOperator))]
 [Route("api/v1/bookings")]
 public sealed class BookingsController(ISender sender) : ApiControllerBase(sender)
@@ -60,7 +61,7 @@ public sealed class BookingsController(ISender sender) : ApiControllerBase(sende
         }
 
         var result = await Sender.Send(new CancelBookingCommand(bookingId, parsedKey,
-            request?.ReasonCategory, request?.ReasonDetail), cancellationToken);
+            request?.ReasonCategory, request?.ReasonDetail, request?.Confirmed ?? false), cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 }

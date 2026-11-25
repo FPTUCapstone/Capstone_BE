@@ -3,9 +3,12 @@ using System.Text.RegularExpressions;
 using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
+using TripMate.Application.Features.Itineraries.Common;
+using TripMate.Application.Features.TravelGroups.LeaveTravelGroup;
 using TripMate.Application.Features.TravelGroups.ManageInvitation;
 using TripMate.Domain.Constants;
 using TripMate.Domain.Entities;
@@ -17,6 +20,61 @@ namespace TripMate.Api.IntegrationTests.TravelGroups;
 [Collection(nameof(TripMateApiFactory))]
 public sealed class GroupInvitationSqlServerTests
 {
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task FinalHostLeaveRacingInvitation_NoUsableInvitationSurvivesClosure()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database);
+        var startGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        async Task InviteAsync()
+        {
+            await startGate.Task;
+            await using var context = database.CreateDbContext();
+            var result = await new GetOrCreateGroupInvitationCommandHandler(
+                context,
+                new FixedDateTimeProvider(),
+                new SqlServerGroupInvitationLock(context),
+                new RandomGroupInvitationCodeGenerator()).Handle(
+                new GetOrCreateGroupInvitationCommand(seed.GroupId, seed.HostUserId, Guid.NewGuid()),
+                CancellationToken.None);
+            if (result.IsFailure)
+            {
+                result.ErrorCode.Should().Be(TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.GroupClosed);
+            }
+        }
+
+        async Task LeaveAsync()
+        {
+            await startGate.Task;
+            await using var context = database.CreateDbContext();
+            var result = await new LeaveTravelGroupCommandHandler(
+                context,
+                new FixedDateTimeProvider(),
+                new SqlServerGroupLeaveLock(context),
+                new ItineraryAccessService(context),
+                NullLogger<LeaveTravelGroupCommandHandler>.Instance).Handle(
+                new LeaveTravelGroupCommand(seed.GroupId, seed.HostUserId, Guid.NewGuid()),
+                CancellationToken.None);
+            result.IsSuccess.Should().BeTrue();
+        }
+
+        var inviteTask = InviteAsync();
+        var leaveTask = LeaveAsync();
+        startGate.SetResult();
+        await Task.WhenAll(inviteTask, leaveTask);
+
+        await using var verification = database.CreateDbContext();
+        var groupAfter = await verification.TravelGroups.SingleAsync(item => item.Id == seed.GroupId);
+        groupAfter.Status.Should().Be(TravelGroupStatus.Closed);
+        var now = new FixedDateTimeProvider().UtcNow;
+        var invitations = await verification.GroupInvitations
+            .Where(item => item.GroupId == seed.GroupId)
+            .ToListAsync();
+        invitations.Should().NotContain(item => item.IsUsableAt(now));
+    }
+
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
     public async Task ConcurrentRequestsWithSameKey_CreateOneInvitationAndReplaySameResult()
@@ -51,7 +109,7 @@ public sealed class GroupInvitationSqlServerTests
         await using var verification = database.CreateDbContext();
         (await verification.GroupInvitations.CountAsync()).Should().Be(1);
         (await verification.GroupInvitationOperations.CountAsync()).Should().Be(1);
-        (await verification.GroupMembers.CountAsync()).Should().Be(0);
+        (await verification.GroupMembers.CountAsync()).Should().Be(1);
     }
 
     [SqlServerFact]
@@ -440,6 +498,7 @@ public sealed class GroupInvitationSqlServerTests
 
         var group = TravelGroup.Create(itinerary.Id, host.Id, "SQL Invitation Group", now);
         context.TravelGroups.Add(group);
+        context.GroupMembers.Add(GroupMember.CreateHost(group, host.Id, now));
         await context.SaveChangesAsync();
         return (host.Id, group.Id);
     }
@@ -457,6 +516,7 @@ public sealed class GroupInvitationSqlServerTests
 
         var group = TravelGroup.Create(itinerary.Id, hostUserId, groupName, now);
         context.TravelGroups.Add(group);
+        context.GroupMembers.Add(GroupMember.CreateHost(group, hostUserId, now));
         await context.SaveChangesAsync();
         return group.Id;
     }

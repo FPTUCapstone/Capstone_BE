@@ -7,6 +7,7 @@ using Microsoft.Extensions.Options;
 
 using TripMate.Application.Features.TripReviews.Media;
 using TripMate.Infrastructure.Media.Cloudinary;
+using TripMate.Infrastructure.UnitTests.Security;
 
 namespace TripMate.Infrastructure.UnitTests.Media;
 
@@ -67,9 +68,28 @@ public sealed class ReviewMediaRegistrationTests
         ["Cloudinary:CloudName"] = "test-cloud",
         ["Cloudinary:ApiKey"] = "test-api-key",
         ["Cloudinary:ApiSecret"] = "test-api-secret",
+        [TicketQrTestKeys.EncryptionKeySetting] = TicketQrTestKeys.EncryptionKey,
+        [TicketQrTestKeys.SigningKeySetting] = TicketQrTestKeys.SigningKey,
         ["Cloudinary:TourMediaFolderRoot"] = "tripmate/tests/tours",
         ["Cloudinary:ReviewMediaFolderRoot"] = ReviewCloudinaryOptions.StableReviewMediaFolderRoot,
         ["Cloudinary:OperatorDocumentsFolderRoot"] = "tripmate/tests/operator-documents",
         ["Cloudinary:RevenueExportsFolderRoot"] = "tripmate/tests/revenue-exports",
+        ["SchedulingGeneration:Personalization:Version"] = "2026.1",
+        ["SchedulingGeneration:Personalization:Pace:Relaxed:LambdaPerMin"] = "0.025",
+        ["SchedulingGeneration:Personalization:Pace:Relaxed:MaxStopsPerDay"] = "3",
+        ["SchedulingGeneration:Personalization:Pace:Relaxed:MaxDailyEffort"] = "200",
+        ["SchedulingGeneration:Personalization:Pace:Relaxed:RestAfterMin"] = "90",
+        ["SchedulingGeneration:Personalization:Pace:Moderate:LambdaPerMin"] = "0.015",
+        ["SchedulingGeneration:Personalization:Pace:Moderate:MaxStopsPerDay"] = "5",
+        ["SchedulingGeneration:Personalization:Pace:Moderate:MaxDailyEffort"] = "300",
+        ["SchedulingGeneration:Personalization:Pace:Moderate:RestAfterMin"] = "120",
+        ["SchedulingGeneration:Personalization:Pace:Fast:LambdaPerMin"] = "0.008",
+        ["SchedulingGeneration:Personalization:Pace:Fast:MaxStopsPerDay"] = "8",
+        ["SchedulingGeneration:Personalization:Pace:Fast:MaxDailyEffort"] = "450",
+        ["SchedulingGeneration:Personalization:Pace:Fast:RestAfterMin"] = "180",
+        ["SchedulingGeneration:TimeFit:Version"] = "2026.1",
+        ["SchedulingGeneration:Shadow:Enabled"] = "false",
+        ["SchedulingGeneration:Shadow:SampleRate"] = "1.0",
+        ["SchedulingGeneration:Shadow:TimeoutMs"] = "5000",
     };
 }

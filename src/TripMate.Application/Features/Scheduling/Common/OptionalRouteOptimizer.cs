@@ -516,8 +516,8 @@ public sealed class OptionalRouteOptimizer(
         RouteDurationMatrix matrix)
     {
         return candidates
-            .Where(c => !mandatoryPoiIds.Contains(c.Id) && !ItineraryScheduleEvaluator.IsQualifiedRestCandidate(c))
-            .OrderByDescending(c => c.EffectiveDesirabilityScore)
+            .Where(c => !mandatoryPoiIds.Contains(c.Id) && !ItineraryScheduleEvaluator.IsRestOnlyCandidate(c))
+            .OrderByDescending(c => c.EffectiveDesirabilityScore ?? decimal.MinValue)
             .ThenByDescending(c => c.ScenicScoreForRanking ?? decimal.MinValue)
             .ThenByDescending(c => c.PhotoRatingForRanking ?? decimal.MinValue)
             .ThenBy(c => matrix.GetMinutes(0, candidateMatrixIndices[c.Id]))
@@ -540,6 +540,7 @@ public sealed class OptionalRouteOptimizer(
         var items = new List<GeneratedItineraryItem>();
         var previousIndex = 0;
         var totalMatrixTravel = 0;
+        var restCount = 0;
 
         for (var sequenceIndex = 0; sequenceIndex < sequence.Count; sequenceIndex++)
         {
@@ -572,10 +573,18 @@ public sealed class OptionalRouteOptimizer(
                 candidate.EstimatedVisitCost,
                 isMandatoryStop ? "Mandatory location" : "Suggested nearby location"));
             continuousMinutes += candidate.VisitDurationMinutes;
+            if (ItineraryScheduleEvaluator.IsDiningRest(candidate, currentTime, input.TimeZone))
+            {
+                continuousMinutes = 0;
+                restCount++;
+            }
             currentTime = departureTime;
             previousIndex = candidateIndex;
 
-            if (ItineraryScheduleEvaluator.NeedsRest(input, continuousMinutes, items.Count(item => item.Kind == ItineraryItemKind.Rest)))
+            var nextVisit = sequenceIndex + 1 < sequence.Count ? sequence[sequenceIndex + 1] : null;
+            if (ItineraryScheduleEvaluator.NeedsRest(input, continuousMinutes, restCount)
+                && !_evaluator.CanDeferRestToDining(nextVisit, currentTime,
+                    nextVisit is null ? 0 : matrix.GetMinutes(previousIndex, candidateMatrixIndices[nextVisit.Id]), input))
             {
                 var nextIndex = sequenceIndex + 1 < sequence.Count
                     ? candidateMatrixIndices[sequence[sequenceIndex + 1].Id]
@@ -587,7 +596,9 @@ public sealed class OptionalRouteOptimizer(
                     previousIndex,
                     nextIndex,
                     currentTime,
-                    matrix);
+                    matrix,
+                    items,
+                    plannedVisits: sequence);
                 if (restCandidate is not null)
                 {
                     var restIndex = candidateMatrixIndices[restCandidate.Id];
@@ -624,6 +635,7 @@ public sealed class OptionalRouteOptimizer(
                     currentTime = restEnd;
                 }
                 continuousMinutes = 0;
+                restCount++;
             }
         }
 
@@ -641,6 +653,8 @@ public sealed class OptionalRouteOptimizer(
             var departureTime = arrivalTime.AddMinutes(candidate.VisitDurationMinutes);
             var proposedCost = totalCost + (candidate.EstimatedVisitCost ?? 0m);
             var continuousMinutesAfterVisit = continuousMinutes + travelMinutes + candidate.VisitDurationMinutes;
+            var diningRest = ItineraryScheduleEvaluator.IsDiningRest(candidate, arrivalTime, input.TimeZone);
+            if (diningRest) continuousMinutesAfterVisit = 0;
 
             var nextCandidate = optionalCandidates
                 .SkipWhile(optionalCandidate => optionalCandidate.Id != candidate.Id)
@@ -648,9 +662,19 @@ public sealed class OptionalRouteOptimizer(
                 .FirstOrDefault();
             var nextIndex = nextCandidate is null ? matrix.PointCount - 1 : candidateMatrixIndices[nextCandidate.Id];
 
-            var needsRest = ItineraryScheduleEvaluator.NeedsRest(input, continuousMinutesAfterVisit, items.Count(item => item.Kind == ItineraryItemKind.Rest));
+            var needsRest = ItineraryScheduleEvaluator.NeedsRest(input, continuousMinutesAfterVisit, restCount + (diningRest ? 1 : 0));
             var restCandidate = needsRest
-                ? _evaluator.FindQualifiedRestCandidate(matrixCandidates, candidateMatrixIndices, input, candidateIndex, nextIndex, departureTime, matrix)
+                ? _evaluator.FindQualifiedRestCandidate(
+                    matrixCandidates,
+                    candidateMatrixIndices,
+                    input,
+                    candidateIndex,
+                    nextIndex,
+                    departureTime,
+                    matrix,
+                    items,
+                    visitingPoiId: candidate.Id,
+                    plannedVisits: sequence)
                 : null;
 
             GeneratedItineraryItem? restItem = null;
@@ -721,9 +745,11 @@ public sealed class OptionalRouteOptimizer(
             currentTime = restEndUtc ?? departureTime;
             previousIndex = restPreviousIndex;
             continuousMinutes = restItem is null ? continuousMinutesAfterVisit : 0;
+            if (diningRest) restCount++;
 
             if (restItem is not null)
             {
+                restCount++;
                 totalMatrixTravel += restLegTravel;
                 items.Add(restItem with { SequenceNo = items.Count + 1 });
             }

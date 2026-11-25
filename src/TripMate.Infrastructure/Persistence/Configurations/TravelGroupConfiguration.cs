@@ -23,6 +23,8 @@ public class TravelGroupConfiguration : IEntityTypeConfiguration<TravelGroup>
         builder.Property(g => g.HostUserId).HasColumnName("host_user_id").IsRequired();
         builder.Property(g => g.Name).HasColumnName("name").HasMaxLength(150).IsRequired(false);
         builder.Property(g => g.CreatedAtUtc).HasColumnName("created_at").AsUtcDateTime2().IsRequired();
+        builder.Property(g => g.Status).HasColumnName("status").HasConversion<string>().HasMaxLength(10).IsRequired();
+        builder.Property(g => g.ClosedAtUtc).HasColumnName("closed_at").AsUtcDateTime2();
 
         builder.HasOne(g => g.Itinerary)
             .WithMany(i => i.TravelGroups)

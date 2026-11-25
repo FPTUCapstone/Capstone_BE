@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
@@ -15,10 +16,13 @@ using Serilog;
 
 using TripMate.Api.Authorization;
 using TripMate.Api.Common;
+using TripMate.Api.DevSearch;
 using TripMate.Api.Diagnostics;
 using TripMate.Api.Middleware;
 using TripMate.Api.OpenApi;
+using TripMate.Api.Realtime;
 using TripMate.Application;
+using TripMate.Application.Common.Interfaces;
 using TripMate.Domain.Enums;
 using TripMate.Infrastructure;
 using TripMate.Infrastructure.Authentication;
@@ -35,9 +39,14 @@ try
         .ReadFrom.Configuration(context.Configuration)
         .ReadFrom.Services(services)
         .WriteTo.Console());
+    builder.Services.AddSingleton<Serilog.Core.ILogEventFilter, HubQueryTokenLogFilter>();
 
     builder.Services.AddApplication();
     builder.Services.AddInfrastructure(builder.Configuration);
+    builder.Services.AddDevTourSearch(builder.Configuration, builder.Environment);
+    builder.Services.AddSignalR();
+    builder.Services.AddScoped<TripMate.Application.Features.DirectChat.IDirectChatNotifier, SignalRDirectChatNotifier>();
+    builder.Services.AddSingleton<IWeatherSafetyReviewNotifier, SignalRWeatherSafetyReviewNotifier>();
 
     // UC-10 Phase 3: one log line per scheduling solver outcome, the signal for CSP monitoring.
     builder.Services.AddHostedService<SchedulingSolverOutcomeLogger>();
@@ -93,6 +102,11 @@ try
 
             ExceptionHandlingMiddleware.AddActiveTripsErrorCode(context.HttpContext, problem);
 
+            var requestPath = context.HttpContext.Request.Path.Value;
+            if (requestPath?.StartsWith("/api/v1/admin/users/", StringComparison.OrdinalIgnoreCase) == true
+                && requestPath.EndsWith("/unlock", StringComparison.OrdinalIgnoreCase))
+                problem.Extensions["errorCode"] = TripMate.Application.Features.Admin.Users.Common.UserAdministrationErrorCodes.RequestInvalid;
+
             var result = new BadRequestObjectResult(problem);
             result.ContentTypes.Add("application/problem+json");
             return result;
@@ -105,6 +119,7 @@ try
         options.SwaggerDoc("v1", new OpenApiInfo { Title = "TripMate API", Version = "v1" });
         options.SchemaFilter<PoiEnumSchemaFilter>();
         options.SchemaFilter<PoiContractSchemaFilter>();
+        options.SchemaFilter<RouteContractSchemaFilter>();
         options.SchemaFilter<ProblemDetailsContractSchemaFilter>();
         options.SchemaFilter<TripReviewRequestSchemaFilter>();
         options.OperationFilter<AllowAnonymousOperationFilter>();
@@ -157,10 +172,32 @@ try
                     Convert.FromBase64String(signingKey)),
                 ClockSkew = TimeSpan.FromMinutes(1),
             };
+            options.Events = new JwtBearerEvents
+            {
+                OnTokenValidated = UserSessionValidation.ValidateAsync,
+                OnMessageReceived = context =>
+                {
+                    var accessToken = context.Request.Query["access_token"];
+                    if (!string.IsNullOrWhiteSpace(accessToken)
+                        && (context.HttpContext.Request.Path.StartsWithSegments(WeatherSafetyReviewHub.Route)
+                            || context.HttpContext.Request.Path.StartsWithSegments(GroupChatHub.Route)
+                            || context.HttpContext.Request.Path.StartsWithSegments(DirectChatHub.Route)))
+                    {
+                        context.Token = accessToken;
+                    }
+
+                    return Task.CompletedTask;
+                },
+            };
         });
 
     builder.Services.AddAuthorization(options =>
     {
+        options.AddPolicy(OperatorContractWorkspacePolicies.Workspace, policy =>
+        {
+            policy.RequireAuthenticatedUser();
+            policy.AddRequirements(new OperatorContractWorkspaceRequirement());
+        });
         options.AddPolicy(TripReviewAuthorizationPolicies.ActiveTraveler, policy =>
         {
             policy.RequireAuthenticatedUser();
@@ -175,6 +212,7 @@ try
             policy.RequireRole(nameof(UserRole.Staff), nameof(UserRole.Administrator)));
     });
     builder.Services.AddScoped<IAuthorizationHandler, ActiveTravelerAuthorizationHandler>();
+    builder.Services.AddScoped<IAuthorizationHandler, OperatorContractWorkspaceAuthorizationHandler>();
     builder.Services.AddSingleton<
         IAuthorizationMiddlewareResultHandler,
         ProblemDetailsAuthorizationMiddlewareResultHandler>();
@@ -198,6 +236,24 @@ try
     builder.Services.AddRateLimiter(options =>
     {
         options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+        options.AddPolicy(OperatorContractSigningRateLimiter.PolicyName, context =>
+            RateLimitPartition.GetFixedWindowLimiter(context.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ =>
+                new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = TripMate.Application.Features.Operator.Contracts.Common.OperatorContractSigningPolicy.MaximumChallengesPerFifteenMinutes,
+                    Window = TimeSpan.FromMinutes(15),
+                    QueueLimit = 0,
+                }));
+        options.AddPolicy(SupportChatRateLimiter.PolicyName, context =>
+            RateLimitPartition.GetFixedWindowLimiter(
+                context.User.FindFirstValue(ClaimTypes.NameIdentifier)
+                    ?? context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = SupportChatRateLimiter.PermitLimit,
+                    Window = SupportChatRateLimiter.Window,
+                    QueueLimit = 0,
+                }));
         options.OnRejected = static async (context, cancellationToken) =>
         {
             // The 429 payload matches the documented ProblemDetails contract and carries no
@@ -229,6 +285,20 @@ try
                     Window = EmailVerificationResendRateLimiter.Window,
                     QueueLimit = 0,
                 }));
+        options.AddPolicy(EmergencyStopRateLimiter.PolicyName, context =>
+        {
+            var limit = context.RequestServices.GetRequiredService<IOptions<EmergencyStopRateLimitOptions>>().Value;
+            return RateLimitPartition.GetFixedWindowLimiter(
+                context.User.FindFirstValue(ClaimTypes.NameIdentifier)
+                    ?? context.Connection.RemoteIpAddress?.ToString()
+                    ?? "unknown",
+                _ => new FixedWindowRateLimiterOptions
+                {
+                    PermitLimit = limit.PermitLimit,
+                    Window = limit.Window,
+                    QueueLimit = 0,
+                });
+        });
         options.AddPolicy(OperatorRegistrationRateLimiter.PolicyName, context =>
             RateLimitPartition.GetFixedWindowLimiter(
                 context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
@@ -257,11 +327,19 @@ try
     app.UseHttpsRedirection();
 
     app.UseAuthentication();
+    app.UseMiddleware<AdministrationFailureAuditMiddleware>();
+    app.UseMiddleware<RequirePasswordChangeMiddleware>();
     app.UseAuthorization();
 
     app.UseRateLimiter();
 
     app.MapControllers();
+    app.MapHub<WeatherSafetyReviewHub>(WeatherSafetyReviewHub.Route);
+    // Keep idle polls below the Web proxy's 30-second request timeout.
+    app.MapHub<GroupChatHub>(GroupChatHub.Route, options =>
+        options.LongPolling.PollTimeout = TimeSpan.FromSeconds(20));
+    app.MapHub<DirectChatHub>(DirectChatHub.Route, options =>
+        options.LongPolling.PollTimeout = TimeSpan.FromSeconds(20));
 
     app.MapGet("/health", () => Results.Ok(new { status = "healthy" })).AllowAnonymous();
 

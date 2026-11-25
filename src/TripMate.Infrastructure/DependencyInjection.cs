@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -11,29 +12,46 @@ using StackExchange.Redis;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Media;
+using TripMate.Application.Features.AccountProvisioning;
+using TripMate.Application.Features.Admin.ContractTemplates;
+using TripMate.Application.Features.Admin.ContractTemplates.Common;
+using TripMate.Application.Features.Admin.StatisticalReports.Exports;
 using TripMate.Application.Features.Authentication.PasswordReset;
 using TripMate.Application.Features.Bookings.Common;
 using TripMate.Application.Features.Bookings.Refunds;
+using TripMate.Application.Features.Complaints.PartialRefundProposals;
 using TripMate.Application.Features.Itineraries.Common;
+using TripMate.Application.Features.Itineraries.GetDetail;
+using TripMate.Application.Features.Itineraries.WeatherTips;
 using TripMate.Application.Features.Navigation.Common;
+using TripMate.Application.Features.Operator.CheckIn.Common;
 using TripMate.Application.Features.Operator.Payouts.Common;
+using TripMate.Application.Features.Operator.PostTripComplaints.Deadlines;
 using TripMate.Application.Features.Operator.Revenue.Exports.Common;
+using TripMate.Application.Features.Payouts.DailySettlement;
 using TripMate.Application.Features.PointsOfInterest.ExternalReviews;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Explanation;
 using TripMate.Application.Features.Scheduling.Personalization;
+using TripMate.Application.Features.Scheduling.Shadow;
 using TripMate.Application.Features.Scheduling.TimeOfDay;
+using TripMate.Application.Features.ServiceProviderRequests;
+using TripMate.Application.Features.Tickets.Common;
 using TripMate.Application.Features.Traveler.Bookings.Common;
 using TripMate.Application.Features.Traveler.Payments.Common;
+using TripMate.Application.Features.Traveler.PostTripComplaints.Common;
 using TripMate.Application.Features.TravelGroups.ManageInvitation;
 using TripMate.Application.Features.TripAlerts.Common;
 using TripMate.Application.Features.TripAlerts.Weather;
 using TripMate.Application.Features.TripReviews.Common;
 using TripMate.Application.Features.TripReviews.Media;
+using TripMate.Application.Features.Weather.Processing;
 using TripMate.Infrastructure.Ai;
 using TripMate.Infrastructure.AiExplanation;
 using TripMate.Infrastructure.AiRanking;
 using TripMate.Infrastructure.Authentication;
+using TripMate.Infrastructure.Complaints;
+using TripMate.Infrastructure.Contracts.Templates;
 using TripMate.Infrastructure.Email;
 using TripMate.Infrastructure.ExternalReviews;
 using TripMate.Infrastructure.Media;
@@ -45,8 +63,10 @@ using TripMate.Infrastructure.Reviews.Moderation;
 using TripMate.Infrastructure.Routing;
 using TripMate.Infrastructure.Security;
 using TripMate.Infrastructure.Services;
+using TripMate.Infrastructure.Services.Audit;
 using TripMate.Infrastructure.Services.Payment;
 using TripMate.Infrastructure.Services.Redis;
+using TripMate.Infrastructure.SupportChat;
 using TripMate.Infrastructure.TripAlerts;
 using TripMate.Infrastructure.Weather;
 
@@ -58,6 +78,31 @@ public static class DependencyInjection
         this IServiceCollection services,
         IConfiguration configuration)
     {
+        services.AddSupportChat(configuration);
+        services.Configure<TripMate.Application.Features.Operator.Contracts.Common.OperatorContractOptions>(
+            configuration.GetSection(TripMate.Application.Features.Operator.Contracts.Common.OperatorContractOptions.SectionName));
+        services.AddScoped<TripMate.Application.Features.Operator.Contracts.OperatorContractIssuer>();
+        services.AddScoped<TripMate.Application.Features.Operator.Contracts.OperatorContractWorkflow>();
+        services.AddScoped<TripMate.Application.Features.Operator.Contracts.Common.IContractSignatureImageInspector, TripMate.Infrastructure.Contracts.ContractSignatureImageInspector>();
+        services.AddScoped<TripMate.Application.Features.Operator.Contracts.Common.IContractPdfSignatureStamper, TripMate.Infrastructure.Contracts.ContractPdfSignatureStamper>();
+        services.AddScoped<TripMate.Application.Features.Operator.Contracts.Common.IOperatorContractDocumentComposer, TripMate.Infrastructure.Contracts.OperatorContractDocumentComposer>();
+        services.AddScoped<TripMate.Application.Features.Operator.Contracts.Common.IOperatorContractOtpProtector>(provider =>
+            new TripMate.Infrastructure.Contracts.OperatorContractOtpProtector(() => provider.GetRequiredService<IOtpProtectionService>()));
+        services.AddScoped<TripMate.Application.Features.Operator.Contracts.Common.IOperatorContractOtpEmailSender>(provider =>
+            new TripMate.Infrastructure.Contracts.OperatorContractOtpEmailSender(() => provider.GetRequiredService<IUserAdministrationNotificationEmailSender>()));
+        if (configuration.GetValue<bool>("OperatorContracts:Enabled"))
+            services.AddHostedService<OperatorContractPreparationBackgroundService>();
+        services.Configure<ContractTemplateArtifactOptions>(configuration.GetSection("ContractTemplates:Artifacts"));
+        services.Configure<ContractTemplateRendererOptions>(configuration.GetSection("ContractTemplates:Renderer"));
+        services.AddScoped<IContractTemplateDocumentProcessor, DocxContractTemplateProcessor>();
+        services.AddScoped<IContractTemplateArtifactStorage, PrivateContractTemplateArtifactStorage>();
+        services.AddScoped<IContractTemplatePdfRenderer>(provider =>
+            string.IsNullOrWhiteSpace(configuration["ContractTemplates:Renderer:DockerImage"])
+                ? new LibreOfficeContractTemplateRenderer(provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<ContractTemplateRendererOptions>>())
+                : new DockerContractTemplateRenderer(provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<ContractTemplateRendererOptions>>()));
+        services.AddScoped<ContractTemplateWorkflow>();
+        if (configuration.GetValue<bool>("ContractTemplates:PreviewWorkerEnabled"))
+            services.AddHostedService<ContractTemplatePreviewBackgroundService>();
         // Database-first: the schema is owned by database/tripmate_schema_v7.sql, applied via
         // database/apply-schema.sh. This context only maps to it — no EF Core migrations here.
         services.AddDbContext<ApplicationDbContext>(options =>
@@ -65,6 +110,24 @@ public static class DependencyInjection
 
         services.AddScoped<IApplicationDbContext>(sp =>
             sp.GetRequiredService<ApplicationDbContext>());
+
+        services.AddScoped<IAccountProvisioningEmailSender, SmtpAccountProvisioningEmailSender>();
+        services.AddScoped<IAccountProvisioningLock, SqlServerAccountProvisioningLock>();
+        services.AddScoped<TripMate.Application.Features.PointsOfInterest.Deactivate.IPoiDeactivationLock, SqlServerPoiDeactivationLock>();
+        services.AddScoped<IAccountProvisioningPersistenceErrors, SqlServerAccountProvisioningPersistenceErrors>();
+        services.AddScoped<IServiceProviderRequestLock, SqlServerServiceProviderRequestLock>();
+        services.AddScoped<ProviderRequestMutationService>();
+        services.AddScoped<ServiceRequestLifecycleProcessor>();
+        services.AddScoped<IItineraryServiceBookingReader, ItineraryServiceBookingReader>();
+        services.AddHostedService<ServiceRequestLifecycleHostedService>();
+
+        // TM-226: Commission Statements & Reconciliation (UC-81-83)
+        services.AddScoped<TripMate.Application.Features.Providers.CommissionStatements.ICommissionStatementService, TripMate.Application.Features.Providers.CommissionStatements.CommissionStatementService>();
+        services.AddScoped<TripMate.Application.Features.Providers.CommissionStatements.ProviderCommissionQueryHandler>();
+        services.AddScoped<TripMate.Application.Features.Providers.CommissionStatements.ReportCommissionPaymentCommandHandler>();
+        services.AddScoped<TripMate.Application.Features.Providers.CommissionStatements.AdminReconciliationQueryHandler>();
+        services.AddScoped<TripMate.Application.Features.Providers.CommissionStatements.AdminReconciliationCommandHandler>();
+        services.AddHostedService<CommissionStatementLifecycleHostedService>();
         services.AddOptions<TripAlertOptions>()
             .Bind(configuration.GetSection(TripAlertOptions.SectionName))
             .Validate(options => options.ScanInterval > TimeSpan.Zero, "Trip alert scan interval must be positive.")
@@ -72,20 +135,40 @@ public static class DependencyInjection
             .Validate(options => options.DeviationCooldown > TimeSpan.Zero, "Deviation cooldown must be positive.")
             .Validate(options => options.DeliveryLease > TimeSpan.Zero, "Delivery lease must be positive.")
             .Validate(options => options.AdvisoryRainMmPerHour >= 0
-                && options.SevereRainMmPerHour > options.AdvisoryRainMmPerHour,
+                && options.SevereRainMmPerHour > options.AdvisoryRainMmPerHour
+                && options.ExtremeRainMmPerHour > options.SevereRainMmPerHour,
                 "Weather thresholds are invalid.")
             .ValidateOnStart();
-        services.AddMemoryCache();
-        services.AddOptions<OpenWeatherOptions>()
-            .Bind(configuration.GetSection(OpenWeatherOptions.SectionName))
-            .Validate(options => !options.Enabled || !string.IsNullOrWhiteSpace(options.ApiKey),
-                "OpenWeather API key is required when weather integration is enabled.")
-            .Validate(options => options.CacheDuration > TimeSpan.Zero,
-                "OpenWeather cache duration must be positive.")
+        services.AddOptions<TripMate.Application.Features.Rerouting.Common.ReroutingOptions>()
+            .Bind(configuration.GetSection(TripMate.Application.Features.Rerouting.Common.ReroutingOptions.SectionName))
             .ValidateOnStart();
-        services.AddHttpClient<ITripWeatherProvider, OpenWeather4TripWeatherProvider>((provider, client) =>
+        services.AddSingleton<
+            IValidateOptions<TripMate.Application.Features.Rerouting.Common.ReroutingOptions>,
+            TripMate.Application.Features.Rerouting.Common.ReroutingOptionsValidator>();
+        services.AddMemoryCache();
+        services.AddOptions<TomorrowWeatherOptions>()
+            .Bind(configuration.GetSection(TomorrowWeatherOptions.SectionName))
+            .Validate(options => !options.Enabled || !string.IsNullOrWhiteSpace(options.ApiKey),
+                "Tomorrow API key is required when weather integration is enabled.")
+            .Validate(options => options.CacheDuration > TimeSpan.Zero
+                && options.CacheDuration <= TimeSpan.FromMinutes(10),
+                "Tomorrow cache duration must be at most ten minutes.")
+            .ValidateOnStart();
+        services.AddHttpClient<ITripWeatherProvider, TomorrowTripWeatherProvider>((provider, client) =>
         {
-            var weather = provider.GetRequiredService<IOptions<OpenWeatherOptions>>().Value;
+            var weather = provider.GetRequiredService<IOptions<TomorrowWeatherOptions>>().Value;
+            client.BaseAddress = new Uri(weather.BaseUrl, UriKind.Absolute);
+            client.Timeout = TimeSpan.FromSeconds(10);
+        });
+        services.AddOptions<WeatherTipsOptions>()
+            .Bind(configuration.GetSection(WeatherTipsOptions.SectionName))
+            .Validate(options => options.TimeoutSeconds is >= WeatherTipsOptions.MinTimeoutSeconds
+                and <= WeatherTipsOptions.MaxTimeoutSeconds,
+                "WeatherTips timeout must be between 1 and 10 seconds.")
+            .ValidateOnStart();
+        services.AddHttpClient<IDayForecastProvider, TomorrowDayForecastProvider>((provider, client) =>
+        {
+            var weather = provider.GetRequiredService<IOptions<TomorrowWeatherOptions>>().Value;
             client.BaseAddress = new Uri(weather.BaseUrl, UriKind.Absolute);
             client.Timeout = TimeSpan.FromSeconds(10);
         });
@@ -101,6 +184,8 @@ public static class DependencyInjection
         services.AddScoped<IItineraryVersionService, ItineraryVersionService>();
         services.AddScoped<IGroupInvitationLock, SqlServerGroupInvitationLock>();
         services.AddScoped<IGroupJoinLock, SqlServerGroupJoinLock>();
+        services.AddScoped<IUserUnlockLock, SqlServerUserUnlockLock>();
+        services.AddScoped<IGroupLeaveLock, SqlServerGroupLeaveLock>();
         services.AddSingleton<IGroupInvitationCodeGenerator, RandomGroupInvitationCodeGenerator>();
         services.AddScoped<ISchedulingRequestLock, SqlServerSchedulingRequestLock>();
         services.AddScoped<ITripReviewContextReader, SqlServerTripReviewContextReader>();
@@ -108,6 +193,8 @@ public static class DependencyInjection
         services.AddSingleton<ITripReviewPersistenceErrorClassifier, SqlServerTripReviewPersistenceErrorClassifier>();
         services.AddSingleton<IBookingCancellationPersistenceErrorClassifier,
             SqlServerBookingCancellationPersistenceErrorClassifier>();
+        services.AddSingleton<ICheckInPersistenceErrorClassifier,
+            SqlServerCheckInPersistenceErrorClassifier>();
         services.AddSingleton<IPayoutPersistenceErrorClassifier, SqlServerPayoutPersistenceErrorClassifier>();
         services.AddScoped<IRefundManualCompletionLock, SqlServerRefundManualCompletionLock>();
         services.AddSingleton<IReviewContentModerator, LocalReviewContentModerator>();
@@ -136,18 +223,36 @@ public static class DependencyInjection
         services.AddSingleton<IOperatorDocumentCleanupJournal>(sp =>
             sp.GetRequiredService<SqlOperatorDocumentCleanupJournal>());
         services.AddHostedService<OperatorDocumentCleanupBackgroundService>();
+        services.AddScoped<IUserAdministrationNotificationOutboxStore, SqlServerUserAdministrationNotificationOutboxStore>();
+        services.AddScoped<UserAdministrationNotificationDeliveryProcessor>();
 
         services.AddOptions<TourMediaCleanupOptions>()
             .Bind(configuration.GetSection(TourMediaCleanupOptions.SectionName))
             .ValidateDataAnnotations()
             .ValidateOnStart();
         services.AddHostedService<TourMediaCleanupBackgroundService>();
+        services.AddOptions<UserAdministrationNotificationDeliveryOptions>()
+            .Bind(configuration.GetSection(UserAdministrationNotificationDeliveryOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.AddHostedService<UserAdministrationNotificationDeliveryBackgroundService>();
+        services.AddScoped<TourApprovalNoticeDeliveryProcessor>();
+        services.AddHostedService<TourApprovalNoticeDeliveryBackgroundService>();
 
         services.AddOptions<CloudinaryOptions>()
             .Bind(configuration.GetSection(CloudinaryOptions.SectionName))
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<CloudinaryOptions>, CloudinaryOptionsValidator>();
         services.AddSingleton<ICloudinaryClient, CloudinarySdkClient>();
+        services.AddSingleton<IComplaintEvidenceStorage>(serviceProvider =>
+        {
+            IHostEnvironment environment = serviceProvider.GetRequiredService<IHostEnvironment>();
+            return environment.IsDevelopment()
+                ? new LocalDevelopmentComplaintEvidenceStorage()
+                : new CloudinaryComplaintEvidenceStorage(
+                    serviceProvider.GetRequiredService<ICloudinaryClient>(),
+                    serviceProvider.GetRequiredService<ILogger<CloudinaryComplaintEvidenceStorage>>());
+        });
         services.AddSingleton<ITourMediaImageInspector, SkiaSharpTourMediaImageInspector>();
         services.AddSingleton<ITourMediaStorage, CloudinaryTourMediaStorage>();
         services.AddSingleton<ILandingContentMediaStorage, CloudinaryLandingContentMediaStorage>();
@@ -159,6 +264,7 @@ public static class DependencyInjection
         services.AddSingleton<IOperatorDocumentStorage, CloudinaryOperatorDocumentStorage>();
         services.AddSingleton<IRevenueExportStorage, CloudinaryRevenueExportStorage>();
         services.AddSingleton<IRevenueExportRenderer, XlsxRevenueExportRenderer>();
+        services.AddSingleton<IStatisticalReportExportRenderer, StatisticalReportExportRenderer>();
 
         services.AddOptions<RevenueExportOptions>()
             .Bind(configuration.GetSection(RevenueExportOptions.SectionName));
@@ -167,12 +273,13 @@ public static class DependencyInjection
         services.AddScoped<TripMate.Application.Features.Operator.Revenue.Exports.Worker.RevenueExportExpiryProcessor>();
         services.AddHostedService<RevenueExportWorkerBackgroundService>();
         services.AddHostedService<RevenueExportExpiryBackgroundService>();
+        services.AddHostedService<StatisticalPeriodCloseBackgroundService>();
 
         services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
-        services.AddOptions<OpenRouteServiceOptions>()
-            .Bind(configuration.GetSection(OpenRouteServiceOptions.SectionName))
+        services.AddOptions<MapboxRoutingOptions>()
+            .Bind(configuration.GetSection(MapboxRoutingOptions.SectionName))
             .ValidateOnStart();
-        services.AddSingleton<IValidateOptions<OpenRouteServiceOptions>, OpenRouteServiceOptionsValidator>();
+        services.AddSingleton<IValidateOptions<MapboxRoutingOptions>, MapboxRoutingOptionsValidator>();
         services.AddOptions<SchedulingGenerationOptions>()
             .Bind(configuration.GetSection(SchedulingGenerationOptions.SectionName))
             .ValidateOnStart();
@@ -182,9 +289,41 @@ public static class DependencyInjection
         services.AddSingleton(serviceProvider => serviceProvider
             .GetRequiredService<IOptions<SchedulingGenerationOptions>>()
             .Value);
+        services.AddOptions<PersonalizationOptions>()
+            .Bind(configuration.GetSection(PersonalizationOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<
+            IValidateOptions<PersonalizationOptions>,
+            PersonalizationOptionsValidator>();
+        services.AddSingleton<PersonalParamsFactory>();
+        services.AddSingleton<WeightedRequestInputsFactory>();
+        services.AddOptions<TimeFitOptions>()
+            .Bind(configuration.GetSection(TimeFitOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<
+            IValidateOptions<TimeFitOptions>,
+            TimeFitOptionsValidator>();
+        services.AddSingleton(serviceProvider => serviceProvider
+            .GetRequiredService<IOptions<TimeFitOptions>>()
+            .Value);
+        services.AddOptions<ShadowOptions>()
+            .Bind(configuration.GetSection(ShadowOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<
+            IValidateOptions<ShadowOptions>,
+            ShadowOptionsValidator>();
+        services.AddSingleton(serviceProvider => serviceProvider
+            .GetRequiredService<IOptions<ShadowOptions>>()
+            .Value);
+        services.AddSingleton<ShadowSchedulingRunner>();
+        services.AddSingleton<IShadowSchedulingRunner>(sp => sp.GetRequiredService<ShadowSchedulingRunner>());
+        services.AddHostedService(sp => sp.GetRequiredService<ShadowSchedulingRunner>());
         services.AddOptions<TimeOfDayOptions>()
             .Bind(configuration.GetSection(TimeOfDayOptions.SectionName))
             .Validate(options => options.MaxExtraMinutes is >= 0 and <= 120, "TimeOfDay:MaxExtraMinutes must be between 0 and 120.")
+            .Validate(options => options.NormalExtraMinutes is >= 0 and <= 120, "TimeOfDay:NormalExtraMinutes must be between 0 and 120.")
+            .Validate(options => options.SunriseExtraMinutes is >= 0 and <= 120, "TimeOfDay:SunriseExtraMinutes must be between 0 and 120.")
+            .Validate(options => options.EarlyTripCutoffMinutes is >= 0 and < 24 * 60, "TimeOfDay:EarlyTripCutoffMinutes must be between 0 and 1439.")
             .ValidateOnStart();
         services.AddSingleton(serviceProvider => serviceProvider
             .GetRequiredService<IOptions<TimeOfDayOptions>>()
@@ -213,6 +352,57 @@ public static class DependencyInjection
         services.AddSingleton(serviceProvider => serviceProvider.GetRequiredService<IOptions<RefundProcessingOptions>>().Value);
         services.AddScoped<RefundProcessor>();
         services.AddHostedService<RefundProcessingBackgroundService>();
+
+        services.AddOptions<OperatorConfirmationDeadlineOptions>()
+            .Bind(configuration.GetSection(OperatorConfirmationDeadlineOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<OperatorConfirmationDeadlineOptions>, OperatorConfirmationDeadlineOptionsValidator>();
+        services.AddSingleton(serviceProvider =>
+            serviceProvider.GetRequiredService<IOptions<OperatorConfirmationDeadlineOptions>>().Value);
+        services.AddScoped<OperatorConfirmationDeadlineProcessor>();
+        services.AddHostedService<OperatorConfirmationDeadlineBackgroundService>();
+
+        services.AddOptions<ReturnDeadlineOptions>()
+            .Bind(configuration.GetSection(ReturnDeadlineOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<ReturnDeadlineOptions>, ReturnDeadlineOptionsValidator>();
+        services.AddSingleton(serviceProvider => serviceProvider.GetRequiredService<IOptions<ReturnDeadlineOptions>>().Value);
+        services.AddScoped<ReturnDeadlineProcessor>();
+        services.AddHostedService<ReturnDeadlineBackgroundService>();
+
+        services.AddOptions<OperatorComplaintDeadlineOptions>()
+            .Bind(configuration.GetSection(OperatorComplaintDeadlineOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<OperatorComplaintDeadlineOptions>, OperatorComplaintDeadlineOptionsValidator>();
+        services.AddSingleton(serviceProvider =>
+            serviceProvider.GetRequiredService<IOptions<OperatorComplaintDeadlineOptions>>().Value);
+        services.AddScoped<OperatorComplaintDeadlineProcessor>();
+        services.AddHostedService<OperatorComplaintDeadlineBackgroundService>();
+
+        // UC-75: backed by PostTripComplaint and Refund aggregates (UC-68, UC-69).
+        services.AddScoped<IPartialRefundProposalStore, PostTripComplaintProposalStore>();
+        services.AddScoped<IComplaintRefundRequestCreator, PostTripComplaintRefundRequestCreator>();
+        services.AddOptions<PartialRefundProposalDeadlineOptions>()
+            .Bind(configuration.GetSection(PartialRefundProposalDeadlineOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<PartialRefundProposalDeadlineOptions>,
+            PartialRefundProposalDeadlineOptionsValidator>();
+        services.AddSingleton(serviceProvider =>
+            serviceProvider.GetRequiredService<IOptions<PartialRefundProposalDeadlineOptions>>().Value);
+        services.AddScoped<PartialRefundProposalDeadlineProcessor>();
+        services.AddHostedService<PartialRefundProposalDeadlineBackgroundService>();
+
+        // DAILY-PAYOUT-TRANSFER (SRS v11 UC-71 to UC-74): the simulated transfer gateway is the
+        // production binding until a real one (VNPay/PayOS/banking) is implemented — see spec
+        // "Chế độ giả lập". Swapping it out later does not change anything registered below.
+        services.AddSingleton<IPayoutTransferScenario, AlwaysSucceedPayoutTransferScenario>();
+        services.AddSingleton<IPayoutTransferGateway, SimulatedPayoutTransferGateway>();
+        services.AddScoped<DailyPayoutEligibilityReader>();
+        services.AddScoped<DailyPayoutRunProcessor>();
+        services.AddScoped<DailyPayoutRetrySweepProcessor>();
+        services.AddSingleton(new DailyPayoutOptions());
+        services.AddHostedService<DailyPayoutRunBackgroundService>();
+        services.AddHostedService<DailyPayoutRetrySweepBackgroundService>();
 
         services.AddOptions<PaymentOptions>()
             .Bind(configuration.GetSection(PaymentOptions.SectionName));
@@ -250,6 +440,39 @@ public static class DependencyInjection
         services.AddSingleton(serviceProvider =>
             serviceProvider.GetRequiredService<IOptions<SchedulingRateLimitOptions>>().Value);
         services.AddSingleton<GenerateRateLimiterMetrics>();
+
+        services.AddOptions<CheckInAuditJournalOptions>()
+            .Bind(configuration.GetSection(CheckInAuditJournalOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<CheckInAuditJournalOptions>, CheckInAuditJournalOptionsValidator>();
+        services.AddSingleton(serviceProvider => serviceProvider
+            .GetRequiredService<IOptions<CheckInAuditJournalOptions>>().Value);
+
+        var checkInAuditOptions = configuration.GetSection(CheckInAuditJournalOptions.SectionName)
+            .Get<CheckInAuditJournalOptions>() ?? new CheckInAuditJournalOptions();
+        if (checkInAuditOptions.Enabled)
+        {
+            services.AddSingleton(serviceProvider =>
+            {
+                var options = serviceProvider.GetRequiredService<CheckInAuditJournalOptions>();
+                string? connectionString = configuration.GetConnectionString(options.RedisConnectionStringName);
+                if (string.IsNullOrWhiteSpace(connectionString))
+                    throw new InvalidOperationException(
+                        $"Check-in audit journal requires ConnectionStrings:{options.RedisConnectionStringName}.");
+                return CheckInAuditRedisConnection.ConnectAsync(connectionString, options.CommandTimeout)
+                    .GetAwaiter().GetResult();
+            });
+            services.AddSingleton<ICheckInAuditJournal, RedisCheckInAuditJournal>();
+            services.AddSingleton<CheckInAuditJournalMetrics>();
+            services.AddScoped<CheckInAuditProjector>();
+            services.AddHostedService<CheckInAuditProjectionBackgroundService>();
+        }
+        else
+        {
+            // Disabled is deliberately fail-closed for check-in. Production rollout must enable
+            // the journal only after AOF durability is proven; there is no silent legacy bypass.
+            services.AddSingleton<ICheckInAuditJournal, UnavailableCheckInAuditJournal>();
+        }
 
         var rateLimitOptions = configuration.GetSection(SchedulingRateLimitOptions.SectionName)
             .Get<SchedulingRateLimitOptions>() ?? new SchedulingRateLimitOptions();
@@ -320,6 +543,8 @@ public static class DependencyInjection
                 executionOptions.OverallTimeout = TimeSpan.FromSeconds(options.OverallTimeoutSeconds);
                 executionOptions.MaxAttempts = options.MaxAttempts;
                 executionOptions.RetryBaseDelayMilliseconds = options.RetryBaseDelayMilliseconds;
+                executionOptions.BackgroundEnabled = options.BackgroundEnabled;
+                executionOptions.BackgroundTimeout = TimeSpan.FromSeconds(options.BackgroundTimeoutSeconds);
             })
             .ValidateOnStart();
         services.AddSingleton<
@@ -328,24 +553,46 @@ public static class DependencyInjection
         services.AddSingleton(serviceProvider => serviceProvider
             .GetRequiredService<IOptions<ItineraryExplanationExecutionOptions>>()
             .Value);
+
+        // Background explanations (specs/UC-10-background-explanation-spec.md): the create request queues the
+        // itinerary, the hosted worker asks the AI afterwards. One in-memory list for the whole process; the
+        // worker is idle unless AiExplanation:Enabled and AiExplanation:BackgroundEnabled put something on it.
+        services.AddSingleton<InMemoryItineraryExplanationQueue>();
+        services.AddSingleton<IItineraryExplanationQueue>(serviceProvider =>
+            serviceProvider.GetRequiredService<InMemoryItineraryExplanationQueue>());
+        services.AddScoped<IBackgroundItineraryExplanationProcessor>(serviceProvider =>
+            new BackgroundItineraryExplanationProcessor(
+                serviceProvider.GetRequiredService<IApplicationDbContext>(),
+                serviceProvider.GetRequiredService<IItineraryExplanationProvider>(),
+                serviceProvider.GetRequiredService<ItineraryExplanationExecutionOptions>(),
+                serviceProvider.GetService<ILogger<BackgroundItineraryExplanationProcessor>>()));
+        services.AddHostedService<ItineraryExplanationBackgroundService>();
         services.AddScoped<PersonalBehaviorFeatureAggregator>();
+        services.AddScoped(serviceProvider => new BehaviorProfileBuilder(
+            serviceProvider.GetRequiredService<IApplicationDbContext>(),
+            serviceProvider.GetRequiredService<IDateTimeProvider>(),
+            serviceProvider.GetRequiredService<IOptions<PersonalizationRankingOptions>>().Value,
+            serviceProvider.GetRequiredService<ILogger<BehaviorProfileBuilder>>()));
         services.AddScoped(serviceProvider => new PoiRankingOrchestrator(
             serviceProvider.GetRequiredService<PersonalBehaviorFeatureAggregator>(),
             serviceProvider.GetRequiredService<IPoiRankingProvider>(),
             serviceProvider.GetRequiredService<IOptions<PersonalizationRankingOptions>>().Value,
             serviceProvider.GetRequiredService<IOptions<PoiRankingProviderOptions>>().Value.Enabled,
-            serviceProvider.GetRequiredService<ILogger<PoiRankingOrchestrator>>()));
-        services.AddHttpClient<OpenRouteServiceRouteDurationProvider>(
+            serviceProvider.GetRequiredService<ILogger<PoiRankingOrchestrator>>(),
+            serviceProvider.GetRequiredService<BehaviorProfileBuilder>()));
+        services.AddHttpClient<MapboxRouteDurationProvider>(
             (serviceProvider, client) =>
             {
                 var routingOptions = serviceProvider
-                    .GetRequiredService<Microsoft.Extensions.Options.IOptions<OpenRouteServiceOptions>>()
+                    .GetRequiredService<Microsoft.Extensions.Options.IOptions<MapboxRoutingOptions>>()
                     .Value;
                 client.BaseAddress = new Uri(routingOptions.BaseUrl, UriKind.Absolute);
                 client.Timeout = SchedulingReservationOptions.RouteProviderTimeout;
             });
         services.AddScoped<IRouteDurationProvider>(serviceProvider =>
-            serviceProvider.GetRequiredService<OpenRouteServiceRouteDurationProvider>());
+            new CatalogRouteDurationProvider(
+                serviceProvider.GetRequiredService<IApplicationDbContext>(),
+                serviceProvider.GetRequiredService<MapboxRouteDurationProvider>()));
 
         // REVIEW2: Tripadvisor (Terra) ratings/reviews and on-demand review translation (Gemini).
         services.Configure<TripadvisorOptions>(configuration.GetSection(TripadvisorOptions.SectionName));
@@ -360,7 +607,32 @@ public static class DependencyInjection
         services.Configure<ReviewTranslationOptions>(configuration.GetSection(ReviewTranslationOptions.SectionName));
         services.AddHttpClient<IReviewTranslator, GeminiReviewTranslator>();
         services.Configure<EmailOptions>(configuration.GetSection(EmailOptions.SectionName));
+        services.Configure<GmailApiOptions>(configuration.GetSection(GmailApiOptions.SectionName));
         services.Configure<PasswordResetSecurityOptions>(configuration.GetSection(PasswordResetSecurityOptions.SectionName));
+        services.AddTicketQr(configuration);
+        services.AddSingleton<ITicketQrPersistenceErrorClassifier, SqlServerTicketQrPersistenceErrorClassifier>();
+
+        // Weather alerts create Operator reviews; they never invoke UC-70 cancellation commands.
+        services.AddOptions<TomorrowIoOptions>()
+            .Bind(configuration.GetSection(TomorrowIoOptions.SectionName))
+            .PostConfigure(options =>
+            {
+                if (string.IsNullOrWhiteSpace(options.ApiKey))
+                    options.ApiKey = configuration["Tomorrow:ApiKey"] ?? string.Empty;
+            })
+            .ValidateOnStart();
+        services.Configure<WeatherAlertProcessingOptions>(configuration.GetSection(TomorrowIoOptions.SectionName));
+        services.AddSingleton<IValidateOptions<TomorrowIoOptions>, TomorrowIoOptionsValidator>();
+        services.AddSingleton<ITomorrowWebhookAuthenticator, TomorrowWebhookAuthenticator>();
+        services.AddSingleton<IWeatherAlertNormalizer, TomorrowAlertNormalizer>();
+        services.AddScoped<IWeatherAlertInboxStore, SqlWeatherAlertInboxStore>();
+        services.AddScoped<IWeatherAlertInboxProcessor, WeatherAlertInboxProcessor>();
+        services.AddHttpClient<ITomorrowAlertsClient, TomorrowAlertsClient>();
+        services.AddHostedService<WeatherAlertInboxBackgroundService>();
+        services.AddHostedService<WeatherSafetyReviewEscalationBackgroundService>();
+        services.AddHostedService<TomorrowNotificationReconciliationBackgroundService>();
+        services.AddHostedService<WeatherLocationSyncBackgroundService>();
+        services.AddHostedService<WeatherForecastCheckpointBackgroundService>();
 
         // UC-06 password reset: zero DB schema; reset state lives in process-local memory only.
         services.AddSingleton<IPasswordResetStateStore, InMemoryPasswordResetStateStore>();
@@ -381,8 +653,28 @@ public static class DependencyInjection
         services.AddScoped<IPasswordResetEligibilityResolver, PasswordResetEligibilityResolver>();
         services.AddSingleton<ISmtpTransportFactory, MailKitSmtpClientFactory>();
         services.AddScoped<SmtpEmailSender>();
-        services.AddScoped<IEmailSender>(sp => sp.GetRequiredService<SmtpEmailSender>());
-        services.AddScoped<IEmailVerificationSender>(sp => sp.GetRequiredService<SmtpEmailSender>());
+        services.AddHttpClient<GmailRestEmailSender>();
+        services.AddScoped<IEmailSender>(sp =>
+        {
+            var gmailOptions = sp.GetRequiredService<IOptions<GmailApiOptions>>().Value;
+            return gmailOptions.IsConfigured
+                ? sp.GetRequiredService<GmailRestEmailSender>()
+                : sp.GetRequiredService<SmtpEmailSender>();
+        });
+        services.AddScoped<IEmailVerificationSender>(sp =>
+        {
+            var gmailOptions = sp.GetRequiredService<IOptions<GmailApiOptions>>().Value;
+            return gmailOptions.IsConfigured
+                ? sp.GetRequiredService<GmailRestEmailSender>()
+                : sp.GetRequiredService<SmtpEmailSender>();
+        });
+        services.AddScoped<IUserAdministrationNotificationEmailSender>(sp =>
+        {
+            var gmailOptions = sp.GetRequiredService<IOptions<GmailApiOptions>>().Value;
+            return gmailOptions.IsConfigured
+                ? sp.GetRequiredService<GmailRestEmailSender>()
+                : sp.GetRequiredService<SmtpEmailSender>();
+        });
         services.AddSingleton<IEmailVerificationResendCooldown, EmailVerificationResendCooldown>();
         services.AddSingleton<FirebaseEmailVerificationLinkService>();
         services.AddSingleton<IEmailVerificationLinkService>(sp =>

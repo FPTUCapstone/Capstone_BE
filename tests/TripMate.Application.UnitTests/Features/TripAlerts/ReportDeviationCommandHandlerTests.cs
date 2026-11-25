@@ -63,6 +63,31 @@ public sealed class ReportDeviationCommandHandlerTests
         (await db.Incidents.CountAsync()).Should().Be(1);
     }
 
+    [Fact]
+    public async Task ConcurrentDifferentTargets_OnlyOneSucceedsAndOtherReceivesCooldown()
+    {
+        await using var db = TestDbContext.Create();
+        var seed = await SeedAsync(db);
+        var clock = new FakeDateTimeProvider { UtcNow = Now };
+        var handler = Handler(db, clock);
+
+        var firstCommand = new ReportDeviationCommand(
+            seed.SessionId, TravelerId, Guid.NewGuid(), Now, seed.FirstItemId);
+        var secondCommand = new ReportDeviationCommand(
+            seed.SessionId, TravelerId, Guid.NewGuid(), Now, seed.SecondItemId);
+
+        var firstResult = await handler.Handle(firstCommand, CancellationToken.None);
+        firstResult.IsSuccess.Should().BeTrue();
+
+        var secondResult = await handler.Handle(secondCommand, CancellationToken.None);
+        secondResult.IsFailure.Should().BeTrue();
+        secondResult.ErrorCode.Should().Be(TripAlertErrorCodes.DeviationCooldown);
+
+        (await db.Incidents.CountAsync()).Should().Be(1);
+        (await db.Notifications.CountAsync(item => item.Type == Notification.TripAlertType)).Should().Be(1);
+        (await db.AlertDeliveryWork.CountAsync()).Should().Be(1);
+    }
+
     private static ReportDeviationCommandHandler Handler(
         TestDbContext db,
         FakeDateTimeProvider? clock = null) => new(

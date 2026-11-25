@@ -15,8 +15,12 @@ public sealed record NavigationSessionResponse(
     long? ExploringItemId,
     long? NextItemId,
     IReadOnlyCollection<NavigationSessionItemResponse> Items,
-    TransportMode? TransportMode)
+    TransportMode? TransportMode,
+    long? BookingId = null)
 {
+    /// <summary>Active catalog metrics; guidance geometry remains the integrated map service's responsibility.</summary>
+    public IReadOnlyCollection<NavigationRouteLeg> RouteLegs { get; init; } = [];
+
     /// <summary>
     /// Builds the response; the itinerary's scheduling request (when loaded) supplies the planned
     /// transport mode so the client routes for the same mode the CSP scheduled. Manual itineraries
@@ -28,7 +32,8 @@ public sealed record NavigationSessionResponse(
             session,
             itinerary.Version,
             itinerary.SchedulingRequest?.TransportMode,
-            TransportModesFromPrevious(itinerary));
+            TransportModesFromPrevious(itinerary)) with
+        { BookingId = itinerary.SourceBookingId };
 
     public static NavigationSessionResponse From(
         TripSession session,

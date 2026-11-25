@@ -7,8 +7,11 @@ using Microsoft.Extensions.Logging;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Tours.Search;
 using TripMate.Application.Features.Tours.Shared;
+using TripMate.Application.Features.Traveler.Bookings.Common;
 using TripMate.Application.Features.TripReviews.Common;
+using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Tours.GetDetail;
@@ -46,6 +49,7 @@ public sealed class GetTourDetailQueryHandler(
                         candidate.DestinationSummary,
                         candidate.DurationDays,
                         candidate.BasePrice,
+                        candidate.TimeZoneId,
                         candidate.Inclusions,
                         candidate.Exclusions,
                         OperatorName = candidate.OperatorProfile.CompanyName,
@@ -120,15 +124,25 @@ public sealed class GetTourDetailQueryHandler(
                     })
                     .ToListAsync(transactionCancellationToken);
 
-                var aggregate = await TripReviewAggregateReader.ReadTourAsync(
-                    dbContext, tour.Id, logger, transactionCancellationToken);
-                if (aggregate.IsFailure)
-                {
-                    return Result.Failure<TourDetailDto>(
-                        aggregate.ErrorCode ?? "tour.rating_unavailable",
-                        aggregate.ErrorMessage ?? "The tour rating could not be read.");
-                }
+                var aggregate = await PublicTourRatingProjection.Query(
+                        dbContext, dbContext.Tours.Where(candidate => candidate.Id == tour.Id))
+                    .SingleAsync(transactionCancellationToken);
 
+                var reviews = await dbContext.TripReviews.AsNoTracking()
+                    .Where(review => review.TourId == tour.Id
+                        && review.PublicationStatus == TripReview.PublishedStatus)
+                    .OrderByDescending(review => review.CreatedAtUtc)
+                    .ThenByDescending(review => review.Id)
+                    .Select(review => new TourDetailPublishedReviewDto(
+                        review.Id.ToString(),
+                        review.PublishDisplayName ? review.PublicDisplayName : TripReview.NeutralDisplayName,
+                        review.OverallRating, review.Title, review.Content,
+                        review.CreatedAtUtc.UtcDateTime, review.UpdatedAtUtc.UtcDateTime))
+                    .ToListAsync(transactionCancellationToken);
+
+                var timelineStops = stops.Select(stop => new BookedTourStopInput(
+                    stop.DayNo, stop.SequenceNo, stop.PoiId, stop.PlannedTime,
+                    stop.StayDurationMinutes, stop.Notes)).ToArray();
                 var schedules = departures
                     .Select(departure =>
                     {
@@ -154,7 +168,9 @@ public sealed class GetTourDetailQueryHandler(
                             departure.InfantPrice.HasValue ? ToVnd(departure.InfantPrice.Value) : null,
                             TourAvailability.RemainingSlots(departure.TotalCapacity, departure.ReservedCapacity),
                             availability,
-                            availability == TourAvailability.Available && registrationOpen);
+                            availability == TourAvailability.Available && registrationOpen
+                                && BookedTourItineraryTimeline.Plan(timelineStops, tour.TimeZoneId,
+                                    departure.StartAtUtc, departure.EndAtUtc).Stops is not null);
                     })
                     .ToList();
 
@@ -195,7 +211,8 @@ public sealed class GetTourDetailQueryHandler(
                     itinerary,
                     schedules,
                     schedules.Any(schedule => schedule.Bookable),
-                    new TourDetailRatingDto(aggregate.Value.Average, aggregate.Value.Count),
+                    new TourDetailRatingDto(aggregate.DisplayAverage, aggregate.ReviewCount),
+                    reviews,
                     now.UtcDateTime));
             },
             cancellationToken);

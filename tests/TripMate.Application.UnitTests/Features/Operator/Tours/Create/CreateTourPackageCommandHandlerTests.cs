@@ -36,6 +36,34 @@ public sealed class CreateTourPackageCommandHandlerTests
     }
 
     [Fact]
+    public async Task Handle_WithReviewedWeatherLocations_PersistsExplicitClassification()
+    {
+        await using var db = TestDbContext.Create();
+        var actor = await SeedApprovedOperatorAsync(db, 7);
+        await TourAuthoringTestData.SeedReferenceDataAsync(db);
+        await SeedPoiAsync(db, 88);
+        var handler = new CreateTourPackageCommandHandler(db,
+            new FakeCurrentUserService { UserId = actor.Id }, new FakeDateTimeProvider());
+        var command = Command(88) with
+        {
+            ItineraryItems = [new CreateTourItineraryItemRequest(1, 1, 88,
+                new TimeOnly(8, 0), 90, null, IsRequiredForWeather: true)],
+            Schedules = [new CreateTourScheduleRequest(DateTimeOffset.UtcNow.AddDays(2),
+                DateTimeOffset.UtcNow.AddDays(2).AddHours(8), "City center", 20,
+                MeetingLatitude: 10.7769m, MeetingLongitude: 106.7009m)],
+        };
+
+        var result = await handler.Handle(command, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var tour = await db.Tours.Include(candidate => candidate.Schedules)
+            .Include(candidate => candidate.ItineraryItems).SingleAsync();
+        tour.ItineraryItems.Single().IsRequiredForWeather.Should().BeTrue();
+        tour.Schedules.Single().MeetingLatitude.Should().Be(10.7769m);
+        tour.Schedules.Single().MeetingLongitude.Should().Be(106.7009m);
+    }
+
+    [Fact]
     public async Task Handle_WhenPoiIsUnavailable_DoesNotPersistDraft()
     {
         await using var db = TestDbContext.Create();

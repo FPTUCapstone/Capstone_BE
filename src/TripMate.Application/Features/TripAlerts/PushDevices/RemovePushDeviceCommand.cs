@@ -5,5 +5,5 @@ using TripMate.Application.Common.Models;
 namespace TripMate.Application.Features.TripAlerts.PushDevices;
 
 public sealed record RemovePushDeviceCommand(
-    long TravelerUserId,
+    long UserId,
     Guid InstallationId) : IRequest<Result>;

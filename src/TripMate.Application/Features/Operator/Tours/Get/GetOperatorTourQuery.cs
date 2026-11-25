@@ -7,6 +7,12 @@ namespace TripMate.Application.Features.Operator.Tours.Get;
 
 public sealed record GetOperatorTourQuery(long TourId) : IRequest<Result<OperatorTourDetailDto>>;
 
+public static class WeatherReadinessIssueCodes
+{
+    public const string StopClassificationMissing = "weather_stop_classification_missing";
+    public const string MeetingCoordinatesMissing = "weather_meeting_coordinates_missing";
+}
+
 public sealed record OperatorTourDetailDto(
     long Id,
     string Title,
@@ -27,6 +33,10 @@ public sealed record OperatorTourDetailDto(
     IReadOnlyList<OperatorTourDepartureDto> Departures)
 {
     /// <summary>Number of active media items; computed by the server, never client-provided.</summary>
+    public DateTimeOffset? SubmittedAtUtc { get; init; }
+
+    public string? SubmissionNote { get; init; }
+
     public int MediaCount { get; init; }
 
     public bool HasPrimaryImage { get; init; }
@@ -45,6 +55,8 @@ public sealed record OperatorTourDetailDto(
     public string? Highlights { get; init; }
 
     public string? TravellerRequirements { get; init; }
+
+    public IReadOnlyList<string> WeatherReadinessIssues { get; init; } = [];
 }
 
 public sealed record OperatorTourDestinationDto(long DestinationId, string Name);
@@ -57,7 +69,10 @@ public sealed record OperatorTourItineraryItemDto(
     long PoiId,
     TimeOnly? PlannedTime,
     int StayDurationMinutes,
-    string? Notes);
+    string? Notes)
+{
+    public bool? IsRequiredForWeather { get; init; }
+}
 
 public sealed record OperatorTourDepartureDto(
     long Id,
@@ -71,4 +86,11 @@ public sealed record OperatorTourDepartureDto(
     decimal? AdultPrice,
     decimal? ChildPrice,
     decimal? InfantPrice,
-    string Status);
+    string Status)
+{
+    public decimal? MeetingLatitude { get; init; }
+
+    public decimal? MeetingLongitude { get; init; }
+
+    public bool WeatherReady { get; init; }
+}

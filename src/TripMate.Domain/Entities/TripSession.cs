@@ -12,6 +12,7 @@ public sealed class TripSession : BaseEntity
     public const string RouteFinishedReason = "RouteFinished";
     public const string TravelerStoppedReason = "TravelerStopped";
     public const string ExpiredReason = "Expired";
+    public const string GroupAccessRevokedReason = "GroupAccessRevoked";
 
     private readonly List<TripSessionItem> _items = [];
     private readonly List<TripStateHistory> _stateHistory = [];
@@ -39,7 +40,7 @@ public sealed class TripSession : BaseEntity
     public IReadOnlyCollection<TripSessionItem> Items => _items.AsReadOnly();
     public IReadOnlyCollection<TripStateHistory> StateHistory => _stateHistory.AsReadOnly();
 
-    private bool IsCompleted => FsmState == CompletedState;
+    private bool IsTerminal => FsmState is CompletedState or InterruptedState;
 
     private bool HasReachedEveryItem =>
         _items.All(item => item.Status == TripSessionItem.ReachedStatus);
@@ -119,9 +120,99 @@ public sealed class TripSession : BaseEntity
         return session;
     }
 
+    /// <summary>The lowest sequence number a new snapshot row may take: one after the highest row currently held.</summary>
+    public int NextItemSequenceNo => _items.Count == 0 ? 1 : _items.Max(item => item.SequenceNo) + 1;
+
+    /// <summary>
+    /// UC-15 step 1 of a reroute: drops every Pending snapshot row and returns them. Reached and Skipped rows
+    /// are history and stay. A terminal session is left alone.
+    /// </summary>
+    public IReadOnlyList<TripSessionItem> RemovePendingItems()
+    {
+        if (IsTerminal)
+        {
+            return [];
+        }
+
+        var pending = _items.Where(item => item.Status == TripSessionItem.PendingStatus).ToArray();
+        foreach (var item in pending)
+        {
+            _items.Remove(item);
+        }
+
+        return pending;
+    }
+
+    /// <summary>
+    /// UC-15 step 2 of a reroute: binds the session to the rerouted itinerary version and adds its remaining
+    /// rows. Requires <see cref="RemovePendingItems"/> first. The FSM state, the exploring item and the requested
+    /// itinerary id do not change; one history row records the rebind.
+    /// </summary>
+    public void AttachRerouteItems(
+        long newItineraryId,
+        IReadOnlyList<TripSessionItem> newItems,
+        DateTimeOffset nowUtc)
+    {
+        if (newItineraryId <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(newItineraryId));
+        }
+
+        ArgumentNullException.ThrowIfNull(newItems);
+        EnsureUtc(nowUtc, nameof(nowUtc));
+        if (IsTerminal)
+        {
+            throw new InvalidOperationException("A finished session cannot be rerouted.");
+        }
+
+        if (_items.Any(item => item.Status == TripSessionItem.PendingStatus))
+        {
+            throw new InvalidOperationException("Remove the pending items before attaching the rerouted ones.");
+        }
+
+        if (newItems.Count == 0)
+        {
+            throw new ArgumentException("A rerouted plan needs at least one remaining item.", nameof(newItems));
+        }
+
+        // Gaps are legal: a rest stop without a POI takes a sequence number but is not a session row.
+        var ordered = newItems.OrderBy(item => item.SequenceNo).ToArray();
+        var firstAllowed = NextItemSequenceNo;
+        if (ordered[0].SequenceNo < firstAllowed
+            || ordered.Select(item => item.SequenceNo).Distinct().Count() != ordered.Length)
+        {
+            throw new ArgumentException(
+                "Rerouted items must sort after every kept item and have distinct sequence numbers.",
+                nameof(newItems));
+        }
+
+        var heldIds = _items.Select(item => item.ItineraryItemId).ToHashSet();
+        if (ordered.Select(item => item.ItineraryItemId).Distinct().Count() != ordered.Length
+            || ordered.Any(item => heldIds.Contains(item.ItineraryItemId)))
+        {
+            throw new ArgumentException("An itinerary item may appear only once in the session.", nameof(newItems));
+        }
+
+        foreach (var item in ordered)
+        {
+            item.AttachTo(this);
+            _items.Add(item);
+        }
+
+        ItineraryId = newItineraryId;
+        RecordTransition(
+            FsmState,
+            FsmState,
+            TripStateHistory.RerouteAcceptedReason,
+            TripStateHistory.TriggeredByTraveler,
+            nowUtc);
+    }
+
     public TripSessionProgressOutcome ReachItem(long itineraryItemId, DateTimeOffset reachedAtUtc)
     {
         EnsureUtc(reachedAtUtc, nameof(reachedAtUtc));
+        if (FsmState == InterruptedState)
+            return TripSessionProgressOutcome.SessionInterrupted;
         var target = FindItem(itineraryItemId);
         if (target is null)
         {
@@ -133,9 +224,11 @@ public sealed class TripSession : BaseEntity
             return TripSessionProgressOutcome.Replayed;
         }
 
-        if (IsCompleted)
+        if (IsTerminal)
         {
-            return TripSessionProgressOutcome.SessionCompleted;
+            return FsmState == InterruptedState
+                ? TripSessionProgressOutcome.SessionInterrupted
+                : TripSessionProgressOutcome.SessionCompleted;
         }
 
         target.MarkReached(reachedAtUtc);
@@ -165,6 +258,8 @@ public sealed class TripSession : BaseEntity
     public TripSessionProgressOutcome SkipItem(long itineraryItemId, DateTimeOffset skippedAtUtc)
     {
         EnsureUtc(skippedAtUtc, nameof(skippedAtUtc));
+        if (FsmState == InterruptedState)
+            return TripSessionProgressOutcome.SessionInterrupted;
         var target = FindItem(itineraryItemId);
         if (target is null)
         {
@@ -181,9 +276,11 @@ public sealed class TripSession : BaseEntity
             return TripSessionProgressOutcome.Replayed;
         }
 
-        if (IsCompleted)
+        if (IsTerminal)
         {
-            return TripSessionProgressOutcome.SessionCompleted;
+            return FsmState == InterruptedState
+                ? TripSessionProgressOutcome.SessionInterrupted
+                : TripSessionProgressOutcome.SessionCompleted;
         }
 
         target.MarkSkipped(skippedAtUtc);
@@ -193,9 +290,11 @@ public sealed class TripSession : BaseEntity
     public TripSessionProgressOutcome Depart(DateTimeOffset departedAtUtc)
     {
         EnsureUtc(departedAtUtc, nameof(departedAtUtc));
-        if (IsCompleted)
+        if (IsTerminal)
         {
-            return TripSessionProgressOutcome.SessionCompleted;
+            return FsmState == InterruptedState
+                ? TripSessionProgressOutcome.SessionInterrupted
+                : TripSessionProgressOutcome.SessionCompleted;
         }
 
         if (FsmState != ExploringState)
@@ -216,7 +315,7 @@ public sealed class TripSession : BaseEntity
     public bool Finish(DateTimeOffset finishedAtUtc)
     {
         EnsureUtc(finishedAtUtc, nameof(finishedAtUtc));
-        if (IsCompleted)
+        if (IsTerminal)
         {
             return false;
         }
@@ -227,15 +326,41 @@ public sealed class TripSession : BaseEntity
         return true;
     }
 
+    public bool RevokeGroupAccess(DateTimeOffset revokedAtUtc)
+    {
+        EnsureUtc(revokedAtUtc, nameof(revokedAtUtc));
+        if (IsTerminal)
+        {
+            return false;
+        }
+
+        Complete(GroupAccessRevokedReason, TripStateHistory.TriggeredBySystem, revokedAtUtc);
+        return true;
+    }
+
     public bool ExpireIfDue(DateTimeOffset nowUtc)
     {
         EnsureUtc(nowUtc, nameof(nowUtc));
-        if (IsCompleted || ExpiresAtUtc is not { } expiresAtUtc || nowUtc < expiresAtUtc)
+        if (IsTerminal || ExpiresAtUtc is not { } expiresAtUtc || nowUtc < expiresAtUtc)
         {
             return false;
         }
 
         Complete(ExpiredReason, TripStateHistory.TriggeredBySystem, expiresAtUtc);
+        return true;
+    }
+
+    public bool InterruptForEmergency(DateTimeOffset interruptedAtUtc, string reason)
+    {
+        EnsureUtc(interruptedAtUtc, nameof(interruptedAtUtc));
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        if (IsTerminal) return false;
+
+        CompletionReason = reason.Trim();
+        EndedAtUtc = interruptedAtUtc;
+        ExploringItemId = null;
+        RecordTransition(FsmState, InterruptedState, CompletionReason,
+            TripStateHistory.TriggeredBySystem, interruptedAtUtc);
         return true;
     }
 
@@ -322,4 +447,5 @@ public enum TripSessionProgressOutcome
     NotInSnapshot = 3,
     AlreadyReached = 4,
     SessionCompleted = 5,
+    SessionInterrupted = 6,
 }

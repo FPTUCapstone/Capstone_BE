@@ -1,0 +1,215 @@
+﻿{
+  "GeneratedAtUtc": "2026-10-19T02:24:45.5802080\u002B00:00",
+  "Entries": [
+    {
+      "ScenarioId": "const-n12-m0-s81",
+      "Category": "Synthetic-Constant",
+      "Candidates": 12,
+      "Mandatory": 0,
+      "NodesExpanded": 2240,
+      "MedianMs": 3.266,
+      "NsPerNode": 1458,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "const-n12-m1-s82",
+      "Category": "Synthetic-Constant",
+      "Candidates": 12,
+      "Mandatory": 1,
+      "NodesExpanded": 1234,
+      "MedianMs": 2.674,
+      "NsPerNode": 2167.3,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "const-n13-m0-s83",
+      "Category": "Synthetic-Constant",
+      "Candidates": 13,
+      "Mandatory": 0,
+      "NodesExpanded": 3509,
+      "MedianMs": 5.084,
+      "NsPerNode": 1449,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "const-n13-m1-s84",
+      "Category": "Synthetic-Constant",
+      "Candidates": 13,
+      "Mandatory": 1,
+      "NodesExpanded": 1339,
+      "MedianMs": 3.223,
+      "NsPerNode": 2407,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "const-n14-m0-s85",
+      "Category": "Synthetic-Constant",
+      "Candidates": 14,
+      "Mandatory": 0,
+      "NodesExpanded": 4456,
+      "MedianMs": 6.997,
+      "NsPerNode": 1570.2,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "const-n14-m1-s86",
+      "Category": "Synthetic-Constant",
+      "Candidates": 14,
+      "Mandatory": 1,
+      "NodesExpanded": 1261,
+      "MedianMs": 3.595,
+      "NsPerNode": 2851,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "const-n15-m0-s87",
+      "Category": "Synthetic-Constant",
+      "Candidates": 15,
+      "Mandatory": 0,
+      "NodesExpanded": 6483,
+      "MedianMs": 9.454,
+      "NsPerNode": 1458.3,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "const-n15-m1-s88",
+      "Category": "Synthetic-Constant",
+      "Candidates": 15,
+      "Mandatory": 1,
+      "NodesExpanded": 2273,
+      "MedianMs": 5.509,
+      "NsPerNode": 2423.8,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "real-n12-m0-s81",
+      "Category": "Synthetic-RealTimeFit",
+      "Candidates": 12,
+      "Mandatory": 0,
+      "NodesExpanded": 2185,
+      "MedianMs": 3.164,
+      "NsPerNode": 1448.1,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "real-n12-m1-s82",
+      "Category": "Synthetic-RealTimeFit",
+      "Candidates": 12,
+      "Mandatory": 1,
+      "NodesExpanded": 1211,
+      "MedianMs": 2.966,
+      "NsPerNode": 2449.3,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "real-n13-m0-s83",
+      "Category": "Synthetic-RealTimeFit",
+      "Candidates": 13,
+      "Mandatory": 0,
+      "NodesExpanded": 3436,
+      "MedianMs": 5.302,
+      "NsPerNode": 1543.2,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "real-n13-m1-s84",
+      "Category": "Synthetic-RealTimeFit",
+      "Candidates": 13,
+      "Mandatory": 1,
+      "NodesExpanded": 1337,
+      "MedianMs": 3.381,
+      "NsPerNode": 2529.1,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "real-n14-m0-s85",
+      "Category": "Synthetic-RealTimeFit",
+      "Candidates": 14,
+      "Mandatory": 0,
+      "NodesExpanded": 4365,
+      "MedianMs": 6.958,
+      "NsPerNode": 1594.1,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "real-n14-m1-s86",
+      "Category": "Synthetic-RealTimeFit",
+      "Candidates": 14,
+      "Mandatory": 1,
+      "NodesExpanded": 1259,
+      "MedianMs": 3.844,
+      "NsPerNode": 3053.6,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "real-n15-m0-s87",
+      "Category": "Synthetic-RealTimeFit",
+      "Candidates": 15,
+      "Mandatory": 0,
+      "NodesExpanded": 6277,
+      "MedianMs": 11.662,
+      "NsPerNode": 1857.8,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "real-n15-m1-s88",
+      "Category": "Synthetic-RealTimeFit",
+      "Candidates": 15,
+      "Mandatory": 1,
+      "NodesExpanded": 2233,
+      "MedianMs": 5.896,
+      "NsPerNode": 2640.6,
+      "SearchCompleted": true
+    },
+    {
+      "ScenarioId": "grid-c40-m0-none-s1",
+      "Category": "Golden-c40",
+      "Candidates": 40,
+      "Mandatory": 0,
+      "NodesExpanded": 200000,
+      "MedianMs": 599.263,
+      "NsPerNode": 2996.3,
+      "SearchCompleted": false
+    },
+    {
+      "ScenarioId": "grid-c40-m1-none-s1",
+      "Category": "Golden-c40",
+      "Candidates": 40,
+      "Mandatory": 1,
+      "NodesExpanded": 200000,
+      "MedianMs": 602.664,
+      "NsPerNode": 3013.3,
+      "SearchCompleted": false
+    },
+    {
+      "ScenarioId": "grid-c40-m3-none-s1",
+      "Category": "Golden-c40",
+      "Candidates": 40,
+      "Mandatory": 3,
+      "NodesExpanded": 200000,
+      "MedianMs": 607.852,
+      "NsPerNode": 3039.3,
+      "SearchCompleted": false
+    },
+    {
+      "ScenarioId": "grid-c40-m6-none-s1",
+      "Category": "Golden-c40",
+      "Candidates": 40,
+      "Mandatory": 6,
+      "NodesExpanded": 200000,
+      "MedianMs": 855.171,
+      "NsPerNode": 4275.9,
+      "SearchCompleted": false
+    },
+    {
+      "ScenarioId": "incumbent-valid-c40-m3-frequent-s12",
+      "Category": "Golden-c40",
+      "Candidates": 40,
+      "Mandatory": 3,
+      "NodesExpanded": 200000,
+      "MedianMs": 643,
+      "NsPerNode": 3215,
+      "SearchCompleted": false
+    }
+  ]
+}

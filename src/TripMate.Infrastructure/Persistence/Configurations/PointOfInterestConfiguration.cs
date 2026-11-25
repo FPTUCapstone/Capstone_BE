@@ -34,6 +34,8 @@ public class PointOfInterestConfiguration : IEntityTypeConfiguration<PointOfInte
             .IsUnicode(false)
             .HasDefaultValueSql("'Outdoor'")
             .IsRequired();
+        builder.Property(poi => poi.IndoorOutdoorReviewedAtUtc)
+            .HasColumnName("indoor_outdoor_reviewed_at_utc").AsUtcDateTime2();
         builder.Property(poi => poi.ScenicScore).HasColumnName("scenic_score").HasPrecision(3, 1);
         builder.Property(poi => poi.PhotoRating).HasColumnName("photo_rating").HasPrecision(3, 1);
         builder.Property(poi => poi.AverageVisitDurationMinutes)

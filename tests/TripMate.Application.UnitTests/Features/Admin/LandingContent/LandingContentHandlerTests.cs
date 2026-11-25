@@ -18,7 +18,7 @@ namespace TripMate.Application.UnitTests.Features.Admin.LandingContent;
 public sealed class LandingContentHandlerTests
 {
     private readonly TestDbContext db = TestDbContext.Create();
-    private readonly FakeCurrentUserService user = new() { UserId = 7, Role = nameof(UserRole.Administrator) };
+    private readonly FakeCurrentUserService user = new() { UserId = 7, Role = nameof(UserRole.Staff) };
     private readonly FakeDateTimeProvider clock = new() { UtcNow = new DateTimeOffset(2026, 10, 23, 1, 0, 0, TimeSpan.Zero) };
 
     [Fact]
@@ -75,6 +75,23 @@ public sealed class LandingContentHandlerTests
         result.IsFailure.Should().BeTrue();
         result.ErrorCode.Should().Be(LandingContentErrorCodes.InvalidContent);
         db.LandingContentVersions.Should().OnlyContain(version => version.IsPublished);
+    }
+
+    [Fact]
+    public async Task SaveDraft_WithAdministratorRole_ReturnsForbidden()
+    {
+        db.LandingContentVersions.Add(LandingContentVersion.CreateDraft(Content("old"), 1, 1, clock.UtcNow)
+            .PublishAsNextVersion(1, 1, clock.UtcNow));
+        await db.SaveChangesAsync(CancellationToken.None);
+        var adminUser = new FakeCurrentUserService { UserId = 7, Role = nameof(UserRole.Administrator) };
+        var handler = new LandingContentHandler(db, adminUser, clock,
+            new Mock<ITourMediaImageInspector>(MockBehavior.Strict).Object,
+            new Mock<ILandingContentMediaStorage>(MockBehavior.Strict).Object);
+
+        var result = await handler.Handle(new SaveLandingContentDraftCommand(1, Document("new").RootElement), CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(LandingContentErrorCodes.Forbidden);
     }
 
     private LandingContentHandler CreateHandler() => new(db, user, clock,

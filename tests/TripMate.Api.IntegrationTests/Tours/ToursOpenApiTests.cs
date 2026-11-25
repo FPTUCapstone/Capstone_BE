@@ -33,7 +33,9 @@ public sealed class ToursOpenApiTests
             .EnumerateArray()
             .ToDictionary(parameter => parameter.GetProperty("name").GetString()!);
         parameters.Keys.Should().BeEquivalentTo(
-            ["destination", "departureDate", "minPrice", "maxPrice", "page", "pageSize"]);
+            ["destination", "departureDate", "minPrice", "maxPrice", "page", "pageSize", "bookableOnly"]);
+        parameters["bookableOnly"].GetProperty("schema").GetProperty("type")
+            .GetString().Should().Be("boolean");
         parameters["departureDate"].GetProperty("schema").GetProperty("format")
             .GetString().Should().Be("date");
         parameters["destination"].GetProperty("schema").GetProperty("maxLength")
@@ -65,6 +67,8 @@ public sealed class ToursOpenApiTests
         var thumbnail = itemProperties.GetProperty("thumbnailUrl");
         thumbnail.GetProperty("type").GetString().Should().Be("string");
         IsNullable(thumbnail).Should().BeTrue();
+        item.GetProperty("required").EnumerateArray().Select(value => value.GetString())
+            .Should().Contain("thumbnailUrl");
     }
 
     private static void AssertResponseSchema(JsonElement response, string expectedSchema)

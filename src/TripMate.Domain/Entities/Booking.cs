@@ -15,8 +15,12 @@ public class Booking : BaseEntity
     public const int BookingCodeMaxLength = 30;
     public const int CancelReasonMaxLength = 300;
     public const int PolicySnapshotMaxLength = 500;
+    // BR-135 (owner decision 11/11/2026): >14 days 100%, 10-14 days 50%, under 10 days 0% (fixed,
+    // not configurable — see TravelerCancellationPolicy's v3 handling). Applies to bookings
+    // created from the cutover date onward; existing bookings keep their own stored v1/v2
+    // snapshot untouched (BR-107).
     public const string DefaultCancellationPolicySnapshot =
-        "{\"atLeastSevenDaysPercent\":100,\"threeToSevenDaysPercent\":70,\"oneToThreeDaysPercent\":30}";
+        "{\"version\":3,\"atLeastSevenDaysPercent\":100,\"threeToSevenDaysPercent\":50,\"oneToThreeDaysPercent\":0}";
 
     private readonly List<BookingParticipant> _participants = [];
     private readonly List<Ticket> _tickets = [];
@@ -56,6 +60,8 @@ public class Booking : BaseEntity
     public string? CancelReason { get; private set; }
 
     public string CancellationPolicySnapshot { get; private set; } = DefaultCancellationPolicySnapshot;
+
+    public DateTimeOffset? EmergencyNoticeAcknowledgedAtUtc { get; private set; }
 
     public IReadOnlyCollection<BookingParticipant> Participants => _participants.AsReadOnly();
 
@@ -200,6 +206,23 @@ public class Booking : BaseEntity
         return true;
     }
 
+    /// <summary>
+    /// UC-29: issues the booking's single e-ticket once a verified payment has confirmed it.
+    /// Only a persisted booking can hold a ticket, because the ticket code is derived from its id.
+    /// Returns false when the booking is not Confirmed and Paid or already holds a ticket.
+    /// </summary>
+    public bool IssueTicket(DateTimeOffset nowUtc)
+    {
+        if (Id <= 0)
+            throw new InvalidOperationException("A ticket can be issued only for a persisted booking.");
+
+        if (Status != BookingStatus.Confirmed || PaymentStatus != PaymentStatus.Paid || _tickets.Count > 0)
+            return false;
+
+        _tickets.Add(Ticket.IssueFor(this, nowUtc));
+        return true;
+    }
+
     public void Cancel(DateTimeOffset cancelledAtUtc, string? reason)
     {
         if (Status is not (BookingStatus.PendingPayment or BookingStatus.Confirmed))
@@ -210,6 +233,19 @@ public class Booking : BaseEntity
         Status = BookingStatus.Cancelled;
         CancelledAtUtc = cancelledAtUtc.ToUniversalTime();
         CancelReason = reason;
+    }
+
+    public void Interrupt(DateTimeOffset interruptedAtUtc, string reason)
+    {
+        if (Status is not (BookingStatus.PendingPayment or BookingStatus.Confirmed))
+            throw new InvalidOperationException("Only a pending or confirmed booking can be interrupted.");
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        if (reason.Trim().Length > CancelReasonMaxLength)
+            throw new ArgumentOutOfRangeException(nameof(reason));
+
+        Status = BookingStatus.Interrupted;
+        CancelledAtUtc = interruptedAtUtc.ToUniversalTime();
+        CancelReason = reason.Trim();
     }
 
     public void ApplyRefund(decimal cumulativeRefundAmount)
@@ -224,6 +260,17 @@ public class Booking : BaseEntity
             : cumulativeRefundAmount == TotalAmount
                 ? PaymentStatus.Refunded
                 : PaymentStatus.PartiallyRefunded;
+    }
+
+    public bool AcknowledgeEmergencyNotice(DateTimeOffset acknowledgedAtUtc)
+    {
+        if (EmergencyNoticeAcknowledgedAtUtc.HasValue)
+        {
+            return false;
+        }
+
+        EmergencyNoticeAcknowledgedAtUtc = acknowledgedAtUtc.ToUniversalTime();
+        return true;
     }
 
     /// <summary>BK-yyyyMMdd-NNNNN, e.g. BK-20261017-00001. Sequence is per-day, assigned by the caller.</summary>

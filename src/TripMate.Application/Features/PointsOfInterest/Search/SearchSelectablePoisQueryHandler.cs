@@ -32,7 +32,9 @@ public sealed class SearchSelectablePoisQueryHandler(IApplicationDbContext dbCon
         if (request.ExcludeFoodAndDrink)
         {
             // The mandatory-stop picker hides restaurants: generation cannot place them at a meal time.
-            eligiblePois = eligiblePois.Where(poi => poi.Category.Name != PoiCategoryNames.FoodAndDrink);
+            var foodAliases = PoiCategoryNames.FoodAndDrinkAliases
+                .Select(alias => alias.ToLowerInvariant()).ToArray();
+            eligiblePois = eligiblePois.Where(poi => !foodAliases.Contains(poi.Category.Name.Trim().ToLower()));
         }
 
         if (!string.IsNullOrEmpty(normalizedQuery))

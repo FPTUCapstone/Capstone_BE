@@ -141,7 +141,7 @@ public sealed class LandingContentHandler(IApplicationDbContext db, ICurrentUser
             : Result.Failure<LandingContentMediaDto>(LandingContentErrorCodes.NotInitialized, "The media service is unavailable.");
     }
 
-    private bool CanManage() => currentUser.UserId.HasValue && currentUser.Role is nameof(UserRole.Administrator) or nameof(UserRole.Staff);
+    private bool CanManage() => currentUser.UserId.HasValue && currentUser.Role is nameof(UserRole.Staff);
     private async Task<LandingContentVersion?> CurrentPublished(CancellationToken ct) => await db.LandingContentVersions.Where(x => x.IsPublished).OrderByDescending(x => x.VersionNumber).FirstOrDefaultAsync(ct);
     private static Result<T> Forbidden<T>() => Result.Failure<T>(LandingContentErrorCodes.Forbidden, "You do not have permission to access this function.");
     private static Result<T> Stale<T>() => Result.Failure<T>(LandingContentErrorCodes.StaleVersion, "Landing content has changed. Reload and try again.");

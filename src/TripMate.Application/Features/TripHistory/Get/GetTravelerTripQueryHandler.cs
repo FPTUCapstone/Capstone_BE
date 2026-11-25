@@ -63,8 +63,13 @@ public sealed class GetTravelerTripQueryHandler(
             return null;
         }
 
+        if (TripHistoryClassifier.TryTabForBooking(row.Status) is not { } tab)
+        {
+            return null;
+        }
+
         var card = await HydrateAsync(
-            TripHistoryClassifier.TabForBooking(row.Status),
+            tab,
             new TripKey(TripRecordKinds.CommerceBooking, bookingId, row.StartAtUtc),
             travelerId,
             cancellationToken);

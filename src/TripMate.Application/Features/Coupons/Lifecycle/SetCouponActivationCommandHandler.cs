@@ -24,6 +24,7 @@ public sealed class SetCouponActivationCommandHandler(IApplicationDbContext dbCo
         if (!eligible) return Denied();
 
         var coupon = await dbContext.Vouchers.Include(voucher => voucher.ApplicableTours)
+            .ThenInclude(link => link.Tour)
             .SingleOrDefaultAsync(voucher => voucher.Id == request.CouponId && voucher.OwnerOperatorUserId == operatorId,
                 cancellationToken);
         if (coupon is null)
@@ -31,7 +32,13 @@ public sealed class SetCouponActivationCommandHandler(IApplicationDbContext dbCo
 
         try
         {
-            if (request.Activate) coupon.Activate(clock.UtcNow);
+            if (request.Activate)
+            {
+                if (coupon.ApplicableTours.Any(link => !CouponTourEligibility.IsEligible(link.Tour, clock.UtcNow)))
+                    return Result.Failure<OperatorCouponResponse>(CouponErrorCodes.TourNotEligible,
+                        "Coupons can only apply to published tours.");
+                coupon.Activate(clock.UtcNow);
+            }
             else coupon.Deactivate(clock.UtcNow);
         }
         catch (InvalidOperationException)

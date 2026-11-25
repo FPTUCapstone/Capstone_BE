@@ -68,7 +68,7 @@ public sealed class ActiveTripDetailsSqlServerTests
             INSERT trip.TripSessions(itinerary_id, requested_itinerary_id, traveler_user_id,
                 start_idempotency_key, fsm_state,
                 current_latitude, current_longitude, started_at, last_synced_at)
-            VALUES (@itinerary, @itinerary, @traveler, NEWID(), 'Interrupted', 16.061200, 108.227700,
+            VALUES (@itinerary, @itinerary, @traveler, NEWID(), 'Navigating', 16.061200, 108.227700,
                 '2026-09-25T17:00:00', '2026-09-26T03:12:44');
             SET @session = SCOPE_IDENTITY();
 
@@ -139,7 +139,12 @@ public sealed class ActiveTripDetailsSqlServerTests
             .Handle(new SkipNavigationItemCommand(sessionId, itemId, travelerId, null), default);
         skip.IsSuccess.Should().BeTrue();
 
-        var handler = new GetActiveTripDetailsQueryHandler(db, new Administrator(), new Clock());
+        // UC-70: an interrupted session is terminal — navigation progress (the skip above)
+        // must happen while the trip is still active, before the severe-weather stop.
+        await database.ExecuteNonQueryAsync(
+            $"UPDATE trip.TripSessions SET fsm_state = 'Interrupted' WHERE session_id = {sessionId};");
+
+        var handler = new GetActiveTripDetailsQueryHandler(db, new Staff(), new Clock());
 
         var result = await handler.Handle(new GetActiveTripDetailsQuery(sessionId), default);
 
@@ -230,7 +235,7 @@ public sealed class ActiveTripDetailsSqlServerTests
             SET @session = SCOPE_IDENTITY();
             """);
         await using var db = database.CreateDbContext();
-        var handler = new GetActiveTripDetailsQueryHandler(db, new Administrator(), new Clock());
+        var handler = new GetActiveTripDetailsQueryHandler(db, new Staff(), new Clock());
         var sessionId = await db.TripSessions.AsNoTracking().Select(session => (long)session.Id).SingleAsync();
 
         var result = await handler.Handle(new GetActiveTripDetailsQuery(sessionId), default);
@@ -263,7 +268,7 @@ public sealed class ActiveTripDetailsSqlServerTests
             """);
         await using var db = database.CreateDbContext();
         var sessionId = await db.TripSessions.AsNoTracking().Select(session => session.Id).SingleAsync();
-        var handler = new GetActiveTripDetailsQueryHandler(db, new Administrator(), new Clock());
+        var handler = new GetActiveTripDetailsQueryHandler(db, new Staff(), new Clock());
 
         var result = await handler.Handle(new GetActiveTripDetailsQuery(sessionId), default);
 
@@ -292,7 +297,7 @@ public sealed class ActiveTripDetailsSqlServerTests
             VALUES (@itinerary, @itinerary, @traveler, NEWID(), 'Exploring', '2026-09-25T17:00:00');
             """);
         await using var db = database.CreateDbContext();
-        var handler = new GetActiveTripDetailsQueryHandler(db, new Administrator(), new Clock());
+        var handler = new GetActiveTripDetailsQueryHandler(db, new Staff(), new Clock());
         var sessionId = await db.TripSessions.AsNoTracking().Select(session => (long)session.Id).SingleAsync();
 
         var result = await handler.Handle(new GetActiveTripDetailsQuery(sessionId), default);
@@ -335,7 +340,7 @@ public sealed class ActiveTripDetailsSqlServerTests
             VALUES (@group, @traveler, 'Active');
             """);
         await using var db = database.CreateDbContext();
-        var handler = new GetActiveTripDetailsQueryHandler(db, new Administrator(), new Clock());
+        var handler = new GetActiveTripDetailsQueryHandler(db, new Staff(), new Clock());
         var sessionId = await db.TripSessions.AsNoTracking().Select(session => (long)session.Id).SingleAsync();
 
         var result = await handler.Handle(new GetActiveTripDetailsQuery(sessionId), default);
@@ -346,10 +351,10 @@ public sealed class ActiveTripDetailsSqlServerTests
         result.Value.GroupOrTraveler.Should().Be("Group Host");
     }
 
-    private sealed class Administrator : ICurrentUserService
+    private sealed class Staff : ICurrentUserService
     {
         public long? UserId => 1;
-        public string? Role => "Administrator";
+        public string? Role => "Staff";
     }
 
     private sealed class Clock : IDateTimeProvider

@@ -27,6 +27,122 @@ public sealed class CreateSchedulingRequestSqlServerTests
         "CK_Itineraries_RejectGeneratedForSchedulingRollback";
 
     [SqlServerFact]
+    public async Task DifferentTravelers_RealReservationDeadlock_RetriesWithoutDuplicateItineraries()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database);
+        long secondUserId;
+        await using (var context = database.CreateDbContext())
+        {
+            var user = new User
+            {
+                Email = "second-scheduling-sql@example.com",
+                FullName = "Second SQL Traveler",
+                Role = UserRole.Traveler,
+                Status = AccountStatus.Active,
+                CreatedAtUtc = new FixedDateTimeProvider().UtcNow,
+                UpdatedAtUtc = new FixedDateTimeProvider().UtcNow,
+            };
+            context.Users.Add(user);
+            await context.SaveChangesAsync();
+            secondUserId = user.Id;
+        }
+
+        var gate = new ConcurrentReservationReadGate();
+        var deadlocks = new ActualDeadlockObserver();
+        var routing = new BlockingCountingRouteDurationProvider();
+        routing.Release();
+        var limiter = new CountingAllowingGenerateRateLimiter();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        async Task<Result<SchedulingResponseDto>> GenerateAsync(long userId)
+        {
+            await using var context = database.CreateDbContext(gate, deadlocks);
+            return await CreateHandler(context, routing, generateRateLimiter: limiter)
+                .Handle(CreateCommand(userId, Guid.NewGuid()), timeout.Token);
+        }
+
+        Result<SchedulingResponseDto>[] results = [];
+        var failure = await Record.ExceptionAsync(async () =>
+            results = await Task.WhenAll(GenerateAsync(seed.UserId), GenerateAsync(secondUserId)));
+
+        deadlocks.Count.Should().BeGreaterThan(0,
+            $"SQL Server must produce an actual 1205, not a fabricated exception. Observed failure: {failure}");
+        failure.Should().BeNull("a known reservation deadlock must recover transparently");
+        results.Should().OnlyContain(result => result.IsSuccess);
+        routing.CallCount.Should().Be(2);
+        limiter.CallCount.Should().Be(2, "DB retries do not consume additional generation permits");
+        await using var verification = database.CreateDbContext();
+        (await verification.SchedulingRequests.CountAsync()).Should().Be(2);
+        (await verification.Itineraries.CountAsync()).Should().Be(2);
+        (await verification.Itineraries.Select(item => item.SchedulingRequestId).Distinct().CountAsync())
+            .Should().Be(2);
+        (await verification.SchedulingRequests.AnyAsync(request => request.Status != SchedulingRequestStatus.Completed))
+            .Should().BeFalse();
+    }
+
+    [SqlServerFact]
+    public async Task SameTraveler_DifferentKey_LockTimeoutReturnsRetryableContentionWithoutProviderCalls()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database);
+        await using var owner = database.CreateDbContext();
+        await using var transaction = await owner.Database.BeginTransactionAsync();
+        await new SqlServerSchedulingRequestLock(owner).AcquireAsync(seed.UserId, Guid.NewGuid(), CancellationToken.None);
+        var routing = new BlockingCountingRouteDurationProvider();
+        routing.Release();
+        await using var contender = database.CreateDbContext();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var result = await CreateHandler(contender, routing)
+            .Handle(CreateCommand(seed.UserId, Guid.NewGuid()), timeout.Token);
+
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be("planning.generation_contended");
+        routing.CallCount.Should().Be(0);
+        (await contender.SchedulingRequests.CountAsync()).Should().Be(0);
+        (await contender.Itineraries.CountAsync()).Should().Be(0);
+    }
+
+    [SqlServerTheory]
+    [InlineData(1, true)]
+    [InlineData(3, false)]
+    public async Task Finalize_RealDeadlock_ReusesPreparedPlanAndBoundsRetry(int failures, bool succeeds)
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database);
+        await database.ExecuteNonQueryAsync("""
+            CREATE TABLE dbo.SchedulingDeadlockProbe (id INT PRIMARY KEY, value INT NOT NULL);
+            INSERT INTO dbo.SchedulingDeadlockProbe VALUES (1, 0), (2, 0);
+            INSERT INTO dbo.TravelerProfiles (user_id, interest_tags_json)
+            SELECT user_id, N'["unmatched-interest"]' FROM dbo.Users;
+            """);
+        var deadlock = new FinalizeDeadlockInterceptor(database.ConnectionString, failures);
+        var routing = new BlockingCountingRouteDurationProvider();
+        routing.Release();
+        var ranking = new CountingPoiRankingProvider();
+        var limiter = new CountingAllowingGenerateRateLimiter();
+        await using var context = database.CreateDbContext(deadlock);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        var result = await CreateHandler(context, routing, rankingProvider: ranking,
+                rankingEnabled: true, generateRateLimiter: limiter)
+            .Handle(CreateCommand(seed.UserId, Guid.NewGuid()), timeout.Token);
+
+        deadlock.DeadlockCount.Should().Be(failures);
+        result.IsSuccess.Should().Be(succeeds);
+        routing.CallCount.Should().Be(1);
+        ranking.CallCount.Should().Be(1);
+        limiter.CallCount.Should().Be(1);
+        await using var verification = database.CreateDbContext();
+        (await verification.Itineraries.CountAsync()).Should().Be(succeeds ? 1 : 0);
+        (await verification.SchedulingRequests.SingleAsync()).Status.Should()
+            .Be(succeeds ? SchedulingRequestStatus.Completed : SchedulingRequestStatus.Pending);
+        if (!succeeds)
+        {
+            result.ErrorCode.Should().Be("planning.generation_contended");
+            (await verification.ItineraryItems.CountAsync()).Should().Be(0);
+        }
+    }
+
+    [SqlServerFact]
     [Trait("Category", "SqlServer")]
     public async Task RateLimitRejected_WithNewKey_DoesNotPersistSchedulingRequest()
     {
@@ -763,6 +879,28 @@ public sealed class CreateSchedulingRequestSqlServerTests
         (await verification.Itineraries.CountAsync()).Should().Be(1);
     }
 
+    /// <summary>ADR-002 (G2): the saved itinerary row records how its schedule was produced.</summary>
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Success_PersistsTheScheduleProvenanceOnTheItineraryRow()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database);
+        await using var context = database.CreateDbContext();
+
+        var result = await CreateHandler(context).Handle(
+            CreateCommand(seed.UserId, Guid.NewGuid()) with { MandatoryPoiIds = [seed.PoiId] },
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        (await database.ExecuteScalarAsync<string>($"""
+            SELECT CONCAT(solver_outcome, '|', ISNULL(objective_mode, 'null'), '|',
+                          ISNULL(CONVERT(varchar(5), search_completed), 'null'), '|', CONVERT(varchar(5), time_of_day_refined))
+            FROM planning.Itineraries
+            WHERE itinerary_id = {result.Value.ItineraryId};
+            """)).Should().Be($"{SchedulingSolverOutcomes.Heuristic}|null|null|0");
+    }
+
     private static CreateSchedulingRequestCommandHandler CreateHandler(
         ApplicationDbContext context,
         IRouteDurationProvider? routeDurationProvider = null,
@@ -1153,6 +1291,103 @@ public sealed class CreateSchedulingRequestSqlServerTests
             }
 
             return ValueTask.FromResult(result);
+        }
+    }
+
+    private sealed class ConcurrentReservationReadGate : DbCommandInterceptor
+    {
+        private readonly TaskCompletionSource _bothReads = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _reads;
+
+        public override async ValueTask<DbDataReader> ReaderExecutedAsync(
+            DbCommand command, CommandExecutedEventData eventData, DbDataReader result,
+            CancellationToken cancellationToken = default)
+        {
+            if (command.CommandText.StartsWith("SELECT", StringComparison.Ordinal)
+                && command.CommandText.Contains("[planning].[SchedulingRequests]", StringComparison.Ordinal)
+                && Interlocked.Increment(ref _reads) <= 2)
+            {
+                if (Volatile.Read(ref _reads) == 2) _bothReads.TrySetResult();
+                await _bothReads.Task.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
+            }
+            return result;
+        }
+
+    }
+
+    private sealed class ActualDeadlockObserver : SaveChangesInterceptor
+    {
+        private int _count;
+        public int Count => Volatile.Read(ref _count);
+        public override Task SaveChangesFailedAsync(DbContextErrorEventData eventData,
+            CancellationToken cancellationToken = default)
+        {
+            if (((ApplicationDbContext)eventData.Context!).IsDeadlock(eventData.Exception))
+                Interlocked.Increment(ref _count);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class CountingAllowingGenerateRateLimiter : IGenerateRateLimiter
+    {
+        private int _calls;
+        public int CallCount => Volatile.Read(ref _calls);
+        public ValueTask<GenerateRateLimitDecision> TryAcquireAsync(long userId, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _calls);
+            return ValueTask.FromResult(new GenerateRateLimitDecision(true));
+        }
+    }
+
+    private sealed class FinalizeDeadlockInterceptor(string connectionString, int failures) : DbCommandInterceptor
+    {
+        private int _attempts;
+        public int DeadlockCount { get; private set; }
+
+        public override async ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
+            DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result,
+            CancellationToken cancellationToken = default)
+        {
+            if (!command.CommandText.Contains("INSERT INTO [planning].[Itineraries]", StringComparison.Ordinal)
+                || Interlocked.Increment(ref _attempts) > failures) return result;
+
+            // Two real SQL transactions take probe rows in opposite order. Only the handler's
+            // transaction is a low-priority victim; no fabricated SqlException is involved.
+            await using var peer = new SqlConnection(connectionString);
+            await peer.OpenAsync(cancellationToken);
+            await using var peerTransaction = await peer.BeginTransactionAsync(cancellationToken);
+            await ExecuteAsync(peer, peerTransaction,
+                "SET DEADLOCK_PRIORITY HIGH; UPDATE dbo.SchedulingDeadlockProbe SET value=value+1 WHERE id=2;", cancellationToken);
+            await ExecuteAsync(command.Connection!, command.Transaction!,
+                "SET DEADLOCK_PRIORITY LOW; UPDATE dbo.SchedulingDeadlockProbe SET value=value+1 WHERE id=1;", cancellationToken);
+            var peerWrite = ExecuteAsync(peer, peerTransaction,
+                "UPDATE dbo.SchedulingDeadlockProbe SET value=value+1 WHERE id=1;", cancellationToken);
+            try
+            {
+                await ExecuteAsync(command.Connection!, command.Transaction!,
+                    "UPDATE dbo.SchedulingDeadlockProbe SET value=value+1 WHERE id=2;", cancellationToken);
+            }
+            catch (SqlException exception) when (exception.Number == 1205)
+            {
+                DeadlockCount++;
+                throw;
+            }
+            finally
+            {
+                await peerWrite.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken);
+                await peerTransaction.CommitAsync(cancellationToken);
+            }
+            return result;
+        }
+
+        private static async Task ExecuteAsync(DbConnection connection, DbTransaction transaction,
+            string sql, CancellationToken cancellationToken)
+        {
+            await using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = sql;
+            command.CommandTimeout = 15;
+            await command.ExecuteNonQueryAsync(cancellationToken);
         }
     }
 }

@@ -19,6 +19,7 @@ public sealed class BookingCancellationOperationConfiguration : IEntityTypeConfi
         builder.Property(operation => operation.IdempotencyKey).HasColumnName("idempotency_key").IsRequired();
         builder.Property(operation => operation.RequestHash).HasColumnName("request_hash").HasMaxLength(64).IsUnicode(false).IsRequired();
         builder.Property(operation => operation.RefundAmount).HasColumnName("refund_amount").HasPrecision(12, 2).IsRequired();
+        builder.Property(operation => operation.RefundStatus).HasColumnName("refund_status").HasMaxLength(30).IsRequired();
         builder.Property(operation => operation.CancelledAtUtc).HasColumnName("cancelled_at").AsUtcDateTime2().IsRequired();
         builder.HasIndex(operation => new { operation.ActorUserId, operation.IdempotencyKey }).IsUnique().HasDatabaseName("UX_BookingCancellationOperations_ActorKey");
         builder.HasIndex(operation => operation.BookingId).HasDatabaseName("IX_BookingCancellationOperations_Booking");

@@ -1,0 +1,32 @@
+{
+  "ScenarioId": "tie-c40-m1-frequent-s33",
+  "Source": "GroupE_Tie",
+  "Feasible": true,
+  "BestModelObjective": 18273,
+  "BestEvaluatedObjective": 21145,
+  "BestVisitPoiIds": [
+    5,
+    1,
+    31,
+    10,
+    37
+  ],
+  "EliteModelObjectives": [],
+  "EliteVisitIds": [],
+  "BestTravelMinutes": 67,
+  "BestDurationMinutes": 312,
+  "BestEstimatedCost": 75000,
+  "EndAtUtc": "2026-10-20T06:12:00+00:00",
+  "NodesExpanded": 200000,
+  "PrunedByConstraints": 56850,
+  "PrunedByForwardChecking": 0,
+  "PrunedByBound": 38130,
+  "SolutionsFound": 199999,
+  "NodesToFirstSolution": 2,
+  "SearchCompleted": false,
+  "NodeLimitReached": true,
+  "TimeLimitReached": false,
+  "EvaluatorCalls": 6,
+  "UsedRelaxedRestModel": true,
+  "ChoseRelaxedRestModel": false
+}

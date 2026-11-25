@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Tours.Shared;
 using TripMate.Application.Features.Traveler.Bookings.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
@@ -33,7 +34,8 @@ public sealed class QuoteTourBookingQueryHandler(
         var schedule = await dbContext.TourSchedules.AsNoTracking()
             .Include(scheduleEntity => scheduleEntity.Tour)
             .FirstOrDefaultAsync(scheduleEntity => scheduleEntity.Id == scheduleId, cancellationToken);
-        if (schedule is null || !IsPubliclyBookableTour(schedule.Tour, now))
+        if (schedule is null
+            || !await TourVisibility.IsPublicAsync(dbContext.Tours, schedule.TourId, now, cancellationToken))
             return Result.Failure<QuoteTourBookingResponse>(
                 TourBookingErrorCodes.ScheduleNotFound, "The selected tour departure was not found.");
 
@@ -68,7 +70,10 @@ public sealed class QuoteTourBookingQueryHandler(
             : await dbContext.VoucherRedemptions.AsNoTracking()
                 .Include(redemption => redemption.Booking)
                 .CountAsync(redemption => redemption.VoucherId == voucher.Id &&
-                    redemption.Booking.TravelerUserId == travelerId, cancellationToken);
+                    redemption.Booking.TravelerUserId == travelerId &&
+                    redemption.Booking.Status != BookingStatus.Expired &&
+                    (redemption.Booking.Status != BookingStatus.Cancelled ||
+                     redemption.Booking.PaymentStatus != PaymentStatus.Unpaid), cancellationToken);
 
         var pricing = TourBookingPricingCalculator.Calculate(
             schedule, schedule.Tour.BasePrice, participantTypes, voucher, schedule.TourId, redemptionCount, now);
@@ -91,10 +96,6 @@ public sealed class QuoteTourBookingQueryHandler(
             schedule.RemainingCapacity,
             pricing.Value.AppliedVoucherCode is null ? null : new QuoteAppliedVoucher(pricing.Value.AppliedVoucherCode)));
     }
-
-    private static bool IsPubliclyBookableTour(Tour tour, DateTimeOffset now) =>
-        tour.Status == TourStatus.Published ||
-        (tour.Status == TourStatus.Approved && tour.PublishedAtUtc.HasValue && tour.PublishedAtUtc <= now);
 
     private static List<ParticipantType> ExpandParticipantTypes(QuoteParticipantCounts counts)
     {

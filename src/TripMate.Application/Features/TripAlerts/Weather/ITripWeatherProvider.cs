@@ -10,14 +10,23 @@ public interface ITripWeatherProvider
 public sealed record WeatherForecastRequest(
     decimal Latitude,
     decimal Longitude,
-    DateTimeOffset PlannedAtUtc);
+    DateTimeOffset PlannedAtUtc,
+    bool UseRealtime = false);
+
+public enum TripWeatherBasis
+{
+    ForecastAtPlannedTime,
+    CurrentAtDestination,
+    OfficialEvent,
+}
 
 public sealed record TripWeatherSnapshot(
     DateTimeOffset ForecastAtUtc,
     double RainMmPerHour,
     bool Thunderstorm,
     string? Condition,
-    IReadOnlyCollection<TripWeatherOfficialAlert> OfficialAlerts);
+    IReadOnlyCollection<TripWeatherOfficialAlert> OfficialAlerts,
+    TripWeatherBasis Basis = TripWeatherBasis.ForecastAtPlannedTime);
 
 public sealed record TripWeatherOfficialAlert(
     string Id,

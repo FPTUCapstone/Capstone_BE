@@ -14,6 +14,7 @@ using TripMate.Application.Features.Itineraries.GetDetail;
 using TripMate.Application.Features.Itineraries.List;
 using TripMate.Application.Features.Itineraries.Regenerate;
 using TripMate.Application.Features.Itineraries.Suggestions;
+using TripMate.Application.Features.Itineraries.WeatherTips;
 using TripMate.Application.Features.Navigation.Common;
 using TripMate.Application.Features.Navigation.Start;
 using TripMate.Domain.Enums;
@@ -34,6 +35,7 @@ public sealed class ItinerariesController(
     public async Task<IActionResult> List(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = ListMyItinerariesQuery.DefaultPageSize,
+        [FromQuery] string? sort = null,
         CancellationToken cancellationToken = default)
     {
         if (!currentUserService.UserId.HasValue)
@@ -42,7 +44,7 @@ public sealed class ItinerariesController(
         }
 
         var result = await Sender.Send(
-            new ListMyItinerariesQuery(currentUserService.UserId.Value, page, pageSize),
+            new ListMyItinerariesQuery(currentUserService.UserId.Value, page, pageSize, sort),
             cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
@@ -63,6 +65,30 @@ public sealed class ItinerariesController(
 
         var result = await Sender.Send(
             new GetItineraryDetailQuery(itineraryId, currentUserService.UserId.Value),
+            cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    /// <summary>
+    /// One list of what to bring for the day, from the weather forecast. <c>weatherTips</c> is <c>null</c> when the
+    /// forecast is not available for every visit stop (too far ahead, service off or failing): hide the block then.
+    /// </summary>
+    [HttpGet("{itineraryId:long}/weather-tips")]
+    [ProducesResponseType(typeof(ItineraryWeatherTipsResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetWeatherTips(
+        long itineraryId,
+        CancellationToken cancellationToken)
+    {
+        if (!currentUserService.UserId.HasValue)
+        {
+            return Unauthorized();
+        }
+
+        var result = await Sender.Send(
+            new GetItineraryWeatherTipsQuery(itineraryId, currentUserService.UserId.Value),
             cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
@@ -208,13 +234,20 @@ public sealed class ItinerariesController(
             return ValidationProblem(ModelState);
         }
 
+        if (request.RemovedStops?.Any(stop => stop is null) == true)
+        {
+            ModelState.AddModelError(nameof(request.RemovedStops), "A removed stop cannot be null.");
+            return ValidationProblem(ModelState);
+        }
+
         var result = await Sender.Send(
             new AdjustItineraryItemsCommand(
                 itineraryId,
                 currentUserService.UserId.Value,
                 idempotencyKey,
                 request.Stops?.Select(stop => stop.PoiId).ToArray() ?? request.OrderedVisitPoiIds ?? [],
-                request.Stops?.Select(stop => new ItineraryStop(stop.PoiId, stop.TransportModeToNext)).ToArray()),
+                request.Stops?.Select(stop => new ItineraryStop(stop.PoiId, stop.TransportModeToNext)).ToArray(),
+                request.RemovedStops?.Select(stop => new RemovedItineraryStop(stop.PoiId, stop.Reason)).ToArray()),
             cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }

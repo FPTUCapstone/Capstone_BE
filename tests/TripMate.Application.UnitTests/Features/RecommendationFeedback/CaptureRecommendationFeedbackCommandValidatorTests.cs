@@ -113,6 +113,18 @@ public sealed class CaptureRecommendationFeedbackCommandValidatorTests
         Command(itineraryId: 0, source: RecommendationCaptureSource.Itinerary),
     };
 
+    // Only the backend writes these sources (UC-10 item 6); a client that sends one gets a validation error.
+    [Theory]
+    [InlineData(RecommendationCaptureSource.ItineraryEdit)]
+    [InlineData(RecommendationCaptureSource.Navigation)]
+    [InlineData(RecommendationCaptureSource.SchedulingRequest)]
+    public void ASourceOnlyTheBackendWrites_IsInvalid(RecommendationCaptureSource source)
+    {
+        var result = _validator.TestValidate(Command(source: source));
+
+        result.IsValid.Should().BeFalse();
+    }
+
     private static CaptureRecommendationFeedbackCommand Command(
         long travelerUserId = 11,
         Guid? clientEventId = null,

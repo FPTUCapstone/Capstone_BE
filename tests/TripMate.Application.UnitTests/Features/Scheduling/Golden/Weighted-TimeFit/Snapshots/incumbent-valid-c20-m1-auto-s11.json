@@ -1,0 +1,31 @@
+{
+  "ScenarioId": "incumbent-valid-c20-m1-auto-s11",
+  "Source": "GroupC_Incumbent",
+  "Feasible": true,
+  "BestModelObjective": 18038,
+  "BestEvaluatedObjective": 18038,
+  "BestVisitPoiIds": [
+    10,
+    5,
+    9,
+    1
+  ],
+  "EliteModelObjectives": [],
+  "EliteVisitIds": [],
+  "BestTravelMinutes": 47,
+  "BestDurationMinutes": 252,
+  "BestEstimatedCost": 60000,
+  "EndAtUtc": "2026-10-20T05:12:00+00:00",
+  "NodesExpanded": 200000,
+  "PrunedByConstraints": 0,
+  "PrunedByForwardChecking": 0,
+  "PrunedByBound": 185992,
+  "SolutionsFound": 199999,
+  "NodesToFirstSolution": 2,
+  "SearchCompleted": false,
+  "NodeLimitReached": true,
+  "TimeLimitReached": false,
+  "EvaluatorCalls": 6,
+  "UsedRelaxedRestModel": true,
+  "ChoseRelaxedRestModel": false
+}

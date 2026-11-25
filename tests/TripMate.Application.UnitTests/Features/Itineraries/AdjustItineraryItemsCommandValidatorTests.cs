@@ -48,12 +48,73 @@ public sealed class AdjustItineraryItemsCommandValidatorTests
         _validator.Validate(Command(ids)).IsValid.Should().BeFalse();
     }
 
+    // Traveler feedback UI (feedback-ui-spec.md 3.1): the reason for each removed stop is optional.
+
+    [Fact]
+    public void Validate_RemovedStopsWithReasons_IsValid()
+    {
+        var command = Command(
+            [1, 2],
+            removed:
+            [
+                new RemovedItineraryStop(3, StopRemovalReason.NoTime),
+                new RemovedItineraryStop(4, StopRemovalReason.NotInterested),
+            ]);
+
+        _validator.Validate(command).IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Validate_ARemovedStopThatIsStillInTheItinerary_IsInvalid()
+    {
+        var command = Command([1, 2], removed: [new RemovedItineraryStop(2, StopRemovalReason.NoTime)]);
+
+        _validator.Validate(command).IsValid.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Validate_TwoReasonsForOneRemovedStop_IsInvalid()
+    {
+        var command = Command(
+            [1],
+            removed:
+            [
+                new RemovedItineraryStop(3, StopRemovalReason.NoTime),
+                new RemovedItineraryStop(3, StopRemovalReason.AlreadyVisited),
+            ]);
+
+        _validator.Validate(command).IsValid.Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(0L, StopRemovalReason.NoTime)]
+    [InlineData(3L, (StopRemovalReason)99)]
+    public void Validate_ARemovedStopWithABadIdOrReason_IsInvalid(long poiId, StopRemovalReason reason)
+    {
+        var command = Command([1], removed: [new RemovedItineraryStop(poiId, reason)]);
+
+        _validator.Validate(command).IsValid.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Validate_MoreRemovedStopsThanAnItineraryCanHold_IsInvalid()
+    {
+        var removed = Enumerable.Range(2, AdjustItineraryItemsCommand.MaxStops + 1)
+            .Select(id => new RemovedItineraryStop(id, StopRemovalReason.NoTime))
+            .ToArray();
+
+        _validator.Validate(Command([1], removed: removed)).IsValid.Should().BeFalse();
+    }
+
     [Fact]
     public void EffectiveStops_ForLegacyIds_KeepTheTripTransport()
     {
         Command([5, 6]).EffectiveStops.Should().Equal(new ItineraryStop(5), new ItineraryStop(6));
     }
 
-    private static AdjustItineraryItemsCommand Command(long[] ids, ItineraryStop[]? stops = null) =>
-        new(10, 42, Guid.NewGuid(), ids, stops);
+    private static AdjustItineraryItemsCommand Command(
+        long[] ids,
+        ItineraryStop[]? stops = null,
+        RemovedItineraryStop[]? removed = null) =>
+        new(10, 42, Guid.NewGuid(), ids, stops, removed);
 }

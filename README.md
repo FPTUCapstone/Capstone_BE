@@ -1,5 +1,36 @@
 # TripMate Backend
 
+## Support chatbot
+
+`POST /api/v1/support-chat/messages` supports authenticated Traveler and TourOperator accounts.
+The module uses Gemini semantic retrieval over versioned, curated TripMate help passages and
+generates answers with validated source IDs. An optional explicit `context` (`refund`, `tour` or
+`itinerary`, with the resource ID as a decimal string) loads current data through existing
+authorized queries. Itinerary context requires a Traveler account. The module performs read-only
+support operations and keeps conversation history in the client session. Personal resource data
+is sent to the configured Gemini provider only for the requested conversation and is excluded
+from the knowledge index.
+
+Set `SupportChat__Enabled=true`, `SupportChat__ApiKey`, and `SupportChat__Model` in environment
+variables or user secrets. Choose a generation model available to your Gemini account.
+`SupportChat__EmbeddingModel` defaults to `gemini-embedding-001`. The independent settings are
+documented in `.env.example`. Provider availability and model quality require live testing with
+your configured credentials. The default disabled state returns HTTP 503.
+
+The knowledge corpus is stored under `Infrastructure/SupportChat`, reviewed and versioned with
+code. `Knowledge/srs-business-rules-20261112.json` retains the Report 3 source URL and revision,
+186 active business rules, 15 common rules, scoped Section 3 definitions and four retirement
+notices. Topic-sized passages and a cross-rule refund-policy passage support general questions.
+Exact BR/CR references participate in retrieval. Document embeddings initialize in batches of
+at most eight and the complete validated index is cached in process memory until restart. Update
+the reviewed snapshot when the SRS changes. Live tour and authorized personal data are read
+through application queries at question time. Specific booking refunds use the stored policy
+version and authorized preview. Documented requirements can differ from currently implemented
+features, which the assistant must state accurately. Compact retrieval text retains full scoped
+rules for answer grounding. Provider HTTP 503 receives one retry within the original deadline;
+diagnostics contain status/action metadata only. Per-instance chat throttling is
+10 requests per user per minute, with provider concurrency and timeouts configured separately.
+
 ASP.NET Core Web API cho TripMate, viết theo Clean Architecture. Phục vụ Next.js Admin Web
 (`Capstone_FE`) và app Flutter cho Traveler/Tour Operator (`Capstone_Mobile`). Tài liệu sản phẩm
 và yêu cầu (SRS, use case, business rules...) nằm ở repo riêng `Capstone_Docs`.
@@ -156,6 +187,13 @@ riêng phần database, đúng với việc bạn chỉ muốn chạy SQL trên 
    CSP và việc có chạm giới hạn thời gian hay không. Thời gian của cả request nằm ở dòng
    `Request finished ... POST .../api/v1/scheduling-requests`.
 
+   Hàm mục tiêu phát hành là `WeightedUtility` (lịch cá nhân hóa theo sở thích, nhịp độ, rủi ro), theo
+   `docs/adr/ADR-002-weighted-utility-production-objective.md`. Dòng outcome có `ObjectiveMode`.
+   - Rollback: `SchedulingGeneration__Csp__Mode=Lexicographic` (không cần deploy lại code). Ngưỡng rollback ở ADR-002 mục 5.
+   - Shadow (`SchedulingGeneration:Shadow`) tắt mặc định, vì nó chỉ chạy `WeightedUtility` bên cạnh lịch chính
+     `Lexicographic`. Sau khi rollback có thể bật lại: `SchedulingGeneration__Shadow__Enabled=true`, tỷ lệ
+     `SchedulingGeneration__Shadow__SampleRate` từ `0` đến `1`. Mỗi lần chạy có dòng `Shadow run finished for Request ...`.
+
 5. Swagger UI ở `https://localhost:<port>/swagger` (môi trường Development).
 
 ## 6. Chạy test
@@ -233,6 +271,7 @@ fails closed when the value is absent or invalid.
 | `Jwt:SigningKey` | Khoá đối xứng (base64) ký access token; bắt buộc cấp qua User Secrets hoặc `Jwt__SigningKey`. Không có key dự phòng trong code. |
 | `Jwt:AccessTokenLifetimeMinutes` | Thời hạn access token. |
 | `Cors:AllowedOrigins` | Domain được phép gọi API từ trình duyệt (Next.js admin web). |
+| `TicketQr:EncryptionKey` / `TicketQr:SigningKey` | Hai khoá Base64 32 byte, khác nhau, dùng mã hoá và ký QR e-ticket (UC-29). Bắt buộc ở **mọi** môi trường — xem mục 9.2. |
 
 Các file appsettings được theo dõi trong Git không chứa signing key hoặc connection string.
 Trước khi chạy local, cấu hình `Jwt:SigningKey` và `ConnectionStrings:Default` bằng .NET User
@@ -290,6 +329,30 @@ Cách thay thế (không dùng file): dán nội dung JSON vào biến môi trư
 không bao giờ commit. Thứ tự ưu tiên credential: JSON inline → `GOOGLE_APPLICATION_CREDENTIALS`
 → Application Default Credentials.
 
+### 9.2 Khoá QR e-ticket (UC-29, bắt buộc)
+
+API **dừng khởi động** nếu thiếu `TicketQr:EncryptionKey` hoặc `TicketQr:SigningKey`, kể cả ở
+Development (không có khoá dự phòng trong code). Mỗi khoá là 32 byte ngẫu nhiên mã hoá Base64, hai
+khoá phải khác nhau. Mỗi developer tự tạo khoá riêng cho máy mình — không gửi qua chat, không commit.
+
+```bash
+# Tạo khoá (Git Bash / WSL / macOS / Linux)
+openssl rand -base64 32
+
+# Lưu vào User Secrets của project API (chạy 2 lần với 2 khoá khác nhau)
+dotnet user-secrets set "TicketQr:EncryptionKey" "<khoá thứ nhất>" --project src/TripMate.Api
+dotnet user-secrets set "TicketQr:SigningKey" "<khoá thứ hai>" --project src/TripMate.Api
+```
+
+```powershell
+# PowerShell, không cần openssl
+[Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+```
+
+Docker Compose đọc `TICKET_QR_ENCRYPTION_KEY` / `TICKET_QR_SIGNING_KEY` từ `.env` (xem `.env.example`).
+Trên môi trường deploy, đặt biến môi trường `TicketQr__EncryptionKey` / `TicketQr__SigningKey`.
+Đổi khoá làm mọi QR đang hiển thị mất hiệu lực; Traveler bấm [Refresh QR Code] để lấy mã mới.
+
 ## 10. Xử lý sự cố thường gặp
 
 | Triệu chứng | Cách xử lý |
@@ -314,3 +377,33 @@ Xem [`CONTRIBUTING.md`](CONTRIBUTING.md) (branch, commit convention, Pull Reques
 See [isolated semantic PoC instructions](tools/semantic-poc/README.md) for the CPU embedding service,
 Qdrant fixture evaluation and SQL-authoritative tests. Ordinary startup and production tour search
 are unchanged; semantic contract approval is pending.
+# Administrator contract templates
+
+The web Administrator can manage versioned DOCX partnership templates. See
+[renderer configuration](docker/contract-renderer/README.md) and
+[approved specification](specs/admin-contract-template-management-spec.md).
+Apply the additive contract-template migration before enabling its preview worker.
+Source documents and generated previews require private persistent storage. This
+phase does not enable Tour Operator signing or change account activation rules.
+
+### Tour Operator contract signing
+
+The optional `OperatorContracts__Enabled` gate adds a contract and email-OTP signing
+step after Staff approval. Apply `20261124_operator_contract_signing.sql` first;
+it records a one-time exemption for existing approved Active operators. New
+operators remain `PendingContractSignature` until the accepted PDF, signature,
+OTP verification and activation commit together. The default feature flag is false.
+The private artifact directory and isolated renderer configuration above are reused.
+Email uses the existing SMTP/Gmail transport and OTP pepper with a separate signing
+purpose. No OTP is returned by an endpoint. Web entry: `/partner/contract`; Mobile:
+`/operator/contract`. See the signing specification and plan for rollout and tests.
+
+During cutover, pause Staff application approvals before applying the signing
+migration and keep them paused until all API instances and compatible clients are
+deployed with `OperatorContracts__Enabled=true`. The legacy exemption is recorded
+once at migration time: approvals made with the flag disabled after that point do
+not automatically receive an exemption. Before resuming approvals, reconcile any
+Active+Approved operator with neither a signed contract nor a recorded exemption;
+do not bulk exempt new operators or silently change their account status. Restore
+signing configuration and investigate the affected applications before enabling
+workspace access. Keep the approval pause during a rollback that disables signing.

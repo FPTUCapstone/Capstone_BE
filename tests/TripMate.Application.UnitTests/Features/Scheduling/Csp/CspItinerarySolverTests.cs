@@ -5,12 +5,15 @@ using FluentAssertions;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Csp;
+using TripMate.Application.Features.Scheduling.Csp.Objectives;
+using TripMate.Application.Features.Scheduling.Personalization;
 using TripMate.Application.Features.Scheduling.Routing;
 using TripMate.Application.UnitTests.Features.Scheduling.Fixtures;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Application.UnitTests.Features.Scheduling.Csp;
 
+[Collection(nameof(CspItinerarySolverTestsCollection))]
 public class CspItinerarySolverTests
 {
     private static readonly SchedulingGenerationOptions Options = new();
@@ -325,7 +328,7 @@ public class CspItinerarySolverTests
     {
         string[] allowed =
         [
-            "solver.mode", "solver.outcome", "solver.kind",
+            "solver.mode", "solver.outcome", "solver.kind", "solver.objective_mode",
             "csp.nodes_expanded", "csp.solutions_found", "csp.search_completed", "csp.node_limit_reached",
             "csp.time_limit_reached", "csp.used_relaxed_rest_model", "csp.chose_relaxed_rest_model", "csp.evaluator_calls",
             "csp.in_search_evaluation_limit_reached", "csp.tie_evaluation_limit_reached", "csp.returned_heuristic_plan",
@@ -626,12 +629,43 @@ public class CspItinerarySolverTests
     {
         var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(8, 0, 1);
         var (candidates, indices) = Index(input);
+
+        var evaluationStarted = false;
+        var cancellationObserved = false;
+        var threwOperationCanceled = false;
+
         var solver = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, new CspOptions { TimeLimitMilliseconds = 200 })
         {
             BeforeEvaluation = token =>
             {
-                token.WaitHandle.WaitOne(TimeSpan.FromSeconds(3));
-                token.ThrowIfCancellationRequested();
+                evaluationStarted = true;
+
+                // Wait for the deadline cancellation signal up to 3 seconds.
+                // Using small wait slices (50ms) ensures prompt response when the token is signaled
+                // and avoids waiting out the full 3 seconds while cooperatively yielding between slices.
+                var waitWatch = Stopwatch.StartNew();
+                while (!token.IsCancellationRequested && waitWatch.Elapsed < TimeSpan.FromSeconds(3))
+                {
+                    if (token.WaitHandle.WaitOne(50))
+                    {
+                        break;
+                    }
+                }
+
+                if (token.IsCancellationRequested)
+                {
+                    cancellationObserved = true;
+                }
+
+                try
+                {
+                    token.ThrowIfCancellationRequested();
+                }
+                catch (OperationCanceledException)
+                {
+                    threwOperationCanceled = true;
+                    throw;
+                }
             },
         };
 
@@ -639,6 +673,9 @@ public class CspItinerarySolverTests
         var result = solver.Solve(input, matrix, candidates, indices, HeuristicSchedule(input, matrix));
         watch.Stop();
 
+        evaluationStarted.Should().BeTrue();
+        cancellationObserved.Should().BeTrue();
+        threwOperationCanceled.Should().BeTrue();
         result.Statistics.TimeLimitReached.Should().BeTrue();
         result.Schedule.Should().BeNull();
         watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(2));
@@ -720,9 +757,86 @@ public class CspItinerarySolverTests
         var activity = await RecordSolverOutcome(async () => result = await service.GenerateAsync(input, CancellationToken.None));
 
         result!.IsSuccess.Should().BeTrue();
-        result.Value.Should().BeEquivalentTo(heuristic.Value);
+        // The schedule is the heuristic one; only its provenance says it came from a CSP fallback (ADR-002, G2).
+        result.Value.Should().BeEquivalentTo(heuristic.Value, options => options.Excluding(plan => plan.Provenance));
+        result.Value.Provenance!.SolverOutcome.Should().Be(SchedulingSolverOutcomes.HeuristicFallbackCspTimeLimit);
         activity.GetTagItem("solver.outcome").Should().Be(SchedulingSolverOutcomes.HeuristicFallbackCspTimeLimit);
         activity.GetTagItem("solver.kind").Should().Be(SchedulingSolverKinds.CspFallback, "acceptance criterion 7");
+        activity.GetTagItem("csp.time_limit_reached").Should().Be(true);
+    }
+
+    /// <summary>
+    /// Audit 2026-11-09, mục 8: điểm ngoài trời có mái che (ví dụ khu vui chơi) phải được gợi ý làm điểm tham quan.
+    /// Chỉ quán ăn, cafe và trạm nghỉ mới là điểm nghỉ (từ 2026-11-11 điểm có mái che không còn làm điểm nghỉ).
+    /// </summary>
+    [Theory]
+    [InlineData(SchedulingSolverMode.Csp)]
+    [InlineData(SchedulingSolverMode.Heuristic)]
+    public async Task GenerationService_SuggestsAShelteredThemePark_AsAVisit(SchedulingSolverMode mode)
+    {
+        var themePark = OptionalRouteOptimizationScenarios.CreateCandidate(1, "Sheltered theme park", 120, 50_000m, 0.9m) with
+        {
+            CategoryName = "Theme park",
+            HasShelter = true,
+        };
+        var museum = OptionalRouteOptimizationScenarios.CreateCandidate(2, "Museum", 60, 30_000m, 0.5m);
+        var input = OptionalRouteOptimizationScenarios.CreateInput(300, [themePark, museum], []);
+        var minutes = new int[4, 4];
+        for (var from = 0; from < 4; from++)
+        {
+            for (var to = 0; to < 4; to++)
+            {
+                minutes[from, to] = from == to ? 0 : 10;
+            }
+        }
+
+        var service = new ItineraryGenerationService(
+            new StaticMatrixProvider(RouteDurationMatrix.Create(minutes)),
+            new SchedulingGenerationOptions { SolverMode = mode, Csp = new CspOptions { TimeLimitMilliseconds = 600_000 } });
+
+        var result = await service.GenerateAsync(input, CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Items.Where(item => item.Kind == ItineraryItemKind.Visit).Select(item => item.PointOfInterestId)
+            .Should().Contain(1L);
+    }
+
+    /// <summary>
+    /// R5 ở chế độ Weighted, đi qua service (issue #147): chạm mốc thời gian, kể cả lúc dựng incumbent tham lam, phải
+    /// trả đúng lịch heuristic (kèm ModelObjective của chế độ Weighted) thay vì để exception lọt ra thành HTTP 500.
+    /// </summary>
+    [Fact]
+    public async Task GenerationService_InWeightedUtilityMode_ReturnsTheHeuristicPlan_WhenTheWallClockSafetyLimitFires()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(40, 0, 1);
+        var heuristic = await new ItineraryGenerationService(new StaticMatrixProvider(matrix))
+            .GenerateAsync(input, CancellationToken.None);
+        var weightedInputs = new WeightedRequestInputs(
+            input.Candidates.ToDictionary(c => c.Id, _ => 0.5),
+            new PersonalParams(0.012, 0.005, 5, 300, 120, 3, 0.6, 0.7, 0.9, new HashSet<string>(), 0.25, 0.0, 0.30, 0.05, "2026.2"),
+            new ConstantTimeFitFactory());
+        var service = new ItineraryGenerationService(
+            new StaticMatrixProvider(matrix),
+            new SchedulingGenerationOptions
+            {
+                SolverMode = SchedulingSolverMode.Csp,
+                Csp = new CspOptions { Mode = ObjectiveMode.WeightedUtility, TimeLimitMilliseconds = 0 },
+            });
+
+        Result<GeneratedItineraryPlan>? result = null;
+        var activity = await RecordSolverOutcome(async () =>
+            result = await service.GenerateAsync(input, weightedInputs, CancellationToken.None));
+
+        result!.IsSuccess.Should().BeTrue();
+        // Same schedule as the heuristic. The Weighted path adds its objective, its provenance and personalized
+        // reasons (G2, G5); the plain heuristic run has neither.
+        result.Value.Should().BeEquivalentTo(heuristic.Value, options => options
+            .Excluding(plan => plan.ModelObjective)
+            .Excluding(plan => plan.Provenance)
+            .For(plan => plan.Items).Exclude(item => item.RecommendationReason));
+        result.Value.ModelObjective.Should().NotBeNull();
+        result.Value.Provenance!.SolverOutcome.Should().Be(SchedulingSolverOutcomes.HeuristicFallbackCspTimeLimit);
+        activity.GetTagItem("solver.outcome").Should().Be(SchedulingSolverOutcomes.HeuristicFallbackCspTimeLimit);
         activity.GetTagItem("csp.time_limit_reached").Should().Be(true);
     }
 
@@ -1045,6 +1159,133 @@ public class CspItinerarySolverTests
         }, matrix);
     }
 
+    [Fact]
+    public void Solve_InWeightedUtilityMode_UsesWeightedMaxNodes_WhenSpecified()
+    {
+        var (input, matrix) = SmallScenario(1);
+        var (candidates, indices) = Index(input);
+        var baseScores = candidates.ToDictionary(c => c.Id, _ => 0.5);
+        var pParams = new PersonalParams(
+            LambdaPerMin: 0.012,
+            Mu: 0.005,
+            MaxStopsPerDay: 5,
+            MaxDailyEffort: 300,
+            RestAfterMin: 120,
+            MaxConsecutiveOutdoor: 3,
+            SunriseFactor: 0.6,
+            GammaDefault: 0.7,
+            GammaLoved: 0.9,
+            LovedCategories: new HashSet<string>(),
+            RhoOutdoor: 0.25,
+            RhoRest: 0.0,
+            RhoStops: 0.30,
+            RhoEffortPerHour: 0.05,
+            ConfigVersion: "2026.2");
+        var weightedInputs = new WeightedRequestInputs(
+            baseScores,
+            pParams,
+            new ConstantTimeFitFactory());
+
+        var cspOptions = new CspOptions
+        {
+            Mode = ObjectiveMode.WeightedUtility,
+            MaxNodes = 100_000,
+            WeightedMaxNodes = 5,
+        };
+
+        var result = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, cspOptions)
+            .Solve(input, matrix, candidates, indices, initialIncumbent: null, weighted: weightedInputs);
+
+        result.Statistics.NodesExpanded.Should().BeLessOrEqualTo(5);
+        result.Statistics.NodeLimitReached.Should().BeTrue();
+    }
+
+    /// <summary>
+    /// R5 ở chế độ Weighted: incumbent tham lam gọi evaluator trước khi tìm kiếm bắt đầu. Chạm mốc thời gian ở bước đó
+    /// phải được báo như mọi lần chạm mốc khác (bỏ kết quả, để bên gọi dùng lịch heuristic), không được ném exception.
+    /// Giới hạn 0 ms làm lần chấm đầu tiên của incumbent tham lam chạm mốc, nên test không phụ thuộc tốc độ máy.
+    /// </summary>
+    [Fact]
+    public void Solve_InWeightedUtilityMode_ReportsTheTimeLimit_WhenItFiresWhileBuildingTheGreedyIncumbent()
+    {
+        var (input, matrix) = SmallScenario(1);
+        var (candidates, indices) = Index(input);
+        var weightedInputs = new WeightedRequestInputs(
+            candidates.ToDictionary(c => c.Id, _ => 0.5),
+            new PersonalParams(0.012, 0.005, 5, 300, 120, 3, 0.6, 0.7, 0.9, new HashSet<string>(), 0.25, 0.0, 0.30, 0.05, "2026.2"),
+            new ConstantTimeFitFactory());
+        var solver = new CspItinerarySolver(
+            new ItineraryScheduleEvaluator(Options),
+            Options,
+            new CspOptions { Mode = ObjectiveMode.WeightedUtility, TimeLimitMilliseconds = 0 });
+
+        var result = solver.Solve(input, matrix, candidates, indices, initialIncumbent: null, weighted: weightedInputs);
+
+        result.Statistics.TimeLimitReached.Should().BeTrue();
+        result.Schedule.Should().BeNull();
+        result.ProvedInfeasible.Should().BeFalse();
+    }
+
+    /// <summary>
+    /// ADR-002 (G4a): ở chế độ Weighted, lịch heuristic bỏ qua pace và rủi ro. Vì vậy khi chạm mốc thời gian, lịch dự
+    /// phòng là lịch tốt hơn theo J giữa lịch heuristic và lịch tham lam. Cả hai đều dựng xong trước khi tìm kiếm, nên kết
+    /// quả không phụ thuộc lúc chạm mốc. Lịch tham lam gọi evaluator đúng một lần; lần gọi thứ hai (sau khi tìm kiếm) chờ
+    /// quá mốc.
+    /// </summary>
+    [Fact]
+    public void Solve_InWeightedUtilityMode_KeepsTheBestInitialPlanByJ_WhenTheTimeLimitFiresAfterIt()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(8, 0, 1);
+        var (candidates, indices) = Index(input);
+        var calls = 0;
+        var solver = new CspItinerarySolver(
+            new ItineraryScheduleEvaluator(Options),
+            Options,
+            new CspOptions { Mode = ObjectiveMode.WeightedUtility, TimeLimitMilliseconds = 200 })
+        {
+            BeforeEvaluation = _ =>
+            {
+                if (Interlocked.Increment(ref calls) > 1)
+                {
+                    Thread.Sleep(300);
+                }
+            },
+        };
+
+        var result = solver.Solve(
+            input, matrix, candidates, indices, HeuristicSchedule(input, matrix), WeightedInputs(candidates, _ => 0.5));
+
+        result.Statistics.TimeLimitReached.Should().BeTrue();
+        result.Schedule.Should().BeNull();
+        result.TimeLimitFallback.Should().NotBeNull("the plans built before the search are independent of the time limit");
+    }
+
+    /// <summary>ADR-002 (G4a): ở chế độ Lexicographic, lịch dự phòng khi chạm mốc vẫn đúng là lịch heuristic.</summary>
+    [Fact]
+    public void Solve_InLexicographicMode_FallsBackToTheHeuristicPlanItself_AtTheTimeLimit()
+    {
+        var (input, matrix) = OptionalRouteOptimizationScenarios.CreateSyntheticCorpusScenario(8, 0, 1);
+        var (candidates, indices) = Index(input);
+        var heuristic = HeuristicSchedule(input, matrix);
+        var solver = new CspItinerarySolver(new ItineraryScheduleEvaluator(Options), Options, new CspOptions { TimeLimitMilliseconds = 200 })
+        {
+            BeforeEvaluation = _ => Thread.Sleep(300),
+        };
+
+        var result = solver.Solve(input, matrix, candidates, indices, heuristic);
+
+        result.Statistics.TimeLimitReached.Should().BeTrue();
+        result.TimeLimitFallback.Should().BeSameAs(heuristic);
+    }
+
+    private static WeightedRequestInputs WeightedInputs(
+        IEnumerable<GenerationCandidate> candidates,
+        Func<GenerationCandidate, double> baseOf) =>
+        new(
+            candidates.ToDictionary(c => c.Id, baseOf),
+            new PersonalParams(0.012, 0.005, 5, 300, 120, 3, 0.6, 0.7, 0.9, new HashSet<string>(), 0.25, 0.0, 0.30, 0.05, "2026.2"),
+            new ConstantTimeFitFactory());
+
     /// <summary>
     /// Bắt activity kết quả bộ giải của đúng lần sinh này: listener là toàn cục và test chạy song song,
     /// nên chỉ nhận activity cùng TraceId với activity cha của test.
@@ -1100,3 +1341,6 @@ public class CspItinerarySolverTests
             CancellationToken cancellationToken) => Task.FromResult(matrix);
     }
 }
+
+[CollectionDefinition(nameof(CspItinerarySolverTestsCollection), DisableParallelization = true)]
+public sealed class CspItinerarySolverTestsCollection;

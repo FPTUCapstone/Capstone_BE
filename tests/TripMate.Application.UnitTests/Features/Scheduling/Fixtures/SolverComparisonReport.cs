@@ -507,7 +507,7 @@ public static class SolverComparisonReport
 
         md.AppendLine("## Limitations");
         md.AppendLine();
-        md.AppendLine("- Synthetic, generator-only evidence: the matrix comes from memory, so no OpenRouteService, ranking or database");
+        md.AppendLine("- Synthetic, generator-only evidence: the matrix comes from memory, so no routing-service, ranking or database");
         md.AppendLine("  latency is included, and conclusions generalize only to the tested synthetic distribution.");
         md.AppendLine("- One developer machine, no CPU pinning or isolation, a single process run sequentially. Sub-millisecond samples are");
         md.AppendLine("  dominated by timer and JIT noise, and with few measured iterations per scenario, p95 and max are sensitive to");

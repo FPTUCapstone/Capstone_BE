@@ -2,7 +2,12 @@ namespace TripMate.Domain.Common;
 
 public static class AuditActionTypes
 {
+    public const string UserAccountLocked = "USER_ACCOUNT_LOCKED";
+    public const string UserAccountUnlocked = "USER_ACCOUNT_UNLOCKED";
+    public const string AdministrationAccessDenied = "ADMINISTRATION_ACCESS_DENIED";
+    public const string RouteCreate = "ROUTE_CREATE";
     public const string PoiCreate = "POI_CREATE";
+    public const string PoiDeactivated = "POI_DEACTIVATED";
 
     public const string OperatorApplicationApprove = "ApproveOperatorApplication";
 
@@ -21,6 +26,16 @@ public static class AuditActionTypes
     public const string TourRejected = "TOUR_REJECTED";
     public const string TourPublished = "TOUR_PUBLISHED";
     public const string TourUnpublished = "TOUR_UNPUBLISHED";
+    public const string TourWeatherReadinessReviewed = "TOUR_WEATHER_READINESS_REVIEWED";
+    public const string TourEmergencyCancelled = "TOUR_EMERGENCY_CANCELLED";
+    public const string TourEmergencyStopped = "TOUR_EMERGENCY_STOPPED";
+    public const string TourEmergencyEvidenceAdded = "TOUR_EMERGENCY_EVIDENCE_ADDED";
+    public const string TourEmergencyEvidenceWithdrawn = "TOUR_EMERGENCY_EVIDENCE_WITHDRAWN";
+    public const string TourEmergencyStopReauthenticationFailed = "TOUR_EMERGENCY_STOP_REAUTH_FAILED";
+    public const string WeatherSafetyReviewCreated = "WEATHER_SAFETY_REVIEW_CREATED";
+    public const string WeatherSafetyReviewAcknowledged = "WEATHER_SAFETY_REVIEW_ACKNOWLEDGED";
+    public const string WeatherSafetyReviewEscalated = "WEATHER_SAFETY_REVIEW_ESCALATED";
+    public const string BookingItineraryMaterializationFailed = "BOOKING_ITINERARY_MATERIALIZATION_FAILED";
 
     // UC-05 Sign Out
     public const string AuthSignOut = "AUTH_SIGN_OUT";
@@ -30,6 +45,7 @@ public static class AuditActionTypes
 
     public const string AlgorithmParametersUpdate = "UpdateAlgorithmParameters";
     public const string BookingCancel = "CancelBooking";
+    public const string TravelGroupMemberRemoved = "TravelGroupMemberRemoved";
     // UC-59 BR-130: Administrator access to active trip details
     public const string ActiveTripDetailsViewed = "ViewActiveTripDetails";
 
@@ -41,4 +57,29 @@ public static class AuditActionTypes
     // UC-73/UC-74: Staff decision on a payout request
     public const string PayoutApproved = "ApprovePayoutRequest";
     public const string PayoutRejected = "RejectPayoutRequest";
+
+    // DAILY-PAYOUT-TRANSFER, UC-73 (Task 9, spec v6): [Retry Transfer] and [Mark as Resolved].
+    // Carry over and manual settlement are removed in v6 (not in SRS rev10-5).
+    public const string PayoutSettlementRetried = "PAYOUT_SETTLEMENT_RETRIED";
+    public const string PayoutSettlementResolved = "PAYOUT_SETTLEMENT_RESOLVED";
+    // DAILY-PAYOUT-TRANSFER, Task 7A (PD-17): a reconciliation lookup found a discrepancy
+    public const string PayoutReconciliationDiscrepancyDetected = "PAYOUT_RECONCILIATION_DISCREPANCY_DETECTED";
+    // DAILY-PAYOUT-TRANSFER, Task 7 (BR-189): automatic lock of a Tour Operator with unrecovered
+    // pending debt, and its Staff-only unlock.
+    public const string TourOperatorAutoLocked = "TOUR_OPERATOR_AUTO_LOCKED";
+    public const string TourOperatorUnlocked = "TOUR_OPERATOR_UNLOCKED";
+    // DAILY-PAYOUT-TRANSFER, Task 4 (PD-2A): a Cancelled booking that a run excludes without
+    // creating any settlement for it.
+    public const string PayoutExclusionCancelledBeforeRun = "PAYOUT_EXCLUSION_CANCELLED_BEFORE_RUN";
+
+    // UC-43 Check-in scan verification rejected
+    public const string CheckInScanRejected = "CheckInScanRejected";
+
+    // UC-63 Export Statistical Reports, BR-130
+    public const string StatisticalReportExportRequested = "STATISTICAL_REPORT_EXPORT_REQUESTED";
+    public const string UserUnlock = "UnlockUserAccount";
+
+    // UC-83 BR-174 / UC-81 BR-200: Service commission receipt and overdue account locking
+    public const string CommissionReceiptConfirmed = "COMMISSION_RECEIPT_CONFIRMED";
+    public const string ServiceProviderAutoLocked = "SERVICE_PROVIDER_AUTO_LOCKED";
 }

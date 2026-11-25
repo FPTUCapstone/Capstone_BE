@@ -45,14 +45,15 @@ GO
 BEGIN TRY
     BEGIN TRANSACTION;
 
-    IF OBJECT_ID(N'payment.Payouts', N'U') IS NULL
-        THROW 51000, 'UC-46 requires payment.Payouts.', 1;
-    IF OBJECT_ID(N'payment.PayoutItems', N'U') IS NULL
-        THROW 51000, 'UC-46 requires payment.PayoutItems.', 1;
     IF OBJECT_ID(N'dbo.OperatorProfiles', N'U') IS NULL
         THROW 51000, 'UC-46 requires dbo.OperatorProfiles.', 1;
     IF OBJECT_ID(N'payment.Refunds', N'U') IS NULL
         THROW 51000, 'UC-46 requires payment.Refunds.', 1;
+
+    -- Legacy payout tables are dropped by 20261108_remove_legacy_payout_request_tables.sql, which
+    -- reruns after this script on every deploy; once they are gone this step is superseded.
+    IF OBJECT_ID(N'payment.Payouts', N'U') IS NOT NULL AND OBJECT_ID(N'payment.PayoutItems', N'U') IS NOT NULL
+    BEGIN
 
     /* ---------- payment.Payouts: new columns ---------- */
 
@@ -307,6 +308,7 @@ BEGIN TRY
         VALUES (N'payout.refund_hold_days', N'3',
             N'UC-46 BE spec OPEN-1 (placeholder pending PO confirmation): number of days after a tour schedule''s end before its completed bookings are considered final enough to include in a payout.',
             SYSUTCDATETIME());
+    END
 
     COMMIT TRANSACTION;
 END TRY

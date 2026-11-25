@@ -112,8 +112,10 @@ public sealed class GetTourDetailSqlServerTests
         schedules.Select(item => item.GetProperty("adultPrice").GetInt64())
             .Should().Equal(1_100_000, 1_000_000, 1_200_000);
         schedules.Select(item => item.GetProperty("remainingSlots").GetInt32()).Should().Equal(0, 5, 6);
-        schedules.Select(item => item.GetProperty("bookable").GetBoolean()).Should().Equal(false, true, true);
-        body.RootElement.GetProperty("hasBookableSchedule").GetBoolean().Should().BeTrue();
+        // This fixture intentionally has no itinerary: capacity alone does not
+        // make a departure accepted by booking preflight.
+        schedules.Select(item => item.GetProperty("bookable").GetBoolean()).Should().Equal(false, false, false);
+        body.RootElement.GetProperty("hasBookableSchedule").GetBoolean().Should().BeFalse();
     }
 
     [SqlServerFact]

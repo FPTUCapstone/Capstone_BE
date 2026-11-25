@@ -8,6 +8,8 @@ public sealed class ItineraryExplanationExecutionOptions
     public static readonly TimeSpan DefaultOverallTimeout = TimeSpan.FromSeconds(20);
     public const int DefaultMaxAttempts = 2;
     public const int DefaultRetryBaseDelayMilliseconds = 500;
+    public static readonly TimeSpan DefaultBackgroundTimeout = TimeSpan.FromSeconds(100);
+    public static readonly TimeSpan MaxBackgroundTimeout = TimeSpan.FromSeconds(300);
 
     private TimeSpan? _overallTimeout;
 
@@ -24,6 +26,19 @@ public sealed class ItineraryExplanationExecutionOptions
     public int MaxAttempts { get; set; } = DefaultMaxAttempts;
 
     public int RetryBaseDelayMilliseconds { get; set; } = DefaultRetryBaseDelayMilliseconds;
+
+    /// <summary>
+    /// Background mode (specs/UC-10-background-explanation-spec.md): the create request answers with the template
+    /// sentences and the AI explanation is written afterwards. Has no effect while <see cref="Enabled"/> is false.
+    /// </summary>
+    public bool BackgroundEnabled { get; set; }
+
+    /// <summary>
+    /// How long one background explanation may take. Separate from <see cref="OverallTimeout"/>, whose 30-second
+    /// ceiling protects the request the traveler waits on. Keep it longer than the AI service's own limit, so the
+    /// backend is still listening when a slow answer arrives.
+    /// </summary>
+    public TimeSpan BackgroundTimeout { get; set; } = DefaultBackgroundTimeout;
 }
 
 public sealed class ItineraryExplanationExecutionOptionsValidator
@@ -60,6 +75,12 @@ public sealed class ItineraryExplanationExecutionOptionsValidator
         if (options.RetryBaseDelayMilliseconds is < 0 or > 5000)
         {
             failures.Add($"{nameof(options.RetryBaseDelayMilliseconds)} must be between 0 and 5000 milliseconds.");
+        }
+
+        if (options.BackgroundTimeout < TimeSpan.FromSeconds(1)
+            || options.BackgroundTimeout > ItineraryExplanationExecutionOptions.MaxBackgroundTimeout)
+        {
+            failures.Add($"{nameof(options.BackgroundTimeout)} must be between 1 and 300 seconds.");
         }
 
         return failures.Count == 0

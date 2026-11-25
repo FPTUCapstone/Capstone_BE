@@ -19,11 +19,13 @@ using Serilog;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.AccountProvisioning;
 using TripMate.Application.Features.Bookings.Common;
 using TripMate.Application.Features.Itineraries.Common;
 using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Application.Features.Scheduling.Explanation;
 using TripMate.Application.Features.Scheduling.Personalization;
+using TripMate.Application.Features.ServiceProviderRequests;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 using TripMate.Infrastructure.Persistence;
@@ -49,17 +51,23 @@ public sealed class TripMateApiFactory(
     Action<IServiceCollection>? configureTestServices = null,
     IInterceptor? dbInterceptor = null,
     Func<IServiceProvider, IItineraryExplanationProvider>? explanationProviderFactory = null,
-    bool? explanationProviderEnabled = null) : WebApplicationFactory<Program>
+    bool? explanationProviderEnabled = null,
+    IReadOnlyDictionary<string, string?>? configurationOverrides = null) : WebApplicationFactory<Program>
 {
     internal const string JwtIssuer = "TripMate.Tests";
     internal const string JwtAudience = "TripMate.Tests";
     internal const string JwtSigningKey =
         "dGVzdC1vbmx5LXNpZ25pbmcta2V5LXRoYXQtaXMtbG9uZy1lbm91Z2g=";
 
+    // Test-only UC-29 QR keys: bytes 1..32 and 33..64. Never used outside the test host.
+    internal const string TicketQrEncryptionKey = "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=";
+    internal const string TicketQrSigningKey = "ISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0A=";
+
     private readonly string _databaseName = $"tripmate-api-tests-{Guid.NewGuid():N}";
     private readonly string _logDirectory = Path.Combine(
         Path.GetTempPath(), "TripMate.Api.IntegrationTests", Guid.NewGuid().ToString("N"));
     private const string LogPathConfigurationKey = "Serilog:WriteTo:0:Args:path";
+    private const int LogCleanupMaxAttempts = 5;
 
     public string LogFilePath => Services.GetRequiredService<IConfiguration>()[LogPathConfigurationKey]
         ?? throw new InvalidOperationException("This factory has no configured test file sink.");
@@ -67,6 +75,13 @@ public sealed class TripMateApiFactory(
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment(environmentName);
+        if (configurationOverrides is not null)
+        {
+            foreach ((string key, string? value) in configurationOverrides)
+            {
+                builder.UseSetting(key, value);
+            }
+        }
         // Derived WithWebHostBuilder hosts need distinct files while their parent
         // host is alive. This factory owns all files through its disposal lifetime.
         string logPath = Path.Combine(_logDirectory, Guid.NewGuid().ToString("N"), "requests.log");
@@ -84,6 +99,8 @@ public sealed class TripMateApiFactory(
         builder.UseSetting("Jwt:Audience", JwtAudience);
         builder.UseSetting("Jwt:SigningKey", JwtSigningKey);
         builder.UseSetting("PasswordResetSecurity:OtpPepper", "test-only-pepper-0123456789abcdef");
+        builder.UseSetting("TicketQr:EncryptionKey", TicketQrEncryptionKey);
+        builder.UseSetting("TicketQr:SigningKey", TicketQrSigningKey);
         builder.UseSetting("EmailVerification:ContinueUrl", "https://tripmate.test/verify-email");
         builder.UseSetting("Cloudinary:CloudName", "test-cloud");
         builder.UseSetting("Cloudinary:ApiKey", "test-api-key");
@@ -96,6 +113,8 @@ public sealed class TripMateApiFactory(
         builder.UseSetting("AiRanking:Enabled", "false");
         builder.UseSetting("AiExplanation:Enabled", "false");
         builder.UseSetting("SchedulingRateLimit:Provider", "SingleInstance");
+        builder.UseSetting("SchedulingGeneration:TimeFit:Version", "2026.1");
+        builder.UseSetting("SchedulingGeneration:Shadow:Enabled", "false");
 
         if (corsAllowedOrigins is not null)
         {
@@ -146,11 +165,21 @@ public sealed class TripMateApiFactory(
                             is "TripMate.Infrastructure.Services.TourMediaCleanupBackgroundService"
                             or "TripMate.Infrastructure.Services.TravelerAvatarCleanupBackgroundService"
                             or "TripMate.Infrastructure.Services.PendingBookingExpiryBackgroundService"
+                            or "TripMate.Infrastructure.Services.UserAdministrationNotificationDeliveryBackgroundService"
+                            or "TripMate.Infrastructure.Services.TourApprovalNoticeDeliveryBackgroundService"
                             or "TripMate.Infrastructure.Services.RefundProcessingBackgroundService"
                             or "TripMate.Infrastructure.Services.RevenueExportWorkerBackgroundService"
                             or "TripMate.Infrastructure.Services.RevenueExportExpiryBackgroundService"
                             or "TripMate.Infrastructure.TripAlerts.TripAlertScanBackgroundService"
-                            or "TripMate.Infrastructure.TripAlerts.TripAlertDeliveryBackgroundService"))
+                            or "TripMate.Infrastructure.TripAlerts.TripAlertDeliveryBackgroundService"
+                            or "TripMate.Infrastructure.Services.WeatherAlertInboxBackgroundService"
+                            or "TripMate.Infrastructure.Services.WeatherSafetyReviewEscalationBackgroundService"
+                            or "TripMate.Infrastructure.Services.TomorrowNotificationReconciliationBackgroundService"
+                            or "TripMate.Infrastructure.Services.WeatherLocationSyncBackgroundService"
+                            or "TripMate.Infrastructure.Services.DailyPayoutRunBackgroundService"
+                            or "TripMate.Infrastructure.Services.DailyPayoutRetrySweepBackgroundService"
+                            or "TripMate.Infrastructure.Services.ServiceRequestLifecycleHostedService"
+                            or "TripMate.Infrastructure.Services.CommissionStatementLifecycleHostedService"))
                 {
                     services.RemoveAt(index);
                 }
@@ -159,6 +188,7 @@ public sealed class TripMateApiFactory(
             if (sqlServerConnectionString is null)
             {
                 services.RemoveAll<ApplicationDbContext>();
+                services.RemoveAll<TripMate.Infrastructure.Services.TourApprovalNoticeDeliveryProcessor>();
                 services.RemoveAll<TripMate.Application.Features.TripReviews.Common.ITripReviewContextReader>();
                 services.AddScoped<TripMate.Application.Features.TripReviews.Common.ITripReviewContextReader, UnsupportedInMemoryTripReviewContextReader>();
                 services.RemoveAll<DbContextOptions<ApplicationDbContext>>();
@@ -167,11 +197,16 @@ public sealed class TripMateApiFactory(
                 services.RemoveAll<IItineraryMutationLock>();
                 services.RemoveAll<IGroupInvitationLock>();
                 services.RemoveAll<IGroupJoinLock>();
+                services.RemoveAll<IUserUnlockLock>();
+                services.RemoveAll<IUserAdministrationNotificationOutboxStore>();
+                services.RemoveAll<IGroupLeaveLock>();
                 services.RemoveAll<ISchedulingRequestLock>();
                 services.RemoveAll<ITourMediaUploadLock>();
                 services.RemoveAll<ITourMediaCleanupOutboxStore>();
                 services.RemoveAll<IAccountCredentialLock>();
                 services.RemoveAll<IRefundManualCompletionLock>();
+                services.RemoveAll<IAccountProvisioningLock>();
+                services.RemoveAll<IServiceProviderRequestLock>();
                 services.RemoveAll<IRouteDurationProvider>();
 
                 services.AddDbContext<TestApiDbContext>(options =>
@@ -207,11 +242,16 @@ public sealed class TripMateApiFactory(
                 services.AddScoped<IItineraryMutationLock, NoOpItineraryMutationLock>();
                 services.AddScoped<IGroupInvitationLock, NoOpGroupInvitationLock>();
                 services.AddScoped<IGroupJoinLock, NoOpGroupJoinLock>();
+                services.AddScoped<IUserUnlockLock, NoOpUserUnlockLock>();
+                services.AddScoped<IUserAdministrationNotificationOutboxStore, NoOpUserAdministrationNotificationOutboxStore>();
+                services.AddScoped<IGroupLeaveLock, NoOpGroupLeaveLock>();
                 services.AddScoped<ISchedulingRequestLock, NoOpSchedulingRequestLock>();
                 services.AddScoped<ITourMediaUploadLock, NoOpTourMediaUploadLock>();
                 services.AddScoped<ITourMediaCleanupOutboxStore, NoOpTourMediaCleanupOutboxStore>();
                 services.AddScoped<IAccountCredentialLock, NoOpAccountCredentialLock>();
                 services.AddScoped<IRefundManualCompletionLock, NoOpRefundManualCompletionLock>();
+                services.AddScoped<IAccountProvisioningLock, UnsupportedInMemoryProvisioningLock>();
+                services.AddScoped<IServiceProviderRequestLock, UnsupportedInMemoryProviderRequestLock>();
                 services.AddScoped<IRouteDurationProvider, TestRouteDurationProvider>();
             }
             else if (saveChangesInterceptor is not null || dbInterceptor is not null)
@@ -305,6 +345,17 @@ public sealed class TripMateApiFactory(
         return client;
     }
 
+    public async Task<string> IssueTokenForPersistedUserAsync(User user)
+    {
+        await WithDbContextAsync(async db =>
+        {
+            db.Users.Add(user);
+            await db.SaveChangesAsync();
+            return true;
+        });
+        return Services.GetRequiredService<IJwtTokenService>().GenerateAccessToken(user).Token;
+    }
+
     public HttpClient CreateJwtClient(string token)
     {
         var client = CreateClient(new WebApplicationFactoryClientOptions
@@ -346,9 +397,23 @@ public sealed class TripMateApiFactory(
 
     private void DeleteTestLogs()
     {
-        if (Directory.Exists(_logDirectory))
+        for (var attempt = 1; attempt <= LogCleanupMaxAttempts; attempt++)
         {
-            Directory.Delete(_logDirectory, recursive: true);
+            if (!Directory.Exists(_logDirectory))
+            {
+                return;
+            }
+
+            try
+            {
+                Directory.Delete(_logDirectory, recursive: true);
+                return;
+            }
+            catch (IOException) when (attempt < LogCleanupMaxAttempts)
+            {
+                // Windows can retain the Serilog file handle briefly after host disposal.
+                Thread.Sleep(TimeSpan.FromMilliseconds(25 * attempt));
+            }
         }
     }
 
@@ -395,11 +460,25 @@ internal sealed class UnsupportedInMemoryReviewMediaCoordinator
 public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     : DbContext(options), IApplicationDbContext
 {
+    public DbSet<DirectConversation> DirectConversations => Set<DirectConversation>();
+
+    public DbSet<DirectMessage> DirectMessages => Set<DirectMessage>();
+
     public DbSet<User> Users => Set<User>();
+    public DbSet<OperatorContract> OperatorContracts => Set<OperatorContract>();
+    public DbSet<OperatorContractSigningChallenge> OperatorContractSigningChallenges => Set<OperatorContractSigningChallenge>();
+    public DbSet<OperatorContractLegacyExemption> OperatorContractLegacyExemptions => Set<OperatorContractLegacyExemption>();
+    public DbSet<OperatorContractTemplate> OperatorContractTemplates => Set<OperatorContractTemplate>();
+    public DbSet<ContractTemplatePublicationHead> ContractTemplatePublicationHeads => Set<ContractTemplatePublicationHead>();
+    public DbSet<ContractTemplateRenderJob> ContractTemplateRenderJobs => Set<ContractTemplateRenderJob>();
+    public DbSet<PushDeviceToken> PushDeviceTokens => Set<PushDeviceToken>();
     public DbSet<TravelerProfile> TravelerProfiles => Set<TravelerProfile>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<UserUnlockOperation> UserUnlockOperations => Set<UserUnlockOperation>();
     public DbSet<PoiCategory> PoiCategories => Set<PoiCategory>();
     public DbSet<PointOfInterest> PointsOfInterest => Set<PointOfInterest>();
+
+    public DbSet<RouteSegment> RouteSegments => Set<RouteSegment>();
     public DbSet<PoiOpeningHour> PoiOpeningHours => Set<PoiOpeningHour>();
     public DbSet<Tag> Tags => Set<Tag>();
     public DbSet<PoiTag> PoiTags => Set<PoiTag>();
@@ -424,6 +503,7 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
         Set<TourMediaCleanupOutboxItem>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<TourApprovalNotice> TourApprovalNotices => Set<TourApprovalNotice>();
     public DbSet<PoiPhoto> PoiPhotos => Set<PoiPhoto>();
     public DbSet<Review> Reviews => Set<Review>();
 
@@ -432,7 +512,10 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<Message> Messages => Set<Message>();
     public DbSet<TripMate.Domain.Entities.ServiceProvider> ServiceProviders =>
         Set<TripMate.Domain.Entities.ServiceProvider>();
+    public DbSet<ProviderPoiLink> ProviderPoiLinks => Set<ProviderPoiLink>();
+    public DbSet<ServiceProviderRequestOperation> ServiceProviderRequestOperations => Set<ServiceProviderRequestOperation>();
     public DbSet<CommercialService> CommercialServices => Set<CommercialService>();
+    public DbSet<ServiceAvailability> ServiceAvailability => Set<ServiceAvailability>();
     public DbSet<Voucher> Vouchers => Set<Voucher>();
     public DbSet<Booking> Bookings => Set<Booking>();
     public DbSet<BookingParticipant> BookingParticipants => Set<BookingParticipant>();
@@ -441,20 +524,41 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
         Set<TourBookingCreateOperation>();
     public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
     public DbSet<Refund> Refunds => Set<Refund>();
+    public DbSet<PostTripComplaint> PostTripComplaints => Set<PostTripComplaint>();
+    public DbSet<ComplaintEvidence> ComplaintEvidence => Set<ComplaintEvidence>();
+    public DbSet<PostTripComplaintSubmissionOperation> PostTripComplaintSubmissionOperations =>
+        Set<PostTripComplaintSubmissionOperation>();
+    public DbSet<PostTripComplaintEvidenceAmendmentOperation> PostTripComplaintEvidenceAmendmentOperations =>
+        Set<PostTripComplaintEvidenceAmendmentOperation>();
+    public DbSet<PostTripComplaintResponseOperation> PostTripComplaintResponseOperations =>
+        Set<PostTripComplaintResponseOperation>();
+    public DbSet<PostTripComplaintNegotiationEvent> PostTripComplaintNegotiationEvents =>
+        Set<PostTripComplaintNegotiationEvent>();
+    public DbSet<EmergencyTourCancellationOperation> EmergencyTourCancellationOperations =>
+        Set<EmergencyTourCancellationOperation>();
     public DbSet<RefundManualCompletionOperation> RefundManualCompletionOperations =>
         Set<RefundManualCompletionOperation>();
     public DbSet<RevenueExport> RevenueExports => Set<RevenueExport>();
 
     public DbSet<Ticket> Tickets => Set<Ticket>();
+
+    public DbSet<TicketQrCode> TicketQrCodes => Set<TicketQrCode>();
     public DbSet<BookingCancellationOperation> BookingCancellationOperations =>
         Set<BookingCancellationOperation>();
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
+    public DbSet<GroupMessage> GroupMessages => Set<GroupMessage>();
+    public DbSet<GroupMessageReadReceipt> GroupMessageReadReceipts => Set<GroupMessageReadReceipt>();
+    public DbSet<GroupRollCallCheckin> GroupRollCallCheckins => Set<GroupRollCallCheckin>();
+    public DbSet<GroupSplitBillPayment> GroupSplitBillPayments => Set<GroupSplitBillPayment>();
+    public DbSet<GroupPollVote> GroupPollVotes => Set<GroupPollVote>();
     public DbSet<Itinerary> Itineraries => Set<Itinerary>();
     public DbSet<ItineraryItem> ItineraryItems => Set<ItineraryItem>();
     public DbSet<SchedulingRequest> SchedulingRequests => Set<SchedulingRequest>();
     public DbSet<RecommendationBehaviorEvent> RecommendationBehaviorEvents =>
         Set<RecommendationBehaviorEvent>();
+    public DbSet<PoiFavorite> PoiFavorites => Set<PoiFavorite>();
+    public DbSet<PoiVisitedMark> PoiVisitedMarks => Set<PoiVisitedMark>();
     public DbSet<TravelGroupCreationRequest> TravelGroupCreationRequests =>
         Set<TravelGroupCreationRequest>();
     public DbSet<GroupInvitation> GroupInvitations => Set<GroupInvitation>();
@@ -462,6 +566,11 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
         Set<GroupInvitationOperation>();
     public DbSet<GroupJoinOperation> GroupJoinOperations =>
         Set<GroupJoinOperation>();
+    public DbSet<GroupLeaveOperation> GroupLeaveOperations =>
+        Set<GroupLeaveOperation>();
+
+    public DbSet<GroupMemberRemovalOperation> GroupMemberRemovalOperations =>
+        Set<GroupMemberRemovalOperation>();
     public DbSet<ItineraryVersionOperation> ItineraryVersionOperations =>
         Set<ItineraryVersionOperation>();
 
@@ -478,18 +587,38 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<TripLocationLog> TripLocationLogs => Set<TripLocationLog>();
 
     public DbSet<WeatherEvent> WeatherEvents => Set<WeatherEvent>();
+    public DbSet<WeatherAlertInboxItem> WeatherAlertInboxItems => Set<WeatherAlertInboxItem>();
+    public DbSet<WeatherSafetyReview> WeatherSafetyReviews => Set<WeatherSafetyReview>();
+    public DbSet<WeatherLocationMapping> WeatherLocationMappings => Set<WeatherLocationMapping>();
 
     public DbSet<ReroutingEvent> ReroutingEvents => Set<ReroutingEvent>();
 
-    public DbSet<Payout> Payouts => Set<Payout>();
-
-    public DbSet<PayoutItem> PayoutItems => Set<PayoutItem>();
-
-    public DbSet<PayoutRefundItem> PayoutRefundItems => Set<PayoutRefundItem>();
-
     public DbSet<PayoutAdjustment> PayoutAdjustments => Set<PayoutAdjustment>();
 
-    public DbSet<PayoutPeriodBreakdown> PayoutPeriodBreakdowns => Set<PayoutPeriodBreakdown>();
+    public DbSet<PayoutRun> PayoutRuns => Set<PayoutRun>();
+
+    public DbSet<PayoutBatch> PayoutBatches => Set<PayoutBatch>();
+
+    public DbSet<PayoutSettlement> PayoutSettlements => Set<PayoutSettlement>();
+
+    public DbSet<PayoutSettlementAttempt> PayoutSettlementAttempts => Set<PayoutSettlementAttempt>();
+
+    public DbSet<TourOperatorDebt> TourOperatorDebts => Set<TourOperatorDebt>();
+
+
+    public DbSet<PayoutReconciliationItem> PayoutReconciliationItems => Set<PayoutReconciliationItem>();
+
+    public DbSet<ServiceBooking> ServiceBookings => Set<ServiceBooking>();
+
+    public DbSet<ServiceCommissionStatement> ServiceCommissionStatements =>
+        Set<ServiceCommissionStatement>();
+
+    public DbSet<ClosedStatisticalPeriod> ClosedStatisticalPeriods => Set<ClosedStatisticalPeriod>();
+
+    public DbSet<StatisticalReportSnapshot> StatisticalReportSnapshots => Set<StatisticalReportSnapshot>();
+
+    public DbSet<StatisticalReportExportOperation> StatisticalReportExportOperations =>
+        Set<StatisticalReportExportOperation>();
 
     public async Task<int> RevokeRefreshTokenAsync(
         string tokenHash,
@@ -506,6 +635,22 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
 
         token.RevokedAtUtc = revokedAtUtc;
         return 1;
+    }
+
+    public async Task<int> RevokeAllRefreshTokensForUserAsync(
+        long userId,
+        DateTimeOffset revokedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var tokens = await RefreshTokens
+            .Where(candidate => candidate.UserId == userId && candidate.RevokedAtUtc == null)
+            .ToListAsync(cancellationToken);
+        foreach (var token in tokens)
+        {
+            token.RevokedAtUtc = revokedAtUtc;
+        }
+
+        return tokens.Count;
     }
 
     public async Task<int> DeleteSignOutAuditEventsBeforeAsync(
@@ -525,6 +670,10 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<SystemConfig> SystemConfigs => Set<SystemConfig>();
 
     public DbSet<LandingContentVersion> LandingContentVersions => Set<LandingContentVersion>();
+
+    public DbSet<TourSearchRequest> TourSearchRequests => Set<TourSearchRequest>();
+
+    public DbSet<TourRecommendationLog> TourRecommendationLogs => Set<TourRecommendationLog>();
 
     public Task<T> ExecuteInTransactionAsync<T>(
         Func<CancellationToken, Task<T>> operation,
@@ -590,6 +739,15 @@ internal sealed class NoOpGroupJoinLock : IGroupJoinLock
         Task.CompletedTask;
 
     public Task AcquireCodeLockAsync(string normalizedInviteCode, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+
+    public Task AcquireGroupLockAsync(long groupId, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+}
+
+internal sealed class NoOpGroupLeaveLock : IGroupLeaveLock
+{
+    public Task AcquireOperationLockAsync(long travelerUserId, Guid idempotencyKey, CancellationToken cancellationToken) =>
         Task.CompletedTask;
 
     public Task AcquireGroupLockAsync(long groupId, CancellationToken cancellationToken) =>
@@ -714,4 +872,52 @@ internal sealed class TestAuthenticationHandler(
         return Task.FromResult(
             AuthenticateResult.Success(ticket));
     }
+}
+internal sealed class NoOpUserUnlockLock : IUserUnlockLock
+{
+    public Task AcquireAsync(long administratorUserId, string idempotencyKey, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+
+    public Task AcquireTargetUserAsync(long targetUserId, CancellationToken cancellationToken) =>
+        Task.CompletedTask;
+}
+
+internal sealed class NoOpUserAdministrationNotificationOutboxStore : IUserAdministrationNotificationOutboxStore
+{
+    public Task<IReadOnlyList<UserAdministrationNotificationClaim>> ClaimDueAsync(
+        DateTimeOffset nowUtc,
+        TimeSpan leaseDuration,
+        int batchSize,
+        CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<UserAdministrationNotificationClaim>>([]);
+
+    public Task CompleteAsync(long notificationId, Guid leaseToken, DateTimeOffset completedAtUtc,
+        CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public Task<bool> RenewLeaseAsync(long notificationId, Guid leaseToken, DateTimeOffset renewedAtUtc,
+        DateTimeOffset leaseExpiresAtUtc, CancellationToken cancellationToken) => Task.FromResult(true);
+
+    public Task RetryAsync(long notificationId, Guid leaseToken, DateTimeOffset notBeforeAtUtc,
+        DateTimeOffset updatedAtUtc, CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public Task FailAsync(long notificationId, Guid leaseToken, DateTimeOffset failedAtUtc,
+        CancellationToken cancellationToken) => Task.CompletedTask;
+}
+
+internal sealed class UnsupportedInMemoryProvisioningLock : IAccountProvisioningLock
+{
+    public Task AcquireAsync(string normalizedEmail, string normalizedPhone, IReadOnlyCollection<long> poiIds,
+        CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Account provisioning locking requires the isolated SQL Server fixture.");
+}
+
+internal sealed class UnsupportedInMemoryProviderRequestLock : IServiceProviderRequestLock
+{
+    public Task AcquireAvailabilityAsync(long serviceId, DateTimeOffset startsAt, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Availability locking requires the isolated SQL Server fixture.");
+    public Task AcquireOperationAsync(long actorUserId, Guid key, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Service request locking requires the isolated SQL Server fixture.");
+
+    public Task AcquireBookingAsync(long bookingId, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Service request locking requires the isolated SQL Server fixture.");
 }

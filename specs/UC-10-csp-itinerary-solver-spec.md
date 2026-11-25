@@ -92,6 +92,47 @@ uses the authoritative schedule evaluation (`ItineraryScheduleEvaluator`) and
 `SolverMode`. The gates in this specification still run the Adjust Items suites under each mode,
 as a regression check that the mode switch does not affect them.
 
+### Regenerate in WeightedUtility mode (issue #113, decided 2026-10-24)
+
+- Regenerate keeps the configured `WeightedUtility` objective. It must not silently fall back to
+  `Lexicographic`.
+- `ItineraryVersionService` builds `WeightedRequestInputs` from the same traveler profile and
+  prepared candidates used by the regeneration request before calling `GenerateAsync`.
+- The "prefer other places" tier adjustment remains monotonic. When it produces scores outside
+  the weighted-input range, Regenerate linearly normalizes the selected candidate scores before
+  the invariant is checked. Issue #121 below refines the target interval to `[0.5,1]`, preserving
+  tier and within-tier ordering.
+- A regeneration returns a new itinerary version or an existing business failure such as
+  `itinerary.no_alternative` / `itinerary.constraints_infeasible`; missing weighted inputs or tier
+  penalties must not escape as an unhandled exception.
+- A regeneration that selects the same places as the current version, in any visit order, returns
+  `itinerary.no_alternative` instead of saving a copy (the places are compared as a set). This applies
+  to both objective modes. Once every candidate has been suggested they share one tier, so a second
+  Regenerate in `WeightedUtility` could otherwise save a version that only swaps the visit order.
+  Behavior change in `Lexicographic`: a current itinerary whose order differs from the solver's order
+  for the same places (for example `[B, A]` against `[A, B]`) now also returns `no_alternative`.
+
+### Regeneration score floor (issue #121, updated after PR #133 review on 2026-10-28)
+
+- For every WeightedUtility Regenerate request, map tier-adjusted scores that need normalization
+  linearly into `[0.5, 1]`, preserving both tier and within-tier order. Scores already in that
+  interval remain unchanged. If all adjusted scores are equal and need normalization, use `0.5`
+  for every candidate. This rule also applies when a traveler has matching preferences; a
+  previous POI must not receive zero utility solely because it is the lowest tier.
+- `0.5` is a neutral baseline for the regeneration objective, not a reused
+  `TripMateBaseScore` from Create's ranking snapshot. Regenerate calculates preference scores
+  on a different scale (`0`, `100`, `200`, ...), then applies tier penalties.
+- Calibration assumes time-fit factor `1` and no extra soft penalties: a second POI in the same
+  diversity group has gain `0.5 × 0.7 = 0.35` with `GammaDefault = 0.7`. A POI in another group
+  has gain `0.5`, as in the regression test. The no-DI Moderate fallback has
+  `LambdaPerMin = 0.015`, so a 10-minute added leg costs `0.15`. The `appsettings.json` pace
+  defaults are Relaxed `0.018`, Moderate `0.012`, Fast `0.008`; at the default Relaxed pace,
+  that leg costs `0.18`, below the conservative same-group gain. More travel, poor time fit, or other
+  penalties can still make a POI undesirable; filling every minute is not guaranteed.
+- The unseen POI is selected first when places are scarce; the visit order is decided by the route,
+  so an unseen POI is not guaranteed to be visited first. A previously suggested POI remains eligible
+  if its marginal utility exceeds its travel and soft costs. Lexicographic scoring is unchanged.
+
 ## Invariants that must hold in every solver mode
 
 - **TM-216 boundary.** AI influences scheduling only through `EffectiveDesirabilityScore`
@@ -112,6 +153,34 @@ as a regression check that the mode switch does not affect them.
   - Phase 3 measures how often the limit fires on production-like hardware (review of PR #62,
     Low 3).
 - **Validation.** Every plan passes `GeneratedItineraryInvariantValidator`.
+- **Scope of the optimality claims (audit 2026-11-09).** "The CSP plan is never worse than the
+  heuristic plan" and every benchmark gate describe the solver output, before
+  `TimeOfDayRefiner`.
+  - For a plan without `ModelObjective` (every `Lexicographic` plan), the refiner may reorder the
+    same visits. It does so only when the time-of-day score is strictly higher and the trip ends at
+    most `NormalExtraMinutes` (15) later, or `SunriseExtraMinutes` (60) for an early trip with a
+    sunrise spot.
+  - The refiner bounds the end time, not the travel minutes. A reorder can add travel, and more
+    than the 15 minutes when it removes a wait for opening hours. On the synthetic corpus,
+    reordered plans added 11–14% travel (for example 105 → 120 minutes with 11 visits).
+  - Documents describe the final itinerary as "the CSP selects the visits and the fewest travel
+    minutes; the order is then adjusted for the time of day, ending at most 15 minutes later".
+    They do not describe it as minimizing travel.
+  - A travel cap on the refiner is deferred until real-data evidence shows a material increase
+    (developer decision, 2026-11-09). `WeightedUtility` plans are not reordered, because their
+    objective already contains TimeFit (acceptance criterion 10).
+- **Rest places versus places to visit (audit 2026-11-09, rest-stop selection 2026-11-11).**
+  - Food & Drink places (restaurant, café, coffee shop, rest area or rest stop) are rest-only. Generation
+    never suggests them as visits; a traveler adds them, or makes them mandatory (REVIEW2 D2).
+  - Sheltered beach, park, theme park, water park and natural attraction places are visit candidates in
+    both solvers and in the weighted inputs, and never host a rest stop
+    (`specs/UC-10-rest-stop-selection-spec.md`). `ItineraryScheduleEvaluator.IsRestOnlyCandidate` (visit
+    eligibility) and `IsQualifiedRestCandidate` (rest eligibility) therefore select the same set.
+  - A rest place adds at most `MaxRestDetourMinutes` (10) of travel; otherwise the plan gets free rest time.
+  - A place visited earlier in the same itinerary, for example a café the traveler added, is not chosen as a
+    later rest stop. The evaluator, the legacy baseline and the invariant validator apply the same rule to the
+    visits made so far.
+  - In `WeightedUtility`, only a rest-only visit resets the fatigue counter (`IsRestStop`).
 
 ## Evaluation that motivates this specification
 
@@ -919,3 +988,9 @@ reverted and the switch ships later as its own change (developer decision, 2026-
 7. When the wall-clock safety limit fires, the returned itinerary equals the heuristic result
    exactly and is diagnosed as `CspFallback`.
 8. The aggregate diagnostic names the solver used and never contains user or POI identity.
+9. Under `Csp.Mode = WeightedUtility`, Regenerate supplies weighted inputs, accepts tier-adjusted
+   candidates without violating the `[0,1]` invariant, and returns a new version or a business
+   failure instead of throwing.
+10. When a generated plan contains `ModelObjective`, `TimeOfDayRefiner` preserves the solver's
+    selected visits, order, schedule, and objective. It may only add recommendation reasons.
+    Plans without `ModelObjective` retain the existing time-of-day reorder behavior.

@@ -27,7 +27,7 @@ public class RejectOperatorApplicationCommandHandlerTests
     public RejectOperatorApplicationCommandHandlerTests()
     {
         _currentUserService.UserId = 100;
-        _currentUserService.Role = "Administrator";
+        _currentUserService.Role = "Staff";
         _handler = new RejectOperatorApplicationCommandHandler(_dbContext, _currentUserService, _dateTimeProvider);
     }
 

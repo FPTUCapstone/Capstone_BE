@@ -33,7 +33,7 @@ public sealed class PersonalizationBaseScorerTests
     {
         decimal result = Score(Features(categoryAffinity: 1m), 0m);
 
-        result.Should().Be(0.300m);
+        result.Should().Be(0.450m);
     }
 
     [Fact]
@@ -41,7 +41,7 @@ public sealed class PersonalizationBaseScorerTests
     {
         decimal result = Score(Features(tagAffinity: 1m), 0m);
 
-        result.Should().Be(0.200m);
+        result.Should().Be(0.350m);
     }
 
     [Fact]
@@ -49,7 +49,7 @@ public sealed class PersonalizationBaseScorerTests
     {
         decimal result = Score(Features(), 1m);
 
-        result.Should().Be(0.250m);
+        result.Should().Be(0.100m);
     }
 
     [Fact]
@@ -57,7 +57,7 @@ public sealed class PersonalizationBaseScorerTests
     {
         decimal result = Score(Features(scenicQuality: 1m), 0m);
 
-        result.Should().Be(0.125m);
+        result.Should().Be(0.050m);
     }
 
     [Fact]
@@ -65,7 +65,7 @@ public sealed class PersonalizationBaseScorerTests
     {
         decimal result = Score(Features(photoQuality: 1m), 0m);
 
-        result.Should().Be(0.125m);
+        result.Should().Be(0.050m);
     }
 
     [Fact]
@@ -79,7 +79,7 @@ public sealed class PersonalizationBaseScorerTests
                 photoQuality: 1m),
             personalBehaviorAffinity: 0.4m);
 
-        result.Should().Be(0.61m);
+        result.Should().Be(0.67m);
     }
 
     [Fact]
@@ -87,7 +87,7 @@ public sealed class PersonalizationBaseScorerTests
     {
         decimal result = Score(Features(), personalBehaviorAffinity: 0.5m);
 
-        result.Should().Be(0.125m);
+        result.Should().Be(0.050m);
     }
 
     [Fact]
@@ -97,7 +97,7 @@ public sealed class PersonalizationBaseScorerTests
             Features(scenicQuality: 0.6m, photoQuality: 0.4m),
             personalBehaviorAffinity: 0.8m);
 
-        result.Should().Be(0.325m);
+        result.Should().Be(0.130m);
     }
 
     [Fact]
@@ -166,8 +166,8 @@ public sealed class PersonalizationBaseScorerTests
                 photoQuality: 1m),
             personalBehaviorAffinity: 1m);
 
-        preferenceMatchScore.Should().Be(0.300m);
-        highSignalScore.Should().Be(0.700m);
+        preferenceMatchScore.Should().Be(0.450m);
+        highSignalScore.Should().Be(0.550m);
         highSignalScore.Should().BeGreaterThan(preferenceMatchScore);
     }
 

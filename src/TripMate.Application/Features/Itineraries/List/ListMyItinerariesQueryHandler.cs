@@ -22,13 +22,32 @@ public sealed class ListMyItinerariesQueryHandler(
         ListMyItinerariesQuery request,
         CancellationToken cancellationToken)
     {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await dbContext.ExecuteInSerializableTransactionAsync(
+                    token => ReadAsync(request, token), cancellationToken);
+            }
+            catch (Exception exception) when (attempt < 3 && dbContext.IsDeadlock(exception))
+            {
+                dbContext.ClearTrackedEntities();
+            }
+        }
+    }
+
+    private async Task<Result<ItinerarySummaryPage>> ReadAsync(
+        ListMyItinerariesQuery request,
+        CancellationToken cancellationToken)
+    {
         var travelerUserId = request.TravelerUserId;
         var ownedRequestIds = dbContext.Itineraries
             .Where(itinerary => itinerary.TravelerUserId == travelerUserId
                 && itinerary.SchedulingRequestId != null)
             .Select(itinerary => itinerary.SchedulingRequestId);
         var groupRequestIds = dbContext.TravelGroups
-            .Where(group => group.Itinerary.SchedulingRequestId != null
+            .Where(group => group.Status == TravelGroupStatus.Active
+                && group.Itinerary.SchedulingRequestId != null
                 && group.GroupMembers.Any(member =>
                     member.UserId == travelerUserId
                     && member.Status == GroupMemberStatus.Active))
@@ -53,13 +72,18 @@ public sealed class ListMyItinerariesQueryHandler(
         var openRequestId = openSession?.SchedulingRequestId;
         var nowUtc = clock.UtcNow;
 
-        // The trip in progress comes first, then Active trips that have not ended yet (soonest
-        // first), then drafts with the one just planned or regenerated on top (a new version gets
-        // a new id), then everything else from the newest start. Pages stay stable because the
-        // order ends on the unique id.
-        var summaries = offset >= totalCount
-            ? []
-            : await accessible
+        var sortByNewest = string.Equals(
+            request.Sort?.Trim(),
+            ListMyItinerariesQuery.NewestSort,
+            StringComparison.OrdinalIgnoreCase);
+
+        // The default order puts the trip in progress first, then Active trips that have not ended
+        // yet (soonest first), then drafts with the one just planned or regenerated on top (a new
+        // version gets a new id), then everything else from the newest start. `sort=newest` orders
+        // strictly by descending itinerary id so freshly created or regenerated plans appear first.
+        var ordered = sortByNewest
+            ? accessible.OrderByDescending(itinerary => itinerary.Id)
+            : accessible
                 .OrderByDescending(itinerary => itinerary.Id == openItineraryId
                     || (openRequestId != null && itinerary.SchedulingRequestId == openRequestId))
                 .ThenByDescending(itinerary => itinerary.Status == Itinerary.ActiveStatus
@@ -76,7 +100,11 @@ public sealed class ListMyItinerariesQueryHandler(
                     : (long?)null)
                 .ThenBy(itinerary => itinerary.ValidFromUtc == null)
                 .ThenByDescending(itinerary => itinerary.ValidFromUtc)
-                .ThenByDescending(itinerary => itinerary.Id)
+                .ThenByDescending(itinerary => itinerary.Id);
+
+        var summaries = offset >= totalCount
+            ? []
+            : await ordered
                 .Skip((int)offset)
                 .Take(request.PageSize)
                 .Select(itinerary => new ItinerarySummaryResponse(
@@ -89,16 +117,55 @@ public sealed class ListMyItinerariesQueryHandler(
                     itinerary.ValidToUtc,
                     itinerary.TravelerUserId == travelerUserId,
                     itinerary.Items.Count(item => item.Kind == ItineraryItemKind.Visit),
+                    null,
+                    itinerary.CreatedAtUtc,
+                    itinerary.SchedulingRequest != null
+                        ? (TransportMode?)itinerary.SchedulingRequest.TransportMode
+                        : null,
                     null))
                 .ToListAsync(cancellationToken);
 
-        var items = openSession is null
-            ? summaries
-            : summaries
-                .Select(summary => IsSameTrip(summary, openSession)
+        IReadOnlyDictionary<long, IReadOnlyList<string>> previewLookup =
+            new Dictionary<long, IReadOnlyList<string>>();
+        if (summaries.Count > 0)
+        {
+            var itineraryIds = summaries.Select(summary => summary.ItineraryId).ToArray();
+            var stopRows = await dbContext.ItineraryItems
+                .AsNoTracking()
+                .Where(item => itineraryIds.Contains(item.ItineraryId)
+                    && item.Kind == ItineraryItemKind.Visit
+                    && item.PointOfInterest != null)
+                .OrderBy(item => item.ItineraryId)
+                .ThenBy(item => item.SequenceNo)
+                .Select(item => new { item.ItineraryId, Name = item.PointOfInterest!.Name })
+                .ToListAsync(cancellationToken);
+
+            previewLookup = stopRows
+                .GroupBy(row => row.ItineraryId)
+                .ToDictionary(
+                    group => group.Key,
+                    group => (IReadOnlyList<string>)group
+                        .Select(row => row.Name?.Trim())
+                        .Where(name => !string.IsNullOrWhiteSpace(name))
+                        .Take(3)
+                        .Select(name => name!)
+                        .ToArray());
+        }
+
+        var items = summaries
+            .Select(summary =>
+            {
+                var updated = openSession is not null && IsSameTrip(summary, openSession)
                     ? summary with { OpenNavigationSessionId = openSession.SessionId }
-                    : summary)
-                .ToList();
+                    : summary;
+                return updated with
+                {
+                    PreviewStopNames = previewLookup.TryGetValue(summary.ItineraryId, out var names)
+                        ? names
+                        : [],
+                };
+            })
+            .ToList();
 
         return Result.Success(new ItinerarySummaryPage(
             items,

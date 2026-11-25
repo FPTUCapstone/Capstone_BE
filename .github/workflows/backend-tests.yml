@@ -30,7 +30,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
       redis:
-        image: redis:7-alpine
+        image: redis:8.2-alpine
         ports:
           - 6379:6379
         options: >-
@@ -62,6 +62,20 @@ jobs:
         shell: bash
         run: test -n "$TRIPMATE_REDIS_TEST_CONNECTION"
 
+      - name: Configure Redis 8.2 durability for audit tests
+        shell: bash
+        run: |
+          redis_container="${{ job.services.redis.id }}"
+          test -n "$redis_container"
+          docker exec "$redis_container" redis-cli --raw INFO server \
+            | tr -d '\r' | grep -Eq '^redis_version:8\.2\.'
+          docker exec "$redis_container" redis-cli CONFIG SET appendonly yes
+          docker exec "$redis_container" redis-cli CONFIG SET appendfsync always
+          docker exec "$redis_container" redis-cli --raw CONFIG GET appendonly \
+            | grep -qx 'yes'
+          docker exec "$redis_container" redis-cli --raw CONFIG GET appendfsync \
+            | grep -qx 'always'
+
       - name: Verify formatting of changed C# files
         shell: bash
         run: |
@@ -84,10 +98,13 @@ jobs:
       - name: Run SQL Server integration tests without skips
         shell: bash
         run: |
+          # Many test collections create and drop databases on one SQL Server service.
+          # Serialize collections to avoid connection timeouts and unrelated 500s under runner load.
           dotnet test tests/TripMate.Api.IntegrationTests/TripMate.Api.IntegrationTests.csproj \
             -c Release --no-restore --filter "Category=SqlServer" \
             --logger "trx;LogFileName=sql-server.trx" \
-            --results-directory "$RUNNER_TEMP/tm70-sql"
+            --results-directory "$RUNNER_TEMP/tm70-sql" \
+            -- xUnit.ParallelizeTestCollections=false
           python3 - "$RUNNER_TEMP/tm70-sql/sql-server.trx" <<'PY'
           import sys
           import xml.etree.ElementTree as ET
@@ -135,3 +152,16 @@ jobs:
       # so exclude them here instead of executing them a second time.
       - name: Run remaining tests
         run: dotnet test TripMate.slnx -c Release --no-restore --filter "Category!=SqlServer&Category!=Redis"
+
+      # Failed integration assertions carry the server-side diagnostics in their TRX error text.
+      # Keep the TRX files so an intermittent failure can be investigated after the run ends.
+      - name: Upload integration test results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-results
+          path: |
+            ${{ runner.temp }}/tm70-sql/*.trx
+            ${{ runner.temp }}/uc10-redis/*.trx
+          if-no-files-found: ignore
+          retention-days: 7

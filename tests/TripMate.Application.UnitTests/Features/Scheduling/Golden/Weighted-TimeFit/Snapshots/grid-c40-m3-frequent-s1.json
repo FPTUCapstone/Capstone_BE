@@ -1,0 +1,32 @@
+{
+  "ScenarioId": "grid-c40-m3-frequent-s1",
+  "Source": "GroupA_Grid",
+  "Feasible": true,
+  "BestModelObjective": 9021,
+  "BestEvaluatedObjective": 12502,
+  "BestVisitPoiIds": [
+    2,
+    11,
+    31,
+    3,
+    1
+  ],
+  "EliteModelObjectives": [],
+  "EliteVisitIds": [],
+  "BestTravelMinutes": 80,
+  "BestDurationMinutes": 325,
+  "BestEstimatedCost": 75000,
+  "EndAtUtc": "2026-10-20T06:25:00+00:00",
+  "NodesExpanded": 200000,
+  "PrunedByConstraints": 82647,
+  "PrunedByForwardChecking": 0,
+  "PrunedByBound": 50558,
+  "SolutionsFound": 199997,
+  "NodesToFirstSolution": 4,
+  "SearchCompleted": false,
+  "NodeLimitReached": true,
+  "TimeLimitReached": false,
+  "EvaluatorCalls": 6,
+  "UsedRelaxedRestModel": true,
+  "ChoseRelaxedRestModel": false
+}

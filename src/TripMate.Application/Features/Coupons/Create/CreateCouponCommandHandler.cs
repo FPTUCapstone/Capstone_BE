@@ -47,7 +47,7 @@ public sealed class CreateCouponCommandHandler(IApplicationDbContext dbContext, 
 
         // A coupon must only target a public tour. Keep legacy published records readable
         // while UC-35 transitions all new publication actions to TourStatus.Published.
-        if (tours.Any(tour => !IsPublicCouponTour(tour, now)))
+        if (tours.Any(tour => !CouponTourEligibility.IsEligible(tour, now)))
         {
             return Result.Failure<CreateCouponResponse>(
                 CouponErrorCodes.TourNotEligible,
@@ -95,9 +95,5 @@ public sealed class CreateCouponCommandHandler(IApplicationDbContext dbContext, 
             throw;
         }
     }
-    private static bool IsPublicCouponTour(Tour tour, DateTimeOffset now) =>
-        tour.Status == TourStatus.Published ||
-        (tour.Status == TourStatus.Approved && tour.PublishedAtUtc.HasValue && tour.PublishedAtUtc <= now);
-
     private static Result<CreateCouponResponse> Denied() => Result.Failure<CreateCouponResponse>(CouponErrorCodes.OperatorAccessRequired, "An active approved Tour Operator account is required.");
 }

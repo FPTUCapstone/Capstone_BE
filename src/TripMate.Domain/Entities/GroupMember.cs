@@ -71,6 +71,39 @@ public class GroupMember
         LocationSharingEnabled = false;
     }
 
+    public void Leave(DateTimeOffset leftAtUtc)
+    {
+        if (Status != GroupMemberStatus.Active)
+        {
+            throw new InvalidOperationException("Only an active member can leave a travel group.");
+        }
+
+        Status = GroupMemberStatus.Left;
+        LeftAtUtc = leftAtUtc;
+        LocationSharingEnabled = false;
+    }
+
+    public void Remove(DateTimeOffset removedAtUtc)
+    {
+        if (Status != GroupMemberStatus.Active)
+        {
+            throw new InvalidOperationException("Only an active member can be removed from a travel group.");
+        }
+
+        Status = GroupMemberStatus.Removed;
+        LeftAtUtc = removedAtUtc;
+        LocationSharingEnabled = false;
+    }
+
+    public long? LastReadChatMessageId { get; private set; }
+
+    public void AdvanceChatReadCursor(long messageId)
+    {
+        if (messageId <= 0) throw new ArgumentOutOfRangeException(nameof(messageId));
+        if (!LastReadChatMessageId.HasValue || messageId > LastReadChatMessageId.Value)
+            LastReadChatMessageId = messageId;
+    }
+
     public long GroupId { get; private set; }
 
     public TravelGroup TravelGroup { get; private set; } = null!;

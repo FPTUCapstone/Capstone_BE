@@ -329,8 +329,9 @@ public sealed class TripAlertsEndpointTests
     [Fact]
     public async Task GetWeatherAdvisories_ProviderDisabled_ReturnsEmptyList200()
     {
-        // By default OpenWeather:Enabled is false in test environment
-        await using var factory = new TripMateApiFactory();
+        // By default Tomorrow:Enabled is false in test environment
+        await using var factory = new TripMateApiFactory(
+            dateTimeProviderFactory: _ => new FixedClock(TestBaseTime));
         SeedData seed = null!;
         await factory.WithDbContextAsync(async db => seed = await SeedScenarioAsync(db));
 
@@ -354,7 +355,9 @@ public sealed class TripAlertsEndpointTests
             Condition: "Moderate rain",
             OfficialAlerts: Array.Empty<TripWeatherOfficialAlert>());
 
-        await using var factory = new TripMateApiFactory(configureTestServices: services =>
+        await using var factory = new TripMateApiFactory(
+            dateTimeProviderFactory: _ => new FixedClock(TestBaseTime),
+            configureTestServices: services =>
         {
             services.RemoveAll<ITripWeatherProvider>();
             services.AddSingleton<ITripWeatherProvider>(new StubWeatherProvider(stubSnapshot));
@@ -375,8 +378,55 @@ public sealed class TripAlertsEndpointTests
         var advisory = advisories!.First();
         advisory.Severity.Should().Be(WeatherAdvisoryResponse.InfoSeverity);
         advisory.MessageCode.Should().Be(WeatherAdvisoryResponse.ModerateRainMessageCode);
-        advisory.RainMmPerHour.Should().Be(5.0);
+        advisory.RainIntensityMmPerHour.Should().Be(5.0);
         advisory.Condition.Should().Be("Moderate rain");
+    }
+
+    [Fact]
+    public async Task MalformedPayload_ReturnsBadRequest_WithoutStackTrace()
+    {
+        await using var factory = new TripMateApiFactory();
+        SeedData seed = null!;
+        await factory.WithDbContextAsync(async db => seed = await SeedScenarioAsync(db));
+
+        using var client = factory.CreateAuthenticatedClient(seed.TravelerId, UserRole.Traveler);
+
+        using var malformedContent = new StringContent(
+            "{\"eventId\": \"not-a-guid\", \"detectedAt\": \"invalid-date\",}",
+            System.Text.Encoding.UTF8,
+            "application/json");
+
+        var response = await client.PostAsync(
+            $"/api/v1/navigation-sessions/{seed.SessionId}/deviations",
+            malformedContent);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await response.Content.ReadAsStringAsync();
+        body.ToLowerInvariant().Should().NotContain("stacktrace");
+        body.Should().NotContain("at TripMate");
+    }
+
+    [Fact]
+    public async Task UnsupportedContentType_ReturnsUnsupportedMediaType()
+    {
+        await using var factory = new TripMateApiFactory();
+        SeedData seed = null!;
+        await factory.WithDbContextAsync(async db => seed = await SeedScenarioAsync(db));
+
+        using var client = factory.CreateAuthenticatedClient(seed.TravelerId, UserRole.Traveler);
+
+        using var textContent = new StringContent(
+            "plain text body",
+            System.Text.Encoding.UTF8,
+            "text/plain");
+
+        var response = await client.PostAsync(
+            $"/api/v1/navigation-sessions/{seed.SessionId}/deviations",
+            textContent);
+
+        response.StatusCode.Should().Be(HttpStatusCode.UnsupportedMediaType);
+        var body = await response.Content.ReadAsStringAsync();
+        body.ToLowerInvariant().Should().NotContain("stacktrace");
     }
 
     #endregion
@@ -441,6 +491,8 @@ public sealed class TripAlertsEndpointTests
             traveler.Id,
             now,
             indoorOutdoor: IndoorOutdoorType.Outdoor)).ToArray();
+        foreach (var poi in pois)
+            poi.ReviewIndoorOutdoor(IndoorOutdoorType.Outdoor, now);
         db.PointsOfInterest.AddRange(pois);
         await db.SaveChangesAsync(CancellationToken.None);
 
@@ -532,6 +584,11 @@ public sealed class TripAlertsEndpointTests
         public Task<TripWeatherSnapshot?> GetAsync(
             WeatherForecastRequest request,
             CancellationToken cancellationToken) => Task.FromResult(snapshot);
+    }
+
+    private sealed class FixedClock(DateTimeOffset now) : IDateTimeProvider
+    {
+        public DateTimeOffset UtcNow => now;
     }
 
     #endregion

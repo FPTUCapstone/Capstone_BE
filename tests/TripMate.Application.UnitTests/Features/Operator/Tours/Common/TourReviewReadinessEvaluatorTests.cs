@@ -36,6 +36,13 @@ public sealed class TourReviewReadinessEvaluatorTests
             .Should().Equal(expected);
     }
 
+    [Fact]
+    public void Evaluate_MandatoryDataAndItineraryHaveStableBlockerCodes()
+    {
+        TourReviewReadinessEvaluator.Evaluate(new TourReviewFacts(true, true, true, true, false, false))
+            .Should().Equal("required_fields_missing", "itinerary_missing");
+    }
+
     [Theory]
     [InlineData(TourStatus.Draft, true)]
     [InlineData(TourStatus.Rejected, true)]

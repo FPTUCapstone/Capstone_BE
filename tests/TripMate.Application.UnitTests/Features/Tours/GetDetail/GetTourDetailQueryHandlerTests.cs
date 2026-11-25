@@ -42,6 +42,50 @@ public sealed class GetTourDetailQueryHandlerTests
     }
 
     [Fact]
+    public async Task Handle_ReturnsOnlyPublishedReviewContentAndSafeDisplayNames()
+    {
+        await using var db = await CreateDatabaseAsync();
+        var tour = await PublicTourTestData.AddTourAsync(db, 7, TourStatus.Published);
+        var anonymous = TripReview.CreatePublished(501, 99, tour.Id, null, 5,
+            "Great trip", "Published content", null, null, false, "Private Name", "policy-v1", Now);
+        var named = TripReview.CreatePublished(502, 100, tour.Id, null, 1,
+            "Another trip", "Another published review", null, null, true, "Public Name", "policy-v1", Now.AddMinutes(1));
+        var rejected = TripReview.CreatePublished(503, 101, tour.Id, null, 3,
+            "Rejected title", "Rejected content", null, null, true, "Hidden Name", "policy-v1", Now);
+        typeof(TripReview).GetProperty(nameof(TripReview.PublicationStatus))!.SetValue(rejected, "Rejected");
+        db.TripReviews.AddRange(anonymous, named, rejected);
+        await db.SaveChangesAsync();
+
+        var dto = (await CreateHandler(db).Handle(new GetTourDetailQuery(tour.Id), CancellationToken.None)).Value;
+        var json = System.Text.Json.JsonSerializer.SerializeToElement(dto,
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        var reviews = json.GetProperty("reviews").EnumerateArray().ToList();
+
+        dto.Rating.Count.Should().Be(2);
+        dto.Rating.Average.Should().Be(3);
+        reviews.Select(review => review.GetProperty("displayName").GetString())
+            .Should().Equal("Public Name", TripReview.NeutralDisplayName);
+        reviews[0].EnumerateObject().Select(property => property.Name).Should().BeEquivalentTo(
+            "reviewId", "displayName", "rating", "title", "content", "createdAtUtc", "updatedAtUtc");
+        json.ToString().Should().NotContain("Private Name").And.NotContain("Rejected content")
+            .And.NotContain("bookingId").And.NotContain("travelerUserId").And.NotContain("policy-v1");
+    }
+
+    [Fact]
+    public async Task Handle_ExcludesLegacyRatingsWithoutPublicationProvenance()
+    {
+        await using var db = await CreateDatabaseAsync();
+        var tour = await PublicTourTestData.AddTourAsync(db, 7, TourStatus.Published);
+        db.Reviews.Add(Review.Create(99, Review.TargetTypeTour, tour.Id, 1, Now));
+        await db.SaveChangesAsync();
+
+        var dto = (await CreateHandler(db).Handle(new GetTourDetailQuery(tour.Id), CancellationToken.None)).Value;
+
+        dto.Rating.Count.Should().Be(0);
+        dto.Rating.Average.Should().BeNull();
+    }
+
+    [Fact]
     public async Task Handle_ForAPublishedTour_ReturnsEveryDetailSection()
     {
         await using var db = await CreateDatabaseAsync();
@@ -196,16 +240,26 @@ public sealed class GetTourDetailQueryHandlerTests
     }
 
     [Fact]
+    public async Task Handle_WhenTimelineOverlaps_DepartureIsNotBookable()
+    {
+        await using var db = await CreateDatabaseAsync();
+        var tour = await PublicTourTestData.AddTourAsync(db, 7, TourStatus.Published);
+        var dto = (await CreateHandler(db).Handle(new GetTourDetailQuery(tour.Id), CancellationToken.None)).Value;
+        dto.HasBookableSchedule.Should().BeFalse();
+        dto.Schedules.Should().OnlyContain(schedule => !schedule.Bookable);
+    }
+
+    [Fact]
     public async Task Handle_ClassifiesAvailabilityAndBookability()
     {
         await using var db = await CreateDatabaseAsync();
         var tour = await PublicTourTestData.AddTourAsync(db, 7, TourStatus.Published, departures:
         [
-            (Now.AddDays(1), 10, 1_000_000m),
-            (Now.AddDays(2), 10, 1_000_000m),
-            (Now.AddDays(3), 10, 1_000_000m),
-            (Now.AddDays(4), 10, 1_000_000m),
-        ]);
+            (Now.AddDays(1).AddHours(-3), 10, 1_000_000m),
+            (Now.AddDays(2).AddHours(-3), 10, 1_000_000m),
+            (Now.AddDays(3).AddHours(-3), 10, 1_000_000m),
+            (Now.AddDays(4).AddHours(-3), 10, 1_000_000m),
+        ], stops: [(1, 1, 100L)]);
         var schedules = tour.Schedules.ToList();
         SetSchedule(schedules[0], reserved: 3);
         SetSchedule(schedules[1], reserved: 10);

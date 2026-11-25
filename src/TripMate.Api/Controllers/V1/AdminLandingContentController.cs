@@ -11,7 +11,7 @@ using TripMate.Domain.Enums;
 namespace TripMate.Api.Controllers.V1;
 
 /// <summary>UC-66 authoring API. The public landing page reads published snapshots only.</summary>
-[Authorize(Roles = nameof(UserRole.Administrator) + "," + nameof(UserRole.Staff))]
+[Authorize(Roles = nameof(UserRole.Staff))]
 [Route("api/v1/admin/landing-content")]
 public sealed class AdminLandingContentController(ISender sender) : ApiControllerBase(sender)
 {

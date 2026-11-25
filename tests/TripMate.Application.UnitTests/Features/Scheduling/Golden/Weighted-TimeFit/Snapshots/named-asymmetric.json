@@ -1,0 +1,52 @@
+{
+  "ScenarioId": "named-asymmetric",
+  "Source": "GroupB_Named",
+  "Feasible": true,
+  "BestModelObjective": 9188,
+  "BestEvaluatedObjective": 9188,
+  "BestVisitPoiIds": [
+    101,
+    201,
+    202
+  ],
+  "EliteModelObjectives": [
+    9188,
+    4678,
+    2639,
+    -1571
+  ],
+  "EliteVisitIds": [
+    [
+      101,
+      201,
+      202
+    ],
+    [
+      101,
+      201
+    ],
+    [
+      101,
+      202
+    ],
+    [
+      101
+    ]
+  ],
+  "BestTravelMinutes": 45,
+  "BestDurationMinutes": 180,
+  "BestEstimatedCost": 30000,
+  "EndAtUtc": "2026-10-20T04:00:00+00:00",
+  "NodesExpanded": 7,
+  "PrunedByConstraints": 0,
+  "PrunedByForwardChecking": 0,
+  "PrunedByBound": 3,
+  "SolutionsFound": 4,
+  "NodesToFirstSolution": 2,
+  "SearchCompleted": true,
+  "NodeLimitReached": false,
+  "TimeLimitReached": false,
+  "EvaluatorCalls": 2,
+  "UsedRelaxedRestModel": false,
+  "ChoseRelaxedRestModel": false
+}

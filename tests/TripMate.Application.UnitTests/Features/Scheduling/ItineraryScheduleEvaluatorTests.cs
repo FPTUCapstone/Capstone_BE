@@ -1,7 +1,9 @@
 using FluentAssertions;
 
 using TripMate.Application.Features.Scheduling.Common;
+using TripMate.Application.Features.Scheduling.Routing;
 using TripMate.Application.UnitTests.Features.Scheduling.Fixtures;
+using TripMate.Domain.Constants;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Application.UnitTests.Features.Scheduling;
@@ -92,5 +94,163 @@ public sealed class ItineraryScheduleEvaluatorTests
         var act = () => _evaluator.Evaluate(input, [matrixCandidates[0]], matrix, matrixCandidates, indexMap, cts.Token);
 
         act.Should().Throw<OperationCanceledException>();
+    }
+
+    [Theory]
+    [InlineData("Food & Drink")]
+    [InlineData("food & drink")]
+    [InlineData("FOOD & DRINK")]
+    [InlineData("cafe")]
+    [InlineData("restaurant")]
+    [InlineData("coffee shop")]
+    public void IsRestCategory_WithFoodAndDrinkOrLegacyAliases_ReturnsTrue(string category)
+    {
+        ItineraryScheduleEvaluator.IsRestCategory(category).Should().BeTrue();
+    }
+
+    [Fact]
+    public void RoutingContext_WhenFoodAndDrinkPoiIsNotMandatory_ExcludesItFromNodes()
+    {
+        var (input, _) = OptionalRouteOptimizationScenarios.CreateZigzagScenario();
+        var foodCandidate = OptionalRouteOptimizationScenarios.CreateCandidate(999, "Quan An", 45, 50_000m, 0.9m) with
+        {
+            CategoryName = PoiCategoryNames.FoodAndDrink
+        };
+        var candidates = input.Candidates.Append(foodCandidate).ToArray();
+        var indexMap = candidates.Select((c, i) => new { c.Id, Index = i + 1 }).ToDictionary(x => x.Id, x => x.Index);
+        var matrixWithFood = RouteDurationMatrix.Create(new int[candidates.Length + 2, candidates.Length + 2]);
+
+        var options = new SchedulingGenerationOptions();
+        var ctx = RoutingContext.Create(input, matrixWithFood, candidates, indexMap, options, options.MiniRouting);
+
+        ctx.Nodes.Select(n => n.Candidate.Id).Should().NotContain(999L);
+    }
+
+    [Fact]
+    public void RoutingContext_WhenFoodAndDrinkPoiIsMandatory_IncludesItInNodes()
+    {
+        var (input, _) = OptionalRouteOptimizationScenarios.CreateZigzagScenario();
+        var foodCandidate = OptionalRouteOptimizationScenarios.CreateCandidate(999, "Quan An", 45, 50_000m, 0.9m) with
+        {
+            CategoryName = PoiCategoryNames.FoodAndDrink
+        };
+        var candidates = input.Candidates.Append(foodCandidate).ToArray();
+        var indexMap = candidates.Select((c, i) => new { c.Id, Index = i + 1 }).ToDictionary(x => x.Id, x => x.Index);
+        var matrixWithFood = RouteDurationMatrix.Create(new int[candidates.Length + 2, candidates.Length + 2]);
+        var inputWithMandatoryFood = input with
+        {
+            MandatoryPoiIds = input.MandatoryPoiIds.Append(999L).ToArray()
+        };
+
+        var options = new SchedulingGenerationOptions();
+        var ctx = RoutingContext.Create(inputWithMandatoryFood, matrixWithFood, candidates, indexMap, options, options.MiniRouting);
+
+        ctx.Nodes.Select(n => n.Candidate.Id).Should().Contain(999L);
+        ctx.Nodes.Single(n => n.Candidate.Id == 999L).IsMandatory.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Evaluate_WhenRestNeeded_SelectsFoodAndDrinkCandidateAsRestStop()
+    {
+        var (baseInput, _) = OptionalRouteOptimizationScenarios.CreateZigzagScenario();
+        var c101 = OptionalRouteOptimizationScenarios.CreateCandidate(101, "Stop 1", visitDurationMinutes: 160, cost: 20_000m, effectiveDesirabilityScore: 1.0m);
+        var c102 = OptionalRouteOptimizationScenarios.CreateCandidate(102, "Stop 2", visitDurationMinutes: 60, cost: 20_000m, effectiveDesirabilityScore: 1.0m);
+        var restCandidate = OptionalRouteOptimizationScenarios.CreateCandidate(888, "Rest Stop", visitDurationMinutes: 30, cost: 20_000m, effectiveDesirabilityScore: 0.5m) with
+        {
+            CategoryName = PoiCategoryNames.FoodAndDrink
+        };
+        var candidates = new[] { c101, c102, restCandidate };
+        var indexMap = candidates.Select((c, i) => new { c.Id, Index = i + 1 }).ToDictionary(x => x.Id, x => x.Index);
+        var matrix = RouteDurationMatrix.Create(new int[candidates.Length + 2, candidates.Length + 2]);
+
+        var inputWithRest = baseInput with
+        {
+            AvailableMinutes = 600,
+            Candidates = candidates,
+            MandatoryPoiIds = [101L, 102L],
+            RestPreference = RestPreference.Auto
+        };
+
+        var sequence = new[] { c101, c102 };
+        var evaluated = _evaluator.Evaluate(inputWithRest, sequence, matrix, candidates, indexMap);
+
+        evaluated.Should().NotBeNull();
+        evaluated!.Plan.Items.Should().Contain(it => it.Kind == ItineraryItemKind.Rest && it.PointOfInterestId == 888L);
+    }
+
+    [Theory]
+    [InlineData("Theme park")]
+    [InlineData("Park")]
+    [InlineData("Beach")]
+    [InlineData("Natural attraction")]
+    [InlineData("Water park")]
+    public void RoutingContext_WhenShelteredOutdoorPoiIsOptional_IncludesItInNodes(string category)
+    {
+        var (input, _) = OptionalRouteOptimizationScenarios.CreateZigzagScenario();
+        var sheltered = OptionalRouteOptimizationScenarios.CreateCandidate(999, "Sheltered", 90, 50_000m, 0.9m) with
+        {
+            CategoryName = category,
+            HasShelter = true,
+        };
+        var candidates = input.Candidates.Append(sheltered).ToArray();
+        var indexMap = candidates.Select((c, i) => new { c.Id, Index = i + 1 }).ToDictionary(x => x.Id, x => x.Index);
+        var matrix = RouteDurationMatrix.Create(new int[candidates.Length + 2, candidates.Length + 2]);
+
+        var options = new SchedulingGenerationOptions();
+        var ctx = RoutingContext.Create(input, matrix, candidates, indexMap, options, options.MiniRouting);
+
+        ctx.Nodes.Select(n => n.Candidate.Id).Should().Contain(999L);
+        ItineraryScheduleEvaluator.IsQualifiedRestCandidate(sheltered).Should().BeFalse("a sheltered attraction is a place to visit, not a rest stop");
+        ItineraryScheduleEvaluator.IsRestOnlyCandidate(sheltered).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData(RestPreference.Auto, false)]
+    [InlineData(RestPreference.Frequent, true)]
+    public void Evaluate_AfterDining_NeverReusesTheMealAsAnAutomaticRest(RestPreference preference, bool needsLaterRest)
+    {
+        var (baseInput, _) = OptionalRouteOptimizationScenarios.CreateZigzagScenario();
+        var visitedCafe = OptionalRouteOptimizationScenarios.CreateCandidate(1, "Cafe the traveler added", visitDurationMinutes: 160, cost: 20_000m, effectiveDesirabilityScore: 1.0m) with
+        {
+            CategoryName = PoiCategoryNames.FoodAndDrink,
+            HasShelter = true,
+        };
+        var museum = OptionalRouteOptimizationScenarios.CreateCandidate(2, "Museum", visitDurationMinutes: 150, cost: 20_000m, effectiveDesirabilityScore: 1.0m);
+        var cafe = OptionalRouteOptimizationScenarios.CreateCandidate(3, "Cafe", visitDurationMinutes: 30, cost: 20_000m, effectiveDesirabilityScore: 0.5m) with
+        {
+            CategoryName = PoiCategoryNames.FoodAndDrink,
+        };
+        var candidates = new[] { visitedCafe, museum, cafe };
+        var indexMap = candidates.Select((c, i) => new { c.Id, Index = i + 1 }).ToDictionary(x => x.Id, x => x.Index);
+        var minutes = new int[5, 5];
+        for (var from = 0; from < 5; from++)
+        {
+            for (var to = 0; to < 5; to++)
+            {
+                minutes[from, to] = from == to ? 0 : 10;
+            }
+        }
+
+        var matrix = RouteDurationMatrix.Create(minutes);
+        var input = baseInput with
+        {
+            AvailableMinutes = 600,
+            Candidates = candidates,
+            MandatoryPoiIds = [2L],
+            RestPreference = preference,
+        };
+
+        // Dining satisfies Auto rest. Frequent may need a later rest, but must never reuse the explicit meal POI.
+        var evaluated = _evaluator.Evaluate(input, [visitedCafe, museum], matrix, candidates, indexMap);
+
+        evaluated.Should().NotBeNull();
+        evaluated!.Plan.Items.Any(it => it.Kind == ItineraryItemKind.Rest).Should().Be(needsLaterRest);
+        evaluated.Plan.Items.Should().NotContain(it => it.Kind == ItineraryItemKind.Rest && it.PointOfInterestId == 1L);
+        if (needsLaterRest)
+        {
+            evaluated.Plan.Items.Single(it => it.Kind == ItineraryItemKind.Rest).PointOfInterestId.Should().Be(3L);
+        }
+        var validate = () => new GeneratedItineraryInvariantValidator().Validate(input, matrix, candidates, evaluated.Plan);
+        validate.Should().NotThrow();
     }
 }

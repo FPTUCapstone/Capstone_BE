@@ -33,7 +33,8 @@ public sealed class CreatePoiCommandValidator : AbstractValidator<CreatePoiComma
                 $"'{{PropertyName}}' must be {PointOfInterest.DescriptionMaxLength} characters or fewer after trimming.");
 
         RuleFor(command => command.IndoorOutdoor)
-            .Must(value => value is null || Enum.IsDefined(value.Value))
+            .NotNull().WithMessage("Select Indoor, Outdoor, or Mixed after reviewing the POI.")
+            .Must(value => value.HasValue && Enum.IsDefined(value.Value))
             .WithMessage("Indoor/outdoor must be Indoor, Outdoor, or Mixed.");
 
         RuleFor(command => command.AverageVisitDurationMinutes)

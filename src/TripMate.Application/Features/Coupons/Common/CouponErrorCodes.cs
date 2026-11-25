@@ -10,4 +10,5 @@ public static class CouponErrorCodes
     public const string CodeConflict = "coupon.code_conflict";
     public const string NotFound = "coupon.not_found";
     public const string InvalidState = "coupon.invalid_state";
+    public const string UsageConflict = "coupon.usage_conflict";
 }

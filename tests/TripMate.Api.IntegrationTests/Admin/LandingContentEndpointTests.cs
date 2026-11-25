@@ -55,10 +55,21 @@ public sealed class LandingContentEndpointTests
     }
 
     [Fact]
-    public async Task DraftThenPublish_WithAdministrator_ReturnsTheNextImmutableVersion()
+    public async Task Get_WithAdministratorRole_ReturnsForbidden()
     {
         await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
         using var client = CreateClient(factory, UserRole.Administrator);
+
+        var response = await client.GetAsync("/api/v1/admin/landing-content");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task DraftThenPublish_WithStaff_ReturnsTheNextImmutableVersion()
+    {
+        await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
+        using var client = CreateClient(factory, UserRole.Staff);
         await SeedPublishedVersionAsync(factory, "Before");
 
         var save = await client.PutAsync("/api/v1/admin/landing-content/draft", JsonBody(new
@@ -80,7 +91,7 @@ public sealed class LandingContentEndpointTests
     public async Task Upload_WithoutFile_ReturnsBadRequest()
     {
         await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
-        using var client = CreateClient(factory, UserRole.Administrator);
+        using var client = CreateClient(factory, UserRole.Staff);
         using var form = new MultipartFormDataContent();
 
         var response = await client.PostAsync("/api/v1/admin/landing-content/media", form);

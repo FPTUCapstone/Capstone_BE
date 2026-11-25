@@ -5,12 +5,14 @@ using TripMate.Application.Common.Models;
 namespace TripMate.Application.Features.Operator.Tours.Create;
 
 public sealed record CreateTourItineraryItemRequest(int DayNo, int SequenceNo, long PoiId,
-    TimeOnly? PlannedTime, int StayDurationMinutes, string? Notes);
+    TimeOnly? PlannedTime, int StayDurationMinutes, string? Notes,
+    bool? IsRequiredForWeather = null);
 
 public sealed record CreateTourScheduleRequest(DateTimeOffset StartAtUtc, DateTimeOffset EndAtUtc,
     string? MeetingPoint, int TotalCapacity, int MinimumCapacity = 1,
     DateTimeOffset? RegistrationDeadlineAtUtc = null, decimal? AdultPrice = null,
-    decimal? ChildPrice = null, decimal? InfantPrice = null);
+    decimal? ChildPrice = null, decimal? InfantPrice = null,
+    decimal? MeetingLatitude = null, decimal? MeetingLongitude = null);
 
 public sealed record CreateTourPackageCommand(string Title, string Description, int? CategoryId,
     decimal BasePrice, int DurationDays,

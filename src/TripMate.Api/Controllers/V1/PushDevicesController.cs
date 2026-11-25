@@ -13,7 +13,8 @@ using TripMate.Domain.Enums;
 namespace TripMate.Api.Controllers.V1;
 
 [ApiController]
-[Authorize(Roles = nameof(UserRole.Traveler))]
+[Authorize(Policy = global::TripMate.Api.Authorization.OperatorContractWorkspacePolicies.Workspace)]
+[Authorize(Roles = $"{nameof(UserRole.Traveler)},{nameof(UserRole.TourOperator)}")]
 [Route("api/v1/me/push-devices")]
 public sealed class PushDevicesController(
     ISender sender,

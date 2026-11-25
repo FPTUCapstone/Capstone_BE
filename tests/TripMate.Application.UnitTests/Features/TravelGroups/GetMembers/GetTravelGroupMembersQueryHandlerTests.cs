@@ -48,6 +48,48 @@ public sealed class GetTravelGroupMembersQueryHandlerTests
     }
 
     [Fact]
+    public async Task Handle_ClosedGroup_DoesNotExposeMembers()
+    {
+        await using var db = TestDbContext.Create();
+        var host = await AddTravelerAsync(db, "Former Host");
+        var group = TravelGroup.Create(10, host.Id, "Closed group", DateTimeOffset.UtcNow);
+        db.TravelGroups.Add(group);
+        var membership = GroupMember.CreateHost(group, host.Id, DateTimeOffset.UtcNow);
+        db.GroupMembers.Add(membership);
+        await db.SaveChangesAsync();
+        membership.Leave(DateTimeOffset.UtcNow);
+        group.Close(DateTimeOffset.UtcNow);
+        await db.SaveChangesAsync();
+
+        var result = await CreateHandler(db).Handle(
+            new GetTravelGroupMembersQuery(group.Id, host.Id), CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(TravelGroupErrorCodes.ActiveMembershipRequired);
+    }
+
+    [Fact]
+    public async Task Handle_ClosedGroup_ActiveMember_StillReadsMembersHistory()
+    {
+        await using var db = TestDbContext.Create();
+        var host = await AddTravelerAsync(db, "Closed Host");
+        var member = await AddTravelerAsync(db, "Closed Active Member");
+        var group = TravelGroup.Create(10, host.Id, "Closed Active Group", DateTimeOffset.UtcNow);
+        db.TravelGroups.Add(group);
+        db.GroupMembers.Add(GroupMember.CreateHost(group, host.Id, DateTimeOffset.UtcNow));
+        db.GroupMembers.Add(GroupMember.CreateMember(group, member.Id, DateTimeOffset.UtcNow));
+        typeof(TravelGroup).GetProperty(nameof(TravelGroup.Status))!
+            .SetValue(group, TravelGroupStatus.Closed);
+        await db.SaveChangesAsync();
+
+        var result = await CreateHandler(db).Handle(
+            new GetTravelGroupMembersQuery(group.Id, member.Id), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        result.Value.Members.Should().HaveCount(2);
+    }
+
+    [Fact]
     public async Task Handle_RemovedMember_ReturnsActiveMembershipRequired()
     {
         await using var db = TestDbContext.Create();

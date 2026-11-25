@@ -87,7 +87,9 @@ public sealed class GetItinerarySuggestionsQueryHandler(
         var nearest = places
             .Select(poi => (Poi: poi, Km: GeoDistance.EquirectangularKilometers(
                 anchorPoint.Item1, anchorPoint.Item2, poi.Latitude, poi.Longitude)))
-            .OrderBy(entry => entry.Poi.Category?.Name == category ? 0 : 1)
+            .OrderBy(entry => PoiCategoryNames.IsFoodAndDrink(category)
+                ? PoiCategoryNames.IsFoodAndDrink(entry.Poi.Category?.Name) ? 0 : 1
+                : entry.Poi.Category?.Name == category ? 0 : 1)
             .ThenBy(entry => entry.Km)
             .ThenBy(entry => entry.Poi.Id)
             .Take(GetItinerarySuggestionsQuery.CandidatesToEvaluate)
@@ -223,6 +225,8 @@ public sealed class GetItinerarySuggestionsQueryHandler(
             request.ExplorationLongitude,
             (int)Math.Ceiling(request.SearchRadiusKm));
         var isFood = PoiCategoryNames.IsFoodAndDrink(category);
+        var foodAliases = PoiCategoryNames.FoodAndDrinkAliases
+            .Select(alias => alias.ToLowerInvariant()).ToArray();
         var baseQuery = dbContext.PointsOfInterest
             .AsNoTracking()
             .Include(poi => poi.Category)
@@ -246,7 +250,7 @@ public sealed class GetItinerarySuggestionsQueryHandler(
         if (isFood)
         {
             var foodPlaces = await baseQuery
-                .Where(poi => poi.Category.Name == PoiCategoryNames.FoodAndDrink)
+                .Where(poi => foodAliases.Contains(poi.Category.Name.Trim().ToLower()))
                 .ToListAsync(cancellationToken);
             return FilterReady(foodPlaces);
         }
@@ -264,7 +268,7 @@ public sealed class GetItinerarySuggestionsQueryHandler(
         }
 
         var anyAttractions = await baseQuery
-            .Where(poi => poi.Category.Name != PoiCategoryNames.FoodAndDrink)
+            .Where(poi => !foodAliases.Contains(poi.Category.Name.Trim().ToLower()))
             .ToListAsync(cancellationToken);
         return FilterReady(anyAttractions);
     }

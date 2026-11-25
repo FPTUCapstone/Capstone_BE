@@ -37,8 +37,14 @@ public sealed class GetOperatorTourQueryHandler(
             return AccessDenied();
         }
 
+        return await ReadDetailAsync(request.TourId, operatorId, cancellationToken);
+    }
+
+    // Shared projection for the owned operator detail and the authorized Staff review detail.
+    internal async Task<Result<OperatorTourDetailDto>> ReadDetailAsync(long tourId, long? operatorId, CancellationToken cancellationToken)
+    {
         var tour = await dbContext.Tours.AsNoTracking()
-            .Where(candidate => candidate.Id == request.TourId && candidate.OperatorUserId == operatorId)
+            .Where(candidate => candidate.Id == tourId && (!operatorId.HasValue || candidate.OperatorUserId == operatorId.Value))
             .Select(candidate => new OperatorTourDetailDto(
                 candidate.Id,
                 candidate.Title,
@@ -67,7 +73,10 @@ public sealed class GetOperatorTourQueryHandler(
                     .ThenBy(item => item.SequenceNo)
                     .Select(item => new OperatorTourItineraryItemDto(
                         item.DayNo, item.SequenceNo, item.PoiId, item.PlannedTime,
-                        item.StayDurationMinutes, item.Notes))
+                        item.StayDurationMinutes, item.Notes)
+                    {
+                        IsRequiredForWeather = item.IsRequiredForWeather,
+                    })
                     .ToList(),
                 candidate.Schedules
                     .OrderBy(schedule => schedule.StartAtUtc)
@@ -78,7 +87,11 @@ public sealed class GetOperatorTourQueryHandler(
                         schedule.TotalCapacity, schedule.ReservedCapacity,
                         schedule.RegistrationDeadlineAtUtc, schedule.AdultPrice,
                         schedule.ChildPrice, schedule.InfantPrice,
-                        schedule.Status.ToString()))
+                        schedule.Status.ToString())
+                    {
+                        MeetingLatitude = schedule.MeetingLatitude,
+                        MeetingLongitude = schedule.MeetingLongitude,
+                    })
                     .ToList()))
             .SingleOrDefaultAsync(cancellationToken);
 
@@ -90,15 +103,25 @@ public sealed class GetOperatorTourQueryHandler(
         // Same evaluator as submit-review, so the hint shown to the operator matches what the command enforces.
         var terms = await dbContext.Tours.AsNoTracking()
             .Where(candidate => candidate.Id == tour.Id)
-            .Select(candidate => new { candidate.TimeZoneId, candidate.Highlights, candidate.TravellerRequirements })
+            .Select(candidate => new { candidate.TimeZoneId, candidate.Highlights, candidate.TravellerRequirements, candidate.SubmittedAtUtc, candidate.SubmissionNote })
             .SingleAsync(cancellationToken);
         string timeZoneId = string.IsNullOrWhiteSpace(terms.TimeZoneId) ? Tour.DefaultTimeZoneId : terms.TimeZoneId;
         var warnings = await BuildWarningsAsync(tour, timeZoneId, cancellationToken);
         var readiness = await TourReviewReadinessEvaluator.LoadAsync(
             dbContext, tour.Id, tour.CancellationPolicyTemplateId, clock.UtcNow, cancellationToken);
         bool editable = Enum.TryParse(tour.Status, out TourStatus status) && TourReviewReadinessEvaluator.IsEditable(status);
+        bool stopsClassified = tour.ItineraryItems.Count > 0
+            && tour.ItineraryItems.All(item => item.IsRequiredForWeather.HasValue);
+        var weatherIssues = new List<string>();
+        if (!stopsClassified) weatherIssues.Add(WeatherReadinessIssueCodes.StopClassificationMissing);
+        if (tour.Departures.Any(departure => departure.Status == nameof(TourScheduleStatus.Scheduled)
+            && (string.IsNullOrWhiteSpace(departure.MeetingPoint)
+                || !departure.MeetingLatitude.HasValue || !departure.MeetingLongitude.HasValue)))
+            weatherIssues.Add(WeatherReadinessIssueCodes.MeetingCoordinatesMissing);
         return Result.Success(tour with
         {
+            SubmittedAtUtc = terms.SubmittedAtUtc,
+            SubmissionNote = terms.SubmissionNote,
             MediaCount = readiness.MediaCount,
             HasPrimaryImage = readiness.HasPrimaryImage,
             ReviewBlockers = readiness.Blockers,
@@ -107,6 +130,15 @@ public sealed class GetOperatorTourQueryHandler(
             TimeZoneId = timeZoneId,
             Highlights = terms.Highlights,
             TravellerRequirements = terms.TravellerRequirements,
+            WeatherReadinessIssues = weatherIssues,
+            Departures = tour.Departures.Select(departure => departure with
+            {
+                WeatherReady = departure.Status == nameof(TourScheduleStatus.Scheduled)
+                    && stopsClassified
+                    && !string.IsNullOrWhiteSpace(departure.MeetingPoint)
+                    && departure.MeetingLatitude.HasValue
+                    && departure.MeetingLongitude.HasValue,
+            }).ToList(),
         });
     }
 

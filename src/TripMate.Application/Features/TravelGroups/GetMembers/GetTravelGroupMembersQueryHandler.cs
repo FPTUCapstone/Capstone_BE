@@ -19,9 +19,29 @@ public sealed class GetTravelGroupMembersQueryHandler(
         GetTravelGroupMembersQuery request,
         CancellationToken cancellationToken)
     {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                return await dbContext.ExecuteInSerializableTransactionAsync(
+                    token => ReadAsync(request, token), cancellationToken);
+            }
+            catch (Exception exception) when (attempt < 3 && dbContext.IsDeadlock(exception))
+            {
+                dbContext.ClearTrackedEntities();
+            }
+        }
+    }
+
+    private async Task<Result<GetTravelGroupMembersResponse>> ReadAsync(
+        GetTravelGroupMembersQuery request,
+        CancellationToken cancellationToken)
+    {
         var travelGroup = await dbContext.TravelGroups
             .AsNoTracking()
             .Where(travelGroup => travelGroup.Id == request.GroupId
+                && (travelGroup.Status == TravelGroupStatus.Active
+                    || travelGroup.Status == TravelGroupStatus.Closed)
                 && travelGroup.GroupMembers.Any(member =>
                     member.UserId == request.TravelerUserId
                     && member.Status == GroupMemberStatus.Active))
@@ -30,6 +50,7 @@ public sealed class GetTravelGroupMembersQueryHandler(
                 travelGroup.Id,
                 travelGroup.Name,
                 travelGroup.ItineraryId,
+                travelGroup.Status,
                 Members = travelGroup.GroupMembers
                     .Where(member => member.Status == GroupMemberStatus.Active)
                     .OrderByDescending(member => member.UserId == travelGroup.HostUserId)
@@ -62,7 +83,7 @@ public sealed class GetTravelGroupMembersQueryHandler(
 
         var members = travelGroup.Members;
 
-        if (members.Count(member => member.IsHost) != 1)
+        if (travelGroup.Status == TravelGroupStatus.Active && members.Count(member => member.IsHost) != 1)
         {
             logger.LogError(
                 "Travel group {GroupId} has no single active Group Host membership.",
