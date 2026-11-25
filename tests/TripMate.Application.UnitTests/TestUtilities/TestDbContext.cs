@@ -47,6 +47,8 @@ public class TestDbContext(
     public DbSet<TourPackageCreateOperation> TourPackageCreateOperations =>
         Set<TourPackageCreateOperation>();
 
+    public DbSet<TourPendingChangeSet> TourPendingChangeSets => Set<TourPendingChangeSet>();
+
     public DbSet<CancellationPolicyTemplate> CancellationPolicyTemplates =>
         Set<CancellationPolicyTemplate>();
 
