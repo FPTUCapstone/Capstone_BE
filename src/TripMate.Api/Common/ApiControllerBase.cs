@@ -224,21 +224,6 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
 
             PublicLandingContentErrorCodes.NotAvailable => StatusCodes.Status503ServiceUnavailable,
 
-            TripMate.Application.Features.Admin.Payouts.Common.PayoutErrorCodes.Forbidden =>
-                StatusCodes.Status403Forbidden,
-
-            TripMate.Application.Features.Admin.Payouts.Common.PayoutErrorCodes.InvalidPeriodRange =>
-                StatusCodes.Status400BadRequest,
-
-            TripMate.Application.Features.Admin.Payouts.Common.PayoutErrorCodes.NotFound =>
-                StatusCodes.Status404NotFound,
-
-            TripMate.Application.Features.Admin.Payouts.Common.PayoutErrorCodes.NotPendingReview =>
-                StatusCodes.Status409Conflict,
-
-            TripMate.Application.Features.Admin.Payouts.Common.PayoutErrorCodes.RejectionReasonInvalid =>
-                StatusCodes.Status400BadRequest,
-
             TripMate.Application.Features.Admin.StatisticalReports.Common.StatisticalReportErrorCodes.Forbidden =>
                 StatusCodes.Status403Forbidden,
             TripMate.Application.Features.Admin.StatisticalReports.Common.StatisticalReportErrorCodes.PeriodNotClosed =>

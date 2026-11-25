@@ -5,10 +5,8 @@ using System.Text.Json;
 using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
-using TripMate.Application.Common.Interfaces;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -21,7 +19,7 @@ public sealed class LandingContentEndpointTests
     public async Task Get_WithTravelerRole_ReturnsForbidden()
     {
         await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
-        using var client = CreateClient(factory, UserRole.Traveler);
+        using var client = await CreateClientAsync(factory, UserRole.Traveler, userId: 101);
 
         var response = await client.GetAsync("/api/v1/admin/landing-content");
 
@@ -58,7 +56,7 @@ public sealed class LandingContentEndpointTests
     public async Task Get_WithAdministratorRole_ReturnsForbidden()
     {
         await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
-        using var client = CreateClient(factory, UserRole.Administrator);
+        using var client = await CreateClientAsync(factory, UserRole.Administrator, userId: 102);
 
         var response = await client.GetAsync("/api/v1/admin/landing-content");
 
@@ -69,7 +67,7 @@ public sealed class LandingContentEndpointTests
     public async Task DraftThenPublish_WithStaff_ReturnsTheNextImmutableVersion()
     {
         await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
-        using var client = CreateClient(factory, UserRole.Staff);
+        using var client = await CreateClientAsync(factory, UserRole.Staff, userId: 103);
         await SeedPublishedVersionAsync(factory, "Before");
 
         var save = await client.PutAsync("/api/v1/admin/landing-content/draft", JsonBody(new
@@ -91,7 +89,7 @@ public sealed class LandingContentEndpointTests
     public async Task Upload_WithoutFile_ReturnsBadRequest()
     {
         await using var factory = new TripMateApiFactory(ApiTestAuthenticationMode.JwtBearer);
-        using var client = CreateClient(factory, UserRole.Staff);
+        using var client = await CreateClientAsync(factory, UserRole.Staff, userId: 104);
         using var form = new MultipartFormDataContent();
 
         var response = await client.PostAsync("/api/v1/admin/landing-content/media", form);
@@ -119,17 +117,16 @@ public sealed class LandingContentEndpointTests
         banner = new { image = (object?)null, link = string.Empty, displayStart = string.Empty, displayEnd = string.Empty },
     };
 
-    private static HttpClient CreateClient(TripMateApiFactory factory, UserRole role)
+    private static async Task<HttpClient> CreateClientAsync(TripMateApiFactory factory, UserRole role, long userId = 100)
     {
-        var service = factory.Services.GetRequiredService<IJwtTokenService>();
-        var token = service.GenerateAccessToken(new User
+        var token = await factory.IssueTokenForPersistedUserAsync(new User
         {
-            Id = 100,
-            Email = "landing-admin@example.com",
+            Id = userId,
+            Email = $"landing-{userId}@example.com",
             FullName = "Landing Administrator",
             Role = role,
             Status = AccountStatus.Active,
-        }).Token;
+        });
         return factory.CreateJwtClient(token);
     }
 
