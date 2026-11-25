@@ -95,6 +95,15 @@ public class GroupMember
         LocationSharingEnabled = false;
     }
 
+    public long? LastReadChatMessageId { get; private set; }
+
+    public void AdvanceChatReadCursor(long messageId)
+    {
+        if (messageId <= 0) throw new ArgumentOutOfRangeException(nameof(messageId));
+        if (!LastReadChatMessageId.HasValue || messageId > LastReadChatMessageId.Value)
+            LastReadChatMessageId = messageId;
+    }
+
     public long GroupId { get; private set; }
 
     public TravelGroup TravelGroup { get; private set; } = null!;
