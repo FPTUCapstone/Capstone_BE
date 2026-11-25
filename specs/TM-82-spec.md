@@ -1,9 +1,13 @@
-# TM-82 / UC-36 - Update Tour Package (Draft, revision 4)
+# TM-82 / UC-36 - Update Tour Package (Draft, revision 5)
 
 Status: **Approved by the Task Owner (Mai Nguyễn Tiến Đạt) on 2026-11-25.** Cleared to move into
-the plan and implementation phases (AGENTS.md §1.2 steps 2-4). This revision replaces revision 3
-and records that approval, closes the last open item, and applies six further corrections the
-Task Owner requested alongside the approval (§3, point G).
+the plan and implementation phases (AGENTS.md §1.2 steps 2-4). This revision replaces revision 4
+and records four further decisions the Task Owner made alongside clearing implementation to begin
+(§3, point H) — a deliberate departure from UC-60/UC-61's notification-retry wording (H.D1), a
+closed scope boundary on tour media (H.D2), a clarified BR-101 field list for the draft version
+(H.D3), and no change to §3 point B/G5's locked transaction shape (H.D1 only narrows what "stop and
+ask" in that section still covers). Revision 4's own content is otherwise unchanged; see §13 for the
+full diff.
 
 ## 0. Why this spec exists
 
@@ -500,6 +504,62 @@ to proceed to the plan and implementation phases per AGENTS.md §1.2.
    - Every schedule id referenced inside a `TourPendingChangeSet`'s `SchedulesJson` payload must
      belong to the **same** `TourId` the change set is for; a schedule id belonging to a different
      tour is rejected, not silently accepted.
+
+### H. Task Owner decisions recorded at implementation kickoff (2026-11-25)
+
+1. **H.D1 — Notification retry: accepted as out of scope for TM-82, deliberately not matching
+   UC-60 9.a2 / UC-61 8.a2's literal wording.** UC-60 9.a2 says the notification is "queued for a
+   retry"; UC-61 8.a2 says the same. §3 point B/G5 already locked the shape (decision commits
+   first, notification is a separate later step, its failure never reopens the decision) and left
+   the retry *mechanics* for the plan phase, with an instruction to stop and ask before adding an
+   outbox/worker/queue. **The Task Owner has now decided the mechanics themselves, closing that
+   question rather than leaving it to the plan phase: there is no retry.** The notification is
+   attempted exactly once; if that attempt fails, the failure is logged at **Error** level (tagged
+   with the `TourPendingChangeSet` id and the acting user id) and the row is not retried by any
+   later process. This is recorded here as a **known, deliberate divergence from the SRS's literal
+   "queues... for a retry" wording** for TM-82 specifically — not a reading of the SRS, not an
+   inference, and not something the plan phase chose on its own. A real retry mechanism (outbox
+   table, background worker, or queue) is explicitly deferred to its own separate ticket. Because
+   this decision already resolves what Task 7 step 4's stop condition was waiting on, that stop
+   condition is narrowed: Task 7 only needs to stop and ask if implementation surfaces an
+   infrastructure need **other than** "no retry, log and move on" (e.g. a need for a new background
+   service unrelated to retry, or a schema change beyond logging). Plain retry infrastructure is no
+   longer an open question requiring escalation — it is decided: **there is none**.
+2. **H.D2 — Tour media is out of scope for TM-82; draft versions carry no media.** A
+   `TourPendingChangeSet` has no media/image columns or relationship (§4.1 is unchanged by this
+   point — it never had one). An operator's existing `Approved`/`Published` tour's photos cannot be
+   changed through a draft version; media editing for an already-approved tour remains unavailable
+   until/unless a future ticket adds it. This is recorded as an **Out of scope** limitation (§2),
+   not silently omitted.
+   - **Mandatory Task 0 check, performed this revision, VERIFIED, no stop condition hit:** every
+     tour-media-mutating endpoint already gates on tour status today, independently of TM-82.
+     `TourMediaAccessResolver.AllowsMaterialChange(TourStatus status)`
+     (`src/TripMate.Application/Features/TourMedia/Common/TourMediaAccess.cs:43-44`) returns true
+     only for `TourStatus.Draft` or `TourStatus.Rejected`, and is called by all four mutating
+     handlers: `UploadTourMediaCommandHandler.cs:310` (inline equivalent check,
+     `tour.Status is not (TourStatus.Draft or TourStatus.Rejected)`), `DeleteTourMediaCommandHandler.cs:52`,
+     `ReorderTourMediaCommandHandler.cs:38`, and `UpdateTourMediaMetadataCommandHandler.cs:53`. An
+     `Approved`/`Published` tour's media **cannot** be uploaded, deleted, reordered, or have its
+     metadata changed through any existing endpoint today. **There is no BR-103 bypass through the
+     media endpoints** — the stop-and-report condition this point's check was designed to catch did
+     not trigger, and no code change is needed or made here.
+3. **H.D3 — BR-101 for a draft version's completeness check (Task 6) uses the plain SRS list, not
+   `TourReviewReadinessEvaluator`'s six facts.** UC-37 BR-101 (§1.1) and UC-35 BR-101 both read: all
+   mandatory fields are present, at least one itinerary day, and at least one departure schedule.
+   `TourReviewReadinessEvaluator.Evaluate(...)`
+   (`src/TripMate.Application/Features/Operator/Tours/Common/TourReviewReadinessEvaluator.cs:35-45`)
+   checks six facts, including `PrimaryImageMissing` — a check against the tour's **media** table,
+   confirmed at `TourReviewReadinessEvaluator.cs:57-60` (`dbContext.TourMedia...AnyAsync(media =>
+   media.IsPrimary...)`). Per H.D2, media does not exist on a `TourPendingChangeSet`, so this
+   specific fact **does not apply** to the draft version's own completeness check — there is no
+   primary-image gate for submitting a draft version, because there is no draft-version media at
+   all. Task 6 must evaluate exactly the three SRS-named conditions (mandatory fields, ≥1 itinerary
+   day, ≥1 departure schedule) against the change set's own stored fields/JSON payload, and must
+   **not** import `TourReviewReadinessEvaluator` wholesale or otherwise re-introduce a media check
+   for the draft version. If, once code is in front of the implementer during Task 6, this reading
+   appears to conflict with something in the codebase, **stop and ask — do not guess** (per this
+   point's own instruction and AGENTS.md §1.1); this spec does not pre-resolve a conflict that has
+   not yet been found.
 
 ## 4. Domain model
 
@@ -1026,3 +1086,26 @@ Task Owner's approval record, §3 point G.**
   marked VERIFIED or NOT_VERIFIED, and a recommendation offered without deciding the question.
 - **F.** Restated, unchanged from revision 2: withdrawing/deleting a `PendingReview` version is not
   found in the SRS and stays out of scope.
+
+## 13. Changelog versus revision 4 (this revision)
+
+- **H.D1.** Closed the notification-retry mechanics question that §3 point B/G5 had left for the
+  plan phase: there is no retry for TM-82. A failed post-commit notification attempt is logged at
+  Error level (with the change-set id and acting user id) and not retried; this is recorded as a
+  deliberate, known divergence from UC-60 9.a2/UC-61 8.a2's literal "queued for a retry" wording,
+  not a reading of the SRS. Narrows (does not remove) Task 7 step 4's stop condition to
+  infrastructure needs other than "no retry, log and move on."
+- **H.D2.** Confirmed and recorded as an explicit Out of scope limitation: draft versions carry no
+  media; an Approved/Published tour's photos stay uneditable until a future ticket. Recorded the
+  Task 0 code check this revision performed (VERIFIED): every tour-media-mutating handler
+  (`Upload`/`Delete`/`Reorder`/`UpdateMetadata`) already restricts itself to `Draft`/`Rejected`
+  tours via `TourMediaAccessResolver.AllowsMaterialChange`/the equivalent inline guard — no BR-103
+  bypass exists through the media endpoints, so no code change was needed or made for this check.
+- **H.D3.** Clarified that Task 6's BR-101 completeness check for a draft version uses only the
+  three SRS-named conditions (mandatory fields, ≥1 itinerary day, ≥1 departure schedule), not
+  `TourReviewReadinessEvaluator`'s six facts — specifically excluding that evaluator's
+  `PrimaryImageMissing` fact, which does not apply per H.D2 (a draft version has no media to check).
+  Task 6 must not import or re-derive a media check for the draft version from that evaluator.
+- No changes to §3 point B/G5's locked transaction shape (decision-then-notify), to the domain
+  model (§4), to the API contract (§5), to the error contract (§7), or to the data/architecture
+  section (§8) beyond what H.D1-H.D3 state above.
