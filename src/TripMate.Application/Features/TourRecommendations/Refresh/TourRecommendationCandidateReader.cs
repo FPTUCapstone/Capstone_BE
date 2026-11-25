@@ -200,6 +200,25 @@ internal sealed class TourRecommendationCandidateReader(IApplicationDbContext db
             ["culture & museum"] = "culture",
             ["ngam binh minh"] = "nature",
             ["cheo sup"] = "adventure",
+
+            // Canonical Vietnamese POI category/tag names from production data (ASCII-folded,
+            // diacritics stripped per RemoveDiacritics — 'đ' is not a combining mark under NFD
+            // and is kept as-is, not folded to 'd').
+            ["bai bien"] = "beach",
+            ["bien"] = "beach",
+            ["danh lam & di san"] = "heritage",
+            ["giai tri"] = "adventure",
+            ["thien nhien"] = "nature",
+            ["van hoa"] = "culture",
+            ["gia đinh"] = "relaxation",
+            ["mien phi"] = "relaxation",
+            ["ngam hoang hon"] = "nature",
+            ["phieu luu"] = "adventure",
+            ["chup anh đep"] = "photography",
+            ["đem"] = "nature",
+            ["lich su"] = "history",
+            ["tam linh"] = "heritage",
+            ["mua sam"] = "shopping",
         };
 
     internal static IEnumerable<string> ResolveInterestSynonyms(string rawToken)
