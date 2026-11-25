@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using TripMate.Api.Authorization;
 using TripMate.Api.Common;
 using TripMate.Application.Features.Admin.Tours.Review;
+using TripMate.Application.Features.Admin.Tours.Review.PendingChangesQueue;
 using TripMate.Application.Features.Admin.Tours.Review.PendingTours;
 using TripMate.Application.Features.Operator.Tours.Common;
 using TripMate.Application.Features.Operator.Tours.PendingChanges.Approve;
@@ -79,6 +80,20 @@ public sealed class AdminToursController(ISender sender) : ApiControllerBase(sen
     public async Task<IActionResult> Unpublish(long tourId, CancellationToken cancellationToken)
     {
         var result = await Sender.Send(new UnpublishTourCommand(tourId), cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    /// <summary>
+    /// TM-82 §5.6: one logical moderation queue combining first-time Pending tours and
+    /// PendingReview draft versions, each tagged with its kind. Additive — does not change the
+    /// existing <see cref="Queue"/> endpoint's contract.
+    /// </summary>
+    [HttpGet("moderation-queue")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public async Task<IActionResult> ModerationQueue(
+        [FromQuery] GetModerationQueueQuery query, CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(query, cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 
