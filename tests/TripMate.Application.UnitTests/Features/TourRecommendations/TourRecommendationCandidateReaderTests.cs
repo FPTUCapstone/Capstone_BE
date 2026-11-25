@@ -80,6 +80,73 @@ public sealed class TourRecommendationCandidateReaderTests
             .Should().BeEquivalentTo(["Chụp ảnh hoàng hôn"]);
     }
 
+    [Theory]
+    [InlineData("Văn hóa", "culture")]
+    [InlineData("Bãi biển", "beach")]
+    [InlineData("Biển", "beach")]
+    [InlineData("Danh lam & Di sản", "heritage")]
+    [InlineData("Giải trí", "adventure")]
+    [InlineData("Thiên nhiên", "nature")]
+    [InlineData("Ẩm thực", "culinary")]
+    [InlineData("Gia đình", "relaxation")]
+    [InlineData("Miễn phí", "relaxation")]
+    [InlineData("Ngắm hoàng hôn", "nature")]
+    [InlineData("Phiêu lưu", "adventure")]
+    [InlineData("Chụp ảnh đẹp", "photography")]
+    [InlineData("Đêm", "nature")]
+    [InlineData("Lịch sử", "history")]
+    [InlineData("Tâm linh", "heritage")]
+    [InlineData("Mua sắm", "shopping")]
+    public void ResolveInterestSynonyms_MapsProductionVietnameseCategoryToCanonicalInterestKey(
+        string rawToken, string canonicalKey)
+    {
+        TourRecommendationCandidateReader.ResolveInterestSynonyms(rawToken)
+            .Should().BeEquivalentTo([rawToken, canonicalKey]);
+    }
+
+    [Theory]
+    [InlineData("Bánh mì", "culinary")]
+    [InlineData("Bánh xèo", "culinary")]
+    [InlineData("Bún bò", "culinary")]
+    [InlineData("Cao lầu", "culinary")]
+    [InlineData("Chè", "culinary")]
+    [InlineData("Cơm hến", "culinary")]
+    [InlineData("Hải sản", "culinary")]
+    [InlineData("Mì Quảng", "culinary")]
+    [InlineData("Nem lụi", "culinary")]
+    [InlineData("Food", "culinary")]
+    [InlineData("Food Drink", "culinary")]
+    [InlineData("Bảo tàng", "museum")]
+    [InlineData("Di sản", "heritage")]
+    [InlineData("Thắng cảnh", "heritage")]
+    [InlineData("UNESCO", "heritage")]
+    [InlineData("Spiritual", "heritage")]
+    [InlineData("Family", "relaxation")]
+    [InlineData("Entertainment", "adventure")]
+    [InlineData("Vui chơi", "adventure")]
+    [InlineData("Nightlife", "nature")]
+    [InlineData("Về đêm", "nature")]
+    public void ResolveInterestSynonyms_MapsProductionTagToCanonicalInterestKey(
+        string rawToken, string canonicalKey)
+    {
+        TourRecommendationCandidateReader.ResolveInterestSynonyms(rawToken)
+            .Should().BeEquivalentTo([rawToken, canonicalKey]);
+    }
+
+    [Theory]
+    [InlineData("Check in")]
+    [InlineData("Must visit")]
+    [InlineData("Nổi tiếng")]
+    [InlineData("Sightseeing")]
+    [InlineData("Lưu trú")]
+    [InlineData("Architecture")]
+    public void ResolveInterestSynonyms_LeavesGenericOrUnmappedProductionTagUnresolved(
+        string rawToken)
+    {
+        TourRecommendationCandidateReader.ResolveInterestSynonyms(rawToken)
+            .Should().BeEquivalentTo([rawToken]);
+    }
+
     [Fact]
     public void ResolveInterestSynonyms_BlankInputYieldsNoTokens()
     {
