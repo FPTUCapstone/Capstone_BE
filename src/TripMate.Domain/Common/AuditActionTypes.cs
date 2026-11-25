@@ -26,6 +26,12 @@ public static class AuditActionTypes
     public const string TourRejected = "TOUR_REJECTED";
     public const string TourPublished = "TOUR_PUBLISHED";
     public const string TourUnpublished = "TOUR_UNPUBLISHED";
+    public const string TourPendingChangeCreated = "TOUR_PENDING_CHANGE_CREATED";
+    public const string TourPendingChangeSaved = "TOUR_PENDING_CHANGE_SAVED";
+    public const string TourPendingChangeSubmitted = "TOUR_PENDING_CHANGE_SUBMITTED";
+    public const string TourPendingChangeApproved = "TOUR_PENDING_CHANGE_APPROVED";
+    public const string TourPendingChangeRejected = "TOUR_PENDING_CHANGE_REJECTED";
+    public const string TourPendingChangeDiscarded = "TOUR_PENDING_CHANGE_DISCARDED";
     public const string TourWeatherReadinessReviewed = "TOUR_WEATHER_READINESS_REVIEWED";
     public const string TourEmergencyCancelled = "TOUR_EMERGENCY_CANCELLED";
     public const string TourEmergencyStopped = "TOUR_EMERGENCY_STOPPED";

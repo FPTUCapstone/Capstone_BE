@@ -6,8 +6,11 @@ using Microsoft.AspNetCore.Mvc;
 using TripMate.Api.Authorization;
 using TripMate.Api.Common;
 using TripMate.Application.Features.Admin.Tours.Review;
+using TripMate.Application.Features.Admin.Tours.Review.PendingChangesQueue;
 using TripMate.Application.Features.Admin.Tours.Review.PendingTours;
 using TripMate.Application.Features.Operator.Tours.Common;
+using TripMate.Application.Features.Operator.Tours.PendingChanges.Approve;
+using TripMate.Application.Features.Operator.Tours.PendingChanges.Reject;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Api.Controllers.V1;
@@ -77,6 +80,48 @@ public sealed class AdminToursController(ISender sender) : ApiControllerBase(sen
     public async Task<IActionResult> Unpublish(long tourId, CancellationToken cancellationToken)
     {
         var result = await Sender.Send(new UnpublishTourCommand(tourId), cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    /// <summary>
+    /// TM-82 §5.6: one logical moderation queue combining first-time Pending tours and
+    /// PendingReview draft versions, each tagged with its kind. Additive — does not change the
+    /// existing <see cref="Queue"/> endpoint's contract.
+    /// </summary>
+    [HttpGet("moderation-queue")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public async Task<IActionResult> ModerationQueue(
+        [FromQuery] GetModerationQueueQuery query, CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(query, cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    /// <summary>
+    /// Staff's detail view of a draft version's proposed values, so a decision is made against
+    /// what was actually submitted rather than the live tour or the queue's title-only row.
+    /// </summary>
+    [HttpGet("pending-changes/{pendingChangeId:long}")]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public async Task<IActionResult> GetPendingChangeDetail(long pendingChangeId, CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(new GetPendingChangeDetailQuery(pendingChangeId), cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    [HttpPost("pending-changes/{pendingChangeId:long}/approve")]
+    public async Task<IActionResult> ApprovePendingChange(long pendingChangeId, CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(new ApprovePendingChangeCommand(pendingChangeId), cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    [HttpPost("pending-changes/{pendingChangeId:long}/reject")]
+    public async Task<IActionResult> RejectPendingChange(
+        long pendingChangeId, [FromBody] RejectTourRequest? request, CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(
+            new RejectPendingChangeCommand(pendingChangeId, request?.Reason ?? string.Empty), cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 }

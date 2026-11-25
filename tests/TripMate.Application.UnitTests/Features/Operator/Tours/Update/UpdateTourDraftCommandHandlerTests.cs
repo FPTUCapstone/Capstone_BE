@@ -68,6 +68,35 @@ public sealed class UpdateTourDraftCommandHandlerTests
         result.IsFailure.Should().BeTrue();
     }
 
+    [Theory]
+    [InlineData(TourStatus.Approved)]
+    [InlineData(TourStatus.Published)]
+    public async Task Handle_ForApprovedOrPublishedTour_ReturnsInvalidStateWithMsg110(TourStatus status)
+    {
+        await using var db = TestDbContext.Create();
+        var actor = await SeedApprovedOperatorAsync(db, 7);
+        await TourAuthoringTestData.SeedReferenceDataAsync(db);
+        await SeedPoiAsync(db, 88);
+        var clock = new FakeDateTimeProvider { UtcNow = new DateTimeOffset(2026, 10, 15, 0, 0, 0, TimeSpan.Zero) };
+        var create = new CreateTourPackageCommandHandler(db, new FakeCurrentUserService { UserId = actor.Id }, clock);
+        var created = await create.Handle(Create(88, clock.UtcNow), CancellationToken.None);
+        var tour = await db.Tours.SingleAsync();
+        tour.SubmitForReview(clock.UtcNow);
+        tour.Approve(99, clock.UtcNow);
+        if (status == TourStatus.Published)
+        {
+            tour.Publish(99, clock.UtcNow);
+        }
+        await db.SaveChangesAsync();
+        var handler = new UpdateTourDraftCommandHandler(db, new FakeCurrentUserService { UserId = actor.Id }, clock);
+
+        var result = await handler.Handle(ToUpdate(created.Value.TourId, 88, clock.UtcNow), CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(TripMate.Application.Features.Operator.Tours.Common.OperatorTourErrorCodes.InvalidState);
+        result.ErrorMessage.Should().Contain("MSG110");
+    }
+
     private static CreateTourPackageCommand Create(long poiId, DateTimeOffset now) => new("Original", "Original description", null,
         1_000_000m, 1, [TourAuthoringTestData.DestinationId], TourAuthoringTestData.PolicyTemplateId, null, null,
         [new CreateTourItineraryItemRequest(1, 1, poiId, null, 60, null)],
