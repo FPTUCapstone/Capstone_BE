@@ -104,6 +104,21 @@ public sealed class TourRecommendationCandidateReaderTests
             .Should().BeEquivalentTo([rawToken, canonicalKey]);
     }
 
+    [Theory]
+    [InlineData("Kiến trúc", "architecture")]
+    [InlineData("Công trình kiến trúc", "architecture")]
+    [InlineData("Di tích kiến trúc", "architecture")]
+    [InlineData("Kiến trúc cổ", "architecture")]
+    [InlineData("Historical Architecture", "architecture")]
+    [InlineData("Landmark", "architecture")]
+    [InlineData("Landmark & Architecture", "architecture")]
+    public void ResolveInterestSynonyms_MapsArchitectureThemedCategoryToCanonicalInterestKey(
+        string rawToken, string canonicalKey)
+    {
+        TourRecommendationCandidateReader.ResolveInterestSynonyms(rawToken)
+            .Should().BeEquivalentTo([rawToken, canonicalKey]);
+    }
+
     [Fact]
     public void ResolveInterestSynonyms_BlankInputYieldsNoTokens()
     {

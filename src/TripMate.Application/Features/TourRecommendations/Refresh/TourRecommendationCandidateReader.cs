@@ -219,6 +219,19 @@ internal sealed class TourRecommendationCandidateReader(IApplicationDbContext db
             ["lich su"] = "history",
             ["tam linh"] = "heritage",
             ["mua sam"] = "shopping",
+
+            // "Architecture" is a canonical TravelerPreferenceKeys.InterestKeys value with no
+            // production category/tag mapped to it yet (confirmed: it never appears in any POI
+            // category/tag seed or migration), so travelers who select it always lose Jaccard
+            // match share. Add the architecture-themed English/Vietnamese labels operators are
+            // most likely to use so a match becomes possible once such a category/tag exists.
+            ["kien truc"] = "architecture",
+            ["cong trinh kien truc"] = "architecture",
+            ["di tich kien truc"] = "architecture",
+            ["kien truc co"] = "architecture",
+            ["historical architecture"] = "architecture",
+            ["landmark"] = "architecture",
+            ["landmark & architecture"] = "architecture",
         };
 
     internal static IEnumerable<string> ResolveInterestSynonyms(string rawToken)
