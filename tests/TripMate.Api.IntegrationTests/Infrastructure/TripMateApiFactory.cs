@@ -515,6 +515,7 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<ProviderPoiLink> ProviderPoiLinks => Set<ProviderPoiLink>();
     public DbSet<ServiceProviderRequestOperation> ServiceProviderRequestOperations => Set<ServiceProviderRequestOperation>();
     public DbSet<CommercialService> CommercialServices => Set<CommercialService>();
+    public DbSet<ServiceAvailability> ServiceAvailability => Set<ServiceAvailability>();
     public DbSet<Voucher> Vouchers => Set<Voucher>();
     public DbSet<Booking> Bookings => Set<Booking>();
     public DbSet<BookingParticipant> BookingParticipants => Set<BookingParticipant>();
@@ -910,6 +911,8 @@ internal sealed class UnsupportedInMemoryProvisioningLock : IAccountProvisioning
 
 internal sealed class UnsupportedInMemoryProviderRequestLock : IServiceProviderRequestLock
 {
+    public Task AcquireAvailabilityAsync(long serviceId, DateTimeOffset startsAt, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Availability locking requires the isolated SQL Server fixture.");
     public Task AcquireOperationAsync(long actorUserId, Guid key, CancellationToken cancellationToken) =>
         throw new NotSupportedException("Service request locking requires the isolated SQL Server fixture.");
 
