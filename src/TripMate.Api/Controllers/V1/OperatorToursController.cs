@@ -15,6 +15,7 @@ using TripMate.Application.Features.Operator.Tours.PendingChanges.Create;
 using TripMate.Application.Features.Operator.Tours.PendingChanges.Discard;
 using TripMate.Application.Features.Operator.Tours.PendingChanges.Get;
 using TripMate.Application.Features.Operator.Tours.PendingChanges.Save;
+using TripMate.Application.Features.Operator.Tours.PendingChanges.Submit;
 using TripMate.Application.Features.Operator.Tours.Policies;
 using TripMate.Application.Features.Operator.Tours.SubmitReview;
 using TripMate.Application.Features.Operator.Tours.Update;
@@ -284,6 +285,20 @@ public sealed class OperatorToursController(ISender sender) : ApiControllerBase(
         var result = await Sender.Send(
             new DiscardPendingChangeCommand(tourId, pendingChangeId), cancellationToken);
         return result.IsSuccess ? NoContent() : HandleFailure(result);
+    }
+
+    [HttpPost("{tourId:long}/pending-changes/{pendingChangeId:long}/submit")]
+    [ProducesResponseType(typeof(PendingChangeSubmittedResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> SubmitPendingChange(
+        long tourId, long pendingChangeId, CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(
+            new SubmitPendingChangeCommand(tourId, pendingChangeId), cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 }
 public sealed record SubmitTourForReviewRequest(string? SubmissionNote);
