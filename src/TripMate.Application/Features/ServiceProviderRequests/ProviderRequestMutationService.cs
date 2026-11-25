@@ -129,6 +129,7 @@ public static class ProviderRequestEvents
             ServiceBooking.Confirmed => "MSG72: Your service booking request has been confirmed.",
             ServiceBooking.Rejected => booking.RejectionReason!,
             ServiceBooking.Expired => "Your service booking request expired because the provider did not respond within 24 hours.",
+            ServiceBooking.Cancelled => "MSG186: You cancelled your service booking request.",
             ServiceBooking.NoShow => "Your service booking outcome was recorded as no-show.",
             _ => "Your service booking outcome was recorded as completed."
         };

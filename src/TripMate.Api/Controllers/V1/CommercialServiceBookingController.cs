@@ -48,6 +48,16 @@ public sealed class CommercialServiceBookingController(ISender sender) : ApiCont
         [FromHeader(Name = "Idempotency-Key")] Guid idempotencyKey, CancellationToken token) =>
         Respond(await Sender.Send(new SubmitCommercialServiceBooking(body, idempotencyKey), token));
 
+    [Authorize(Roles = nameof(UserRole.Traveler))]
+    [HttpGet("api/v1/traveler/service-booking-requests")]
+    public async Task<IActionResult> Requests([FromQuery] long? beforeId, CancellationToken token) =>
+        Respond(await Sender.Send(new ListTravelerServiceBookings(beforeId), token));
+
+    [Authorize(Roles = nameof(UserRole.Traveler))]
+    [HttpPost("api/v1/traveler/service-booking-requests/{bookingId:long:min(1)}/cancel")]
+    public async Task<IActionResult> Cancel(long bookingId, CancellationToken token) =>
+        Respond(await Sender.Send(new CancelTravelerServiceBooking(bookingId), token));
+
     private IActionResult Respond<T>(Result<T> result)
     {
         if (result.IsSuccess) return Ok(result.Value);
@@ -56,7 +66,8 @@ public sealed class CommercialServiceBookingController(ISender sender) : ApiCont
             ProviderRequestErrors.Forbidden => StatusCodes.Status403Forbidden,
             ProviderRequestErrors.NotFound => StatusCodes.Status404NotFound,
             ProviderRequestErrors.InvalidState or CommercialServiceBookingHandler.SlotUnavailable
-                or CommercialServiceBookingHandler.QuantityUnavailable => StatusCodes.Status409Conflict,
+                or CommercialServiceBookingHandler.QuantityUnavailable
+                or CommercialServiceBookingHandler.ServiceUnavailable => StatusCodes.Status409Conflict,
             _ => StatusCodes.Status400BadRequest,
         };
         return Problem(title: result.ErrorMessage, statusCode: status,

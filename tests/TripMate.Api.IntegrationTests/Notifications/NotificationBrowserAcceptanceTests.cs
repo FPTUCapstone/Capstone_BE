@@ -60,7 +60,8 @@ public sealed class NotificationBrowserAcceptanceTests(ITestOutputHelper output)
             (approval.OperatorId, Notification.TourApprovedType, "/partner/tours", $"/partner/tours/{approval.TourId}/edit"),
             (service.ActorId, "MSG205", "/provider/bookings", null),
             (approval.StaffId1, Notification.RefundReturnReportedType, "/admin/staff", "/admin/refund-reconciliation"),
-            (emergency.AdministratorId, Notification.EmergencyRefundReviewRequiredType, "/admin", "/admin/refunds/escalated"),
+            (emergency.AdministratorId, Notification.EmergencyRefundReviewRequiredType, "/admin",
+                $"/admin/refunds/escalated?emergencyScheduleId={emergency.ScheduleId}"),
         };
         var password = Guid.NewGuid().ToString("N") + "Aa1!";
         await using (var db = database.CreateDbContext())

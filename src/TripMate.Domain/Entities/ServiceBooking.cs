@@ -117,6 +117,17 @@ public sealed class ServiceBooking : BaseEntity
         return true;
     }
 
+    public bool TryCancel(DateTimeOffset nowUtc)
+    {
+        if (RequestSubmittedAtUtc is null || Status != PendingConfirmation
+            || nowUtc < RequestSubmittedAtUtc || nowUtc >= ResponseDeadlineUtc)
+            return false;
+
+        Status = Cancelled;
+        CommissionAmount = 0;
+        return true;
+    }
+
     public bool TryExpire(DateTimeOffset nowUtc)
     {
         if (RequestSubmittedAtUtc is null || Status != PendingConfirmation || nowUtc < ResponseDeadlineUtc)

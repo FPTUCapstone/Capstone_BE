@@ -16,6 +16,8 @@ namespace TripMate.Application.Features.CommercialServices.Booking;
 public sealed record CommercialServiceOption(long Id, string Name, string Category, decimal PriceAmount, string PriceUnit);
 public sealed record CommercialServiceSlot(DateTimeOffset StartsAt, int Quantity, int RemainingQuantity);
 public sealed record CommercialServiceSubmission(long Id, string RequestCode, string Status, decimal EstimatedAmount);
+public sealed record TravelerServiceBooking(long Id, string RequestCode, string ServiceName, string Status,
+    DateTimeOffset StartsAt, int Quantity, decimal EstimatedAmount);
 public sealed record SubmitServiceBookingBody(long ServiceId, DateTimeOffset StartsAt, int Quantity,
     string? ContactName, string? ContactPhone, string? ContactEmail, string? SpecialRequest = null, long? ItineraryId = null);
 
@@ -27,16 +29,24 @@ public sealed record PublishCommercialServiceSlot(long ServiceId, DateTimeOffset
     : IRequest<Result<CommercialServiceSlot>>;
 public sealed record SubmitCommercialServiceBooking(SubmitServiceBookingBody Body, Guid Key)
     : IRequest<Result<CommercialServiceSubmission>>;
+public sealed record ListTravelerServiceBookings(long? BeforeId)
+    : IRequest<Result<IReadOnlyList<TravelerServiceBooking>>>;
+public sealed record CancelTravelerServiceBooking(long BookingId)
+    : IRequest<Result<CommercialServiceSubmission>>;
 
 public sealed class CommercialServiceBookingHandler(IApplicationDbContext db, ICurrentUserService current,
     IDateTimeProvider clock, IServiceProviderRequestLock requestLock)
     : IRequestHandler<ListBookableServiceOptions, Result<IReadOnlyList<CommercialServiceOption>>>,
       IRequestHandler<ListCommercialServiceSlots, Result<IReadOnlyList<CommercialServiceSlot>>>,
       IRequestHandler<PublishCommercialServiceSlot, Result<CommercialServiceSlot>>,
-      IRequestHandler<SubmitCommercialServiceBooking, Result<CommercialServiceSubmission>>
+      IRequestHandler<SubmitCommercialServiceBooking, Result<CommercialServiceSubmission>>,
+      IRequestHandler<ListTravelerServiceBookings, Result<IReadOnlyList<TravelerServiceBooking>>>,
+      IRequestHandler<CancelTravelerServiceBooking, Result<CommercialServiceSubmission>>
 {
     public const string SlotUnavailable = "MSG70";
     public const string QuantityUnavailable = "MSG71";
+    public const string ServiceUnavailable = "MSG75";
+    public const string PastDate = "MSG76";
     public async Task<Result<IReadOnlyList<CommercialServiceOption>>> Handle(ListBookableServiceOptions request, CancellationToken token)
     {
         var actor = request.ForProvider ? await ProviderRequestAccess.ActorAsync(db, current, token) : null;
@@ -140,11 +150,13 @@ public sealed class CommercialServiceBookingHandler(IApplicationDbContext db, IC
                     : Conflict<CommercialServiceSubmission>("The idempotency key was used for a different request.");
 
             var now = clock.UtcNow;
-            if (body.StartsAt <= now) return Invalid<CommercialServiceSubmission>("Choose a future time.");
+            if (body.StartsAt <= now)
+                return Result.Failure<CommercialServiceSubmission>(PastDate, "Choose a future time.");
             await requestLock.AcquireAvailabilityAsync(body.ServiceId, body.StartsAt, ct);
             var service = await db.ExecuteWithSerializableReadsAsync(
                 readToken => Services(null).SingleOrDefaultAsync(item => item.Id == body.ServiceId, readToken), ct);
-            if (service is null) return NotFound<CommercialServiceSubmission>();
+            if (service is null)
+                return Result.Failure<CommercialServiceSubmission>(ServiceUnavailable, "The service is no longer open for booking.");
             if (body.ItineraryId is long itineraryId && !await db.Itineraries.AnyAsync(
                 item => item.Id == itineraryId && item.TravelerUserId == travelerId, ct))
                 return NotFound<CommercialServiceSubmission>();
@@ -169,6 +181,58 @@ public sealed class CommercialServiceBookingHandler(IApplicationDbContext db, IC
         }, token);
     }
 
+    public async Task<Result<IReadOnlyList<TravelerServiceBooking>>> Handle(ListTravelerServiceBookings request, CancellationToken token)
+    {
+        if (current.UserId is not long travelerId || current.Role != nameof(UserRole.Traveler)
+            || !await IsActiveTravelerAsync(travelerId, token))
+            return Forbidden<IReadOnlyList<TravelerServiceBooking>>();
+        if (request.BeforeId <= 0) return Invalid<IReadOnlyList<TravelerServiceBooking>>("Invalid request cursor.");
+        var query = TravelerRequests(travelerId).AsNoTracking();
+        if (request.BeforeId is long beforeId) query = query.Where(item => item.Id < beforeId);
+        var result = await query.OrderByDescending(item => item.Id).Take(20)
+            .Select(item => new TravelerServiceBooking(item.Id, "SR-" + item.Id, item.Service.Name,
+                item.Status, item.StartAtUtc, item.Quantity, item.TotalPrice)).ToListAsync(token);
+        return Result.Success<IReadOnlyList<TravelerServiceBooking>>(result);
+    }
+
+    public async Task<Result<CommercialServiceSubmission>> Handle(CancelTravelerServiceBooking request, CancellationToken token)
+    {
+        if (current.UserId is not long travelerId || current.Role != nameof(UserRole.Traveler))
+            return Forbidden<CommercialServiceSubmission>();
+
+        return await db.ExecuteInTransactionAsync(async ct =>
+        {
+            db.ClearTrackedEntities();
+            await requestLock.AcquireBookingAsync(request.BookingId, ct);
+            if (!await IsActiveTravelerAsync(travelerId, ct))
+                return Forbidden<CommercialServiceSubmission>();
+            var booking = await TravelerRequests(travelerId).SingleOrDefaultAsync(item => item.Id == request.BookingId, ct);
+            if (booking is null) return NotFound<CommercialServiceSubmission>();
+            if (booking.Status == ServiceBooking.Cancelled) return Result.Success(Receipt(booking, booking.Status));
+
+            var now = clock.UtcNow;
+            if (booking.TryCancel(now))
+            {
+                ProviderRequestEvents.Record(db, booking, travelerId, ServiceBooking.PendingConfirmation, now);
+                await db.SaveChangesAsync(ct);
+                return Result.Success(Receipt(booking, booking.Status));
+            }
+            if (booking.TryExpire(now))
+            {
+                ProviderRequestEvents.Record(db, booking, null, ServiceBooking.PendingConfirmation, now);
+                await db.SaveChangesAsync(ct);
+            }
+            return Conflict<CommercialServiceSubmission>("The request is no longer awaiting confirmation.");
+        }, token);
+    }
+
+    private IQueryable<ServiceBooking> TravelerRequests(long travelerId) =>
+        db.ServiceBookings.Where(item => item.TravelerUserId == travelerId && item.RequestSubmittedAtUtc != null);
+
+    private Task<bool> IsActiveTravelerAsync(long travelerId, CancellationToken token) =>
+        db.Users.AnyAsync(user => user.Id == travelerId && user.Role == UserRole.Traveler
+            && user.Status == AccountStatus.Active && !user.MustChangePassword, token);
+
     private IQueryable<CommercialService> Services(long? providerUserId) =>
         db.CommercialServices.AsNoTracking().Where(service =>
             db.ProviderPoiLinks.Any(link => link.PointOfInterestId == service.PoiId
@@ -184,7 +248,10 @@ public sealed class CommercialServiceBookingHandler(IApplicationDbContext db, IC
             && booking.Status == ServiceBooking.Confirmed).SumAsync(booking => booking.Quantity, token);
 
     private static CommercialServiceSubmission Submitted(ServiceBooking item) =>
-        new(item.Id, $"SR-{item.Id}", ServiceBooking.PendingConfirmation, item.TotalPrice);
+        Receipt(item, ServiceBooking.PendingConfirmation);
+
+    private static CommercialServiceSubmission Receipt(ServiceBooking item, string status) =>
+        new(item.Id, $"SR-{item.Id}", status, item.TotalPrice);
 
     private static Result<T> Forbidden<T>() => Result.Failure<T>(ProviderRequestErrors.Forbidden, "This account cannot perform the operation.");
     private static Result<T> NotFound<T>() => Result.Failure<T>(ProviderRequestErrors.NotFound, "The service or itinerary was not found.");

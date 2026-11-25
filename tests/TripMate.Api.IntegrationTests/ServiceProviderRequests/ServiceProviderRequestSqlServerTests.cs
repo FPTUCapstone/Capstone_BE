@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
+using TripMate.Application.Features.CommercialServices.Booking;
 using TripMate.Application.Features.Notifications.GetInbox;
 using TripMate.Application.Features.ServiceProviderRequests;
 using TripMate.Domain.Entities;
@@ -21,6 +22,44 @@ namespace TripMate.Api.IntegrationTests.ServiceProviderRequests;
 [Trait("Category", "SqlServer")]
 public sealed class ServiceProviderRequestSqlServerTests
 {
+    [SqlServerFact]
+    public async Task TravelerCanCancelOwnPendingRequestOnceAndProviderCannotConfirmIt()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var fixture = await SeedAsync(database);
+        await using var db = database.CreateDbContext();
+        var outsider = new User
+        {
+            Role = UserRole.Traveler, Status = AccountStatus.Active, FullName = "Another Traveler",
+            Email = "another-traveler@example.test", CreatedAtUtc = fixture.Now, UpdatedAtUtc = fixture.Now
+        };
+        db.Users.Add(outsider);
+        await db.SaveChangesAsync();
+        await using var api = new TripMateApiFactory(sqlServerConnectionString: database.ConnectionString,
+            dateTimeProviderFactory: _ => new FixedClock(fixture.Now));
+        using var traveler = api.CreateAuthenticatedClient(fixture.TravelerId, UserRole.Traveler);
+        using var otherTraveler = api.CreateAuthenticatedClient(outsider.Id, UserRole.Traveler);
+        using var provider = api.CreateAuthenticatedClient(fixture.ActorId, UserRole.ServiceProvider);
+        const string requestsPath = "/api/v1/traveler/service-booking-requests";
+        var requests = await traveler.GetFromJsonAsync<TravelerServiceBooking[]>(requestsPath);
+        requests.Should().ContainSingle(item => item.Id == fixture.BookingId && item.Status == ServiceBooking.PendingConfirmation);
+        var cancellationPath = $"{requestsPath}/{fixture.BookingId}/cancel";
+        (await provider.PostAsync(cancellationPath, null)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await otherTraveler.PostAsync(cancellationPath, null)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await otherTraveler.GetFromJsonAsync<TravelerServiceBooking[]>(requestsPath)).Should().BeEmpty();
+        (await traveler.PostAsync(cancellationPath, null)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await traveler.PostAsync(cancellationPath, null)).StatusCode.Should().Be(HttpStatusCode.OK);
+        requests = await traveler.GetFromJsonAsync<TravelerServiceBooking[]>(requestsPath);
+        requests.Should().ContainSingle(item => item.Id == fixture.BookingId && item.Status == ServiceBooking.Cancelled);
+        var inbox = await traveler.GetFromJsonAsync<GetNotificationInboxResponse>("/api/v1/notifications");
+        inbox!.Items.Should().ContainSingle(item => item.RelatedEntityId == fixture.BookingId && item.Body!.Contains("MSG186"));
+        var detailPath = $"/api/v1/provider/service-booking-requests/{fixture.BookingId}";
+        var detail = await provider.GetFromJsonAsync<ProviderRequestDetail>(detailPath);
+        provider.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
+        (await provider.PostAsJsonAsync($"{detailPath}/decision", new { decision = ServiceBooking.Confirmed, detail!.RowVersion }))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
     [SqlServerFact]
     public async Task ProviderPublishesAvailabilityAndTravelerSubmitsOneNotifiedRequest()
     {
@@ -45,6 +84,15 @@ public sealed class ServiceProviderRequestSqlServerTests
         traveler.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
         var request = new { serviceId = original.ServiceId, startsAt = start, quantity = 1,
             contactName = "Booking contact", contactPhone = "0901234567", contactEmail = "contact@example.test" };
+        var past = await traveler.PostAsJsonAsync(submit, request with
+        {
+            startsAt = fixture.Now.AddDays(-1).ToString("yyyy-MM-ddTHH:mm:ssZ")
+        });
+        past.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await past.Content.ReadAsStringAsync()).Should().Contain("MSG76");
+        var closed = await traveler.PostAsJsonAsync(submit, request with { serviceId = original.ServiceId + 100 });
+        closed.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await closed.Content.ReadAsStringAsync()).Should().Contain("MSG75");
         var created = await traveler.PostAsJsonAsync(submit, request);
         var retry = await traveler.PostAsJsonAsync(submit, request);
         created.StatusCode.Should().Be(HttpStatusCode.OK);
