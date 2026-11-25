@@ -8,6 +8,8 @@ using TripMate.Api.Common;
 using TripMate.Application.Features.Admin.Tours.Review;
 using TripMate.Application.Features.Admin.Tours.Review.PendingTours;
 using TripMate.Application.Features.Operator.Tours.Common;
+using TripMate.Application.Features.Operator.Tours.PendingChanges.Approve;
+using TripMate.Application.Features.Operator.Tours.PendingChanges.Reject;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Api.Controllers.V1;
@@ -77,6 +79,22 @@ public sealed class AdminToursController(ISender sender) : ApiControllerBase(sen
     public async Task<IActionResult> Unpublish(long tourId, CancellationToken cancellationToken)
     {
         var result = await Sender.Send(new UnpublishTourCommand(tourId), cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    [HttpPost("pending-changes/{pendingChangeId:long}/approve")]
+    public async Task<IActionResult> ApprovePendingChange(long pendingChangeId, CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(new ApprovePendingChangeCommand(pendingChangeId), cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    [HttpPost("pending-changes/{pendingChangeId:long}/reject")]
+    public async Task<IActionResult> RejectPendingChange(
+        long pendingChangeId, [FromBody] RejectTourRequest? request, CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(
+            new RejectPendingChangeCommand(pendingChangeId, request?.Reason ?? string.Empty), cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 }
