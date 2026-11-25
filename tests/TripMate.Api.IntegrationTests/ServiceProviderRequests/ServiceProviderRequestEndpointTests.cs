@@ -129,6 +129,7 @@ public sealed class ServiceProviderRequestEndpointTests
     private sealed class FixedClock : IDateTimeProvider { public DateTimeOffset UtcNow => Now; }
     private sealed class InMemoryLock : IServiceProviderRequestLock
     {
+        public Task AcquireAvailabilityAsync(long serviceId, DateTimeOffset startsAt, CancellationToken token) => Task.CompletedTask;
         public Task AcquireOperationAsync(long actorUserId, Guid key, CancellationToken token) => Task.CompletedTask;
         public Task AcquireBookingAsync(long bookingId, CancellationToken token) => Task.CompletedTask;
     }

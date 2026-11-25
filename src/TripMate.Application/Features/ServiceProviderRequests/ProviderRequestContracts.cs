@@ -37,7 +37,8 @@ public sealed record ProviderRequestDetail(long Id, string RequestCode, long Ser
         booking.RequestedDate, booking.StartAtUtc.ToOffset(ServiceBooking.VietnamOffset).ToString("HH:mm:ss",
             System.Globalization.CultureInfo.InvariantCulture),
         booking.StartAtUtc, booking.EndAtUtc, booking.Quantity, booking.TotalPrice, booking.ActualAmount,
-        booking.CommissionAmount, traveler.FullName, traveler.Email, traveler.PhoneNumber, booking.SpecialRequest,
+        booking.CommissionAmount, booking.ContactName ?? traveler.FullName, booking.ContactEmail ?? traveler.Email,
+        booking.ContactPhone ?? traveler.PhoneNumber, booking.SpecialRequest,
         booking.Status, booking.RequestSubmittedAtUtc, booking.ResponseDeadlineUtc,
         booking.OutcomeAvailableAtUtc, booking.AutoCompleteAtUtc, booking.RejectionReason,
         booking.RespondedAtUtc, booking.OutcomeAtUtc, booking.IsAutoCompleted, booking.ItineraryId,
@@ -51,6 +52,7 @@ public interface IServiceProviderRequestLock
 {
     Task AcquireOperationAsync(long actorUserId, Guid key, CancellationToken cancellationToken);
     Task AcquireBookingAsync(long bookingId, CancellationToken cancellationToken);
+    Task AcquireAvailabilityAsync(long serviceId, DateTimeOffset startsAt, CancellationToken cancellationToken);
 }
 
 public static class ProviderRequestErrors

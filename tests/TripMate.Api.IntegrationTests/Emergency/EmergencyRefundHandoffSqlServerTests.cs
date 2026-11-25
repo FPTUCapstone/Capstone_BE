@@ -19,7 +19,7 @@ namespace TripMate.Api.IntegrationTests.Emergency;
 /// </summary>
 public sealed class EmergencyRefundHandoffSqlServerTests
 {
-    private static readonly DateTimeOffset Now = new(2026, 11, 1, 10, 0, 0, TimeSpan.Zero);
+    internal static readonly DateTimeOffset Now = new(2026, 11, 1, 10, 0, 0, TimeSpan.Zero);
     private const string OperatorPassword = "OperatorPass123!";
 
     [SqlServerFact]
@@ -130,13 +130,13 @@ public sealed class EmergencyRefundHandoffSqlServerTests
         notTransferred.Status.Should().Be(RefundStatus.Pending);
     }
 
-    private static EmergencyTourCommandHandler Handler(IApplicationDbContext db, long operatorId) =>
+    internal static EmergencyTourCommandHandler Handler(IApplicationDbContext db, long operatorId) =>
         new(db, OperatorUser(operatorId), new FixedClock(Now), new PasswordHasherService(), new NoOpReviewNotifier());
 
-    private sealed record Seed(long OperatorId, long AdministratorId, long LockedAdministratorId,
+    internal sealed record Seed(long OperatorId, long AdministratorId, long LockedAdministratorId,
         long TourId, long ScheduleId, long[] PaidBookingIds);
 
-    private static async Task<Seed> SeedAsync(SqlServerTestDatabase database)
+    internal static async Task<Seed> SeedAsync(SqlServerTestDatabase database)
     {
         await using var db = database.CreateDbContext();
         var hasher = new PasswordHasherService();

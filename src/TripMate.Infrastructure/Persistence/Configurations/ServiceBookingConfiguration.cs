@@ -10,7 +10,8 @@ public sealed class ServiceBookingConfiguration : IEntityTypeConfiguration<Servi
 {
     public void Configure(EntityTypeBuilder<ServiceBooking> builder)
     {
-        builder.ToTable("ServiceBookings", "commercial");
+        // SQL Server rejects non-INTO OUTPUT for inserts on tables with an enabled trigger.
+        builder.ToTable("ServiceBookings", "commercial", table => table.UseSqlOutputClause(false));
         builder.HasKey(booking => booking.Id);
         builder.Property(booking => booking.Id).HasColumnName("service_booking_id").ValueGeneratedOnAdd();
         builder.Property(booking => booking.TravelerUserId).HasColumnName("traveler_user_id").IsRequired();
@@ -34,6 +35,13 @@ public sealed class ServiceBookingConfiguration : IEntityTypeConfiguration<Servi
         builder.Property(booking => booking.ItineraryId).HasColumnName("itinerary_id");
         builder.Property(booking => booking.ServiceOption).HasColumnName("service_option").HasMaxLength(ServiceBooking.ServiceOptionMaxLength);
         builder.Property(booking => booking.SpecialRequest).HasColumnName("special_request").HasMaxLength(ServiceBooking.SpecialRequestMaxLength);
+        builder.Property(booking => booking.SubmitKey).HasColumnName("submit_key");
+        builder.Property(booking => booking.SubmitHash).HasColumnName("submit_hash").HasMaxLength(64).IsFixedLength().IsUnicode(false);
+        builder.Property(booking => booking.ContactName).HasColumnName("contact_name").HasMaxLength(150);
+        builder.Property(booking => booking.ContactPhone).HasColumnName("contact_phone").HasMaxLength(20);
+        builder.Property(booking => booking.ContactEmail).HasColumnName("contact_email").HasMaxLength(256);
+        builder.HasIndex(booking => new { booking.TravelerUserId, booking.SubmitKey })
+            .IsUnique().HasFilter("[submit_key] IS NOT NULL").HasDatabaseName("UX_ServiceBookings_TravelerSubmitKey");
         builder.Property(booking => booking.CommissionStatementId).HasColumnName("commission_statement_id");
         builder.Ignore(booking => booking.RequestedDate);
         builder.Ignore(booking => booking.ResponseDeadlineUtc);

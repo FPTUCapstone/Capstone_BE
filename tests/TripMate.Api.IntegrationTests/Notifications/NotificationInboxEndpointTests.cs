@@ -49,12 +49,17 @@ public sealed class NotificationInboxEndpointTests
             .StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
-    [Fact]
-    public async Task MarkRead_OtherRecipientIsHidden_AndOwnRetryIsSafe()
+    [Theory]
+    [InlineData(UserRole.Traveler)]
+    [InlineData(UserRole.TourOperator)]
+    [InlineData(UserRole.ServiceProvider)]
+    [InlineData(UserRole.Staff)]
+    [InlineData(UserRole.Administrator)]
+    public async Task MarkRead_OtherRecipientIsHidden_AndOwnRetryIsSafe(UserRole role)
     {
         await using var factory = new TripMateApiFactory();
         var ids = await SeedAsync(factory);
-        using var client = factory.CreateAuthenticatedClient(101, UserRole.Traveler);
+        using var client = factory.CreateAuthenticatedClient(101, role);
 
         (await client.PostAsync($"/api/v1/notifications/{ids.OtherUser}/read", null))
             .StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -67,7 +72,9 @@ public sealed class NotificationInboxEndpointTests
 
         var inbox = await client.GetFromJsonAsync<GetNotificationInboxResponse>(
             "/api/v1/notifications");
-        inbox!.Items.Single(item => item.Id == ids.Older).IsRead.Should().BeTrue();
+        var items = inbox!.Items;
+        items.Select(item => item.Id).Should().BeEquivalentTo(new[] { ids.Newer, ids.Older });
+        items.Single(item => item.Id == ids.Older).IsRead.Should().BeTrue();
     }
 
     [Fact]

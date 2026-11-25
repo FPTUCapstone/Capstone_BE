@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.CommercialServices.Booking;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -62,6 +63,17 @@ public sealed class ProviderRequestMutationService(IApplicationDbContext db,
                     await db.SaveChangesAsync(transactionToken);
                     return Failure(ProviderRequestErrors.InvalidState, "The request's response window has ended.");
                 }
+                if (booking.SubmitKey.HasValue && targetStatus == ServiceBooking.Confirmed)
+                {
+                    await mutationLock.AcquireAvailabilityAsync(booking.ServiceId, booking.StartAtUtc, transactionToken);
+                    var slot = await db.ServiceAvailability.AsNoTracking().SingleOrDefaultAsync(
+                        item => item.ServiceId == booking.ServiceId && item.StartsAtUtc == booking.StartAtUtc, transactionToken);
+                    var confirmed = await CommercialServiceBookingHandler.CountConfirmedAsync(
+                        db, booking.ServiceId, booking.StartAtUtc, transactionToken);
+                    if (slot is null || booking.StartAtUtc <= now || booking.Quantity > slot.Quantity - confirmed)
+                        return Failure(ProviderRequestErrors.InvalidState, "MSG71: This time has insufficient availability.");
+                }
+
                 var changed = operationType == ServiceProviderRequestOperation.Decision
                     ? booking.TryDecide(targetStatus, reason, actorId, now)
                     : booking.TryRecordOutcome(targetStatus, actualAmount, actorId, now);

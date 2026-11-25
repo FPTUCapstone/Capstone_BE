@@ -1,5 +1,6 @@
 using FluentAssertions;
 
+using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
@@ -97,7 +98,86 @@ public sealed class ReportBookingRefundReturnSqlServerTests
             .Should().Be(1);
     }
 
-    private static async Task<Result<ReportBookingRefundReturnResponse>> HandleAsync(SqlServerTestDatabase database,
+    [SqlServerFact]
+    public async Task Report_NotifiesOnlyActiveStaffOnce()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await TicketSqlServerSeed.CreateAsync(database, Departure);
+        var bookingId = await seed.AddBookingAsync(BookingStatus.Confirmed, PaymentStatus.Paid);
+        var refundId = await SeedAwaitingPartnerReturnRefundAsync(database, bookingId, seed.TravelerId, 500_000m, 350_000m);
+
+        await using var context = database.CreateDbContext();
+        User AddUser(UserRole role, AccountStatus status, bool mustChangePassword = false)
+        {
+            var user = new User
+            {
+                Email = $"refund-recipient-{Guid.NewGuid():N}@test.local",
+                FullName = "Refund recipient",
+                Role = role,
+                Status = status,
+                MustChangePassword = mustChangePassword,
+                CreatedAtUtc = Now,
+                UpdatedAtUtc = Now,
+            };
+            context.Users.Add(user);
+            return user;
+        }
+
+        var first = AddUser(UserRole.Staff, AccountStatus.Active);
+        var second = AddUser(UserRole.Staff, AccountStatus.Active);
+        AddUser(UserRole.Staff, AccountStatus.Locked);
+        AddUser(UserRole.Staff, AccountStatus.Active, mustChangePassword: true);
+        AddUser(UserRole.Administrator, AccountStatus.Active);
+        await context.SaveChangesAsync();
+
+        var command = new ReportBookingRefundReturnCommand(refundId, "VCB-12345");
+        (await HandleAsync(database, seed.OperatorId, Now, command)).IsSuccess.Should().BeTrue();
+        (await HandleAsync(database, seed.OperatorId, Now, command)).ErrorCode
+            .Should().Be(RefundConfirmationErrorCodes.RequestNotPending);
+
+        var notices = await context.Notifications.AsNoTracking()
+            .Where(item => item.RelatedEntityId == refundId && item.RelatedEntityType == nameof(Refund))
+            .ToListAsync();
+        notices.Select(item => item.UserId).Should().BeEquivalentTo(new[] { first.Id, second.Id });
+        notices.Should().OnlyContain(item => item.Type == "RefundReturnReported"
+            && item.Channel == NotificationChannel.InApp && item.Status == NotificationStatus.Pending);
+    }
+
+    [SqlServerFact]
+    public async Task Report_WhenNotificationCannotBeSaved_RollsBackRefundAndAudit()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await TicketSqlServerSeed.CreateAsync(database, Departure);
+        var bookingId = await seed.AddBookingAsync(BookingStatus.Confirmed, PaymentStatus.Paid);
+        var refundId = await SeedAwaitingPartnerReturnRefundAsync(database, bookingId, seed.TravelerId, 500_000m, 350_000m);
+
+        await using var context = database.CreateDbContext();
+        context.Users.Add(new User
+        {
+            Email = "staff-refund-failure@test.local",
+            FullName = "Refund recipient",
+            Role = UserRole.Staff,
+            Status = AccountStatus.Active,
+            CreatedAtUtc = Now,
+            UpdatedAtUtc = Now,
+        });
+        await context.SaveChangesAsync();
+        await context.Database.ExecuteSqlRawAsync(
+            "ALTER TABLE dbo.Notifications ADD CONSTRAINT CK_Test_DenyRefundNotice CHECK ([type] <> 'RefundReturnReported');");
+
+        var report = () => HandleAsync(database, seed.OperatorId, Now, new ReportBookingRefundReturnCommand(refundId, "VCB-12345"));
+        var failure = await report.Should().ThrowAsync<DbUpdateException>();
+        failure.Which.InnerException.Should().BeOfType<SqlException>().Which.Number.Should().Be(547);
+
+        (await context.Refunds.AsNoTracking().SingleAsync(item => item.Id == refundId)).Status
+            .Should().Be(RefundStatus.AwaitingPartnerReturn);
+        (await context.AuditLogs.AnyAsync(item => item.AffectedEntityId == refundId && item.AffectedEntity == nameof(Refund)))
+            .Should().BeFalse();
+        (await context.Notifications.AnyAsync(item => item.RelatedEntityId == refundId && item.RelatedEntityType == nameof(Refund)))
+            .Should().BeFalse();
+    }
+
+    internal static async Task<Result<ReportBookingRefundReturnResponse>> HandleAsync(SqlServerTestDatabase database,
         long operatorUserId, DateTimeOffset now, ReportBookingRefundReturnCommand command)
     {
         await using var context = database.CreateDbContext();
@@ -106,7 +186,7 @@ public sealed class ReportBookingRefundReturnSqlServerTests
         return await handler.Handle(command, CancellationToken.None);
     }
 
-    private static async Task<long> SeedAwaitingPartnerReturnRefundAsync(SqlServerTestDatabase database,
+    internal static async Task<long> SeedAwaitingPartnerReturnRefundAsync(SqlServerTestDatabase database,
         long bookingId, long travelerId, decimal amount, decimal share)
     {
         await using var context = database.CreateDbContext();

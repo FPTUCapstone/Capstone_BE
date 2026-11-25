@@ -203,6 +203,7 @@ public class TestDbContext(
     public DbSet<PayoutReconciliationItem> PayoutReconciliationItems => Set<PayoutReconciliationItem>();
 
     public DbSet<ServiceBooking> ServiceBookings => Set<ServiceBooking>();
+    public DbSet<ServiceAvailability> ServiceAvailability => Set<ServiceAvailability>();
 
     public DbSet<ServiceCommissionStatement> ServiceCommissionStatements => Set<ServiceCommissionStatement>();
 
@@ -415,6 +416,7 @@ public class TestDbContext(
     {
         modelBuilder.Entity<TourApprovalNotice>().HasKey(notice => notice.TourId);
         modelBuilder.Entity<ProviderPoiLink>().HasKey(link => new { link.ServiceProviderId, link.PointOfInterestId });
+        modelBuilder.Entity<ServiceAvailability>().HasKey(slot => new { slot.ServiceId, slot.StartsAtUtc });
         modelBuilder.Entity<ProviderPoiLink>().HasOne(link => link.Provider).WithMany(provider => provider.PoiLinks)
             .HasForeignKey(link => link.ServiceProviderId);
         modelBuilder.Entity<ProviderPoiLink>().HasOne(link => link.Poi).WithMany()

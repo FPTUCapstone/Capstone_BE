@@ -31,7 +31,7 @@ namespace TripMate.Api.IntegrationTests.Admin;
 [Collection(nameof(TripMateApiFactory))]
 public sealed class ApproveTourSqlServerTests(ITestOutputHelper output)
 {
-    private static readonly TourReviewChecklistDto ValidChecklist = new(
+    internal static readonly TourReviewChecklistDto ValidChecklist = new(
         ContentCompleteness: true,
         ImageAppropriateness: true,
         PricePlausibility: true,
@@ -751,7 +751,7 @@ public sealed class ApproveTourSqlServerTests(ITestOutputHelper output)
         schedule.ReservedCapacity.Should().Be(0);
     }
 
-    private static async Task<SeedResult> SeedPendingTourAsync(SqlServerTestDatabase database)
+    internal static async Task<SeedResult> SeedPendingTourAsync(SqlServerTestDatabase database)
     {
         await using var context = database.CreateDbContext();
         var now = DateTimeOffset.UtcNow;
@@ -870,7 +870,7 @@ public sealed class ApproveTourSqlServerTests(ITestOutputHelper output)
         return new SeedResult(staff1.Id, staff2.Id, operatorUser.Id, traveler.Id, tour.Id, schedule.Id);
     }
 
-    private sealed record SeedResult(
+    internal sealed record SeedResult(
         long StaffId1,
         long StaffId2,
         long OperatorId,
