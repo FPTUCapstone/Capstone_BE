@@ -15,6 +15,10 @@ using TripMate.Application.Features.Navigation.Depart;
 using TripMate.Application.Features.Navigation.Get;
 using TripMate.Application.Features.Navigation.Reach;
 using TripMate.Application.Features.Navigation.Skip;
+using TripMate.Application.Features.Rerouting.Accept;
+using TripMate.Application.Features.Rerouting.Common;
+using TripMate.Application.Features.Rerouting.Get;
+using TripMate.Application.Features.Rerouting.Reject;
 using TripMate.Application.Features.TripAlerts.Acknowledge;
 using TripMate.Application.Features.TripAlerts.Common;
 using TripMate.Application.Features.TripAlerts.List;
@@ -116,6 +120,80 @@ public sealed class NavigationSessionsController(
                 request.TargetItemId),
             cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    /// <summary>UC-15: the Re-routing Suggestion screen (current plan, proposed plan, reason and differences).</summary>
+    [HttpGet("{sessionId:long}/rerouting-proposals/{proposalId:long}")]
+    [ProducesResponseType(typeof(ReroutingProposalDetailResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> GetReroutingProposal(
+        long sessionId,
+        long proposalId,
+        CancellationToken cancellationToken)
+    {
+        if (!currentUserService.UserId.HasValue)
+        {
+            return Unauthorized();
+        }
+
+        var result = await Sender.Send(
+            new GetReroutingProposalQuery(sessionId, proposalId, currentUserService.UserId.Value),
+            cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    /// <summary>UC-15 Accept Re-routing: replaces the remaining plan with a new itinerary version. Idempotent: a replay returns the session again.</summary>
+    [HttpPut("{sessionId:long}/rerouting-proposals/{proposalId:long}/acceptance")]
+    [ProducesResponseType(typeof(NavigationSessionResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> AcceptReroutingProposal(
+        long sessionId,
+        long proposalId,
+        CancellationToken cancellationToken)
+    {
+        if (!currentUserService.UserId.HasValue)
+        {
+            return Unauthorized();
+        }
+
+        var result = await Sender.Send(
+            new AcceptReroutingProposalCommand(sessionId, proposalId, currentUserService.UserId.Value),
+            cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    /// <summary>UC-15 Keep Current Route: closes the proposal as Rejected; the itinerary and the session do not change.</summary>
+    [HttpPut("{sessionId:long}/rerouting-proposals/{proposalId:long}/rejection")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status500InternalServerError)]
+    public async Task<IActionResult> RejectReroutingProposal(
+        long sessionId,
+        long proposalId,
+        CancellationToken cancellationToken)
+    {
+        if (!currentUserService.UserId.HasValue)
+        {
+            return Unauthorized();
+        }
+
+        var result = await Sender.Send(
+            new RejectReroutingProposalCommand(sessionId, proposalId, currentUserService.UserId.Value),
+            cancellationToken);
+        return result.IsSuccess ? NoContent() : HandleFailure(result);
     }
 
     [HttpGet("{sessionId:long}")]
