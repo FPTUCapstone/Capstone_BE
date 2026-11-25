@@ -55,14 +55,35 @@ public sealed class WeatherAlertInboxProcessorTests
         }
     }
 
-    private static (WeatherAlertInboxProcessor Processor, RecordingInboxStore Store) Create(TestDbContext context)
+    private sealed class RecordingReviewNotifier : IWeatherSafetyReviewNotifier
+    {
+        public List<(long OperatorUserId, WeatherSafetyReviewChanged Change)> Calls { get; } = [];
+
+        public Task NotifyChangedAsync(long operatorUserId, WeatherSafetyReviewChanged notification, CancellationToken cancellationToken)
+        {
+            Calls.Add((operatorUserId, notification));
+            return Task.CompletedTask;
+        }
+    }
+
+    private static (WeatherAlertInboxProcessor Processor, RecordingInboxStore Store, RecordingReviewNotifier Notifier) CreateWithNotifier(
+        TestDbContext context,
+        DateTimeOffset? nowUtc = null)
     {
         var store = new RecordingInboxStore();
+        var notifier = new RecordingReviewNotifier();
         var normalizer = new TomorrowAlertNormalizer(Options.Create(new TomorrowIoOptions { AlertId = TomorrowAlertFixtures.DocsAlertId }));
         var processor = new WeatherAlertInboxProcessor(
-            context, [normalizer], store, new TestTimeProvider(Now), NullLogger<WeatherAlertInboxProcessor>.Instance,
+            context, [normalizer], store, new TestTimeProvider(nowUtc ?? Now), NullLogger<WeatherAlertInboxProcessor>.Instance,
             new WeatherAffectedDepartureFinder(context, new WeatherDepartureImpactLoader()),
-            Options.Create(new WeatherAlertProcessingOptions { SafetyReviewAcknowledgementSlaMinutes = 30 }));
+            Options.Create(new WeatherAlertProcessingOptions { SafetyReviewAcknowledgementSlaMinutes = 30 }),
+            notifier);
+        return (processor, store, notifier);
+    }
+
+    private static (WeatherAlertInboxProcessor Processor, RecordingInboxStore Store) Create(TestDbContext context)
+    {
+        var (processor, store, _) = CreateWithNotifier(context);
         return (processor, store);
     }
 
@@ -181,17 +202,186 @@ public sealed class WeatherAlertInboxProcessorTests
     }
 
     [Fact]
-    public async Task EndAllClear_AddsNoEvidence_AndLeavesTheOpenReviewForTheOperator()
+    public async Task EndAllClear_MarksExistingEventWithdrawn_NotifiesOperator_AndLeavesTheOpenReviewForTheOperator()
     {
         using var context = await SeedAsync();
-        var (processor, store) = Create(context);
+        var (processor, store, notifier) = CreateWithNotifier(context);
         await Process(processor, TomorrowAlertFixtures.Webhook("START", locationId: MeetingLocationId, startTime: Departure), "d-start");
 
         await Process(processor, TomorrowAlertFixtures.EndWebhook(locationId: MeetingLocationId, endTime: Departure.AddHours(3)), "d-end");
 
-        (await context.WeatherEvents.CountAsync()).Should().Be(1);
-        (await context.WeatherSafetyReviews.SingleAsync()).Status.Should().Be(WeatherSafetyReview.StatusPendingAcknowledgement);
+        var weatherEvent = await context.WeatherEvents.SingleAsync();
+        weatherEvent.IsWithdrawn.Should().BeTrue();
+        var review = await context.WeatherSafetyReviews.SingleAsync();
+        review.Status.Should().Be(WeatherSafetyReview.StatusPendingAcknowledgement);
+        notifier.Calls.Select(c => c.Change.ChangeType).Should().Equal(
+            WeatherSafetyReviewChangeTypes.Created,
+            WeatherSafetyReviewChangeTypes.Updated);
         store.Processed.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task EndAllClear_WithoutPrecedingEvent_AddsNoEvidenceAndNoReview()
+    {
+        using var context = await SeedAsync();
+        var (processor, store) = Create(context);
+
+        await Process(processor, TomorrowAlertFixtures.EndWebhook(locationId: MeetingLocationId, endTime: Departure.AddHours(1)), "d-end-only");
+
+        (await context.WeatherEvents.CountAsync()).Should().Be(0);
+        (await context.WeatherSafetyReviews.CountAsync()).Should().Be(0);
+        store.Processed.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task MultiStageCheckpoints_ReopenAcknowledgedReviewForOperator_WithoutRewarningTravelers()
+    {
+        using var context = await SeedAsync();
+        var startAt = Now.AddHours(50);
+        var schedule = await context.TourSchedules.SingleAsync();
+        typeof(TourSchedule).GetProperty(nameof(TourSchedule.StartAtUtc))!.SetValue(schedule, startAt);
+        typeof(TourSchedule).GetProperty(nameof(TourSchedule.EndAtUtc))!.SetValue(schedule, startAt.AddHours(8));
+        context.Bookings.Add(Booking.Restore(10, 3, 5, 2, 200_000m, BookingStatus.Confirmed, PaymentStatus.Paid,
+            Booking.DefaultCancellationPolicySnapshot));
+        await context.SaveChangesAsync();
+
+        // Stage 1: 48h prior
+        var t48h = Now;
+        var (p48, _, n48) = CreateWithNotifier(context, t48h);
+        await p48.ProcessInboxItemAsync(
+            WeatherAlertInboxItem.CreatePending("TomorrowIo",
+                TomorrowAlertFixtures.Webhook("PRIOR", locationId: MeetingLocationId, startTime: startAt, priorMinutes: 2880),
+                "d-48h", t48h),
+            CancellationToken.None);
+
+        var review = await context.WeatherSafetyReviews.SingleAsync();
+        review.Status.Should().Be(WeatherSafetyReview.StatusPendingAcknowledgement);
+        review.Acknowledge(2L, t48h.AddMinutes(10), "Theo dõi thêm dự báo ngày mai").Should().BeTrue();
+        await context.SaveChangesAsync();
+
+        // Late reconciliation of the already-acknowledged 48h notice must NOT reopen
+        var reconciled48h = TomorrowAlertFixtures.ListItem("notif-48h", locationId: MeetingLocationId, expectedTime: startAt)
+            .Replace("2022-01-03T12:00:49.930Z", t48h.ToString("O"), StringComparison.Ordinal);
+        var (pRecon, _, nRecon) = CreateWithNotifier(context, t48h.AddMinutes(15));
+        await pRecon.ProcessInboxItemAsync(
+            WeatherAlertInboxItem.CreatePending("TomorrowIo", reconciled48h, "notif-48h", t48h.AddMinutes(15)),
+            CancellationToken.None);
+        (await context.WeatherSafetyReviews.SingleAsync()).Status.Should().Be(WeatherSafetyReview.StatusAcknowledged);
+        nRecon.Calls.Should().BeEmpty();
+
+        // Subsequent stages: 24h (1440), 12h (720), 6h (360), START (0)
+        (string Type, int Minutes, int HoursElapsed)[] stages =
+        [
+            ("PRIOR", 1440, 24),
+            ("PRIOR", 720, 36),
+            ("PRIOR", 360, 42),
+            ("START", 0, 48),
+        ];
+
+        foreach (var (type, minutes, hoursElapsed) in stages)
+        {
+            var stageNow = Now.AddHours(hoursElapsed);
+            var (stageProcessor, _, stageNotifier) = CreateWithNotifier(context, stageNow);
+            await stageProcessor.ProcessInboxItemAsync(
+                WeatherAlertInboxItem.CreatePending("TomorrowIo",
+                    TomorrowAlertFixtures.Webhook(type, locationId: MeetingLocationId, startTime: startAt, priorMinutes: minutes),
+                    $"d-{type}-{minutes}", stageNow),
+                CancellationToken.None);
+
+            var reopened = await context.WeatherSafetyReviews.SingleAsync();
+            reopened.Status.Should().Be(WeatherSafetyReview.StatusPendingAcknowledgement, $"stage {type}:{minutes} must re-alert Operator");
+            reopened.AcknowledgementDeadlineUtc.Should().Be(stageNow.AddMinutes(30));
+            reopened.ImmediateInstructions.Should().Be("Theo dõi thêm dự báo ngày mai");
+            stageNotifier.Calls.Should().ContainSingle(c => c.Change.ChangeType == WeatherSafetyReviewChangeTypes.Updated);
+
+            reopened.Acknowledge(2L, stageNow.AddMinutes(5)).Should().BeTrue();
+            await context.SaveChangesAsync();
+        }
+
+        // Still one WeatherEvent, one WeatherSafetyReview, 5 Operator push notices (initial + 4 stages), and ONLY 1 Traveler warning!
+        (await context.WeatherEvents.CountAsync()).Should().Be(1);
+        (await context.WeatherSafetyReviews.CountAsync()).Should().Be(1);
+        (await context.Notifications.CountAsync(n => n.Type == Notification.WeatherSafetyReviewCreatedType)).Should().Be(5);
+        (await context.Notifications.CountAsync(n => n.Type == Notification.WeatherWarningType)).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task StopWithPlannedTime_IgnoresWeatherOutsideStopStayWindow_AndMatchesOverlapDuringStay()
+    {
+        using var context = await SeedAsync();
+        // Schedule: 2026-11-03 08:00..17:00 ICT (01:00..10:00 UTC). Stop 100 visited 09:00..11:00 ICT (02:00..04:00 UTC).
+        var scheduleStartUtc = new DateTimeOffset(2026, 11, 3, 1, 0, 0, TimeSpan.Zero);
+        var schedule = await context.TourSchedules.SingleAsync();
+        typeof(TourSchedule).GetProperty(nameof(TourSchedule.StartAtUtc))!.SetValue(schedule, scheduleStartUtc);
+        typeof(TourSchedule).GetProperty(nameof(TourSchedule.EndAtUtc))!.SetValue(schedule, scheduleStartUtc.AddHours(9));
+        var stop = await context.TourItineraryItems.SingleAsync();
+        typeof(TourItineraryItem).GetProperty(nameof(TourItineraryItem.PlannedTime))!.SetValue(stop, new TimeOnly(9, 0));
+        await context.SaveChangesAsync();
+
+        var (processor, _) = Create(context);
+
+        // Weather at Stop 100 starting at 15:00 ICT (08:00 UTC..+24h) is AFTER the 09:00..11:00 ICT visit -> no review!
+        await Process(processor, TomorrowAlertFixtures.Webhook(
+            "PRIOR", locationId: StopLocationId, startTime: new DateTimeOffset(2026, 11, 3, 8, 0, 0, TimeSpan.Zero), priorMinutes: 1440), "d-late");
+        (await context.WeatherSafetyReviews.CountAsync()).Should().Be(0);
+
+        // Weather starting at 10:00 ICT (03:00 UTC) overlaps the 09:00..11:00 ICT stay -> creates review!
+        string overlapAlert = """
+            {"data":{"alert":{"id":"38f689d83c264eb0b084ba095f2ea743"},"insight":{"id":"rain"},
+            "locations":[{"id":"loc-stop"}],
+            "notification":{"type":"PUBLISH","title":"Heavy Rain","description":"Heavy rain at stop."},
+            "event":{"startTime":"2026-11-03T03:00:00Z","endTime":"2026-11-03T05:00:00Z","updateTime":"2026-11-02T10:00:00Z",
+              "severity":"severe","source":"NCHMF",
+              "eventValues":{"origin":"NCHMF","title":"Mưa lớn","description":"Rủi ro thiên tai cấp 3",
+                "location":{"type":"Polygon","coordinates":[[[108.20,15.95],[108.30,15.95],[108.30,16.05],[108.20,16.05],[108.20,15.95]]]}}}}}
+            """;
+        await Process(processor, overlapAlert, "d-overlap");
+        (await context.WeatherSafetyReviews.CountAsync()).Should().Be(1);
+    }
+
+    [Fact]
+    public async Task ActiveTour_SkipsStopAlreadyPassedInTripSessionNavigation()
+    {
+        using var context = await SeedAsync();
+        // Active tour: started 2 hours ago, ends in 6 hours.
+        var activeStartUtc = Now.AddHours(-2);
+        var schedule = await context.TourSchedules.SingleAsync();
+        typeof(TourSchedule).GetProperty(nameof(TourSchedule.StartAtUtc))!.SetValue(schedule, activeStartUtc);
+        typeof(TourSchedule).GetProperty(nameof(TourSchedule.EndAtUtc))!.SetValue(schedule, Now.AddHours(6));
+
+        var poi2 = PointOfInterest.Create(PoiCategory.Create("Town", null), "Hoi An",
+            15.880100m, 108.338000m, 1, Now, "Address", "Desc");
+        typeof(PointOfInterest).GetProperty(nameof(PointOfInterest.Id))!.SetValue(poi2, 101L);
+        context.PointsOfInterest.Add(poi2);
+
+        var booking = Booking.Restore(50, 3, schedule.Id, 2, 200_000m, BookingStatus.Confirmed, PaymentStatus.Paid,
+            Booking.DefaultCancellationPolicySnapshot);
+        context.Bookings.Add(booking);
+
+        var itinerary = (Itinerary)Activator.CreateInstance(typeof(Itinerary), nonPublic: true)!;
+        typeof(Itinerary).GetProperty(nameof(Itinerary.Id))!.SetValue(itinerary, 500L);
+        typeof(Itinerary).GetProperty(nameof(Itinerary.TravelerUserId))!.SetValue(itinerary, 3L);
+        typeof(Itinerary).GetProperty(nameof(Itinerary.SourceBookingId))!.SetValue(itinerary, booking.Id);
+        typeof(Itinerary).GetProperty(nameof(Itinerary.SourceTourId))!.SetValue(itinerary, 1L);
+        context.Itineraries.Add(itinerary);
+
+        var navStop1 = TripSessionItem.Snapshot(1001, 1, 100L, "Marble Mountains", 16.003500m, 108.263900m,
+            activeStartUtc.AddMinutes(15), activeStartUtc.AddMinutes(75), true);
+        typeof(TripSessionItem).GetProperty(nameof(TripSessionItem.ReachedAtUtc))!.SetValue(navStop1, activeStartUtc.AddMinutes(20));
+        var navStop2 = TripSessionItem.Snapshot(1002, 2, 101L, "Hoi An", 15.880100m, 108.338000m,
+            Now.AddHours(1), Now.AddHours(3), true);
+
+        // Session is Navigating to Stop 2 (no longer Exploring Stop 1 -> Stop 1 is Passed!)
+        var session = TripSession.Start(itinerary.Id, itinerary.Id, 3L, Guid.NewGuid(), activeStartUtc, Now.AddHours(6),
+            [navStop1, navStop2]);
+        typeof(TripSession).GetProperty(nameof(TripSession.Itinerary))!.SetValue(session, itinerary);
+        context.TripSessions.Add(session);
+        await context.SaveChangesAsync();
+
+        var (processor, _) = Create(context);
+        await Process(processor, TomorrowAlertFixtures.Webhook("START", locationId: StopLocationId, startTime: Now), "d-passed-stop");
+
+        (await context.WeatherSafetyReviews.CountAsync()).Should().Be(0);
     }
 
     [Fact]

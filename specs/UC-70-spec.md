@@ -162,9 +162,22 @@ Operator), MSG133 (departure already cancelled, stopped or completed).
   HMAC-SHA256 of the raw timestamp string with the webhook secret (the body is not signed), within
   `WebhookToleranceSeconds`. 401 bad/missing signature, 400 malformed JSON, 413 too large, 415 not JSON,
   202 stored (a re-delivered body is stored once).
-- Only notifications of `TomorrowIo:AlertId` become evidence; other Alerts, `END` (all-clear) and
-  Locations TripMate does not monitor are processed as no-ops. Matching uses the Location id, resolved to
-  the meeting point or weather-required stop it monitors.
+- Only notifications of `TomorrowIo:AlertId` become evidence; other Alerts and Locations TripMate does not
+  monitor are processed as no-ops. `PRIOR` (`2880` min = `48h`) and `START` share one `WeatherEvent`
+  and one `WeatherSafetyReview` per departure: `START` (or a worsened revision) reopens an `Acknowledged`
+  review to `PendingAcknowledgement` for the Operator without re-warning Travelers. `END` (all-clear) marks
+  the active `WeatherEvent` withdrawn (`IsWithdrawn = true`), notifies the Operator via SignalR, and skips
+  Admin SLA escalation without auto-closing the review. At pre-departure checkpoints (`24h`, `12h`, `6h`
+  before `TourSchedule.StartAtUtc`), `WeatherForecastCheckpointBackgroundService` re-evaluates open
+  `CustomInsight` reviews against `GET /v4/weather/forecast` (deduplicated per `MonitoringCell`): if all
+  monitored points across open tours sharing the event are verified safe during their stay windows, the
+  `WeatherEvent` is marked withdrawn (`IsWithdrawn = true`) with SignalR refresh (covering forecasts that
+  clear before `START` ever fires); if severe thresholds (`rainIntensity > 10 mm/h`, `windSpeed > 10.8 m/s`,
+  `windGust > 15 m/s`, `visibility < 1 km`, or thunderstorm `weatherCode = 8000`) persist, an `Acknowledged`
+  review reopens to `PendingAcknowledgement` with a fresh 30-minute SLA and Operator push without re-warning
+  Travelers. Provider failures or missing forecast overlap fail safe and retry on the next 15-minute sweep.
+  Matching uses the Location id, resolved to the meeting point or weather-required stop (evaluated against
+  the stop's planned stay window and skipping stops already passed in active `TripSession` navigation).
 - Monitored points are the meeting point and stops with `IsRequiredForWeather = true` of departures that
   have not ended and start within `LocationMonitoringLookaheadDays`. Each Location is created, linked to
   the Alert, re-linked when missing, and unlinked before it is deleted once it expires. Any provider

@@ -22,13 +22,16 @@ namespace TripMate.Infrastructure.Weather;
 public sealed class TomorrowAlertNormalizer(IOptions<TomorrowIoOptions> options) : IWeatherAlertNormalizer
 {
     private const string CustomInsightEventType = "CustomInsight";
+    private const string PriorType = "PRIOR";
+    private const string StartType = "START";
+    private const string EndType = "END";
     private const string PublishType = "PUBLISH";
 
     // PRIOR/START carry a start time only; the event is treated as lasting this long.
     private static readonly TimeSpan OpenEndedEventHorizon = TimeSpan.FromHours(24);
 
-    private static readonly IReadOnlySet<string> EvidenceTypes =
-        new HashSet<string>(StringComparer.Ordinal) { "PRIOR", "START", PublishType };
+    private static readonly IReadOnlySet<string> SupportedTypes =
+        new HashSet<string>(StringComparer.Ordinal) { PriorType, StartType, EndType, PublishType };
 
     private static readonly Regex RiskLevelRegex = new(
         @"(?:rủi ro(?:\s+thiên\s+tai)?\s+cấp|risk\s+level)\s*([1-5])",
@@ -68,12 +71,23 @@ public sealed class TomorrowAlertNormalizer(IOptions<TomorrowIoOptions> options)
                 return Malformed("Payload is not a Tomorrow.io Alerts notification.");
             }
 
-            // Another Alert on the account, an all-clear (END) or an unknown type adds no evidence.
+            // Another Alert on the account or an unknown notification type adds no evidence.
             if (string.IsNullOrWhiteSpace(options.Value.AlertId)
                 || !string.Equals(notification.AlertId, options.Value.AlertId, StringComparison.Ordinal)
-                || !EvidenceTypes.Contains(notification.Type))
+                || !SupportedTypes.Contains(notification.Type))
             {
                 return Result<IReadOnlyList<NormalizedWeatherEvent>>.Success([]);
+            }
+
+            if (notification.Type == EndType)
+            {
+                if ((notification.EndTime ?? notification.StartTime) is not { } endAt)
+                {
+                    return Malformed("An END notification must carry event.endTime or event.startTime.");
+                }
+
+                return Result<IReadOnlyList<NormalizedWeatherEvent>>.Success(
+                    [ToClearanceEvent(notification, endAt, providerNotificationId, receivedAtUtc)]);
             }
 
             if (notification.StartTime is not { } start)
@@ -123,6 +137,43 @@ public sealed class TomorrowAlertNormalizer(IOptions<TomorrowIoOptions> options)
             VerifiedDirective = directive,
             ProviderSeverity = MapSeverity(notification.Severity),
             IsCustomEvent = !isCategory,
+            NotificationStage = notification.Type,
+            CheckpointLeadMinutes = notification.Type == StartType
+                ? 0
+                : notification.Type == PriorType ? notification.LeadMinutes : null,
+        };
+    }
+
+    private static NormalizedWeatherEvent ToClearanceEvent(
+        TomorrowNotification notification,
+        DateTimeOffset endAt,
+        string? providerNotificationId,
+        DateTimeOffset receivedAtUtc)
+    {
+        string locationsKey = LocationsKey(notification.LocationIds);
+        string providerEventId = notification.StartTime is { } knownStart
+            ? EventId(notification, knownStart)
+            : $"{notification.AlertId}:END:{locationsKey}";
+
+        return new NormalizedWeatherEvent(
+            Provider: WeatherProviders.TomorrowIo,
+            ProviderEventId: providerEventId,
+            UpdatedAtUtc: notification.UpdateTime ?? endAt,
+            ValidFromUtc: notification.StartTime ?? endAt,
+            ValidToUtc: endAt,
+            Areas: notification.Areas,
+            ReceivedAtUtc: receivedAtUtc)
+        {
+            ProviderNotificationId = providerNotificationId,
+            ProviderLocationIds = notification.LocationIds,
+            Description = notification.Description,
+            Category = CustomInsightEventType,
+            ProviderSeverity = MapSeverity(notification.Severity),
+            IsCustomEvent = true,
+            IsWithdrawn = true,
+            NotificationStage = EndType,
+            ClearanceAlertPrefix = $"{notification.AlertId}:",
+            ClearanceLocationSuffix = string.IsNullOrEmpty(locationsKey) ? null : $":{locationsKey}",
         };
     }
 
@@ -130,14 +181,16 @@ public sealed class TomorrowAlertNormalizer(IOptions<TomorrowIoOptions> options)
     /// The payload has no event id. PRIOR and START of one occurrence share alert, locations and
     /// startTime, so they collapse into one event and therefore one review per departure.
     /// </summary>
-    private static string EventId(TomorrowNotification notification, DateTimeOffset start)
-    {
-        string locations = notification.LocationIds.Count == 1
-            ? notification.LocationIds[0]
-            : Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
-                string.Join(',', notification.LocationIds.Order(StringComparer.Ordinal))))).ToLowerInvariant()[..32];
-        return $"{notification.AlertId}:{start.ToUnixTimeSeconds()}:{locations}";
-    }
+    private static string EventId(TomorrowNotification notification, DateTimeOffset start) =>
+        $"{notification.AlertId}:{start.ToUnixTimeSeconds()}:{LocationsKey(notification.LocationIds)}";
+
+    private static string LocationsKey(IReadOnlyList<string> locationIds) =>
+        locationIds.Count == 0
+            ? string.Empty
+            : locationIds.Count == 1
+                ? locationIds[0]
+                : Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+                    string.Join(',', locationIds.Order(StringComparer.Ordinal))))).ToLowerInvariant()[..32];
 
     private static bool TryReadNotification(JsonElement root, out TomorrowNotification notification)
     {
@@ -157,6 +210,7 @@ public sealed class TomorrowAlertNormalizer(IOptions<TomorrowIoOptions> options)
             notification = new TomorrowNotification(
                 AlertId: GetString(webhookAlert, "id"),
                 Type: GetString(notice, "type") ?? string.Empty,
+                LeadMinutes: GetInt(notice, "value"),
                 InsightId: GetString(Child(data, "insight"), "id"),
                 LocationIds: LocationIds(data),
                 StartTime: GetTime(evt, "startTime"),
@@ -180,6 +234,7 @@ public sealed class TomorrowAlertNormalizer(IOptions<TomorrowIoOptions> options)
             notification = new TomorrowNotification(
                 AlertId: GetString(listAlert, "id"),
                 Type: GetString(root, "type") ?? string.Empty,
+                LeadMinutes: GetInt(root, "value"),
                 InsightId: GetString(insight, "id"),
                 LocationIds: LocationIds(root),
                 StartTime: GetTime(evt, "startTime") ?? GetTime(evt, "expectedTime"),
@@ -277,6 +332,14 @@ public sealed class TomorrowAlertNormalizer(IOptions<TomorrowIoOptions> options)
             ? property.GetString()
             : null;
 
+    private static int? GetInt(JsonElement element, string propertyName) =>
+        element.ValueKind == JsonValueKind.Object
+        && element.TryGetProperty(propertyName, out var property)
+        && property.ValueKind == JsonValueKind.Number
+        && property.TryGetInt32(out int parsed)
+            ? parsed
+            : null;
+
     private static IReadOnlyList<string> Texts(params string?[] values) =>
         values.Where(value => !string.IsNullOrWhiteSpace(value)).Select(value => value!).ToList();
 
@@ -294,6 +357,7 @@ public sealed class TomorrowAlertNormalizer(IOptions<TomorrowIoOptions> options)
     private sealed record TomorrowNotification(
         string? AlertId,
         string Type,
+        int? LeadMinutes,
         string? InsightId,
         IReadOnlyList<string> LocationIds,
         DateTimeOffset? StartTime,

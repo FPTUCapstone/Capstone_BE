@@ -199,6 +199,8 @@ public sealed class TomorrowAlertsClientTests
         (await client.LinkLocationsAsync(["loc-1"])).Should().Be(TomorrowCallOutcome.Skipped);
         (await client.GetNotificationsAsync(DateTimeOffset.UtcNow.AddHours(-1), DateTimeOffset.UtcNow, null))
             .Notifications.Should().BeEmpty();
+        (await client.GetHourlyForecastAsync(16.0544, 108.2022))
+            .Outcome.Should().Be(TomorrowCallOutcome.Skipped);
         handler.Requests.Should().BeEmpty();
     }
 
@@ -280,5 +282,101 @@ public sealed class TomorrowAlertsClientTests
 
         (await client.GetNotificationsAsync(DateTimeOffset.UtcNow.AddHours(-1), DateTimeOffset.UtcNow, null))
             .ProviderUnavailable.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task GetHourlyForecast_RequestsMetricHourlyTimelineWithHeaderApiKey_AndParsesValues()
+    {
+        const string forecastJson = """
+            {
+              "timelines": {
+                "hourly": [
+                  {
+                    "time": "2026-11-29T01:00:00Z",
+                    "values": {
+                      "rainIntensity": 1.61,
+                      "windSpeed": 2.4,
+                      "windGust": 4.7,
+                      "visibility": 3.5,
+                      "weatherCode": 4200
+                    }
+                  }
+                ]
+              }
+            }
+            """;
+        var (client, handler) = Create(_ => Json(HttpStatusCode.OK, forecastJson));
+
+        var result = await ((ITomorrowAlertsClient)client).GetHourlyForecastAsync(16.0544, 108.2022);
+
+        result.Outcome.Should().Be(TomorrowCallOutcome.Success);
+        var slot = result.Hours.Should().ContainSingle().Subject;
+        slot.TimeUtc.Should().Be(new DateTimeOffset(2026, 11, 29, 1, 0, 0, TimeSpan.Zero));
+        slot.RainIntensityMmPerHour.Should().Be(1.61);
+        slot.WindSpeedMetersPerSecond.Should().Be(2.4);
+        slot.WindGustMetersPerSecond.Should().Be(4.7);
+        slot.VisibilityKm.Should().Be(3.5);
+        slot.WeatherCode.Should().Be(4200);
+
+        var req = handler.Requests.Single();
+        req.Method.Should().Be(HttpMethod.Get);
+        req.Url.Should().Be("https://api.tomorrow.io/v4/weather/forecast?location=16.0544,108.2022&timesteps=1h&units=metric");
+        req.ApiKeyHeader.Should().Be(ApiKey);
+    }
+
+    [Fact]
+    public async Task GetHourlyForecast_FallsBackToPrecipitationIntensity_AndTreatsMissingVisibilityAsSafe()
+    {
+        const string forecastJson = """
+            {
+              "timelines": {
+                "hourly": [
+                  {
+                    "time": "2026-11-29T02:00:00Z",
+                    "values": {
+                      "precipitationIntensity": 12.5,
+                      "windSpeed": 3.0,
+                      "windGust": 5.0,
+                      "weatherCode": 4201
+                    }
+                  }
+                ]
+              }
+            }
+            """;
+        var (client, _) = Create(_ => Json(HttpStatusCode.OK, forecastJson));
+
+        var result = await client.GetHourlyForecastAsync(16.0544, 108.2022);
+
+        result.Outcome.Should().Be(TomorrowCallOutcome.Success);
+        var slot = result.Hours.Should().ContainSingle().Subject;
+        slot.RainIntensityMmPerHour.Should().Be(12.5);
+        double.IsPositiveInfinity(slot.VisibilityKm).Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("""{"timelines":{}}""")]
+    [InlineData("not json")]
+    public async Task GetHourlyForecast_InvalidBody_ReturnsInvalidResponse(string body)
+    {
+        var (client, _) = Create(_ => Json(HttpStatusCode.OK, body));
+
+        var result = await client.GetHourlyForecastAsync(16.0544, 108.2022);
+
+        result.Outcome.Should().Be(TomorrowCallOutcome.InvalidResponse);
+        result.Hours.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.TooManyRequests, TomorrowCallOutcome.Unavailable)]
+    [InlineData(HttpStatusCode.Unauthorized, TomorrowCallOutcome.NotAuthorized)]
+    public async Task GetHourlyForecast_ProviderFailure_SurfacesOutcome(HttpStatusCode status, TomorrowCallOutcome expected)
+    {
+        var (client, _) = Create(_ => new HttpResponseMessage(status));
+
+        var result = await client.GetHourlyForecastAsync(16.0544, 108.2022);
+
+        result.Outcome.Should().Be(expected);
+        result.Hours.Should().BeEmpty();
     }
 }

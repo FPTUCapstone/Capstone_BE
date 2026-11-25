@@ -143,6 +143,7 @@ public sealed class TomorrowIoEnabledOptionsValidatorTests
     [InlineData(nameof(TomorrowIoOptions.ReconciliationLookbackMinutes))]
     [InlineData(nameof(TomorrowIoOptions.LocationMonitoringLookaheadDays))]
     [InlineData(nameof(TomorrowIoOptions.SafetyReviewAcknowledgementSlaMinutes))]
+    [InlineData(nameof(TomorrowIoOptions.ForecastCheckpointIntervalMinutes))]
     public void NonPositiveInterval_Fails(string setting)
     {
         var options = Enabled();

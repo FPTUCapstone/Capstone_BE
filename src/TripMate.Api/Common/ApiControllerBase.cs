@@ -64,6 +64,20 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
     {
         var statusCode = result.ErrorCode switch
         {
+            "contract.forbidden" => StatusCodes.Status403Forbidden,
+            "contract.not_found" => StatusCodes.Status404NotFound,
+            "contract.conflict" => StatusCodes.Status409Conflict,
+            "contract.otp_cooldown" => StatusCodes.Status429TooManyRequests,
+            "contract.signature_too_large" => StatusCodes.Status413PayloadTooLarge,
+            "contract.unavailable" or "contract.document_unavailable" or "contract.template_unavailable" or
+                "contract.otp_delivery_unavailable" => StatusCodes.Status503ServiceUnavailable,
+            TripMate.Application.Features.Admin.ContractTemplates.ContractTemplateErrors.Forbidden => StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.Admin.ContractTemplates.ContractTemplateErrors.NotFound or
+                TripMate.Application.Features.Admin.ContractTemplates.Common.ContractTemplateDocumentErrors.DocumentNotFound => StatusCodes.Status404NotFound,
+            TripMate.Application.Features.Admin.ContractTemplates.ContractTemplateErrors.Conflict => StatusCodes.Status409Conflict,
+            TripMate.Application.Features.Admin.ContractTemplates.Common.ContractTemplateDocumentErrors.DocumentTooLarge => StatusCodes.Status413PayloadTooLarge,
+            TripMate.Application.Features.Admin.ContractTemplates.Common.ContractTemplateDocumentErrors.RendererUnavailable or
+                TripMate.Application.Features.Admin.ContractTemplates.Common.ContractTemplateDocumentErrors.StorageUnavailable => StatusCodes.Status503ServiceUnavailable,
             TripMate.Application.Features.Admin.UserAccounts.UserAccountErrors.Forbidden => StatusCodes.Status403Forbidden,
             TripMate.Application.Features.Admin.UserAccounts.UserAccountErrors.NotFound => StatusCodes.Status404NotFound,
             TripMate.Application.Features.Admin.UserAccounts.UserAccountErrors.InvalidRequest or
@@ -482,6 +496,14 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
                 TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.AlreadyLeft or
                 TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.MemberNotActive =>
                 StatusCodes.Status409Conflict,
+
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.MessageNotFound =>
+                StatusCodes.Status404NotFound,
+
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.InvalidMessageType or
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.InvalidMessageContent or
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.InvalidPollOptions =>
+                StatusCodes.Status400BadRequest,
 
             TripMate.Application.Features.Notifications.MarkRead.NotificationErrorCodes.NotFound =>
                 StatusCodes.Status404NotFound,

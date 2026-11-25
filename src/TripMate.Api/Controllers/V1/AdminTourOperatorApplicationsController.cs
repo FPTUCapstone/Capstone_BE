@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using TripMate.Api.Common;
 using TripMate.Application.Features.Admin.TourOperatorApplications.Approve;
 using TripMate.Application.Features.Admin.TourOperatorApplications.GetDetail;
+using TripMate.Application.Features.Admin.TourOperatorApplications.GetList;
 using TripMate.Application.Features.Admin.TourOperatorApplications.Reject;
 
 namespace TripMate.Api.Controllers.V1;
@@ -14,6 +15,15 @@ namespace TripMate.Api.Controllers.V1;
 [Route("api/v1/admin/tour-operator-applications")]
 public class AdminTourOperatorApplicationsController(ISender sender) : ApiControllerBase(sender)
 {
+    [HttpGet]
+    [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
+    public async Task<IActionResult> GetList(CancellationToken cancellationToken, [FromQuery] int page = 1,
+        [FromQuery] string? status = null, [FromQuery] string? search = null)
+    {
+        var result = await Sender.Send(new GetOperatorApplicationListQuery(page, status, search), cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
     [HttpGet("{userId:long}")]
     [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
     public async Task<IActionResult> GetDetail(long userId, CancellationToken cancellationToken)

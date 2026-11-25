@@ -57,6 +57,68 @@ public sealed class GetTravelGroupMembersEndpointTests
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
+    [Fact]
+    public async Task GetMembers_ActiveTourOperatorMember_ReturnsOk()
+    {
+        await using var factory = new TripMateApiFactory();
+        var seed = await SeedWithTourOperatorAsync(factory);
+        using var client = factory.CreateAuthenticatedClient(seed.OperatorUserId, UserRole.TourOperator);
+
+        var response = await client.GetAsync($"/api/v1/travel-groups/{seed.GroupId}/members");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var payload = await response.Content.ReadFromJsonAsync<GetTravelGroupMembersResponse>();
+        payload!.Members.Should().Contain(m => m.MemberId == seed.OperatorUserId);
+    }
+
+    [Fact]
+    public async Task GetMembers_ActiveMemberInClosedGroup_ReturnsOk()
+    {
+        await using var factory = new TripMateApiFactory();
+        var seed = await SeedAsync(factory);
+        await factory.WithDbContextAsync(async db =>
+        {
+            var group = await db.TravelGroups.SingleAsync(g => g.Id == seed.GroupId);
+            typeof(TravelGroup).GetProperty(nameof(TravelGroup.Status))!
+                .SetValue(group, TravelGroupStatus.Closed);
+            await db.SaveChangesAsync();
+            return true;
+        });
+
+        using var client = factory.CreateAuthenticatedClient(seed.MemberUserId, UserRole.Traveler);
+        var response = await client.GetAsync($"/api/v1/travel-groups/{seed.GroupId}/members");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    private static async Task<(long GroupId, long OperatorUserId)> SeedWithTourOperatorAsync(TripMateApiFactory factory) =>
+        await factory.WithDbContextAsync(async db =>
+        {
+            var now = DateTimeOffset.UtcNow;
+            var op = new User
+            {
+                Email = $"{Guid.NewGuid():N}@example.com",
+                FullName = "Tour Operator",
+                Role = UserRole.TourOperator,
+                Status = AccountStatus.Active,
+                CreatedAtUtc = now,
+                UpdatedAtUtc = now,
+            };
+            var traveler = await AddTravelerAsync(db, "Traveler", now);
+            db.Users.Add(op);
+            await db.SaveChangesAsync();
+
+            var group = TravelGroup.Create(1, op.Id, "Operator Tour Group", now);
+            db.TravelGroups.Add(group);
+            await db.SaveChangesAsync();
+
+            db.GroupMembers.Add(GroupMember.CreateHost(group, op.Id, now));
+            db.GroupMembers.Add(GroupMember.CreateMember(group, traveler.Id, now));
+            await db.SaveChangesAsync();
+
+            return (group.Id, op.Id);
+        });
+
     private static async Task<(long GroupId, long MemberUserId)> SeedAsync(TripMateApiFactory factory) =>
         await factory.WithDbContextAsync(async db =>
         {

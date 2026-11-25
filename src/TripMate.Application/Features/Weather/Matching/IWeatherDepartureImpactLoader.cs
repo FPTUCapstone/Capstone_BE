@@ -5,5 +5,5 @@ namespace TripMate.Application.Features.Weather.Matching;
 
 public interface IWeatherDepartureImpactLoader
 {
-    WeatherDepartureImpact LoadImpact(TourSchedule schedule);
+    WeatherDepartureImpact LoadImpact(TourSchedule schedule, IReadOnlySet<long>? passedPoiIds = null);
 }

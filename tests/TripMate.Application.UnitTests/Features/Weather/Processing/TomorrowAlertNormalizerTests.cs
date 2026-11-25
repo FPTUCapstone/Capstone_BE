@@ -42,18 +42,33 @@ public sealed class TomorrowAlertNormalizerTests
     }
 
     [Theory]
-    [InlineData("PRIOR")]
-    [InlineData("START")]
-    public void PriorAndStartOfOneOccurrence_ShareTheEventId(string type)
+    [InlineData("PRIOR", 2880)]
+    [InlineData("PRIOR", 1440)]
+    [InlineData("PRIOR", 720)]
+    [InlineData("PRIOR", 360)]
+    [InlineData("START", 0)]
+    public void MultiStagePriorAndStartOfOneOccurrence_ShareTheEventIdAndExposeCheckpointStage(string type, int expectedLeadMinutes)
     {
-        Normalize(TomorrowAlertFixtures.Webhook(type)).Single().ProviderEventId
-            .Should().Be(Normalize(TomorrowAlertFixtures.Webhook("PRIOR")).Single().ProviderEventId);
+        var evt = Normalize(TomorrowAlertFixtures.Webhook(type, priorMinutes: expectedLeadMinutes)).Single();
+
+        evt.ProviderEventId.Should().Be(Normalize(TomorrowAlertFixtures.Webhook("PRIOR", priorMinutes: 2880)).Single().ProviderEventId);
+        evt.NotificationStage.Should().Be(type);
+        evt.CheckpointLeadMinutes.Should().Be(expectedLeadMinutes);
+        evt.IsWithdrawn.Should().BeFalse();
     }
 
     [Fact]
-    public void EndAllClear_ProducesNoEvidence()
+    public void EndAllClear_BecomesWithdrawnClearanceForItsAlertAndLocations()
     {
-        Normalize(TomorrowAlertFixtures.EndWebhook()).Should().BeEmpty();
+        var endTime = new DateTimeOffset(2026, 11, 3, 13, 0, 0, TimeSpan.Zero);
+        var evt = Normalize(TomorrowAlertFixtures.EndWebhook(endTime: endTime)).Should().ContainSingle().Subject;
+
+        evt.IsWithdrawn.Should().BeTrue();
+        evt.NotificationStage.Should().Be("END");
+        evt.ProviderLocationIds.Should().Equal(TomorrowAlertFixtures.DocsLocationId);
+        evt.UpdatedAtUtc.Should().Be(endTime);
+        evt.ClearanceAlertPrefix.Should().Be($"{TomorrowAlertFixtures.DocsAlertId}:");
+        evt.ClearanceLocationSuffix.Should().Be($":{TomorrowAlertFixtures.DocsLocationId}");
     }
 
     [Fact]

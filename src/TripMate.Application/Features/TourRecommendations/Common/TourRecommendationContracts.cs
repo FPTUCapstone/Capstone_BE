@@ -11,7 +11,13 @@ internal sealed record TourRecommendationScoreInput(
     decimal? MaxBudget,
     decimal CandidatePrice,
     IReadOnlyCollection<string> CompletedHistoryTokens,
-    IReadOnlyCollection<string> CandidateHistoryTokens);
+    IReadOnlyCollection<string> CandidateHistoryTokens,
+    string? TravelerPace = null,
+    string? CandidatePace = null,
+    IReadOnlyCollection<string>? TravelerTransportTokens = null,
+    IReadOnlyCollection<string>? CandidateTransportTokens = null,
+    IReadOnlyCollection<string>? TravelerDietTokens = null,
+    IReadOnlyCollection<string>? CandidateDietTokens = null);
 
 internal sealed record TourRecommendationScore(
     decimal Score,

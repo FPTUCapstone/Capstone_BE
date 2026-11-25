@@ -111,6 +111,7 @@ public sealed class WeatherEvent
         }
         OfficialVietnamRiskLevel = officialVietnamRiskLevel;
         VerifiedDirective = verifiedDirective?.Trim();
+        IsWithdrawn = false;
         UpdatedAtUtc = updatedAtUtc.ToUniversalTime();
     }
 
