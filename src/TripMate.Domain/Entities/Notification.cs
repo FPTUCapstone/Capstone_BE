@@ -37,6 +37,7 @@ public class Notification : BaseEntity
     public const string PartialRefundProposalAcceptedType = "PartialRefundProposalAccepted";
     public const string PartialRefundProposalDeclinedType = "PartialRefundProposalDeclined";
     public const string PartialRefundProposalExpiredType = "PartialRefundProposalExpired";
+    public const string RefundReturnReportedType = "RefundReturnReported";
 
     // UC-70 in-app notices (SRS UC-66). In-app only: they never reach a lock screen.
     public const string EmergencyRefundReviewRequiredType = "EmergencyRefundReviewRequired";

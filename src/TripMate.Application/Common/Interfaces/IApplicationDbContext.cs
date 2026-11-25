@@ -6,6 +6,10 @@ namespace TripMate.Application.Common.Interfaces;
 
 public interface IApplicationDbContext
 {
+    DbSet<DirectConversation> DirectConversations { get; }
+
+    DbSet<DirectMessage> DirectMessages { get; }
+
     DbSet<OperatorContract> OperatorContracts =>
         throw new NotSupportedException("Operator contracts are unavailable in this context.");
     DbSet<OperatorContractSigningChallenge> OperatorContractSigningChallenges =>
@@ -111,6 +115,7 @@ public interface IApplicationDbContext
         throw new NotSupportedException("Provider POI ownership is unavailable in this context.");
 
     DbSet<CommercialService> CommercialServices { get; }
+    DbSet<ServiceAvailability> ServiceAvailability { get; }
 
     DbSet<ServiceBooking> ServiceBookings { get; }
 
@@ -170,6 +175,16 @@ public interface IApplicationDbContext
     DbSet<TravelGroup> TravelGroups { get; }
 
     DbSet<GroupMember> GroupMembers { get; }
+
+    DbSet<GroupMessage> GroupMessages { get; }
+
+    DbSet<GroupMessageReadReceipt> GroupMessageReadReceipts { get; }
+
+    DbSet<GroupRollCallCheckin> GroupRollCallCheckins { get; }
+
+    DbSet<GroupSplitBillPayment> GroupSplitBillPayments { get; }
+
+    DbSet<GroupPollVote> GroupPollVotes { get; }
 
     DbSet<Itinerary> Itineraries { get; }
 

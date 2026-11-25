@@ -1,6 +1,7 @@
 using FluentAssertions;
 
 using TripMate.Application.Features.TourRecommendations.Common;
+using TripMate.Application.Features.TourRecommendations.Refresh;
 
 namespace TripMate.Application.UnitTests.Features.TourRecommendations;
 
@@ -81,19 +82,14 @@ public sealed class TourRecommendationScoringTests
     [Fact]
     public void Calculate_CandidateWithFreeTextCategoryMatchesTravelerCanonicalInterest()
     {
-        // Regression for MSG64: a tour whose only interest token is the raw, non-canonical
-        // POI/Tour category name "Food & Drink" previously scored 0 against a traveler who
-        // selected the canonical "culinary" interest, because Jaccard compared literal
-        // strings. TourRecommendationCandidateReader.ResolveInterestSynonyms now expands the
-        // raw token to include the canonical key alongside the original before it reaches
-        // Calculate, so the candidate token set here is ["Food & Drink", "culinary"] (both
-        // kept, per ResolveInterestSynonyms). Jaccard(traveler {culinary}, candidate
-        // {food & drink, culinary}) = 1/2 = 50% — nonzero and matching, versus the pre-fix 0%.
+        // Both sides contain only "culinary" once the reader resolves "Food & Drink",
+        // so Jaccard is 1/1. Keeping the original label would make the union size two.
+        var canonicalInterest = TourRecommendationCandidateReader.ResolveCanonicalInterestKey("Food & Drink");
         var result = TourRecommendationScoring.Calculate(BaseInput(
             travelerInterests: ["culinary"],
-            candidateInterests: ["Food & Drink", "culinary"]));
+            candidateInterests: [canonicalInterest!]));
 
-        result.Score.Should().Be(50m);
+        result.Score.Should().Be(100m);
         result.MatchingReasons.Should().Equal("Interest tags");
     }
 

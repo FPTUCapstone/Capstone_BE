@@ -7,6 +7,7 @@ using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.AccountProvisioning;
+using TripMate.Application.Features.Notifications.GetInbox;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 using TripMate.Infrastructure.Persistence;
@@ -16,6 +17,59 @@ namespace TripMate.Api.IntegrationTests.AccountProvisioning;
 
 public sealed class AccountProvisioningConcurrencySqlServerTests
 {
+    [SqlServerFact]
+    public async Task StaffProvisionedProviderReceivesNewBookingNoticeForExistingCatalog()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        await using var db = database.CreateDbContext();
+        var now = DateTimeOffset.UtcNow;
+        var staff = new User { FullName = "Staff", Email = "staff@example.test", Role = UserRole.Staff, Status = AccountStatus.Active };
+        var traveler = new User { FullName = "Traveler", Email = "traveler@example.test", Role = UserRole.Traveler, Status = AccountStatus.Active };
+        db.Users.AddRange(staff, traveler);
+        await db.SaveChangesAsync();
+
+        var category = await db.PoiCategories.SingleOrDefaultAsync(item => item.Name == CommercialService.CategoryHotel)
+            ?? PoiCategory.Create(CommercialService.CategoryHotel, null);
+        var poi = PointOfInterest.Create(category, "Existing hotel", 16, 108, staff.Id, now);
+        db.PointsOfInterest.Add(poi);
+        await db.SaveChangesAsync();
+        var listingOwner = ServiceProvider.Create("Legacy listing", CommercialService.CategoryHotel, ServiceProvider.StatusActive);
+        var service = CommercialService.Create(listingOwner, CommercialService.CategoryHotel, "Double room", 120_000m,
+            CommercialService.PriceUnitPerNight, CommercialService.AvailabilityAvailable, "VND", true,
+            null, null, null, now, poiId: poi.Id, capacity: 2);
+        db.CommercialServices.Add(service);
+        await db.SaveChangesAsync();
+
+        var email = new CountingEmailSender();
+        var result = await Handler(db, staff, email).Handle(new CreateServiceProviderAccountCommand(
+            "Hotel manager", "hotel-manager@example.test", "0901234567", "Existing hotel",
+            CommercialService.CategoryHotel, [poi.Id]), default);
+        result.IsSuccess.Should().BeTrue();
+        email.Count.Should().Be(1);
+        var providerUserId = result.Value.UserId;
+        (await db.ProviderPoiLinks.SingleAsync()).PointOfInterestId.Should().Be(poi.Id);
+
+        var account = await db.Users.SingleAsync(item => item.Id == providerUserId);
+        account.MustChangePassword.Should().BeTrue();
+        var first = ServiceBooking.CreatePendingRequest(traveler.Id, service.Id, now.AddDays(1), null, 1, service.PriceAmount, now);
+        db.ServiceBookings.Add(first);
+        await db.SaveChangesAsync();
+        (await db.Notifications.AnyAsync(item => item.UserId == providerUserId)).Should().BeFalse();
+
+        // Model the persisted account state after onboarding for this provisioning/notification test.
+        account.MustChangePassword = false;
+        await db.SaveChangesAsync();
+        var second = ServiceBooking.CreatePendingRequest(traveler.Id, service.Id, now.AddDays(2), null, 1, service.PriceAmount, now);
+        db.ServiceBookings.Add(second);
+        await db.SaveChangesAsync();
+
+        var inbox = await new GetNotificationInboxQueryHandler(db).Handle(new(providerUserId), default);
+        var notice = inbox.Value.Items.Should().ContainSingle().Which;
+        notice.Type.Should().Be("MSG205");
+        notice.RelatedEntityId.Should().Be(second.Id);
+        service.ProviderId.Should().Be(listingOwner.Id);
+    }
+
     [SqlServerTheory]
     [Trait("Category", "SqlServer")]
     [InlineData("email", ProvisioningErrors.DuplicateEmail)]

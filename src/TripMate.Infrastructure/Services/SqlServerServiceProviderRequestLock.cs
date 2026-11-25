@@ -13,6 +13,9 @@ public sealed class SqlServerServiceProviderRequestLock(ApplicationDbContext db)
     public Task AcquireBookingAsync(long bookingId, CancellationToken cancellationToken) =>
         AcquireAsync($"TripMate:ServiceRequestBooking:{bookingId}", cancellationToken);
 
+    public Task AcquireAvailabilityAsync(long serviceId, DateTimeOffset startsAt, CancellationToken cancellationToken) =>
+        AcquireAsync(FormattableString.Invariant($"TripMate:ServiceAvailability:{serviceId}:{startsAt.UtcTicks}"), cancellationToken);
+
     private async Task AcquireAsync(string resource, CancellationToken token)
     {
         if (db.Database.CurrentTransaction is null)
