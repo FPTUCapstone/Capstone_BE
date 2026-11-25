@@ -4,10 +4,12 @@ using MediatR;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
 using TripMate.Application.Features.Authentication.Common;
+using TripMate.Application.Features.Operator.Contracts.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -31,7 +33,8 @@ public class GoogleAuthCommandHandler(
     IFirebaseAuthService firebaseAuthService,
     IJwtTokenService jwtTokenService,
     IDateTimeProvider dateTimeProvider,
-    ILogger<GoogleAuthCommandHandler> logger)
+    ILogger<GoogleAuthCommandHandler> logger,
+    IOptions<OperatorContractOptions>? contractOptions = null)
     : IRequestHandler<GoogleAuthCommand, Result<GoogleAuthResponse>>
 {
     public async Task<Result<GoogleAuthResponse>> Handle(
@@ -251,14 +254,21 @@ public class GoogleAuthCommandHandler(
                 refreshTokenValue,
                 accessTokenExpiresAtUtc,
                 isNewAccount)
-            { ApplicationStatus = context.ApplicationStatus, RefreshTokenExpiresAtUtc = now.AddDays(7), MustChangePassword = user.MustChangePassword });
+            {
+                ApplicationStatus = context.ApplicationStatus,
+                RefreshTokenExpiresAtUtc = now.AddDays(7),
+                MustChangePassword = user.MustChangePassword,
+                OnboardingState = context.OnboardingState,
+                ContractStatus = context.ContractStatus,
+                CurrentContractId = context.CurrentContractId
+            });
         }
     }
 
     private async Task<Result<CurrentAccountContext>> EvaluateAccountGateAsync(User user, CancellationToken cancellationToken)
     {
         var eligibility = await AccountEligibilityResolver.ResolveAsync(
-            dbContext, user, dateTimeProvider.UtcNow, cancellationToken);
+            dbContext, user, dateTimeProvider.UtcNow, cancellationToken, contractOptions?.Value.Enabled ?? false);
         if (eligibility.IsFailure)
         {
             return eligibility;

@@ -14,8 +14,13 @@ public sealed class TomorrowIoOptionsValidator : IValidateOptions<TomorrowIoOpti
         RequirePositive(failures, options.ReconciliationIntervalMinutes, nameof(options.ReconciliationIntervalMinutes));
         RequirePositive(failures, options.ReconciliationLookbackMinutes, nameof(options.ReconciliationLookbackMinutes));
         RequirePositive(failures, options.LocationSyncIntervalHours, nameof(options.LocationSyncIntervalHours));
+        RequirePositive(failures, options.ForecastCheckpointIntervalMinutes, nameof(options.ForecastCheckpointIntervalMinutes));
         RequirePositive(failures, options.LocationMonitoringLookaheadDays, nameof(options.LocationMonitoringLookaheadDays));
         RequirePositive(failures, options.SafetyReviewAcknowledgementSlaMinutes, nameof(options.SafetyReviewAcknowledgementSlaMinutes));
+        RequirePositive(failures, options.SevereRainMmPerHour, nameof(options.SevereRainMmPerHour));
+        RequirePositive(failures, options.SevereWindSpeedMetersPerSecond, nameof(options.SevereWindSpeedMetersPerSecond));
+        RequirePositive(failures, options.SevereWindGustMetersPerSecond, nameof(options.SevereWindGustMetersPerSecond));
+        RequirePositive(failures, options.LowVisibilityKm, nameof(options.LowVisibilityKm));
 
         // A disabled integration needs no credentials; an enabled one cannot run without them.
         if (options.Enabled)
@@ -37,6 +42,14 @@ public sealed class TomorrowIoOptionsValidator : IValidateOptions<TomorrowIoOpti
     private static void RequirePositive(List<string> failures, int value, string name)
     {
         if (value <= 0)
+        {
+            failures.Add($"{name} must be greater than zero.");
+        }
+    }
+
+    private static void RequirePositive(List<string> failures, double value, string name)
+    {
+        if (!double.IsFinite(value) || value <= 0)
         {
             failures.Add($"{name} must be greater than zero.");
         }

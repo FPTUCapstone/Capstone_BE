@@ -19,4 +19,5 @@ public sealed class TomorrowIoOptions : WeatherAlertProcessingOptions
     public int ReconciliationIntervalMinutes { get; set; } = 15;
     public int ReconciliationLookbackMinutes { get; set; } = 120;
     public int LocationSyncIntervalHours { get; set; } = 6;
+    public int ForecastCheckpointIntervalMinutes { get; set; } = 15;
 }

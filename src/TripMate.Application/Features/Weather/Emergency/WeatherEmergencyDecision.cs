@@ -85,7 +85,8 @@ public sealed record WeatherAlertEvidence(
 }
 
 public sealed record WeatherTourStop(WeatherPoint Point, bool? Required,
-    DateTimeOffset? PlannedVisitAtUtc, bool Passed);
+    DateTimeOffset? PlannedVisitAtUtc, bool Passed,
+    DateTimeOffset? PlannedDepartureAtUtc = null);
 
 public sealed record WeatherDepartureImpact(
     DateTimeOffset StartAtUtc,
@@ -121,10 +122,10 @@ public static class WeatherEmergencyDecision
         bool unknownStop = false;
         foreach (var stop in departure.RequiredStops)
         {
-            if (active && stop.Passed) continue;
+            if (active && (stop.Passed || (stop.PlannedDepartureAtUtc is { } depUtc && depUtc <= nowUtc))) continue;
             bool inArea = alert.Areas.Any(area => area.Contains(stop.Point));
             bool inTime = stop.PlannedVisitAtUtc is { } visit
-                ? alert.StartsAtUtc <= visit && visit <= alert.EndsAtUtc
+                ? alert.StartsAtUtc <= (stop.PlannedDepartureAtUtc is { } dep && dep >= visit ? dep : visit) && visit <= alert.EndsAtUtc
                 : alert.StartsAtUtc < departure.EndAtUtc && alert.EndsAtUtc > nowUtc;
             if (!inArea || !inTime) continue;
             if (!stop.Required.HasValue) unknownStop = true;
@@ -213,11 +214,11 @@ public static class WeatherEmergencyDecision
         bool unknownStop = false;
         foreach (var stop in departure.RequiredStops)
         {
-            if (isActive && stop.Passed) continue;
+            if (isActive && (stop.Passed || (stop.PlannedDepartureAtUtc is { } depUtc && depUtc <= nowUtc))) continue;
 
             bool inArea = weatherEvent.Covers(stop.Point);
             bool inTime = stop.PlannedVisitAtUtc is { } visit
-                ? weatherEvent.ValidFromUtc <= visit && visit <= weatherEvent.ValidToUtc
+                ? weatherEvent.ValidFromUtc <= (stop.PlannedDepartureAtUtc is { } dep && dep >= visit ? dep : visit) && visit <= weatherEvent.ValidToUtc
                 : weatherEvent.ValidFromUtc < departure.EndAtUtc && weatherEvent.ValidToUtc > (isActive ? nowUtc : departure.StartAtUtc);
 
             if (!inArea || !inTime) continue;

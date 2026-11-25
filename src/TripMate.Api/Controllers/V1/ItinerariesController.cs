@@ -14,6 +14,7 @@ using TripMate.Application.Features.Itineraries.GetDetail;
 using TripMate.Application.Features.Itineraries.List;
 using TripMate.Application.Features.Itineraries.Regenerate;
 using TripMate.Application.Features.Itineraries.Suggestions;
+using TripMate.Application.Features.Itineraries.WeatherTips;
 using TripMate.Application.Features.Navigation.Common;
 using TripMate.Application.Features.Navigation.Start;
 using TripMate.Domain.Enums;
@@ -64,6 +65,30 @@ public sealed class ItinerariesController(
 
         var result = await Sender.Send(
             new GetItineraryDetailQuery(itineraryId, currentUserService.UserId.Value),
+            cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    /// <summary>
+    /// One list of what to bring for the day, from the weather forecast. <c>weatherTips</c> is <c>null</c> when the
+    /// forecast is not available for every visit stop (too far ahead, service off or failing): hide the block then.
+    /// </summary>
+    [HttpGet("{itineraryId:long}/weather-tips")]
+    [ProducesResponseType(typeof(ItineraryWeatherTipsResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetWeatherTips(
+        long itineraryId,
+        CancellationToken cancellationToken)
+    {
+        if (!currentUserService.UserId.HasValue)
+        {
+            return Unauthorized();
+        }
+
+        var result = await Sender.Send(
+            new GetItineraryWeatherTipsQuery(itineraryId, currentUserService.UserId.Value),
             cancellationToken);
         return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }

@@ -10,6 +10,9 @@ internal static class TourRecommendationScoring
     private const decimal DateWeight = 15m;
     private const decimal BudgetWeight = 15m;
     private const decimal HistoryWeight = 10m;
+    private const decimal PaceWeight = 10m;
+    private const decimal TransportWeight = 10m;
+    private const decimal DietWeight = 10m;
     private const decimal MinimumEffectiveThreshold = 80m;
 
     internal static TourRecommendationScore Calculate(TourRecommendationScoreInput input)
@@ -73,6 +76,48 @@ internal static class TourRecommendationScoring
             if (similarity > 0)
             {
                 reasons.Add("Trip history");
+            }
+        }
+
+        string? travelerPace = NormalizeOptional(input.TravelerPace);
+        string? candidatePace = NormalizeOptional(input.CandidatePace);
+        if (travelerPace is not null && candidatePace is not null)
+        {
+            activeWeight += PaceWeight;
+            if (string.Equals(travelerPace, candidatePace, StringComparison.Ordinal))
+            {
+                weightedScore += PaceWeight;
+                reasons.Add("Pace");
+            }
+        }
+
+        var travelerTransport = NormalizeTokens(input.TravelerTransportTokens ?? []);
+        var candidateTransport = NormalizeTokens(input.CandidateTransportTokens ?? []);
+        if (travelerTransport.Count > 0 && candidateTransport.Count > 0)
+        {
+            activeWeight += TransportWeight;
+            // A tour only needs to support one transport mode the traveler can use, so any
+            // overlap counts as a full match rather than diluting the score like Jaccard would.
+            bool anyOverlap = travelerTransport.Intersect(candidateTransport, StringComparer.Ordinal).Any();
+            if (anyOverlap)
+            {
+                weightedScore += TransportWeight;
+                reasons.Add("Transport");
+            }
+        }
+
+        var travelerDiet = NormalizeTokens(input.TravelerDietTokens ?? []);
+        var candidateDiet = NormalizeTokens(input.CandidateDietTokens ?? []);
+        if (travelerDiet.Count > 0 && candidateDiet.Count > 0)
+        {
+            activeWeight += DietWeight;
+            // Same any-overlap rationale as Transport: the tour needs to accommodate at least
+            // one of the traveler's stated dietary needs, not all of them simultaneously.
+            bool anyOverlap = travelerDiet.Intersect(candidateDiet, StringComparer.Ordinal).Any();
+            if (anyOverlap)
+            {
+                weightedScore += DietWeight;
+                reasons.Add("Diet");
             }
         }
 

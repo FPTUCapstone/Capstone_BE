@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Text;
 
 using Microsoft.EntityFrameworkCore;
 
@@ -27,7 +29,15 @@ internal sealed record TourRecommendationCandidate(
     IReadOnlyCollection<string> Destinations,
     IReadOnlyCollection<string> InterestTokens,
     IReadOnlyCollection<string> HistoryTokens,
-    TourRecommendationCandidateSchedule RepresentativeSchedule);
+    TourRecommendationCandidateSchedule RepresentativeSchedule,
+    string? Pace = null,
+    IReadOnlyCollection<string>? TransportTokens = null,
+    IReadOnlyCollection<string>? DietTokens = null)
+{
+    public IReadOnlyCollection<string> TransportTokens { get; init; } = TransportTokens ?? [];
+
+    public IReadOnlyCollection<string> DietTokens { get; init; } = DietTokens ?? [];
+}
 
 internal interface ITourRecommendationCandidateReader
 {
@@ -79,6 +89,9 @@ internal sealed class TourRecommendationCandidateReader(IApplicationDbContext db
                         stop.StayDurationMinutes, stop.Notes)).ToArray(),
                     OperatorName = tour.OperatorProfile.CompanyName,
                     Category = tour.Category == null ? null : tour.Category.Name,
+                    tour.PaceLevel,
+                    tour.SupportedTransportModesJson,
+                    tour.DietaryAccommodationsJson,
                     Destinations = tour.Destinations
                         .OrderBy(link => link.SequenceNo)
                         .Select(link => link.Destination.Name)
@@ -134,6 +147,7 @@ internal sealed class TourRecommendationCandidateReader(IApplicationDbContext db
                 string[] interestTokens = row.PoiCategories
                     .Concat(row.PoiTags)
                     .Concat(row.Category is null ? [] : [row.Category])
+                    .SelectMany(ResolveInterestSynonyms)
                     .ToArray();
                 string[] historyTokens = row.Destinations
                     .Concat(row.Category is null ? [] : [row.Category])
@@ -147,13 +161,91 @@ internal sealed class TourRecommendationCandidateReader(IApplicationDbContext db
                     row.Destinations,
                     interestTokens,
                     historyTokens,
-                    representative);
+                    representative,
+                    row.PaceLevel?.ToString(),
+                    ParseJsonArray(row.SupportedTransportModesJson),
+                    ParseJsonArray(row.DietaryAccommodationsJson));
             }).ToArray();
 
             yield return batch;
             lastTourId = rows[^1].TourId;
         }
     }
+
+    /// <summary>
+    /// Maps free-text POI/Tour category and tag names (English synonyms and Vietnamese labels not
+    /// literally equal to <see cref="TravelerPreferenceKeys.InterestKeys"/>) onto the canonical
+    /// traveler interest vocabulary, so Jaccard matching in <c>TourRecommendationScoring</c> does
+    /// not silently score 0 for a conceptually matching tour. The original token is always kept
+    /// alongside any resolved synonym so already-canonical values and untranslatable free-text tags
+    /// (e.g. admin-entered Vietnamese tags with no interest equivalent) are preserved unchanged.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, string> InterestSynonymMap =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["food & drink"] = "culinary",
+            ["food and drink"] = "culinary",
+            ["am thuc"] = "culinary",
+            ["an uong"] = "culinary",
+            ["restaurant"] = "culinary",
+            ["nha hang"] = "culinary",
+            ["quan an"] = "culinary",
+            ["cafe"] = "culinary",
+            ["café"] = "culinary",
+            ["coffee"] = "culinary",
+            ["theme park"] = "adventure",
+            ["water park"] = "adventure",
+            ["natural attraction"] = "nature",
+            ["nature & natural attraction"] = "nature",
+            ["culture & museum"] = "culture",
+            ["ngam binh minh"] = "nature",
+            ["cheo sup"] = "adventure",
+        };
+
+    internal static IEnumerable<string> ResolveInterestSynonyms(string rawToken)
+    {
+        if (string.IsNullOrWhiteSpace(rawToken))
+        {
+            yield break;
+        }
+
+        yield return rawToken;
+
+        var normalized = RemoveDiacritics(rawToken.Trim()).ToLowerInvariant();
+        if (InterestSynonymMap.TryGetValue(normalized, out var canonical))
+        {
+            yield return canonical;
+        }
+    }
+
+    /// <summary>Parses an operator-entered JSON string array (same shape as the UC-09 preference
+    /// columns); null, blank, or malformed JSON yields no tokens rather than throwing.</summary>
+    internal static string[] ParseJsonArray(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return [];
+        }
+
+        try
+        {
+            return (System.Text.Json.JsonSerializer.Deserialize<string?[]>(json) ?? [])
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Select(value => value!)
+                .ToArray();
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return [];
+        }
+    }
+
+    private static string RemoveDiacritics(string value) =>
+        new(value
+            .Normalize(NormalizationForm.FormD)
+            .Where(character => CharUnicodeInfo.GetUnicodeCategory(character)
+                != UnicodeCategory.NonSpacingMark)
+            .ToArray());
 
     internal static bool IsBookable(
         TourRecommendationCandidateSchedule schedule,

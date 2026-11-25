@@ -465,6 +465,12 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<DirectMessage> DirectMessages => Set<DirectMessage>();
 
     public DbSet<User> Users => Set<User>();
+    public DbSet<OperatorContract> OperatorContracts => Set<OperatorContract>();
+    public DbSet<OperatorContractSigningChallenge> OperatorContractSigningChallenges => Set<OperatorContractSigningChallenge>();
+    public DbSet<OperatorContractLegacyExemption> OperatorContractLegacyExemptions => Set<OperatorContractLegacyExemption>();
+    public DbSet<OperatorContractTemplate> OperatorContractTemplates => Set<OperatorContractTemplate>();
+    public DbSet<ContractTemplatePublicationHead> ContractTemplatePublicationHeads => Set<ContractTemplatePublicationHead>();
+    public DbSet<ContractTemplateRenderJob> ContractTemplateRenderJobs => Set<ContractTemplateRenderJob>();
     public DbSet<PushDeviceToken> PushDeviceTokens => Set<PushDeviceToken>();
     public DbSet<TravelerProfile> TravelerProfiles => Set<TravelerProfile>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();

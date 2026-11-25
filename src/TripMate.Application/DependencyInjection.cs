@@ -17,6 +17,7 @@ using TripMate.Application.Features.TripAlerts.Scanning;
 using TripMate.Application.Features.TripAlerts.Weather;
 using TripMate.Application.Features.Weather.Locations;
 using TripMate.Application.Features.Weather.Matching;
+using TripMate.Application.Features.Weather.Processing;
 
 namespace TripMate.Application;
 
@@ -37,6 +38,7 @@ public static class DependencyInjection
         services.AddScoped<IWeatherDepartureImpactLoader, WeatherDepartureImpactLoader>();
         services.AddScoped<IWeatherAffectedDepartureFinder, WeatherAffectedDepartureFinder>();
         services.AddScoped<IWeatherLocationSyncService, WeatherLocationSyncService>();
+        services.AddScoped<IWeatherForecastCheckpointService, WeatherForecastCheckpointService>();
         services.AddSingleton<IWeatherSafetyReviewNotifier, NullWeatherSafetyReviewNotifier>();
 
         services.AddMediatR(cfg =>

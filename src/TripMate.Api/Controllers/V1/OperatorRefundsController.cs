@@ -13,6 +13,7 @@ namespace TripMate.Api.Controllers.V1;
 /// <summary>UC-42 (SRS 3.8.4.3, spec v1.2): a Tour Operator's own actions on a refund awaiting
 /// its confirmation or partner return.</summary>
 [ApiController]
+[Authorize(Policy = global::TripMate.Api.Authorization.OperatorContractWorkspacePolicies.Workspace)]
 [Authorize(Roles = nameof(UserRole.TourOperator))]
 [Route("api/v1/operator/refunds")]
 public sealed class OperatorRefundsController(ISender sender) : ApiControllerBase(sender)
