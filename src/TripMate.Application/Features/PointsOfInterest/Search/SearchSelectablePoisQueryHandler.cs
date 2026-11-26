@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using TripMate.Application.Common.Geo;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Scheduling.Common;
 using TripMate.Domain.Constants;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
@@ -28,6 +29,12 @@ public sealed class SearchSelectablePoisQueryHandler(IApplicationDbContext dbCon
                 && poi.OpeningHours.Any()
                 && poi.SourceUrl != null
                 && poi.VerifiedAtUtc != null);
+
+        if (request.ExcludeAccommodation)
+        {
+            var stays = PlanningPoiEligibility.AccommodationPoiIds(dbContext);
+            eligiblePois = eligiblePois.Where(poi => !stays.Contains(poi.Id));
+        }
 
         if (request.ExcludeFoodAndDrink)
         {

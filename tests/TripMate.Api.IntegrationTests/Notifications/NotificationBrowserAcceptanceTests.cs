@@ -48,7 +48,8 @@ public sealed class NotificationBrowserAcceptanceTests(ITestOutputHelper output)
         await using var database = await SqlServerTestDatabase.CreateAsync();
         var approval = await ApproveTourSqlServerTests.SeedPendingTourAsync(database);
         var emergency = await EmergencyRefundHandoffSqlServerTests.SeedAsync(database);
-        var service = await ServiceProviderRequestSqlServerTests.SeedAsync(database, includeBooking: false);
+        var service = await ServiceProviderRequestSqlServerTests.SeedAsync(database, includeBooking: false,
+            categoryName: CommercialService.CategoryRestaurant);
         var now = DateTimeOffset.UtcNow;
         var ticket = await TicketSqlServerSeed.CreateAsync(database, now.AddDays(-6));
         var ticketBooking = await ticket.AddBookingAsync(BookingStatus.Confirmed, PaymentStatus.Paid);

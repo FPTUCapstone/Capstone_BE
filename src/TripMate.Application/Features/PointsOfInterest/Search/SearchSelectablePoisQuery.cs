@@ -11,5 +11,6 @@ public sealed record SearchSelectablePoisQuery(
     int? RadiusKm,
     int Page,
     int PageSize,
-    bool ExcludeFoodAndDrink = false)
+    bool ExcludeFoodAndDrink = false,
+    bool ExcludeAccommodation = false)
     : IRequest<Result<SelectablePoiSearchResult>>;

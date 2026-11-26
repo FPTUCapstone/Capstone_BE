@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Features.CommercialServices.Booking;
+using TripMate.Application.Features.CommercialServices.Stays;
 using TripMate.Application.Features.Notifications.GetInbox;
 using TripMate.Application.Features.ServiceProviderRequests;
 using TripMate.Domain.Entities;
@@ -68,7 +69,7 @@ public sealed class ServiceProviderRequestSqlServerTests
     public async Task ProviderPublishesAvailabilityAndTravelerSubmitsOneNotifiedRequest()
     {
         await using var database = await SqlServerTestDatabase.CreateAsync();
-        var fixture = await SeedAsync(database);
+        var fixture = await SeedAsync(database, categoryName: CommercialService.CategoryRestaurant);
         await using var db = database.CreateDbContext();
         var original = await db.ServiceBookings.SingleAsync();
         await using var api = new TripMateApiFactory(sqlServerConnectionString: database.ConnectionString,
@@ -468,7 +469,83 @@ public sealed class ServiceProviderRequestSqlServerTests
         (await db.ServiceProviderRequestOperations.CountAsync()).Should().Be(count);
     }
 
-    internal static async Task<Seed> SeedAsync(SqlServerTestDatabase database, bool includeBooking = true)
+    [SqlServerFact]
+    public async Task StayInquiryUsesAssignedProviderAndRetryDoesNotNotifyTwice()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var fixture = await SeedAsync(database);
+        await using var db = database.CreateDbContext();
+        var poiId = await db.CommercialServices.Where(item => item.Id == fixture.ServiceId).Select(item => item.PoiId!.Value).SingleAsync();
+        await using var api = new TripMateApiFactory(sqlServerConnectionString: database.ConnectionString,
+            dateTimeProviderFactory: _ => new FixedClock(fixture.Now));
+        using var hotel = api.CreateAuthenticatedClient(fixture.ActorId, UserRole.ServiceProvider);
+        using var outsider = api.CreateAuthenticatedClient(fixture.OtherProviderId, UserRole.ServiceProvider);
+        using var traveler = api.CreateAuthenticatedClient(fixture.TravelerId, UserRole.Traveler);
+
+        var listing = new { description = "Đi bộ ra bờ sông", published = true, acceptingRequests = true };
+        var listingPath = $"/api/v1/provider/stay-listings/{poiId}";
+        (await outsider.PutAsJsonAsync(listingPath, listing)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await hotel.PutAsJsonAsync(listingPath, listing)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await traveler.GetFromJsonAsync<StayFacility[]>("/api/v1/stays")).Should()
+            .Contain(item => item.PoiId == poiId && item.AcceptingRequests);
+        (await traveler.GetFromJsonAsync<CommercialServiceOption[]>($"/api/v1/commercial-services/poi/{poiId}/options"))
+            .Should().BeEmpty();
+        traveler.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
+        const string path = "/api/v1/traveler/stay-inquiries";
+        var request = new StayInquiryBody(poiId, new DateOnly(2026, 11, 28), new DateOnly(2026, 11, 30),
+            2, "Mai", "mai@example.test", null, null);
+        var first = await traveler.PostAsJsonAsync(path, request);
+        first.StatusCode.Should().Be(HttpStatusCode.OK, await first.Content.ReadAsStringAsync());
+        var inquiry = (await first.Content.ReadFromJsonAsync<StayInquiryView>())!;
+        var repeat = await traveler.PostAsJsonAsync(path, request);
+        (await repeat.Content.ReadFromJsonAsync<StayInquiryView>())!.Id.Should().Be(inquiry.Id);
+        (await traveler.PostAsJsonAsync(path, request with { Guests = 3 })).StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await outsider.GetAsync($"/api/v1/provider/stay-inquiries/{inquiry.Id}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await hotel.PostAsJsonAsync($"/api/v1/provider/stay-inquiries/{inquiry.Id}/reply",
+            new { reply = "Vui lòng gọi cho khách sạn.", declined = false })).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await traveler.GetFromJsonAsync<StayInquiryView>($"{path}/{inquiry.Id}"))!.Status.Should().Be(StayInquiry.Replied);
+        (await db.Notifications.CountAsync(item => item.UserId == fixture.ActorId && item.Type == "StayInquirySent")).Should().Be(1);
+        (await db.Notifications.CountAsync(item => item.UserId == fixture.TravelerId && item.Type == "StayInquiryResponded")).Should().Be(1);
+        (await db.ServiceBookings.CountAsync()).Should().Be(1);
+    }
+
+    [SqlServerFact]
+    public async Task VerifiedApplicantReceivesHotelManagementRightsOnlyAfterStaffApproval()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var fixture = await SeedAsync(database);
+        await using var db = database.CreateDbContext();
+        var poiId = await db.CommercialServices.Where(item => item.Id == fixture.ServiceId).Select(item => item.PoiId!.Value).SingleAsync();
+        var originalLink = await db.ProviderPoiLinks.SingleAsync(item => item.PointOfInterestId == poiId);
+        db.ProviderPoiLinks.Remove(originalLink);
+        var applicant = await db.Users.SingleAsync(item => item.Id == fixture.TravelerId);
+        applicant.EmailVerifiedAtUtc = fixture.Now;
+        var staffUser = new User { Role = UserRole.Staff, Status = AccountStatus.Active, FullName = "Staff Reviewer",
+            Email = "stay-reviewer@example.test", CreatedAtUtc = fixture.Now, UpdatedAtUtc = fixture.Now };
+        db.Users.Add(staffUser);
+        await db.SaveChangesAsync();
+        await using var api = new TripMateApiFactory(sqlServerConnectionString: database.ConnectionString,
+            dateTimeProviderFactory: _ => new FixedClock(fixture.Now));
+        using var candidate = api.CreateAuthenticatedClient(applicant.Id, UserRole.Traveler);
+        using var staff = api.CreateAuthenticatedClient(staffUser.Id, UserRole.Staff);
+        var created = await candidate.PostAsJsonAsync("/api/v1/stays/ownership-claims",
+            new { poiId, evidence = "Quản lý theo giấy ủy quyền đã gửi Staff." });
+        created.StatusCode.Should().Be(HttpStatusCode.OK);
+        var claim = (await created.Content.ReadFromJsonAsync<StayOwnershipView>())!;
+        claim.Status.Should().Be(StayOwnershipClaim.Pending);
+        (await db.ProviderPoiLinks.AnyAsync(item => item.PointOfInterestId == poiId)).Should().BeFalse();
+        var reviewPath = $"/api/v1/admin/stay-ownership-claims/{claim.Id}/review";
+        var approval = new { approved = true, note = "Đã xác minh với cơ sở." };
+        (await candidate.PostAsJsonAsync(reviewPath, approval)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        var approved = await staff.PostAsJsonAsync(reviewPath, approval);
+        approved.StatusCode.Should().Be(HttpStatusCode.OK, await approved.Content.ReadAsStringAsync());
+        (await db.Users.AsNoTracking().SingleAsync(item => item.Id == applicant.Id)).Role.Should().Be(UserRole.ServiceProvider);
+        (await db.ProviderPoiLinks.Where(item => item.PointOfInterestId == poiId)
+            .Select(item => item.Provider.UserId).SingleAsync()).Should().Be(applicant.Id);
+    }
+
+    internal static async Task<Seed> SeedAsync(SqlServerTestDatabase database, bool includeBooking = true,
+        string categoryName = CommercialService.CategoryHotel)
     {
         var now = DateTimeOffset.Parse("2026-11-14T04:00:00Z");
         await using var db = database.CreateDbContext();
@@ -501,9 +578,9 @@ public sealed class ServiceProviderRequestSqlServerTests
         };
         db.Users.AddRange(user, traveler, otherProvider);
         await db.SaveChangesAsync();
-        var provider = ServiceProvider.Create("Linked provider", "Hotel", ServiceProvider.StatusActive);
+        var provider = ServiceProvider.Create("Linked provider", categoryName, ServiceProvider.StatusActive);
         provider.AssignAccount(user);
-        var legacy = ServiceProvider.Create("Legacy listing owner", "Hotel", ServiceProvider.StatusActive);
+        var legacy = ServiceProvider.Create("Legacy listing owner", categoryName, ServiceProvider.StatusActive);
         legacy.AssignAccount(otherProvider);
         var category = await db.PoiCategories.FirstOrDefaultAsync(value => value.Name == "Hotel") ?? PoiCategory.Create("Hotel", null);
         var poi = PointOfInterest.Create(category, "Hotel POI", 16, 108, user.Id, now);
@@ -511,8 +588,9 @@ public sealed class ServiceProviderRequestSqlServerTests
         db.ServiceProviders.AddRange(provider, legacy);
         await db.SaveChangesAsync();
         db.ProviderPoiLinks.Add(ProviderPoiLink.Create(provider, poi));
-        var service = CommercialService.Create(legacy, "Hotel", "Legacy hotel room", 123456.78m,
-            CommercialService.PriceUnitPerNight, CommercialService.AvailabilityAvailable, "VND", false,
+        var service = CommercialService.Create(legacy, categoryName, "Legacy hotel room", 123456.78m,
+            categoryName == CommercialService.CategoryHotel ? CommercialService.PriceUnitPerNight : CommercialService.PriceUnitPerPerson,
+            CommercialService.AvailabilityAvailable, "VND", false,
             null, null, null, now, poiId: poi.Id);
         db.CommercialServices.Add(service);
         await db.SaveChangesAsync();

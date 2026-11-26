@@ -34,9 +34,11 @@ internal sealed class ReroutingCandidateFinder(IApplicationDbContext dbContext)
         var pois = await dbContext.PointsOfInterest
             .WithPlanningDetails(affected.Latitude, affected.Longitude, query.RadiusKm, [], endPoiId: null)
             .ToListAsync(cancellationToken);
+        var accommodationPoiIds = await PlanningPoiEligibility.AccommodationPoiIdsAsync(dbContext, cancellationToken);
 
         return pois
             .Where(poi => poi.Id != affected.Id && !query.ExcludedPoiIds.Contains(poi.Id))
+            .Where(poi => !accommodationPoiIds.Contains(poi.Id))
             .Where(PlanningPoiEligibility.IsPlanningReady)
             .Where(poi => !query.RequireReviewedIndoor
                 || (poi.IndoorOutdoor == IndoorOutdoorType.Indoor && poi.IndoorOutdoorReviewedAtUtc.HasValue))
