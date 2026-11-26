@@ -46,6 +46,7 @@ using TripMate.Application.Features.TripAlerts.Weather;
 using TripMate.Application.Features.TripReviews.Common;
 using TripMate.Application.Features.TripReviews.Media;
 using TripMate.Application.Features.Weather.Processing;
+using TripMate.Application.Features.Weather.PublicForecast;
 using TripMate.Infrastructure.Ai;
 using TripMate.Infrastructure.AiExplanation;
 using TripMate.Infrastructure.AiRanking;
@@ -169,6 +170,18 @@ public static class DependencyInjection
         services.AddHttpClient<IDayForecastProvider, TomorrowDayForecastProvider>((provider, client) =>
         {
             var weather = provider.GetRequiredService<IOptions<TomorrowWeatherOptions>>().Value;
+            client.BaseAddress = new Uri(weather.BaseUrl, UriKind.Absolute);
+            client.Timeout = TimeSpan.FromSeconds(10);
+        });
+        services.AddOptions<PublicWeatherOptions>()
+            .Bind(configuration.GetSection(PublicWeatherOptions.SectionName))
+            .Validate(options => !options.Enabled || !string.IsNullOrWhiteSpace(options.ApiKey),
+                "PublicWeather API key is required when the public weather forecast is enabled.")
+            .Validate(options => options.CacheDuration > TimeSpan.Zero, "PublicWeather cache duration must be positive.")
+            .ValidateOnStart();
+        services.AddHttpClient<IPublicWeatherForecastProvider, TomorrowPublicForecastProvider>((provider, client) =>
+        {
+            var weather = provider.GetRequiredService<IOptions<PublicWeatherOptions>>().Value;
             client.BaseAddress = new Uri(weather.BaseUrl, UriKind.Absolute);
             client.Timeout = TimeSpan.FromSeconds(10);
         });
