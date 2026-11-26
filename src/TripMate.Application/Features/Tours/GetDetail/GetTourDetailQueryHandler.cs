@@ -55,6 +55,9 @@ public sealed class GetTourDetailQueryHandler(
                         candidate.TravellerRequirements,
                         candidate.Inclusions,
                         candidate.Exclusions,
+                        candidate.AllowDeposit,
+                        candidate.DepositPercent,
+                        candidate.BalanceDueDaysBeforeDeparture,
                         OperatorName = candidate.OperatorProfile.CompanyName,
                         OperatorPhone = candidate.OperatorProfile.ContactPhone,
                     })
@@ -230,6 +233,9 @@ public sealed class GetTourDetailQueryHandler(
                     Highlights = tour.Highlights,
                     TravellerRequirements = tour.TravellerRequirements,
                     TimeZoneId = string.IsNullOrWhiteSpace(tour.TimeZoneId) ? Tour.DefaultTimeZoneId : tour.TimeZoneId,
+                    AllowDeposit = tour.AllowDeposit,
+                    DepositPercent = tour.DepositPercent,
+                    BalanceDueDaysBeforeDeparture = tour.BalanceDueDaysBeforeDeparture,
                 });
             },
             cancellationToken);

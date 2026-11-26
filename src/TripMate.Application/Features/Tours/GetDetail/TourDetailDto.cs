@@ -32,6 +32,12 @@ public sealed record TourDetailDto(
     public string? TravellerRequirements { get; init; }
 
     public string TimeZoneId { get; init; } = TripMate.Domain.Entities.Tour.DefaultTimeZoneId;
+
+    public bool AllowDeposit { get; init; }
+
+    public decimal? DepositPercent { get; init; }
+
+    public int? BalanceDueDaysBeforeDeparture { get; init; }
 }
 
 /// <summary>Only the company name and contact phone are public; nothing else about the operator.</summary>

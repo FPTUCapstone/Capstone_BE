@@ -171,7 +171,10 @@ public sealed class CreateTourPackageCommandHandler(
                 OperatorTourValidation.NormalizeText(request.Exclusions),
                 OperatorTourValidation.NormalizeText(request.Highlights),
                 OperatorTourValidation.NormalizeText(request.TravellerRequirements),
-                OperatorTourValidation.NormalizeText(request.TimeZoneId));
+                OperatorTourValidation.NormalizeText(request.TimeZoneId),
+                request.AllowDeposit,
+                request.AllowDeposit ? request.DepositPercent : null,
+                request.AllowDeposit ? request.BalanceDueDaysBeforeDeparture : null);
             dbContext.Tours.Add(tour);
             dbContext.TourPackageCreateOperations.Add(TourPackageCreateOperation.Create(
                 operatorId, request.IdempotencyKey, fingerprint, tour, now));
@@ -201,6 +204,9 @@ public sealed class CreateTourPackageCommandHandler(
             TravellerRequirements = OperatorTourValidation.NormalizeText(request.TravellerRequirements),
             TimeZoneId = OperatorTourValidation.NormalizeText(request.TimeZoneId),
             request.SourceTourId,
+            request.AllowDeposit,
+            DepositPercent = request.AllowDeposit ? request.DepositPercent : null,
+            BalanceDueDaysBeforeDeparture = request.AllowDeposit ? request.BalanceDueDaysBeforeDeparture : null,
             request.ItineraryItems,
             request.Schedules,
         });

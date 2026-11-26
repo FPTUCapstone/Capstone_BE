@@ -31,6 +31,17 @@ public sealed class CreateTourPackageCommandValidator : AbstractValidator<Create
         RuleFor(command => command.TimeZoneId).Must(Tour.IsKnownTimeZone)
             .When(command => !string.IsNullOrWhiteSpace(command.TimeZoneId))
             .WithMessage("The time zone must be a valid IANA identifier.");
+        When(command => command.AllowDeposit, () =>
+        {
+            RuleFor(command => command.DepositPercent)
+                .NotNull()
+                .InclusiveBetween(Tour.MinDepositPercent, Tour.MaxDepositPercent)
+                .WithMessage($"Deposit percentage must be between {Tour.MinDepositPercent}% and {Tour.MaxDepositPercent}% when deposits are enabled.");
+            RuleFor(command => command.BalanceDueDaysBeforeDeparture)
+                .NotNull()
+                .InclusiveBetween(Tour.MinBalanceDueDaysBeforeDeparture, Tour.MaxBalanceDueDaysBeforeDeparture)
+                .WithMessage($"Balance settlement deadline must be between {Tour.MinBalanceDueDaysBeforeDeparture} and {Tour.MaxBalanceDueDaysBeforeDeparture} days before departure.");
+        });
         RuleFor(command => command.ItineraryItems).NotNull().NotEmpty();
         RuleFor(command => command.Schedules).NotNull().NotEmpty();
         RuleForEach(command => command.ItineraryItems).ChildRules(item =>

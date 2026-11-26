@@ -58,8 +58,24 @@ public sealed record OperatorTourDetailDto(
 
     public string? TravellerRequirements { get; init; }
 
+    public bool AllowDeposit { get; init; }
+
+    public decimal? DepositPercent { get; init; }
+
+    public int? BalanceDueDaysBeforeDeparture { get; init; }
+
+    public IReadOnlyList<OperatorTourVersionDto> Versions { get; init; } = [];
+
     public IReadOnlyList<string> WeatherReadinessIssues { get; init; } = [];
 }
+
+public sealed record OperatorTourVersionDto(
+    long TourId,
+    int VersionNo,
+    string Status,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset? PublishedAtUtc,
+    string? RejectionReason);
 
 public sealed record OperatorTourDestinationDto(long DestinationId, string Name);
 

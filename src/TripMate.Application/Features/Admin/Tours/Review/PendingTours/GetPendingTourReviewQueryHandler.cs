@@ -57,6 +57,9 @@ public sealed class GetPendingTourReviewQueryHandler(IApplicationDbContext dbCon
                 tour.Inclusions,
                 tour.Exclusions,
                 tour.TravellerRequirements,
+                tour.AllowDeposit,
+                tour.DepositPercent,
+                tour.BalanceDueDaysBeforeDeparture,
                 Policy = tour.CancellationPolicyRules
                     .OrderByDescending(rule => rule.DaysBeforeDeparture)
                     .Select(rule => new PendingTourCancellationRuleDto(rule.DaysBeforeDeparture, rule.CancellationFeePercent))
@@ -110,6 +113,9 @@ public sealed class GetPendingTourReviewQueryHandler(IApplicationDbContext dbCon
             row.Images)
         {
             SubmissionNote = row.SubmissionNote,
+            AllowDeposit = row.AllowDeposit,
+            DepositPercent = row.DepositPercent,
+            BalanceDueDaysBeforeDeparture = row.BalanceDueDaysBeforeDeparture,
         });
     }
 

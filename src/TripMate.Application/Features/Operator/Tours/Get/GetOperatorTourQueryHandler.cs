@@ -104,8 +104,34 @@ public sealed class GetOperatorTourQueryHandler(
         // Same evaluator as submit-review, so the hint shown to the operator matches what the command enforces.
         var terms = await dbContext.Tours.AsNoTracking()
             .Where(candidate => candidate.Id == tour.Id)
-            .Select(candidate => new { candidate.TimeZoneId, candidate.Highlights, candidate.TravellerRequirements, candidate.SubmittedAtUtc, candidate.SubmissionNote, candidate.PublishedAtUtc })
+            .Select(candidate => new
+            {
+                candidate.TimeZoneId,
+                candidate.Highlights,
+                candidate.TravellerRequirements,
+                candidate.SubmittedAtUtc,
+                candidate.SubmissionNote,
+                candidate.PublishedAtUtc,
+                candidate.VersionRootTourId,
+                candidate.AllowDeposit,
+                candidate.DepositPercent,
+                candidate.BalanceDueDaysBeforeDeparture,
+            })
             .SingleAsync(cancellationToken);
+        long versionRootId = terms.VersionRootTourId ?? tour.Id;
+        var versions = await dbContext.Tours.AsNoTracking()
+            .Where(candidate => (candidate.VersionRootTourId == versionRootId || candidate.Id == versionRootId)
+                && (!operatorId.HasValue || candidate.OperatorUserId == operatorId.Value))
+            .OrderByDescending(candidate => candidate.VersionNo)
+            .ThenByDescending(candidate => candidate.Id)
+            .Select(candidate => new OperatorTourVersionDto(
+                candidate.Id,
+                candidate.VersionNo,
+                candidate.Status.ToString(),
+                candidate.CreatedAtUtc,
+                candidate.PublishedAtUtc,
+                candidate.RejectionReason))
+            .ToListAsync(cancellationToken);
         string timeZoneId = string.IsNullOrWhiteSpace(terms.TimeZoneId) ? Tour.DefaultTimeZoneId : terms.TimeZoneId;
         var warnings = await BuildWarningsAsync(tour, timeZoneId, cancellationToken);
         DateTimeOffset now = clock.UtcNow;
@@ -133,6 +159,10 @@ public sealed class GetOperatorTourQueryHandler(
             TimeZoneId = timeZoneId,
             Highlights = terms.Highlights,
             TravellerRequirements = terms.TravellerRequirements,
+            AllowDeposit = terms.AllowDeposit,
+            DepositPercent = terms.DepositPercent,
+            BalanceDueDaysBeforeDeparture = terms.BalanceDueDaysBeforeDeparture,
+            Versions = versions,
             WeatherReadinessIssues = weatherIssues,
             Departures = tour.Departures.Select(departure => departure with
             {
