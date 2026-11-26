@@ -51,7 +51,9 @@ public sealed class AddTourDepartureCommandValidator : AbstractValidator<AddTour
             .Must(OperatorTourValidation.IsWholeVnd)
             .When(command => command.InfantPrice.HasValue)
             .WithMessage("Infant price must be a non-negative whole VND amount.");
-        RuleFor(command => command.MeetingPoint).MaximumLength(TourSchedule.MeetingPointMaxLength);
+        RuleFor(command => command.MeetingPoint)
+            .Must(value => value is null || value.Trim().Length <= TourSchedule.MeetingPointMaxLength)
+            .WithMessage($"Meeting point must not exceed {TourSchedule.MeetingPointMaxLength} characters.");
         RuleFor(command => command)
             .Must(command => OperatorTourValidation.HasValidMeetingCoordinates(
                 new CreateTourScheduleRequest(

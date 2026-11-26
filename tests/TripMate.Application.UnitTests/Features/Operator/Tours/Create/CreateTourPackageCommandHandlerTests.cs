@@ -294,6 +294,29 @@ public sealed class CreateTourPackageCommandHandlerTests
         (await db.Tours.CountAsync()).Should().Be(1);
     }
 
+    [Fact]
+    public async Task Handle_WhenRevisionAlreadyExists_RejectsAnotherDraftForSameLineage()
+    {
+        await using var db = TestDbContext.Create();
+        var actor = await SeedApprovedOperatorAsync(db, 7);
+        await TourAuthoringTestData.SeedReferenceDataAsync(db);
+        await SeedPoiAsync(db, 88);
+        var handler = new CreateTourPackageCommandHandler(db,
+            new FakeCurrentUserService { UserId = actor.Id }, new FakeDateTimeProvider());
+        var source = await handler.Handle(Command(88), CancellationToken.None);
+        var sourceTour = await db.Tours.SingleAsync();
+        typeof(Tour).GetProperty(nameof(Tour.Status))!.SetValue(sourceTour, TourStatus.Approved);
+        await db.SaveChangesAsync();
+
+        var first = await handler.Handle(Command(88) with { SourceTourId = source.Value.TourId }, CancellationToken.None);
+        var second = await handler.Handle(Command(88) with { SourceTourId = source.Value.TourId }, CancellationToken.None);
+
+        first.IsSuccess.Should().BeTrue();
+        second.IsFailure.Should().BeTrue();
+        second.ErrorCode.Should().Be("operator_tour.invalid_state");
+        (await db.Tours.CountAsync()).Should().Be(2);
+    }
+
     private static CreateTourPackageCommand Command(long poiId) => new(
         "Da Nang day tour", "A full day visiting Da Nang landmarks.", null, 1_250_000m, 1,
         [TourAuthoringTestData.DestinationId], TourAuthoringTestData.PolicyTemplateId, null, null,

@@ -40,12 +40,15 @@ public sealed class UpdateTourDraftCommandValidator : AbstractValidator<UpdateTo
             item.RuleFor(value => value.SequenceNo).GreaterThan(0);
             item.RuleFor(value => value.PoiId).GreaterThan(0);
             item.RuleFor(value => value.StayDurationMinutes).GreaterThan(0);
-            item.RuleFor(value => value.Notes).MaximumLength(TourItineraryItem.NotesMaxLength);
+            item.RuleFor(value => value.Notes).Must(value => value is null || value.Trim().Length <= TourItineraryItem.NotesMaxLength)
+                .WithMessage($"Activity notes must not exceed {TourItineraryItem.NotesMaxLength} characters.");
         });
         RuleFor(command => command.ItineraryItems).Must(items => items is not null &&
-            items.Select(item => (item.DayNo, item.SequenceNo)).Distinct().Count() == items.Count);
+            items.Select(item => (item.DayNo, item.SequenceNo)).Distinct().Count() == items.Count)
+            .WithMessage("Itinerary day numbers must be within the tour duration and cannot duplicate sequence numbers.");
         RuleFor(command => command.ItineraryItems).Must((command, items) =>
-            items is not null && items.All(item => item.DayNo <= command.DurationDays));
+            items is not null && items.All(item => item.DayNo <= command.DurationDays))
+            .WithMessage("Itinerary day numbers must be within the tour duration and cannot duplicate sequence numbers.");
         RuleForEach(command => command.Schedules).ChildRules(schedule =>
         {
             schedule.RuleFor(value => value.StartAtUtc).GreaterThan(_ => clock.UtcNow);
@@ -72,7 +75,8 @@ public sealed class UpdateTourDraftCommandValidator : AbstractValidator<UpdateTo
                 .WithMessage("The price must be a whole VND amount.");
             schedule.RuleFor(value => value.InfantPrice).Must(OperatorTourValidation.IsWholeVnd)
                 .WithMessage("The price must be a whole VND amount.");
-            schedule.RuleFor(value => value.MeetingPoint).MaximumLength(TourSchedule.MeetingPointMaxLength);
+            schedule.RuleFor(value => value.MeetingPoint).Must(value => value is null || value.Trim().Length <= TourSchedule.MeetingPointMaxLength)
+                .WithMessage($"Meeting point must not exceed {TourSchedule.MeetingPointMaxLength} characters.");
             schedule.RuleFor(value => value).Must(OperatorTourValidation.HasValidMeetingCoordinates)
                 .WithMessage("Meeting coordinates require a named point and valid latitude and longitude.");
         });

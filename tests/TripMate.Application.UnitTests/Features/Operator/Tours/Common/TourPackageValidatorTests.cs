@@ -2,6 +2,7 @@ using FluentAssertions;
 
 using TripMate.Application.Features.Operator.Tours.Common;
 using TripMate.Application.Features.Operator.Tours.Create;
+using TripMate.Application.Features.Operator.Tours.Departures.Add;
 using TripMate.Application.Features.Operator.Tours.Update;
 using TripMate.Application.UnitTests.TestUtilities;
 using TripMate.Domain.Entities;
@@ -148,6 +149,61 @@ public sealed class TourPackageValidatorTests
         1, source.Title, source.Description, source.CategoryId, source.BasePrice, source.DurationDays,
         source.DestinationIds, source.CancellationPolicyTemplateId, source.Inclusions, source.Exclusions,
         source.ItineraryItems, source.Schedules);
+
+    // [DH-09] Trim parity — padded strings at and over MeetingPointMaxLength
+
+    [Fact]
+    public void CreateAndUpdate_AcceptPaddedMeetingPointAtExactLimit()
+    {
+        var atLimit = " " + new string('x', TourSchedule.MeetingPointMaxLength) + " ";
+        var schedule = Create().Schedules[0] with { MeetingPoint = atLimit };
+
+        CreateValidator.Validate(Create() with { Schedules = [schedule] }).IsValid.Should().BeTrue();
+        UpdateValidator.Validate(Update(Create() with { Schedules = [schedule] })).IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void CreateAndUpdate_RejectMeetingPointExceedingLimitAfterTrim()
+    {
+        var overLimit = new string('x', TourSchedule.MeetingPointMaxLength + 1);
+        var schedule = Create().Schedules[0] with { MeetingPoint = overLimit };
+
+        var createResult = CreateValidator.Validate(Create() with { Schedules = [schedule] });
+        createResult.IsValid.Should().BeFalse();
+        createResult.Errors.Should().Contain(e => e.ErrorMessage.Contains($"{TourSchedule.MeetingPointMaxLength} characters"));
+
+        var updateResult = UpdateValidator.Validate(Update(Create() with { Schedules = [schedule] }));
+        updateResult.IsValid.Should().BeFalse();
+        updateResult.Errors.Should().Contain(e => e.ErrorMessage.Contains($"{TourSchedule.MeetingPointMaxLength} characters"));
+    }
+
+    [Fact]
+    public void AddDeparture_AcceptsPaddedMeetingPointAtExactLimit()
+    {
+        var validator = new AddTourDepartureCommandValidator(Clock);
+        var now = Clock.UtcNow;
+        var atLimit = " " + new string('x', TourSchedule.MeetingPointMaxLength) + " ";
+        var command = new AddTourDepartureCommand(
+            1, Guid.NewGuid(), now.AddDays(2), now.AddDays(2).AddHours(8),
+            MeetingPoint: atLimit, TotalCapacity: 10);
+
+        validator.Validate(command).IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void AddDeparture_RejectsMeetingPointExceedingLimitAfterTrim()
+    {
+        var validator = new AddTourDepartureCommandValidator(Clock);
+        var now = Clock.UtcNow;
+        var overLimit = new string('x', TourSchedule.MeetingPointMaxLength + 1);
+        var command = new AddTourDepartureCommand(
+            1, Guid.NewGuid(), now.AddDays(2), now.AddDays(2).AddHours(8),
+            MeetingPoint: overLimit, TotalCapacity: 10);
+
+        var result = validator.Validate(command);
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().Contain(e => e.ErrorMessage.Contains($"{TourSchedule.MeetingPointMaxLength} characters"));
+    }
 
     [Fact]
     public void BuildDestinationSummary_JoinsNamesInTheOrderChosen()

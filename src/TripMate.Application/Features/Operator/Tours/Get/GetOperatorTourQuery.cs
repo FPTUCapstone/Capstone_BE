@@ -35,6 +35,8 @@ public sealed record OperatorTourDetailDto(
     /// <summary>Number of active media items; computed by the server, never client-provided.</summary>
     public DateTimeOffset? SubmittedAtUtc { get; init; }
 
+    public DateTimeOffset? PublishedAtUtc { get; init; }
+
     public string? SubmissionNote { get; init; }
 
     public int MediaCount { get; init; }

@@ -27,6 +27,8 @@ public sealed record OperatorTourListItemDto(
     public int CompletedDepartureCount { get; init; }
 
     public int TotalDepartureCount { get; init; }
+
+    public DateTimeOffset? PublishedAtUtc { get; init; }
 }
 
 public sealed record OperatorTourListResponse(

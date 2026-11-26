@@ -104,7 +104,7 @@ public sealed class GetOperatorTourQueryHandler(
         // Same evaluator as submit-review, so the hint shown to the operator matches what the command enforces.
         var terms = await dbContext.Tours.AsNoTracking()
             .Where(candidate => candidate.Id == tour.Id)
-            .Select(candidate => new { candidate.TimeZoneId, candidate.Highlights, candidate.TravellerRequirements, candidate.SubmittedAtUtc, candidate.SubmissionNote })
+            .Select(candidate => new { candidate.TimeZoneId, candidate.Highlights, candidate.TravellerRequirements, candidate.SubmittedAtUtc, candidate.SubmissionNote, candidate.PublishedAtUtc })
             .SingleAsync(cancellationToken);
         string timeZoneId = string.IsNullOrWhiteSpace(terms.TimeZoneId) ? Tour.DefaultTimeZoneId : terms.TimeZoneId;
         var warnings = await BuildWarningsAsync(tour, timeZoneId, cancellationToken);
@@ -123,6 +123,7 @@ public sealed class GetOperatorTourQueryHandler(
         return Result.Success(tour with
         {
             SubmittedAtUtc = terms.SubmittedAtUtc,
+            PublishedAtUtc = terms.PublishedAtUtc,
             SubmissionNote = terms.SubmissionNote,
             MediaCount = readiness.MediaCount,
             HasPrimaryImage = readiness.HasPrimaryImage,

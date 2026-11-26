@@ -66,6 +66,7 @@ public sealed class ListOperatorToursQueryHandler(
                     .FirstOrDefault(),
                 tour.DestinationSummary)
             {
+                PublishedAtUtc = tour.PublishedAtUtc,
                 UpcomingDepartureCount = tour.Schedules.Count(schedule =>
                     schedule.Status == TourScheduleStatus.Scheduled && schedule.StartAtUtc > now),
                 CompletedDepartureCount = tour.Schedules.Count(schedule =>
