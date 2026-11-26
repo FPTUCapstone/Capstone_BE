@@ -520,8 +520,15 @@ public sealed class ServiceProviderRequestSqlServerTests
         db.ProviderPoiLinks.Remove(originalLink);
         var applicant = await db.Users.SingleAsync(item => item.Id == fixture.TravelerId);
         applicant.EmailVerifiedAtUtc = fixture.Now;
-        var staffUser = new User { Role = UserRole.Staff, Status = AccountStatus.Active, FullName = "Staff Reviewer",
-            Email = "stay-reviewer@example.test", CreatedAtUtc = fixture.Now, UpdatedAtUtc = fixture.Now };
+        var staffUser = new User
+        {
+            Role = UserRole.Staff,
+            Status = AccountStatus.Active,
+            FullName = "Staff Reviewer",
+            Email = "stay-reviewer@example.test",
+            CreatedAtUtc = fixture.Now,
+            UpdatedAtUtc = fixture.Now
+        };
         db.Users.Add(staffUser);
         await db.SaveChangesAsync();
         await using var api = new TripMateApiFactory(sqlServerConnectionString: database.ConnectionString,

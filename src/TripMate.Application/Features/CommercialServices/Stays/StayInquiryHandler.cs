@@ -7,8 +7,8 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
-using TripMate.Application.Features.ServiceProviderRequests;
 using TripMate.Application.Features.Scheduling.Common;
+using TripMate.Application.Features.ServiceProviderRequests;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -81,7 +81,11 @@ public sealed class StayInquiryHandler(IApplicationDbContext db, ICurrentUserSer
                     from listing in matches.DefaultIfEmpty()
                     select new
                     {
-                        PoiId = poi.Id, poi.Name, poi.Address, poi.Latitude, poi.Longitude,
+                        PoiId = poi.Id,
+                        poi.Name,
+                        poi.Address,
+                        poi.Latitude,
+                        poi.Longitude,
                         Description = listing != null ? listing.Description ?? poi.Description : poi.Description,
                         Published = listing != null && listing.Published,
                         AcceptingRequests = listing != null && listing.AcceptingRequests
@@ -252,8 +256,17 @@ public sealed class StayInquiryHandler(IApplicationDbContext db, ICurrentUserSer
         Views(db.StayInquiries.AsNoTracking().Where(item => item.Id == id)).SingleAsync(ct);
 
     private void AddNotice(long userId, long id, string type, string title, string body, DateTimeOffset now) =>
-        db.Notifications.Add(new Notification { UserId = userId, Channel = NotificationChannel.InApp, Type = type,
-            RelatedEntityType = InquiryEntity, RelatedEntityId = id, Title = title, Body = body, CreatedAtUtc = now });
+        db.Notifications.Add(new Notification
+        {
+            UserId = userId,
+            Channel = NotificationChannel.InApp,
+            Type = type,
+            RelatedEntityType = InquiryEntity,
+            RelatedEntityId = id,
+            Title = title,
+            Body = body,
+            CreatedAtUtc = now
+        });
 
     private static Result<T> Invalid<T>(string text) => Result.Failure<T>("Stay.InvalidInput", text);
     private static Result<T> Conflict<T>(string text) => Result.Failure<T>("Stay.Conflict", text);
