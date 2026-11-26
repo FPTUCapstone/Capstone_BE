@@ -137,6 +137,28 @@ public class ItineraryItem : BaseEntity
             transportModeToNext);
     }
 
+    /// <summary>
+    /// A new, unattached row with the same planning data, used to carry a visited or skipped stop into the next
+    /// itinerary version (UC-15). The source row is not changed.
+    /// </summary>
+    public ItineraryItem CopyForVersion() => new()
+    {
+        SequenceNo = SequenceNo,
+        Kind = Kind,
+        PointOfInterestId = PointOfInterestId,
+        PlannedArrivalUtc = PlannedArrivalUtc,
+        PlannedDepartureUtc = PlannedDepartureUtc,
+        Status = Status,
+        StayDurationMinutes = StayDurationMinutes,
+        TravelDurationToNextMinutes = TravelDurationToNextMinutes,
+        TravelDistanceToNextMeters = TravelDistanceToNextMeters,
+        TransportModeToNext = TransportModeToNext,
+        IsMandatory = IsMandatory,
+        EstimatedCost = EstimatedCost,
+        RecommendationReason = RecommendationReason,
+        FriendlyExplanation = FriendlyExplanation,
+    };
+
     internal void AttachTo(Itinerary itinerary)
     {
         Itinerary = itinerary ?? throw new ArgumentNullException(nameof(itinerary));

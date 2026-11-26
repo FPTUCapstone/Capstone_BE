@@ -7,6 +7,7 @@ using TripMate.Application.Common.Models;
 using TripMate.Application.Features.CommercialServices.Common;
 using TripMate.Application.Features.CommercialServices.Explore;
 using TripMate.Domain.Entities;
+using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.CommercialServices.Detail;
 
@@ -22,7 +23,8 @@ public sealed class GetCommercialServiceDetailQueryHandler(IApplicationDbContext
             .Where(candidate =>
                 candidate.Id == request.Id
                 && candidate.AvailabilityStatus == CommercialService.AvailabilityAvailable
-                && candidate.Provider.Status == ServiceProvider.StatusActive)
+                && candidate.Provider.Status == ServiceProvider.StatusActive
+                && (!candidate.PoiId.HasValue || dbContext.PointsOfInterest.Any(p => p.Id == candidate.PoiId.Value && p.Status == PointOfInterestStatus.Active)))
             .Select(candidate => new
             {
                 candidate.Id,

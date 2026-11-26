@@ -113,6 +113,7 @@ public static class DependencyInjection
 
         services.AddScoped<IAccountProvisioningEmailSender, SmtpAccountProvisioningEmailSender>();
         services.AddScoped<IAccountProvisioningLock, SqlServerAccountProvisioningLock>();
+        services.AddScoped<TripMate.Application.Features.PointsOfInterest.Deactivate.IPoiDeactivationLock, SqlServerPoiDeactivationLock>();
         services.AddScoped<IAccountProvisioningPersistenceErrors, SqlServerAccountProvisioningPersistenceErrors>();
         services.AddScoped<IServiceProviderRequestLock, SqlServerServiceProviderRequestLock>();
         services.AddScoped<ProviderRequestMutationService>();
@@ -138,6 +139,12 @@ public static class DependencyInjection
                 && options.ExtremeRainMmPerHour > options.SevereRainMmPerHour,
                 "Weather thresholds are invalid.")
             .ValidateOnStart();
+        services.AddOptions<TripMate.Application.Features.Rerouting.Common.ReroutingOptions>()
+            .Bind(configuration.GetSection(TripMate.Application.Features.Rerouting.Common.ReroutingOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<
+            IValidateOptions<TripMate.Application.Features.Rerouting.Common.ReroutingOptions>,
+            TripMate.Application.Features.Rerouting.Common.ReroutingOptionsValidator>();
         services.AddMemoryCache();
         services.AddOptions<TomorrowWeatherOptions>()
             .Bind(configuration.GetSection(TomorrowWeatherOptions.SectionName))

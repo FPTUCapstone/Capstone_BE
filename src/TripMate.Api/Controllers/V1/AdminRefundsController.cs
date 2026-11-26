@@ -21,6 +21,14 @@ namespace TripMate.Api.Controllers.V1;
 [Route("api/v1/admin/refunds")]
 public sealed class AdminRefundsController(ISender sender) : ApiControllerBase(sender)
 {
+    [HttpGet("emergency-review/{scheduleId:long:min(1)}")]
+    [Authorize(Roles = nameof(UserRole.Administrator))]
+    public async Task<IActionResult> GetEmergencyReview(long scheduleId, CancellationToken token)
+    {
+        var result = await Sender.Send(new GetEmergencyRefundReviewQuery(scheduleId), token);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
     [HttpPost("{refundId:long}/complete-manual")]
     [Authorize(Roles = nameof(UserRole.Administrator))]
     [Produces("application/json")]

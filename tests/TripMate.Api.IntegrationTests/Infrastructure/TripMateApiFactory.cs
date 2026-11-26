@@ -460,6 +460,10 @@ internal sealed class UnsupportedInMemoryReviewMediaCoordinator
 public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     : DbContext(options), IApplicationDbContext
 {
+    public DbSet<DirectConversation> DirectConversations => Set<DirectConversation>();
+
+    public DbSet<DirectMessage> DirectMessages => Set<DirectMessage>();
+
     public DbSet<User> Users => Set<User>();
     public DbSet<OperatorContract> OperatorContracts => Set<OperatorContract>();
     public DbSet<OperatorContractSigningChallenge> OperatorContractSigningChallenges => Set<OperatorContractSigningChallenge>();
@@ -514,6 +518,7 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<ProviderPoiLink> ProviderPoiLinks => Set<ProviderPoiLink>();
     public DbSet<ServiceProviderRequestOperation> ServiceProviderRequestOperations => Set<ServiceProviderRequestOperation>();
     public DbSet<CommercialService> CommercialServices => Set<CommercialService>();
+    public DbSet<ServiceAvailability> ServiceAvailability => Set<ServiceAvailability>();
     public DbSet<Voucher> Vouchers => Set<Voucher>();
     public DbSet<Booking> Bookings => Set<Booking>();
     public DbSet<BookingParticipant> BookingParticipants => Set<BookingParticipant>();
@@ -545,6 +550,11 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
         Set<BookingCancellationOperation>();
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
+    public DbSet<GroupMessage> GroupMessages => Set<GroupMessage>();
+    public DbSet<GroupMessageReadReceipt> GroupMessageReadReceipts => Set<GroupMessageReadReceipt>();
+    public DbSet<GroupRollCallCheckin> GroupRollCallCheckins => Set<GroupRollCallCheckin>();
+    public DbSet<GroupSplitBillPayment> GroupSplitBillPayments => Set<GroupSplitBillPayment>();
+    public DbSet<GroupPollVote> GroupPollVotes => Set<GroupPollVote>();
     public DbSet<Itinerary> Itineraries => Set<Itinerary>();
     public DbSet<ItineraryItem> ItineraryItems => Set<ItineraryItem>();
     public DbSet<SchedulingRequest> SchedulingRequests => Set<SchedulingRequest>();
@@ -904,6 +914,8 @@ internal sealed class UnsupportedInMemoryProvisioningLock : IAccountProvisioning
 
 internal sealed class UnsupportedInMemoryProviderRequestLock : IServiceProviderRequestLock
 {
+    public Task AcquireAvailabilityAsync(long serviceId, DateTimeOffset startsAt, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Availability locking requires the isolated SQL Server fixture.");
     public Task AcquireOperationAsync(long actorUserId, Guid key, CancellationToken cancellationToken) =>
         throw new NotSupportedException("Service request locking requires the isolated SQL Server fixture.");
 

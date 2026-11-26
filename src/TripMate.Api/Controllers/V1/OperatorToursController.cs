@@ -12,6 +12,11 @@ using TripMate.Application.Features.Operator.Tours.Emergency;
 using TripMate.Application.Features.Operator.Tours.Emergency.AddEvidence;
 using TripMate.Application.Features.Operator.Tours.Get;
 using TripMate.Application.Features.Operator.Tours.List;
+using TripMate.Application.Features.Operator.Tours.PendingChanges.Create;
+using TripMate.Application.Features.Operator.Tours.PendingChanges.Discard;
+using TripMate.Application.Features.Operator.Tours.PendingChanges.Get;
+using TripMate.Application.Features.Operator.Tours.PendingChanges.Save;
+using TripMate.Application.Features.Operator.Tours.PendingChanges.Submit;
 using TripMate.Application.Features.Operator.Tours.Policies;
 using TripMate.Application.Features.Operator.Tours.SubmitReview;
 using TripMate.Application.Features.Operator.Tours.Update;
@@ -260,6 +265,75 @@ public sealed class OperatorToursController(ISender sender) : ApiControllerBase(
         return result.IsSuccess
             ? StatusCode(StatusCodes.Status201Created, result.Value)
             : HandleFailure(result);
+    }
+
+    [HttpPost("{tourId:long}/pending-changes")]
+    [ProducesResponseType(typeof(PendingChangeResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(PendingChangeResponse), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> CreatePendingChange(long tourId, CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(new CreatePendingChangeCommand(tourId), cancellationToken);
+        if (!result.IsSuccess) return HandleFailure(result);
+        return result.Value.IsNew
+            ? StatusCode(StatusCodes.Status201Created, result.Value)
+            : Ok(result.Value);
+    }
+
+    [HttpGet("{tourId:long}/pending-changes/current")]
+    [ProducesResponseType(typeof(GetCurrentPendingChangeResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetCurrentPendingChange(long tourId, CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(new GetCurrentPendingChangeQuery(tourId), cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    [HttpPut("{tourId:long}/pending-changes/{pendingChangeId:long}")]
+    [ProducesResponseType(typeof(PendingChangeSavedResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> SavePendingChange(
+        long tourId,
+        long pendingChangeId,
+        SavePendingChangeCommand command,
+        CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(
+            command with { TourId = tourId, PendingChangeId = pendingChangeId }, cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
+    [HttpDelete("{tourId:long}/pending-changes/{pendingChangeId:long}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> DiscardPendingChange(
+        long tourId, long pendingChangeId, CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(
+            new DiscardPendingChangeCommand(tourId, pendingChangeId), cancellationToken);
+        return result.IsSuccess ? NoContent() : HandleFailure(result);
+    }
+
+    [HttpPost("{tourId:long}/pending-changes/{pendingChangeId:long}/submit")]
+    [ProducesResponseType(typeof(PendingChangeSubmittedResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> SubmitPendingChange(
+        long tourId, long pendingChangeId, CancellationToken cancellationToken)
+    {
+        var result = await Sender.Send(
+            new SubmitPendingChangeCommand(tourId, pendingChangeId), cancellationToken);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
     }
 }
 public sealed record SubmitTourForReviewRequest(string? SubmissionNote);

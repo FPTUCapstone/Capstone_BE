@@ -73,3 +73,15 @@ a production database by mistake. Fixture users use `example.invalid` addresses 
 passwords. Apply it once after schema v7 and all migrations (`sqlcmd -I -f 65001`); recreate the
 database to reset it.
 
+
+## UC-15 demo rerouting proposal
+
+`20261125_seed_uc15_demo_rerouting_proposal.sql` adds one fresh rerouting proposal (drop the second Pending stop after
+a severe-weather alert) to an existing open navigation session, so the Re-routing Suggestion screen can be reviewed
+without waiting for the scan job. Set `@SessionId` at the top; the script refuses a session that is not open, has no
+scheduling request, or has fewer than two Pending stops, and does nothing while a proposal for that session is still
+open. It adds only an `Incident`, its `Notification` and a `ReroutingEvent`; no itinerary, session item or navigation
+state changes. A proposal can be answered for 15 minutes, so run it right before the demo. `@DryRun = 1` (the default)
+rolls everything back after printing what would be created. It was written offline and has not been executed: dry-run
+it on Azure UAT first, never on a local database. `ReroutingDemoSeedContractTests` checks that it still writes every
+field of the snapshot schema.

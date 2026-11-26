@@ -97,6 +97,39 @@ public sealed class Incident : BaseEntity
         return true;
     }
 
+    /// <summary>
+    /// UC-15: clears the pointer to a snapshot row that is about to be replaced. Only a resolved incident may
+    /// be detached; the FK to the session item is NoAction, so the pointer must be cleared before the row is deleted.
+    /// </summary>
+    public void DetachAffectedItem()
+    {
+        EnsureResolved();
+        AffectedItineraryItemId = null;
+        AffectedItem = null;
+    }
+
+    /// <summary>UC-15: points a resolved incident at the replacement row of the same POI in the rerouted snapshot.</summary>
+    public void RepointAffectedItem(TripSessionItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        EnsureResolved();
+        if (!ReferenceEquals(item.Session, Session) && (item.SessionId <= 0 || item.SessionId != SessionId))
+        {
+            throw new ArgumentException("The item belongs to another session.", nameof(item));
+        }
+
+        AffectedItem = item;
+        AffectedItineraryItemId = item.ItineraryItemId;
+    }
+
+    private void EnsureResolved()
+    {
+        if (!ResolvedAtUtc.HasValue)
+        {
+            throw new InvalidOperationException("Only a resolved incident can change its affected item.");
+        }
+    }
+
     private static string Required(string value, int maxLength, string parameterName)
     {
         if (string.IsNullOrWhiteSpace(value))

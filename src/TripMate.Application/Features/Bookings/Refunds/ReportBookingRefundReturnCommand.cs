@@ -46,6 +46,7 @@ public sealed class ReportBookingRefundReturnCommandHandler(
         string reference = request.ReturnReference.Trim();
         return await dbContext.ExecuteInSerializableTransactionAsync(async token =>
         {
+            dbContext.ClearTrackedEntities();
             Refund? refund = await dbContext.Refunds.SingleOrDefaultAsync(item => item.Id == request.RefundId, token);
             if (refund is null)
                 return Result.Failure<ReportBookingRefundReturnResponse>(BookingCancellationErrorCodes.NotFound,
@@ -71,6 +72,27 @@ public sealed class ReportBookingRefundReturnCommandHandler(
                 refund.Id, now, AuditOutcome.Success,
                 beforeData: JsonSerializer.Serialize(new { Status = statusBefore.ToString() }),
                 afterData: JsonSerializer.Serialize(new { Status = refund.Status.ToString(), ReturnReference = reference })));
+
+            var staffIds = await dbContext.Users
+                .Where(user => user.Role == UserRole.Staff && user.Status == AccountStatus.Active && !user.MustChangePassword)
+                .Select(user => user.Id)
+                .ToListAsync(token);
+            foreach (long staffId in staffIds)
+            {
+                dbContext.Notifications.Add(new Notification
+                {
+                    UserId = staffId,
+                    Channel = NotificationChannel.InApp,
+                    Type = Notification.RefundReturnReportedType,
+                    Title = "Refund return ready for reconciliation",
+                    Body = $"A tour operator reported the return for refund #{refund.Id}. Review it in the refund reconciliation queue.",
+                    RelatedEntityType = nameof(Refund),
+                    RelatedEntityId = refund.Id,
+                    Status = NotificationStatus.Pending,
+                    CreatedAtUtc = now.ToUniversalTime(),
+                });
+            }
+
             await dbContext.SaveChangesAsync(token);
 
             return Result.Success(new ReportBookingRefundReturnResponse(refund.Id, refund.Status.ToString(), reference,

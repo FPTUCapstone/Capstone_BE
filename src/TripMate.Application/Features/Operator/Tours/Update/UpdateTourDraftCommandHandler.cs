@@ -43,6 +43,13 @@ public sealed class UpdateTourDraftCommandHandler(
                     transactionCancellationToken);
             if (tour is null)
                 return Result.Failure<UpdateTourDraftResponse>(OperatorTourErrorCodes.TourNotFound, "The tour is unavailable.");
+            if (tour.Status is TourStatus.Approved or TourStatus.Published)
+            {
+                // TM-82 spec §2/§3 point A2: this is UC-36's Alternative Flow trigger, not a
+                // generic invalid-state error — the operator is offered a draft version instead.
+                return Result.Failure<UpdateTourDraftResponse>(OperatorTourErrorCodes.InvalidState,
+                    "MSG110: the tour package is Approved; create a new draft version to edit it.");
+            }
             if (tour.Status is not (TourStatus.Draft or TourStatus.Rejected))
                 return Result.Failure<UpdateTourDraftResponse>(OperatorTourErrorCodes.EditLocked, "Only Draft or Rejected tours can be edited.");
 

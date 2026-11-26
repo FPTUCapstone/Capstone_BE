@@ -20,4 +20,15 @@ public static class OperatorTourErrorCodes
     public const string WeatherReviewInvalid = "operator_tour.weather_review_invalid";
     public const string DuplicateDeparture = "operator_tour.duplicate_departure";
     public const string DepartureItineraryMismatch = "operator_tour.departure_itinerary_mismatch";
+
+    // TM-82 / UC-36: draft versions of an Approved/Published tour. These intentionally do not
+    // reuse ReviewPrerequisitesMissing/RejectionReasonInvalid above: those two map to 422 for the
+    // pre-existing UC-60/UC-61 first-time-submission flow, an already-approved contract this spec
+    // does not touch, while spec TM-82 §7 requires 400 for the equivalent draft-version cases.
+    public const string PendingChangeNotFound = "operator_tour.pending_change_not_found";
+    public const string ScheduleHasActiveBookings = "operator_tour.schedule_has_active_bookings";
+    public const string ScheduleNotOwnedByTour = "operator_tour.schedule_not_owned_by_tour";
+    public const string InvalidScheduleDate = "operator_tour.invalid_schedule_date";
+    public const string PendingChangeReviewPrerequisitesMissing = "operator_tour.pending_change_review_prerequisites_missing";
+    public const string PendingChangeRejectionReasonInvalid = "operator_tour.pending_change_rejection_reason_invalid";
 }
