@@ -53,7 +53,7 @@ public sealed class CommercialServiceBookingHandler(IApplicationDbContext db, IC
         var actor = request.ForProvider ? await ProviderRequestAccess.ActorAsync(db, current, token) : null;
         if (request.ForProvider && actor is null) return Forbidden<IReadOnlyList<CommercialServiceOption>>();
 
-        var services = Services(actor);
+        var services = Services(actor).Where(service => service.ServiceCategory != CommercialService.CategoryHotel);
         if (request.PoiId.HasValue) services = services.Where(service => service.PoiId == request.PoiId);
         var options = await services.OrderBy(service => service.Name).ThenBy(service => service.Id)
             .Select(service => new CommercialServiceOption(service.Id, service.Name, service.ServiceCategory,
@@ -156,7 +156,7 @@ public sealed class CommercialServiceBookingHandler(IApplicationDbContext db, IC
             await requestLock.AcquireAvailabilityAsync(body.ServiceId, body.StartsAt, ct);
             var service = await db.ExecuteWithSerializableReadsAsync(
                 readToken => Services(null).SingleOrDefaultAsync(item => item.Id == body.ServiceId, readToken), ct);
-            if (service is null)
+            if (service is null || service.ServiceCategory == CommercialService.CategoryHotel)
                 return Result.Failure<CommercialServiceSubmission>(ServiceUnavailable, "The service is no longer open for booking.");
             if (body.ItineraryId is long itineraryId && !await db.Itineraries.AnyAsync(
                 item => item.Id == itineraryId && item.TravelerUserId == travelerId, ct))
