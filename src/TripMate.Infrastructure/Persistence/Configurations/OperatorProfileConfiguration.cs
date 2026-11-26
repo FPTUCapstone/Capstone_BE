@@ -29,6 +29,12 @@ public class OperatorProfileConfiguration : IEntityTypeConfiguration<OperatorPro
         builder.Property(op => op.CreatedAtUtc).HasColumnName("created_at").AsUtcDateTime2();
         builder.Property(op => op.UpdatedAtUtc).HasColumnName("updated_at").AsUtcDateTime2();
 
+        builder.Property(op => op.Description).HasColumnName("description").HasMaxLength(OperatorProfile.DescriptionMaxLength);
+        builder.Property(op => op.ContactEmail).HasColumnName("contact_email").HasMaxLength(OperatorProfile.ContactEmailMaxLength);
+        builder.Property(op => op.WebsiteUrl).HasColumnName("website_url").HasMaxLength(OperatorProfile.WebsiteUrlMaxLength);
+        builder.Property(op => op.LogoUrl).HasColumnName("logo_url").HasMaxLength(OperatorProfile.LogoUrlMaxLength);
+        builder.Property(op => op.LogoPublicId).HasColumnName("logo_public_id").HasMaxLength(OperatorProfile.LogoPublicIdMaxLength);
+
         builder.Property(op => op.BankName).HasColumnName("bank_name").HasMaxLength(OperatorProfile.BankNameMaxLength);
         builder.Property(op => op.AccountHolderName).HasColumnName("account_holder_name")
             .HasMaxLength(OperatorProfile.AccountHolderNameMaxLength);

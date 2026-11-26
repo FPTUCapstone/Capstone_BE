@@ -294,6 +294,12 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
 
             OperatorTourErrorCodes.AccessRequired => StatusCodes.Status403Forbidden,
             OperatorTourErrorCodes.AdminAccessRequired => StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.Operator.Profile.Common.OperatorProfileErrorCodes.NotFound =>
+                StatusCodes.Status404NotFound,
+            TripMate.Application.Features.Operator.Profile.Common.OperatorProfileErrorCodes.RequestInvalid =>
+                StatusCodes.Status400BadRequest,
+            TripMate.Application.Features.Operator.Profile.Common.OperatorProfileErrorCodes.Unavailable =>
+                StatusCodes.Status503ServiceUnavailable,
             TripMate.Application.Features.Operator.Revenue.Common.OperatorRevenueErrorCodes.InvalidGranularity =>
                 StatusCodes.Status400BadRequest,
 
