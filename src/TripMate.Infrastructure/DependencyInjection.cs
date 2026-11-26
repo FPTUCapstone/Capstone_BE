@@ -274,6 +274,7 @@ public static class DependencyInjection
             sp.GetRequiredService<SqlTravelerAvatarCleanupJournal>());
         services.AddHostedService<TravelerAvatarCleanupBackgroundService>();
         services.AddSingleton<IOperatorDocumentStorage, CloudinaryOperatorDocumentStorage>();
+        services.AddSingleton<IOperatorLogoStorage, CloudinaryOperatorLogoStorage>();
         services.AddSingleton<IRevenueExportStorage, CloudinaryRevenueExportStorage>();
         services.AddSingleton<IRevenueExportRenderer, XlsxRevenueExportRenderer>();
         services.AddSingleton<IStatisticalReportExportRenderer, StatisticalReportExportRenderer>();
