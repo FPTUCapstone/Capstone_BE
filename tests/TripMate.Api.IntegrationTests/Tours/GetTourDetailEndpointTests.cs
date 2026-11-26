@@ -31,7 +31,8 @@ public sealed class GetTourDetailEndpointTests
             "tourId", "title", "description", "destination", "destinations", "durationDays", "basePrice",
             "currency", "operator", "images", "inclusions", "exclusions", "cancellationPolicy", "itinerary",
             "schedules", "hasBookableSchedule", "rating", "reviews", "asOfUtc",
-            "category", "highlights", "travellerRequirements", "timeZoneId");
+            "category", "highlights", "travellerRequirements", "timeZoneId",
+            "allowDeposit", "depositPercent", "balanceDueDaysBeforeDeparture");
         root.GetProperty("tourId").GetString().Should().Be(tourId.ToString());
         root.GetProperty("operator").EnumerateObject().Select(property => property.Name)
             .Should().BeEquivalentTo("name", "contactPhone");
