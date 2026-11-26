@@ -23,6 +23,9 @@
     <None Include="..\..\database\migrations\20261124_tour_recommendation_attributes.sql"
           Link="Database\migrations\20261124_tour_recommendation_attributes.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261126_add_tour_deposit_setup.sql"
+          Link="Database\migrations\20261126_add_tour_deposit_setup.sql"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
