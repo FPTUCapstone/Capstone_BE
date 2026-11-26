@@ -191,20 +191,20 @@ public sealed class TourVersionHistoryAndDepositWorkflowEndpointTests
         int? balanceDueDaysBeforeDeparture,
         string travellerRequirements,
         long? sourceTourId = null) => new
-    {
-        title,
-        description = "Hành trình trải nghiệm đầy đủ các điểm nổi bật và lưu ý chuẩn bị.",
-        basePrice = 3_500_000m,
-        durationDays = 2,
-        destinationIds = new[] { destinationId },
-        cancellationPolicyTemplateId = policyId,
-        travellerRequirements,
-        allowDeposit,
-        depositPercent,
-        balanceDueDaysBeforeDeparture,
-        sourceTourId,
-        itineraryItems = new[] { new { dayNo = 1, sequenceNo = 1, poiId, stayDurationMinutes = 90 } },
-        schedules = new[]
+        {
+            title,
+            description = "Hành trình trải nghiệm đầy đủ các điểm nổi bật và lưu ý chuẩn bị.",
+            basePrice = 3_500_000m,
+            durationDays = 2,
+            destinationIds = new[] { destinationId },
+            cancellationPolicyTemplateId = policyId,
+            travellerRequirements,
+            allowDeposit,
+            depositPercent,
+            balanceDueDaysBeforeDeparture,
+            sourceTourId,
+            itineraryItems = new[] { new { dayNo = 1, sequenceNo = 1, poiId, stayDurationMinutes = 90 } },
+            schedules = new[]
         {
             new
             {
@@ -215,7 +215,7 @@ public sealed class TourVersionHistoryAndDepositWorkflowEndpointTests
                 adultPrice = 3_500_000m,
             },
         },
-    };
+        };
 
     private static async Task AttachPrimaryImageAsync(TripMateApiFactory factory, long tourId)
     {
