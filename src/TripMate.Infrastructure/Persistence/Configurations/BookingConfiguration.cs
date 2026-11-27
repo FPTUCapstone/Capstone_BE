@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 using TripMate.Domain.Entities;
+using TripMate.Domain.Enums;
 using TripMate.Infrastructure.Persistence.Common;
 
 namespace TripMate.Infrastructure.Persistence.Configurations;
@@ -84,6 +85,13 @@ public sealed class BookingConfiguration : IEntityTypeConfiguration<Booking>
         builder.Property(booking => booking.EmergencyNoticeAcknowledgedAtUtc)
             .HasColumnName("emergency_notice_acknowledged_at")
             .AsUtcDateTime2();
+        builder.Property(booking => booking.PaymentFlow)
+            .HasColumnName("payment_flow")
+            .HasConversion<string>()
+            .HasMaxLength(30)
+            .IsUnicode(false)
+            .HasDefaultValue(PaymentFlow.PlatformCollectedLegacy)
+            .IsRequired();
 
         builder.Ignore(booking => booking.SubtotalAmount);
 

@@ -38,6 +38,12 @@ public sealed class DirectRefundCaseConfiguration : IEntityTypeConfiguration<Dir
         builder.Property(c => c.UpdatedAtUtc).HasColumnName("updated_at").AsUtcDateTime2().IsRequired();
         builder.Property(c => c.RowVersion).HasColumnName("row_version").IsRowVersion();
 
+        builder.Property(c => c.DisputeResolution).HasColumnName("dispute_resolution")
+            .HasMaxLength(30).IsUnicode(false);
+        builder.Property(c => c.DisputeResolutionReason).HasColumnName("dispute_resolution_reason")
+            .HasMaxLength(1000);
+        builder.Property(c => c.DisputeResolvedAtUtc).HasColumnName("dispute_resolved_at").AsUtcDateTime2();
+
         builder.HasOne<Booking>().WithMany()
             .HasForeignKey(c => c.BookingId).OnDelete(DeleteBehavior.Restrict);
 

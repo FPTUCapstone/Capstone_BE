@@ -1,6 +1,7 @@
 using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
@@ -52,7 +53,9 @@ public sealed class TravelerElectronicPaymentSqlServerTests
         await using (var context = database.CreateDbContext())
         {
             var handler = new CreateOrReusePaymentLinkCommandHandler(
-                context, new TestCurrentUserService(travelerId), clock, gateway, options);
+                context, new TestCurrentUserService(travelerId), clock, gateway,
+                new FakePaymentCredentialProtector(), new FakeOperatorPaymentGatewayFactory(),
+                options, NullLogger<CreateOrReusePaymentLinkCommandHandler>.Instance);
 
             var first = await handler.Handle(new CreateOrReusePaymentLinkCommand(bookingId), CancellationToken.None);
             var second = await handler.Handle(new CreateOrReusePaymentLinkCommand(bookingId), CancellationToken.None);
@@ -86,7 +89,9 @@ public sealed class TravelerElectronicPaymentSqlServerTests
         await using (var context = database.CreateDbContext())
         {
             var createHandler = new CreateOrReusePaymentLinkCommandHandler(
-                context, new TestCurrentUserService(travelerId), clock, gateway, options);
+                context, new TestCurrentUserService(travelerId), clock, gateway,
+                new FakePaymentCredentialProtector(), new FakeOperatorPaymentGatewayFactory(),
+                options, NullLogger<CreateOrReusePaymentLinkCommandHandler>.Instance);
             var createResult = await createHandler.Handle(new CreateOrReusePaymentLinkCommand(bookingId), CancellationToken.None);
             createResult.IsSuccess.Should().BeTrue();
             paymentId = createResult.Value.PaymentId;
@@ -217,5 +222,20 @@ public sealed class TravelerElectronicPaymentSqlServerTests
         public long? UserId => userId;
         public string? Email => $"user-{userId}@test.local";
         public string? Role => nameof(UserRole.Traveler);
+    }
+
+    private sealed class FakePaymentCredentialProtector : IPaymentCredentialProtector
+    {
+        public string Protect(string raw) => $"ref:{raw}";
+        public string Unprotect(string token) =>
+            token.StartsWith("ref:", StringComparison.Ordinal)
+                ? token["ref:".Length..]
+                : throw new FormatException("Not protected.");
+    }
+
+    private sealed class FakeOperatorPaymentGatewayFactory : IOperatorPaymentGatewayFactory
+    {
+        public IPaymentGateway Create(OperatorChannelSnapshot snapshot) =>
+            throw new InvalidOperationException("Operator channel not expected in this test.");
     }
 }

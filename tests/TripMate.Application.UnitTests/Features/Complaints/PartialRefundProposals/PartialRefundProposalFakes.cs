@@ -90,7 +90,7 @@ internal sealed class FakePartialRefundProposalStore(TestDbContext? dbContext = 
         if (LoseRaceFor.Contains(complaintId) || !_proposals.TryGetValue(complaintId, out var proposal) ||
             proposal.Status != PostTripComplaintStatus.AwaitingTravelerResponse || proposal.Round != 2)
             return Task.FromResult(false);
-        _proposals[complaintId] = proposal with { Status = PostTripComplaintStatus.Declined };
+        _proposals[complaintId] = proposal with { Status = PostTripComplaintStatus.AwaitingStaffReview };
         return Task.FromResult(true);
     }
 

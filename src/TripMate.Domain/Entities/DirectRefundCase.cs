@@ -81,6 +81,13 @@ public sealed class DirectRefundCase : BaseEntity
 
     public byte[] RowVersion { get; private set; } = [];
 
+    // Dispute resolution — set when admin acts on a Disputed case
+    public string? DisputeResolution { get; private set; }
+
+    public string? DisputeResolutionReason { get; private set; }
+
+    public DateTimeOffset? DisputeResolvedAtUtc { get; private set; }
+
     public static DirectRefundCase Create(
         long bookingId, string sourceType, long refundAmountVnd, long paidAmountVnd,
         DateTimeOffset nowUtc, long? sourceRefId = null)
@@ -160,6 +167,41 @@ public sealed class DirectRefundCase : BaseEntity
     public void FlagOverdue(DateTimeOffset nowUtc)
     {
         IsOverdueFlag = true;
+        UpdatedAtUtc = nowUtc.ToUniversalTime();
+    }
+
+    /// <summary>
+    /// Admin resolves dispute by confirming transfer was valid — marks case Completed
+    /// and records the decision for audit.
+    /// </summary>
+    public void ResolveDisputeCompleted(string reason, DateTimeOffset nowUtc)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        DisputeResolution = "Completed";
+        DisputeResolutionReason = reason;
+        DisputeResolvedAtUtc = nowUtc.ToUniversalTime();
+        Complete(MethodAdminResolved, "1.0", nowUtc);
+    }
+
+    /// <summary>
+    /// Admin requires TO to correct or provide more evidence — reopens case to
+    /// AwaitingTransfer with a fresh 72-hour transfer window and records the decision.
+    /// </summary>
+    public void ResolveDisputeReopen(string resolution, string reason, DateTimeOffset nowUtc)
+    {
+        if (Status != StatusDisputed)
+            throw new InvalidOperationException("Case must be Disputed to reopen.");
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(resolution);
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+
+        DisputeResolution = resolution;
+        DisputeResolutionReason = reason;
+        DisputeResolvedAtUtc = nowUtc.ToUniversalTime();
+
+        Status = StatusAwaitingTransfer;
+        TransferDeadlineAtUtc = nowUtc.ToUniversalTime().Add(TransferWindow);
+        IsOverdueFlag = false;
         UpdatedAtUtc = nowUtc.ToUniversalTime();
     }
 }

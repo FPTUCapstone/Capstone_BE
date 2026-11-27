@@ -20,6 +20,8 @@ public sealed class ComplaintEvidenceConfiguration : IEntityTypeConfiguration<Co
         builder.Property(item => item.StorageObjectKey).HasColumnName("storage_object_key").HasMaxLength(ComplaintEvidence.StorageObjectKeyMaxLength).IsUnicode(false).IsRequired();
         builder.Property(item => item.Checksum).HasColumnName("checksum").HasMaxLength(ComplaintEvidence.ChecksumMaxLength).IsUnicode(false).IsRequired();
         builder.Property(item => item.CreatedAtUtc).HasColumnName("created_at").AsUtcDateTime2().IsRequired();
+        builder.Property(item => item.StaffReviewEventId).HasColumnName("staff_review_event_id");
+        builder.HasOne(item => item.StaffReviewEvent).WithMany().HasForeignKey(item => item.StaffReviewEventId).OnDelete(DeleteBehavior.Restrict);
         builder.HasIndex(item => item.ComplaintId).HasDatabaseName("IX_ComplaintEvidence_Complaint");
         builder.HasIndex(item => item.StorageObjectKey).IsUnique().HasDatabaseName("UX_ComplaintEvidence_StorageObjectKey");
         builder.HasOne<PostTripComplaint>().WithMany().HasForeignKey(item => item.ComplaintId).OnDelete(DeleteBehavior.Cascade);

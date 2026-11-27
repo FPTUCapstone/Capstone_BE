@@ -1,8 +1,13 @@
 using MediatR;
 
+using Microsoft.EntityFrameworkCore;
+
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
+using TripMate.Application.Features.Bookings.Common;
+using TripMate.Application.Features.Bookings.DirectRefunds.Create;
 using TripMate.Domain.Common;
+using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.Complaints.PartialRefundProposals;
@@ -31,7 +36,8 @@ public sealed class RespondToPartialRefundProposalCommandHandler(
     IPartialRefundProposalStore store,
     IComplaintRefundRequestCreator refundRequests,
     ICurrentUserService currentUser,
-    IDateTimeProvider clock)
+    IDateTimeProvider clock,
+    IPiiProtector? piiProtector = null)
     : IRequestHandler<RespondToPartialRefundProposalCommand, Result<RespondToPartialRefundProposalResponse>>
 {
     public async Task<Result<RespondToPartialRefundProposalResponse>> Handle(
@@ -84,7 +90,7 @@ public sealed class RespondToPartialRefundProposalCommandHandler(
             if (finalDecline && proposal.Round != 2)
                 return PartialRefundProposalAccess.ResponseClosed<RespondToPartialRefundProposalResponse>();
 
-            var outcome = accepted ? PostTripComplaintStatus.Approved : PostTripComplaintStatus.Declined;
+            var outcome = accepted ? PostTripComplaintStatus.Approved : PostTripComplaintStatus.AwaitingStaffReview;
             bool transitioned = accepted
                 ? await store.TryCloseAsync(proposal.ComplaintId, outcome, nowUtc, transactionCancellationToken)
                 : await store.TryDeclineFinallyAsync(proposal.ComplaintId, travelerId, request.Reason!, nowUtc, transactionCancellationToken);
@@ -92,9 +98,33 @@ public sealed class RespondToPartialRefundProposalCommandHandler(
 
             if (accepted)
             {
-                // BR-143: refunded under UC-67 only after the Tour Operator confirms under UC-42.
-                await refundRequests.CreateForAcceptedComplaintAsync(proposal.ComplaintId, proposal.BookingId,
-                    proposal.ProposedAmount, nowUtc, transactionCancellationToken);
+                // BR-143: for OperatorDirect bookings, the TO handles refund directly via
+                // DirectRefundCase lifecycle. For legacy, the existing UC-42 path applies.
+                var bookingFlow = await dbContext.Bookings.AsNoTracking()
+                    .Where(b => b.Id == proposal.BookingId)
+                    .Select(b => (PaymentFlow?)b.PaymentFlow)
+                    .SingleOrDefaultAsync(transactionCancellationToken);
+                if (bookingFlow == PaymentFlow.OperatorDirect)
+                {
+                    var payment = await BookingCancellationPaymentVerifier
+                        .FindSuccessfulPaymentAsync(dbContext,
+                            await dbContext.Bookings
+                                .AsNoTracking()
+                                .SingleAsync(b => b.Id == proposal.BookingId, transactionCancellationToken),
+                            transactionCancellationToken);
+                    long paidAmountVnd = payment is not null
+                        ? (long)payment.Amount
+                        : (long)Math.Round(proposal.RefundableAmount > 0 ? proposal.RefundableAmount : proposal.ProposedAmount);
+                    await DirectRefundCaseCreator.CreateAsync(
+                        dbContext, proposal.BookingId, DirectRefundCase.SourcePostTripComplaint,
+                        (long)Math.Round(proposal.ProposedAmount), paidAmountVnd,
+                        nowUtc, proposal.ComplaintId, transactionCancellationToken, piiProtector);
+                }
+                else
+                {
+                    await refundRequests.CreateForAcceptedComplaintAsync(proposal.ComplaintId, proposal.BookingId,
+                        proposal.ProposedAmount, nowUtc, transactionCancellationToken);
+                }
             }
 
             dbContext.PostTripComplaintNegotiationEvents.Add(TripMate.Domain.Entities.PostTripComplaintNegotiationEvent.Create(

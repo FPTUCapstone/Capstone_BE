@@ -43,6 +43,13 @@ public sealed class TourReviewReadinessEvaluatorTests
             .Should().Equal("required_fields_missing", "itinerary_missing");
     }
 
+    [Fact]
+    public void Evaluate_WhenPaymentChannelNotReady_ReportsBlocker()
+    {
+        TourReviewReadinessEvaluator.Evaluate(new TourReviewFacts(true, true, true, true, HasReadyPaymentChannel: false))
+            .Should().Equal("payment_channel_not_ready");
+    }
+
     [Theory]
     [InlineData(TourStatus.Draft, true)]
     [InlineData(TourStatus.Rejected, true)]

@@ -6,7 +6,7 @@ namespace TripMate.Domain.Entities;
 /// Maps commercial.TourDirectCommissionStatements. Monthly commission invoice for a TO
 /// under the OperatorDirect payment model. Separate from ServiceCommissionStatement
 /// (which covers non-tour commercial services).
-/// commission_amount_vnd = round_half_up(eligible_base_vnd × commission_rate).
+/// The payable amount freezes ledger commission debits minus refund credits and prior-period credit.
 /// </summary>
 public sealed class DirectCommissionStatement : BaseEntity
 {
@@ -35,15 +35,16 @@ public sealed class DirectCommissionStatement : BaseEntity
     public string Period { get; private set; } = string.Empty;
 
     /// <summary>
-    /// Eligible commission base = completed-tour payments − completed refunds for the period,
-    /// VND (integer). Rows with pending refunds/complaints are suspended until resolved.
+    /// Net source base recognized on this statement, floored at zero for display, VND (integer).
+    /// The calculation/ledger retains gross sources and all credits, including excess carried forward.
+    /// Rows with pending refunds/complaints are suspended until resolved.
     /// </summary>
     public long EligibleBaseVnd { get; private set; }
 
     /// <summary>Snapshotted at statement generation; stored as a fraction (e.g. 0.1000 = 10%).</summary>
     public decimal CommissionRate { get; private set; }
 
-    /// <summary>round_half_up(eligible_base_vnd × commission_rate), VND.</summary>
+    /// <summary>Frozen amount due after source commission and carried credits, VND.</summary>
     public long CommissionAmountVnd { get; private set; }
 
     public string Status { get; private set; } = StatusIssued;
@@ -110,7 +111,9 @@ public sealed class DirectCommissionStatement : BaseEntity
 
     public void MarkPaid(long paidAmountVnd, DateTimeOffset paidAtUtc, DateTimeOffset nowUtc)
     {
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(paidAmountVnd);
+        if (paidAmountVnd <= 0 || paidAmountVnd != CommissionAmountVnd) throw new ArgumentOutOfRangeException(nameof(paidAmountVnd));
+        if (Status == StatusPaid) return;
+        if (Status is not (StatusIssued or StatusOverdue)) throw new InvalidOperationException("Statement is not payable.");
         Status = StatusPaid;
         PaidAmountVnd = paidAmountVnd;
         PaidAtUtc = paidAtUtc.ToUniversalTime();

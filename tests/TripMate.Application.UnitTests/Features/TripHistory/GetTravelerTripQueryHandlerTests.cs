@@ -155,7 +155,8 @@ public sealed class GetTravelerTripQueryHandlerTests
 
         detail.Tab.Should().Be(ListTravelerTripsQuery.TabCancelled);
         detail.Cancellation.Should().BeNull();
-        detail.Refund.Should().BeNull();
+        detail.Refund.Should().NotBeNull();
+        detail.Actions.CanViewRefund.Should().BeTrue();
     }
 
     [Fact]

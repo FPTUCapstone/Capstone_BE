@@ -46,12 +46,15 @@ using TripMate.Application.Features.TripAlerts.Weather;
 using TripMate.Application.Features.TripReviews.Common;
 using TripMate.Application.Features.TripReviews.Media;
 using TripMate.Application.Features.Weather.Processing;
+using TripMate.Application.Features.Bookings.DirectRefunds.Common;
+using TripMate.Application.Features.Bookings.DirectRefunds.Deadline;
 using TripMate.Infrastructure.Ai;
 using TripMate.Infrastructure.AiExplanation;
 using TripMate.Infrastructure.AiRanking;
 using TripMate.Infrastructure.Authentication;
 using TripMate.Infrastructure.Complaints;
 using TripMate.Infrastructure.Contracts.Templates;
+using TripMate.Infrastructure.DirectRefunds;
 using TripMate.Infrastructure.Email;
 using TripMate.Infrastructure.ExternalReviews;
 using TripMate.Infrastructure.Media;
@@ -246,6 +249,15 @@ public static class DependencyInjection
                     serviceProvider.GetRequiredService<ICloudinaryClient>(),
                     serviceProvider.GetRequiredService<ILogger<CloudinaryComplaintEvidenceStorage>>());
         });
+
+        // Direct Operator Refund evidence storage (Phase 3 Task 13)
+        services.AddSingleton<IDirectRefundEvidenceStorage>(serviceProvider =>
+        {
+            IHostEnvironment environment = serviceProvider.GetRequiredService<IHostEnvironment>();
+            // Production: replace with Cloudinary or S3 implementation
+            return new LocalDevelopmentDirectRefundEvidenceStorage();
+        });
+
         services.AddSingleton<ITourMediaImageInspector, SkiaSharpTourMediaImageInspector>();
         services.AddSingleton<ITourMediaStorage, CloudinaryTourMediaStorage>();
         services.AddSingleton<ITravelerAvatarStorage, CloudinaryTravelerAvatarStorage>();
@@ -369,6 +381,7 @@ public static class DependencyInjection
         services.AddSingleton(serviceProvider =>
             serviceProvider.GetRequiredService<IOptions<OperatorComplaintDeadlineOptions>>().Value);
         services.AddScoped<OperatorComplaintDeadlineProcessor>();
+        services.AddScoped<TripMate.Application.Features.Complaints.StaffReview.StaffComplaintEvidenceDeadlineProcessor>();
         services.AddHostedService<OperatorComplaintDeadlineBackgroundService>();
 
         // UC-75: backed by PostTripComplaint and Refund aggregates (UC-68, UC-69).
@@ -383,6 +396,17 @@ public static class DependencyInjection
             serviceProvider.GetRequiredService<IOptions<PartialRefundProposalDeadlineOptions>>().Value);
         services.AddScoped<PartialRefundProposalDeadlineProcessor>();
         services.AddHostedService<PartialRefundProposalDeadlineBackgroundService>();
+
+        // Direct Operator Refund deadline sweep (Phase 3 Task 15)
+        services.AddOptions<DirectRefundDeadlineOptions>()
+            .Bind(configuration.GetSection(DirectRefundDeadlineOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<DirectRefundDeadlineOptions>,
+            DirectRefundDeadlineOptionsValidator>();
+        services.AddSingleton(serviceProvider =>
+            serviceProvider.GetRequiredService<IOptions<DirectRefundDeadlineOptions>>().Value);
+        services.AddScoped<DirectRefundDeadlineProcessor>();
+        services.AddHostedService<DirectRefundDeadlineBackgroundService>();
 
         // DAILY-PAYOUT-TRANSFER (SRS v11 UC-71 to UC-74): the simulated transfer gateway is the
         // production binding until a real one (VNPay/PayOS/banking) is implemented — see spec
@@ -410,6 +434,8 @@ public static class DependencyInjection
         // Checkout uses the configured provider. Refunds use the provider persisted on the
         // original transaction, so keep both supported adapters resolvable independently.
         services.AddHttpClient<PayOsPaymentGateway>();
+        services.AddHttpClient("payos-operator");
+        services.AddScoped<IOperatorPaymentGatewayFactory, OperatorPaymentGatewayFactory>();
         services.AddScoped<MockPaymentGateway>();
         services.AddScoped<IRefundPaymentGatewayResolver, RefundPaymentGatewayResolver>();
         services.AddScoped<IPaymentGateway>(serviceProvider =>
@@ -418,6 +444,13 @@ public static class DependencyInjection
                 : serviceProvider.GetRequiredService<MockPaymentGateway>());
         services.AddDataProtection();
         services.AddSingleton<IPiiProtector, DataProtectionPiiProtector>();
+        services.AddSingleton<IPaymentCredentialProtector, DataProtectionPaymentCredentialProtector>();
+        services.AddHttpClient<IPaymentChannelVerifier, PayOsChannelVerifier>(client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(20);
+            client.MaxResponseContentBufferSize = 64 * 1024;
+        })
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
         services.AddSingleton<IPushTokenProtector, DataProtectionPushTokenProtector>();
         services.AddOptions<NavigationSessionOptions>()
             .Bind(configuration.GetSection(NavigationSessionOptions.SectionName))

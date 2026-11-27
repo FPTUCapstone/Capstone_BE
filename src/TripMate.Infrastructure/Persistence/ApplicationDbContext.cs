@@ -44,6 +44,7 @@ public class ApplicationDbContext(
     public DbSet<ContractTemplateRenderJob> ContractTemplateRenderJobs => Set<ContractTemplateRenderJob>();
 
     public DbSet<TravelerProfile> TravelerProfiles => Set<TravelerProfile>();
+    public DbSet<TravelerRefundAccount> TravelerRefundAccounts => Set<TravelerRefundAccount>();
 
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
@@ -141,6 +142,7 @@ public class ApplicationDbContext(
     public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
     public DbSet<Refund> Refunds => Set<Refund>();
     public DbSet<PostTripComplaint> PostTripComplaints => Set<PostTripComplaint>();
+    public DbSet<ComplaintStaffReviewEvent> ComplaintStaffReviewEvents => Set<ComplaintStaffReviewEvent>();
     public DbSet<ComplaintEvidence> ComplaintEvidence => Set<ComplaintEvidence>();
     public DbSet<PostTripComplaintSubmissionOperation> PostTripComplaintSubmissionOperations => Set<PostTripComplaintSubmissionOperation>();
     public DbSet<PostTripComplaintEvidenceAmendmentOperation> PostTripComplaintEvidenceAmendmentOperations => Set<PostTripComplaintEvidenceAmendmentOperation>();
@@ -439,9 +441,22 @@ public class ApplicationDbContext(
 
     // Direct Operator Payment, Refund and Commission (Phase 1 Task 5)
     public DbSet<OperatorPaymentChannel> OperatorPaymentChannels => Set<OperatorPaymentChannel>();
+    public DbSet<OperatorPaymentMerchantClaim> OperatorPaymentMerchantClaims => Set<OperatorPaymentMerchantClaim>();
+    public bool IsPaymentMerchantUniqueConflict(DbUpdateException exception) =>
+        IsUniqueViolationOn(exception, OperatorPaymentMerchantClaim.KeyConstraintName);
     public DbSet<DirectRefundCase> DirectRefundCases => Set<DirectRefundCase>();
     public DbSet<DirectRefundTransfer> DirectRefundTransfers => Set<DirectRefundTransfer>();
+    public DbSet<DirectRefundEvidence> DirectRefundEvidences => Set<DirectRefundEvidence>();
     public DbSet<DirectCommissionStatement> DirectCommissionStatements => Set<DirectCommissionStatement>();
+    public DbSet<DirectCommissionCalculation> DirectCommissionCalculations => Set<DirectCommissionCalculation>();
+    public DbSet<DirectCommissionLedgerEntry> DirectCommissionLedgerEntries => Set<DirectCommissionLedgerEntry>();
+    public async Task LockDirectCommissionIssuerAsync(long tourOperatorUserId, CancellationToken cancellationToken)
+    {
+        if (Database.CurrentTransaction is null) throw new InvalidOperationException("Commission issuance requires a transaction.");
+        string resource = $"direct-commission-issuer:{tourOperatorUserId}";
+        await Database.ExecuteSqlInterpolatedAsync($"DECLARE @result int; EXEC @result = sp_getapplock @Resource={resource}, @LockMode='Exclusive', @LockOwner='Transaction', @LockTimeout=10000; IF @result < 0 THROW 51001, 'Commission issuer lock unavailable.', 1;", cancellationToken);
+    }
+    public DbSet<CommissionPaymentAttempt> CommissionPaymentAttempts => Set<CommissionPaymentAttempt>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

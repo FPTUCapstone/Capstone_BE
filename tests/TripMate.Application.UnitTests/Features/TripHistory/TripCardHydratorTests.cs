@@ -255,7 +255,7 @@ public sealed class TripCardHydratorTests
     [InlineData(BookingStatus.Expired, true, ListTravelerTripsQuery.TabCancelled)]
     [InlineData(BookingStatus.Completed, true, ListTravelerTripsQuery.TabCompleted)]
     [InlineData(BookingStatus.Confirmed, true, ListTravelerTripsQuery.TabUpcoming)]
-    public async Task Refund_OtherwiseCannotViewRefund(BookingStatus status, bool hasRefund, string tab)
+    public async Task Refund_AcceptedObligationOffersDetailsRegardlessOfOriginalStatus(BookingStatus status, bool hasRefund, string tab)
     {
         var data = await NewDataAsync();
         await using var db = data.Db;
@@ -266,7 +266,7 @@ public sealed class TripCardHydratorTests
             await data.AddRefundAsync(booking.Id, id: 1);
         }
 
-        (await HydrateOne(data, tab, BookingKey(booking))).Actions.CanViewRefund.Should().BeFalse();
+        (await HydrateOne(data, tab, BookingKey(booking))).Actions.CanViewRefund.Should().Be(hasRefund);
     }
 
     // --- itinerary cards ---

@@ -347,6 +347,10 @@ public class ConfirmPasswordResetFlowTests
 
         DbSet<Domain.Entities.PayoutReconciliationItem> IApplicationDbContext.PayoutReconciliationItems => throw new NotSupportedException();
 
+        DbSet<Domain.Entities.OperatorPaymentChannel> IApplicationDbContext.OperatorPaymentChannels => throw new NotSupportedException();
+        DbSet<Domain.Entities.OperatorPaymentMerchantClaim> IApplicationDbContext.OperatorPaymentMerchantClaims => throw new NotSupportedException();
+        DbSet<Domain.Entities.TravelerRefundAccount> IApplicationDbContext.TravelerRefundAccounts => throw new NotSupportedException();
+
         DbSet<Domain.Entities.ServiceBooking> IApplicationDbContext.ServiceBookings => throw new NotSupportedException();
 
         DbSet<Domain.Entities.ServiceCommissionStatement> IApplicationDbContext.ServiceCommissionStatements => throw new NotSupportedException();

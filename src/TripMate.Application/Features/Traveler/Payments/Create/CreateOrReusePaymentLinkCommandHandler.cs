@@ -1,6 +1,7 @@
 using MediatR;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
@@ -16,10 +17,14 @@ public sealed class CreateOrReusePaymentLinkCommandHandler(
     ICurrentUserService currentUser,
     IDateTimeProvider clock,
     IPaymentGateway paymentGateway,
-    PaymentOptions paymentOptions)
+    IPaymentCredentialProtector credentialProtector,
+    IOperatorPaymentGatewayFactory operatorGatewayFactory,
+    PaymentOptions paymentOptions,
+    ILogger<CreateOrReusePaymentLinkCommandHandler> logger)
     : IRequestHandler<CreateOrReusePaymentLinkCommand, Result<CreatePaymentLinkResponse>>
 {
     private const int MaxAttempts = 3;
+    private const int OperatorDirectLinkExpiryMinutes = 15;
 
     public async Task<Result<CreatePaymentLinkResponse>> Handle(
         CreateOrReusePaymentLinkCommand request,
@@ -56,8 +61,19 @@ public sealed class CreateOrReusePaymentLinkCommandHandler(
         CancellationToken cancellationToken)
     {
         var now = clock.UtcNow;
+
+        // Resolve gateway outside the serializable transaction (read-only channel lookup).
+        var gatewayResult = await ResolveGatewayAsync(bookingId, travelerId, now, cancellationToken);
+        if (!gatewayResult.IsSuccess)
+        {
+            return Result.Failure<CreatePaymentLinkResponse>(
+                gatewayResult.ErrorCode!, gatewayResult.ErrorMessage!);
+        }
+
+        var (resolvedGateway, booking, channel) = gatewayResult.Value;
+
         var claim = await dbContext.ExecuteInSerializableTransactionAsync(
-            token => ClaimPaymentTransactionAsync(bookingId, travelerId, now, token),
+            token => ClaimPaymentTransactionAsync(booking, channel, resolvedGateway.Gateway, now, token),
             cancellationToken);
 
         if (!claim.IsSuccess)
@@ -73,11 +89,10 @@ public sealed class CreateOrReusePaymentLinkCommandHandler(
         }
 
         var transaction = claim.Value.Transaction!;
-        var booking = claim.Value.Booking;
         PaymentLinkResult linkResult;
         try
         {
-            linkResult = await paymentGateway.CreatePaymentLinkAsync(new PaymentLinkRequest(
+            linkResult = await resolvedGateway.CreatePaymentLinkAsync(new PaymentLinkRequest(
                 BookingId: booking.Id,
                 OrderCode: transaction.OrderCode,
                 Amount: booking.TotalAmount,
@@ -110,7 +125,7 @@ public sealed class CreateOrReusePaymentLinkCommandHandler(
             // Never leave a remote link payable when its checkout metadata cannot be persisted.
             try
             {
-                await paymentGateway.CancelPaymentLinkAsync(
+                await resolvedGateway.CancelPaymentLinkAsync(
                     new PaymentLinkCancellationRequest(
                         transaction.OrderCode,
                         linkResult.PaymentLinkId,
@@ -138,7 +153,7 @@ public sealed class CreateOrReusePaymentLinkCommandHandler(
         return Result.Success(MapResponse(transaction, booking));
     }
 
-    private async Task<Result<PaymentLinkClaim>> ClaimPaymentTransactionAsync(
+    private async Task<Result<(IPaymentGateway Gateway, Booking Booking, OperatorPaymentChannel? Channel)>> ResolveGatewayAsync(
         long bookingId,
         long travelerId,
         DateTimeOffset now,
@@ -149,22 +164,79 @@ public sealed class CreateOrReusePaymentLinkCommandHandler(
 
         if (booking is null || booking.TravelerUserId != travelerId)
         {
-            return Result.Failure<PaymentLinkClaim>(
+            return Result.Failure<(IPaymentGateway, Booking, OperatorPaymentChannel?)>(
                 PaymentErrorCodes.PaymentNotFound, "The requested booking was not found.");
         }
 
+        if (booking.Status != BookingStatus.PendingPayment || booking.PaymentStatus == PaymentStatus.Paid)
+        {
+            return Result.Failure<(IPaymentGateway, Booking, OperatorPaymentChannel?)>(
+                PaymentErrorCodes.PaymentBookingNotEligible, "The booking is not eligible for payment.");
+        }
+
+        if (booking.PaymentFlow == PaymentFlow.PlatformCollectedLegacy)
+            return Result.Success((paymentGateway, booking, (OperatorPaymentChannel?)null));
+
+        // OperatorDirect: look up operator via TourSchedule → Tour projection, no eager-load.
+        var operatorUserId = await dbContext.TourSchedules
+            .Where(ts => ts.Id == booking.TourScheduleId)
+            .Select(ts => ts.Tour.OperatorUserId)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        // OperatorDirect: resolve the TO's Ready channel — no fallback (CR-01).
+        var channel = await dbContext.OperatorPaymentChannels
+            .FirstOrDefaultAsync(
+                c => c.TourOperatorUserId == operatorUserId && c.Status == OperatorPaymentChannel.StatusReady,
+                cancellationToken);
+
+        if (channel is null)
+        {
+            return Result.Failure<(IPaymentGateway, Booking, OperatorPaymentChannel?)>(
+                PaymentErrorCodes.ChannelNotReady,
+                "The tour operator's payment channel is not ready. Please try again later or contact support.");
+        }
+
+        string clientId, apiKey, checksumKey;
+        try
+        {
+            clientId = credentialProtector.Unprotect(channel.ClientIdRef!);
+            apiKey = credentialProtector.Unprotect(channel.ApiKeyRef!);
+            checksumKey = credentialProtector.Unprotect(channel.ChecksumKeyRef!);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to decrypt credentials for operator channel {ChannelId}", channel.Id);
+            return Result.Failure<(IPaymentGateway, Booking, OperatorPaymentChannel?)>(
+                PaymentErrorCodes.ChannelNotReady,
+                "The tour operator's payment channel is temporarily unavailable.");
+        }
+
+        var snapshot = new OperatorChannelSnapshot(
+            clientId, apiKey, checksumKey,
+            ReturnUrl: paymentOptions.PayOs.ReturnUrl,
+            CancelUrl: paymentOptions.PayOs.CancelUrl);
+
+        return Result.Success((operatorGatewayFactory.Create(snapshot), booking, (OperatorPaymentChannel?)channel));
+    }
+
+    private async Task<Result<PaymentLinkClaim>> ClaimPaymentTransactionAsync(
+        Booking booking,
+        OperatorPaymentChannel? channel,
+        PaymentGateway gateway,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        // Expiry is checked inside the tx so its save is atomic with other booking state changes.
         if (booking.PaymentExpiresAtUtc.HasValue && booking.PaymentExpiresAtUtc.Value <= now)
         {
             if (booking.Status == BookingStatus.PendingPayment)
             {
                 await BookingExpiryEffects.ExpireAsync(dbContext, booking, now, cancellationToken);
                 var activePending = await dbContext.PaymentTransactions
-                    .Where(t => t.BookingId == bookingId && t.Status == PaymentTransactionStatus.Pending)
+                    .Where(t => t.BookingId == booking.Id && t.Status == PaymentTransactionStatus.Pending)
                     .ToListAsync(cancellationToken);
                 foreach (var tx in activePending)
-                {
                     tx.MarkExpired(null, now);
-                }
                 await dbContext.SaveChangesAsync(cancellationToken);
             }
 
@@ -172,14 +244,8 @@ public sealed class CreateOrReusePaymentLinkCommandHandler(
                 PaymentErrorCodes.PaymentBookingExpired, "The booking payment window has expired.");
         }
 
-        if (booking.Status != BookingStatus.PendingPayment || booking.PaymentStatus == PaymentStatus.Paid)
-        {
-            return Result.Failure<PaymentLinkClaim>(
-                PaymentErrorCodes.PaymentBookingNotEligible, "The booking is not eligible for payment.");
-        }
-
         var existingPending = await dbContext.PaymentTransactions
-            .Where(t => t.BookingId == bookingId && t.Status == PaymentTransactionStatus.Pending)
+            .Where(t => t.BookingId == booking.Id && t.Status == PaymentTransactionStatus.Pending)
             .OrderByDescending(t => t.Id)
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -192,6 +258,11 @@ public sealed class CreateOrReusePaymentLinkCommandHandler(
             }
             else if (!string.IsNullOrWhiteSpace(existingPending.CheckoutUrl))
             {
+                if (booking.PaymentFlow == PaymentFlow.OperatorDirect
+                    && (existingPending.OperatorChannelId is null || existingPending.OperatorChannelVersion is not > 0
+                        || string.IsNullOrWhiteSpace(existingPending.OperatorChecksumKeyRef)))
+                    return Result.Failure<PaymentLinkClaim>(PaymentErrorCodes.PaymentReconciliationRequired,
+                        "This older payment link requires reconciliation before another payment can be requested.");
                 return Result.Success(PaymentLinkClaim.Reuse(booking, MapResponse(existingPending, booking)));
             }
             else
@@ -202,15 +273,23 @@ public sealed class CreateOrReusePaymentLinkCommandHandler(
             }
         }
 
-        var linkExpiry = GetLinkExpiry(booking.PaymentExpiresAtUtc, now);
+        var linkExpiry = GetLinkExpiry(booking, now);
         var transaction = PaymentTransaction.Create(
             bookingId: booking.Id,
-            gateway: paymentGateway.Gateway,
+            gateway: gateway,
             amount: booking.TotalAmount,
             orderCode: GenerateOrderCode(now),
             createdAtUtc: now,
             expiresAtUtc: linkExpiry,
             currency: PaymentTransaction.DefaultCurrency);
+
+        if (channel is not null)
+        {
+            if (!await dbContext.OperatorPaymentChannels.AnyAsync(c => c.Id == channel.Id
+                && c.ChannelVersion == channel.ChannelVersion && c.Status == OperatorPaymentChannel.StatusReady, cancellationToken))
+                return Result.Failure<PaymentLinkClaim>(PaymentErrorCodes.ChannelNotReady, "The channel changed before payment creation.");
+            transaction.BindOperatorChannel(channel.Id, channel.ChannelVersion, channel.ChecksumKeyRef!);
+        }
 
         // Persist the Pending claim before calling the external gateway. The filtered unique
         // index and serializable transaction guarantee one active attempt per booking.
@@ -219,16 +298,22 @@ public sealed class CreateOrReusePaymentLinkCommandHandler(
         return Result.Success(PaymentLinkClaim.Create(booking, transaction));
     }
 
-    private DateTimeOffset? GetLinkExpiry(DateTimeOffset? bookingExpiry, DateTimeOffset now)
+    private DateTimeOffset? GetLinkExpiry(Booking booking, DateTimeOffset now)
     {
-        var linkExpiry = bookingExpiry;
-        if (paymentOptions.Mock.ExpiryMinutes > 0)
+        var linkExpiry = booking.PaymentExpiresAtUtc;
+
+        if (booking.PaymentFlow == PaymentFlow.OperatorDirect)
+        {
+            // CR-03: 15-minute real UTC cap for OperatorDirect (not configurable).
+            var directCap = now.AddMinutes(OperatorDirectLinkExpiryMinutes);
+            if (!linkExpiry.HasValue || directCap < linkExpiry.Value)
+                linkExpiry = directCap;
+        }
+        else if (paymentOptions.Mock.ExpiryMinutes > 0)
         {
             var mockExpiry = now.AddMinutes(paymentOptions.Mock.ExpiryMinutes);
             if (!linkExpiry.HasValue || mockExpiry < linkExpiry.Value)
-            {
                 linkExpiry = mockExpiry;
-            }
         }
 
         return linkExpiry;
@@ -261,7 +346,6 @@ public sealed class CreateOrReusePaymentLinkCommandHandler(
 
     private static long GenerateOrderCode(DateTimeOffset now)
     {
-        // Fits well within 15-digit safe integer range
         var timestamp = now.ToUnixTimeMilliseconds();
         return timestamp > 0 ? timestamp : Math.Abs(timestamp) + 1;
     }

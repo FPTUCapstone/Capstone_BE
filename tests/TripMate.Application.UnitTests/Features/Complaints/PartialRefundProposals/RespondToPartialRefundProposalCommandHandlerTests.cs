@@ -74,7 +74,7 @@ public sealed class RespondToPartialRefundProposalCommandHandlerTests
     }
 
     [Fact]
-    public async Task FinalDecline_AfterRevisedOffer_ClosesWithoutRefundRequest()
+    public async Task FinalDecline_AfterRevisedOffer_RoutesToStaffWithoutRefundRequest()
     {
         await using var db = CreateDbContext();
         var revised = Proposal() with { Round = 2, ProposalReason = "Final revised offer." };
@@ -83,8 +83,8 @@ public sealed class RespondToPartialRefundProposalCommandHandlerTests
         var result = await handler.Handle(new RespondToPartialRefundProposalCommand(ComplaintId,
             PartialRefundDecision.Decline, "The final proposal is still inadequate."), CancellationToken.None);
 
-        result.Value.Status.Should().Be(nameof(PostTripComplaintStatus.Declined));
-        store.Get(ComplaintId).Status.Should().Be(PostTripComplaintStatus.Declined);
+        result.Value.Status.Should().Be(nameof(PostTripComplaintStatus.AwaitingStaffReview));
+        store.Get(ComplaintId).Status.Should().Be(PostTripComplaintStatus.AwaitingStaffReview);
         refunds.Created.Should().BeEmpty();
     }
 

@@ -15,6 +15,7 @@ public class TestDbContext(
     public DbSet<User> Users => Set<User>();
 
     public DbSet<TravelerProfile> TravelerProfiles => Set<TravelerProfile>();
+    public DbSet<TravelerRefundAccount> TravelerRefundAccounts => Set<TravelerRefundAccount>();
 
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
@@ -96,6 +97,12 @@ public class TestDbContext(
     public DbSet<TourBookingCreateOperation> TourBookingCreateOperations => Set<TourBookingCreateOperation>();
     public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
     public DbSet<Refund> Refunds => Set<Refund>();
+    public DbSet<DirectRefundCase> DirectRefundCases => Set<DirectRefundCase>();
+    public DbSet<DirectCommissionStatement> DirectCommissionStatements => Set<DirectCommissionStatement>();
+    public DbSet<DirectCommissionCalculation> DirectCommissionCalculations => Set<DirectCommissionCalculation>();
+    public DbSet<DirectCommissionLedgerEntry> DirectCommissionLedgerEntries => Set<DirectCommissionLedgerEntry>();
+    public DbSet<ComplaintStaffReviewEvent> ComplaintStaffReviewEvents => Set<ComplaintStaffReviewEvent>();
+    public DbSet<CommissionPaymentAttempt> CommissionPaymentAttempts => Set<CommissionPaymentAttempt>();
     public DbSet<PostTripComplaint> PostTripComplaints => Set<PostTripComplaint>();
     public DbSet<ComplaintEvidence> ComplaintEvidence => Set<ComplaintEvidence>();
     public DbSet<PostTripComplaintSubmissionOperation> PostTripComplaintSubmissionOperations => Set<PostTripComplaintSubmissionOperation>();
@@ -187,6 +194,9 @@ public class TestDbContext(
 
 
     public DbSet<PayoutReconciliationItem> PayoutReconciliationItems => Set<PayoutReconciliationItem>();
+
+    public DbSet<OperatorPaymentChannel> OperatorPaymentChannels => Set<OperatorPaymentChannel>();
+    public DbSet<OperatorPaymentMerchantClaim> OperatorPaymentMerchantClaims => Set<OperatorPaymentMerchantClaim>();
 
     public DbSet<ServiceBooking> ServiceBookings => Set<ServiceBooking>();
 

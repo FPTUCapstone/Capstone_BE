@@ -598,6 +598,10 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
 
     public DbSet<PayoutReconciliationItem> PayoutReconciliationItems => Set<PayoutReconciliationItem>();
 
+    public DbSet<OperatorPaymentChannel> OperatorPaymentChannels => Set<OperatorPaymentChannel>();
+    public DbSet<OperatorPaymentMerchantClaim> OperatorPaymentMerchantClaims => Set<OperatorPaymentMerchantClaim>();
+    public DbSet<TravelerRefundAccount> TravelerRefundAccounts => Set<TravelerRefundAccount>();
+
     public DbSet<ServiceBooking> ServiceBookings => Set<ServiceBooking>();
 
     public DbSet<ServiceCommissionStatement> ServiceCommissionStatements =>

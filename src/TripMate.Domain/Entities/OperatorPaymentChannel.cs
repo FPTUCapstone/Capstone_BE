@@ -81,18 +81,60 @@ public sealed class OperatorPaymentChannel : BaseEntity
     }
 
     public void SetCredentialRefs(
-        string clientIdRef, string apiKeyRef, string checksumKeyRef, DateTimeOffset nowUtc)
+        string clientIdRef, string apiKeyRef, string checksumKeyRef,
+        string beneficiaryAccountNumber, string beneficiaryAccountName, string beneficiaryBankCode,
+        DateTimeOffset nowUtc)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(clientIdRef);
         ArgumentException.ThrowIfNullOrWhiteSpace(apiKeyRef);
         ArgumentException.ThrowIfNullOrWhiteSpace(checksumKeyRef);
+        ArgumentException.ThrowIfNullOrWhiteSpace(beneficiaryAccountNumber);
+        ArgumentException.ThrowIfNullOrWhiteSpace(beneficiaryAccountName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(beneficiaryBankCode);
 
         ClientIdRef = clientIdRef;
         ApiKeyRef = apiKeyRef;
         ChecksumKeyRef = checksumKeyRef;
+        BeneficiaryAccountNumber = beneficiaryAccountNumber;
+        BeneficiaryAccountName = beneficiaryAccountName;
+        BeneficiaryBankCode = beneficiaryBankCode;
         Status = StatusPendingVerification;
+        WebhookUrl = null;
+        WebhookRegisteredAtUtc = null;
+        LastVerifiedAtUtc = null;
+        ConnectedAtUtc = null;
         ChannelVersion++;
         UpdatedAtUtc = nowUtc.ToUniversalTime();
+    }
+
+    public void RecordWebhookRegistration(string webhookUrl, DateTimeOffset nowUtc,
+        string? verifiedAccountNumber = null, string? verifiedAccountName = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(webhookUrl);
+        if (Status is not (StatusPendingVerification or StatusConnectionError))
+            throw new InvalidOperationException("The channel is not awaiting verification.");
+        if (webhookUrl.Length > WebhookUrlMaxLength)
+            throw new ArgumentOutOfRangeException(nameof(webhookUrl));
+        if (verifiedAccountNumber is not null)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(verifiedAccountNumber);
+            if (verifiedAccountNumber.Length > BeneficiaryAccountNumberMaxLength)
+                throw new ArgumentOutOfRangeException(nameof(verifiedAccountNumber));
+            BeneficiaryAccountNumber = verifiedAccountNumber;
+        }
+        if (verifiedAccountName is not null)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(verifiedAccountName);
+            if (verifiedAccountName.Length > BeneficiaryAccountNameMaxLength)
+                throw new ArgumentOutOfRangeException(nameof(verifiedAccountName));
+            BeneficiaryAccountName = verifiedAccountName;
+        }
+        Status = StatusPendingVerification;
+        WebhookUrl = webhookUrl;
+        WebhookRegisteredAtUtc = nowUtc.ToUniversalTime();
+        LastVerifiedAtUtc = nowUtc.ToUniversalTime();
+        UpdatedAtUtc = nowUtc.ToUniversalTime();
+        ChannelVersion++;
     }
 
     public void MarkReady(
@@ -111,22 +153,28 @@ public sealed class OperatorPaymentChannel : BaseEntity
         BeneficiaryAccountName = beneficiaryAccountName;
         BeneficiaryBankCode = beneficiaryBankCode;
         WebhookUrl = webhookUrl;
-        WebhookRegisteredAtUtc = nowUtc.ToUniversalTime();
-        LastVerifiedAtUtc = nowUtc.ToUniversalTime();
+        WebhookRegisteredAtUtc ??= nowUtc.ToUniversalTime();
+        LastVerifiedAtUtc ??= nowUtc.ToUniversalTime();
         ConnectedAtUtc ??= nowUtc.ToUniversalTime();
         Status = StatusReady;
+        ChannelVersion++;
         UpdatedAtUtc = nowUtc.ToUniversalTime();
     }
 
     public void MarkConnectionError(DateTimeOffset nowUtc)
     {
         Status = StatusConnectionError;
+        WebhookUrl = null;
+        WebhookRegisteredAtUtc = null;
+        LastVerifiedAtUtc = null;
+        ChannelVersion++;
         UpdatedAtUtc = nowUtc.ToUniversalTime();
     }
 
     public void Disable(DateTimeOffset nowUtc)
     {
         Status = StatusDisabled;
+        ChannelVersion++;
         UpdatedAtUtc = nowUtc.ToUniversalTime();
     }
 }

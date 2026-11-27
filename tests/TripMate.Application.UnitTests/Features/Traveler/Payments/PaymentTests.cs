@@ -3,6 +3,7 @@ using System.Text.Json;
 using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging.Abstractions;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
@@ -76,7 +77,9 @@ public sealed class PaymentTests
         };
         var options = new PaymentOptions { Provider = "Mock" };
         var handler = new CreateOrReusePaymentLinkCommandHandler(
-            db, new TestCurrentUserService(travelerId), clock, gateway, options);
+            db, new TestCurrentUserService(travelerId), clock, gateway,
+            new FakePaymentCredentialProtector(), new FakeOperatorPaymentGatewayFactory(),
+            options, NullLogger<CreateOrReusePaymentLinkCommandHandler>.Instance);
 
         var result = await handler.Handle(new CreateOrReusePaymentLinkCommand(booking.Id), CancellationToken.None);
 
@@ -108,7 +111,9 @@ public sealed class PaymentTests
         var gateway = new FakePaymentGateway();
         var options = new PaymentOptions { Provider = "Mock" };
         var handler = new CreateOrReusePaymentLinkCommandHandler(
-            db, new TestCurrentUserService(travelerId), clock, gateway, options);
+            db, new TestCurrentUserService(travelerId), clock, gateway,
+            new FakePaymentCredentialProtector(), new FakeOperatorPaymentGatewayFactory(),
+            options, NullLogger<CreateOrReusePaymentLinkCommandHandler>.Instance);
 
         var first = await handler.Handle(new CreateOrReusePaymentLinkCommand(booking.Id), CancellationToken.None);
         var second = await handler.Handle(new CreateOrReusePaymentLinkCommand(booking.Id), CancellationToken.None);
@@ -132,7 +137,9 @@ public sealed class PaymentTests
         var gateway = new FakePaymentGateway();
         var options = new PaymentOptions { Provider = "Mock" };
         var handler = new CreateOrReusePaymentLinkCommandHandler(
-            db, new TestCurrentUserService(travelerId), clock, gateway, options);
+            db, new TestCurrentUserService(travelerId), clock, gateway,
+            new FakePaymentCredentialProtector(), new FakeOperatorPaymentGatewayFactory(),
+            options, NullLogger<CreateOrReusePaymentLinkCommandHandler>.Instance);
 
         // First attempt creates link expiring in 5 mins
         var first = await handler.Handle(new CreateOrReusePaymentLinkCommand(booking.Id), CancellationToken.None);
@@ -162,7 +169,9 @@ public sealed class PaymentTests
         var gateway = new FakePaymentGateway();
         var options = new PaymentOptions { Provider = "Mock" };
         var handler = new CreateOrReusePaymentLinkCommandHandler(
-            db, new TestCurrentUserService(travelerId), clock, gateway, options);
+            db, new TestCurrentUserService(travelerId), clock, gateway,
+            new FakePaymentCredentialProtector(), new FakeOperatorPaymentGatewayFactory(),
+            options, NullLogger<CreateOrReusePaymentLinkCommandHandler>.Instance);
 
         var result = await handler.Handle(new CreateOrReusePaymentLinkCommand(booking.Id), CancellationToken.None);
 
@@ -184,7 +193,9 @@ public sealed class PaymentTests
         var gateway = new FakePaymentGateway();
         var options = new PaymentOptions { Provider = "Mock" };
         var handler = new CreateOrReusePaymentLinkCommandHandler(
-            db, new TestCurrentUserService(travelerId), clock, gateway, options);
+            db, new TestCurrentUserService(travelerId), clock, gateway,
+            new FakePaymentCredentialProtector(), new FakeOperatorPaymentGatewayFactory(),
+            options, NullLogger<CreateOrReusePaymentLinkCommandHandler>.Instance);
 
         var result = await handler.Handle(new CreateOrReusePaymentLinkCommand(booking.Id), CancellationToken.None);
 
@@ -221,6 +232,23 @@ public sealed class PaymentTests
 
         var reloadedTx = await db.PaymentTransactions.FindAsync(tx.Id);
         reloadedTx!.Status.Should().Be(PaymentTransactionStatus.Success);
+    }
+
+    [Fact]
+    public async Task MockOutcome_DoesNotCompleteAnExistingRealPayOsTransaction()
+    {
+        await using var db = CreateDbContext();
+        var (travelerId, booking) = await SeedBookingAsync(db, BookingStatus.PendingPayment, PaymentStatus.Unpaid,
+            paymentExpiresAtUtc: Now.AddMinutes(15));
+        var tx = PaymentTransaction.Create(booking.Id, PaymentGateway.PayOS, booking.TotalAmount, 99881, Now);
+        db.PaymentTransactions.Add(tx);
+        await db.SaveChangesAsync();
+        var handler = new CompleteMockPaymentCommandHandler(db, new TestCurrentUserService(travelerId),
+            new PaymentCompletionProcessor(db, new FixedClock(Now)), new PaymentOptions { Provider = "Mock" });
+        var result = await handler.Handle(new CompleteMockPaymentCommand(tx.Id, "Success"), default);
+        result.IsSuccess.Should().BeFalse();
+        result.ErrorCode.Should().Be(PaymentErrorCodes.PaymentMockDisabled);
+        tx.Status.Should().Be(PaymentTransactionStatus.Pending);
     }
 
     [Fact]
@@ -723,7 +751,8 @@ public sealed class PaymentTests
         var clock = new FixedClock(Now);
         var processor = new PaymentCompletionProcessor(db, clock);
         var options = new PaymentOptions();
-        var handler = new ProcessPayOsWebhookCommandHandler(processor, options);
+        options.PayOs.ChecksumKey = "test-webhook-key";
+        var handler = new ProcessPayOsWebhookCommandHandler(processor, options, db);
 
         var payload = new PayOsWebhookPayload(
             Code: "00",
@@ -740,6 +769,7 @@ public sealed class PaymentTests
                 Code: "00",
                 Desc: "success"),
             Signature: "test-sig");
+        payload = payload with { Signature = SignWebhookData(payload.Data, options.PayOs.ChecksumKey) };
 
         var result = await handler.Handle(new ProcessPayOsWebhookCommand(payload), CancellationToken.None);
 
@@ -806,7 +836,8 @@ public sealed class PaymentTests
         var clock = new FixedClock(Now);
         var processor = new PaymentCompletionProcessor(db, clock);
         var options = new PaymentOptions();
-        var handler = new ProcessPayOsWebhookCommandHandler(processor, options);
+        options.PayOs.ChecksumKey = "test-webhook-key";
+        var handler = new ProcessPayOsWebhookCommandHandler(processor, options, db);
 
         var payload = new PayOsWebhookPayload(
             Code: "00",
@@ -823,6 +854,7 @@ public sealed class PaymentTests
                 Code: "00",
                 Desc: "success"),
             Signature: "test-sig");
+        payload = payload with { Signature = SignWebhookData(payload.Data, options.PayOs.ChecksumKey) };
 
         var first = await handler.Handle(new ProcessPayOsWebhookCommand(payload), CancellationToken.None);
         var second = await handler.Handle(new ProcessPayOsWebhookCommand(payload), CancellationToken.None);
@@ -1067,4 +1099,12 @@ public sealed class PaymentTests
         public string? Email => $"user-{userId}@test.local";
         public string? Role => nameof(UserRole.Traveler);
     }
+    private static string SignWebhookData(PayOsWebhookData data, string key)
+    {
+        var properties = JsonSerializer.SerializeToElement(data).EnumerateObject().OrderBy(item => item.Name, StringComparer.Ordinal);
+        var raw = string.Join('&', properties.Select(item => $"{item.Name}={(item.Value.ValueKind == JsonValueKind.String ? item.Value.GetString() : item.Value.ToString())}"));
+        using var hmac = new System.Security.Cryptography.HMACSHA256(System.Text.Encoding.UTF8.GetBytes(key));
+        return Convert.ToHexStringLower(hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(raw)));
+    }
+
 }

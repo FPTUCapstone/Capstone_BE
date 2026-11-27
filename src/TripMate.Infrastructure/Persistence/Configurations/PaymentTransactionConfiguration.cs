@@ -26,6 +26,12 @@ public sealed class PaymentTransactionConfiguration : IEntityTypeConfiguration<P
             .IsRequired();
 
         builder.Property(t => t.RefundId).HasColumnName("refund_id");
+        builder.Property(t => t.OperatorChannelId).HasColumnName("operator_channel_id");
+        builder.Property(t => t.OperatorChannelVersion).HasColumnName("operator_channel_version");
+        builder.Property(t => t.OperatorChecksumKeyRef).HasColumnName("operator_checksum_key_ref")
+            .HasMaxLength(OperatorPaymentChannel.ChecksumKeyRefMaxLength);
+        builder.HasOne<OperatorPaymentChannel>().WithMany().HasForeignKey(t => t.OperatorChannelId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.Property(t => t.Gateway)
             .HasColumnName("gateway")

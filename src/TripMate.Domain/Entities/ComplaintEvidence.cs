@@ -16,6 +16,15 @@ public sealed class ComplaintEvidence : BaseEntity
     public string StorageObjectKey { get; private set; } = string.Empty;
     public string Checksum { get; private set; } = string.Empty;
     public DateTimeOffset CreatedAtUtc { get; private set; }
+    public long? StaffReviewEventId { get; private set; }
+    public ComplaintStaffReviewEvent? StaffReviewEvent { get; private set; }
+
+    public void AssociateStaffReview(ComplaintStaffReviewEvent review)
+    {
+        if (review.ComplaintId != ComplaintId || StaffReviewEvent is not null)
+            throw new InvalidOperationException("Evidence must belong to its original review event.");
+        StaffReviewEvent = review;
+    }
 
     public static ComplaintEvidence Create(long complaintId, string originalFileName, string contentType,
         long byteLength, string storageObjectKey, string checksum, DateTimeOffset createdAtUtc)

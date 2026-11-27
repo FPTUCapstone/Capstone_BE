@@ -10,6 +10,7 @@ if ([string]::IsNullOrWhiteSpace($values['SA_PASSWORD']) -or [string]::IsNullOrW
 }
 $dbPort = if ([string]::IsNullOrWhiteSpace($values['DB_HOST_PORT'])) { '14330' } else { $values['DB_HOST_PORT'] }
 $env:ASPNETCORE_ENVIRONMENT = 'Development'
+$env:TRIPMATE_CLOCK_OVERRIDE_UTC = $values['TRIPMATE_CLOCK_OVERRIDE_UTC']
 $env:ConnectionStrings__Default = "Server=localhost,$dbPort;Database=TripMateDb;User Id=sa;Password=$($values['SA_PASSWORD']);TrustServerCertificate=True;"
 $env:ConnectionStrings__Redis = 'localhost:6379'
 $env:Jwt__SigningKey = $values['JWT_SIGNING_KEY']

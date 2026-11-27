@@ -63,7 +63,9 @@ public sealed class GetTravelerTripQueryHandler(
             return null;
         }
 
-        if (TripHistoryClassifier.TryTabForBooking(row.Status) is not { } tab)
+        bool hasRefund = await TripRefundHistory.BookingIds(dbContext).ContainsAsync(bookingId, cancellationToken);
+        var tab = hasRefund ? List.ListTravelerTripsQuery.TabCancelled : TripHistoryClassifier.TryTabForBooking(row.Status);
+        if (tab is null)
         {
             return null;
         }
@@ -93,16 +95,21 @@ public sealed class GetTravelerTripQueryHandler(
             Participants = new TripParticipantCounts(
                 CountOf(ParticipantType.Adult), CountOf(ParticipantType.Child), CountOf(ParticipantType.Infant)),
             Cancellation = cancelled ? new TripCancellationInfo(row.CancelledAtUtc, row.CancelReason) : null,
-            Refund = cancelled ? await GetLatestRefundAsync(bookingId, cancellationToken) : null,
+            Refund = cancelled || hasRefund ? await GetLatestRefundAsync(bookingId, cancellationToken) : null,
         };
     }
 
-    /// <summary>T3: the refund with the highest id; its channel is the original payment's gateway.</summary>
+    /// <summary>Prefer disputes/pending obligations; then completed, and rejected only as a fallback.</summary>
     private async Task<TripRefundInfo?> GetLatestRefundAsync(long bookingId, CancellationToken cancellationToken)
     {
+        var direct = await dbContext.DirectRefundCases.AsNoTracking().Where(c => c.BookingId == bookingId)
+            .OrderBy(c => c.Status == DirectRefundCase.StatusDisputed ? 0 : c.Status == DirectRefundCase.StatusCompleted ? 2 : 1)
+            .ThenByDescending(c => c.Id).Select(c => new { c.Status, c.RefundAmountVnd }).FirstOrDefaultAsync(cancellationToken);
+        if (direct is not null) return new TripRefundInfo(direct.Status, direct.RefundAmountVnd, "BankTransfer");
         var refund = await dbContext.Refunds.AsNoTracking()
             .Where(candidate => candidate.BookingId == bookingId)
-            .OrderByDescending(candidate => candidate.Id)
+            .OrderBy(candidate => candidate.Status == RefundStatus.Rejected ? 2 : candidate.Status == RefundStatus.Processed ? 1 : 0)
+            .ThenByDescending(candidate => candidate.Id)
             .Select(candidate => new { candidate.Status, candidate.Amount, candidate.TransactionId })
             .FirstOrDefaultAsync(cancellationToken);
         if (refund is null)
