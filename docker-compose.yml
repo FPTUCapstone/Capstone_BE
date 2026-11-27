@@ -129,6 +129,8 @@ services:
       # UC-14 weather provider. The API key stays in the local, ignored .env file.
       Tomorrow__Enabled: ${Tomorrow__Enabled:-false}
       Tomorrow__ApiKey: ${Tomorrow__ApiKey:-}
+      PublicWeather__Enabled: ${PublicWeather__Enabled:-false}
+      PublicWeather__ApiKey: ${PublicWeather__ApiKey:-}
       Google__ClientId: 1015595969076-socm44rbtpnbv0o4upl88h4btesqgr6i.apps.googleusercontent.com
       # UC-06 password reset: SMTP credentials + OTP pepper come from .env — never committed.
       # Windows dotnet user-secrets do not exist inside the container, so the values are
