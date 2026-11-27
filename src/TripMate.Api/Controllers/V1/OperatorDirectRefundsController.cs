@@ -52,9 +52,10 @@ public sealed class OperatorDirectRefundsController(ISender sender) : ApiControl
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status422UnprocessableEntity)]
     public async Task<IActionResult> UploadEvidence(
         long id,
-        [FromForm] IFormFile? file,
+        [FromForm] UploadEvidenceRequest request,
         CancellationToken cancellationToken)
     {
+        var file = request.File;
         if (file is null || file.Length <= 0)
             return Problem(title: "An evidence file is required.", statusCode: StatusCodes.Status400BadRequest);
 
@@ -119,3 +120,8 @@ public sealed record ReportTransferRequest(
     DateTimeOffset ActualTransferredAtUtc,
     IReadOnlyList<long>? EvidenceIds,
     string ExpectedVersion);
+
+public sealed class UploadEvidenceRequest
+{
+    public IFormFile? File { get; set; }
+}
