@@ -268,6 +268,10 @@ public sealed class TourVersionHistoryAndDepositWorkflowEndpointTests
                 BusinessLicenseNo = "LIC710",
                 ApprovalStatus = OperatorApprovalStatus.Approved,
             });
+            var channel = OperatorPaymentChannel.Create(operatorId, DateTimeOffset.UtcNow);
+            channel.SetCredentialRefs("ref-client", "ref-apikey", "ref-checksum", "1234567890", "Workflow Tours", "VCB", DateTimeOffset.UtcNow);
+            channel.MarkReady("1234567890", "Workflow Tours", "VCB", "https://tripmate.test/webhook/710", DateTimeOffset.UtcNow);
+            db.OperatorPaymentChannels.Add(channel);
             var category = PoiCategory.Create("Workflow Category", null);
             db.PoiCategories.Add(category);
             var poi = PointOfInterest.Create(category, "Cầu Rồng", 16.061m, 108.227m, operatorId, DateTimeOffset.UtcNow);

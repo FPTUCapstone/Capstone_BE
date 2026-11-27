@@ -73,7 +73,7 @@ public sealed class CreateOrReusePaymentLinkCommandHandler(
         var (resolvedGateway, booking, channel) = gatewayResult.Value;
 
         var claim = await dbContext.ExecuteInSerializableTransactionAsync(
-            token => ClaimPaymentTransactionAsync(booking, channel, resolvedGateway.Gateway, now, token),
+            token => ClaimPaymentTransactionAsync(booking, channel, resolvedGateway, now, token),
             cancellationToken);
 
         if (!claim.IsSuccess)
@@ -222,7 +222,7 @@ public sealed class CreateOrReusePaymentLinkCommandHandler(
     private async Task<Result<PaymentLinkClaim>> ClaimPaymentTransactionAsync(
         Booking booking,
         OperatorPaymentChannel? channel,
-        PaymentGateway gateway,
+        IPaymentGateway? gateway,
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
@@ -276,7 +276,7 @@ public sealed class CreateOrReusePaymentLinkCommandHandler(
         var linkExpiry = GetLinkExpiry(booking, now);
         var transaction = PaymentTransaction.Create(
             bookingId: booking.Id,
-            gateway: gateway,
+            gateway: gateway!.Gateway,
             amount: booking.TotalAmount,
             orderCode: GenerateOrderCode(now),
             createdAtUtc: now,
