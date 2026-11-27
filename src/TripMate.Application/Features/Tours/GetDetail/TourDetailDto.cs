@@ -23,7 +23,22 @@ public sealed record TourDetailDto(
     bool HasBookableSchedule,
     TourDetailRatingDto Rating,
     IReadOnlyList<TourDetailPublishedReviewDto> Reviews,
-    DateTime AsOfUtc);
+    DateTime AsOfUtc)
+{
+    public string? Category { get; init; }
+
+    public string? Highlights { get; init; }
+
+    public string? TravellerRequirements { get; init; }
+
+    public string TimeZoneId { get; init; } = TripMate.Domain.Entities.Tour.DefaultTimeZoneId;
+
+    public bool AllowDeposit { get; init; }
+
+    public decimal? DepositPercent { get; init; }
+
+    public int? BalanceDueDaysBeforeDeparture { get; init; }
+}
 
 /// <summary>Only the company name and contact phone are public; nothing else about the operator.</summary>
 public sealed record TourDetailOperatorDto(string Name, string? ContactPhone);
@@ -65,7 +80,14 @@ public sealed record TourDetailScheduleDto(
     long? InfantPrice,
     int? RemainingSlots,
     string AvailabilityStatus,
-    bool Bookable);
+    bool Bookable)
+{
+    public int MinimumCapacity { get; init; } = 1;
+
+    public decimal? MeetingLatitude { get; init; }
+
+    public decimal? MeetingLongitude { get; init; }
+}
 
 public sealed record TourDetailRatingDto(decimal? Average, int Count);
 

@@ -43,7 +43,9 @@ public sealed class GetOperatorDashboardMetricsQueryHandler(
         var until = new DateTimeOffset(monthEndExclusive.ToDateTime(TimeOnly.MinValue), VietnamOffset).ToUniversalTime();
 
         var activeTours = await db.Tours.AsNoTracking().CountAsync(tour =>
-            tour.OperatorUserId == operatorId && tour.Status == TourStatus.Published &&
+            tour.OperatorUserId == operatorId &&
+            (tour.Status == TourStatus.Published ||
+             (tour.Status == TourStatus.Approved && tour.PublishedAtUtc <= now)) &&
             tour.Schedules.Any(schedule =>
                 schedule.Status == TourScheduleStatus.Scheduled &&
                 schedule.StartAtUtc > now &&

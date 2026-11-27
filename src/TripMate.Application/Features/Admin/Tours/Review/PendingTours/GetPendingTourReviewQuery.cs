@@ -28,7 +28,16 @@ public sealed record PendingTourReviewDto(
     IReadOnlyList<PendingTourCancellationRuleDto> CancellationPolicy,
     IReadOnlyList<PendingTourScheduleDto> Schedules,
     IReadOnlyList<PendingTourItineraryStopDto> Itinerary,
-    IReadOnlyList<PendingTourImageDto> Images);
+    IReadOnlyList<PendingTourImageDto> Images)
+{
+    public string? SubmissionNote { get; init; }
+
+    public bool AllowDeposit { get; init; }
+
+    public decimal? DepositPercent { get; init; }
+
+    public int? BalanceDueDaysBeforeDeparture { get; init; }
+}
 
 public sealed record PendingTourCancellationRuleDto(int DaysBeforeDeparture, decimal FeePercent);
 

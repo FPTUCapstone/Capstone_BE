@@ -26,7 +26,7 @@ public sealed class ListOperatorToursQueryHandlerTests
             new FakeCurrentUserService { UserId = owner.Id }, clock);
         await create.Handle(Command(88, clock.UtcNow), CancellationToken.None);
         var handler = new ListOperatorToursQueryHandler(db,
-            new FakeCurrentUserService { UserId = other.Id });
+            new FakeCurrentUserService { UserId = other.Id }, clock);
 
         var result = await handler.Handle(new ListOperatorToursQuery(), CancellationToken.None);
 
@@ -54,7 +54,7 @@ public sealed class ListOperatorToursQueryHandlerTests
         var tours = await db.Tours.OrderBy(tour => tour.Id).ToListAsync();
         tours[0].SubmitForReview(clock.UtcNow);
         await db.SaveChangesAsync();
-        var handler = new ListOperatorToursQueryHandler(db, user);
+        var handler = new ListOperatorToursQueryHandler(db, user, clock);
 
         var drafts = await handler.Handle(new ListOperatorToursQuery("draft"), CancellationToken.None);
         var pending = await handler.Handle(new ListOperatorToursQuery("Pending"), CancellationToken.None);

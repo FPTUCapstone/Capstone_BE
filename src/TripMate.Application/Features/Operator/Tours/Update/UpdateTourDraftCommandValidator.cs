@@ -32,6 +32,17 @@ public sealed class UpdateTourDraftCommandValidator : AbstractValidator<UpdateTo
         RuleFor(command => command.TimeZoneId).Must(Tour.IsKnownTimeZone)
             .When(command => !string.IsNullOrWhiteSpace(command.TimeZoneId))
             .WithMessage("The time zone must be a valid IANA identifier.");
+        When(command => command.AllowDeposit, () =>
+        {
+            RuleFor(command => command.DepositPercent)
+                .NotNull()
+                .InclusiveBetween(Tour.MinDepositPercent, Tour.MaxDepositPercent)
+                .WithMessage($"Deposit percentage must be between {Tour.MinDepositPercent}% and {Tour.MaxDepositPercent}% when deposits are enabled.");
+            RuleFor(command => command.BalanceDueDaysBeforeDeparture)
+                .NotNull()
+                .InclusiveBetween(Tour.MinBalanceDueDaysBeforeDeparture, Tour.MaxBalanceDueDaysBeforeDeparture)
+                .WithMessage($"Balance settlement deadline must be between {Tour.MinBalanceDueDaysBeforeDeparture} and {Tour.MaxBalanceDueDaysBeforeDeparture} days before departure.");
+        });
         RuleFor(command => command.ItineraryItems).NotNull().NotEmpty();
         RuleFor(command => command.Schedules).NotNull().NotEmpty();
         RuleForEach(command => command.ItineraryItems).ChildRules(item =>
@@ -40,27 +51,34 @@ public sealed class UpdateTourDraftCommandValidator : AbstractValidator<UpdateTo
             item.RuleFor(value => value.SequenceNo).GreaterThan(0);
             item.RuleFor(value => value.PoiId).GreaterThan(0);
             item.RuleFor(value => value.StayDurationMinutes).GreaterThan(0);
-            item.RuleFor(value => value.Notes).MaximumLength(TourItineraryItem.NotesMaxLength);
+            item.RuleFor(value => value.Notes).Must(value => value is null || value.Trim().Length <= TourItineraryItem.NotesMaxLength)
+                .WithMessage($"Activity notes must not exceed {TourItineraryItem.NotesMaxLength} characters.");
         });
         RuleFor(command => command.ItineraryItems).Must(items => items is not null &&
-            items.Select(item => (item.DayNo, item.SequenceNo)).Distinct().Count() == items.Count);
+            items.Select(item => (item.DayNo, item.SequenceNo)).Distinct().Count() == items.Count)
+            .WithMessage("Itinerary day numbers must be within the tour duration and cannot duplicate sequence numbers.");
         RuleFor(command => command.ItineraryItems).Must((command, items) =>
-            items is not null && items.All(item => item.DayNo <= command.DurationDays));
+            items is not null && items.All(item => item.DayNo <= command.DurationDays))
+            .WithMessage("Itinerary day numbers must be within the tour duration and cannot duplicate sequence numbers.");
         RuleForEach(command => command.Schedules).ChildRules(schedule =>
         {
-            schedule.RuleFor(value => value.StartAtUtc).GreaterThan(clock.UtcNow);
+            schedule.RuleFor(value => value.StartAtUtc).GreaterThan(_ => clock.UtcNow);
             schedule.RuleFor(value => value.EndAtUtc).GreaterThan(value => value.StartAtUtc);
             schedule.RuleFor(value => value.TotalCapacity).GreaterThan(0);
             schedule.RuleFor(value => value.MinimumCapacity).GreaterThan(0)
                 .LessThanOrEqualTo(value => value.TotalCapacity);
             schedule.RuleFor(value => value.RegistrationDeadlineAtUtc)
+                .GreaterThan(_ => clock.UtcNow)
                 .LessThan(value => value.StartAtUtc)
                 .When(value => value.RegistrationDeadlineAtUtc.HasValue);
             schedule.RuleFor(value => value.AdultPrice).GreaterThan(0)
+                .LessThanOrEqualTo(9_999_999_999.99m)
                 .When(value => value.AdultPrice.HasValue);
             schedule.RuleFor(value => value.ChildPrice).GreaterThanOrEqualTo(0)
+                .LessThanOrEqualTo(9_999_999_999.99m)
                 .When(value => value.ChildPrice.HasValue);
             schedule.RuleFor(value => value.InfantPrice).GreaterThanOrEqualTo(0)
+                .LessThanOrEqualTo(9_999_999_999.99m)
                 .When(value => value.InfantPrice.HasValue);
             schedule.RuleFor(value => value.AdultPrice).Must(OperatorTourValidation.IsWholeVnd)
                 .WithMessage("The price must be a whole VND amount.");
@@ -68,9 +86,14 @@ public sealed class UpdateTourDraftCommandValidator : AbstractValidator<UpdateTo
                 .WithMessage("The price must be a whole VND amount.");
             schedule.RuleFor(value => value.InfantPrice).Must(OperatorTourValidation.IsWholeVnd)
                 .WithMessage("The price must be a whole VND amount.");
-            schedule.RuleFor(value => value.MeetingPoint).MaximumLength(TourSchedule.MeetingPointMaxLength);
+            schedule.RuleFor(value => value.MeetingPoint).Must(value => value is null || value.Trim().Length <= TourSchedule.MeetingPointMaxLength)
+                .WithMessage($"Meeting point must not exceed {TourSchedule.MeetingPointMaxLength} characters.");
             schedule.RuleFor(value => value).Must(OperatorTourValidation.HasValidMeetingCoordinates)
                 .WithMessage("Meeting coordinates require a named point and valid latitude and longitude.");
         });
+        RuleFor(command => command.Schedules)
+            .Must(schedules => schedules is null
+                || schedules.Select(s => s.StartAtUtc.ToUniversalTime()).Distinct().Count() == schedules.Count)
+            .WithMessage("Departure start dates and times must be unique.");
     }
 }

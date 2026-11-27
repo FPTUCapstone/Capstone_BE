@@ -17,6 +17,10 @@ public class Tour : BaseEntity
     public const int DestinationSummaryMaxLength = 300;
     public const string DestinationCollation = "Vietnamese_100_CI_AS";
     public const int PreferenceJsonMaxLength = 1000;
+    public const decimal MinDepositPercent = 10m;
+    public const decimal MaxDepositPercent = 90m;
+    public const int MinBalanceDueDaysBeforeDeparture = 4;
+    public const int MaxBalanceDueDaysBeforeDeparture = 180;
 
     private readonly List<TourSchedule> _schedules = [];
     private readonly List<TourDestination> _destinations = [];
@@ -83,6 +87,12 @@ public class Tour : BaseEntity
 
     public long? CancellationPolicyTemplateId { get; private set; }
 
+    public bool AllowDeposit { get; private set; }
+
+    public decimal? DepositPercent { get; private set; }
+
+    public int? BalanceDueDaysBeforeDeparture { get; private set; }
+
     public TourStatus Status { get; private set; }
 
     public DateTimeOffset? SubmittedAtUtc { get; private set; }
@@ -124,7 +134,8 @@ public class Tour : BaseEntity
         IEnumerable<TourItineraryItem> itineraryItems,
         IEnumerable<TourSchedule> schedules, DateTimeOffset nowUtc,
         string? inclusions = null, string? exclusions = null,
-        string? highlights = null, string? travellerRequirements = null, string? timeZoneId = null)
+        string? highlights = null, string? travellerRequirements = null, string? timeZoneId = null,
+        bool allowDeposit = false, decimal? depositPercent = null, int? balanceDueDaysBeforeDeparture = null)
     {
         if (operatorUserId <= 0) throw new ArgumentOutOfRangeException(nameof(operatorUserId));
         if (categoryId <= 0) throw new ArgumentOutOfRangeException(nameof(categoryId));
@@ -162,6 +173,7 @@ public class Tour : BaseEntity
             CreatedAtUtc = nowUtc.ToUniversalTime(),
             UpdatedAtUtc = nowUtc.ToUniversalTime(),
         };
+        tour.ApplyDepositTerms(allowDeposit, depositPercent, balanceDueDaysBeforeDeparture);
         tour.ReplaceDraftDestinations(destinationIds, destinationSummary);
         tour.ApplyCancellationPolicySnapshot(cancellationPolicy, nowUtc);
         foreach (var item in items) { item.AttachTo(tour); tour._itineraryItems.Add(item); }
@@ -177,6 +189,16 @@ public class Tour : BaseEntity
         if (VersionRootTourId.HasValue) throw new InvalidOperationException("Tour version lineage is immutable.");
         VersionRootTourId = versionRootTourId;
         VersionNo = versionNo;
+    }
+
+    public void ClearVersionRootForDelete()
+    {
+        if (Status is not (TourStatus.Draft or TourStatus.Rejected))
+        {
+            throw new InvalidOperationException("Only Draft or Rejected tours can clear version lineage for deletion.");
+        }
+
+        VersionRootTourId = null;
     }
 
     public void SubmitForReview(DateTimeOffset submittedAtUtc, string? submissionNote = null)
@@ -207,7 +229,10 @@ public class Tour : BaseEntity
         DateTimeOffset updatedAtUtc,
         string? highlights = null,
         string? travellerRequirements = null,
-        string? timeZoneId = null)
+        string? timeZoneId = null,
+        bool allowDeposit = false,
+        decimal? depositPercent = null,
+        int? balanceDueDaysBeforeDeparture = null)
     {
         if (Status is not (TourStatus.Draft or TourStatus.Rejected))
         {
@@ -237,7 +262,37 @@ public class Tour : BaseEntity
         Highlights = normalizedHighlights;
         TravellerRequirements = normalizedRequirements;
         TimeZoneId = normalizedTimeZone;
+        ApplyDepositTerms(allowDeposit, depositPercent, balanceDueDaysBeforeDeparture);
         UpdatedAtUtc = updatedAtUtc.ToUniversalTime();
+    }
+
+    private void ApplyDepositTerms(bool allowDeposit, decimal? depositPercent, int? balanceDueDaysBeforeDeparture)
+    {
+        if (!allowDeposit)
+        {
+            AllowDeposit = false;
+            DepositPercent = null;
+            BalanceDueDaysBeforeDeparture = null;
+            return;
+        }
+
+        if (depositPercent is null or < MinDepositPercent or > MaxDepositPercent)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(depositPercent),
+                $"Deposit percentage must be between {MinDepositPercent}% and {MaxDepositPercent}%.");
+        }
+
+        if (balanceDueDaysBeforeDeparture is null or < MinBalanceDueDaysBeforeDeparture or > MaxBalanceDueDaysBeforeDeparture)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(balanceDueDaysBeforeDeparture),
+                $"Balance due days must be between {MinBalanceDueDaysBeforeDeparture} and {MaxBalanceDueDaysBeforeDeparture} days before departure.");
+        }
+
+        AllowDeposit = true;
+        DepositPercent = decimal.Round(depositPercent.Value, 2, MidpointRounding.AwayFromZero);
+        BalanceDueDaysBeforeDeparture = balanceDueDaysBeforeDeparture.Value;
     }
 
     /// <summary>
@@ -404,6 +459,30 @@ public class Tour : BaseEntity
             throw new InvalidOperationException("Only Published or publicly active Approved tours can be unpublished.");
         Status = TourStatus.Inactive;
         UpdatedAtUtc = normalizedUnpublishedAtUtc;
+    }
+
+    public bool CanAcceptAdditionalDeparture(DateTimeOffset asOfUtc)
+    {
+        var normalizedAsOfUtc = asOfUtc.ToUniversalTime();
+        return Status == TourStatus.Published
+            || (Status == TourStatus.Approved
+                && PublishedAtUtc.HasValue
+                && PublishedAtUtc.Value <= normalizedAsOfUtc);
+    }
+
+    public void AddDeparture(TourSchedule schedule, DateTimeOffset nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(schedule);
+        var normalizedNow = nowUtc.ToUniversalTime();
+        if (!CanAcceptAdditionalDeparture(normalizedNow))
+        {
+            throw new InvalidOperationException(
+                "Only an approved and published tour can accept additional departures.");
+        }
+
+        schedule.AttachTo(this);
+        _schedules.Add(schedule);
+        UpdatedAtUtc = normalizedNow;
     }
 
     /// <summary>

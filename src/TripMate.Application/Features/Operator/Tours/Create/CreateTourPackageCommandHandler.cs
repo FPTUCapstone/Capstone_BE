@@ -78,9 +78,17 @@ public sealed class CreateTourPackageCommandHandler(
 
                 if (existingOperation.TourId.HasValue)
                 {
-                    return Result.Success(new CreateTourPackageResponse(
-                        existingOperation.TourId.Value,
-                        nameof(TourStatus.Draft)));
+                    var existingTour = await dbContext.Tours.AsNoTracking()
+                        .Where(candidate => candidate.Id == existingOperation.TourId.Value)
+                        .Select(candidate => new { candidate.Id, candidate.Status, candidate.VersionNo })
+                        .SingleOrDefaultAsync(transactionCancellationToken);
+                    if (existingTour is not null)
+                    {
+                        return Result.Success(new CreateTourPackageResponse(
+                            existingTour.Id,
+                            existingTour.Status.ToString(),
+                            existingTour.VersionNo));
+                    }
                 }
 
                 return Result.Failure<CreateTourPackageResponse>(
@@ -108,6 +116,15 @@ public sealed class CreateTourPackageCommandHandler(
                         "Only an approved or published tour can create a new draft version.");
 
                 versionRootTourId = source.VersionRootTourId ?? source.Id;
+                var hasOpenRevision = await dbContext.Tours.AsNoTracking().AnyAsync(tour =>
+                    tour.OperatorUserId == operatorId &&
+                    tour.VersionRootTourId == versionRootTourId.Value &&
+                    tour.Id != source.Id &&
+                    (tour.Status == TourStatus.Draft || tour.Status == TourStatus.Rejected || tour.Status == TourStatus.Pending),
+                    transactionCancellationToken);
+                if (hasOpenRevision)
+                    return Result.Failure<CreateTourPackageResponse>(OperatorTourErrorCodes.InvalidState,
+                        "An editable or pending revision already exists for this tour. Continue with that revision.");
                 versionNo = await dbContext.Tours.AsNoTracking()
                     .Where(tour => (tour.VersionRootTourId ?? tour.Id) == versionRootTourId.Value)
                     .MaxAsync(tour => (int?)tour.VersionNo, transactionCancellationToken) + 1 ?? 2;
@@ -154,7 +171,10 @@ public sealed class CreateTourPackageCommandHandler(
                 OperatorTourValidation.NormalizeText(request.Exclusions),
                 OperatorTourValidation.NormalizeText(request.Highlights),
                 OperatorTourValidation.NormalizeText(request.TravellerRequirements),
-                OperatorTourValidation.NormalizeText(request.TimeZoneId));
+                OperatorTourValidation.NormalizeText(request.TimeZoneId),
+                request.AllowDeposit,
+                request.AllowDeposit ? request.DepositPercent : null,
+                request.AllowDeposit ? request.BalanceDueDaysBeforeDeparture : null);
             dbContext.Tours.Add(tour);
             dbContext.TourPackageCreateOperations.Add(TourPackageCreateOperation.Create(
                 operatorId, request.IdempotencyKey, fingerprint, tour, now));
@@ -184,6 +204,9 @@ public sealed class CreateTourPackageCommandHandler(
             TravellerRequirements = OperatorTourValidation.NormalizeText(request.TravellerRequirements),
             TimeZoneId = OperatorTourValidation.NormalizeText(request.TimeZoneId),
             request.SourceTourId,
+            request.AllowDeposit,
+            DepositPercent = request.AllowDeposit ? request.DepositPercent : null,
+            BalanceDueDaysBeforeDeparture = request.AllowDeposit ? request.BalanceDueDaysBeforeDeparture : null,
             request.ItineraryItems,
             request.Schedules,
         });
