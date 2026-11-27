@@ -97,12 +97,23 @@ public sealed class DecideStaffComplaintCommandHandler(IApplicationDbContext db,
     internal static string Fingerprint(object value) => Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(value)));
     internal static async Task NotifyAsync(IApplicationDbContext db, PostTripComplaint c, string action, DateTimeOffset now, CancellationToken ct)
     {
-        var operatorId = await (from b in db.Bookings join s in db.TourSchedules on b.TourScheduleId equals s.Id
-                                join t in db.Tours on s.TourId equals t.Id where b.Id == c.BookingId select t.OperatorUserId).SingleAsync(ct);
+        var operatorId = await (from b in db.Bookings
+                                join s in db.TourSchedules on b.TourScheduleId equals s.Id
+                                join t in db.Tours on s.TourId equals t.Id
+                                where b.Id == c.BookingId
+                                select t.OperatorUserId).SingleAsync(ct);
         foreach (long recipient in new[] { c.TravelerUserId, operatorId }.Distinct())
-            db.Notifications.Add(new Notification { UserId = recipient, Channel = NotificationChannel.InApp, Type = "ComplaintStaffReview",
-                Title = "Complaint review updated", Body = $"Staff review: {action}.", RelatedEntityType = ComplaintStaffReviewEvent.AuditEntity,
-                RelatedEntityId = c.Id, CreatedAtUtc = now });
+            db.Notifications.Add(new Notification
+            {
+                UserId = recipient,
+                Channel = NotificationChannel.InApp,
+                Type = "ComplaintStaffReview",
+                Title = "Complaint review updated",
+                Body = $"Staff review: {action}.",
+                RelatedEntityType = ComplaintStaffReviewEvent.AuditEntity,
+                RelatedEntityId = c.Id,
+                CreatedAtUtc = now
+            });
     }
     private static Result<StaffComplaintDetail> Fail(string code, string message) => Result.Failure<StaffComplaintDetail>(code, message);
 }

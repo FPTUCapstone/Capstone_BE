@@ -50,8 +50,14 @@ public sealed class SubmitStaffComplaintEvidenceCommandHandler(IApplicationDbCon
         if (valid.IsFailure) return Fail(valid.ErrorCode!, valid.ErrorMessage!);
         if (request.OperationId == Guid.Empty || string.IsNullOrWhiteSpace(request.Reason) || request.Reason.Trim().Length > ComplaintStaffReviewEvent.TextMaxLength)
             return Fail(StaffComplaintAccess.Invalid, "A reason and operation ID are required.");
-        string fingerprint = DecideStaffComplaintCommandHandler.Fingerprint(new { request.ComplaintId, request.RequestEventId, request.Reconsideration,
-            Reason = request.Reason.Trim(), Files = request.Files.Select(f => new { f.FileName, f.ContentType, Hash = Convert.ToHexString(SHA256.HashData(f.Bytes)) }) });
+        string fingerprint = DecideStaffComplaintCommandHandler.Fingerprint(new
+        {
+            request.ComplaintId,
+            request.RequestEventId,
+            request.Reconsideration,
+            Reason = request.Reason.Trim(),
+            Files = request.Files.Select(f => new { f.FileName, f.ContentType, Hash = Convert.ToHexString(SHA256.HashData(f.Bytes)) })
+        });
         var c = await db.PostTripComplaints.AsNoTracking().SingleOrDefaultAsync(x => x.Id == request.ComplaintId, ct);
         if (c is null) return Fail(StaffComplaintAccess.NotFound, "Complaint not found.");
         if (!await StaffComplaintAccess.OwnsAsync(db, user, c, ct)) return Fail(StaffComplaintAccess.Forbidden, "This complaint belongs to another account.");

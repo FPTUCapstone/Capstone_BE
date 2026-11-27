@@ -40,9 +40,10 @@ public static class StaffComplaintAccess
         if (user.UserId is not > 0) return false;
         if (user.Role == nameof(UserRole.Traveler)) return c.TravelerUserId == user.UserId;
         return user.Role == nameof(UserRole.TourOperator) && await (from b in db.Bookings
-            join s in db.TourSchedules on b.TourScheduleId equals s.Id
-            join t in db.Tours on s.TourId equals t.Id
-            where b.Id == c.BookingId && t.OperatorUserId == user.UserId select b.Id).AnyAsync(ct);
+                                                                    join s in db.TourSchedules on b.TourScheduleId equals s.Id
+                                                                    join t in db.Tours on s.TourId equals t.Id
+                                                                    where b.Id == c.BookingId && t.OperatorUserId == user.UserId
+                                                                    select b.Id).AnyAsync(ct);
     }
 }
 
@@ -86,9 +87,11 @@ public sealed class GetStaffComplaintQueryHandler(IApplicationDbContext db, ICur
         if (c is null) return Result.Failure<StaffComplaintDetail>(StaffComplaintAccess.NotFound, "Complaint not found.");
         if (request.PartyView && !await StaffComplaintAccess.OwnsAsync(db, user, c, ct))
             return Result.Failure<StaffComplaintDetail>(StaffComplaintAccess.Forbidden, "This complaint belongs to another account.");
-        var booking = await (from b in db.Bookings join s in db.TourSchedules on b.TourScheduleId equals s.Id
+        var booking = await (from b in db.Bookings
+                             join s in db.TourSchedules on b.TourScheduleId equals s.Id
                              join t in db.Tours on s.TourId equals t.Id
-                             where b.Id == c.BookingId select new { b.BookingCode, t.Title }).SingleAsync(ct);
+                             where b.Id == c.BookingId
+                             select new { b.BookingCode, t.Title }).SingleAsync(ct);
         var evidence = await db.ComplaintEvidence.AsNoTracking().Where(e => e.ComplaintId == c.Id).OrderBy(e => e.Id)
             .Select(e => new StaffComplaintEvidence(e.Id, e.OriginalFileName, e.ContentType, e.ByteLength, e.CreatedAtUtc)).ToListAsync(ct);
         var negotiations = await db.PostTripComplaintNegotiationEvents.AsNoTracking().Where(e => e.ComplaintId == c.Id).OrderBy(e => e.Id).ToListAsync(ct);

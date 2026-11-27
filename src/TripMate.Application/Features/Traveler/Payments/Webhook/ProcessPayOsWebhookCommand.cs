@@ -9,8 +9,8 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
-using TripMate.Application.Features.Traveler.Payments.Common;
 using TripMate.Application.Features.Operator.CommissionStatements;
+using TripMate.Application.Features.Traveler.Payments.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 

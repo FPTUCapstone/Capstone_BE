@@ -30,8 +30,16 @@ public sealed class CommissionPaymentAttempt : BaseEntity
         if (gateway is not (PaymentGateway.Mock or PaymentGateway.PayOS)) throw new ArgumentOutOfRangeException(nameof(gateway));
         Span<byte> bytes = stackalloc byte[8]; RandomNumberGenerator.Fill(bytes);
         long order = OrderNamespace + (long)(BitConverter.ToUInt64(bytes) % (ulong)NamespaceSize);
-        return new() { StatementId = statementId, OrderCode = order, Gateway = gateway, AmountVnd = amount,
-            CreatedAtUtc = now.ToUniversalTime(), UpdatedAtUtc = now.ToUniversalTime(), ExpiresAtUtc = expires.ToUniversalTime() };
+        return new()
+        {
+            StatementId = statementId,
+            OrderCode = order,
+            Gateway = gateway,
+            AmountVnd = amount,
+            CreatedAtUtc = now.ToUniversalTime(),
+            UpdatedAtUtc = now.ToUniversalTime(),
+            ExpiresAtUtc = expires.ToUniversalTime()
+        };
     }
     public void AttachLink(string linkId, string? checkoutUrl, DateTimeOffset now)
     {

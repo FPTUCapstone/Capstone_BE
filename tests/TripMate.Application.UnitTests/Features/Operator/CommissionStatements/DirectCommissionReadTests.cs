@@ -51,9 +51,9 @@ public sealed class DirectCommissionReadTests
     }
 
     [Theory]
-    [InlineData(0,20,null)]
-    [InlineData(1,101,null)]
-    [InlineData(1,20,"bad")]
+    [InlineData(0, 20, null)]
+    [InlineData(1, 101, null)]
+    [InlineData(1, 20, "bad")]
     public async Task PaginationAndPeriodAreValidated(int page, int size, string? period)
     {
         await using var db = Db();
@@ -62,7 +62,7 @@ public sealed class DirectCommissionReadTests
         Assert.True(result.IsFailure);
     }
 
-    private static DirectCommissionStatement Statement(long owner, string period) => DirectCommissionStatement.Issue($"DCO-{owner}-{period}", owner, period, 100000, .1m, 10000, new(2026,11,1), new(2026,11,1,0,0,0,TimeSpan.Zero));
+    private static DirectCommissionStatement Statement(long owner, string period) => DirectCommissionStatement.Issue($"DCO-{owner}-{period}", owner, period, 100000, .1m, 10000, new(2026, 11, 1), new(2026, 11, 1, 0, 0, 0, TimeSpan.Zero));
     private static Context Db() => new(new DbContextOptionsBuilder<TestDbContext>().UseInMemoryDatabase(Guid.NewGuid().ToString()).Options);
     private sealed class Context(DbContextOptions<TestDbContext> options) : TestDbContext(options), IApplicationDbContext
     {
