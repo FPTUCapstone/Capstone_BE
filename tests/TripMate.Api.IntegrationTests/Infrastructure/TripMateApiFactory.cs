@@ -615,6 +615,15 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     public DbSet<OperatorPaymentMerchantClaim> OperatorPaymentMerchantClaims => Set<OperatorPaymentMerchantClaim>();
     public DbSet<TravelerRefundAccount> TravelerRefundAccounts => Set<TravelerRefundAccount>();
 
+    public DbSet<ComplaintStaffReviewEvent> ComplaintStaffReviewEvents => Set<ComplaintStaffReviewEvent>();
+    public DbSet<DirectRefundCase> DirectRefundCases => Set<DirectRefundCase>();
+    public DbSet<DirectRefundTransfer> DirectRefundTransfers => Set<DirectRefundTransfer>();
+    public DbSet<DirectRefundEvidence> DirectRefundEvidences => Set<DirectRefundEvidence>();
+    public DbSet<DirectCommissionStatement> DirectCommissionStatements => Set<DirectCommissionStatement>();
+    public DbSet<DirectCommissionCalculation> DirectCommissionCalculations => Set<DirectCommissionCalculation>();
+    public DbSet<DirectCommissionLedgerEntry> DirectCommissionLedgerEntries => Set<DirectCommissionLedgerEntry>();
+    public DbSet<CommissionPaymentAttempt> CommissionPaymentAttempts => Set<CommissionPaymentAttempt>();
+
     public DbSet<ServiceBooking> ServiceBookings => Set<ServiceBooking>();
 
     public DbSet<ServiceCommissionStatement> ServiceCommissionStatements =>
