@@ -7,6 +7,7 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
+using TripMate.Application.Features.Operator.Tours.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
 
@@ -14,6 +15,48 @@ namespace TripMate.Api.IntegrationTests.Tours;
 
 public sealed partial class OperatorTourPackageSqlServerTests
 {
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task Submit_WhenPaymentChannelIsDisabled_LeavesTheDraftAndReportsTheBlocker()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var seed = await SeedAsync(database);
+        await using var factory = new TripMateApiFactory(sqlServerConnectionString: database.ConnectionString);
+        using var client = factory.CreateAuthenticatedClient(seed.OperatorId, UserRole.TourOperator);
+        await using (var db = database.CreateDbContext())
+        {
+            var channel = await db.OperatorPaymentChannels.SingleAsync(channel => channel.TourOperatorUserId == seed.OperatorId);
+            channel.Disable(DateTimeOffset.UtcNow);
+            await db.SaveChangesAsync();
+        }
+
+        using var created = await PostCreateAsync(client, Guid.NewGuid(), seed, [seed.DestinationIds[0]]);
+        created.StatusCode.Should().Be(HttpStatusCode.Created, "a payment channel is not required to save a draft");
+        long tourId = ReadLong(await created.Content.ReadAsStringAsync(), "tourId");
+        await using (var db = database.CreateDbContext())
+        {
+            var tour = await db.Tours.SingleAsync(tour => tour.Id == tourId);
+            db.TourMedia.Add(TourMedia.Create(tour, "tm83/blocked-cover", "https://cdn.example.test/blocked.jpg", null, "Cover", 1, true, DateTimeOffset.UtcNow));
+            await db.SaveChangesAsync();
+        }
+
+        using var detail = await client.GetAsync($"/api/v1/operator/tours/{tourId}");
+        detail.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var detailJson = JsonDocument.Parse(await detail.Content.ReadAsStringAsync());
+        detailJson.RootElement.GetProperty("canSubmitForReview").GetBoolean().Should().BeFalse();
+        detailJson.RootElement.GetProperty("reviewBlockers").EnumerateArray().Select(blocker => blocker.GetString())
+            .Should().Equal(TourReviewBlockers.PaymentChannelNotReady);
+
+        using var submitted = await client.PostAsync($"/api/v1/operator/tours/{tourId}/submit-review", null);
+        submitted.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        await using var verification = database.CreateDbContext();
+        var draft = await verification.Tours.AsNoTracking().SingleAsync(tour => tour.Id == tourId);
+        draft.Status.Should().Be(TourStatus.Draft);
+        draft.SubmittedAtUtc.Should().BeNull();
+        (await verification.AuditLogs.CountAsync(log => log.AffectedEntityId == tourId &&
+            log.ActionType == TripMate.Domain.Common.AuditActionTypes.TourSubmitForReview)).Should().Be(0);
+    }
+
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
     public async Task Submit_NoBodyCompatibility_ValidationOwnershipAndPublicationGate()

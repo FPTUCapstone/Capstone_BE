@@ -99,7 +99,7 @@ public sealed class GetTravelerTripQueryHandler(
         };
     }
 
-    /// <summary>Prefer disputes/pending obligations; then completed, and rejected only as a fallback.</summary>
+    /// <summary>Prefer active obligations, then completed refunds, with failed/rejected attempts as fallbacks.</summary>
     private async Task<TripRefundInfo?> GetLatestRefundAsync(long bookingId, CancellationToken cancellationToken)
     {
         var direct = await dbContext.DirectRefundCases.AsNoTracking().Where(c => c.BookingId == bookingId)
@@ -108,7 +108,9 @@ public sealed class GetTravelerTripQueryHandler(
         if (direct is not null) return new TripRefundInfo(direct.Status, direct.RefundAmountVnd, "BankTransfer");
         var refund = await dbContext.Refunds.AsNoTracking()
             .Where(candidate => candidate.BookingId == bookingId)
-            .OrderBy(candidate => candidate.Status == RefundStatus.Rejected ? 2 : candidate.Status == RefundStatus.Processed ? 1 : 0)
+            .OrderBy(candidate => candidate.Status == RefundStatus.Rejected ? 3
+                : candidate.Status == RefundStatus.Failed ? 2
+                : candidate.Status == RefundStatus.Processed ? 1 : 0)
             .ThenByDescending(candidate => candidate.Id)
             .Select(candidate => new { candidate.Status, candidate.Amount, candidate.TransactionId })
             .FirstOrDefaultAsync(cancellationToken);

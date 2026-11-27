@@ -12,6 +12,23 @@ namespace TripMate.Application.UnitTests.Features.TripHistory;
 
 public sealed class AcceptedRefundTripHistoryTests
 {
+    [Theory]
+    [InlineData(RefundStatus.Failed, RefundStatus.Processed, 7000)]
+    [InlineData(RefundStatus.Processed, RefundStatus.Failed, 3000)]
+    public async Task FailedLegacyAttemptCannotHideACompletedRefund(RefundStatus earlier, RefundStatus later, decimal expectedAmount)
+    {
+        await using var db = TripHistoryTestData.CreateDb();
+        var data = new TripHistoryTestData(db);
+        var now = TripHistoryTestData.BaseTime;
+        var schedule = await data.AddScheduleAsync(now);
+        var booking = await data.AddBookingAsync(7, schedule, BookingStatus.Cancelled, totalAmount: 10000);
+        await data.AddRefundAsync(booking.Id, 1, earlier, 3000);
+        await data.AddRefundAsync(booking.Id, 2, later, 7000);
+        var detail = await new GetTravelerTripQueryHandler(db, new FakeDateTimeProvider { UtcNow = now })
+            .Handle(new(7, TripRecordKinds.CommerceBooking, booking.Id), default);
+        detail.Value!.Refund!.Status.Should().Be(nameof(RefundStatus.Processed));
+        detail.Value.Refund.Amount.Should().Be(expectedAmount);
+    }
     [Fact]
     public async Task CompletedLaterCaseDoesNotHideExistingRefundDispute()
     {
@@ -42,6 +59,7 @@ public sealed class AcceptedRefundTripHistoryTests
     [Theory]
     [InlineData(RefundStatus.Processed, RefundStatus.Rejected, "Processed")]
     [InlineData(RefundStatus.Processing, RefundStatus.Processed, "Processing")]
+    [InlineData(RefundStatus.Pending, RefundStatus.Processed, "Pending")]
     public async Task LaterLegacyAttemptDoesNotHideThePriorityRefund(RefundStatus earlier, RefundStatus later, string expected)
     {
         await using var db = TripHistoryTestData.CreateDb();
