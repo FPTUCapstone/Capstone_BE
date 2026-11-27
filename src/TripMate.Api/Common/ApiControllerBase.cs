@@ -89,6 +89,8 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripMate.Application.Features.SupportChat.SupportChatErrors.Unauthorized => StatusCodes.Status401Unauthorized,
             TripMate.Application.Features.SupportChat.SupportChatErrors.Forbidden => StatusCodes.Status403Forbidden,
             TripMate.Application.Features.SupportChat.SupportChatErrors.Unavailable => StatusCodes.Status503ServiceUnavailable,
+            TripMate.Application.Features.Weather.PublicForecast.PublicWeatherForecastErrors.Unavailable =>
+                StatusCodes.Status503ServiceUnavailable,
             TripMate.Application.Features.SupportChat.SupportChatErrors.InvalidRequest => StatusCodes.Status400BadRequest,
             TripMate.Application.Features.PointsOfInterest.Deactivate.PoiDeactivationErrors.Forbidden =>
                 StatusCodes.Status403Forbidden,
@@ -294,6 +296,12 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
 
             OperatorTourErrorCodes.AccessRequired => StatusCodes.Status403Forbidden,
             OperatorTourErrorCodes.AdminAccessRequired => StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.Operator.Profile.Common.OperatorProfileErrorCodes.NotFound =>
+                StatusCodes.Status404NotFound,
+            TripMate.Application.Features.Operator.Profile.Common.OperatorProfileErrorCodes.RequestInvalid =>
+                StatusCodes.Status400BadRequest,
+            TripMate.Application.Features.Operator.Profile.Common.OperatorProfileErrorCodes.Unavailable =>
+                StatusCodes.Status503ServiceUnavailable,
             TripMate.Application.Features.Operator.Revenue.Common.OperatorRevenueErrorCodes.InvalidGranularity =>
                 StatusCodes.Status400BadRequest,
 

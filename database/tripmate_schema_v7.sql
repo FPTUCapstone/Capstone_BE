@@ -288,6 +288,12 @@ CREATE TABLE dbo.OperatorProfiles (
     reviewed_at          DATETIME2 NULL,
     created_at           DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
     updated_at           DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    -- UC-34: editable business profile (migrations/20261126_uc34_operator_profile_fields.sql).
+    description          NVARCHAR(2000) NULL,
+    contact_email        NVARCHAR(200)  NULL,
+    website_url          NVARCHAR(300)  NULL,
+    logo_url             NVARCHAR(500)  NULL,
+    logo_public_id       NVARCHAR(300)  NULL,
     CONSTRAINT UQ_OperatorProfiles_TaxCode UNIQUE (tax_code)
 );
 GO

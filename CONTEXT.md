@@ -49,3 +49,19 @@ Weather ingestion và evaluation không được:
 UC-70 chỉ cập nhật TourSchedule, Booking, TripSession và lưu cancellation context. Việc thanh toán và hoàn
 tiền được xử lý riêng theo chính sách hủy booking áp dụng: UC-42 sở hữu refund, UC-71 sở hữu payout và tự
 đọc trạng thái booking. UC-70 không gọi và không thay đổi hai module này.
+
+## Public Weather Forecast
+
+Dự báo thời tiết chỉ để xem, cho bất kỳ địa điểm nào trong Việt Nam, kể cả Guest chưa đăng nhập. Nó không
+gắn với Tour, Booking hay Itinerary và không phải cảnh báo: không tạo Weather Safety Review, không gửi
+thông báo, không ảnh hưởng quyết định của Tour Operator. Nguồn dữ liệu và quota tách riêng khỏi
+Real-Time Alert Delivery, để việc nhiều người xem dự báo không bao giờ làm cảnh báo tour bị chậm hoặc mất.
+_Avoid_: weather alert, weather warning (những từ đó chỉ dành cho UC-66/UC-14).
+
+## Upcoming Trip Weather
+
+Phần cá nhân của trang dự báo, chỉ cho Traveler đã đăng nhập: các Tour Departure mà Traveler có Booking đã
+xác nhận, bắt đầu trong 5 ngày tới hoặc đang diễn ra, mỗi chuyến kèm Public Weather Forecast tại điểm hẹn
+vào ngày khởi hành. Nó không tự đánh giá rủi ro: banner cảnh báo chỉ nhắc lại Weather Safety Review đang mở
+của UC-66 và trạng thái xử lý của Tour Operator; quyết định vẫn thuộc Tour Operator.
+_Avoid_: trip alert (đó là UC-14 cho lịch trình CSP), "chuyến đi" để chỉ Itinerary.

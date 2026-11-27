@@ -17,6 +17,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="..\..\database\migrations\20261126_uc34_operator_profile_fields.sql"
+          Link="Database\migrations\20261126_uc34_operator_profile_fields.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="..\..\database\migrations\20261118_tm83_tour_submission.sql"
           Link="Database\migrations\20261118_tm83_tour_submission.sql"
           CopyToOutputDirectory="PreserveNewest" />
