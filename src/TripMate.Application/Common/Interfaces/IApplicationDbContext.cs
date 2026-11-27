@@ -41,6 +41,9 @@ public interface IApplicationDbContext
     DbSet<PoiCategory> PoiCategories { get; }
 
     DbSet<PointOfInterest> PointsOfInterest { get; }
+    DbSet<StayListing> StayListings => throw new NotSupportedException();
+    DbSet<StayInquiry> StayInquiries => throw new NotSupportedException();
+    DbSet<StayOwnershipClaim> StayOwnershipClaims => throw new NotSupportedException();
 
     DbSet<RouteSegment> RouteSegments { get; }
 

@@ -466,9 +466,14 @@ public sealed class CreateSchedulingRequestCommandHandler(
                 "The selected ending location is unavailable.");
         }
 
+        var accommodationPoiIds = await PlanningPoiEligibility.AccommodationPoiIdsAsync(dbContext, cancellationToken);
+        if (canonical.MandatoryPoiIds.Any(accommodationPoiIds.Contains))
+            return PreparedGeneration.Infeasible(snapshot.Hash, preferenceTokens, explanationMetadata,
+                "Cơ sở lưu trú chỉ có thể dùng làm điểm xuất phát.");
+
         var selectablePois = activePois
             .Where(PlanningPoiEligibility.IsPlanningReady)
-            .Where(poi => PlanningPoiEligibility.IsAutoSchedulable(poi) || canonical.MandatoryPoiIds.Contains(poi.Id))
+            .Where(poi => PlanningPoiEligibility.IsAutoSchedulable(poi, accommodationPoiIds) || canonical.MandatoryPoiIds.Contains(poi.Id))
             .Where(poi => GeoDistance.EquirectangularKilometers(
                 canonical.ExplorationLatitude,
                 canonical.ExplorationLongitude,

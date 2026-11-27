@@ -56,6 +56,9 @@ public class ApplicationDbContext(
     public DbSet<PoiCategory> PoiCategories => Set<PoiCategory>();
 
     public DbSet<PointOfInterest> PointsOfInterest => Set<PointOfInterest>();
+    public DbSet<StayListing> StayListings => Set<StayListing>();
+    public DbSet<StayInquiry> StayInquiries => Set<StayInquiry>();
+    public DbSet<StayOwnershipClaim> StayOwnershipClaims => Set<StayOwnershipClaim>();
 
     public DbSet<RouteSegment> RouteSegments => Set<RouteSegment>();
 
