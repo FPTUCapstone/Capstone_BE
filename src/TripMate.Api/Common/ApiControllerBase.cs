@@ -89,6 +89,8 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripMate.Application.Features.SupportChat.SupportChatErrors.Unauthorized => StatusCodes.Status401Unauthorized,
             TripMate.Application.Features.SupportChat.SupportChatErrors.Forbidden => StatusCodes.Status403Forbidden,
             TripMate.Application.Features.SupportChat.SupportChatErrors.Unavailable => StatusCodes.Status503ServiceUnavailable,
+            TripMate.Application.Features.Weather.PublicForecast.PublicWeatherForecastErrors.Unavailable =>
+                StatusCodes.Status503ServiceUnavailable,
             TripMate.Application.Features.SupportChat.SupportChatErrors.InvalidRequest => StatusCodes.Status400BadRequest,
             TripMate.Application.Features.PointsOfInterest.Deactivate.PoiDeactivationErrors.Forbidden =>
                 StatusCodes.Status403Forbidden,
