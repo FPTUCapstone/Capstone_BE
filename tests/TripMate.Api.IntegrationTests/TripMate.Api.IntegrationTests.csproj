@@ -26,11 +26,20 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="..\..\database\migrations\20261126_uc34_operator_profile_fields.sql"
+          Link="Database\migrations\20261126_uc34_operator_profile_fields.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="..\..\database\migrations\20261118_tm83_tour_submission.sql"
           Link="Database\migrations\20261118_tm83_tour_submission.sql"
           CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\database\migrations\20261124_tour_recommendation_attributes.sql"
           Link="Database\migrations\20261124_tour_recommendation_attributes.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261126_add_tour_deposit_setup.sql"
+          Link="Database\migrations\20261126_add_tour_deposit_setup.sql"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
@@ -196,6 +205,9 @@
     <None Include="..\..\database\migrations\20261027_uc20_group_member_removal_operations.sql"
           Link="Database\migrations\20261027_uc20_group_member_removal_operations.sql"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\database\migrations\20261123_add_travel_group_chat_and_interactions.sql"
+          Link="Database\migrations\20261123_add_travel_group_chat_and_interactions.sql"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\database\migrations\20261028_weather_readiness.sql"
           Link="Database\migrations\20261028_weather_readiness.sql"
           CopyToOutputDirectory="PreserveNewest" />
@@ -231,4 +243,9 @@
     <None Include="..\..\database\migrations\20261007_extend_trip_review_typed_parents.sql" Condition="Exists('..\..\database\migrations\20261007_extend_trip_review_typed_parents.sql')" Link="Database\migrations\20261007_extend_trip_review_typed_parents.sql" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="..\..\database\migrations\20261123_add_direct_chat.sql"
+          Link="Database\migrations\20261123_add_direct_chat.sql"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

@@ -25,9 +25,19 @@ public class Notification : BaseEntity
     public const string TourApprovedType = "TourApproved";
     public const string TourRelatedEntityType = "Tour";
     public const string TourApprovedTitle = "Your tour package was approved";
+
+    // TM-82 / UC-36: the submitting Tour Operator is told the outcome of their draft version's
+    // moderation decision (spec §5.7-§5.8, §3 point B/G5). Attempted once, after the decision
+    // transaction has already committed; a failed attempt never reopens the decision.
+    public const string TourPendingChangeApprovedType = "TourPendingChangeApproved";
+    public const string TourPendingChangeRejectedType = "TourPendingChangeRejected";
+    public const string TourPendingChangeRelatedEntityType = "TourPendingChangeSet";
+    public const string TourPendingChangeApprovedTitle = "Your draft version was approved";
+    public const string TourPendingChangeRejectedTitle = "Your draft version was rejected";
     public const string PartialRefundProposalAcceptedType = "PartialRefundProposalAccepted";
     public const string PartialRefundProposalDeclinedType = "PartialRefundProposalDeclined";
     public const string PartialRefundProposalExpiredType = "PartialRefundProposalExpired";
+    public const string RefundReturnReportedType = "RefundReturnReported";
 
     // UC-70 in-app notices (SRS UC-66). In-app only: they never reach a lock screen.
     public const string EmergencyRefundReviewRequiredType = "EmergencyRefundReviewRequired";

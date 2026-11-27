@@ -79,9 +79,12 @@ public sealed class ItineraryVersionService(
                 "The saved ending location is no longer available.");
         }
 
+        // pois is already materialized in memory here, so the accommodation lookup is pre-fetched
+        // once into a set rather than letting IsAutoSchedulable issue one query per POI.
+        var accommodationPoiIds = await PlanningPoiEligibility.AccommodationPoiIdsAsync(dbContext, cancellationToken);
         var eligiblePois = pois
             .Where(PlanningPoiEligibility.IsPlanningReady)
-            .Where(poi => PlanningPoiEligibility.IsAutoSchedulable(poi) || mandatoryIds.Contains(poi.Id))
+            .Where(poi => PlanningPoiEligibility.IsAutoSchedulable(poi, accommodationPoiIds) || mandatoryIds.Contains(poi.Id))
             .Where(poi => GeoDistance.EquirectangularKilometers(
                 request.ExplorationLatitude,
                 request.ExplorationLongitude,
@@ -240,13 +243,17 @@ public sealed class ItineraryVersionService(
         var evaluation = evaluations.Value[0];
         if (evaluation.Infeasibility is not null)
         {
-            if (evaluation.Infeasibility.Reason == StopInfeasibilityReasons.ExceedsEndTime)
+            if (evaluation.Infeasibility is
+                { Reason: StopInfeasibilityReasons.ExceedsEndTime, OverflowMinutes: { } overflowMinutes })
             {
+                // Extend by exactly the minutes the traveler confirmed; elastic compression still applies.
                 var relaxedEvaluations = await EvaluateStopVariantsAsync(
                     request,
                     [stops],
                     cancellationToken,
-                    availableMinutesOverride: SchedulingRequest.MaxAvailableMinutes);
+                    availableMinutesOverride: Math.Min(
+                        request.AvailableMinutes + overflowMinutes,
+                        SchedulingRequest.MaxAvailableMinutes));
 
                 if (relaxedEvaluations.IsSuccess && relaxedEvaluations.Value[0].Plan is not null)
                 {
@@ -298,6 +305,66 @@ public sealed class ItineraryVersionService(
     }
 
 
+    public Task<Result<Itinerary>> CreateReroutedVersionAsync(
+        Itinerary source,
+        SchedulingRequest request,
+        IReadOnlyList<ItineraryItem> keptItems,
+        GeneratedItineraryPlan remainingPlan,
+        int firstNewSequenceNo,
+        DateTimeOffset nowUtc,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(keptItems);
+        ArgumentNullException.ThrowIfNull(remainingPlan);
+        if (remainingPlan.Items.Count == 0)
+        {
+            throw new ArgumentException("A rerouted plan needs at least one remaining item.", nameof(remainingPlan));
+        }
+
+        var highestKept = keptItems.Count == 0 ? 0 : keptItems.Max(item => item.SequenceNo);
+        if (firstNewSequenceNo <= highestKept)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(firstNewSequenceNo),
+                "New items must be numbered after every kept item.");
+        }
+
+        var mandatoryIds = JsonSerializer.Deserialize<long[]>(request.MandatoryPoiIdsJson) ?? [];
+        var title = source.Title ?? $"Generated itinerary - {request.StartAtUtc:dd MMM yyyy}";
+        if (title.Length > Itinerary.TitleMaxLength)
+        {
+            title = title[..Itinerary.TitleMaxLength];
+        }
+
+        var successor = Itinerary.CreateCspGenerated(
+            request,
+            title,
+            source.ValidFromUtc ?? request.StartAtUtc,
+            remainingPlan.EndAtUtc,
+            source.Version + 1);
+        RerouteProvenance.ApplyTo(successor);
+        foreach (var kept in keptItems.OrderBy(item => item.SequenceNo))
+        {
+            successor.AddItem(kept.CopyForVersion());
+        }
+
+        // The plan numbers its items from 1; shift them so they follow the kept items (gaps are fine).
+        var planItems = remainingPlan.Items.OrderBy(item => item.SequenceNo).ToArray();
+        var offset = firstNewSequenceNo - planItems[0].SequenceNo;
+        foreach (var item in planItems)
+        {
+            successor.AddItem(GeneratedItineraryItemMapper.ToEntity(
+                item with { SequenceNo = item.SequenceNo + offset },
+                item.PointOfInterestId is { } poiId && mandatoryIds.Contains(poiId)));
+        }
+
+        successor.Accept(nowUtc);
+        dbContext.Itineraries.Add(successor);
+        return Task.FromResult(Result.Success(successor));
+    }
+
     /// <summary>
     /// Schedules each ordered list of stops with the same matrix (one routing call per transport mode) and
     /// without saving anything. Used to save an adjusted version and to check suggestions before showing them.
@@ -306,7 +373,8 @@ public sealed class ItineraryVersionService(
         SchedulingRequest request,
         IReadOnlyList<IReadOnlyList<ItineraryStop>> variants,
         CancellationToken cancellationToken,
-        int? availableMinutesOverride = null)
+        int? availableMinutesOverride = null,
+        EvaluationAnchor? anchor = null)
     {
         if (request.TransportMode == TransportMode.PublicTransit
             && !routeDurationProvider.SupportsTransportMode(request.TransportMode))
@@ -314,6 +382,13 @@ public sealed class ItineraryVersionService(
             return Result.Failure<IReadOnlyList<StopsEvaluation>>(
                 ItineraryErrorCodes.ConstraintsInfeasible,
                 UnsupportedPublicTransitMessage);
+        }
+
+        if (anchor is { AvailableMinutes: <= 0 })
+        {
+            return Result.Failure<IReadOnlyList<StopsEvaluation>>(
+                ItineraryErrorCodes.ConstraintsInfeasible,
+                "No time is left in the trip to schedule the remaining stops.");
         }
 
         var timeZone = TimeZoneInfo.FindSystemTimeZoneById(request.TimeZoneId);
@@ -324,7 +399,14 @@ public sealed class ItineraryVersionService(
             .SingleOrDefaultAsync(cancellationToken);
         var preferenceTokens = TravelerPreferenceScoring.ParsePreferenceTokens(travelerInterestTags);
         var mandatoryIds = JsonSerializer.Deserialize<long[]>(request.MandatoryPoiIdsJson) ?? [];
-        var pois = await LoadRelevantActivePoisAsync(request, mandatoryIds, cancellationToken);
+        // Every chosen stop of every variant stays in the matrix, so all variants share one matrix.
+        var keepIds = mandatoryIds
+            .Concat(variants.SelectMany(variant => variant.Select(stop => stop.PoiId)))
+            .Distinct()
+            .ToArray();
+        var pois = anchor is null
+            ? await LoadRelevantActivePoisAsync(request, mandatoryIds, cancellationToken)
+            : await LoadAnchoredActivePoisAsync(request, anchor, keepIds, cancellationToken);
         var endPoi = request.EndPointOfInterestId.HasValue
             ? pois.SingleOrDefault(poi => poi.Id == request.EndPointOfInterestId.Value)
             : null;
@@ -335,19 +417,22 @@ public sealed class ItineraryVersionService(
                 "The saved ending location is no longer available.");
         }
 
-        // Every chosen stop of every variant stays in the matrix, so all variants share one matrix.
-        var keepIds = mandatoryIds
-            .Concat(variants.SelectMany(variant => variant.Select(stop => stop.PoiId)))
-            .Distinct()
-            .ToArray();
         var candidates = LimitMatrixCandidates(pois
             .Where(PlanningPoiEligibility.IsPlanningReady)
             .Where(poi => keepIds.Contains(poi.Id) || !PoiCategoryNames.IsFoodAndDrink(poi.Category?.Name))
-            .Where(poi => GeoDistance.EquirectangularKilometers(
-                request.ExplorationLatitude,
-                request.ExplorationLongitude,
-                poi.Latitude,
-                poi.Longitude) <= request.SearchRadiusKm)
+            .Where(poi => anchor is null
+                ? GeoDistance.EquirectangularKilometers(
+                    request.ExplorationLatitude,
+                    request.ExplorationLongitude,
+                    poi.Latitude,
+                    poi.Longitude) <= request.SearchRadiusKm
+                // Rerouting: the Admin's rerouting radius around the affected stop bounds replacements; a stop
+                // the engine chose is never lost to the trip radius.
+                : keepIds.Contains(poi.Id) || GeoDistance.EquirectangularKilometers(
+                    anchor.CandidateCenter.Latitude,
+                    anchor.CandidateCenter.Longitude,
+                    poi.Latitude,
+                    poi.Longitude) <= anchor.CandidateRadiusKm)
             .Select(poi => new GenerationCandidate(
                 poi.Id,
                 poi.Name,
@@ -376,18 +461,18 @@ public sealed class ItineraryVersionService(
                 HasShelter: poi.HasShelter,
                 IndoorOutdoor: poi.IndoorOutdoor,
                 Tags: poi.PoiTags.Select(mapping => mapping.Tag.Name).ToArray())), keepIds);
-        var effectiveAvailableMinutes = availableMinutesOverride ?? request.AvailableMinutes;
+        var effectiveAvailableMinutes = anchor?.AvailableMinutes ?? availableMinutesOverride ?? request.AvailableMinutes;
         var input = new GenerationInput(
-            request.StartAtUtc,
+            anchor?.StartAtUtc ?? request.StartAtUtc,
             timeZone,
-            new RoutePoint(request.StartLatitude, request.StartLongitude),
+            anchor?.Start ?? new RoutePoint(request.StartLatitude, request.StartLongitude),
             endPoi is null
                 ? new RoutePoint(request.StartLatitude, request.StartLongitude)
                 : new RoutePoint(endPoi.Latitude, endPoi.Longitude, endPoi.Id),
             effectiveAvailableMinutes,
             request.TransportMode,
             request.RestPreference,
-            request.BudgetVnd,
+            anchor is null ? request.BudgetVnd : anchor.RemainingBudgetVnd,
             candidates,
             mandatoryIds);
 
@@ -442,6 +527,7 @@ public sealed class ItineraryVersionService(
             var relaxedPlan = await new ItineraryGenerationService(routing, generationOptions)
                 .GenerateFixedOrderAsync(relaxedInput, orderedVisitPoiIds, cancellationToken);
 
+            var fullCompressedInput = ElasticVisitCompression.ApplyCompression(input, orderedVisitPoiIds);
             var absorbed = false;
             if (relaxedPlan.IsSuccess && relaxedPlan.Value.EndAtUtc > deadline)
             {
@@ -459,7 +545,6 @@ public sealed class ItineraryVersionService(
 
             if (!absorbed)
             {
-                var fullCompressedInput = ElasticVisitCompression.ApplyCompression(input, orderedVisitPoiIds);
                 var fullCompressedPlan = await new ItineraryGenerationService(routing, generationOptions)
                     .GenerateFixedOrderAsync(fullCompressedInput, orderedVisitPoiIds, cancellationToken);
 
@@ -472,12 +557,33 @@ public sealed class ItineraryVersionService(
 
             if (!absorbed)
             {
-                var fullCompressedInput = ElasticVisitCompression.ApplyCompression(input, orderedVisitPoiIds);
+                // The diagnosis applies the elastic compression itself; passing a compressed input would
+                // compress twice, let every prefix fit and lose the reason.
                 var explanation = await new FixedOrderDiagnosis(routing, generationOptions)
-                    .ExplainAsync(fullCompressedInput, orderedVisitPoiIds, cancellationToken);
-                return explanation is not null
-                    ? StopsEvaluation.Breaks(explanation)
-                    : StopsEvaluation.Failed(plan.ErrorMessage ?? "The selected order cannot produce an itinerary.");
+                    .ExplainAsync(input, orderedVisitPoiIds, cancellationToken);
+                if (explanation is null)
+                {
+                    return StopsEvaluation.Failed(plan.ErrorMessage ?? "The selected order cannot produce an itinerary.");
+                }
+
+                if (explanation.Reason == StopInfeasibilityReasons.ExceedsEndTime)
+                {
+                    // The traveler confirms extending the whole trip, so report what the whole compressed order
+                    // needs; null when even the maximum trip length is not enough.
+                    var extendedPlan = await new ItineraryGenerationService(routing, generationOptions)
+                        .GenerateFixedOrderAsync(
+                            fullCompressedInput with { AvailableMinutes = SchedulingRequest.MaxAvailableMinutes },
+                            orderedVisitPoiIds,
+                            cancellationToken);
+                    explanation = explanation with
+                    {
+                        OverflowMinutes = extendedPlan.IsSuccess
+                            ? Math.Max(1, (int)Math.Ceiling((extendedPlan.Value.EndAtUtc - deadline).TotalMinutes))
+                            : null,
+                    };
+                }
+
+                return StopsEvaluation.Breaks(explanation);
             }
         }
 
@@ -578,6 +684,20 @@ public sealed class ItineraryVersionService(
                 request.ExplorationLongitude,
                 request.SearchRadiusKm,
                 mandatoryIds,
+                request.EndPointOfInterestId)
+            .ToListAsync(cancellationToken);
+
+    private async Task<List<PointOfInterest>> LoadAnchoredActivePoisAsync(
+        SchedulingRequest request,
+        EvaluationAnchor anchor,
+        IReadOnlyCollection<long> keepIds,
+        CancellationToken cancellationToken)
+        => await dbContext.PointsOfInterest
+            .WithPlanningDetails(
+                anchor.CandidateCenter.Latitude,
+                anchor.CandidateCenter.Longitude,
+                anchor.CandidateRadiusKm,
+                keepIds,
                 request.EndPointOfInterestId)
             .ToListAsync(cancellationToken);
 

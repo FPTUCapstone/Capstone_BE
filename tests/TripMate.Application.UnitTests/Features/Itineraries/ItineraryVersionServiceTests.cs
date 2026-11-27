@@ -598,6 +598,89 @@ public sealed class ItineraryVersionServiceTests
         result.Value.ValidToUtc.Should().BeAfter(request.StartAtUtc.AddMinutes(75));
     }
 
+    // Zero buffers and 10-minute legs; the deadline is 240 minutes after the start.
+    // Raw order: 120 + 90 + 60 + 4 legs = 310 minutes. Compressed once (<=25%): 90 + 68 + 45 + 40 = 243 minutes,
+    // still 3 minutes late. Compressed twice it would be 194 minutes, which the policy does not allow.
+    private static readonly SchedulingGenerationOptions NoBufferOptions =
+        new() { TransitionBufferMinutes = 0, FinalReturnBufferMinutes = 0 };
+
+    [Fact]
+    public async Task Suggestions_Food_RestaurantNeedingAnExtension_ReportsExceedsEndTimeWithTripOverflow()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var (request, itinerary, _, _, restaurant) = await AddTightTripAsync(dbContext);
+        var pagodaItemId = itinerary.Items.OrderBy(item => item.SequenceNo).Last().Id;
+
+        var result = await CreateSuggestionsHandler(dbContext, options: NoBufferOptions).Handle(
+            new GetItinerarySuggestionsQuery(itinerary.Id, request.TravelerUserId,
+                GetItinerarySuggestionsQuery.KindFood, pagodaItemId, null),
+            CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        var suggestion = result.Value.Items.Single(item => item.PoiId == restaurant.Id);
+        suggestion.FitsItinerary.Should().BeFalse();
+        suggestion.UnfitReason.Should().Be(StopInfeasibilityReasons.ExceedsEndTime);
+        suggestion.OverflowMinutes.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task CreateAdjustedVersion_WhenCompressionIsNotEnough_ExtendsByExactlyTheOverflow()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var (request, itinerary, museum, pagoda, restaurant) = await AddTightTripAsync(dbContext);
+
+        var result = await new ItineraryVersionService(dbContext, new FixedRouteDurationProvider(), NoBufferOptions)
+            .CreateAdjustedVersionAsync(itinerary, request, [museum.Id, pagoda.Id, restaurant.Id], CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue(result.ErrorMessage);
+        result.Value.ValidToUtc.Should().Be(request.StartAtUtc.AddMinutes(243));
+        var minutes = result.Value.Items
+            .Where(item => item.Kind == ItineraryItemKind.Visit)
+            .ToDictionary(
+                item => item.PointOfInterestId!.Value,
+                item => (item.PlannedDepartureUtc!.Value - item.PlannedArrivalUtc!.Value).TotalMinutes);
+        minutes[museum.Id].Should().Be(90);
+        minutes[pagoda.Id].Should().Be(68);
+        minutes[restaurant.Id].Should().Be(45);
+    }
+
+    [Fact]
+    public async Task CreateAdjustedVersion_WhenNoExtensionWithinTheMaximumFits_IsRejected()
+    {
+        await using var dbContext = TestDbContext.Create();
+        var museum = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Cham Museum");
+        var island = await AddPlanningReadyPoiAsync(dbContext, "Nature", "Far Island", 16.0480m, 108.2070m);
+        var request = await AddRequestAsync(dbContext, travelerUserId: 42);
+        var original = await AddItineraryAsync(dbContext, request, museum.Id);
+        // Reaching the island and coming back takes 2 x 2200 minutes, beyond the 72-hour maximum.
+        var routing = new SlowLegProvider(island.Id, 2200);
+
+        var result = await new ItineraryVersionService(dbContext, routing)
+            .CreateAdjustedVersionAsync(original, request, [museum.Id, island.Id], CancellationToken.None);
+
+        result.IsFailure.Should().BeTrue();
+        result.ErrorCode.Should().Be(ItineraryErrorCodes.StopInfeasible);
+        dbContext.ChangeTracker.Entries<Itinerary>().Should().ContainSingle();
+    }
+
+    private static async Task<(SchedulingRequest Request, Itinerary Itinerary, PointOfInterest Museum,
+        PointOfInterest Pagoda, PointOfInterest Restaurant)> AddTightTripAsync(TestDbContext dbContext)
+    {
+        var museum = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Cham Museum", visitMinutes: 120);
+        var pagoda = await AddPlanningReadyPoiAsync(dbContext, "Culture", "Linh Ung Pagoda",
+            16.0475m, 108.2069m, visitMinutes: 90);
+        var restaurant = await AddPlanningReadyPoiAsync(dbContext, PoiCategoryNames.FoodAndDrink, "Mi Quang Ba Mua",
+            16.0480m, 108.2070m, visitMinutes: 60);
+        var request = CreateRequest(42, Guid.NewGuid(), availableMinutes: 240);
+        var generationOwnerId = Guid.NewGuid();
+        request.ClaimGeneration(generationOwnerId, Now.AddMinutes(1), Now);
+        request.CompleteGeneration(generationOwnerId, Now);
+        dbContext.SchedulingRequests.Add(request);
+        await dbContext.SaveChangesAsync();
+        var itinerary = await AddItineraryAsync(dbContext, request, museum.Id, pagoda.Id);
+        return (request, itinerary, museum, pagoda, restaurant);
+    }
+
     [Fact]
     public async Task CreateRegeneratedVersion_PlacesOutdoorStopsInTheMorningAndIndoorOnesAtNoon()
     {
@@ -1272,11 +1355,12 @@ public sealed class ItineraryVersionServiceTests
 
     private static GetItinerarySuggestionsQueryHandler CreateSuggestionsHandler(
         TestDbContext dbContext,
-        IReadOnlyCollection<long>? locationsWithReviews = null) =>
+        IReadOnlyCollection<long>? locationsWithReviews = null,
+        SchedulingGenerationOptions? options = null) =>
         new(
             dbContext,
             new ItineraryAccessService(dbContext),
-            new ItineraryVersionService(dbContext, new FixedRouteDurationProvider()),
+            new ItineraryVersionService(dbContext, new FixedRouteDurationProvider(), options),
             new FakeTripadvisorClient(locationsWithReviews ?? []));
 
     private sealed class FakeTripadvisorClient(IReadOnlyCollection<long> locationsWithReviews) : ITripadvisorClient
@@ -1393,6 +1477,27 @@ public sealed class ItineraryVersionServiceTests
             }
 
             return Task.FromResult(RouteDurationMatrix.Create(durations, unreachable: null, meters: meters));
+        }
+    }
+
+    private sealed class SlowLegProvider(long slowPoiId, int slowMinutes) : IRouteDurationProvider
+    {
+        public Task<RouteDurationMatrix> GetMatrixAsync(
+            IReadOnlyList<RoutePoint> points,
+            TransportMode transportMode,
+            CancellationToken cancellationToken)
+        {
+            var durations = new int[points.Count, points.Count];
+            for (var row = 0; row < points.Count; row++)
+            {
+                for (var column = 0; column < points.Count; column++)
+                {
+                    var slow = points[row].PoiId == slowPoiId || points[column].PoiId == slowPoiId;
+                    durations[row, column] = row == column ? 0 : slow ? slowMinutes : 10;
+                }
+            }
+
+            return Task.FromResult(RouteDurationMatrix.Create(durations));
         }
     }
 

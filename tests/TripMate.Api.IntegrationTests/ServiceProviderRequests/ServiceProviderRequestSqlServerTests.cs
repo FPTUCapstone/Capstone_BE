@@ -1,3 +1,6 @@
+using System.Net;
+using System.Net.Http.Json;
+
 using FluentAssertions;
 
 using Microsoft.EntityFrameworkCore;
@@ -5,6 +8,9 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 
 using TripMate.Api.IntegrationTests.Infrastructure;
 using TripMate.Application.Common.Interfaces;
+using TripMate.Application.Features.CommercialServices.Booking;
+using TripMate.Application.Features.CommercialServices.Stays;
+using TripMate.Application.Features.Notifications.GetInbox;
 using TripMate.Application.Features.ServiceProviderRequests;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
@@ -17,6 +23,188 @@ namespace TripMate.Api.IntegrationTests.ServiceProviderRequests;
 [Trait("Category", "SqlServer")]
 public sealed class ServiceProviderRequestSqlServerTests
 {
+    [SqlServerFact]
+    public async Task TravelerCanCancelOwnPendingRequestOnceAndProviderCannotConfirmIt()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var fixture = await SeedAsync(database);
+        await using var db = database.CreateDbContext();
+        var outsider = new User
+        {
+            Role = UserRole.Traveler,
+            Status = AccountStatus.Active,
+            FullName = "Another Traveler",
+            Email = "another-traveler@example.test",
+            CreatedAtUtc = fixture.Now,
+            UpdatedAtUtc = fixture.Now
+        };
+        db.Users.Add(outsider);
+        await db.SaveChangesAsync();
+        await using var api = new TripMateApiFactory(sqlServerConnectionString: database.ConnectionString,
+            dateTimeProviderFactory: _ => new FixedClock(fixture.Now));
+        using var traveler = api.CreateAuthenticatedClient(fixture.TravelerId, UserRole.Traveler);
+        using var otherTraveler = api.CreateAuthenticatedClient(outsider.Id, UserRole.Traveler);
+        using var provider = api.CreateAuthenticatedClient(fixture.ActorId, UserRole.ServiceProvider);
+        const string requestsPath = "/api/v1/traveler/service-booking-requests";
+        var requests = await traveler.GetFromJsonAsync<TravelerServiceBooking[]>(requestsPath);
+        requests.Should().ContainSingle(item => item.Id == fixture.BookingId && item.Status == ServiceBooking.PendingConfirmation);
+        var cancellationPath = $"{requestsPath}/{fixture.BookingId}/cancel";
+        (await provider.PostAsync(cancellationPath, null)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await otherTraveler.PostAsync(cancellationPath, null)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await otherTraveler.GetFromJsonAsync<TravelerServiceBooking[]>(requestsPath)).Should().BeEmpty();
+        (await traveler.PostAsync(cancellationPath, null)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await traveler.PostAsync(cancellationPath, null)).StatusCode.Should().Be(HttpStatusCode.OK);
+        requests = await traveler.GetFromJsonAsync<TravelerServiceBooking[]>(requestsPath);
+        requests.Should().ContainSingle(item => item.Id == fixture.BookingId && item.Status == ServiceBooking.Cancelled);
+        var inbox = await traveler.GetFromJsonAsync<GetNotificationInboxResponse>("/api/v1/notifications");
+        inbox!.Items.Should().ContainSingle(item => item.RelatedEntityId == fixture.BookingId && item.Body!.Contains("MSG186"));
+        var detailPath = $"/api/v1/provider/service-booking-requests/{fixture.BookingId}";
+        var detail = await provider.GetFromJsonAsync<ProviderRequestDetail>(detailPath);
+        provider.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
+        (await provider.PostAsJsonAsync($"{detailPath}/decision", new { decision = ServiceBooking.Confirmed, detail!.RowVersion }))
+            .StatusCode.Should().Be(HttpStatusCode.Conflict);
+    }
+
+    [SqlServerFact]
+    public async Task ProviderPublishesAvailabilityAndTravelerSubmitsOneNotifiedRequest()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var fixture = await SeedAsync(database, categoryName: CommercialService.CategoryRestaurant);
+        await using var db = database.CreateDbContext();
+        var original = await db.ServiceBookings.SingleAsync();
+        await using var api = new TripMateApiFactory(sqlServerConnectionString: database.ConnectionString,
+            dateTimeProviderFactory: _ => new FixedClock(fixture.Now));
+        using var provider = api.CreateAuthenticatedClient(fixture.ActorId, UserRole.ServiceProvider);
+        using var outsider = api.CreateAuthenticatedClient(fixture.OtherProviderId, UserRole.ServiceProvider);
+        using var traveler = api.CreateAuthenticatedClient(original.TravelerUserId, UserRole.Traveler);
+        var start = fixture.Now.AddDays(2).ToString("yyyy-MM-ddTHH:mm:ssZ");
+        var availability = $"/api/v1/provider/commercial-services/{original.ServiceId}/availability/{start}";
+        (await outsider.PutAsJsonAsync(availability, new { quantity = 2 })).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await provider.PutAsJsonAsync(availability, new { quantity = 2 })).StatusCode.Should().Be(HttpStatusCode.OK);
+        var published = await traveler.GetAsync($"/api/v1/commercial-services/{original.ServiceId}/availability");
+        published.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await published.Content.ReadAsStringAsync()).Should().Contain("\"remainingQuantity\":2");
+
+        const string submit = "/api/v1/traveler/service-booking-requests";
+        traveler.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
+        var request = new
+        {
+            serviceId = original.ServiceId,
+            startsAt = start,
+            quantity = 1,
+            contactName = "Booking contact",
+            contactPhone = "0901234567",
+            contactEmail = "contact@example.test"
+        };
+        var past = await traveler.PostAsJsonAsync(submit, request with
+        {
+            startsAt = fixture.Now.AddDays(-1).ToString("yyyy-MM-ddTHH:mm:ssZ")
+        });
+        past.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await past.Content.ReadAsStringAsync()).Should().Contain("MSG76");
+        var closed = await traveler.PostAsJsonAsync(submit, request with { serviceId = original.ServiceId + 100 });
+        closed.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await closed.Content.ReadAsStringAsync()).Should().Contain("MSG75");
+        var created = await traveler.PostAsJsonAsync(submit, request);
+        var retry = await traveler.PostAsJsonAsync(submit, request);
+        created.StatusCode.Should().Be(HttpStatusCode.OK);
+        retry.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await retry.Content.ReadAsStringAsync()).Should().Be(await created.Content.ReadAsStringAsync());
+        (await traveler.PostAsJsonAsync(submit, request with { quantity = 2 })).StatusCode.Should().Be(HttpStatusCode.Conflict);
+        var booking = await db.ServiceBookings.AsNoTracking().SingleAsync(item => item.Id != fixture.BookingId);
+        booking.TotalPrice.Should().Be(original.TotalPrice);
+        (await db.Notifications.CountAsync(item => item.UserId == fixture.ActorId
+            && item.Type == "MSG205" && item.RelatedEntityId == booking.Id)).Should().Be(1);
+        var detail = await provider.GetFromJsonAsync<ProviderRequestDetail>(
+            $"/api/v1/provider/service-booking-requests/{booking.Id}");
+        detail!.TravelerEmail.Should().Be("contact@example.test");
+        traveler.DefaultRequestHeaders.Remove("Idempotency-Key");
+        traveler.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
+        (await traveler.PostAsJsonAsync(submit, request with { quantity = 2 })).StatusCode.Should().Be(HttpStatusCode.OK);
+        var second = await db.ServiceBookings.AsNoTracking().SingleAsync(item => item.Id != fixture.BookingId && item.Id != booking.Id);
+        var secondPath = $"/api/v1/provider/service-booking-requests/{second.Id}";
+        var secondDetail = await provider.GetFromJsonAsync<ProviderRequestDetail>(secondPath);
+        using var firstDecision = Confirm(booking.Id, detail.RowVersion);
+        using var secondDecision = Confirm(second.Id, secondDetail!.RowVersion);
+        var decisions = await Task.WhenAll(provider.SendAsync(firstDecision), provider.SendAsync(secondDecision));
+        decisions.Select(response => response.StatusCode).Should().BeEquivalentTo(
+            new[] { HttpStatusCode.OK, HttpStatusCode.Conflict });
+        var confirmedId = decisions[0].StatusCode == HttpStatusCode.OK ? booking.Id : second.Id;
+        var travelerInbox = await traveler.GetFromJsonAsync<GetNotificationInboxResponse>("/api/v1/notifications");
+        travelerInbox!.Items.Should().ContainSingle(item => item.Type == ProviderRequestEvents.NotificationType
+            && item.RelatedEntityId == confirmedId && item.Body!.Contains("MSG72"));
+
+        static HttpRequestMessage Confirm(long bookingId, string rowVersion)
+        {
+            var message = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/provider/service-booking-requests/{bookingId}/decision")
+            {
+                Content = JsonContent.Create(new { decision = ServiceBooking.Confirmed, rowVersion })
+            };
+            message.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
+            return message;
+        }
+    }
+
+    [SqlServerFact]
+    public async Task New_UC31_booking_sends_MSG205_to_the_linked_provider_only()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var fixture = await SeedAsync(database);
+        await using var db = database.CreateDbContext();
+        var booking = await db.ServiceBookings.SingleAsync();
+        await using var api = new TripMateApiFactory(sqlServerConnectionString: database.ConnectionString);
+        using var provider = api.CreateAuthenticatedClient(fixture.ActorId, UserRole.ServiceProvider);
+        using var otherProvider = api.CreateAuthenticatedClient(fixture.OtherProviderId, UserRole.ServiceProvider);
+        using var traveler = api.CreateAuthenticatedClient(booking.TravelerUserId, UserRole.Traveler);
+
+        const string inboxPath = "/api/v1/notifications";
+        var providerInbox = await provider.GetFromJsonAsync<GetNotificationInboxResponse>($"{inboxPath}?unreadOnly=true");
+        var notification = providerInbox!.Items.Should().ContainSingle().Which;
+        notification.Type.Should().Be("MSG205");
+        notification.RelatedEntityType.Should().Be(nameof(ServiceBooking));
+        notification.RelatedEntityId.Should().Be(fixture.BookingId);
+        notification.Body.Should().Contain($"SR-{fixture.BookingId}").And.Contain("2026-11-15");
+        notification.IsRead.Should().BeFalse();
+
+        (await traveler.GetFromJsonAsync<GetNotificationInboxResponse>(inboxPath))!.Items.Should().BeEmpty();
+        (await otherProvider.GetFromJsonAsync<GetNotificationInboxResponse>(inboxPath))!.Items.Should().BeEmpty();
+        var readPath = $"{inboxPath}/{notification.Id}/read";
+        (await otherProvider.PostAsync(readPath, null)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await provider.PostAsync(readPath, null)).StatusCode.Should().Be(HttpStatusCode.NoContent);
+        (await provider.GetFromJsonAsync<GetNotificationInboxResponse>($"{inboxPath}?unreadOnly=true"))!
+            .Items.Should().BeEmpty();
+
+        var requestPath = $"/api/v1/provider/service-booking-requests/{fixture.BookingId}";
+        var detail = await provider.GetFromJsonAsync<ProviderRequestDetail>(requestPath);
+        detail!.Id.Should().Be(notification.RelatedEntityId);
+        (await otherProvider.GetAsync(requestPath)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await db.Notifications.CountAsync()).Should().Be(1);
+    }
+
+    [SqlServerFact]
+    public async Task MSG205_rolls_back_with_an_uncommitted_new_request_and_migration_can_run_twice()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var migration = Path.Combine(SqlServerTestDatabase.DefaultMigrationsDirectory(),
+            "20261125_uc31_provider_booking_notice.sql");
+        await database.ExecuteScriptAsync(migration);
+        var fixture = await SeedAsync(database);
+        await using var db = database.CreateDbContext();
+        var existing = await db.ServiceBookings.SingleAsync();
+        await using (var transaction = await db.Database.BeginTransactionAsync())
+        {
+            var request = ServiceBooking.CreatePendingRequest(existing.TravelerUserId, existing.ServiceId,
+                existing.StartAtUtc.AddDays(1), null, 1, existing.TotalPrice, fixture.Now);
+            db.ServiceBookings.Add(request);
+            await db.SaveChangesAsync();
+            (await db.Notifications.CountAsync(item => item.Type == "MSG205")).Should().Be(2);
+            await transaction.RollbackAsync();
+        }
+
+        (await db.ServiceBookings.CountAsync()).Should().Be(1);
+        (await db.Notifications.CountAsync(item => item.Type == "MSG205")).Should().Be(1);
+    }
+
     [SqlServerFact]
     public async Task SQL_list_and_detail_project_persisted_option_contacts_and_Vietnam_requested_date()
     {
@@ -76,7 +264,8 @@ public sealed class ServiceProviderRequestSqlServerTests
         response.Value.CommissionAmount.Should().Be(0);
         await AssertEffectsAsync(database, ServiceBooking.Rejected, 1);
         await using var check = database.CreateDbContext();
-        (await check.Notifications.SingleAsync()).Body.Should().Be(reason);
+        (await check.Notifications.SingleAsync(item => item.Type == ProviderRequestEvents.NotificationType))
+            .Body.Should().Be(reason);
         var persisted = await check.ServiceBookings.SingleAsync();
         persisted.RespondedByUserId.Should().Be(fixture.ActorId);
         persisted.RespondedAtUtc.Should().Be(fixture.Now);
@@ -237,7 +426,7 @@ public sealed class ServiceProviderRequestSqlServerTests
         (await check.ServiceBookings.SingleAsync(booking => booking.Id == fixture.BookingId)).Status.Should().Be(ServiceBooking.Expired);
         (await check.ServiceBookings.SingleAsync(booking => booking.RequestSubmittedAtUtc == null)).Status.Should().Be("Confirmed");
         (await check.AuditLogs.CountAsync()).Should().Be(1);
-        (await check.Notifications.CountAsync()).Should().Be(1);
+        (await check.Notifications.CountAsync(item => item.Type == ProviderRequestEvents.NotificationType)).Should().Be(1);
     }
 
     [SqlServerFact]
@@ -264,7 +453,7 @@ public sealed class ServiceProviderRequestSqlServerTests
         completed.CommissionAmount.Should().Be(12345m);
         completed.IsAutoCompleted.Should().BeTrue();
         (await check.AuditLogs.CountAsync()).Should().Be(2);
-        (await check.Notifications.CountAsync()).Should().Be(2);
+        (await check.Notifications.CountAsync(item => item.Type == ProviderRequestEvents.NotificationType)).Should().Be(2);
     }
 
     private static DecideServiceProviderRequestHandler DecisionHandler(ApplicationDbContext db, Seed fixture) =>
@@ -276,11 +465,94 @@ public sealed class ServiceProviderRequestSqlServerTests
         await using var db = database.CreateDbContext();
         (await db.ServiceBookings.SingleAsync()).Status.Should().Be(status);
         (await db.AuditLogs.CountAsync()).Should().Be(count);
-        (await db.Notifications.CountAsync()).Should().Be(count);
+        (await db.Notifications.CountAsync(item => item.Type == ProviderRequestEvents.NotificationType)).Should().Be(count);
         (await db.ServiceProviderRequestOperations.CountAsync()).Should().Be(count);
     }
 
-    private static async Task<Seed> SeedAsync(SqlServerTestDatabase database)
+    [SqlServerFact]
+    public async Task StayInquiryUsesAssignedProviderAndRetryDoesNotNotifyTwice()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var fixture = await SeedAsync(database);
+        await using var db = database.CreateDbContext();
+        var poiId = await db.CommercialServices.Where(item => item.Id == fixture.ServiceId).Select(item => item.PoiId!.Value).SingleAsync();
+        await using var api = new TripMateApiFactory(sqlServerConnectionString: database.ConnectionString,
+            dateTimeProviderFactory: _ => new FixedClock(fixture.Now));
+        using var hotel = api.CreateAuthenticatedClient(fixture.ActorId, UserRole.ServiceProvider);
+        using var outsider = api.CreateAuthenticatedClient(fixture.OtherProviderId, UserRole.ServiceProvider);
+        using var traveler = api.CreateAuthenticatedClient(fixture.TravelerId, UserRole.Traveler);
+
+        var listing = new { description = "Đi bộ ra bờ sông", published = true, acceptingRequests = true };
+        var listingPath = $"/api/v1/provider/stay-listings/{poiId}";
+        (await outsider.PutAsJsonAsync(listingPath, listing)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await hotel.PutAsJsonAsync(listingPath, listing)).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await traveler.GetFromJsonAsync<StayFacility[]>("/api/v1/stays")).Should()
+            .Contain(item => item.PoiId == poiId && item.AcceptingRequests);
+        (await traveler.GetFromJsonAsync<CommercialServiceOption[]>($"/api/v1/commercial-services/poi/{poiId}/options"))
+            .Should().BeEmpty();
+        traveler.DefaultRequestHeaders.Add("Idempotency-Key", Guid.NewGuid().ToString());
+        const string path = "/api/v1/traveler/stay-inquiries";
+        var request = new StayInquiryBody(poiId, new DateOnly(2026, 11, 28), new DateOnly(2026, 11, 30),
+            2, "Mai", "mai@example.test", null, null);
+        var first = await traveler.PostAsJsonAsync(path, request);
+        first.StatusCode.Should().Be(HttpStatusCode.OK, await first.Content.ReadAsStringAsync());
+        var inquiry = (await first.Content.ReadFromJsonAsync<StayInquiryView>())!;
+        var repeat = await traveler.PostAsJsonAsync(path, request);
+        (await repeat.Content.ReadFromJsonAsync<StayInquiryView>())!.Id.Should().Be(inquiry.Id);
+        (await traveler.PostAsJsonAsync(path, request with { Guests = 3 })).StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await outsider.GetAsync($"/api/v1/provider/stay-inquiries/{inquiry.Id}")).StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (await hotel.PostAsJsonAsync($"/api/v1/provider/stay-inquiries/{inquiry.Id}/reply",
+            new { reply = "Vui lòng gọi cho khách sạn.", declined = false })).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await traveler.GetFromJsonAsync<StayInquiryView>($"{path}/{inquiry.Id}"))!.Status.Should().Be(StayInquiry.Replied);
+        (await db.Notifications.CountAsync(item => item.UserId == fixture.ActorId && item.Type == "StayInquirySent")).Should().Be(1);
+        (await db.Notifications.CountAsync(item => item.UserId == fixture.TravelerId && item.Type == "StayInquiryResponded")).Should().Be(1);
+        (await db.ServiceBookings.CountAsync()).Should().Be(1);
+    }
+
+    [SqlServerFact]
+    public async Task VerifiedApplicantReceivesHotelManagementRightsOnlyAfterStaffApproval()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var fixture = await SeedAsync(database);
+        await using var db = database.CreateDbContext();
+        var poiId = await db.CommercialServices.Where(item => item.Id == fixture.ServiceId).Select(item => item.PoiId!.Value).SingleAsync();
+        var originalLink = await db.ProviderPoiLinks.SingleAsync(item => item.PointOfInterestId == poiId);
+        db.ProviderPoiLinks.Remove(originalLink);
+        var applicant = await db.Users.SingleAsync(item => item.Id == fixture.TravelerId);
+        applicant.EmailVerifiedAtUtc = fixture.Now;
+        var staffUser = new User
+        {
+            Role = UserRole.Staff,
+            Status = AccountStatus.Active,
+            FullName = "Staff Reviewer",
+            Email = "stay-reviewer@example.test",
+            CreatedAtUtc = fixture.Now,
+            UpdatedAtUtc = fixture.Now
+        };
+        db.Users.Add(staffUser);
+        await db.SaveChangesAsync();
+        await using var api = new TripMateApiFactory(sqlServerConnectionString: database.ConnectionString,
+            dateTimeProviderFactory: _ => new FixedClock(fixture.Now));
+        using var candidate = api.CreateAuthenticatedClient(applicant.Id, UserRole.Traveler);
+        using var staff = api.CreateAuthenticatedClient(staffUser.Id, UserRole.Staff);
+        var created = await candidate.PostAsJsonAsync("/api/v1/stays/ownership-claims",
+            new { poiId, evidence = "Quản lý theo giấy ủy quyền đã gửi Staff." });
+        created.StatusCode.Should().Be(HttpStatusCode.OK);
+        var claim = (await created.Content.ReadFromJsonAsync<StayOwnershipView>())!;
+        claim.Status.Should().Be(StayOwnershipClaim.Pending);
+        (await db.ProviderPoiLinks.AnyAsync(item => item.PointOfInterestId == poiId)).Should().BeFalse();
+        var reviewPath = $"/api/v1/admin/stay-ownership-claims/{claim.Id}/review";
+        var approval = new { approved = true, note = "Đã xác minh với cơ sở." };
+        (await candidate.PostAsJsonAsync(reviewPath, approval)).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        var approved = await staff.PostAsJsonAsync(reviewPath, approval);
+        approved.StatusCode.Should().Be(HttpStatusCode.OK, await approved.Content.ReadAsStringAsync());
+        (await db.Users.AsNoTracking().SingleAsync(item => item.Id == applicant.Id)).Role.Should().Be(UserRole.ServiceProvider);
+        (await db.ProviderPoiLinks.Where(item => item.PointOfInterestId == poiId)
+            .Select(item => item.Provider.UserId).SingleAsync()).Should().Be(applicant.Id);
+    }
+
+    internal static async Task<Seed> SeedAsync(SqlServerTestDatabase database, bool includeBooking = true,
+        string categoryName = CommercialService.CategoryHotel)
     {
         var now = DateTimeOffset.Parse("2026-11-14T04:00:00Z");
         await using var db = database.CreateDbContext();
@@ -302,30 +574,42 @@ public sealed class ServiceProviderRequestSqlServerTests
             CreatedAtUtc = now,
             UpdatedAtUtc = now
         };
-        db.Users.AddRange(user, traveler);
+        var otherProvider = new User
+        {
+            Role = UserRole.ServiceProvider,
+            Status = AccountStatus.Active,
+            FullName = "Legacy listing owner",
+            Email = "legacy-listing-provider@example.test",
+            CreatedAtUtc = now,
+            UpdatedAtUtc = now
+        };
+        db.Users.AddRange(user, traveler, otherProvider);
         await db.SaveChangesAsync();
-        var provider = ServiceProvider.Create("Linked provider", "Hotel", ServiceProvider.StatusActive);
+        var provider = ServiceProvider.Create("Linked provider", categoryName, ServiceProvider.StatusActive);
         provider.AssignAccount(user);
-        var legacy = ServiceProvider.Create("Legacy listing owner", "Hotel", ServiceProvider.StatusActive);
+        var legacy = ServiceProvider.Create("Legacy listing owner", categoryName, ServiceProvider.StatusActive);
+        legacy.AssignAccount(otherProvider);
         var category = await db.PoiCategories.FirstOrDefaultAsync(value => value.Name == "Hotel") ?? PoiCategory.Create("Hotel", null);
         var poi = PointOfInterest.Create(category, "Hotel POI", 16, 108, user.Id, now);
         db.PointsOfInterest.Add(poi);
         db.ServiceProviders.AddRange(provider, legacy);
         await db.SaveChangesAsync();
         db.ProviderPoiLinks.Add(ProviderPoiLink.Create(provider, poi));
-        var service = CommercialService.Create(legacy, "Hotel", "Legacy hotel room", 123456.78m,
-            CommercialService.PriceUnitPerNight, CommercialService.AvailabilityAvailable, "VND", false,
+        var service = CommercialService.Create(legacy, categoryName, "Legacy hotel room", 123456.78m,
+            categoryName == CommercialService.CategoryHotel ? CommercialService.PriceUnitPerNight : CommercialService.PriceUnitPerPerson,
+            CommercialService.AvailabilityAvailable, "VND", false,
             null, null, null, now, poiId: poi.Id);
         db.CommercialServices.Add(service);
         await db.SaveChangesAsync();
         var booking = ServiceBooking.CreatePendingRequest(traveler.Id, service.Id, now.AddDays(1), null,
             1, 123456.78m, now, serviceOption: "Double room", specialRequest: "Late arrival");
-        db.ServiceBookings.Add(booking);
+        if (includeBooking) db.ServiceBookings.Add(booking);
         await db.SaveChangesAsync();
-        return new Seed(user.Id, booking.Id, Convert.ToBase64String(booking.RowVersion), now);
+        return new Seed(user.Id, booking.Id, Convert.ToBase64String(booking.RowVersion), now, otherProvider.Id, traveler.Id, service.Id);
     }
 
-    private sealed record Seed(long ActorId, long BookingId, string RowVersion, DateTimeOffset Now);
+    internal sealed record Seed(long ActorId, long BookingId, string RowVersion, DateTimeOffset Now, long OtherProviderId,
+        long TravelerId, long ServiceId);
     private sealed class CurrentProvider(long id) : ICurrentUserService
     {
         public long? UserId => id;

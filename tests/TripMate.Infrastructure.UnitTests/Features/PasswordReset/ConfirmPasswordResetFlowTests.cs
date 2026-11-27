@@ -203,6 +203,10 @@ public class ConfirmPasswordResetFlowTests
 
         public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
+        DbSet<Domain.Entities.DirectConversation> IApplicationDbContext.DirectConversations => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.DirectMessage> IApplicationDbContext.DirectMessages => throw new NotSupportedException();
+
         DbSet<Domain.Entities.UserUnlockOperation> IApplicationDbContext.UserUnlockOperations =>
             throw new NotSupportedException();
 
@@ -292,6 +296,19 @@ public class ConfirmPasswordResetFlowTests
 
         DbSet<Domain.Entities.GroupMember> IApplicationDbContext.GroupMembers => throw new NotSupportedException();
 
+        DbSet<Domain.Entities.GroupMessage> IApplicationDbContext.GroupMessages => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.GroupMessageReadReceipt> IApplicationDbContext.GroupMessageReadReceipts =>
+            throw new NotSupportedException();
+
+        DbSet<Domain.Entities.GroupRollCallCheckin> IApplicationDbContext.GroupRollCallCheckins =>
+            throw new NotSupportedException();
+
+        DbSet<Domain.Entities.GroupSplitBillPayment> IApplicationDbContext.GroupSplitBillPayments =>
+            throw new NotSupportedException();
+
+        DbSet<Domain.Entities.GroupPollVote> IApplicationDbContext.GroupPollVotes => throw new NotSupportedException();
+
         DbSet<Domain.Entities.Itinerary> IApplicationDbContext.Itineraries => throw new NotSupportedException();
 
         DbSet<Domain.Entities.ItineraryItem> IApplicationDbContext.ItineraryItems => throw new NotSupportedException();
@@ -353,6 +370,8 @@ public class ConfirmPasswordResetFlowTests
 
         DbSet<Domain.Entities.ServiceBooking> IApplicationDbContext.ServiceBookings => throw new NotSupportedException();
 
+        DbSet<Domain.Entities.ServiceAvailability> IApplicationDbContext.ServiceAvailability => throw new NotSupportedException();
+
         DbSet<Domain.Entities.ServiceCommissionStatement> IApplicationDbContext.ServiceCommissionStatements => throw new NotSupportedException();
 
         DbSet<Domain.Entities.ClosedStatisticalPeriod> IApplicationDbContext.ClosedStatisticalPeriods => throw new NotSupportedException();
@@ -406,6 +425,7 @@ public class ConfirmPasswordResetFlowTests
             modelBuilder.Ignore<Domain.Entities.TourDestination>();
             modelBuilder.Ignore<Domain.Entities.AuditLog>();
             modelBuilder.Ignore<Domain.Entities.Notification>();
+            modelBuilder.Ignore<Domain.Entities.ServiceAvailability>();
             modelBuilder.Ignore<Domain.Entities.TourApprovalNotice>();
             modelBuilder.Ignore<Domain.Entities.PoiPhoto>();
             modelBuilder.Ignore<Domain.Entities.Review>();
@@ -414,6 +434,11 @@ public class ConfirmPasswordResetFlowTests
             modelBuilder.Ignore<Domain.Entities.VoucherApplicableTour>();
             modelBuilder.Ignore<Domain.Entities.TravelGroup>();
             modelBuilder.Ignore<Domain.Entities.GroupMember>();
+            modelBuilder.Ignore<Domain.Entities.GroupMessage>();
+            modelBuilder.Ignore<Domain.Entities.GroupMessageReadReceipt>();
+            modelBuilder.Ignore<Domain.Entities.GroupRollCallCheckin>();
+            modelBuilder.Ignore<Domain.Entities.GroupSplitBillPayment>();
+            modelBuilder.Ignore<Domain.Entities.GroupPollVote>();
             modelBuilder.Ignore<Domain.Entities.Itinerary>();
             modelBuilder.Ignore<Domain.Entities.TravelGroupCreationRequest>();
             modelBuilder.Ignore<Domain.Entities.GroupInvitation>();

@@ -152,6 +152,63 @@ public sealed class GetOperatorTourQueryHandlerTests
         result.IsFailure.Should().BeTrue();
     }
 
+    [Fact]
+    public async Task Handle_WhenTourHasMultipleVersions_ReturnsCompleteVersionHistoryAndDepositSetup()
+    {
+        await using var db = TestDbContext.Create();
+        var actor = await SeedApprovedOperatorAsync(db, 7);
+        await TourAuthoringTestData.SeedReferenceDataAsync(db);
+        await SeedPoiAsync(db, 88);
+        var clock = new FakeDateTimeProvider { UtcNow = new DateTimeOffset(2026, 10, 15, 0, 0, 0, TimeSpan.Zero) };
+        var user = new FakeCurrentUserService { UserId = actor.Id };
+        var create = new CreateTourPackageCommandHandler(db, user, clock);
+
+        var v1Result = await create.Handle(
+            Command(88, clock.UtcNow) with
+            {
+                AllowDeposit = true,
+                DepositPercent = 30m,
+                BalanceDueDaysBeforeDeparture = 7,
+            },
+            CancellationToken.None);
+        var v1 = await db.Tours.SingleAsync(t => t.Id == v1Result.Value.TourId);
+        typeof(Tour).GetProperty(nameof(Tour.Status))!.SetValue(v1, TourStatus.Approved);
+        await db.SaveChangesAsync();
+
+        var v2Result = await create.Handle(
+            Command(88, clock.UtcNow) with
+            {
+                SourceTourId = v1.Id,
+                AllowDeposit = true,
+                DepositPercent = 50m,
+                BalanceDueDaysBeforeDeparture = 14,
+            },
+            CancellationToken.None);
+
+        typeof(Tour).GetProperty(nameof(Tour.Status))!.SetValue(v1, TourStatus.Inactive);
+        var v2 = await db.Tours.SingleAsync(t => t.Id == v2Result.Value.TourId);
+        typeof(Tour).GetProperty(nameof(Tour.Status))!.SetValue(v2, TourStatus.Approved);
+        await db.SaveChangesAsync();
+
+        var handler = new GetOperatorTourQueryHandler(db, user, clock);
+        var fromV2 = await handler.Handle(new GetOperatorTourQuery(v2.Id), CancellationToken.None);
+        var fromArchivedV1 = await handler.Handle(new GetOperatorTourQuery(v1.Id), CancellationToken.None);
+
+        fromV2.IsSuccess.Should().BeTrue();
+        fromV2.Value.AllowDeposit.Should().BeTrue();
+        fromV2.Value.DepositPercent.Should().Be(50m);
+        fromV2.Value.BalanceDueDaysBeforeDeparture.Should().Be(14);
+        fromV2.Value.Versions.Select(v => (v.TourId, v.VersionNo, v.Status))
+            .Should().Equal((v2.Id, 2, "Approved"), (v1.Id, 1, "Inactive"));
+
+        fromArchivedV1.IsSuccess.Should().BeTrue();
+        fromArchivedV1.Value.AllowDeposit.Should().BeTrue();
+        fromArchivedV1.Value.DepositPercent.Should().Be(30m);
+        fromArchivedV1.Value.BalanceDueDaysBeforeDeparture.Should().Be(7);
+        fromArchivedV1.Value.Versions.Select(v => (v.TourId, v.VersionNo, v.Status))
+            .Should().Equal((v2.Id, 2, "Approved"), (v1.Id, 1, "Inactive"));
+    }
+
     private static CreateTourPackageCommand Command(long poiId, DateTimeOffset now) => new(
         "Da Nang day tour", "A full day visiting Da Nang landmarks.", null, 1_250_000m, 1,
         [TourAuthoringTestData.DestinationId, TourAuthoringTestData.SecondDestinationId],

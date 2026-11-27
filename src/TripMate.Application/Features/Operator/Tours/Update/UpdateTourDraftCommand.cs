@@ -20,7 +20,10 @@ public sealed record UpdateTourDraftCommand(
     IReadOnlyList<CreateTourScheduleRequest> Schedules,
     string? TimeZoneId = null,
     string? Highlights = null,
-    string? TravellerRequirements = null)
+    string? TravellerRequirements = null,
+    bool AllowDeposit = false,
+    decimal? DepositPercent = null,
+    int? BalanceDueDaysBeforeDeparture = null)
     : IRequest<Result<UpdateTourDraftResponse>>;
 
 public sealed record UpdateTourDraftResponse(long TourId, string Status);

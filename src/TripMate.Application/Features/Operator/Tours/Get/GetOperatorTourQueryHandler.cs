@@ -75,6 +75,7 @@ public sealed class GetOperatorTourQueryHandler(
                         item.DayNo, item.SequenceNo, item.PoiId, item.PlannedTime,
                         item.StayDurationMinutes, item.Notes)
                     {
+                        PoiName = item.Poi.Name,
                         IsRequiredForWeather = item.IsRequiredForWeather,
                     })
                     .ToList(),
@@ -103,12 +104,39 @@ public sealed class GetOperatorTourQueryHandler(
         // Same evaluator as submit-review, so the hint shown to the operator matches what the command enforces.
         var terms = await dbContext.Tours.AsNoTracking()
             .Where(candidate => candidate.Id == tour.Id)
-            .Select(candidate => new { candidate.TimeZoneId, candidate.Highlights, candidate.TravellerRequirements, candidate.SubmittedAtUtc, candidate.SubmissionNote })
+            .Select(candidate => new
+            {
+                candidate.TimeZoneId,
+                candidate.Highlights,
+                candidate.TravellerRequirements,
+                candidate.SubmittedAtUtc,
+                candidate.SubmissionNote,
+                candidate.PublishedAtUtc,
+                candidate.VersionRootTourId,
+                candidate.AllowDeposit,
+                candidate.DepositPercent,
+                candidate.BalanceDueDaysBeforeDeparture,
+            })
             .SingleAsync(cancellationToken);
+        long versionRootId = terms.VersionRootTourId ?? tour.Id;
+        var versions = await dbContext.Tours.AsNoTracking()
+            .Where(candidate => (candidate.VersionRootTourId == versionRootId || candidate.Id == versionRootId)
+                && (!operatorId.HasValue || candidate.OperatorUserId == operatorId.Value))
+            .OrderByDescending(candidate => candidate.VersionNo)
+            .ThenByDescending(candidate => candidate.Id)
+            .Select(candidate => new OperatorTourVersionDto(
+                candidate.Id,
+                candidate.VersionNo,
+                candidate.Status.ToString(),
+                candidate.CreatedAtUtc,
+                candidate.PublishedAtUtc,
+                candidate.RejectionReason))
+            .ToListAsync(cancellationToken);
         string timeZoneId = string.IsNullOrWhiteSpace(terms.TimeZoneId) ? Tour.DefaultTimeZoneId : terms.TimeZoneId;
         var warnings = await BuildWarningsAsync(tour, timeZoneId, cancellationToken);
+        DateTimeOffset now = clock.UtcNow;
         var readiness = await TourReviewReadinessEvaluator.LoadAsync(
-            dbContext, tour.Id, tour.CancellationPolicyTemplateId, clock.UtcNow, cancellationToken);
+            dbContext, tour.Id, tour.CancellationPolicyTemplateId, now, cancellationToken);
         bool editable = Enum.TryParse(tour.Status, out TourStatus status) && TourReviewReadinessEvaluator.IsEditable(status);
         bool stopsClassified = tour.ItineraryItems.Count > 0
             && tour.ItineraryItems.All(item => item.IsRequiredForWeather.HasValue);
@@ -121,6 +149,7 @@ public sealed class GetOperatorTourQueryHandler(
         return Result.Success(tour with
         {
             SubmittedAtUtc = terms.SubmittedAtUtc,
+            PublishedAtUtc = terms.PublishedAtUtc,
             SubmissionNote = terms.SubmissionNote,
             MediaCount = readiness.MediaCount,
             HasPrimaryImage = readiness.HasPrimaryImage,
@@ -130,6 +159,10 @@ public sealed class GetOperatorTourQueryHandler(
             TimeZoneId = timeZoneId,
             Highlights = terms.Highlights,
             TravellerRequirements = terms.TravellerRequirements,
+            AllowDeposit = terms.AllowDeposit,
+            DepositPercent = terms.DepositPercent,
+            BalanceDueDaysBeforeDeparture = terms.BalanceDueDaysBeforeDeparture,
+            Versions = versions,
             WeatherReadinessIssues = weatherIssues,
             Departures = tour.Departures.Select(departure => departure with
             {
@@ -138,6 +171,8 @@ public sealed class GetOperatorTourQueryHandler(
                     && !string.IsNullOrWhiteSpace(departure.MeetingPoint)
                     && departure.MeetingLatitude.HasValue
                     && departure.MeetingLongitude.HasValue,
+                IsCompleted = departure.Status == nameof(TourScheduleStatus.Completed)
+                    || (departure.Status == nameof(TourScheduleStatus.Scheduled) && departure.EndAtUtc <= now),
             }).ToList(),
         });
     }

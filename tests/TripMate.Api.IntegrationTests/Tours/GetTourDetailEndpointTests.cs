@@ -30,14 +30,16 @@ public sealed class GetTourDetailEndpointTests
         root.EnumerateObject().Select(property => property.Name).Should().BeEquivalentTo(
             "tourId", "title", "description", "destination", "destinations", "durationDays", "basePrice",
             "currency", "operator", "images", "inclusions", "exclusions", "cancellationPolicy", "itinerary",
-            "schedules", "hasBookableSchedule", "rating", "reviews", "asOfUtc");
+            "schedules", "hasBookableSchedule", "rating", "reviews", "asOfUtc",
+            "category", "highlights", "travellerRequirements", "timeZoneId",
+            "allowDeposit", "depositPercent", "balanceDueDaysBeforeDeparture");
         root.GetProperty("tourId").GetString().Should().Be(tourId.ToString());
         root.GetProperty("operator").EnumerateObject().Select(property => property.Name)
             .Should().BeEquivalentTo("name", "contactPhone");
         root.GetProperty("schedules")[0].EnumerateObject().Select(property => property.Name)
             .Should().BeEquivalentTo("scheduleId", "startAtUtc", "endAtUtc", "meetingPoint",
                 "registrationDeadlineAtUtc", "adultPrice", "childPrice", "infantPrice", "remainingSlots",
-                "availabilityStatus", "bookable");
+                "availabilityStatus", "bookable", "minimumCapacity", "meetingLatitude", "meetingLongitude");
         root.GetProperty("rating").GetProperty("count").GetInt32().Should().Be(0);
         root.GetProperty("rating").GetProperty("average").ValueKind.Should().Be(JsonValueKind.Null);
         body.RootElement.ToString().Should().NotContain("TAX-401").And.NotContain("LIC-401");

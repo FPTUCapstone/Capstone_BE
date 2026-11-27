@@ -70,6 +70,26 @@ public sealed class GetOperatorDashboardMetricsQueryHandlerTests
     }
 
     [Fact]
+    public async Task Handle_CountsApprovedTourOnlyAfterItsPublicationInstant()
+    {
+        await using var db = TestDbContext.Create();
+        await SeedApprovedOperatorAsync(db, 7);
+        var live = CreateTour(101, 7, "Live approved");
+        Set(live, nameof(Tour.Status), TourStatus.Approved);
+        Set(live, nameof(Tour.PublishedAtUtc), (DateTimeOffset?)Now.AddMinutes(-1));
+        var scheduled = CreateTour(102, 7, "Not yet published");
+        Set(scheduled, nameof(Tour.Status), TourStatus.Approved);
+        Set(scheduled, nameof(Tour.PublishedAtUtc), (DateTimeOffset?)Now.AddMinutes(1));
+        db.Tours.AddRange(live, scheduled);
+        db.TourSchedules.AddRange(Schedule(201, 101), Schedule(202, 102));
+        await db.SaveChangesAsync();
+
+        var result = await Handler(db).Handle(new GetOperatorDashboardMetricsQuery(), CancellationToken.None);
+
+        result.Value.ActiveTourCount.Should().Be(1);
+    }
+
+    [Fact]
     public async Task Handle_ExcludesFullClosedCancelledAndAlreadyDepartedTours()
     {
         await using var db = TestDbContext.Create();

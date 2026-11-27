@@ -26,13 +26,14 @@ namespace TripMate.Api.Controllers.V1;
  * Input: CreateTravelGroupRequest (ItineraryId, GroupName)
  * Output: 201 Created with CreateTravelGroupResponse | 400 Bad Request | 401 Unauthorized | 403 Forbidden | 404 Not Found
  */
-[Authorize(Roles = nameof(UserRole.Traveler))]
+[Authorize(Roles = $"{nameof(UserRole.Traveler)},{nameof(UserRole.TourOperator)}")]
 [Route("api/v1/travel-groups")]
 public class TravelGroupsController(
     ISender sender,
     ICurrentUserService currentUserService) : ApiControllerBase(sender)
 {
     [HttpDelete("{groupId}/members/{memberUserId}")]
+    [Authorize(Roles = nameof(UserRole.Traveler))]
     [ProducesResponseType(typeof(RemoveGroupMemberResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -67,6 +68,7 @@ public class TravelGroupsController(
     }
 
     [HttpPost("{groupId:long}/leave")]
+    [Authorize(Roles = nameof(UserRole.Traveler))]
     [ProducesResponseType(typeof(LeaveTravelGroupResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -99,6 +101,7 @@ public class TravelGroupsController(
     }
 
     [HttpGet("{groupId:long}/members")]
+    [Authorize(Roles = $"{nameof(UserRole.Traveler)},{nameof(UserRole.TourOperator)}")]
     [ProducesResponseType(typeof(GetTravelGroupMembersResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
@@ -119,6 +122,7 @@ public class TravelGroupsController(
     }
 
     [HttpPost]
+    [Authorize(Roles = nameof(UserRole.Traveler))]
     [ProducesResponseType(typeof(CreateTravelGroupResponse), StatusCodes.Status201Created)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -157,6 +161,7 @@ public class TravelGroupsController(
     }
 
     [HttpPost("join")]
+    [Authorize(Roles = nameof(UserRole.Traveler))]
     [ProducesResponseType(typeof(JoinTravelGroupResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -193,6 +198,7 @@ public class TravelGroupsController(
     }
 
     [HttpPost("{groupId:long}/invitation")]
+    [Authorize(Roles = nameof(UserRole.Traveler))]
     [ProducesResponseType(typeof(GetGroupInvitationResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
@@ -210,6 +216,7 @@ public class TravelGroupsController(
             cancellationToken);
 
     [HttpPost("{groupId:long}/invitation/regenerate")]
+    [Authorize(Roles = nameof(UserRole.Traveler))]
     [ProducesResponseType(typeof(GetGroupInvitationResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]

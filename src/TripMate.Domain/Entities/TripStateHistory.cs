@@ -13,6 +13,9 @@ public sealed class TripStateHistory
     public const string ItemReachedReason = "ItemReached";
     public const string TravelerDepartedReason = "TravelerDeparted";
 
+    /// <summary>UC-15: the Traveler accepted a rerouting proposal; the state is unchanged, the plan moved to a new version.</summary>
+    public const string RerouteAcceptedReason = "rerouting_accepted";
+
     private TripStateHistory()
     {
     }

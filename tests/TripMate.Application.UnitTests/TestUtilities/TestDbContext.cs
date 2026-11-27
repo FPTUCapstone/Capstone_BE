@@ -12,6 +12,10 @@ public class TestDbContext(
     DbContextOptions<TestDbContext> options)
     : DbContext(options), IApplicationDbContext
 {
+    public DbSet<DirectConversation> DirectConversations => Set<DirectConversation>();
+
+    public DbSet<DirectMessage> DirectMessages => Set<DirectMessage>();
+
     public DbSet<User> Users => Set<User>();
 
     public DbSet<TravelerProfile> TravelerProfiles => Set<TravelerProfile>();
@@ -47,6 +51,11 @@ public class TestDbContext(
 
     public DbSet<TourPackageCreateOperation> TourPackageCreateOperations =>
         Set<TourPackageCreateOperation>();
+
+    public DbSet<TourDepartureCreateOperation> TourDepartureCreateOperations =>
+        Set<TourDepartureCreateOperation>();
+
+    public DbSet<TourPendingChangeSet> TourPendingChangeSets => Set<TourPendingChangeSet>();
 
     public DbSet<CancellationPolicyTemplate> CancellationPolicyTemplates =>
         Set<CancellationPolicyTemplate>();
@@ -127,6 +136,16 @@ public class TestDbContext(
 
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
 
+    public DbSet<GroupMessage> GroupMessages => Set<GroupMessage>();
+
+    public DbSet<GroupMessageReadReceipt> GroupMessageReadReceipts => Set<GroupMessageReadReceipt>();
+
+    public DbSet<GroupRollCallCheckin> GroupRollCallCheckins => Set<GroupRollCallCheckin>();
+
+    public DbSet<GroupSplitBillPayment> GroupSplitBillPayments => Set<GroupSplitBillPayment>();
+
+    public DbSet<GroupPollVote> GroupPollVotes => Set<GroupPollVote>();
+
     public DbSet<Itinerary> Itineraries => Set<Itinerary>();
 
     public DbSet<ItineraryItem> ItineraryItems => Set<ItineraryItem>();
@@ -199,6 +218,7 @@ public class TestDbContext(
     public DbSet<OperatorPaymentMerchantClaim> OperatorPaymentMerchantClaims => Set<OperatorPaymentMerchantClaim>();
 
     public DbSet<ServiceBooking> ServiceBookings => Set<ServiceBooking>();
+    public DbSet<ServiceAvailability> ServiceAvailability => Set<ServiceAvailability>();
 
     public DbSet<ServiceCommissionStatement> ServiceCommissionStatements => Set<ServiceCommissionStatement>();
 
@@ -411,6 +431,7 @@ public class TestDbContext(
     {
         modelBuilder.Entity<TourApprovalNotice>().HasKey(notice => notice.TourId);
         modelBuilder.Entity<ProviderPoiLink>().HasKey(link => new { link.ServiceProviderId, link.PointOfInterestId });
+        modelBuilder.Entity<ServiceAvailability>().HasKey(slot => new { slot.ServiceId, slot.StartsAtUtc });
         modelBuilder.Entity<ProviderPoiLink>().HasOne(link => link.Provider).WithMany(provider => provider.PoiLinks)
             .HasForeignKey(link => link.ServiceProviderId);
         modelBuilder.Entity<ProviderPoiLink>().HasOne(link => link.Poi).WithMany()
@@ -531,6 +552,8 @@ public class TestDbContext(
         modelBuilder.Entity<TourDestination>()
             .HasKey(link => new { link.TourId, link.DestinationId });
 
+        modelBuilder.ApplyConfiguration(new TripMate.Infrastructure.Persistence.Configurations.DirectConversationConfiguration());
+        modelBuilder.ApplyConfiguration(new TripMate.Infrastructure.Persistence.Configurations.DirectMessageConfiguration());
         base.OnModelCreating(modelBuilder);
     }
 

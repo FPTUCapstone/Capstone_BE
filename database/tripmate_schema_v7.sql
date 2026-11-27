@@ -288,6 +288,12 @@ CREATE TABLE dbo.OperatorProfiles (
     reviewed_at          DATETIME2 NULL,
     created_at           DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
     updated_at           DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    -- UC-34: editable business profile (migrations/20261126_uc34_operator_profile_fields.sql).
+    description          NVARCHAR(2000) NULL,
+    contact_email        NVARCHAR(200)  NULL,
+    website_url          NVARCHAR(300)  NULL,
+    logo_url             NVARCHAR(500)  NULL,
+    logo_public_id       NVARCHAR(300)  NULL,
     CONSTRAINT UQ_OperatorProfiles_TaxCode UNIQUE (tax_code)
 );
 GO
@@ -366,7 +372,8 @@ GO
 CREATE TABLE dbo.Notifications (
     notification_id     BIGINT IDENTITY(1,1) PRIMARY KEY,
     user_id              BIGINT NOT NULL REFERENCES dbo.Users(user_id) ON DELETE CASCADE,
-    channel              VARCHAR(10) NOT NULL CHECK (channel IN ('Push','Email','SMS')),
+    channel              VARCHAR(10) NOT NULL
+        CONSTRAINT CK_Notifications_Channel CHECK (channel IN ('Push','Email','SMS','InApp')),
     type                 VARCHAR(40) NOT NULL,
     title                NVARCHAR(200) NULL,
     body                 NVARCHAR(1000) NULL,
@@ -1722,6 +1729,58 @@ CREATE INDEX IX_ServiceCommissionStatements_Period ON commercial.ServiceCommissi
 CREATE INDEX IX_ServiceCommissionStatements_Status ON commercial.ServiceCommissionStatements(status);
 GO
 
+CREATE TABLE commercial.ServiceAvailability (
+    service_id BIGINT NOT NULL REFERENCES commercial.Services(service_id),
+    starts_at DATETIME2 NOT NULL,
+    quantity INT NOT NULL CHECK (quantity >= 0),
+    CONSTRAINT PK_ServiceAvailability PRIMARY KEY (service_id, starts_at)
+);
+GO
+
+CREATE TABLE commercial.StayOwnershipClaims (
+    claim_id BIGINT IDENTITY(1,1) PRIMARY KEY,
+    poi_id BIGINT NOT NULL REFERENCES catalog.POIs(poi_id),
+    applicant_id BIGINT NOT NULL REFERENCES dbo.Users(user_id),
+    evidence NVARCHAR(1000) NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    submitted_at DATETIME2 NOT NULL,
+    reviewer_id BIGINT NULL REFERENCES dbo.Users(user_id),
+    review_note NVARCHAR(1000) NULL,
+    CONSTRAINT CK_StayOwnershipClaims_Status CHECK (status IN ('Pending','Approved','Rejected'))
+);
+CREATE UNIQUE INDEX UX_StayOwnershipClaims_Pending ON commercial.StayOwnershipClaims(poi_id, applicant_id) WHERE status = 'Pending';
+
+CREATE TABLE commercial.StayListings (
+    poi_id BIGINT NOT NULL PRIMARY KEY REFERENCES catalog.POIs(poi_id),
+    description NVARCHAR(2000) NULL,
+    published BIT NOT NULL,
+    accepting_requests BIT NOT NULL,
+    CONSTRAINT CK_StayListings_Publication CHECK (published = 1 OR accepting_requests = 0)
+);
+
+CREATE TABLE commercial.StayInquiries (
+    inquiry_id BIGINT IDENTITY(1,1) PRIMARY KEY,
+    poi_id BIGINT NOT NULL REFERENCES catalog.POIs(poi_id),
+    traveler_id BIGINT NOT NULL REFERENCES dbo.Users(user_id),
+    itinerary_id BIGINT NULL REFERENCES planning.Itineraries(itinerary_id),
+    arrival DATE NOT NULL,
+    departure DATE NOT NULL,
+    guests INT NOT NULL,
+    contact_name NVARCHAR(150) NOT NULL,
+    contact NVARCHAR(254) NOT NULL,
+    note NVARCHAR(1000) NULL,
+    submit_key UNIQUEIDENTIFIER NOT NULL,
+    submit_hash VARCHAR(64) NOT NULL,
+    created_at DATETIME2 NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    reply NVARCHAR(1000) NULL,
+    CONSTRAINT CK_StayInquiries_Dates CHECK (departure > arrival),
+    CONSTRAINT CK_StayInquiries_Guests CHECK (guests > 0),
+    CONSTRAINT CK_StayInquiries_Status CHECK (status IN ('Sent','Replied','Declined'))
+);
+CREATE UNIQUE INDEX UX_StayInquiries_SubmitKey ON commercial.StayInquiries(traveler_id, submit_key);
+CREATE INDEX IX_StayInquiries_Poi ON commercial.StayInquiries(poi_id, inquiry_id);
+
 CREATE TABLE commercial.ServiceBookings (
     service_booking_id       BIGINT IDENTITY(1,1) PRIMARY KEY,
     traveler_user_id            BIGINT NOT NULL REFERENCES dbo.Users(user_id),
@@ -1747,6 +1806,11 @@ CREATE TABLE commercial.ServiceBookings (
     row_version ROWVERSION NOT NULL,
     itinerary_id BIGINT NULL,
     service_option NVARCHAR(200) NULL,
+    submit_key UNIQUEIDENTIFIER NULL,
+    submit_hash CHAR(64) NULL,
+    contact_name NVARCHAR(150) NULL,
+    contact_phone NVARCHAR(20) NULL,
+    contact_email NVARCHAR(256) NULL,
     special_request NVARCHAR(1000) NULL,
     commission_statement_id BIGINT NULL REFERENCES commercial.ServiceCommissionStatements(statement_id),
     CONSTRAINT FK_ServiceBookings_RespondedBy FOREIGN KEY (responded_by_user_id) REFERENCES dbo.Users(user_id),
@@ -1761,6 +1825,36 @@ CREATE INDEX IX_ServiceBookings_RequestLifecycle
     ON commercial.ServiceBookings(status, request_submitted_at, start_datetime)
     WHERE request_submitted_at IS NOT NULL;
 CREATE INDEX IX_ServiceBookings_CommissionStatementId ON commercial.ServiceBookings(commission_statement_id);
+CREATE UNIQUE INDEX UX_ServiceBookings_TravelerSubmitKey ON commercial.ServiceBookings(traveler_user_id, submit_key) WHERE submit_key IS NOT NULL;
+GO
+
+CREATE OR ALTER TRIGGER commercial.TR_ServiceBookings_NotifyProvider
+ON commercial.ServiceBookings
+AFTER INSERT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    -- Same recipient as the Provider booking requests workspace (UC-78).
+    INSERT INTO dbo.Notifications
+        (user_id, channel, type, title, body, related_entity_type, related_entity_id, status, created_at)
+    SELECT recipient.user_id, 'InApp', 'MSG205', N'New service booking request',
+        CONCAT(N'New booking request SR-', booking.service_booking_id, N' for ', service.name,
+            N' on ', CONVERT(char(10), DATEADD(hour, 7, booking.start_datetime), 23),
+            N'. Please respond within 24 hours.'),
+        'ServiceBooking', booking.service_booking_id, 'Pending', booking.request_submitted_at
+    FROM inserted AS booking
+    INNER JOIN commercial.Services AS service ON service.service_id = booking.service_id
+    INNER JOIN commercial.ProviderPoiLinks AS link ON link.poi_id = service.poi_id
+    INNER JOIN commercial.ServiceProviders AS provider ON provider.provider_id = link.provider_id
+    INNER JOIN dbo.Users AS recipient ON recipient.user_id = provider.user_id
+    WHERE booking.status = 'PendingConfirmation'
+      AND booking.request_submitted_at IS NOT NULL
+      AND provider.status = 'Active'
+      AND recipient.role = 'ServiceProvider'
+      AND recipient.status = 'Active'
+      AND recipient.must_change_password = 0;
+END;
 GO
 
 CREATE TABLE commercial.ServiceProviderRequestOperations (
@@ -2222,4 +2316,183 @@ INSERT INTO dbo.Messages (message_code, message_type, content_template) VALUES
     ('MSG128', 'InLine', 'No records found matching your criteria.'),
     ('MSG129', 'ToastMessage', 'Operation completed successfully.'),
     ('MSG130', 'Modal', 'Are you sure you want to continue? This action may not be reversible.');
+GO
+
+-- Direct Messenger MVP schema (DM only).
+-- Approved direct 1:1 Messenger MVP. No runtime data or seed rows.
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+DECLARE @lockResult int;
+EXEC @lockResult = sys.sp_getapplock @Resource = N'TripMate.DirectChat.Schema',
+    @LockMode = N'Exclusive', @LockOwner = N'Transaction', @LockTimeout = 30000;
+IF @lockResult < 0 THROW 51000, 'Cannot acquire direct chat schema lock.', 1;
+IF SCHEMA_ID(N'social') IS NULL EXEC(N'CREATE SCHEMA social');
+
+IF OBJECT_ID(N'social.DirectConversations', N'U') IS NULL
+BEGIN
+    CREATE TABLE social.DirectConversations (
+        conversation_id bigint IDENTITY(1,1) NOT NULL CONSTRAINT PK_DirectConversations PRIMARY KEY,
+        lower_user_id bigint NOT NULL,
+        upper_user_id bigint NOT NULL,
+        created_at datetime2(7) NOT NULL,
+        lower_read_through_message_id bigint NOT NULL CONSTRAINT DF_DirectConversations_LowerRead DEFAULT (0),
+        upper_read_through_message_id bigint NOT NULL CONSTRAINT DF_DirectConversations_UpperRead DEFAULT (0),
+        CONSTRAINT CK_DirectConversations_OrderedPair CHECK (lower_user_id < upper_user_id),
+        CONSTRAINT CK_DirectConversations_ReadCursors CHECK (lower_read_through_message_id >= 0 AND upper_read_through_message_id >= 0),
+        CONSTRAINT FK_DirectConversations_LowerUser FOREIGN KEY (lower_user_id) REFERENCES dbo.Users(user_id),
+        CONSTRAINT FK_DirectConversations_UpperUser FOREIGN KEY (upper_user_id) REFERENCES dbo.Users(user_id)
+    );
+END;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'social.DirectConversations') AND name = N'UX_DirectConversations_Pair')
+    CREATE UNIQUE INDEX UX_DirectConversations_Pair ON social.DirectConversations(lower_user_id, upper_user_id);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'social.DirectConversations') AND name = N'IX_DirectConversations_Upper')
+    CREATE INDEX IX_DirectConversations_Upper ON social.DirectConversations(upper_user_id, conversation_id);
+
+IF OBJECT_ID(N'social.DirectMessages', N'U') IS NULL
+BEGIN
+    CREATE TABLE social.DirectMessages (
+        message_id bigint IDENTITY(1,1) NOT NULL CONSTRAINT PK_DirectMessages PRIMARY KEY,
+        conversation_id bigint NOT NULL,
+        sender_user_id bigint NOT NULL,
+        content nvarchar(4000) NOT NULL,
+        client_message_id uniqueidentifier NOT NULL,
+        created_at datetime2(7) NOT NULL,
+        CONSTRAINT CK_DirectMessages_Content CHECK (LEN(LTRIM(RTRIM(content))) >= 1),
+        CONSTRAINT CK_DirectMessages_ClientKey CHECK (client_message_id <> '00000000-0000-0000-0000-000000000000'),
+        CONSTRAINT FK_DirectMessages_Conversation FOREIGN KEY (conversation_id) REFERENCES social.DirectConversations(conversation_id) ON DELETE CASCADE,
+        CONSTRAINT FK_DirectMessages_Sender FOREIGN KEY (sender_user_id) REFERENCES dbo.Users(user_id)
+    );
+END;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'social.DirectMessages') AND name = N'UX_DirectMessages_ClientKey')
+    CREATE UNIQUE INDEX UX_DirectMessages_ClientKey ON social.DirectMessages(conversation_id, sender_user_id, client_message_id);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'social.DirectMessages') AND name = N'IX_DirectMessages_History')
+    CREATE INDEX IX_DirectMessages_History ON social.DirectMessages(conversation_id, message_id);
+COMMIT TRANSACTION;
+GO
+
+GO
+-- Real group chat schema: canonical parity with upgrade scripts.
+/* Travel Group Chat & Interaction Hub Migration: Messages, Read Receipts, Roll Call, Split Bill Payments, Poll Votes */
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+
+IF OBJECT_ID(N'social.GroupMessages', N'U') IS NULL
+BEGIN
+    CREATE TABLE social.GroupMessages (
+        message_id BIGINT IDENTITY(1,1) NOT NULL
+            CONSTRAINT PK_GroupMessages PRIMARY KEY,
+        group_id BIGINT NOT NULL,
+        sender_user_id BIGINT NOT NULL,
+        message_type VARCHAR(20) NOT NULL,
+        content NVARCHAR(MAX) NOT NULL,
+        metadata_json NVARCHAR(MAX) NULL,
+        created_at DATETIME2 NOT NULL
+            CONSTRAINT DF_GroupMessages_CreatedAt DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT CK_GroupMessages_Type
+            CHECK (message_type IN ('text', 'broadcast', 'roll_call', 'split_bill', 'poll')),
+        CONSTRAINT FK_GroupMessages_Group
+            FOREIGN KEY (group_id) REFERENCES social.TravelGroups(group_id) ON DELETE CASCADE,
+        CONSTRAINT FK_GroupMessages_Sender
+            FOREIGN KEY (sender_user_id) REFERENCES dbo.Users(user_id)
+    );
+
+    CREATE NONCLUSTERED INDEX IX_GroupMessages_GroupId_CreatedAt
+        ON social.GroupMessages (group_id, created_at DESC)
+        INCLUDE (sender_user_id, message_type);
+END;
+
+IF OBJECT_ID(N'social.GroupMessageReadReceipts', N'U') IS NULL
+BEGIN
+    CREATE TABLE social.GroupMessageReadReceipts (
+        receipt_id BIGINT IDENTITY(1,1) NOT NULL
+            CONSTRAINT PK_GroupMessageReadReceipts PRIMARY KEY,
+        message_id BIGINT NOT NULL,
+        user_id BIGINT NOT NULL,
+        read_at DATETIME2 NOT NULL
+            CONSTRAINT DF_GroupMessageReadReceipts_ReadAt DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT UQ_GroupMessageReadReceipts_MessageUser
+            UNIQUE (message_id, user_id),
+        CONSTRAINT FK_GroupMessageReadReceipts_Message
+            FOREIGN KEY (message_id) REFERENCES social.GroupMessages(message_id) ON DELETE CASCADE,
+        CONSTRAINT FK_GroupMessageReadReceipts_User
+            FOREIGN KEY (user_id) REFERENCES dbo.Users(user_id)
+    );
+END;
+
+IF OBJECT_ID(N'social.GroupRollCallCheckins', N'U') IS NULL
+BEGIN
+    CREATE TABLE social.GroupRollCallCheckins (
+        checkin_id BIGINT IDENTITY(1,1) NOT NULL
+            CONSTRAINT PK_GroupRollCallCheckins PRIMARY KEY,
+        message_id BIGINT NOT NULL,
+        user_id BIGINT NOT NULL,
+        checked_in_at DATETIME2 NOT NULL
+            CONSTRAINT DF_GroupRollCallCheckins_CheckedInAt DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT UQ_GroupRollCallCheckins_MessageUser
+            UNIQUE (message_id, user_id),
+        CONSTRAINT FK_GroupRollCallCheckins_Message
+            FOREIGN KEY (message_id) REFERENCES social.GroupMessages(message_id) ON DELETE CASCADE,
+        CONSTRAINT FK_GroupRollCallCheckins_User
+            FOREIGN KEY (user_id) REFERENCES dbo.Users(user_id)
+    );
+END;
+
+IF OBJECT_ID(N'social.GroupSplitBillPayments', N'U') IS NULL
+BEGIN
+    CREATE TABLE social.GroupSplitBillPayments (
+        payment_id BIGINT IDENTITY(1,1) NOT NULL
+            CONSTRAINT PK_GroupSplitBillPayments PRIMARY KEY,
+        message_id BIGINT NOT NULL,
+        user_id BIGINT NOT NULL,
+        is_paid BIT NOT NULL
+            CONSTRAINT DF_GroupSplitBillPayments_IsPaid DEFAULT (0),
+        paid_at DATETIME2 NULL,
+        CONSTRAINT UQ_GroupSplitBillPayments_MessageUser
+            UNIQUE (message_id, user_id),
+        CONSTRAINT FK_GroupSplitBillPayments_Message
+            FOREIGN KEY (message_id) REFERENCES social.GroupMessages(message_id) ON DELETE CASCADE,
+        CONSTRAINT FK_GroupSplitBillPayments_User
+            FOREIGN KEY (user_id) REFERENCES dbo.Users(user_id)
+    );
+END;
+
+IF OBJECT_ID(N'social.GroupPollVotes', N'U') IS NULL
+BEGIN
+    CREATE TABLE social.GroupPollVotes (
+        vote_id BIGINT IDENTITY(1,1) NOT NULL
+            CONSTRAINT PK_GroupPollVotes PRIMARY KEY,
+        message_id BIGINT NOT NULL,
+        option_index INT NOT NULL,
+        user_id BIGINT NOT NULL,
+        voted_at DATETIME2 NOT NULL
+            CONSTRAINT DF_GroupPollVotes_VotedAt DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT CK_GroupPollVotes_OptionIndex
+            CHECK (option_index >= 0 AND option_index <= 5),
+        CONSTRAINT UQ_GroupPollVotes_MessageUser
+            UNIQUE (message_id, user_id),
+        CONSTRAINT FK_GroupPollVotes_Message
+            FOREIGN KEY (message_id) REFERENCES social.GroupMessages(message_id) ON DELETE CASCADE,
+        CONSTRAINT FK_GroupPollVotes_User
+            FOREIGN KEY (user_id) REFERENCES dbo.Users(user_id)
+    );
+END;
+
+COMMIT TRANSACTION;
+
+GO
+-- Requires the existing travel group chat migration. No runtime data changes.
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+IF COL_LENGTH(N'social.GroupMessages', N'client_message_id') IS NULL
+    ALTER TABLE social.GroupMessages ADD client_message_id uniqueidentifier NULL;
+-- Dynamic SQL allows this script to add the column and index in the same batch.
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'social.GroupMessages')
+    AND name = N'UX_GroupMessages_ClientMessageId')
+    EXEC(N'CREATE UNIQUE INDEX UX_GroupMessages_ClientMessageId
+        ON social.GroupMessages(group_id, sender_user_id, client_message_id)
+        WHERE client_message_id IS NOT NULL');
+IF COL_LENGTH(N'social.GroupMembers', N'last_read_chat_message_id') IS NULL
+    ALTER TABLE social.GroupMembers ADD last_read_chat_message_id bigint NULL;
+COMMIT TRANSACTION;
+
 GO

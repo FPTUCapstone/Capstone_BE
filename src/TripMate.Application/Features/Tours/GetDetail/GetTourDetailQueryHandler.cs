@@ -50,8 +50,14 @@ public sealed class GetTourDetailQueryHandler(
                         candidate.DurationDays,
                         candidate.BasePrice,
                         candidate.TimeZoneId,
+                        CategoryName = candidate.Category != null ? candidate.Category.Name : null,
+                        candidate.Highlights,
+                        candidate.TravellerRequirements,
                         candidate.Inclusions,
                         candidate.Exclusions,
+                        candidate.AllowDeposit,
+                        candidate.DepositPercent,
+                        candidate.BalanceDueDaysBeforeDeparture,
                         OperatorName = candidate.OperatorProfile.CompanyName,
                         OperatorPhone = candidate.OperatorProfile.ContactPhone,
                     })
@@ -115,10 +121,13 @@ public sealed class GetTourDetailQueryHandler(
                         schedule.StartAtUtc,
                         schedule.EndAtUtc,
                         schedule.MeetingPoint,
+                        schedule.MeetingLatitude,
+                        schedule.MeetingLongitude,
                         schedule.RegistrationDeadlineAtUtc,
                         schedule.AdultPrice,
                         schedule.ChildPrice,
                         schedule.InfantPrice,
+                        schedule.MinimumCapacity,
                         schedule.TotalCapacity,
                         schedule.ReservedCapacity,
                     })
@@ -170,7 +179,12 @@ public sealed class GetTourDetailQueryHandler(
                             availability,
                             availability == TourAvailability.Available && registrationOpen
                                 && BookedTourItineraryTimeline.Plan(timelineStops, tour.TimeZoneId,
-                                    departure.StartAtUtc, departure.EndAtUtc).Stops is not null);
+                                    departure.StartAtUtc, departure.EndAtUtc).Stops is not null)
+                        {
+                            MinimumCapacity = departure.MinimumCapacity,
+                            MeetingLatitude = departure.MeetingLatitude,
+                            MeetingLongitude = departure.MeetingLongitude,
+                        };
                     })
                     .ToList();
 
@@ -213,7 +227,16 @@ public sealed class GetTourDetailQueryHandler(
                     schedules.Any(schedule => schedule.Bookable),
                     new TourDetailRatingDto(aggregate.DisplayAverage, aggregate.ReviewCount),
                     reviews,
-                    now.UtcDateTime));
+                    now.UtcDateTime)
+                {
+                    Category = tour.CategoryName,
+                    Highlights = tour.Highlights,
+                    TravellerRequirements = tour.TravellerRequirements,
+                    TimeZoneId = string.IsNullOrWhiteSpace(tour.TimeZoneId) ? Tour.DefaultTimeZoneId : tour.TimeZoneId,
+                    AllowDeposit = tour.AllowDeposit,
+                    DepositPercent = tour.DepositPercent,
+                    BalanceDueDaysBeforeDeparture = tour.BalanceDueDaysBeforeDeparture,
+                });
             },
             cancellationToken);
     }

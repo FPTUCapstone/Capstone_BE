@@ -46,6 +46,7 @@ using TripMate.Application.Features.TripAlerts.Weather;
 using TripMate.Application.Features.TripReviews.Common;
 using TripMate.Application.Features.TripReviews.Media;
 using TripMate.Application.Features.Weather.Processing;
+using TripMate.Application.Features.Weather.PublicForecast;
 using TripMate.Application.Features.Bookings.DirectRefunds.Common;
 using TripMate.Application.Features.Bookings.DirectRefunds.Deadline;
 using TripMate.Infrastructure.Ai;
@@ -116,6 +117,7 @@ public static class DependencyInjection
 
         services.AddScoped<IAccountProvisioningEmailSender, SmtpAccountProvisioningEmailSender>();
         services.AddScoped<IAccountProvisioningLock, SqlServerAccountProvisioningLock>();
+        services.AddScoped<TripMate.Application.Features.PointsOfInterest.Deactivate.IPoiDeactivationLock, SqlServerPoiDeactivationLock>();
         services.AddScoped<IAccountProvisioningPersistenceErrors, SqlServerAccountProvisioningPersistenceErrors>();
         services.AddScoped<IServiceProviderRequestLock, SqlServerServiceProviderRequestLock>();
         services.AddScoped<ProviderRequestMutationService>();
@@ -141,6 +143,12 @@ public static class DependencyInjection
                 && options.ExtremeRainMmPerHour > options.SevereRainMmPerHour,
                 "Weather thresholds are invalid.")
             .ValidateOnStart();
+        services.AddOptions<TripMate.Application.Features.Rerouting.Common.ReroutingOptions>()
+            .Bind(configuration.GetSection(TripMate.Application.Features.Rerouting.Common.ReroutingOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<
+            IValidateOptions<TripMate.Application.Features.Rerouting.Common.ReroutingOptions>,
+            TripMate.Application.Features.Rerouting.Common.ReroutingOptionsValidator>();
         services.AddMemoryCache();
         services.AddOptions<TomorrowWeatherOptions>()
             .Bind(configuration.GetSection(TomorrowWeatherOptions.SectionName))
@@ -165,6 +173,18 @@ public static class DependencyInjection
         services.AddHttpClient<IDayForecastProvider, TomorrowDayForecastProvider>((provider, client) =>
         {
             var weather = provider.GetRequiredService<IOptions<TomorrowWeatherOptions>>().Value;
+            client.BaseAddress = new Uri(weather.BaseUrl, UriKind.Absolute);
+            client.Timeout = TimeSpan.FromSeconds(10);
+        });
+        services.AddOptions<PublicWeatherOptions>()
+            .Bind(configuration.GetSection(PublicWeatherOptions.SectionName))
+            .Validate(options => !options.Enabled || !string.IsNullOrWhiteSpace(options.ApiKey),
+                "PublicWeather API key is required when the public weather forecast is enabled.")
+            .Validate(options => options.CacheDuration > TimeSpan.Zero, "PublicWeather cache duration must be positive.")
+            .ValidateOnStart();
+        services.AddHttpClient<IPublicWeatherForecastProvider, TomorrowPublicForecastProvider>((provider, client) =>
+        {
+            var weather = provider.GetRequiredService<IOptions<PublicWeatherOptions>>().Value;
             client.BaseAddress = new Uri(weather.BaseUrl, UriKind.Absolute);
             client.Timeout = TimeSpan.FromSeconds(10);
         });
@@ -266,6 +286,7 @@ public static class DependencyInjection
             sp.GetRequiredService<SqlTravelerAvatarCleanupJournal>());
         services.AddHostedService<TravelerAvatarCleanupBackgroundService>();
         services.AddSingleton<IOperatorDocumentStorage, CloudinaryOperatorDocumentStorage>();
+        services.AddSingleton<IOperatorLogoStorage, CloudinaryOperatorLogoStorage>();
         services.AddSingleton<IRevenueExportStorage, CloudinaryRevenueExportStorage>();
         services.AddSingleton<IRevenueExportRenderer, XlsxRevenueExportRenderer>();
         services.AddSingleton<IStatisticalReportExportRenderer, StatisticalReportExportRenderer>();

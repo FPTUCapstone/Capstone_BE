@@ -17,6 +17,10 @@ public class Tour : BaseEntity
     public const int DestinationSummaryMaxLength = 300;
     public const string DestinationCollation = "Vietnamese_100_CI_AS";
     public const int PreferenceJsonMaxLength = 1000;
+    public const decimal MinDepositPercent = 10m;
+    public const decimal MaxDepositPercent = 90m;
+    public const int MinBalanceDueDaysBeforeDeparture = 4;
+    public const int MaxBalanceDueDaysBeforeDeparture = 180;
 
     private readonly List<TourSchedule> _schedules = [];
     private readonly List<TourDestination> _destinations = [];
@@ -83,6 +87,12 @@ public class Tour : BaseEntity
 
     public long? CancellationPolicyTemplateId { get; private set; }
 
+    public bool AllowDeposit { get; private set; }
+
+    public decimal? DepositPercent { get; private set; }
+
+    public int? BalanceDueDaysBeforeDeparture { get; private set; }
+
     public TourStatus Status { get; private set; }
 
     public DateTimeOffset? SubmittedAtUtc { get; private set; }
@@ -124,7 +134,8 @@ public class Tour : BaseEntity
         IEnumerable<TourItineraryItem> itineraryItems,
         IEnumerable<TourSchedule> schedules, DateTimeOffset nowUtc,
         string? inclusions = null, string? exclusions = null,
-        string? highlights = null, string? travellerRequirements = null, string? timeZoneId = null)
+        string? highlights = null, string? travellerRequirements = null, string? timeZoneId = null,
+        bool allowDeposit = false, decimal? depositPercent = null, int? balanceDueDaysBeforeDeparture = null)
     {
         if (operatorUserId <= 0) throw new ArgumentOutOfRangeException(nameof(operatorUserId));
         if (categoryId <= 0) throw new ArgumentOutOfRangeException(nameof(categoryId));
@@ -162,6 +173,7 @@ public class Tour : BaseEntity
             CreatedAtUtc = nowUtc.ToUniversalTime(),
             UpdatedAtUtc = nowUtc.ToUniversalTime(),
         };
+        tour.ApplyDepositTerms(allowDeposit, depositPercent, balanceDueDaysBeforeDeparture);
         tour.ReplaceDraftDestinations(destinationIds, destinationSummary);
         tour.ApplyCancellationPolicySnapshot(cancellationPolicy, nowUtc);
         foreach (var item in items) { item.AttachTo(tour); tour._itineraryItems.Add(item); }
@@ -177,6 +189,16 @@ public class Tour : BaseEntity
         if (VersionRootTourId.HasValue) throw new InvalidOperationException("Tour version lineage is immutable.");
         VersionRootTourId = versionRootTourId;
         VersionNo = versionNo;
+    }
+
+    public void ClearVersionRootForDelete()
+    {
+        if (Status is not (TourStatus.Draft or TourStatus.Rejected))
+        {
+            throw new InvalidOperationException("Only Draft or Rejected tours can clear version lineage for deletion.");
+        }
+
+        VersionRootTourId = null;
     }
 
     public void SubmitForReview(DateTimeOffset submittedAtUtc, string? submissionNote = null)
@@ -207,7 +229,10 @@ public class Tour : BaseEntity
         DateTimeOffset updatedAtUtc,
         string? highlights = null,
         string? travellerRequirements = null,
-        string? timeZoneId = null)
+        string? timeZoneId = null,
+        bool allowDeposit = false,
+        decimal? depositPercent = null,
+        int? balanceDueDaysBeforeDeparture = null)
     {
         if (Status is not (TourStatus.Draft or TourStatus.Rejected))
         {
@@ -237,7 +262,37 @@ public class Tour : BaseEntity
         Highlights = normalizedHighlights;
         TravellerRequirements = normalizedRequirements;
         TimeZoneId = normalizedTimeZone;
+        ApplyDepositTerms(allowDeposit, depositPercent, balanceDueDaysBeforeDeparture);
         UpdatedAtUtc = updatedAtUtc.ToUniversalTime();
+    }
+
+    private void ApplyDepositTerms(bool allowDeposit, decimal? depositPercent, int? balanceDueDaysBeforeDeparture)
+    {
+        if (!allowDeposit)
+        {
+            AllowDeposit = false;
+            DepositPercent = null;
+            BalanceDueDaysBeforeDeparture = null;
+            return;
+        }
+
+        if (depositPercent is null or < MinDepositPercent or > MaxDepositPercent)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(depositPercent),
+                $"Deposit percentage must be between {MinDepositPercent}% and {MaxDepositPercent}%.");
+        }
+
+        if (balanceDueDaysBeforeDeparture is null or < MinBalanceDueDaysBeforeDeparture or > MaxBalanceDueDaysBeforeDeparture)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(balanceDueDaysBeforeDeparture),
+                $"Balance due days must be between {MinBalanceDueDaysBeforeDeparture} and {MaxBalanceDueDaysBeforeDeparture} days before departure.");
+        }
+
+        AllowDeposit = true;
+        DepositPercent = decimal.Round(depositPercent.Value, 2, MidpointRounding.AwayFromZero);
+        BalanceDueDaysBeforeDeparture = balanceDueDaysBeforeDeparture.Value;
     }
 
     /// <summary>
@@ -404,6 +459,184 @@ public class Tour : BaseEntity
             throw new InvalidOperationException("Only Published or publicly active Approved tours can be unpublished.");
         Status = TourStatus.Inactive;
         UpdatedAtUtc = normalizedUnpublishedAtUtc;
+    }
+
+    public bool CanAcceptAdditionalDeparture(DateTimeOffset asOfUtc)
+    {
+        var normalizedAsOfUtc = asOfUtc.ToUniversalTime();
+        return Status == TourStatus.Published
+            || (Status == TourStatus.Approved
+                && PublishedAtUtc.HasValue
+                && PublishedAtUtc.Value <= normalizedAsOfUtc);
+    }
+
+    public void AddDeparture(TourSchedule schedule, DateTimeOffset nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(schedule);
+        var normalizedNow = nowUtc.ToUniversalTime();
+        if (!CanAcceptAdditionalDeparture(normalizedNow))
+        {
+            throw new InvalidOperationException(
+                "Only an approved and published tour can accept additional departures.");
+        }
+
+        schedule.AttachTo(this);
+        _schedules.Add(schedule);
+        UpdatedAtUtc = normalizedNow;
+    }
+
+    /// <summary>
+    /// Applies an approved <c>TourPendingChangeSet</c>'s proposed values to this live tour
+    /// (TM-82, spec §4.2). Only Approved/Published tours accept this; it never touches
+    /// Status/ReviewedBy/ReviewedAtUtc/PublishedAtUtc (BR-103/UC-36 PC-02).
+    ///
+    /// Schedules are reconciled by id rather than destroyed and recreated (unlike
+    /// <see cref="ReplaceDraftChildren"/>, which only ever runs against a Draft/Rejected tour that
+    /// cannot yet have any booking): a proposed schedule whose <see cref="TourSchedule.Id"/> matches
+    /// an existing one is updated in place, preserving that id and its
+    /// <see cref="TourSchedule.ReservedCapacity"/>; a proposed schedule with no matching id (default
+    /// <c>0</c>, per <see cref="BaseEntity"/>) is added as new; an existing schedule missing from
+    /// the proposed set is removed only when it has zero <see cref="TourSchedule.ReservedCapacity"/>
+    /// — one with any sold slots is always kept, so <see cref="Booking.TourScheduleId"/> never
+    /// dangles and BR-61 is never defeated by a silent removal.
+    /// </summary>
+    public void ApplyPendingChange(
+        int? categoryId,
+        string title,
+        string description,
+        decimal basePrice,
+        int durationDays,
+        string? inclusions,
+        string? exclusions,
+        string? highlights,
+        string? travellerRequirements,
+        string? timeZoneId,
+        IEnumerable<long> destinationIds,
+        string destinationSummary,
+        CancellationPolicyTemplate cancellationPolicy,
+        IEnumerable<TourItineraryItem> itineraryItems,
+        IEnumerable<TourSchedule> schedules,
+        DateTimeOffset appliedAtUtc)
+    {
+        if (Status is not (TourStatus.Approved or TourStatus.Published))
+        {
+            throw new InvalidOperationException("Only Approved or Published tours accept a pending change.");
+        }
+
+        if (categoryId <= 0) throw new ArgumentOutOfRangeException(nameof(categoryId));
+        if (string.IsNullOrWhiteSpace(title) || title.Trim().Length > TitleMaxLength)
+            throw new ArgumentException("A valid title is required.", nameof(title));
+        if (string.IsNullOrWhiteSpace(description))
+            throw new ArgumentException("A description is required.", nameof(description));
+        EnsureWholeVnd(basePrice, nameof(basePrice));
+        if (durationDays <= 0) throw new ArgumentOutOfRangeException(nameof(durationDays));
+
+        var normalizedAppliedAtUtc = appliedAtUtc.ToUniversalTime();
+
+        CategoryId = categoryId;
+        Title = title.Trim();
+        Description = description.Trim();
+        BasePrice = decimal.Round(basePrice, 2, MidpointRounding.AwayFromZero);
+        DurationDays = durationDays;
+        Inclusions = NormalizeTerms(inclusions, nameof(inclusions));
+        Exclusions = NormalizeTerms(exclusions, nameof(exclusions));
+        Highlights = NormalizeTerms(highlights, nameof(highlights));
+        TravellerRequirements = NormalizeTerms(travellerRequirements, nameof(travellerRequirements));
+        TimeZoneId = NormalizeTimeZoneId(timeZoneId);
+
+        ReconcileSchedules(schedules, normalizedAppliedAtUtc);
+        ApplyPendingItineraryItems(itineraryItems);
+        ReplaceDraftDestinationsCore(destinationIds, destinationSummary);
+        ApplyCancellationPolicySnapshotCore(cancellationPolicy);
+
+        UpdatedAtUtc = normalizedAppliedAtUtc;
+    }
+
+    private void ReconcileSchedules(IEnumerable<TourSchedule> proposedSchedules, DateTimeOffset nowUtc)
+    {
+        var proposed = proposedSchedules?.ToArray() ?? throw new ArgumentNullException(nameof(proposedSchedules));
+        if (proposed.Length == 0) throw new ArgumentException("At least one schedule is required.", nameof(proposedSchedules));
+
+        var proposedIds = proposed.Where(schedule => schedule.Id != 0).Select(schedule => schedule.Id).ToHashSet();
+        // spec §3 point D: a past-departure schedule is never removed by reconciliation, even when
+        // it carries no reservations — only a future schedule with no reservations is prunable.
+        var removable = _schedules
+            .Where(existing => !proposedIds.Contains(existing.Id) && existing.ReservedCapacity == 0
+                && existing.StartAtUtc > nowUtc)
+            .ToList();
+        foreach (var schedule in removable)
+        {
+            _schedules.Remove(schedule);
+        }
+
+        foreach (var proposedSchedule in proposed)
+        {
+            var matched = proposedSchedule.Id != 0
+                ? _schedules.SingleOrDefault(existing => existing.Id == proposedSchedule.Id)
+                : null;
+            if (matched is not null)
+            {
+                matched.ApplyProposedFields(proposedSchedule);
+            }
+            else
+            {
+                proposedSchedule.AttachTo(this);
+                _schedules.Add(proposedSchedule);
+            }
+        }
+    }
+
+    private void ApplyPendingItineraryItems(IEnumerable<TourItineraryItem> itineraryItems)
+    {
+        var items = itineraryItems?.ToArray() ?? throw new ArgumentNullException(nameof(itineraryItems));
+        if (items.Length == 0) throw new ArgumentException("At least one itinerary item is required.", nameof(itineraryItems));
+        if (items.Any(item => item.DayNo > DurationDays) ||
+            items.GroupBy(item => (item.DayNo, item.SequenceNo)).Any(group => group.Count() > 1))
+        {
+            throw new ArgumentException("The itinerary ordering is invalid.", nameof(itineraryItems));
+        }
+
+        _itineraryItems.Clear();
+        foreach (TourItineraryItem item in items)
+        {
+            item.AttachTo(this);
+            _itineraryItems.Add(item);
+        }
+    }
+
+    private void ReplaceDraftDestinationsCore(IEnumerable<long> destinationIds, string destinationSummary)
+    {
+        long[] ids = destinationIds?.ToArray() ?? throw new ArgumentNullException(nameof(destinationIds));
+        if (ids.Length == 0 || ids.Length > MaxDestinations)
+            throw new ArgumentException(
+                $"Between 1 and {MaxDestinations} destinations are required.", nameof(destinationIds));
+        if (ids.Any(id => id <= 0) || ids.Distinct().Count() != ids.Length)
+            throw new ArgumentException("Destinations must be unique valid ids.", nameof(destinationIds));
+        if (string.IsNullOrWhiteSpace(destinationSummary) || destinationSummary.Trim().Length > DestinationSummaryMaxLength)
+            throw new ArgumentException("A valid destination summary is required.", nameof(destinationSummary));
+
+        DestinationSummary = destinationSummary.Trim();
+        _destinations.Clear();
+        for (int index = 0; index < ids.Length; index++)
+        {
+            _destinations.Add(TourDestination.Create(this, ids[index], index + 1));
+        }
+    }
+
+    private void ApplyCancellationPolicySnapshotCore(CancellationPolicyTemplate template)
+    {
+        ArgumentNullException.ThrowIfNull(template);
+        if (!template.IsActive || template.Rules.Count == 0)
+            throw new ArgumentException("An active cancellation policy with rules is required.", nameof(template));
+
+        _cancellationPolicyRules.Clear();
+        foreach (var rule in template.Rules)
+        {
+            _cancellationPolicyRules.Add(
+                TourCancellationPolicyRule.Create(this, rule.DaysBeforeDeparture, rule.CancellationFeePercent));
+        }
+
+        CancellationPolicyTemplateId = template.Id;
     }
 
     private static void EnsureWholeVnd(decimal price, string parameterName)

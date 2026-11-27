@@ -79,6 +79,15 @@ public class TourConfiguration : IEntityTypeConfiguration<Tour>
             .HasMaxLength(Tour.PreferenceJsonMaxLength);
         builder.Property(tour => tour.CancellationPolicyTemplateId)
             .HasColumnName("cancellation_policy_template_id");
+        builder.Property(tour => tour.AllowDeposit)
+            .HasColumnName("allow_deposit")
+            .HasDefaultValue(false)
+            .IsRequired();
+        builder.Property(tour => tour.DepositPercent)
+            .HasColumnName("deposit_percent")
+            .HasPrecision(5, 2);
+        builder.Property(tour => tour.BalanceDueDaysBeforeDeparture)
+            .HasColumnName("balance_due_days_before_departure");
         builder.Property(tour => tour.Status)
             .HasColumnName("status")
             .HasConversion<string>()

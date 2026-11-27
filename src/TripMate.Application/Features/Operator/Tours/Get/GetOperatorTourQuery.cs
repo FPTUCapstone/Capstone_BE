@@ -35,6 +35,8 @@ public sealed record OperatorTourDetailDto(
     /// <summary>Number of active media items; computed by the server, never client-provided.</summary>
     public DateTimeOffset? SubmittedAtUtc { get; init; }
 
+    public DateTimeOffset? PublishedAtUtc { get; init; }
+
     public string? SubmissionNote { get; init; }
 
     public int MediaCount { get; init; }
@@ -56,8 +58,24 @@ public sealed record OperatorTourDetailDto(
 
     public string? TravellerRequirements { get; init; }
 
+    public bool AllowDeposit { get; init; }
+
+    public decimal? DepositPercent { get; init; }
+
+    public int? BalanceDueDaysBeforeDeparture { get; init; }
+
+    public IReadOnlyList<OperatorTourVersionDto> Versions { get; init; } = [];
+
     public IReadOnlyList<string> WeatherReadinessIssues { get; init; } = [];
 }
+
+public sealed record OperatorTourVersionDto(
+    long TourId,
+    int VersionNo,
+    string Status,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset? PublishedAtUtc,
+    string? RejectionReason);
 
 public sealed record OperatorTourDestinationDto(long DestinationId, string Name);
 
@@ -71,6 +89,8 @@ public sealed record OperatorTourItineraryItemDto(
     int StayDurationMinutes,
     string? Notes)
 {
+    public string? PoiName { get; init; }
+
     public bool? IsRequiredForWeather { get; init; }
 }
 
@@ -93,4 +113,6 @@ public sealed record OperatorTourDepartureDto(
     public decimal? MeetingLongitude { get; init; }
 
     public bool WeatherReady { get; init; }
+
+    public bool IsCompleted { get; init; }
 }

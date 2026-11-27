@@ -24,7 +24,10 @@ public sealed record CreateTourPackageCommand(string Title, string Description, 
     string? TimeZoneId = null,
     string? Highlights = null,
     string? TravellerRequirements = null,
-    long? SourceTourId = null)
+    long? SourceTourId = null,
+    bool AllowDeposit = false,
+    decimal? DepositPercent = null,
+    int? BalanceDueDaysBeforeDeparture = null)
     : IRequest<Result<CreateTourPackageResponse>>;
 
 public sealed record CreateTourPackageResponse(long TourId, string Status, int VersionNo = 1);
