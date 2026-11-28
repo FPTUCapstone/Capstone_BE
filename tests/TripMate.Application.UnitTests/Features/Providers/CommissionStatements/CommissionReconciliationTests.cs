@@ -79,7 +79,8 @@ public sealed class CommissionReconciliationTests
 
         // Staff reconciles payment
         var reconcileResult = await commandHandler.HandleAsync(
-            new ConfirmCommissionReceiptCommand(statement.Id, staff.Id, "Bank credit verified on MB statement"));
+            new ConfirmCommissionReceiptCommand(statement.Id, staff.Id, "Bank credit verified on MB statement",
+                "FT2611037777", 50_000m));
 
         reconcileResult.IsSuccess.Should().BeTrue();
         reconcileResult.Value.Status.Should().Be(ServiceCommissionStatement.StatusPaid);
@@ -109,12 +110,56 @@ public sealed class CommissionReconciliationTests
         var commandHandler = new AdminReconciliationCommandHandler(context, commissionService);
 
         // First reconcile
-        var first = await commandHandler.HandleAsync(new ConfirmCommissionReceiptCommand(statement.Id, staff.Id));
+        var first = await commandHandler.HandleAsync(
+            new ConfirmCommissionReceiptCommand(statement.Id, staff.Id, BankTransferReference: "FT2611037777", ReceivedAmountVnd: 50_000m));
         first.IsSuccess.Should().BeTrue();
 
         // Second reconcile attempt -> AlreadyPaid
         var second = await commandHandler.HandleAsync(new ConfirmCommissionReceiptCommand(statement.Id, staff.Id));
         second.IsSuccess.Should().BeFalse();
         second.ErrorCode.Should().Be(CommissionStatementErrorCodes.AlreadyPaid);
+    }
+
+    [Fact]
+    public async Task Staff_must_match_the_bank_credit_and_can_correct_the_reference_without_overwriting_the_report()
+    {
+        var (db, staff, _, statement) = SetupReconciliationEnvironment();
+        await using var context = db;
+        statement.MarkOverdue();
+        await db.SaveChangesAsync();
+        var handler = new AdminReconciliationCommandHandler(db, new CommissionStatementService(db));
+
+        var shortPayment = await handler.HandleAsync(new ConfirmCommissionReceiptCommand(
+            statement.Id, staff.Id, BankTransferReference: "CORRECTED-001", ReceivedAmountVnd: 49_999m));
+        shortPayment.ErrorCode.Should().Be(CommissionStatementErrorCodes.ReceiptAmountMismatch);
+        statement.Status.Should().Be(ServiceCommissionStatement.StatusOverdue);
+
+        var paid = await handler.HandleAsync(new ConfirmCommissionReceiptCommand(
+            statement.Id, staff.Id, BankTransferReference: " CORRECTED-001 ", ReceivedAmountVnd: 50_000m));
+        paid.IsSuccess.Should().BeTrue();
+        statement.BankTransferReference.Should().Be("FT2611037777");
+        statement.VerifiedBankTransferReference.Should().Be("CORRECTED-001");
+        db.AuditLogs.Single().AfterData.Should().Contain("CORRECTED-001");
+    }
+
+    [Fact]
+    public async Task List_uses_statement_id_to_keep_equal_period_and_due_date_on_distinct_pages()
+    {
+        var (db, _, _, first) = SetupReconciliationEnvironment();
+        await using var context = db;
+        var otherProvider = ServiceProvider.Create("Second provider", CommercialService.CategoryRestaurant,
+            ServiceProvider.StatusActive);
+        db.ServiceProviders.Add(otherProvider);
+        await db.SaveChangesAsync();
+        var second = ServiceCommissionStatement.Create("STMT-SECOND", otherProvider.Id, first.Period,
+            1, 500_000m, 50_000m, first.IssueDate, first.DueDate);
+        db.ServiceCommissionStatements.Add(second);
+        await db.SaveChangesAsync();
+        var query = new AdminReconciliationQueryHandler(db);
+
+        var pageOne = await query.HandleAsync(new GetReconciliationStatementsQuery(PageNumber: 1, PageSize: 1));
+        var pageTwo = await query.HandleAsync(new GetReconciliationStatementsQuery(PageNumber: 2, PageSize: 1));
+        pageOne.Value.Items.Should().ContainSingle().Which.StatementId.Should().Be(second.Id);
+        pageTwo.Value.Items.Should().ContainSingle().Which.StatementId.Should().Be(first.Id);
     }
 }

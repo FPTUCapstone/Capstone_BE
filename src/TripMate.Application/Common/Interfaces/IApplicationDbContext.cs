@@ -354,6 +354,8 @@ public interface IApplicationDbContext
     /// </summary>
     bool IsDeadlock(Exception exception) => false;
 
+    bool IsCommissionReceiptReferenceConflict(DbUpdateException exception) => false;
+
     /// <summary>
     /// True when the exception, or one of its inner exceptions, is the SQL Server unique-index
     /// violation (2601/2627) on Itineraries.source_booking_id — meaning a concurrent payment

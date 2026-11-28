@@ -13,6 +13,7 @@ public sealed class ServiceCommissionStatement : BaseEntity
     public const int PeriodMaxLength = 7;
     public const int BankTransferReferenceMaxLength = 100;
     public const int ReceiptNumberMaxLength = 50;
+    public const int AutoLockGraceDays = 15;
     public const decimal DefaultCommissionRate = 10.00m;
 
     private ServiceCommissionStatement()
@@ -42,6 +43,7 @@ public sealed class ServiceCommissionStatement : BaseEntity
     public string Status { get; private set; } = StatusIssued;
 
     public string? BankTransferReference { get; private set; }
+    public string? VerifiedBankTransferReference { get; private set; }
 
     public DateTimeOffset? ReportedAtUtc { get; private set; }
 
@@ -113,13 +115,25 @@ public sealed class ServiceCommissionStatement : BaseEntity
         Status = StatusPaymentReported;
     }
 
-    public void ConfirmReceipt(long staffUserId, DateTimeOffset confirmedAtUtc, string receiptNumber)
+    public void ConfirmReceipt(long staffUserId, DateTimeOffset confirmedAtUtc, string receiptNumber,
+        string? verifiedBankReference = null)
     {
         if (staffUserId <= 0) throw new ArgumentOutOfRangeException(nameof(staffUserId));
         ArgumentException.ThrowIfNullOrWhiteSpace(receiptNumber);
         if (Status == StatusPaid)
         {
             throw new InvalidOperationException("Statement is already marked as Paid.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(verifiedBankReference))
+        {
+            var normalizedReference = verifiedBankReference.Trim();
+            if (normalizedReference.Length > BankTransferReferenceMaxLength)
+            {
+                throw new ArgumentException("The bank transfer reference is too long.", nameof(verifiedBankReference));
+            }
+
+            VerifiedBankTransferReference = normalizedReference.ToUpperInvariant();
         }
 
         Status = StatusPaid;

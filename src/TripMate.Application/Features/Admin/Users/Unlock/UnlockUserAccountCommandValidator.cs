@@ -16,6 +16,7 @@ public sealed class UnlockUserAccountCommandValidator : AbstractValidator<Unlock
             .Must(key => !string.IsNullOrWhiteSpace(key))
             .Must(key => key is not null
                 && key.Trim().Length is >= 1 and <= 128
-                && key.Trim().All(character => character is >= '!' and <= '~'));
+                && key.Trim().All(character => character is >= '!' and <= '~'))
+            .When(command => command.IdempotencyKey is not null);
     }
 }

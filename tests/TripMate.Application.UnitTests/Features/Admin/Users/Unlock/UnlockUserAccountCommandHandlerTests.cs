@@ -58,6 +58,22 @@ public sealed class UnlockUserAccountCommandHandlerTests
     }
 
     [Fact]
+    public async Task Handle_WhenManualLockWasResolvedAndDebtIsWithinGracePeriod_RestoresAccess()
+    {
+        var target = CreateLockedUser(20, AccountStatus.Active);
+        target.Role = UserRole.TourOperator;
+        _dbContext.Users.Add(target);
+        _dbContext.TourOperatorDebts.Add(TourOperatorDebt.Create(target.Id, 500_000m, Now.AddDays(-2), Now));
+        await _dbContext.SaveChangesAsync();
+
+        var result = await CreateHandler().Handle(
+            new UnlockUserAccountCommand(target.Id, "Policy review complete", "manual-lock"), CancellationToken.None);
+
+        result.IsSuccess.Should().BeTrue();
+        target.Status.Should().Be(AccountStatus.Active);
+    }
+
+    [Fact]
     public async Task Handle_WhenOperatorHasUnrecoveredDebt_LeavesAccountLocked()
     {
         User target = CreateLockedUser(20, AccountStatus.Active);
