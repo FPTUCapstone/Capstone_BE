@@ -100,8 +100,12 @@ public static class DependencyInjection
         services.Configure<ContractTemplateRendererOptions>(configuration.GetSection("ContractTemplates:Renderer"));
         services.AddScoped<IContractTemplateDocumentProcessor, DocxContractTemplateProcessor>();
         services.AddScoped<IContractTemplateArtifactStorage, PrivateContractTemplateArtifactStorage>();
+        services.AddHttpClient<RemoteContractTemplateRenderer>()
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseProxy = false });
         services.AddScoped<IContractTemplatePdfRenderer>(provider =>
-            string.IsNullOrWhiteSpace(configuration["ContractTemplates:Renderer:DockerImage"])
+            !string.IsNullOrWhiteSpace(configuration["ContractTemplates:Renderer:RemoteEndpoint"])
+                ? provider.GetRequiredService<RemoteContractTemplateRenderer>()
+                : string.IsNullOrWhiteSpace(configuration["ContractTemplates:Renderer:DockerImage"])
                 ? new LibreOfficeContractTemplateRenderer(provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<ContractTemplateRendererOptions>>())
                 : new DockerContractTemplateRenderer(provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<ContractTemplateRendererOptions>>()));
         services.AddScoped<ContractTemplateWorkflow>();

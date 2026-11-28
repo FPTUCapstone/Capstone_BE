@@ -1,0 +1,38 @@
+name: Contract renderer container
+
+on:
+  pull_request:
+    paths:
+      - 'docker/contract-renderer/**'
+      - '.github/workflows/contract-renderer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  render-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test private renderer protocol
+        run: python3 -m unittest discover -s docker/contract-renderer -p test_server.py
+      - name: Build production renderer
+        run: docker build -t tripmate-contract-renderer:railway -f docker/contract-renderer/Dockerfile.railway .
+      - name: Verify real PDF conversion and sandbox
+        run: >-
+          docker run --rm --memory 1g --cpus 1 --pids-limit 128
+          --security-opt no-new-privileges
+          --mount type=bind,source="$PWD/docker/contract-renderer/smoke.py",target=/checks/smoke.py,readonly
+          --entrypoint /usr/bin/tini tripmate-contract-renderer:railway -- python3 /checks/smoke.py
+      - name: Reject hosts without sandbox support
+        run: |
+          set +e
+          output=$(docker run --rm --security-opt seccomp="$PWD/docker/contract-renderer/deny-landlock.test.json" \
+            -e RENDERER_API_KEY=ci-only-token-not-a-production-secret tripmate-contract-renderer:railway 2>&1)
+          code=$?
+          set -e
+          printf '%s\n' "$output"
+          test "$code" -eq 1
+          grep -q 'Sandbox self-test failed: Landlock ABI' <<< "$output"

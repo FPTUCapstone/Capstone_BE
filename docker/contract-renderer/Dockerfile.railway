@@ -1,0 +1,24 @@
+FROM debian:bookworm-slim AS sandbox-build
+RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev libseccomp-dev linux-libc-dev \
+    && rm -rf /var/lib/apt/lists/*
+COPY docker/contract-renderer/sandbox.c /build/sandbox.c
+RUN gcc -O2 -Wall -Wextra -Werror -D_FORTIFY_SOURCE=2 -fstack-protector-strong \
+    -o /build/contract-render-sandbox /build/sandbox.c -lseccomp
+
+# A separate service, never the application API: do not attach the API artifact volume or shared secrets.
+FROM debian:bookworm-slim
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 libreoffice-writer poppler-utils libseccomp2 fonts-liberation fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=sandbox-build /build/contract-render-sandbox /usr/local/bin/contract-render-sandbox
+COPY docker/contract-renderer/server.py /service/server.py
+RUN apt-get update && apt-get install -y --no-install-recommends tini && rm -rf /var/lib/apt/lists/*
+# LO 7.4 chooses /tmp for its Unix pipe if writable, ignoring TMPDIR. Only the
+# supervisor can create job directories here; the engine uses OSL_SOCKET_PATH inside its job.
+RUN chmod 0755 /tmp /var/tmp
+WORKDIR /service
+ENV PORT=8080 PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+EXPOSE 8080
+# Supervisor stays root so the untrusted engine can run as nobody with no access to supervisor secrets.
+# The launcher is not setuid; it drops uid/gid, clears environment/fds and applies Landlock + seccomp.
+ENTRYPOINT ["/usr/bin/tini", "--", "python3", "/service/server.py"]
