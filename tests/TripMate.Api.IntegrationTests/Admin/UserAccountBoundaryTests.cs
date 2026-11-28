@@ -393,7 +393,9 @@ public sealed class UserAccountBoundaryTests
         await using var db = database.CreateDbContext();
         var staff = new User
         {
-            Role = UserRole.Staff, Status = AccountStatus.Active, FullName = "Receipt staff",
+            Role = UserRole.Staff,
+            Status = AccountStatus.Active,
+            FullName = "Receipt staff",
             Email = "receipt-staff@tm228.test",
         };
         var provider = Provider.Create("Concurrent receipt provider", CommercialService.CategoryRestaurant, Provider.StatusActive);
