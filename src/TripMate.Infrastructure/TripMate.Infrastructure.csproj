@@ -13,6 +13,8 @@
     <PackageReference Include="CloudinaryDotNet" Version="1.29.3" />
     <PackageReference Include="FirebaseAdmin" Version="3.1.0" />
     <PackageReference Include="Google.Apis.Auth" Version="1.68.0" />
+    <PackageReference Include="itext7" Version="8.0.5" />
+    <PackageReference Include="itext7.bouncy-castle-adapter" Version="8.0.5" />
     <PackageReference Include="MailKit" Version="4.16.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.0">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
@@ -42,8 +44,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="SupportChat/Knowledge/srs-business-rules-20261112.json"
-                      LogicalName="TripMate.SupportChat.srs-business-rules-20261112.json" />
+    <EmbeddedResource Include="SupportChat/Knowledge/srs-business-rules-20261112.json" LogicalName="TripMate.SupportChat.srs-business-rules-20261112.json" />
+    <!-- Vietnamese-capable font for PDF AcroForm fill and preview watermark.
+         Dev: Arial placeholder. Prod: replace with NotoSans-Regular.ttf (Apache 2.0) or
+         set CONTRACTS_FONT_PATH env var to an absolute path on the server. -->
+    <EmbeddedResource Include="Contracts/Fonts/NotoSans-Regular.ttf" LogicalName="TripMate.Contracts.NotoSans-Regular.ttf" />
   </ItemGroup>
 
 </Project>

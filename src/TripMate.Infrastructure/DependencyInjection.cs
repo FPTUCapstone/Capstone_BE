@@ -89,7 +89,7 @@ public static class DependencyInjection
         services.AddScoped<TripMate.Application.Features.Operator.Contracts.OperatorContractWorkflow>();
         services.AddScoped<TripMate.Application.Features.Operator.Contracts.Common.IContractSignatureImageInspector, TripMate.Infrastructure.Contracts.ContractSignatureImageInspector>();
         services.AddScoped<TripMate.Application.Features.Operator.Contracts.Common.IContractPdfSignatureStamper, TripMate.Infrastructure.Contracts.ContractPdfSignatureStamper>();
-        services.AddScoped<TripMate.Application.Features.Operator.Contracts.Common.IOperatorContractDocumentComposer, TripMate.Infrastructure.Contracts.OperatorContractDocumentComposer>();
+        services.AddScoped<TripMate.Application.Features.Operator.Contracts.Common.IOperatorContractDocumentComposer, TripMate.Infrastructure.Contracts.PdfAcroFormContractDocumentComposer>();
         services.AddScoped<TripMate.Application.Features.Operator.Contracts.Common.IOperatorContractOtpProtector>(provider =>
             new TripMate.Infrastructure.Contracts.OperatorContractOtpProtector(() => provider.GetRequiredService<IOtpProtectionService>()));
         services.AddScoped<TripMate.Application.Features.Operator.Contracts.Common.IOperatorContractOtpEmailSender>(provider =>
@@ -98,16 +98,9 @@ public static class DependencyInjection
             services.AddHostedService<OperatorContractPreparationBackgroundService>();
         services.Configure<ContractTemplateArtifactOptions>(configuration.GetSection("ContractTemplates:Artifacts"));
         services.Configure<ContractTemplateRendererOptions>(configuration.GetSection("ContractTemplates:Renderer"));
-        services.AddScoped<IContractTemplateDocumentProcessor, DocxContractTemplateProcessor>();
+        services.AddScoped<IContractTemplateDocumentProcessor, PdfAcroFormContractTemplateProcessor>();
         services.AddScoped<IContractTemplateArtifactStorage, PrivateContractTemplateArtifactStorage>();
-        services.AddHttpClient<RemoteContractTemplateRenderer>()
-            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false, UseProxy = false });
-        services.AddScoped<IContractTemplatePdfRenderer>(provider =>
-            !string.IsNullOrWhiteSpace(configuration["ContractTemplates:Renderer:RemoteEndpoint"])
-                ? provider.GetRequiredService<RemoteContractTemplateRenderer>()
-                : string.IsNullOrWhiteSpace(configuration["ContractTemplates:Renderer:DockerImage"])
-                ? new LibreOfficeContractTemplateRenderer(provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<ContractTemplateRendererOptions>>())
-                : new DockerContractTemplateRenderer(provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<ContractTemplateRendererOptions>>()));
+        services.AddScoped<IContractTemplatePdfRenderer, PdfAcroFormContractTemplateRenderer>();
         services.AddScoped<ContractTemplateWorkflow>();
         if (configuration.GetValue<bool>("ContractTemplates:PreviewWorkerEnabled"))
             services.AddHostedService<ContractTemplatePreviewBackgroundService>();

@@ -1,5 +1,5 @@
 ﻿{
-  "GeneratedAtUtc": "2026-11-25T12:10:26.8770128\u002B00:00",
+  "GeneratedAtUtc": "2026-11-28T14:36:10.6105156\u002B00:00",
   "Entries": [
     {
       "ScenarioId": "const-n12-m0-s81",
@@ -7,8 +7,8 @@
       "Candidates": 12,
       "Mandatory": 0,
       "NodesExpanded": 1636,
-      "MedianMs": 3.454,
-      "NsPerNode": 2111,
+      "MedianMs": 7.111,
+      "NsPerNode": 4346.6,
       "SearchCompleted": true
     },
     {
@@ -17,8 +17,8 @@
       "Candidates": 12,
       "Mandatory": 1,
       "NodesExpanded": 1030,
-      "MedianMs": 3.252,
-      "NsPerNode": 3157.3,
+      "MedianMs": 7.874,
+      "NsPerNode": 7645,
       "SearchCompleted": true
     },
     {
@@ -27,8 +27,8 @@
       "Candidates": 13,
       "Mandatory": 0,
       "NodesExpanded": 2759,
-      "MedianMs": 5.929,
-      "NsPerNode": 2148.9,
+      "MedianMs": 18.511,
+      "NsPerNode": 6709.2,
       "SearchCompleted": true
     },
     {
@@ -37,8 +37,8 @@
       "Candidates": 13,
       "Mandatory": 1,
       "NodesExpanded": 1225,
-      "MedianMs": 3.735,
-      "NsPerNode": 3048.9,
+      "MedianMs": 7.694,
+      "NsPerNode": 6280.8,
       "SearchCompleted": true
     },
     {
@@ -47,8 +47,8 @@
       "Candidates": 14,
       "Mandatory": 0,
       "NodesExpanded": 3478,
-      "MedianMs": 8.926,
-      "NsPerNode": 2566.5,
+      "MedianMs": 22.818,
+      "NsPerNode": 6560.6,
       "SearchCompleted": true
     },
     {
@@ -57,8 +57,8 @@
       "Candidates": 14,
       "Mandatory": 1,
       "NodesExpanded": 1225,
-      "MedianMs": 5.348,
-      "NsPerNode": 4366.1,
+      "MedianMs": 9.717,
+      "NsPerNode": 7931.9,
       "SearchCompleted": true
     },
     {
@@ -67,8 +67,8 @@
       "Candidates": 15,
       "Mandatory": 0,
       "NodesExpanded": 3799,
-      "MedianMs": 15.292,
-      "NsPerNode": 4025.3,
+      "MedianMs": 22.026,
+      "NsPerNode": 5797.7,
       "SearchCompleted": true
     },
     {
@@ -77,8 +77,8 @@
       "Candidates": 15,
       "Mandatory": 1,
       "NodesExpanded": 1866,
-      "MedianMs": 7.08,
-      "NsPerNode": 3793.9,
+      "MedianMs": 11.657,
+      "NsPerNode": 6246.9,
       "SearchCompleted": true
     },
     {
@@ -87,8 +87,8 @@
       "Candidates": 12,
       "Mandatory": 0,
       "NodesExpanded": 1823,
-      "MedianMs": 4.368,
-      "NsPerNode": 2395.8,
+      "MedianMs": 8.381,
+      "NsPerNode": 4597.4,
       "SearchCompleted": true
     },
     {
@@ -97,8 +97,8 @@
       "Candidates": 12,
       "Mandatory": 1,
       "NodesExpanded": 1085,
-      "MedianMs": 5.169,
-      "NsPerNode": 4764.3,
+      "MedianMs": 7.743,
+      "NsPerNode": 7136.5,
       "SearchCompleted": true
     },
     {
@@ -107,8 +107,8 @@
       "Candidates": 13,
       "Mandatory": 0,
       "NodesExpanded": 3046,
-      "MedianMs": 7.648,
-      "NsPerNode": 2510.9,
+      "MedianMs": 18.502,
+      "NsPerNode": 6074.3,
       "SearchCompleted": true
     },
     {
@@ -117,8 +117,8 @@
       "Candidates": 13,
       "Mandatory": 1,
       "NodesExpanded": 1243,
-      "MedianMs": 9.847,
-      "NsPerNode": 7922.3,
+      "MedianMs": 9.507,
+      "NsPerNode": 7648.4,
       "SearchCompleted": true
     },
     {
@@ -127,8 +127,8 @@
       "Candidates": 14,
       "Mandatory": 0,
       "NodesExpanded": 3507,
-      "MedianMs": 15.484,
-      "NsPerNode": 4415.1,
+      "MedianMs": 27.871,
+      "NsPerNode": 7947.2,
       "SearchCompleted": true
     },
     {
@@ -137,8 +137,8 @@
       "Candidates": 14,
       "Mandatory": 1,
       "NodesExpanded": 1227,
-      "MedianMs": 9.67,
-      "NsPerNode": 7881.1,
+      "MedianMs": 11.662,
+      "NsPerNode": 9504.1,
       "SearchCompleted": true
     },
     {
@@ -147,8 +147,8 @@
       "Candidates": 15,
       "Mandatory": 0,
       "NodesExpanded": 5227,
-      "MedianMs": 21.042,
-      "NsPerNode": 4025.5,
+      "MedianMs": 29.606,
+      "NsPerNode": 5664,
       "SearchCompleted": true
     },
     {
@@ -157,8 +157,8 @@
       "Candidates": 15,
       "Mandatory": 1,
       "NodesExpanded": 1963,
-      "MedianMs": 8.226,
-      "NsPerNode": 4190.6,
+      "MedianMs": 19.936,
+      "NsPerNode": 10155.8,
       "SearchCompleted": true
     },
     {
@@ -167,8 +167,8 @@
       "Candidates": 40,
       "Mandatory": 0,
       "NodesExpanded": 200000,
-      "MedianMs": 1231.895,
-      "NsPerNode": 6159.5,
+      "MedianMs": 2566.458,
+      "NsPerNode": 12832.3,
       "SearchCompleted": false
     },
     {
@@ -177,8 +177,8 @@
       "Candidates": 40,
       "Mandatory": 1,
       "NodesExpanded": 200000,
-      "MedianMs": 1448.941,
-      "NsPerNode": 7244.7,
+      "MedianMs": 2022.574,
+      "NsPerNode": 10112.9,
       "SearchCompleted": false
     },
     {
@@ -187,8 +187,8 @@
       "Candidates": 40,
       "Mandatory": 3,
       "NodesExpanded": 200000,
-      "MedianMs": 1398.676,
-      "NsPerNode": 6993.4,
+      "MedianMs": 1479.098,
+      "NsPerNode": 7395.5,
       "SearchCompleted": false
     },
     {
@@ -197,8 +197,8 @@
       "Candidates": 40,
       "Mandatory": 6,
       "NodesExpanded": 200000,
-      "MedianMs": 840.172,
-      "NsPerNode": 4200.9,
+      "MedianMs": 2919.361,
+      "NsPerNode": 14596.8,
       "SearchCompleted": false
     },
     {
@@ -207,8 +207,8 @@
       "Candidates": 40,
       "Mandatory": 3,
       "NodesExpanded": 200000,
-      "MedianMs": 584.561,
-      "NsPerNode": 2922.8,
+      "MedianMs": 1625.618,
+      "NsPerNode": 8128.1,
       "SearchCompleted": false
     }
   ]
