@@ -1,0 +1,92 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "TripMate readonly itinerary snapshot shares", "version": "1.0.0" },
+  "security": [{ "bearerAuth": [] }],
+  "paths": {
+    "/api/v1/messaging/itinerary-shares": {
+      "post": {
+        "operationId": "shareItinerarySnapshot",
+        "description": "Owner-only server snapshot plus one existing TEXT message whose exact original content is tripmate:itinerary-share:{shareId}. Actor must be Active and authorized to send. Atomically persists both records. Actor/clientRequestId with identical payload replays its receipt while current send access remains required; changed payload is 409. Clients cannot supply snapshot contents.",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ShareRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "Created or replayed receipt", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ShareReceipt" } } } },
+          "400": { "$ref": "#/components/responses/Invalid" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/Inactive" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" }
+        }
+      }
+    },
+    "/api/v1/messaging/itinerary-shares/{shareId}": {
+      "get": {
+        "operationId": "getItinerarySnapshotShare",
+        "description": "Immutable send-time snapshot. Requires current authorized conversation history visibility and original message existence. Unknown/inaccessible shares return 404. Does not expose live itinerary, booking, payment, customer, cost or private-note fields.",
+        "parameters": [{ "name": "shareId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": {
+          "200": { "description": "Authorized immutable snapshot", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ItineraryShare" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": { "bearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" } },
+    "schemas": {
+      "ShareRequest": {
+        "type": "object",
+        "required": ["itineraryId", "conversationKind", "conversationId", "clientRequestId"],
+        "properties": {
+          "itineraryId": { "type": "integer", "format": "int64", "minimum": 1 },
+          "conversationKind": { "type": "string", "enum": ["travel_group", "chat_group", "direct"] },
+          "conversationId": { "type": "integer", "format": "int64", "minimum": 1 },
+          "clientRequestId": { "type": "string", "format": "uuid", "not": { "enum": ["00000000-0000-0000-0000-000000000000"] } }
+        }
+      },
+      "ShareReceipt": {
+        "type": "object", "additionalProperties": false,
+        "required": ["shareId", "messageId"],
+        "properties": {
+          "shareId": { "type": "string", "format": "uuid" },
+          "messageId": { "type": "integer", "format": "int64", "minimum": 1 }
+        }
+      },
+      "ItineraryShare": {
+        "type": "object", "additionalProperties": false,
+        "required": ["shareId", "title", "sharedAtUtc", "itineraryVersion", "items"],
+        "properties": {
+          "shareId": { "type": "string", "format": "uuid" },
+          "title": { "type": "string", "minLength": 1, "maxLength": 200, "description": "Send-time itinerary title; blank titles become Shared itinerary." },
+          "sharedAtUtc": { "type": "string", "format": "date-time", "description": "UTC RFC3339 timestamp." },
+          "itineraryVersion": { "type": "integer", "format": "int32", "minimum": 1 },
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/ItineraryShareItem" } }
+        }
+      },
+      "ItineraryShareItem": {
+        "type": "object", "additionalProperties": false,
+        "required": ["sequenceNo", "name", "arrivalUtc", "departureUtc", "stayDurationMinutes", "latitude", "longitude", "address"],
+        "properties": {
+          "sequenceNo": { "type": "integer", "format": "int32" },
+          "name": { "type": "string", "description": "Public POI name or Rest stop when no POI exists." },
+          "arrivalUtc": { "type": "string", "format": "date-time", "nullable": true, "description": "UTC planned arrival; null if absent in source." },
+          "departureUtc": { "type": "string", "format": "date-time", "nullable": true, "description": "UTC planned departure; null if absent in source." },
+          "stayDurationMinutes": { "type": "integer", "format": "int32" },
+          "latitude": { "type": "number", "nullable": true },
+          "longitude": { "type": "number", "nullable": true },
+          "address": { "type": "string", "nullable": true }
+        }
+      }
+    },
+    "responses": {
+      "Invalid": { "description": "400: malformed JSON/GUID, nonpositive IDs, empty UUID or unsupported exact conversationKind. Standard ProblemDetails." },
+      "Unauthenticated": { "description": "401: authentication required." },
+      "Inactive": { "description": "403: POST actor account is not Active. Standard ProblemDetails." },
+      "NotFound": { "description": "404: missing/inaccessible source, conversation or snapshot; closed travel send target; no snapshot data. Standard ProblemDetails." },
+      "Conflict": { "description": "409: actor/clientRequestId payload mismatch, failed nested send or exhausted concurrency recovery. Retry transient contention with the same key. Standard ProblemDetails." }
+    }
+  }
+}

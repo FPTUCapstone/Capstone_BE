@@ -16,8 +16,15 @@ public sealed class CheckinRollCallCommandHandler(
     IDateTimeProvider dateTimeProvider)
     : IRequestHandler<CheckinRollCallCommand, Result<int>>
 {
-    public async Task<Result<int>> Handle(
+    public Task<Result<int>> Handle(CheckinRollCallCommand request, CancellationToken cancellationToken)
+    {
+        var revision = new MessageInteractionRevision(null);
+        return GroupChatPersistence.RetryMutationAsync(dbContext, () => HandleCore(request, revision, cancellationToken), cancellationToken);
+    }
+
+    private async Task<Result<int>> HandleCore(
         CheckinRollCallCommand request,
+        MessageInteractionRevision revision,
         CancellationToken cancellationToken)
     {
         var group = await dbContext.TravelGroups
@@ -61,19 +68,16 @@ public sealed class CheckinRollCallCommandHandler(
             return Result.Failure<int>(TravelGroupErrorCodes.MessageNotFound, "Message not found.");
         }
 
+        if (!revision.Accept(message.Revision))
+            return Result.Failure<int>(TravelGroupErrorCodes.MessageEditConflict, "Nội dung đã được chỉnh sửa. Vui lòng tải lại trước khi xác nhận.");
+
         if (!string.Equals(message.MessageType, "roll_call", StringComparison.Ordinal))
         {
             return Result.Failure<int>(TravelGroupErrorCodes.InvalidMessageType, "Only roll call messages support check-in.");
         }
 
         message.AddRollCallCheckin(request.UserId, dateTimeProvider.UtcNow);
-        await GroupChatPersistence.SaveInteractionAsync(dbContext, "UQ_GroupRollCallCheckins_MessageUser", async () =>
-        {
-            var winner = await dbContext.GroupRollCallCheckins.SingleAsync(
-                row => row.MessageId == request.MessageId && row.UserId == request.UserId, cancellationToken);
-            // The winning confirmation already represents the requested state.
-
-        }, cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
 
         return Result.Success(await dbContext.GroupRollCallCheckins.AsNoTracking()
             .CountAsync(row => row.MessageId == request.MessageId, cancellationToken));

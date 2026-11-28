@@ -4,7 +4,6 @@ using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
 using TripMate.Application.Common.Models;
-using TripMate.Application.Features.TravelGroups.Chat.GetGroupMessages;
 using TripMate.Application.Features.TravelGroups.Common;
 using TripMate.Domain.Entities;
 using TripMate.Domain.Enums;
@@ -118,7 +117,7 @@ public sealed class SendGroupMessageCommandHandler(
         // For split bill, creator is initially marked as paid
         if (normalizedType == "split_bill")
         {
-            message.UpdateSplitBillPayment(request.SenderUserId, true, now);
+            message.UpdateSplitBillPayment(request.SenderUserId, true, now, isInitialCreatorMarker: true);
         }
 
         dbContext.GroupMessages.Add(message);
@@ -142,8 +141,8 @@ public sealed class SendGroupMessageCommandHandler(
     private async Task<Result<GroupMessageDto>> ReplayAsync(GroupMessage message, SendGroupMessageCommand request, CancellationToken ct)
     {
         if (message.MessageType != request.MessageType.Trim().ToLowerInvariant()
-            || message.Content != request.Content.Trim()
-            || GroupChatMetadata.Normalize(message.MetadataJson) != GroupChatMetadata.Normalize(request.MetadataJson))
+            || (message.OriginalContent ?? message.Content) != request.Content.Trim()
+            || GroupChatMetadata.Normalize(message.OriginalContent is null ? message.MetadataJson : message.OriginalMetadataJson) != GroupChatMetadata.Normalize(request.MetadataJson))
             return Result.Failure<GroupMessageDto>(TravelGroupErrorCodes.IdempotencyKeyPayloadMismatch,
                 "Client message ID was already used for a different payload.");
 
@@ -152,10 +151,11 @@ public sealed class SendGroupMessageCommandHandler(
 
     private async Task<Result<GroupMessageDto>> LoadMessageAsync(GroupMessage message, SendGroupMessageCommand request, CancellationToken ct)
     {
-        // Read persisted receipts for both fresh sends and retries; metadata counters are never authoritative.
-        var result = await new GetGroupMessagesQueryHandler(dbContext).Handle(
-            new GetGroupMessagesQuery(request.GroupId, request.SenderUserId, Limit: 1, BeforeMessageId: message.Id + 1), ct);
-        return result.IsSuccess ? Result.Success(result.Value.Single())
-            : Result.Failure<GroupMessageDto>(result.ErrorCode!, "Active membership is required to read messages.");
+        var member = await dbContext.GroupMembers.AsNoTracking().AnyAsync(m => m.GroupId == request.GroupId
+            && m.UserId == request.SenderUserId && m.Status == GroupMemberStatus.Active, ct);
+        if (!member) return Result.Failure<GroupMessageDto>(TravelGroupErrorCodes.ActiveMembershipRequired, "Active membership is required to read messages.");
+        var items = await GroupMessageReader.ReadAsync(dbContext, request.GroupId, request.SenderUserId, [message.Id], ct);
+        var item = items.SingleOrDefault();
+        return item is null ? Result.Failure<GroupMessageDto>(TravelGroupErrorCodes.MessageNotFound, "Message not found.") : Result.Success(item);
     }
 }

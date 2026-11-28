@@ -15,9 +15,9 @@ namespace TripMate.Api.Controllers.V1;
 public sealed class DirectConversationsController(ISender sender, ICurrentUserService user,
     IDirectChatNotifier notifier) : ControllerBase
 {
-    public sealed record StartRequest(long OtherUserId);
-    public sealed record SendRequest(string? Content, Guid ClientMessageId);
-    public sealed record ReadRequest(long ThroughMessageId);
+    public sealed record StartDirectConversationRequest(long OtherUserId);
+    public sealed record SendDirectConversationRequest(string? Content, Guid ClientMessageId);
+    public sealed record ReadDirectConversationRequest(long ThroughMessageId);
 
     private IActionResult HandleFailure(Result result) => Problem(title: result.ErrorMessage,
         statusCode: result.ErrorCode switch
@@ -37,7 +37,7 @@ public sealed class DirectConversationsController(ISender sender, ICurrentUserSe
     }
 
     [HttpPost]
-    public async Task<IActionResult> Start([FromBody] StartRequest request, CancellationToken ct)
+    public async Task<IActionResult> Start([FromBody] StartDirectConversationRequest request, CancellationToken ct)
     {
         if (user.UserId is not { } actor) return Unauthorized();
         var result = await sender.Send(new StartDirectConversation(actor, request.OtherUserId), ct);
@@ -63,7 +63,7 @@ public sealed class DirectConversationsController(ISender sender, ICurrentUserSe
     }
 
     [HttpPost("{id:long}/messages")]
-    public async Task<IActionResult> Send(long id, [FromBody] SendRequest request, CancellationToken ct)
+    public async Task<IActionResult> Send(long id, [FromBody] SendDirectConversationRequest request, CancellationToken ct)
     {
         if (user.UserId is not { } actor) return Unauthorized();
         var result = await sender.Send(new SendDirectMessage(actor, id, request.Content, request.ClientMessageId), ct);
@@ -73,7 +73,7 @@ public sealed class DirectConversationsController(ISender sender, ICurrentUserSe
     }
 
     [HttpPost("{id:long}/read")]
-    public async Task<IActionResult> Read(long id, [FromBody] ReadRequest request, CancellationToken ct)
+    public async Task<IActionResult> Read(long id, [FromBody] ReadDirectConversationRequest request, CancellationToken ct)
     {
         if (user.UserId is not { } actor) return Unauthorized();
         var result = await sender.Send(new ReadDirectConversation(actor, id, request.ThroughMessageId), ct);

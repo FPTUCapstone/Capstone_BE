@@ -84,6 +84,10 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
             TripMate.Application.Features.Admin.ContractTemplates.Common.ContractTemplateDocumentErrors.DocumentTooLarge => StatusCodes.Status413PayloadTooLarge,
             TripMate.Application.Features.Admin.ContractTemplates.Common.ContractTemplateDocumentErrors.RendererUnavailable or
                 TripMate.Application.Features.Admin.ContractTemplates.Common.ContractTemplateDocumentErrors.StorageUnavailable => StatusCodes.Status503ServiceUnavailable,
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.LocationSharingNotEnabled or
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.LocationSharingSessionExpired => StatusCodes.Status409Conflict,
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.MessageCreatorRequired => StatusCodes.Status403Forbidden,
+            TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.MessageEditConflict => StatusCodes.Status409Conflict,
             TripMate.Application.Features.Admin.UserAccounts.UserAccountErrors.Forbidden => StatusCodes.Status403Forbidden,
             TripMate.Application.Features.Admin.UserAccounts.UserAccountErrors.NotFound => StatusCodes.Status404NotFound,
             TripMate.Application.Features.Admin.UserAccounts.UserAccountErrors.InvalidRequest or
@@ -518,6 +522,7 @@ public abstract class ApiControllerBase(ISender sender) : ControllerBase
                 StatusCodes.Status503ServiceUnavailable,
 
             TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.GroupClosed or
+                TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.DissolutionRestricted or
                 TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.AlreadyLeft or
                 TripMate.Application.Features.TravelGroups.Common.TravelGroupErrorCodes.MemberNotActive =>
                 StatusCodes.Status409Conflict,

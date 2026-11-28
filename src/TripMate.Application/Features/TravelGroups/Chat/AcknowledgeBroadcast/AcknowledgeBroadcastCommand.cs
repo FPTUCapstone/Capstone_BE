@@ -9,15 +9,22 @@ using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.TravelGroups.Chat.AcknowledgeBroadcast;
 
-public sealed record AcknowledgeBroadcastCommand(long GroupId, long MessageId, long UserId) : IRequest<Result<int>>;
+public sealed record AcknowledgeBroadcastCommand(long GroupId, long MessageId, long UserId, long? ExpectedRevision = null) : IRequest<Result<int>>;
 
 public sealed class AcknowledgeBroadcastCommandHandler(
     IApplicationDbContext dbContext,
     IDateTimeProvider dateTimeProvider)
     : IRequestHandler<AcknowledgeBroadcastCommand, Result<int>>
 {
-    public async Task<Result<int>> Handle(
+    public Task<Result<int>> Handle(AcknowledgeBroadcastCommand request, CancellationToken cancellationToken)
+    {
+        var revision = new MessageInteractionRevision(request.ExpectedRevision);
+        return GroupChatPersistence.RetryMutationAsync(dbContext, () => HandleCore(request, revision, cancellationToken), cancellationToken);
+    }
+
+    private async Task<Result<int>> HandleCore(
         AcknowledgeBroadcastCommand request,
+        MessageInteractionRevision revision,
         CancellationToken cancellationToken)
     {
         var group = await dbContext.TravelGroups
@@ -61,19 +68,16 @@ public sealed class AcknowledgeBroadcastCommandHandler(
             return Result.Failure<int>(TravelGroupErrorCodes.MessageNotFound, "Message not found.");
         }
 
+        if (!revision.Accept(message.Revision))
+            return Result.Failure<int>(TravelGroupErrorCodes.MessageEditConflict, "Nội dung đã được chỉnh sửa. Vui lòng tải lại trước khi xác nhận.");
+
         if (!string.Equals(message.MessageType, "broadcast", StringComparison.Ordinal))
         {
             return Result.Failure<int>(TravelGroupErrorCodes.InvalidMessageType, "Only broadcast messages can be acknowledged.");
         }
 
         message.AddReadReceipt(request.UserId, dateTimeProvider.UtcNow);
-        await GroupChatPersistence.SaveInteractionAsync(dbContext, "UQ_GroupMessageReadReceipts_MessageUser", async () =>
-        {
-            var winner = await dbContext.GroupMessageReadReceipts.SingleAsync(
-                row => row.MessageId == request.MessageId && row.UserId == request.UserId, cancellationToken);
-            // The winning confirmation already represents the requested state.
-
-        }, cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
 
         return Result.Success(await dbContext.GroupMessageReadReceipts.AsNoTracking()
             .CountAsync(row => row.MessageId == request.MessageId, cancellationToken));

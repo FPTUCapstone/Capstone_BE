@@ -460,6 +460,54 @@ internal sealed class UnsupportedInMemoryReviewMediaCoordinator
 public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
     : DbContext(options), IApplicationDbContext
 {
+    private int _resultTransactionDepth;
+    private long _persistedRowCount;
+    public bool HasActiveTransaction => _resultTransactionDepth > 0;
+    public DbSet<ChatGroupLeaveOperation> ChatGroupLeaveOperations => Set<ChatGroupLeaveOperation>();
+
+    // InMemory can exercise authorization/handler flow, not SQL locking or rollback.
+    // Fail explicitly if a failed operation already saved data; atomicity belongs to SQL tests.
+    public Task AcquireChatGroupLockAsync(long groupId, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!HasActiveTransaction) throw new InvalidOperationException("A test result transaction is required.");
+        return Task.CompletedTask;
+    }
+
+    public Task<TripMate.Application.Common.Models.Result<T>> ExecuteInSerializableResultTransactionAsync<T>(
+        Func<CancellationToken, Task<TripMate.Application.Common.Models.Result<T>>> operation,
+        CancellationToken cancellationToken) => ExecuteInSerializableTransactionAsync(async token =>
+        {
+            var before = _persistedRowCount;
+            _resultTransactionDepth++;
+            try
+            {
+                var result = await operation(token);
+                if (result.IsFailure)
+                {
+                    ChangeTracker.Clear();
+                    if (_persistedRowCount != before)
+                        throw new NotSupportedException("Rollback after persistence requires a SQL Server test.");
+                }
+                return result;
+            }
+            finally { _resultTransactionDepth--; }
+        }, cancellationToken);
+
+    public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        var rows = await base.SaveChangesAsync(cancellationToken);
+        _persistedRowCount += rows;
+        return rows;
+    }
+
+    public DbSet<ItineraryShare> ItineraryShares => Set<ItineraryShare>();
+    public DbSet<ChatGroup> ChatGroups => Set<ChatGroup>();
+    public DbSet<ChatGroupMember> ChatGroupMembers => Set<ChatGroupMember>();
+    public DbSet<ChatGroupMessage> ChatGroupMessages => Set<ChatGroupMessage>();
+
+    public DbSet<Friendship> Friendships => Set<Friendship>();
+
     public DbSet<DirectConversation> DirectConversations => Set<DirectConversation>();
 
     public DbSet<DirectMessage> DirectMessages => Set<DirectMessage>();
@@ -550,7 +598,10 @@ public sealed class TestApiDbContext(DbContextOptions<TestApiDbContext> options)
         Set<BookingCancellationOperation>();
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
+    public DbSet<GroupLocation> GroupLocations => Set<GroupLocation>();
     public DbSet<GroupMessage> GroupMessages => Set<GroupMessage>();
+
+    public DbSet<GroupMessageEditOperation> GroupMessageEditOperations => Set<GroupMessageEditOperation>();
     public DbSet<GroupMessageReadReceipt> GroupMessageReadReceipts => Set<GroupMessageReadReceipt>();
     public DbSet<GroupRollCallCheckin> GroupRollCallCheckins => Set<GroupRollCallCheckin>();
     public DbSet<GroupSplitBillPayment> GroupSplitBillPayments => Set<GroupSplitBillPayment>();

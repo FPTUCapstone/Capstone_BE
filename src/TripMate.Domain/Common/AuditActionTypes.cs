@@ -53,6 +53,7 @@ public static class AuditActionTypes
     public const string AlgorithmParametersUpdate = "UpdateAlgorithmParameters";
     public const string BookingCancel = "CancelBooking";
     public const string TravelGroupMemberRemoved = "TravelGroupMemberRemoved";
+    public const string TravelGroupRenamed = "TravelGroupRenamed";
     // UC-59 BR-130: Administrator access to active trip details
     public const string ActiveTripDetailsViewed = "ViewActiveTripDetails";
 

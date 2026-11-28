@@ -9,7 +9,7 @@ using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.TravelGroups.Chat.ToggleExpensePayment;
 
-public sealed record ToggleExpensePaymentCommand(long GroupId, long MessageId, long UserId, bool IsPaid)
+public sealed record ToggleExpensePaymentCommand(long GroupId, long MessageId, long UserId, bool IsPaid, long? ExpectedRevision = null)
     : IRequest<Result<IReadOnlyList<long>>>;
 
 public sealed class ToggleExpensePaymentCommandHandler(
@@ -17,8 +17,15 @@ public sealed class ToggleExpensePaymentCommandHandler(
     IDateTimeProvider dateTimeProvider)
     : IRequestHandler<ToggleExpensePaymentCommand, Result<IReadOnlyList<long>>>
 {
-    public async Task<Result<IReadOnlyList<long>>> Handle(
+    public Task<Result<IReadOnlyList<long>>> Handle(ToggleExpensePaymentCommand request, CancellationToken cancellationToken)
+    {
+        var revision = new MessageInteractionRevision(request.ExpectedRevision);
+        return GroupChatPersistence.RetryMutationAsync(dbContext, () => HandleCore(request, revision, cancellationToken), cancellationToken);
+    }
+
+    private async Task<Result<IReadOnlyList<long>>> HandleCore(
         ToggleExpensePaymentCommand request,
+        MessageInteractionRevision revision,
         CancellationToken cancellationToken)
     {
         var group = await dbContext.TravelGroups
@@ -62,19 +69,16 @@ public sealed class ToggleExpensePaymentCommandHandler(
             return Result.Failure<IReadOnlyList<long>>(TravelGroupErrorCodes.MessageNotFound, "Message not found.");
         }
 
+        if (!revision.Accept(message.Revision))
+            return Result.Failure<IReadOnlyList<long>>(TravelGroupErrorCodes.MessageEditConflict, "Nội dung đã được chỉnh sửa. Vui lòng tải lại trước khi xác nhận.");
+
         if (!string.Equals(message.MessageType, "split_bill", StringComparison.Ordinal))
         {
             return Result.Failure<IReadOnlyList<long>>(TravelGroupErrorCodes.InvalidMessageType, "Only split bill messages support payment updates.");
         }
 
         message.UpdateSplitBillPayment(request.UserId, request.IsPaid, dateTimeProvider.UtcNow);
-        await GroupChatPersistence.SaveInteractionAsync(dbContext, "UQ_GroupSplitBillPayments_MessageUser", async () =>
-        {
-            var winner = await dbContext.GroupSplitBillPayments.SingleAsync(
-                row => row.MessageId == request.MessageId && row.UserId == request.UserId, cancellationToken);
-            winner.UpdateStatus(request.IsPaid, dateTimeProvider.UtcNow);
-            await dbContext.SaveChangesAsync(cancellationToken);
-        }, cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
 
         var paidUserIds = await dbContext.GroupSplitBillPayments.AsNoTracking()
             .Where(p => p.MessageId == request.MessageId && p.IsPaid)

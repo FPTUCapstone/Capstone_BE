@@ -12,6 +12,47 @@ public class TestDbContext(
     DbContextOptions<TestDbContext> options)
     : DbContext(options), IApplicationDbContext
 {
+    private int _resultTransactionDepth;
+    private long _persistedRowCount;
+    public bool HasActiveTransaction => _resultTransactionDepth > 0;
+    public DbSet<ChatGroupLeaveOperation> ChatGroupLeaveOperations => Set<ChatGroupLeaveOperation>();
+
+    // InMemory can exercise authorization/handler flow, not SQL locking or rollback.
+    // Fail explicitly if a failed operation already saved data; atomicity belongs to SQL tests.
+    public Task AcquireChatGroupLockAsync(long groupId, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!HasActiveTransaction) throw new InvalidOperationException("A test result transaction is required.");
+        return Task.CompletedTask;
+    }
+
+    public Task<TripMate.Application.Common.Models.Result<T>> ExecuteInSerializableResultTransactionAsync<T>(
+        Func<CancellationToken, Task<TripMate.Application.Common.Models.Result<T>>> operation,
+        CancellationToken cancellationToken) => ExecuteInSerializableTransactionAsync(async token =>
+        {
+            var before = _persistedRowCount;
+            _resultTransactionDepth++;
+            try
+            {
+                var result = await operation(token);
+                if (result.IsFailure)
+                {
+                    ChangeTracker.Clear();
+                    if (_persistedRowCount != before)
+                        throw new NotSupportedException("Rollback after persistence requires a SQL Server test.");
+                }
+                return result;
+            }
+            finally { _resultTransactionDepth--; }
+        }, cancellationToken);
+
+    public DbSet<ItineraryShare> ItineraryShares => Set<ItineraryShare>();
+    public DbSet<ChatGroup> ChatGroups => Set<ChatGroup>();
+    public DbSet<ChatGroupMember> ChatGroupMembers => Set<ChatGroupMember>();
+    public DbSet<ChatGroupMessage> ChatGroupMessages => Set<ChatGroupMessage>();
+
+    public DbSet<Friendship> Friendships => Set<Friendship>();
+
     public DbSet<DirectConversation> DirectConversations => Set<DirectConversation>();
 
     public DbSet<DirectMessage> DirectMessages => Set<DirectMessage>();
@@ -135,8 +176,11 @@ public class TestDbContext(
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
 
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
+    public DbSet<GroupLocation> GroupLocations => Set<GroupLocation>();
 
     public DbSet<GroupMessage> GroupMessages => Set<GroupMessage>();
+
+    public DbSet<GroupMessageEditOperation> GroupMessageEditOperations => Set<GroupMessageEditOperation>();
 
     public DbSet<GroupMessageReadReceipt> GroupMessageReadReceipts => Set<GroupMessageReadReceipt>();
 
@@ -264,7 +308,7 @@ public class TestDbContext(
     /// </summary>
     public Func<Exception?>? SaveChangesFailureFactory { get; set; }
 
-    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         SaveChangesAsyncCallCount++;
         if ((SaveChangesFailureFactory?.Invoke() ?? SaveChangesAttemptFailureFactory?.Invoke(SaveChangesAsyncCallCount)) is { } failure)
@@ -272,9 +316,10 @@ public class TestDbContext(
             throw failure;
         }
 
-        return ThrowOnSaveConcurrency
-            ? throw new DbUpdateConcurrencyException("Concurrency conflict simulated in test.")
-            : base.SaveChangesAsync(cancellationToken);
+        if (ThrowOnSaveConcurrency) throw new DbUpdateConcurrencyException("Concurrency conflict simulated in test.");
+        var rows = await base.SaveChangesAsync(cancellationToken);
+        _persistedRowCount += rows;
+        return rows;
     }
 
     public async Task<int> RevokeRefreshTokenAsync(
@@ -429,6 +474,7 @@ public class TestDbContext(
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<ItineraryShare>().HasKey(share => share.ShareId);
         modelBuilder.Entity<TourApprovalNotice>().HasKey(notice => notice.TourId);
         modelBuilder.Entity<ProviderPoiLink>().HasKey(link => new { link.ServiceProviderId, link.PointOfInterestId });
         modelBuilder.Entity<ServiceAvailability>().HasKey(slot => new { slot.ServiceId, slot.StartsAtUtc });
@@ -552,8 +598,13 @@ public class TestDbContext(
         modelBuilder.Entity<TourDestination>()
             .HasKey(link => new { link.TourId, link.DestinationId });
 
+        modelBuilder.ApplyConfiguration(new TripMate.Infrastructure.Persistence.Configurations.ChatGroupConfiguration());
+        modelBuilder.ApplyConfiguration(new TripMate.Infrastructure.Persistence.Configurations.ChatGroupMemberConfiguration());
+        modelBuilder.ApplyConfiguration(new TripMate.Infrastructure.Persistence.Configurations.ChatGroupMessageConfiguration());
         modelBuilder.ApplyConfiguration(new TripMate.Infrastructure.Persistence.Configurations.DirectConversationConfiguration());
         modelBuilder.ApplyConfiguration(new TripMate.Infrastructure.Persistence.Configurations.DirectMessageConfiguration());
+        modelBuilder.ApplyConfiguration(new TripMate.Infrastructure.Persistence.Configurations.GroupMessageConfiguration());
+        modelBuilder.ApplyConfiguration(new TripMate.Infrastructure.Persistence.Configurations.GroupMessageEditOperationConfiguration());
         base.OnModelCreating(modelBuilder);
     }
 
@@ -561,7 +612,7 @@ public class TestDbContext(
 
     /// <summary>
     /// Shares one in-memory store across multiple TestDbContext instances (same databaseName),
-    /// so a test can simulate two workers racing the same row with independent tracked graphs —
+    /// so a test can simulate two workers racing the same row with independent tracked graphs â€”
     /// a single context's own change tracker cannot reproduce that race against itself.
     /// </summary>
     public static TestDbContext Create(string databaseName)

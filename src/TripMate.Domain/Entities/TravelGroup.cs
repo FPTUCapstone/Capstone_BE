@@ -1,4 +1,5 @@
 using TripMate.Domain.Common;
+using TripMate.Domain.Constants;
 using TripMate.Domain.Enums;
 
 namespace TripMate.Domain.Entities;
@@ -85,6 +86,23 @@ public class TravelGroup : BaseEntity
     public IReadOnlyCollection<GroupMember> GroupMembers => _groupMembers.AsReadOnly();
 
     public IReadOnlyCollection<GroupInvitation> GroupInvitations => _groupInvitations.AsReadOnly();
+
+    public void Rename(string name)
+    {
+        if (Status != TravelGroupStatus.Active || ClosedAtUtc is not null)
+        {
+            throw new InvalidOperationException("Only an active travel group can be renamed.");
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        var normalizedName = name.Trim();
+        if (normalizedName.Length > TravelGroupConstants.MaxGroupNameLength)
+        {
+            throw new ArgumentException("A travel group name cannot exceed 150 characters.", nameof(name));
+        }
+
+        Name = normalizedName;
+    }
 
     public void Close(DateTimeOffset closedAtUtc)
     {

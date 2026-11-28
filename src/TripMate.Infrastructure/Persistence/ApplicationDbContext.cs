@@ -21,6 +21,45 @@ public class ApplicationDbContext(
     private const int SqlServerUniqueIndexError = 2601;
     private const int SqlServerUniqueConstraintError = 2627;
 
+    public DbSet<ItineraryShare> ItineraryShares => Set<ItineraryShare>();
+
+    public async Task<TripMate.Application.Common.Models.Result<T>> ExecuteInSerializableResultTransactionAsync<T>(
+        Func<CancellationToken, Task<TripMate.Application.Common.Models.Result<T>>> operation,
+        CancellationToken cancellationToken)
+    {
+        return await Database.CreateExecutionStrategy().ExecuteAsync(async ct =>
+        {
+            // Execution strategies can rerun the callback after an uncertain commit.
+            // Always reload the durable idempotency receipt rather than re-save a stale graph.
+            ChangeTracker.Clear();
+            await using var transaction = await Database.BeginTransactionAsync(IsolationLevel.Serializable, ct);
+            var result = await operation(ct);
+            if (result.IsSuccess) await transaction.CommitAsync(ct);
+            else
+            {
+                await transaction.RollbackAsync(ct);
+                ChangeTracker.Clear();
+            }
+            return result;
+        }, cancellationToken);
+    }
+    public DbSet<ChatGroupLeaveOperation> ChatGroupLeaveOperations => Set<ChatGroupLeaveOperation>();
+    public bool HasActiveTransaction => Database.CurrentTransaction is not null;
+    public async Task AcquireChatGroupLockAsync(long groupId, CancellationToken ct)
+    {
+        if (!HasActiveTransaction) throw new InvalidOperationException("Chat group lock requires a transaction.");
+        await ChatGroups.FromSqlInterpolated($"SELECT * FROM social.ChatGroups WITH (UPDLOCK, HOLDLOCK) WHERE group_id = {groupId}").LoadAsync(ct);
+    }
+
+    public DbSet<ChatGroup> ChatGroups => Set<ChatGroup>();
+    public DbSet<ChatGroupMember> ChatGroupMembers => Set<ChatGroupMember>();
+    public DbSet<ChatGroupMessage> ChatGroupMessages => Set<ChatGroupMessage>();
+
+    public DbSet<Friendship> Friendships => Set<Friendship>();
+
+    public bool IsFriendshipPairUniqueConflict(DbUpdateException exception) =>
+        IsUniqueViolationOn(exception, FriendshipConfiguration.PairIndexName);
+
     public DbSet<DirectConversation> DirectConversations => Set<DirectConversation>();
 
     public DbSet<DirectMessage> DirectMessages => Set<DirectMessage>();
@@ -384,8 +423,11 @@ public class ApplicationDbContext(
     public DbSet<TravelGroup> TravelGroups => Set<TravelGroup>();
 
     public DbSet<GroupMember> GroupMembers => Set<GroupMember>();
+    public DbSet<GroupLocation> GroupLocations => Set<GroupLocation>();
 
     public DbSet<GroupMessage> GroupMessages => Set<GroupMessage>();
+
+    public DbSet<GroupMessageEditOperation> GroupMessageEditOperations => Set<GroupMessageEditOperation>();
 
     public DbSet<GroupMessageReadReceipt> GroupMessageReadReceipts => Set<GroupMessageReadReceipt>();
 

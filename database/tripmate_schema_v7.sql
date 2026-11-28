@@ -1923,6 +1923,7 @@ CREATE TABLE social.GroupMembers (
     group_id                     BIGINT NOT NULL REFERENCES social.TravelGroups(group_id) ON DELETE CASCADE,
     user_id                         BIGINT NOT NULL REFERENCES dbo.Users(user_id),
     location_sharing_enabled          BIT NOT NULL DEFAULT 0,
+    location_sharing_updated_at       DATETIME2(7) NULL,
     status                               VARCHAR(10) NOT NULL DEFAULT 'Active'
         CHECK (status IN ('Active','Removed','Left')),
     joined_at                              DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
@@ -2495,4 +2496,458 @@ IF COL_LENGTH(N'social.GroupMembers', N'last_read_chat_message_id') IS NULL
     ALTER TABLE social.GroupMembers ADD last_read_chat_message_id bigint NULL;
 COMMIT TRANSACTION;
 
+GO
+
+-- Messenger friendship persistence. No seed data or chat access changes.
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+DECLARE @lockResult int;
+EXEC @lockResult = sys.sp_getapplock @Resource = N'TripMate.Friendships.Schema',
+    @LockMode = N'Exclusive', @LockOwner = N'Transaction', @LockTimeout = 30000;
+IF @lockResult < 0 THROW 51000, 'Cannot acquire friendship schema lock.', 1;
+IF SCHEMA_ID(N'social') IS NULL EXEC(N'CREATE SCHEMA social');
+
+IF OBJECT_ID(N'social.Friendships', N'U') IS NULL
+BEGIN
+    CREATE TABLE social.Friendships (
+        friendship_id bigint IDENTITY(1,1) NOT NULL CONSTRAINT PK_Friendships PRIMARY KEY,
+        lower_user_id bigint NOT NULL,
+        upper_user_id bigint NOT NULL,
+        requested_by_user_id bigint NOT NULL,
+        status nvarchar(16) NOT NULL,
+        created_at datetime2(7) NOT NULL,
+        CONSTRAINT CK_Friendships_OrderedPair CHECK (lower_user_id < upper_user_id),
+        CONSTRAINT CK_Friendships_Requester CHECK (requested_by_user_id IN (lower_user_id, upper_user_id)),
+        CONSTRAINT CK_Friendships_Status CHECK (status IN ('Pending', 'Accepted')),
+        CONSTRAINT FK_Friendships_LowerUser FOREIGN KEY (lower_user_id) REFERENCES dbo.Users(user_id),
+        CONSTRAINT FK_Friendships_UpperUser FOREIGN KEY (upper_user_id) REFERENCES dbo.Users(user_id)
+    );
+END;
+-- Fail explicitly on incompatible historical objects rather than accepting names as proof of parity.
+IF EXISTS (
+    SELECT 1
+    FROM (VALUES
+        (N'friendship_id', N'bigint', 8), (N'lower_user_id', N'bigint', 8),
+        (N'upper_user_id', N'bigint', 8), (N'requested_by_user_id', N'bigint', 8),
+        (N'status', N'nvarchar', 32), (N'created_at', N'datetime2', 8)
+    ) expected(column_name, type_name, byte_length)
+    LEFT JOIN sys.columns c ON c.object_id = OBJECT_ID(N'social.Friendships') AND c.name = expected.column_name
+    WHERE c.column_id IS NULL OR TYPE_NAME(c.user_type_id) <> expected.type_name
+        OR c.max_length <> expected.byte_length OR c.is_nullable <> 0
+        OR (c.name = N'created_at' AND c.scale <> 7)
+        OR (c.name = N'friendship_id' AND c.is_identity <> 1)
+)
+    THROW 51001, 'Existing social.Friendships columns are incompatible.', 1;
+
+IF EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'social.Friendships') AND name = N'UX_Friendships_Pair')
+    AND NOT EXISTS (
+        SELECT 1 FROM sys.indexes i
+        WHERE i.object_id = OBJECT_ID(N'social.Friendships') AND i.name = N'UX_Friendships_Pair'
+            AND i.is_unique = 1 AND i.has_filter = 0 AND i.is_disabled = 0 AND i.is_hypothetical = 0
+            AND (SELECT COUNT(*) FROM sys.index_columns ic
+                WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.key_ordinal > 0) = 2
+            AND EXISTS (SELECT 1 FROM sys.index_columns ic JOIN sys.columns c
+                ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+                WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.key_ordinal = 1 AND c.name = N'lower_user_id')
+            AND EXISTS (SELECT 1 FROM sys.index_columns ic JOIN sys.columns c
+                ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+                WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.key_ordinal = 2 AND c.name = N'upper_user_id')
+    )
+    THROW 51002, 'Existing UX_Friendships_Pair must be enabled, unique, unfiltered and keyed by lower_user_id, upper_user_id.', 1;
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'social.Friendships') AND name = N'UX_Friendships_Pair')
+    CREATE UNIQUE INDEX UX_Friendships_Pair ON social.Friendships(lower_user_id, upper_user_id);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'social.Friendships') AND name = N'IX_Friendships_Upper')
+    CREATE INDEX IX_Friendships_Upper ON social.Friendships(upper_user_id, lower_user_id);
+COMMIT TRANSACTION;
+GO
+
+-- Independent chat groups. Travel group tables and contracts are unchanged.
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+DECLARE @lockResult int;
+EXEC @lockResult = sys.sp_getapplock @Resource = N'TripMate.ChatGroups.Schema',
+    @LockMode = N'Exclusive', @LockOwner = N'Transaction', @LockTimeout = 30000;
+IF @lockResult < 0 THROW 51000, 'Cannot acquire chat group schema lock.', 1;
+IF SCHEMA_ID(N'social') IS NULL EXEC(N'CREATE SCHEMA social');
+IF OBJECT_ID(N'social.ChatGroups', N'U') IS NULL
+BEGIN
+    CREATE TABLE social.ChatGroups (
+        group_id bigint IDENTITY(1,1) NOT NULL CONSTRAINT PK_ChatGroups PRIMARY KEY,
+        group_name nvarchar(100) NOT NULL,
+        host_user_id bigint NOT NULL,
+        client_request_id uniqueidentifier NOT NULL,
+        created_at datetime2(7) NOT NULL,
+        CONSTRAINT CK_ChatGroups_Name CHECK (LEN(LTRIM(RTRIM(group_name))) BETWEEN 1 AND 100),
+        CONSTRAINT CK_ChatGroups_ClientKey CHECK (client_request_id <> '00000000-0000-0000-0000-000000000000'),
+        CONSTRAINT FK_ChatGroups_Host FOREIGN KEY (host_user_id) REFERENCES dbo.Users(user_id)
+    );
+END;
+IF OBJECT_ID(N'social.ChatGroupMembers', N'U') IS NULL
+BEGIN
+    CREATE TABLE social.ChatGroupMembers (
+        member_id bigint IDENTITY(1,1) NOT NULL CONSTRAINT PK_ChatGroupMembers PRIMARY KEY,
+        group_id bigint NOT NULL,
+        user_id bigint NOT NULL,
+        read_through_message_id bigint NOT NULL,
+        CONSTRAINT CK_ChatGroupMembers_Read CHECK (read_through_message_id >= 0),
+        CONSTRAINT FK_ChatGroupMembers_Group FOREIGN KEY (group_id) REFERENCES social.ChatGroups(group_id) ON DELETE CASCADE,
+        CONSTRAINT FK_ChatGroupMembers_User FOREIGN KEY (user_id) REFERENCES dbo.Users(user_id)
+    );
+END;
+IF OBJECT_ID(N'social.ChatGroupMessages', N'U') IS NULL
+BEGIN
+    CREATE TABLE social.ChatGroupMessages (
+        message_id bigint IDENTITY(1,1) NOT NULL CONSTRAINT PK_ChatGroupMessages PRIMARY KEY,
+        group_id bigint NOT NULL,
+        sender_user_id bigint NOT NULL,
+        content nvarchar(4000) NOT NULL,
+        client_message_id uniqueidentifier NOT NULL,
+        created_at datetime2(7) NOT NULL,
+        CONSTRAINT CK_ChatGroupMessages_Content CHECK (LEN(LTRIM(RTRIM(content))) BETWEEN 1 AND 4000),
+        CONSTRAINT CK_ChatGroupMessages_ClientKey CHECK (client_message_id <> '00000000-0000-0000-0000-000000000000'),
+        CONSTRAINT FK_ChatGroupMessages_Group FOREIGN KEY (group_id) REFERENCES social.ChatGroups(group_id) ON DELETE CASCADE,
+        CONSTRAINT FK_ChatGroupMessages_Sender FOREIGN KEY (sender_user_id) REFERENCES dbo.Users(user_id)
+    );
+END;
+IF EXISTS (
+    SELECT 1 FROM (VALUES (N'group_id',N'bigint',8),
+        (N'group_name',N'nvarchar',200),
+        (N'host_user_id',N'bigint',8),
+        (N'client_request_id',N'uniqueidentifier',16),
+        (N'created_at',N'datetime2',8)) expected(column_name,type_name,byte_length)
+    LEFT JOIN sys.columns c ON c.object_id = OBJECT_ID(N'social.ChatGroups') AND c.name = expected.column_name
+    WHERE c.column_id IS NULL OR TYPE_NAME(c.user_type_id) <> expected.type_name
+        OR c.max_length <> expected.byte_length OR c.is_nullable <> 0
+        OR (c.name = N'created_at' AND c.scale <> 7)
+        OR (c.name = N'group_id' AND c.is_identity <> 1)
+) THROW 51001, 'Existing social.ChatGroups columns are incompatible.', 1;
+IF EXISTS (
+    SELECT 1 FROM (VALUES (N'member_id',N'bigint',8),
+        (N'group_id',N'bigint',8),
+        (N'user_id',N'bigint',8),
+        (N'read_through_message_id',N'bigint',8)) expected(column_name,type_name,byte_length)
+    LEFT JOIN sys.columns c ON c.object_id = OBJECT_ID(N'social.ChatGroupMembers') AND c.name = expected.column_name
+    WHERE c.column_id IS NULL OR TYPE_NAME(c.user_type_id) <> expected.type_name
+        OR c.max_length <> expected.byte_length OR c.is_nullable <> 0
+        OR (c.name = N'created_at' AND c.scale <> 7)
+        OR (c.name = N'member_id' AND c.is_identity <> 1)
+) THROW 51001, 'Existing social.ChatGroupMembers columns are incompatible.', 1;
+IF EXISTS (
+    SELECT 1 FROM (VALUES (N'message_id',N'bigint',8),
+        (N'group_id',N'bigint',8),
+        (N'sender_user_id',N'bigint',8),
+        (N'content',N'nvarchar',8000),
+        (N'client_message_id',N'uniqueidentifier',16),
+        (N'created_at',N'datetime2',8)) expected(column_name,type_name,byte_length)
+    LEFT JOIN sys.columns c ON c.object_id = OBJECT_ID(N'social.ChatGroupMessages') AND c.name = expected.column_name
+    WHERE c.column_id IS NULL OR TYPE_NAME(c.user_type_id) <> expected.type_name
+        OR c.max_length <> expected.byte_length OR c.is_nullable <> 0
+        OR (c.name = N'created_at' AND c.scale <> 7)
+        OR (c.name = N'message_id' AND c.is_identity <> 1)
+) THROW 51001, 'Existing social.ChatGroupMessages columns are incompatible.', 1;
+IF EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'social.ChatGroups') AND name=N'UX_ChatGroups_ClientKey')
+    AND NOT EXISTS (SELECT 1 FROM sys.indexes i WHERE i.object_id=OBJECT_ID(N'social.ChatGroups') AND i.name=N'UX_ChatGroups_ClientKey'
+        AND i.is_unique=1 AND i.has_filter=0 AND i.is_disabled=0 AND i.is_hypothetical=0
+        AND (SELECT COUNT(*) FROM sys.index_columns ic WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id AND ic.key_ordinal>0)=2
+        AND EXISTS (SELECT 1 FROM sys.index_columns ic JOIN sys.columns c ON c.object_id=ic.object_id AND c.column_id=ic.column_id WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id AND ic.key_ordinal=1 AND c.name IN (N'host_user_id',N'created_by_user_id'))
+        AND EXISTS (SELECT 1 FROM sys.index_columns ic JOIN sys.columns c ON c.object_id=ic.object_id AND c.column_id=ic.column_id WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id AND ic.key_ordinal=2 AND c.name=N'client_request_id')) THROW 51002, 'Existing UX_ChatGroups_ClientKey is incompatible.', 1;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'social.ChatGroups') AND name=N'UX_ChatGroups_ClientKey')
+    CREATE UNIQUE INDEX UX_ChatGroups_ClientKey ON social.ChatGroups(host_user_id, client_request_id);
+IF EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'social.ChatGroupMembers') AND name=N'UX_ChatGroupMembers_Membership')
+    AND NOT EXISTS (SELECT 1 FROM sys.indexes i WHERE i.object_id=OBJECT_ID(N'social.ChatGroupMembers') AND i.name=N'UX_ChatGroupMembers_Membership'
+        AND i.is_unique=1 AND i.has_filter=0 AND i.is_disabled=0 AND i.is_hypothetical=0
+        AND (SELECT COUNT(*) FROM sys.index_columns ic WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id AND ic.key_ordinal>0)=2
+        AND EXISTS (SELECT 1 FROM sys.index_columns ic JOIN sys.columns c ON c.object_id=ic.object_id AND c.column_id=ic.column_id WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id AND ic.key_ordinal=1 AND c.name=N'group_id')
+        AND EXISTS (SELECT 1 FROM sys.index_columns ic JOIN sys.columns c ON c.object_id=ic.object_id AND c.column_id=ic.column_id WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id AND ic.key_ordinal=2 AND c.name=N'user_id')) THROW 51002, 'Existing UX_ChatGroupMembers_Membership is incompatible.', 1;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'social.ChatGroupMembers') AND name=N'UX_ChatGroupMembers_Membership')
+    CREATE UNIQUE INDEX UX_ChatGroupMembers_Membership ON social.ChatGroupMembers(group_id, user_id);
+IF EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'social.ChatGroupMembers') AND name=N'IX_ChatGroupMembers_User')
+    AND NOT EXISTS (SELECT 1 FROM sys.indexes i WHERE i.object_id=OBJECT_ID(N'social.ChatGroupMembers') AND i.name=N'IX_ChatGroupMembers_User'
+        AND i.is_unique=0 AND i.has_filter=0 AND i.is_disabled=0 AND i.is_hypothetical=0
+        AND (SELECT COUNT(*) FROM sys.index_columns ic WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id AND ic.key_ordinal>0)=2
+        AND EXISTS (SELECT 1 FROM sys.index_columns ic JOIN sys.columns c ON c.object_id=ic.object_id AND c.column_id=ic.column_id WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id AND ic.key_ordinal=1 AND c.name=N'user_id')
+        AND EXISTS (SELECT 1 FROM sys.index_columns ic JOIN sys.columns c ON c.object_id=ic.object_id AND c.column_id=ic.column_id WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id AND ic.key_ordinal=2 AND c.name=N'group_id')) THROW 51002, 'Existing IX_ChatGroupMembers_User is incompatible.', 1;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'social.ChatGroupMembers') AND name=N'IX_ChatGroupMembers_User')
+    CREATE INDEX IX_ChatGroupMembers_User ON social.ChatGroupMembers(user_id, group_id);
+IF EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'social.ChatGroupMessages') AND name=N'UX_ChatGroupMessages_ClientKey')
+    AND NOT EXISTS (SELECT 1 FROM sys.indexes i WHERE i.object_id=OBJECT_ID(N'social.ChatGroupMessages') AND i.name=N'UX_ChatGroupMessages_ClientKey'
+        AND i.is_unique=1 AND i.has_filter=0 AND i.is_disabled=0 AND i.is_hypothetical=0
+        AND (SELECT COUNT(*) FROM sys.index_columns ic WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id AND ic.key_ordinal>0)=3
+        AND EXISTS (SELECT 1 FROM sys.index_columns ic JOIN sys.columns c ON c.object_id=ic.object_id AND c.column_id=ic.column_id WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id AND ic.key_ordinal=1 AND c.name=N'group_id')
+        AND EXISTS (SELECT 1 FROM sys.index_columns ic JOIN sys.columns c ON c.object_id=ic.object_id AND c.column_id=ic.column_id WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id AND ic.key_ordinal=2 AND c.name=N'sender_user_id')
+        AND EXISTS (SELECT 1 FROM sys.index_columns ic JOIN sys.columns c ON c.object_id=ic.object_id AND c.column_id=ic.column_id WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id AND ic.key_ordinal=3 AND c.name=N'client_message_id')) THROW 51002, 'Existing UX_ChatGroupMessages_ClientKey is incompatible.', 1;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'social.ChatGroupMessages') AND name=N'UX_ChatGroupMessages_ClientKey')
+    CREATE UNIQUE INDEX UX_ChatGroupMessages_ClientKey ON social.ChatGroupMessages(group_id, sender_user_id, client_message_id);
+IF EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'social.ChatGroupMessages') AND name=N'IX_ChatGroupMessages_History')
+    AND NOT EXISTS (SELECT 1 FROM sys.indexes i WHERE i.object_id=OBJECT_ID(N'social.ChatGroupMessages') AND i.name=N'IX_ChatGroupMessages_History'
+        AND i.is_unique=0 AND i.has_filter=0 AND i.is_disabled=0 AND i.is_hypothetical=0
+        AND (SELECT COUNT(*) FROM sys.index_columns ic WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id AND ic.key_ordinal>0)=2
+        AND EXISTS (SELECT 1 FROM sys.index_columns ic JOIN sys.columns c ON c.object_id=ic.object_id AND c.column_id=ic.column_id WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id AND ic.key_ordinal=1 AND c.name=N'group_id')
+        AND EXISTS (SELECT 1 FROM sys.index_columns ic JOIN sys.columns c ON c.object_id=ic.object_id AND c.column_id=ic.column_id WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id AND ic.key_ordinal=2 AND c.name=N'message_id')) THROW 51002, 'Existing IX_ChatGroupMessages_History is incompatible.', 1;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'social.ChatGroupMessages') AND name=N'IX_ChatGroupMessages_History')
+    CREATE INDEX IX_ChatGroupMessages_History ON social.ChatGroupMessages(group_id, message_id);
+COMMIT TRANSACTION;
+GO
+
+-- Creator edits with optimistic interaction safety; additive to travel chat.
+SET QUOTED_IDENTIFIER ON;
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+DECLARE @result int;
+EXEC @result=sys.sp_getapplock @Resource=N'TripMate.GroupCards.Schema',@LockMode=N'Exclusive',@LockOwner=N'Transaction',@LockTimeout=30000;
+IF @result<0 THROW 51000,'Unable to lock group card schema.',1;
+IF OBJECT_ID(N'social.GroupMessages',N'U') IS NULL THROW 51001,'Travel group chat must be installed first.',1;
+IF COL_LENGTH(N'social.GroupMessages',N'revision') IS NULL EXEC(N'ALTER TABLE social.GroupMessages ADD revision bigint NOT NULL CONSTRAINT DF_GroupMessages_Revision DEFAULT(0)');
+IF COL_LENGTH(N'social.GroupMessages',N'interaction_revision') IS NULL EXEC(N'ALTER TABLE social.GroupMessages ADD interaction_revision bigint NOT NULL CONSTRAINT DF_GroupMessages_InteractionRevision DEFAULT(0)');
+IF COL_LENGTH(N'social.GroupMessages',N'edited_at') IS NULL EXEC(N'ALTER TABLE social.GroupMessages ADD edited_at datetime2(7) NULL');
+IF COL_LENGTH(N'social.GroupMessages',N'financially_confirmed') IS NULL EXEC(N'ALTER TABLE social.GroupMessages ADD financially_confirmed bit NOT NULL CONSTRAINT DF_GroupMessages_FinanciallyConfirmed DEFAULT(0)');
+IF COL_LENGTH(N'social.GroupMessages',N'original_content') IS NULL EXEC(N'ALTER TABLE social.GroupMessages ADD original_content nvarchar(max) NULL');
+IF COL_LENGTH(N'social.GroupMessages',N'original_metadata_json') IS NULL EXEC(N'ALTER TABLE social.GroupMessages ADD original_metadata_json nvarchar(max) NULL');
+-- Backfill original payload only once. Old paid records are conservatively immutable.
+EXEC(N'UPDATE m SET original_content=m.content,original_metadata_json=m.metadata_json,
+ financially_confirmed=CASE WHEN EXISTS(SELECT 1 FROM social.GroupSplitBillPayments p WHERE p.message_id=m.message_id AND p.is_paid=1) THEN 1 ELSE m.financially_confirmed END
+ FROM social.GroupMessages m WHERE original_content IS NULL');
+IF OBJECT_ID(N'social.GroupMessageEditOperations',N'U') IS NULL
+BEGIN
+ CREATE TABLE social.GroupMessageEditOperations(
+  operation_id bigint IDENTITY(1,1) NOT NULL CONSTRAINT PK_GroupMessageEditOperations PRIMARY KEY,
+  message_id bigint NOT NULL,
+  actor_id bigint NOT NULL,
+  client_request_id uniqueidentifier NOT NULL,
+  expected_revision bigint NOT NULL,
+  content nvarchar(4000) NOT NULL,
+  metadata_json nvarchar(max) NULL,
+  CONSTRAINT FK_GroupMessageEditOperations_Message FOREIGN KEY(message_id) REFERENCES social.GroupMessages(message_id) ON DELETE CASCADE,
+  CONSTRAINT FK_GroupMessageEditOperations_Actor FOREIGN KEY(actor_id) REFERENCES dbo.Users(user_id),
+  CONSTRAINT CK_GroupMessageEditOperations_Revision CHECK(expected_revision>=0),
+  CONSTRAINT CK_GroupMessageEditOperations_ClientKey CHECK(client_request_id<>'00000000-0000-0000-0000-000000000000')
+ );
+END;
+IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'social.GroupMessageEditOperations') AND name=N'UX_GroupMessageEditOperations_ClientKey')
+ CREATE UNIQUE INDEX UX_GroupMessageEditOperations_ClientKey ON social.GroupMessageEditOperations(message_id,actor_id,client_request_id);
+IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'social.GroupMessages') AND name=N'IX_GroupMessages_Important')
+ CREATE INDEX IX_GroupMessages_Important ON social.GroupMessages(group_id,message_type,message_id);
+IF EXISTS(SELECT 1 FROM (VALUES (N'revision',N'bigint',8,0),(N'interaction_revision',N'bigint',8,0),(N'edited_at',N'datetime2',8,1),(N'financially_confirmed',N'bit',1,0),(N'original_content',N'nvarchar',-1,1),(N'original_metadata_json',N'nvarchar',-1,1)) expected(col,type_name,byte_length,nullable)
+ LEFT JOIN sys.columns c ON c.object_id=OBJECT_ID(N'social.GroupMessages') AND c.name=expected.col
+ WHERE c.column_id IS NULL OR TYPE_NAME(c.user_type_id)<>expected.type_name OR c.max_length<>expected.byte_length OR c.is_nullable<>expected.nullable
+ OR(c.name=N'edited_at' AND c.scale<>7)) THROW 51002,'Incompatible social.GroupMessages columns.',1;
+IF EXISTS(SELECT 1 FROM (VALUES (N'operation_id',N'bigint',8,0),(N'message_id',N'bigint',8,0),(N'actor_id',N'bigint',8,0),(N'client_request_id',N'uniqueidentifier',16,0),(N'expected_revision',N'bigint',8,0),(N'content',N'nvarchar',8000,0),(N'metadata_json',N'nvarchar',-1,1)) expected(col,type_name,byte_length,nullable)
+ LEFT JOIN sys.columns c ON c.object_id=OBJECT_ID(N'social.GroupMessageEditOperations') AND c.name=expected.col
+ WHERE c.column_id IS NULL OR TYPE_NAME(c.user_type_id)<>expected.type_name OR c.max_length<>expected.byte_length OR c.is_nullable<>expected.nullable
+ OR(c.name=N'edited_at' AND c.scale<>7)) THROW 51002,'Incompatible social.GroupMessageEditOperations columns.',1;
+IF NOT EXISTS(SELECT 1 FROM sys.indexes i WHERE i.object_id=OBJECT_ID(N'social.GroupMessageEditOperations') AND i.name=N'UX_GroupMessageEditOperations_ClientKey'
+ AND i.is_unique=1 AND i.is_disabled=0 AND i.has_filter=0
+ AND(SELECT COUNT(*) FROM sys.index_columns ic WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id AND ic.key_ordinal>0)=3
+ AND EXISTS(SELECT 1 FROM sys.index_columns ic JOIN sys.columns c ON c.object_id=ic.object_id AND c.column_id=ic.column_id WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id AND ic.key_ordinal=1 AND c.name=N'message_id')
+ AND EXISTS(SELECT 1 FROM sys.index_columns ic JOIN sys.columns c ON c.object_id=ic.object_id AND c.column_id=ic.column_id WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id AND ic.key_ordinal=2 AND c.name=N'actor_id')
+ AND EXISTS(SELECT 1 FROM sys.index_columns ic JOIN sys.columns c ON c.object_id=ic.object_id AND c.column_id=ic.column_id WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id AND ic.key_ordinal=3 AND c.name=N'client_request_id'))
+ THROW 51003,'Incompatible edit idempotency index.',1;
+COMMIT;
+GO
+
+-- Readonly itinerary snapshot shares (2026-11-28).
+-- Immutable server snapshots. No new message type or cascade to mutable itinerary data.
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+DECLARE @lockResult int;
+EXEC @lockResult = sys.sp_getapplock @Resource = N'TripMate.ItineraryShares.Schema',
+    @LockMode = N'Exclusive', @LockOwner = N'Transaction', @LockTimeout = 30000;
+IF @lockResult < 0 THROW 51000, 'Cannot acquire itinerary share schema lock.', 1;
+IF SCHEMA_ID(N'social') IS NULL EXEC(N'CREATE SCHEMA social');
+IF OBJECT_ID(N'social.ItineraryShares', N'U') IS NULL
+BEGIN
+    CREATE TABLE social.ItineraryShares (
+        share_id uniqueidentifier NOT NULL CONSTRAINT PK_ItineraryShares PRIMARY KEY,
+        actor_id bigint NOT NULL,
+        client_request_id uniqueidentifier NOT NULL,
+        itinerary_id bigint NOT NULL,
+        conversation_kind varchar(12) NOT NULL,
+        conversation_id bigint NOT NULL,
+        message_id bigint NOT NULL,
+        title nvarchar(200) NOT NULL,
+        shared_at datetime2(7) NOT NULL,
+        itinerary_version int NOT NULL,
+        items_json nvarchar(max) NOT NULL,
+        CONSTRAINT CK_ItineraryShares_Ids CHECK (actor_id > 0 AND itinerary_id > 0 AND conversation_id > 0 AND message_id > 0 AND itinerary_version > 0),
+        CONSTRAINT CK_ItineraryShares_Kind CHECK (conversation_kind COLLATE Latin1_General_100_BIN2 IN ('travel_group','chat_group','direct')),
+        CONSTRAINT CK_ItineraryShares_Guids CHECK (share_id <> '00000000-0000-0000-0000-000000000000' AND client_request_id <> '00000000-0000-0000-0000-000000000000'),
+        CONSTRAINT CK_ItineraryShares_Title CHECK (LEN(LTRIM(RTRIM(title))) > 0),
+        CONSTRAINT CK_ItineraryShares_Items CHECK (ISJSON(items_json) = 1 AND LEFT(LTRIM(items_json),1) = '[')
+    );
+END;
+IF EXISTS (
+    SELECT 1 FROM (VALUES
+        (N'share_id',N'uniqueidentifier',16),(N'actor_id',N'bigint',8),
+        (N'client_request_id',N'uniqueidentifier',16),(N'itinerary_id',N'bigint',8),
+        (N'conversation_kind',N'varchar',12),(N'conversation_id',N'bigint',8),
+        (N'message_id',N'bigint',8),(N'title',N'nvarchar',400),
+        (N'shared_at',N'datetime2',8),(N'itinerary_version',N'int',4),(N'items_json',N'nvarchar',-1)
+    ) expected(col,type_name,byte_length)
+    LEFT JOIN sys.columns c ON c.object_id=OBJECT_ID(N'social.ItineraryShares') AND c.name=expected.col
+    WHERE c.column_id IS NULL OR TYPE_NAME(c.user_type_id)<>expected.type_name
+        OR c.max_length<>expected.byte_length OR c.is_nullable<>0 OR (c.name=N'shared_at' AND c.scale<>7)
+) THROW 51002, 'Incompatible social.ItineraryShares columns.', 1;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'social.ItineraryShares') AND name=N'UX_ItineraryShares_ActorClientRequest')
+    CREATE UNIQUE INDEX UX_ItineraryShares_ActorClientRequest ON social.ItineraryShares(actor_id,client_request_id);
+IF NOT EXISTS (
+    SELECT 1 FROM sys.indexes i WHERE i.object_id=OBJECT_ID(N'social.ItineraryShares')
+        AND i.name=N'UX_ItineraryShares_ActorClientRequest' AND i.is_unique=1 AND i.is_disabled=0 AND i.has_filter=0
+        AND (SELECT COUNT(*) FROM sys.index_columns ic WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id AND ic.key_ordinal>0)=2
+        AND EXISTS (SELECT 1 FROM sys.index_columns ic JOIN sys.columns c ON c.object_id=ic.object_id AND c.column_id=ic.column_id
+            WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id AND ic.key_ordinal=1 AND c.name=N'actor_id')
+        AND EXISTS (SELECT 1 FROM sys.index_columns ic JOIN sys.columns c ON c.object_id=ic.object_id AND c.column_id=ic.column_id
+            WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id AND ic.key_ordinal=2 AND c.name=N'client_request_id')
+) THROW 51003, 'Incompatible itinerary share retry index.', 1;
+EXEC(N'CREATE OR ALTER TRIGGER social.TR_ItineraryShares_Immutable ON social.ItineraryShares
+INSTEAD OF UPDATE AS
+BEGIN
+    SET NOCOUNT ON;
+    THROW 51004, ''Itinerary share snapshots cannot be updated.'', 1;
+END;');
+COMMIT;
+GO
+
+-- Independent chat leave. Apply after 20261127_add_chat_groups.sql, before deploying host transfers.
+-- Creator and original selection are backfilled once, before any host or member mutation.
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+DECLARE @leaveSchemaLock int;
+EXEC @leaveSchemaLock = sys.sp_getapplock @Resource = N'TripMate.ChatGroups.Schema',
+    @LockMode = N'Exclusive', @LockOwner = N'Transaction', @LockTimeout = 30000;
+IF @leaveSchemaLock < 0 THROW 51000, 'Cannot acquire chat group schema lock.', 1;
+IF OBJECT_ID(N'social.ChatGroups', N'U') IS NULL
+    THROW 51001, 'Apply the independent chat groups schema first.', 1;
+IF COL_LENGTH(N'social.ChatGroups', N'created_by_user_id') IS NULL
+    ALTER TABLE social.ChatGroups ADD created_by_user_id bigint NULL;
+IF COL_LENGTH(N'social.ChatGroups', N'initial_member_user_ids') IS NULL
+    ALTER TABLE social.ChatGroups ADD initial_member_user_ids nvarchar(1100) NULL;
+EXEC(N'
+    UPDATE g WITH (TABLOCKX, HOLDLOCK) SET created_by_user_id = host_user_id
+    FROM social.ChatGroups g WHERE created_by_user_id IS NULL;
+    UPDATE g SET initial_member_user_ids = members.ids
+    FROM social.ChatGroups g
+    CROSS APPLY (SELECT STRING_AGG(CONVERT(nvarchar(max), m.user_id), N'','')
+        WITHIN GROUP (ORDER BY m.user_id) AS ids FROM social.ChatGroupMembers m WHERE m.group_id = g.group_id) members
+    WHERE g.initial_member_user_ids IS NULL;
+    IF EXISTS (SELECT 1 FROM social.ChatGroups WHERE created_by_user_id IS NULL OR initial_member_user_ids IS NULL)
+        THROW 51001, ''Cannot backfill immutable chat group creation data.'', 1;
+    ALTER TABLE social.ChatGroups ALTER COLUMN created_by_user_id bigint NOT NULL;
+    ALTER TABLE social.ChatGroups ALTER COLUMN initial_member_user_ids nvarchar(1100) NOT NULL;
+');
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE parent_object_id=OBJECT_ID(N'social.ChatGroups') AND name=N'FK_ChatGroups_Creator')
+    EXEC(N'ALTER TABLE social.ChatGroups ADD CONSTRAINT FK_ChatGroups_Creator FOREIGN KEY (created_by_user_id) REFERENCES dbo.Users(user_id)');
+-- Accept only the known legacy/current key shape; fail rather than silently replacing unrelated DDL.
+IF EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'social.ChatGroups') AND name=N'UX_ChatGroups_ClientKey')
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM sys.indexes i
+        WHERE i.object_id=OBJECT_ID(N'social.ChatGroups') AND i.name=N'UX_ChatGroups_ClientKey'
+            AND i.is_unique=1 AND i.has_filter=0 AND i.is_disabled=0
+            AND (SELECT COUNT(*) FROM sys.index_columns ic WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id AND ic.key_ordinal>0)=2
+            AND EXISTS (SELECT 1 FROM sys.index_columns ic JOIN sys.columns c ON c.object_id=ic.object_id AND c.column_id=ic.column_id
+                WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id AND ic.key_ordinal=1 AND c.name IN (N'host_user_id',N'created_by_user_id'))
+            AND EXISTS (SELECT 1 FROM sys.index_columns ic JOIN sys.columns c ON c.object_id=ic.object_id AND c.column_id=ic.column_id
+                WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id AND ic.key_ordinal=2 AND c.name=N'client_request_id'))
+        THROW 51002, 'Existing chat creation index is incompatible.', 1;
+    IF EXISTS (SELECT 1 FROM sys.indexes i JOIN sys.index_columns ic ON ic.object_id=i.object_id AND ic.index_id=i.index_id
+        JOIN sys.columns c ON c.object_id=ic.object_id AND c.column_id=ic.column_id
+        WHERE i.object_id=OBJECT_ID(N'social.ChatGroups') AND i.name=N'UX_ChatGroups_ClientKey'
+            AND ic.key_ordinal=1 AND c.name=N'host_user_id')
+        DROP INDEX UX_ChatGroups_ClientKey ON social.ChatGroups;
+END;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'social.ChatGroups') AND name=N'UX_ChatGroups_ClientKey')
+    EXEC(N'CREATE UNIQUE INDEX UX_ChatGroups_ClientKey ON social.ChatGroups(created_by_user_id,client_request_id)');
+IF OBJECT_ID(N'social.ChatGroupLeaveOperations', N'U') IS NULL
+BEGIN
+    CREATE TABLE social.ChatGroupLeaveOperations (
+        operation_id bigint IDENTITY(1,1) NOT NULL CONSTRAINT PK_ChatGroupLeaveOperations PRIMARY KEY,
+        group_id bigint NOT NULL,
+        actor_id bigint NOT NULL,
+        client_request_id uniqueidentifier NOT NULL,
+        replacement_host_user_id bigint NULL,
+        new_host_user_id bigint NOT NULL,
+        left_at_utc datetime2(7) NOT NULL,
+        CONSTRAINT CK_ChatGroupLeaveOperations_Key CHECK (client_request_id <> '00000000-0000-0000-0000-000000000000'),
+        CONSTRAINT CK_ChatGroupLeaveOperations_Host CHECK (new_host_user_id <> actor_id
+            AND (replacement_host_user_id IS NULL OR replacement_host_user_id = new_host_user_id)),
+        CONSTRAINT FK_ChatGroupLeaveOperations_Group FOREIGN KEY (group_id) REFERENCES social.ChatGroups(group_id),
+        CONSTRAINT FK_ChatGroupLeaveOperations_Actor FOREIGN KEY (actor_id) REFERENCES dbo.Users(user_id),
+        CONSTRAINT FK_ChatGroupLeaveOperations_Host FOREIGN KEY (new_host_user_id) REFERENCES dbo.Users(user_id),
+        CONSTRAINT FK_ChatGroupLeaveOperations_Replacement FOREIGN KEY (replacement_host_user_id) REFERENCES dbo.Users(user_id)
+    );
+END;
+IF EXISTS (
+    SELECT 1 FROM (VALUES
+        (N'operation_id',N'bigint',8,0),(N'group_id',N'bigint',8,0),
+        (N'actor_id',N'bigint',8,0),(N'client_request_id',N'uniqueidentifier',16,0),
+        (N'replacement_host_user_id',N'bigint',8,1),(N'new_host_user_id',N'bigint',8,0),
+        (N'left_at_utc',N'datetime2',8,0)) expected(column_name,type_name,byte_length,nullable)
+    LEFT JOIN sys.columns c ON c.object_id=OBJECT_ID(N'social.ChatGroupLeaveOperations') AND c.name=expected.column_name
+    WHERE c.column_id IS NULL OR TYPE_NAME(c.user_type_id)<>expected.type_name OR c.max_length<>expected.byte_length
+        OR c.is_nullable<>expected.nullable OR (c.name=N'left_at_utc' AND c.scale<>7)
+        OR (c.name=N'operation_id' AND c.is_identity<>1)
+) THROW 51001, 'Existing chat leave receipt schema is incompatible.', 1;
+IF EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'social.ChatGroupLeaveOperations') AND name=N'UX_ChatGroupLeaveOperations_ClientKey')
+    AND NOT EXISTS (
+        SELECT 1 FROM sys.indexes i WHERE i.object_id=OBJECT_ID(N'social.ChatGroupLeaveOperations') AND i.name=N'UX_ChatGroupLeaveOperations_ClientKey'
+        AND i.is_unique=1 AND i.has_filter=0 AND i.is_disabled=0 AND i.is_hypothetical=0
+        AND (SELECT COUNT(*) FROM sys.index_columns ic WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id AND ic.key_ordinal>0)=3
+        AND EXISTS (SELECT 1 FROM sys.index_columns ic JOIN sys.columns c ON c.object_id=ic.object_id AND c.column_id=ic.column_id
+            WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id AND ic.key_ordinal=1 AND c.name=N'group_id')
+        AND EXISTS (SELECT 1 FROM sys.index_columns ic JOIN sys.columns c ON c.object_id=ic.object_id AND c.column_id=ic.column_id
+            WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id AND ic.key_ordinal=2 AND c.name=N'actor_id')
+        AND EXISTS (SELECT 1 FROM sys.index_columns ic JOIN sys.columns c ON c.object_id=ic.object_id AND c.column_id=ic.column_id
+            WHERE ic.object_id=i.object_id AND ic.index_id=i.index_id AND ic.key_ordinal=3 AND c.name=N'client_request_id'))
+    THROW 51002, 'Existing chat leave receipt index is incompatible.', 1;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id=OBJECT_ID(N'social.ChatGroupLeaveOperations') AND name=N'UX_ChatGroupLeaveOperations_ClientKey')
+    CREATE UNIQUE INDEX UX_ChatGroupLeaveOperations_ClientKey ON social.ChatGroupLeaveOperations(group_id,actor_id,client_request_id);
+COMMIT TRANSACTION;
+GO
+
+-- Independent chat host management. Apply after chat-group creation/leave migrations.
+-- Backfill creation names before enabling rename; retain all memberships and messages.
+SET XACT_ABORT ON;
+BEGIN TRANSACTION;
+DECLARE @managementSchemaLock int;
+EXEC @managementSchemaLock = sys.sp_getapplock @Resource = N'TripMate.ChatGroups.Schema',
+    @LockMode = N'Exclusive', @LockOwner = N'Transaction', @LockTimeout = 30000;
+IF @managementSchemaLock < 0 THROW 51000, 'Cannot acquire chat group management schema lock.', 1;
+IF OBJECT_ID(N'social.ChatGroups', N'U') IS NULL
+    THROW 51001, 'Apply the chat group creation migration first.', 1;
+IF COL_LENGTH(N'social.ChatGroups', N'initial_group_name') IS NULL
+    ALTER TABLE social.ChatGroups ADD initial_group_name nvarchar(100) NULL;
+IF COL_LENGTH(N'social.ChatGroups', N'is_closed') IS NULL
+    ALTER TABLE social.ChatGroups ADD is_closed bit NOT NULL
+        CONSTRAINT DF_ChatGroups_IsClosed DEFAULT (0) WITH VALUES;
+IF EXISTS (
+    SELECT 1 FROM (VALUES (N'initial_group_name',N'nvarchar',200),
+        (N'is_closed',N'bit',1)) expected(column_name,type_name,byte_length)
+    LEFT JOIN sys.columns c ON c.object_id=OBJECT_ID(N'social.ChatGroups') AND c.name=expected.column_name
+    WHERE c.column_id IS NULL OR TYPE_NAME(c.user_type_id)<>expected.type_name
+        OR c.max_length<>expected.byte_length OR c.is_computed<>0
+        OR (c.name=N'is_closed' AND c.is_nullable<>0)
+) THROW 51001, 'Existing chat group management columns are incompatible.', 1;
+-- Dynamic batch resolves columns added above even on the first application.
+EXEC(N'
+    UPDATE social.ChatGroups SET initial_group_name = group_name WHERE initial_group_name IS NULL;
+    IF EXISTS (SELECT 1 FROM social.ChatGroups WHERE initial_group_name IS NULL
+        OR LEN(LTRIM(RTRIM(initial_group_name))) NOT BETWEEN 1 AND 100)
+        THROW 51001, ''Cannot backfill a valid original chat group name.'', 1;
+    ALTER TABLE social.ChatGroups ALTER COLUMN initial_group_name nvarchar(100) NOT NULL;
+');
+IF NOT EXISTS (SELECT 1 FROM sys.check_constraints
+    WHERE parent_object_id=OBJECT_ID(N'social.ChatGroups') AND name=N'CK_ChatGroups_InitialName')
+    EXEC(N'ALTER TABLE social.ChatGroups WITH CHECK ADD CONSTRAINT CK_ChatGroups_InitialName
+        CHECK (LEN(LTRIM(RTRIM(initial_group_name))) BETWEEN 1 AND 100)');
+IF NOT EXISTS (SELECT 1 FROM sys.default_constraints d JOIN sys.columns c
+    ON c.object_id=d.parent_object_id AND c.column_id=d.parent_column_id
+    WHERE d.parent_object_id=OBJECT_ID(N'social.ChatGroups') AND c.name=N'is_closed')
+    EXEC(N'ALTER TABLE social.ChatGroups ADD CONSTRAINT DF_ChatGroups_IsClosed DEFAULT (0) FOR is_closed');
+IF EXISTS (SELECT 1 FROM sys.default_constraints d JOIN sys.columns c
+    ON c.object_id=d.parent_object_id AND c.column_id=d.parent_column_id
+    WHERE d.parent_object_id=OBJECT_ID(N'social.ChatGroups') AND c.name=N'is_closed'
+        AND REPLACE(REPLACE(REPLACE(d.definition,N'(',N''),N')',N''),N' ',N'') <> N'0')
+    THROW 51001, 'Existing chat group closed default is incompatible.', 1;
+COMMIT TRANSACTION;
 GO

@@ -9,7 +9,7 @@ using TripMate.Domain.Enums;
 
 namespace TripMate.Application.Features.TravelGroups.Chat.VotePoll;
 
-public sealed record VotePollCommand(long GroupId, long MessageId, long UserId, int OptionIndex)
+public sealed record VotePollCommand(long GroupId, long MessageId, long UserId, int OptionIndex, long? ExpectedRevision = null)
     : IRequest<Result<IReadOnlyDictionary<int, int>>>;
 
 public sealed class VotePollCommandHandler(
@@ -17,8 +17,15 @@ public sealed class VotePollCommandHandler(
     IDateTimeProvider dateTimeProvider)
     : IRequestHandler<VotePollCommand, Result<IReadOnlyDictionary<int, int>>>
 {
-    public async Task<Result<IReadOnlyDictionary<int, int>>> Handle(
+    public Task<Result<IReadOnlyDictionary<int, int>>> Handle(VotePollCommand request, CancellationToken cancellationToken)
+    {
+        var revision = new MessageInteractionRevision(request.ExpectedRevision);
+        return GroupChatPersistence.RetryMutationAsync(dbContext, () => HandleCore(request, revision, cancellationToken), cancellationToken);
+    }
+
+    private async Task<Result<IReadOnlyDictionary<int, int>>> HandleCore(
         VotePollCommand request,
+        MessageInteractionRevision revision,
         CancellationToken cancellationToken)
     {
         var group = await dbContext.TravelGroups
@@ -67,6 +74,9 @@ public sealed class VotePollCommandHandler(
                 TravelGroupErrorCodes.MessageNotFound, "Message not found.");
         }
 
+        if (!revision.Accept(message.Revision))
+            return Result.Failure<IReadOnlyDictionary<int, int>>(TravelGroupErrorCodes.MessageEditConflict, "Nội dung đã được chỉnh sửa. Vui lòng tải lại trước khi xác nhận.");
+
         if (!string.Equals(message.MessageType, "poll", StringComparison.Ordinal))
         {
             return Result.Failure<IReadOnlyDictionary<int, int>>(
@@ -86,6 +96,7 @@ public sealed class VotePollCommandHandler(
             if (vote is not null)
             {
                 dbContext.GroupPollVotes.Remove(vote);
+                message.TouchInteraction();
                 try { await dbContext.SaveChangesAsync(cancellationToken); }
                 catch (DbUpdateConcurrencyException ex) when (ex.Entries.Count == 1
                     && ReferenceEquals(ex.Entries[0].Entity, vote)
@@ -101,13 +112,7 @@ public sealed class VotePollCommandHandler(
         else
         {
             message.RecordPollVote(request.UserId, request.OptionIndex, dateTimeProvider.UtcNow);
-            await GroupChatPersistence.SaveInteractionAsync(dbContext, "UQ_GroupPollVotes_MessageUser", async () =>
-            {
-                var winner = await dbContext.GroupPollVotes.SingleAsync(
-                    row => row.MessageId == request.MessageId && row.UserId == request.UserId, cancellationToken);
-                winner.UpdateOption(request.OptionIndex, dateTimeProvider.UtcNow);
-                await dbContext.SaveChangesAsync(cancellationToken);
-            }, cancellationToken);
+            await dbContext.SaveChangesAsync(cancellationToken);
         }
 
         var counts = (await dbContext.GroupPollVotes.AsNoTracking()

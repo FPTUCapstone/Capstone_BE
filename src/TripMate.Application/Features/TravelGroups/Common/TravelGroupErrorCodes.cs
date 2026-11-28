@@ -6,6 +6,8 @@ namespace TripMate.Application.Features.TravelGroups.Common;
  */
 public static class TravelGroupErrorCodes
 {
+    public const string MessageCreatorRequired = "travel_group.message_creator_required";
+    public const string MessageEditConflict = "travel_group.message_edit_conflict";
     public const string ItineraryNotFound = "travel_group.itinerary_not_found";
     public const string IdempotencyKeyPayloadMismatch = "travel_group.idempotency_key_payload_mismatch";
     public const string GroupNotFound = "travel_group.group_not_found";
@@ -16,6 +18,7 @@ public static class TravelGroupErrorCodes
     public const string ActiveMembershipRequired = "travel_group.active_membership_required";
     public const string MemberListInconsistent = "travel_group.member_list_inconsistent";
     public const string GroupClosed = "travel_group.group_closed";
+    public const string DissolutionRestricted = "travel_group.dissolution_restricted";
     public const string AlreadyLeft = "travel_group.already_left";
     public const string MemberNotActive = "travel_group.member_not_active";
     public const string ConcurrentRetryExhausted = "travel_group.concurrent_retry_exhausted";
@@ -23,4 +26,6 @@ public static class TravelGroupErrorCodes
     public const string InvalidMessageType = "travel_group.invalid_message_type";
     public const string InvalidMessageContent = "travel_group.invalid_message_content";
     public const string InvalidPollOptions = "travel_group.invalid_poll_options";
+    public const string LocationSharingNotEnabled = "travel_group.location_sharing_not_enabled";
+    public const string LocationSharingSessionExpired = "travel_group.location_sharing_session_expired";
 }

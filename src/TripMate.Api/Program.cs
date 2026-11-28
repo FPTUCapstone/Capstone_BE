@@ -46,6 +46,7 @@ try
     builder.Services.AddDevTourSearch(builder.Configuration, builder.Environment);
     builder.Services.AddSignalR();
     builder.Services.AddScoped<TripMate.Application.Features.DirectChat.IDirectChatNotifier, SignalRDirectChatNotifier>();
+    builder.Services.AddScoped<TripMate.Application.Features.ChatGroups.IChatGroupNotifier, SignalRChatGroupNotifier>();
     builder.Services.AddSingleton<IWeatherSafetyReviewNotifier, SignalRWeatherSafetyReviewNotifier>();
 
     // UC-10 Phase 3: one log line per scheduling solver outcome, the signal for CSP monitoring.
