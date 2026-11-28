@@ -105,8 +105,12 @@ public static class DependencyInjection
             services.AddHostedService<ContractTemplatePreviewBackgroundService>();
         // Database-first: the schema is owned by database/tripmate_schema_v7.sql, applied via
         // database/apply-schema.sh. This context only maps to it — no EF Core migrations here.
-        services.AddDbContext<ApplicationDbContext>(options =>
-            options.UseSqlServer(configuration.GetConnectionString("Default")));
+        services.AddSingleton(sp =>
+            new InAppNotificationChangeInterceptor(sp.GetService<IInAppNotificationNotifier>()));
+        services.AddDbContext<ApplicationDbContext>((sp, options) =>
+            options
+                .UseSqlServer(configuration.GetConnectionString("Default"))
+                .AddInterceptors(sp.GetRequiredService<InAppNotificationChangeInterceptor>()));
 
         services.AddScoped<IApplicationDbContext>(sp =>
             sp.GetRequiredService<ApplicationDbContext>());
