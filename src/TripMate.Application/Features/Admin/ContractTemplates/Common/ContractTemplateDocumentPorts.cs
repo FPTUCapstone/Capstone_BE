@@ -56,6 +56,9 @@ public sealed class ContractTemplateArtifactOptions
 
 public sealed class ContractTemplateRendererOptions
 {
+    // Authenticated private renderer service; when configured it takes precedence over local adapters.
+    public string RemoteEndpoint { get; set; } = string.Empty;
+    public string RemoteApiKey { get; set; } = string.Empty;
     public string DockerExecutablePath { get; set; } = string.Empty;
     public string DockerImage { get; set; } = string.Empty;
     public string ExecutablePath { get; set; } = string.Empty;
