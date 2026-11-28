@@ -23,6 +23,72 @@ namespace TripMate.Api.IntegrationTests.Admin;
 [Collection(nameof(TripMateApiFactory))]
 public sealed class UserAccountBoundaryTests
 {
+    [Fact]
+    public async Task PayoutUnlock_UsesAccountModerationRulesAndPreservesPendingStatus()
+    {
+        await using var factory = await SeedAsync();
+        await factory.WithDbContextAsync(async db =>
+        {
+            var target = await db.Users.SingleAsync(user => user.Id == 40L);
+            target.Status = AccountStatus.PendingApproval;
+            target.Lock("Application review", DateTimeOffset.UtcNow, 10L);
+            var debt = TourOperatorDebt.Create(
+                target.Id, 500_000m, DateTimeOffset.UtcNow.AddDays(-20), DateTimeOffset.UtcNow.AddDays(-20));
+            debt.Recover(125_000m);
+            db.TourOperatorDebts.Add(debt);
+            await db.SaveChangesAsync();
+            return true;
+        });
+
+        using var staff = factory.CreateAuthenticatedClient(10, UserRole.Staff);
+        using var administrator = factory.CreateAuthenticatedClient(20, UserRole.Administrator);
+        const string payoutPath = "/api/v1/admin/payout-settlements/tour-operators/40/unlock";
+        const string accountPath = "/api/v1/admin/users/40/unlock";
+        var payload = new { reason = "Verified repayment with Finance" };
+
+        using var noReason = await staff.PostAsJsonAsync(payoutPath, new { reason = "  " });
+        noReason.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        using var denied = await administrator.PostAsJsonAsync(payoutPath, payload);
+        denied.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        using var wrongTarget = await staff.PostAsJsonAsync(
+            "/api/v1/admin/payout-settlements/tour-operators/30/unlock", payload);
+        wrongTarget.StatusCode.Should().Be(HttpStatusCode.NotFound);
+
+        foreach (var path in new[] { payoutPath, accountPath })
+        {
+            using var blocked = await staff.PostAsJsonAsync(path, payload);
+            blocked.StatusCode.Should().Be(HttpStatusCode.Conflict);
+            using var problem = JsonDocument.Parse(await blocked.Content.ReadAsStringAsync());
+            problem.RootElement.GetProperty("messageCode").GetString().Should().Be("MSG199");
+            problem.RootElement.GetProperty("outstandingAmountVnd").GetDecimal().Should().Be(375_000m);
+        }
+
+        await factory.WithDbContextAsync(async db =>
+        {
+            var debt = await db.TourOperatorDebts.SingleAsync();
+            debt.Recover(debt.Amount - debt.RecoveredAmount);
+            await db.SaveChangesAsync();
+            return true;
+        });
+
+        using var unlocked = await staff.PostAsJsonAsync(payoutPath, payload);
+        unlocked.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var data = JsonDocument.Parse(await unlocked.Content.ReadAsStringAsync());
+        data.RootElement.GetProperty("tourOperatorUserId").GetInt64().Should().Be(40L);
+        data.RootElement.GetProperty("status").GetString().Should().Be(nameof(AccountStatus.PendingApproval));
+        using var duplicate = await staff.PostAsJsonAsync(payoutPath, payload);
+        duplicate.StatusCode.Should().Be(HttpStatusCode.Conflict);
+
+        await factory.WithDbContextAsync(async db =>
+        {
+            var records = await db.AuditLogs.Where(log => log.AffectedEntityId == 40L
+                && log.ActionType == AuditActionTypes.UserUnlock && log.Result == AuditOutcome.Success).ToListAsync();
+            records.Should().ContainSingle().Which.Reason.Should().Be(payload.reason);
+            (await db.Notifications.CountAsync(notification => notification.UserId == 40L)).Should().Be(1);
+            return true;
+        });
+    }
+
     [SqlServerFact]
     [Trait("Category", "SqlServer")]
     public async Task SqlServer_UnlockPathsRequireMatchingLockEvidenceAndAuditScopedDenials()
@@ -145,11 +211,20 @@ public sealed class UserAccountBoundaryTests
             NewAccount(UserRole.ServiceProvider, "provider"), NewAccount(UserRole.Staff, "staff-target"),
             NewAccount(UserRole.Administrator, "admin-target")
         };
-        var provider = Provider.Create("Settlement provider", CommercialService.CategoryHotel, Provider.StatusActive);
+        var provider = Provider.Create("Settlement provider", CommercialService.CategoryRestaurant, Provider.StatusActive);
         provider.AssignAccount(targets[2]);
         db.Users.AddRange(targets.Append(staff).Append(admin));
         db.ServiceProviders.Add(provider);
         await db.SaveChangesAsync();
+
+        var category = PoiCategory.Create("TM-228 recovery restaurant", null);
+        var poi = PointOfInterest.Create(category, "TM-228 settlement venue", 16.07m, 108.22m, staff.Id, now);
+        db.ProviderPoiLinks.Add(ProviderPoiLink.Create(provider, poi));
+        await db.SaveChangesAsync();
+        var bookableService = CommercialService.Create(provider, CommercialService.CategoryRestaurant, "Dinner reservation",
+            100_000m, CommercialService.PriceUnitPerPerson, CommercialService.AvailabilityAvailable, "VND", true,
+            null, null, null, now, poiId: poi.Id);
+        db.CommercialServices.Add(bookableService);
 
         foreach (var target in targets.Where(target => target.Role != UserRole.ServiceProvider))
             target.Lock("Review", now, staff.Id);
@@ -160,7 +235,11 @@ public sealed class UserAccountBoundaryTests
             today.AddDays(-20), today.AddDays(-1));
         var dueToday = ServiceCommissionStatement.Create("TM228-3", provider.Id, "2026-03", 1, 100, 10,
             today.AddDays(-10), today);
-        db.ServiceCommissionStatements.AddRange(overdue, anotherOverdue, dueToday);
+        var oldZero = ServiceCommissionStatement.Create("TM228-ZERO", provider.Id, "2025-12", 1, 9, 0,
+            today.AddDays(-40), today.AddDays(-33));
+        oldZero.MarkOverdue();
+        anotherOverdue.ReportPayment("REPORTED-WRONG", now.AddDays(-2));
+        db.ServiceCommissionStatements.AddRange(overdue, anotherOverdue, dueToday, oldZero);
         const string rawRefreshToken = "tm228-existing-provider-token";
         using var authScope = factory.Services.CreateScope();
         var jwt = authScope.ServiceProvider.GetRequiredService<IJwtTokenService>();
@@ -174,6 +253,14 @@ public sealed class UserAccountBoundaryTests
         await db.SaveChangesAsync();
 
         using var anonymous = factory.CreateClient();
+        async Task<int> BookableOptions()
+        {
+            using var response = await anonymous.GetAsync($"/api/v1/commercial-services/poi/{poi.Id}/options");
+            response.StatusCode.Should().Be(HttpStatusCode.OK);
+            using var data = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            return data.RootElement.GetArrayLength();
+        }
+
         async Task<HttpStatusCode> Refresh()
         {
             using var response = await anonymous.PostAsJsonAsync("/api/v1/auth/refresh", new { refreshToken = rawRefreshToken });
@@ -181,14 +268,18 @@ public sealed class UserAccountBoundaryTests
         }
 
         (await Refresh()).Should().Be(HttpStatusCode.OK);
+        (await BookableOptions()).Should().Be(1);
         var job = new CommissionStatementService(db);
         var summary = await job.ProcessOverdueStatementsAsync(now);
         summary.AccountsLockedCount.Should().Be(1);
         (await Refresh()).Should().BeOneOf(HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden);
+        (await BookableOptions()).Should().Be(0);
+        using var blockedAvailability = await anonymous.GetAsync($"/api/v1/commercial-services/{bookableService.Id}/availability");
+        blockedAvailability.StatusCode.Should().Be(HttpStatusCode.NotFound);
 
         using var staffClient = factory.CreateAuthenticatedClient(staff.Id, UserRole.Staff);
         using var adminClient = factory.CreateAuthenticatedClient(admin.Id, UserRole.Administrator);
-        async Task<HttpStatusCode> Unlock(HttpClient client, long userId, string? key = null)
+        async Task<HttpStatusCode> Unlock(HttpClient client, long userId, string? key = null, decimal? outstanding = null)
         {
             using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/admin/users/{userId}/unlock")
             {
@@ -196,6 +287,13 @@ public sealed class UserAccountBoundaryTests
             };
             if (key is not null) request.Headers.Add("Idempotency-Key", key);
             using var response = await client.SendAsync(request);
+            if (outstanding is { } amount)
+            {
+                response.StatusCode.Should().Be(HttpStatusCode.Conflict);
+                using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                problem.RootElement.GetProperty("messageCode").GetString().Should().Be("MSG199");
+                problem.RootElement.GetProperty("outstandingAmountVnd").GetDecimal().Should().Be(amount);
+            }
             return response.StatusCode;
         }
 
@@ -206,17 +304,52 @@ public sealed class UserAccountBoundaryTests
             foreach (var target in targets.Skip(3))
                 (await Unlock(staffClient, target.Id, key)).Should().Be(HttpStatusCode.NotFound, $"{target.Role} is outside Staff scope");
             (await Unlock(staffClient, long.MaxValue, key)).Should().Be(HttpStatusCode.NotFound);
-            (await Unlock(staffClient, targets[2].Id, key)).Should().Be(HttpStatusCode.Conflict);
+            (await Unlock(staffClient, targets[2].Id, key, outstanding: 20m)).Should().Be(HttpStatusCode.Conflict);
         }
 
-        overdue.ConfirmReceipt(staff.Id, now, "receipt-1");
-        await db.SaveChangesAsync();
-        (await Unlock(staffClient, targets[2].Id)).Should().Be(HttpStatusCode.Conflict);
-        anotherOverdue.ConfirmReceipt(staff.Id, now, "receipt-2");
-        await db.SaveChangesAsync();
+        const string reconciliation = "/api/v1/admin/commercial-settlements/reconciliation";
+        using var deniedReconciliation = await adminClient.GetAsync(reconciliation);
+        deniedReconciliation.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        using var deniedReceipt = await adminClient.PostAsJsonAsync(
+            $"{reconciliation}/{overdue.Id}/reconcile", new { bankTransferReference = "BANK-202601" });
+        deniedReceipt.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        using var missingReference = await staffClient.PostAsJsonAsync(
+            $"{reconciliation}/{overdue.Id}/reconcile", new { notes = "Checked bank statement" });
+        missingReference.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        using var issuedAttempt = await staffClient.PostAsJsonAsync(
+            $"{reconciliation}/{dueToday.Id}/reconcile",
+            new { bankTransferReference = "UNREPORTED", receivedAmountVnd = 10m });
+        issuedAttempt.StatusCode.Should().Be(HttpStatusCode.Conflict);
+
+        async Task ConfirmReceipt(long statementId, string reference, string? expectedReported = null)
+        {
+            using var receipt = await staffClient.PostAsJsonAsync(
+                $"{reconciliation}/{statementId}/reconcile",
+                new { bankTransferReference = reference, receivedAmountVnd = 10m });
+            receipt.StatusCode.Should().Be(HttpStatusCode.OK);
+            using var data = JsonDocument.Parse(await receipt.Content.ReadAsStringAsync());
+            data.RootElement.GetProperty("bankTransferReference").GetString().Should().Be(reference);
+            data.RootElement.GetProperty("verifiedBankTransferReference").GetString().Should().Be(reference);
+            data.RootElement.GetProperty("reportedBankTransferReference").GetString().Should().Be(expectedReported);
+            if (expectedReported is null)
+                data.RootElement.GetProperty("reportedAtUtc").ValueKind.Should().Be(JsonValueKind.Null);
+        }
+
+        await ConfirmReceipt(overdue.Id, "BANK-202601");
+        (await Unlock(staffClient, targets[2].Id, outstanding: 10m)).Should().Be(HttpStatusCode.Conflict);
+        using var repeatedTransfer = await staffClient.PostAsJsonAsync(
+            $"{reconciliation}/{anotherOverdue.Id}/reconcile",
+            new { bankTransferReference = " bank-202601 ", receivedAmountVnd = 10m });
+        repeatedTransfer.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        using var repeatedProblem = JsonDocument.Parse(await repeatedTransfer.Content.ReadAsStringAsync());
+        repeatedProblem.RootElement.GetProperty("errorCode").GetString()
+            .Should().Be("CommissionStatement.BankReferenceAlreadyUsed");
+        await ConfirmReceipt(anotherOverdue.Id, "BANK-202602", "REPORTED-WRONG");
 
         (await Unlock(staffClient, targets[2].Id, "tm228-provider")).Should().Be(HttpStatusCode.OK);
         (await Refresh()).Should().Be(HttpStatusCode.Unauthorized);
+        (await BookableOptions()).Should().Be(1);
         (await Unlock(staffClient, targets[2].Id, "tm228-provider")).Should().Be(HttpStatusCode.OK);
         (await Unlock(staffClient, targets[0].Id, "tm228-traveler")).Should().Be(HttpStatusCode.OK);
         (await Unlock(staffClient, targets[1].Id)).Should().Be(HttpStatusCode.OK);
@@ -246,6 +379,53 @@ public sealed class UserAccountBoundaryTests
         concurrentUnlocks.Should().BeEquivalentTo([HttpStatusCode.OK, HttpStatusCode.Conflict]);
         (await db.AuditLogs.CountAsync(log => log.AffectedEntityId == targets[2].Id && log.Result == AuditOutcome.Success
             && (log.ActionType == AuditActionTypes.UserUnlock || log.ActionType == AuditActionTypes.UserAccountUnlocked))).Should().Be(2);
+    }
+
+    [SqlServerFact]
+    [Trait("Category", "SqlServer")]
+    public async Task SqlServer_ConcurrentReceiptsCannotUseTheSameBankCredit()
+    {
+        await using var database = await SqlServerTestDatabase.CreateAsync();
+        var migration = Path.Combine(SqlServerTestDatabase.DefaultMigrationsDirectory(),
+            "20261128_tm228_verified_commission_receipt.sql");
+        await database.ExecuteNonQueryAsync(await File.ReadAllTextAsync(migration));
+        await using var factory = new TripMateApiFactory(sqlServerConnectionString: database.ConnectionString);
+        await using var db = database.CreateDbContext();
+        var staff = new User
+        {
+            Role = UserRole.Staff,
+            Status = AccountStatus.Active,
+            FullName = "Receipt staff",
+            Email = "receipt-staff@tm228.test",
+        };
+        var provider = Provider.Create("Concurrent receipt provider", CommercialService.CategoryRestaurant, Provider.StatusActive);
+        db.Users.Add(staff);
+        db.ServiceProviders.Add(provider);
+        await db.SaveChangesAsync();
+        var issueDate = new DateOnly(2026, 1, 1);
+        var first = ServiceCommissionStatement.Create("TM228-R1", provider.Id, "2025-11", 1, 100, 10,
+            issueDate, issueDate.AddDays(7));
+        var second = ServiceCommissionStatement.Create("TM228-R2", provider.Id, "2025-12", 1, 100, 10,
+            issueDate, issueDate.AddDays(7));
+        first.MarkOverdue();
+        second.MarkOverdue();
+        db.ServiceCommissionStatements.AddRange(first, second);
+        await db.SaveChangesAsync();
+
+        using var client = factory.CreateAuthenticatedClient(staff.Id, UserRole.Staff);
+        async Task<HttpStatusCode> Reconcile(long id)
+        {
+            using var response = await client.PostAsJsonAsync($"/api/v1/admin/commercial-settlements/reconciliation/{id}/reconcile",
+                new { bankTransferReference = "SAME-CREDIT-001", receivedAmountVnd = 10 });
+            return response.StatusCode;
+        }
+
+        var outcomes = await Task.WhenAll(Reconcile(first.Id), Reconcile(second.Id));
+        outcomes.Should().BeEquivalentTo([HttpStatusCode.OK, HttpStatusCode.Conflict]);
+        (await db.ServiceCommissionStatements.CountAsync(row => row.Status == ServiceCommissionStatement.StatusPaid))
+            .Should().Be(1);
+        (await db.AuditLogs.CountAsync(row => row.ActionType == AuditActionTypes.CommissionReceiptConfirmed))
+            .Should().Be(1);
     }
 
     [SqlServerFact]
@@ -640,8 +820,9 @@ public sealed class UserAccountBoundaryTests
             db.Users.Add(new User { Id = 50, FullName = "Provider", Role = UserRole.ServiceProvider, Status = AccountStatus.Active });
             await db.SaveChangesAsync();
             db.AuditLogs.AddRange(
-                // The commission job records its lock without an explicit outcome.
-                new AuditLog(null, AuditActionTypes.ServiceProviderAutoLocked, AuditEntityTypes.User, 50, time),
+                // Old commission jobs stored the reason inside the audit snapshot.
+                new AuditLog(null, AuditActionTypes.ServiceProviderAutoLocked, AuditEntityTypes.User, 50, time,
+                    afterData: "Status=Locked; Reason=Overdue commission statement SP-001 for period 2026-10"),
                 AuditLog.CreateRecordedOutcome(10, AuditActionTypes.UserUnlock, AuditEntityTypes.User, 50,
                     time, AuditOutcome.Success, reason: "Settlement verified"),
                 AuditLog.CreateRecordedOutcome(10, AuditActionTypes.UserUnlock, AuditEntityTypes.User, 50,
@@ -665,6 +846,8 @@ public sealed class UserAccountBoundaryTests
         providerHistory[0].GetProperty("actorAttribution").GetString().Should().Be("Account 10");
         providerHistory[0].GetProperty("reason").GetString().Should().Be("Settlement verified");
         providerHistory[1].GetProperty("actorAttribution").GetString().Should().Be("System");
+        providerHistory[1].GetProperty("reason").GetString()
+            .Should().Be("Overdue commission statement SP-001 for period 2026-10");
 
         var travelerHistory = (await traveler.Content.ReadFromJsonAsync<JsonElement>())
             .GetProperty("moderationHistory").EnumerateArray().ToArray();
@@ -757,6 +940,8 @@ public sealed class UserAccountBoundaryTests
         {
             (await db.Users.SingleAsync(user => user.Id == 30)).Status.Should().Be(AccountStatus.Locked);
             (await db.RefreshTokens.SingleAsync()).RevokedAtUtc.Should().NotBeNull();
+            var queued = await db.Notifications.SingleAsync(row => row.UserId == 30 && row.Channel == NotificationChannel.Email);
+            queued.Type.Should().Be("AccountLocked");
             return true;
         });
         using var unlocked = await client.PostAsJsonAsync("/api/v1/admin/users/30/unlock", new { reason = "Resolved" });
@@ -765,6 +950,8 @@ public sealed class UserAccountBoundaryTests
         {
             (await db.Users.SingleAsync(user => user.Id == 30)).Status.Should().Be(AccountStatus.PendingEmailVerification);
             (await db.AuditLogs.CountAsync(row => row.AffectedEntityId == 30 && row.Result == AuditOutcome.Success)).Should().Be(2);
+            (await db.Notifications.CountAsync(row => row.UserId == 30 && row.Channel == NotificationChannel.Email
+                && row.Type == "AccountUnlocked")).Should().Be(1);
             return true;
         });
     }

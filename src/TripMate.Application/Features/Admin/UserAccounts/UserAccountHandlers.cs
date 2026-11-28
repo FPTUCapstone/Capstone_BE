@@ -31,14 +31,6 @@ internal static class UserAccountAccess
                 || user.Role == UserRole.ServiceProvider)
             : db.Users.Where(user => user.Role == UserRole.Staff);
 
-    public static Task<bool> HasUnpaidOverdueCommissionAsync(IApplicationDbContext db, long userId,
-        DateTimeOffset now, CancellationToken ct)
-    {
-        var today = DateOnly.FromDateTime(now.ToOffset(ServiceBooking.VietnamOffset).DateTime);
-        return db.ServiceCommissionStatements.AnyAsync(statement => statement.Provider.UserId == userId
-            && statement.DueDate < today && statement.Status != ServiceCommissionStatement.StatusPaid, ct);
-    }
-
     public static readonly Expression<Func<User, UserAccountDto>> Projection = user => new UserAccountDto(
         user.Id.ToString(), user.FullName, user.Email, user.Role.ToString(), user.Status.ToString(),
         user.CreatedAtUtc.UtcDateTime, user.LastLoginAtUtc.HasValue ? user.LastLoginAtUtc.Value.UtcDateTime : null);
@@ -109,7 +101,7 @@ public sealed class GetUserAccountQueryHandler(IApplicationDbContext db, ICurren
         var isTourOperator = account.Role == nameof(UserRole.TourOperator);
         var isServiceProvider = account.Role == nameof(UserRole.ServiceProvider);
         var historyRows = await db.AuditLogs.AsNoTracking()
-            // The Service Provider commission job records its auto-lock without an explicit outcome.
+            // Historical Service Provider auto-lock records may lack an explicit outcome.
             .Where(row => row.AffectedEntityId == request.UserId
                 && (row.Result == AuditOutcome.Success
                     || (isServiceProvider && row.ActionType == AuditActionTypes.ServiceProviderAutoLocked
@@ -134,14 +126,15 @@ public sealed class GetUserAccountQueryHandler(IApplicationDbContext db, ICurren
                 row.ActorUserId,
                 row.Reason,
                 row.CreatedAtUtc,
-                RejectionSnapshot = row.ActionType == AuditActionTypes.OperatorApplicationReject && row.Reason == null
+                ReasonSnapshot = row.Reason == null && (row.ActionType == AuditActionTypes.OperatorApplicationReject
+                    || row.ActionType == AuditActionTypes.ServiceProviderAutoLocked)
                     ? row.AfterData
                     : null
             }).ToListAsync(ct);
         var history = historyRows.Select(row => new AccountModerationDto(
             row.ActionType,
             ActorAttribution(row.ActionType, row.ActorUserId),
-            row.Reason ?? ReadRejectionReason(row.RejectionSnapshot),
+            row.Reason ?? ReadHistoricalReason(row.ActionType, row.ReasonSnapshot),
             row.CreatedAtUtc.UtcDateTime)).ToList();
 
         int? bookingCount = account.Role switch
@@ -161,9 +154,16 @@ public sealed class GetUserAccountQueryHandler(IApplicationDbContext db, ICurren
         _ => "Unknown"
     };
 
-    private static string? ReadRejectionReason(string? snapshot)
+    private static string? ReadHistoricalReason(string action, string? snapshot)
     {
         if (snapshot is null) return null;
+        if (action == AuditActionTypes.ServiceProviderAutoLocked)
+        {
+            const string prefix = "Status=Locked; Reason=";
+            return snapshot.StartsWith(prefix, StringComparison.Ordinal) && snapshot.Length > prefix.Length
+                ? snapshot[prefix.Length..]
+                : null;
+        }
         try
         {
             using var document = JsonDocument.Parse(snapshot);
@@ -203,14 +203,14 @@ public sealed class ModerateUserAccountCommandHandler(IApplicationDbContext db, 
                 if (user is null) return Result.Failure<UserAccountDto>(UserAccountErrors.NotFound, "The account is unavailable.");
                 if (user.Status == AccountStatus.Inactive || request.Lock == (user.Status == AccountStatus.Locked))
                     return Result.Failure<UserAccountDto>(UserAccountErrors.Conflict, "The account state has changed.");
-                if (!request.Lock && user.Role == UserRole.TourOperator && await db.TourOperatorDebts.AsNoTracking()
-                    .AnyAsync(debt => debt.TourOperatorUserId == user.Id && debt.RecoveredAmount < debt.Amount, transactionCt))
-                    return Result.Failure<UserAccountDto>(UserAccountErrors.OutstandingDebt, "The outstanding debt must be recovered before unlocking.");
                 var now = clock.UtcNow.ToUniversalTime();
-                if (!request.Lock && user.Role == UserRole.ServiceProvider
-                    && await UserAccountAccess.HasUnpaidOverdueCommissionAsync(db, user.Id, now, transactionCt))
-                    return Result.Failure<UserAccountDto>(UserAccountErrors.ProviderSettlementUnavailable,
-                        "Provider commission settlement must be verified before unlocking.");
+                if (!request.Lock && await AccountLockRecovery.GetOutstandingAmountAsync(db, user, now, transactionCt) is { } amount)
+                {
+                    var errorCode = user.Role == UserRole.TourOperator
+                        ? UserAccountErrors.OutstandingDebt
+                        : UserAccountErrors.ProviderSettlementUnavailable;
+                    return AccountLockRecovery.PaymentRequired<UserAccountDto>(errorCode, amount);
+                }
                 var before = user.Status;
                 if (request.Lock)
                 {
@@ -234,27 +234,42 @@ public sealed class ModerateUserAccountCommandHandler(IApplicationDbContext db, 
                 {
                     User = user,
                     Channel = NotificationChannel.InApp,
-                    Type = request.Lock ? "AccountLocked" : "AccountUnlocked",
+                    Type = request.Lock ? UserAdministrationNotificationTypes.AccountLocked : UserAdministrationNotificationTypes.AccountUnlocked,
                     Title = "Account access updated",
                     Body = request.Lock ? "Your account has been locked. Contact support for assistance." : "Your account has been unlocked.",
                     Status = NotificationStatus.Pending,
                     CreatedAtUtc = now
                 });
+                if (!string.IsNullOrWhiteSpace(user.Email))
+                {
+                    db.Notifications.Add(new Notification
+                    {
+                        User = user,
+                        Channel = NotificationChannel.Email,
+                        Type = request.Lock ? UserAdministrationNotificationTypes.AccountLocked : UserAdministrationNotificationTypes.AccountUnlocked,
+                        Title = request.Lock ? UserAdministrationNotificationTypes.AccountLockedTitle : UserAdministrationNotificationTypes.AccountUnlockedTitle,
+                        Body = request.Lock ? UserAdministrationNotificationTypes.AccountLockedBody : UserAdministrationNotificationTypes.AccountUnlockedBody,
+                        RelatedEntityType = AuditEntityTypes.User,
+                        RelatedEntityId = user.Id,
+                        Status = NotificationStatus.Pending,
+                        CreatedAtUtc = now
+                    });
+                }
                 await db.SaveChangesAsync(transactionCt);
                 return Result.Success(UserAccountAccess.Map(user));
             }, ct);
-            return result.IsFailure ? await Fail(result.ErrorCode!, result.ErrorMessage!) : result;
+            return result.IsFailure ? await Fail(result.ErrorCode!, result.ErrorMessage!, result.ErrorMetadata) : result;
         }
         catch (Exception exception) when (exception is DbUpdateConcurrencyException || db.IsDeadlock(exception))
         {
             return await Fail(UserAccountErrors.Conflict, "The account state has changed.");
         }
 
-        async Task<Result<UserAccountDto>> Fail(string code, string message)
+        async Task<Result<UserAccountDto>> Fail(string code, string message, IReadOnlyDictionary<string, object?>? metadata = null)
         {
             if (current.UserId is > 0) await failures.RecordAsync(new(current.UserId.Value, action, AuditEntityTypes.User,
                 request.UserId > 0 ? request.UserId : null, code));
-            return Result.Failure<UserAccountDto>(code, message);
+            return Result.Failure<UserAccountDto>(code, message, metadata);
         }
     }
 }

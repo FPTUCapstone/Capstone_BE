@@ -47,6 +47,7 @@ try
     builder.Services.AddSignalR();
     builder.Services.AddScoped<TripMate.Application.Features.DirectChat.IDirectChatNotifier, SignalRDirectChatNotifier>();
     builder.Services.AddSingleton<IWeatherSafetyReviewNotifier, SignalRWeatherSafetyReviewNotifier>();
+    builder.Services.AddSingleton<IInAppNotificationNotifier, SignalRInAppNotificationNotifier>();
 
     // UC-10 Phase 3: one log line per scheduling solver outcome, the signal for CSP monitoring.
     builder.Services.AddHostedService<SchedulingSolverOutcomeLogger>();
@@ -183,7 +184,8 @@ try
                     if (!string.IsNullOrWhiteSpace(accessToken)
                         && (context.HttpContext.Request.Path.StartsWithSegments(WeatherSafetyReviewHub.Route)
                             || context.HttpContext.Request.Path.StartsWithSegments(GroupChatHub.Route)
-                            || context.HttpContext.Request.Path.StartsWithSegments(DirectChatHub.Route)))
+                            || context.HttpContext.Request.Path.StartsWithSegments(DirectChatHub.Route)
+                            || context.HttpContext.Request.Path.StartsWithSegments(NotificationsHub.Route)))
                     {
                         context.Token = accessToken;
                     }
@@ -350,6 +352,8 @@ try
     app.MapHub<GroupChatHub>(GroupChatHub.Route, options =>
         options.LongPolling.PollTimeout = TimeSpan.FromSeconds(20));
     app.MapHub<DirectChatHub>(DirectChatHub.Route, options =>
+        options.LongPolling.PollTimeout = TimeSpan.FromSeconds(20));
+    app.MapHub<NotificationsHub>(NotificationsHub.Route, options =>
         options.LongPolling.PollTimeout = TimeSpan.FromSeconds(20));
 
     app.MapGet("/health", () => Results.Ok(new { status = "healthy" })).AllowAnonymous();
