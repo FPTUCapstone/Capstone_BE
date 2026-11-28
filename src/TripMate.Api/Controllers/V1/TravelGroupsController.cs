@@ -3,13 +3,17 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
+using Microsoft.AspNetCore.SignalR;
 
 using TripMate.Api.Common;
 using TripMate.Api.Controllers.V1.Requests;
+using TripMate.Api.Realtime;
 using TripMate.Application.Common.Interfaces;
+using TripMate.Application.Features.TravelGroups.Chat;
 using TripMate.Application.Features.TravelGroups.CreateTravelGroup;
 using TripMate.Application.Features.TravelGroups.GetInvitation;
 using TripMate.Application.Features.TravelGroups.GetMembers;
+using TripMate.Application.Features.TravelGroups.HostManagement;
 using TripMate.Application.Features.TravelGroups.JoinTravelGroup;
 using TripMate.Application.Features.TravelGroups.LeaveTravelGroup;
 using TripMate.Application.Features.TravelGroups.ManageInvitation;
@@ -30,8 +34,60 @@ namespace TripMate.Api.Controllers.V1;
 [Route("api/v1/travel-groups")]
 public class TravelGroupsController(
     ISender sender,
-    ICurrentUserService currentUserService) : ApiControllerBase(sender)
+    ICurrentUserService currentUserService,
+    IHubContext<GroupChatHub> hubContext,
+    ILogger<TravelGroupsController> logger) : ApiControllerBase(sender)
 {
+    [HttpPut("{groupId:long}/name")]
+    [Authorize(Roles = nameof(UserRole.Traveler))]
+    [ProducesResponseType(typeof(RenameTravelGroupResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Rename(
+        long groupId, [FromBody] RenameTravelGroupRequest request, CancellationToken cancellationToken)
+    {
+        if (!currentUserService.UserId.HasValue) return Unauthorized();
+
+        var result = await Sender.Send(new RenameTravelGroupCommand(
+            groupId, currentUserService.UserId.Value, request.Name), cancellationToken);
+        if (result.IsFailure) return HandleFailure(result);
+
+        // Sender returns after the handler's transaction commits. Notify only current
+        // authorized recipients, and keep a transport failure from undoing HTTP success.
+        try
+        {
+            var recipients = await Sender.Send(new GetGroupChatRecipientsQuery(groupId), cancellationToken);
+            await hubContext.Clients.Users(recipients).SendAsync(
+                "ConversationChanged", new { groupId }, cancellationToken);
+        }
+        catch (Exception)
+        {
+            logger.LogWarning("Travel group rename notification could not be delivered after persistence.");
+        }
+
+        return Ok(result.Value);
+    }
+
+    [HttpPost("{groupId:long}/dissolve")]
+    [Authorize(Roles = nameof(UserRole.Traveler))]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> Dissolve(long groupId, CancellationToken cancellationToken)
+    {
+        if (!currentUserService.UserId.HasValue) return Unauthorized();
+
+        var result = await Sender.Send(new DissolveTravelGroupCommand(
+            groupId, currentUserService.UserId.Value), cancellationToken);
+        // The handler explicitly rejects dissolution until history access has a safe lifecycle.
+        return HandleFailure(result);
+    }
+
     [HttpDelete("{groupId}/members/{memberUserId}")]
     [Authorize(Roles = nameof(UserRole.Traveler))]
     [ProducesResponseType(typeof(RemoveGroupMemberResponse), StatusCodes.Status200OK)]

@@ -42,6 +42,7 @@ public class GroupMember
         TravelGroup = travelGroup;
         UserId = userId;
         LocationSharingEnabled = false;
+        LocationSharingUpdatedAtUtc = null;
         Status = GroupMemberStatus.Active;
         JoinedAtUtc = joinedAtUtc;
     }
@@ -69,6 +70,7 @@ public class GroupMember
         JoinedAtUtc = rejoinedAtUtc;
         LeftAtUtc = null;
         LocationSharingEnabled = false;
+        LocationSharingUpdatedAtUtc = null;
     }
 
     public void Leave(DateTimeOffset leftAtUtc)
@@ -81,6 +83,7 @@ public class GroupMember
         Status = GroupMemberStatus.Left;
         LeftAtUtc = leftAtUtc;
         LocationSharingEnabled = false;
+        LocationSharingUpdatedAtUtc = null;
     }
 
     public void Remove(DateTimeOffset removedAtUtc)
@@ -93,6 +96,39 @@ public class GroupMember
         Status = GroupMemberStatus.Removed;
         LeftAtUtc = removedAtUtc;
         LocationSharingEnabled = false;
+        LocationSharingUpdatedAtUtc = null;
+    }
+
+    public void SetLocationSharing(bool enabled, DateTimeOffset updatedAtUtc)
+    {
+        if (Status != GroupMemberStatus.Active)
+        {
+            throw new InvalidOperationException("Only active members can change location sharing.");
+        }
+
+        if (LocationSharingEnabled != enabled || !LocationSharingUpdatedAtUtc.HasValue)
+        {
+            LocationSharingEnabled = enabled;
+            AdvanceLocationSession(updatedAtUtc);
+        }
+    }
+
+    public void InvalidateLocationSession(DateTimeOffset updatedAtUtc)
+    {
+        if (Status != GroupMemberStatus.Active || !LocationSharingEnabled)
+        {
+            throw new InvalidOperationException("Only an active, opted-in member has a location session.");
+        }
+
+        AdvanceLocationSession(updatedAtUtc);
+    }
+
+    private void AdvanceLocationSession(DateTimeOffset updatedAtUtc)
+    {
+        var proposedTicks = updatedAtUtc.UtcTicks;
+        var previousTicks = LocationSharingUpdatedAtUtc?.UtcTicks ?? 0;
+        LocationSharingUpdatedAtUtc = new DateTimeOffset(
+            Math.Max(proposedTicks, previousTicks + 1), TimeSpan.Zero);
     }
 
     public long? LastReadChatMessageId { get; private set; }
@@ -113,6 +149,8 @@ public class GroupMember
     public User User { get; private set; } = null!;
 
     public bool LocationSharingEnabled { get; private set; }
+
+    public DateTimeOffset? LocationSharingUpdatedAtUtc { get; private set; }
 
     public GroupMemberStatus Status { get; private set; } = GroupMemberStatus.Active;
 

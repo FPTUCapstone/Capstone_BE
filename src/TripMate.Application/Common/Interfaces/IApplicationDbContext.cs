@@ -9,6 +9,25 @@ public interface IApplicationDbContext
     DbSet<ComplaintStaffReviewEvent> ComplaintStaffReviewEvents =>
         throw new NotSupportedException("Complaint Staff review is unavailable in this context.");
 
+    DbSet<ItineraryShare> ItineraryShares { get; }
+
+    /// <summary>Commits only a successful Result; failed sends must not leave a partial share/message.</summary>
+    Task<TripMate.Application.Common.Models.Result<T>> ExecuteInSerializableResultTransactionAsync<T>(
+        Func<CancellationToken, Task<TripMate.Application.Common.Models.Result<T>>> operation,
+        CancellationToken cancellationToken) => throw new NotSupportedException("A transaction with rollback on failed Result is required.");
+
+    DbSet<ChatGroupLeaveOperation> ChatGroupLeaveOperations => throw new NotSupportedException("Chat leave receipts are unavailable.");
+    bool HasActiveTransaction => false;
+    Task AcquireChatGroupLockAsync(long groupId, CancellationToken ct) => throw new NotSupportedException("Chat group transaction locking is required.");
+
+    DbSet<ChatGroup> ChatGroups { get; }
+    DbSet<ChatGroupMember> ChatGroupMembers { get; }
+    DbSet<ChatGroupMessage> ChatGroupMessages { get; }
+
+    DbSet<Friendship> Friendships { get; }
+
+    bool IsFriendshipPairUniqueConflict(DbUpdateException exception) => false;
+
     DbSet<DirectConversation> DirectConversations { get; }
 
     DbSet<DirectMessage> DirectMessages { get; }
@@ -184,8 +203,11 @@ public interface IApplicationDbContext
     DbSet<TravelGroup> TravelGroups { get; }
 
     DbSet<GroupMember> GroupMembers { get; }
+    DbSet<GroupLocation> GroupLocations { get; }
 
     DbSet<GroupMessage> GroupMessages { get; }
+
+    DbSet<GroupMessageEditOperation> GroupMessageEditOperations { get; }
 
     DbSet<GroupMessageReadReceipt> GroupMessageReadReceipts { get; }
 

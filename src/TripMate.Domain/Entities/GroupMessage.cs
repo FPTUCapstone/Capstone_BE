@@ -5,6 +5,33 @@ namespace TripMate.Domain.Entities;
 
 public class GroupMessage : BaseEntity
 {
+    public const string TextType = "text";
+    public const string PollType = "poll";
+    public const string BroadcastType = "broadcast";
+    public const string SplitBillType = "split_bill";
+    public const string RollCallType = "roll_call";
+    public long Revision { get; private set; }
+    public long InteractionRevision { get; private set; }
+    public DateTimeOffset? EditedAtUtc { get; private set; }
+    public bool FinanciallyConfirmed { get; private set; }
+    public string? OriginalContent { get; private set; }
+    public string? OriginalMetadataJson { get; private set; }
+
+    public void TouchInteraction() => InteractionRevision++;
+
+    public bool TryEdit(long actorId, string content, string? metadataJson, long expectedRevision,
+        DateTimeOffset editedAtUtc, bool unsafePollChange, bool unsafeBroadcastChange = true)
+    {
+        if (actorId != SenderUserId || Revision != expectedRevision || string.IsNullOrWhiteSpace(content)
+            || content.Trim().Length > 4000 || MessageType is not (PollType or BroadcastType or SplitBillType)) return false;
+        if (MessageType == PollType && _pollVotes.Count > 0 && unsafePollChange) return false;
+        if (MessageType == BroadcastType && _readReceipts.Count > 0 && unsafeBroadcastChange) return false;
+        if (MessageType == SplitBillType && (FinanciallyConfirmed || _splitBillPayments.Any(p => p.IsPaid && p.UserId != SenderUserId))) return false;
+        if (OriginalContent is null) { OriginalContent = Content; OriginalMetadataJson = MetadataJson; }
+        Content = content.Trim(); MetadataJson = metadataJson; EditedAtUtc = editedAtUtc; Revision++;
+        return true;
+    }
+
     private readonly List<GroupMessageReadReceipt> _readReceipts = [];
     private readonly List<GroupRollCallCheckin> _rollCallCheckins = [];
     private readonly List<GroupSplitBillPayment> _splitBillPayments = [];
@@ -33,6 +60,8 @@ public class GroupMessage : BaseEntity
         SenderUserId = senderUserId;
         MessageType = messageType;
         Content = content;
+        OriginalContent = content;
+        OriginalMetadataJson = metadataJson;
         MetadataJson = metadataJson;
         CreatedAtUtc = createdAtUtc;
     }
@@ -59,6 +88,7 @@ public class GroupMessage : BaseEntity
     {
         if (_readReceipts.Any(r => r.UserId == userId)) return;
         _readReceipts.Add(new GroupMessageReadReceipt(this, userId, readAtUtc));
+        TouchInteraction();
     }
 
     public void AddRollCallCheckin(long userId, DateTimeOffset checkedInAtUtc)
@@ -67,8 +97,13 @@ public class GroupMessage : BaseEntity
         _rollCallCheckins.Add(new GroupRollCallCheckin(this, userId, checkedInAtUtc));
     }
 
-    public void UpdateSplitBillPayment(long userId, bool isPaid, DateTimeOffset? paidAtUtc)
+    public void UpdateSplitBillPayment(long userId, bool isPaid, DateTimeOffset? paidAtUtc, bool isInitialCreatorMarker = false)
     {
+        if (!isInitialCreatorMarker)
+        {
+            if (isPaid) FinanciallyConfirmed = true;
+            TouchInteraction();
+        }
         var payment = _splitBillPayments.FirstOrDefault(p => p.UserId == userId);
         if (payment is null)
         {
@@ -82,6 +117,7 @@ public class GroupMessage : BaseEntity
 
     public void RecordPollVote(long userId, int optionIndex, DateTimeOffset votedAtUtc)
     {
+        TouchInteraction();
         var existing = _pollVotes.FirstOrDefault(v => v.UserId == userId);
         if (existing is not null)
         {

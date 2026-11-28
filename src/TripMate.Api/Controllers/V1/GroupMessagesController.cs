@@ -28,6 +28,32 @@ public class GroupMessagesController(
     IHubContext<GroupChatHub> hubContext,
     ILogger<GroupMessagesController> logger) : ApiControllerBase(sender)
 {
+    public sealed record EditRequest(string? Content, string? MetadataJson, long ExpectedRevision, Guid ClientRequestId);
+
+    [HttpPut("{messageId:long}")]
+    public async Task<IActionResult> Edit(long groupId, long messageId, [FromBody] EditRequest request, CancellationToken ct)
+    {
+        if (currentUserService.UserId is not { } actor) return Unauthorized();
+        var result = await Sender.Send(new EditGroupMessage(groupId, messageId, actor, request.Content, request.MetadataJson, request.ExpectedRevision, request.ClientRequestId), ct);
+        if (result.IsFailure) return HandleFailure(result);
+        await NotifyAsync(groupId, "MessageUpdated", result.Value, ct);
+        return Ok(result.Value);
+    }
+    [HttpGet("important")]
+    public async Task<IActionResult> Important(long groupId, CancellationToken ct, [FromQuery] int limit = 20, [FromQuery] long? beforeMessageId = null)
+    {
+        if (currentUserService.UserId is not { } actor) return Unauthorized();
+        var result = await Sender.Send(new GetImportantGroupMessages(groupId, actor, limit, beforeMessageId), ct);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+    [HttpGet("{messageId:long}/votes")]
+    public async Task<IActionResult> Votes(long groupId, long messageId, CancellationToken ct)
+    {
+        if (currentUserService.UserId is not { } actor) return Unauthorized();
+        var result = await Sender.Send(new GetGroupPollVotes(groupId, messageId, actor), ct);
+        return result.IsSuccess ? Ok(result.Value) : HandleFailure(result);
+    }
+
     [HttpGet]
     [ProducesResponseType(typeof(IReadOnlyList<GroupMessageDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ProblemDetails), StatusCodes.Status400BadRequest)]
@@ -115,7 +141,8 @@ public class GroupMessagesController(
     public async Task<IActionResult> Acknowledge(
         long groupId,
         long messageId,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        [FromQuery] long? expectedRevision = null)
     {
         if (!currentUserService.UserId.HasValue) return Unauthorized();
         if (groupId <= 0 || messageId <= 0)
@@ -125,7 +152,7 @@ public class GroupMessagesController(
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        var command = new AcknowledgeBroadcastCommand(groupId, messageId, currentUserService.UserId.Value);
+        var command = new AcknowledgeBroadcastCommand(groupId, messageId, currentUserService.UserId.Value, expectedRevision);
         var result = await Sender.Send(command, cancellationToken);
         if (!result.IsSuccess) return HandleFailure(result);
 
@@ -184,7 +211,7 @@ public class GroupMessagesController(
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        var command = new ToggleExpensePaymentCommand(groupId, messageId, currentUserService.UserId.Value, request.IsPaid);
+        var command = new ToggleExpensePaymentCommand(groupId, messageId, currentUserService.UserId.Value, request.IsPaid, request.ExpectedRevision);
         var result = await Sender.Send(command, cancellationToken);
         if (!result.IsSuccess) return HandleFailure(result);
 
@@ -214,7 +241,7 @@ public class GroupMessagesController(
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        var command = new VotePollCommand(groupId, messageId, currentUserService.UserId.Value, request.OptionIndex);
+        var command = new VotePollCommand(groupId, messageId, currentUserService.UserId.Value, request.OptionIndex, request.ExpectedRevision);
         var result = await Sender.Send(command, cancellationToken);
         if (!result.IsSuccess) return HandleFailure(result);
 

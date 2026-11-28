@@ -116,7 +116,7 @@ public sealed class DirectChatHandlers(IApplicationDbContext db) :
             message = new DirectMessage(conversation, r.ActorId, content, r.ClientMessageId, DateTimeOffset.UtcNow);
             db.DirectMessages.Add(message);
             try { await db.SaveChangesAsync(ct); }
-            catch (DbUpdateException)
+            catch (DbUpdateException ex) when (!db.IsDeadlock(ex))
             {
                 db.ClearTrackedEntities();
                 message = await db.DirectMessages.FirstOrDefaultAsync(m => m.ConversationId == r.ConversationId

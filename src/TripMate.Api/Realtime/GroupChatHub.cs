@@ -9,11 +9,12 @@ using TripMate.Domain.Enums;
 
 namespace TripMate.Api.Realtime;
 
-[Authorize(Roles = $"{nameof(UserRole.Traveler)},{nameof(UserRole.TourOperator)}")]
+[Authorize]
 public sealed class GroupChatHub(IApplicationDbContext dbContext) : Hub
 {
     public const string Route = "/hubs/group-chat";
 
+    [Authorize(Roles = $"{nameof(UserRole.Traveler)},{nameof(UserRole.TourOperator)}")]
     public async Task JoinGroupChat(long groupId)
     {
         if (groupId <= 0)
@@ -44,6 +45,7 @@ public sealed class GroupChatHub(IApplicationDbContext dbContext) : Hub
         await Groups.AddToGroupAsync(Context.ConnectionId, GetGroupRoom(groupId), Context.ConnectionAborted);
     }
 
+    [Authorize(Roles = $"{nameof(UserRole.Traveler)},{nameof(UserRole.TourOperator)}")]
     public async Task LeaveGroupChat(long groupId)
     {
         if (groupId <= 0)

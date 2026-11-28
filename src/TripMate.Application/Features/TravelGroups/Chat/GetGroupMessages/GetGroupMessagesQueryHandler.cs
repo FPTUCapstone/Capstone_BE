@@ -53,35 +53,7 @@ public sealed class GetGroupMessagesQueryHandler(IApplicationDbContext dbContext
             .Take(Math.Clamp(request.Limit, 1, 100))
             .ToListAsync(cancellationToken);
 
-        var result = messages
-            .OrderBy(m => m.Id)
-            .Select(m =>
-            {
-                var myVote = m.PollVotes.FirstOrDefault(v => v.UserId == request.UserId)?.OptionIndex;
-                var pollCounts = m.PollVotes
-                    .GroupBy(v => v.OptionIndex)
-                    .ToDictionary(g => g.Key, g => g.Count());
-
-                return new GroupMessageDto(
-                    m.Id,
-                    m.GroupId,
-                    m.SenderUserId,
-                    m.SenderUser.FullName,
-                    m.SenderUser.AvatarUrl,
-                    m.MessageType,
-                    m.Content,
-                    m.MetadataJson,
-                    m.CreatedAtUtc,
-                    m.ReadReceipts.Count,
-                    m.ReadReceipts.Any(r => r.UserId == request.UserId),
-                    m.RollCallCheckins.Count,
-                    m.RollCallCheckins.Any(c => c.UserId == request.UserId),
-                    m.SplitBillPayments.Where(p => p.IsPaid).Select(p => p.UserId).ToList(),
-                    pollCounts,
-                    myVote,
-                    m.ClientMessageId);
-            })
-            .ToList();
+        var result = GroupMessageReader.Map(messages, request.UserId);
 
         return Result.Success<IReadOnlyList<GroupMessageDto>>(result);
     }

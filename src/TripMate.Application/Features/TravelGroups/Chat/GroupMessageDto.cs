@@ -17,4 +17,6 @@ public sealed record GroupMessageDto(
     IReadOnlyList<long> PaidUserIds,
     IReadOnlyDictionary<int, int> PollVoteCounts,
     int? MyPollVoteOption,
-    Guid? ClientMessageId = null);
+    Guid? ClientMessageId = null,
+    long Revision = 0,
+    DateTimeOffset? EditedAtUtc = null);

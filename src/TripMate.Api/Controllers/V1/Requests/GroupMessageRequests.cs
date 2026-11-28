@@ -6,7 +6,7 @@ public sealed record SendGroupMessageRequest(
     string? MetadataJson = null,
     Guid? ClientMessageId = null);
 
-public sealed record TogglePaymentRequest(bool IsPaid);
+public sealed record TogglePaymentRequest(bool IsPaid, long? ExpectedRevision = null);
 
-public sealed record VotePollRequest(int OptionIndex);
+public sealed record VotePollRequest(int OptionIndex, long? ExpectedRevision = null);
 public sealed record MarkGroupChatReadRequest(long ThroughMessageId);

@@ -23,6 +23,7 @@ public class GroupMemberConfiguration : IEntityTypeConfiguration<GroupMember>
         builder.Property(m => m.UserId).HasColumnName("user_id");
         builder.Property(m => m.LastReadChatMessageId).HasColumnName("last_read_chat_message_id");
 
+        builder.Property(m => m.LocationSharingUpdatedAtUtc).HasColumnName("location_sharing_updated_at").AsUtcDateTime2();
         builder.Property(m => m.LocationSharingEnabled)
             .HasColumnName("location_sharing_enabled")
             .HasDefaultValue(false)
