@@ -244,6 +244,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="..\..\database\migrations\20261128_tm228_verified_commission_receipt.sql"
+          Link="Database\migrations\20261128_tm228_verified_commission_receipt.sql"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\database\migrations\20261123_add_direct_chat.sql"
           Link="Database\migrations\20261123_add_direct_chat.sql"
           CopyToOutputDirectory="PreserveNewest" />

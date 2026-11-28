@@ -281,6 +281,9 @@ public class ApplicationDbContext(
     public bool IsSourceBookingUniqueConflict(DbUpdateException exception) =>
         IsUniqueViolationOn(exception, ItineraryConfiguration.SourceBookingIndexName);
 
+    public bool IsCommissionReceiptReferenceConflict(DbUpdateException exception) =>
+        IsUniqueViolationOn(exception, ServiceCommissionStatementConfiguration.VerifiedBankReferenceIndex);
+
     public bool IsEmergencyDecisionUniqueConflict(DbUpdateException exception) =>
         IsUniqueViolationOn(exception,
             EmergencyTourCancellationOperationConfiguration.ScheduleIndexName,
