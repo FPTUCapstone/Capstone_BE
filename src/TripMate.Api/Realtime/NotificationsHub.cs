@@ -9,4 +9,3 @@ public sealed class NotificationsHub : Hub
     public const string Route = "/hubs/notifications";
     public const string ClientEvent = "NotificationsChanged";
 }
-
