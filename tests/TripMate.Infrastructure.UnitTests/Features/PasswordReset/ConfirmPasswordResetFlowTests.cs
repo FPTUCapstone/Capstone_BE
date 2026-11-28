@@ -197,11 +197,18 @@ public class ConfirmPasswordResetFlowTests
     {
         private readonly bool failAfterOperation = failAfterOperation;
 
+        DbSet<Domain.Entities.ItineraryShare> IApplicationDbContext.ItineraryShares => throw new NotSupportedException();
         public DbSet<User> Users => Set<User>();
 
         DbSet<Domain.Entities.TravelerProfile> IApplicationDbContext.TravelerProfiles => throw new NotSupportedException();
 
         public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+
+        DbSet<Domain.Entities.ChatGroup> IApplicationDbContext.ChatGroups => throw new NotSupportedException();
+        DbSet<Domain.Entities.ChatGroupMember> IApplicationDbContext.ChatGroupMembers => throw new NotSupportedException();
+        DbSet<Domain.Entities.ChatGroupMessage> IApplicationDbContext.ChatGroupMessages => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.Friendship> IApplicationDbContext.Friendships => throw new NotSupportedException();
 
         DbSet<Domain.Entities.DirectConversation> IApplicationDbContext.DirectConversations => throw new NotSupportedException();
 
@@ -298,6 +305,8 @@ public class ConfirmPasswordResetFlowTests
 
         DbSet<Domain.Entities.GroupMessage> IApplicationDbContext.GroupMessages => throw new NotSupportedException();
 
+        DbSet<Domain.Entities.GroupMessageEditOperation> IApplicationDbContext.GroupMessageEditOperations => throw new NotSupportedException();
+
         DbSet<Domain.Entities.GroupMessageReadReceipt> IApplicationDbContext.GroupMessageReadReceipts =>
             throw new NotSupportedException();
 
@@ -308,6 +317,8 @@ public class ConfirmPasswordResetFlowTests
             throw new NotSupportedException();
 
         DbSet<Domain.Entities.GroupPollVote> IApplicationDbContext.GroupPollVotes => throw new NotSupportedException();
+
+        DbSet<Domain.Entities.GroupLocation> IApplicationDbContext.GroupLocations => throw new NotSupportedException();
 
         DbSet<Domain.Entities.Itinerary> IApplicationDbContext.Itineraries => throw new NotSupportedException();
 
@@ -412,6 +423,14 @@ public class ConfirmPasswordResetFlowTests
             modelBuilder.Ignore<Domain.Entities.ProviderPoiLink>();
             modelBuilder.Ignore<Domain.Entities.ServiceProviderRequestOperation>();
             modelBuilder.Ignore<Domain.Entities.TravelerProfile>();
+            modelBuilder.Ignore<Domain.Entities.ItineraryShare>();
+            modelBuilder.Ignore<Domain.Entities.ChatGroup>();
+            modelBuilder.Ignore<Domain.Entities.ChatGroupMember>();
+            modelBuilder.Ignore<Domain.Entities.ChatGroupMessage>();
+            modelBuilder.Ignore<Domain.Entities.ChatGroupLeaveOperation>();
+            modelBuilder.Ignore<Domain.Entities.Friendship>();
+            modelBuilder.Ignore<Domain.Entities.GroupMessageEditOperation>();
+            modelBuilder.Ignore<Domain.Entities.GroupLocation>();
             modelBuilder.Ignore<Domain.Entities.PoiCategory>();
             modelBuilder.Ignore<Domain.Entities.PointOfInterest>();
             modelBuilder.Ignore<Domain.Entities.PoiOpeningHour>();
