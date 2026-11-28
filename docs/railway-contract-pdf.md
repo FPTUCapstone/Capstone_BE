@@ -69,6 +69,17 @@ Deploy BE với commit chứa `RemoteContractTemplateRenderer`; image cũ không
 
 ## Chẩn đoán
 
+Startup phân biệt rõ lỗi probe và ABI thấp. Ví dụ:
+
+```text
+Sandbox self-test failed: Landlock ABI probe failed: result=-1 errno=38 (Function not implemented); required>=3
+Sandbox self-test failed: Landlock ABI unsupported: detected=2 required>=3
+```
+
+`detected=1/2` là ABI có thật nhưng thấp hơn yêu cầu. `errno=95` (EOPNOTSUPP) phù hợp trường hợp Landlock bị tắt; `errno=38` (ENOSYS) cho biết syscall không khả dụng với tiến trình, có thể do kernel hoặc chính sách runtime; `errno=1` (EPERM) cho biết thao tác bị từ chối. Chỉ mã lỗi không đủ để khẳng định cấu hình host Railway: giữ lại toàn bộ dòng để chẩn đoán tiếp, không tự bỏ kiểm tra. Không có token hoặc nội dung hợp đồng trong log này.
+
+Native diagnostic tests có thể chạy độc lập bằng `docker build --target diagnostics-tests -f docker/contract-renderer/Dockerfile.railway .`.
+
 - `401` từ renderer: khóa hai service không khớp.
 - `429`: renderer đang xử lý một tác vụ khác; retry qua luồng hiện có sau khi tác vụ kết thúc, không tăng song song tùy tiện.
 - `503`/startup unhealthy: engine, sandbox hoặc giới hạn runtime không đáp ứng. Đọc log startup; xác nhận image/host. Không trả PDF giả hoặc bỏ anchor check.
