@@ -1,3 +1,5 @@
+using System.Globalization;
+
 using Microsoft.EntityFrameworkCore;
 
 using TripMate.Application.Common.Interfaces;
@@ -15,8 +17,12 @@ public interface ICommissionStatementService
 
 public sealed class CommissionStatementService : ICommissionStatementService
 {
+    public const string ProviderAutoLockNotificationType = "MSG210";
+    public const string OverdueReminderNotificationType = "CommissionStatementOverdueReminder";
+
     private readonly IApplicationDbContext _context;
     private static readonly TimeSpan VietnamOffset = TimeSpan.FromHours(7);
+    private static readonly CultureInfo VietnamCulture = CultureInfo.GetCultureInfo("vi-VN");
 
     public CommissionStatementService(IApplicationDbContext context)
     {
@@ -138,60 +144,143 @@ public sealed class CommissionStatementService : ICommissionStatementService
         return new StatementGenerationSummaryDto(period, generatedCount, skippedCount, totalCommission);
     }
 
-    public async Task<OverdueProcessingSummaryDto> ProcessOverdueStatementsAsync(DateTimeOffset? nowUtc = null, CancellationToken cancellationToken = default)
+    public Task<OverdueProcessingSummaryDto> ProcessOverdueStatementsAsync(
+        DateTimeOffset? nowUtc = null, CancellationToken cancellationToken = default)
     {
-        var effectiveNowUtc = nowUtc ?? DateTimeOffset.UtcNow;
-        var nowVn = effectiveNowUtc.ToOffset(VietnamOffset);
-        var todayVn = DateOnly.FromDateTime(nowVn.DateTime);
+        var effectiveNowUtc = (nowUtc ?? DateTimeOffset.UtcNow).ToUniversalTime();
+        var attempted = false;
+        return _context.ExecuteInSerializableTransactionAsync(ct =>
+        {
+            // The execution strategy can replay a transaction after a transient failure.
+            if (attempted)
+                _context.ClearTrackedEntities();
+            attempted = true;
+            return ProcessOverdueStatementsCoreAsync(effectiveNowUtc, ct);
+        }, cancellationToken);
+    }
 
-        // 1. Mark statements past due date as Overdue (BR-199, §3.10.7)
+    private async Task<OverdueProcessingSummaryDto> ProcessOverdueStatementsCoreAsync(
+        DateTimeOffset nowUtc, CancellationToken cancellationToken)
+    {
+        var todayVn = DateOnly.FromDateTime(nowUtc.ToOffset(VietnamOffset).DateTime);
+
+        // Mark unpaid balances overdue and queue the MSG207 reminder (BR-199, §3.10.7).
         var pastDueStatements = await _context.ServiceCommissionStatements
-            .Where(s => (s.Status == ServiceCommissionStatement.StatusIssued || s.Status == ServiceCommissionStatement.StatusPaymentReported)
+            .Include(s => s.Provider)
+            .Where(s => s.CommissionAmount > 0
+                        && (s.Status == ServiceCommissionStatement.StatusIssued || s.Status == ServiceCommissionStatement.StatusPaymentReported)
                         && todayVn > s.DueDate)
             .ToListAsync(cancellationToken);
 
-        int markedOverdueCount = 0;
-        foreach (var statement in pastDueStatements)
-        {
-            statement.MarkOverdue();
-            markedOverdueCount++;
-        }
+        await MarkOverdueAndQueueRemindersAsync(pastDueStatements, nowUtc, cancellationToken);
 
         // 2. Lock accounts for statements 15 days overdue (BR-200, §3.10.7)
         // A statement is >= 15 days overdue when todayVn >= DueDate.AddDays(15) and Status != Paid
         var overdueThresholdStatements = await _context.ServiceCommissionStatements
             .Include(s => s.Provider)
                 .ThenInclude(p => p.User)
-            .Where(s => s.Status != ServiceCommissionStatement.StatusPaid
-                        && todayVn >= s.DueDate.AddDays(15))
+            .Where(s => s.CommissionAmount > 0
+                        && s.Status != ServiceCommissionStatement.StatusPaid
+                        && todayVn >= s.DueDate.AddDays(ServiceCommissionStatement.AutoLockGraceDays)
+                        && s.Provider.User != null && s.Provider.User.Status != AccountStatus.Locked)
+            .OrderBy(s => s.DueDate)
+            .ThenBy(s => s.Id)
             .ToListAsync(cancellationToken);
 
-        int accountsLockedCount = 0;
-        var lockedUsers = new HashSet<long>();
-
-        foreach (var statement in overdueThresholdStatements)
+        var statementsToLock = overdueThresholdStatements.DistinctBy(s => s.Provider.UserId).ToList();
+        if (statementsToLock.Count > 0)
         {
-            var user = statement.Provider?.User;
-            if (user is not null && user.Status != AccountStatus.Locked && lockedUsers.Add(user.Id))
-            {
-                user.Lock($"The account has been locked because the commission statement for {statement.Period} is unpaid 15 days after its due date (BR-200).", effectiveNowUtc);
+            var providerUserIds = statementsToLock.Select(s => s.Provider.User!.Id).ToArray();
+            var refreshTokens = await _context.RefreshTokens
+                .Where(token => providerUserIds.Contains(token.UserId) && token.RevokedAtUtc == null)
+                .ToListAsync(cancellationToken);
+            foreach (var token in refreshTokens)
+                token.RevokedAtUtc = nowUtc;
 
-                var audit = new AuditLog(
+            var staffIds = await _context.Users.AsNoTracking()
+                .Where(user => user.Role == UserRole.Staff && user.Status == AccountStatus.Active)
+                .Select(user => user.Id)
+                .ToListAsync(cancellationToken);
+
+            foreach (var statement in statementsToLock)
+            {
+                var user = statement.Provider.User!;
+                var previousStatus = user.Status;
+                var reason = $"Commission statement {statement.StatementCode} for {statement.Period} is unpaid 15 days after its due date (BR-200).";
+                user.Lock(reason, nowUtc);
+
+                _context.AuditLogs.Add(AuditLog.CreateRecordedOutcome(
                     actorUserId: null,
                     actionType: AuditActionTypes.ServiceProviderAutoLocked,
-                    affectedEntity: "User",
+                    affectedEntity: AuditEntityTypes.User,
                     affectedEntityId: user.Id,
-                    createdAtUtc: effectiveNowUtc,
-                    beforeData: $"Status={AccountStatus.Active}",
-                    afterData: $"Status={AccountStatus.Locked}; Reason=Overdue commission statement {statement.StatementCode} for period {statement.Period}");
+                    createdAtUtc: nowUtc,
+                    result: AuditOutcome.Success,
+                    reason: reason,
+                    beforeData: $"Status={previousStatus}",
+                    afterData: $"Status={AccountStatus.Locked}"));
 
-                _context.AuditLogs.Add(audit);
-                accountsLockedCount++;
+                QueueAutoLockNotice(user.Id, user.Id, nowUtc,
+                    $"Your Service Provider account was locked because commission statement {statement.StatementCode} for {statement.Period} is still unpaid 15 days after its due date. Contact TripMate support for payment instructions if you cannot sign in. Staff can restore access after all overdue statements are paid.");
+                foreach (var staffId in staffIds)
+                    QueueAutoLockNotice(staffId, user.Id, nowUtc,
+                        $"Service Provider {user.FullName} was locked because commission statement {statement.StatementCode} for {statement.Period} is still unpaid 15 days after its due date. The account can be unlocked after all overdue statements are paid.");
             }
         }
 
         await _context.SaveChangesAsync(cancellationToken);
 
-        return new OverdueProcessingSummaryDto(markedOverdueCount, accountsLockedCount);
+        return new OverdueProcessingSummaryDto(pastDueStatements.Count, statementsToLock.Count);
     }
+
+    private async Task MarkOverdueAndQueueRemindersAsync(
+        IReadOnlyList<ServiceCommissionStatement> statements, DateTimeOffset nowUtc, CancellationToken ct)
+    {
+        if (statements.Count == 0) return;
+
+        var statementIds = statements.Select(statement => statement.Id).ToArray();
+        // Reporting payment after the due date can put an Overdue statement back in PaymentReported.
+        var previouslyReminded = (await _context.Notifications.AsNoTracking()
+            .Where(notice => notice.Type == OverdueReminderNotificationType
+                && notice.RelatedEntityType == nameof(ServiceCommissionStatement)
+                && notice.RelatedEntityId.HasValue && statementIds.Contains(notice.RelatedEntityId.Value))
+            .Select(notice => notice.RelatedEntityId!.Value)
+            .ToListAsync(ct)).ToHashSet();
+
+        foreach (var statement in statements)
+        {
+            statement.MarkOverdue();
+            if (statement.Provider.UserId is not long recipientId || previouslyReminded.Contains(statement.Id))
+                continue;
+
+            var amount = statement.CommissionAmount.ToString("N0", VietnamCulture);
+            var dueDate = statement.DueDate.ToString("dd/MM/yyyy", VietnamCulture);
+            _context.Notifications.Add(new Notification
+            {
+                UserId = recipientId,
+                Channel = NotificationChannel.Email,
+                Type = OverdueReminderNotificationType,
+                Title = "Commission statement overdue",
+                Body = $"Commission statement {statement.StatementCode} for {statement.Period} ({amount} VND) was due on {dueDate}. Check your commission statement in TripMate. If you already transferred the money, contact support with the transfer reference before sending another payment.",
+                RelatedEntityType = nameof(ServiceCommissionStatement),
+                RelatedEntityId = statement.Id,
+                Status = NotificationStatus.Pending,
+                CreatedAtUtc = nowUtc,
+            });
+        }
+    }
+
+    private void QueueAutoLockNotice(long recipientId, long providerUserId, DateTimeOffset nowUtc, string body) =>
+        _context.Notifications.Add(new Notification
+        {
+            UserId = recipientId,
+            Channel = NotificationChannel.Email,
+            Type = ProviderAutoLockNotificationType,
+            Title = "Service Provider account locked",
+            Body = body,
+            RelatedEntityType = AuditEntityTypes.User,
+            RelatedEntityId = providerUserId,
+            Status = NotificationStatus.Pending,
+            CreatedAtUtc = nowUtc,
+        });
 }

@@ -8,5 +8,7 @@ public static class CommissionStatementErrorCodes
     public const string InvalidState = "CommissionStatement.InvalidState";
     public const string MissingBankReference = "CommissionStatement.MissingBankReference";
     public const string AlreadyPaid = "CommissionStatement.AlreadyPaid";
+    public const string ReceiptAmountMismatch = "CommissionStatement.ReceiptAmountMismatch";
+    public const string BankReferenceAlreadyUsed = "CommissionStatement.BankReferenceAlreadyUsed";
     public const string SystemError = "CommissionStatement.SystemError";
 }
