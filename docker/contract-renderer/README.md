@@ -1,5 +1,9 @@
 # Optional contract renderer
 
+For the separate authenticated Railway service (without Docker-in-Docker), see
+[`docs/railway-contract-pdf.md`](../../docs/railway-contract-pdf.md) and
+`Dockerfile.railway`. The image and instructions below remain the local Docker adapter.
+
 The standard API image does not bundle LibreOffice. This optional image provides
 LibreOffice Writer, Poppler's `pdftotext` and Vietnamese-capable fonts. Build it
 with `docker build -t tripmate-contract-renderer -f docker/contract-renderer/Dockerfile .`.
